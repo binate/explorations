@@ -1,12 +1,14 @@
 # Design: cleanup landing pads + VM unwind mode (Plan 2, Inc 2a/2b)
 
-Status: **PROPOSED — pending user sizing sign-off.** Detailed design for the
-"long pole" of [`plan-rt-abort-panic.md`](plan-rt-abort-panic.md) Plan 2
-(recoverable VM user-code faults) and, by construction, the REPL's Stage-7 break
-([`plan-repl-embeddable.md`](plan-repl-embeddable.md)). Revised 2026-07-17 after
-an adversarial design review (all load-bearing claims verified against source; the
-review's blockers/majors resolved as clarifications — see §9). One fork (§5) is an
-open decision for the user. Cites are against the tree at `6dd89502`.
+Status: **✅ IMPLEMENTED (archived).** The design for the "long pole" of
+[`plan-rt-abort-panic.md`](plan-rt-abort-panic.md) Plan 2 (recoverable VM
+user-code faults) and, by construction, the REPL's Stage-7 break
+([`plan-repl-embeddable.md`](plan-repl-embeddable.md)) — all Plan-2 unwind
+increments and all six guard sites (bounds / divide / shift / nil-deref /
+stack-overflow / call-through-nil) landed (through `de9a7c05`; see §7). One
+SEPARATE, pre-existing MAJOR — a fault raised inside a re-entrant `execFunc`
+(native→VM callback) is silently swallowed — is tracked in `claude-todo.md`, not
+part of this deliverable. Cites are against the tree at `6dd89502`.
 
 ## 1. The problem restated
 

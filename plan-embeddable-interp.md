@@ -67,7 +67,7 @@ rc, errs := it.RunFunc("pkg.Func", args)          // …or a particular function
   returning; output is hard-wired to stdout; entry point is hardcoded to
   `main.main` via the synthesized `main.__entry`; `CallFunc` returns a bare
   `int` over `@[]int` args.
-- **Multi-session is now unblocked.** `plan-repl-embeddable.md` lists
+- **Multi-session is now unblocked.** `done/plan-repl-embeddable.md` lists
   "multi-session blocked by ir process-globals (currentChecker,
   importAlias*)" — those were eliminated in inc-5 + 5d-4. Multiple independent
   `@Interp` instances in one process are now structurally sound at the loader /
@@ -76,7 +76,7 @@ rc, errs := it.RunFunc("pkg.Func", args)          // …or a particular function
   host import it), so it may use the full language — no BUILDER-subset
   constraint, unlike the ir/codegen/vm packages it composes.
 
-## Alignment constraints (ratified in `plan-repl-embeddable.md` — do not violate)
+## Alignment constraints (ratified in `done/plan-repl-embeddable.md` — do not violate)
 
 - **Errors as values, never `os.Exit` inside the library.** The CLI shell
   decides exit codes; `interp` returns `@[]@[]char` error bundles.
@@ -86,7 +86,7 @@ rc, errs := it.RunFunc("pkg.Func", args)          // …or a particular function
   exactly as a compiler emits a call to the linked runtime.  So redirecting
   output (e.g. a wasm message port) is done by supplying a different
   stdlib/extern set, NOT by an `@Interp` I/O knob.  (This supersedes the
-  "injectable Category-A sink" framing inherited from `plan-repl-embeddable.md`.)
+  "injectable Category-A sink" framing inherited from `done/plan-repl-embeddable.md`.)
 - **No new process-globals.** All `@Interp` state lives on the struct.
 - **Host drives I/O.** The embedder supplies sources (and later, host functions
   / file-IO); the library never blocks on stdin or opens files itself.

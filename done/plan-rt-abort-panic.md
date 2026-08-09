@@ -1,10 +1,13 @@
 # Plan: `rt.Abort()` / `rt.Panic(msg)` + simplify `panic()`, unify internal aborts
 
-Status: **Plan 1 DONE & LANDED** (2026-06-20) — `rt.Abort`/`rt.Panic` (`6718d41f`),
-`panic()` single-string + lowering + arity (`ccbb5e04`, `fa70f788`), VM
-internal-abort migration through `panic()` (`e824f6dd`). See claude-todo-done.md.
-**Plan 2** (recoverable VM user-faults) is the **scope-required follow-up** (see
-the end). One deviation from the wording below: the VM migration uses the
+Status: **✅ COMPLETE (archived).** Plan 1 landed (2026-06-20) —
+`rt.Abort`/`rt.Panic` (`6718d41f`), `panic()` single-string + lowering + arity
+(`ccbb5e04`, `fa70f788`), VM internal-abort migration through `panic()`
+(`e824f6dd`). **Plan 2** (recoverable VM user-faults) core has since landed too
+(through `de9a7c05`); its detailed unwind design/impl was owned by
+`plan-rt-fault-cleanup-pads.md`, and the residual follow-ups (stderr routing,
+native-extern SIGSEGV, re-entrant-`execFunc` fault-swallow) are tracked in
+`claude-todo.md`. One deviation from the wording below: the VM migration uses the
 `panic()` builtin via `vmPanic`/`vmPanicName` helpers (not direct `rt.Panic`),
 per the user — same output sink, one less concept at the call sites.
 

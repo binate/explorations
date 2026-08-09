@@ -1,8 +1,12 @@
 # Plan: Implementing Type Assertions, Type Switches, and RTTI
 
-**Status:** high-level plan (2026-07-02). The edit-site-level expansion is
-`plan-type-assertions-execution.md` (2026-07-03) — read that for the ordered,
-file-anchored implementation steps; this doc remains the phase overview. The
+**Status:** ✅ COMPLETE (archived). The type-assertion / type-switch / RTTI
+feature is fully landed (conformance `1000`–`1080` families green, no xfails); one
+optional v2 "single seam for `__typeinfo.<T>`" nicety remains in
+`claude-todo-v2.md`. This was the high-level plan (2026-07-02); the edit-site-level
+expansion is `plan-type-assertions-execution.md` (also archived) — read that for
+the ordered, file-anchored implementation steps; this doc remained the phase
+overview. The
 **design is settled** and
 **specified** — see spec §11.12 (`iface.assert`, `iface.assert.kind`,
 `iface.assert.absent`, `iface.typeswitch`, `iface.rtti`), §7.13.14

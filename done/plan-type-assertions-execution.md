@@ -1,8 +1,10 @@
 # Execution Plan: Type Assertions, Type Switches, and RTTI
 
-**Status:** detailed, edit-site-level execution plan (2026-07-03). This expands
-the high-level `plan-type-assertions.md` into ordered steps anchored to concrete
-files, functions, and constants. The **design is settled and specified** — see
+**Status:** ✅ COMPLETE (archived). The whole type-assertion / type-switch / RTTI
+project is landed (every slice ✅ in §U.4; conformance `1000`–`1080` families carry
+no xfails). This was the detailed, edit-site-level execution plan (2026-07-03),
+expanding the high-level `plan-type-assertions.md` into ordered steps anchored to
+concrete files, functions, and constants. The **design is settled and specified** — see
 the cross-references in the high-level plan (§11.12, §7.13.8, §7.13.14, §13.8,
 §14.10, §17.5, and `claude-notes.md`). This document is the *implementation*
 roadmap; it does **not** re-litigate design. Anything here that goes beyond the
@@ -511,7 +513,7 @@ self-compile continuing to pass.
 >       while module B (only `@any(t)`) emits sat={any} — two weak defs of
 >       `__typeinfo.<T>`, linker picks one arbitrarily → a valid `t.(*Dog)` can fail.
 >       **Root cause is fundamental:** Binate allows **cross-package impls** (no
->       orphan rule — done/plan-cross-package-interfaces.md §2), so NO single TU (not even
+>       orphan rule — plan-cross-package-interfaces.md §2), so NO single TU (not even
 >       T's defining package) sees T's complete impl set. `weak_odr` duplicate-OK
 >       fixes per-`(T,J)` *vtables* (byte-identical), but not a per-*type* aggregate.
 >       **The completeness-contract fork (USER'S CALL — changes the record shape

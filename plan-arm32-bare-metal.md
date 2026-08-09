@@ -364,4 +364,4 @@ path.
 - `pkg/asm/elf/elf_test.bn` — existing QEMU-semihosting test
   harness; the v1 conformance runner extends this pattern.
 - `pkg/asm/arm32/` — existing ARM32 instruction encoder.
-- `runtime-abstraction-plan.md` — broader runtime portability story.
+- `done/runtime-abstraction-plan.md` — broader runtime portability story.

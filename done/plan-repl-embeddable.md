@@ -1,12 +1,12 @@
 # Plan: Embeddable / Coroutine-ish REPL
 
-Status: **Stages 1–5 DONE** (as of 2026-06-02); the embeddable engine
-lives in `pkg/binate/repl`, the CLI is just one host, and the interrupt
-seam's inert plumbing is in place. Remaining: Stage 6 (continuable
-suspend) and Stage 7 (break) — both FUTURE.
-Supersedes the open design question in `claude-todo.md` ("REPL refactor:
-embeddable component for non-CLI hosts"). The "which shape (a/b/c)"
-question is decided (see Ratified Decisions).
+Status: **SUPERSEDED / ARCHIVED.** Stages 1–5 landed (2026-06-02), but the
+recommended `Init`/`Step`/`ReplIO`/`StepResult` API was reshaped into the
+request/reply `Kernel` (`6910166f`); the live design is now `plan-repl-kernel.md`
+(also archived). Stage 7 "break" was built under Plan 2's VM unwind
+(`plan-rt-fault-cleanup-pads.md`). Stage 6 (continuable suspend/resume) is the one
+piece still genuinely unbuilt — re-tracked in `claude-todo.md` under the Kernel
+design.
 
 **Seam usable with capturing polls.** A host poll that CAPTURES its
 interrupt state, installed via `SetPoll`, crosses the `@func`
@@ -36,9 +36,9 @@ small overlap with `pkg/binate/repl` is deliberate duplication tracked
 by the shared-helper audit TODO. Work happened in worktree
 `temp-binate-4` / branch `repl-embeddable`.
 
-Companion docs: [`done/plan-repl.md`](done/plan-repl.md) (the shipped 5-tier
-REPL), [`pkg-layout-spec.md`](pkg-layout-spec.md) (tier-2 placement),
-[`plan-wasm-browser.md`](plan-wasm-browser.md) (the downstream B1
+Companion docs: [`plan-repl.md`](plan-repl.md) (the shipped 5-tier
+REPL), [`pkg-layout-spec.md`](../pkg-layout-spec.md) (tier-2 placement),
+[`plan-wasm-browser.md`](../plan-wasm-browser.md) (the downstream B1
 consumer), [`plan-bni-heap-frames.md`](plan-bni-heap-frames.md) (gates
 the deepest interrupt stage).
 
@@ -189,7 +189,7 @@ struct StepResult {
   Counter int   // In[n] index for the next input (== current turn's n while NeedMore)
   Depth   int   // open-bracket continuation depth; 0 ⇒ primary prompt, >0 ⇒ continuation
   // (future) result-type / pretty-printed summary for a rich prompt —
-  // deferred to the pretty-printer (pkg/replprint), see done/plan-repl.md.
+  // deferred to the pretty-printer (pkg/replprint), see plan-repl.md.
 }
 // Host convenience: Continuation := Depth > 0.
 

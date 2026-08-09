@@ -1,6 +1,10 @@
 # Plan: Deprecate `pkg/binate/buf` in favor of `pkg/std/strings.Builder`
 
-**Status:** in progress (started 2026-06-12). **Goal:** retire the bespoke
+**Status:** ✅ COMPLETE (archived) — the migration landed (swap `9e69617f`,
+`CharBuf` deleted `d92726b7`, BUILDER bnc-0.0.9); every caller now uses
+`pkg/std/strings.Builder`. The two raw-slice utilities `buf.CopyStr`/`Concat`
+remain by design (their permanent home, Decision 1, was deliberately punted —
+inert, not part of the byte-buffer goal). **Goal (met):** retire the bespoke
 `pkg/binate/buf.CharBuf` growable byte-buffer so the project has a single
 byte-buffer abstraction — the stdlib `pkg/std/strings.Builder` — instead of
 two.

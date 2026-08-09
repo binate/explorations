@@ -56,7 +56,7 @@ two-session reentrancy test cannot pass until inc 4/5 are done, so it
 **ships with inc 5** (see Verification below).
 
 This is the larger change that
-[`plan-repl-embeddable.md`](plan-repl-embeddable.md) explicitly deferred:
+[`plan-repl-embeddable.md`](done/plan-repl-embeddable.md) explicitly deferred:
 its decision #6 ("single live session per process; the `ir`
 process-globals stay as-is") and its "multi-session embedding" out-of-scope
 item point here. It also subsumes the `claude-todo.md` entry **"REPL:
@@ -64,7 +64,7 @@ remove process-global session state (multi-session blocker)"** — that
 entry's `ir` half is now owned by this plan (its line numbers there are
 stale as of 2026-06-02; the verified ones are below).
 
-Companion docs: [`plan-repl-embeddable.md`](plan-repl-embeddable.md) (the
+Companion docs: [`plan-repl-embeddable.md`](done/plan-repl-embeddable.md) (the
 push-driven REPL engine that wants this), [`plan-wasm-browser.md`](plan-wasm-browser.md)
 (a downstream host), [`ir-backend-guidelines.md`](ir-backend-guidelines.md)
 (the target-parameterization rule that the global `target` violates).
@@ -819,7 +819,7 @@ compilation-level registry on `@GenCtx`.
   references; getting canonical-ref ownership right under the never-leak
   rule is the subtlest part. **Recommendation: keep them shared-immutable
   unless cross-target forces otherwise.**
-- **Alias-map save/restore (REPL interaction).** `plan-repl-embeddable.md`
+- **Alias-map save/restore (REPL interaction).** `done/plan-repl-embeddable.md`
   relies on `Save`/`RestoreAliasMapState` bracketing in `evalReplImport`.
   When the alias map moves onto `@GenCtx` (5c), that bracketing must move
   with it intact, or the REPL's per-import alias state corrupts.

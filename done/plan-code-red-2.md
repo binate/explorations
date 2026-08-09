@@ -1,5 +1,11 @@
 # Code Red 2 — Follow-up Audit: the Empty-Cell Meta-Pattern
 
+**Status:** ✅ COMPLETE (archived). The audit's matrices are built
+(`conformance/matrix/{globals,readonly,operator,abi,dispatch-refcount,…}`) and
+all three fix plans closed (`plan-cr2-1-frontend`, `plan-cr2-2-codegen`,
+`plan-cr2-3-backends`). The one un-built item — the §3.5 type-resolution matrix —
+is medium-priority and overlaps the built globals matrix (inert).
+
 A follow-up to `plan-code-red.md`, run on the bugs surfaced **since or during-but-
 outside** the original code red (mostly 2026-06-05..07), fixed or not. The
 original code red cataloged a defect set and built the coordinate-addressed
@@ -8,8 +14,8 @@ addr-aggregate,aggregate,const,loop-leak}`). This audit asks the same questions
 of the *next* batch of bugs: what recurring patterns produced them, what test
 gaps hid them, and — generalizing — where the *next* similar bugs are.
 
-The execution split for the fixes lives in `done/plan-cr2-1-frontend.md`,
-`done/plan-cr2-2-codegen.md`, `plan-cr2-3-backends.md` (three disjoint concurrent
+The execution split for the fixes lives in `plan-cr2-1-frontend.md`,
+`plan-cr2-2-codegen.md`, `plan-cr2-3-backends.md` (three disjoint concurrent
 plans). The defect-of-record stays in `claude-todo.md`.
 
 ---
@@ -319,8 +325,8 @@ and **consumed read-only** by Plans 2 and 3.
 
 | Plan | Owns | Theme | Doc |
 |---|---|---|---|
-| **1** | `pkg/binate/ir` + `pkg/binate/types` only | Front-end type resolution, wrapper-peeling, result-type plumbing, checker guards | `done/plan-cr2-1-frontend.md` |
-| **2** | `pkg/binate/codegen` only | LLVM emission: global zero-token + struct-type discovery, indirect-call signatures | `done/plan-cr2-2-codegen.md` |
+| **1** | `pkg/binate/ir` + `pkg/binate/types` only | Front-end type resolution, wrapper-peeling, result-type plumbing, checker guards | `plan-cr2-1-frontend.md` |
+| **2** | `pkg/binate/codegen` only | LLVM emission: global zero-token + struct-type discovery, indirect-call signatures | `plan-cr2-2-codegen.md` |
 | **3** | `pkg/binate/native` + `pkg/binate/vm` only | Backends: sub-word narrow path-parity, aggregate packing, VM tuple unpack + global parity | `plan-cr2-3-backends.md` |
 
 Disjointness holds because the three layers (IR/types ↔ codegen ↔ backends) are

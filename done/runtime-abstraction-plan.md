@@ -1,6 +1,14 @@
 # Runtime Abstraction Plan (Phase 3)
 
-Status: LIVING / IN-FLIGHT. Steps 3.1–3.3 have shipped (see `claude-todo.md` for the commit chains); steps 3.4–3.7 are still pending and this doc is their design reference.
+Status: **SUPERSEDED / ARCHIVED.** Steps 3.1–3.3 shipped, and the remaining goals
+were then delivered through a *different* architecture than the step-by-step below:
+`rt_stubs.c` was eliminated wholesale (`pkg/rt` calls libc directly via
+`__c_call`), the entry-point move (3.5) landed via `pkg/builtins/startup._entry`
+(`c4607a71`), and libc-free targets are handled by the libc/baremetal impls split —
+so steps 3.4/3.6 ("reduce `rt_stubs.c` to syscall wrappers") are moot (the file is
+gone). The genuinely-residual goals — fully eliminating the 69-line
+`binate_runtime.c` shim and a native syscall allocator (3.7) for bare metal — are
+re-tracked in `claude-todo.md`; this doc is kept for design rationale only.
 
 Work plan for decoupling the compiler from the C runtime, enabling libc-free targets (starting with ARM32 Linux via QEMU). This is Phase 3 of the IR/backend cleanup plan.
 
@@ -96,7 +104,7 @@ keeps the C surface smaller (one shared `write` stub instead of one
 per print variant). `OP_PANIC` lowers to `rt.Exit` (a Binate wrapper
 over `rt.c_exit`); the runtime manifest is now empty and the
 `OP_CALL_BUILTIN` opcode + plumbing have been removed. See
-`done/plan-print-builtin-runtime-decoupling.md` and `claude-todo.md` for
+`plan-print-builtin-runtime-decoupling.md` and `claude-todo.md` for
 the multi-step rollout.
 
 `formatFloat` is fixed-point (`integer.6digits`) with a

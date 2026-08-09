@@ -70,7 +70,7 @@ landing commit(s)/test(s). Removed 2026-06-04 unless noted.
   shipped (slice ops lowered to IR primitives, `append` removed, raw-slice
   subslice copy fixed). Nugget: "lower slice ops in IR gen, not per
   backend" because slice layout is a language-level contract (also in
-  `runtime-abstraction-plan.md` §3.1).
+  `done/runtime-abstraction-plan.md` §3.1).
 
 - **ir-backend-cleanup-plan.md** — the work plan for multi-backend
   support; shipped (`TargetInfo`/`--target`, layout extraction, slice-op
