@@ -610,7 +610,7 @@ Cross-package interfaces are feature-complete (canonical (R, I) mangling, qualif
 
 **Interface extension** (implemented 2026-05-13, done/plan-interface-embedding.md): syntax `interface X : I1, I2, ... { methods }`, mirroring `impl T : I1, I2`. Parents are listed once between `:` and `{` — no interspersing parents and methods, no anonymous embedding (Binate has no anonymous interfaces). Empty body is allowed. Distinct from aliases: `interface X = A` is an alias (same identity); `interface X : A {}` is a distinct interface that requires exactly A's methods. `impl T : Child` transitively satisfies all ancestors. `*Child → *Parent` is a static, nominal upcast — no runtime query (Binate is nominally typed; there is no Go-style structural satisfaction check). Cross-package extension (parent in another package) works the same.
 
-**Vtable layout for extension** (per `claude-plan-1.md` § 2.3 and `claude-discussion-detailed-notes.md` § "Interface Extension"): the vtable for `(R, X)` where `interface X : I1, I2 { own1; own2 }` is the concatenation `[any-block][full vtable of (R, I1)][full vtable of (R, I2)][R's own1, own2]`. All interfaces implicitly extend `any`, so every interface vtable starts with the `any`-block at offset 0 — holds the destructor pointer and is the natural home for further language-defined slots (e.g., a `*TypeInfo` pointer if RTTI is added). Layout is recursive: each parent's "full vtable" itself starts with its own `any`-block. Conversion `*X → *Parent` is a fixed compile-time pointer offset; no swap, no lookup. Some `any`-block content is duplicated at every nested origin in exchange for uniform fixed-offset conversion.
+**Vtable layout for extension** (per `done/claude-plan-1.md` § 2.3 and `claude-discussion-detailed-notes.md` § "Interface Extension"): the vtable for `(R, X)` where `interface X : I1, I2 { own1; own2 }` is the concatenation `[any-block][full vtable of (R, I1)][full vtable of (R, I2)][R's own1, own2]`. All interfaces implicitly extend `any`, so every interface vtable starts with the `any`-block at offset 0 — holds the destructor pointer and is the natural home for further language-defined slots (e.g., a `*TypeInfo` pointer if RTTI is added). Layout is recursive: each parent's "full vtable" itself starts with its own `any`-block. Conversion `*X → *Parent` is a fixed compile-time pointer offset; no swap, no lookup. Some `any`-block content is duplicated at every nested origin in exchange for uniform fixed-offset conversion.
 
 **Type assertions, type switches, and RTTI — DECIDED 2026-07-02 (spec'd, impl pending)**:
 Downcasting from an interface value back to a concrete type (or a narrower interface).
@@ -1292,9 +1292,9 @@ Rationale: Go's nil-slice vs empty-slice distinction is a well-known source of c
 
 ## Next Steps
 
-Phases 1–4 are complete. See `claude-plan-1.md` for the full record.
+Phases 1–4 are complete. See `done/claude-plan-1.md` for the full record.
 
-**Phase 5: Self-hosted toolchain — COMPLETE** — see `claude-plan-2.md` for the detailed plan. The key decisions (still the design of record):
+**Phase 5: Self-hosted toolchain — COMPLETE** — see `done/claude-plan-2.md` for the detailed plan. The key decisions (still the design of record):
 
 1. **Interpreter first, then compiler.** Shared frontend (lexer, parser, types) is the bulk of the work. Interpreter adds just a tree-walker (later a bytecode VM); compiler adds IR, codegen, backends.
 2. **Single repo to start** (`binate/binate`). Split into core/interp/compiler repos once boundaries stabilize.

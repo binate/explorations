@@ -4984,7 +4984,7 @@ IS the 64-bit-inode variant, and x64-Linux has no `$INODE64` split.
 
 Separate compilation per package — `bnc --pkg <pkg>` to a `.o`, then link the
 independently-built objects — is a stated architecture decision
-(`claude-plan-3.md`) but had **never been exercised end-to-end**, and was in
+(`done/claude-plan-3.md`) but had **never been exercised end-to-end**, and was in
 fact **broken**: `compileSinglePkg` (`--pkg`) force-loaded only reflect, while
 the whole-program driver and `--test` load rt + bootstrap + reflect + lang.  So
 a `--pkg`'d package that referenced a runtime helper — `rt.BoundsCheck` from ANY
@@ -13990,7 +13990,7 @@ be rejected like a named constant. Fix: also reject `&` of a literal operand.
 - **Plan**: `done/plan-interface-embedding.md`.  Design ratified in
   `claude-notes.md` § "Interfaces" (extension paragraph) and
   detailed in `claude-discussion-detailed-notes.md` § "Interface
-  Extension".  Vtable layout from `claude-plan-1.md` § 2.3.
+  Extension".  Vtable layout from `done/claude-plan-1.md` § 2.3.
 - **Slices** (all committed on main):
   - **E.1**: parser + AST + reject-extension placeholder (parser
     accepts `interface X : I1, I2, ... { ... }`; parent list

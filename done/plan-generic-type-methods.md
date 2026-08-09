@@ -63,7 +63,7 @@ checker/parser/ir unit tests.
   → 316), each with a sibling `_test.bn`.
 - **Spec/doc sweep** (§5 below) — narrow `gen.no-generic-methods`, mark
   `gen.method.generic-recv` / `gen.impl.generic-recv` implemented, update
-  `done/plan-stdx-containers.md`.
+  `plan-stdx-containers.md`.
 
 The pre-landing detail below is retained for reference.
 
@@ -468,12 +468,12 @@ to `@Iterator[int]`).
   (`docs/spec/12-generics-and-enumerations.md:126-145`): the *constraint* check at
   struct/interface instantiation is enforced (`checkInstantiationConstraints`; tests
   034/038/039); the *impl-satisfaction* half is delivered by this feature.
-- **Repo-wide sweep of the stale gap wording** — `done/plan-stdx-containers.md:336-342` also
+- **Repo-wide sweep of the stale gap wording** — `plan-stdx-containers.md:336-342` also
   describes `gen.satisfy.struct-iface-unchecked` as open (now false); fix it too. Grep
   the repo for `struct-iface-unchecked` / "only at generic-function instantiation"
   before claiming the sweep done.
 - On landing: narrow `gen.no-generic-methods`; mark `gen.method.generic-recv` /
-  `gen.impl.generic-recv` implemented; update `done/plan-stdx-containers.md` §7 + the
+  `gen.impl.generic-recv` implemented; update `plan-stdx-containers.md` §7 + the
   container `.bni` breadcrumbs to the shipped `impl *Cursor[T] : Iterator[T]` migration.
 
 ## 6. Cross-references

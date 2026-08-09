@@ -540,7 +540,7 @@ The `:` mirrors `impl T : I1, I2, ...`. Parents are listed once, between `:` and
 
 **Static upcast.** A child → parent conversion (e.g., `*ReadCloser → *Reader`) is a nominal, compile-time-known relation — no runtime query, no "does this satisfy" check. Binate is nominally typed: parent satisfaction comes only from declared extension. There is no Go-style structural query of an existing interface value to ask whether it also satisfies some other interface.
 
-**Vtable layout** (originally from `claude-plan-1.md` § 2.3). The vtable for `(R, X)` where `interface X : I1, I2 { own1; own2 }` is the concatenation:
+**Vtable layout** (originally from `done/claude-plan-1.md` § 2.3). The vtable for `(R, X)` where `interface X : I1, I2 { own1; own2 }` is the concatenation:
 
 ```
 [any-block]
@@ -1943,7 +1943,7 @@ The critical review surfaced an important framing for the dual-mode story: in em
 
 ## 24. Phase 5 Planning: Self-Hosted Toolchain
 
-With the Go bootstrap interpreter complete (Phase 4), the next step is writing the self-hosted toolchain in Binate itself. See `claude-plan-2.md` for the full plan. Key discussion points and rationale:
+With the Go bootstrap interpreter complete (Phase 4), the next step is writing the self-hosted toolchain in Binate itself. See `done/claude-plan-2.md` for the full plan. Key discussion points and rationale:
 
 ### Interpreter first, then compiler
 

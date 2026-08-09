@@ -1,6 +1,7 @@
 # Proposal: implicit borrow when constructing a raw interface value from a value (`proposal-implicit-any-borrow`)
 
-Status: **RATIFIED — Draft, pending implementation** (2026-07-17; spec `docs f8cdd0a`).
+Status: **RATIFIED — IMPLEMENTED** (2026-07-17; spec `docs f8cdd0a`). The value-borrow
+admission (checker) and the iface-borrow-escape bnlint rule have landed.
 A language-semantics change (relaxes a Stable rule, `iface.construct.no-implicit`).
 Motivated by `fmt.Print`; the "boxing" half of the decided `...*any` fmt direction
 (`claude-notes.md:252`). Pairs with `proposal-slice-type-identity` (the *recovery* half).

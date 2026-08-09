@@ -29,7 +29,7 @@ gets its own plan when picked up.
   declare any JS import), but the bundled package surface stops at
   the worker API.
 - **File paths assume the `pkg/`-layout migration has happened**
-  (per `pkg-layout-plan.md`). If wasm work lands first, substitute
+  (per `done/pkg-layout-plan.md`). If wasm work lands first, substitute
   current paths and migrate together with the rest.
 
 ## Tier A — minimum: hello from worker

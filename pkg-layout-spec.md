@@ -5,7 +5,7 @@ the parallel-tree split (`ifaces/` / `impls/`) for bundle-selectable
 tiers, and the collocation rule for project-local packages.
 
 Supersedes the "Package directory organization and conventions" TODO
-entry. Companion: [`pkg-layout-plan.md`](pkg-layout-plan.md) for the
+entry. Companion: [`done/pkg-layout-plan.md`](done/pkg-layout-plan.md) for the
 migration sequence.
 
 ## Scope
