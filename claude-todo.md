@@ -728,33 +728,6 @@ hatch" sufficient (close this out)?
 
 ## Type-system & checker semantics
 
-### Generic constraint satisfaction doesn't accept a GENERIC-RECEIVER impl (Phase 3c of generic-type-methods) — 🟠 OPEN (secondary)
-
-**Severity: minor (an edge-case generics capability gap, not a miscompile).** A
-generic function whose type parameter is constrained by a *generic* interface —
-`func f[I Iter[int]](it I)` — cannot be instantiated with a type whose impl of
-that interface has a **generic receiver** (e.g. `Cursor[int]` implementing
-`Iter[int]` via `impl Cursor[T] : Iter[T]`); the checker wrongly rejects it.
-
-**Root cause.** `typeSatisfiesConstraint` (`pkg/binate/types/check_generic.bn`,
-~L100) runs its OWN `c.Impls` scan and matches with concrete
-`t.Identical(rec.RecvType)` (~L135), which never matches a generic-receiver impl
-(its `RecvType` is a `Cursor[T]` template, not `Cursor[int]`). It needs a
-substitution-aware branch — the machinery already exists (`substituteTypeParams`,
-and the assignability path's `receiverAssignable` for generic receivers); this is
-the constraint-satisfaction sibling of that, and its receiver-kind semantics
-differ (constraint satisfaction vs `receiverAssignable`), so it needs a tailored
-branch rather than reusing the assignability path directly.
-
-**Everything else in the plan is landed** (method-value-on-generic-instance
-mangling fix — conformance 146; cross-package generic-type methods — conformance
-162–167/995/1036/1050; the `gen.no-generic-methods` spec rule; the file split).
-This Phase 3c is the sole remaining piece and was flagged "secondary to the
-interface-value use." Fix + a conformance test (generic func constrained by a
-generic iface, instantiated with a generic-receiver type). See
-`plan-generic-type-methods.md` (§ "Phase 3c — constraint-path satisfaction").
-**On completion, archive `plan-generic-type-methods.md` to `done/`.**
-
 ### `Self`-parameter method is uncallable through a generic constraint (Self binds to the type param, not its base) — 🟠 OPEN (2026-07-03)
 
 **Severity: minor (obscure `Self` corner; the fix is a semantics decision, not a

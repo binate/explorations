@@ -6,6 +6,30 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Generic constraint satisfaction accepts a GENERIC-RECEIVER impl (Phase 3c of generic-type-methods) — ✅ DONE (already implemented; unit-guarded `f8fcd3fa`, 2026-08-08)
+
+A generic function whose type parameter is constrained by a *generic* interface
+(`func f[I Iter[int]](it I)`) instantiated with a type whose impl of that interface
+has a **generic receiver** (`Cursor[int]` via `impl Cursor[T] : Iter[T]`) is
+accepted. The Phase 3c fix the todo asked for — a substitution-aware branch in
+`typeSatisfiesConstraint` — was already implemented in **`2f8969e8`** (the policy-core
+generics work): its `rec.Placeholder` branch substitutes the parameterized receiver's
+binders and reuses `genericImplSatisfies` (the exact tailored branch the todo
+prescribed), covering both value and pointer generic receivers. Confirmed on current
+main: value `f[Cursor[int]](c)` and pointer `f[*Cursor[int]](&c)` both compile/run; a
+no-impl type and a wrong-instance (`*Cursor[bool]` under `Iter[int]`) are both
+rejected ("does not satisfy constraint").
+
+End-to-end regression coverage already existed — `conformance/1034`
+(`bucketOf[K, P Hasher[K]]` + `impl Wrap[K] : Hasher[K]` + `bucketOf[int, Wrap[int]]`,
+whose comment explicitly names the branch) and `1035` (policy-core dispatch). The one
+genuine gap an adversarial sweep found was at the **checker unit level**: no test drove
+`typeSatisfiesConstraint` with the full combination, the generic-receiver branch was
+unit-tested only against a *non-generic* constraint, and the pointer form
+`impl *Cursor[T] : Iter[T]` was exercised in no constraint position anywhere. Closed by
+`f8fcd3fa` — four focused tests in `check_generic_test.bn` (value + pointer positives,
+wrong-instance + no-impl negatives). Plan archived to `done/plan-generic-type-methods.md`.
+
 ## string → distinct-named `[N]char` accepts a shorter literal (like the un-named form) — ✅ DONE (`dece7c89`, 2026-08-08)
 
 The checker accepted a shorter string literal into a plain char array (zero-padded)
@@ -16400,7 +16424,7 @@ iface dispatch) — green on builder-comp / -int / -comp. Used in the shipped st
 iter.Iterator[Entry[K,V]]`. Overlap coherence resolved 2026-07-06 by forbidding
 specific-instantiation impls (§12.4 `gen.no-conditional-impls`; docs `16a8ca3`).
 Spec §12.1 `gen.method.generic-recv` / `gen.impl.generic-recv`; design
-[plan-generic-type-methods.md](plan-generic-type-methods.md).
+[plan-generic-type-methods.md](done/plan-generic-type-methods.md).
 (Stale "not implemented" TODO entry corrected + moved here 2026-07-10.)
 
 
