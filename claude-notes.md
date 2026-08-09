@@ -774,7 +774,7 @@ The practical effect: `*Comparable` is a useful type for interface-value variabl
 
 **Open: Self in struct types.**  Could `type Foo struct { next *Self }` work as syntactic sugar for the self-recursive case?  Currently expressed via the type's own name: `type Foo struct { next *Foo }`.  Not motivated by anything; defer.
 
-**Status.**  DECIDED 2026-05-12.  Implementation tracked downstream when the relevant slice lands (`plan-primitives-impl-interfaces.md` Slice 2b uses Self for `Comparable` / `Orderable` / `Hashable`; `done/plan-generics.md` constraint check uses it for `[T Comparable]`-style constraints).
+**Status.**  DECIDED 2026-05-12.  Implementation tracked downstream when the relevant slice lands (`done/plan-primitives-impl-interfaces.md` Slice 2b uses Self for `Comparable` / `Orderable` / `Hashable`; `done/plan-generics.md` constraint check uses it for `[T Comparable]`-style constraints).
 
 ### Syntax direction — DECIDED
 
@@ -1140,7 +1140,7 @@ This is consistent with the raw slice contract: `*[]int` means "caller manages l
 - Any pointer → value (by copy)
 - `*T` → `@T`: never implicit
 
-**Value receivers — implementation strategy.** The default implementation is to pass value receivers by value (struct copy or primitive value, like any other parameter), matching the user-visible semantics directly.  An optimization to lower value receivers as `*readonly T` (avoiding the copy for large structs) is permitted as a future compiler optimization but is NOT part of the language contract — method expressions, call sites, and method-value types all see the value receiver as the user wrote it.  See `plan-primitives-impl-interfaces.md` § "Interface-value dispatch and value receivers" for how iv vtable slots adapt the iv data-pointer ABI to value-receiver methods via per-(T, I) thunks.
+**Value receivers — implementation strategy.** The default implementation is to pass value receivers by value (struct copy or primitive value, like any other parameter), matching the user-visible semantics directly.  An optimization to lower value receivers as `*readonly T` (avoiding the copy for large structs) is permitted as a future compiler optimization but is NOT part of the language contract — method expressions, call sites, and method-value types all see the value receiver as the user wrote it.  See `done/plan-primitives-impl-interfaces.md` § "Interface-value dispatch and value receivers" for how iv vtable slots adapt the iv data-pointer ABI to value-receiver methods via per-(T, I) thunks.
 
 **`_` receiver name** is allowed, with the same semantics as `_` parameter names — an explicit indicator that the receiver isn't used in the method body. The type checker treats it like any other unused-name; nothing method-specific.
 

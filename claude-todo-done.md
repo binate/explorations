@@ -14031,7 +14031,7 @@ be rejected like a named constant. Fix: also reject `&` of a literal operand.
   would have no useful behavior when called with a
   `string`, leaving only a panicking type assertion as the
   implementable shape.
-- **Downstream**: unblocks `plan-primitives-impl-interfaces.md`
+- **Downstream**: unblocks `done/plan-primitives-impl-interfaces.md`
   Slice 2b (`Comparable` / `Orderable` / `Hashable` for
   primitives) and the constrained-generics path in
   `done/plan-generics.md` (Slice 3).

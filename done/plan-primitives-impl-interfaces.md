@@ -1,8 +1,10 @@
 # Plan: Primitives Implementing Interfaces
 
-> **Status: LANDED 2026-05-15** (slices 1, A, 2a, 2b).
-> Slice 3 (the `bootstrap.println` rewrite) remains pending
-> on raw-iface variadics.
+> **Status: LANDED 2026-05-15** (slices 1, A, 2a, 2b) — COMPLETE.
+> Slice 3 (the `bootstrap.println` rewrite) is DROPPED as superseded:
+> formatted output is now served by `pkg/stdx/fmt` (Print/Println) and
+> `testing.Println`, so re-expressing `bootstrap.println` through a
+> `...*Stringer` function is no longer needed.
 >
 > Design background and ratification history retained below
 > for context — see also `claude-todo-done.md` for the
@@ -40,7 +42,7 @@ The consequence cascades into several places:
 - **Constrained generics** (`Vec[int]`, `sort[int Comparable]`)
   cannot satisfy on primitives — the satisfaction lookup
   `impl int : Comparable` fails because the impl can't be
-  written.  This is the blocker on `done/plan-generics.md` Slice 3
+  written.  This is the blocker on `plan-generics.md` Slice 3
   ("constraint-satisfaction check") flagged in that plan's
   "Hard dependency" section.
 - Future `Map[K, V]`, `Set[T]`, `Eq` / `Hash` / `Less` style
@@ -58,7 +60,7 @@ be relitigated here:
 1. **No duck-typing.**  Type-T-satisfies-interface-I is
    answered by an explicit `impl` declaration (own or
    compiler-synthesized), not by a structural method-shape
-   match.  Per `done/plan-interface-syntax-revision.md`.
+   match.  Per `plan-interface-syntax-revision.md`.
 2. **`impl` is a real declaration with real codegen.**  Each
    `(T, I)` pair produces a real vtable (`__ivt.bn_<recv_pkg>__
    <recv>__<iface_pkg>__<iface>`) per the cross-package
@@ -68,11 +70,11 @@ be relitigated here:
    Methods belong to the type's defining package; only the
    defining package can declare methods or impls for a type.
    (Interfaces are slightly different — `impl T : I` may live
-   in any package per `done/plan-cross-package-interfaces.md`, but
+   in any package per `plan-cross-package-interfaces.md`, but
    the methods themselves live with T.)
 4. **Performance: zero-overhead in the monomorphized case.**
    Generic constraint-method calls resolve to direct calls to
-   the impl's concrete method (per `done/plan-generics.md` §3).  No
+   the impl's concrete method (per `plan-generics.md` §3).  No
    vtable indirection in monomorphized output.
 
 ## Options
@@ -192,7 +194,7 @@ Mechanics:
   Mitigated by: (a) the stdlib *can* impl any interface
   defined anywhere (`impl int : MyInterface` is allowed since
   `impl` may live anywhere per
-  `done/plan-cross-package-interfaces.md`); but (b) the *methods*
+  `plan-cross-package-interfaces.md`); but (b) the *methods*
   required by `MyInterface` can only be added to `int` from
   the carve-out package.  In practice the user writes their
   own type wrapper if they need a primitive-shaped value with
@@ -295,7 +297,7 @@ interface Hashable : Comparable {
 ### Why one `Compare` method instead of separate `Equals` / `Less` / `Compare`
 
 Once `impl` declarations are explicit (per
-`done/plan-interface-syntax-revision.md`'s no-duck-typing stance),
+`plan-interface-syntax-revision.md`'s no-duck-typing stance),
 we can use a single method whose semantic contract is layered
 via interface extension:
 
@@ -374,7 +376,7 @@ and after positive infinity (so a sequence
 `import "pkg/std"` when they want `Stringer` / `Comparable` /
 etc.  The import naturally pulls in the universe-type impls
 (via the cross-package machinery from
-`done/plan-cross-package-interfaces.md`), so importing
+`plan-cross-package-interfaces.md`), so importing
 `pkg/std` to use `Stringer` ALSO makes `int.String()`
 available.  No magic.
 
@@ -578,13 +580,13 @@ variadics support (not yet implemented).
   declarations — RATIFIED 2026-05-12" — ratification record.
 - `claude-notes.md` § "Built-in implicit interfaces" — the
   `any` precedent that Option 1 builds on.
-- `done/plan-generics.md` § "Hard dependency: primitives-implement-
+- `plan-generics.md` § "Hard dependency: primitives-implement-
   interfaces" — generics is the largest downstream consumer.
-- `done/plan-interface-syntax-revision.md` — `impl T : I` syntax
+- `plan-interface-syntax-revision.md` — `impl T : I` syntax
   and the no-duck-typing stance.
-- `done/plan-cross-package-interfaces.md` — `impl` may live in any
+- `plan-cross-package-interfaces.md` — `impl` may live in any
   package; the methods on T live with T's defining package.
-- `done/plan-interface-embedding.md` — `Hashable : Comparable`
+- `plan-interface-embedding.md` — `Hashable : Comparable`
   uses interface extension (Slices E.1–E.3, landed).
 - `feedback_println_hack.md` — `bootstrap.println` is a
   temporary hack that this plan unblocks the removal of.
