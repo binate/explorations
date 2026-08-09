@@ -1011,8 +1011,9 @@ Increments:
       return lower; float param + agg / multi-return / GP-overflow-spill all fail loud; the 4
       capture/HFA/agg-result HARD tests stay fail-loud); hard-float closure-shim objdump
       (`ldr r0,[r0]; b <underlying>` — capture to GP, float untouched in VFP); conformance
-      1197.  Follow-up: a dedicated hard-float closure byte-ref unit test (the lowering tests
-      assert no-error+body; conformance 1197 runs soft on baremetal).
+      1197; and hard-float closure byte-ref unit tests (`7faf2f37`) pinning that a scalar
+      float param/return emits ONLY the capture load + tail-branch (float skipped to VFP),
+      byte-identical to the no-arg shim (mutation-verified).
     - **(b2) float-in-single-aggregate through the shims — OPEN, pure guard-narrow.**  Already
       rides the existing GP-coerce/sret/pack path; narrow the guards to allow it (verify the
       emitters copy a float-containing aggregate and the LLVM shim emits i8*/retbuf, not
