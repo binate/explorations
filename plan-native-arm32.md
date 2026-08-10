@@ -1,6 +1,6 @@
 # Plan: native arm32 backend (`pkg/binate/native/arm32`)
 
-Status: **P0–P5 DONE** — baremetal soft-float is FULLY GREEN (`builder-comp_native_arm32_baremetal` 2851/0, only the legit `982_c_global_environ` xfail). **P6 (VFP + hard-float, `arm32-linux` native) is IN PROGRESS** — the VFP encoders (`ba040890`), hard-float activation (`e021425c`), and REL relocs (`4ab2315a`) landed; inc 3f float-through-shims is closing shape-by-shape — scalar-float-through-shims (b1/b1b), float-in-single-aggregate (b2, `e1b8ef42`), float-leaf-in-multi-return (b3, `8fa0f3956`), and float-scalar-CAPTURES-in-closures (b4a, `82c7bb803`) are DONE; the open tail is HFA-in-VFP (inc 3f a) and the b4 follow-ups — float user-param VFP up-shift when a float param coexists with float captures (b4b) and the VFP-bank-spill / over-budget-spill scalar-float-param marshals (b4c). P7 (blocking-modeset promotion + unit sweep) after. (Started 2026-07-01.) Goal: a native (direct
+Status: **P0–P5 DONE** — baremetal soft-float is FULLY GREEN (`builder-comp_native_arm32_baremetal` 2851/0, only the legit `982_c_global_environ` xfail). **P6 (VFP + hard-float, `arm32-linux` native) is IN PROGRESS** — the VFP encoders (`ba040890`), hard-float activation (`e021425c`), and REL relocs (`4ab2315a`) landed; inc 3f float-through-shims is closing shape-by-shape — scalar-float-through-shims (b1/b1b), float-in-single-aggregate (b2, `e1b8ef42`), float-leaf-in-multi-return (b3, `8fa0f3956`), float-scalar-CAPTURES-in-closures (b4a, `82c7bb803`), and float-user-param-VFP-up-shift (b4b, `417b502f3`) are DONE; the open tail is HFA-in-VFP (inc 3f a) and b4c — the func-value over-budget/VFP-bank-spill scalar-float-param marshal (986/987) plus the deferred cyclic (back-fill down-move) parallel-move. P7 (blocking-modeset promotion + unit sweep) after. (Started 2026-07-01.) Goal: a native (direct
 IR→object) code generator for 32-bit ARM, hooked up analogously to the
 existing **LLVM** arm32 path — i.e. serving BOTH `--target arm32-baremetal`
 and `--target arm32-linux`, run under QEMU by the same runners, but with the
@@ -1080,14 +1080,29 @@ Increments:
         `vldr d0,[r0]` / `vldr d0,[r1]`+`vldr d1,[r1,#8]`); soft-float baremetal no regression;
         hygiene 18/18; 3-lens adversarial review clean (base-liveness/clobber lens confirmed no
         clobber; only stale-comment nits, fixed).
-      - **(b4b) float user-param VFP UP-SHIFT — OPEN.**  When a closure has BOTH float scalar
-        captures AND float scalar params, each float param must VMOV up from its incoming
-        `CallArgFpReg(userTypes, j)` slot to its outgoing `CallArgFpReg(argTypes,
-        NumCaptureParams+j)` slot (the captures occupy the leading VFP slots).  Add to the framed
-        emitters alongside the capture load; narrow the cap+param fail-loud.  Clears 706, 883, 884.
-      - **(b4c) scalar float PARAM through the over-budget spill / VFP-bank-spill — OPEN.**  The
-        spill/backstop guards fail-loud on a scalar float PARAM (986/987/970's overflow cases).
-        Clears 986, 987.
+      - **(b4b) float user-param VFP UP-SHIFT — ✅ DONE (`417b502f3`, 2026-08-09).**  Two changes:
+        (1) `emitSpillMarshalArm32` now SKIPS a scalar float param under hard-float
+        (`hardFloatShimSkipArm32`) — it rides VFP, consumes no GP dispatch word, so the GP-only
+        marshal must not treat a float64 as a GP register pair (the miscompile the b1b last-clause
+        fail-loud was guarding, fixed at the source).  (2) `emitClosureParamVfpUpShiftArm32` VMOVs
+        each float param from its incoming `CallArgFpReg(userTypes, j)` slot to its outgoing
+        `CallArgFpReg(argTypes, NumCaptureParams+j)` slot, in DESCENDING outgoing-S-base order,
+        BEFORE the capture VFP load; wired into all three framed emitters.  Guarded by
+        `closureFloatParamUpShiftUnhandledArm32` (top guard + 3 backstops), which fail-louds a float
+        param whose OUTGOING slot spills the bank OR that a back-fill reorder forces DOWN in the VFP
+        file (a 2-cycle — see b4c).  Clears 706, 883, 884 (all single float param = pure up-moves).
+        **The b4b adversarial review caught a CRITICAL back-fill down-move clobber (a float32 param
+        dropping into a float64's vacated hole — a 2-cycle the descending-order shift can't do
+        clobber-free); fixed PRE-LANDING by the down-move fail-loud (nothing shipped), re-review
+        clean.  The general cyclic parallel-move is deferred to b4c.**
+      - **(b4c) scalar float PARAM through the over-budget spill / VFP-bank-spill + the deferred
+        cyclic parallel-move — OPEN.**  (i) The FUNC-VALUE over-budget spill (`emitFuncvalSpillShimArm32`)
+        still guards `funcValueShimHasScalarFloatParamArm32` fail-loud; with the b4b marshal float-skip
+        a funcvalue float param would now be skipped + pass through (no captures), so narrow that guard
+        and verify 986/987 (float scalar param + SSE/agg param via iface/spill).  (ii) The back-fill
+        DOWN-MOVE case in closures (b4b defers it fail-loud): replace with a real parallel move
+        (memory-staged VSTR-then-VLDR, cycle-agnostic) IF any conformance test needs it — else keep the
+        documented fail-loud as a v2 item.
     Closing (b1b)+(b2)+(b3) unblocks the native `--test` unit sweep (the test-runner harness
     itself uses a float func-value shim → P7 prerequisite).
   - **(c) int64↔float casts under gnueabihf — ✅ DONE / NO CODE NEEDED (test `e02d8b24`,
