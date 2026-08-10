@@ -426,11 +426,21 @@ retiring them frees the entire rest of bootstrap's surface.
   runner now emits via fmt; this required root-causing + fixing a latent `--test`
   miscompilation (the runner was IR-gen'd un-type-checked, so fmt's `*any` boxing typed a
   string literal as its `char` element). See the done log.
+- ✅ **The compiler's unit-test fixtures** — DONE (`370bc9479`, 2026-08-09): the `println(...)`
+  embedded in test-source strings (value-consumers / minimal `func main()` bodies) across
+  `pkg/binate/{types,codegen,ir,vm,parser,repl}` (24 files) became the blank-assign discard
+  `_ = EXPR` — preserves the evaluated expr + its emitted instruction (codegen/debug tests
+  unchanged), no import, valid idiomatic Binate. **Deferred:** the 6 files that ASSERT `println`
+  lowers to `bootstrap.format*`/`Write` (`gen_print_test.bn` + `gen_stmt`/`gen_binary`/`gen_expr`/
+  `vm_extern`/`x64_float`) test the lowering itself and are removed together with `gen_print.bn`
+  when the builtin is retired.
 
 All library, compiler, and runtime code is now off `print`/`println` — the CLIs, the BUILDER
-tree, the `--test` runner, rt, AND the perf fixtures. The only remaining users of the builtins
-are `conformance/` and `examples/` (separate decisions); once those are handled, the builtins
-(and the `Write()`/format-helper bootstrap surface they alone keep alive) can be removed.
+tree, the `--test` runner, rt, the perf fixtures, AND the compiler's unit-test fixtures. The
+remaining users of the builtins are: the 6 lowering-assertion unit tests (deferred — they test
+the lowering and are deleted with it), `conformance/`, and `examples/` (separate decisions).
+Once those are handled, the builtins (and the `Write()`/format-helper bootstrap surface they
+alone keep alive) can be removed.
 
 **Residual (small, separable) — repl `.String()`:** wire `ensureLangLoaded` +
 `appendLangImport` into the repl's import setup
