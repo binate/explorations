@@ -1,6 +1,6 @@
 # Plan: native arm32 backend (`pkg/binate/native/arm32`)
 
-Status: **P0–P5 DONE** — baremetal soft-float is FULLY GREEN (`builder-comp_native_arm32_baremetal` 2851/0, only the legit `982_c_global_environ` xfail). **P6 (VFP + hard-float, `arm32-linux` native) is IN PROGRESS** — the VFP encoders (`ba040890`), hard-float activation (`e021425c`), and REL relocs (`4ab2315a`) landed; inc 3f float-through-shims is closing shape-by-shape — scalar-float-through-shims (b1/b1b), float-in-single-aggregate (b2, `e1b8ef42`), float-leaf-in-multi-return (b3, `8fa0f3956`), float-scalar-CAPTURES-in-closures (b4a, `82c7bb803`), float-user-param-VFP-up-shift (b4b, `417b502f3`), func-value-spill-scalar-float-param (b4c, `51d10c617`), and the back-fill down-move cyclic parallel-move (b4-cyclic, `68ab7dd0d`, conformance 1202) are DONE — so EVERY inc 3f float shape on native arm32-linux is now handled, with NO documented fail-loud remaining.  The open tail is HFA-in-VFP (inc 3f a).  P7 (blocking-modeset promotion + unit sweep) after — pending a green CI run of `builder-comp_native_arm32_linux`. (Started 2026-07-01.) Goal: a native (direct
+Status: **P0–P5 DONE** — baremetal soft-float is FULLY GREEN (`builder-comp_native_arm32_baremetal` 2851/0, only the legit `982_c_global_environ` xfail). **P6 (VFP + hard-float, `arm32-linux` native) is IN PROGRESS** — the VFP encoders (`ba040890`), hard-float activation (`e021425c`), and REL relocs (`4ab2315a`) landed; inc 3f float-through-shims is closing shape-by-shape — scalar-float-through-shims (b1/b1b), float-in-single-aggregate (b2, `e1b8ef42`), float-leaf-in-multi-return (b3, `8fa0f3956`), float-scalar-CAPTURES-in-closures (b4a, `82c7bb803`), float-user-param-VFP-up-shift (b4b, `417b502f3`), func-value-spill-scalar-float-param (b4c, `51d10c617`), and the back-fill down-move cyclic parallel-move (b4-cyclic, `68ab7dd0d`, conformance 1202) are DONE — so EVERY inc 3f float shape on native arm32-linux is now handled, with NO documented fail-loud remaining.  The open tail is HFA-in-VFP (inc 3f a) — a large aa64-mirror port, NOT failing today (C-interop fidelity only), with a detailed implementation plan written and DEFERRED to a future focused session (user decision 2026-08-09).  P7 (blocking-modeset promotion + unit sweep) is next — pending a green CI run of `builder-comp_native_arm32_linux`. (Started 2026-07-01.) Goal: a native (direct
 IR→object) code generator for 32-bit ARM, hooked up analogously to the
 existing **LLVM** arm32 path — i.e. serving BOTH `--target arm32-baremetal`
 and `--target arm32-linux`, run under QEMU by the same runners, but with the
@@ -970,10 +970,57 @@ Increments:
   step (not done here).
 
 - **inc 3f — deferred hard-float shapes:**
-  - **(a) HFA in VFP — OPEN.** single float-aggregate (HFA struct/array) args/params/
-    returns in the VFP register file (d0-d3 pack/collect) + reconcile codegen's `NeedsSret`
-    for arm32-hard.  NOT failing today — HFAs ride the GP/sret path, self-consistent
-    native↔LLVM; this is gnueabihf-VFP correctness polish, the largest piece.
+  - **(a) HFA in VFP — OPEN / DEFERRED (plan written 2026-08-09; user chose "plan doc only,
+    defer" after the inc 3f float-shape tail closed).**  Pass/return a Homogeneous Floating-point
+    Aggregate (a struct/array of 1–4 same-type float members) in the VFP register file per
+    AAPCS-VFP, instead of GP-coercing it.  **NOT failing today** — arm32 GP-coerces HFAs
+    self-consistently across the native backend, codegen's LLVM path, AND the VM, so conformance
+    is green.  The gap it closes is **C-interop ABI fidelity**: a Binate↔external-C call that
+    passes/returns an HFA (clang `-mfloat-abi=hard` puts it in s0..s15 / d0..d3) currently
+    mismatches Binate's GP-coerce.  It is the LARGEST remaining P6 piece — effectively the
+    aggregate-HFA analog of the entire b1–b4 scalar-float shim effort.
+
+    **Design.**  `types.HfaInSimd()` (abi_hfa.bn) is the SINGLE shared gate — flip it from
+    `Arch==ARCH_AA64` to `Arch==ARCH_AA64 || Arm32HardFloat()`.  That one flip auto-enables
+    codegen's LLVM VFP-HFA coercion (emit_agg_coerce.bn:151 already keys on `HfaInSimd()`; clang
+    emits `[N x float]`/`[N x double]` passed in VFP) AND `cc.HfaAggregates` (native ctor
+    common_callconv_ctors.bn:50).  **CRITICAL ordering pitfall** (per the arm32-hard ctor comment
+    that currently forces `HfaAggregates=false`): flipping the gate BEFORE the native VFP-HFA
+    pack/collect exists classifies HFA returns as register-returned while the native emitter has
+    no HFA pack — **silently truncating** them.  So the native machinery must land FIRST (behind
+    the still-false gate, unreachable), and the gate flip lands LAST, together with the VM
+    agreement + conformance tests.  Also extend the VFP allocator: `vfpArgPlace`
+    (common_callconv_vfp.bn) currently handles scalar floats only (its SCOPE note flags HFA as a
+    follow-up) — an HFA is a CPRC of N consecutive slots (N single-S for a float32-HFA, N
+    even-aligned D for a float64-HFA) that back-fills as a UNIT through the same 16-bit S mask, so
+    add an N-slot HFA allocation to that one predicate (keeping native + LLVM + the shims in
+    lockstep).
+
+    **Implementation = MIRROR the aa64 VFP-HFA machinery** (aa64 already has `HfaInSimd` true):
+    `pkg/binate/native/aarch64/aarch64_hfa.bn` (isHfaAggregate, hfaMemberLoadToFp,
+    hfaMemberStoreFromFp), plus the HFA handling in `aarch64_call.bn` (arg place),
+    `aarch64_return.bn` (return pack/collect), `aarch64_emit_func.bn` (incoming param spill),
+    `aarch64_funcvalue_shim.bn` + `aarch64_funcvalue_spill.bn` + `aarch64_closure_shim_float.bn`
+    (the func-value / iface / closure shim HFA marshal).  arm32 differs only in the concrete
+    registers (VFP d0..d7 args / d0..d3 return, `Vldr/Vstr .32/.64` to s/d) and the CPRC
+    back-fill (arm32 shares the s0..s15=d0..d7 bank; aa64 uses v0..v7) — the structure ports
+    directly, exactly as the rest of the arm32 native backend mirrors aa64.
+
+    **Suggested decomposition (b1–b4 cadence — each: implement → unit byte-ref + hard-float
+    compile-only e2e + baremetal soft-float NO-regression [GP-coerce must stay green until the
+    flip] + hygiene → adversarial review → per-instance landing approval):**
+    - **a1** — `arm32_hfa.bn` (HFA classify + member VLDR/VSTR primitives, mirror aarch64_hfa.bn)
+      + extend `vfpArgPlace` for the N-slot HFA CPRC allocation (with tests).  Inert (gate still
+      false).
+    - **a2** — direct-call HFA arg PLACE + return PACK/COLLECT + incoming param SPILL
+      (arm32_call.bn / arm32_return.bn / arm32_emit_func.bn), still behind the false gate.
+    - **a3** — func-value / iface shim HFA marshal (arg + return), mirror aarch64_funcvalue_shim /
+      _spill; the multi-register analog of b1a/b3.
+    - **a4** — closure shim HFA marshal: HFA captures (memory→VFP member loads) + HFA params (the
+      member-wise up-shift past float captures — the HFA analog of b4a/b4b's parallel move).
+    - **a5** — flip `HfaInSimd()` for arm32-hard; VM cross-mode HFA agreement; conformance tests
+      (HFA arg/return/capture/param, and a C-interop HFA case); full verification incl. the LLVM
+      arm32-linux mode staying green (both backends now VFP-HFA).
   - **(b) float through the func-value/closure/iface/indirect SHIMS — the failing tail
     (~65 fails), sub-split by marshal mechanism (recon + adversarial review 2026-08-08).**
     A scalar float rides a VFP register on BOTH the shim's incoming ABI and the underlying's
