@@ -496,12 +496,22 @@ retiring them frees the entire rest of bootstrap's surface.
   `vm_extern`/`x64_float`) test the lowering itself and are removed together with `gen_print.bn`
   when the builtin is retired.
 
-All library, compiler, and runtime code is now off `print`/`println` — the CLIs, the BUILDER
-tree, the `--test` runner, rt, the perf fixtures, AND the compiler's unit-test fixtures. The
-remaining users of the builtins are: the 6 lowering-assertion unit tests (deferred — they test
-the lowering and are deleted with it), `conformance/`, and `examples/` (separate decisions).
-Once those are handled, the builtins (and the `Write()`/format-helper bootstrap surface they
-alone keep alive) can be removed.
+✅ **The `print`/`println` builtins are REMOVED** (`aeb763d03`, 2026-08-09): once nothing
+used them (all of the above + the conformance/example holdouts, deleted), the recognition
+(universe-scope defs in `scope.bn`, the checker's variadic-builtin gate, the IR-gen dispatch)
+and the lowering machinery (`genPrintCall` + `emitPrint*`/`emitWrite*`; `gen_print.bn` →
+`gen_panic.bn`) were deleted, and the 6 lowering-assertion unit tests with them. `print(...)`
+/`println(...)` is now a plain `undefined` error. Conformance `builder-comp` 2913 passed / 0
+failed. See the done log.
+
+**Remaining (the follow-up the removal unblocks):**
+- **Clean up the bootstrap remainder.** With print/println gone, `bootstrap.Write` + the
+  private `format*` helpers have no callers — retire them and whatever else of `pkg/bootstrap`
+  is now dead (the whole point of retiring print/println).
+- **Stale `println` comment references.** A handful of comments still mention the removed
+  builtin — notably `cmd/bni/repl.bn`'s "type `println(...)` to print" REPL guidance (now
+  wrong) and a dangling `conformance/287` reference in `x64_float_test.bn`; also
+  `lower_cast.bn`, `gen_util.bn`, `rt_diag.bn`. Reword as part of the cleanup.
 
 **Residual (small, separable) — repl `.String()`:** wire `ensureLangLoaded` +
 `appendLangImport` into the repl's import setup
