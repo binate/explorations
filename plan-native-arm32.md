@@ -1168,24 +1168,35 @@ Increments:
         soft-float; hard-float disasm confirms the staged move).  Review clean (0 findings).  **This
         closes the non-overflow float shapes; ONE documented fail-loud remains — the VFP-bank-spill
         ARGUMENT OVERFLOW (see (b5)).**
-      - **(b5) VFP-bank-spill ARGUMENT OVERFLOW through the shims — IN PROGRESS (2026-08-10).**
+      - **(b5) VFP-bank-spill ARGUMENT OVERFLOW through the shims.**
         When a shim-dispatched call has MORE float scalar args than the AAPCS-VFP argument bank holds
         (>8 doubles / >16 singles with back-fill), the overflow float(s) spill to the outgoing-args
-        stack — a shape the func-value / indirect call site (`callInstrUnhandledFloatB1Arm32`) and the
-        closure param path (`closureFloatParamUpShiftUnhandledArm32`) still fail LOUD on, because
-        `cc.CallArgFpReg` returns `hwSlot < 0` for the spilled float.  Conformance 707
-        (closure: 9 float captures + a float param, 2 overflow), 888 (non-capturing func value: 9
-        float args, 9th overflows), 926 (aggregate-return closure via a func pointer: 9 float args
-        overflow) — all still fail-loud on `builder-comp_native_arm32_linux`, confirmed 2026-08-10 by
-        a local `bnc -c --target arm32-linux --backend native` compile-check of current main (of the
-        26 tests that were failing on the last completed CI run, 23 now emit cleanly; these 3 remain).
-        The overflow-to-stack primitive already exists at the DIRECT-call level
-        (`emitCallArgFloatHard` returns false on VFP-file overflow and the bits fall through to the GP
-        path that places them at the outgoing stack offset, `arm32_call.bn`), and `vfpCallStackBytes`
-        already reserves the slots — the work is to route the shim/closure marshal paths through that
-        placement and narrow the two guards.  Runtime cannot be verified locally (no qemu-glibc
-        armhf); verification is compile + disasm + CI.  This is the remaining gate for the
-        `builder-comp_native_arm32_linux` promotion.
+        stack.  A local `bnc -c --target arm32-linux --backend native` compile-check of current main
+        (2026-08-10) showed that of the 26 tests failing on the last completed CI run, 23 now emit
+        cleanly and 3 still fail-loud — 707 (closure: 9 float captures + a float param, 2 overflow),
+        888 (non-capturing func value: 9 float args), 926 (aggregate-return func value: 9 float args).
+        The overflow-to-stack primitive already exists at the DIRECT-call level (`emitCallArgFloatHard`
+        returns false on VFP-file overflow and the bits fall through to the GP path that places them at
+        the outgoing stack offset, `arm32_call.bn`), and `vfpCallStackBytes` reserves the slots.  Split
+        into a CLOSURE part and a FUNC-VALUE part:
+        - **(b5a) closure param outgoing-spill — ✅ DONE (`23849a2a0`, 2026-08-10).**  A closure whose
+          float captures fill the VFP bank push a scalar float PARAM's outgoing slot to the stack.
+          `emitClosureParamVfpUpShiftArm32`'s Stage-2 now copies such a param to its outgoing stack
+          slot (`[SP + stageBytes + CallArgStackOff(...)]` via R4/IP) instead of doing nothing (it was
+          a silent miscompile the fail-loud guard hid).  Removed `closureFloatParamUpShiftUnhandledArm32`
+          + its 3 per-variant backstops; the closure top guard now catches only the users-only INCOMING
+          spill (funcValueShimUnhandledFloatB1Arm32).  Clears 707; new conformance 1203 (pack / small-agg
+          return) + 1204 (sret / big-agg return) cover the framed-variant frame layouts.  Verified by
+          disasm across scalar/pack/sret variants, 339 native/arm32 unit tests, host-mode conformance,
+          hygiene 19/19; adversarial review 0 confirmed findings.  Runtime rides on CI (no local qemu).
+        - **(b5b) func-value / indirect CALL-site overflow — OPEN.**  888/926 still fail-loud at the
+          func-value call site (`callInstrUnhandledFloatB1Arm32`) / shim body
+          (`funcValueShimUnhandledFloatB1Arm32`).  The scalar-void and big-agg/big-multiret SRET shims
+          are frameless tail-branches, so a VFP-bank-spilled float arg passes through untouched — the
+          work is to narrow the two guards to unflag exactly those tail-branch shapes (return
+          classification + `shimArgsFitRegisters`), keeping the FRAMED shims (pack / small-multiret-pack /
+          GP-over-budget spill) fail-loud.  This is the remaining gate for the
+          `builder-comp_native_arm32_linux` promotion.
     Closing (b1b)+(b2)+(b3) unblocks the native `--test` unit sweep (the test-runner harness
     itself uses a float func-value shim → P7 prerequisite).
   - **(c) int64↔float casts under gnueabihf — ✅ DONE / NO CODE NEEDED (test `e02d8b24`,
