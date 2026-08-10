@@ -6,6 +6,32 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `strconv` errors now root in a base (BadData / OutOfRange) — ✅ DONE & LANDED (`afe925e85`, 2026-08-10)
+
+`numError.Unwrap()` returned an empty `@errors.Error`, so a strconv parse failure
+rooted in no base — `errors.Is(err, BadData)` (and every other base) was false, and a
+caller could only classify a parse failure by matching message text. This was the one
+`plan-std-error-hierarchy.md` §7/§9 mapping that never landed (syntax → `BadData`,
+overflow → `OutOfRange`, both ⊂ `ConditionsUnmet`); it had been deferred pending
+`errors.Is`, which had long since landed, so the deferral was stale.
+
+Fix (`impls/stdlib/pkg/std/strconv/num_error.bn`): `numError.Unwrap()` returns the
+base its kind roots in — kindSyntax → `errors.BadData`, kindRange → `errors.OutOfRange`
+— the same way `errors.Rooted` roots a concrete error under a base. Rendered messages
+unchanged. Minimal adversarial review cleared it (classification chain traced,
+refcount net-zero on the returned singleton, init-order safe, else-branch proven
+exhaustive over the only two kinds, tests non-tautological, no consumer regressions,
+BUILDER-safe).
+
+Tests: `num_error_test`'s old leaf assertion (which pinned the empty-Unwrap behavior)
+replaced with syntax→BadData / range→OutOfRange rooting tests; `atoi_test` / `atof_test`
+gained end-to-end classification tests over ParseInt / ParseUint / ParseFloat via a
+shared `classifiedAs` helper (asserts the specific base + the `ConditionsUnmet` parent,
+rejects the sibling base). `scripts/unittest/run.sh builder-comp strconv` green.
+
+(The §9 hygiene check the todo proposed — whitelist `errors.New(` to base/root sites —
+was NOT added; it remains a separate, unadopted idea.)
+
 ## REPL: mid-session `import` then a subsequent prompt-defined `var`/box SIGSEGVs — ✅ DONE (`2da9899dc`, 2026-08-10)
 
 In `bni --repl`, after a mid-session prompt `import "pkg/foo"`, a following top-level

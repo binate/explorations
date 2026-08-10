@@ -1300,42 +1300,6 @@ one, so decide whether monotonic gets its own type or `Now()` is wall-only.
 standard-library example series in binate/examples — the planned `time` example
 can only do arithmetic over constructed Points and file mtimes.
 
-### `strconv` errors root in no base — the one specified case that never landed — 🟡 OPEN (2026-08-02)
-
-`errors.bni` promises "every error the stdlib returns roots in one of these
-[bases]", and `plan-std-error-hierarchy.md` §7 names the exact mapping for the
-canonical parse case: a **syntax** error → `BadData`, a value that **overflows**
-→ `OutOfRange` (§9 lists it as a migration step: "`strconv`: split syntax
-(`BadData`) vs overflow (`OutOfRange`)").  It never happened.  On released
-bnc-0.0.12:
-
-    _, err := strconv.Atoi("12x")
-    errors.Is(err, errors.BadData)          // false
-    errors.Is(err, errors.ConditionsUnmet)  // false — as is every other base
-
-`impls/stdlib/pkg/std/strconv/num_error.bn` is why: `numError.Unwrap()` returns
-an EMPTY `@errors.Error`, so the chain ends at the leaf and `Is` can never match
-anything.  Its own comment records the reason it was deferred — "read the kind
-back out … needs errors.Is / RTTI, deferred … When errors.Is lands these become
-the [bases]" — and `errors.Is` has since landed, so the deferral is stale.
-
-Fix: `syntaxErr` roots in `errors.BadData` and `rangeErr` in `errors.OutOfRange`
-(have `numError` carry the base and return it from `Unwrap`, which is how a
-concrete error type roots itself — the same thing `errors.Rooted` does).  The
-rendered message need not change.
-
-Consequence today: a caller that parses user input cannot classify the failure at
-all — it must either match on message text or treat every parse failure as
-opaque.  It also silently weakens anything downstream that wraps a strconv error
-and expects the classification to come through, since a wrapper inherits its
-cause's classification and here there is none.
-
-Tests: extend `atoi_test.bn` / `atof_test.bn` with `errors.Is(err, BadData)` and
-`errors.Is(err, OutOfRange)` assertions, plus `errors.Is(err, ConditionsUnmet)`
-for the shared parent.  Note the hygiene check §9 proposes (whitelist
-`errors.New(` to base/root sites) would have caught this class at the source.
-Found while writing the `errors` example in binate/examples.
-
 ### `os` errors carry only the op, not the failing path (P3)
 `pkg/std/os` `failErrno(op)` renders e.g. `"open: not found"`, but
 plan-std-error-hierarchy.md §7 specifies context `(path, op)` —
