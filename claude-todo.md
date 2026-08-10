@@ -220,16 +220,14 @@ Remaining increments (all parked, none started):
 Fallout now unblocked by the `any`-box pointer-deref/field nil-check fix (done log:
 Bug A `85f4851ad`, Bug B `b1490e2ca`).
 
-- **e2e conversions (unblocked).** `e2e/bni-nil-check.sh` (fixture `nilderef.bn`,
-  `println(p.val)` on a nil `@Node` — needs the `pkg/builtins/testing` import) and
-  `e2e/bni-test-nil.sh` (fixture `faultynil_test.bn` `TestNilDeref`, `println(p.val)`
-  — already imports testing) kept the builtin only because `testing.Println(p.val)`
-  boxing dropped the nil-check; that now fires through the box, so convert both to
-  `testing.Println`. These may be picked up by the in-flight print→testing sweep, or
-  done on request. (`e2e/repl.sh` stays on the builtins for an UNRELATED reason — its
-  `println`/`print` are REPL *input* at the `bni --repl` prompt, a separate
-  REPL-input-capability question.) All the builtin holdouts must go before the
-  print/println builtins can be removed.
+- **e2e conversions — ✅ DONE (`418f821ee`).** `e2e/bni-nil-check.sh` and
+  `e2e/bni-test-nil.sh` are converted to `testing.Println`; the `--check-nil` /
+  `--test` nil-deref fault now fires through the boxed field read, both green.
+  Remaining builtin holdouts before the print/println builtins can be removed:
+  `e2e/repl.sh` (an UNRELATED reason — its `println`/`print` are REPL *input* at the
+  `bni --repl` prompt, a separate REPL-input-capability question) and the
+  builtin-specific print/println conformance tests (001_hello + the four builtin
+  guards).
 - **Index-through-nil sibling.** `genBorrowSourceAddr` (`pkg/binate/ir/gen_util.bn`)
   nil-checks the base for a value-borrowed DEREF (`*p`) and FIELD-access (`p.f`) into
   `...*any`, but an INDEX operand (`slice[i]` / `ptr[i]`) falls back to
