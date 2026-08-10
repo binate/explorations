@@ -228,14 +228,17 @@ Bug A `85f4851ad`, Bug B `b1490e2ca`).
   `bni --repl` prompt, a separate REPL-input-capability question) and the
   builtin-specific print/println conformance tests (001_hello + the four builtin
   guards).
-- **Index-through-nil sibling.** `genBorrowSourceAddr` (`pkg/binate/ir/gen_util.bn`)
-  nil-checks the base for a value-borrowed DEREF (`*p`) and FIELD-access (`p.f`) into
-  `...*any`, but an INDEX operand (`slice[i]` / `ptr[i]`) falls back to
-  `genLValueAddr` → `genIndexPtr(forDeref=false)`, so a value-borrow of an element
-  through a nil base does NOT fault under `--check-nil` (same class as the fixed
-  field/deref gap). Only affects `--check-nil` fault-timing, not value correctness —
-  hence LOW. Fix: nil-check an index operand's base in `genBorrowSourceAddr`
-  (`genIndexPtr(forDeref=true)`), with a conformance test mirroring 1199.
+- **Index-through-nil sibling — ✅ DONE (`9697cac73`).** `genBorrowSourceAddr`
+  (`pkg/binate/ir/gen_util.bn`) now nil-checks a value-borrowed INDEX operand's base
+  via `genIndexPtr(forDeref=true)`, so `ptr[i]` through a nil raw pointer faults under
+  `--check-nil` (array bases are allocas; slice bases get a bounds check — only the
+  raw-pointer base was unchecked). Inert when `--check-nil` is off. Conformance 1200
+  (the index sibling of 1199/1142).
+
+With both value-borrow nil-check siblings done (this + the e2e conversions above),
+what remains under this entry is only the final builtin-removal holdouts noted in the
+e2e bullet (`e2e/repl.sh` REPL-input + the builtin-specific print/println guard
+tests), which are a separate REPL-capability / builtin-guard question.
 
 ### VM user-code faults — residual follow-ups (Plan 2 core is DONE) — 🟡 OPEN
 
