@@ -6,6 +6,39 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## REPL: mid-session `import` then a subsequent prompt-defined `var`/box SIGSEGVs — ✅ DONE (`2da9899dc`, 2026-08-10)
+
+In `bni --repl`, after a mid-session prompt `import "pkg/foo"`, a following top-level
+`var g int = 42` (or any prompt that boxed a prompt-defined type) segfaulted. The
+adversarial review of the print/println→testing conversion flagged this as a
+box-elision from registering the callee's signature — but lldb + a progressive repro
+showed it is **two** independent things, and the box framing was a red herring:
+
+1. **A PRE-EXISTING crash** (reproduces on landed main with plain `RecordImportPath`,
+   no signature registration): `import X; var g int = 42` faults. The import's
+   per-package `LowerModule` calls leave the VM's module-lowering context
+   (`vm.modulePkgName`) at the LAST imported package, so `MaterializeOneGlobal`
+   qualifies the new global under that package (`pkg/foo.g`) while its init synthetic —
+   lowered via `LowerOneFunc`, which resets the context to the session module — stores
+   to `main.g`: a name miss whose null address faults.  Fix: extract the context reset
+   into `vm.SetModuleContext(m)` and have `evalReplImport` call
+   `s.Vm.SetModuleContext(s.MainMod)` after its package-processing loop.
+
+2. **The prompt-import capability** (so the prompt itself can call
+   `testing.Print/Println`): register the imported callee's SIGNATURE on the session
+   gen ctx via new `ir.RegisterImportFuncSigs` (= `RegisterImports` with a new
+   `regExterns=false` gate that skips the `mod.AddFunc` IR-extern entries which would
+   pollute the live session module's func table; the callee resolves via the VM's
+   native extern table).
+
+Guarded by `e2e/repl.sh` `tier5-var-decl-after-mid-session-import` and
+`tier5-mid-session-import-testing-box-prompt-type` (the review repro: import testing →
+box a prompt-defined type → prints 451).  repl.sh 58/0; ir+vm+repl units green;
+adversarially reviewed (LAND).  **Benign follow-up (not done):** `registerImportsImpl`
+re-appends `FuncSigs`/`TypeAliases`/`Consts` on a REPL re-import (unbounded but
+harmless — first-match lookup, REPL-only); tighten with a dedup guard if it ever
+matters.
+
 ## print/println → testing.Println: the CONFORMANCE corpus is fully converted + a hygiene check guards it — ✅ DONE (2026-08-08..09)
 
 Every conformance test now prints via `pkg/builtins/testing`'s testing.Print/Println
