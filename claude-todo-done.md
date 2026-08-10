@@ -30,7 +30,10 @@ shared `classifiedAs` helper (asserts the specific base + the `ConditionsUnmet` 
 rejects the sibling base). `scripts/unittest/run.sh builder-comp strconv` green.
 
 (The §9 hygiene check the todo proposed — whitelist `errors.New(` to base/root sites —
-was NOT added; it remains a separate, unadopted idea.)
+was subsequently added as `scripts/hygiene/stdlib-error-rooting.sh` (`10c7db363`):
+it flags `errors.New(` in `pkg/std` / `pkg/stdx` outside the errors package. It
+catches the `errors.New` vector only, not the custom-type empty-`Unwrap` variant
+this strconv bug was.)
 
 ## REPL: mid-session `import` then a subsequent prompt-defined `var`/box SIGSEGVs — ✅ DONE (`2da9899dc`, 2026-08-10)
 
