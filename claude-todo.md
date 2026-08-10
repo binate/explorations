@@ -445,13 +445,25 @@ and the lowering machinery (`genPrintCall` + `emitPrint*`/`emitWrite*`; `gen_pri
 failed. See the done log.
 
 **Remaining (the follow-up the removal unblocks):**
-- **Clean up the bootstrap remainder.** With print/println gone, `bootstrap.Write` + the
-  private `format*` helpers have no callers — retire them and whatever else of `pkg/bootstrap`
-  is now dead (the whole point of retiring print/println).
-- **Stale `println` comment references.** A handful of comments still mention the removed
-  builtin — notably `cmd/bni/repl.bn`'s "type `println(...)` to print" REPL guidance (now
-  wrong) and a dangling `conformance/287` reference in `x64_float_test.bn`; also
-  `lower_cast.bn`, `gen_util.bn`, `rt_diag.bn`. Reword as part of the cleanup.
+- **Clean up the bootstrap remainder — 🟡 IN PROGRESS (per-consumer).** With print/println
+  gone, every mechanism that force-loaded/imported/registered `pkg/bootstrap` "just in case a
+  print/println lowering needs it" is dead. Being removed one consumer at a time, load side
+  first:
+  - ✅ Inc 1a — cmd/bnc load side (`appendBootstrapImport` + `ensureBootstrapLoaded` force-link),
+    landed `e9a4ac1e9`.
+  - ✅ Inc 1b — interp/VM-consumer load side (`appendBootstrapImport` + `EnsureBootstrapLoaded`
+    + its now-orphaned `interp.bni` export), landed `d18a69427`.
+  - Inc 1c — repl load side (`pkg/binate/repl/ir_imports.bn`'s own `appendBootstrapImport`).
+  - VM extern REGISTRATION removal (`registerBootstrapExterns` / `RegisterPureCExterns` public
+    API + callers + tests) — a distinct mechanism from the load side.
+  - VM native-only CLASSIFICATION removal (`IsNativeOnlyInVM`, the interface-only set) — pairs
+    with the surface deletion.
+  - Inc 2 — delete the now-callerless surface itself: `bootstrap.Write` + the private `format*`
+    helpers (`ifaces/core/pkg/bootstrap.bni`; impls under `impls/core/{libc,baremetal}`).
+  - Also sweep stale bootstrap-territory comments in `perf/runners/*.sh` + `BUNDLE-HOWTO.md`.
+- ✅ **Stale `println` comment references** — DONE (`26f2cbc24`): `cmd/bni/repl.bn`'s "type
+  `println(...)`" REPL guidance, the dangling `conformance/287` reference in `x64_float_test.bn`,
+  and the `lower_cast.bn` / `gen_util.bn` / `rt_diag.bn` mentions were all reworded/removed.
 
 **Residual (small, separable) — repl `.String()`:** wire `ensureLangLoaded` +
 `appendLangImport` into the repl's import setup
