@@ -1154,7 +1154,7 @@ Increments:
         cleanly, 987 was fail-loud pre-b4c); soft-float baremetal no regression; hygiene 19/19; review
         clean (the func-value/iface float param passes through untouched — the GP receiver/data prefix
         does not shift its VFP slot).  **With b4c, every conformance-covered inc 3f float shape on native
-        arm32-linux is handled.**
+        arm32-linux is handled EXCEPT the VFP-bank-spill argument overflow — see (b5).**
       - **(b4-cyclic) back-fill DOWN-MOVE cyclic parallel-move — ✅ DONE (`68ab7dd0d`, 2026-08-09).**
         A closure with mixed-width MULTIPLE float params AND a float capture can force an AAPCS-VFP
         back-fill reorder (a float32 param dropping into a float64's vacated hole — a 2-cycle the
@@ -1165,8 +1165,27 @@ Increments:
         (up-move, down-move, cycle) is clobber-free.  closureFloatParamUpShiftUnhandledArm32 no longer
         flags a down-move; only a genuine OUTGOING VFP-bank spill stays fail-loud.  New conformance
         1202 (float32 cap + (float64, float32) params) drives the exact 2-cycle (runs -> 253 on
-        soft-float; hard-float disasm confirms the staged move).  Review clean (0 findings).  **With
-        this the last inc 3f float shape is handled — NO documented fail-loud remains.**
+        soft-float; hard-float disasm confirms the staged move).  Review clean (0 findings).  **This
+        closes the non-overflow float shapes; ONE documented fail-loud remains — the VFP-bank-spill
+        ARGUMENT OVERFLOW (see (b5)).**
+      - **(b5) VFP-bank-spill ARGUMENT OVERFLOW through the shims — IN PROGRESS (2026-08-10).**
+        When a shim-dispatched call has MORE float scalar args than the AAPCS-VFP argument bank holds
+        (>8 doubles / >16 singles with back-fill), the overflow float(s) spill to the outgoing-args
+        stack — a shape the func-value / indirect call site (`callInstrUnhandledFloatB1Arm32`) and the
+        closure param path (`closureFloatParamUpShiftUnhandledArm32`) still fail LOUD on, because
+        `cc.CallArgFpReg` returns `hwSlot < 0` for the spilled float.  Conformance 707
+        (closure: 9 float captures + a float param, 2 overflow), 888 (non-capturing func value: 9
+        float args, 9th overflows), 926 (aggregate-return closure via a func pointer: 9 float args
+        overflow) — all still fail-loud on `builder-comp_native_arm32_linux`, confirmed 2026-08-10 by
+        a local `bnc -c --target arm32-linux --backend native` compile-check of current main (of the
+        26 tests that were failing on the last completed CI run, 23 now emit cleanly; these 3 remain).
+        The overflow-to-stack primitive already exists at the DIRECT-call level
+        (`emitCallArgFloatHard` returns false on VFP-file overflow and the bits fall through to the GP
+        path that places them at the outgoing stack offset, `arm32_call.bn`), and `vfpCallStackBytes`
+        already reserves the slots — the work is to route the shim/closure marshal paths through that
+        placement and narrow the two guards.  Runtime cannot be verified locally (no qemu-glibc
+        armhf); verification is compile + disasm + CI.  This is the remaining gate for the
+        `builder-comp_native_arm32_linux` promotion.
     Closing (b1b)+(b2)+(b3) unblocks the native `--test` unit sweep (the test-runner harness
     itself uses a float func-value shim → P7 prerequisite).
   - **(c) int64↔float casts under gnueabihf — ✅ DONE / NO CODE NEEDED (test `e02d8b24`,
@@ -1237,16 +1256,18 @@ Increments:
   Toolchain is auto-covered (mode string contains `arm32_baremetal`).
 - **DONE (`a0c4f301`, 2026-08-03):** `builder-comp_native_arm32_linux` wired into the
   conformance matrix as an **experimental** (non-blocking) entry, same pattern.
+- **DONE (`3f96a0557`, 2026-08-10):** promoted `builder-comp_native_arm32_baremetal`
+  to **blocking** (flipped `experimental` `true`→`false` in the conformance matrix).
+  Kept conformance-only (NOT added to `scripts/modesets/all`, since it needs
+  qemu-system-arm + clang); baremetal soft-float is fully green.
 - **Remaining:**
-  - Confirm the next CI run shows inc-3g + inc-3h cleared native arm32-linux end-to-end
-    (link wall AND the REL no-output bug both fixed); the residual should now be just the
-    inc-3f float-shape tail (~65 fail-loud shapes).
-  - Promote `builder-comp_native_arm32_baremetal` to a blocking `scripts/modesets/all`
-    entry — baremetal is FULLY GREEN (2863/0), so this prerequisite is MET; the promotion
-    itself is the remaining step.
-  - Promote `builder-comp_native_arm32_linux` to blocking once it is green in CI (gated on
-    inc 3f closing the float-shape tail — the native `--test` unit sweep is itself blocked
-    on inc-3f's float-through-shims, see inc 3g).
+  - Close the native_arm32_linux hard-float float-shape tail: the residual is now just
+    the VFP-bank-spill ARGUMENT OVERFLOW — conformance 707/888/926 (see inc 3f (b5)),
+    down from the earlier ~65 fail-loud shapes (b4a–cyclic cleared the rest; a local
+    `bnc -c` compile-check of current main confirmed 23 of the last-failing 26 now emit).
+  - Promote `builder-comp_native_arm32_linux` to blocking once it is green in CI (gated
+    on inc 3f (b5) closing the VFP-bank-spill overflow tail — the native `--test` unit
+    sweep is itself blocked on inc-3f's float-through-shims, see inc 3g).
   - Full unit-test sweep in the native modes.
 
 ## Adversarial review findings (post-P0/P1, 2026-07-01)
