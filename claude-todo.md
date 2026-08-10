@@ -270,11 +270,11 @@ Bug A `85f4851ad`, Bug B `b1490e2ca`).
 - **e2e conversions — ✅ DONE (`418f821ee`).** `e2e/bni-nil-check.sh` and
   `e2e/bni-test-nil.sh` are converted to `testing.Println`; the `--check-nil` /
   `--test` nil-deref fault now fires through the boxed field read, both green.
-  Remaining builtin holdouts before the print/println builtins can be removed:
-  `e2e/repl.sh` (an UNRELATED reason — its `println`/`print` are REPL *input* at the
-  `bni --repl` prompt, a separate REPL-input-capability question) and the
-  builtin-specific print/println conformance tests (001_hello + the four builtin
-  guards).
+  The last builtin holdouts have since cleared: `e2e/repl.sh` (its `println`/`print`
+  are REPL *input* at the `bni --repl` prompt) now runs `testing.Print/Println`
+  natively in the REPL (`526c41b5a`), and the builtin-specific print/println
+  conformance + spec tests were deleted (`765c8e33b`). Nothing in the test corpus
+  still exercises the builtins.
 - **Index-through-nil sibling — ✅ DONE (`9697cac73`).** `genBorrowSourceAddr`
   (`pkg/binate/ir/gen_util.bn`) now nil-checks a value-borrowed INDEX operand's base
   via `genIndexPtr(forDeref=true)`, so `ptr[i]` through a nil raw pointer faults under
@@ -282,10 +282,11 @@ Bug A `85f4851ad`, Bug B `b1490e2ca`).
   raw-pointer base was unchecked). Inert when `--check-nil` is off. Conformance 1200
   (the index sibling of 1199/1142).
 
-With both value-borrow nil-check siblings done (this + the e2e conversions above),
-what remains under this entry is only the final builtin-removal holdouts noted in the
-e2e bullet (`e2e/repl.sh` REPL-input + the builtin-specific print/println guard
-tests), which are a separate REPL-capability / builtin-guard question.
+With both value-borrow nil-check siblings done (this + the e2e conversions above)
+and the last builtin holdouts cleared (`526c41b5a`, `765c8e33b`), nothing under this
+entry remains open. Removing the print/println builtins from the compiler itself —
+and the unit tests of their implementation, which retire with them — is the separate
+remaining step.
 
 ### VM user-code faults — residual follow-ups (Plan 2 core is DONE) — 🟡 OPEN
 
