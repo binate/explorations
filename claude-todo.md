@@ -251,14 +251,27 @@ the converted repl.sh cases all reach testing via the **fixture** import, so non
 this. Consequence of the revert: prompt-importing testing at the prompt and then
 calling `testing.Print/Println` still crashes (fixture-import is fine).
 
-**Fix direction:** register ONLY the imported package's function signatures + extern
-entries on `s.MainGc` (the `FuncSigs` / `AddFunc` part of
-`ir.registerImportFieldsAndFuncs`, `gen_import.bn:298-373`) — NOT the full
-`RegisterImports` — OR instrument `buildCallArgs`' variadic-box decision to find the
-exact clobbered state and stop clobbering it. Then restore the mid-session
-signature registration in `pkg/binate/repl/mid_session_import.bn` and re-add an
-`e2e/repl.sh` guard that prompt-imports testing (against a no-`testing` fixture) then
-boxes a **prompt-defined** type (not just an `int`).
+**Func-sig-only registration was TRIED and does NOT fix it (2026-08-09).** Added a
+`funcSigsOnly` path to `ir.registerImportFieldsAndFuncs` + a public
+`ir.RegisterImportFuncSigs` that registers ONLY the callable surface
+(function/method signatures, `__Package`, constants) and skips the imported
+struct/impl/interface/type-alias tables, and wired it into
+`mid_session_import.bn`. Result: `import testing → testing.Println(int)` works, but
+`import testing → box a prompt-defined type` STILL SIGSEGVs. So the box-elision is
+caused by the **function-signature / `mod.AddFunc` registration ITSELF**, not the
+type-table registration hypothesized above — registering `testing.Println`'s
+`...*any` sig on `s.MainGc` is enough to make the NEXT prompt turn stop boxing a
+prompt-defined operand. Reverted (not landed).
+
+**Fix direction (revised):** instrument the variadic-box decision — `emitVariadicTail`
+(`gen_variadic.bn`) → the per-element coercion to `*any` → the `isUniverseAny`
+box-emit in `gen_iface.bn:408-424` — to find WHY a prompt-defined operand is left
+unboxed once `s.MainGc.FuncSigs` (and/or `s.MainMod.Funcs` via `AddFunc`) carries the
+imported callee. Suspects: a `FuncSigs`/extern lookup during the box decision that
+mis-resolves the operand's type, or an ordering/index effect from `AddFunc`. Then
+restore the mid-session signature registration and re-add an `e2e/repl.sh` guard that
+prompt-imports testing (no-`testing` fixture) and boxes a **prompt-defined** type
+(not just an `int`).
 
 ## VM runtime faults & the rt.Exit/abort/panic paradigm
 
