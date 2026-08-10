@@ -1,6 +1,6 @@
 # Plan: native arm32 backend (`pkg/binate/native/arm32`)
 
-Status: **P0–P5 DONE** — baremetal soft-float is FULLY GREEN (`builder-comp_native_arm32_baremetal` 2851/0, only the legit `982_c_global_environ` xfail). **P6 (VFP + hard-float, `arm32-linux` native) is IN PROGRESS** — the VFP encoders (`ba040890`), hard-float activation (`e021425c`), and REL relocs (`4ab2315a`) landed; inc 3f float-through-shims is closing shape-by-shape — scalar-float-through-shims (b1/b1b), float-in-single-aggregate (b2, `e1b8ef42`), float-leaf-in-multi-return (b3, `8fa0f3956`), float-scalar-CAPTURES-in-closures (b4a, `82c7bb803`), float-user-param-VFP-up-shift (b4b, `417b502f3`), and func-value-spill-scalar-float-param (b4c, `51d10c617`) are DONE — so EVERY conformance-covered inc 3f float shape on native arm32-linux is now handled.  The open tail is HFA-in-VFP (inc 3f a) and one v2 item with no conformance test (the back-fill down-move cyclic parallel-move for mixed-width multi-float-param + float-capture closures, currently a documented fail-loud).  P7 (blocking-modeset promotion + unit sweep) after — pending a green CI run of `builder-comp_native_arm32_linux`. (Started 2026-07-01.) Goal: a native (direct
+Status: **P0–P5 DONE** — baremetal soft-float is FULLY GREEN (`builder-comp_native_arm32_baremetal` 2851/0, only the legit `982_c_global_environ` xfail). **P6 (VFP + hard-float, `arm32-linux` native) is IN PROGRESS** — the VFP encoders (`ba040890`), hard-float activation (`e021425c`), and REL relocs (`4ab2315a`) landed; inc 3f float-through-shims is closing shape-by-shape — scalar-float-through-shims (b1/b1b), float-in-single-aggregate (b2, `e1b8ef42`), float-leaf-in-multi-return (b3, `8fa0f3956`), float-scalar-CAPTURES-in-closures (b4a, `82c7bb803`), float-user-param-VFP-up-shift (b4b, `417b502f3`), func-value-spill-scalar-float-param (b4c, `51d10c617`), and the back-fill down-move cyclic parallel-move (b4-cyclic, `68ab7dd0d`, conformance 1202) are DONE — so EVERY inc 3f float shape on native arm32-linux is now handled, with NO documented fail-loud remaining.  The open tail is HFA-in-VFP (inc 3f a).  P7 (blocking-modeset promotion + unit sweep) after — pending a green CI run of `builder-comp_native_arm32_linux`. (Started 2026-07-01.) Goal: a native (direct
 IR→object) code generator for 32-bit ARM, hooked up analogously to the
 existing **LLVM** arm32 path — i.e. serving BOTH `--target arm32-baremetal`
 and `--target arm32-linux`, run under QEMU by the same runners, but with the
@@ -1108,13 +1108,18 @@ Increments:
         clean (the func-value/iface float param passes through untouched — the GP receiver/data prefix
         does not shift its VFP slot).  **With b4c, every conformance-covered inc 3f float shape on native
         arm32-linux is handled.**
-      - **(b4c-deferred / v2) back-fill DOWN-MOVE cyclic parallel-move — OPEN, NO conformance test.**
+      - **(b4-cyclic) back-fill DOWN-MOVE cyclic parallel-move — ✅ DONE (`68ab7dd0d`, 2026-08-09).**
         A closure with mixed-width MULTIPLE float params AND a float capture can force an AAPCS-VFP
         back-fill reorder (a float32 param dropping into a float64's vacated hole — a 2-cycle the
-        monotonic descending-order up-shift can't do clobber-free).  `closureFloatParamUpShiftUnhandledArm32`
-        fail-louds it (down-move detection).  No conformance test exercises this shape, so it stays a
-        documented fail-loud; the real fix is a memory-staged (VSTR-then-VLDR) or scratch-based parallel
-        move — a v2 item.
+        earlier single-order VMOV up-shift couldn't do clobber-free).  emitClosureParamVfpUpShiftArm32
+        now does a cycle-agnostic MEMORY-STAGED parallel move: reserve a scratch stack area (balanced
+        SUB/ADD sp), VSTR every incoming float param to its slot, VLDR every one into its outgoing VFP
+        register — every incoming value reaches memory before any outgoing write, so any permutation
+        (up-move, down-move, cycle) is clobber-free.  closureFloatParamUpShiftUnhandledArm32 no longer
+        flags a down-move; only a genuine OUTGOING VFP-bank spill stays fail-loud.  New conformance
+        1202 (float32 cap + (float64, float32) params) drives the exact 2-cycle (runs -> 253 on
+        soft-float; hard-float disasm confirms the staged move).  Review clean (0 findings).  **With
+        this the last inc 3f float shape is handled — NO documented fail-loud remains.**
     Closing (b1b)+(b2)+(b3) unblocks the native `--test` unit sweep (the test-runner harness
     itself uses a float func-value shim → P7 prerequisite).
   - **(c) int64↔float casts under gnueabihf — ✅ DONE / NO CODE NEEDED (test `e02d8b24`,
