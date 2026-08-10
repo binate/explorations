@@ -213,6 +213,53 @@ Remaining increments (all parked, none started):
   (`done/plan-repl-kernel.md` Decision #4); untouched. Full side-effect capture is
   impossible in general.
 
+### REPL: mid-session `import` then boxing a prompt-defined type into a variadic SIGSEGVs — 🔴 OPEN MAJOR (found 2026-08-09)
+
+**Severity: MAJOR** — in `bni --repl`, after a mid-session prompt `import "pkg/foo"`
+(ANY package — `repldemo`, `pkg/builtins/testing`, …), boxing a **prompt-defined**
+type into a `...*any` variadic segfaults. Repro (exit 139):
+```
+import "pkg/builtins/testing"   # against a fixture that does NOT already import it
+type Fahr int
+var f Fahr
+f = 451
+testing.Println(f)              # crash
+```
+Discriminators: no-import → box a prompt type = OK; import → box `int` = OK; import →
+box a **new** prompt-defined type = SIGSEGV (a `BC_STORE64` through null in the
+variadic pack — the operand was never boxed into `*any`).
+
+**Root cause (narrowed, not fully mechanized):** the fix for "prompt-import testing so
+the *prompt* can call `testing.Print/Println`" needs the imported package's function
+**signatures** registered on the session's main gen ctx (so a `...*any` call knows its
+shape). Doing that via `ir.RegisterImports(..., s.MainGc)` (mirroring
+`registerMainImports`) works for the signature (an `int` arg boxes fine) but has a
+**box-elision side effect**: the *next* prompt turn's `GenSyntheticFunc` no longer
+emits the `...*any` box for a prompt-defined operand (`preImpls == postGenImpls`, no
+`T:any` impl appended), so the raw value lands in the variadic slice → null store.
+`RegisterImports` is heavyweight (it also registers imported structs / impls /
+interfaces / type-aliases into the live `MainMod`); the culprit is one of those,
+not the func-sig registration itself. The init path avoids it because
+`GeneratePackage` runs after `registerMainImports`, whereas the mid-session path
+goes straight to the next prompt.
+
+**Discovered:** adversarial review of the print/println → testing.Print/Println
+conversion of `e2e/repl.sh` (the review caught that a too-narrow guard case only
+boxed an `int`). The RegisterImports approach was **reverted** before landing
+(commit `526c41b5a` ships only the session interface-only + `LowerNewImpls` fixes);
+the converted repl.sh cases all reach testing via the **fixture** import, so none need
+this. Consequence of the revert: prompt-importing testing at the prompt and then
+calling `testing.Print/Println` still crashes (fixture-import is fine).
+
+**Fix direction:** register ONLY the imported package's function signatures + extern
+entries on `s.MainGc` (the `FuncSigs` / `AddFunc` part of
+`ir.registerImportFieldsAndFuncs`, `gen_import.bn:298-373`) — NOT the full
+`RegisterImports` — OR instrument `buildCallArgs`' variadic-box decision to find the
+exact clobbered state and stop clobbering it. Then restore the mid-session
+signature registration in `pkg/binate/repl/mid_session_import.bn` and re-add an
+`e2e/repl.sh` guard that prompt-imports testing (against a no-`testing` fixture) then
+boxes a **prompt-defined** type (not just an `int`).
+
 ## VM runtime faults & the rt.Exit/abort/panic paradigm
 
 ### Finish the builtin-`println` nil-deref holdouts + index-through-nil value-borrow nil-check — 🟢 LOW (2026-08-09)
