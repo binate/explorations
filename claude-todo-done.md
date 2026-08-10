@@ -6,6 +6,39 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## print/println → testing.Println: the CONFORMANCE corpus is fully converted + a hygiene check guards it — ✅ DONE (2026-08-08..09)
+
+Every conformance test now prints via `pkg/builtins/testing`'s testing.Print/Println
+instead of the print/println BUILTINS (which mirror them byte-for-byte). Landed in
+batches across the WHOLE corpus — not just the top-level `conformance/*.bn` a first
+pass covered, but every tier: the top-level single-file tests, the multi-package
+`NNN_name/` tests, the `spec/` (760) / `regressions/` / `stdlib/` single-file trees,
+and the 745 `conformance/matrix/` cells — the last fixed at their 15 `gen-*.py`
+GENERATORS (emit testing.Println + add the import) so regeneration can't revert them.
+
+001_hello is an ordinary converted test again: the `fetch-builder` hygiene smoke that
+used to compile it with the pinned BUILDER (which predates testing.Println) now
+compiles its OWN self-contained `fmt.Println` canary, decoupling the tooling from the
+conformance suite. (The earlier "001_hello is a permanent builtin exclusion" framing
+was wrong — it was only an artifact of that coupling.)
+
+Convert-only, NO bnfmt (conformance is excluded from bnfmt-format, and bnfmt was
+corrupting const array dimensions — a bug found here, since fixed). Each batch
+validated 0-failed in builder-comp + builder-comp-int; the whole corpus multi-run for
+UAF-style flakiness (one latent use-after-free, 055/098, was fixed — own the
+make_slice backing so the raw field's borrow stays valid).
+
+**Guarded going forward:** `scripts/hygiene/conformance-builtin-print.sh` fails if any
+`conformance/**/*.bn` uses the bare print/println builtin, except a small allowlist
+(`conformance-builtin-print.allow`): the four builtin-behavior tests (101/287/317/428)
+and `181_err_spread_builtin` (a spread-into-a-non-variadic negative test the
+real-variadic testing.Println can't express). 1125/1142 converted once their any-box
+value/nil-check bugs were fixed (see the any-boxing done entry).
+
+Remaining builtin users OUTSIDE conformance (tracked in the todo): a couple of e2e
+fixtures + the REPL-input scripts, and — once the builtins are actually removed — the
+5 allowlisted builtin-behavior/negative tests, which retire WITH the builtins.
+
 ## `any`-boxing of a pointer-deref / field-access into `*any` — wrong value (Bug A) + skipped nil-check (Bug B) — ✅ DONE (Bug A `85f4851ad`, Bug B `b1490e2ca`, 2026-08-09)
 
 The original entry conflated TWO distinct root causes in the implicit value-borrow
