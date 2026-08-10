@@ -1,6 +1,6 @@
 # Plan: native arm32 backend (`pkg/binate/native/arm32`)
 
-Status: **P0–P5 DONE** — baremetal soft-float is FULLY GREEN (`builder-comp_native_arm32_baremetal` 2851/0, only the legit `982_c_global_environ` xfail). **P6 (VFP + hard-float, `arm32-linux` native) is IN PROGRESS** — the VFP encoders (`ba040890`), hard-float activation (`e021425c`), and REL relocs (`4ab2315a`) landed; inc 3f float-through-shims is closing shape-by-shape — scalar-float-through-shims (b1/b1b), float-in-single-aggregate (b2, `e1b8ef42`), float-leaf-in-multi-return (b3, `8fa0f3956`), float-scalar-CAPTURES-in-closures (b4a, `82c7bb803`), and float-user-param-VFP-up-shift (b4b, `417b502f3`) are DONE; the open tail is HFA-in-VFP (inc 3f a) and b4c — the func-value over-budget/VFP-bank-spill scalar-float-param marshal (986/987) plus the deferred cyclic (back-fill down-move) parallel-move. P7 (blocking-modeset promotion + unit sweep) after. (Started 2026-07-01.) Goal: a native (direct
+Status: **P0–P5 DONE** — baremetal soft-float is FULLY GREEN (`builder-comp_native_arm32_baremetal` 2851/0, only the legit `982_c_global_environ` xfail). **P6 (VFP + hard-float, `arm32-linux` native) is IN PROGRESS** — the VFP encoders (`ba040890`), hard-float activation (`e021425c`), and REL relocs (`4ab2315a`) landed; inc 3f float-through-shims is closing shape-by-shape — scalar-float-through-shims (b1/b1b), float-in-single-aggregate (b2, `e1b8ef42`), float-leaf-in-multi-return (b3, `8fa0f3956`), float-scalar-CAPTURES-in-closures (b4a, `82c7bb803`), float-user-param-VFP-up-shift (b4b, `417b502f3`), and func-value-spill-scalar-float-param (b4c, `51d10c617`) are DONE — so EVERY conformance-covered inc 3f float shape on native arm32-linux is now handled.  The open tail is HFA-in-VFP (inc 3f a) and one v2 item with no conformance test (the back-fill down-move cyclic parallel-move for mixed-width multi-float-param + float-capture closures, currently a documented fail-loud).  P7 (blocking-modeset promotion + unit sweep) after — pending a green CI run of `builder-comp_native_arm32_linux`. (Started 2026-07-01.) Goal: a native (direct
 IR→object) code generator for 32-bit ARM, hooked up analogously to the
 existing **LLVM** arm32 path — i.e. serving BOTH `--target arm32-baremetal`
 and `--target arm32-linux`, run under QEMU by the same runners, but with the
@@ -1095,14 +1095,26 @@ Increments:
         dropping into a float64's vacated hole — a 2-cycle the descending-order shift can't do
         clobber-free); fixed PRE-LANDING by the down-move fail-loud (nothing shipped), re-review
         clean.  The general cyclic parallel-move is deferred to b4c.**
-      - **(b4c) scalar float PARAM through the over-budget spill / VFP-bank-spill + the deferred
-        cyclic parallel-move — OPEN.**  (i) The FUNC-VALUE over-budget spill (`emitFuncvalSpillShimArm32`)
-        still guards `funcValueShimHasScalarFloatParamArm32` fail-loud; with the b4b marshal float-skip
-        a funcvalue float param would now be skipped + pass through (no captures), so narrow that guard
-        and verify 986/987 (float scalar param + SSE/agg param via iface/spill).  (ii) The back-fill
-        DOWN-MOVE case in closures (b4b defers it fail-loud): replace with a real parallel move
-        (memory-staged VSTR-then-VLDR, cycle-agnostic) IF any conformance test needs it — else keep the
-        documented fail-loud as a v2 item.
+      - **(b4c) scalar float PARAM through the func-value over-budget spill — ✅ DONE (`51d10c617`,
+        2026-08-09).**  The func-value over-budget spill (`emitFuncvalSpillShimArm32`) blanket-fail-loud'd
+        any scalar float param, but b4b's marshal float-skip means a func value (no captures) passes its
+        float param through untouched — narrowed the guard to fail-loud only on a VFP-bank-spilling float
+        param (a self-defending backstop; the func-value top guard already catches it), and removed the
+        now-dead `funcValueShimHasScalarFloatParamArm32`.  Clears 987 (iface method `mix(s float64, v D2)
+        int` — a float scalar param + a GP-coerced SSE-aggregate param through a method shim that
+        over-budget-spills); 986 (closure `makeMixed`) was already handled by b4b.  Verified: unit (new
+        TestFuncValueShimFloatParamSpillHardLowers); hard-float compile-only e2e (986 AND 987 emit
+        cleanly, 987 was fail-loud pre-b4c); soft-float baremetal no regression; hygiene 19/19; review
+        clean (the func-value/iface float param passes through untouched — the GP receiver/data prefix
+        does not shift its VFP slot).  **With b4c, every conformance-covered inc 3f float shape on native
+        arm32-linux is handled.**
+      - **(b4c-deferred / v2) back-fill DOWN-MOVE cyclic parallel-move — OPEN, NO conformance test.**
+        A closure with mixed-width MULTIPLE float params AND a float capture can force an AAPCS-VFP
+        back-fill reorder (a float32 param dropping into a float64's vacated hole — a 2-cycle the
+        monotonic descending-order up-shift can't do clobber-free).  `closureFloatParamUpShiftUnhandledArm32`
+        fail-louds it (down-move detection).  No conformance test exercises this shape, so it stays a
+        documented fail-loud; the real fix is a memory-staged (VSTR-then-VLDR) or scratch-based parallel
+        move — a v2 item.
     Closing (b1b)+(b2)+(b3) unblocks the native `--test` unit sweep (the test-runner harness
     itself uses a float func-value shim → P7 prerequisite).
   - **(c) int64↔float casts under gnueabihf — ✅ DONE / NO CODE NEEDED (test `e02d8b24`,
