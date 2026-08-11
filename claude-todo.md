@@ -456,15 +456,23 @@ failed. See the done log.
   - ✅ Inc 1c — repl load side (`ir_imports.bn` `appendBootstrapImport` + `util.bn`
     `ensureBootstrapLoaded` force-load + call sites) plus the repl package's stale-`println`
     comment stragglers, landed `d8f575dc1`.
-  - VM extern REGISTRATION removal (`registerBootstrapExterns` / `RegisterPureCExterns` public
-    API + callers + tests) — a distinct mechanism from the load side.  Its stale-`println`
-    comments (`pkg/binate/interp/externs.bn` + `externs_test.bn`; `pkg/binate/vm/
-    extern_test_helpers_test.bn`) go with it (removed alongside the code, so left as-is for now).
-  - VM native-only CLASSIFICATION removal (`IsNativeOnlyInVM`, the interface-only set) — pairs
-    with the surface deletion.
-  - Inc 2 — delete the now-callerless surface itself: `bootstrap.Write` + the private `format*`
-    helpers (`ifaces/core/pkg/bootstrap.bni`; impls under `impls/core/{libc,baremetal}`).  Its
-    stale-`println` comments go with the deletion (left as-is for now).
+  - ✅ VM extern REGISTRATION removal — the six dead `bootstrap.Write`/`format*` VM-extern
+    bindings (`registerBootstrapExterns` + public `RegisterPureCExterns` + 4 callers + 2 tests),
+    landed `ad0d5c987`.  Kept `bootstrap.__Package` (the reflect descriptor) + the native-only
+    classification, both deliberately out of scope.  Full `builder-comp-int` stayed green (2899/0).
+  - ✅ Decoupled the last user importer of `pkg/bootstrap` — `conformance/708` now reflects over
+    `pkg/builtins/startup.__Package` instead of `bootstrap.__Package`, landed `22e7a614f`.  Only
+    two `import "pkg/bootstrap"` sites remain (`interp/externs.bn`, `vm/extern_test_helpers_test.bn`),
+    both for the `bootstrap.__Package` descriptor binding.
+  - VM native-only CLASSIFICATION removal (`IsNativeOnlyInVM`, the interface-only set listing
+    `pkg/bootstrap`) — pairs with the surface deletion.
+  - Inc 2 — delete the surface.  With 708 decoupled this is now a clean choice (needs a user
+    decision): (a) delete `bootstrap.Write` + `format*` only, leaving `pkg/bootstrap` as an
+    essentially-empty shell that still exists for its synthesized `__Package`; or (b) delete the
+    whole `pkg/bootstrap` package, which also drops the two `bootstrap.__Package` bindings +
+    imports (nothing calls that descriptor anymore).  Surface lives in `ifaces/core/pkg/
+    bootstrap.bni` + `impls/core/{libc,baremetal}/pkg/bootstrap/`.  Its stale-`println` comments
+    go with the deletion.
   - Also sweep stale bootstrap-territory comments in `perf/runners/*.sh` + `BUNDLE-HOWTO.md`.
 - 🟡 **Stale `println` comment references** — PARTIAL.  `26f2cbc24` reworded the first batch
   (`cmd/bni/repl.bn` REPL guidance, `conformance/287` in `x64_float_test.bn`, `lower_cast.bn` /
