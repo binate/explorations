@@ -6,6 +6,54 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Named 64-bit integer literal truncated to 32 bits on arm32 (ILP32) — ✅ FIXED (2026-08-11, `767a556e7`)
+
+**Was: MAJOR silent miscompile (data corruption).** An untyped integer literal
+assigned/coerced to a NAMED integer type (`type Wide uint64`) was materialized
+at the default `int` width and widened only afterward — LLVM `add i32 <v>, 0`
+then `zext i32 to i64` — dropping any bits beyond `int`. On a 32-bit target
+(`int` == i32) a named 64-bit integer literal > 2^31 lost its high word:
+`var w Wide = 18446744073709551615` read back `4294967295`. Plainly-typed
+integers (materialized at the correct width directly) and named floats (widths
+read from `.Underlying` by `typeWidth`) were unaffected — which is why all
+64-bit modes stayed green and only arm32 failed.
+
+**Root cause.** `genExprOrFuncRef` (var-init RHS, `gen_util.bn`) and
+`genIntLitWithHint` (binop/builtin operands) gate the direct correct-width
+literal path (`EmitConstInt64(v, target)`) on `isTypedInt(target) &&
+needsHintNarrowing(target)` then `intFitsInType(v, target)`. Those three
+predicates (`pkg/binate/ir/gen_util_literals.bn`) classified only bare `TYP_INT`
+and never peeled `TYP_NAMED` to its `.Underlying`, so a named integer target was
+skipped and fell back to the truncating default-width path. (`typeWidth`,
+`gen_binary.bn:443`, already peeled named types; these three did not.)
+
+**Fix.** Peel `TYP_NAMED → .Underlying` at the top of `isTypedInt`,
+`needsHintNarrowing`, and `intFitsInType`, mirroring `typeWidth`. 3 lines. The
+review confirmed both backends already peel `TYP_NAMED` downstream
+(`llvmType`/`typeBits`/`isUnsigned`; native arm32 `StripWrappers`/`isReg64Scalar`),
+so passing the un-peeled named type to `EmitConstInt64` remains correct.
+
+**Discovery / verification.** Surfaced by `conformance/1201_testing_named_scalar`
+(added `7e0e6df90`), which was the first test to route a named uint64 through
+`testing.Println` on arm32. Reproduced + root-caused (via `--emit-llvm`) on
+arm32/linux under docker (`--platform linux/amd64` ubuntu +
+`gcc-arm-linux-gnueabihf` + `qemu-user-static`). Fix verified green on both
+gating LLVM arm32 lanes (`builder-comp_arm32_linux`, `builder-comp_arm32_baremetal`),
+host, and `pkg/binate/ir` unit tests; hygiene 19/19.
+
+**Tests.** `conformance/1208_named_int64_literal_width` pins the defect directly
+(named uint64/int64 literals > 2^31 compared against a plainly-typed reference,
+high word printed via the unaffected uint32 path — false/0 before, true/<hi>
+after). Also unreds `conformance/1201_testing_named_scalar` on every arm32 mode.
+
+**Optional follow-ups (from the adversarial review, not blocking).** (a) The peel
+covers only `TYP_NAMED`, not `TYP_READONLY`/`TYP_ALIAS` — consistent with
+`typeWidth`'s existing behavior, and no reachable case was found (scalar aliases
+collapse to bare `TYP_INT` at IR-gen), but `peelTransparent` would be more robust
+if a `readonly`/alias wide-int target ever reaches these predicates. (b) 1208
+exercises the var-decl path; broader coverage (named wide int at a struct-field
+init / return / binop operand) could be added.
+
 ## `pkg/bootstrap` fully retired + deleted — the whole arc (print/println removal → package deletion → binate_runtime.c) — ✅ DONE (2026-08-09..11)
 
 `pkg/bootstrap` is GONE from `main`, and with it the last bespoke C runtime. The

@@ -33,58 +33,6 @@ test: a compiled/native higher-order fn calling a VM callback that indexes OOB, 
 the program aborts (not returns 0). Tracked against Plan 2
 (`explorations/done/plan-rt-fault-cleanup-pads.md`).
 
-### Named 64-bit integer literal truncated to 32 bits on arm32 (ILP32) — 🟠 OPEN MAJOR, ROOT-CAUSED + fix validated (found 2026-08-11)
-
-**Severity: MAJOR** — a silent miscompile (data corruption), not a `testing`
-bug. Surfaced as a NEW conformance failure on previously-green modes; blocks a
-clean `bnc-0.0.13` release (reddens every gating arm32 conformance lane). The
-FAILURE was surfaced by my own `conformance/1201_testing_named_scalar`
-(`7e0e6df90`); the underlying DEFECT is a long-standing codegen bug the test
-happened to be the first to exercise on a 32-bit target.
-
-**Symptom.** `conformance/1201_testing_named_scalar` passes on all 64-bit
-targets (x64, aa64) but FAILS on every arm32 lane. Reproduced on arm32/linux
-under docker (`--platform linux/amd64` ubuntu + `gcc-arm-linux-gnueabihf` +
-`qemu-user-static`, `conformance/run.sh builder-comp_arm32_linux`): the only
-diverging line is `Wide uint64 = 18446744073709551615`, which prints
-`4294967295` (= `0xFFFFFFFF`, the low word). The named FLOAT (`2.5`) and the
-non-named `uint64` are BOTH correct — so it is neither a general 64-bit boxing
-nor a `reflect`/`testing` read problem (isolation probes confirmed the box
-stores 8 bytes and `bit_cast(*uint64,p)[0]` reads all 8 back intact).
-
-**Root cause (CONFIRMED via `--emit-llvm`).** An untyped integer literal
-assigned/coerced to a NAMED integer target is materialized at the default `int`
-width and widened after the fact — `add i32 <v>, 0` then `zext i32 to i64` —
-baking in truncation of any value that doesn't fit in `int` (i32 on arm32). A
-plainly-typed `uint64` target emits `add i64 <v>, 0` directly. The divergence is
-`genExprOrFuncRef` (var-init RHS, `pkg/binate/ir/gen_util.bn:275`) /
-`genIntLitWithHint` gating the direct-width path on `isTypedInt(target) &&
-needsHintNarrowing(target)`; `isTypedInt` / `needsHintNarrowing` /
-`intFitsInType` (`pkg/binate/ir/gen_util_literals.bn`) classify only bare
-`TYP_INT` and never peel `TYP_NAMED` to its `.Underlying`, so a named integer
-target is skipped and falls back to the truncating default-width path.
-(`typeWidth`, `gen_binary.bn:443`, already peels named types — these three did
-not.) Named floats are unaffected because their width is read from `.Underlying`
-by `typeWidth`, and non-named integers hit the direct path.
-
-**Blast radius.** Any untyped integer literal (or checker-folded constant expr)
-assigned to a named integer type whose underlying width exceeds the target's
-`int` width — 32-bit targets: `type X int64/uint64` with a value > 2^31.
-Boxed or not; the box just faithfully stores the already-truncated value.
-
-**Fix (validated, on `work-6` as `5e9e2d165`).** Peel `TYP_NAMED` →
-`.Underlying` at the top of `isTypedInt`, `needsHintNarrowing`, and
-`intFitsInType`, mirroring `typeWidth`. With the fix, gen1 recompiles 1201 and
-it prints `18446744073709551615` on arm32/linux; a host `builder-comp` smoke
-(named-scalar / untyped-box / sizeof / unsigned-shift, 16 tests) stays green.
-BUILDER-safe (no new language features). NOT yet landed — needs cherry-pick
-approval.
-
-**Test:** `conformance/1201_testing_named_scalar` covers it (via
-`testing.Println`); consider a follow-up test that pins the round-trip directly
-(store a named uint64 > 2^31, print its two 32-bit halves) independent of the
-formatting path.
-
 ## Documentation hygiene
 
 ### Code comments reference only normative docs + TODOs; rehome the implementation "specs" — 🟡 OPEN
