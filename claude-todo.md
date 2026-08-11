@@ -330,13 +330,6 @@ libc/baremetal impls split). Follow-ups:
   `--runtime` args — and migrate the bare-metal crt0.s/semihost.s/baremetal.ld
   delivery off `dirOf(--runtime)` to a flag-free anchor (primaryRoot +
   `runtime/baremetal_arm32`, or `--link-after-objs`).
-- **Possibly-dead `Free` sentinel branch.** `rt.bn` / `rt_baremetal.bn`'s
-  `if header[1] == 0 { RawFree }` — the only producer of a `header[1]==0` was
-  the C-side `managed_alloc` (gone with binate_runtime.c), and `Alloc` always
-  sets `FreeFn = _func_handle(RawFree)`. Check for any live producer; if none,
-  the branch is dead/defensive-only (remove, or keep as a documented guard for
-  zero-initialized backing).
-
 One goal remains genuinely unbuilt:
 - **Native syscall allocator for bare metal** — step 3.7's optional pure-Binate /
   syscall-backed allocator so a truly libc-free bare-metal image (no `__c_call`

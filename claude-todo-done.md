@@ -37,8 +37,13 @@ bindings, Inc 2a `ccc70f2ae`; then the package itself + runtime + config, Inc 2b
 **binate_runtime.c + native_test_stubs.c deleted** (`6f58f32fd` + `53fe13137`,
 2026-08-11) — bnc links no C runtime (pure-Binate rt + startup); native link-test
 stubs replaced by `#[c_export]("main")` on the emitted entry. Residual `--runtime`
-no-op + `Free` sentinel follow-ups tracked under the open todo "Eliminate the last C
-runtime shim".
+no-op follow-up tracked under the open todo "Eliminate the last C runtime shim". The
+`Free` `if header[1]==0 { RawFree }` sentinel was investigated (`fae15b44e`) and
+confirmed **spec-supported, not dead**: per §18.2/§7b `free_fn` is the
+allocator-chosen deallocation step, so `free_fn==0` = "unspecified → default
+RawFree" — a valid state independent of immortality (immortal static data also
+carries `free_fn==0`, but a negative *refcount*, not `free_fn`, guards it in
+`RefDec`). Kept; the comment was reworded to say so.
 
 **IsCExtern dead-machinery removal** (`62e5817e9`, 2026-08-11) — the `ir.Func.IsCExtern`
 field, `CalleeUsesCSret`/`CExternSretBytes` (native/common), and the always-false sret
