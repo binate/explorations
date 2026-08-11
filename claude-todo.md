@@ -464,16 +464,34 @@ failed. See the done log.
     `pkg/builtins/startup.__Package` instead of `bootstrap.__Package`, landed `22e7a614f`.  Only
     two `import "pkg/bootstrap"` sites remain (`interp/externs.bn`, `vm/extern_test_helpers_test.bn`),
     both for the `bootstrap.__Package` descriptor binding.
-  - VM native-only CLASSIFICATION removal (`IsNativeOnlyInVM`, the interface-only set listing
-    `pkg/bootstrap`) — pairs with the surface deletion.
-  - Inc 2 — delete the surface.  With 708 decoupled this is now a clean choice (needs a user
-    decision): (a) delete `bootstrap.Write` + `format*` only, leaving `pkg/bootstrap` as an
-    essentially-empty shell that still exists for its synthesized `__Package`; or (b) delete the
-    whole `pkg/bootstrap` package, which also drops the two `bootstrap.__Package` bindings +
-    imports (nothing calls that descriptor anymore).  Surface lives in `ifaces/core/pkg/
-    bootstrap.bni` + `impls/core/{libc,baremetal}/pkg/bootstrap/`.  Its stale-`println` comments
-    go with the deletion.
-  - Also sweep stale bootstrap-territory comments in `perf/runners/*.sh` + `BUNDLE-HOWTO.md`.
+  - ✅ VM native-only CLASSIFICATION removal + the `bootstrap.__Package` descriptor bindings —
+    Inc 2a, landed `ccc70f2ae`.  Removed `IsNativeOnlyInVM`/`isCompiled` bootstrap special-cases,
+    `NativeOnlyInterfacePaths`/`New` interface-only pushes, `repl/session.bn`'s list entry, the
+    IR-gen `IsCExtern` hints (×3), the two `bootstrap.__Package` bindings + imports, and the
+    classification unit tests.  The compiler tree now has ZERO symbol/classification refs to
+    `pkg/bootstrap`.  User chose option **(b)** (delete the whole package).  Full unit
+    builder-comp 64/0 + builder-comp-int 52/0.
+  - **Inc 2b — delete the `pkg/bootstrap` package itself + runtime + config (option b).** REMAINING:
+    - Delete `ifaces/core/pkg/bootstrap.bni` + `impls/core/{libc,baremetal}/pkg/bootstrap/`.
+    - Remove the `bn_..._Write` C runtime def from `runtime/binate_runtime.c` + the arm32
+      `runtime/baremetal_arm32/semihost.s` variant.  **Verify no BUILDER bump needed** — `cmd/bnc`
+      doesn't import bootstrap and `bootstrap.Write` has zero callers, so the symbol is dead; confirm
+      empirically by a full conformance run across all stages (gen1 = BUILDER-compiled bnc).
+    - Update build/tier/whitelist config naming `pkg/bootstrap`: `scripts/binate-paths.sh`,
+      `build-*.sh`, `scripts/hygiene/{pkg-tiers.sh,conformance-imports.whitelist,naming.whitelist,
+      test-coverage.whitelist,version-sync.sh,lint.sh}`, `scripts/lib/build-compilers.sh`,
+      `perf/runners/*.sh`, the CI `hygiene.yml`, `e2e/*.sh` search paths.
+    - Sweep the remaining stale bootstrap doc comments (`repl/session.bn:133,193,195`
+      `bootstrap.Write` examples; `cmd/bni/main.bn`, `cmd/bnc/main.bn`, `loader.bn`, `vm/extern*`,
+      `codegen/emit.bn`) + `BUNDLE-HOWTO.md`.
+    - **Mangle/codegen test-fixture decision (user):** `emit_test.bn` `TestMangleFuncNameBootstrap`
+      (expects `bn_F2_3_pkg9_bootstrap1_5_Write`), `x64_call_test.bn`, `x64_float_test.bn`,
+      `emit_funcvals_shim_test.bn`, `common_callconv_return_test.bn` use `"pkg/bootstrap.X"` as
+      test-INPUT strings with pinned expected mangled/codegen outputs.  They don't break on deletion
+      (they test the mangler/codegen on an arbitrary string), but name a deleted pkg — retarget to a
+      live symbol (recompute the pinned outputs) or leave as mechanism fixtures?
+    - Follow-up (separate, later): `IsCExtern` now has ZERO production writers (Inc 2a removed the
+      last one) — its codegen/native readers are now dead; consider removing the field + readers.
 - 🟡 **Stale `println` comment references** — PARTIAL.  `26f2cbc24` reworded the first batch
   (`cmd/bni/repl.bn` REPL guidance, `conformance/287` in `x64_float_test.bn`, `lower_cast.bn` /
   `gen_util.bn` / `rt_diag.bn`) but built its list from a guessed subset and missed several
