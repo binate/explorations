@@ -316,10 +316,31 @@ Residual goals of the now-archived [`done/runtime-abstraction-plan.md`](done/run
 (Phase 3). Steps 3.1–3.3 shipped and the rest was delivered via a *different*
 architecture (`rt_stubs.c` gone — `pkg/rt` calls libc directly through `__c_call`;
 the entry-point moved to `pkg/builtins/startup._entry`, `c4607a71`; libc-free
-targets use the libc/baremetal impls split). Two goals remain genuinely unbuilt:
-- **Fully eliminate `runtime/binate_runtime.c`** — down to a 69-line
-  `bootstrap.Write` shim (the last hosted C function); fold it into the Binate /
-  `__c_call` surface so a hosted binary needs no bespoke C runtime file.
+targets use the libc/baremetal impls split).
+
+**`runtime/binate_runtime.c` is fully eliminated** (`6f58f32fd`; the native
+link-test stub `native_test_stubs.c` went too, `53fe13137`, via `#[c_export]`
+`main` on the emitted entry): bnc links no C runtime — the runtime is pure
+Binate (`pkg/builtins/rt` + `startup`). Two follow-ups remain from that:
+- **Retire the `--runtime` no-op.** bnc still *accepts* `--runtime` (its file is
+  never linked; its dir only anchors the bare-metal crt0.s/semihost.s/linker
+  script via `dirOf(--runtime)`), and every runner/e2e/build script +
+  `binate-paths --runtime` still passes/emits one — because the pinned BUILDER
+  (`bnc-0.0.12`) REQUIRES a real `--runtime` file to link and links its own
+  bundled one. Once `BUILDER_VERSION` is bumped to a bnc built from `6f58f32fd`
+  (no `--runtime` requirement), drop the flag (bnc `RuntimePath` + parse), the
+  `binate-paths --runtime` selector + `BINATE_RT`, and all runner/e2e/build
+  `--runtime` args — and migrate the bare-metal crt0.s/semihost.s/baremetal.ld
+  delivery off `dirOf(--runtime)` to a flag-free anchor (primaryRoot +
+  `runtime/baremetal_arm32`, or `--link-after-objs`).
+- **Possibly-dead `Free` sentinel branch.** `rt.bn` / `rt_baremetal.bn`'s
+  `if header[1] == 0 { RawFree }` — the only producer of a `header[1]==0` was
+  the C-side `managed_alloc` (gone with binate_runtime.c), and `Alloc` always
+  sets `FreeFn = _func_handle(RawFree)`. Check for any live producer; if none,
+  the branch is dead/defensive-only (remove, or keep as a documented guard for
+  zero-initialized backing).
+
+One goal remains genuinely unbuilt:
 - **Native syscall allocator for bare metal** — step 3.7's optional pure-Binate /
   syscall-backed allocator so a truly libc-free bare-metal image (no `__c_call`
   into libc) can allocate. Matters most for the native-arm32 bare-metal path.
