@@ -33,6 +33,39 @@ test: a compiled/native higher-order fn calling a VM callback that indexes OOB, 
 the program aborts (not returns 0). Tracked against Plan 2
 (`explorations/done/plan-rt-fault-cleanup-pads.md`).
 
+### `testing.Print/Println` of a boxed named scalar wrong/faulting on 32-bit (arm32) — 🟠 OPEN MAJOR, investigation in progress (found 2026-08-11)
+
+**Severity: MAJOR** — a NEW conformance failure on previously-green modes;
+blocks a clean `bnc-0.0.13` release (reddens every gating arm32 conformance
+lane). Not a new-in-flight regression from someone else — introduced by my own
+commit `7e0e6df90` (the `writeArg` reflect-kind fallback + its test).
+
+**Symptom.** `conformance/1201_testing_named_scalar` passes on all 64-bit
+targets (x64, aa64) but FAILS on every arm32 lane (`builder-comp_arm32_linux`,
+`builder-comp_arm32_baremetal`, `builder-comp_native_arm32_baremetal`,
+`builder-comp_native_arm32_linux`, `builder-comp_arm32_linux_int`). On the
+mature LLVM arm32 lanes it is the ONLY non-xfail failure. The CI diff preview
+shows the first three printed lines match (`100` / `-5` / `true` = int / int8 /
+bool); divergence is in one or more of the later lines — `Byte uint8 = 200`,
+`Wide uint64 = 18446744073709551615`, `Ratio float64 = 2.5`.
+
+**Suspected root cause (UNCONFIRMED — investigating).** The reflect-kind
+fallback `writeScalarByKind` in
+`impls/core/common/pkg/builtins/testing/testing.bn` reads the boxed value back
+through `reflect.DataOf(arg)` and, for the 64-bit cases, does
+`bit_cast(*uint64, p)[0]` / `bit_cast(*float64, p)[0]`. On ILP32 a boxed 64-bit
+scalar may not be addressable the way `DataOf` returns it (inline-word vs
+heap-box), so the read gets wrong bytes / faults. Could be broader than
+`testing` (any code boxing a 64-bit scalar into `*any` + reflecting on 32-bit).
+Needs a targeted arm32/linux run (reproducible under docker: `qemu-arm` +
+`arm-linux-gnueabihf`) to pin down WHICH value diverges and whether it's the
+`testing.bn` read path or arm32 codegen for 64-bit `bit_cast` loads.
+
+**Test:** `conformance/1201_testing_named_scalar` (already on main; currently
+UNMARKED on arm32 → red). Do NOT land a bare arm32 xfail as the resolution
+without a root-cause note — if it's a genuine 32-bit boxing/reflect defect it
+must be fixed, not papered over.
+
 ## Documentation hygiene
 
 ### Code comments reference only normative docs + TODOs; rehome the implementation "specs" — 🟡 OPEN
