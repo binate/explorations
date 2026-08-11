@@ -374,7 +374,28 @@ runner. It exercises the aarch64 ELF path — and the `__c_global` §5b GOT lowe
    bundle) could replace the current qemu-aarch64 mode from residual (1)'s
    `builder-comp_native_aa64_linux`.
 
-### Slim `pkg/bootstrap` toward retirement — 🟡 OPEN
+### Slim `pkg/bootstrap` toward retirement — ✅ DONE (retired + deleted 2026-08-10)
+
+**`pkg/bootstrap` is GONE from `main`.** The whole arc completed: `print`/`println`
+removed (`aeb763d03`) → load-side Inc 1a/1b/1c (`e9a4ac1e9` / `d18a69427` /
+`d8f575dc1`) → VM extern-registration removal (`ad0d5c987`) → conformance/708
+decouple to `startup.__Package` (`22e7a614f`) → classification + descriptor-binding
+removal, Inc 2a (`ccc70f2ae`) → package deletion, Inc 2b (`7452ff0f7`: the `.bni` +
+both impls, the `bn_..._Write` C-runtime def + arm32 semihost variant, build/tier/
+whitelist config, stale doc comments, and mangle/codegen fixtures retargeted off
+`pkg/bootstrap.X` to live symbols with recomputed pinned outputs). **No BUILDER bump
+was needed** — gen1 (BUILDER-compiled bnc, never imported bootstrap) self-compiles
+green. The historical detail below is retained for the record; move to
+`claude-todo-done.md` in a later housekeeping pass.
+
+**Follow-up (small, separable, STILL OPEN):** `IsCExtern` now has ZERO production
+writers — Inc 2a removed the last (the bootstrap-only `IsCExtern` hints in
+`gen_import.bn` / `gen_register_import.bn`). Its codegen/native readers
+(`pkg/binate/native/common/common_callconv_return.bn`, `pkg/binate/codegen/emit.bn`)
+are now dead branches; consider removing the field + its readers.
+
+---
+_Historical detail (all ✅ done):_
 
 **`pkg/libc` is GONE** (retired: Memcpy/Memset became pure-Binate byte loops;
 Malloc/Calloc/Free, Exit, and the rest all migrated out — see the done log / git
@@ -471,27 +492,10 @@ failed. See the done log.
     classification unit tests.  The compiler tree now has ZERO symbol/classification refs to
     `pkg/bootstrap`.  User chose option **(b)** (delete the whole package).  Full unit
     builder-comp 64/0 + builder-comp-int 52/0.
-  - **Inc 2b — delete the `pkg/bootstrap` package itself + runtime + config (option b).** REMAINING:
-    - Delete `ifaces/core/pkg/bootstrap.bni` + `impls/core/{libc,baremetal}/pkg/bootstrap/`.
-    - Remove the `bn_..._Write` C runtime def from `runtime/binate_runtime.c` + the arm32
-      `runtime/baremetal_arm32/semihost.s` variant.  **Verify no BUILDER bump needed** — `cmd/bnc`
-      doesn't import bootstrap and `bootstrap.Write` has zero callers, so the symbol is dead; confirm
-      empirically by a full conformance run across all stages (gen1 = BUILDER-compiled bnc).
-    - Update build/tier/whitelist config naming `pkg/bootstrap`: `scripts/binate-paths.sh`,
-      `build-*.sh`, `scripts/hygiene/{pkg-tiers.sh,conformance-imports.whitelist,naming.whitelist,
-      test-coverage.whitelist,version-sync.sh,lint.sh}`, `scripts/lib/build-compilers.sh`,
-      `perf/runners/*.sh`, the CI `hygiene.yml`, `e2e/*.sh` search paths.
-    - Sweep the remaining stale bootstrap doc comments (`repl/session.bn:133,193,195`
-      `bootstrap.Write` examples; `cmd/bni/main.bn`, `cmd/bnc/main.bn`, `loader.bn`, `vm/extern*`,
-      `codegen/emit.bn`) + `BUNDLE-HOWTO.md`.
-    - **Mangle/codegen test-fixture decision (user):** `emit_test.bn` `TestMangleFuncNameBootstrap`
-      (expects `bn_F2_3_pkg9_bootstrap1_5_Write`), `x64_call_test.bn`, `x64_float_test.bn`,
-      `emit_funcvals_shim_test.bn`, `common_callconv_return_test.bn` use `"pkg/bootstrap.X"` as
-      test-INPUT strings with pinned expected mangled/codegen outputs.  They don't break on deletion
-      (they test the mangler/codegen on an arbitrary string), but name a deleted pkg — retarget to a
-      live symbol (recompute the pinned outputs) or leave as mechanism fixtures?
-    - Follow-up (separate, later): `IsCExtern` now has ZERO production writers (Inc 2a removed the
-      last one) — its codegen/native readers are now dead; consider removing the field + readers.
+  - ✅ Inc 2b — deleted the `pkg/bootstrap` package itself + runtime + config (option b), landed
+    `7452ff0f7` (60 files, +153/−975).  User chose retarget for the mangle/codegen fixtures
+    (`pkg/bootstrap.X` → live symbols, outputs recomputed).  Verified: hygiene 19/19, unit
+    builder-comp 63/0, gen1 self-compile sample + baremetal + VM samples all green — NO BUILDER bump.
 - 🟡 **Stale `println` comment references** — PARTIAL.  `26f2cbc24` reworded the first batch
   (`cmd/bni/repl.bn` REPL guidance, `conformance/287` in `x64_float_test.bn`, `lower_cast.bn` /
   `gen_util.bn` / `rt_diag.bn`) but built its list from a guessed subset and missed several
