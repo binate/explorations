@@ -388,11 +388,17 @@ was needed** — gen1 (BUILDER-compiled bnc, never imported bootstrap) self-comp
 green. The historical detail below is retained for the record; move to
 `claude-todo-done.md` in a later housekeeping pass.
 
-**Follow-up (small, separable, STILL OPEN):** `IsCExtern` now has ZERO production
-writers — Inc 2a removed the last (the bootstrap-only `IsCExtern` hints in
-`gen_import.bn` / `gen_register_import.bn`). Its codegen/native readers
-(`pkg/binate/native/common/common_callconv_return.bn`, `pkg/binate/codegen/emit.bn`)
-are now dead branches; consider removing the field + its readers.
+**Follow-up — ✅ DONE (`62e5817e9`, 2026-08-11):** removed the dead `IsCExtern`
+C-extern-sret machinery in full. Deleted the `ir.Func.IsCExtern` field,
+`CalleeUsesCSret` + `CExternSretBytes` (native/common), and the always-false
+`|| CalleeUsesCSret(...)` OR-term from the sret decision in all three native
+backends. Root-cause cleanup: the `allFuncs` funcs-list was threaded through the
+whole native emit pipeline (`native.Emitter.EmitFunc` + dispatch/emit) SOLELY for
+that predicate, so it was removed end-to-end (interface + all backends + tests)
+rather than left as a dead param. Behavior-preserving (always-false term); verified
+unit builder-comp 9/0, hygiene 19/19, native sret conformance samples 12/0 on
+x64 / aa64 / arm32-baremetal. So the whole `pkg/bootstrap` retirement arc — and its
+last dead-code tail — is now fully closed.
 
 ---
 _Historical detail (all ✅ done):_
