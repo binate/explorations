@@ -453,17 +453,28 @@ failed. See the done log.
     landed `e9a4ac1e9`.
   - ✅ Inc 1b — interp/VM-consumer load side (`appendBootstrapImport` + `EnsureBootstrapLoaded`
     + its now-orphaned `interp.bni` export), landed `d18a69427`.
-  - Inc 1c — repl load side (`pkg/binate/repl/ir_imports.bn`'s own `appendBootstrapImport`).
+  - ✅ Inc 1c — repl load side (`ir_imports.bn` `appendBootstrapImport` + `util.bn`
+    `ensureBootstrapLoaded` force-load + call sites) plus the repl package's stale-`println`
+    comment stragglers, landed `d8f575dc1`.
   - VM extern REGISTRATION removal (`registerBootstrapExterns` / `RegisterPureCExterns` public
-    API + callers + tests) — a distinct mechanism from the load side.
+    API + callers + tests) — a distinct mechanism from the load side.  Its stale-`println`
+    comments (`pkg/binate/interp/externs.bn` + `externs_test.bn`; `pkg/binate/vm/
+    extern_test_helpers_test.bn`) go with it (removed alongside the code, so left as-is for now).
   - VM native-only CLASSIFICATION removal (`IsNativeOnlyInVM`, the interface-only set) — pairs
     with the surface deletion.
   - Inc 2 — delete the now-callerless surface itself: `bootstrap.Write` + the private `format*`
-    helpers (`ifaces/core/pkg/bootstrap.bni`; impls under `impls/core/{libc,baremetal}`).
+    helpers (`ifaces/core/pkg/bootstrap.bni`; impls under `impls/core/{libc,baremetal}`).  Its
+    stale-`println` comments go with the deletion (left as-is for now).
   - Also sweep stale bootstrap-territory comments in `perf/runners/*.sh` + `BUNDLE-HOWTO.md`.
-- ✅ **Stale `println` comment references** — DONE (`26f2cbc24`): `cmd/bni/repl.bn`'s "type
-  `println(...)`" REPL guidance, the dangling `conformance/287` reference in `x64_float_test.bn`,
-  and the `lower_cast.bn` / `gen_util.bn` / `rt_diag.bn` mentions were all reworded/removed.
+- 🟡 **Stale `println` comment references** — PARTIAL.  `26f2cbc24` reworded the first batch
+  (`cmd/bni/repl.bn` REPL guidance, `conformance/287` in `x64_float_test.bn`, `lower_cast.bn` /
+  `gen_util.bn` / `rt_diag.bn`) but built its list from a guessed subset and missed several
+  sites (the "enumerate sweep sites repo-wide" trap).  Follow-up `4e8cdd4b2` swept the
+  persistent-file stragglers (`conformance/741` + `spec/181`; `builtins/testing/testing.bn`;
+  `rt/rt_diag.bn` tense; `native/arm32/arm32_dispatch.bn`).  The only `println`-builtin comments
+  left on main are in code slated for deletion by the bootstrap increments above (the
+  `pkg/bootstrap` surface `.bni`/`.bn`, and the VM extern-registration comments) — they go with
+  that code, so no separate cleanup is tracked for them.
 
 **Residual (small, separable) — repl `.String()`:** wire `ensureLangLoaded` +
 `appendLangImport` into the repl's import setup
