@@ -1189,14 +1189,26 @@ Increments:
           return) + 1204 (sret / big-agg return) cover the framed-variant frame layouts.  Verified by
           disasm across scalar/pack/sret variants, 339 native/arm32 unit tests, host-mode conformance,
           hygiene 19/19; adversarial review 0 confirmed findings.  Runtime rides on CI (no local qemu).
-        - **(b5b) func-value / indirect CALL-site overflow — OPEN.**  888/926 still fail-loud at the
-          func-value call site (`callInstrUnhandledFloatB1Arm32`) / shim body
-          (`funcValueShimUnhandledFloatB1Arm32`).  The scalar-void and big-agg/big-multiret SRET shims
-          are frameless tail-branches, so a VFP-bank-spilled float arg passes through untouched — the
-          work is to narrow the two guards to unflag exactly those tail-branch shapes (return
-          classification + `shimArgsFitRegisters`), keeping the FRAMED shims (pack / small-multiret-pack /
-          GP-over-budget spill) fail-loud.  This is the remaining gate for the
-          `builder-comp_native_arm32_linux` promotion.
+        - **(b5b) func-value + framed-closure overflow — ✅ DONE (`87e2f92a7`, 2026-08-11).**
+          FUNC-VALUE: a spilled float arg is placed on the outgoing stack by the call site and passes
+          through the FRAMELESS tail-branch shims (scalar/void, big-agg/big-multiret sret); narrowed
+          emitFuncValueShimBody's guard via `funcValueShimIsTailBranchArm32` to fail-loud only for the
+          FRAMED return shapes (pack / small-multiret), and dropped the redundant emitCallFuncValue
+          call-site guard (clears 888/1205).  FRAMED CLOSURE: generalized emitClosureParamVfpUpShiftArm32
+          into a memory-staged parallel move over all four incoming/outgoing reg/stack combos, threading
+          frameDelta so an INCOMING-stacked float param (a closure declaring > 8 float params) is read
+          from the caller's stack and written to its outgoing slot (clears 926/1206/1207; disasm-verified
+          in the scalar/pack/sret frames).  An **adversarial review caught a silent miscompile** in an
+          earlier draft — the MIXED shape (a spilling float param + a GP/aggregate USER param) diverges
+          because AAPCS-VFP interleaves GP-overflow and float-overflow in ONE shared NSAA, which the
+          shims' users-only / dense-GP-word incoming reads don't model — so a re-added closure guard
+          (`anyFloatScalarSpillsVfpArm32 && anyNonFloatScalarUserParamArm32`) fail-louds that mixed shape
+          (a superset of the divergent cases).  The indirect-call + iface-dispatch call-site guards keep
+          their existing fail-loud (out of scope).
+        - **(b5c) MIXED GP-user + float-spill closure — OPEN (follow-up).**  A full NSAA-aware
+          relocation (both the float param move and the GP marshal reading the true interleaved dispatch
+          offsets) would let the mixed shape through; today it fail-louds (b5b).  Niche/untested; the
+          `builder-comp_native_arm32_linux` promotion does not require it (no conformance test hits it).
     Closing (b1b)+(b2)+(b3) unblocks the native `--test` unit sweep (the test-runner harness
     itself uses a float func-value shim → P7 prerequisite).
   - **(c) int64↔float casts under gnueabihf — ✅ DONE / NO CODE NEEDED (test `e02d8b24`,
