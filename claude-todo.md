@@ -312,16 +312,13 @@ built, together with a test that exercises `ptr≠int` (the only thing that vali
 
 ### Eliminate the last C runtime shim + native syscall allocator (libc-free) — 🟡 OPEN (future)
 
-Residual goals of the now-archived [`done/runtime-abstraction-plan.md`](done/runtime-abstraction-plan.md)
-(Phase 3). Steps 3.1–3.3 shipped and the rest was delivered via a *different*
-architecture (`rt_stubs.c` gone — `pkg/rt` calls libc directly through `__c_call`;
-the entry-point moved to `pkg/builtins/startup._entry`, `c4607a71`; libc-free
-targets use the libc/baremetal impls split).
-
-**`runtime/binate_runtime.c` is fully eliminated** (`6f58f32fd`; the native
-link-test stub `native_test_stubs.c` went too, `53fe13137`, via `#[c_export]`
-`main` on the emitted entry): bnc links no C runtime — the runtime is pure
-Binate (`pkg/builtins/rt` + `startup`). Two follow-ups remain from that:
+`runtime/binate_runtime.c` + the native-test stub `native_test_stubs.c` are
+deleted (`6f58f32fd` / `53fe13137` — see the done log); bnc links no C runtime
+(pure-Binate `pkg/builtins/rt` + `startup`). Residual goals of the now-archived
+[`done/runtime-abstraction-plan.md`](done/runtime-abstraction-plan.md) (Phase 3;
+steps 3.1–3.3 shipped, the rest delivered via a different architecture — `rt_stubs.c`
+gone, `pkg/rt` calls libc via `__c_call`, entry-point at `startup._entry` `c4607a71`,
+libc/baremetal impls split). Follow-ups:
 - **Retire the `--runtime` no-op.** bnc still *accepts* `--runtime` (its file is
   never linked; its dir only anchors the bare-metal crt0.s/semihost.s/linker
   script via `dirOf(--runtime)`), and every runner/e2e/build script +
@@ -394,163 +391,6 @@ runner. It exercises the aarch64 ELF path — and the `__c_global` §5b GOT lowe
    native `ubuntu-*-arm` conformance runner (fetch-builder pulling the arm64
    bundle) could replace the current qemu-aarch64 mode from residual (1)'s
    `builder-comp_native_aa64_linux`.
-
-### Slim `pkg/bootstrap` toward retirement — ✅ DONE (retired + deleted 2026-08-10)
-
-**`pkg/bootstrap` is GONE from `main`.** The whole arc completed: `print`/`println`
-removed (`aeb763d03`) → load-side Inc 1a/1b/1c (`e9a4ac1e9` / `d18a69427` /
-`d8f575dc1`) → VM extern-registration removal (`ad0d5c987`) → conformance/708
-decouple to `startup.__Package` (`22e7a614f`) → classification + descriptor-binding
-removal, Inc 2a (`ccc70f2ae`) → package deletion, Inc 2b (`7452ff0f7`: the `.bni` +
-both impls, the `bn_..._Write` C-runtime def + arm32 semihost variant, build/tier/
-whitelist config, stale doc comments, and mangle/codegen fixtures retargeted off
-`pkg/bootstrap.X` to live symbols with recomputed pinned outputs). **No BUILDER bump
-was needed** — gen1 (BUILDER-compiled bnc, never imported bootstrap) self-compiles
-green. The historical detail below is retained for the record; move to
-`claude-todo-done.md` in a later housekeeping pass.
-
-**Follow-up — ✅ DONE (`62e5817e9`, 2026-08-11):** removed the dead `IsCExtern`
-C-extern-sret machinery in full. Deleted the `ir.Func.IsCExtern` field,
-`CalleeUsesCSret` + `CExternSretBytes` (native/common), and the always-false
-`|| CalleeUsesCSret(...)` OR-term from the sret decision in all three native
-backends. Root-cause cleanup: the `allFuncs` funcs-list was threaded through the
-whole native emit pipeline (`native.Emitter.EmitFunc` + dispatch/emit) SOLELY for
-that predicate, so it was removed end-to-end (interface + all backends + tests)
-rather than left as a dead param. Behavior-preserving (always-false term); verified
-unit builder-comp 9/0, hygiene 19/19, native sret conformance samples 12/0 on
-x64 / aa64 / arm32-baremetal. So the whole `pkg/bootstrap` retirement arc — and its
-last dead-code tail — is now fully closed.
-
----
-_Historical detail (all ✅ done):_
-
-**`pkg/libc` is GONE** (retired: Memcpy/Memset became pure-Binate byte loops;
-Malloc/Calloc/Free, Exit, and the rest all migrated out — see the done log / git
-history).  **`Exec()` and `Args()` are now GONE too** (see the done log): every
-subprocess spawn moved to `pkg/std/os/process.Run` (bnc's `clang` / `ar` / `rm`
-invocations all use it — `62b4a828`, `91f56d47`), and argv now reaches a program
-through `startup.Args()` (`pkg/builtins/startup`) / `os.Args()` (`c4607a71`,
-`43ca8b2a`).  So the old plan's step 1 (replace `Exec()`) and step 2 (support
-`Args()`) are both **DONE**.  **`pkg/bootstrap` is now down to just two things,
-and they exist ONLY to serve `print`/`println`:**
-
-- **`Write()`** — the raw stdout/stderr sink, called internally by `print`/`println`.
-- **the "private" format helpers** (`formatInt`/`formatInt64`/`formatUint`/
-  `formatBool`/`formatFloat`) — also `print`/`println` internals.
-
-**Step 3 — deprecate `print`/`println` — is all that's left to retire bootstrap.**
-They are the *only* remaining users of `Write()` and the private format helpers, so
-retiring them frees the entire rest of bootstrap's surface.
-
-**Progress on step 3 — most of the tree migrated to `pkg/stdx/fmt`:**
-- **Wave 1 — non-BUILDER CLI tools (2026-07-29):** `cmd/{bni,bnas,bnfmt,bnlint}` emit
-  all user-facing stdout/stderr via `pkg/stdx/fmt` (`Print`/`Println`/`Fprint`) instead
-  of the `print`/`println` builtins — dropping the manual `strconv.Itoa`/`strings.Builder`
-  scaffolding and the raw-vs-managed `printErr` overload split (fmt's `...*any` absorbs
-  both). Landed `0b57ba04`/`71fdf553`/`896a7db1`, gated behind `CHECK_TOOLS_VERSION` →
-  `bnc-0.0.12-pre4` (`89cf3432`): pre3's pinned bnlint predates the implicit
-  value-borrow-into-`*any` boxing the call sites need.
-- **Wave 2 — the BUILDER-compiled tree (2026-08-02), now that `BUILDER_VERSION` is
-  `bnc-0.0.12`:** the old "can't use fmt in the BUILDER tree" blocker is GONE — BUILDER
-  0.0.12 compiles fmt (variadics + `...*any` implicit boxing + reflection are all
-  in-subset; verified by a direct BUILDER compile of fmt before the sweep). `cmd/bnc`'s
-  driver diagnostics (`0d266ac0`), the compiler-internal diagnostics in
-  `pkg/binate/{ir,native}` (`acaa06a7`, also folding away three `strconv.Itoa` regmap
-  uses), and one `pkg/binate/vm` test diagnostic (`8c15394c`) now all go through fmt.
-
-**Remaining `print`/`println` holdouts (what step 3 still needs):**
-- ✅ **The runtime — `pkg/builtins/rt`** — DONE (`8ddaec6a`, 2026-08-02): the reason rt was
-  the "last blocker" (fmt's circular dependency on rt + the no-alloc OOM-handler constraint)
-  is resolved by rt owning its diagnostics — an alloc-free `rtFormatInt` + a per-target raw
-  sink (`rtWriteRaw`: `write(2)` / semihost) + `abortWithMessage(...*any)`, deduped into a
-  target-neutral `rt_diag.bn`. The fault handlers now Abort (not Exit — `rt.Exit` removed)
-  and use no print/println / no bootstrap. See the done log.
-- ✅ **The perf fixtures** (`perf/*.bn`) — DONE (`7b395154`, 2026-08-02): `001_fib` /
-  `002_many_funcs` emit via `fmt.Println`. The added fmt compile cost is a constant offset
-  that cancels in the suite's mode/version comparisons; alongside it the perf harness now
-  reports Total (compile+run) + the separate Compile/Run breakdown (`8300afdc`). See the done log.
-- **`conformance/` and `examples/`:** separate (conformance handled as its own decision;
-  examples build from prebuilt bundles).
-- ✅ **The generated test runner** — DONE (`10b2d772`, 2026-08-02): `cmd/bnc`'s `--test`
-  runner now emits via fmt; this required root-causing + fixing a latent `--test`
-  miscompilation (the runner was IR-gen'd un-type-checked, so fmt's `*any` boxing typed a
-  string literal as its `char` element). See the done log.
-- ✅ **The compiler's unit-test fixtures** — DONE (`370bc9479`, 2026-08-09): the `println(...)`
-  embedded in test-source strings (value-consumers / minimal `func main()` bodies) across
-  `pkg/binate/{types,codegen,ir,vm,parser,repl}` (24 files) became the blank-assign discard
-  `_ = EXPR` — preserves the evaluated expr + its emitted instruction (codegen/debug tests
-  unchanged), no import, valid idiomatic Binate. **Deferred:** the 6 files that ASSERT `println`
-  lowers to `bootstrap.format*`/`Write` (`gen_print_test.bn` + `gen_stmt`/`gen_binary`/`gen_expr`/
-  `vm_extern`/`x64_float`) test the lowering itself and are removed together with `gen_print.bn`
-  when the builtin is retired.
-
-✅ **The `print`/`println` builtins are REMOVED** (`aeb763d03`, 2026-08-09): once nothing
-used them (all of the above + the conformance/example holdouts, deleted), the recognition
-(universe-scope defs in `scope.bn`, the checker's variadic-builtin gate, the IR-gen dispatch)
-and the lowering machinery (`genPrintCall` + `emitPrint*`/`emitWrite*`; `gen_print.bn` →
-`gen_panic.bn`) were deleted, and the 6 lowering-assertion unit tests with them. `print(...)`
-/`println(...)` is now a plain `undefined` error. Conformance `builder-comp` 2913 passed / 0
-failed. See the done log.
-
-**Remaining (the follow-up the removal unblocks):**
-- **Clean up the bootstrap remainder — 🟡 IN PROGRESS (per-consumer).** With print/println
-  gone, every mechanism that force-loaded/imported/registered `pkg/bootstrap` "just in case a
-  print/println lowering needs it" is dead. Being removed one consumer at a time, load side
-  first:
-  - ✅ Inc 1a — cmd/bnc load side (`appendBootstrapImport` + `ensureBootstrapLoaded` force-link),
-    landed `e9a4ac1e9`.
-  - ✅ Inc 1b — interp/VM-consumer load side (`appendBootstrapImport` + `EnsureBootstrapLoaded`
-    + its now-orphaned `interp.bni` export), landed `d18a69427`.
-  - ✅ Inc 1c — repl load side (`ir_imports.bn` `appendBootstrapImport` + `util.bn`
-    `ensureBootstrapLoaded` force-load + call sites) plus the repl package's stale-`println`
-    comment stragglers, landed `d8f575dc1`.
-  - ✅ VM extern REGISTRATION removal — the six dead `bootstrap.Write`/`format*` VM-extern
-    bindings (`registerBootstrapExterns` + public `RegisterPureCExterns` + 4 callers + 2 tests),
-    landed `ad0d5c987`.  Kept `bootstrap.__Package` (the reflect descriptor) + the native-only
-    classification, both deliberately out of scope.  Full `builder-comp-int` stayed green (2899/0).
-  - ✅ Decoupled the last user importer of `pkg/bootstrap` — `conformance/708` now reflects over
-    `pkg/builtins/startup.__Package` instead of `bootstrap.__Package`, landed `22e7a614f`.  Only
-    two `import "pkg/bootstrap"` sites remain (`interp/externs.bn`, `vm/extern_test_helpers_test.bn`),
-    both for the `bootstrap.__Package` descriptor binding.
-  - ✅ VM native-only CLASSIFICATION removal + the `bootstrap.__Package` descriptor bindings —
-    Inc 2a, landed `ccc70f2ae`.  Removed `IsNativeOnlyInVM`/`isCompiled` bootstrap special-cases,
-    `NativeOnlyInterfacePaths`/`New` interface-only pushes, `repl/session.bn`'s list entry, the
-    IR-gen `IsCExtern` hints (×3), the two `bootstrap.__Package` bindings + imports, and the
-    classification unit tests.  The compiler tree now has ZERO symbol/classification refs to
-    `pkg/bootstrap`.  User chose option **(b)** (delete the whole package).  Full unit
-    builder-comp 64/0 + builder-comp-int 52/0.
-  - ✅ Inc 2b — deleted the `pkg/bootstrap` package itself + runtime + config (option b), landed
-    `7452ff0f7` (60 files, +153/−975).  User chose retarget for the mangle/codegen fixtures
-    (`pkg/bootstrap.X` → live symbols, outputs recomputed).  Verified: hygiene 19/19, unit
-    builder-comp 63/0, gen1 self-compile sample + baremetal + VM samples all green — NO BUILDER bump.
-- 🟡 **Stale `println` comment references** — PARTIAL.  `26f2cbc24` reworded the first batch
-  (`cmd/bni/repl.bn` REPL guidance, `conformance/287` in `x64_float_test.bn`, `lower_cast.bn` /
-  `gen_util.bn` / `rt_diag.bn`) but built its list from a guessed subset and missed several
-  sites (the "enumerate sweep sites repo-wide" trap).  Follow-up `4e8cdd4b2` swept the
-  persistent-file stragglers (`conformance/741` + `spec/181`; `builtins/testing/testing.bn`;
-  `rt/rt_diag.bn` tense; `native/arm32/arm32_dispatch.bn`).  The only `println`-builtin comments
-  left on main are in code slated for deletion by the bootstrap increments above (the
-  `pkg/bootstrap` surface `.bni`/`.bn`, and the VM extern-registration comments) — they go with
-  that code, so no separate cleanup is tracked for them.
-
-**Residual (small, separable) — repl `.String()`:** wire `ensureLangLoaded` +
-`appendLangImport` into the repl's import setup
-(`pkg/binate/repl/{ir_imports,session,util}.bn`) so `myInt.String()` works at the
-repl too — the rest of the "primitive `.String()` without importing `lang`" work
-is done (compiled + VM).
-
-**Constraints (still apply):** migrate callers OUT — never rename bootstrap's
-C-symbol-resolved I/O in place. An in-place rename hits a Stage-1 link wall (gen1
-links BUILDER's *pinned* runtime, which only defines the OLD mangled I/O symbols),
-and any change that adds/removes `bn_pkg__bootstrap__*` runtime defs is a
-runtime-ABI change → **BUILDER-bump-gated**. `__c_call` is scalar/pointer-only, so
-slice-taking / aggregate-returning I/O needs marshalling (cstr, data-ptr,
-aggregate build).
-
-(VM Phase 1 is DONE — bootstrap is native-only in the VM, format helpers
-registered as externs; main `a7fabc7a` + `7abc3809`. The older "convert bootstrap
-I/O to `.bn` + `__c_call`" Phase 2 is superseded by the plan above: `pkg/std/os`
-subsumes the I/O, so there's no reason to convert it in place.)
 
 ### Annotations & C function interop — `__c_call` DONE; residual is the `#[link]` companion — 🟡 OPEN (low)
 

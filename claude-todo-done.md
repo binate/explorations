@@ -6,6 +6,57 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `pkg/bootstrap` fully retired + deleted — the whole arc (print/println removal → package deletion → binate_runtime.c) — ✅ DONE (2026-08-09..11)
+
+`pkg/bootstrap` is GONE from `main`, and with it the last bespoke C runtime. The
+arc, in order:
+
+**print/println removed** (`aeb763d03`, 2026-08-09) — the builtins were the only
+remaining users of bootstrap's `Write()` + private `format*` helpers. Prereqs: the
+whole tree migrated to `pkg/stdx/fmt` (Wave 1 non-BUILDER CLI tools
+`0b57ba04`/`71fdf553`/`896a7db1`; Wave 2 BUILDER-compiled tree once
+`BUILDER_VERSION`=`bnc-0.0.12` — `cmd/bnc` diagnostics `0d266ac0`, `pkg/binate/
+{ir,native}` `acaa06a7`, a vm test `8c15394c`); rt owns its alloc-free diagnostics
+(`rt_diag.bn`, `8ddaec6a`); perf fixtures (`7b395154`); the `--test` runner
+(`10b2d772`, which root-caused a latent un-type-checked-`--test` miscompile); the
+compiler unit-test fixtures → `_ = EXPR` (`370bc9479`); and the conformance corpus
+(its own decision — see the conformance done entry). Removal deleted the
+recognition + lowering machinery (`gen_print.bn`→`gen_panic.bn`) + the 6
+lowering-assertion tests; `print(...)`/`println(...)` is now a plain `undefined`.
+
+**pkg/bootstrap deleted** — the force-loads/imports/registrations that existed only
+to serve a print/println lowering, one consumer at a time: cmd/bnc load side Inc 1a
+`e9a4ac1e9`; interp/VM Inc 1b `d18a69427`; repl Inc 1c `d8f575dc1`; VM
+extern-registration removal `ad0d5c987`; last user importer (`conformance/708` →
+`startup.__Package`) `22e7a614f`; VM native-only classification + `bootstrap.__Package`
+bindings, Inc 2a `ccc70f2ae`; then the package itself + runtime + config, Inc 2b
+`7452ff0f7` (option (b): delete; mangle/codegen fixtures retargeted
+`pkg/bootstrap.X`→live symbols, outputs recomputed). NO BUILDER bump needed — gen1
+(never imported bootstrap) self-compiles green.
+
+**binate_runtime.c + native_test_stubs.c deleted** (`6f58f32fd` + `53fe13137`,
+2026-08-11) — bnc links no C runtime (pure-Binate rt + startup); native link-test
+stubs replaced by `#[c_export]("main")` on the emitted entry. Residual `--runtime`
+no-op + `Free` sentinel follow-ups tracked under the open todo "Eliminate the last C
+runtime shim".
+
+**IsCExtern dead-machinery removal** (`62e5817e9`, 2026-08-11) — the `ir.Func.IsCExtern`
+field, `CalleeUsesCSret`/`CExternSretBytes` (native/common), and the always-false sret
+OR-term across all three native backends; the `allFuncs` list threaded solely for that
+predicate removed end-to-end.
+
+Also done along the way: `pkg/libc` retired (Memcpy/Memset → Binate byte loops;
+Malloc/Calloc/Free/Exit migrated out); `Exec()`+`Args()` gone (→ `pkg/std/os/process.Run`
+`62b4a828`/`91f56d47`, `startup.Args()`/`os.Args()` `c4607a71`/`43ca8b2a`); stale
+`println` comment sweeps (`26f2cbc24`/`4e8cdd4b2`/`4678b1bac` + the binate_runtime.c
+comment sweep); repl `.String()` — `ensureLangLoaded` + `appendLangImport` wired into
+repl (`ir_imports.bn`/`session.bn`/`util.bn`).
+
+Constraint that governed the whole arc: migrate callers OUT, never rename bootstrap's
+C-symbol-resolved I/O in place — gen1 links BUILDER's pinned runtime, which defines only
+the OLD mangled I/O symbols, so any `bn_pkg__bootstrap__*` runtime-def change is
+BUILDER-bump-gated.
+
 ## `strconv` errors now root in a base (BadData / OutOfRange) — ✅ DONE & LANDED (`afe925e85`, 2026-08-10)
 
 `numError.Unwrap()` returned an empty `@errors.Error`, so a strconv parse failure
