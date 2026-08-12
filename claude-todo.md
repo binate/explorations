@@ -285,49 +285,6 @@ unwind; nil-deref N1–N3 last, `de9a7c05`); see claude-todo-done.md and
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
-### Bare-metal reclaiming allocator (SFL) + pluggable `rt` Raw backend — 🟡 IN PROGRESS
-
-**Root cause of the persistent `builder-comp_arm32_baremetal` unit-lane reds** (7 packages —
-ir, vm, types, interp, repl, format, native/arm32 — all abort `rt.RawAlloc: bump heap exhausted`;
-the ir/vm/buf item below is a symptom): the bare-metal `pkg/builtins/rt`
-(`impls/core/common/pkg/builtins/rt/rt_baremetal.bn`) is a BUMP allocator that **never reclaims**,
-so cumulative allocation across a refcount-heavy test run exceeds the 4 MiB heap (even 8 MiB
-exhausts — verified locally; qemu-system-arm 11 + arm-none-eabi-gcc 10.3 ARE available now, the
-todo's "can't run locally" is stale). Small packages (buf/irdata/iropcode) fit → pass.
-
-Design chosen via a design panel (`wf_357b47f1`): **SFL — size-classed segregated free-lists + a
-hidden 8-byte size prefix**, no coalescing (correctness-first; a reclaiming free-list's bound is
-*peak-live*, not *cumulative*, so 4 MiB flips from marginal to generous). Full pluggability
-extraction (option A). Steps:
-- ✅ DONE — **Extracted the shared managed layer → new ungated `rt_managed.bn`**
-  (Alloc/Free/RefInc/RefDec/ZeroRefDestroy/Refcount/Box/MakeManagedSlice/headerPtr/MemCopy/MemZero
-  + fault checks) in the single `sizeof(ManagedHeader)` struct form, deduping the ~200 lines that
-  were duplicated in rt.bn/rt_baremetal.bn (rt_baremetal's int-array `header[0/1]` was the byte-
-  identical duplicate — 2 ints == the struct — so layout-preserving).
-- ✅ DONE — **Raw backend contract** {RawAlloc, RawAllocZero, RawFree, Abort, rtWriteRawStderr}:
-  rt.bn slimmed to the libc-host backend, rt_baremetal.bn to the bare-metal backend, both
-  `#[build]`-gated; the managed layer sits on top unchanged (the `rt_diag.bn` pattern).
-- ✅ DONE — **SFL implemented** in rt_baremetal.bn (arena [524288]uint64 = 4 MiB kept; per-block
-  `[8B prefix][payload]`; per-class LIFO small lists; single first-fit large list; carve on miss).
-  All 4 correctness invariants baked in (absolute-address heads, fixed 8-byte prefix, RawAllocZero
-  MemZeros, double-free=UB).
-- 🟡 IN PROGRESS — **Verify + land**: baremetal unit lane now GREEN — **5 of the 7** formerly-crashing
-  packages PASS with reclamation (ir, types, interp, repl, format; + buf/irdata/iropcode), 0 failed;
-  vm + native/arm32 xfail'd (a fixture LEAK, not the allocator — see the leak item below). Hosted
-  regression clean (rt unit tests + full builder-comp conformance + 092/093 in host + VM modes). The
-  **ir + buf** xfail removals are thereby CONFIRMED (the item below). Remaining: adversarial review
-  (shared runtime), then land.
-
-Future (documented, NOT built now):
-- **TagCoalesce** (boundary-tag coalescing) as a one-file drop-in Raw-backend upgrade behind the
-  unchanged managed layer — deploy IF a phase-shift / large-variable-buffer workload ever blows the
-  segregated arena (SFL's worst case is size-phasing: up to ~K× peak-live across K classes).
-- A **mark/reset region API** (opt-in) if scoped bulk-free is ever wanted — NOT
-  arena-reset-under-Free (rejected: bypasses dtors, invalidates interned/global data, doesn't
-  compose with libc/syscall backends).
-- A **`buildcfg` selector key** beyond {arch,os,entrypoint,version} only if A/B-selectable baremetal
-  backends are ever wanted (today the free-list REPLACES bump, so no coexistence is needed).
-
 ### vm + native/arm32 bare-metal unit-test fixture LEAK — 🟡 OPEN (follow-up)
 
 `pkg/binate/vm` and `pkg/binate/native/arm32` are xfail'd on `builder-comp_arm32_baremetal`
@@ -344,31 +301,6 @@ would point at the compiler/refcount path. Reproduce locally (qemu-system-arm 11
 10.3 ARE available — the "can't run locally" note was stale); a heap-usage / leaked-object dump
 (instrument RawAlloc/RawFree to log the live block set) narrows raw-vs-managed and test-vs-compiler.
 Once fixed, drop the two xfails.
-
-### `builder-comp_arm32_baremetal` unit lane: ir/vm/buf xfail-removal CI confirmation — 🟡 OPEN
-
-The `builder-comp_arm32_linux` unit-lane reds — the ILP32 int-width buckets, the
-large-by-value-FCA multi-return sret fix, the anonymous-multi-return-tuple dtor segv (the
-`asm/parse TestParseMov` crash), and the ir sizeof test-portability reds — are all FIXED &
-LANDED; see [claude-todo-done.md](claude-todo-done.md). The one still-open arm32 unit-lane
-item is the baremetal ir/vm/buf xfail removal below (pre-existing, not introduced by the
-above; awaiting a CI signal):
-- 🟡 **arm32_baremetal xfails whose "literals exceed int32" cause is fixed — REMOVED
-  (`02dbb8e0`), CI confirmation STILL PENDING.** The baremetal unit lane had 17 package
-  xfails: 13 PERMANENT ("require host filesystem / subprocess / native-host arch —
-  can't run under baremetal QEMU semihosting") + **4 citing "tests use literals that
-  exceed int32 range; AssignableTo fit-check rejects on arm32 ILP32"** — the cause
-  Bucket C (`5b5987d7`) + IR-gen ModuleConst.Val (`2bf360fc`) fixed. Removed all 4:
-  `pkg-binate-{ir,vm,buf}` (real packages — each verified to type-check + emit cleanly
-  for `--target arm32-baremetal`, 0 fit-check errors) and `pkg-std` (a dead/orphaned
-  marker: exact-match lookup, no `package "pkg/std"` exists). Not locally runnable
-  (no qemu-system-arm/gcc-arm-none-eabi), so CI is the confirmation — but run
-  `29604623344`'s **`arm32_baremetal` job was CANCELLED** (the run was superseded by
-  later pushes; its `arm32_linux` sibling had already FAILED on the segv above). So the
-  ir/vm/buf baremetal xfail removal is UNCONFIRMED, and every newer Unit-tests run is
-  queued. Re-confirm on the next completed Unit-tests run that reaches the
-  `arm32_baremetal` job; if ir/vm/buf pass there → done; if any red at runtime, re-add
-  that marker with the real reason (fix-forward).
 
 ### `data_pkg_descriptor.bn` header/slice-width conflation — 🟢 LOW (non-urgent cleanup)
 The `GetTarget().IntSize` "footgun" was a MISDIAGNOSIS and the native-accessor header reads

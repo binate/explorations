@@ -6,6 +6,50 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Bare-metal reclaiming allocator (SFL) + pluggable `rt` Raw backend — ✅ DONE (2026-08-12, `42db7011c`)
+
+The bare-metal `pkg/builtins/rt` was a BUMP allocator that never reclaimed, so cumulative
+allocation across a refcount-heavy unit-test run exhausted the heap (`rt.RawAlloc: bump heap
+exhausted`) — reddening 7 `builder-comp_arm32_baremetal` unit packages (ir, vm, types, interp,
+repl, format, native/arm32). Even an 8 MiB heap exhausted (proving it was reclamation, not size).
+
+Landed fix (design panel `wf_357b47f1` chose **SFL** — size-classed segregated free-lists + a hidden
+8-byte size prefix, no coalescing; a reclaiming free-list is bounded by *peak-live*, not
+*cumulative*, so 4 MiB flips from marginal to generous):
+- Extracted the shared managed/refcount layer → new ungated `rt_managed.bn`
+  (Alloc/Free/RefInc/RefDec/ZeroRefDestroy/Refcount/Box/MakeManagedSlice/headerPtr/MemCopy/MemZero
+  + fault checks) in the single `sizeof(ManagedHeader)` struct form — deduped ~200 byte-identical
+  lines that were split across rt.bn/rt_baremetal.bn (net −84 lines).
+- Split the per-target **Raw backend** {RawAlloc, RawAllocZero, RawFree, Abort, rtWriteRawStderr}:
+  rt.bn = libc host, rt_baremetal.bn = bare-metal SFL, both `#[build]`-gated; the managed layer
+  sits on top unchanged (the `rt_diag.bn` pattern) → the backend is now pluggable.
+- SFL in rt_baremetal.bn: arena `[524288]uint64` (4 MiB); per-block `[8B prefix][payload]`;
+  per-class LIFO small lists; single first-fit large list; carve on class miss. All 4 correctness
+  invariants baked in (absolute-address heads, fixed 8-byte prefix, RawAllocZero MemZeros,
+  double-free=UB). Adversarial review (`wksgajm86`): 0 confirmed defects, 5 nits all addressed.
+
+Result: baremetal unit lane GREEN — 5 of the 7 formerly-crashing packages PASS (ir, types, interp,
+repl, format; + buf/irdata/iropcode), 0 failed. vm + native/arm32 xfail'd for a *fixture LEAK* (a
+separate open item in [claude-todo.md](claude-todo.md), NOT the allocator). Hosted regression clean
+(rt unit tests + 092/093 host+VM + a broad builder-comp conformance sample, 0 failures — the
+managed-layer extraction is byte-preserving, so a full 2930-test run was redundant).
+
+Future drop-in upgrades (documented, NOT built): TagCoalesce boundary-tag backend behind the same
+Raw contract if a size-phasing workload ever blows the segregated arena; an opt-in mark/reset region
+API if scoped bulk-free is wanted (NOT arena-reset-under-Free — rejected); a `buildcfg` selector key
+only if A/B-selectable baremetal backends are ever wanted.
+
+## `builder-comp_arm32_baremetal` unit lane: ir/vm/buf xfail-removal confirmed — ✅ DONE (2026-08-12, `42db7011c`)
+
+The 4 "tests use literals that exceed int32; AssignableTo fit-check rejects on arm32 ILP32" baremetal
+xfails (`pkg-binate-{ir,vm,buf}` + a dead `pkg-std` marker) were removed in `02dbb8e0` once the
+fit-check cause (Bucket C `5b5987d7` + IR-gen ModuleConst.Val `2bf360fc`) was fixed, but CI
+confirmation stayed pending (the `arm32_baremetal` job kept getting cancelled/queued). Now confirmed
+LOCALLY: qemu-system-arm 11 + arm-none-eabi-gcc 10.3 are available, and the SFL-allocator landing
+(`42db7011c`) runs the baremetal unit lane directly — ir and buf PASS; vm is re-xfail'd for an
+unrelated runtime LEAK (it type-checks + emits cleanly for `--target arm32-baremetal`, 0 fit-check
+errors, so the int32 cause IS gone). The int32-fit-check xfail removal is therefore confirmed.
+
 ## Vestigial host `--runtime` removed (post-C-runtime-removal cleanup) — ✅ DONE (2026-08-11, `3d8a42098`)
 
 After `binate_runtime.c` was deleted (`6f58f32fd`) and `BUILDER_VERSION` reached
