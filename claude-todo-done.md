@@ -6,6 +6,38 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Vestigial host `--runtime` removed (post-C-runtime-removal cleanup) — ✅ DONE (2026-08-11, `3d8a42098`)
+
+After `binate_runtime.c` was deleted (`6f58f32fd`) and `BUILDER_VERSION` reached
+`bnc-0.0.13` (which links no C runtime either), the host build/test/perf/e2e
+scripts still passed a vestigial `--runtime "$(binate-paths --runtime ...)"` that
+resolved to the deleted `runtime/binate_runtime.c` — a path `bnc` silently
+ignored on host.
+
+Landed cleanup (host + docs; the flag stays for bare-metal):
+
+1. `scripts/binate-paths.sh`: dropped the `--runtime` selector and the unused
+   `BINATE_RT` eval-block field (it named the deleted file).
+2. Removed the `--runtime` passing from ~49 host callers (build scripts,
+   conformance/unittest/perf runners, e2e) — inline and var-capture forms
+   (`$RT`/`$CK_RT`/`$BUILDER_RUNTIME`/`$GEN1_RT`/`$BLD_RT`) plus orphaned
+   assignments. `e2e/separate-compilation.sh`'s `run_sepc` lost its `<runtime>`
+   param and dead `rt_obj` C-runtime-object link.
+3. `--runtime` STAYS in `bnc` (cmd/bnc): a bare-metal target resolves
+   `crt0.s`/`semihost.s`/linker script relative to `dirOf(--runtime)`, so the 3
+   arm32-baremetal runners keep passing `--runtime .../runtime/baremetal_arm32/crt0.s`
+   (untouched). `args.bn`'s RuntimePath doc updated to say it's baremetal-only.
+4. Docs: `release-process.md` step-4 smoke example fixed (`testing.Println`, no
+   `--runtime`, no removed `println`/`rt.Exit`; verified against the bnc-0.0.13
+   bundle — explorations `e7ed69bf`); `BUNDLE-HOWTO.md` + `release.yml`/build-script
+   comments updated.
+
+Verified: host conformance `builder-comp` 25/0, e2e (separate-compilation /
+split-paths / verify-ir) pass, hygiene 19/19, `sh -n` clean on all 55 files,
+baremetal runners byte-unchanged, `bnc` flag-parsing intact. Adversarial review:
+no CI-breaking issue. (Supersedes the earlier "binate-paths --runtime / stale
+release smoke example" follow-up, which is fully addressed here.)
+
 ## Named 64-bit integer literal truncated to 32 bits on arm32 (ILP32) — ✅ FIXED (2026-08-11, `767a556e7`)
 
 **Was: MAJOR silent miscompile (data corruption).** An untyped integer literal
