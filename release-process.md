@@ -154,8 +154,9 @@ still exercises the real pipeline):
 
 1. Download one of the platform tarballs + `SHA256SUMS`.
 2. Verify the SHA matches what `SHA256SUMS` claims.
-3. Extract; confirm `lib/` contains everything build scripts consume:
-   `ifaces/`, `impls/`, and `runtime/`.  There is **no** top-level
+3. Extract; confirm `lib/` contains `ifaces/` and `impls/` (what the build
+   scripts consume) plus `runtime/` (bare-metal startup only —
+   `baremetal_arm32/`; a host build links no C runtime).  There is **no** top-level
    `lib/pkg/` — packages live under `ifaces/{core,stdlib}/pkg/` (the
    `.bni` interfaces) and `impls/{core,stdlib}/.../pkg/` (the `.bn`
    implementations), per the spec's split tree.  In particular
@@ -164,23 +165,21 @@ still exercises the real pipeline):
    with undefined `bn_pkg__builtins__rt__*` symbols.
 4. Compile + run a small program through the extracted `bin/bnc`
    against the bundled `lib/`.  The bundle ships `bin/binate-paths` —
-   the single source of truth for the `-I` / `-L` / `--runtime` formula
-   — so use it rather than hand-coding the layout:
+   the single source of truth for the `-I` / `-L` formula — so use it
+   rather than hand-coding the layout:
 
        BNC=./<bundle>/bin/bnc
        LIB=./<bundle>/lib
-       I=$("./<bundle>/bin/binate-paths" --iface   --base "$LIB")
-       L=$("./<bundle>/bin/binate-paths" --impl    --base "$LIB")
-       RT=$("./<bundle>/bin/binate-paths" --runtime --base "$LIB")
+       I=$("./<bundle>/bin/binate-paths" --iface --base "$LIB")
+       L=$("./<bundle>/bin/binate-paths" --impl  --base "$LIB")
        cat > hello.bn <<EOF
        package "main"
-       import "pkg/builtins/rt"
+       import "pkg/builtins/testing"
        func main() {
-           println("hello bnc-X.Y.Z")
-           rt.Exit(0)
+           testing.Println("hello bnc-X.Y.Z")
        }
        EOF
-       "$BNC" -I "$I" -L "$L" --runtime "$RT" -o hello hello.bn
+       "$BNC" -I "$I" -L "$L" -o hello hello.bn
        ./hello
 
 5. Also exercise the tier-0 carve-out so you confirm
@@ -190,13 +189,12 @@ still exercises the real pipeline):
 
        cat > carveout.bn <<EOF
        package "main"
-       import "pkg/builtins/rt"
+       import "pkg/builtins/testing"
        import "pkg/builtins/lang"
        func main() {
            var x int = 42
            var s *lang.Stringer = &x
-           println(s.String())  // expect: 42
-           rt.Exit(0)
+           testing.Println(s.String())  // expect: 42
        }
        EOF
        # ... same compile incantation ...
