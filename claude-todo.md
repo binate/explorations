@@ -299,24 +299,24 @@ Design chosen via a design panel (`wf_357b47f1`): **SFL — size-classed segrega
 hidden 8-byte size prefix**, no coalescing (correctness-first; a reclaiming free-list's bound is
 *peak-live*, not *cumulative*, so 4 MiB flips from marginal to generous). Full pluggability
 extraction (option A). Steps:
-- 🟡 IN PROGRESS — **Extract the shared managed layer → new ungated `rt_managed.bn`**
+- ✅ DONE — **Extracted the shared managed layer → new ungated `rt_managed.bn`**
   (Alloc/Free/RefInc/RefDec/ZeroRefDestroy/Refcount/Box/MakeManagedSlice/headerPtr/MemCopy/MemZero
-  + fault checks), deduping the ~200 lines duplicated in rt.bn/rt_baremetal.bn; reconcile the two
-  header forms (struct `ManagedHeader`+sizeof vs int-array `header[0/1]`) to ONE
-  `sizeof(ManagedHeader)` form. Must be byte-identical on LP64 / ILP32.
-- ⬜ **Raw backend contract** {RawAlloc, RawAllocZero, RawFree, Abort, rtWriteRawStderr},
-  `#[build]`-gated per target (the `rt_diag.bn` pattern): libc-host backend stays in rt.bn, new
-  baremetal free-list backend in its own file.
-- ⬜ **Implement SFL** in the baremetal backend: `arena [N]uint64` (keep 4 MiB), per-block
-  `[8B size prefix][payload]`, per-class LIFO small lists (class=`need/8−1`, ≤1 KiB), single
-  first-fit large list (no pow2 rounding), carve-from-frontier on miss. Correctness musts: (1)
-  free-list heads store ABSOLUTE addresses (0=empty is safe); (2) size prefix a fixed 8 bytes
-  (uint64, NEVER `sizeof(int)` — arm32 int=4 misaligns→data-abort→hang); (3) RawAllocZero MemZeros
-  (reused blocks are dirty); (4) double-free now corrupts a list (UB per .bni; optional low-bit
-  alloc/free trap).
-- ⬜ **Verify**: baremetal unit lane greens (the 7 packages) — which also CONFIRMS the ir/vm/buf
-  xfail removal below (then mark that done); hosted + other targets byte-unaffected. Adversarial
-  review (shared runtime, CI-only verification besides local qemu).
+  + fault checks) in the single `sizeof(ManagedHeader)` struct form, deduping the ~200 lines that
+  were duplicated in rt.bn/rt_baremetal.bn (rt_baremetal's int-array `header[0/1]` was the byte-
+  identical duplicate — 2 ints == the struct — so layout-preserving).
+- ✅ DONE — **Raw backend contract** {RawAlloc, RawAllocZero, RawFree, Abort, rtWriteRawStderr}:
+  rt.bn slimmed to the libc-host backend, rt_baremetal.bn to the bare-metal backend, both
+  `#[build]`-gated; the managed layer sits on top unchanged (the `rt_diag.bn` pattern).
+- ✅ DONE — **SFL implemented** in rt_baremetal.bn (arena [524288]uint64 = 4 MiB kept; per-block
+  `[8B prefix][payload]`; per-class LIFO small lists; single first-fit large list; carve on miss).
+  All 4 correctness invariants baked in (absolute-address heads, fixed 8-byte prefix, RawAllocZero
+  MemZeros, double-free=UB).
+- 🟡 IN PROGRESS — **Verify + land**: baremetal unit lane now GREEN — **5 of the 7** formerly-crashing
+  packages PASS with reclamation (ir, types, interp, repl, format; + buf/irdata/iropcode), 0 failed;
+  vm + native/arm32 xfail'd (a fixture LEAK, not the allocator — see the leak item below). Hosted
+  regression clean (rt unit tests + full builder-comp conformance + 092/093 in host + VM modes). The
+  **ir + buf** xfail removals are thereby CONFIRMED (the item below). Remaining: adversarial review
+  (shared runtime), then land.
 
 Future (documented, NOT built now):
 - **TagCoalesce** (boundary-tag coalescing) as a one-file drop-in Raw-backend upgrade behind the
@@ -327,6 +327,23 @@ Future (documented, NOT built now):
   compose with libc/syscall backends).
 - A **`buildcfg` selector key** beyond {arch,os,entrypoint,version} only if A/B-selectable baremetal
   backends are ever wanted (today the free-list REPLACES bump, so no coexistence is needed).
+
+### vm + native/arm32 bare-metal unit-test fixture LEAK — 🟡 OPEN (follow-up)
+
+`pkg/binate/vm` and `pkg/binate/native/arm32` are xfail'd on `builder-comp_arm32_baremetal`
+(`scripts/unittest/pkg-binate-{vm,native-arm32}.xfail.builder-comp_arm32_baremetal`) because their
+unit-test fixtures LEAK: a live set that grows to fill the arena (at 4 MiB — ~4.1 MiB live, only
+~60 KB reclaimable on the free lists; still exhausts at 8 MiB; a 12 MiB arena no longer fits the
+16 MiB RAM). NOT the allocator — the SFL reclaiming allocator greened the other 5 packages; the old
+never-reclaiming bump allocator merely masked this (it exhausted regardless). **Investigate whether
+it's a TEST bug or a COMPILER/refcount bug:** fixtures (VMs / stacks / native vtables / bytecode for
+vm; assemblers / reference buffers for native-arm32) allocated and never freed is a common unit-test
+pattern that relies on process-exit reclamation (→ fix the tests to free fixtures, or accept as
+baremetal-inherent); a MANAGED object that should hit refcount 0 but doesn't, or a dtor not run,
+would point at the compiler/refcount path. Reproduce locally (qemu-system-arm 11 + arm-none-eabi-gcc
+10.3 ARE available — the "can't run locally" note was stale); a heap-usage / leaked-object dump
+(instrument RawAlloc/RawFree to log the live block set) narrows raw-vs-managed and test-vs-compiler.
+Once fixed, drop the two xfails.
 
 ### `builder-comp_arm32_baremetal` unit lane: ir/vm/buf xfail-removal CI confirmation — 🟡 OPEN
 
