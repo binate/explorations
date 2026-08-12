@@ -33,6 +33,32 @@ test: a compiled/native higher-order fn calling a VM callback that indexes OOB, 
 the program aborts (not returns 0). Tracked against Plan 2
 (`explorations/done/plan-rt-fault-cleanup-pads.md`).
 
+## Tooling / docs cleanup after the C-runtime removal
+
+### `binate-paths --runtime` still emits the deleted `binate_runtime.c`; stale release smoke example — 🟡 OPEN (found 2026-08-11, during the bnc-0.0.13 release)
+
+After `binate_runtime.c` was deleted and the tree stopped linking a C runtime
+(`6f58f32fd`), two stale references remain — both HARMLESS today (bnc tolerates a
+missing `--runtime` when the runtime isn't actually consumed; confirmed by
+building bnc through both stages against the bnc-0.0.13 BUILDER, whose bundle no
+longer ships `binate_runtime.c`), but worth cleaning up:
+
+1. **`scripts/binate-paths.sh --runtime`** unconditionally returns
+   `$BASE/runtime/binate_runtime.c` (line ~161) — a file that no longer exists in
+   the tree or in the bnc-0.0.13 bundle (`lib/runtime/` holds only
+   `baremetal_arm32/`). Every build script still passes it via `--runtime
+   "$(binate-paths --runtime ...)"`; bnc silently ignores the unreadable path
+   when it doesn't need a C runtime, so nothing breaks — but a consumer who
+   follows the documented incantation and whose program DOES need a runtime would
+   hit `error: cannot read --runtime`. Decide the end state: `--runtime` should
+   return empty (and callers stop passing it) when no C runtime is shipped, or the
+   C-runtime story should be finalized.
+2. **`explorations/release-process.md` step 4 smoke example** uses the REMOVED
+   `println` builtin (bnc-0.0.13 reports `undefined: println`) and `rt.Exit`, and
+   asserts `lib/` contains a hosted `runtime/`. Update it to a `testing.Println`
+   program compiled WITHOUT `--runtime` (the working form verified against the
+   bnc-0.0.13 bundle), and adjust the `runtime/` expectation (baremetal-only now).
+
 ## Documentation hygiene
 
 ### Code comments reference only normative docs + TODOs; rehome the implementation "specs" — 🟡 OPEN
