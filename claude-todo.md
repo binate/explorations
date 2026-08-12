@@ -285,6 +285,49 @@ unwind; nil-deref N1–N3 last, `de9a7c05`); see claude-todo-done.md and
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
+### Bare-metal reclaiming allocator (SFL) + pluggable `rt` Raw backend — 🟡 IN PROGRESS
+
+**Root cause of the persistent `builder-comp_arm32_baremetal` unit-lane reds** (7 packages —
+ir, vm, types, interp, repl, format, native/arm32 — all abort `rt.RawAlloc: bump heap exhausted`;
+the ir/vm/buf item below is a symptom): the bare-metal `pkg/builtins/rt`
+(`impls/core/common/pkg/builtins/rt/rt_baremetal.bn`) is a BUMP allocator that **never reclaims**,
+so cumulative allocation across a refcount-heavy test run exceeds the 4 MiB heap (even 8 MiB
+exhausts — verified locally; qemu-system-arm 11 + arm-none-eabi-gcc 10.3 ARE available now, the
+todo's "can't run locally" is stale). Small packages (buf/irdata/iropcode) fit → pass.
+
+Design chosen via a design panel (`wf_357b47f1`): **SFL — size-classed segregated free-lists + a
+hidden 8-byte size prefix**, no coalescing (correctness-first; a reclaiming free-list's bound is
+*peak-live*, not *cumulative*, so 4 MiB flips from marginal to generous). Full pluggability
+extraction (option A). Steps:
+- 🟡 IN PROGRESS — **Extract the shared managed layer → new ungated `rt_managed.bn`**
+  (Alloc/Free/RefInc/RefDec/ZeroRefDestroy/Refcount/Box/MakeManagedSlice/headerPtr/MemCopy/MemZero
+  + fault checks), deduping the ~200 lines duplicated in rt.bn/rt_baremetal.bn; reconcile the two
+  header forms (struct `ManagedHeader`+sizeof vs int-array `header[0/1]`) to ONE
+  `sizeof(ManagedHeader)` form. Must be byte-identical on LP64 / ILP32.
+- ⬜ **Raw backend contract** {RawAlloc, RawAllocZero, RawFree, Abort, rtWriteRawStderr},
+  `#[build]`-gated per target (the `rt_diag.bn` pattern): libc-host backend stays in rt.bn, new
+  baremetal free-list backend in its own file.
+- ⬜ **Implement SFL** in the baremetal backend: `arena [N]uint64` (keep 4 MiB), per-block
+  `[8B size prefix][payload]`, per-class LIFO small lists (class=`need/8−1`, ≤1 KiB), single
+  first-fit large list (no pow2 rounding), carve-from-frontier on miss. Correctness musts: (1)
+  free-list heads store ABSOLUTE addresses (0=empty is safe); (2) size prefix a fixed 8 bytes
+  (uint64, NEVER `sizeof(int)` — arm32 int=4 misaligns→data-abort→hang); (3) RawAllocZero MemZeros
+  (reused blocks are dirty); (4) double-free now corrupts a list (UB per .bni; optional low-bit
+  alloc/free trap).
+- ⬜ **Verify**: baremetal unit lane greens (the 7 packages) — which also CONFIRMS the ir/vm/buf
+  xfail removal below (then mark that done); hosted + other targets byte-unaffected. Adversarial
+  review (shared runtime, CI-only verification besides local qemu).
+
+Future (documented, NOT built now):
+- **TagCoalesce** (boundary-tag coalescing) as a one-file drop-in Raw-backend upgrade behind the
+  unchanged managed layer — deploy IF a phase-shift / large-variable-buffer workload ever blows the
+  segregated arena (SFL's worst case is size-phasing: up to ~K× peak-live across K classes).
+- A **mark/reset region API** (opt-in) if scoped bulk-free is ever wanted — NOT
+  arena-reset-under-Free (rejected: bypasses dtors, invalidates interned/global data, doesn't
+  compose with libc/syscall backends).
+- A **`buildcfg` selector key** beyond {arch,os,entrypoint,version} only if A/B-selectable baremetal
+  backends are ever wanted (today the free-list REPLACES bump, so no coexistence is needed).
+
 ### `builder-comp_arm32_baremetal` unit lane: ir/vm/buf xfail-removal CI confirmation — 🟡 OPEN
 
 The `builder-comp_arm32_linux` unit-lane reds — the ILP32 int-width buckets, the
