@@ -12,11 +12,16 @@ landed in both the binate and bootstrap repos.
   (`BINATE_PACKAGE_INTERFACE_PATH` / `BINATE_PACKAGE_IMPL_PATH`, with
   `BINATE_BNI_PATH` / `BINATE_IMPL_PATH` short aliases). The original
   gate — "needs `bootstrap.Getenv`" — is gone: the Go bootstrap
-  interpreter was retired, and `Getenv` now ships as
-  `pkg/std/os/sys.Getenv`, which bnc, bni, and bnlint all already
-  reach (each imports `pkg/std/os`, which pulls in `os/sys`). The
-  finalized semantics are in "Stage 7" below; this is now
-  straightforward CLI plumbing, not a blocked item.
+  interpreter was retired. Env access goes through the public `os`
+  package, NOT `pkg/std/os/sys` (that low-level libc-syscall layer is
+  boundary-private — the `os-sys-consumers` hygiene check forbids any
+  importer outside the `os` family). Concretely a new
+  `os.Getenv` (built on the safe `os.Env()` snapshot, not a mutable
+  libc `getenv`) is added; bni and bnlint call it. cmd/bnc, compiled
+  by the frozen BUILDER whose bundled `os.bni` predates `os.Getenv`,
+  reads `os.Env()` directly for now (TODO: switch to `os.Getenv`
+  after the next `BUILDER_VERSION` bump). The finalized semantics are
+  in "Stage 7" below.
 - **Stage 8** (Phase 2): binary `.o`/`.a`/`.so` artifacts on
   IMPL_PATH. Tied to having a stable per-package ABI/linker
   contract. Still genuinely deferred.
@@ -213,15 +218,34 @@ supplied that specific path.
 ### Where it lives
 
 The precedence decision is a small pure function (`envPathList`,
-taking the two `Getenv` results so it is unit-testable without a
-`Setenv` — `os/sys` exposes only `Getenv`), wrapped by a thin
-`envPaths` that reads the environment. Each tool carries its own copy
-(the same per-tool duplication already used for `splitColon` /
-`streq`), and applies the fallback right after `parseArgs`, before it
-assembles the loader search paths. `parseArgs` itself stays a pure
-function of its arguments (bnlint's "an interface path is required"
-check moves out of `parseArgs` into `main`, after the env fallback,
-so an env-supplied interface path satisfies it).
+taking the two lookup results so it is unit-testable — the environment
+is a process-wide snapshot with no per-variable setter, so it can't be
+staged inside a unit test), wrapped by a thin `envPaths` that reads
+the environment. Each tool carries its own copy (the same per-tool
+duplication already used for `splitColon` / `streq`), and applies the
+fallback right after `parseArgs`, before it assembles the loader
+search paths. `parseArgs` itself stays a pure function of its
+arguments (bnlint's "an interface path is required" check moves out of
+`parseArgs` into `main`, after the env fallback, so an env-supplied
+interface path satisfies it).
+
+Env reads go through the public `os` package. `os.Getenv(name)` is
+added, implemented over the `os.Env()` snapshot (safe — an immutable
+shared list seeded from envp at startup — rather than a mutable libc
+`getenv`). bni and bnlint call `os.Getenv`. cmd/bnc is compiled by
+the frozen BUILDER, whose bundled `os.bni` predates `os.Getenv`, so it
+cannot call the new symbol yet; it scans `os.Env()` directly via a
+local `envLookup` helper (a temporary duplicate of `os.Getenv`, with a
+TODO to collapse it after the next `BUILDER_VERSION` bump). Two
+follow-up TODOs are tracked in `claude-todo.md`: switch cmd/bnc to
+`os.Getenv`, and remove the unsafe `pkg/std/os/sys.Getenv`, routing
+its one remaining consumer (`os/process/lookpath`) through `os.Env()`
+too.
+
+End-to-end coverage is `e2e/env-paths.sh`: it builds all three tools
+from source (the frozen BUILDER predates the feature) and asserts a
+split-root fixture resolves purely from the env vars, that `-I`/`-L`
+override a bogus env value, and that the short aliases work.
 
 ## Stage 8 (Phase 2): Binary impl artifacts
 
