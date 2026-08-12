@@ -285,22 +285,44 @@ unwind; nil-deref N1–N3 last, `de9a7c05`); see claude-todo-done.md and
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
-### vm + native/arm32 bare-metal unit-test fixture LEAK — 🟡 OPEN (follow-up)
+### vm (+ native/arm32) bare-metal LEAK — ROOT-CAUSED: raw VM resources never freed — 🟡 OPEN (MAJOR)
 
 `pkg/binate/vm` and `pkg/binate/native/arm32` are xfail'd on `builder-comp_arm32_baremetal`
-(`scripts/unittest/pkg-binate-{vm,native-arm32}.xfail.builder-comp_arm32_baremetal`) because their
-unit-test fixtures LEAK: a live set that grows to fill the arena (at 4 MiB — ~4.1 MiB live, only
-~60 KB reclaimable on the free lists; still exhausts at 8 MiB; a 12 MiB arena no longer fits the
-16 MiB RAM). NOT the allocator — the SFL reclaiming allocator greened the other 5 packages; the old
-never-reclaiming bump allocator merely masked this (it exhausted regardless). **Investigate whether
-it's a TEST bug or a COMPILER/refcount bug:** fixtures (VMs / stacks / native vtables / bytecode for
-vm; assemblers / reference buffers for native-arm32) allocated and never freed is a common unit-test
-pattern that relies on process-exit reclamation (→ fix the tests to free fixtures, or accept as
-baremetal-inherent); a MANAGED object that should hit refcount 0 but doesn't, or a dtor not run,
-would point at the compiler/refcount path. Reproduce locally (qemu-system-arm 11 + arm-none-eabi-gcc
-10.3 ARE available — the "can't run locally" note was stale); a heap-usage / leaked-object dump
-(instrument RawAlloc/RawFree to log the live block set) narrows raw-vs-managed and test-vs-compiler.
-Once fixed, drop the two xfails.
+(`scripts/unittest/pkg-binate-{vm,native-arm32}.xfail.builder-comp_arm32_baremetal`) because they
+LEAK: a live set that fills the arena (still exhausts at 8 MiB). NOT the allocator (the SFL greened
+the other 5 packages; the old bump heap merely masked this by exhausting regardless).
+
+**ROOT CAUSE (found — a `pkg/binate/vm` LIBRARY leak, NOT a test bug and NOT a compiler bug).** A
+live-block dump at exhaustion (instrumented RawAlloc/RawFree per size class) showed the ~4 MiB live
+set is dominated by **15 × 64 KiB + 3 × 1 MiB raw blocks** — VM execution stacks — plus a small-class
+residue. The VM acquires several **raw** (`rt.RawAlloc`) resources and frees none of them; with no
+user destructors, a raw allocation hung off a managed `@VM` is never reclaimed (the compiler's
+generated dtor RefDecs only the MANAGED fields — `Funcs`/`Strings`/`IndexBuckets`/`Externs`/
+`IfaceVtables`, which is why those are ~21 KB, not the bulk). The raw leakers:
+- `vm.bn:42` `vm.Stack = rt.RawAlloc(stackSize)` — the execution stack (dominant: the 64 KiB / 1 MiB blocks).
+- `lower_data.bn:57,76` `vm.Globals` — global-variable areas.
+- `lower_pkg_descriptor.bn:47` — package-descriptor data.
+- `vm_iface_native_vt.bn:85` — native vtables.
+
+The compiler is correct (frees managed fields; leaves raw to the programmer per the raw-pointer
+model). Benign on hosted targets (the VM's normal home — `cmd/bni`, the `int` modes — where process
+exit reclaims); fatal on bare metal / any long-lived multi-VM embedder → **major**. `Stack`/`Globals`
+are declared raw (`*uint8`, vm.bni:669) with no documented reason — used as flat byte buffers for
+`bit_cast(int, vm.Stack) + off` arithmetic at dozens of sites — but there is no CORRECTNESS reason
+they must be raw (they hold opaque bytes; a managed `@[]uint8` backing is refcounted as one object).
+
+**FIX (design choice open — awaiting user):** since there are no destructors, the mechanism is "make
+the owning field managed so `@VM`'s generated dtor frees it."
+- Minimal: keep the raw `*uint8` views for arithmetic but add managed OWNER fields (`@[]uint8`) that
+  hold the Stack/Globals backing; NewVM points the raw view into the owner. Smallest diff; fixes the
+  dominant leak.
+- Fuller: `Stack`/`Globals` become managed `@[]uint8` (touch every `bit_cast(int, vm.Stack)` site),
+  and the descriptor/vtable/data-area raw blocks (embedded in tables as raw addresses — can't be
+  plain managed fields) get a per-VM owner-list (a managed vec of raw blocks freed on teardown) or an
+  arena freed en masse.
+native/arm32 is presumed analogous (raw assembler / reference-buffer fixtures never freed) — confirm
+with the same per-class dump. Once fixed, drop the two xfails. **This is a MAJOR bug per the
+raise-don't-workaround rule; the xfails are the tracked hold, not a silent workaround.**
 
 ### `data_pkg_descriptor.bn` header/slice-width conflation — 🟢 LOW (non-urgent cleanup)
 The `GetTarget().IntSize` "footgun" was a MISDIAGNOSIS and the native-accessor header reads
