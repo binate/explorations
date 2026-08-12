@@ -9,12 +9,17 @@ landed in both the binate and bootstrap repos.
 
 **Outstanding (deferred):**
 - **Stage 7**: env-var support
-  (`BINATE_PACKAGE_INTERFACE_PATH` / `BINATE_PACKAGE_IMPL_PATH`).
-  Gated on adding `bootstrap.Getenv`. Direct CLI is sufficient for
-  now since cross-compile drivers can construct command lines.
+  (`BINATE_PACKAGE_INTERFACE_PATH` / `BINATE_PACKAGE_IMPL_PATH`, with
+  `BINATE_BNI_PATH` / `BINATE_IMPL_PATH` short aliases). The original
+  gate — "needs `bootstrap.Getenv`" — is gone: the Go bootstrap
+  interpreter was retired, and `Getenv` now ships as
+  `pkg/std/os/sys.Getenv`, which bnc, bni, and bnlint all already
+  reach (each imports `pkg/std/os`, which pulls in `os/sys`). The
+  finalized semantics are in "Stage 7" below; this is now
+  straightforward CLI plumbing, not a blocked item.
 - **Stage 8** (Phase 2): binary `.o`/`.a`/`.so` artifacts on
   IMPL_PATH. Tied to having a stable per-package ABI/linker
-  contract.
+  contract. Still genuinely deferred.
 
 ## Motivation
 
@@ -163,21 +168,60 @@ combination later.
   flag/env parse time, not at search time. Document this.
 - No tilde expansion at the language level — leave it to the shell.
 
-## Stage 7: Env vars (and their absence in pkg/bootstrap)
+## Stage 7: Env vars
 
-`pkg/bootstrap` doesn't expose `getenv` today. Two reasonable paths:
+The original framing here — "`pkg/bootstrap` doesn't expose `getenv`,
+so gate env support on adding `bootstrap.Getenv`" — is obsolete. The
+Go bootstrap interpreter (and `pkg/bootstrap`) is retired; the tools
+now read the environment through `pkg/std/os/sys.Getenv`
+(`func Getenv(name) (@[]char, bool)`), which bnc, bni, and bnlint all
+already have in their import graph (each imports `pkg/std/os`, which
+imports `os/sys`). So env support is just CLI plumbing.
 
-- **Stage 0**: ship CLI flags first; env-var support is a second
-  step gated on adding `bootstrap.Getenv`. The CLI is sufficient
-  for cross-compilation drivers that already construct command
-  lines.
-- **Add `bootstrap.Getenv` now** as a tiny addition to the bootstrap
-  surface (a handful of lines in C and the Go interpreter). Then env
-  + CLI ship together.
+### Variables
 
-Recommendation: **Stage 0 first** (this shipped — CLI only),
-evaluate adding `bootstrap.Getenv` based on whether direct shell
-invocations of bnc/bni need env-var support before the CLI is enough.
+- Interface path: `BINATE_PACKAGE_INTERFACE_PATH` (long, primary),
+  `BINATE_BNI_PATH` (short alias).
+- Impl path: `BINATE_PACKAGE_IMPL_PATH` (long, primary),
+  `BINATE_IMPL_PATH` (short alias).
+
+Each is a colon-separated list, same syntax as the `-I` / `-L` flag
+values (empty entries dropped, trailing colon benign) — the same
+`splitColon` used for the flags parses them.
+
+### Precedence (per path, resolved in each tool's `main`)
+
+1. **CLI wins per path.** If a tool got any `-I` / `--interface-path`
+   entry, the interface env vars are ignored entirely; likewise `-L`
+   for the impl path. The two paths are independent — `-I` on the CLI
+   with `BINATE_PACKAGE_IMPL_PATH` in the env is a normal
+   cross-config case (CLI interface path + env impl path).
+2. **Long form wins over the short alias.** If
+   `BINATE_PACKAGE_INTERFACE_PATH` is *set* (present in the
+   environment, even to the empty string) its value is used and
+   `BINATE_BNI_PATH` is not consulted. A present-but-empty long form
+   therefore means "no env paths," not "fall through to the alias."
+   No warning is emitted when both are set; the long form just wins.
+
+The `--root` / `-add-root` "sugar for both paths" discussed elsewhere
+in this doc no longer exists — it was removed in favor of plain
+`-I` / `-L` (in bni and bnlint the first `-I` entry additionally acts
+as the implicit source root). So the old "`--root` always wins over
+env" clause is moot; env fallback keys purely off whether the CLI
+supplied that specific path.
+
+### Where it lives
+
+The precedence decision is a small pure function (`envPathList`,
+taking the two `Getenv` results so it is unit-testable without a
+`Setenv` — `os/sys` exposes only `Getenv`), wrapped by a thin
+`envPaths` that reads the environment. Each tool carries its own copy
+(the same per-tool duplication already used for `splitColon` /
+`streq`), and applies the fallback right after `parseArgs`, before it
+assembles the loader search paths. `parseArgs` itself stays a pure
+function of its arguments (bnlint's "an interface path is required"
+check moves out of `parseArgs` into `main`, after the env fallback,
+so an env-supplied interface path satisfies it).
 
 ## Stage 8 (Phase 2): Binary impl artifacts
 
@@ -194,8 +238,10 @@ Once `.o`/`.a`/`.so` are accepted on `IMPL_PATH`:
 
 ## Resolved decisions
 
-- **`--root` stays** as sugar for adding the dir to both paths. No
-  deprecation planned.
+- **`--root` was removed** (superseding the earlier "stays"
+  decision): the tools use plain `-I` / `-L`, and in bni / bnlint the
+  first `-I` entry doubles as the implicit source root. Env fallback
+  therefore keys off `-I` / `-L` presence, not a root flag.
 - **Flag style**: `--word` for long flags everywhere, single `-`
   reserved for short flags (including future `-abc` combination
   syntax). Existing `-word` aliases in bni/bootstrap stay accepted
@@ -212,9 +258,9 @@ Once `.o`/`.a`/`.so` are accepted on `IMPL_PATH`:
   C-toolchain users) or `--interface-path` / `--impl-path` (self-
   documenting)? Both supported either way; this is just about which
   form the docs/help text show first.
-- **Env var names**: long form (`BINATE_PACKAGE_INTERFACE_PATH`)
-  vs short (`BINATE_BNI_PATH`). Long matches PEP/PYTHONPATH style;
-  short matches `PATH`/`MANPATH`. Recommendation in the body is
-  "long primary, short alias".
+- **Env var names** — RESOLVED (see Stage 7): support both, long form
+  primary (`BINATE_PACKAGE_INTERFACE_PATH` / `_IMPL_PATH`) and short
+  alias (`BINATE_BNI_PATH` / `BINATE_IMPL_PATH`), with the long form
+  winning when both are set.
 - **Phase 2 timing**: when does binary-artifact support land? Tied
   to having a stable per-package ABI / linker contract.
