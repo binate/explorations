@@ -285,53 +285,44 @@ unwind; nil-deref N1–N3 last, `de9a7c05`); see claude-todo-done.md and
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
-### vm (+ native/arm32) bare-metal LEAK — ROOT-CAUSED: raw VM resources never freed — 🟡 OPEN (MAJOR)
+### vm bare-metal LEAK — stack FIXED & landed; shared static data still leaks (refcount it) — 🟡 OPEN (MAJOR)
 
-`pkg/binate/vm` and `pkg/binate/native/arm32` are xfail'd on `builder-comp_arm32_baremetal`
-(`scripts/unittest/pkg-binate-{vm,native-arm32}.xfail.builder-comp_arm32_baremetal`) because they
-LEAK: a live set that fills the arena (still exhausts at 8 MiB). NOT the allocator (the SFL greened
-the other 5 packages; the old bump heap merely masked this by exhausting regardless).
+`pkg/binate/vm` raw-allocated several VM resources (`rt.RawAlloc`) and freed NONE; with no user
+destructors, a raw allocation hung off a managed `@VM` is never reclaimed (the generated dtor RefDecs
+only MANAGED fields). A live-block dump at exhaustion showed the ~4 MiB `builder-comp_arm32_baremetal`
+leak was dominated by VM execution stacks (15 × 64 KiB + 3 × 1 MiB); the other raw blocks are the
+small residue. This is a **full bug on every target, not a bare-metal curiosity**: embedding a VM is a
+core feature — an app spins VMs up and down freely — so a host process that creates/destroys many VMs
+leaks unboundedly too (process-exit reclamation only hides the single-VM case). Audit: the ENTIRE
+production raw-alloc surface is 5 sites, all in `pkg/binate/vm`; zero `RawFree` anywhere. → **major**.
 
-**ROOT CAUSE (found — a `pkg/binate/vm` LIBRARY leak, NOT a test bug and NOT a compiler bug).** A
-live-block dump at exhaustion (instrumented RawAlloc/RawFree per size class) showed the ~4 MiB live
-set is dominated by **15 × 64 KiB + 3 × 1 MiB raw blocks** — VM execution stacks — plus a small-class
-residue. The VM acquires several **raw** (`rt.RawAlloc`) resources and frees none of them; with no
-user destructors, a raw allocation hung off a managed `@VM` is never reclaimed (the compiler's
-generated dtor RefDecs only the MANAGED fields — `Funcs`/`Strings`/`IndexBuckets`/`Externs`/
-`IfaceVtables`, which is why those are ~21 KB, not the bulk). The raw leakers:
-- `vm.bn:42` `vm.Stack = rt.RawAlloc(stackSize)` — the execution stack (dominant: the 64 KiB / 1 MiB blocks).
-- `lower_data.bn:57,76` `vm.Globals` — global-variable areas.
-- `lower_pkg_descriptor.bn:47` — package-descriptor data.
-- `vm_iface_native_vt.bn:85` — native vtables.
+**DONE — execution stack now owned (landed `7f029699c`).** `vm.Stack` → a managed `@[]uint8` field
+`stackBuf` (raw `Stack` kept as a non-owning `&stackBuf[0]` view for the SP arithmetic); the generated
+dtor frees it when the VM's last ref drops. The stack is pure internal scratch (nothing outside the VM
+references it), so refcount-driven release is both safe AND genuinely VM-scoped. This was the dominant
+leak → **vm on `builder-comp_arm32_baremetal` is GREEN, its xfail dropped.**
 
-The compiler is correct (frees managed fields; leaves raw to the programmer per the raw-pointer
-model). **This is a full bug on EVERY target, not a bare-metal curiosity: embedding a VM is a core
-feature — an application spins VMs up and down freely — so a host process that creates/destroys many
-VMs leaks unboundedly too** (process-exit reclamation only hides the single-VM-per-process case; it
-does nothing for a long-lived embedder). Fatal-by-exhaustion on bare metal, unbounded-growth on host
-→ **major**. `Stack`/`Globals` are declared raw (`*uint8`, vm.bni:669) with no documented reason —
-used as flat byte buffers for `bit_cast(int, vm.Stack) + off` arithmetic at dozens of sites — but
-there is no CORRECTNESS reason they must be raw (they hold opaque bytes; a managed `@[]uint8` backing
-is refcounted as one object).
+**REMAINING (the fuller fix) — the 3 SHARED raw blocks, which are NOT VM-scoped:**
+- `lower_pkg_descriptor.bn:47` — package-descriptor data (currently `STATIC_REFCOUNT`-immortal static
+  data: string constants / TypeInfos / iface-id markers).
+- `vm_iface_native_vt.bn:85` — native interface vtables (int words: handle addrs / *TypeInfo).
+- `lower_data.bn:57,76` — global-variable storage (may hold MANAGED pointers → RefDec on teardown).
 
-**AUDIT (repo-wide `RawAlloc`/`RawAllocZero`, done):** the ENTIRE production raw-allocation surface is
-5 sites, ALL in `pkg/binate/vm` (the 4 leakers above — Stack is 2 counting nothing, plus lower_data
-x2, lower_pkg_descriptor, vm_iface_native_vt), and there are ZERO `RawFree` calls anywhere in
-production. No other package raw-allocates. So the fix is fully contained to the VM. Tests call
-`NewVM` directly at ~70 sites with NO shared construction helper.
+**MODEL (user directive) — genuinely REFCOUNTED, NOT immortal, NOT freed-with-the-VM.** Descriptors
+from the VM must ABSOLUTELY NOT be immortal. But they are also NOT VM-lifetime: if another VM, or
+native/compiled code, or an escaped value takes a reference, they STAY ALIVE. They are shared managed
+objects, freed only when the last reference (from ANY holder) drops. So: give these blocks real
+managed headers + real refcounts, RefInc on every path that takes a ref (a VM lowering that uses a
+descriptor, an iface value carrying a native-vt pointer, an escaped static string / TypeInfo), RefDec
+when each holder drops it, and drop the `STATIC_REFCOUNT` sentinel. For globals, teardown must RefDec
+the MANAGED pointers stored in the storage before freeing the block. This is the shared-refcount
+design — more involved than the stack (pure scratch), NOT a make_slice swap. Get minimal adversarial
+reviews on it (per the user).
 
-**FIX (design choice open — awaiting user):** since there are no destructors, the mechanism is "make
-the owning field managed so `@VM`'s generated dtor frees it."
-- Minimal: keep the raw `*uint8` views for arithmetic but add managed OWNER fields (`@[]uint8`) that
-  hold the Stack/Globals backing; NewVM points the raw view into the owner. Smallest diff; fixes the
-  dominant leak.
-- Fuller: `Stack`/`Globals` become managed `@[]uint8` (touch every `bit_cast(int, vm.Stack)` site),
-  and the descriptor/vtable/data-area raw blocks (embedded in tables as raw addresses — can't be
-  plain managed fields) get a per-VM owner-list (a managed vec of raw blocks freed on teardown) or an
-  arena freed en masse.
-native/arm32 is presumed analogous (raw assembler / reference-buffer fixtures never freed) — confirm
-with the same per-class dump. Once fixed, drop the two xfails. **This is a MAJOR bug per the
-raise-don't-workaround rule; the xfails are the tracked hold, not a silent workaround.**
+`pkg/binate/native/arm32` is a SEPARATE package still xfail'd on `builder-comp_arm32_baremetal`
+(`scripts/unittest/pkg-binate-native-arm32.xfail.builder-comp_arm32_baremetal`) — presumed analogous
+raw fixtures; confirm with the same per-class dump and fix in kind. **MAJOR per the
+raise-don't-workaround rule; the remaining xfail is a tracked hold, not a silent workaround.**
 
 ### `data_pkg_descriptor.bn` header/slice-width conflation — 🟢 LOW (non-urgent cleanup)
 The `GetTarget().IntSize` "footgun" was a MISDIAGNOSIS and the native-accessor header reads
