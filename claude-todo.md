@@ -305,11 +305,20 @@ generated dtor RefDecs only the MANAGED fields — `Funcs`/`Strings`/`IndexBucke
 - `vm_iface_native_vt.bn:85` — native vtables.
 
 The compiler is correct (frees managed fields; leaves raw to the programmer per the raw-pointer
-model). Benign on hosted targets (the VM's normal home — `cmd/bni`, the `int` modes — where process
-exit reclaims); fatal on bare metal / any long-lived multi-VM embedder → **major**. `Stack`/`Globals`
-are declared raw (`*uint8`, vm.bni:669) with no documented reason — used as flat byte buffers for
-`bit_cast(int, vm.Stack) + off` arithmetic at dozens of sites — but there is no CORRECTNESS reason
-they must be raw (they hold opaque bytes; a managed `@[]uint8` backing is refcounted as one object).
+model). **This is a full bug on EVERY target, not a bare-metal curiosity: embedding a VM is a core
+feature — an application spins VMs up and down freely — so a host process that creates/destroys many
+VMs leaks unboundedly too** (process-exit reclamation only hides the single-VM-per-process case; it
+does nothing for a long-lived embedder). Fatal-by-exhaustion on bare metal, unbounded-growth on host
+→ **major**. `Stack`/`Globals` are declared raw (`*uint8`, vm.bni:669) with no documented reason —
+used as flat byte buffers for `bit_cast(int, vm.Stack) + off` arithmetic at dozens of sites — but
+there is no CORRECTNESS reason they must be raw (they hold opaque bytes; a managed `@[]uint8` backing
+is refcounted as one object).
+
+**AUDIT (repo-wide `RawAlloc`/`RawAllocZero`, done):** the ENTIRE production raw-allocation surface is
+5 sites, ALL in `pkg/binate/vm` (the 4 leakers above — Stack is 2 counting nothing, plus lower_data
+x2, lower_pkg_descriptor, vm_iface_native_vt), and there are ZERO `RawFree` calls anywhere in
+production. No other package raw-allocates. So the fix is fully contained to the VM. Tests call
+`NewVM` directly at ~70 sites with NO shared construction helper.
 
 **FIX (design choice open — awaiting user):** since there are no destructors, the mechanism is "make
 the owning field managed so `@VM`'s generated dtor frees it."
