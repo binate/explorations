@@ -1,12 +1,24 @@
 # Plan (brief): matrix tests for expanded generics + type assertions/RTTI
 
-**Status:** brief plan (2026-07-10); **Part A BUILT, Part B open.** Proposes two new
-`conformance/matrix/` families, extending the established matrix pattern
-(`done/plan-code-red.md` §7). **Part A (generics)** landed as
-`conformance/matrix/generic-managed/` (25 cells; see `claude-todo.md`). **Part B
-(type-assertion / RTTI)** is not built — `conformance/matrix/type-assert/` still to
-come (tracked in `claude-todo.md`), along with Part A's second-wave axes
+**Status:** brief plan (2026-07-10); **Part A core BUILT, Part B core BUILT
+(2026-08-15).** Proposes two new `conformance/matrix/` families, extending the
+established matrix pattern (`done/plan-code-red.md` §7). **Part A (generics)**
+landed as `conformance/matrix/generic-managed/` (18 cells; see `claude-todo.md`).
+**Part B (type-assertion / RTTI)** landed as `conformance/matrix/type-assert/` (21
+cells, commit `f068c851e`; generator `conformance/gen-type-assert-matrix.py`). What
+remains: Part B's later waves (type-switch narrowing grid, generic-instantiation
+value target, struct recovery from `@I`) and Part A's second-wave axes
 (method-expression, parameterized-receiver, generic-constraint dispatch).
+
+**Correction (2026-08-15): Section B below is written as if the type-switch cells
+and the VM / cross-mode axis are gated (on "Phase 6 IR-gen lowering" and "Slice 5
+VM RTTI"). Both have since LANDED** (`pkg/binate/ir/gen_type_switch.bn`,
+`pkg/binate/vm/lower_typeinfo.bn` + `satentry_inject.bn`; conformance `1054`/`1055`
+and every RTTI point test are green under the VM and native modes). So the whole
+Part B matrix — assertion cells, type-switch form, and cross-mode agreement — was
+buildable at once, and the delivered `type-assert/` matrix is green under the six
+default modes + native x64/aa64, not the phased "assertion-now / switch-later /
+VM-later" the section prescribes. Read Section B's gating notes as historical.
 
 ## Why now
 The recent MAJOR/CRITICAL bug cluster was almost entirely in these two spaces, and several

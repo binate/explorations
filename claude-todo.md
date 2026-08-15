@@ -1116,7 +1116,7 @@ urgency (no current miscompile; the writable placement is safe, just unhardened)
   for the spec `e2e/split-paths.sh` validates and
   [`done/plan-repl.md`](done/plan-repl.md) for what `e2e/repl.sh` covers.
 
-### Matrix tests for expanded generics + type assertions/RTTI — 🟡 PART A LANDED, PART B OPEN (brief plan 2026-07-10)
+### Matrix tests for expanded generics + type assertions/RTTI — 🟡 PART A + PART B CORE LANDED, follow-up waves open (brief plan 2026-07-10)
 
 Two new `conformance/matrix/` families, motivated by the recent bug cluster (all in these
 spaces, several false-green because tested in-package or in one combination): `8d9e7577`
@@ -1137,17 +1137,26 @@ parameterized-receiver-impl dispatch (`impl *Cursor[T] : Iterator[T]`), and
 generic-constraint dispatch; plus array-of-managed / nested-generic element kinds and
 `copy` / `destroy-populated` ops.
 
-**(B) Type-assertion/RTTI matrix — ❌ NOT built.** Axes = source `*I`/`@I`/`*any` × recovery
-kind × target (concrete/interface incl. transitive) × form × outcome × mode; invariants =
-recovery-kind legality, match correctness, `@T`-recovery refcount balance, cross-mode result
-agreement. **Status correction (the plan doc's Section B is stale):** type *assertions* ARE
-implemented + conformance-tested — `parse_assert.bn`/`check_assert.bn`/`gen_assert*.bn` +
-conformance `998`–`1015` (concrete, iface, transitive-ancestor, comma-ok) — so the **assertion
-cells are buildable NOW in compiled mode** (incl. the recovery-legality compile-error cells).
-Only the **type-switch** cells are gated (parser exists but **no IR-gen lowering** — execution-
-plan Phase 6), and the **VM / cross-mode-agreement** axis is gated on the VM RTTI path
-(Slice 5). So build B as: assertion cells now → type-switch cells at Phase 6 → VM axis at
-Slice 5.
+**(B) Type-assertion/RTTI matrix — ✅ core BUILT & LANDED** as
+`conformance/matrix/type-assert/` (21 cells + generator
+`conformance/gen-type-assert-matrix.py`; commit `f068c851e`). Grids: `iface`
+(raw/mgd × concrete/iface/ancestor, ok + abort — every `ok` cell packs HIT +
+wrong-type-MISS + unset-MISS), `any` value recovery (scalar from `*any`/`@any` +
+a slice-from-raw balance cell), three `balance` cells (`@T`/`@J` ownership
+transfer + value struct-with-managed-field loop), three `legality` compile-error
+cells. Invariants in place: match correctness per form, no-stray-release, refcount
+balance (relative form), recovery-kind legality, cross-mode agreement. **Green
+under the six default modes + native x64/aa64.** (Adversarial pre-land review
+flagged two mis-claimed-coverage cells — ancestor `ok` missing its MISS/unset
+axes, slice cell not observing its RefInc-acquire — both fixed before landing.)
+**The plan doc's Section B gating was STALE and is corrected there:** the
+type-switch cells (Phase 6 IR-gen lowering, `pkg/binate/ir/gen_type_switch.bn`) and
+the VM / cross-mode axis (Slice 5, `pkg/binate/vm/lower_typeinfo.bn`) both LANDED,
+so the whole matrix built at once.
+
+**Remaining (Part B later waves):** a dedicated **type-switch narrowing** grid
+(typed-nil→its-type, multi-target case, default binder); a **generic-instantiation**
+value target; a struct-value recovery from an interface `@I` (not just `*any`).
 
 Adopt the matrices only (wiring CI/hygiene is a separate decision).
 
