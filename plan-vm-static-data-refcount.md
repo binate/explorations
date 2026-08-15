@@ -153,11 +153,23 @@ that mechanism now exists (unused today).
 
 ## Phasing (vertical slices; each re-verified on bare metal + adversarially reviewed)
 
-1. **Globals** — establishes `vmOwn` + the managed-content teardown RefDec (the one
-   non-uniform bit) + the independent-initializer invariant.
-2. **Native vtables** — single alloc site; no managed contents.
+1. **Globals** — Part A (block ownership) **LANDED main `8eb93eee7`**; Part B (managed-content
+   teardown RefDec via an explicit Shutdown) is still open.
+2. **Native vtables** — **LANDED main `78dd7611d`** (single alloc site, no managed content;
+   clean 2-lens review, 1 doc-comment fix).
 3. **Descriptors + TypeInfo + IfaceId** — many alloc sites; multi-block; verify
-   payload-address stability so assertions still pass. Do last.
+   payload-address stability so assertions still pass. Do last. **← next.**
+
+**Leak-test facility — LANDED main `af01418b6`.** `rt.LiveBlocks()` (a process-global live
+raw-allocation count; +1 per RawAlloc/RawAllocZero, −1 per non-nil RawFree) with rt_test.bn
+validating the counter (balance / count-once / nil-free-noop). The *definitive* VM leak test
+(build a module outside the scope, lower it into a VM, drop the VM, assert `LiveBlocks()`
+returns to baseline) is DEFERRED to slice 3: it fails today for *every* module (the VM
+materializes per-module data — a package descriptor and/or others — freed only by slice 3),
+and a failing unit test's xfail is per-*package* (too broad) while a conformance test would
+need unprecedented front-end imports. It goes in as a normal passing unit test once slice 3
+(+ Part B) lands — and will also reveal whether those fully close the per-module leak or a
+further family remains.
 
 Each slice: convert allocs to `vmOwn`; confirm via the bare-metal per-class RawAlloc/RawFree
 leak dump (under a create-drop-VM loop) that the family now frees; adversarially review for a
