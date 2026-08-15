@@ -120,7 +120,7 @@ each managed field/element already **+1-owned** by the host (evidence:
 `conformance/matrix/abi/managed-struct-return*`, no xfail, comp+int) — never RefInc
 on receipt; `Release()` RefDecs each once.
 
-- **SI-1 — single by-value struct result/param — ✅ implemented, not yet landed.**
+- **SI-1 — single by-value struct result/param — ✅ LANDED (`347526d86`).**
   `Release()` → recursive `releaseImage` mirroring the compiler's struct/managed-slice
   dtors; `supportedMarshalType` struct arm (`SizeOf ≤ 64`, fields recursively supported).
   An adversarial review folded in three lockstep fixes: (1) the scalar arm was leaking a
