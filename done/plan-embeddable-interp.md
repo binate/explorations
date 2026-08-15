@@ -1,5 +1,15 @@
 # Plan: Embeddable whole-program interpreter API (`pkg/binate/interp`)
 
+> **ARCHIVED — Inc 1 + Inc 2 COMPLETE (2026-08-14).** The `@Interp` whole-program
+> embedder API and the extern-registration cleanup (host owns stdlib policy) are
+> landed; `cmd/bni`'s `runProgram` runs on the facade and `runTests` shares its
+> extracted machinery. The two remaining increments — **Inc 3** (typed / aggregate
+> `RunFunc` results + argv) and **Inc 4** (`SetBuildConfig` + in-memory source
+> provider, the wasm enabler) — are now todos in `../claude-todo.md`, alongside the
+> refreshed Layer-2b / inject-set follow-ups. Kept as a reference; paths in the
+> body are root-relative as of authoring, and `pkg/bootstrap` mentions are
+> historical (that package was retired — the stdlib/I/O seam is `pkg/std/os` now).
+
 Status: **Inc 1 + Inc 2 (Layers 1 & 2) LANDED** (2026-06-20).  Inc 1: the `@Interp`
 whole-program embedder API on main (1a `5bdd76b6`: machinery →
 `pkg/binate/interp`, errors as values; 1b `596fb872`: the `@Interp` facade,

@@ -186,13 +186,25 @@ Dormant cross-mode func-value residual (folded in from the retired "Function val
 
 The embeddable-interp core (Inc 1, Inc 2 Layers 1/2 + the review (b)-fix, and the
 loader de-rooting) is **✅ DONE & LANDED** — full detail in
-[claude-todo-done.md](claude-todo-done.md). Plan:
-[`plan-embeddable-interp.md`](plan-embeddable-interp.md). Remaining open
+[claude-todo-done.md](claude-todo-done.md). Plan (now archived):
+[`done/plan-embeddable-interp.md`](done/plan-embeddable-interp.md). Remaining open
 follow-ups (deferred with user sign-off):
 
 (The interpreted-`__c_call` frontend guards — run/REPL `da3bd46a` and `--test`-path
 `1de21404` — landed and moved to [claude-todo-done.md](claude-todo-done.md).)
 
+- **Inc 3 — typed / aggregate `RunFunc` results + string argv.** `@Interp` today
+  runs via `RunMain` and returns a bare `int`. Add `RunFunc` variants that pass an
+  `@[]@[]char` argv into the entry and unpack a multi-return / aggregate result off
+  `vm.Stack` into typed values — so an embedder can call a named function and get
+  structured results, not just run `main`.
+- **Inc 4 — build-config + in-memory source provider (wasm enabler).** Two pieces:
+  `SetBuildConfig(cfg)` so an embedder selects cross-target `#[build(...)]` gating
+  (today baked to host); and an injectable source provider so `LoadProgram` can
+  take in-memory / virtual sources instead of the host filesystem — the last FS
+  coupling. Unblocks the [`plan-wasm-browser.md`](plan-wasm-browser.md) consumer.
+  (The plan's "no `bootstrap.Open`" framing is stale — the FS seam is `os.Open`
+  now — but the injectable-provider requirement stands.)
 - **Globals/vtables-sensitive inject-set test.** `TestNewCustomPkgsRespected`
   proxies on `len(Externs)` (function registration only); add a test that a
   custom set's globals + impl vtables are honored (the `errors.Is`
@@ -201,12 +213,9 @@ follow-ups (deferred with user sign-off):
   from an existing one with selected `FunctionInfo` values replaced, so an
   embedder overrides e.g. `os.Args()` without hand-constructing a descriptor.
   This is the ergonomic per-function override path; it also rehomes the
-  `progArgsAfterDash` Args shim (becomes a cmd/bni-built wrapped-`os` concern
-  rather than baked into interp's bootstrap registration). Land with an
-  end-to-end test proving a wrapped package changes observed runtime behavior.
-- Optional: auto-enumerate bootstrap's exported format helpers via
-  `RegisterPackageFunctions` (they qualify — exported, non-extern), leaving only
-  the 9 extern C-I/O entries hand-bound.
+  `progArgsAfterDash` Args shim (a cmd/bni-built wrapped-`os` concern rather than
+  part of the standard registration). Land with an end-to-end test proving a
+  wrapped package changes observed runtime behavior.
 
 ### `repl.Kernel` reshape (embeddable REPL → request/reply kernel) — Inc 1 ✅ LANDED; Inc 2/3/4 parked — 🟡 OPEN (2026-07-16)
 
@@ -1358,7 +1367,7 @@ ship one that runs).
 ## REPL
 
 ### REPL: remove process-global session state (multi-session blocker)
-- **Now owned by [`plan-embeddable-vm.md`](plan-embeddable-vm.md)** (scoped
+- **Now owned by [`done/plan-embeddable-vm.md`](done/plan-embeddable-vm.md)** (scoped
   2026-06-16): the `ir` half below is increments 4–5 of that plan, which
   covers the full compiler/VM global inventory, not just the REPL's two.
   This entry's `ir/gen.bn` line numbers are stale as of 2026-06-02; see the

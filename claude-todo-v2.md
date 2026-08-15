@@ -161,3 +161,24 @@ functions (`impls/core/.../pkg/builtins/rt/rt.bn`) can't yet be retired.
 (`aarch64_refcount.bn`'s CBZ/nil-check + inline header mutation). Once x64 inlines,
 `rt.RefInc`/`rt.RefDec` have no remaining caller and can be deleted along with their
 `.bni` decls. A perf + cleanup optimization, deliberately deferred as a follow-on.
+
+## Embeddable VM Inc 6 — cross-target compilation in one process
+
+From `done/plan-embeddable-vm.md` (v1 landed increments 1–5; the interpreter is
+reentrant for a SINGLE target). `types.target` (`pkg/binate/types/layout.bn:9`, set
+via `SetTarget`) and the predeclared-type singletons stay process-shared and
+immutable-after-init, so two sessions targeting DIFFERENT targets in one process
+would cross-talk through `target`. Fix: thread the target (and any target-derived
+layout state) through the session (`@Checker`/`@Module`/`@VM`), mirroring the
+increment-1–5 threading, instead of the global. Deferred with user sign-off
+(2026-06-16) — only if in-process cross-compilation becomes a goal.
+
+## Embeddable VM Inc 7 — AOT-compiler reentrancy (codegen/native globals)
+
+From `done/plan-embeddable-vm.md`. v1 made the INTERPRETER path reentrant; the ~17
+`pkg/binate/codegen/*` + `pkg/binate/native/*` process-globals (off the `cmd/bni`
+path — `cmd/bni` imports ir/loader/types/vm, not codegen/native; "Group E" in the
+plan's inventory) were left in place. To embed the COMPILER reentrantly (e.g. an
+in-process bnc), thread those through the emit context the same way increments 1–5
+did for the interpreter. Deferred with user sign-off — only if reentrant AOT
+compilation in one process becomes a goal.

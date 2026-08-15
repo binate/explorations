@@ -1,5 +1,16 @@
 # Plan: Embeddable / reentrant VM — eliminate per-run global state
 
+> **ARCHIVED — v1 COMPLETE (2026-08-14).** Increments 1–5 (single-target
+> VM/IR-gen reentrancy — loader / types / ir-gen / vm-lowering carry no per-run
+> package globals) are all landed; the headline `vm/vm_reentrancy_test.bn`
+> shipped. The two deferred increments — **Inc 6** (cross-target in one process;
+> `types.target` is still a process-global) and **Inc 7** (AOT-compiler
+> reentrancy; the `codegen/*` / `native/*` globals) — are now todos in
+> `../claude-todo-v2.md` (post-1.0); the related multi-session REPL-globals
+> blocker stays in `../claude-todo.md`. Kept as a reference for the globals
+> inventory (§"The globals") and the threading strategy; paths in the body are
+> root-relative as of authoring.
+
 Status: **v1 COMPLETE** (increments 1–5 landed, 2026-06-19) — the
 interpreter is **reentrant** for a single target: loader, types, ir-gen, and
 vm-lowering no longer cross-talk through per-run package globals.  The ir-gen
@@ -56,7 +67,7 @@ two-session reentrancy test cannot pass until inc 4/5 are done, so it
 **ships with inc 5** (see Verification below).
 
 This is the larger change that
-[`plan-repl-embeddable.md`](done/plan-repl-embeddable.md) explicitly deferred:
+[`plan-repl-embeddable.md`](plan-repl-embeddable.md) explicitly deferred:
 its decision #6 ("single live session per process; the `ir`
 process-globals stay as-is") and its "multi-session embedding" out-of-scope
 item point here. It also subsumes the `claude-todo.md` entry **"REPL:
@@ -64,9 +75,9 @@ remove process-global session state (multi-session blocker)"** — that
 entry's `ir` half is now owned by this plan (its line numbers there are
 stale as of 2026-06-02; the verified ones are below).
 
-Companion docs: [`plan-repl-embeddable.md`](done/plan-repl-embeddable.md) (the
-push-driven REPL engine that wants this), [`plan-wasm-browser.md`](plan-wasm-browser.md)
-(a downstream host), [`ir-backend-guidelines.md`](ir-backend-guidelines.md)
+Companion docs: [`plan-repl-embeddable.md`](plan-repl-embeddable.md) (the
+push-driven REPL engine that wants this), [`plan-wasm-browser.md`](../plan-wasm-browser.md)
+(a downstream host), [`ir-backend-guidelines.md`](../ir-backend-guidelines.md)
 (the target-parameterization rule that the global `target` violates).
 
 ---
