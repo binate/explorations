@@ -1163,10 +1163,31 @@ links+runs, refcount balance (relative form), type-distinctness (compile-error p
 array-len `[3]`/`[5]`, func-sig `(int)uint`/`(bool)uint`), empty/never-populated destroy.
 The `iface` balance element's `xpkg` cell uses `gh.At[@Numbered](h,0).num()` (iface-method
 CALL on a generic-call result), so it regression-guards conformance/1027 (`dfbdf1dd`).
-**Remaining (the plan's deferred "second wave"):** method-**expression** cells,
-parameterized-receiver-impl dispatch (`impl *Cursor[T] : Iterator[T]`), and
-generic-constraint dispatch; plus array-of-managed / nested-generic element kinds and
-`copy` / `destroy-populated` ops.
+**Second wave — ✅ LANDED (2026-08-15):** `param-impl/dispatch`
+(`impl @Box[T] : Getter[T]` dispatched via an interface value, mirrors 447) and
+`constraint/dispatch` (a generic function calling a method on its type param's
+constraint interface, mirrors 434) — commit `020758056`, green under six default
+modes + native x64/aa64. The third axis, method **expression** off a generic
+instantiation (`Box[int].Get`), landed as an **XFAIL cell** (`09fce2e97`) tracking
+a compiler gap (see the standalone entry below).
+**Remaining second-wave / follow-ups:** array-of-managed / nested-generic element
+kinds; `copy` / `destroy-populated` ops; and **cross-package** variants of the two
+dispatch cells (the bug-dense mangling axis — needs the generator's `xpkg` fixture
+generalized past the single `Holder`, since xpkg cells are currently hardwired to
+`HOLDER_DECLS`).
+
+**Compiler gap (found 2026-08-15 while building the second wave): method
+EXPRESSION off a generic instantiation is unsupported.** `Box[int].Get` (and
+`(Box[int]).Get`) do not compile — the parser reads `Box[int]` as an index
+expression, not a generic instantiation for a method expression
+(`scalar.bn:23:31: cannot index this type`). The bound method-VALUE forms
+(`bp.Get`, `mkbox[int](v).Get`) work and are covered; only the unbound
+expression-on-generic form is missing. Tracked by the XFAIL cell
+`conformance/matrix/generic-managed/method-expression/scalar` (`.xfail.all`, commit
+`09fce2e97`) — it XPASS-alerts when supported. Fix would be parser/checker:
+recognize `T[Arg].Method` in expression position as a method expression on a
+generic instantiation. Severity minor (workarounds: bound method values, direct
+calls). Not yet scheduled — user to prioritize.
 
 **(B) Type-assertion/RTTI matrix — ✅ core BUILT & LANDED** as
 `conformance/matrix/type-assert/` (21 cells + generator

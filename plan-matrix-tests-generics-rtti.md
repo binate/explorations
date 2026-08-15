@@ -5,10 +5,14 @@
 established matrix pattern (`done/plan-code-red.md` §7). **Part A (generics)**
 landed as `conformance/matrix/generic-managed/` (18 cells; see `claude-todo.md`).
 **Part B (type-assertion / RTTI)** landed as `conformance/matrix/type-assert/` (21
-cells, commit `f068c851e`; generator `conformance/gen-type-assert-matrix.py`). What
-remains: Part B's later waves (type-switch narrowing grid, generic-instantiation
-value target, struct recovery from `@I`) and Part A's second-wave axes
-(method-expression, parameterized-receiver, generic-constraint dispatch).
+cells, commit `f068c851e`; generator `conformance/gen-type-assert-matrix.py`).
+Part A's second wave landed too (`020758056` param-impl + constraint dispatch;
+`09fce2e97` method-expression as an XFAIL cell — a compiler gap, `Box[int].Get`
+parses as an index expression, tracked in `claude-todo.md`). What remains: Part
+B's later waves (type-switch narrowing grid, generic-instantiation value target,
+struct recovery from `@I`); Part A's cross-package dispatch variants,
+array-of-managed / nested-generic element kinds, and `copy` / `destroy-populated`
+ops.
 
 **Correction (2026-08-15): Section B below is written as if the type-switch cells
 and the VM / cross-mode axis are gated (on "Phase 6 IR-gen lowering" and "Slice 5
