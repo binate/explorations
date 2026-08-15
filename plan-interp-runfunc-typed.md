@@ -1,8 +1,22 @@
 # Plan: interp Inc 3 (typed/aggregate RunFunc) + Inc 4 (build-config + source-provider seam)
 
-Status: **NOT STARTED** (design; adversarially reviewed). Continuation of the archived
-`done/plan-embeddable-interp.md` — its Inc 3 + Inc 4. Tracked in `claude-todo.md`
-("Embeddable-interp Inc 3 / Inc 4").
+Status: **Stage A + Stage B LANDED (2026-08-15); Stage C + Inc 4 open.** Continuation of
+the archived `done/plan-embeddable-interp.md` — its Inc 3 + Inc 4. Tracked in
+`claude-todo.md` ("Embeddable-interp Inc 3 / Inc 4").
+
+- **Stage A** — `vm.CallFuncAggregate` (host-driven exact-size aggregate/multi-return
+  result copy, ≤64-byte window). Landed on `main` (`e8f1dadef`).
+- **Stage B** — `Value` marshaling box + `RunFuncTyped` for **scalar / `@[]char`,
+  single result**. Landed on `main` (`6dabbaa56`). Adversarially reviewed pre-land; 3
+  findings fixed (sub-word bool-arg full-word-read; a single struct/array/slice result
+  now rejected up front rather than nil-retbuf-crashing; the `CallFuncAggregate` >64-byte
+  doc limitation). Refcount-balance tested; green in builder-comp + builder-comp-int.
+  Name params are `*[]readonly char` to sidestep the `@[]char`-param call-site-copy leak
+  (the MAJOR todo in `claude-todo.md`).
+- **Remaining:** Stage C (struct / `@[]@[]char` / multi-return / interface-value results,
+  incl. `(T, @Error)`) and Inc 4 (SetBuildConfig + source seam). Note a follow-up surfaced
+  during Stage A: `CallFuncAggregate` only handles results ≤64 bytes (execFunc entry-frame
+  cap) — lifting that is prerequisite for large Stage-C aggregates.
 
 ## Context
 
