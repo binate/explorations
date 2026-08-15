@@ -114,11 +114,27 @@ words RefDec to a no-op; a multiply-assigned global holds exactly one reference 
 (IR-gen does RefDec-old/RefInc-new on each store), so one RefDec is correct.
 
 The VM needs per-global "which words are managed." It is derivable from the global's
-`ir.Global.Typ` at `materializeGlobals` time. **OPEN (implementation):** record a per-global
-managed-word map (offsets) and run a teardown pass that RefDecs them *before* the
-`ownedBlocks` slice-list free — vs a per-global-block custom `FreeFn`. This is globals-only;
-the metadata blocks hold only raw borrows (symrefs / handle addresses owned elsewhere), so
-they carry no such obligation.
+`ir.Global.Typ` at `materializeGlobals` time.
+
+**DECIDED — content-RefDec via an EXPLICIT VM teardown method, NOT a custom FreeFn.** Recon
+confirmed there is no user-destructor hook (VMs are just refcount-dropped; the generated
+`@VM` dtor RefDecs only *fields*, so `ownedBlocks` frees the storage *bytes* but never their
+typed content) and no custom-FreeFn precedent. A custom `FreeFn` is rejected as an
+abuse — free functions are the allocator's byte-reclaim callback, not destructors. The
+remaining alternative (make each global block a managed struct carrying a `@[]@any` so the
+generated dtor walks it) is rejected as hopelessly complex for heterogeneous global types.
+So: a `Shutdown`/`ReleaseGlobals` method the VM's owner invokes before dropping the VM,
+which iterates `globalAddrs` with a per-global managed-word map (from `ir.Global.Typ`) and
+RefDecs each managed word. It runs *before* the `ownedBlocks` slice-list free (byte
+reclamation stays automatic via the dtor; only the content-RefDec is explicit). Callers
+(`cmd/bni`, `interp`, `repl`) add the call. This is globals-only; the metadata blocks hold
+only raw borrows (symrefs / handle addresses owned elsewhere), so they carry no such
+obligation.
+
+**Split of slice 1:** Part A (block ownership — `ownedBlocks` + `vmOwn`, both global allocs
+converted) is done and safe on its own (freeing the storage bytes without content-RefDec is
+the *pre-existing* content leak, not a new UAF). Part B (the explicit-teardown content
+RefDec) follows as its own change.
 
 ## Sharing (for the record)
 
