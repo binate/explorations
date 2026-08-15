@@ -1,7 +1,13 @@
 # Plan: refcount the VM's per-instance "static" data (drop the immortal-sentinel leak)
 
-Status: DESIGN — awaiting sign-off on the reference-path classification below, then
-implement in vertical slices with adversarial review.
+Status: DESIGN — **MAJOR REVISION NEEDED.** A medium adversarial review (5 lenses vs the
+code) found the reference-path classification below substantially wrong: the Family A OWN
+paths are illusory (no owning root exists), the owning tables mix in injected immortal
+addresses, and most of these records are HEADER-LESS so the "uniform sentinel no-op"
+mechanism does not apply to them. Do NOT implement the classification tables as written —
+see **§Adversarial review findings** at the bottom first. The lifetime *model* (isolation /
+injection-identity / data-refs / static-imports) survives; the *mechanism and per-path
+classification* need rework.
 
 ## Problem
 
@@ -160,6 +166,66 @@ A, the one-canonical-instance-per-type invariant.
 - The compiled/native backend's static data (immortal image instances) — correct as-is.
 - The `rt.STATIC_REFCOUNT` sentinel + sign-bit RefInc/RefDec mechanism — it is what makes
   the VM-side fix uniform.
+
+## Adversarial review findings (2026-08-14) — the classification is wrong; rework required
+
+A 5-lens adversarial review + self-verification against the code confirmed the following.
+All are grounded (grep/read anchors given); the workflow's verify pass was partly cut off by
+a weekly token limit, but each item below was re-checked by hand.
+
+1. **CRITICAL/MAJOR — Family A reflect-descriptor blocks have NO owning reference.** Both
+   OWN rows for the descriptor family are false. `vm.dataSymAddrs` is pushed to ONLY at
+   `lower_typeinfo.bn:62` (TypeInfo record), `:123` (IfaceId), `:141` (`registerDataSymAddr`)
+   — the reflect Package/Function/Global/Vtable nodes, tables, and rodata blobs are in NO VM
+   table (`emitPackageDescriptorVM` discards `lowerDataGlobals`' returned `names,addrs` into
+   locals, `lower_pkg_descriptor.bn:184`). The `__Package()` accessor holds the descriptor
+   only as a raw `BC_LOAD_IMM` immediate (`:396-398`) — a BORROW (`BCInstr` has no managed
+   field, `vm.bni:456`). So implementing "flip to real refcount" re-leaks the whole descriptor
+   family, or — if the returned `reflect.Package` is a managed value — UAFs it (a caller RefDec
+   drops a rootless refcount-1 block that later `__Package()` calls still bake).
+
+2. **CRITICAL/MAJOR — `dataSymAddrs` mixes VM-owned and INJECTED-external addresses.** The
+   same table holds VM-`RawAllocZero`'d TypeInfo/IfaceId (`:62`,`:123`) AND injector-owned
+   native rodata `&TypeInfo(T)` pushed by `registerDataSymAddr` (`:141`, fed by
+   `RegisterPackageSatEntries`/`RegisterPackageRttiSyms`, `extern_register.bn:125,165-166`).
+   The doc's "OWN — RefDec all at teardown" would RefDec/free a native **rodata** pointer →
+   write-to-read-only SIGSEGV / free-of-non-heap. Family A must be origin-split like Family C.
+   Related: `satEntryTypes`/`satEntryIfaces` alias the same VM TypeInfo/IfaceId blocks
+   (`lower.bn:309,324-325`) → double-RefDec risk; both are unclassified.
+
+3. **MAJOR (fundamental) — the "uniform sentinel no-op" mechanism does not apply to
+   HEADER-LESS records.** TypeInfo (word 0 is the dtor symref, not a refcount —
+   `data_typeinfo.bn:58-61`), IfaceId, every rodata blob / backing pointer array / field
+   table, and the Family B native vtable (`vm_iface_native_vt.bn:85`) carry NO 2-word managed
+   header. RefInc/RefDec on them reads adjacent memory as a "refcount" → garbage/crash. They
+   cannot be refcounted by the sentinel scheme, and adding a header shifts the payload address
+   — which breaks TypeInfo/IfaceId ADDRESS-IDENTITY (assertions compare addresses) and diverges
+   from the header-less image records. This invalidates the doc's headline feasibility premise
+   for these records.
+
+4. **MAJOR — records are MULTI-BLOCK; only the record base is tracked.** `BuildTypeInfo`
+   emits up to 4 interdependent blocks per struct type (record + `__typename` blob +
+   `__typefields` table + `__typefieldnames` blob, `data_typeinfo.bn:84-98`), linked by raw
+   symrefs; only the record base is in `dataSymAddrs` (`:141`/`:62`), the trailers
+   "deliberately NOT registered" (`lower_typeinfo.bn:48-49`). "One managed handle per block"
+   re-leaks the trailers, and the trailers can't be freed independently of a still-live record.
+
+5. **MAJOR (correction) — there is NO VM↔VM injection.** The REPL mid-session import calls
+   `LowerModule` on the single session VM and no `RegisterPackage*`/`registerGlobalAddr`
+   (grep of `pkg/binate/repl` is empty). ALL injection is native→VM of immortal image data.
+   So injected instances are ALWAYS immortal-image (sentinel no-ops, no refcount needed); live
+   refcounting is purely for VM-LOCAL instances. Simplifies the model, but the doc's framing
+   was wrong.
+
+**Corrected direction (needs sign-off before re-drafting the classification):** the VM must
+track the blocks IT allocated in a dedicated per-VM OWNING side-table (NOT the address-lookup
+tables, which mix in injected immortal addresses), and release them at teardown — RawFree for
+header-less blocks, RefDec for the header-carrying reflect nodes. A descriptor's header-less
+sub-blobs (name/field blobs reachable from an escapable `reflect.Package`) must be tied to the
+header-carrying node's lifetime (freed when it hits refcount 0), not freed independently.
+Address-identity records (TypeInfo/IfaceId) are referenced by raw address (BORROWs), so
+freeing them at teardown is consistent with the model — escaped raw borrows are the holder's
+responsibility. Injected-external addresses are never in the owning side-table.
 
 ## Related
 
