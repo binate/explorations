@@ -132,9 +132,16 @@ only raw borrows (symrefs / handle addresses owned elsewhere), so they carry no 
 obligation.
 
 **Split of slice 1:** Part A (block ownership — `ownedBlocks` + `vmOwn`, both global allocs
-converted) is done and safe on its own (freeing the storage bytes without content-RefDec is
-the *pre-existing* content leak, not a new UAF). Part B (the explicit-teardown content
-RefDec) follows as its own change.
+converted) is **LANDED, main `8eb93eee7`** — adversarially reviewed (memory-safety +
+regression lenses, 0 defects), hosted + bare-metal vm green, int-mode reflect/globals smoke
+green. It also lands the shared `ownedBlocks`/`vmOwn` infrastructure slices 2–3 reuse. Part B
+(the explicit-teardown content RefDec) follows as its own change.
+
+*Pre-existing observation* (both Part-A review lenses flagged it; NOT introduced by this
+change, NOT a safety issue — both blocks are valid and each is freed once): `materializeGlobals`
+appends across modules, so re-lowering the same package materialises a **second** owned block
+for the same global name (`lookupGlobalAddr` returns the first). A correctness/aliasing concern
+that predates the refcount work; worth a separate look, out of scope here.
 
 ## Sharing (for the record)
 
