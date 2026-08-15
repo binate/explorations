@@ -6,6 +6,41 @@
 > step). We own bnas and the whole `asm/` stack — assembling our own startup
 > files with someone else's assembler is a gap. Convert them to bnas.
 
+## STATUS: Phase 1 LANDED (2026-08-15)
+
+Landed on `main` in two commits:
+
+- **`12bb0cb54`** — bnas CLI: `-arch arm32` → `arm32.ResolveFixups` +
+  `elf.WriteARM32` (soft-float); + a parse-package pipeline test for the
+  bare-metal shapes (dot-less fwd/back local labels, external `.global` bl →
+  relocation, movw/movt, post-indexed ldrb).
+- **`23c38bb2e`** — the flip: crt0.s/semihost.s converted to the bnas subset;
+  bnc assembles any `.s` link input with bnas → `.o` (a post-pass over the clang
+  argv, `assembleDotSArgsViaBnas`, in both the program and `--test` link paths,
+  `bnrt_<stem>.o` names cleaned after link); new `--bnas` flag; `build_bnas` +
+  `--bnas` in all three arm32-baremetal runners.
+
+**Approach pivot (user steer, 2026-08-15): CONVERT THE FILES, don't extend the
+assembler.** The recon below correctly found the parser gaps, but rather than
+teach the bnas parser `@` comments / numeric local labels / dotted-section
+flags / `ldr =sym`, we rewrote crt0.s + semihost.s into the subset bnas already
+accepts (`//` comments, `.section text`, `.global` incl. externals, dot-less
+local labels, no `.type`/`.size`/`.syntax`/`.arm`) and **hardcoded the stack top
+via movw/movt** (bnas has no literal-pool pseudo; baremetal.ld cross-references
+the coupling).  So the "### Work items" / "### Changes" parser-extension list
+below is **superseded** — it records the gap analysis, not what shipped.  The one
+irreducible bnas change was exposing the already-existing arm32 encoder + ELF32
+writer through the CLI.
+
+Validated: `builder-comp_arm32_baremetal` 2876/0 (full), native-mode smoke 18/0,
+end-to-end QEMU boot, unit tests (parse / cmd/bnas / cmd/bnc), hygiene 19/19,
+adversarial review (findings folded into `23c38bb2e`: injective `bnrt_` naming,
+post-link `.o` cleanup, `-o` value skip, baremetal.ld "1 MiB"→"16 MiB").
+
+**Phase 2 (embed bnas into bnc, per the decision) is NOT done** — see the
+"## Phase 2" section at the end.  Related completeness backlog: bnas x64/aarch64-
+ELF from the CLI (`claude-todo-v2.md`).
+
 ## Decision (user, 2026-08-14)
 
 > "Let's start with this [bnc shells out to bnas, mirroring how it invokes
