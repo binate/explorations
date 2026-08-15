@@ -1,8 +1,13 @@
 # Plan: refcount the VM's per-instance "static" data via one owning slice-list
 
-Status: DESIGN v2 — reworked after a v1 adversarial review killed the per-path
-OWN/BORROW-classification approach (v1's findings are in git history, commit `569ad91c`).
-Awaiting **re-review of this design**, then implement in vertical slices.
+Status: DESIGN v2 — **re-reviewed clean, ready to implement** in vertical slices. Reworked
+after a v1 adversarial review killed the per-path OWN/BORROW-classification approach (v1's
+findings are in git history, commit `569ad91c`). A v2 adversarial re-review (3 lenses:
+re-leak/completeness, UAF/double-free/address-stability, globals) returned **0 confirmed
+defects** — the completeness and memory-safety lenses found nothing; the lone finding was a
+restatement of the already-OPEN globals managed-word-RefDec item and was refuted. The one
+genuinely-open implementation detail (how globals RefDec their managed content at teardown)
+is resolved by phasing slice 1.
 
 ## Problem
 
