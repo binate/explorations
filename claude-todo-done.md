@@ -11750,7 +11750,7 @@ arity (`check_expr.bn:373`). Rule `func.call.zero-param-arity` in the spec
 - **Fix**: in the assignment type-checker, flow the LHS func type's flavour
   to a bare func-literal RHS — the same hinting var-init already applies.
 - Surfaced 2026-06-05 while authoring the conformance matrix func-value cell
-  (plan-code-red.md §7 / P1).
+  (done/plan-code-red.md §7 / P1).
 
 ### Float-component multi-return mis-packed on the native backends — packed into INTEGER regs, not D0/XMM0 — native↔LLVM ABI divergence — ✅ RESOLVED 2026-06-10 (float64 `b5911fbe`; x64 field-per-register rework `47ebdbac`; verified on main — `(int,f64)`, `(f64,f64)` HFA, `(f32,f32)` HFA, and iface-dispatch `(f64,f64)` all pass on builder-comp + native aa64 + native x64-darwin). Residual aa64/x87 ≥3-float-component gaps tracked in the RESIDUAL GAPS bullet below.
 - **STATUS 2026-06-09 — float64 RESOLVED & LANDED (binate `b5911fbe`).** Native pack + collect now assign each leaf to the next register of its CLASS: aa64 `emitReturn` (FP counter D0.. alongside GP X0..) + a shared `collectMultiReturnFields` routed from all four collect sites (direct/iface/funcval/call-indirect, which were four copies of the integer-only loop); x64 `emitMultiReturnPack` builds the full byte image then loads each eightbyte by class (new `multiReturnEightbyteIsSSE`, SysV two-eightbyte rule) with `collectMultiReturnTuple` the symmetric mirror. `conformance/683_cross_pkg_mr_float` ((int,float64)+(float64,float64) collected by native main from an LLVM pkg) fails pre-fix / passes post-fix on both native arches; green LLVM+VM. `gen-abi-matrix.py` gained an `f64` axis; full abi matrix green native aa64 + x64-darwin.
@@ -12448,7 +12448,7 @@ be rejected like a named constant. Fix: also reject `&` of a literal operand.
   reads 1 instead of the balanced 2. Confirmed comp / int / int-int /
   comp-comp-comp.
 - **Discovery**: 2026-06-05, P1 conformance-matrix authoring. Pre-existing;
-  flagged suspected in plan-code-red.md §3.2/§3.4, now confirmed with a repro.
+  flagged suspected in done/plan-code-red.md §3.2/§3.4, now confirmed with a repro.
 
 ### ~~Discarded `@func`-returning call result leaks~~ — FIXED + LANDED 2026-06-05 (binate `f5410fcf`, plan-cr-p2-2 step 2; `registerManagedCallResult` at all 4 call sites + the missing `@func` arm in `emitTempCleanupBody`/`Since` + `OP_CALL_FUNC_VALUE`/`OP_CALL_IFACE_METHOD` in the isFresh predicates; matrix assign/blank/func-value + discard/stmt + `601`)
 - **Symptom**: a managed `@func` returned by a call and discarded (`_ = f()`,
@@ -12463,7 +12463,7 @@ be rejected like a named constant. Fix: also reject `&` of a literal operand.
 - **Test**: `conformance/matrix/assign/blank/func-value.bn` (xfailed all 6
   default modes) — `_ = wrap(src)` leaves the @func record at 2 instead of 1.
 - **Discovery**: 2026-06-05, P1 matrix blank-discard form. Pre-existing; flagged
-  suspected in plan-code-red.md §3.4 / §8 #16, now confirmed with a repro.
+  suspected in done/plan-code-red.md §3.4 / §8 #16, now confirmed with a repro.
 - **Fix**: add the `isManagedFuncValueType` arm to the call-result temp
   registration (gen_call / gen_method) + the func-value RefDec arm in
   `emitTempCleanupBody`; add the call ops to `isFreshManagedFuncValue`.
@@ -12634,7 +12634,7 @@ be rejected like a named constant. Fix: also reject `&` of a literal operand.
   *signed sub-word* type's `MIN/-1` divide escapes detection because
   IR-gen's `widenType` collapses named ints to plain `int` before the guard
   — see the MINOR entry in `claude-todo.md`.
-- Plan: `done/plan-divide-by-zero.md`. Ratified contract was `plan-code-red.md` §8 #14.
+- Plan: `done/plan-divide-by-zero.md`. Ratified contract was `done/plan-code-red.md` §8 #14.
 
 ### ~~VM clobbers ≥2 distinct global addresses in one instruction (shared `globalReg`)~~ — RESOLVED 2026-06-03 (binate `d5d31b13`)
 - **Was**: silent wrong-code in the bytecode VM when ONE instruction took

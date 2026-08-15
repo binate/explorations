@@ -2,7 +2,7 @@
 
 **Status:** brief plan (2026-07-10); **Part A BUILT, Part B open.** Proposes two new
 `conformance/matrix/` families, extending the established matrix pattern
-(`plan-code-red.md` §7). **Part A (generics)** landed as
+(`done/plan-code-red.md` §7). **Part A (generics)** landed as
 `conformance/matrix/generic-managed/` (25 cells; see `claude-todo.md`). **Part B
 (type-assertion / RTTI)** is not built — `conformance/matrix/type-assert/` still to
 come (tracked in `claude-todo.md`), along with Part A's second-wave axes
