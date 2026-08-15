@@ -157,19 +157,28 @@ that mechanism now exists (unused today).
    teardown RefDec via an explicit Shutdown) is still open.
 2. **Native vtables** — **LANDED main `78dd7611d`** (single alloc site, no managed content;
    clean 2-lens review, 1 doc-comment fix).
-3. **Descriptors + TypeInfo + IfaceId** — many alloc sites; multi-block; verify
-   payload-address stability so assertions still pass. Do last. **← next.**
+3. **Descriptors + TypeInfo + IfaceId** — **LANDED main `c0715343e`** (single shared alloc
+   site `lowerDataGlobals` threaded with `vm` → `vmOwn`; covers the descriptor nodes/tables/
+   rodata blobs, TypeInfo records + trailers, and IfaceId — all multi-block records; address
+   identity preserved. 2-lens review: 0 code defects, comment fixes only).
+
+**→ The entire VM static-data BLOCK leak is now closed** (stack + globals + native vtables +
+descriptors/TypeInfo/IfaceId). The only remaining piece is **globals Part B** (a managed
+global `@T`'s independently-allocated *content* — RefDec via an explicit Shutdown).
 
 **Leak-test facility — LANDED main `af01418b6`.** `rt.LiveBlocks()` (a process-global live
 raw-allocation count; +1 per RawAlloc/RawAllocZero, −1 per non-nil RawFree) with rt_test.bn
-validating the counter (balance / count-once / nil-free-noop). The *definitive* VM leak test
-(build a module outside the scope, lower it into a VM, drop the VM, assert `LiveBlocks()`
-returns to baseline) is DEFERRED to slice 3: it fails today for *every* module (the VM
-materializes per-module data — a package descriptor and/or others — freed only by slice 3),
-and a failing unit test's xfail is per-*package* (too broad) while a conformance test would
-need unprecedented front-end imports. It goes in as a normal passing unit test once slice 3
-(+ Part B) lands — and will also reveal whether those fully close the per-module leak or a
-further family remains.
+validating the counter (balance / count-once / nil-free-noop).
+
+**Definitive VM leak test — LANDED with slice 3 (`c0715343e`), PASSING.** `leak_test.bn`:
+build a module outside a measured scope, lower it into a VM, drop the VM, assert
+`rt.LiveBlocks()` returns to baseline. The source (interface + impl + struct + global)
+materializes TypeInfo + IfaceId + globals (driving the shared `lowerDataGlobals`/`vmOwn`) +
+the stack, and passes on hosted, `builder-comp-int`, and `builder-comp_arm32_baremetal` — so
+it is a real, non-spurious guard (reverting slice 3 turns it red). Un-deferred as a normal
+passing unit test (no xfail-vehicle problem once it passes). NOT covered by the loader-less
+harness: the package-descriptor *accessor* path (`emitPackageDescriptorVM`, needs reflect
+loaded) and native vtables (need cross-mode dispatch) — both share the same `vmOwn` path.
 
 Each slice: convert allocs to `vmOwn`; confirm via the bare-metal per-class RawAlloc/RawFree
 leak dump (under a create-drop-VM loop) that the family now frees; adversarially review for a
