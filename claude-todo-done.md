@@ -6,6 +6,38 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## String literal → `@[]char` managed parameter leaked the call-site copy — ✅ FIXED (2026-08-15, `37006f915`)
+
+**Was:** a per-call memory leak. A string literal passed to a mutable `@[]char` parameter
+is coerced at the call site via `EmitStringToChars` → `OP_RODATA_MSLICE_COPY`, a FRESH
+owned copy (refcount 1). `coerceArg` (`pkg/binate/ir/gen_call.bn`) noted the copy's SP
+growth but never registered it for end-of-statement cleanup, so the callee only *borrowed*
+it for the call and nothing RefDec'd it afterward — one leaked allocation per such call.
+
+**Root cause (confirmed):** the call-arg path is unique among `EmitStringToChars` sites in
+only *borrowing* the fresh copy. The others (assignment RHS, var-init, composite
+field/element) route it through `emitStoreManagedSlot`, which *consumes* the temp (moves
+ownership into an owned slot, released via that slot's own lifetime). The call-arg path had
+no such consuming store, so the copy has to be registered for cleanup explicitly.
+
+**Fix:** in `coerceArg`, after the coercion, `registerTemp(ctx, arg)` when the result op is
+`OP_RODATA_MSLICE_COPY` — guarded on that op so the immortal-rodata alias forms
+(`@[]readonly char` / `*[]readonly char`, which allocate nothing) are not RefDec'd.
+
+**Correction to the original report:** only STRING LITERALS hit this — a `*[]readonly char`
+value passed to a `@[]char` param is *checker-rejected*, not coerced. So the leak surface is
+string-literal→`@[]char` args (including named managed char-slice params, `type Str @[]char`).
+No language rule changed; the implicit literal→`@[]char` coercion stays, now correctly cleaned up.
+
+**Verification:** regression test `conformance/1210_string_lit_managed_param_balance` asserts
+`rt.LiveBlocks()` returns to baseline across 100 literal→`@[]char` calls; confirmed
+load-bearing (revert check fails without the fix). Full `builder-comp` conformance 2944/0,
+`pkg/binate/ir` units 665/0, hygiene 19/19.
+
+**Note on `RunFuncTyped`:** discovered during `plan-interp-runfunc-typed.md`; its name params
+stay `*[]readonly char` — not a workaround anymore but the correct borrow-not-copy signature
+for a name lookup (avoids a needless per-call copy).
+
 ## Bare-metal reclaiming allocator (SFL) + pluggable `rt` Raw backend — ✅ DONE (2026-08-12, `42db7011c`)
 
 The bare-metal `pkg/builtins/rt` was a BUMP allocator that never reclaimed, so cumulative
