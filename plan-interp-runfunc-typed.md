@@ -107,17 +107,55 @@ building a `@[]@[]char` (`startup/args_main.bn:39-98`).
   — asserting values AND refcount balance (no leak/double-free). (Uses `(@[]char, int)`, NOT
   `(T, @Error)`, because interface results land in Stage C.)
 
-## Stage C — struct / slice / `@[]@[]char` + interface-value results (the `(T,@Error)` shape)
+## Stage C — struct / `@[]@[]char` / multi-return / interface-value results
 
-- Extend `Value` marshal/unmarshal to `TYP_STRUCT` (walk `StructLayout`), `TYP_SLICE`,
-  `TYP_MANAGED_SLICE` element recursion (`@[]@[]char`), and full multi-return tuple split;
-  `Release()` recurses managed fields/elements.
-- **Interface-value results** (the reason `(T, @errors.Error)` works): extend the vtable
-  substitution — today `ResultIfaceVtOffsets` is populated **only for single-result** funcs
-  (`vm/lower_func_helpers.bn:64`), so a bytecode-impl error returned in a tuple carries an unusable
-  VM-index vtable word. Populate the iface-vt offsets for multi-return results too and run
-  `substituteVtWords` (`vm.bn:237`, `vm_iface_crossmode.bn`) over the retbuf so the host can call
-  `.Error()`. Interface-value **args** use the move contract (below).
+Broken (per an ABI/refcount recon, `wf_66c80e60`) into five independently-landable
+sub-increments.  Land order **SI-1 → SI-2 → SI-3 → SI-4 → SI-5**; SI-4 is a pure VM
+metadata fix independent of the interp increments but a prerequisite for SI-5.
+
+The correctness spine is the **lockstep invariant**: `supportedMarshalType` (what
+RunFuncTyped admits) must equal *exactly* the set `releaseImage` can fully free —
+never wider (over-wide = leak or garbage read).  A returned aggregate arrives with
+each managed field/element already **+1-owned** by the host (evidence:
+`conformance/matrix/abi/managed-struct-return*`, no xfail, comp+int) — never RefInc
+on receipt; `Release()` RefDecs each once.
+
+- **SI-1 — single by-value struct result/param — ✅ implemented, not yet landed.**
+  `Release()` → recursive `releaseImage` mirroring the compiler's struct/managed-slice
+  dtors; `supportedMarshalType` struct arm (`SizeOf ≤ 64`, fields recursively supported).
+  An adversarial review folded in three lockstep fixes: (1) the scalar arm was leaking a
+  managed single-word (`@T`/`@func`/`@Iface`) treated as a scalar — now rejects
+  `NeedsDestruction`; (2) the managed-slice arm admitted a managed-pointer element
+  (`@[]@Node`) whose elements it never freed — now gated on the element's
+  `NeedsDestruction`; (3) a small (`≤` word) struct is coerced in-register but classified
+  by-address, so a small anonymous-struct result read an empty retbuf and aborted —
+  `supportedResultType`/`supportedParamType` now require a by-address type to agree with
+  `IsAggregateReturnTyp`/`IsAggregateArg`.
+- **SI-2 — nested-managed recursion (`@[]@[]char`, structs of nested managed-slices).**
+  Extend `releaseImage`'s managed-slice arm to recurse elements *guarded by
+  `Refcount(backing)==1`* (only the sole owner frees elements; iterate the backing
+  `Refptr..+BackingLen*stride`, RefDec the outer backing LAST); relax the element gate to
+  `supportedMarshalType(Elem)`.  Host-releasable iff **no `@T`/`@func`/`@Iface` appears
+  anywhere inside** (those need the cross-mode dtor handle — SI-5); `@[]@[]char` bottoms
+  out in nil-dtor char backings, so it qualifies.
+- **SI-3 — multi-return tuple split.** Lift the `len(Results) > 1` reject; split the retbuf
+  per a recomputed `MakeStructType("", results).FieldOffset(i)` (byte-identical to the
+  packer, no new VM accessor); add a total `AggregateReturnSize ≤ 64` gate.
+- **SI-4 — VM: populate `ResultIfaceVtOffsets` for multi-return** (`lower_func_helpers.bn`
+  `populateResultMetadata`: fold `collectIfaceVtOffsets` over every result shifted by
+  `ResultOffsets[i]`, not just `Results[0]`).  Pure VM metadata fix; single-result behavior
+  unchanged; `call_aggregate.bn`'s existing `substituteVtWords` guard then covers the whole
+  retbuf.  Prerequisite for SI-5.
+- **SI-5 — interp interface-value result (`(T, @errors.Error)`) — GATED.** The marshaling is
+  mechanical (add the iface kinds to `isByAddressType`/`supportedResultType`, RefDec the data
+  ptr once), but two design questions block it: **(#1)** releasing a managed iface value needs
+  its dtor, which lives in the (SI-4-substituted) native handle-vtable — a func-value handle
+  re-entering `execFunc`, not a raw fn pointer; **(#2)** there is no host-facing single-iface-
+  method-call API to invoke `.Error()` at all.  Both need the host↔handle call convention
+  designed first — surface to the user before coding SI-5.  Also: `supportedMarshalType` is
+  shared by params and results, but an iface **param** is move-model (callee does no entry
+  RefInc, does exit RefDec) — SI-5 must split param-vs-result admission there, not silently
+  widen both.
 - **Deferred edge (func-value only):** func-value params/results (rare; need closure/vtable
   handling) — tracked follow-up, not a silent gap.
 
