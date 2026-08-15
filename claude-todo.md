@@ -7,6 +7,37 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### Passing a string literal (or `*[]readonly char`) to a `@[]char` managed parameter LEAKS the call-site copy — 🔴 OPEN MAJOR (found 2026-08-15)
+
+**Severity: MAJOR** — a per-call memory leak. Calling a function whose parameter is
+`@[]char` (a managed slice) with a raw/immortal argument — a string literal, or any
+`*[]readonly char` — forces the compiler to materialize an OWNED `@[]char` copy at the
+CALL SITE (an implicit raw→managed conversion), and that temporary is **never freed**:
+each call leaks one allocation per such argument.
+
+**Minimal repro** (no interp/VM code; leaks 1 per call, confirmed via `rt.LiveBlocks()`):
+```
+func takesManagedStr(s @[]char) { if len(s) > 99999 { return } }
+// takesManagedStr("hello")  -> leaks the call-site @[]char copy each call
+```
+**Discovered** while implementing `RunFuncTyped` (`plan-interp-runfunc-typed.md`): its
+`pkgPath @[]char` / `funcName @[]char` name params leaked exactly 2 allocations per call
+(one per literal arg); switching the params to `*[]readonly char` (the correct
+borrow type) eliminated it — the workaround now in `cmd`/`interp`, but the underlying
+codegen defect stands for any `@[]char`-parameter API called with a literal.
+
+**Suspected root cause (needs confirmation):** the implicit `*[]readonly char` (rodata /
+immortal) → `@[]char` (owned) conversion at a call site allocates a fresh copy
+(`buf.CopyStr`-equivalent) as a temporary but omits its end-of-statement RefDec — an
+Axiom-5 copy-site cleanup gap, the Code-Red class, but for the *implicit-conversion arg
+temp* specifically. (Open question: should raw→managed at a call arg even be ALLOWED
+implicitly? It's disallowed elsewhere — if it were rejected, the leak vanishes and callers
+must pass an owned `@[]char` or the API takes `*[]readonly char`.)
+
+**Repro/test TODO:** add a refcount-balance regression (unit or `conformance/regressions`)
+that calls a `@[]char`-param function with a literal and asserts `rt.LiveBlocks()` balance;
+xfail until fixed. Not yet added (the surrounding harness needs a LiveBlocks assertion).
+
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
 **Severity: MAJOR** — a recoverable user-code fault (bounds / divide / shift /
