@@ -1139,11 +1139,14 @@ constraint interface, mirrors 434) — commit `020758056`, green under six defau
 modes + native x64/aa64. The third axis, method **expression** off a generic
 instantiation (`Box[int].Get`), landed as an **XFAIL cell** (`09fce2e97`) tracking
 a compiler gap (see the standalone entry below).
-**Remaining second-wave / follow-ups:** array-of-managed / nested-generic element
-kinds; `copy` / `destroy-populated` ops; and **cross-package** variants of the two
-dispatch cells (the bug-dense mangling axis — needs the generator's `xpkg` fixture
-generalized past the single `Holder`, since xpkg cells are currently hardwired to
-`HOLDER_DECLS`).
+**Element-kind extension — ✅ nested-generic LANDED (`7ce7a2645`):** a generic
+instantiation `@Box[int]` held inside the container, both sites, green under six
+default modes + native x64/aa64. The sibling `array-of-managed` (`[N]@T` element)
+is **blocked by a compiler gap** (below) — captured as an XFAIL cell.
+**Remaining second-wave / follow-ups:** `copy` / `destroy-populated` ops; and
+**cross-package** variants of the two dispatch cells (the bug-dense mangling axis —
+needs the generator's `xpkg` fixture generalized past the single `Holder`, since
+xpkg cells are currently hardwired to `HOLDER_DECLS`).
 
 **Compiler gap (found 2026-08-15 while building the second wave): method
 EXPRESSION off a generic instantiation is unsupported.** `Box[int].Get` (and
@@ -1157,6 +1160,19 @@ expression-on-generic form is missing. Tracked by the XFAIL cell
 recognize `T[Arg].Method` in expression position as a method expression on a
 generic instantiation. Severity minor (workarounds: bound method values, direct
 calls). Not yet scheduled — user to prioritize.
+
+**Compiler gap (found 2026-08-15 while building the second wave): a generic-
+function CALL with an ARRAY type argument does not parse.** `zero[[2]int]()` (an
+explicit array type arg in a call's type-arg list) fails with `expected {, got ]`;
+array types parse fine in a TYPE position (`@Box[[2]int]`, `make(Box[[2]int])` —
+so `conformance/matrix/generic-managed/distinct/array-len` with `@Box[[3]int]` is
+green), just not in a call. This blocks an array-of-managed container element (its
+`New[[N]@T]()` calls can't be spelled; no inference sidesteps it since `New`/`zero`
+take no value args). Tracked by the XFAIL cell
+`conformance/matrix/generic-managed/array-typearg/scalar` (`.xfail.all`, commit
+`7ce7a2645`) — XPASS-alerts when fixed. Fix would be parser: accept an array type
+inside a generic-call's `[ ... ]` type-arg list (it already works in type
+position). Severity minor. Not yet scheduled — user to prioritize.
 
 **(B) Type-assertion/RTTI matrix — ✅ core BUILT & LANDED** as
 `conformance/matrix/type-assert/` (21 cells + generator
