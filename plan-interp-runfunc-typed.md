@@ -163,11 +163,14 @@ on receipt; `Release()` RefDecs each once.
     `releaseImage` gets a `TYP_INTERFACE_VALUE_MANAGED` arm: RefDec the data word, running the
     dtor handle from vtable slot 0 — via a new `rt.RefDecHandle(ptr, handle)` (decrement; on
     zero invoke `handle.vtable[1](handle.data, ptr)` then Free).
-  - **SI-5b — host-facing VM dispatch.** New `pkg/binate/vm/call_iface_host.bn`:
+  - **SI-5b — host-facing VM dispatch — ✅ LANDED (`1b86a9c75`).** (Extended per the
+    adversarial review to handle native-injected ifaces via `lookupShimVtable`, not just
+    VM-impl.)  New `pkg/binate/vm/call_iface_host.bn`:
     `CallIfaceMethod(ivAddr, slot, retbufSize, scalar64, args, retbuf)` — synchronous
     handle→shim, requires the vtword be native (post-SI-4 invariant), saves/restores
     `g_crossModeVmAddr`, host-supplied retbuf (so the 64-byte `execFunc` window does not apply).
-  - **SI-5c — slot resolution + interp glue + `.Error()` round-trip.** Export
+  - **SI-5c — slot resolution + interp glue + `.Error()` round-trip — ✅ LANDED (`28a1f06f3`).**
+    **Stage C (SI-1 → SI-5) complete.** Export
     `FindInterfaceMethodSlot` (wrapper over `ir.findInterfaceMethod`); retain a `DispatchModule`
     on `@Interp` (via `ir.RegisterAllInterfaces` over all loaded packages); new
     `interp/call_iface.bn` `(it @Interp) CallIfaceMethod(recv, methodName, args)`.
