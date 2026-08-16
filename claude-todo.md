@@ -654,16 +654,22 @@ after it lands; interim runner is a from-tree `bni`).
 
 ## bnas (self-hosted assembler)
 
-### Assemble x64 (and aarch64→ELF) from the CLI — 🟡 OPEN
-bnas (`cmd/bnas`) assembles **arm32 → ELF** (landed `12bb0cb54`/`23c38bb2e`, see
-`done/plan-bnas-baremetal-arm32.md`) and **aarch64 → Mach-O**, but not x64. The
-building blocks already exist — `pkg/binate/asm/x64` (encoder), `elf.WriteX86_64`,
-and a `pkg/binate/asm/parse/x64*` text front end — so it's mostly the same thin CLI
-wiring the arm32 case needed: a `-arch x64` case → `x64.ResolveFixups` +
-`elf.WriteX86_64`, plus filling any gaps the x64 text parser has (audit it against
-what the x64 encoder emits). Likewise aarch64 could gain an ELF variant
-(`elf.WriteAArch64`) for aarch64-linux. bnas should be able to assemble every arch
-it has an encoder for; the arm32 work only wired one of the three.
+### bnas x64 → ELF: typical integer programs LANDED; SSE/exotic-addressing remain — 🟡 PARTIAL
+`bnas -arch x64` → ELF64 landed (`d7e924a2c`): the CLI wiring
+(`x64.ResolveFixups` + `elf.WriteX86_64`) plus the x64 text-parser essentials real
+programs need — **RIP-relative addressing** (`[rip + label]` → a new `OP_RIPLABEL`
+operand routed to `LeaRipLabel` / `MovRipLabel` / `MovRipLabelStore`, all
+`R_X86_64_PC32`) on top of the pre-existing call/ret, push/pop, arithmetic, cmp,
+conditional jumps, syscall, immediates, and `[base+index*scale+disp]`.  Validated
+end-to-end (bnas → lld → linux/amd64 container): hello (RIP-rel lea), a
+call/loop/jne calc, and a RIP-relative global read-modify-write.
+
+**Remaining (surface as programs need them):** the x64 text parser is narrower
+than the x64 *encoder* for the non-typical surface — SSE / float / xmm forms, and
+exotic addressing modes — so a program using those may hit a parser gap.  Audit
+`pkg/binate/asm/parse/x64*` against `pkg/binate/asm/x64` when such a consumer
+appears.  Also still open: **aarch64 → ELF** (`elf.WriteAArch64`) for
+aarch64-linux (bnas currently emits aarch64 as Mach-O only).
 
 ## bnfmt (self-hosted formatter)
 
