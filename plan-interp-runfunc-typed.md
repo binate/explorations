@@ -153,7 +153,9 @@ on receipt; `Release()` RefDecs each once.
   call (structurally `dispatchCompiledIfaceMethod` minus the `BCInstr`/register-file), NOT the
   async `pushFrame`/`execFunc` path — and Release (dtor = vtable slot 0) and a method call
   (slot k) are the *same* primitive.
-  - **SI-5a — marshal + Release an iface RESULT (no dispatch yet).** `isByAddressType` admits
+  - **SI-5a — marshal + Release an iface RESULT (no dispatch yet) — ✅ LANDED (`6e796c1b6`).**
+    Note: reused `rt.RefDec` (its `_call_dtor` lowers as `OP_CALL_HANDLE`), so the design's
+    proposed `rt.RefDecHandle` was unnecessary.  `isByAddressType` admits
     `TYP_INTERFACE_VALUE[_MANAGED]`; split the predicate — new `supportedResultMarshalType`
     admits iface (top-level + struct-nested, matching `collectIfaceVtOffsets`; NOT slice
     elements), while `supportedMarshalType` (params + slice elements) keeps rejecting iface
