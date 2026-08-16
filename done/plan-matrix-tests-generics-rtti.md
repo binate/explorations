@@ -1,27 +1,32 @@
 # Plan (brief): matrix tests for expanded generics + type assertions/RTTI
 
-**Status:** brief plan (2026-07-10); **Part A core BUILT, Part B core BUILT
-(2026-08-15).** Proposes two new `conformance/matrix/` families, extending the
-established matrix pattern (`done/plan-code-red.md` §7). **Part A (generics)**
-landed as `conformance/matrix/generic-managed/` (18 cells; see `claude-todo.md`).
-**Part B (type-assertion / RTTI) is COMPLETE** — landed as
-`conformance/matrix/type-assert/` (27 cells; core in `f068c851e`,
-generic-instantiation value target in `f149af5f9`, type-switch narrowing grid —
-managed-source narrowing + typed-nil/unset — in `c2b1c43eb`, value-struct recovery
-from a typed `@I` in `4b18b0d3e`; generator
-`conformance/gen-type-assert-matrix.py`).
-Part A's second wave largely landed too (`020758056` param-impl + constraint
-dispatch; `7ce7a2645` nested-generic element kind).  Two compiler gaps found while
-building it are BOTH now **FIXED**: the generic-call array type arg `zero[[2]int]()`
-(`94010134e`) and method expressions on a generic instantiation `Box[int].Get` —
-func-value forms (`dedcf3adf`) and direct invocation (`4544f398c`); the
-`method-expression/*` grid is a full 7-cell grid, no longer xfail (both gaps' full
-records are in `claude-todo-done.md`).  What remains is Part A only:
-cross-package dispatch variants and `copy` / `destroy-populated` ops.  (The
-struct-recovery-from-`@I` wave that closed Part B needed no new language support —
-value recovery matches on the POINTEE type, so `a.(Dog)` on an `@Animal` built from
-`impl *Dog` HITs by unwrapping the pointer; the earlier "needs a value-receiver
-impl" worry was mistaken, disproved by a probe, green across all modes.)
+**Status:** brief plan (2026-07-10); **FULLY DELIVERED (2026-08-16)** — both
+matrix families and every planned wave landed; archived here.  Proposed two new
+`conformance/matrix/` families, extending the established matrix pattern
+(`plan-code-red.md` §7).
+
+**Part A — generic-managed** (`conformance/matrix/generic-managed/`, 36 cells +
+generator): the `balance` core over seven element kinds (managed-ptr, managed-slice,
+managed-struct, func-value, iface, nested-generic, array-of-managed) x both sites;
+the `empty` never-populated-destroy and `destroy-populated` scope-exit-destroy ops;
+method-value, the method-expression grid (7 cells), and dispatch (`param-impl`,
+`constraint`) — the last two with **cross-package** variants (the bug-dense mangling
+axis); and the type-distinctness compile-error pairs.
+
+**Part B — type-assert/RTTI** (`conformance/matrix/type-assert/`, 27 cells +
+generator): the `iface` grid (raw/mgd x concrete/iface/ancestor, ok + abort), `any`
+value recovery (scalar, slice-from-raw, generic-instantiation), a value-struct
+recovery from a typed `@I`, the `type-switch` narrowing grid (managed-source
+narrowing + typed-nil/unset), the `balance` cells, and the `legality` compile-error
+cells.
+
+Two compiler gaps found while building it were FIXED (records in
+`../claude-todo-done.md`): the generic-call array type arg `zero[[2]int]()`
+(`94010134e`) and method expressions on a generic instantiation `Box[int].Get`
+(`dedcf3adf` func-value forms, `4544f398c` direct invocation).  A `copy` op was
+found already subsumed by `balance`'s `Put` (element copy-helper + retained-ref
+assert), so the operation axis is complete without it.  All cells green under the
+six default modes + native x64/aa64.
 
 **Correction (2026-08-15): Section B below is written as if the type-switch cells
 and the VM / cross-mode axis are gated (on "Phase 6 IR-gen lowering" and "Slice 5

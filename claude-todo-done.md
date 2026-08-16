@@ -6,6 +6,39 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Matrix tests: expanded generics + type-assertions/RTTI — ✅ FULLY DELIVERED (2026-08-16)
+
+Two `conformance/matrix/` families guarding the recent bug cluster (`8d9e7577`,
+`c14dd95e`/`aba92526`, `42b3bc83`, `fedbd0c5` — several false-green because tested
+in-package or in one combination).  Brief plan (archived):
+[`done/plan-matrix-tests-generics-rtti.md`](done/plan-matrix-tests-generics-rtti.md).
+
+**Part A — `conformance/matrix/generic-managed/` (36 cells + generator).** The
+`balance` core over seven element kinds (managed-ptr, managed-slice, managed-struct,
+func-value, iface, nested-generic, array-of-managed) × in/cross-package; the `empty`
+never-populated-destroy and `destroy-populated` scope-exit-destroy ops; method-value,
+the method-expression grid (7 cells), and dispatch (`param-impl`, `constraint`) —
+both with cross-package variants (the bug-dense mangling axis, via a per-cell
+`gh_decls` fixture); type-distinctness compile-error pairs.  A separate `copy` op is
+subsumed by `balance`'s `Put` (element copy-helper + retained-ref assert).  Landed
+across `591f6945`, `ca3dd5b5`, `bea54fc2`, `a5869af1`, `020758056`, `7ce7a2645`, and
+the array-of-managed (`7c559667c`), cross-package-dispatch (`999cd2e5a`), and
+destroy-populated (`1337f58f0`) waves.
+
+**Part B — `conformance/matrix/type-assert/` (27 cells + generator).** The `iface`
+grid (raw/mgd × concrete/iface/ancestor, ok + abort), `any` value recovery (scalar,
+slice-from-raw, generic-instantiation), a value-struct recovery from a typed `@I`, the
+`type-switch` narrowing grid (managed-source narrowing + typed-nil/unset), the
+`balance` cells, the `legality` compile-error cells.  Core `f068c851e`; waves
+`f149af5f9` (generic-inst), `c2b1c43eb` (type-switch), `4b18b0d3e` (struct-from-`@I`).
+
+Two compiler gaps found while building it were fixed (own entries below): the
+generic-call array type arg `zero[[2]int]()` (`94010134e`) and method expressions on
+a generic instantiation `Box[int].Get` (`dedcf3adf`, `4544f398c`).  Value-struct
+recovery from `@I` needed no new language support — value recovery matches on the
+POINTEE type (probe-verified).  All cells green under the six default modes + native
+x64/aa64.
+
 ## String-literal `@[]char`-view use-after-free (leak fix exposed a latent UAF) — ✅ FIXED (2026-08-16): cmd/bnc `bf8a91a7c`, loader `f09a89bb3`
 
 Read-only path helpers that take `@[]char` and return a SUB-SLICE of the arg —
@@ -122,7 +155,7 @@ get cleaner hard errors, mixed/nested type-arg lists all work).
 passing regression cell) + added parser unit test `TestParseArrayTypeArg` (single +
 mixed-list).  Verified: parser unit tests green, full conformance `builder-comp` 2947
 passed / 0 failed.  Found while building the generic-managed matrix's array-of-managed
-element kind (now unblocked — [`plan-matrix-tests-generics-rtti.md`](plan-matrix-tests-generics-rtti.md) Part A follow-up).
+element kind (now unblocked — [`done/plan-matrix-tests-generics-rtti.md`](done/plan-matrix-tests-generics-rtti.md) Part A follow-up).
 
 ## String literal → `@[]char` managed copy leaked — ✅ FIXED (2026-08-15): call-arg `37006f915`, store/return/parallel-assign `f68fbc0bc`
 
