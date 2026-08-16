@@ -5,6 +5,47 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ---
 
+## CRITICAL
+
+### Use-after-free: returning a sub-slice of a string-literal `@[]char` frees the backing at the return — 🔴 OPEN CRITICAL (found 2026-08-16)
+
+**Severity: CRITICAL** — a function that returns (or holds across the call) a
+**sub-slice of a string-literal `@[]char`** gets a **dangling** result: the
+string-literal's `@[]char` copy is RefDec'd/freed at the return site while the
+returned sub-slice still points into that backing, so the caller reads freed
+memory (wrong/garbage data). Silent miscompile — no crash, just wrong bytes.
+
+**Symptom / repro:** `cmd/bnc` unit tests `TestUnquoteQuoted`,
+`TestUnquoteUnquoted`, `TestUnquoteSingleChar`, `TestShortNameSimple`,
+`TestShortNameNoSlash` fail (`./scripts/unittest/run.sh builder-comp cmd/bnc` →
+126 passed, 5 failed). Each calls a helper that returns a sub-slice of a
+string-literal arg and checks the result after the call:
+`unquote("\"hello\"")` → should be `hello`; `shortName("/foo/bar/baz.bn")` →
+should be `baz.bn`. The helpers (`cmd/bnc/util.bn`) are trivially correct
+(`s[1:len(s)-1]`, `path[last:]`), so this is a codegen miscompile, not a logic
+bug.
+
+**Root cause (strong suspect):** commit **`f68fbc0bc`** "ir: free string-literal
+`@[]char` copies at the store, return, and parallel-assign sites"
+(`pkg/binate/ir/gen_return.bn` + `gen_assign_parallel.bn` + `gen_refcount_pred.bn`).
+It frees the string-literal copy at the **return** site without accounting for a
+returned value that **aliases** that copy (a sub-slice of it escapes). cmd/bnc
+unit tests **passed at `d7e924a2c`** and **fail at `dedcf3adf`**; `f68fbc0bc` is
+the only commit in that range matching the symptom (the others are VM-side /
+generic-method-expr). Needs confirmation by the commit's owner.
+
+**Discovered:** while embedding the bnas assembler into bnc (Phase 2b) — a
+routine `cmd/bnc` unit smoke surfaced it; an isolation test (cmd/bnc reverted to
+`dedcf3adf`, no local changes) reproduces it, so it is **pre-existing on main**,
+NOT from the assemble work.
+
+**Proposed fix:** at the return site, do not free a string-literal `@[]char` copy
+whose storage is aliased by the returned value (a sub-slice that escapes must
+keep the backing alive) — i.e. exclude escaping-alias returns from the
+free-at-return, or transfer ownership to the returned slice. Add a conformance
+test mirroring `unquote`/`shortName` (return a sub-slice of a string literal,
+read it after the call).
+
 ## MAJOR
 
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
