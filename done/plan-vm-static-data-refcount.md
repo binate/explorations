@@ -1,13 +1,20 @@
 # Plan: refcount the VM's per-instance "static" data via one owning slice-list
 
-Status: DESIGN v2 — **re-reviewed clean, ready to implement** in vertical slices. Reworked
-after a v1 adversarial review killed the per-path OWN/BORROW-classification approach (v1's
-findings are in git history, commit `569ad91c`). A v2 adversarial re-review (3 lenses:
-re-leak/completeness, UAF/double-free/address-stability, globals) returned **0 confirmed
-defects** — the completeness and memory-safety lenses found nothing; the lone finding was a
-restatement of the already-OPEN globals managed-word-RefDec item and was refuted. The one
-genuinely-open implementation detail (how globals RefDec their managed content at teardown)
-is resolved by phasing slice 1.
+> **Status: ✅ COMPLETE (shipped); kept for design rationale.** Every family landed —
+> execution stack (`7f029699c`), native vtables (`78dd7611d`), descriptors + TypeInfo +
+> IfaceId (`c0715343e`), globals Part A block-ownership (`8eb93eee7`) + Part B managed-content
+> teardown via the opt-in `VM.Shutdown` (`1aa82ac25`); the leak-test facility `rt.LiveBlocks()`
+> (`af01418b6`) plus the definitive create-drop-VM `leak_test.bn` regression. The entire VM
+> static-data leak (per-VM blocks + managed-global content) is closed. See claude-todo-done.md
+> "VM static-data refcount". The remaining `native/arm32` bare-metal raw-fixture leak is a
+> SEPARATE issue, tracked in claude-todo.md.
+
+This design (v2) was implemented in vertical slices. It was reworked after a v1 adversarial
+review killed the per-path OWN/BORROW-classification approach (v1's findings are in git
+history, commit `569ad91c`). A v2 adversarial re-review (3 lenses: re-leak/completeness,
+UAF/double-free/address-stability, globals) returned **0 confirmed defects**; the one
+implementation detail it flagged (how globals RefDec their managed content at teardown) was
+resolved by phasing slice 1 and delivered as Part B (`1aa82ac25`).
 
 ## Problem
 
@@ -197,8 +204,11 @@ holder-responsibility escapes).
 - Full `vm` `builder-comp_arm32_baremetal` unit lane stays green.
 - Hosted + `int`-mode conformance unchanged (behavior-preserving; the sentinel is untouched,
   so compiled paths and user-visible reflect semantics are identical).
-- Add a permanent create-drop-VM bare-metal regression conformance test (like `1209` for the
-  allocator) once all families land.
+- Permanent create-drop-VM bare-metal regression — DONE, delivered as the `leak_test.bn` UNIT
+  test (create-drop-VM + `rt.LiveBlocks()` baseline; green on hosted / `int` /
+  `builder-comp_arm32_baremetal`). A conformance PROGRAM can't embed and drop a VM the way the
+  unit harness does, so the unit test — not a `1209`-style conformance test — is the permanent
+  regression.
 
 ## What stays unchanged
 

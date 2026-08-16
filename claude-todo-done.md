@@ -47,6 +47,26 @@ unit tests unaffected + `conformance/1212_method_expr_generic_xpkg` (cross-packa
 func-value AND direct call).  Verified green under the six default modes + native
 x64/aa64; full conformance `builder-comp` 2956/0; adversarial-reviewed (7 probes).
 
+## VM static-data refcount — per-instance "static" data now freed on VM teardown — ✅ DONE (2026-08-16)
+
+The bytecode VM (`pkg/binate/vm`) `RawAlloc`'d its per-module-load "static" data (execution stack,
+package descriptors + TypeInfo + IfaceId, native interface vtables, global-variable storage) and freed
+NONE — leaking on every VM teardown (fatal on the bare-metal arena; unbounded on host for an embedder
+that spins VMs up and down). Closed via an owning-slice-list design: every VM-allocated block becomes a
+managed `@[]uint8` (`make_slice`) held in one per-VM `ownedBlocks` vec (the `vmOwn` helper); the
+generated `@VM` destructor frees them at teardown. Managed-global CONTENT (a `var g @T` pointee, which
+the block-free cannot reach) is RefDec'd by a synthesized per-package `__vm_teardown_globals` run by the
+opt-in idempotent `VM.Shutdown` (an embedder calls it before dropping a VM; a one-VM process need not).
+Leak detection: `rt.LiveBlocks()` + the `leak_test.bn` create-drop-VM regression (green hosted / `int` /
+`builder-comp_arm32_baremetal`).
+
+Landed: stack `7f029699c`; native vtables `78dd7611d`; descriptors/TypeInfo/IfaceId `c0715343e`; globals
+Part A (block ownership) `8eb93eee7` + Part B (`VM.Shutdown` content teardown) `1aa82ac25`;
+`rt.LiveBlocks()` facility `af01418b6`. Design + phasing:
+[done/plan-vm-static-data-refcount.md](done/plan-vm-static-data-refcount.md); each slice adversarially
+reviewed. SEPARATE still-open follow-up: an analogous raw-fixture leak in the `native/arm32` bare-metal
+unit lane (tracked in claude-todo.md).
+
 ## Generic-call array type argument didn't parse — ✅ FIXED (2026-08-15, `94010134e`)
 
 **Was:** `zero[[2]int]()` / `New[[N]@T]()` — a generic-function CALL with an array type

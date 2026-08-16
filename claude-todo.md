@@ -352,44 +352,20 @@ unwind; nil-deref N1–N3 last, `de9a7c05`); see claude-todo-done.md and
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
-### vm bare-metal LEAK — stack FIXED & landed; shared static data still leaks (refcount it) — 🟡 OPEN (MAJOR)
+### `native/arm32` bare-metal unit lane leaks raw test fixtures — 🟡 OPEN (MAJOR)
 
-`pkg/binate/vm` raw-allocated several VM resources (`rt.RawAlloc`) and freed NONE; with no user
-destructors, a raw allocation hung off a managed `@VM` is never reclaimed (the generated dtor RefDecs
-only MANAGED fields). A live-block dump at exhaustion showed the ~4 MiB `builder-comp_arm32_baremetal`
-leak was dominated by VM execution stacks (15 × 64 KiB + 3 × 1 MiB); the other raw blocks are the
-small residue. This is a **full bug on every target, not a bare-metal curiosity**: embedding a VM is a
-core feature — an app spins VMs up and down freely — so a host process that creates/destroys many VMs
-leaks unboundedly too (process-exit reclamation only hides the single-VM case). Audit: the ENTIRE
-production raw-alloc surface is 5 sites, all in `pkg/binate/vm`; zero `RawFree` anywhere. → **major**.
+The VM static-data leak this entry once bundled — the execution stack plus the 3 shared raw blocks
+(package descriptors / TypeInfo / IfaceId, native interface vtables, and global-variable
+storage/managed content) — is **FIXED**. See [claude-todo-done.md](claude-todo-done.md) "VM
+static-data refcount" and [done/plan-vm-static-data-refcount.md](done/plan-vm-static-data-refcount.md)
+for the landed commits and the owning-slice-list (`ownedBlocks`/`vmOwn`) + `VM.Shutdown` design.
 
-**DONE — execution stack now owned (landed `7f029699c`).** `vm.Stack` → a managed `@[]uint8` field
-`stackBuf` (raw `Stack` kept as a non-owning `&stackBuf[0]` view for the SP arithmetic); the generated
-dtor frees it when the VM's last ref drops. The stack is pure internal scratch (nothing outside the VM
-references it), so refcount-driven release is both safe AND genuinely VM-scoped. This was the dominant
-leak → **vm on `builder-comp_arm32_baremetal` is GREEN, its xfail dropped.**
-
-**REMAINING (the fuller fix) — the 3 SHARED raw blocks, which are NOT VM-scoped:**
-- `lower_pkg_descriptor.bn:47` — package-descriptor data (currently `STATIC_REFCOUNT`-immortal static
-  data: string constants / TypeInfos / iface-id markers).
-- `vm_iface_native_vt.bn:85` — native interface vtables (int words: handle addrs / *TypeInfo).
-- `lower_data.bn:57,76` — global-variable storage (may hold MANAGED pointers → RefDec on teardown).
-
-**MODEL (user directive) — genuinely REFCOUNTED, NOT immortal, NOT freed-with-the-VM.** Descriptors
-from the VM must ABSOLUTELY NOT be immortal. But they are also NOT VM-lifetime: if another VM, or
-native/compiled code, or an escaped value takes a reference, they STAY ALIVE. They are shared managed
-objects, freed only when the last reference (from ANY holder) drops. So: give these blocks real
-managed headers + real refcounts, RefInc on every path that takes a ref (a VM lowering that uses a
-descriptor, an iface value carrying a native-vt pointer, an escaped static string / TypeInfo), RefDec
-when each holder drops it, and drop the `STATIC_REFCOUNT` sentinel. For globals, teardown must RefDec
-the MANAGED pointers stored in the storage before freeing the block. This is the shared-refcount
-design — more involved than the stack (pure scratch), NOT a make_slice swap. Get minimal adversarial
-reviews on it (per the user).
-
-`pkg/binate/native/arm32` is a SEPARATE package still xfail'd on `builder-comp_arm32_baremetal`
+Still open: `pkg/binate/native/arm32` is a SEPARATE package xfail'd on `builder-comp_arm32_baremetal`
 (`scripts/unittest/pkg-binate-native-arm32.xfail.builder-comp_arm32_baremetal`) — presumed analogous
-raw fixtures; confirm with the same per-class dump and fix in kind. **MAJOR per the
-raise-don't-workaround rule; the remaining xfail is a tracked hold, not a silent workaround.**
+raw TEST FIXTURES that `RawAlloc` and never free, exhausting the bare-metal arena under a
+refcount-heavy run. Confirm with the same per-class RawAlloc/RawFree leak dump used for the VM work,
+and fix in kind (own the fixtures via managed slices, or free them). MAJOR per the
+raise-don't-workaround rule; the xfail is a tracked hold, not a silent workaround.
 
 ### `data_pkg_descriptor.bn` header/slice-width conflation — 🟢 LOW (non-urgent cleanup)
 The `GetTarget().IntSize` "footgun" was a MISDIAGNOSIS and the native-accessor header reads
