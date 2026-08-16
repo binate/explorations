@@ -4,21 +4,24 @@
 (2026-08-15).** Proposes two new `conformance/matrix/` families, extending the
 established matrix pattern (`done/plan-code-red.md` §7). **Part A (generics)**
 landed as `conformance/matrix/generic-managed/` (18 cells; see `claude-todo.md`).
-**Part B (type-assertion / RTTI)** landed as `conformance/matrix/type-assert/` (25
-cells; core in `f068c851e`, generic-instantiation value target in `f149af5f9`,
-type-switch narrowing grid — managed-source narrowing + typed-nil/unset — in
-`c2b1c43eb`; generator `conformance/gen-type-assert-matrix.py`).
+**Part B (type-assertion / RTTI) is COMPLETE** — landed as
+`conformance/matrix/type-assert/` (27 cells; core in `f068c851e`,
+generic-instantiation value target in `f149af5f9`, type-switch narrowing grid —
+managed-source narrowing + typed-nil/unset — in `c2b1c43eb`, value-struct recovery
+from a typed `@I` in `4b18b0d3e`; generator
+`conformance/gen-type-assert-matrix.py`).
 Part A's second wave largely landed too (`020758056` param-impl + constraint
 dispatch; `7ce7a2645` nested-generic element kind).  Two compiler gaps found while
 building it are BOTH now **FIXED**: the generic-call array type arg `zero[[2]int]()`
 (`94010134e`) and method expressions on a generic instantiation `Box[int].Get` —
 func-value forms (`dedcf3adf`) and direct invocation (`4544f398c`); the
 `method-expression/*` grid is a full 7-cell grid, no longer xfail (both gaps' full
-records are in `claude-todo-done.md`).  What remains: Part B's struct recovery from
-`@I` (needs a semantic decision first — value-recovery of the underlying struct
-from an `@Animal` built on `impl *Dog` misses, since the dynamic type is `*Dog`;
-a genuine value-struct recovery from `@I` needs a value-receiver impl); Part A's
-cross-package dispatch variants and `copy` / `destroy-populated` ops.
+records are in `claude-todo-done.md`).  What remains is Part A only:
+cross-package dispatch variants and `copy` / `destroy-populated` ops.  (The
+struct-recovery-from-`@I` wave that closed Part B needed no new language support —
+value recovery matches on the POINTEE type, so `a.(Dog)` on an `@Animal` built from
+`impl *Dog` HITs by unwrapping the pointer; the earlier "needs a value-receiver
+impl" worry was mistaken, disproved by a probe, green across all modes.)
 
 **Correction (2026-08-15): Section B below is written as if the type-switch cells
 and the VM / cross-mode axis are gated (on "Phase 6 IR-gen lowering" and "Slice 5
