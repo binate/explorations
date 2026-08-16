@@ -181,7 +181,13 @@ on receipt; `Release()` RefDecs each once.
 - **Deferred edge (func-value only):** func-value params/results (rare; need closure/vtable
   handling) — tracked follow-up, not a silent gap.
 
-## Inc 4 — build-config setter + source seam (after Inc 3)
+## Inc 4 — build-config setter + source seam (after Inc 3) — ✅ COMPLETE
+
+SetBuildConfig landed as `2a1e030de`; the loader SourceProvider seam as `659e52e03`.
+BUILDER-interface test (planned below) came back **yes** — bnc-0.0.13 compiles interface
+defs/impls/dispatch (incl. struct fields), so the seam is a `SourceProvider` interface with
+an os-backed `OsSourceProvider` default (not the fn-value fallback).  Full `builder-comp`
+conformance stayed green (2962/0); an in-memory `MemProvider` test proves the seam.
 
 - **`@Interp.SetBuildConfig(cfg @buildcfg.BuildConfig)`** — override the host default `New` bakes
   (`interp.bn:85`). Just writes the existing `it.Ldr.BuildConfig` field; BUILDER-safe; one method.
