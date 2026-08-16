@@ -182,22 +182,3 @@ plan's inventory) were left in place. To embed the COMPILER reentrantly (e.g. an
 in-process bnc), thread those through the emit context the same way increments 1–5
 did for the interpreter. Deferred with user sign-off — only if reentrant AOT
 compilation in one process becomes a goal.
-
-## bnas: assemble x64 (and aarch64→ELF) from the CLI
-
-bnas (`cmd/bnas`) now assembles **arm32 → ELF** (landed alongside the
-"assemble the bare-metal arm32 runtime with bnas" work — see
-`plan-bnas-baremetal-arm32.md`) and **aarch64 → Mach-O**.  The building blocks
-for **x64** already exist — `pkg/binate/asm/x64` (encoder), `elf.WriteX86_64`,
-and a `pkg/binate/asm/parse/x64*` text front end — so exposing it from the CLI is
-mostly the same thin wiring the arm32 case needed (a `-arch x64` case →
-`x64.ResolveFixups` + `elf.WriteX86_64`), plus filling any gaps the x64 text
-parser has.  Likewise aarch64 could gain an ELF variant (`elf.WriteAArch64`) for
-aarch64-linux.
-
-**Why deferred (no consumer yet):** nothing currently feeds x64 `.s` through
-bnas.  The x64 *native* backend emits objects **in-process** (`native.EmitObject`),
-and there are no hand-written x64 `.s` runtime files (only arm32-baremetal has
-`.s` — crt0.s / semihost.s).  So this is a completeness/consistency item (bnas
-should assemble every arch it has an encoder for), not a functional gap.  Raise to
-the active todo if/when an x64 (or aarch64-ELF) `.s` consumer appears.

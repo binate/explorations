@@ -652,6 +652,19 @@ external deps: `os.MkdirAll` landing in the tree (being implemented separately),
 and a CHECK_TOOLS bundle whose injected `os` ships it (bump `CHECK_TOOLS_VERSION`
 after it lands; interim runner is a from-tree `bni`).
 
+## bnas (self-hosted assembler)
+
+### Assemble x64 (and aarch64→ELF) from the CLI — 🟡 OPEN
+bnas (`cmd/bnas`) assembles **arm32 → ELF** (landed `12bb0cb54`/`23c38bb2e`, see
+`done/plan-bnas-baremetal-arm32.md`) and **aarch64 → Mach-O**, but not x64. The
+building blocks already exist — `pkg/binate/asm/x64` (encoder), `elf.WriteX86_64`,
+and a `pkg/binate/asm/parse/x64*` text front end — so it's mostly the same thin CLI
+wiring the arm32 case needed: a `-arch x64` case → `x64.ResolveFixups` +
+`elf.WriteX86_64`, plus filling any gaps the x64 text parser has (audit it against
+what the x64 encoder emits). Likewise aarch64 could gain an ELF variant
+(`elf.WriteAArch64`) for aarch64-linux. bnas should be able to assemble every arch
+it has an encoder for; the arm32 work only wired one of the three.
+
 ## bnfmt (self-hosted formatter)
 
 ### Batch the `bnfmt-format` hygiene check via multi-file bnfmt — 🟡 OPEN (gated on CHECK_TOOLS)
