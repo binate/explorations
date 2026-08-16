@@ -146,16 +146,33 @@ on receipt; `Release()` RefDecs each once.
   `ResultOffsets[i]`, not just `Results[0]`).  Pure VM metadata fix; single-result behavior
   unchanged; `call_aggregate.bn`'s existing `substituteVtWords` guard then covers the whole
   retbuf.  Prerequisite for SI-5.
-- **SI-5 — interp interface-value result (`(T, @errors.Error)`) — GATED.** The marshaling is
-  mechanical (add the iface kinds to `isByAddressType`/`supportedResultType`, RefDec the data
-  ptr once), but two design questions block it: **(#1)** releasing a managed iface value needs
-  its dtor, which lives in the (SI-4-substituted) native handle-vtable — a func-value handle
-  re-entering `execFunc`, not a raw fn pointer; **(#2)** there is no host-facing single-iface-
-  method-call API to invoke `.Error()` at all.  Both need the host↔handle call convention
-  designed first — surface to the user before coding SI-5.  Also: `supportedMarshalType` is
-  shared by params and results, but an iface **param** is move-model (callee does no entry
-  RefInc, does exit RefDec) — SI-5 must split param-vs-result admission there, not silently
-  widen both.
+- **SI-5 — interp interface-value result (`(T, @errors.Error)`) — decision: Option A (build
+  host-callable interface dispatch).** Broken into three sub-increments by an iface-dispatch
+  recon (`wf_4d3ee696`).  **Key insight:** SI-4 already substitutes every returned iface vtable
+  word to a *native* handle-vtable, so the host dispatch is a SYNCHRONOUS handle→`rt._call_shim_*`
+  call (structurally `dispatchCompiledIfaceMethod` minus the `BCInstr`/register-file), NOT the
+  async `pushFrame`/`execFunc` path — and Release (dtor = vtable slot 0) and a method call
+  (slot k) are the *same* primitive.
+  - **SI-5a — marshal + Release an iface RESULT (no dispatch yet).** `isByAddressType` admits
+    `TYP_INTERFACE_VALUE[_MANAGED]`; split the predicate — new `supportedResultMarshalType`
+    admits iface (top-level + struct-nested, matching `collectIfaceVtOffsets`; NOT slice
+    elements), while `supportedMarshalType` (params + slice elements) keeps rejecting iface
+    (an iface **param** is move-model / needs reverse vtable translation that doesn't exist).
+    `releaseImage` gets a `TYP_INTERFACE_VALUE_MANAGED` arm: RefDec the data word, running the
+    dtor handle from vtable slot 0 — via a new `rt.RefDecHandle(ptr, handle)` (decrement; on
+    zero invoke `handle.vtable[1](handle.data, ptr)` then Free).
+  - **SI-5b — host-facing VM dispatch.** New `pkg/binate/vm/call_iface_host.bn`:
+    `CallIfaceMethod(ivAddr, slot, retbufSize, scalar64, args, retbuf)` — synchronous
+    handle→shim, requires the vtword be native (post-SI-4 invariant), saves/restores
+    `g_crossModeVmAddr`, host-supplied retbuf (so the 64-byte `execFunc` window does not apply).
+  - **SI-5c — slot resolution + interp glue + `.Error()` round-trip.** Export
+    `FindInterfaceMethodSlot` (wrapper over `ir.findInterfaceMethod`); retain a `DispatchModule`
+    on `@Interp` (via `ir.RegisterAllInterfaces` over all loaded packages); new
+    `interp/call_iface.bn` `(it @Interp) CallIfaceMethod(recv, methodName, args)`.
+  - **Scope edges (eyes-open):** iface-typed *method args* are excluded (need arg-direction
+    substitution the host can't supply — receiver + scalar/aggregate args only); native-injected-
+    package iface results (raw `@__ivt`, not a substituted handle-vtable) are deferred with a
+    clean reject (the `.Error()`/VM-impl target doesn't exercise them).
 - **Deferred edge (func-value only):** func-value params/results (rare; need closure/vtable
   handling) — tracked follow-up, not a silent gap.
 
