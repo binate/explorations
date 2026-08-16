@@ -245,6 +245,23 @@ Remaining increments (all parked, none started):
 
 ## VM runtime faults & the rt.Exit/abort/panic paradigm
 
+### Parallel-assign leaks a managed value by 1 on the VM recoverable-fault path — 🟢 LOW / MINOR (2026-08-15)
+
+Parallel/multi-target assign (`a, b = ...`) acquires each managed RHS up front (phase 1:
+`resolveParallelEntry` → `emitManagedValueCopyRefInc`, a RefInc giving the destination slot its own
+reference) before storing any target (phase 2). If a **recoverable VM fault** is raised by a LATER
+phase-1 entry, an already-acquired earlier value is over-retained by 1 → a leak-by-1 on that rare
+path. Inherent to the up-front-acquire design (not specific to any RHS kind): the fault-pad
+(`emitPadCleanup` → `emitTempRefDecs`) RefDecs *registered* temps but not the phase-1 slot-acquire
+RefInc of a value not yet stored. Surfaced by the adversarial re-review of `f68fbc0bc`, which strictly
+improved the string-literal case (leak-by-2 → leak-by-1). Compiled-backend faults are fatal (no pad),
+so N/A there.
+
+Not yet tested — needs a fault-injection harness that raises a recoverable fault mid-parallel-assign
+and checks `rt.LiveBlocks()` under the VM. Fix direction: have the fault-pad also release the
+per-target values already acquired into the pending `PAEntry` list, or defer the phase-1 RefInc until
+the phase-2 store.
+
 ### Finish the builtin-`println` nil-deref holdouts + index-through-nil value-borrow nil-check — 🟢 LOW (2026-08-09)
 
 Fallout now unblocked by the `any`-box pointer-deref/field nil-check fix (done log:
