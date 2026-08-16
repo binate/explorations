@@ -8,6 +8,24 @@ enhancements to revisit in a later version. Finished/declined items still go to
 
 ---
 
+## Embeddable interp `RunFuncTyped` / `CallIfaceMethod`: the two deferred marshaling edges
+
+Stage C (interp Inc 3, landed) marshals scalars, strings, `@[]@[]char`, structs,
+multi-return, and interface-value results with method dispatch.  Two edges were
+scoped out as eyes-open deferrals (see `done/plan-interp-runfunc-typed.md`):
+
+- **Func-value params/results** (`@func(...)` / `*func(...)`).  Rejected by
+  `supportedMarshalType` / `isByAddressType` (never admitted).  Needs the closure
+  record + native-handle vtable handling an iface value gets; rare as a
+  cross-boundary marshaled value, so deferred until a concrete consumer wants it.
+- **Interface-typed method ARGS to `CallIfaceMethod`.**  Rejected (`supportedParamType`
+  keeps iface out).  A bytecode-impl iface passed INTO a method needs the
+  arg-direction `substArgSlotIface` / `ArgIfaceLayout` translation the host-driven
+  path can't supply today.  Receiver + scalar/aggregate args work; iface args don't.
+
+Neither is a correctness gap (both are cleanly rejected, not miscompiled) — they are
+capability extensions to revisit post-1.0.
+
 ## Package-`var` init ordering: follow named-function calls (Go-complete dependency order)
 
 Package-level `var` initializers run in **dependency order**, but the ordering
