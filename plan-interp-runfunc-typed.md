@@ -138,7 +138,7 @@ on receipt; `Release()` RefDecs each once.
   `supportedMarshalType(Elem)`.  Host-releasable iff **no `@T`/`@func`/`@Iface` appears
   anywhere inside** (those need the cross-mode dtor handle — SI-5); `@[]@[]char` bottoms
   out in nil-dtor char backings, so it qualifies.
-- **SI-3 — multi-return tuple split.** Lift the `len(Results) > 1` reject; split the retbuf
+- **SI-3 — multi-return tuple split — ✅ LANDED (`f96715f4d`).** Lift the `len(Results) > 1` reject; split the retbuf
   per a recomputed `MakeStructType("", results).FieldOffset(i)` (byte-identical to the
   packer, no new VM accessor); add a total `AggregateReturnSize ≤ 64` gate.
 - **SI-4 — VM: populate `ResultIfaceVtOffsets` for multi-return** (`lower_func_helpers.bn`
