@@ -30,7 +30,7 @@ mixed-list).  Verified: parser unit tests green, full conformance `builder-comp`
 passed / 0 failed.  Found while building the generic-managed matrix's array-of-managed
 element kind (now unblocked — [`plan-matrix-tests-generics-rtti.md`](plan-matrix-tests-generics-rtti.md) Part A follow-up).
 
-## String literal → `@[]char` managed parameter leaked the call-site copy — ✅ FIXED (2026-08-15, `37006f915`)
+## String literal → `@[]char` managed copy leaked — ✅ FIXED (2026-08-15): call-arg `37006f915`, store/return/parallel-assign `f68fbc0bc`
 
 **Was:** a per-call memory leak. A string literal passed to a mutable `@[]char` parameter
 is coerced at the call site via `EmitStringToChars` → `OP_RODATA_MSLICE_COPY`, a FRESH
@@ -57,6 +57,21 @@ No language rule changed; the implicit literal→`@[]char` coercion stays, now c
 `rt.LiveBlocks()` returns to baseline across 100 literal→`@[]char` calls; confirmed
 load-bearing (revert check fails without the fix). Full `builder-comp` conformance 2944/0,
 `pkg/binate/ir` units 665/0, hygiene 19/19.
+
+**Follow-up — the OTHER sites leaked too, now fixed (`f68fbc0bc`, 2026-08-15):** the "Root cause"
+aside above (that var-init / assignment / composite "consume the temp — no leak") was **wrong**.
+`emitStoreManagedSlot` only MOVES a value its freshness oracle recognizes, and `isFreshManagedSlice`
+did NOT recognize `OP_RODATA_MSLICE_COPY` — so those stores RefInc'd the fresh copy as a *borrow*
+and leaked it. `37006f915` closed only the call-arg site; empirically the rest still leaked (per 100
+iterations: var-init 10, composite 20, short-var 10, `return "..."` 10, `a, b = "...", "..."` 200).
+`f68fbc0bc` closes them: `isFreshManagedSlice` now recognizes `OP_RODATA_MSLICE_COPY` (so the store
+MOVES it), and the two RefInc-based acquire sites — `return "..."` (unconditional Axiom-3 RefInc) and
+parallel assign (`resolveParallelEntry`'s unconditional per-target `emitManagedValueCopyRefInc`) —
+`registerTemp` the copy so the RefInc is balanced (mirroring this call-arg fix). Covered by
+`conformance/1211_string_lit_managed_store_balance` (store + return + parallel-assign, both backends);
+adversarially re-reviewed (memory-safety + completeness + registerTemp-balance lenses, all clean). Note
+a pre-existing, out-of-scope leak-by-1 on the VM *recoverable-fault* path in parallel-assign (inherent to
+its up-front acquire of any managed value; `f68fbc0bc` strictly improves it from leak-by-2 to leak-by-1).
 
 **Note on `RunFuncTyped`:** discovered during `plan-interp-runfunc-typed.md`; its name params
 stay `*[]readonly char` — not a workaround anymore but the correct borrow-not-copy signature
