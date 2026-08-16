@@ -6,6 +6,39 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## String-literal `@[]char`-view use-after-free (leak fix exposed a latent UAF) — ✅ FIXED (2026-08-16): cmd/bnc `bf8a91a7c`, loader `f09a89bb3`
+
+Read-only path helpers that take `@[]char` and return a SUB-SLICE of the arg —
+cmd/bnc's `unquote` / `shortName` / `stripExt` and `loader.unquote` — had a
+use-after-free when called with a STRING LITERAL. A string literal coerced to a
+`@[]char` param is a MORTAL heap copy (`OP_RODATA_MSLICE_COPY`); a caller binding
+the result to a raw `*[]readonly char` borrow (or otherwise holding it past the
+statement) then read freed memory once the copy was reclaimed. The leak that
+`f68fbc0bc` fixed (string-literal `@[]char` copies freed at store / return /
+parallel-assign) had been MASKING this latent UAF by keeping the copy alive
+forever; fixing the leak exposed it. cmd/bnc's `TestUnquote*` / `TestShortName*`
+and loader's `TestUnquoteQuoted` / `TestUnquoteUnquoted` went red (loader's was
+red-on-main and UNTRACKED).
+
+**This was NOT a compiler bug.** Per the Memory Management rule, holding a raw
+slice of a temporary past its statement is user error; the compiler must not
+suppress the RefDec to hide the UAF — that would re-introduce the leak. So the
+originally-filed CRITICAL entry's proposed fix (exclude escaping-alias returns
+from the free-at-return) was the wrong direction; `f68fbc0bc` is correct.
+
+**Fix (borrow-not-copy):** make these pure view helpers take AND return
+`*[]readonly char` (borrow-in / borrow-out, no allocation), matching the
+`RunFuncTyped` name-param precedent. A string-literal arg now aliases immortal
+rodata directly (no copy), so a raw view of the result is valid. Owning callers
+move `buf.CopyStr` from the argument to the result
+(`shortName(buf.CopyStr(x))` → `buf.CopyStr(shortName(x))`), which also copies
+only the short name rather than the whole path and no longer pins AST backing.
+cmd/bnc `bf8a91a7c` (7 callers), loader `f09a89bb3` (3 callers) — both
+adversarially reviewed clean (memory-safety + completeness/sweep). Sweep so far:
+the `unquote` / `shortName` / `stripExt` family is otherwise safe (ir / interp /
+repl return owned copies); a broader repo-wide sweep for the same
+raw-borrow-of-a-string-literal-view pattern is the follow-up.
+
 ## Method EXPRESSION off a generic type instantiation — ✅ FIXED (2026-08-16, `dedcf3adf` + `4544f398c`)
 
 **Was:** `Box[int].Get` (a method expression off a generic instantiation) failed
