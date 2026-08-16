@@ -141,7 +141,7 @@ on receipt; `Release()` RefDecs each once.
 - **SI-3 — multi-return tuple split — ✅ LANDED (`f96715f4d`).** Lift the `len(Results) > 1` reject; split the retbuf
   per a recomputed `MakeStructType("", results).FieldOffset(i)` (byte-identical to the
   packer, no new VM accessor); add a total `AggregateReturnSize ≤ 64` gate.
-- **SI-4 — VM: populate `ResultIfaceVtOffsets` for multi-return** (`lower_func_helpers.bn`
+- **SI-4 — VM: populate `ResultIfaceVtOffsets` for multi-return — ✅ LANDED (`da402434e`).** (`lower_func_helpers.bn`
   `populateResultMetadata`: fold `collectIfaceVtOffsets` over every result shifted by
   `ResultOffsets[i]`, not just `Results[0]`).  Pure VM metadata fix; single-result behavior
   unchanged; `call_aggregate.bn`'s existing `substituteVtWords` guard then covers the whole
