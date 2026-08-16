@@ -131,7 +131,7 @@ on receipt; `Release()` RefDecs each once.
   by-address, so a small anonymous-struct result read an empty retbuf and aborted —
   `supportedResultType`/`supportedParamType` now require a by-address type to agree with
   `IsAggregateReturnTyp`/`IsAggregateArg`.
-- **SI-2 — nested-managed recursion (`@[]@[]char`, structs of nested managed-slices).**
+- **SI-2 — nested-managed recursion (`@[]@[]char`, structs of nested managed-slices) — ✅ LANDED (`1ae8cf0d0`).**
   Extend `releaseImage`'s managed-slice arm to recurse elements *guarded by
   `Refcount(backing)==1`* (only the sole owner frees elements; iterate the backing
   `Refptr..+BackingLen*stride`, RefDec the outer backing LAST); relax the element gate to
