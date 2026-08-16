@@ -6,6 +6,30 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Generic-call array type argument didn't parse — ✅ FIXED (2026-08-15, `94010134e`)
+
+**Was:** `zero[[2]int]()` / `New[[N]@T]()` — a generic-function CALL with an array type
+argument — failed with `expected {, got ]`.  `startsBracketTypeArg`
+(`pkg/binate/parser/parse_expr.bn`) routed only `@…` and `*[` type-only prefixes to the
+type parser; a leading `[` (an array type `[N]T`) fell through to the expression path,
+where it was read as an array LITERAL and demanded a trailing `{`.  Array types parsed
+fine in a TYPE position (`@Box[[2]int]`, `make(Box[[2]int])`), only not in a call's
+bracket type-arg list.
+
+**Fix:** route a leading `[` to the type parser too (one line in `startsBracketTypeArg`).
+Downstream already handled it — the checker (`typeArgFromExpr`) and IR-gen
+(`exprToTypeExpr`) read the wrapped `TEXPR_ARRAY` exactly like the working `@T`/`*[]T`
+call type-args.  The one construct forgone — a bracket element that is an array LITERAL
+`[N]T{…}` (indexing by an array value) — is semantically invalid and had zero uses
+repo-wide (an adversarial review confirmed this and the fix's breadth: `[]T`/`[...]T` now
+get cleaner hard errors, mixed/nested type-arg lists all work).
+
+**Coverage:** un-xfailed `conformance/matrix/generic-managed/array-typearg/scalar` (now a
+passing regression cell) + added parser unit test `TestParseArrayTypeArg` (single +
+mixed-list).  Verified: parser unit tests green, full conformance `builder-comp` 2947
+passed / 0 failed.  Found while building the generic-managed matrix's array-of-managed
+element kind (now unblocked — [`plan-matrix-tests-generics-rtti.md`](plan-matrix-tests-generics-rtti.md) Part A follow-up).
+
 ## String literal → `@[]char` managed parameter leaked the call-site copy — ✅ FIXED (2026-08-15, `37006f915`)
 
 **Was:** a per-call memory leak. A string literal passed to a mutable `@[]char` parameter
