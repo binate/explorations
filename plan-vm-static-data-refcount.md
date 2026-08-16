@@ -154,7 +154,9 @@ that mechanism now exists (unused today).
 ## Phasing (vertical slices; each re-verified on bare metal + adversarially reviewed)
 
 1. **Globals** — Part A (block ownership) **LANDED main `8eb93eee7`**; Part B (managed-content
-   teardown RefDec via an explicit Shutdown) is still open.
+   teardown RefDec via an explicit Shutdown) **LANDED main `1aa82ac25`** (synthesized per-package
+   `__vm_teardown_globals`, built before `generateDtors` so it forces the dtors it references to
+   exist, run by the opt-in idempotent `VM.Shutdown`; 2-lens review clean).
 2. **Native vtables** — **LANDED main `78dd7611d`** (single alloc site, no managed content;
    clean 2-lens review, 1 doc-comment fix).
 3. **Descriptors + TypeInfo + IfaceId** — **LANDED main `c0715343e`** (single shared alloc
@@ -162,9 +164,11 @@ that mechanism now exists (unused today).
    rodata blobs, TypeInfo records + trailers, and IfaceId — all multi-block records; address
    identity preserved. 2-lens review: 0 code defects, comment fixes only).
 
-**→ The entire VM static-data BLOCK leak is now closed** (stack + globals + native vtables +
-descriptors/TypeInfo/IfaceId). The only remaining piece is **globals Part B** (a managed
-global `@T`'s independently-allocated *content* — RefDec via an explicit Shutdown).
+**→ The entire VM static-data leak is now closed** — both the BLOCK leak (stack + globals +
+native vtables + descriptors/TypeInfo/IfaceId, all via `ownedBlocks`/`vmOwn` freed by the
+generated `@VM` destructor) and the managed-global *content* leak (globals Part B: a managed
+global `@T`'s independently-allocated content, RefDec'd via the opt-in `VM.Shutdown` — **LANDED
+main `1aa82ac25`**).
 
 **Leak-test facility — LANDED main `af01418b6`.** `rt.LiveBlocks()` (a process-global live
 raw-allocation count; +1 per RawAlloc/RawAllocZero, −1 per non-nil RawFree) with rt_test.bn
