@@ -6,6 +6,47 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Method EXPRESSION off a generic type instantiation — ✅ FIXED (2026-08-16, `dedcf3adf` + `4544f398c`)
+
+**Was:** `Box[int].Get` (a method expression off a generic instantiation) failed
+with `cannot index this type`.  NOT a parser gap — the parser produced a clean
+`SELECTOR{ EXPR_INSTANTIATE_OR_INDEX{Box,[int]}, "Get" }`; method-expression
+recognition in the checker (`checkSelectorExpr`) and IR-gen (`funcRefName`) only
+fired for a bare type-name base (`Counter.Add`).  The bound method-VALUE forms
+(`bp.Get`, `mkbox[int](v).Get`) already worked.
+
+**Fix, in two commits:**
+- `dedcf3adf` — the func-value forms (`var f = Box[int].Get`, arg/return/field,
+  cross-package `mp.Box[int].Get`).  Checker: `checkSelectorExpr` recognizes a
+  generic-struct-instantiation base (`isGenericStructInstHead`, gated on
+  `lookupGenericTypeDeclPkg` + non-value-shadowed head), resolves it via the
+  existing `typeArgFromExpr`, and returns `MakeFuncValueType` (receiver as
+  Params[0]).  IR-gen: a `genExprOrFuncRef` branch emits the func value under the
+  mangled instantiation name (`baseNamedTypeName` + `ensureMethodsForInstName` +
+  `buildMethodQualName`), and `isMethodValueSelector` gains a carve-out so
+  `Box[int].Get` is never mis-routed to `genMethodValue` (SIGSEGV).
+- `4544f398c` — DIRECT invocation `Box[int].Get(&bx)`.  `tryMethodCall` (checker)
+  skips a generic-instance head; `funcRefName` (IR-gen) names it for the
+  direct-by-name call; `isMethodCallSel` returns false for it.
+
+**Lesson worth remembering — `resolveTypeExpr` is NOT safe to call as an IR-gen
+predicate.**  The first cut of `isMethodCallSel` used `typeArgExprToType` (→
+`resolveTypeExpr` → `ensureInstantiatedStruct`, which MUTATES `gc.Mod.Structs`) to
+detect the generic-instance head.  Because that predicate runs for EVERY method
+call, calling it mid-IR-gen registered instantiations at the wrong moment and
+corrupted the in-progress function's codegen — gen1 emitted `xor i1 <i64>, 1`,
+self-hosting-miscompiling `pkg/binate/types` under `builder-comp-int` (a clean
+`builder-comp` hid it — the miscompile was in the cmd/bni build step).  The fix
+reads the checker's already-computed selector type (`sel.ResolvedTypeID`,
+side-effect-free) instead.  Rule: in an IR-gen predicate, READ resolved types; do
+not RESOLVE (the resolve can instantiate + mutate module state).
+
+**Coverage:** the `method-expression/*` matrix grid (7 cells: ptr/managed/value
+receiver, sole/first-mention, array type arg, parenthesized, direct-call) + parser
+unit tests unaffected + `conformance/1212_method_expr_generic_xpkg` (cross-package
+func-value AND direct call).  Verified green under the six default modes + native
+x64/aa64; full conformance `builder-comp` 2956/0; adversarial-reviewed (7 probes).
+
 ## Generic-call array type argument didn't parse — ✅ FIXED (2026-08-15, `94010134e`)
 
 **Was:** `zero[[2]int]()` / `New[[N]@T]()` — a generic-function CALL with an array type

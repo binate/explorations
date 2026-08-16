@@ -7,14 +7,15 @@ landed as `conformance/matrix/generic-managed/` (18 cells; see `claude-todo.md`)
 **Part B (type-assertion / RTTI)** landed as `conformance/matrix/type-assert/` (21
 cells, commit `f068c851e`; generator `conformance/gen-type-assert-matrix.py`).
 Part A's second wave largely landed too (`020758056` param-impl + constraint
-dispatch; `7ce7a2645` nested-generic element kind). Two compiler gaps found while
-building it: a generic-call array type arg `zero[[2]int]()` — now **FIXED**
-(`94010134e`, un-xfailed `array-typearg/scalar`); and method-expression
-`Box[int].Get` parsing as an index expression — still an XFAIL cell (`09fce2e97`),
-being fixed next (checker + IR-gen). What remains: Part B's later waves (type-switch
-narrowing grid, generic-instantiation value target, struct recovery from `@I`);
-Part A's cross-package dispatch variants, the now-unblocked array-of-managed element
-kind, and `copy` / `destroy-populated` ops.
+dispatch; `7ce7a2645` nested-generic element kind).  Two compiler gaps found while
+building it are BOTH now **FIXED**: the generic-call array type arg `zero[[2]int]()`
+(`94010134e`) and method expressions on a generic instantiation `Box[int].Get` —
+func-value forms (`dedcf3adf`) and direct invocation (`4544f398c`); the
+`method-expression/*` grid is a full 7-cell grid, no longer xfail (both gaps' full
+records are in `claude-todo-done.md`).  What remains: Part B's later waves
+(type-switch narrowing grid, generic-instantiation value target, struct recovery
+from `@I`); Part A's cross-package dispatch variants, the now-unblocked
+array-of-managed element kind, and `copy` / `destroy-populated` ops.
 
 **Correction (2026-08-15): Section B below is written as if the type-switch cells
 and the VM / cross-mode axis are gated (on "Phase 6 IR-gen lowering" and "Slice 5

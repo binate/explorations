@@ -1227,18 +1227,15 @@ variants of the two dispatch cells (the bug-dense mangling axis — needs the
 generator's `xpkg` fixture generalized past the single `Holder`, since xpkg cells
 are currently hardwired to `HOLDER_DECLS`).
 
-**Compiler gap (found 2026-08-15 while building the second wave): method
-EXPRESSION off a generic instantiation is unsupported.** `Box[int].Get` (and
-`(Box[int]).Get`) do not compile — the parser reads `Box[int]` as an index
-expression, not a generic instantiation for a method expression
-(`scalar.bn:23:31: cannot index this type`). The bound method-VALUE forms
-(`bp.Get`, `mkbox[int](v).Get`) work and are covered; only the unbound
-expression-on-generic form is missing. Tracked by the XFAIL cell
-`conformance/matrix/generic-managed/method-expression/scalar` (`.xfail.all`, commit
-`09fce2e97`) — it XPASS-alerts when supported. Fix would be parser/checker:
-recognize `T[Arg].Method` in expression position as a method expression on a
-generic instantiation. Severity minor (workarounds: bound method values, direct
-calls). Not yet scheduled — user to prioritize.
+**Compiler gap — ✅ FIXED (2026-08-16): method EXPRESSION off a generic
+instantiation.** Both the func-value forms (`var f = Box[int].Get`, arg/return/
+field/cross-package; `dedcf3adf`) and DIRECT invocation (`Box[int].Get(&bx)`;
+`4544f398c`) now compile + run. It was check-level + IR-gen (not parser): the
+method-expression recognition only fired for a bare type-name base. Un-xfailed the
+`method-expression/*` grid (now 7 cells: ptr/managed/value receiver, sole-mention,
+array-arg, paren, direct-call) + `conformance/1212` (cross-package). Full record —
+including the `resolveTypeExpr` self-hosting-miscompile lesson — in
+`claude-todo-done.md`.
 
 **Compiler gap — ✅ FIXED (2026-08-15, `94010134e`): generic-call array type
 arg.** `zero[[2]int]()` / `New[[N]@T]()` now parse — `startsBracketTypeArg` routes
