@@ -59,7 +59,34 @@ that's unwanted: (i) accept it (small — parse + macho are feature-clean); (ii)
 split the driver so the arch set is pluggable and bnc registers only arm32/elf.
 Default: (i), pending the empirical gen1 build.
 
-## Status
+## Status: LANDED (2026-08-16)
 
-- 2a: not started.
-- 2b: not started (depends on 2a).
+Both phases on `main`:
+
+- **2a — `df08aaaf3`** "asm: extract the bnas assemble pipeline into
+  pkg/binate/asm/assemble": `AssembleFile(in, out, archName) -> (ok, errMsg)`,
+  never `os.Exit`; cmd/bnas is a thin CLI over it.  All three arches assemble
+  through the library (arm32 boots, x64 runs, aarch64 object).
+- **2b — `c689d2161`** "bnc: assemble .s runtime files in-process (drop the bnas
+  subprocess)": bnc calls `assemble.AssembleFile` in-process; the `--bnas` flag,
+  `build_bnas`, and the runners' `--bnas` wiring are gone.  BUILDER-compat
+  confirmed (gen1 builds with `asm/{assemble,parse,macho}` in cmd/bnc's tree).
+  Behavior-neutral: the in-process assembler is the same code the CLI ran, so
+  crt0/semihost `.o` are byte-identical.
+
+Validated: `builder-comp_arm32_baremetal` 2905 passed (the 7 failures pre-existing
+on main — `dedcf3adf` method-expression + a string-lit-mslice leak — none touch
+assembly); native smoke 18/0; QEMU boot with no bnas subprocess.  Minimal
+adversarial review: clean (one stale comment fixed pre-land).
+
+**The user's goal is met: bnc includes bnas in-process; no subprocess.**
+
+### Residual / follow-ups (not blocking)
+
+- **Binary bloat + BUILDER surface:** importing `assemble` pulls the full arch
+  set (macho/aarch64/x64 writers) into cmd/bnc's link even though bnc-for-arm32
+  needs only arm32+elf.  It also expands cmd/bnc's BUILDER-compiled tree to
+  include `asm/{parse,assemble,macho}` — CLAUDE.md's "Builder Compatibility
+  Constraint" package tree updated to list them (they must now stay
+  BUILDER-compilable).  If the bloat matters, split the driver so the arch set is
+  pluggable (bnc registers only arm32/elf) — deferred; no consumer needs it yet.
