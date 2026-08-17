@@ -6,6 +6,33 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Bare `NewVM` aggregate-return interface method — ✅ NOT A DEFECT (2026-08-16, `1cf4ce8dc`)
+
+Filed as a suspected bare-`NewVM` robustness gap: an `interface { m() @[]char }`
+(aggregate-return method) was thought to fault with `index out of bounds: 0 (len 0)`
+during lower/setup without the interp's `StandardPackages`, the hypothesis being that
+setup provides something the aggregate-method vtable/typeinfo lowering references.
+
+**Investigation: the crash does not reproduce; it was a WIP-test-harness artifact, not a
+real defect.** Increasingly faithful bare-`NewVM` repros (no StandardPackages) all pass —
+at current `main` AND at the SI-5b commit `1b86a9c75` where it was filed (confirmed via a
+throwaway detached checkout): (1) lowering the interface + impl; (2) the full
+`CallFuncAggregate("mk")` → `CallIfaceMethod(name())` chain with a 4-word retbuf, reading
+back the correct 2-char result; (3) even passing a hand-built `@[]char` *argument* into
+`mk(s @[]char, n int)`. The `index out of bounds: 0 (len 0)` signature matches
+`substituteVtWords` → `vm.IfaceVtables.Get(vtWord-1)` on an empty vec, which only occurs
+for a mis-constructed fixture, never for this dispatch shape. The aggregate-return
+dispatch needs nothing from StandardPackages; only the interp's host-side `@[]char`
+*argument* marshaling does (which is what made the WIP fixture awkward to build).
+
+**Resolution:** turned the investigation into the coverage the SI-5b test had explicitly
+deferred — `TestCallIfaceMethodAggregate` in `pkg/binate/vm/call_iface_host_test.bn`, the
+bare-VM counterpart to the scalar case, exercising `name() @[]char` end-to-end and
+releasing both managed results (revert-checked; green in `builder-comp` and
+`builder-comp-int`). Replaces the now-false "can't build this fixture bare" comment. A
+minimal adversarial review (false-green / refcount-safety / overclaiming lenses) raised no
+objections. Landed `1cf4ce8dc`.
+
 ## Package descriptors: general Functions-table for user packages — ✅ DELIVERED
 
 The `reflect.Package` descriptor carries a populated **`Functions` table** — one

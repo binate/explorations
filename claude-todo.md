@@ -74,18 +74,6 @@ loads a program importing a stdlib package which returns an error, `RunFuncTyped
 and calls `.Error()` — verifying the native-injected `lookupShimVtable` path
 end-to-end. (Correctness rests on the shared `lookupShimVtable` reuse until then.)
 
-### Bare `NewVM` crashes lowering an interface whose method returns an aggregate — 🟡 OPEN
-
-Discovered building the SI-5b VM test: `lowerFromSource` (bare `NewVM`, no
-StandardPackages) + a program with `interface I { m() @[]char }` (an aggregate-return
-method) faults with `index out of bounds: 0 (len 0)` during lower/setup — even with
-`CheckPackage`. The same interface shape works through the interp's full setup
-(`New(StandardPackages())`, exercised by SI-5a/SI-5c), so it's a bare-VM-harness
-robustness gap, not a production path — but a clean error beats a bounds-fault. Root
-cause not yet pinned (hypothesis: StandardPackages provides something the aggregate-
-method vtable/typeinfo lowering references). The SI-5b VM test works around it by
-scoping to a scalar-method interface.
-
 ## Standard library — environment access
 
 ### cmd/bnc: switch env reads from the `os.Env()` scan to `os.Getenv` after the next BUILDER bump — 🟡 OPEN
