@@ -58,22 +58,6 @@ test: a compiled/native higher-order fn calling a VM callback that indexes OOB, 
 the program aborts (not returns 0). Tracked against Plan 2
 (`explorations/done/plan-rt-fault-cleanup-pads.md`).
 
-## interp RunFuncTyped — Stage C SI-5 follow-ups
-
-### Native-injected interface-method dispatch lacks an end-to-end test — 🟡 OPEN
-
-`interp.CallIfaceMethod` (SI-5c, landed via SI-5b `vm.CallIfaceMethod`) handles BOTH
-a VM-impl iface (SI-4-substituted `buildNativeIfaceVtable`, handles in the word) and
-a **native-injected**-package iface (raw `@__ivt`, handles resolved via
-`lookupShimVtable` — the same logic as the tested `dispatchCompiledIfaceMethod`).
-The native-injected branch is exercised for real when a host calls a method on a
-stdlib-returned `@errors.Error` (stdlib is injected-native in the interp), but it has
-NO dedicated unit/e2e test: `loadSelfContained` is single-package (no imports), and a
-native `@__ivtshim` can't be hand-forged at the VM unit level. Add an e2e test that
-loads a program importing a stdlib package which returns an error, `RunFuncTyped`s it,
-and calls `.Error()` — verifying the native-injected `lookupShimVtable` path
-end-to-end. (Correctness rests on the shared `lookupShimVtable` reuse until then.)
-
 ## Standard library — environment access
 
 ### cmd/bnc: switch env reads from the `os.Env()` scan to `os.Getenv` after the next BUILDER bump — 🟡 OPEN

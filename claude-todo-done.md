@@ -6,6 +6,39 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Native-injected interface-method dispatch — e2e via RunFuncTyped — ✅ DONE & LANDED (2026-08-16, main `f202ea0c5`)
+
+`e2e/injected-iface-runfunc.sh` covers the interp's RunFuncTyped path returning after
+a NATIVE-INJECTED interface-method dispatch — the `dispatchCompiledIfaceMethod` →
+`lookupShimVtable` branch of `execCallIfaceMethod` (`pkg/binate/vm/{vm_exec_ifacecall,
+vtable_inject}.bn`). The interp native-injects `pkg/std/errors` (it is in the default
+inject-set / `stdPkgs`, so `isCompiled` — via the `CompiledSet` `New` is given — skips
+lowering it, and `injectPackageSet` → `RegisterPackageVtables` registers its
+`@__ivt`/`@__ivtshim`), so a value from `errors.New(...)` carries a native vtable word
+and bytecode calling `.Error()` on it takes the native-injected branch.
+
+RunFuncTyped addresses a function by its full import path, so the driven functions live
+in a small VM-LOWERED library package `pkg/errtest` the loaded program imports; its
+bytecode is what dispatches into native errors. The gen1-compiled host loads the
+program, then RunFuncTyped's `pkg/errtest.{Describe,Wrapped}`, asserting `"boom"` and
+`"ctx: boom"` (the second distinguishes correct method resolution from "any method").
+A broken `lookupShimVtable` fails the test loudly (`dispatchCompiledIfaceMethod`
+`vmPanic`s on a 0 shim). Complements `xmiface.sh` (custom fixture + RunMain) by
+exercising the REAL stdlib native-injection through the typed-marshaling entry point.
+Reviewed adversarially before landing (no critical/major; three doc-accuracy nits
+fixed, incl. the injection-mechanism wording — errors is in `stdPkgs`, not
+`builtinPkgs`).
+
+Notes from doing it: the old todo's `interp.CallIfaceMethod` / `vm.CallIfaceMethod`
+names don't correspond to real functions — the path is `execCallIfaceMethod` →
+`dispatchCompiledIfaceMethod`. And RunFuncTyped resolves only IMPORTED (library)
+package functions by import path, not the loaded program's own `main` package:
+`TypecheckAll` checks the main file via `c.Check`, which — unlike `CheckPackage` — never
+`registerPackage`s it, so `PackageType("main", …)` returns nil and RunFuncTyped cleanly
+reports "function not found in the type checker". Consistent with RunFuncTyped's
+documented "target by import path" design; noted here as a possible future enhancement,
+not a bug.
+
 ## Bare `NewVM` aggregate-return interface method — ✅ NOT A DEFECT (2026-08-16, `1cf4ce8dc`)
 
 Filed as a suspected bare-`NewVM` robustness gap: an `interface { m() @[]char }`
