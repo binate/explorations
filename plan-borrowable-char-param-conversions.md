@@ -53,7 +53,7 @@ value }, transitive, lexical scope stack. FLAG P iff `HasBorrow && !HasOwn &&
   bare/readonly/named `@[]char`, and a multi-value call forward `return g()` /
   `return fv()` whose node type is the callee signature, not the `@[]char` slot).
 
-**The four over-warns found + fixed** (all pinned by regression tests):
+**The five over-warns found + fixed** (all pinned by regression tests):
 1. a DEFINED NAMED char-slice return (`type Str @[]char`) — `isManagedCharSliceType`
    now peels `TYP_NAMED`.
 2. a MULTI-VALUE plain/method call forward (`return g()`, `g() (@[]char,…)`) —
@@ -62,6 +62,12 @@ value }, transitive, lexical scope stack. FLAG P iff `HasBorrow && !HasOwn &&
    `TYP_MANAGED_FUNC_VALUE`, added to `isFuncTyped`.
 4. `&fam[i]` (address of a family ELEMENT) — `pcRead`'s `&` branch now treats any
    family-rooted address as owning.
+5. a view returned into a NAMED-managed / `@[]readonly char` return SLOT (`func
+   fail(msg @[]char) testing.TestResult { return msg }`) — the cascade can't
+   rewrite a shared named type, so converting is a type error; `pcCheckCascadeSlot`
+   now requires the declared return slot to be a literal `@[]char` or
+   `*[]readonly char` (landed `519fa5330`). Found during the phase-2 conversion
+   recon; removed ~50 false flags (the replicated test helpers).
 
 Both sides are closed by a theorem: (return) any operand sharing a char-return
 slot with a family view is assignable into it, so its stamped own-type is a
@@ -98,7 +104,9 @@ Each line is `file:line:col: [borrowable-char-param] parameter <name> is a read-
 (`--from-source` builds bnlint from the current tree so the rule is present even
 before the `CHECK_TOOLS` bump.)
 
-**Snapshot at rule-landing time (`ff34bfd9e`): 165 flags.** (The
+**Snapshot: ~114 flags** after the 5th-over-warn fix (`519fa5330`) and the first
+conversion batch (buildcfg + cmd/bnlint, `9b2dc6469`) — down from the inflated
+165. (The
 flavor / per-package breakdown just below predates the soundness rewrite — the
 sound rule changed which sites flag, e.g. `qualifierTypeName` is now included and
 some mixed-return sites dropped — so REGENERATE it fresh before scoping a batch.)
