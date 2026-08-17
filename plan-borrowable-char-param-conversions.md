@@ -1,13 +1,12 @@
 # Plan: convert read-only `@[]char` params to `*[]readonly char` (borrow-not-copy)
 
-> **Status: BLOCKED on a rule-soundness fix (do that FIRST).** The
-> `borrowable-char-param` rule's first cut (`e4a5469ed`, NOT landed) is UNSOUND —
-> two critical over-warns (see the next section). Sequence: **(1) fix the rule
-> via approach (B) below + re-review + land it**, THEN **(2)** convert every
-> parameter it flags to `*[]readonly char` so that after the next `CHECK_TOOLS`
-> bump (which activates the rule in the bundled bnlint the hygiene lint runs)
-> `scripts/hygiene/lint.sh` stays GREEN (no `borrowable-char-param` diagnostics)
-> — insofar as possible.
+> **Status: RULE LANDED & SOUND (`ff34bfd9e`). Phase 2 — do the conversions —
+> is what remains.** The `borrowable-char-param` rule is now a sound forward
+> value-family / escape analysis, landed on `main` as `ff34bfd9e`. Remaining
+> work: convert every parameter it flags to `*[]readonly char` so that after the
+> next `CHECK_TOOLS` bump (which activates the rule in the bundled bnlint the
+> hygiene lint runs) `scripts/hygiene/lint.sh` stays GREEN (no
+> `borrowable-char-param` diagnostics) — insofar as possible.
 
 This doc is written to survive a context compaction; it is self-contained.
 
@@ -24,74 +23,70 @@ dangles — a use-after-free. This exact class was fixed in `cmd/bnc`
 read-only `@[]char` param; converting them to `*[]readonly char` removes the
 copy (a literal arg then aliases immortal rodata) and the footgun.
 
-## ⚠️ RULE SOUNDNESS FIX REQUIRED FIRST (adversarial review, 2 critical over-warns)
+## Rule soundness — RESOLVED (landed `ff34bfd9e`)
 
-The first cut of the rule (`e4a5469ed`, NOT landed) is UNSOUND — a minimal
-adversarial review found two confirmed critical over-warns. Root cause: a
-sub-slice `p[lo:hi]` of a `@[]char` is itself an OWNED `@[]char` (shares backing,
-refcounted — `checkSliceExpr` at `pkg/binate/types/check_expr_access.bn:118`
-returns the managed-slice type UNCHANGED), NOT a raw borrow; the rule marked
-every sub-slice as a borrow and never tracked where that value flows.
+The rule is a sound forward value-family / escape analysis. Getting there took a
+full rewrite (the first cut `e4a5469ed` was a per-occurrence classifier and was
+UNSOUND) plus five adversarial verification passes that found and fixed **four**
+distinct over-warns (a parameter the rule FLAGS whose driven `*[]readonly char`
+conversion breaks — a hard type error or a dangling-return UAF). Root insight: a
+sub-slice `p[lo:hi]` of a `@[]char` is itself an OWNED `@[]char` sharing backing
+(`checkSliceExpr` returns the managed-slice type unchanged), NOT a raw borrow, so
+reducibility depends on where the parameter AND its sub-slices (and locals bound
+to them) ultimately FLOW.
 
-- **Defect A — over-warn → hard type error.** A param whose sub-slice is stored
-  into a non-cascadeable managed sink is flagged, but converting it is a compile
-  error: `gg = p[1:]` (global), `x.name = p[1:]` (external field), `g(p[1:])`
-  where `g` takes `@[]char` / mutates → `cannot assign *[]readonly uint8 to
-  @[]uint8`.
-- **Defect B — over-warn → SILENT use-after-free.** The return-conflict
-  refinement misses several owned-return shapes (a view laundered through a
-  local `var rest = n[1:]; return rest` + `return make_slice(...)`; a two-hop
-  owned local `bb = a; a = make_slice`; an index `return coll[0]` of
-  `@[]@[]char`), so a function that also returns a fresh function-local `@[]char`
-  is flagged and the driven return-type change to `*[]readonly char` compiles
-  clean into a DANGLING raw-slice return.
+**The analysis** (`borrowable_char_param.bn` walk + family scope stack;
+`_expr.bn` classification; `_util.bn` predicates; tests in the three `*_test.bn`;
+`_return.bn` deleted, subsumed). FAMILY of param P = { P } ∪ { sub-slices
+`fam[lo:hi]` } ∪ { locals FRESHLY bound `var x = fam` / `x := fam` to a family
+value }, transitive, lexical scope stack. FLAG P iff `HasBorrow && !HasOwn &&
+!(Returned && OwnedCharReturn)`:
+- HasBorrow: a family member is read (`fam[i]`/`len`/range), sub-sliced,
+  returned, or passed to a `*[]readonly char` callee.
+- HasOwn (owning escape → suppress): a family member stored into a non-family
+  managed slot (global / field / existing non-family local / composite element /
+  a `@[]char`/`*[]char`/unresolvable callee arg), mutated (`fam[i]=e`,
+  reassigned), address-taken (`&fam`, `&fam[i]`, `&fam[lo:hi]`), or closure-captured.
+- Returned + OwnedCharReturn: a family member returned means the return type must
+  cascade to `*[]readonly char`; any NON-family, non-nil char-slice return
+  operand blocks the cascade (recognised through every spelling — a
+  bare/readonly/named `@[]char`, and a multi-value call forward `return g()` /
+  `return fv()` whose node type is the callee signature, not the `@[]char` slot).
 
-**THE FIX = (B) a forward value-family / escape analysis** (rejected the lazy
-conservative option (A) which would go silent on the common laundered-view
-pattern and gut the rule). Track the param's VALUE FAMILY — the param, its
-sub-slices `p[lo:hi]`, and any local bound to a family member (`var x = fam`,
-`x := fam`, `x = fam`) — transitively. Classify each family-member use:
-  - READ (index / `len` / `range`), SUB-SLICE (yields another family value),
-    passed to a `*[]readonly char` callee, or ASSIGNED to a fresh/tracked local
-    (that local JOINS the family) → borrow-compatible.
-  - `return <family member>` → borrow, but records that the RETURN TYPE must
-    cascade; the return-conflict then requires EVERY return operand to be a
-    family member (or nil) — any non-family owned return (a call / make /
-    make_slice / composite / index / a non-family local) means the return cannot
-    cascade → SUPPRESS.
-  - STORED into a non-family managed slot (global, struct field, an existing
-    `@[]char` var, a composite element, a `@[]char` callee arg), MUTATED
-    (`fam[i]=e` / `fam=e`), `&fam`, or captured by a closure → OWNING ESCAPE →
-    NOT flaggable.
-Flag iff NO family member has an owning escape AND (if any family member is
-returned) all returns cascade. This is sound (fixes A and B at the root) and
-keeps the laundered-view true positives. Implement as a forward walk carrying a
-family-name set (model on `pkg/binate/lint/iface_borrow_escape.bn`'s scope-stack
-+ borrow-set approach), replacing the current per-node classification in
-`borrowable_char_param.bn`; the `_return.bn` origin-tracking is subsumed by the
-"all returns are family/nil" cascade check. Re-review after implementing (an
-over-warn is the critical failure mode — it would drive broken conversions).
+**The four over-warns found + fixed** (all pinned by regression tests):
+1. a DEFINED NAMED char-slice return (`type Str @[]char`) — `isManagedCharSliceType`
+   now peels `TYP_NAMED`.
+2. a MULTI-VALUE plain/method call forward (`return g()`, `g() (@[]char,…)`) —
+   node type is the callee `TYP_FUNC`, caught by `isFuncTyped`.
+3. a MULTI-VALUE func-VALUE call forward (`return fv()`) — `TYP_FUNC_VALUE` /
+   `TYP_MANAGED_FUNC_VALUE`, added to `isFuncTyped`.
+4. `&fam[i]` (address of a family ELEMENT) — `pcRead`'s `&` branch now treats any
+   family-rooted address as owning.
 
-Only AFTER the rule is sound + re-reviewed + landed does the 172-count below
-mean anything (it currently includes over-warns).
+Both sides are closed by a theorem: (return) any operand sharing a char-return
+slot with a family view is assignable into it, so its stamped own-type is a
+managed-char-slice, a function type, or nil — all caught (a returned string
+LITERAL is a deliberate TRUE POSITIVE: rodata is immortal, the converted return
+never dangles); (escape) every owning vector routes through `pcRead`, where a
+bare family ident / a family sub-slice in a value context / a family-rooted `&`
+sets HasOwn. Under-warns (accepted): a fresh zero-value-local return (use `p[0:0]`);
+a family member reassigned via `=`.
 
-## The rule (already implemented — first cut, UNSOUND, do not land as-is)
+## The rule (landed, sound)
 
-`borrowable-char-param` — `pkg/binate/lint/borrowable_char_param.bn` (+ `_util.bn`
-predicates + `_return.bn` return-conflict analysis; tests in the three
-`*_test.bn`; registered in `lint.bn`'s `LintFile`). Committed on the `temp-5`
-worktree as `e4a5469ed`; **landing to main via cherry-pick is in progress** —
-re-read the landed hash on `main` (`git -C ~/binate/binate log --oneline | grep borrowable-char-param`).
+`borrowable-char-param` — `pkg/binate/lint/borrowable_char_param.bn` +
+`_expr.bn` + `_util.bn` predicates; tests in the three `*_test.bn`; registered
+in `lint.bn`'s `LintFile`. Landed on `main` as `ff34bfd9e`.
 
-It flags a param declared exactly `@[]char` whose EVERY use is a read-only
-borrow (index read, `len`, sub-slice, `range`, `return p`/`return p[lo:hi]`, or
-passed to a `*[]readonly char` callee param). It stays silent (conservative,
-no known false positives) if the param is ever mutated, stored/escaped as
-owning, passed to a `@[]char`/unresolvable callee, or captured by a closure.
-A view-returned param is SUPPRESSED when the function also returns an owned
-`@[]char` on another path (make/make_slice/call/composite, or a local bound to
-one) — the `shortTypeName`/`LookupVtableSlotName`/`qualifyForPkgPath`-`name`
-class, which must STAY `@[]char` (do NOT convert them).
+It flags a param declared exactly `@[]char` that is reducible to
+`*[]readonly char` per the analysis above. Correctly SUPPRESSED (must STAY
+`@[]char`, do NOT convert): a param returned as a view whose function ALSO
+returns an owned `@[]char` on another path — the genuinely-mixed-return class
+such as `shortTypeName` (`ir/gen_impl_recvname.bn`). NOTE the sound rule is more
+precise than the old coarse suppression: `qualifierTypeName` / `nameLooksLikeMethod`
+(which READ `name` but return a fresh allocation / a bool — read-only consumers)
+ARE correctly flagged now, and a string-literal-returning view helper is a true
+positive.
 
 ## How to regenerate the exact work list (it drifts as code lands)
 
@@ -103,8 +98,11 @@ Each line is `file:line:col: [borrowable-char-param] parameter <name> is a read-
 (`--from-source` builds bnlint from the current tree so the rule is present even
 before the `CHECK_TOOLS` bump.)
 
-**Snapshot at rule-landing time: 172 flags.** Two flavors (distinguishable by the
-message suffix):
+**Snapshot at rule-landing time (`ff34bfd9e`): 165 flags.** (The
+flavor / per-package breakdown just below predates the soundness rewrite — the
+sound rule changed which sites flag, e.g. `qualifierTypeName` is now included and
+some mixed-return sites dropped — so REGENERATE it fresh before scoping a batch.)
+Two flavors (distinguishable by the message suffix):
 - **113 "read-only consumer"** — message has NO `(the return type would also
   become *[]readonly char)` suffix. The function READS the param and returns a
   fresh/other value. **CLEAN conversion: change ONLY the param type**
@@ -151,10 +149,14 @@ The reference conversions to mirror exactly: cmd/bnc `bf8a91a7c` and loader
 
 ## Do NOT convert (leave `@[]char`)
 
-- The rule already excludes them (won't be in the list): `shortTypeName`
-  (`ir/gen_impl_recvname.bn`), `LookupVtableSlotName` (`ir/gen_iv_thunk.bn`),
-  `qualifyForPkgPath`'s `name` param (`ir/gen.bn`) — mixed view+owned-alloc
-  returns; `*[]readonly char` would break the alloc-return path.
+- The rule already excludes them (won't be in the list) — genuinely-mixed-return
+  functions that return a param VIEW on one path and a fresh OWNED `@[]char`
+  (make/make_slice/call/composite/multi-value forward) on another, e.g.
+  `shortTypeName` (`ir/gen_impl_recvname.bn`); `*[]readonly char` would dangle the
+  owned-return path. Trust the rule: whatever it does NOT flag, leave `@[]char`.
+  (Do NOT hand-add sites here that the sound rule already flags — e.g.
+  `qualifierTypeName` / `nameLooksLikeMethod` READ `name` and return a fresh
+  allocation / a bool, so they ARE flagged and SHOULD be converted.)
 - Already fixed (won't be in the list): cmd/bnc `unquote`/`shortName`/`stripExt`,
   `loader.unquote`.
 
@@ -211,8 +213,12 @@ gen1/gen2 self-compile passes (the BUILDER-compiled packages).
 
 - Working in the `temp-5` binate worktree (`~/binate/temp-binate-5`, branch
   `temp-5`). `bnfmt`: `scripts/build-bnfmt.sh -o /tmp/bnf && /tmp/bnf -w <files>`.
-- Landed earlier this session (all on `main`): VM static-data Part B `1aa82ac25`;
-  string-literal leak fix `f68fbc0bc`; the two `@[]char`-view UAF fixes
-  cmd/bnc `bf8a91a7c` + loader `f09a89bb3`; done-log + todo updates.
-- The `borrowable-char-param` rule (`e4a5469ed` on temp-5) is under a final
-  minimal adversarial review, then lands, then THIS conversion work begins.
+- Landed on `main`: VM static-data Part B `1aa82ac25`; string-literal leak fix
+  `f68fbc0bc`; the two `@[]char`-view UAF fixes cmd/bnc `bf8a91a7c` + loader
+  `f09a89bb3`; the `borrowable-char-param` rule (sound) `ff34bfd9e`.
+- NEXT: phase 2 — the conversions. Regenerate the flag list (`scripts/hygiene/lint.sh
+  --from-source | grep borrowable-char-param`), then convert package-by-package per
+  the conversion pattern above.
+- Orthogonal MAJOR bug found during the rule review (tracked in `claude-todo.md`):
+  `bnc-0.0.13` wrongly accepts a `[N]readonly char` array where a slice is expected
+  and mis-lowers it. Not part of this plan.
