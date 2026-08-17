@@ -21,16 +21,47 @@ rejected, so the hole is specific to the readonly / const-qualified element path
 - `func f() *[]readonly char { var a [3]readonly char; return a }` → **accepted**; should be a type error.
 - Control `func f() @[]char { var a [3]char; return a }` → correctly `cannot assign [3]uint8 to @[]uint8`.
 
-**Root cause (hypothesis):** the assignability / const-conversion path (likely
-`pkg/binate/types/types_const.bn` or `types_assignable.bn`) short-circuits on the
-readonly/const element and skips the array-vs-slice KIND mismatch — possibly conflating
-`[N]readonly char` with the string-literal-array→managed-slice special case (immortal
-rodata). Fix needs a negative unit test in `pkg/binate/types` (a readonly-element array
-is NOT assignable to a slice) plus the codegen path.
+**Root cause (CONFIRMED).** `AssignableTo` has a type-only arm
+(`types_assignable.bn:193`: `isStringLitNaturalType(src) && isStringWritableSliceTarget(dst)`)
+that decays a `[N]readonly char` array to a slice. That arm exists for string
+LITERALS, whose natural type is `[N]readonly char` — but a runtime `[N]readonly char`
+value is type-indistinguishable from a literal's natural type, so the arm fires for
+runtime arrays too. (Contrast: the array→ARRAY copy arm at `:43` is legal for runtime
+arrays — value copy — and stays.) Reproduced at the checker level: a runtime
+`[3]readonly char` → `@[]char` / `*[]readonly char` is wrongly accepted; the `[3]char`
+control is correctly rejected; string literals are correctly accepted.
+
+**Fix direction (decided 2026-08-17): make string literals UNTYPED** (`TYP_UNTYPED_STRING`),
+so there is no concrete `[N]readonly char` type to collide with a runtime array and no
+array→slice conversion to police — the bug class is eliminated by construction. See
+`plan-untyped-string-literals.md`. (A narrower expr-gating patch — gate the decay on
+`srcExpr.Kind == EXPR_STRING_LIT` — was implemented and adversarially reviewed as a
+sound interim, but discarded in favor of the root-cause fix, which the review confirmed
+is moderate scope and de-risked because IR-gen already materialises strings off the
+expression + target type, not the checker's `[N]readonly char`.)
 
 **Discovery:** surfaced by the adversarial review of the `borrowable-char-param` bnlint
 rule (a reviewer probed returning a `[N]readonly char` alongside a parameter view);
 orthogonal to that rule. Reproduced independently with the BUILDER bnc.
+
+### Explicit `cast(@[]char, a)` of a runtime `[N]readonly char` array mis-lowers (array→slice, same UAF class) — 🔴 OPEN MAJOR (found 2026-08-17)
+
+**Severity: MAJOR** (silent miscompile). Sibling of the `[N]readonly char`→slice bug
+above, on the EXPLICIT-conversion path. `cast(@[]char, a)` where `a : [3]readonly char`
+type-checks: the `cast` branch (`pkg/binate/types/check_builtin.bn:63`) validates only
+constant integer-fit and interface-value operand/target rejection — it does NO
+source→target shape-compatibility check. So a runtime array → managed-slice `cast` is
+accepted, and IR-gen (`gen_builtin.bn`) falls through to `EmitCast(val, targetTyp)` — an
+`OP_CAST` from an N-byte array value into a 4-word `BnManagedSlice`, a layout mismatch
+(the same garbage/UAF the implicit path produced). `bit_cast` is correctly rejected
+(`isBitCastRejectedAggregateKind`); only value-preserving `cast` slips.
+
+Orthogonal to the untyped-string-literal rework (a runtime array is a `TYP_ARRAY`
+regardless of how literals are typed) — `cast` needs its own shape-compatibility gate.
+**Fix:** reject `cast` between incompatible aggregate KINDs (array↔slice, and audit
+struct/array/slice cross-casts) in the cast checker, with a negative unit test.
+Discovered by the adversarial review of the `[N]readonly char`→slice fix (found real by
+a second verify pass via direct code trace).
 
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
