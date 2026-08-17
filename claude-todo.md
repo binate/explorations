@@ -636,6 +636,18 @@ lint wanted (return / store-to-outliving-field / assign-to-global of a raw slice
 borrowing a local), or is the current narrow rule + "raw is an opt-in escape
 hatch" sufficient (close this out)?
 
+### Adopt `borrowable-char-param` (currently `--disable`d in hygiene) — 🟡 OPEN (2026-08-17)
+The `borrowable-char-param` advisory rule (flags a read-only `@[]char` param that
+could be a `*[]readonly char` raw read-only borrow, avoiding a string-literal-arg
+copy) fires ~165 times tree-wide (93 production, 72 test) — the codebase predates
+it. It first *enforces* at CHECK_TOOLS `bnc-0.0.14-pre2`; to land that bump (needed
+for the bnfmt expose-preservation fix), `scripts/hygiene/lint.sh` passes
+`--disable borrowable-char-param`, suppressing ONLY this rule (every other rule
+stays enforced — this is not a blanket lint-off). **To adopt:** change the flagged
+params to `*[]readonly char` (mechanical, per-site; the message notes the return
+type may also shift), then drop the `--disable` from `lint.sh`. `bnlint --disable`
+(the global per-rule off switch) landed in `bnc-0.0.14-pre2`.
+
 ## Hygiene checks: tier dependencies & file length
 
 ### Lower the file-length `.bni` cap toward 1000/1200 — 🟡 OPEN
