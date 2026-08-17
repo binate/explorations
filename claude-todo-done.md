@@ -6,6 +6,39 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `[N]readonly char` wrongly accepted as a slice — FIXED via untyped string literals (2026-08-17)
+
+**Was a MAJOR silent miscompile**: a runtime `[N]readonly char` array was accepted where a
+slice (`@[]char` / `*[]readonly char`) was expected, then mis-lowered (array bytes dumped
+into the slice buffer — a use-after-free).  Root cause: a string literal had the concrete
+natural type `[N]readonly char`, type-indistinguishable from a runtime array, and
+`AssignableTo` had a type-only arm decaying that shape to a slice — so the arm fired for
+runtime arrays too.
+
+**Fixed at the root** by making string literals **untyped** (`TYP_UNTYPED_STRING`), per
+[`plan-untyped-string-literals.md`](plan-untyped-string-literals.md) — a runtime array is
+now a distinct `TYP_ARRAY` that can never reach the slice-adoption arm, so the bug class is
+gone by construction.  Landed:
+
+- `b97e79656` — inert `TYP_UNTYPED_STRING` kind + adoption arm + default (Inc 1).
+- `c713faf7b` — the flip (`checkExpr(EXPR_STRING_LIT)` → untyped; delete the decay arm) +
+  all consumers (len, index/slice, type-name, `box`, borrow); the `box("...")` miscompile
+  an adversarial review caught is fixed + guarded (`15-builtins/018`).
+- `b40b10c9a` — string-literal ↔ char-array comparison: `arr == "abc"` compares
+  **element-wise** (the untyped literal adopts the array type, both orders + switch),
+  while two literals / literal-vs-slice are rejected (incomparable slices).  Also fixes a
+  pre-existing struct/array switch-tag miscompile (`genSwitch` raw `OP_EQ` → `genAggregateEq`).
+  Runtime-verified by `13-expressions/056`, `14-statements/167` (revert-checked).
+
+Three adversarial reviews shaped it (each caught a real defect: the interim expr-gating was
+discarded for the root-cause fix; the box miscompile; the order-dependent/incomplete
+comparison rejection → element-wise).  Full `builder-comp` conformance green (2972/0).
+
+**Remaining follow-ups** (NOT part of the landed fix): the sibling explicit-`cast` array→slice
+miscompile (still open in [claude-todo.md](claude-todo.md)); and Inc 3 of the plan — make the
+spec explicit about string-literal typing/comparison (§6, §13.6) + rename the now-misnamed
+`isStringLitNaturalType` / simplify `defaultTypeForExpr`.
+
 ## Parallel-assign leak-by-1 on the VM recoverable-fault path — ✅ FIXED & LANDED (2026-08-17, main `0ed8c696d`)
 
 Parallel/multi-target assign (`a, b = ...`) acquires each managed RHS up front (phase 1)

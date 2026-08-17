@@ -7,43 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### `[N]readonly char` (readonly-element array) is wrongly accepted as a slice value — 🔴 OPEN MAJOR (found 2026-08-16)
-
-**Severity: MAJOR** (silent miscompile / accepts ill-typed code). `bnc-0.0.13` accepts
-returning/assigning a **readonly-element fixed array** `[N]readonly char` where a slice
-type (`@[]char` or `*[]readonly char`) is expected — array→slice is NOT a legal implicit
-conversion — and codegen mis-lowers it (dumps the array bytes into the slice return
-buffer rather than materialising a slice). The **non-readonly** `[N]char` is correctly
-rejected, so the hole is specific to the readonly / const-qualified element path.
-
-**Repro** (BUILDER `bnc-0.0.13`, `--emit-llvm`):
-- `func f() @[]char { var a [3]readonly char; return a }` → **accepted** (emits LLVM); should be a type error.
-- `func f() *[]readonly char { var a [3]readonly char; return a }` → **accepted**; should be a type error.
-- Control `func f() @[]char { var a [3]char; return a }` → correctly `cannot assign [3]uint8 to @[]uint8`.
-
-**Root cause (CONFIRMED).** `AssignableTo` has a type-only arm
-(`types_assignable.bn:193`: `isStringLitNaturalType(src) && isStringWritableSliceTarget(dst)`)
-that decays a `[N]readonly char` array to a slice. That arm exists for string
-LITERALS, whose natural type is `[N]readonly char` — but a runtime `[N]readonly char`
-value is type-indistinguishable from a literal's natural type, so the arm fires for
-runtime arrays too. (Contrast: the array→ARRAY copy arm at `:43` is legal for runtime
-arrays — value copy — and stays.) Reproduced at the checker level: a runtime
-`[3]readonly char` → `@[]char` / `*[]readonly char` is wrongly accepted; the `[3]char`
-control is correctly rejected; string literals are correctly accepted.
-
-**Fix direction (decided 2026-08-17): make string literals UNTYPED** (`TYP_UNTYPED_STRING`),
-so there is no concrete `[N]readonly char` type to collide with a runtime array and no
-array→slice conversion to police — the bug class is eliminated by construction. See
-`plan-untyped-string-literals.md`. (A narrower expr-gating patch — gate the decay on
-`srcExpr.Kind == EXPR_STRING_LIT` — was implemented and adversarially reviewed as a
-sound interim, but discarded in favor of the root-cause fix, which the review confirmed
-is moderate scope and de-risked because IR-gen already materialises strings off the
-expression + target type, not the checker's `[N]readonly char`.)
-
-**Discovery:** surfaced by the adversarial review of the `borrowable-char-param` bnlint
-rule (a reviewer probed returning a `[N]readonly char` alongside a parameter view);
-orthogonal to that rule. Reproduced independently with the BUILDER bnc.
-
 ### Explicit `cast(@[]char, a)` of a runtime `[N]readonly char` array mis-lowers (array→slice, same UAF class) — 🔴 OPEN MAJOR (found 2026-08-17)
 
 **Severity: MAJOR** (silent miscompile). Sibling of the `[N]readonly char`→slice bug
