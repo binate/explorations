@@ -7,6 +7,31 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### `[N]readonly char` (readonly-element array) is wrongly accepted as a slice value — 🔴 OPEN MAJOR (found 2026-08-16)
+
+**Severity: MAJOR** (silent miscompile / accepts ill-typed code). `bnc-0.0.13` accepts
+returning/assigning a **readonly-element fixed array** `[N]readonly char` where a slice
+type (`@[]char` or `*[]readonly char`) is expected — array→slice is NOT a legal implicit
+conversion — and codegen mis-lowers it (dumps the array bytes into the slice return
+buffer rather than materialising a slice). The **non-readonly** `[N]char` is correctly
+rejected, so the hole is specific to the readonly / const-qualified element path.
+
+**Repro** (BUILDER `bnc-0.0.13`, `--emit-llvm`):
+- `func f() @[]char { var a [3]readonly char; return a }` → **accepted** (emits LLVM); should be a type error.
+- `func f() *[]readonly char { var a [3]readonly char; return a }` → **accepted**; should be a type error.
+- Control `func f() @[]char { var a [3]char; return a }` → correctly `cannot assign [3]uint8 to @[]uint8`.
+
+**Root cause (hypothesis):** the assignability / const-conversion path (likely
+`pkg/binate/types/types_const.bn` or `types_assignable.bn`) short-circuits on the
+readonly/const element and skips the array-vs-slice KIND mismatch — possibly conflating
+`[N]readonly char` with the string-literal-array→managed-slice special case (immortal
+rodata). Fix needs a negative unit test in `pkg/binate/types` (a readonly-element array
+is NOT assignable to a slice) plus the codegen path.
+
+**Discovery:** surfaced by the adversarial review of the `borrowable-char-param` bnlint
+rule (a reviewer probed returning a `[N]readonly char` alongside a parameter view);
+orthogonal to that rule. Reproduced independently with the BUILDER bnc.
+
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
 **Severity: MAJOR** — a recoverable user-code fault (bounds / divide / shift /
