@@ -6,6 +6,37 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Parallel-assign leak-by-1 on the VM recoverable-fault path — ✅ FIXED & LANDED (2026-08-17, main `0ed8c696d`)
+
+Parallel/multi-target assign (`a, b = ...`) acquires each managed RHS up front (phase 1)
+before storing any target (phase 2), so the swap idiom is safe; but an already-acquired
+earlier value was orphaned until phase 2, and a recoverable VM fault in a LATER phase-1 entry
+leaked it by 1 — the fault pad RefDec'd only registered temps, not the phase-1 slot-acquire
+RefInc (`emitManagedValueCopyRefInc`) / struct-copy field RefIncs (`emitStructCopy`). VM-only
+(compiled faults are fatal, no pad).
+
+Fix (`pkg/binate/ir/gen_assign_parallel.bn`): `registerParallelAcquire` tracks each acquire in
+`ctx.Temps` right after acquiring (so a later entry's fault pad releases it);
+`releaseParallelAcquire` consumes it at the phase-2 store once ownership moves to the slot.
+Register/consume balance within `genParallelAssign`, so normal-path IR is unchanged — only the
+VM fault-pad blocks gain the RefDecs. Plus the struct/array acquire now allocates its copy temp
+with the PEELED type (mirroring `genCompositeLit`), so a named-distinct target's temp TypeArg is
+the concrete `TYP_STRUCT`/`TYP_ARRAY` the fault pad's non-peeling `isStructOrArrayAlloc` needs —
+else a `type NBox Box` / `type Row [N]@T` target would leak the copied fields (layout-preserving:
+codegen already peels named).
+
+Tests (`pkg/binate/vm/parallel_assign_fault_test.bn`): the fault-injection harness this entry
+asked for — fault mid-parallel-assign under the VM, assert `rt.LiveBlocks()` flat across a loop
+of faulting calls; covers the managed-scalar and direct-struct acquires (red without the fix,
+green with).
+
+Reviewed via a multi-lens adversarial workflow before landing. Two byproducts (product is fine):
+the review's "named-STRUCT leak" was refuted empirically (no leak, with or without the fix); and
+the bare-`NewVM` unit harness (`genModule` + `registerTestExterns`) can't lower a named-ARRAY
+parallel assign — a known-class bare-harness limitation (cf. the "bare NewVM aggregate-return —
+NOT A DEFECT" entry; the feature is green on the compiled backend and the full VM), so the
+named-target peel has no direct unit test. It's a layout-preserving consistency fix regardless.
+
 ## Builtin-`println` nil-deref holdouts + index-through-nil value-borrow nil-check — ✅ DONE (incl. builtin removal)
 
 Fallout unblocked by the `any`-box pointer-deref/field nil-check fix (Bug A
