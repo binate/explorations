@@ -210,40 +210,32 @@ Dormant cross-mode func-value residual (folded in from the retired "Function val
 
 (Background/history archived in claude-todo-done.md.)
 
-### Embeddable-interp — open follow-ups (Inc 2 extern cleanup core landed) — 🟡 OPEN (2026-06-20)
+### Embeddable-interp — open follow-ups (Inc 1–4 core landed) — 🟡 OPEN (2026-06-20)
 
-The embeddable-interp core (Inc 1, Inc 2 Layers 1/2 + the review (b)-fix, and the
-loader de-rooting) is **✅ DONE & LANDED** — full detail in
+The embeddable-interp core is **✅ DONE & LANDED** — Inc 1, Inc 2 Layers 1/2 + the
+review (b)-fix, the loader de-rooting, **Inc 3 (`RunFuncTyped`, 2026-08)**, and
+**Inc 4 (build-config + injectable source provider, 2026-08)**; full detail in
 [claude-todo-done.md](claude-todo-done.md). Plan (now archived):
-[`done/plan-embeddable-interp.md`](done/plan-embeddable-interp.md). Remaining open
-follow-ups (deferred with user sign-off):
+[`done/plan-embeddable-interp.md`](done/plan-embeddable-interp.md). Two follow-ups
+remain (deferred with user sign-off):
 
-(The interpreted-`__c_call` frontend guards — run/REPL `da3bd46a` and `--test`-path
-`1de21404` — landed and moved to [claude-todo-done.md](claude-todo-done.md).)
-
-- **Inc 3 — typed / aggregate `RunFunc` results + string argv.** `@Interp` today
-  runs via `RunMain` and returns a bare `int`. Add `RunFunc` variants that pass an
-  `@[]@[]char` argv into the entry and unpack a multi-return / aggregate result off
-  `vm.Stack` into typed values — so an embedder can call a named function and get
-  structured results, not just run `main`.
-- **Inc 4 — build-config + in-memory source provider (wasm enabler).** Two pieces:
-  `SetBuildConfig(cfg)` so an embedder selects cross-target `#[build(...)]` gating
-  (today baked to host); and an injectable source provider so `LoadProgram` can
-  take in-memory / virtual sources instead of the host filesystem — the last FS
-  coupling. Unblocks the [`plan-wasm-browser.md`](plan-wasm-browser.md) consumer.
-  (The plan's "no `bootstrap.Open`" framing is stale — the FS seam is `os.Open`
-  now — but the injectable-provider requirement stands.)
 - **Globals/vtables-sensitive inject-set test.** `TestNewCustomPkgsRespected`
   proxies on `len(Externs)` (function registration only); add a test that a
   custom set's globals + impl vtables are honored (the `errors.Is`
-  sentinel-identity path).
+  sentinel-identity path). `TestNewCompiledSetReflectsInjectSet` covers the
+  lowering-skip side; the globals/vtables assertion itself is still a noted
+  follow-up (see the NOTE on `TestNewCustomPkgsRespected` in `interp_test.bn`).
 - **Layer 2b — `@reflect.Package` wrapping helper.** Build a modified descriptor
   from an existing one with selected `FunctionInfo` values replaced, so an
   embedder overrides e.g. `os.Args()` without hand-constructing a descriptor.
-  This is the ergonomic per-function override path; it also rehomes the
-  `progArgsAfterDash` Args shim (a cmd/bni-built wrapped-`os` concern rather than
-  part of the standard registration). Land with an end-to-end test proving a
-  wrapped package changes observed runtime behavior.
+  This is the ergonomic per-function override path — the mechanism is documented
+  on `StandardPackages` (`externs.bn`), but no helper builds the wrapped descriptor
+  yet. Land with an end-to-end test proving a wrapped package changes observed
+  runtime behavior.
+
+(The Inc 3 Stage-C SI-5 tail — native-injected iface-dispatch e2e test and
+bare-`NewVM` aggregate-return robustness — is tracked separately under "interp
+RunFuncTyped — Stage C SI-5 follow-ups" above.)
 
 ### `repl.Kernel` reshape (embeddable REPL → request/reply kernel) — Inc 1 ✅ LANDED; Inc 2/3/4 parked — 🟡 OPEN (2026-07-16)
 
