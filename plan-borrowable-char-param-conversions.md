@@ -1,10 +1,13 @@
 # Plan: convert read-only `@[]char` params to `*[]readonly char` (borrow-not-copy)
 
-> **Status: NOT STARTED (next task).** Driven by the new `borrowable-char-param`
-> bnlint rule. Goal: convert every parameter the rule flags to `*[]readonly char`
-> so that after the next `CHECK_TOOLS` bump (which activates the rule in the
-> bundled bnlint the hygiene lint runs) `scripts/hygiene/lint.sh` stays GREEN
-> (no `borrowable-char-param` diagnostics) — insofar as possible.
+> **Status: BLOCKED on a rule-soundness fix (do that FIRST).** The
+> `borrowable-char-param` rule's first cut (`e4a5469ed`, NOT landed) is UNSOUND —
+> two critical over-warns (see the next section). Sequence: **(1) fix the rule
+> via approach (B) below + re-review + land it**, THEN **(2)** convert every
+> parameter it flags to `*[]readonly char` so that after the next `CHECK_TOOLS`
+> bump (which activates the rule in the bundled bnlint the hygiene lint runs)
+> `scripts/hygiene/lint.sh` stays GREEN (no `borrowable-char-param` diagnostics)
+> — insofar as possible.
 
 This doc is written to survive a context compaction; it is self-contained.
 
@@ -21,7 +24,58 @@ dangles — a use-after-free. This exact class was fixed in `cmd/bnc`
 read-only `@[]char` param; converting them to `*[]readonly char` removes the
 copy (a literal arg then aliases immortal rodata) and the footgun.
 
-## The rule (already implemented)
+## ⚠️ RULE SOUNDNESS FIX REQUIRED FIRST (adversarial review, 2 critical over-warns)
+
+The first cut of the rule (`e4a5469ed`, NOT landed) is UNSOUND — a minimal
+adversarial review found two confirmed critical over-warns. Root cause: a
+sub-slice `p[lo:hi]` of a `@[]char` is itself an OWNED `@[]char` (shares backing,
+refcounted — `checkSliceExpr` at `pkg/binate/types/check_expr_access.bn:118`
+returns the managed-slice type UNCHANGED), NOT a raw borrow; the rule marked
+every sub-slice as a borrow and never tracked where that value flows.
+
+- **Defect A — over-warn → hard type error.** A param whose sub-slice is stored
+  into a non-cascadeable managed sink is flagged, but converting it is a compile
+  error: `gg = p[1:]` (global), `x.name = p[1:]` (external field), `g(p[1:])`
+  where `g` takes `@[]char` / mutates → `cannot assign *[]readonly uint8 to
+  @[]uint8`.
+- **Defect B — over-warn → SILENT use-after-free.** The return-conflict
+  refinement misses several owned-return shapes (a view laundered through a
+  local `var rest = n[1:]; return rest` + `return make_slice(...)`; a two-hop
+  owned local `bb = a; a = make_slice`; an index `return coll[0]` of
+  `@[]@[]char`), so a function that also returns a fresh function-local `@[]char`
+  is flagged and the driven return-type change to `*[]readonly char` compiles
+  clean into a DANGLING raw-slice return.
+
+**THE FIX = (B) a forward value-family / escape analysis** (rejected the lazy
+conservative option (A) which would go silent on the common laundered-view
+pattern and gut the rule). Track the param's VALUE FAMILY — the param, its
+sub-slices `p[lo:hi]`, and any local bound to a family member (`var x = fam`,
+`x := fam`, `x = fam`) — transitively. Classify each family-member use:
+  - READ (index / `len` / `range`), SUB-SLICE (yields another family value),
+    passed to a `*[]readonly char` callee, or ASSIGNED to a fresh/tracked local
+    (that local JOINS the family) → borrow-compatible.
+  - `return <family member>` → borrow, but records that the RETURN TYPE must
+    cascade; the return-conflict then requires EVERY return operand to be a
+    family member (or nil) — any non-family owned return (a call / make /
+    make_slice / composite / index / a non-family local) means the return cannot
+    cascade → SUPPRESS.
+  - STORED into a non-family managed slot (global, struct field, an existing
+    `@[]char` var, a composite element, a `@[]char` callee arg), MUTATED
+    (`fam[i]=e` / `fam=e`), `&fam`, or captured by a closure → OWNING ESCAPE →
+    NOT flaggable.
+Flag iff NO family member has an owning escape AND (if any family member is
+returned) all returns cascade. This is sound (fixes A and B at the root) and
+keeps the laundered-view true positives. Implement as a forward walk carrying a
+family-name set (model on `pkg/binate/lint/iface_borrow_escape.bn`'s scope-stack
++ borrow-set approach), replacing the current per-node classification in
+`borrowable_char_param.bn`; the `_return.bn` origin-tracking is subsumed by the
+"all returns are family/nil" cascade check. Re-review after implementing (an
+over-warn is the critical failure mode — it would drive broken conversions).
+
+Only AFTER the rule is sound + re-reviewed + landed does the 172-count below
+mean anything (it currently includes over-warns).
+
+## The rule (already implemented — first cut, UNSOUND, do not land as-is)
 
 `borrowable-char-param` — `pkg/binate/lint/borrowable_char_param.bn` (+ `_util.bn`
 predicates + `_return.bn` return-conflict analysis; tests in the three
