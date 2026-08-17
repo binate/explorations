@@ -6,6 +6,28 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Builtin-`println` nil-deref holdouts + index-through-nil value-borrow nil-check — ✅ DONE (incl. builtin removal)
+
+Fallout unblocked by the `any`-box pointer-deref/field nil-check fix (Bug A
+`85f4851ad`, Bug B `b1490e2ca`). Both value-borrow nil-check siblings landed:
+- **e2e conversions** (`418f821ee`): `e2e/bni-nil-check.sh` / `e2e/bni-test-nil.sh`
+  converted to `testing.Println`, so the `--check-nil` / `--test` nil-deref fault
+  fires through the boxed field read. The last builtin holdouts cleared too:
+  `e2e/repl.sh` runs `testing.Print/Println` natively at the REPL prompt
+  (`526c41b5a`), and the builtin-specific print/println conformance + spec tests
+  were deleted (`765c8e33b`).
+- **Index-through-nil sibling** (`9697cac73`, conformance 1200):
+  `genBorrowSourceAddr` (`pkg/binate/ir/gen_util.bn`) nil-checks a value-borrowed
+  INDEX operand's base via `genIndexPtr(forDeref=true)`, so `ptr[i]` through a nil
+  raw pointer faults under `--check-nil` (inert when off).
+
+The "separate remaining step" — removing the `print`/`println` builtins from the
+compiler itself — is also done: the builtins are gone, their `pkg/bootstrap` host
+package is deleted (`7452ff0f7`, dead after removal), the implicit-load sites were
+dropped (`e9a4ac1e9` cmd/bnc, `d18a69427` interp, `d8f575dc1` repl), and stale
+references/comments were swept (`102159702`, `27fa23d2a`, `26f2cbc24`). Nothing
+remains.
+
 ## Native-injected interface-method dispatch — e2e via RunFuncTyped — ✅ DONE & LANDED (2026-08-16, main `f202ea0c5`)
 
 `e2e/injected-iface-runfunc.sh` covers the interp's RunFuncTyped path returning after
