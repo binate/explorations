@@ -6,6 +6,36 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Package descriptors: general Functions-table for user packages — ✅ DELIVERED
+
+The `reflect.Package` descriptor carries a populated **`Functions` table** — one
+`reflect.FunctionInfo` per exported function (fully-qualified `Name`, opaque `Sig`
+string, `RetbufSize` + `ParamSlots` for VM cross-mode dispatch, and a function-value
+handle). Emitted for EVERY package (user packages included, not just the four
+builtins), by the LLVM backend AND all three native backends
+(`pkg/binate/native/{x64,arm32,aarch64}/*_pkg_descriptor.bn`), with the node byte
+layout unified in the backend-neutral `pkg/binate/irdata/data_pkg_{descriptor,funcs,
+globals}.bn` (single source of truth both backends lower through `emitDataGlobal`, so
+it cannot drift). The `__Package()` accessor is compiler-synthesized
+(`codegen/emit_pkg_descriptor.bn`, VM lowering `vm/lower_pkg_descriptor.bn`); the type
+checker synthesizes its signature at selector resolution and IR-gen registers the
+imported extern.
+
+This supersedes the earlier "general Functions-table still future" framing — the
+builtins-work / user-packages-future distinction is closed. Coverage:
+`conformance/725_reflect_package_functions` (imports a USER package `pkg/fns`,
+iterates `fns.__Package().Functions` end-to-end), `727_reflect_function_signatures`,
+`532_reflect_package_accessor`, `spec/20-tier0/{020_reflect_surface_builtin,
+022_reflect_scope_tables}` — green in compiled, native, and VM modes.
+
+Related landings folded in: the embeddable-interp refactor moved extern registration
+to `pkg/binate/interp/externs.bn` (`RegisterStandardExterns`, host owns stdlib
+policy); the DataGlobal project migrated the descriptor onto `ir.DataGlobal` + the
+`irdata` leaf; bootstrap was retired (no longer a bound builtin); the
+`__Package`-related bnlint skips were cleared at the bnc-0.0.11pre2 BUILDER bump
+(`LINT_SKIP` now empty). What remains is tracked in the active "Package descriptors"
+entry: Phase C richer metadata, and optionally VM extern auto-enumeration.
+
 ## Matrix tests: expanded generics + type-assertions/RTTI — ✅ FULLY DELIVERED (2026-08-16)
 
 Two `conformance/matrix/` families guarding the recent bug cluster (`8d9e7577`,

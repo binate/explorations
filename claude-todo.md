@@ -153,58 +153,28 @@ See explorations/done/plan-funcvalue-byaddr-abi.md.
 
 ## Cross-mode interface dispatch & compiler/interpreter interop
 
-### Package descriptors (Phase B) — `__Package()` works in compiled + VM modes (builtins); general Functions-table still future
-- **Status**: compiled-mode AND VM-mode `__Package()` landed (binate
-  `feadde2c`, VM-mode for the builtin packages).  The general interop
-  Functions-table (user packages, auto-enumeration) remains future work.
-- **What works (compiled mode)**: every package emits an immortal
-  static-managed `reflect.Package` descriptor node + a generated
-  `__Package() @reflect.Package` accessor (codegen `emit_pkg_descriptor.bn`,
-  via the static-managed emitter).  The type checker synthesizes the
-  `__Package` signature at selector resolution (`check_expr_access.bn`
-  `packageAccessorType`), IR-gen registers it as an imported extern so calls
-  resolve + a `declare` emits (`gen_import.bn`), and `reflect` is force-loaded
-  (`ensureReflectLoaded`).  Drives a real immortal node through the compiled
-  RefInc/RefDec sentinel end-to-end (see [`done/plan-static-managed-sentinel.md`]).
-- **What works (VM mode, binate `feadde2c`)**: the earlier "Functions-table
-  is genuinely required" finding was too pessimistic.  `__Package` is already
-  a real exported per-module symbol, and the IR/func-value path already
-  mangles a qualified `pkg.__Package` reference to call it — so the only
-  blocker was the type checker rejecting `_func_handle(pkg.__Package)` (it's
-  compiler-synthesized, not a `SYM_FUNC` in scope).  Two small changes wired
-  it: (1) `types/check_builtin.bn` accepts `pkg.__Package` as a `_func_handle`
-  argument by name; (2) `vm/extern_register_std.bn`
-  `registerPackageDescriptorExterns` binds the builtin packages' `__Package`
-  (rt, libc, bootstrap, reflect) as VM externs.  Interpreted `pkg.__Package()`
-  now dispatches through the func-value shim to the real accessor, and the
-  returned `@reflect.Package` is RefDec-safe via the static-managed sentinel —
-  exercising the sentinel end-to-end in interpreted mode too.
-- **Coverage**: `conformance/532_reflect_package_accessor`
-  (`rt.__Package().Name` → "pkg/builtins/rt") now green in ALL 6 default modes
-  (the 3 VM-mode xfails removed).
-- **Still future — the general Functions-table**
-  ([`notes-package-introspection.md`](notes-package-introspection.md) Phase B):
-  `registerPackageDescriptorExterns` is a hand-maintained precursor covering
-  only the builtins compiled INTO the host binary (their `__Package` is a real
-  symbol the shim can call).  USER packages run as interpreted bytecode and
-  have no `__Package` body — those need the real table: codegen emits a
-  per-package `Functions` table (name + signature + function-value per
-  exported func), and the VM auto-enumerates all packages' tables (the
-  cross-package registry, open Q4 in the notes — likely a linker section with
-  start/stop symbols) to bind names → function values, replacing the hand-
-  maintained `RegisterStandardExterns` entirely.  Then richer type metadata
-  (Phase C) for reflection/printing + RTTI for type assertions.
-- **Linter caveat (see "bnlint typechecks dependency bodies" + lint-skip
-  entries)**: `registerPackageDescriptorExterns` is the first `__Package`
-  reference in *linted* source, which the BUILDER-bundled bnlint can't yet
-  typecheck — `scripts/hygiene/lint.sh` temporarily skips pkg/binate/vm +
-  pkg/binate/repl + cmd/bni until the next BUILDER bump.
+### Package descriptors — Phase C (richer metadata) + VM extern auto-enumeration remain
 
-### Compiler/interpreter interop — MAJOR PROJECT — 🟢 substrate + descriptor LANDED; general user-package table remains (Phase B)
+The general per-package `reflect.Package` descriptor incl. the `Functions` table
+(one `reflect.FunctionInfo` per exported func — Name / Sig / RetbufSize / ParamSlots
++ a function-value handle) is **delivered** for user packages across LLVM, all three
+native backends, and the VM (record + coverage in `claude-todo-done.md`). What
+remains:
+- **Phase C — richer type metadata** ([`notes-package-introspection.md`](notes-package-introspection.md)):
+  grow the descriptor beyond `Functions` to expose Types / Impls / Consts / Vars for
+  user-facing reflection, plus fuller RTTI.
+- **VM extern registration**: `RegisterStandardExterns` (`pkg/binate/interp/externs.bn`)
+  still hand-registers the BUILTIN packages' native-runtime externs (rt runtime, lang
+  RTTI) rather than auto-enumerating a cross-package registry. These externs are
+  native-runtime injection (legitimately special), not the user-package interop table
+  (done) — so re-evaluate whether full auto-enumeration is still the goal before
+  pursuing it.
 
-Dual-mode execution substrate is LANDED: shared-layout/refcount cross-mode interop, function values (`{vtable,data}` rep + shims + `dispatchCompiledFuncValue`), the `reflect.Package`/`__Package()` descriptor (compiled + VM builtins, `conformance/532` green in all 6 modes), cross-mode dispatch coverage, and the VM name→function-value registry (`registerPackageDescriptorExterns`).
+### Compiler/interpreter interop — MAJOR PROJECT — 🟢 substrate + descriptor + general Functions-table LANDED; Phase C + VM auto-enumeration remain
 
-Remaining (LIVE tracker is the "Package descriptors (Phase B)" entry above): the GENERAL Functions-table for USER packages — codegen emits a per-package `Functions` table + the VM auto-enumerates all packages via a cross-package registry, replacing hand-maintained `RegisterStandardExterns` (now down to ~11 `RegisterExtern` arms; `vm_extern` dispatch is already table-driven); then Phase C richer type metadata / RTTI.
+Dual-mode execution substrate is LANDED: shared-layout/refcount cross-mode interop, function values (`{vtable,data}` rep + shims + `dispatchCompiledFuncValue`), the `reflect.Package`/`__Package()` descriptor with a populated per-package `Functions` table (LLVM + all three native backends + VM, user packages included; `conformance/532`/`725`/`727` green), cross-mode dispatch coverage, and VM extern registration (`RegisterStandardExterns`, `pkg/binate/interp/externs.bn`).
+
+Remaining (LIVE tracker is the "Package descriptors" entry above): Phase C richer type metadata / RTTI (Types / Impls / Consts / Vars); and — optionally — replacing the VM's hand-maintained `RegisterStandardExterns` builtin native-runtime injection with a cross-package auto-enumeration registry (re-evaluate: those externs are legitimately special, so this may no longer be wanted).
 
 Dormant cross-mode func-value residual (folded in from the retired "Function values — residual follow-ups" entry): the one trampoline ARG shape not yet covered is **float args in V/FP registers** — nothing reaches it today (float scalars ride the integer banks; aggregate returns use `TrampolineAggregate`, ILP32 i64 returns use `TrampolineScalar64`, and >7 args fail loud by design, `17cfc16b`). Add a float-V-reg trampoline if/when a path actually needs it.
 
