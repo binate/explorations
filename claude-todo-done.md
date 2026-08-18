@@ -6,6 +6,38 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `borrowable-char-param` bnlint rule + tree-wide adoption — DONE (2026-08-18)
+
+A new bnlint rule flagging a read-only `@[]char` parameter that could be a
+`*[]readonly char` raw borrow (a string-literal argument otherwise forces a mortal
+copy) — built, made sound, converted every site, and enforced tree-wide.
+
+**The rule** (`pkg/binate/lint/borrowable_char_param*.bn`, landed `ff34bfd9e`): a
+sound forward value-family / escape analysis. FIVE distinct over-warn classes were
+found — across five adversarial review rounds PLUS the conversion recon — and each
+fixed at the root: (1) a named char-slice return (`type Str @[]char`) — peel
+`TYP_NAMED`; (2) a multi-value plain/method call forward — `isFuncTyped`; (3) a
+multi-value func-VALUE call forward — broaden `isFuncTyped`; (4) `&fam[i]` (address
+of a family element); (5) a view returned into a named-managed / `@[]readonly char`
+return SLOT (`fail(msg) TestResult`) — `pcCheckCascadeSlot` (`519fa5330`). Both the
+return-cascade and escape sides are closed by theorems; every fix is regression-
+tested.
+
+**The conversions** (~165 sites → 0): all read-only params → `*[]readonly char`
+(param-only, callers borrow implicitly); 8 view-helpers → param+return with
+`buf.CopyStr` at owning callers (adversarially reviewed SAFE+COMPLETE); the
+func-value-bound hash/eq helpers (bound to `@[]char`-keyed containers) suppressed
+with `// bnlint:allow`; two public functions got `.bni` updates (`AppendStr`,
+`ir.PackageInitName`); the convert→re-lint cascade (a converted callee makes its
+callers' args borrows, newly flagging them) iterated to a fixpoint. Landed across
+`main` through `cf37c5336`.
+
+**Adoption**: cut the `bnc-0.0.14-pre3` release (tag on `cf37c5336`; VERSION bumped
+to pre4 `f1377a21a`) carrying the sound rule; bumped `CHECK_TOOLS_VERSION` → pre3
+(`d67a9e550`); dropped the `--disable borrowable-char-param` stopgap from
+`scripts/hygiene/lint.sh` (`e37be06ae`). The rule is now enforced tree-wide and
+green. Full detail: `explorations/plan-borrowable-char-param-conversions.md`.
+
 ## `[N]readonly char` wrongly accepted as a slice — FIXED via untyped string literals (2026-08-17)
 
 **Was a MAJOR silent miscompile**: a runtime `[N]readonly char` array was accepted where a

@@ -1,14 +1,14 @@
 # Plan: convert read-only `@[]char` params to `*[]readonly char` (borrow-not-copy)
 
-> **Status: DONE — rule sound + landed (`ff34bfd9e`), all conversions landed
-> (through `cf37c5336`), whole-repo `--tests` scan = 0 sites.** The only thing
-> left is the "adopt" step — dropping `--disable borrowable-char-param` from
-> `scripts/hygiene/lint.sh` — which is BLOCKED on a CHECK_TOOLS bump to a bnlint
-> carrying the sound rule (the current bundle `bnc-0.0.14-pre2` has the OLD
-> over-warning rule that flags the `TestResult` test helpers the sound rule
-> suppresses; removing the flag now would fail hygiene). Tracked in
-> `claude-todo.md` ("Adopt `borrowable-char-param`"). The rest of this doc is the
-> historical record of how the rule + conversions were done.
+> **Status: COMPLETE + ADOPTED.** Rule sound + landed (`ff34bfd9e`); all
+> conversions landed (through `cf37c5336`), whole-repo `--tests` scan = 0 sites;
+> the rule is now ENFORCED tree-wide. Adoption: cut `bnc-0.0.14-pre3` (tag on
+> `cf37c5336`; VERSION → pre4 `f1377a21a`) carrying the sound rule, bumped
+> `CHECK_TOOLS_VERSION` → pre3 (`d67a9e550`), and dropped the `--disable
+> borrowable-char-param` stopgap from `scripts/hygiene/lint.sh` (`e37be06ae`) —
+> hygiene's `lint` check is green with the rule enforced. Done-log summary:
+> `claude-todo-done.md`. The rest of this doc is the historical record of how the
+> rule + conversions were done.
 
 This doc is written to survive a context compaction; it is self-contained.
 
