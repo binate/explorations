@@ -2,7 +2,14 @@
 
 **Status:** Phase 0 (spec) **landed** — docs `29449c1` (Ch.8 §8.5–8.7 rewrite +
 new `unsafe_cast`, §15/§21/grammar/Annex A, readonly-drop stragglers swept, marked
-Draft since impl is pending). Phases 1–4 (impl) not started.
+Draft since impl is pending). Phase 1 (loosen `bit_cast`) **landed** — binate
+`8c6fd014e`: `checkBitCastShapes` reduced to opaque-guard + same-proximal-size;
+aggregate / by-address↔by-value-crossing `bit_cast` lowers via a refcount-neutral
+IR-gen scratch round-trip (`emitBitCastViaMemory`), scalar/pointer/raw-slice↔raw-slice
+stay direct `OP_BIT_CAST`; no backend changes; fail-loud guards on aggregate-reaches-
+`EmitBitCast` and generic size-mismatch. Adversarial review caught the raw-slice↔scalar
+crossing (same size only on 32-bit) slipping to the direct path — fixed via
+`bitCastNeedsMemory`. Phases 2–4 not started.
 
 Grounded in [`notes-cast-bitcast-unsafecast.md`](notes-cast-bitcast-unsafecast.md)
 (the settled design + all decisions/rationale). This plan is the *execution* doc:
