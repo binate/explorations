@@ -6,6 +6,46 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `expose` forwarder now forwards generic types in ALL positions — DONE (2026-08-18)
+
+**Severity: MAJOR** (shipped-feature correctness gap). A whole-package `expose`
+forwarder failed to forward its GENERIC members in two of the three syntactic
+positions that resolve a package-qualified generic head, so `fwd.Gen[X]` resolved
+`undefined` there (→ the type argument silently became `void`, cascading into bogus
+constraint/assignability errors). Since every member of a generic package is generic,
+this made whole-generic-package forwarders (`pkg/stdx/{cmp,hash}` → `pkg/std/*`)
+useless, blocking that promotion.
+
+**Root cause** — three checker sites resolve a package-qualified generic-decl from a
+selector head `pkg.Name`, but only `resolveTypeInstantiation` (the plain type-expression
+path, `var h fwd.Gen[X]`) performed the `expose` home-remap
+(`c.PackageMemberHome(declPkg, name)` → remap the forwarder qualifier to the exposed
+package's real path before `lookupGenericTypeDeclPkg`). `typeArgFromExpr` (an explicit
+type-ARGUMENT to a generic CALL, `f[fwd.Gen[X]](...)` — the exact hashmap failure
+`table.NewTable[K, V, hash.Default[K], cmp.Default[K]](h, e)`) and `isGenericStructInstHead`
+(a method-EXPRESSION head, `fwd.Gen[X].M`) omitted it.
+
+**Fix** (landed `b4eca3150`): extracted the qualifier → home-remapped-`declPkg` logic
+into a shared `resolveQualifiedGenericDeclPkg` (`check_generic_type.bn`) and called it
+from all three sites, so a `pkg.Gen[...]` head resolves identically wherever it appears.
+The remap is a no-op for direct/native qualifiers (`PackageMemberHome` returns empty only
+for expose-injected members), so non-forwarded references are unaffected. Exposed generic
+FUNCTIONS were never subject to this — they forward via copied scope symbols, not the
+registry.
+
+**Tests**: unit tests for the shared resolver + the exposed-generic marker home
+(`bni_scope_expose_test.bn`); extended `conformance/1042_expose_generic` to exercise the
+two previously-broken positions end-to-end — green on LLVM, VM, native-x64, native-aa64;
+full expose suite (17) green, no regression. Adversarial review (3 lenses:
+behavior-preservation, completeness, false-remap) returned zero findings. Verified
+end-to-end that the fix unblocks the cmp/hash/containers promotion (hashmap + all
+containers pass with the promotion applied on top).
+
+**Follow-up**: resume the `pkg/stdx/{cmp,hash,containers/*}` → `pkg/std/*` promotion
+(saved off-branch), which needs a BUILDER release carrying this fix before it can land —
+deferred until a BUILDER cut is independently justified (a BUILDER release permanently
+extends the bootstrap ladder, so it is never cut just to unblock one task).
+
 ## `borrowable-char-param` bnlint rule + tree-wide adoption — DONE (2026-08-18)
 
 A new bnlint rule flagging a read-only `@[]char` parameter that could be a
