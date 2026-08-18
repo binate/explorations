@@ -7,6 +7,46 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### `expose` forwarder drops generic types as generic-call type-args + method-expr heads — 🔴 OPEN MAJOR (found 2026-08-18)
+
+**Severity: MAJOR** — a whole-package `expose` forwarder (`pkg/stdx/cmp` → `expose
+"pkg/std/cmp"`) fails to forward its GENERIC members in two syntactic positions, so
+`fwd.Gen[X]` resolves to `undefined` (→ the type argument silently becomes `void`,
+cascading into bogus constraint/assignability errors). Every member of cmp/hash IS
+generic, so the forwarders for a generic package are effectively useless — this blocks
+promoting `pkg/stdx/{cmp,hash,containers/*}` to `pkg/std/*` behind forwarders.
+
+**Root cause** — three checker sites resolve a package-qualified generic-decl from a
+selector head `pkg.Name`, but only ONE performs the `expose` home-remap
+(`c.PackageMemberHome(declPkg, name)` → remap the forwarder qualifier to the exposed
+package's real path before `lookupGenericTypeDeclPkg`):
+
+1. `resolveTypeInstantiation` (`pkg/binate/types/check_generic_type.bn:41-59`) — HAS the
+   remap. That is why `var h fwd.Gen[X]` (a plain type expression) resolves fine.
+2. `typeArgFromExpr` (`pkg/binate/types/check_generic.bn:224-235`) — MISSING. So
+   `someGenericFunc[..., fwd.Gen[X], ...](...)` (an explicit type-arg to a generic
+   function CALL, which the parser produces as an Expr, not a TypeExpr) errors
+   `undefined`. This is the exact hashmap failure: `table.NewTable[K, V,
+   hash.Default[K], cmp.Default[K]](h, e)`.
+3. `isGenericStructInstHead` (`pkg/binate/types/check_expr_access.bn:262-273`) — MISSING.
+   Predicate for a method-expression on a generic-inst head (`fwd.Box[int].M`); returns
+   false for an exposed generic, so that method-expr path is silently unreachable.
+
+**How discovered** — promoting `pkg/stdx/{cmp,hash}` to `pkg/std/*` with `expose`
+forwarders; the containers (all import cmp/hash) failed `undefined: Default` in both
+bnlint and the VM build. Verified: direct `pkg/std/*` imports pass; fmt's forwarder
+(functions only) works; a new unit test `TestExposeGenericTypeHome`
+(`bni_scope_expose_test.bn`) confirms the marker/home mechanism works in isolation — the
+gap is purely the two missing remap sites.
+
+**Proposed fix** — extract the selector-head → home-remapped-declPkg logic from
+`resolveTypeInstantiation` into one shared helper and call it from all three sites, so a
+`pkg.Gen[...]` head resolves identically whether it appears as a type expression, a
+generic-call type-arg, or a method-expr head. Add unit tests for sites 2 & 3, plus a
+conformance test exercising a generic package behind an `expose` forwarder (ties into the
+pending Phase-6 expose conformance bundle). This makes the checker accept previously-
+undefined code, so it needs a decision before landing.
+
 ### Explicit `cast(@[]char, a)` of a runtime `[N]readonly char` array mis-lowers (array→slice, same UAF class) — 🔴 OPEN MAJOR (found 2026-08-17)
 
 **Severity: MAJOR** (silent miscompile). Sibling of the `[N]readonly char`→slice bug
