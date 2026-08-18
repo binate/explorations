@@ -1,21 +1,18 @@
 # Plan: untyped string literals (`TYP_UNTYPED_STRING`)
 
-## Status (2026-08-17)
+## Status (2026-08-17) — COMPLETE
 
-**Landed on `main`:** Inc 1 (`b97e79656`), Inc 2 (`c713faf7b`), and the comparison work
-(`b40b10c9a` — not in the original increment list; it resolved the string-literal `==`
-question that surfaced during Inc 2).  The MAJOR `[N]readonly char`→slice miscompile is
-fixed; full `builder-comp` conformance green (2972/0).  See the done log entry.
+All increments landed; the MAJOR `[N]readonly char`→slice miscompile is fixed at the
+root, full `builder-comp` conformance green (2972/0).  See the done-log entry for the
+full commit list.
 
-**Remaining — Inc 3 (spec + cleanup), not yet done:**
-- Make the SPEC explicit about string-literal typing and comparison (§6 constants: string
-  literals are untyped, default `@[]readonly char`; §13.6: a literal adopts the comparison
-  peer — element-wise vs a char array, rejected literal-literal / literal-slice).  A review
-  flagged the spec is currently silent on this.  (Get a minimal adversarial review of the
-  spec edit.)
-- Rename the now-misnamed `isStringLitNaturalType` (it matches a runtime readonly-char
-  array, not a literal); simplify `defaultTypeForExpr` (the `EXPR_STRING_LIT` special-case
-  is redundant now that `defaultType` handles `TYP_UNTYPED_STRING`).
+- **Inc 1** `b97e79656`, **Inc 2** `c713faf7b`, **comparison** `b40b10c9a` (the latter
+  not in the original increment list; it resolved the string-literal `==` question that
+  surfaced during Inc 2 — string literals compare element-wise with char arrays).
+- **Inc 3:** spec (docs `e27280d` — `const.string.compare` + zero-pad scoped to init
+  sites; adversarial-reviewed, two MAJORs fixed), cleanup `8056c5ba4` (rename
+  `isStringLitNaturalType`→`isReadonlyCharArray`, drop `StringLitNaturalType` /
+  `defaultTypeForExpr`), spec-coverage sync `48b339769`.
 
 Sibling MAJOR still open (separate, in `claude-todo.md`): the explicit-`cast` array→slice
 miscompile.

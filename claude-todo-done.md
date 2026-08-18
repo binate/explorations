@@ -34,10 +34,15 @@ Three adversarial reviews shaped it (each caught a real defect: the interim expr
 discarded for the root-cause fix; the box miscompile; the order-dependent/incomplete
 comparison rejection → element-wise).  Full `builder-comp` conformance green (2972/0).
 
-**Remaining follow-ups** (NOT part of the landed fix): the sibling explicit-`cast` array→slice
-miscompile (still open in [claude-todo.md](claude-todo.md)); and Inc 3 of the plan — make the
-spec explicit about string-literal typing/comparison (§6, §13.6) + rename the now-misnamed
-`isStringLitNaturalType` / simplify `defaultTypeForExpr`.
+**Inc 3 also landed:** spec made explicit about string-literal typing/comparison (docs
+`e27280d` — `const.string.compare`, plus the `[M]char` zero-pad scoped to var-decl /
+struct-literal initializers; adversarial-reviewed, two MAJORs fixed); code cleanup
+`8056c5ba4` (`isStringLitNaturalType`→`isReadonlyCharArray`, drop `StringLitNaturalType`
+/ `defaultTypeForExpr`); spec-coverage sync `48b339769`.  Plan archived to
+`done/plan-untyped-string-literals.md`.
+
+**Still open** (separate, NOT part of this fix): the sibling explicit-`cast` array→slice
+miscompile, in [claude-todo.md](claude-todo.md).
 
 ## Parallel-assign leak-by-1 on the VM recoverable-fault path — ✅ FIXED & LANDED (2026-08-17, main `0ed8c696d`)
 
