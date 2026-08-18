@@ -1,12 +1,14 @@
 # Plan: convert read-only `@[]char` params to `*[]readonly char` (borrow-not-copy)
 
-> **Status: RULE LANDED & SOUND (`ff34bfd9e`). Phase 2 — do the conversions —
-> is what remains.** The `borrowable-char-param` rule is now a sound forward
-> value-family / escape analysis, landed on `main` as `ff34bfd9e`. Remaining
-> work: convert every parameter it flags to `*[]readonly char` so that after the
-> next `CHECK_TOOLS` bump (which activates the rule in the bundled bnlint the
-> hygiene lint runs) `scripts/hygiene/lint.sh` stays GREEN (no
-> `borrowable-char-param` diagnostics) — insofar as possible.
+> **Status: DONE — rule sound + landed (`ff34bfd9e`), all conversions landed
+> (through `cf37c5336`), whole-repo `--tests` scan = 0 sites.** The only thing
+> left is the "adopt" step — dropping `--disable borrowable-char-param` from
+> `scripts/hygiene/lint.sh` — which is BLOCKED on a CHECK_TOOLS bump to a bnlint
+> carrying the sound rule (the current bundle `bnc-0.0.14-pre2` has the OLD
+> over-warning rule that flags the `TestResult` test helpers the sound rule
+> suppresses; removing the flag now would fail hygiene). Tracked in
+> `claude-todo.md` ("Adopt `borrowable-char-param`"). The rest of this doc is the
+> historical record of how the rule + conversions were done.
 
 This doc is written to survive a context compaction; it is self-contained.
 

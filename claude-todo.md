@@ -605,17 +605,30 @@ lint wanted (return / store-to-outliving-field / assign-to-global of a raw slice
 borrowing a local), or is the current narrow rule + "raw is an opt-in escape
 hatch" sufficient (close this out)?
 
-### Adopt `borrowable-char-param` (currently `--disable`d in hygiene) — 🟡 OPEN (2026-08-17)
-The `borrowable-char-param` advisory rule (flags a read-only `@[]char` param that
-could be a `*[]readonly char` raw read-only borrow, avoiding a string-literal-arg
-copy) fires ~165 times tree-wide (93 production, 72 test) — the codebase predates
-it. It first *enforces* at CHECK_TOOLS `bnc-0.0.14-pre2`; to land that bump (needed
-for the bnfmt expose-preservation fix), `scripts/hygiene/lint.sh` passes
-`--disable borrowable-char-param`, suppressing ONLY this rule (every other rule
-stays enforced — this is not a blanket lint-off). **To adopt:** change the flagged
-params to `*[]readonly char` (mechanical, per-site; the message notes the return
-type may also shift), then drop the `--disable` from `lint.sh`. `bnlint --disable`
-(the global per-rule off switch) landed in `bnc-0.0.14-pre2`.
+### Adopt `borrowable-char-param`: drop the `--disable` from hygiene — 🟡 OPEN (updated 2026-08-18)
+**Conversions DONE.** The whole-repo `bnlint --tests` scan (built from source —
+the SOUND rule on `main`) reports **0** `borrowable-char-param` sites. All
+read-only `@[]char` params were converted param-only to `*[]readonly char`; the 8
+view-helpers converted param+return with `buf.CopyStr` at owning callers
+(adversarially reviewed SAFE+COMPLETE); the func-value-bound hash/eq helpers
+(bound to `@[]char`-keyed containers) suppressed with `// bnlint:allow`; two public
+functions got `.bni` updates (`AppendStr`, `ir.PackageInitName`); the convert→
+re-lint cascade (a converted callee makes its callers' args borrows, newly
+flagging them) was iterated to a fixpoint. Landed across `main` (buildcfg/cmd-bnlint
+`9b2dc6469`, native `aee7ebe4c`, lint/loader/parser `3f37222e4`, vm `589a6877f`,
+suppression `c911a4b4f`, codegen `edaf35293`, ir `38b624464`, types `a9f112176`,
+view-helper `72a2bb7b5`, cascade `80544d024`/`e66061472`/`55c8505c4`, final
+`cf37c5336`). Full detail: `explorations/plan-borrowable-char-param-conversions.md`.
+
+**Remaining — the adopt step:** drop `--disable borrowable-char-param` from
+`scripts/hygiene/lint.sh`. BLOCKED on a CHECK_TOOLS bump: hygiene runs the
+*bundled* bnlint, and the current bundle (`bnc-0.0.14-pre2`) has the OLD UNSOUND
+rule that over-warns `func fail(msg @[]char) testing.TestResult { return msg }`
+test helpers (a named-managed return slot — converting is a type error; the sound
+rule on `main`, 5th-over-warn fix `519fa5330`, correctly SUPPRESSES them). So
+removing `--disable` now would fail hygiene on those false positives. Once
+CHECK_TOOLS bumps to a bnlint carrying the sound rule, drop the flag — the tree is
+already 0-sites, so it goes green immediately.
 
 ## Hygiene checks: tier dependencies & file length
 
