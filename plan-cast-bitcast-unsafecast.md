@@ -1,5 +1,9 @@
 # Plan: `cast` / `bit_cast` / `unsafe_cast` redesign
 
+**Status:** Phase 0 (spec) **landed** — docs `29449c1` (Ch.8 §8.5–8.7 rewrite +
+new `unsafe_cast`, §15/§21/grammar/Annex A, readonly-drop stragglers swept, marked
+Draft since impl is pending). Phases 1–4 (impl) not started.
+
 Grounded in [`notes-cast-bitcast-unsafecast.md`](notes-cast-bitcast-unsafecast.md)
 (the settled design + all decisions/rationale). This plan is the *execution* doc:
 what changes, in what order, kept green and cherry-pickable at every step. Read
