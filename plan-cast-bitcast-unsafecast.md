@@ -119,6 +119,19 @@ diagnostic, and there is no `cast` that silently fabricates a managed value.
 to §8.3/§8.5 that will ripple to any doc/code that says "cast drops readonly." Enumerate those sites
 (grep the spec + notes) as part of the spec step; do not leave a dangling "use cast to drop readonly."
 
+**Binate-side rule-ID / conformance ripple (from Phase 0's `type.readonly.cast-drops`→`type.readonly.drop`
+rename — a Phase 4 landing item):** the binate repo vendors a snapshot of `docs/spec/rule-ids.txt` at
+`scripts/spec-coverage/rule-ids.txt` and its hygiene `spec-coverage.sh` fails on a **DANGLING** citation
+(a `.rules` sidecar naming a rule-ID absent from the vendored inventory). Docs now declare
+`type.readonly.drop`; the vendored copy still has the old `type.readonly.cast-drops`, and conformance test
+`conformance/spec/07-types/197_readonly_cast_drops_element` cites the old ID **and tests the OLD behavior**
+(cast drops element-level `readonly`). Binate hygiene is **still green today** (it reads its own stale
+vendored copy). When Phase 4 gates `cast`, that test's construct becomes a compile error, so this ripple
+lands WITH Phase 4: (1) re-vendor `cp docs/spec/rule-ids.txt scripts/spec-coverage/`; (2) update/rename
+test 197 to cite `type.readonly.drop`, switch its conversion from `cast` to `unsafe_cast`, and update the
+`.bn` comment + dir name; (3) confirm no other `.rules` sidecar cites the old ID. Do NOT re-vendor before
+updating the test, or hygiene goes DANGLING.
+
 ## Impl changes
 
 - **A. Loosen `bit_cast`** (checker + codegen). Replace `checkBitCastShapes` with a single
