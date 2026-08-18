@@ -20,11 +20,17 @@ accepted, and IR-gen (`gen_builtin.bn`) falls through to `EmitCast(val, targetTy
 (`isBitCastRejectedAggregateKind`); only value-preserving `cast` slips.
 
 Orthogonal to the untyped-string-literal rework (a runtime array is a `TYP_ARRAY`
-regardless of how literals are typed) — `cast` needs its own shape-compatibility gate.
-**Fix:** reject `cast` between incompatible aggregate KINDs (array↔slice, and audit
-struct/array/slice cross-casts) in the cast checker, with a negative unit test.
-Discovered by the adversarial review of the `[N]readonly char`→slice fix (found real by
-a second verify pass via direct code trace).
+regardless of how literals are typed). Discovered by the adversarial review of the
+`[N]readonly char`→slice fix (found real by a second verify pass via direct code trace).
+
+**Being addressed by a larger redesign** — this hole surfaced that the whole
+`cast`/`bit_cast` surface is under-specified/inconsistent (the spec says both are
+"unchecked at the type layer," but the impl gates `bit_cast` and not `cast`). Design is
+settled in [`notes-cast-bitcast-unsafecast.md`](notes-cast-bitcast-unsafecast.md): `cast`
+becomes a defined, gated SAFE logical conversion (⊇ assignability); `bit_cast` becomes the
+simplest same-proximal-size byte reinterpret (loosened); a new `unsafe_cast` (a superset
+of `cast`) covers the unverifiable cases. Under that design, `cast(@[]char, arr)` is a
+compile error (→ `unsafe_cast` / `bit_cast` / construct). A `plan-*.md` is the next step.
 
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
