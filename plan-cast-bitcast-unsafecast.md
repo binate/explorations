@@ -42,13 +42,20 @@ diagnostic, and there is no `cast` that silently fabricates a managed value.
   (note: `@T` managed-ptr is NOT rejected → `bit_cast(@T,*T)` already works).
 - **Tokens.** `token.bni:46-97` builtin enum (`CAST`, `BIT_CAST`, …, between `builtin_start`/`builtin_end`);
   `token.bn:50-51` names; `token.bn:153-179` `Lookup` (linear scan over the builtin range).
-- **Codegen.** `OP_CAST` unsafe shapes (array→managed-slice, raw→managed-ptr, managed→managed-diff-pointee,
-  struct↔array) lower to a plain register `Mov` re-label → silent garbage / fabricated refptr →
-  later `RefDec` of an arbitrary address = UAF. LLVM emits malformed IR (clang rejects — loud but
-  downstream). No backend fail-loud on an unhandled `OP_CAST` shape.
-- **In-tree `cast` migration scope is small:** of 2407 `cast(` uses in `pkg`+`cmd`, only ~3 target
-  a managed/slice target and those are test strings. The dangerous currently-compiling casts live
-  mainly (if anywhere) in conformance/examples — must be enumerated repo-wide (below), not guessed.
+- **Codegen.** `OP_CAST`/`OP_BIT_CAST` are emitted in IR at `ir_ops_flow.bn:261`/`:272` and lowered
+  per-backend: LLVM `codegen/emit_instr.bn:257`/`:260`; x64 `native/x64/x64_dispatch.bn:381`/`:278`;
+  arm32 `native/arm32/arm32_dispatch.bn:279` (`emitCastOp`)/`:293` (`emitBitCast` — its own comment:
+  "a same-size reinterpret (a plain MOV)"); aarch64 `native/aarch64/aarch64_dispatch.bn:330`/`:314`.
+  For an unsafe shape (array→managed-slice, raw→managed-ptr, managed→managed-diff-pointee, struct↔array)
+  the native path is a plain register `Mov` re-label → silent garbage / fabricated refptr → later
+  `RefDec` of an arbitrary address = UAF. LLVM emits malformed IR (clang rejects — loud but downstream).
+  **No backend fail-loud on an unhandled shape** (verify per backend during Phases 1/4; these citations
+  are the sites the safety argument rests on).
+- **In-tree `cast` migration scope is small:** of the ~2900 `cast(` uses in `pkg`+`cmd` (exact count
+  re-established at Phase 3), a syntactic scan for managed/slice/array *targets* found only ~3, all test
+  strings. That scan is by leading syntax only (misses named/struct/interface targets) — the real
+  enumeration (Phase 3) resolves target *kinds*. The dangerous currently-compiling casts live mainly
+  (if anywhere) in conformance/examples — enumerated repo-wide (below), not guessed.
 
 ## The target design (summary — full detail in the notes)
 
@@ -56,8 +63,10 @@ diagnostic, and there is no `cast` that silently fabricates a managed value.
   NOT element-wise. `@[]int32→@[]float32` **is** a `bit_cast`. Round-trips slice ↔ explicit struct form.
 - **`cast`** = (⊇ assignability) ∪ (numeric scalar conversions) ∪ (named↔underlying) ∪ (constant-typing,
   fit-checked) ∪ (aggregate leaf-wise retype `@[]T→@[]S` **iff** `sizeof(S)==sizeof(T)` AND the element
-  conversion is **total and bit-preserving**, i.e. `cast(S,T)` agrees with `bit_cast(S,T)`) ∪ (interface
-  **widening**: concrete→iface and sub-iface→super-iface). Directional bool: `bool→int8` is `cast`
+  conversion is **total and bit-preserving** (`cast(S,T)` agrees with `bit_cast(S,T)`) **AND does not drop
+  element-level `readonly`** — otherwise `@[]readonly char→@[]char` would sneak in as a plain `cast`, but
+  dropping element-level `readonly` behind a shared handle is an aliasing hazard routed to `unsafe_cast`)
+  ∪ (interface **widening**: concrete→iface and sub-iface→super-iface). Directional bool: `bool→int8` is `cast`
   (total+bit-preserving), `int8→bool` is not. **Transitivity invariant** per relation, used as a design
   filter (scalar relation and aggregate-retype relation are each transitive; they don't cross).
 - **`unsafe_cast`** = `cast` ∪ {drop-`readonly` (`readonly T→T`), `*T→@T` (raw→managed ptr, asserts a
@@ -66,7 +75,8 @@ diagnostic, and there is no `cast` that silently fabricates a managed value.
 - **The 3-bucket sort:** compiler can DERIVE the target → `cast`; runtime can VERIFY → `x.(T)`
   (NOT a cast); neither, programmer asserts → `unsafe_cast`.
 - **Not a cast:** `*[]T→@[]T` (because `@[]T→*[]T` is lossy — slices are value types — so it can't
-  round-trip; construct explicitly, or `bit_cast` the same 4 words against the explicit struct form).
+  round-trip; **construct explicitly**). It is not a `bit_cast` either (`*[]T` is 2 words, `@[]T` is 4 —
+  size mismatch). The 4-word `bit_cast` round-trip is the *separate* `@[]T ↔ struct{4 words}` reinterpret.
 
 ## Spec changes
 
@@ -79,18 +89,27 @@ diagnostic, and there is no `cast` that silently fabricates a managed value.
    Keep `conv.cast.const-not-laundered`, `conv.cast.float-int-saturation`.
 2. **§8.6 `bit_cast`** — replace `conv.bit-cast` with the same-proximal-size rule + UB-on-alignment;
    drop the "unchecked at the type layer" framing (it now has ONE checked precondition: equal proximal
-   size) and reconcile with the loosened impl (no managed/aggregate rejection).
+   size) and reconcile with the loosened impl (no managed/aggregate rejection). **Keep the existing
+   "violates a type's invariants is undefined" clause** — the proximal rule removes the raw-slice
+   same-element-size guard, so `bit_cast(*[]int64, int32Slice)` (equal 2-word proximal size) now compiles
+   and yields a `len` that over-counts the backing: still UB, must stay catalogued (see §21 below).
 3. **New §8.x `unsafe_cast`** — the possibly-unsafe superset: `unsafe_cast ⊇ cast`, the enumerated
    unverifiable conversions, and unchecked interface narrowing (contrast `x.(T)`). Rule-ID prefix
    `conv.unsafe-cast`.
-4. **§15.3** — add `builtin.unsafe-cast`; update `builtin.cast` (drop "unchecked", say "SAFE, gated")
-   and `builtin.bit-cast` (proximal-size rule). §15 grammar production list: add
-   `"unsafe_cast" "(" Type "," Expression ")"`. Update the builtin summary table.
+4. **§15** — add `builtin.unsafe-cast` (§15.3); update `builtin.cast` (drop "unchecked", say "SAFE, gated")
+   and `builtin.bit-cast` (proximal-size rule). Grammar production list: add
+   `"unsafe_cast" "(" Type "," Expression ")"`. Update the builtin summary table. **Also update the
+   keyword-builtin COUNT** — `15-builtin-operations.md` says "eleven keyword-builtins" / "each of these
+   eleven names" (§15 intro + `builtin.reserved`) → **twelve** — and add `unsafe_cast` to the
+   **type-first-argument list** ("`make, make_slice, cast, bit_cast, sizeof, alignof`" → + `unsafe_cast`).
 5. **Grammar** — add `unsafe_cast` to `docs/spec/binate.ebnf` (regenerate Annex A via
    `docs/scripts/gen-annex-a.py`).
-6. **Cross-refs** — §8.3 (drop-`readonly` moves from `cast` to `unsafe_cast`), §8.4 (raw→managed:
-   the sanctioned explicit form is now `unsafe_cast`, not "never"), §21 behavior catalogue (UB entries:
-   `bit_cast` alignment mismatch, `unsafe_cast` false assertion).
+6. **Cross-refs** — §8.3 (drop-element-level-`readonly` moves from `cast` to `unsafe_cast`), §8.4
+   (raw→managed: the sanctioned explicit form is now `unsafe_cast`, not "never"), §21 behavior catalogue
+   (UB entries: `bit_cast` **alignment mismatch**, `bit_cast` **type-invariant violation** — e.g. a
+   same-proximal-size slice reinterpret with mismatched element size / over-counted `len`, and
+   `unsafe_cast` **false assertion** — `*T→@T` with no real −2W header, unchecked iface narrow to the
+   wrong concrete type).
 
 **Spec-vs-impl note:** the drop-`readonly` reclassification (`cast`→`unsafe_cast`) is a semantic change
 to §8.3/§8.5 that will ripple to any doc/code that says "cast drops readonly." Enumerate those sites
@@ -115,15 +134,31 @@ to §8.3/§8.5 that will ripple to any doc/code that says "cast drops readonly."
 - **C. Tighten `cast`** (the breaking step — the gate). Add a source→target validation to the CAST
   branch that ACCEPTS exactly the safe set (assignability ∪ numeric ∪ named ∪ const-typing ∪
   aggregate-retype ∪ interface-widening ∪ directional-bool) and REJECTS everything else with a
-  diagnostic that names the right alternative: "use `unsafe_cast`" (drop-readonly, raw→managed,
-  iface-narrow, invariant scalar), "use `bit_cast`" (pure same-size reinterpret / `@[]int32→@[]float32`),
-  "use a type assertion `x.(T)`" (checked iface narrowing), or "construct explicitly" (`*[]T→@[]T`).
-  Remove the blanket interface-value rejection (`:83-89`) — widening is now allowed; narrowing gets the
-  "unsafe_cast / x.(T)" diagnostic instead. Add the aggregate leaf-wise retype acceptance + its codegen
-  (same-size bit-preserving element retype = a whole-value no-op copy). Add a backend fail-loud for an
-  unhandled (now-narrowed) `OP_CAST` shape.
+  diagnostic that names the right alternative:
+  - "use `unsafe_cast`" — drop element-level `readonly`, raw→managed ptr, iface-narrow, invariant scalar.
+  - "use `bit_cast`" — pure same-proximal-size reinterpret (e.g. `@[]int32→@[]float32`).
+  - "use a type assertion `x.(T)`" — checked iface narrowing.
+  - **"construct explicitly (allocate + copy)"** — the under-determined constructions with no reinterpret:
+    `*[]T→@[]T`, **and `[N]T`/array → `@[]T` managed-slice (the original MAJOR case:
+    `cast(@[]char, arr)` — `sizeof(array)=N` bytes ≠ 4-word `@[]char`, so neither `bit_cast` nor
+    `unsafe_cast` can do it; the user must allocate a managed backing and copy).** This bucket MUST exist
+    or the flagship diagnostic dead-ends by pointing at a builtin that also rejects the conversion.
+  - **Interface handling** (replacing the blanket `:83-89` rejection), itemized because it is correctness,
+    not polish: (1) accept **widening** — concrete `@T`/`*T` → iface, and sub-iface → super-iface,
+    consulting the interface-**extension** relation (§8.1 case 7) to distinguish direction when BOTH
+    operand and target are iface values; (2) **reject** `cast` narrowing (`@Iface→@T`, super→sub) →
+    "unsafe_cast (unchecked) or x.(T) (checked)"; (3) **reject a bare-value source** to a managed iface
+    (`value → @Iface`) — that needs `box` (no implicit heap, §8.1 note); widening-via-cast requires an
+    already-managed `@T` source (or a raw `*I` from a value via the §11.4 borrow, unchanged); (4) codegen
+    for accepted widening is a **1→2-word construction** ({data, vtable}) and, for a managed `@Iface`
+    target, takes a **RefInc** (this is a NEW codegen path — see testing).
+  Add the aggregate leaf-wise retype acceptance + its codegen (same-size bit-preserving, non-readonly-drop
+  element retype = a whole-value no-op copy). Add a backend fail-loud for an unhandled (now-narrowed)
+  `OP_CAST` shape.
 - **D. Diagnostics polish** — one shared helper mapping (srcKind, dstKind) → the actionable message,
-  so `cast` and `unsafe_cast` give consistent guidance.
+  so `cast` and `unsafe_cast` give consistent guidance. Must cover every rejected `(srcKind, dstKind)`
+  pair — including `(ARRAY, MANAGED_SLICE)` — with a message that points at an alternative that actually
+  performs the conversion (no dead-ends).
 
 ## BUILDER sequencing constraint (critical — read before ordering the work)
 
@@ -153,16 +188,23 @@ Ordering follows the user's sketch (add `unsafe_cast`; migrate outlawed `cast` u
 
 1. **Phase 0 — spec.** Land the §8.5/§8.6/§8.x/§15/grammar changes (docs repo). Spec-only, no code
    behavior change yet; gets the design reviewed-as-written before code. (Minimal adversarial review here.)
-2. **Phase 1 — loosen `bit_cast`** (impl A). Additive (only accepts more) → cannot break existing code;
-   needs codegen support + fail-loud + tests. Independent of `cast`/`unsafe_cast`; safe to do first.
+2. **Phase 1 — loosen `bit_cast`** (impl A). Additive at the *checker* (accepts more), but NOT free:
+   the newly-accepted aggregate/managed shapes reach codegen for the first time, where the current path
+   falls through to a silent `Mov` re-label. **The `OP_BIT_CAST` fail-loud AND the correct no-op
+   reinterpret lowering MUST land in the same commit as the checker loosening** — the fail-loud is the
+   safety net; splitting it out (even one commit) manufactures fresh silent miscompiles, the exact class
+   this redesign kills. Independent of `cast`/`unsafe_cast`; safe to do first only as one atomic change.
 3. **Phase 2 — add `unsafe_cast`** (impl B). Additive; nothing uses it yet. BUILDER-safe (define-only).
    Full checker + IR-gen + tests for every unsafe class.
 4. **Phase 3 — enumerate + migrate outlawed `cast` uses.** Build the site list from a **repo-wide,
    deliberately over-broad grep** across ALL repos (binate `pkg`/`cmd`, `conformance/`, the `examples`
-   repo, `docs` snippets) — casts whose (src,dst) would fall outside the new safe set (aggregate/managed/
-   raw→managed/iface-narrow/drop-readonly). Triage each to its replacement (`bit_cast` / `unsafe_cast` /
-   `x.(T)` / construct), respecting the BUILDER rule for in-tree sites. State the dirs the grep covered.
-   Land migrations while `cast` is still lenient (they compile either way), so Phase 4 lands on a clean tree.
+   repo, `docs` snippets), then **resolve each cast's target/source KIND** (not just leading syntax — a
+   `cast(NamedSlice, x)` / `cast(SomeStruct, arr)` won't match `cast(@`/`cast([`; match by resolved type)
+   — casts whose (src,dst) fall outside the new safe set (aggregate/managed/raw→managed/iface-narrow/
+   drop-element-readonly/array→managed-slice). Triage each to its replacement (`bit_cast` / `unsafe_cast` /
+   `x.(T)` / allocate+copy construct), respecting the BUILDER rule for in-tree sites. State the dirs the
+   grep covered. Land migrations while `cast` is still lenient (they compile either way), so Phase 4 lands
+   on a clean tree.
 5. **Phase 4 — tighten `cast`** (impl C+D). The breaking gate + new acceptances (iface widening,
    aggregate retype). Lands after Phase 3 so the tree/conformance is already offender-free. Closes the
    MAJOR (add the conformance regression test: `cast(@[]char, runtimeReadonlyCharArray)` is now a
@@ -173,9 +215,12 @@ Ordering follows the user's sketch (add `unsafe_cast`; migrate outlawed `cast` u
 7. **Follow-up (out of scope here, per user "orthogonal"): `bool↔int` widening** (`bool→{all ints,
    floats}`). Filed as a separate todo, not built in this plan.
 
-`bit_cast` (Phase 1) and `unsafe_cast` (Phase 2) are order-independent; either can go first. The hard
-ordering constraint is only **Phase 3 before Phase 4** (migrate before you gate). Phase 0 (spec) first so
-the contract is reviewed before code, but Phase 1/2 could interleave with late spec edits if needed.
+**Ordering dependencies (the real invariant, not just "3 before 4"):** Phase 3's migrations *emit*
+`bit_cast` and `unsafe_cast`, so **Phase 3 depends on both Phase 1 (loosened `bit_cast` must already
+accept the aggregate targets) and Phase 2 (`unsafe_cast` must exist)**; **Phase 4 depends on Phase 3**
+(migrate before you gate). Phases 1 and 2 are mutually order-independent (either first). The default
+0→1→2→3→4 order satisfies every dependency; a reorder must preserve 1<3, 2<3, 3<4. Phase 0 (spec) first
+so the contract is reviewed before code, but late spec edits can interleave with Phase 1/2 if needed.
 
 ## Testing
 
@@ -183,18 +228,23 @@ the contract is reviewed before code, but Phase 1/2 could interleave with late s
   with the *right* diagnostic pointing to the correct alternative). Checker unit tests
   (`check_builtin_test.bn`) + conformance for runtime behavior.
 - **The MAJOR regression:** `cast(@[]char, arr)` where `arr : [N]readonly char` runtime → compile error
-  (conformance negative test; the class the whole redesign exists to close).
+  (conformance negative test; the class the whole redesign exists to close) — and the diagnostic must name
+  the **"allocate + copy"** alternative, NOT `bit_cast`/`unsafe_cast` (which also reject it — no dead-end).
 - **Transitivity property:** for the scalar-cast relation and (separately) the aggregate-retype relation,
   a small closure check that `cast(T,s) ∧ cast(R,t) ⟹ cast(R,s)` holds on representative types.
 - **bool directionality:** `bool→int8` accepted (and value-correct: 0/1), `int8→bool` rejected → must use
   `unsafe_cast` (which is then value-correct/defined).
-- **Interface widen/narrow:** `cast(@any, concrete)` and sub→super widening accepted; `@any→@T` via
-  `cast` rejected (→ `unsafe_cast` unchecked, or `x.(@T)` checked); `unsafe_cast` narrowing extracts the
-  data word; `x.(@T)` panics on mismatch (unchanged).
+- **Interface widen/narrow:** `cast(@Iface, m)` where `m : @T` and sub→super widening accepted; a
+  **bare-value** source to a managed iface rejected (needs `box`); `@any→@T` via `cast` rejected
+  (→ `unsafe_cast` unchecked, or `x.(@T)` checked); `unsafe_cast` narrowing extracts the data word;
+  `x.(@T)` panics on mismatch (unchanged — the checked path, per the type-assertion rule in §13/§11).
 - **`bit_cast` round-trips:** `@[]T` ↔ its 4-word explicit struct form; `*[]T` ↔ 2-word form; `*T` ↔ `@T`;
   int ↔ float bits; and a size-mismatch `bit_cast` is a compile error.
 - **Refcount balance:** `bit_cast` / `unsafe_cast` of managed operands take **no** reference (no spurious
   RefInc/RefDec) — a live-object-count net-zero test, following the existing refcount-balance pattern.
+  Conversely, `cast(@Iface, @T)` **widening** DOES construct a managed iface value and takes a **RefInc**
+  (the new codegen path, Impl C(4)) — a matched-balance test that the constructed `@Iface` and its
+  eventual `RefDec` account for exactly one reference (no leak, no double-free).
 - **Fail-loud:** an unhandled `OP_CAST`/`OP_BIT_CAST` shape aborts codegen loudly (a targeted unit test),
   never emits silent garbage.
 - Run modes: `builder-comp` (compiled) + `builder-comp-int` (VM) for conformance; unit tests for every
