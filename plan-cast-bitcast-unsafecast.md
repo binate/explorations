@@ -18,7 +18,24 @@ into a shared `genCastValueConversion`; interface↔interface is out of §8.7 sc
 (use `x.(I)`). Fail-loud guards mirror `cast` (EmitCast never sees an iface; a
 generic iface↔iface unsafe_cast panics). Adversarial review caught two one-line
 holes (missing both-iface generic guard; `validateDimCasts` missing `unsafe_cast`)
-— both fixed. Phases 3–4 not started.
+— both fixed. Phase 3 (migrate outlawed `cast` uses) **landed** — binate `63825841f`
++ docs `e1226ad`: repo-wide enumeration (examples/docs had ZERO outlawed casts);
+readonly-drop → `unsafe_cast` (in-tree BUILDER site → `bit_cast`), ptr↔int → `bit_cast`,
+const-0→ptr → `nil`; struct/named-conversion sites STAY in `cast` per the decision to
+**extend §8.5 named↔underlying to any type** (same-layout retype, safe — docs `e1226ad`).
+Rule-ID re-vendor ripple fixed (Phase 0's `cast-drops`→`drop` and removed
+`conv.cast.unchecked` surfaced when re-vendoring binate's `rule-ids.txt`; tests
+`197`/`007`/`032`/`669` renamed + re-cited). No compiler code changed. Phase 4 not started.
+
+**Phase 4 open items surfaced during Phase 3** (handle when gating `cast`):
+- Interface **widening** (`cast(@I, @T)`) becomes ACCEPTED in Phase 4 (assignability
+  case 7), so `check_builtin_test:TestCheckCastToInterfaceValueRejected` (and any
+  cast-TO-iface error test) must FLIP from expect-error to accepted. Interface
+  **narrowing** (`cast(@T, iv)`) stays rejected (→ `unsafe_cast` / `x.(T)`).
+- The safe-set gate must ACCEPT: everything assignable (incl. iface widening +
+  named↔underlying for ALL types now), numeric scalar, constant-typing, aggregate
+  leaf-wise retype; and REJECT (→ named alternative) drop-element-`readonly`, `*T→@T`,
+  ptr↔int, const-0→ptr, iface narrowing, non-same-underlying aggregate reinterprets.
 
 Grounded in [`notes-cast-bitcast-unsafecast.md`](notes-cast-bitcast-unsafecast.md)
 (the settled design + all decisions/rationale). This plan is the *execution* doc:
