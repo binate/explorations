@@ -9,7 +9,16 @@ IR-gen scratch round-trip (`emitBitCastViaMemory`), scalar/pointer/raw-slice↔r
 stay direct `OP_BIT_CAST`; no backend changes; fail-loud guards on aggregate-reaches-
 `EmitBitCast` and generic size-mismatch. Adversarial review caught the raw-slice↔scalar
 crossing (same size only on 32-bit) slipping to the direct path — fixed via
-`bitCastNeedsMemory`. Phases 2–4 not started.
+`bitCastNeedsMemory`. Phase 2 (add `unsafe_cast`) **landed** — binate `ddfadfd0c`:
+new `UNSAFE_CAST` token/parser/checker/IR-gen; since the ungated `cast` already
+accepts the non-interface unsafe conversions, the new capability is interface
+NARROWING (unchecked data-word extract, refcount-neutral, via `emitRecoveredValue`)
+and WIDENING (`wrapAsIfaceValue`, RefInc); the non-interface lowering is factored
+into a shared `genCastValueConversion`; interface↔interface is out of §8.7 scope
+(use `x.(I)`). Fail-loud guards mirror `cast` (EmitCast never sees an iface; a
+generic iface↔iface unsafe_cast panics). Adversarial review caught two one-line
+holes (missing both-iface generic guard; `validateDimCasts` missing `unsafe_cast`)
+— both fixed. Phases 3–4 not started.
 
 Grounded in [`notes-cast-bitcast-unsafecast.md`](notes-cast-bitcast-unsafecast.md)
 (the settled design + all decisions/rationale). This plan is the *execution* doc:
