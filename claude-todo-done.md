@@ -43,7 +43,18 @@ Landed: Phase 0 spec (docs `29449c1`, `682f510`, `e1226ad`, `721629d`); Phase 1 
 outlawed `cast` uses (`63825841f`); Phase 4 gate `cast` (`bd730a679`). Full `builder-comp`
 suite 2980/0, hygiene 19/19 at land.
 
-## `expose` forwarder now forwards generic types in ALL positions — DONE (2026-08-18)
+**The conditional "Phase 5 — BUILDER bump" (plan §BUILDER-sequencing) was determined
+UNNEEDED, not skipped silently.** `unsafe_cast` is a new keyword that cannot appear in
+cmd/bnc's BUILDER-compiled tree until a BUILDER bump, so the plan reserved a Phase 5 in
+case an in-tree `cast` had to become `unsafe_cast`. Enumeration found NONE: every
+outlawed-`cast` migration was in **conformance** tests (built by the fresh bnc, not
+BUILDER-constrained → migrated straight to `unsafe_cast`), and the compiler's own
+BUILDER-tree code never did a readonly-drop / raw→managed via `cast`. No `cast → bit_cast`
+stand-in was created anywhere in the BUILDER tree (verified: the redesign diff adds no
+in-tree `bit_cast` call sites; `builder-comp-comp` gen2 self-compile is green, so the gate
+accepts all in-tree `cast` sites; the pre-existing type-erasure `bit_cast` sites in
+`pkg/binate/types` generics all predate the redesign). So there is **no** deferred
+post-BUILDER-bump `bit_cast → unsafe_cast` migration owed for this work.
 
 **Severity: MAJOR** (shipped-feature correctness gap). A whole-package `expose`
 forwarder failed to forward its GENERIC members in two of the three syntactic
