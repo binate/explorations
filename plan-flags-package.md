@@ -115,6 +115,14 @@ func (fs @FlagSet) Parse(args @[]@[]char) (@[]@[]char, @[]char)
 func (fs @FlagSet) Usage() @[]char
 ```
 
+The shipped internal representation is a tagged union (a `kind` tag + the five
+destination pointers on a private `Flag` struct), NOT the `Value` interface
+sketched above — storing boxed interface values in the FlagSet's slice would
+borrow dead locals (an interface value is held as `*Interface` pointing at a
+concrete stack value). The public surface is as above, except name/alias/usage/
+def string params are `*[]readonly char` (accepting literals, borrowed not
+copied) and the error/usage returns are `@[]readonly char`.
+
 `--version`/`-h` need no special pre-scan: register them as ordinary bool flags
 and check them before any positional-count validation (Parse never requires
 positionals).
