@@ -119,9 +119,11 @@ The shipped internal representation is a tagged union (a `kind` tag + the five
 destination pointers on a private `Flag` struct), NOT the `Value` interface
 sketched above — storing boxed interface values in the FlagSet's slice would
 borrow dead locals (an interface value is held as `*Interface` pointing at a
-concrete stack value). The public surface is as above, except name/alias/usage/
-def string params are `*[]readonly char` (accepting literals, borrowed not
-copied) and the error/usage returns are `@[]readonly char`.
+concrete stack value). The public surface is as above, except: the retained
+string params (name/alias/usage) are `@[]readonly char` and a string `def` is
+`@[]char` — managed slices the FlagSet owns a reference to, not raw borrows, so
+callers need not keep inputs alive (string literals coerce in); and the
+error/usage returns are `@[]readonly char`.
 
 `--version`/`-h` need no special pre-scan: register them as ordinary bool flags
 and check them before any positional-count validation (Parse never requires
