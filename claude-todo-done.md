@@ -6,6 +6,43 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `cast` / `bit_cast` / `unsafe_cast` redesign — DONE (2026-08-19)
+
+**Severity: MAJOR** (silent miscompile) — closed. The trigger was `cast(@[]char, a)`
+where `a : [3]readonly char`: the old `cast` branch validated only constant integer-fit
+and interface-value operand/target rejection, doing NO source→target shape check, so a
+runtime array → managed-slice `cast` was accepted and IR-gen emitted an `OP_CAST` from an
+N-byte array value into a 4-word `BnManagedSlice` (garbage / UAF, same class as the
+implicit-path bug). That hole surfaced that the whole `cast`/`bit_cast` surface was
+under-specified (the spec said both were "unchecked at the type layer," but the impl gated
+`bit_cast` and not `cast`).
+
+Resolved by the full redesign (all phases landed), settled in
+[`notes-cast-bitcast-unsafecast.md`](notes-cast-bitcast-unsafecast.md) and executed per
+[`plan-cast-bitcast-unsafecast.md`](plan-cast-bitcast-unsafecast.md):
+
+- **`cast`** = a defined, gated SAFE logical conversion (⊇ assignability). The gate
+  (`pkg/binate/types/check_cast_safe.bn`, `checkCastSafeSet`) accepts: everything
+  ASSIGNABLE incl. interface widening/upcast; numeric scalar incl. directional
+  `bool → numeric` (but not `numeric → bool`); named↔underlying for any type incl. two
+  distinct same-field structs; aggregate leaf-wise same-size bit-preserving retype;
+  constant-fit. Everything else is a compile error naming the right alternative.
+- **`bit_cast`** = the simplest same-proximal-size byte reinterpret (loosened to just an
+  opaque-guard + `SizeOf` equality).
+- **`unsafe_cast`** (new) = a superset of `cast` covering the unverifiable cases
+  (readonly drop, `*T → @T`, interface narrowing, ...).
+
+Under this design `cast(@[]char, arr)` is a compile error (→ `unsafe_cast` / `bit_cast` /
+construct). Type-param casts (`cast(T, x)`, incl. nested `@[]T`) defer to instantiation;
+IR-gen fails loud on an outlawed instantiated shape (mismatched-kind or different-element-
+size aggregate reached via a generic). Phase 4 adversarial review caught + fixed an
+iface-upcast ICE and a generic same-kind different-element-size slice OOB.
+
+Landed: Phase 0 spec (docs `29449c1`, `682f510`, `e1226ad`, `721629d`); Phase 1 loosen
+`bit_cast` (`8c6fd014e` + follow-up); Phase 2 `unsafe_cast` (`ddfadfd0c`); Phase 3 migrate
+outlawed `cast` uses (`63825841f`); Phase 4 gate `cast` (`bd730a679`). Full `builder-comp`
+suite 2980/0, hygiene 19/19 at land.
+
 ## `expose` forwarder now forwards generic types in ALL positions — DONE (2026-08-18)
 
 **Severity: MAJOR** (shipped-feature correctness gap). A whole-package `expose`

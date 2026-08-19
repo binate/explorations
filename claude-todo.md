@@ -7,31 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### Explicit `cast(@[]char, a)` of a runtime `[N]readonly char` array mis-lowers (array→slice, same UAF class) — 🔴 OPEN MAJOR (found 2026-08-17)
-
-**Severity: MAJOR** (silent miscompile). Sibling of the `[N]readonly char`→slice bug
-above, on the EXPLICIT-conversion path. `cast(@[]char, a)` where `a : [3]readonly char`
-type-checks: the `cast` branch (`pkg/binate/types/check_builtin.bn:63`) validates only
-constant integer-fit and interface-value operand/target rejection — it does NO
-source→target shape-compatibility check. So a runtime array → managed-slice `cast` is
-accepted, and IR-gen (`gen_builtin.bn`) falls through to `EmitCast(val, targetTyp)` — an
-`OP_CAST` from an N-byte array value into a 4-word `BnManagedSlice`, a layout mismatch
-(the same garbage/UAF the implicit path produced). `bit_cast` is correctly rejected
-(`isBitCastRejectedAggregateKind`); only value-preserving `cast` slips.
-
-Orthogonal to the untyped-string-literal rework (a runtime array is a `TYP_ARRAY`
-regardless of how literals are typed). Discovered by the adversarial review of the
-`[N]readonly char`→slice fix (found real by a second verify pass via direct code trace).
-
-**Being addressed by a larger redesign** — this hole surfaced that the whole
-`cast`/`bit_cast` surface is under-specified/inconsistent (the spec says both are
-"unchecked at the type layer," but the impl gates `bit_cast` and not `cast`). Design is
-settled in [`notes-cast-bitcast-unsafecast.md`](notes-cast-bitcast-unsafecast.md): `cast`
-becomes a defined, gated SAFE logical conversion (⊇ assignability); `bit_cast` becomes the
-simplest same-proximal-size byte reinterpret (loosened); a new `unsafe_cast` (a superset
-of `cast`) covers the unverifiable cases. Under that design, `cast(@[]char, arr)` is a
-compile error (→ `unsafe_cast` / `bit_cast` / construct). A `plan-*.md` is the next step.
-
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
 **Severity: MAJOR** — a recoverable user-code fault (bounds / divide / shift /

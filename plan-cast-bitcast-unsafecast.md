@@ -1,5 +1,19 @@
 # Plan: `cast` / `bit_cast` / `unsafe_cast` redesign
 
+**✅ COMPLETE (all phases landed).** Phase 4 (gate `cast`) landed — binate `bd730a679`
++ docs (§8.5) `721629d`: `checkCastSafeSet` gates `cast` to the safe set (assignable
+incl. interface widening/upcast; numeric incl. directional bool; named↔underlying
+any-type incl. same-field structs; aggregate leaf-retype; const-fit), rejecting the
+rest with an actionable diagnostic. **This closes the original MAJOR** —
+`cast(@[]char, arr)` (array→managed-slice) is now a compile error, not silent
+garbage/UAF. Type-param casts defer to instantiation; IR-gen lowers widening
+(`wrapAsIfaceValue`) / upcast (`OP_IFACE_UPCAST`) and fails loud on narrowing /
+mismatched-kind / different-element-size aggregates reached via a generic.
+Adversarial review caught a blocker (iface-upcast ICE) + a major (generic slice OOB),
+both fixed. Full `builder-comp` suite 2980/0 at land. The remaining `bool → {all
+numerics}` widening the leaf-rule note mentioned is now IN (directional rule); nothing
+outstanding. Per-phase history below.
+
 **Status:** Phase 0 (spec) **landed** — docs `29449c1` (Ch.8 §8.5–8.7 rewrite +
 new `unsafe_cast`, §15/§21/grammar/Annex A, readonly-drop stragglers swept, marked
 Draft since impl is pending). Phase 1 (loosen `bit_cast`) **landed** — binate
