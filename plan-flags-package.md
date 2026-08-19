@@ -1,9 +1,9 @@
 # Plan: `pkg/stdx/flags` — a command-line flag parser for the stdlib
 
-Status: design ratified; the `pkg/stdx/flags` package itself is implemented,
-unit-tested (16 tests, all green), hygiene-clean, and confirmed
-BUILDER-compilable (bnc-0.0.13 compiles it) — not yet landed on `main`. The
-per-tool conversions (below) are not started.
+Status: design ratified; `pkg/stdx/flags` is implemented, unit-tested (28
+tests), hygiene-clean, confirmed BUILDER-compilable (bnc-0.0.13 compiles it),
+and **LANDED on `main` (commit 04b548a81)**. Per-tool conversions are next,
+starting with `bnfmt` (done one at a time).
 
 ## Goal
 
