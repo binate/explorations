@@ -155,26 +155,27 @@ Adopt one tool at a time, each its own commit (tests stay green between):
    (landed `1b3215ba3`). Its parser was the lenient one — unknown `--foo`
    became a package; now a strict error (per design decision #4). One test
    retargeted (`TestParseArgsRootIsRejected`).
-4. `bni` — `-x` script mode + `--` program-args passthrough. **UNDER DISCUSSION**
-   — bni is the marginal case: its `--` means "end of FILENAMES, start of
-   ProgArgs" (not "end of flags"), it intersperses flags with filenames, and
-   `-x` captures everything after the script. The flags package would parse
-   only the ~10 leading flags; the filename/`--`/ProgArgs/`-x` tail stays
-   hand-rolled. All REAL invocations are flags-first (`bni [flags] file --
-   progargs`), so real behavior is preserved, but the conversion needs a custom
-   tail-handler + a vec-field shim + several test retargets (bni's tests pin the
-   old lenient-unknown behavior). Awaiting a call on whether the smaller dedup
-   is worth it vs. leaving bni's bespoke parser.
+4. `bni` — **DONE**, but as a full CLI *redesign* rather than a mechanical
+   conversion (landed `1b75e5a8e`). bni's old grammar (positional source files,
+   `-x`, and `--` splitting filenames from progargs) was an injection vector and
+   a poor fit for the flags model, so it was replaced with a flag-only CLI
+   (`-main-dir`/`-main-file`/`-test <pkg>`/`-repl`); positionals are now only the
+   program's argv. See `plan-bni-cli-redesign.md`.
+5. `bnc` — **DEFERRED**: parks until a BUILDER bump independently justifies one
+   (a BUILDER release is expensive and must not be cut just to unblock this).
+   bnc's converted parser would build through the *current* BUILDER, but landing
+   it is not urgent; do it when a BUILDER cut happens for other reasons.
 
-Follow-up: `cmd/bnfmt/main.bn`'s `progArgs` comment still names `buf.CopyStr`
-(dropped when bnfmt was converted) — a stale reference to fix. bnas's copy was
-fixed in its conversion; check bni/bnlint's `progArgs` comments too.
-5. `bnc` — BUILDER-compiled; the headline. Replaces `parseArgs`/`CLIArgs`
-   filling with registrations; drops `splitColon`/`appendRawCharSlice`/local
-   `streq`. Requires a smoke over its whole BUILDER-compiled tree.
+Each conversion needed small consumer changes (e.g. missing-value now errors;
+`--version` becomes a normal flag). When bnc is eventually converted it drops
+`splitColon`/`appendRawCharSlice`/local `streq` and needs a smoke over its whole
+BUILDER-compiled tree.
 
-Each conversion may need small consumer changes (e.g. bnc's missing-value now
-errors; `--version` becomes a normal flag).
+Small post-conversion cleanups (each its own commit): bnlint's vestigial
+`--root` rejection test deleted; bnfmt's stale `buf.CopyStr` `progArgs` comment
+reworded (bnas's copy was fixed inline during its conversion; bni/bnlint's
+`progArgs` comments reference `buf`, which those files still import, so they are
+not stale).
 
 ## Out of scope for v1
 

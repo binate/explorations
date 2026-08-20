@@ -1,7 +1,9 @@
 # Plan: redesign bni's command-line interface (package-oriented, no positional source files)
 
-Status: design ratified; implementation not started. Blocks on a rollout
-decision (see below). This is a BREAKING change to bni's user-facing CLI.
+Status: **DONE** — implemented and landed on `main` (`1b75e5a8e`), with all
+in-repo callers updated atomically. `examples/` (separate repo) migrates at its
+next BUILDER bump, tracked in `examples/TODO.md`. This was a BREAKING change to
+bni's user-facing CLI.
 
 ## Motivation
 
