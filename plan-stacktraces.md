@@ -105,8 +105,8 @@ walk). It likely lives under `pkg/std/debug` (an ordinary stdlib package), not
 
 ```
 // capture — intrinsic-backed, no allocation (fills a caller-owned buffer)
-func Callers(skip int, into *[]Frame) int      // returns TOTAL depth available (see below)
-func Caller(skip int) (Frame, bool)            // the single skip-th frame
+func Callers(skip int, into *[]Frame) Capture   // { Total int; Bottom BottomReason }
+func Caller(skip int) (Frame, bool)             // the single skip-th frame
 
 // symbolize — separate, on-demand, mode-dispatched
 func Symbolize(f Frame) FrameInfo
@@ -122,8 +122,9 @@ func Stacktrace(skip int) @[]FrameInfo
   `pkg/types`, so both backends and the VM agree on its layout.
 - `FrameInfo` — `{ Mode; Ok; Pkg @[]char; Func @[]char; Mangled *[]readonly char }`.
   **`Ok`** distinguishes a symbolized frame from an address that falls outside every
-  table range (a compiler-generated shim, a `__c_call` C frame, a clang-runtime frame) —
-  when `!Ok`, `Pkg`/`Func` are empty and the caller still has the raw `Frame`. `Func` is
+  table range (a `__c_call` C frame or a libc/clang-runtime frame — our own shims instead
+  get a synthetic entry, see the table section) — when `!Ok`, `Pkg`/`Func` are empty and
+  the caller still has the raw `Frame`. `Func` is
   the member chain joined (a method reads `Type.Method`). `Mangled` can be a zero-copy
   borrow into the always-live table's string blob. (Tier B adds `File @[]char; Line int`.)
 - **`skip` convention (ONE scheme, stated unambiguously):** each library entry drops its
@@ -133,23 +134,29 @@ func Stacktrace(skip int) @[]FrameInfo
   intrinsic in their own body (or delegate with an explicit `+1`) so no extra library
   frame leaks in. (This is NOT `runtime.Callers`' numbering — we auto-drop the library
   frame; do not describe it as matching Go.)
-- **Truncation & sizing:** `Callers` returns the **total** number of frames available
-  at/above `skip`, while writing at most `len(into)`. So truncation is detectable
-  (`total > len(into)`), and `Stacktrace` sizes its owned slice in two passes (query depth
-  with a small/empty buffer, allocate, capture). `Caller` returns `(Frame, bool)` where
-  `false` means "no frame at that depth."
-- **Segment bottom:** a single capture covers one mode segment (see cross-mode section);
-  the capture reports whether it bottomed out at a genuine **program entry** vs a **mode
-  boundary** (exact encoding — a companion flag or a `Frame` kind — is an impl detail),
-  so "stack truly ends here" is distinguishable from "more frames exist in the other mode."
+- **Truncation & sizing:** `Callers` returns a `Capture` result whose `Total` is the
+  number of frames available at/above `skip`, while writing at most `len(into)`. So
+  truncation is detectable (`Total > len(into)`), and `Stacktrace` sizes its owned slice in
+  two passes (query depth with a small/empty buffer, allocate, capture). `Caller` returns
+  `(Frame, bool)` where `false` means "no frame at that depth."
+- **Segment bottom (decided: companion flag):** a single capture covers one mode segment
+  (see cross-mode section); `Capture.Bottom` (a `BottomReason` enum:
+  `PROGRAM_ENTRY` | `MODE_BOUNDARY`) reports whether the segment bottomed out at a genuine
+  program entry vs a mode boundary — travelling together with `Total` rather than
+  overloading `Frame`. This distinguishes "stack truly ends here" from "more frames exist
+  in the other mode." Only meaningful in mixed/interpreted execution; a pure-native or
+  pure-VM program always bottoms at `PROGRAM_ENTRY`.
 
 ## The capture intrinsic
 
-Model on the existing `_func_handle` keyword-token intrinsic (`token.RAW_FUNC_ADDR` →
-`EXPR_BUILTIN` → `checkBuiltinCall` shape check → IR op → per-backend lowering). Working
-name `_stack_frames(skip int, into *[]Frame) int`, returning total depth. The `debug`
-entries embed it directly so it expands *inline* in their bodies (the "current frame" at
-expansion is the library entry's frame, which it drops per the skip convention).
+Recognized by **IR-magic-by-name** — the mechanism `rt._call_shim_*` uses (recognized by
+qualified name in IR-gen, lowered to a special IR op), **not** a keyword-token builtin like
+`sizeof`/`_func_handle`. `_stack_frames` is compiler-internal (users call `Callers`, never
+it), so it warrants no reserved word or grammar/spec change: declare
+`debug._stack_frames(skip int, into *[]Frame) Capture` with an ordinary signature (so the
+checker types calls normally) and intercept its lowering by name. The `debug` entries embed
+it directly so it expands *inline* in their bodies (the "current frame" at expansion is the
+library entry's frame, which it drops per the skip convention).
 
 Lowering — **two** targets (NOT the self-hosted native backends; see the compilation
 fact above):
@@ -206,10 +213,19 @@ in the merged sorted set (a return address always lands inside its function), wi
 end-sentinel per fragment to bound the last function. An address below every start / above
 the last sentinel ⇒ `FrameInfo.Ok = false`.
 
+**Compiler-generated shims (decided).** A frame-establishing func-value/aggregate-return
+shim is a real frame but not a source function — and if its address is interleaved between
+two source functions and NOT recorded, nearest-below would mis-resolve it to a neighbor
+(returning `Ok` with the WRONG name — worse than `!Ok`). So we must record shim ranges for
+`Ok` to be correct anyway; once recorded, naming them is nearly free, so **shims get a
+synthetic category-name entry** (e.g. `<func-value shim>`) rather than `!Ok`. Foreign
+frames we don't generate — `__c_call` C frames, libc/clang-runtime frames — cannot be named
+and remain `!Ok` (raw address only). (Tail-jumping shims are frameless and never appear.)
+
 `Symbolize` for a native frame: binary-search the sorted table by address → `nameOffset`
-→ borrow the mangled string → `Demangle` → render. Gate emission behind a build flag
-(default **on**; a `--no-symbol-table` to drop it for size-sensitive builds — default is
-an open sub-decision, see below). Leaves the ELF/Mach-O `.symtab` untouched (orthogonal).
+→ borrow the mangled string → `Demangle` → render. Gate emission behind a build flag,
+**default on** (decided), with `--no-symbol-table` to drop it for size-sensitive/bare-metal
+builds. Leaves the ELF/Mach-O `.symtab` untouched (orthogonal).
 
 Layering: which functions + their mangled names is language-level/shared (mangling is
 shared); the address-range fragment emission is per-backend (codegen + native each emit
@@ -269,11 +285,12 @@ headline scopes arm32 as **best-effort / gated**, not delivered alongside x64/aa
 >   (inlining, tail-call elimination, frame-pointer omission) could merge or drop frames;
 >   we pin `-fno-omit-frame-pointer` and build deps at `-O0`, but do not otherwise
 >   guarantee against future opt levels.
-> - **Frames may be present but unsymbolizable.** Some real frames are *not* source
->   functions — non-tail func-value/aggregate-return shims that CALL (establishing a
->   frame), `__c_call` C frames, and clang-runtime frames. These fall outside the
->   symbolization table and surface as `FrameInfo.Ok == false` (raw address only), NOT as
->   a legitimate function with an empty name. Callers must handle `!Ok`.
+> - **Frames may be present but not a source function.** Non-tail
+>   func-value/aggregate-return shims that CALL (establishing a frame) get a **synthetic
+>   category name** (e.g. `<func-value shim>`), so they read as compiler trampolines, not
+>   as your code. Frames we did not generate — `__c_call` C frames, libc/clang-runtime
+>   frames — surface as `FrameInfo.Ok == false` (raw address only), NOT as a legitimate
+>   function with an empty name. Callers must handle `!Ok`.
 
 Forward-looking reservation (not built): recovering inlined *logical* frames (once
 inlining lands) needs inline-frame metadata — a Tier-B+ decision, not owed now. Whether
@@ -308,7 +325,7 @@ boundary is Tier B.
    `pkg/std/debug` package; `Frame`/`FrameInfo` types; the intrinsic through
    token/lexer/parser/checker/IR; **codegen (LLVM) FP-walk lowering** + **VM bytecode op**
    with `execLoop` walk + publish threading; `Callers`/`Caller` returning raw `Frame`s
-   (total-depth semantics). Green in the **default (LLVM) modes AND the `-int` (VM) modes**
+   (with `Capture{Total, Bottom}` semantics). Green in the **default (LLVM) modes AND the `-int` (VM) modes**
    — the intrinsic is handled in both backends `debug` is ever compiled by, so no
    fail-loud-on-unimplemented-op. (`-fno-omit-frame-pointer` added here.) First milestone:
    raw capture depth/identity verified in both modes.
@@ -359,10 +376,18 @@ applies.
    capture out of scope; fault-path correctness gaps noted only so the on-fault follow-up
    is not layered on them prematurely.
 
-## Open sub-decisions (resolve during impl or surface)
+## Resolved sub-decisions
 
-- Exact intrinsic spelling: keyword-token (`_stack_frames`) vs IR-magic-by-name.
-- `--no-symbol-table` default (on vs off) & name — weighs backtrace-usability vs binary
-  size on the bare-metal target.
-- Shim/thunk address ranges: emit into the table with synthetic names, vs leave `!Ok`.
-- Encoding of the capture's bottom-reason (companion flag vs a `Frame` kind).
+- **Intrinsic spelling → IR-magic-by-name** (like `rt._call_shim_*`), not a keyword-token.
+  `_stack_frames` is compiler-internal (users call `Callers`), so it needs no reserved word
+  or grammar/spec change — declare it with an ordinary signature and intercept its lowering
+  by qualified name.
+- **`--no-symbol-table` → default on.** The table ships by default so backtraces symbolize
+  out of the box; `--no-symbol-table` opts out for size-sensitive / bare-metal builds.
+- **Shim frames → synthetic category name, not `!Ok`.** Correct `Ok` around interleaved
+  shims requires recording their ranges anyway (else nearest-below mis-resolves a shim to a
+  neighbor); once recorded, a synthetic name (`<func-value shim>`) is nearly free. `__c_call`
+  C frames and libc/clang-runtime frames stay `!Ok` (we cannot name foreign code).
+- **Bottom-reason → companion flag.** `Callers` returns `Capture { Total int; Bottom
+  BottomReason }`; the `Bottom` (`PROGRAM_ENTRY` | `MODE_BOUNDARY`) travels with the depth
+  rather than overloading `Frame`. Only meaningful in mixed/interpreted execution.
