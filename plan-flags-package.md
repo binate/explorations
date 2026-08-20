@@ -144,8 +144,12 @@ Confirm any newer construct directly against the BUILDER before use.
 
 Adopt one tool at a time, each its own commit (tests stay green between):
 
-1. `bnfmt` — smallest (`-w`, `--check`, files). Proof of the API.
-2. `bnas` — `-o`, `-arch`, one positional.
+1. `bnfmt` — smallest (`-w`, `--check`, files). Proof of the API. **DONE**
+   (landed `16b97a5ef`). Confirmed the model's one real footgun in practice:
+   a flag after a positional (`bnfmt -w f1 --check`) is reinterpreted as a
+   filename — accepted, since it only bites already-malformed commands and is
+   inherent to no-interspersing across every tool.
+2. `bnas` — `-o`, `-arch`, one positional. **NEXT**
 3. `bnlint` — `-I`/`-L` (`:`-split), `--target`, `--tests`, pkgs; error-return style already matches.
 4. `bni` — `-x` script mode + `--` program-args passthrough (uses the stop-at-first-positional split; keeps a thin tail handler for ProgArgs).
 5. `bnc` — BUILDER-compiled; the headline. Replaces `parseArgs`/`CLIArgs`
