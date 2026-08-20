@@ -56,32 +56,6 @@ it to `os.Getenv` (or `os.Env()`), then delete `sys.Getenv` from `pkg/std/os/sys
 
 ## Documentation hygiene
 
-### The spec (`docs/spec/`) still references `explorations/` docs — resolve each explicitly — 🟡 OPEN (2026-08-18)
-
-The specification should be **self-contained** and not point at `explorations/`
-docs (which are non-normative, may move/rename, and aren't visible to a spec
-reader). Phase 0 of the cast redesign removed the three refs it had introduced
-in Ch.8; ~14 pre-existing refs remain and should be resolved **case by case** —
-not blanket-deleted. Two rough kinds:
-
-- **Provenance headers** (probably KEEP): the `> Primary sources (explorations/): …`
-  lines opening annex-b/c/d, and `00-index.md`'s pointer to
-  `plan-language-spec.md`. These document how the spec was derived rather than
-  asserting normative content; they likely stay (or move to a clearly-marked
-  non-normative "sources" note).
-- **Design-doc pointers in normative chapters** (probably GO): §12
-  (`plan-generic-type-methods.md`), §16b / §17 / §20 (`design-ffi-export.md`),
-  `conventions.md` (`plan-language-spec.md`), and `binate.ebnf`'s mention of the
-  retired `explorations/grammar.ebnf`. Each points at an `explorations/` doc from
-  inside normative prose — replace with the in-spec reference (or drop if the
-  content is already stated in the spec), the way the "Comments Stand Alone"
-  sweep is stripping such pointers from code comments.
-
-Enumerate repo-wide first (`grep -rn 'explorations/' docs/spec/`, excluding the
-generated `rule-ids.txt`), then triage each site KEEP-vs-replace-vs-drop with the
-user before editing — some design-doc pointers are the only current home for an
-unwritten feature and may need to stay until that feature is specced.
-
 ### Code comments reference only normative docs + TODOs; rehome the implementation "specs" — 🟡 OPEN
 
 Policy (in effect): code comments must not reference plan/design/notes docs.

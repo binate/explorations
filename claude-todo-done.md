@@ -6,6 +6,35 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Spec self-containedness — `explorations/` refs removed from normative chapters — ✅ DONE (2026-08-20, docs `9c014be`)
+
+Executed per the entry's own plan (repo-wide enumeration, then case-by-case
+triage; the user set the policy: provenance stays, normative prose becomes
+self-contained). ~30 sites across 16 files:
+
+- **GO (removed/replaced):** every `claude-todo.md` tracking pointer in a
+  normative chapter → **Annex C** (the spec's own designated status ledger);
+  `claude-notes.md` citations (§13.2 arbitration note dropped; §11.12 line-ref
+  dropped; §9.5 shadowing note reworded — also fixing its stale pre-errors-only
+  "compiler warning" framing to a lint concern; §6.1's "design note vs impl"
+  coercion-divergence note dropped outright — the no-coercion decision was
+  reversed 2026-06-28, so the conflict it reported no longer exists);
+  design/plan-doc pointers in Draft notes (`design-ffi-export.md` ×3,
+  `plan-generic-type-methods.md`, conventions' `plan-language-spec.md` §10
+  pointer); `binate.ebnf`'s header (also fixed its stale "until generation
+  runs, the chapters are authoritative" claim — generation runs, the ebnf is
+  canonical); conventions/00-index Axis-2 sourcing generalized to "the project
+  defect ledger".
+- **KEEP (provenance):** annex-b/c/d `> Primary sources (explorations/)`
+  headers + their `plan-language-spec.md` caveat lines; Annex C's data-source
+  scope note; 00-index's authoring-plan pointer; `proposal-*` decision tags
+  (opaque labels, not paths). Conformance-test evidence refs (e.g.
+  `conformance/665_…`) also kept — impl-repo evidence pointers, not
+  explorations docs.
+
+Annex A + rule-ids.txt regenerated (no rule delta). Residual sweep confirms
+only the KEEP set remains.
+
 ## `cast` / `bit_cast` / `unsafe_cast` redesign — DONE (2026-08-19)
 
 **Severity: MAJOR** (silent miscompile) — closed. The trigger was `cast(@[]char, a)`
