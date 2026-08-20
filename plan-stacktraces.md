@@ -68,9 +68,10 @@ the main module." Consequences that shape everything below:
   intrinsic `OP_FUNC_HANDLE` is likewise lowered in codegen, `emit_funcvals.bn`.)
 - A backtrace's frames span *both* main-module functions (self-hosted native, in
   `--backend native` builds) *and* dependency functions (LLVM). So the symbolization
-  table cannot be a single self-hosted-native global — it must be emitted by **every
-  backend** and **root-collected whole-program at runtime**, exactly like the existing
-  `_pkg_satentries` weak-symbol root collection (`native/common/common_satroot.bn`).
+  table cannot be a single self-hosted-native global — it is emitted by **every backend**
+  as **per-package fragments linked into a dependency graph** and merged at runtime (the
+  decentralized model in [`plan-rtti-decentralize.md`](plan-rtti-decentralize.md), done
+  first as a PoC — see the table section).
 - The FP walk (which runs inside LLVM-compiled `debug` code) traverses whatever frames
   are on the stack. Its correctness depends on **every** frame keeping a standard FP
   chain: clang at `-O0` (bnc passes no `-O`, so this holds today — we will additionally
@@ -84,7 +85,7 @@ the main module." Consequences that shape everything below:
 |---|---|---|
 | `debug` library | `ifaces/.../pkg/std/debug` + impl — an **ordinary importable package** | ordinary Binate; lowered in VM, LLVM-compiled in AOT |
 | capture intrinsic | `token`/`lexer`/`parser`/`types`/`ir` + lowering in **`codegen` (LLVM) and the VM** | compiler surface |
-| loaded symbolization table | emitted by **every** backend (LLVM + self-hosted-native for the main module); **root-collected + sorted at runtime** | compiler-emitted data + runtime reader |
+| loaded symbolization table | emitted by **every** backend as **per-package graph-linked fragments**; **merged + sorted at runtime** (decentralized, per `plan-rtti-decentralize.md`) | compiler-emitted data + runtime reader |
 | VM current-frame publish hook | `pkg/binate/vm` (`execLoop`) | VM-internals |
 | generic-name renderer | `pkg/binate/mangle` | pure library |
 | arm32 clang-compatible FP frame | `pkg/binate/native/arm32` prologue/epilogue | backend (non-trivial) |
@@ -176,20 +177,29 @@ a Tier-B fault-path concern).
 
 The native side of "names in memory, format we own." Because functions are split across
 many separately-compiled objects (all deps via LLVM; the main module via either backend),
-the table is emitted as **per-object fragments and root-collected at runtime**, mirroring
-`_pkg_satentries` (`native/common/common_satroot.bn`): each object emits a weak
-`_pkg_symtab` fragment (its own functions), a root gathers them, and the runtime **sorts
-by address after relocation** (addresses are relocation-deferred, so the sort cannot
-happen at emit time).
+the table is emitted as **per-package fragments linked into a dependency graph and merged
+at runtime** — the decentralized model developed and proven first in
+[`plan-rtti-decentralize.md`](plan-rtti-decentralize.md) (the RTTI/satentry PoC). Each
+package emits its own `_pkg_symtab` fragment carrying (a) its own functions and (b)
+symrefs to its **direct** dependencies' `_pkg_symtab`; the runtime graph-walks from the
+main module's fragment (dedup by fragment address), then **sorts the merged set by address
+after relocation** (addresses are relocation-deferred, so the sort cannot happen at emit
+time). This — rather than a main-module-enumerated flat root — is what lets a backtrace
+symbolize functions in an opaque binary-blob dependency the final program never named
+(the fragment's undefined dep-symrefs pull and retain the blob's internal objects; see the
+RTTI plan). Every package emits a fragment even with no relevant entries, since it is a
+graph **waypoint**.
 
 Each fragment entry is `{ startAddr, nameOffset }` (start address via a `DT_SYMREF`
 absolute relocation against the function's symbol — the mechanism the data layer already
-has; `irdata/data_global.bn`), plus a string blob of mangled names. **No per-function
-size field** — the asm layer has no label-difference/size reloc (`SetSize` etc. do not
-exist), so size is net-new machinery we avoid: `Symbolize` attributes an address to the
-**nearest start-address at or below it** in the merged sorted set (a return address always
-lands inside its function), with an end-sentinel per fragment to bound the last function.
-An address below every start / above the last sentinel ⇒ `FrameInfo.Ok = false`.
+has; `irdata/data_global.bn`), plus a string blob of mangled names; the fragment is
+**length-prefixed** (self-describing) so edges carry no counts and editing a package body
+never touches another package's object. **No per-function size field** — the asm layer has
+no label-difference/size reloc (`SetSize` etc. do not exist), so size is net-new machinery
+we avoid: `Symbolize` attributes an address to the **nearest start-address at or below it**
+in the merged sorted set (a return address always lands inside its function), with an
+end-sentinel per fragment to bound the last function. An address below every start / above
+the last sentinel ⇒ `FrameInfo.Ok = false`.
 
 `Symbolize` for a native frame: binary-search the sorted table by address → `nameOffset`
 → borrow the mangled string → `Demangle` → render. Gate emission behind a build flag
@@ -285,6 +295,10 @@ boundary is Tier B.
 
 ## Phasing (each commit independently green & cherry-pickable)
 
+0. **RTTI/satentry decentralization PoC** ([`plan-rtti-decentralize.md`](plan-rtti-decentralize.md)).
+   Convert the native `_satentry_root` from a main-enumerated flat root to per-package
+   graph-linked fragments, proving the decentralized approach on an existing tested
+   subsystem *before* the symbolization table reuses it. Precedes phase 2.
 1. **`debug` library skeleton + capture intrinsic (LLVM + VM lowering).** Ordinary
    `pkg/std/debug` package; `Frame`/`FrameInfo` types; the intrinsic through
    token/lexer/parser/checker/IR; **codegen (LLVM) FP-walk lowering** + **VM bytecode op**
@@ -293,9 +307,10 @@ boundary is Tier B.
    — the intrinsic is handled in both backends `debug` is ever compiled by, so no
    fail-loud-on-unimplemented-op. (`-fno-omit-frame-pointer` added here.) First milestone:
    raw capture depth/identity verified in both modes.
-2. **Loaded symbolization table + native `Symbolize`.** Per-object `_pkg_symtab`
-   fragments (codegen + native), runtime root-collection + sort, nearest-start-below
-   lookup, `Ok` handling, `--no-symbol-table` flag. VM `Symbolize` via `VMFunc.Name`.
+2. **Loaded symbolization table + native `Symbolize`.** Per-package graph-linked
+   `_pkg_symtab` fragments (codegen + native, reusing the phase-0 pattern), runtime
+   graph-merge + sort, nearest-start-below lookup, `Ok` handling, `--no-symbol-table`
+   flag. VM `Symbolize` via `VMFunc.Name`.
 3. **Generic renderer + `Symbolize`/`Stacktrace` completion.** End-to-end readable
    `{Pkg, Func}` backtraces in both modes; `!Ok` frames surfaced correctly.
 4. **arm32 clang-compatible FP frame + fragment emission.** Restructure the self-hosted
@@ -325,9 +340,9 @@ applies.
 ## Risks
 
 1. **The native story rests on "deps are LLVM-compiled."** The intrinsic's real home is
-   `codegen`, and the symbol table must root-collect across objects — both folded in
+   `codegen`, and the symbol table is a per-package graph of fragments — both folded in
    above. If the native backend ever grows to compile deps, the table already handles it
-   (per-object fragments), but the intrinsic would then also need self-hosted lowering.
+   (per-package fragments), but the intrinsic would then also need self-hosted lowering.
 2. **arm32 is a real backend change** (AAPCS FP convention) against an incomplete native
    backend — verify with the `native` arm32 mode; scoped as best-effort in the headline.
 3. **clang frame-pointer reliance** — mitigated by `-fno-omit-frame-pointer` + `-O0`

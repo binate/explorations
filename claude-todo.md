@@ -151,6 +151,32 @@ See explorations/done/plan-funcvalue-byaddr-abi.md.
 
 ## Cross-mode interface dispatch & compiler/interpreter interop
 
+### Native SatEntry registry (RTTI) assumes whole-program package enumeration — breaks opaque binary distribution — 🟡 OPEN (being addressed as a PoC, 2026-08-20)
+
+**Severity: latent (forward-compat limitation, not a live miscompile).** The native
+interface-satisfaction registry root (`_satentry_root`, spec §11.12 `iface.rtti`) is built
+by the MAIN module enumerating the full transitive package set from the driver's
+`ldr.Order` (`cmd/bnc/main.bn:279-331`, under a `satN > 0` skip of empty packages),
+emitted only for main (`__entry`; `SatRootRequested`), consumed by `rt.BuildSatRegistry`.
+This assumes the final build has loaded — and can name — every transitive package. It
+holds for whole-program-from-source builds (correct today), but **breaks under opaque
+binary distribution**: a closed-source library shipped as `{facade.bni, bundle.a}` bundles
+internal packages the consumer's loader never sees; their `_pkg_satentries` are neither
+pulled from the archive (no undefined-symbol reference to them) nor referenced by the
+consumer's root → interface assertions on facade-hidden implementation types fail at
+runtime. A hard blocker once packages are distributed as binary units.
+
+**Fix**: decentralize into a dependency-graph of fragments — each package's
+`_pkg_satentries` becomes self-describing and carries symrefs to its DIRECT deps'
+fragments; `rt.BuildSatRegistry` graph-walks the transitive closure from the main module's
+fragment (dedup). Every package emits a fragment even when empty (it is a graph waypoint —
+the current `satN > 0` skip can't survive decentralization). See
+[`plan-rtti-decentralize.md`](plan-rtti-decentralize.md). Being taken on now as a
+preliminary PoC of the decentralized approach that the stacktrace symbolization table
+([`plan-stacktraces.md`](plan-stacktraces.md)) reuses. The VM's separate satentry path
+(`vm.RegisterPackageSatEntries` over the interp inject-set) has an analogous enumeration
+question and is out of PoC scope — track separately.
+
 ### Package descriptors — Phase C (richer metadata) + VM extern auto-enumeration remain
 
 The general per-package `reflect.Package` descriptor incl. the `Functions` table
