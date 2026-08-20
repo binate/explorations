@@ -151,8 +151,20 @@ Adopt one tool at a time, each its own commit (tests stay green between):
    inherent to no-interspersing across every tool.
 2. `bnas` — `-o`, `-arch`, one positional. **DONE** (landed `7902d5de7`).
    charsEqual moved to main_test.bn (now a test-only helper).
-3. `bnlint` — `-I`/`-L` (`:`-split), `--target`, `--tests`, pkgs; error-return style already matches. **NEXT**
-4. `bni` — `-x` script mode + `--` program-args passthrough (uses the stop-at-first-positional split; keeps a thin tail handler for ProgArgs).
+3. `bnlint` — `-I`/`-L` (`:`-split), `--target`, `--tests`, pkgs. **DONE**
+   (landed `1b3215ba3`). Its parser was the lenient one — unknown `--foo`
+   became a package; now a strict error (per design decision #4). One test
+   retargeted (`TestParseArgsRootIsRejected`).
+4. `bni` — `-x` script mode + `--` program-args passthrough. **UNDER DISCUSSION**
+   — bni is the marginal case: its `--` means "end of FILENAMES, start of
+   ProgArgs" (not "end of flags"), it intersperses flags with filenames, and
+   `-x` captures everything after the script. The flags package would parse
+   only the ~10 leading flags; the filename/`--`/ProgArgs/`-x` tail stays
+   hand-rolled. All REAL invocations are flags-first (`bni [flags] file --
+   progargs`), so real behavior is preserved, but the conversion needs a custom
+   tail-handler + a vec-field shim + several test retargets (bni's tests pin the
+   old lenient-unknown behavior). Awaiting a call on whether the smaller dedup
+   is worth it vs. leaving bni's bespoke parser.
 
 Follow-up: `cmd/bnfmt/main.bn`'s `progArgs` comment still names `buf.CopyStr`
 (dropped when bnfmt was converted) — a stale reference to fix. bnas's copy was
