@@ -156,26 +156,38 @@ See explorations/done/plan-funcvalue-byaddr-abi.md.
 **Severity: latent (forward-compat limitation, not a live miscompile).** The native
 interface-satisfaction registry root (`_satentry_root`, spec §11.12 `iface.rtti`) is built
 by the MAIN module enumerating the full transitive package set from the driver's
-`ldr.Order` (`cmd/bnc/main.bn:279-331`, under a `satN > 0` skip of empty packages),
-emitted only for main (`__entry`; `SatRootRequested`), consumed by `rt.BuildSatRegistry`.
-This assumes the final build has loaded — and can name — every transitive package. It
-holds for whole-program-from-source builds (correct today), but **breaks under opaque
-binary distribution**: a closed-source library shipped as `{facade.bni, bundle.a}` bundles
-internal packages the consumer's loader never sees; their `_pkg_satentries` are neither
-pulled from the archive (no undefined-symbol reference to them) nor referenced by the
-consumer's root → interface assertions on facade-hidden implementation types fail at
-runtime. A hard blocker once packages are distributed as binary units.
+`ldr.Order` (`cmd/bnc/main.bn:280-308`, under a `satN > 0` skip of empty packages),
+emitted only for main, consumed by `rt.BuildSatRegistry` — and it is the root that
+**retains** each package's satentry data. This assumes the final build has loaded — and can
+name — every transitive package. It holds for whole-program-from-source builds (correct
+today), but is the wrong shape for **opaque binary distribution**: a closed-source library
+shipped as `{facade.bni, bundle.a}` bundles internal packages the consumer's loader never
+names. The primary failure is **dead-strip** — the facade's code pulls the internal
+package's object (it references its functions/vtables), but that package's weak
+`_pkg_satentries` / `__satentry` data is referenced only by the root, which never names it
+→ stripped → an interface assertion on a facade-hidden implementation type returns nil.
 
-**Fix**: decentralize into a dependency-graph of fragments — each package's
-`_pkg_satentries` becomes self-describing and carries symrefs to its DIRECT deps'
-fragments; `rt.BuildSatRegistry` graph-walks the transitive closure from the main module's
-fragment (dedup). Every package emits a fragment even when empty (it is a graph waypoint —
-the current `satN > 0` skip can't survive decentralization). See
-[`plan-rtti-decentralize.md`](plan-rtti-decentralize.md). Being taken on now as a
-preliminary PoC of the decentralized approach that the stacktrace symbolization table
+**Not a self-sufficient fix, and not the only enumeration point:** the `__init` dispatcher
+(`__init_all`, built from `initPkgNames` over `ldr.Order`, `main.bn:291-349`) has the
+identical main-enumeration shape, so a facade-hidden package's top-level initializers would
+be just as absent; and no wired/tested Binate-consumes-a-prebuilt-`.a` path exists yet
+(`--library` targets C via `bn_init`). So this is a **PoC of the decentralized-graph
+mechanism** (its real payoff is the stacktrace symbolization table), fixing ONE
+enumeration point — not a complete opaque-distribution capability.
+
+**Fix**: decentralize into a dependency-graph of fragments. A **new, separate** symbol
+`_pkg_satfrag` (NOT the reuse-`_pkg_satentries` idea, which would corrupt the
+`reflect.Package.SatEntries` backing array the VM injector reads) points at the package's
+existing entries + carries symrefs to its DIRECT (effective, `m.ImportAliasPaths`) deps'
+`_pkg_satfrag`; `rt.BuildSatRegistry` graph-walks the transitive closure from main's
+fragment (dedup'd, to avoid diamond re-walk). Main's fragment pinned via `@llvm.used`
+(LLVM) / `__entry` LEA (native). Every package emits `_pkg_satfrag` even when empty (graph
+waypoint). See [`plan-rtti-decentralize.md`](plan-rtti-decentralize.md); taken on now as a
+preliminary PoC the stacktrace symbolization table
 ([`plan-stacktraces.md`](plan-stacktraces.md)) reuses. The VM's separate satentry path
-(`vm.RegisterPackageSatEntries` over the interp inject-set) has an analogous enumeration
-question and is out of PoC scope — track separately.
+(`vm.RegisterPackageSatEntries`) consumes the untouched `_pkg_satentries` array, so keeping
+that array as-is is what keeps it correct — the `-int`/cross-mode tests are a required
+no-regression axis, not an ignorable path.
 
 ### Package descriptors — Phase C (richer metadata) + VM extern auto-enumeration remain
 

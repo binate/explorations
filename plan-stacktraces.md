@@ -180,15 +180,20 @@ many separately-compiled objects (all deps via LLVM; the main module via either 
 the table is emitted as **per-package fragments linked into a dependency graph and merged
 at runtime** — the decentralized model developed and proven first in
 [`plan-rtti-decentralize.md`](plan-rtti-decentralize.md) (the RTTI/satentry PoC). Each
-package emits its own `_pkg_symtab` fragment carrying (a) its own functions and (b)
-symrefs to its **direct** dependencies' `_pkg_symtab`; the runtime graph-walks from the
-main module's fragment (dedup by fragment address), then **sorts the merged set by address
-after relocation** (addresses are relocation-deferred, so the sort cannot happen at emit
-time). This — rather than a main-module-enumerated flat root — is what lets a backtrace
-symbolize functions in an opaque binary-blob dependency the final program never named
-(the fragment's undefined dep-symrefs pull and retain the blob's internal objects; see the
-RTTI plan). Every package emits a fragment even with no relevant entries, since it is a
-graph **waypoint**.
+package emits its own `_pkg_symtab` fragment (a fresh symbol — no dual-purpose hazard like
+RTTI's `_pkg_satentries`) carrying (a) its own functions and (b) symrefs to its **direct**
+dependencies' `_pkg_symtab`; the runtime graph-walks from the main module's fragment (dedup
+by fragment address), then **sorts the merged set by address after relocation** (addresses
+are relocation-deferred, so the sort cannot happen at emit time). This — rather than a
+main-module-enumerated flat root — is what lets a backtrace symbolize functions in an
+opaque binary-blob dependency the final program never named (the fragment's undefined
+dep-symrefs pull and retain the blob's internal objects; see the RTTI plan). Every package
+emits a fragment even with no relevant entries, since it is a graph **waypoint**.
+
+Retention is per-backend (as the RTTI PoC establishes): main's `_pkg_symtab` is pinned via
+**`@llvm.used`** on the LLVM build and via the **`__entry` LEA reloc** on the native build
+(the `__entry` reference is a folded no-op under LLVM, so `@llvm.used` is mandatory there);
+the strong dep-symref chain then transitively retains descendants.
 
 Each fragment entry is `{ startAddr, nameOffset }` (start address via a `DT_SYMREF`
 absolute relocation against the function's symbol — the mechanism the data layer already
