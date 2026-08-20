@@ -1,9 +1,21 @@
 # Plan: redesign bni's command-line interface (package-oriented, no positional source files)
 
 Status: **DONE** — implemented and landed on `main` (`1b75e5a8e`), with all
-in-repo callers updated atomically. `examples/` (separate repo) migrates at its
-next BUILDER bump, tracked in `examples/TODO.md`. This was a BREAKING change to
-bni's user-facing CLI.
+in-repo callers updated atomically, plus a **fix-forward** (`8f8a863c2`).
+`examples/` (separate repo) migrates at its next BUILDER bump, tracked in
+`examples/TODO.md`. This was a BREAKING change to bni's user-facing CLI.
+
+**Correction (fix-forward `8f8a863c2`):** the original claim that `-main-file`
+subsumes `-x` was WRONG — a shebang is a fixed prefix, so a flag-looking script
+arg (`./s.bn --help`) was parsed as a bni flag, not passed to the program. The
+fix: when no `-main-dir`/`-main-file`/`-test` is given, the **first positional**
+is the main package (auto-detected dir vs file) and everything after it is the
+program's argv; parsing stops there, so flag-looking argv reaches the program.
+So bni DOES take a positional source file again (the injection concern is still
+resolved — the `--`-splits-filenames rule stays gone; `--` is just end-of-flags).
+The canonical shebang is `#!/usr/bin/env -S bni <flags> --`. Explicit
+`-main-dir`/`-main-file` still make every positional argv (needing `--` for
+flag-looking progargs, as the `-int-int` runners already do).
 
 ## Motivation
 
