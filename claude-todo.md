@@ -125,28 +125,16 @@ See explorations/done/plan-funcvalue-byaddr-abi.md.
 
 ## Cross-mode interface dispatch & compiler/interpreter interop
 
-### Fail loud on unhandled ops across ALL backends (esp. native) — 🟡 OPEN (NEXT, user-approved 2026-08-21)
-
-Now that `--backend native` compiles EVERY package — deps + main — through the native backend
-(landed `e0d28b1fc`; see claude-todo-done.md), the native backends' silent-drop policy is a live
-silent-miscompile risk. Both `pkg/binate/native/x64` (dispatch tail "Anything else is silently
-dropped") and `.../aarch64` (switch default) emit NOTHING for an op they don't handle, so a
-dependency package using an unhandled op would silently miscompile instead of erroring. Convert the
-unhandled-op path to **fail loud** — a compile-time error naming the op + the package/function — on
-all backends, including native. Any gap then surfaces as a build failure, not a silent wrong-code
-bug (the CLAUDE.md prime directive). Current empirical surface is clean (full native aa64 conformance
-2981/0 + cmd/bnc self-compiles fully native), so flipping fail-loud should not red aa64; validate x64
-native in CI. User-approved as the immediate follow-up to the native-deps landing.
-
-### `--backend native` support in unit-test mode — 🟡 OPEN (follow-up AFTER fail-loud, user-approved 2026-08-21)
+### `--backend native` support in unit-test mode — 🟡 IN PROGRESS (user-approved 2026-08-21)
 
 The unit-test runner (`scripts/unittest/run.sh`) compiles test binaries only via LLVM/VM
 (`builder-comp*` / `*-int` chains); no mode compiles the test binary itself with `--backend native`.
-With the native-deps fix, a native unit-test mode would exercise native compilation of each
-package-under-test AND its dependencies end-to-end (today native e2e coverage is conformance-only).
-Add such a mode. User-approved as a follow-up to be done AFTER the fail-loud work above. (Related
-smaller native gap: `native/arm32` lacks both the `OP_STACK_FRAMES` lowering and any FP-chain walk —
-plan-stacktraces phase 4.)
+With the native-deps fix (landed `e0d28b1fc`) + fail-loud (landed `9d3aa1f5f`), native compilation is
+now safe to exercise end-to-end in unit tests — a native unit-test mode would compile each
+package-under-test AND its dependencies through the native backend (today native e2e coverage is
+conformance-only). Add such a mode. Currently being implemented (the follow-up after the fail-loud
+work). (Related smaller native gap: `native/arm32` lacks both the `OP_STACK_FRAMES` lowering and any
+FP-chain walk — plan-stacktraces phase 4.)
 
 ### `__init` dispatcher (+ other main-enumerated structures) assume whole-program enumeration — remaining blockers for opaque binary distribution — 🟡 OPEN
 

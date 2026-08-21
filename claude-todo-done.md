@@ -44,6 +44,26 @@ review before landing found no correctness defects (predicate scope, raw-symbol 
 orphaned-weak-shim, SetGlobal, LLVM delegation, BUILDER-compat all sound). Found by the 2026-08-21
 regression audit.
 
+## Fail loud on an unimplemented IR op across all backends — DONE (2026-08-21, `9d3aa1f5f`)
+
+Follow-up to the native-deps landing (`e0d28b1fc`, below). With `--backend native` now compiling
+every package including dependencies, the native backends' silent-drop policy (x64 dispatch tail
+"Anything else is silently dropped"; arm64 switch default emitting nothing) was a live
+silent-miscompile risk — a dependency using an unhandled op would produce a wrong binary with no
+error. The LLVM backend was similarly soft (an inert `; unhandled op` comment).
+
+Fixed (`9d3aa1f5f`): the unhandled-op path now fails loud on all backends (arm32 native + the VM
+lowering already did). Native x64/arm64 `SetError("native <arch>: unimplemented IR op <name>")` so
+`EmitObject` returns false → bnc compile error; LLVM codegen `panic("codegen: unimplemented IR op
+<name>")`. The three ops that legitimately emit nothing natively — `OP_SP_RESTORE`, `OP_NIL_CHECK`
+(VM-only) and `OP_UNREACHABLE` (unreached terminator) — became EXPLICIT no-op cases (x64 had relied
+on the silent tail for all three; arm64 lacked `OP_UNREACHABLE`), matching arm32's existing explicit
+set. No x64/arm64 trap emitter exists, so `OP_UNREACHABLE` is an explicit no-op (its prior correct
+behavior). Tests: an unimplemented op (`OP_UNWIND_RETURN`, VM-only) must set the error; the three
+no-op ops must emit nothing and not error. Verified on aarch64: cmd/bnc self-compiles fully native
+with fail-loud on (no op reaches the tail → the no-op set is complete), full native aarch64
+conformance unchanged at 2981/0. x64 native fail-loud validated in CI.
+
 ## `--backend native` honors deps, not just the main module — DONE (2026-08-21, `e0d28b1fc`)
 
 `cmd/bnc` used to route every dependency package (and every `--pkg` / `--library` object)
