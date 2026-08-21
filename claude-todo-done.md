@@ -6,6 +6,31 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `--backend native` honors deps, not just the main module — DONE (2026-08-21, `e0d28b1fc`)
+
+`cmd/bnc` used to route every dependency package (and every `--pkg` / `--library` object)
+through the LLVM path unconditionally; only the *main module* consulted `--backend native`.
+So a "native" build still shelled out to clang to COMPILE most of the program. This was a
+longstanding **driver** limitation (NOT a native-backend capability gap, and NOT a regression:
+the Backend-interface dispatch `bda81ca78` was always main-module-only), which had led to the
+false framing that native "only lowers the main module."
+
+Fix (`e0d28b1fc`): routed all three object-emission sites through the existing
+`compileModuleVia(mod, ..., useNative)` seam — the whole-program dependency loop (`main.bn`),
+`compileSinglePkg` (`--pkg`), and `compileLibrary` (`--library`, per-package + facade).
+`--emit-llvm` stays an LLVM-only debug dump. Now a `--backend native` build compiles every
+package — deps + main — through the self-hosted native backend, and clang is invoked ONLY for
+linking (the `.s` runtime files are already assembled in-process, `c689d2161`).
+
+Verified on aarch64: `cmd/bnc` itself self-compiles fully native (a clang-logging shim showed
+exactly ONE clang invocation — the link — and zero `-c` compiles); the native-built compiler
+produces correct binaries; the full native aarch64 conformance suite is green with dependencies
+native-compiled (2981 passed / 0 failed); the LLVM default path is behavior-identical
+(`compileModuleVia(..., false)` is the old direct `compileLL` call chain; 602/0 sanity). x64
+native to be validated in CI (not exercisable on the Darwin-arm64 dev host). Remaining
+native-hardening follow-ups (fail-loud on unhandled ops; a native unit-test mode) stay OPEN in
+claude-todo.md.
+
 ## Satentry registry (RTTI) decentralized — dependency-graph of `_pkg_satfrag` nodes — DONE (2026-08-21)
 
 **Severity: latent forward-compat limitation, resolved for the satentry registry.** The
