@@ -137,12 +137,15 @@ trampoline-dispatch gap (wrong closure-record tag when the HOST is native-compil
 Not a regression from green — never passed on native. Each native job shows `63 passed, 2 failed,
 0 xfail`.
 
-Actions: (1) add unit-test xfail markers for these two packages on the two native self-compile
-modes — NB there is currently no unit xfail for native modes (the only unit xfails are
-arm32_baremetal + the -int skip-pkgs), so this may need a new marker/convention; (2) root-cause the
-native trampoline closure-record-tag gap in the host-facing `CallIfaceMethod` path
-(`pkg/binate/vm/vm.bn` TrampolineScalar/64/Aggregate, the `DATA_KIND_VM_CLOSURE_REC` check). Found
-by the 2026-08-21 regression audit.
+The native backends are first-class targets — this must be FIXED, not xfailed away.
+
+Actions: (1) root-cause + fix the native trampoline closure-record-tag gap in the host-facing
+`CallIfaceMethod` path (`pkg/binate/vm/vm.bn` TrampolineScalar/64/Aggregate, the
+`DATA_KIND_VM_CLOSURE_REC` check) — the real fix; (2) a unit-test xfail on the two native
+self-compile modes is a stopgap ONLY to make the already-real failure visible while the fix is in
+flight (NB there is currently no unit xfail for native modes — only arm32_baremetal + the -int
+skip-pkgs — so it may need a new marker/convention), never the resolution. Found by the 2026-08-21
+regression audit.
 
 ### `__init` dispatcher (+ other main-enumerated structures) assume whole-program enumeration — remaining blockers for opaque binary distribution — 🟡 OPEN
 
@@ -1365,13 +1368,14 @@ passed on the hard-float EXECUTION mode. **Mis-tracked:** `plan-native-arm32.md`
 "float leaf in a REGISTER-returned multi-return tuple — DONE (8fa0f3956)" with "705/975/976 green"
 and "NO documented fail-loud remaining" — but that sign-off was soft-float baremetal execution +
 hard-float COMPILE-ONLY e2e (objdump), never a hard-float run, so the runtime VFP-multiret-store
-miscompile went undetected. Mode is experimental (continue-on-error), so it does not block CI, but
-it is a genuine silent cross-module miscompile at the native↔LLVM boundary.
+miscompile went undetected. The native arm32 backend is a first-class target — this is a genuine
+silent cross-module wrong-code bug at the native↔LLVM boundary and MUST be fixed, not xfailed away.
 
-Actions: (1) add `.xfail.builder-comp_native_arm32_linux` markers to 975/976/988; (2) correct
-`plan-native-arm32.md`'s "b3 DONE / no fail-loud remaining" claim (reopen b3 for the hard-float
-execution path); (3) fix the shim to read the float leaf from its VFP return register (d0/s0), not
-a GP reg. Found by the 2026-08-21 regression audit.
+Actions: (1) fix the shim to read the float leaf from its VFP return register (d0/s0), not a GP reg
+— the real fix; (2) correct `plan-native-arm32.md`'s "b3 DONE / no fail-loud remaining" claim
+(reopen b3 for the hard-float execution path). An `.xfail` marker is a stopgap ONLY, to make the
+already-real failure visible/tracked while the fix is in flight — never the resolution. Found by
+the 2026-08-21 regression audit.
 
 ### native arm32 backend — P6 (VFP + hard-float) in progress; P0–P5 done
 
