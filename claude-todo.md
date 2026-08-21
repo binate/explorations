@@ -125,6 +125,25 @@ See explorations/done/plan-funcvalue-byaddr-abi.md.
 
 ## Cross-mode interface dispatch & compiler/interpreter interop
 
+### Host-facing `CallIfaceMethod` panics on the NATIVE self-compile unit modes — 🔴 UNTRACKED (found 2026-08-21, audit)
+
+`TestCallIfaceMethodScalar` (pkg/binate/vm) and `TestInterpCallIfaceMethodAggregate`
+(pkg/binate/interp) panic `vm: Trampoline{Scalar,Aggregate}: data is not a VM closure record` on
+`builder-comp_native_x64-comp_native_x64` and `builder-comp_native_aa64-comp_native_aa64` (the
+native self-hosted self-compile unit modes). Born-red: the Stage-C SI-5b/5c host-facing
+`CallIfaceMethod` work (`1b86a9c75` / `28a1f06f3`, 2026-08-16) was verified only on `builder-comp`
++ `builder-comp-int` (LLVM + bytecode VM), never the native lanes, so the native-backend
+trampoline-dispatch gap (wrong closure-record tag when the HOST is native-compiled) went untracked.
+Not a regression from green — never passed on native. Each native job shows `63 passed, 2 failed,
+0 xfail`.
+
+Actions: (1) add unit-test xfail markers for these two packages on the two native self-compile
+modes — NB there is currently no unit xfail for native modes (the only unit xfails are
+arm32_baremetal + the -int skip-pkgs), so this may need a new marker/convention; (2) root-cause the
+native trampoline closure-record-tag gap in the host-facing `CallIfaceMethod` path
+(`pkg/binate/vm/vm.bn` TrampolineScalar/64/Aggregate, the `DATA_KIND_VM_CLOSURE_REC` check). Found
+by the 2026-08-21 regression audit.
+
 ### `__init` dispatcher (+ other main-enumerated structures) assume whole-program enumeration — remaining blockers for opaque binary distribution — 🟡 OPEN
 
 The **satentry-registry** whole-program-enumeration defect is **fixed** — decentralized into
@@ -951,6 +970,24 @@ urgency (no current miscompile; the writable placement is safe, just unhardened)
 
 ## Testing: harness, runners & conformance coverage
 
+### `builder-comp_arm32_linux_int` conformance mode: xfail set never populated — 🟡 OPEN (found 2026-08-21, audit)
+
+The `builder-comp_arm32_linux_int` mode (added by `7577e4467`; cross-builds cmd/bni to arm32, runs
+each test's `.bn` through the VM under qemu) has ZERO `.xfail.builder-comp_arm32_linux_int` markers
+repo-wide, so ~9 tests that structurally CANNOT pass under the bytecode VM surface as FAIL instead
+of XFAIL. All are the permanent VM-no-FFI non-goal category (same as their existing
+`.xfail.builder-comp-int`): `__c_call` (498_c_call_basic, 527_c_call_variadic_multi,
+866_c_call_void_return, regressions/c-call/{abs-negative,labs,strlen}, spec/16-packages/093_ccall_no_mangle,
+spec/19-execution/013_divergence_ccall_compiled_only); `__c_global` (982_c_global_environ,
+spec/16-packages/094_cglobal_basic); and compiled-only abort forms
+(spec/11-interfaces/081_dispatch_nil_abort_compiled, spec/19-execution/010_divergence_abort_form_nil_iface).
+The mode is CI non-blocking (continue-on-error), so these don't turn CI red, but they are untracked
+failures. `OVERRIDE_MODE` fallback doesn't apply (mode name lacks the `_native_arm32_` substring).
+
+Action: add `.xfail.builder-comp_arm32_linux_int` markers (mirroring each test's existing
+`.xfail.builder-comp-int` note) so the mode's red is exactly its known non-goal set. Found by the
+2026-08-21 regression audit.
+
 ### Conformance harness: `pkg0.testing` `--test`-only rules are not conformance-testable
 
 1. **GAP (harness limitation, not a defect) — `pkg0.testing.testfunc` + `pkg0.testing.run` are not
@@ -1311,6 +1348,30 @@ Tracked here so archiving the plan doesn't strand it; belongs under the Kernel
 design if picked up.
 
 ## ARM32 bare-metal / native arm32 backend
+
+### native arm32 hard-float (VFP): register-returned multi-return FLOAT leaf reads 0 (975/976/988) — 🔴 UNTRACKED MISCOMPILE (found 2026-08-21, audit)
+
+Silent wrong-code on `builder-comp_native_arm32_linux` (hard-float/AAPCS-VFP execution).
+Conformance 975_funcval_xpkg_multiret_float3, 976_funcval_xpkg_multiret_mixed, and
+988_xpkg_iface_sse fail: a FLOAT leaf in a REGISTER-returned multi-return tuple, returned from an
+LLVM-emitted cross-package func-value / iface shim and consumed by native arm32 code, reads
+0/garbage (976 expects `6\n107`, gets `0\n118272`). The float field rides a VFP return reg (d0/s0)
+that the shim's GP-only store can't read. The LLVM sibling `builder-comp_arm32_linux` PASSES all
+three (so the test + `.expected` are correct); only the native VFP shim path is wrong. Mode total
+~2976 pass / 4 fail.
+
+Longstanding, NOT a regression — red on this mode since inc-3f b3 landed (~2026-08-11); it never
+passed on the hard-float EXECUTION mode. **Mis-tracked:** `plan-native-arm32.md` records inc-3f b3
+"float leaf in a REGISTER-returned multi-return tuple — DONE (8fa0f3956)" with "705/975/976 green"
+and "NO documented fail-loud remaining" — but that sign-off was soft-float baremetal execution +
+hard-float COMPILE-ONLY e2e (objdump), never a hard-float run, so the runtime VFP-multiret-store
+miscompile went undetected. Mode is experimental (continue-on-error), so it does not block CI, but
+it is a genuine silent cross-module miscompile at the native↔LLVM boundary.
+
+Actions: (1) add `.xfail.builder-comp_native_arm32_linux` markers to 975/976/988; (2) correct
+`plan-native-arm32.md`'s "b3 DONE / no fail-loud remaining" claim (reopen b3 for the hard-float
+execution path); (3) fix the shim to read the float leaf from its VFP return register (d0/s0), not
+a GP reg. Found by the 2026-08-21 regression audit.
 
 ### native arm32 backend — P6 (VFP + hard-float) in progress; P0–P5 done
 
