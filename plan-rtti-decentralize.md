@@ -1,9 +1,10 @@
 # Plan: decentralize the native SatEntry registry (RTTI transitive-closure PoC)
 
-**Status:** proposed (not started). A proof-of-concept of the decentralized
-dependency-graph-of-fragments approach, done *before* the stacktrace symbolization table
-([`plan-stacktraces.md`](plan-stacktraces.md)) adopts the same shape. Revised after a
-3-lens adversarial review that caught a shared-symbol corruption and an LLVM-retention gap.
+**Status:** phase 1 implemented + verified (not yet landed on main); phases 2–3 open. A
+proof-of-concept of the decentralized dependency-graph-of-fragments approach, done *before*
+the stacktrace symbolization table ([`plan-stacktraces.md`](plan-stacktraces.md)) adopts the
+same shape. Revised after a 3-lens adversarial review that caught a shared-symbol corruption
+and an LLVM-retention gap; dep edges implemented WEAK (not strong) — see the edges bullet.
 
 ## What this is (and is NOT)
 
@@ -76,10 +77,21 @@ shift element[0] and corrupt that consumer. So `_pkg_satentries` stays exactly a
   `_pkg_satfrag`. On the **default LLVM** build, that same reference is a folded-away no-op
   `bitcast` (`emit_satroot.bn:52-55`, `ir/data_satroot.bn:22-24`) — so main's fragment
   must be pinned in **`@llvm.used`** exactly as the current root is (`emit_satroot.bn:49-59`).
-  From that pinned root, the strong dep-symref chain transitively pulls (from archives) and
-  retains (dead-strip) each descendant fragment — and each fragment's `entriesPtr` retains
-  that package's `_pkg_satentries` + `__satentry` nodes. Dep edges also need the LLVM
-  `external global` declaration (`emit_satroot.bn:35-39`), not only the native `SetGlobal`.
+  From that pinned root the dep-symref chain transitively retains (dead-strip) each present
+  descendant fragment, and each fragment's `entriesPtr` retains that package's
+  `_pkg_satentries` + `__satentry` nodes. (phase-1 note: `emit_cglobal.bn`'s
+  `collectDefinedDataSyms` must list `_pkg_satfrag` alongside `_satentry_root`, or the native
+  `__entry` LEA emits a conflicting `external global` declaration on LLVM — a redefinition.)
+- **Dep edges are WEAK-undefined (phase-1 decision), not strong.** LLVM `extern_weak global`
+  / native `SetWeak`, so a dependency that emits no node — an interface-only package like
+  `reflect` — resolves to null and the walk skips it, rather than dangling the link a strong
+  ref would. Weak refs still propagate dead-strip liveness to *present* nodes (verified: a
+  linked binary retains the whole reachable frag graph), so retention holds for
+  whole-program builds. The one thing weak edges do NOT do is force *archive inclusion* of a
+  not-yet-referenced blob object (strong undefined refs pull `.a` members; weak ones don't) —
+  but that property is only exercised by an opaque-`.a`-consuming build, which isn't
+  constructible yet. **Deferred:** strong edges (needing a filter for which deps actually
+  emit a node) are the eventual refinement, taken up when a blob-consuming build exists.
 - **Runtime walk.** `rt.BuildSatRegistry(&main._pkg_satfrag)` becomes a graph walk. Two
   real constraints in Tier-0 `rt` (no growable collections; the current fill pre-sizes the
   hash via `countSatEntries` before allocating — `rt_satregistry.bn:98-136`): (1) a
@@ -107,10 +119,12 @@ are a required no-regression axis (see Verification), NOT an ignorable path.
 
 ## Phasing (each commit green & cherry-pickable)
 
-1. **Emit `_pkg_satfrag` for every package** (codegen + native/common) — `{ &_pkg_satentries
+1. ✅ **Emit `_pkg_satfrag` for every package** (codegen + native/common) — `{ &_pkg_satentries
    (or null), ownCount, depCount, dep symrefs }`, edges from `m.ImportAliasPaths`, pinned
    from `__entry` (native) / `@llvm.used` (LLVM) on the main module. Not yet consumed —
-   coexists with the existing root. Green: additive.
+   coexists with the existing root. Green: additive. *Implemented + verified* (builder-comp
+   2980/0, native aa64 + `-int` smokes, unit tests, `nm`-confirmed graph retention); dep
+   edges weak (see edges bullet); needed one fix — `collectDefinedDataSyms` += `_pkg_satfrag`.
 2. **Convert `BuildSatRegistry` to the dedup'd graph walk** (visited-list + two-pass
    sizing) seeded from `main._pkg_satfrag`. Now both mechanisms produce the registry;
    verify identical results.
@@ -139,7 +153,7 @@ Bug-discovery protocol applies to anything surfaced.
 ## What the PoC de-risks for the symbol table — and what it does NOT
 
 De-risks: per-package fragment emission on **both** backends, the `@llvm.used` + native-LEA
-retention split, the strong-symref dep chain (archive pull + dead-strip), the
+retention split, the weak dep-symref chain (dead-strip retention of present nodes), the
 empty-waypoint rule, and the dedup'd runtime graph walk. Does **not** exercise (so the
 symtab phase must still budget for): **function**-address relocations across all three
 native backends (RTTI edges/entries are all data→data; the symtab symrefs function start
