@@ -1,6 +1,6 @@
 # Plan: decentralize the native SatEntry registry (RTTI transitive-closure PoC)
 
-**Status:** phase 1 **landed** (`46f288d35`); phases 2–3 open. A
+**Status:** phases 1 (`46f288d35`) & 2 (`ff073777e`) **landed**; phase 3 open. A
 proof-of-concept of the decentralized dependency-graph-of-fragments approach, done *before*
 the stacktrace symbolization table ([`plan-stacktraces.md`](plan-stacktraces.md)) adopts the
 same shape. Revised after a 3-lens adversarial review that caught a shared-symbol corruption
@@ -131,9 +131,15 @@ are a required no-regression axis (see Verification), NOT an ignorable path.
    2980/0, native aa64 + `-int` smokes, unit tests, `nm`-confirmed graph retention); dep
    edges STRONG (see edges bullet); fixes: `collectDefinedDataSyms` += `_pkg_satfrag`, a
    self-edge skip, and (review-caught) the `@llvm.used` arity assertion in `emit_satroot_test`.
-2. **Convert `BuildSatRegistry` to the dedup'd graph walk** (visited-list + two-pass
-   sizing) seeded from `main._pkg_satfrag`. Now both mechanisms produce the registry;
-   verify identical results.
+2. ✅ **Convert `BuildSatRegistry` to the dedup'd graph walk** seeded from
+   `main._pkg_satfrag`. **Landed `ff073777e`** — a BFS where `visited` doubles as the
+   queue (one growable list, dedup by node address; the two-pass sizing folded into the
+   single collect + fill). `__entry` now passes `&main._pkg_satfrag`; the flat root is
+   still emitted but unconsumed. Verified behavior-equivalent (builder-comp 2980/0, native
+   aa64 + `-int`, rt unit tests), plus a new transitive test
+   (`1221_xpkg_iface_assert_transitive`, main→mid→leaf, all 3 modes) covering the 2-hop
+   reach the walk newly depends on. Review-driven docs (rt.bni / g_satFallback /
+   `ensureRuntimeDepsLoaded` force-load invariant).
 3. **Remove the flat root** — `_satentry_root`/pairs, the driver gather,
    `SatRootEntries`/`SatRootRequested`.
 
