@@ -125,43 +125,25 @@ See explorations/done/plan-funcvalue-byaddr-abi.md.
 
 ## Cross-mode interface dispatch & compiler/interpreter interop
 
-### Native SatEntry registry (RTTI) assumes whole-program package enumeration — breaks opaque binary distribution — 🟡 OPEN (being addressed as a PoC, 2026-08-20)
+### `__init` dispatcher (+ other main-enumerated structures) assume whole-program enumeration — remaining blockers for opaque binary distribution — 🟡 OPEN
 
-**Severity: latent (forward-compat limitation, not a live miscompile).** The native
-interface-satisfaction registry root (`_satentry_root`, spec §11.12 `iface.rtti`) is built
-by the MAIN module enumerating the full transitive package set from the driver's
-`ldr.Order` (`cmd/bnc/main.bn:280-308`, under a `satN > 0` skip of empty packages),
-emitted only for main, consumed by `rt.BuildSatRegistry` — and it is the root that
-**retains** each package's satentry data. This assumes the final build has loaded — and can
-name — every transitive package. It holds for whole-program-from-source builds (correct
-today), but is the wrong shape for **opaque binary distribution**: a closed-source library
-shipped as `{facade.bni, bundle.a}` bundles internal packages the consumer's loader never
-names. The primary failure is **dead-strip** — the facade's code pulls the internal
-package's object (it references its functions/vtables), but that package's weak
-`_pkg_satentries` / `__satentry` data is referenced only by the root, which never names it
-→ stripped → an interface assertion on a facade-hidden implementation type returns nil.
+The **satentry-registry** whole-program-enumeration defect is **fixed** — decentralized into
+the per-package `_pkg_satfrag` graph (all three phases landed; see the done log +
+[`plan-rtti-decentralize.md`](plan-rtti-decentralize.md)), which also validated the
+decentralized dependency-graph-of-fragments approach that
+[`plan-stacktraces.md`](plan-stacktraces.md) reuses. But that fixed only ONE of Binate's
+whole-program-enumeration points. Still open for full **opaque binary distribution** (a
+closed-source `{facade.bni, bundle.a}` whose internal packages the consumer never names):
 
-**Not a self-sufficient fix, and not the only enumeration point:** the `__init` dispatcher
-(`__init_all`, built from `initPkgNames` over `ldr.Order`, `main.bn:291-349`) has the
-identical main-enumeration shape, so a facade-hidden package's top-level initializers would
-be just as absent; and no wired/tested Binate-consumes-a-prebuilt-`.a` path exists yet
-(`--library` targets C via `bn_init`). So this is a **PoC of the decentralized-graph
-mechanism** (its real payoff is the stacktrace symbolization table), fixing ONE
-enumeration point — not a complete opaque-distribution capability.
-
-**Fix**: decentralize into a dependency-graph of fragments. A **new, separate** symbol
-`_pkg_satfrag` (NOT the reuse-`_pkg_satentries` idea, which would corrupt the
-`reflect.Package.SatEntries` backing array the VM injector reads) points at the package's
-existing entries + carries symrefs to its DIRECT (effective, `m.ImportAliasPaths`) deps'
-`_pkg_satfrag`; `rt.BuildSatRegistry` graph-walks the transitive closure from main's
-fragment (dedup'd, to avoid diamond re-walk). Main's fragment pinned via `@llvm.used`
-(LLVM) / `__entry` LEA (native). Every package emits `_pkg_satfrag` even when empty (graph
-waypoint). See [`plan-rtti-decentralize.md`](plan-rtti-decentralize.md); taken on now as a
-preliminary PoC the stacktrace symbolization table
-([`plan-stacktraces.md`](plan-stacktraces.md)) reuses. The VM's separate satentry path
-(`vm.RegisterPackageSatEntries`) consumes the untouched `_pkg_satentries` array, so keeping
-that array as-is is what keeps it correct — the `-int`/cross-mode tests are a required
-no-regression axis, not an ignorable path.
+- **The `__init` dispatcher** (`__init_all`, built from `initPkgNames` over the driver's
+  `ldr.Order`, `cmd/bnc/main.bn`) has the identical main-enumeration shape — a facade-hidden
+  package's top-level initializers would be absent for an opaque-blob consumer, exactly as
+  its satentries were before the PoC. Decentralize it the same way (the `_pkg_satfrag` graph
+  is the template: a per-package init-edge graph walked at startup).
+- **No wired/tested Binate-consumes-a-prebuilt-`.a` path** exists (`--library` targets C via
+  `bn_init`, not Binate import), so the archive-inclusion property the strong `_pkg_satfrag`
+  edges provide is asserted-but-unverified. A blob-consuming build mode is needed to exercise
+  (and regression-test) it end to end.
 
 ### Package descriptors — Phase C (richer metadata) + VM extern auto-enumeration remain
 

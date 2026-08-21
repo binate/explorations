@@ -1,6 +1,7 @@
 # Plan: decentralize the native SatEntry registry (RTTI transitive-closure PoC)
 
-**Status:** phases 1 (`46f288d35`) & 2 (`ff073777e`) **landed**; phase 3 open. A
+**Status:** ✅ **COMPLETE** — all three phases landed: 1 (`46f288d35`), 2 (`ff073777e`),
+3 (`21a7d04a1`). A
 proof-of-concept of the decentralized dependency-graph-of-fragments approach, done *before*
 the stacktrace symbolization table ([`plan-stacktraces.md`](plan-stacktraces.md)) adopts the
 same shape. Revised after a 3-lens adversarial review that caught a shared-symbol corruption
@@ -140,8 +141,14 @@ are a required no-regression axis (see Verification), NOT an ignorable path.
    (`1221_xpkg_iface_assert_transitive`, main→mid→leaf, all 3 modes) covering the 2-hop
    reach the walk newly depends on. Review-driven docs (rt.bni / g_satFallback /
    `ensureRuntimeDepsLoaded` force-load invariant).
-3. **Remove the flat root** — `_satentry_root`/pairs, the driver gather,
-   `SatRootEntries`/`SatRootRequested`.
+3. ✅ **Remove the flat root** — `_satentry_root`/pairs, the driver gather,
+   `SatRootEntries`, and rename the now-misleading `SatRoot*` → `SatRegistry*` /
+   `emitSatFragPin` / `EmitSatRegistryWiring` (+ the `emit_satroot.bn`/`data_satroot.bn`
+   files → `emit_satfrag_pin.bn`/`data_satregistry.bn`). **Landed `21a7d04a1`** (net
+   −469 lines). Verified by strategic sampling (builder-comp 32/0, gen2 6/0, native aa64
+   6/0, `-int` 3/0, unit tests 5/0) + the e2e retention test updated to assert the
+   `_pkg_satfrag` graph survives dead-strip (2/2 llvm+native, 58 `__satentry` nodes) —
+   a review-caught blocker (the e2e test still checked the removed `_satentry_root`).
 
 ## Verification
 

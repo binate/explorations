@@ -6,6 +6,42 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Satentry registry (RTTI) decentralized — dependency-graph of `_pkg_satfrag` nodes — DONE (2026-08-21)
+
+**Severity: latent forward-compat limitation, resolved for the satentry registry.** The
+native interface-satisfaction registry was built by the MAIN module enumerating the full
+transitive package set (from the driver's `ldr.Order`) into a flat `_satentry_root` — which
+broke under opaque binary distribution: a closed-source `{facade.bni, bundle.a}` whose
+internal packages the consumer never names would have their weak `_pkg_satentries` /
+`__satentry` data dead-stripped (referenced only by a root that never names them) → RTTI
+holes (a facade-hidden implementation type's interface assertion returns nil).
+
+Decentralized into a per-package graph: each package emits a `_pkg_satfrag` node (a SEPARATE
+symbol from the `_pkg_satentries` array the VM injector reads) listing its own entries +
+**STRONG** symrefs to its DIRECT (effective-import, `m.ImportAliasPaths`) deps' nodes;
+`rt.BuildSatRegistry` BFS-walks the transitive closure from main's node (a `visited` list
+doubling as queue, dedup'd so the rt↔lang cycle + diamonds terminate). Main's node is pinned
+via `@llvm.used` (LLVM) / `__entry` LEA (native); the strong dep chain retains the whole
+graph — and (for the eventual blob case) pulls a dependency's object from a static archive.
+
+Landed in three adversarially-reviewed phases: (1) emit `_pkg_satfrag` for every package,
+additive — `46f288d35`; (2) walk the graph in `BuildSatRegistry`, `__entry` passes
+`&_pkg_satfrag` — `ff073777e`; (3) remove the flat `_satentry_root` + rename `SatRoot*` →
+`SatRegistry*`/`emitSatFragPin`/`EmitSatRegistryWiring` (net −469 lines) — `21a7d04a1`.
+Reviews caught, and the work fixed: a dual-purpose-symbol corruption (`_pkg_satfrag` had to
+be separate from `_pkg_satentries`), an `@llvm.used` LLVM-retention gap, a wrong weak-edge
+premise (reflect DOES emit a node → switched to STRONG edges, which also achieve the
+archive-inclusion goal + fail loud), and an e2e retention test still asserting the removed
+`_satentry_root` (updated to assert the `_pkg_satfrag` graph survives dead-strip). New
+transitive conformance test `1221_xpkg_iface_assert_transitive` (main→mid→leaf) covers the
+multi-hop reach the graph walk depends on.
+
+Done as a **PoC** of the decentralized-graph approach the stacktrace symbolization table
+([`plan-stacktraces.md`](plan-stacktraces.md)) reuses. Plan:
+[`plan-rtti-decentralize.md`](plan-rtti-decentralize.md). Remaining opaque-distribution work
+(the `__init` dispatcher shares the same enumeration shape; the Binate-consumes-`.a` path
+isn't wired) is tracked in `claude-todo.md`.
+
 ## Spec self-containedness — `explorations/` refs removed from normative chapters — ✅ DONE (2026-08-20, docs `9c014be`)
 
 Executed per the entry's own plan (repo-wide enumeration, then case-by-case
