@@ -125,28 +125,6 @@ See explorations/done/plan-funcvalue-byaddr-abi.md.
 
 ## Cross-mode interface dispatch & compiler/interpreter interop
 
-### Host-facing `CallIfaceMethod` panics on the NATIVE self-compile unit modes — 🔴 UNTRACKED (found 2026-08-21, audit)
-
-`TestCallIfaceMethodScalar` (pkg/binate/vm) and `TestInterpCallIfaceMethodAggregate`
-(pkg/binate/interp) panic `vm: Trampoline{Scalar,Aggregate}: data is not a VM closure record` on
-`builder-comp_native_x64-comp_native_x64` and `builder-comp_native_aa64-comp_native_aa64` (the
-native self-hosted self-compile unit modes). Born-red: the Stage-C SI-5b/5c host-facing
-`CallIfaceMethod` work (`1b86a9c75` / `28a1f06f3`, 2026-08-16) was verified only on `builder-comp`
-+ `builder-comp-int` (LLVM + bytecode VM), never the native lanes, so the native-backend
-trampoline-dispatch gap (wrong closure-record tag when the HOST is native-compiled) went untracked.
-Not a regression from green — never passed on native. Each native job shows `63 passed, 2 failed,
-0 xfail`.
-
-The native backends are first-class targets — this must be FIXED, not xfailed away.
-
-Actions: (1) root-cause + fix the native trampoline closure-record-tag gap in the host-facing
-`CallIfaceMethod` path (`pkg/binate/vm/vm.bn` TrampolineScalar/64/Aggregate, the
-`DATA_KIND_VM_CLOSURE_REC` check) — the real fix; (2) a unit-test xfail on the two native
-self-compile modes is a stopgap ONLY to make the already-real failure visible while the fix is in
-flight (NB there is currently no unit xfail for native modes — only arm32_baremetal + the -int
-skip-pkgs — so it may need a new marker/convention), never the resolution. Found by the 2026-08-21
-regression audit.
-
 ### Fail loud on unhandled ops across ALL backends (esp. native) — 🟡 OPEN (NEXT, user-approved 2026-08-21)
 
 Now that `--backend native` compiles EVERY package — deps + main — through the native backend

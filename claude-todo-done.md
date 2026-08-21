@@ -6,6 +6,31 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Host-facing `CallIfaceMethod` panics on the native self-compile modes — ✅ FIXED & LANDED (2026-08-21, main `a734b31bf`)
+
+`TestCallIfaceMethodScalar` (pkg/binate/vm) / `TestInterpCallIfaceMethodAggregate`
+(pkg/binate/interp) panicked `Trampoline{Scalar,Aggregate}: data is not a VM closure record` on
+`builder-comp_native_{x64,aa64}` — born-red since the SI-5b/5c host-facing `CallIfaceMethod` work,
+verified only on LLVM + bytecode VM, never native.
+
+Root cause (lldb): the native backends (aarch64/x64/arm32) built EVERY func-value vtable call slot
+as the per-function `__shim` unconditionally. The shim strips the leading "captures-data" slot and
+shifts args — correct for an ordinary func value, but WRONG for the three universal cross-mode VM
+trampolines (`vm.TrampolineScalar` / `TrampolineScalar64` / `TrampolineAggregate`), whose first
+real param IS `data` (the closure record). So the shim ate the closure record and shifted the
+receiver into `data` → the panic. LLVM already bypassed the shim for these names; the native
+emitters never got the check — a cross-backend drift the "cannot drift" comments assumed away.
+
+Fix (`a734b31bf`): hoisted the predicate to `mangle.IsUniversalTrampoline` (single source of
+truth, unit-tested), made LLVM delegate to it, and added the bypass to all three native
+`emitFuncValueVtables` (call slot = the raw function for a universal trampoline, so `data` reaches
+it as the closure record). Verified: native aa64 + x64-darwin pkg/binate/{vm,interp} green (were
+panicking); LLVM unregressed; native aarch64/x64/arm32 backend unit tests green; hygiene 19/19.
+arm32 got the analogous fix (structurally identical; CI covers the runtime). Minimal adversarial
+review before landing found no correctness defects (predicate scope, raw-symbol correctness,
+orphaned-weak-shim, SetGlobal, LLVM delegation, BUILDER-compat all sound). Found by the 2026-08-21
+regression audit.
+
 ## `--backend native` honors deps, not just the main module — DONE (2026-08-21, `e0d28b1fc`)
 
 `cmd/bnc` used to route every dependency package (and every `--pkg` / `--library` object)
