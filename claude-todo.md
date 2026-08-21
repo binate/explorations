@@ -147,6 +147,28 @@ flight (NB there is currently no unit xfail for native modes — only arm32_bare
 skip-pkgs — so it may need a new marker/convention), never the resolution. Found by the 2026-08-21
 regression audit.
 
+### Native backend compiles ONLY the main module; every dependency goes through LLVM — 🟡 OPEN (MAJOR)
+
+`cmd/bnc` routes **every dependency package** through `llvmBackend` unconditionally
+(`cmd/bnc/main.bn` dep loop: `codegen.EmitModule` + `compileLL`); only the *main module*
+consults `--backend native` (`main.bn` main-module dispatch, `compileModuleVia(..., useNative)`).
+So a `--backend native` build is native-main + LLVM-everything-else, and no dependency package
+(e.g. `pkg/std/debug`, the whole stdlib, `pkg/rt`) is ever compiled by the self-hosted native
+backend. The native backends are **first-class, required targets on par with LLVM** — this
+deps-always-LLVM restriction is a real limitation to lift, not the intended end state.
+
+Consequences already felt: `pkg/std/debug`'s `OP_STACK_FRAMES` native lowering (x64/aa64, landed
+6bbf5670f) is currently **unreachable end-to-end** — the op only exists in `debug`, always an LLVM
+dependency, so the native lowering fires only if `debug` were the native *main* module (no build
+does that), leaving it unit-test-covered but not e2e-exercised. More broadly, any native-only
+codegen path for a stdlib/runtime package can't be run until deps can be native-compiled.
+
+Action: make the native backend able to compile dependency packages (honor `--backend native` for
+the whole dependency graph, or a per-package backend selection), so native is genuinely on-par.
+This is a substantial native-backend project; scope/sequence with the user. (Related smaller gap:
+`native/arm32` lacks BOTH the `OP_STACK_FRAMES` lowering and any FP-chain walk — plan-stacktraces
+phase 4.)
+
 ### `__init` dispatcher (+ other main-enumerated structures) assume whole-program enumeration — remaining blockers for opaque binary distribution — 🟡 OPEN
 
 The **satentry-registry** whole-program-enumeration defect is **fixed** — decentralized into

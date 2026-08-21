@@ -1,6 +1,8 @@
 # Plan: from-code stacktraces (`debug` library)
 
-**Status:** proposed (not started). Grounds in a 6-lens reconnaissance of the
+**Status:** phase 0 (RTTI decentralization PoC) and phase 1 (capture intrinsic +
+`pkg/std/debug`, LLVM + VM + native x64/aa64 lowering) landed (`main` 6bbf5670f).
+Phases 2–4 (symbolization, renderer, arm32 FP frame) not started. Grounds in a 6-lens reconnaissance of the
 stack/frame/debug/symbol infrastructure and a 3-lens adversarial review of an earlier
 draft (both 2026-08-20); the review corrected two architectural blockers now folded in
 (the native backend compiles only the main module; a `builtinPkgs` member is injected
@@ -61,11 +63,19 @@ through `llvmBackend`; only the *main module* honors `--backend native`** (compi
 comment + `main.bn` main-module dispatch) — the self-hosted native backend "only lowers
 the main module." Consequences that shape everything below:
 
-- The `debug` library is always a *dependency*, never the main module ⇒ it is **always
-  LLVM-compiled**. So the capture intrinsic MUST be lowered in **`pkg/binate/codegen`
-  (LLVM)** — that is its real home — and in the **VM**. It is **never** lowered by the
-  self-hosted `native/{x64,aarch64,arm32}` backends (they never see it). (The precedent
-  intrinsic `OP_FUNC_HANDLE` is likewise lowered in codegen, `emit_funcvals.bn`.)
+- **Today** `debug` is only ever a *dependency*, and the driver's dependency loop
+  (`main.bn` — `codegen.EmitModule` + `compileLL`, unconditional) compiles every
+  dependency through `llvmBackend`; only the *main module* honors `--backend native`.
+  So the capture intrinsic is lowered in **`pkg/binate/codegen` (LLVM)** and in the **VM**,
+  which is where `debug` is compiled in every current build. **But this deps-always-LLVM
+  restriction is a known limitation, not the intended end state** — native is a required,
+  on-par backend, so the intrinsic is **also** lowered by the self-hosted `native/{x64,
+  aarch64}` backends (phase 1). That native lowering is currently reachable only when
+  `debug` is itself the native main module (which no build does yet); it is in place so
+  the op is not silently dropped and so it is ready when dependency-native-compilation
+  lands. (`native/arm32` still lacks the lowering AND the FP-chain walk — phase 4.)
+  (The precedent intrinsic `OP_FUNC_HANDLE` is lowered in codegen, `emit_funcvals.bn`,
+  and in each native backend.)
 - A backtrace's frames span *both* main-module functions (self-hosted native, in
   `--backend native` builds) *and* dependency functions (LLVM). So the symbolization
   table cannot be a single self-hosted-native global — it is emitted by **every backend**
@@ -74,10 +84,11 @@ the main module." Consequences that shape everything below:
   first as a PoC — see the table section).
 - The FP walk (which runs inside LLVM-compiled `debug` code) traverses whatever frames
   are on the stack. Its correctness depends on **every** frame keeping a standard FP
-  chain: clang at `-O0` (bnc passes no `-O`, so this holds today — we will additionally
-  pass `-fno-omit-frame-pointer` to guarantee it), and the self-hosted backend on
-  x64/aarch64 (already unconditional). **arm32 self-hosted keeps no FP chain at all** —
-  the gap.
+  chain. This is pinned per-function in the emitted IR via the `"frame-pointer"="all"`
+  attribute (`codegen.writeFnDefineAttrs`) — NOT clang's `-fno-omit-frame-pointer`, which
+  is inert when clang assembles pre-generated `.ll` (a frontend-only flag); and by the
+  self-hosted backend on x64/aarch64 (prologues establish RBP/X29 unconditionally).
+  **arm32 self-hosted keeps no FP chain at all** — the gap (phase 4).
 
 ## Architecture overview
 
@@ -321,14 +332,18 @@ boundary is Tier B.
    Convert the native `_satentry_root` from a main-enumerated flat root to per-package
    graph-linked fragments, proving the decentralized approach on an existing tested
    subsystem *before* the symbolization table reuses it. Precedes phase 2.
-1. **`debug` library skeleton + capture intrinsic (LLVM + VM lowering).** Ordinary
-   `pkg/std/debug` package; `Frame`/`FrameInfo` types; the intrinsic through
-   token/lexer/parser/checker/IR; **codegen (LLVM) FP-walk lowering** + **VM bytecode op**
-   with `execLoop` walk + publish threading; `Callers`/`Caller` returning raw `Frame`s
-   (with `Capture{Total, Bottom}` semantics). Green in the **default (LLVM) modes AND the `-int` (VM) modes**
-   — the intrinsic is handled in both backends `debug` is ever compiled by, so no
-   fail-loud-on-unimplemented-op. (`-fno-omit-frame-pointer` added here.) First milestone:
-   raw capture depth/identity verified in both modes.
+1. **`debug` library skeleton + capture intrinsic (LLVM + VM + native lowering).** ✅ LANDED
+   (`main` 6bbf5670f). Ordinary `pkg/std/debug` package; `Frame` type (`{Mode, Loc}`); the
+   intrinsic `_stack_frames` recognized by name in IR-gen (gated to `pkg/std/debug`);
+   **codegen (LLVM) FP-walk lowering** (`llvm.frameaddress(0)` + `rt.CaptureNativeFrames`),
+   **VM bytecode op** (`BC_STACK_FRAMES` walks the VM frame-header chain), and **native
+   x64/aa64 lowering** (RBP/X29 + `rt.CaptureNativeFrames`); `Callers`/`Caller` returning
+   raw `Frame`s. `Callers` returns the count of frames at/above `skip` (truncation
+   detectable). Green in the default (LLVM) modes, the `-int` (VM) modes, and native
+   x64/aa64 unit tests. Frame-pointer retention pinned via the `"frame-pointer"="all"`
+   attribute (not `-fno-omit-frame-pointer`, which is inert on pre-generated `.ll`).
+   Deferred: `Capture{Total, Bottom}` companion (bare `int` for now); native arm32; the
+   `debug`-as-native-main end-to-end (unreachable until dependency-native-compilation lands).
 2. **Loaded symbolization table + native `Symbolize`.** Per-package graph-linked
    `_pkg_symtab` fragments (codegen + native, reusing the phase-0 pattern), runtime
    graph-merge + sort, nearest-start-below lookup, `Ok` handling, `--no-symbol-table`
