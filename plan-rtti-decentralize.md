@@ -1,6 +1,6 @@
 # Plan: decentralize the native SatEntry registry (RTTI transitive-closure PoC)
 
-**Status:** phase 1 implemented + verified (not yet landed on main); phases 2–3 open. A
+**Status:** phase 1 **landed** (`46f288d35`); phases 2–3 open. A
 proof-of-concept of the decentralized dependency-graph-of-fragments approach, done *before*
 the stacktrace symbolization table ([`plan-stacktraces.md`](plan-stacktraces.md)) adopts the
 same shape. Revised after a 3-lens adversarial review that caught a shared-symbol corruption
@@ -127,7 +127,7 @@ are a required no-regression axis (see Verification), NOT an ignorable path.
 1. ✅ **Emit `_pkg_satfrag` for every package** (codegen + native/common) — `{ &_pkg_satentries
    (or null), ownCount, depCount, dep symrefs }`, edges from `m.ImportAliasPaths`, pinned
    from `__entry` (native) / `@llvm.used` (LLVM) on the main module. Not yet consumed —
-   coexists with the existing root. Green: additive. *Implemented + verified* (builder-comp
+   coexists with the existing root. Green: additive. **Landed `46f288d35`** (builder-comp
    2980/0, native aa64 + `-int` smokes, unit tests, `nm`-confirmed graph retention); dep
    edges STRONG (see edges bullet); fixes: `collectDefinedDataSyms` += `_pkg_satfrag`, a
    self-edge skip, and (review-caught) the `@llvm.used` arity assertion in `emit_satroot_test`.
