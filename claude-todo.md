@@ -974,24 +974,6 @@ urgency (no current miscompile; the writable placement is safe, just unhardened)
 
 ## Testing: harness, runners & conformance coverage
 
-### `builder-comp_arm32_linux_int` conformance mode: xfail set never populated — 🟡 OPEN (found 2026-08-21, audit)
-
-The `builder-comp_arm32_linux_int` mode (added by `7577e4467`; cross-builds cmd/bni to arm32, runs
-each test's `.bn` through the VM under qemu) has ZERO `.xfail.builder-comp_arm32_linux_int` markers
-repo-wide, so ~9 tests that structurally CANNOT pass under the bytecode VM surface as FAIL instead
-of XFAIL. All are the permanent VM-no-FFI non-goal category (same as their existing
-`.xfail.builder-comp-int`): `__c_call` (498_c_call_basic, 527_c_call_variadic_multi,
-866_c_call_void_return, regressions/c-call/{abs-negative,labs,strlen}, spec/16-packages/093_ccall_no_mangle,
-spec/19-execution/013_divergence_ccall_compiled_only); `__c_global` (982_c_global_environ,
-spec/16-packages/094_cglobal_basic); and compiled-only abort forms
-(spec/11-interfaces/081_dispatch_nil_abort_compiled, spec/19-execution/010_divergence_abort_form_nil_iface).
-The mode is CI non-blocking (continue-on-error), so these don't turn CI red, but they are untracked
-failures. `OVERRIDE_MODE` fallback doesn't apply (mode name lacks the `_native_arm32_` substring).
-
-Action: add `.xfail.builder-comp_arm32_linux_int` markers (mirroring each test's existing
-`.xfail.builder-comp-int` note) so the mode's red is exactly its known non-goal set. Found by the
-2026-08-21 regression audit.
-
 ### Conformance harness: `pkg0.testing` `--test`-only rules are not conformance-testable
 
 1. **GAP (harness limitation, not a defect) — `pkg0.testing.testfunc` + `pkg0.testing.run` are not

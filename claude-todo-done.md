@@ -6,6 +6,19 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `builder-comp_arm32_linux_int` xfail set populated — ✅ DONE & LANDED (2026-08-21, main `227424c7b`)
+
+The new `builder-comp_arm32_linux_int` mode (a bytecode VM cross-built to arm32; added by
+`7577e4467`) had ZERO xfail markers, so the FFI / compiled-only tests that structurally cannot pass
+under a bytecode VM surfaced as genuine failures. Added 12 `.xfail.builder-comp_arm32_linux_int`
+markers — the audit-confirmed failing set — mirroring each test's existing `.xfail.builder-comp-int`
+reason (same permanent VM-no-FFI non-goal category, since arm32_linux_int is also a bytecode VM):
+`__c_call` (498, 527, 866, regressions/c-call/{abs-negative,labs,strlen}, spec/16-packages/093,
+spec/19-execution/013), `__c_global` (982, spec/16-packages/094), and compiled-only abort forms
+(spec/11-interfaces/081, spec/19-execution/010). CI (which has the arm32 runtime) confirms no XPASS;
+if the mode surfaces further FFI failures they extend this set. Found by the 2026-08-21 regression
+audit.
+
 ## Host-facing `CallIfaceMethod` panics on the native self-compile modes — ✅ FIXED & LANDED (2026-08-21, main `a734b31bf`)
 
 `TestCallIfaceMethodScalar` (pkg/binate/vm) / `TestInterpCallIfaceMethodAggregate`
