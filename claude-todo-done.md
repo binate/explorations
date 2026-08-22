@@ -6,6 +6,34 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## native arm32: `emitSymAddr` promoted LOCAL string blobs (`Lstr_N`) to GLOBAL → cross-object "multiple definition" link failure — DONE (2026-08-21, `cc58fcb14`)
+
+MAJOR. A multi-package `--backend native` arm32 link failed with `arm-linux-gnueabihf-ld:
+multiple definition of 'Lstr_0'` between two native-compiled objects (e.g.
+`pkg__builtins__testing.o` and `pkg__builtins__lang.o`). Root cause (readelf-confirmed):
+`emitSymAddr` (arm32_names.bn) called `a.SetGlobal` on EVERY target, including the LOCAL string
+blob `Lstr_<id>` that `BuildStringBlob` emits `DG_LOCAL`. Because `EmitFunc` runs before
+`EmitStringTable`, referencing a string in code (`OP_CONST_STRING`) created an undefined *global*
+`Lstr_<id>` first, and the later `DefineLabel` kept that global binding (asm.bn:285-288); two
+objects each exporting a global `Lstr_0` then collide. An ELF reloc against a LOCAL symbol
+resolves by its local index, so the promotion was simply wrong — x64 (`LeaRipLabel`) and aa64
+(`Adrp`+`AddImmLabel`) reference the blob with no `SetGlobal`. Latent until `e0d28b1fc` made
+deps compile natively (before, one native object per link → one `Lstr_0`, no collision);
+arm32-specific.
+
+Fix (`cc58fcb14`): split `emitSymAddr` into `emitSymAddr` (KEEPS `SetGlobal` — for
+external/exported symbols; every external caller unchanged, incl. the imported-`__ivt`
+`arm32_iface_dispatch.bn:82` site an adversarial review flagged as the one that MUST keep
+promoting) and `emitSymAddrLocal` (no promotion — for a symbol defined LOCAL in this object);
+only the `OP_CONST_STRING` blob site switched to `emitSymAddrLocal`. Both helper params became
+`*[]readonly char` (borrowable-char-param lint). Tests: `TestEmitSymAddrLocalKeepsLabelLocal`
+(reference-then-define order, the real root-cause path), `TestEmitSymAddrPromotesToGlobal`,
+`TestDispatchConstStringBlobStaysLocal` (drives `OP_CONST_STRING` through `emitInstr` — guards
+the call site), and the extended `TestCGlobalEmitsAbsSymAddr` (external stays global). Verified
+in Docker arm32-linux: 342 arm32 unit tests pass; 975/976/988 now LINK and print correct values
+under real hard-float qemu. Discovered while reproducing C-1 (which remains open, reframed as
+native/LLVM ABI conformance — see claude-todo.md).
+
 ## `--backend native` unit-test mode — already existed; verified end-to-end after native-deps + fail-loud — DONE (2026-08-21)
 
 Opened as "add support" but the support **already existed** and was mis-scoped on a wrong reading of

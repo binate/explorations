@@ -7,54 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### native arm32: `emitSymAddr` promotes LOCAL string blobs (`Lstr_N`) to GLOBAL → cross-object "multiple definition" link failure — 🔴 OPEN MAJOR (found 2026-08-21, C-1 repro)
-
-**Severity: MAJOR** — breaks linking of ANY multi-package native arm32-linux
-program that has string constants (i.e. essentially all of them). Discovered
-while trying to reproduce C-1 (the hard-float multi-return float-leaf bug) in a
-Docker arm32-linux container: 976 (and every other multi-package test) now
-fails at LINK time, not runtime — `arm-linux-gnueabihf-ld: multiple definition
-of 'Lstr_0'` between two native-compiled dep objects (e.g.
-`pkg__builtins__testing.o` and `pkg__builtins__lang.o`). This MASKS C-1: the
-float miscompile can't be observed because nothing links.
-
-**Root cause (fully traced, readelf-confirmed):** `arm32_dispatch.bn`'s
-`emitSymAddr` helper calls `a.SetGlobal(label)` UNCONDITIONALLY before the
-MOVW/MOVT-ABS pair. For `OP_CONST_STRING` (arm32_dispatch.bn:67) the label is
-the string blob `common.StringLabel(id)` = `Lstr_<id>`, which
-`BuildStringBlob` emits `DG_LOCAL` and `common_names.bn` documents as "Local
-('L'-prefixed) so it stays out of the exported symtab". Because `EmitFunc` runs
-BEFORE `EmitStringTable`, the `SetGlobal("Lstr_0")` creates an *undefined
-global* entry first; the later `DefineLabel("Lstr_0")` (asm.bn:285-288) defines
-it but KEEPS the global binding. readelf confirms `Lstr_0` = `GLOBAL` while
-sibling `L`-locals (`Lbn_…`, `Lri_skip_…`) are correctly `LOCAL`.
-
-**Why now / not a regression in emitSymAddr itself:** latent until `e0d28b1fc`
-("cmd/bnc: honor --backend native for dependencies") made deps compile through
-the native backend too. Before that only ONE native module existed per link
-(main), so one global `Lstr_0` never collided. Now every dep is native → two+
-global `Lstr_0` → collision. NOT arm32-baremetal (single-object semihost link)
-and NOT aa64/x64: x64 uses `LeaRipLabel` (PC-rel, no SetGlobal) and aa64 uses
-`Adrp`+`AddImmLabel` with NO SetGlobal for the blob (aarch64_dispatch.bn:43-44);
-only arm32's `emitSymAddr` blanket-promotes. So this is arm32-specific.
-
-**CI implication:** `builder-comp_native_arm32_linux` is almost certainly RED
-right now with mass link failures (supersedes the stale "~2976 pass / 4 fail"
-in the C-1 entry below, which was measured before `e0d28b1fc` took effect).
-
-**Proposed fix:** stop promoting temporary (`L`-prefixed) labels in
-`emitSymAddr` — a reloc against a LOCAL symbol links fine in ELF (by local
-symbol index), matching x64/aa64. Options: (a) guard `emitSymAddr` with an
-`isTemporaryLabel`-style predicate so only non-`L` labels get `SetGlobal`
-(safest — leaves every genuinely-external promotion intact; needs a shared
-`L`-prefix predicate since macho's `isTemporaryLabel` is private); or (b) remove
-`SetGlobal` from `emitSymAddr` and add explicit `SetGlobal` at the callers that
-reference genuinely-external symbols (OP_C_GLOBAL:95, OP_DATA_SYM_ADDR:102;
-OP_FUNC_HANDLE:125 already has one; plus arm32_funcvalue.bn:309,
-arm32_iface_dispatch.bn:82, arm32_pkg_descriptor.bn:53 — more surgical but risks
-missing one → "undefined symbol"). Recommend (a). Add a conformance/unit check
-that two native arm32 packages each with a string constant link cleanly.
-
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
 **Severity: MAJOR** — a recoverable user-code fault (bounds / divide / shift /
