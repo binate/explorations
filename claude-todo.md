@@ -173,17 +173,6 @@ See explorations/done/plan-funcvalue-byaddr-abi.md.
 
 ## Cross-mode interface dispatch & compiler/interpreter interop
 
-### `--backend native` support in unit-test mode — 🟡 IN PROGRESS (user-approved 2026-08-21)
-
-The unit-test runner (`scripts/unittest/run.sh`) compiles test binaries only via LLVM/VM
-(`builder-comp*` / `*-int` chains); no mode compiles the test binary itself with `--backend native`.
-With the native-deps fix (landed `e0d28b1fc`) + fail-loud (landed `9d3aa1f5f`), native compilation is
-now safe to exercise end-to-end in unit tests — a native unit-test mode would compile each
-package-under-test AND its dependencies through the native backend (today native e2e coverage is
-conformance-only). Add such a mode. Currently being implemented (the follow-up after the fail-loud
-work). (Related smaller native gap: `native/arm32` lacks both the `OP_STACK_FRAMES` lowering and any
-FP-chain walk — plan-stacktraces phase 4.)
-
 ### `__init` dispatcher (+ other main-enumerated structures) assume whole-program enumeration — remaining blockers for opaque binary distribution — 🟡 OPEN
 
 The **satentry-registry** whole-program-enumeration defect is **fixed** — decentralized into

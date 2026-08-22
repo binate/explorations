@@ -6,6 +6,25 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `--backend native` unit-test mode — already existed; verified end-to-end after native-deps + fail-loud — DONE (2026-08-21)
+
+Opened as "add support" but the support **already existed** and was mis-scoped on a wrong reading of
+the runner: `scripts/unittest/runners/builder-comp_native_aa64-comp_native_aa64.sh` (and the
+`_native_x64_` / `_native_x64_darwin_` siblings) already compile each test binary with `--test
+--backend native`, and `builder-comp_native_aa64-comp_native_aa64` / `builder-comp_native_x64-comp_native_x64`
+are already in `scripts/modesets/all`, which the unit-tests CI workflow runs (native_aa64 on macOS,
+native_x64 on Linux). So no new mode was needed.
+
+What the earlier P0 work changed: BEFORE the native-deps fix, these native unit modes compiled the
+test binary's MAIN module natively but its dependencies via LLVM (a hybrid); AFTER `e0d28b1fc` they
+compile the deps natively too (test binary fully native, link aside), and `9d3aa1f5f` (fail-loud)
+makes any native gap they hit loud. Verified on aarch64: the FULL native unit suite is green with
+native deps + fail-loud — `builder-comp_native_aa64-comp_native_aa64`: 66 passed, 0 failed, 0 skipped.
+native_x64 is validated by CI (not runnable on the Darwin-arm64 dev host). (Not added: putting
+`builder-comp_native_x64_darwin-comp_native_x64_darwin` in `all` — a CI-scope decision left to the
+user. Unrelated still-open native gap: `native/arm32` lacks the `OP_STACK_FRAMES` lowering + FP-chain
+walk — plan-stacktraces phase 4.)
+
 ## `builder-comp_arm32_linux_int` xfail set populated — ✅ DONE & LANDED (2026-08-21, main `227424c7b`)
 
 The new `builder-comp_arm32_linux_int` mode (a bytecode VM cross-built to arm32; added by
