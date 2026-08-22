@@ -1385,6 +1385,28 @@ Actions: (1) fix the shim to read the float leaf from its VFP return register (d
 already-real failure visible/tracked while the fix is in flight — never the resolution. Found by
 the 2026-08-21 regression audit.
 
+**UPDATE (2026-08-21, C-1 repro in Docker arm32-linux):** the framing above (a "native↔LLVM
+boundary" / "cross-module" bug) MISSTATED the real invariant. What matters is **ABI
+compatibility**: Binate does separate compilation + binary distribution of packages, so on a
+platform the native backend and the LLVM backend MUST emit ABI-identical objects (a native `.o`
+must link against an LLVM `.o`). The audit's `0\n118272` was seen in the OLD mode where main
+compiled native but deps compiled via LLVM — i.e. a native consumer reading an LLVM-produced
+VFP multi-return tuple, an ABI mismatch. Since `e0d28b1fc` ("honor --backend native for
+dependencies") this mode compiles EVERY package native, so 975/976/988 now run native↔native.
+With the separate link bug fixed (see the emitSymAddr MAJOR entry above), 975/976/988 LINK and
+PRINT THE CORRECT VALUES (976 → `6\n107`) under real hard-float qemu. **But that does NOT prove
+ABI conformance:** native pack + native collect can be mutually-consistent yet both deviate from
+AAPCS-VFP, so an all-native pass can hide a native-vs-LLVM ABI mismatch. So C-1 becomes: **test
+the native arm32 hard-float multi-return VFP ABI properly and completely** against the AAPCS-VFP
+reference LLVM implements (per the shapes in arm32_call_hard.bn: {float,double}→s0,D1;
+{double,float}→D0,s2; {float,i32,float}→s0,r0,s1; {i32,double,i32}→r0,D0,r1; {float,float,float}
+→s0,s1,s2; …). This need NOT be a mixed native+LLVM test — a golden/objdump ABI conformance
+check per backend, or a native-object-linked-against-LLVM-object link test, both qualify;
+approach TBD with the user. The existing "hard-float COMPILE-ONLY e2e (objdump)" was insufficient
+(passed while the ABI was wrong). Docker repro recipe: `--platform linux/amd64` ubuntu:24.04 +
+clang/gcc-arm-linux-gnueabihf/qemu-user-static; `QEMU_ARM=qemu-arm-static` +
+`QEMU_LD_PREFIX=/usr/arm-linux-gnueabihf` for `builder-comp_native_arm32_linux`.
+
 ### native arm32 backend — P6 (VFP + hard-float) in progress; P0–P5 done
 
 `pkg/binate/native/arm32` (IR→ELF32) is complete through P5: baremetal soft-float is
