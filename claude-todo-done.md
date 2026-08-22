@@ -6,6 +6,36 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## native arm32 hard-float (VFP) multi-return VFP ABI — verified AAPCS-VFP-conformant + golden-tested (C-1) — DONE (2026-08-21, `a39d8e72e`)
+
+Filed by the 2026-08-21 audit as a "register-returned multi-return FLOAT leaf reads 0 (975/976/988)"
+miscompile, mis-framed as a "native↔LLVM cross-module" bug. The real invariant is **ABI
+compatibility**: Binate does separate compilation + binary distribution, so on arm32-linux the
+native backend must emit ABI-identical objects to the LLVM backend (a native `.o` must link against
+an LLVM `.o`), i.e. native must implement the exact AAPCS-VFP hard-float ABI clang does.
+
+Reproduced in Docker (`--platform linux/amd64` ubuntu:24.04 + clang / gcc-arm-linux-gnueabihf /
+qemu-user-static; `QEMU_ARM=qemu-arm-static`, `QEMU_LD_PREFIX=/usr/arm-linux-gnueabihf`). The
+audit's `0\n118272` turned out to be MASKED by a separate link bug (the emitSymAddr `Lstr_N`-global
+collision, fixed in `cc58fcb14`); with that fixed, 975/976/988 LINK and print correct values under
+real hard-float qemu. But an all-native pass doesn't PROVE ABI conformance (native pack+collect can
+be mutually-consistent yet both deviate from AAPCS-VFP). So the resolution (approach chosen by the
+user: golden ABI check, no mixed test required) was to pin the placement completely.
+
+`a39d8e72e` adds `pkg/binate/native/arm32/arm32_multiret_abi_test.bn` — golden AAPCS-VFP tests for
+the multi-return tuple shapes the existing `arm32_call_hard_test` pins missed, on BOTH pack and
+collect: `{float,i32,float}`→s0,r0,s1; `{i32,double,i32}`→r0,D0,r1; `{float,float,float}`→s0,s1,s2.
+Each asserts the concrete S/D register the float VSTRs/VMOVs to AND the r0/r1 the interleaved int
+lands in — both directions of return-register cursor independence (a non-float field consumes no FP
+slot; a float field consumes no GP slot), with negative NOT-S2/NOT-D1/NOT-r2 checks for the
+naive-shared-cursor wrong register. An adversarial review independently confirmed every golden value
+byte-for-byte against LLVM 18's ARM hard-float backend. All pass → native's multi-return VFP
+placement matches AAPCS-VFP; combined with the pre-existing pins ({f32,f64}→s0,D1; {f64,f32}→D0,s2)
+and the thoroughly-tested `CallArgFpReg` allocator, every documented shape is now golden. The
+original miscompile is not present on the current tree; `plan-native-arm32.md`'s inc-3f b3 "DONE"
+sign-off is now substantiated by an actual hard-float run + the golden ABI tests (was previously
+soft-float-baremetal + compile-only-objdump).
+
 ## native arm32: `emitSymAddr` promoted LOCAL string blobs (`Lstr_N`) to GLOBAL → cross-object "multiple definition" link failure — DONE (2026-08-21, `cc58fcb14`)
 
 MAJOR. A multi-package `--backend native` arm32 link failed with `arm-linux-gnueabihf-ld:
