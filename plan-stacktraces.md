@@ -73,7 +73,8 @@ the main module." Consequences that shape everything below:
   aarch64}` backends (phase 1). That native lowering is currently reachable only when
   `debug` is itself the native main module (which no build does yet); it is in place so
   the op is not silently dropped and so it is ready when dependency-native-compilation
-  lands. (`native/arm32` still lacks the lowering AND the FP-chain walk — phase 4.)
+  lands. (`native/arm32` now establishes the FP chain AND lowers OP_STACK_FRAMES too —
+  landed, see phase 4.)
   (The precedent intrinsic `OP_FUNC_HANDLE` is lowered in codegen, `emit_funcvals.bn`,
   and in each native backend.)
 - A backtrace's frames span *both* main-module functions (self-hosted native, in
@@ -87,8 +88,8 @@ the main module." Consequences that shape everything below:
   chain. This is pinned per-function in the emitted IR via the `"frame-pointer"="all"`
   attribute (`codegen.writeFnDefineAttrs`) — NOT clang's `-fno-omit-frame-pointer`, which
   is inert when clang assembles pre-generated `.ll` (a frontend-only flag); and by the
-  self-hosted backend on x64/aarch64 (prologues establish RBP/X29 unconditionally).
-  **arm32 self-hosted keeps no FP chain at all** — the gap (phase 4).
+  self-hosted backend on x64/aarch64 (prologues establish RBP/X29 unconditionally) and
+  now arm32 too (its prologue establishes an AAPCS fp/lr frame record — phase 4, landed).
 
 ## Architecture overview
 
@@ -350,9 +351,14 @@ boundary is Tier B.
    flag. VM `Symbolize` via `VMFunc.Name`.
 3. **Generic renderer + `Symbolize`/`Stacktrace` completion.** End-to-end readable
    `{Pkg, Func}` backtraces in both modes; `!Ok` frames surfaced correctly.
-4. **arm32 clang-compatible FP frame + fragment emission.** Restructure the self-hosted
-   arm32 prologue/epilogue to AAPCS FP convention; verify against
-   `builder-comp_native_arm32_baremetal` without regressing its baseline.
+4. **arm32 clang-compatible FP frame + OP_STACK_FRAMES.** ✅ FP frame + lowering LANDED
+   (`main` e200880d2): the self-hosted arm32 prologue/epilogue now establish the AAPCS
+   `push {fp,lr}; mov fp,sp; push {r4-r10,r12}` frame record (same `{caller fp, ret addr}`
+   layout x64/aa64 use, scaled by the 4-byte word — so rt.CaptureNativeFrames needs no
+   arm32-specific logic), and OP_STACK_FRAMES is lowered (arm32_stackframes.bn). Verified:
+   native_arm32_baremetal regression 424/0, and the new end-to-end `conformance/stdlib/debug/
+   001_callers` passes in the LLVM / VM / native-aa64 / native-arm32-baremetal / LLVM-arm32
+   modes. Still deferred (ties to phases 2–3): arm32 symbolization *fragment* emission.
 
 Tests per phase: conformance tests exercising known call depths/identities in both modes;
 unit tests for the renderer, the table lookup, and `!Ok` handling. Bug-discovery protocol

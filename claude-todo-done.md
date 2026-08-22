@@ -6,6 +6,27 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## native/arm32 stacktrace support — FP chain + OP_STACK_FRAMES (plan-stacktraces phase 4) — DONE (2026-08-22, `e200880d2`)
+
+The native arm32 backend saved r4-r12+lr in one push but never established a frame pointer, so its
+frames were not walkable — rt.CaptureNativeFrames (pkg/std/debug's from-code stacktrace) could not
+traverse a native arm32 frame, and the backend had no OP_STACK_FRAMES lowering.
+
+Fixed (`e200880d2`): restructured the arm32 prologue/epilogue to establish an AAPCS frame-pointer
+chain — `push {fp,lr}; mov fp,sp; push {r4-r10,r12}` (reversed in the epilogue) — the SAME
+`{caller fp, ret addr}` layout x64/aa64 use, scaled by the 4-byte word, so rt.CaptureNativeFrames
+needed no arm32-specific logic (r11/fp is safe as the FP: the regPool is R4-R10, and nothing else in
+the backend uses r11). The same 10 registers (40 bytes) are saved and the final SP position is
+unchanged, so every spill/param/stack-arg offset is unchanged. Added the arm32 OP_STACK_FRAMES
+lowering (arm32_stackframes.bn, mirroring x64/aa64). Added an end-to-end mode-robust conformance
+test conformance/stdlib/debug/001_callers (asserts a plausible minimum depth, fixed token output).
+
+Verified: two-lens adversarial review (0 findings); native_arm32_baremetal regression 424/0; the new
+001_callers passes in LLVM / VM / native-aa64 (Mach-O) / native-arm32 (baremetal) / LLVM-arm32.
+CI-only modes (native_x64, native_aa64_linux, native_arm32_LINUX — qemu-arm user-mode absent on the
+Darwin dev host) validated by CI post-land. Deferred (ties to symbolization phases 2-3): arm32
+symbolization fragment emission.
+
 ## native arm32 hard-float (VFP) multi-return VFP ABI — verified AAPCS-VFP-conformant + golden-tested (C-1) — DONE (2026-08-21, `a39d8e72e`)
 
 Filed by the 2026-08-21 audit as a "register-returned multi-return FLOAT leaf reads 0 (975/976/988)"
@@ -80,8 +101,8 @@ makes any native gap they hit loud. Verified on aarch64: the FULL native unit su
 native deps + fail-loud — `builder-comp_native_aa64-comp_native_aa64`: 66 passed, 0 failed, 0 skipped.
 native_x64 is validated by CI (not runnable on the Darwin-arm64 dev host). (Not added: putting
 `builder-comp_native_x64_darwin-comp_native_x64_darwin` in `all` — a CI-scope decision left to the
-user. Unrelated still-open native gap: `native/arm32` lacks the `OP_STACK_FRAMES` lowering + FP-chain
-walk — plan-stacktraces phase 4.)
+user. (The `native/arm32` OP_STACK_FRAMES + FP-chain gap noted here was since resolved — see the
+arm32 stacktrace entry above.))
 
 ## `builder-comp_arm32_linux_int` xfail set populated — ✅ DONE & LANDED (2026-08-21, main `227424c7b`)
 
