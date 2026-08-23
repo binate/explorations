@@ -6,6 +6,39 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Bare-metal allocator TagCoalesce — split + boundary-tag coalescing (interp baremetal regression) — ✅ DONE (2026-08-23, `66075f0b6`)
+
+`pkg/binate/interp` regressed to `rt.RawAlloc: arena exhausted` on
+`builder-comp_arm32_baremetal` (it had PASSED at the SFL landing `42db7011c`; its Inc-3/4
+growth — marshaling + 1 MiB `loadSelfContained` VM stacks + doubling `@vec.Vec` backings —
+turned it into the "large-variable-buffer workload" the SFL header named as needing the
+documented TagCoalesce upgrade). Root cause was NOT interp footprint (arena instrumentation
+at the abort: true live ≈ 2.25 MiB, fits 4 MiB) but ALLOCATOR FRAGMENTATION: SFL handed a
+freed large block WHOLE to a smaller large request (no split → excess lost) and never
+coalesced, so a broken-up 1 MiB span never re-formed and the carve frontier marched to the
+wall.
+
+Fixed by implementing the documented **TagCoalesce** boundary-tag backend (`rt_baremetal.bn`):
+per-block 8B header + 8B footer holding `size|FREE_BIT`; split on alloc; forward+backward
+coalesce on free (ORDER-INDEPENDENT — the decisive property, since a refcount teardown does
+not free high→low, so forward-only is insufficient); doubly-linked free lists for O(1)
+coalesce-unlink; the segregated O(1) small classes kept (a small class-miss reuses coalesced
+large space by splitting, so the arena doesn't march on the small side); double-free now
+trapped (immediate case). Chosen after a 4-way adversarial design review (forward-only /
+bidirectional / single address-ordered / segregated-large-classes — boundary-tag
+order-independence + keeping the small fast path was the survivor) and a clean adversarial
+review of the concrete implementation (0 confirmed bugs; every stride/split/merge hand-traced;
+one double-free-comment precision nit fixed).
+
+Verified: interp PASSES; full `builder-comp_arm32_baremetal` unit lane 52 passed / 0 failed /
+14 xfail (was 51/1/14 — interp flipped, nothing regressed), incl. `pkg/builtins/rt`'s
+managed-layer tests over the new allocator, no timeout; native arm32 baremetal conformance
+smoke 4/0 (allocator compiles+runs under the native backend too); new `rt_baremetal_test.bn`
+fragmentation-survival + split/reuse-bounded stress tests (baremetal-gated); hosted untouched
+(`#[build baremetal]`); hygiene 19/19. The stopgap `pkg-binate-interp.xfail` was removed (never
+landed). (`pkg/std/debug` on `builder-comp_arm32_linux` is a SEPARATE, still-open segfault —
+see claude-todo.md.)
+
 ## Three E2E regressions from the satentry decentralization — all fixed & landed (2026-08-22)
 
 The satentry decentralization (per-package `_pkg_satfrag` graph, phases 1-3, 2026-08-20/21) plus a
