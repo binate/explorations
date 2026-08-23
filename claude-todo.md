@@ -247,6 +247,34 @@ refcount-heavy run. Confirm with the same per-class RawAlloc/RawFree leak dump u
 and fix in kind (own the fixtures via managed slices, or free them). MAJOR per the
 raise-don't-workaround rule; the xfail is a tracked hold, not a silent workaround.
 
+### arm32 unit lanes: two distinct pre-existing failures fail-fast-cascade the whole Unit matrix — 🟡 OPEN
+
+Discovered 2026-08-22 while investigating the perma-red Unit workflow. GitHub matrix
+fail-fast means ONE failing job cancels every other in-progress Unit job, so the suite
+looks broadly broken when only two modes actually fail. The two real failures:
+
+- **`pkg/binate/interp` on `builder-comp_arm32_baremetal`** — `rt.RawAlloc: arena
+  exhausted`. Root-caused: interp embeds a full checker + IR-gen + bytecode VM, so
+  loading+running even a trivial program transiently peaks a working set > the 4 MiB
+  bare-metal arena. NOT a leak (hosted `rt.LiveBlocks()` balances across create/use/drop
+  cycles; shrinking the VM stack doesn't help — the peak is the checker/injection/lowering
+  footprint). interp is a host-side embeddable tool, not a bare-metal workload, so it is
+  now **xfail'd** on this mode (matching the codegen / cmd-bnc / cmd-bnlint / native-arm32
+  xfails). RESOLVED as a correct classification — see claude-todo-done.md once landed. Only
+  a future "shrink interp's baremetal footprint" project (e.g. inject a minimal package set
+  in the test helper instead of all StandardPackages) would let it run there; not planned.
+
+- **`pkg/std/debug` on `builder-comp_arm32_linux`** — `qemu: uncaught target signal 11
+  (Segmentation fault)`. This is a SEPARATE, still-OPEN bug (interp PASSES on arm32_linux —
+  73/73 — so the two failures are unrelated). pkg/std/debug (the stacktrace/callers package)
+  PASSES on arm32-baremetal but SEGFAULTS under arm32-linux (LLVM arm32 + real libc heap),
+  so it is a 32-bit-linux-specific crash, plausibly in the stacktrace/frame-walk codegen
+  (cf. the recent pkg/std/debug + native-arm32 FP-chain stacktrace work). NOT yet reproduced
+  locally (no qemu-arm user-mode on the Darwin dev host — needs a Linux runner or CI). Needs
+  root-cause; until then it keeps the arm32_linux Unit lane (and, via fail-fast, the whole
+  Unit matrix) red. Consider also disabling matrix fail-fast for the Unit workflow so one
+  mode's failure stops masking the true per-mode state (a CI-workflow change — owner's call).
+
 ### `data_pkg_descriptor.bn` header/slice-width conflation — 🟢 LOW (non-urgent cleanup)
 The `GetTarget().IntSize` "footgun" was a MISDIAGNOSIS and the native-accessor header reads
 were switched to `ManagedHeaderSize()` (main `581216d9`) — see [claude-todo-done.md](claude-todo-done.md).
