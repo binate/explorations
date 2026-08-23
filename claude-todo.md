@@ -247,27 +247,6 @@ refcount-heavy run. Confirm with the same per-class RawAlloc/RawFree leak dump u
 and fix in kind (own the fixtures via managed slices, or free them). MAJOR per the
 raise-don't-workaround rule; the xfail is a tracked hold, not a silent workaround.
 
-### `pkg/std/debug` segfaults on `builder-comp_arm32_linux` — 🟡 OPEN
-
-Discovered 2026-08-22 while investigating the perma-red Unit workflow (GitHub matrix
-fail-fast means ONE failing Unit job cancels every other in-progress one, so the suite looks
-broadly broken over few real failures). Two real arm32 Unit failures were found; the first is
-now FIXED, this one remains:
-
-- **`pkg/binate/interp` on `builder-comp_arm32_baremetal`** — `rt.RawAlloc: arena exhausted`.
-  RESOLVED: a bare-metal allocator FRAGMENTATION bug (not interp footprint), fixed by the
-  TagCoalesce split+coalesce allocator (`66075f0b6`; see claude-todo-done.md).
-
-- **`pkg/std/debug` on `builder-comp_arm32_linux`** — `qemu: uncaught target signal 11
-  (Segmentation fault)`. STILL OPEN. The stacktrace/callers package PASSES on arm32-baremetal
-  but SEGFAULTS under arm32-linux (LLVM arm32 + real libc heap), so it is a 32-bit-linux-specific
-  crash, plausibly in the stacktrace/frame-walk codegen (cf. the recent pkg/std/debug + native-arm32
-  FP-chain stacktrace work). NOT yet reproduced locally (no qemu-arm user-mode on the Darwin dev
-  host — needs a Linux runner or CI). Needs root-cause; until then it keeps the arm32_linux Unit
-  lane (and, via fail-fast, the whole Unit matrix) red. Consider also disabling matrix fail-fast
-  for the Unit workflow so one mode's failure stops masking the true per-mode state (a CI-workflow
-  change — owner's call).
-
 ### `data_pkg_descriptor.bn` header/slice-width conflation — 🟢 LOW (non-urgent cleanup)
 The `GetTarget().IntSize` "footgun" was a MISDIAGNOSIS and the native-accessor header reads
 were switched to `ManagedHeaderSize()` (main `581216d9`) — see [claude-todo-done.md](claude-todo-done.md).

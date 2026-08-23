@@ -6,6 +6,29 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `pkg/std/debug` arm32_linux segfault — validate the frame pointer in CaptureNativeFrames' walk — ✅ DONE (2026-08-23, `7c63dd90b`)
+
+`pkg/std/debug`'s from-code stacktrace (`rt.CaptureNativeFrames`) SIGSEGV'd on
+`builder-comp_arm32_linux` (the second of the two arm32 Unit-lane failures; it PASSES on
+arm32-baremetal). Reproduced + root-caused in an arm32-linux Docker container under
+qemu-arm + gdb: the walk terminates only on a null saved-fp, which holds on baremetal
+(all-Binate chain, r11==0 at QEMU reset) and x86-64 (glibc `_start` zeroes rbp), but arm32
+glibc plants NO null frame-pointer sentinel — so when the walk crossed from Binate frames
+into the C entry's glibc caller it followed glibc's leftover r11 (garbage `0x0a4b0ab5`, one
+frame past Binate `main`) and dereferenced an unmapped address.
+
+Fixed (`7c63dd90b`): before following a saved-fp, require a valid caller frame — a STRICTLY
+HIGHER stack address than the current fp (stack grows down) and word-aligned; a lower /
+equal / unaligned value is a broken chain and the walk stops there. Subsumes the old null
+check and is behavior-preserving on baremetal + x86-64/aarch64 hosted. Compared unsigned so
+a high user stack orders correctly. Documented residual (heuristic, not categorical): a
+higher-aligned-unmapped garbage fp would still fault — a complete check needs live stack
+bounds, unavailable in Tier-0 (no OS calls; runs bare-metal). Three new guard tests
+(backward / equal / unaligned saved-fp). Minimal adversarial review: no blocking issues.
+
+With this + TagCoalesce (`66075f0b6`), BOTH root-cause arm32 Unit failures that were
+fail-fast-cascading the whole Unit matrix are fixed.
+
 ## Bare-metal allocator TagCoalesce — split + boundary-tag coalescing (interp baremetal regression) — ✅ DONE (2026-08-23, `66075f0b6`)
 
 `pkg/binate/interp` regressed to `rt.RawAlloc: arena exhausted` on
