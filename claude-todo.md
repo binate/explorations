@@ -254,15 +254,20 @@ fail-fast means ONE failing job cancels every other in-progress Unit job, so the
 looks broadly broken when only two modes actually fail. The two real failures:
 
 - **`pkg/binate/interp` on `builder-comp_arm32_baremetal`** — `rt.RawAlloc: arena
-  exhausted`. Root-caused: interp embeds a full checker + IR-gen + bytecode VM, so
-  loading+running even a trivial program transiently peaks a working set > the 4 MiB
-  bare-metal arena. NOT a leak (hosted `rt.LiveBlocks()` balances across create/use/drop
-  cycles; shrinking the VM stack doesn't help — the peak is the checker/injection/lowering
-  footprint). interp is a host-side embeddable tool, not a bare-metal workload, so it is
-  now **xfail'd** on this mode (matching the codegen / cmd-bnc / cmd-bnlint / native-arm32
-  xfails). RESOLVED as a correct classification — see claude-todo-done.md once landed. Only
-  a future "shrink interp's baremetal footprint" project (e.g. inject a minimal package set
-  in the test helper instead of all StandardPackages) would let it run there; not planned.
+  exhausted`. Root cause (corrected): this is a **bare-metal allocator FRAGMENTATION bug**,
+  NOT an interp-footprint problem. Instrumenting the arena at exhaustion:
+  `need=1048584 carved=3690864 liveBlk=1854 freeL=1236680 freeS=97624 => liveBytes≈2.25 MiB`.
+  interp's true live set is only ~2.25 MiB — it fits the 4 MiB arena with room — but ~1.27 MiB
+  is stranded on the free lists because `rt_baremetal.bn`'s segregated allocator does NO
+  coalescing: a freed 1 MiB VM stack is consumed WHOLE by a small large-request (first-fit,
+  no split), or (with naive splitting) leaves a just-under-1-MiB remnant, so it can no longer
+  satisfy the next 1 MiB stack request and the monotonic frontier marches to the wall. (An
+  interpreter on low-end hardware is a CORE use case — the earlier "not a bare-metal workload"
+  framing was wrong.) **Real fix: add coalescing to the bare-metal allocator** (splitting alone
+  makes external fragmentation WORSE — verified). A `pkg-binate-interp.xfail.builder-comp_arm32_baremetal`
+  currently exists only as a temporary stopgap to un-cascade the matrix; it must be REMOVED
+  when the allocator fix lands. Secondary cleanup: loadSelfContained + a few interp tests use a
+  gratuitous 1 MiB VM stack for trivial `add`/`echo` programs — right-size it.
 
 - **`pkg/std/debug` on `builder-comp_arm32_linux`** — `qemu: uncaught target signal 11
   (Segmentation fault)`. This is a SEPARATE, still-OPEN bug (interp PASSES on arm32_linux —
