@@ -6,6 +6,40 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Three E2E regressions from the satentry decentralization — all fixed & landed (2026-08-22)
+
+The satentry decentralization (per-package `_pkg_satfrag` graph, phases 1-3, 2026-08-20/21) plus a
+fail-loud codegen tail reddened three e2e's in CI. All three are now green on `main`:
+
+- **verify-ir** (`a6689a404`): the fail-loud `panic(<strings.Builder message>)` in codegen's
+  unimplemented-op tail left a managed temp live in an already-terminated switch-exit block;
+  `emitTempCleanup` then emitted a managed RefDec (which branches) INTO the terminated block, giving
+  it a second terminator (malformed IR the `--verify-ir` structural verifier flags; silent
+  code-drop without it). Root-caused at the IR-gen level: `emitTempCleanup` now skips a terminated
+  block (temps are dead — the program aborted) while still clearing the temp/SP bookkeeping.
+
+- **ffi-export** (`a7cfb5169`): the decentralized dep-frag edges were STRONG undefined refs (LLVM
+  `external global` / native `SetGlobal`), which made a package's object un-linkable standalone —
+  breaking `--pkg`/facade/partial links. Replaced with WEAK-DEFINITION fallbacks (an overridable
+  empty node) + a STRONG real node (`DG_GLOBAL`), shared by both backends via
+  `irdata.BuildSatFragFallback`. Weak-def (not `extern_weak`) because Mach-O static links refuse an
+  undefined weak data ref but accept a weak def; the strong real node deterministically overrides
+  the weak fallbacks wherever both link. **Trade-off recorded in the OPEN todo (`0a98da23`):** a weak
+  ref no longer drags a satentries-only internal package's object out of a static archive the way the
+  old strong ref would have; the future blob-consuming build mode must include internal objects
+  explicitly. Verified: ffi-export all 3 arms; whole-program registry (iface asserts / type switches
+  / any-slice asserts / reflect) green on LLVM + native x64 + native aa64.
+
+- **split-paths** (`6415cbe71`): NOT a code bug — the bnc arm compiled the fixture with the pinned
+  BUILDER (bnc-0.0.13, released 2026-08-11, which PREDATES satfrag) but linked the current-tree
+  runtime, so the BUILDER emitted the old flat `_satentry_root` + old registry wiring while the
+  current-tree `rt` graph-walks `_pkg_satfrag` → the old wiring handed the new walk a flat root and
+  the binary segfaulted at startup. A pre-satfrag BUILDER cannot correctly compile post-satfrag
+  runtime; that resolves only when BUILDER_VERSION catches up (not to be rushed). Fixed by compiling
+  the bnc arm with a cached gen1 (`resolve-gen1.sh`) instead — the arm's purpose is bnc's own
+  `-I`/`-L` split-path resolution, which gen1 tests with one consistent compiler↔runtime contract;
+  aligns with the bnlint arm and drops the BUILDER-bundle fallbacks + pkg/bootstrap force-load.
+
 ## native/arm32 stacktrace support — FP chain + OP_STACK_FRAMES (plan-stacktraces phase 4) — DONE (2026-08-22, `e200880d2`)
 
 The native arm32 backend saved r4-r12+lr in one push but never established a frame pointer, so its
