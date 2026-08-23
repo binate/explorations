@@ -141,9 +141,18 @@ closed-source `{facade.bni, bundle.a}` whose internal packages the consumer neve
   its satentries were before the PoC. Decentralize it the same way (the `_pkg_satfrag` graph
   is the template: a per-package init-edge graph walked at startup).
 - **No wired/tested Binate-consumes-a-prebuilt-`.a` path** exists (`--library` targets C via
-  `bn_init`, not Binate import), so the archive-inclusion property the strong `_pkg_satfrag`
-  edges provide is asserted-but-unverified. A blob-consuming build mode is needed to exercise
-  (and regression-test) it end to end.
+  `bn_init`, not Binate import). **Archive-inclusion trade-off (2026-08-22, `a7cfb5169`):** the
+  dep-frag edges are no longer STRONG undefined refs — they are now WEAK-DEFINITION fallbacks
+  (an overridable empty node) + a STRONG real node, because the strong undefined refs made a
+  package's object un-linkable standalone (they broke `--pkg`/facade/partial links — the
+  ffi-export e2e). The weak model is required for standalone linkability, but a weak ref does
+  NOT drag its dependency's object out of a static archive the way a strong ref did. So the
+  side-effect that satfrag strong edges *would* have force-included a satentries-only internal
+  package's object from `bundle.a` is GONE. When the blob-consuming build mode is actually
+  built, it must ensure ALL internal package objects are included by an EXPLICIT mechanism
+  (e.g. link the whole archive / an inclusion manifest), not rely on satfrag edges as a
+  side-channel. (This property was already "asserted-but-unverified" — no test ever exercised
+  it — so nothing tested regressed; but the future mode must not assume it.)
 
 ### Package descriptors — Phase C (richer metadata) + VM extern auto-enumeration remain
 
