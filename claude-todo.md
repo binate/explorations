@@ -247,38 +247,26 @@ refcount-heavy run. Confirm with the same per-class RawAlloc/RawFree leak dump u
 and fix in kind (own the fixtures via managed slices, or free them). MAJOR per the
 raise-don't-workaround rule; the xfail is a tracked hold, not a silent workaround.
 
-### arm32 unit lanes: two distinct pre-existing failures fail-fast-cascade the whole Unit matrix — 🟡 OPEN
+### `pkg/std/debug` segfaults on `builder-comp_arm32_linux` — 🟡 OPEN
 
-Discovered 2026-08-22 while investigating the perma-red Unit workflow. GitHub matrix
-fail-fast means ONE failing job cancels every other in-progress Unit job, so the suite
-looks broadly broken when only two modes actually fail. The two real failures:
+Discovered 2026-08-22 while investigating the perma-red Unit workflow (GitHub matrix
+fail-fast means ONE failing Unit job cancels every other in-progress one, so the suite looks
+broadly broken over few real failures). Two real arm32 Unit failures were found; the first is
+now FIXED, this one remains:
 
-- **`pkg/binate/interp` on `builder-comp_arm32_baremetal`** — `rt.RawAlloc: arena
-  exhausted`. Root cause (corrected): this is a **bare-metal allocator FRAGMENTATION bug**,
-  NOT an interp-footprint problem. Instrumenting the arena at exhaustion:
-  `need=1048584 carved=3690864 liveBlk=1854 freeL=1236680 freeS=97624 => liveBytes≈2.25 MiB`.
-  interp's true live set is only ~2.25 MiB — it fits the 4 MiB arena with room — but ~1.27 MiB
-  is stranded on the free lists because `rt_baremetal.bn`'s segregated allocator does NO
-  coalescing: a freed 1 MiB VM stack is consumed WHOLE by a small large-request (first-fit,
-  no split), or (with naive splitting) leaves a just-under-1-MiB remnant, so it can no longer
-  satisfy the next 1 MiB stack request and the monotonic frontier marches to the wall. (An
-  interpreter on low-end hardware is a CORE use case — the earlier "not a bare-metal workload"
-  framing was wrong.) **Real fix: add coalescing to the bare-metal allocator** (splitting alone
-  makes external fragmentation WORSE — verified). A `pkg-binate-interp.xfail.builder-comp_arm32_baremetal`
-  currently exists only as a temporary stopgap to un-cascade the matrix; it must be REMOVED
-  when the allocator fix lands. Secondary cleanup: loadSelfContained + a few interp tests use a
-  gratuitous 1 MiB VM stack for trivial `add`/`echo` programs — right-size it.
+- **`pkg/binate/interp` on `builder-comp_arm32_baremetal`** — `rt.RawAlloc: arena exhausted`.
+  RESOLVED: a bare-metal allocator FRAGMENTATION bug (not interp footprint), fixed by the
+  TagCoalesce split+coalesce allocator (`66075f0b6`; see claude-todo-done.md).
 
 - **`pkg/std/debug` on `builder-comp_arm32_linux`** — `qemu: uncaught target signal 11
-  (Segmentation fault)`. This is a SEPARATE, still-OPEN bug (interp PASSES on arm32_linux —
-  73/73 — so the two failures are unrelated). pkg/std/debug (the stacktrace/callers package)
-  PASSES on arm32-baremetal but SEGFAULTS under arm32-linux (LLVM arm32 + real libc heap),
-  so it is a 32-bit-linux-specific crash, plausibly in the stacktrace/frame-walk codegen
-  (cf. the recent pkg/std/debug + native-arm32 FP-chain stacktrace work). NOT yet reproduced
-  locally (no qemu-arm user-mode on the Darwin dev host — needs a Linux runner or CI). Needs
-  root-cause; until then it keeps the arm32_linux Unit lane (and, via fail-fast, the whole
-  Unit matrix) red. Consider also disabling matrix fail-fast for the Unit workflow so one
-  mode's failure stops masking the true per-mode state (a CI-workflow change — owner's call).
+  (Segmentation fault)`. STILL OPEN. The stacktrace/callers package PASSES on arm32-baremetal
+  but SEGFAULTS under arm32-linux (LLVM arm32 + real libc heap), so it is a 32-bit-linux-specific
+  crash, plausibly in the stacktrace/frame-walk codegen (cf. the recent pkg/std/debug + native-arm32
+  FP-chain stacktrace work). NOT yet reproduced locally (no qemu-arm user-mode on the Darwin dev
+  host — needs a Linux runner or CI). Needs root-cause; until then it keeps the arm32_linux Unit
+  lane (and, via fail-fast, the whole Unit matrix) red. Consider also disabling matrix fail-fast
+  for the Unit workflow so one mode's failure stops masking the true per-mode state (a CI-workflow
+  change — owner's call).
 
 ### `data_pkg_descriptor.bn` header/slice-width conflation — 🟢 LOW (non-urgent cleanup)
 The `GetTarget().IntSize` "footgun" was a MISDIAGNOSIS and the native-accessor header reads
