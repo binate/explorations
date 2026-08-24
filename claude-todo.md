@@ -970,8 +970,7 @@ urgency (no current miscompile; the writable placement is safe, just unhardened)
   — RUN under double-VM (coverage restored), just spread across shards — and the old
   `.skip-pkg.builder-comp-int-int` files were removed.  The VM lanes were sharded in
   `unit-tests.yml` (int-int 12 shards + a 45-min cap; -int / -comp-int 6 shards each).  The
-  counts are tuned empirically against the caps — CI-confirmation pending on the landing
-  commit; bump shards if a shard still exceeds its cap.
+  counts are tuned empirically against the caps — CI-confirmation pending on `bf86b23dd`; bump shards if a shard still exceeds its cap.
 - **STATUS 2026-06-10 — GREEN (superseded — see Round 3)** (unit run on `3342460e`): all 8 `builder-comp-int-int` shards pass (2.5–26.7 min) and `builder-comp-int` / `-comp-int` pass. **Margin note**: shard 4/8 ran 26.7 min — ~89% of the 30-min cap; the 8-shard + skip set is sufficient but thin, so if the int-int suite grows it may need a 9th–10th shard or one more skip before it times out again. (The remaining unit reds — `arm32_{linux,baremetal}`, `native_x64` — are separate modes, not this. NOTE: `native_x64` was NOT "WIP" — it was broken by an ELF PC32 reloc bug, fixed 2026-06-14 `dd74c91e`; that native_x64 ELF PC32 reloc bug is fixed and archived in claude-todo-done.md.)
 
 ## Testing: harness, runners & conformance coverage
