@@ -982,9 +982,26 @@ urgency (no current miscompile; the writable placement is safe, just unhardened)
   from a single substring to **comma-separated** (`skipMatchesAny`; empty parts/empty spec match
   nothing).  Validated locally: interp under `-int` with the marker runs exactly 35 (light) tests,
   0 failures.  Expected int-int total ~750 → ~200 min, giving 12 shards / 45-min cap headroom.
-  **Follow-up (do as its own CI iteration once green):** tune the int-int shard count and 45-min
-  cap back down now that the lane is much lighter, rather than leaving it over-provisioned.
-  CI-confirmation pending on `eaad88d22`.
+  CI-confirmation on `eaad88d22`: **still over-cap** — all 12 shards hit 45min again.  Shard-log
+  breakdown (3/12): build 53s, `pkg/binate/parser` 18 tests 250s, then **`pkg/binate/interp`
+  3 tests = 1925s (~640s/test)**.  The residual is NOT the `loadSelfContained` families (those
+  are skipped) but `interp_test.bn`'s 8 `New()`-calling tests: `interp.New()` injects the FULL
+  standard package set (`injectPackageSet(StandardPackages())`) into a fresh VM, which costs
+  ~600s under double-VM vs ~0.2s single-VM — a ~3000× blow-up (well past the ~100× inherent
+  double-VM cost).  Test-level sharding CANNOT fix a per-test setup cost; there are only ~8 such
+  tests but each is irreducibly ~10min.  The ~30× gap beyond inherent double-VM cost HINTS a
+  superlinear (O(N²)?) `injectPackageSet` — Binate has no built-in maps, so symbol registration
+  may be linear-scan, invisible at single-VM speed and explosive at double-VM.
+- **DECISION NEEDED (int-int interp residual, non-blocking lane).**  Options: (A) root-cause the
+  `interp.New()`/`injectPackageSet` ~600s double-VM cost (if it's O(N²) symbol registration,
+  fixing it is real value beyond this lane); (B) skip interp's 8 `New()`-tests under int-int
+  (surgical, keeps ~25 pure-unit Value/imports/util/check tests, but name-fragile); (C) skip the
+  whole interp package under int-int (robust; the ~25 remaining pure-unit tests test byte-marshaling
+  / string logic that double-VM exercises nothing new about — the round-2-anticipated "double-VM
+  adds no coverage over -int for interp" call).  **Blocking lanes all green on `eaad88d22`**, so
+  int-int red does NOT block a BUILDER release; native_aa64's 30-min cancel is pre-existing
+  (≥4 runs), separate.  Awaiting user direction before touching this further.
+- **Deferred follow-up (once int-int is green):** tune the shard count / 45-min cap back down.
 - **STATUS 2026-06-10 — GREEN (superseded — see Round 3)** (unit run on `3342460e`): all 8 `builder-comp-int-int` shards pass (2.5–26.7 min) and `builder-comp-int` / `-comp-int` pass. **Margin note**: shard 4/8 ran 26.7 min — ~89% of the 30-min cap; the 8-shard + skip set is sufficient but thin, so if the int-int suite grows it may need a 9th–10th shard or one more skip before it times out again. (The remaining unit reds — `arm32_{linux,baremetal}`, `native_x64` — are separate modes, not this. NOTE: `native_x64` was NOT "WIP" — it was broken by an ELF PC32 reloc bug, fixed 2026-06-14 `dd74c91e`; that native_x64 ELF PC32 reloc bug is fixed and archived in claude-todo-done.md.)
 
 ## Testing: harness, runners & conformance coverage
