@@ -971,6 +971,20 @@ urgency (no current miscompile; the writable placement is safe, just unhardened)
   `.skip-pkg.builder-comp-int-int` files were removed.  The VM lanes were sharded in
   `unit-tests.yml` (int-int 12 shards + a 45-min cap; -int / -comp-int 6 shards each).  The
   counts are tuned empirically against the caps — CI-confirmation pending on `bf86b23dd`; bump shards if a shard still exceeds its cap.
+- **Round 5 (2026-08-24) — interp compile-heavy tests skipped under int-int only** (`eaad88d22`).
+  CI on `bf86b23dd` showed all 12 int-int shards still hit the 45-min cap: `pkg/binate/interp`
+  dominated the lane.  Its ~38 typed/aggregate-RunFunc tests (`RunFuncTyped*`,
+  `InterpCallIfaceMethod*`, `WrapPackage*`) each run a full `loadSelfContained` compile, which
+  under nested interpretation (~100×) costs minutes apiece — interp alone was ~555 min.  These
+  three families are now dropped **only** under double-VM via
+  `scripts/unittest/pkg-binate-interp.skip.builder-comp-int-int` (they keep full coverage under
+  `-int` and `-comp`).  To express three name-families in one marker, `bni --skip` was extended
+  from a single substring to **comma-separated** (`skipMatchesAny`; empty parts/empty spec match
+  nothing).  Validated locally: interp under `-int` with the marker runs exactly 35 (light) tests,
+  0 failures.  Expected int-int total ~750 → ~200 min, giving 12 shards / 45-min cap headroom.
+  **Follow-up (do as its own CI iteration once green):** tune the int-int shard count and 45-min
+  cap back down now that the lane is much lighter, rather than leaving it over-provisioned.
+  CI-confirmation pending on `eaad88d22`.
 - **STATUS 2026-06-10 — GREEN (superseded — see Round 3)** (unit run on `3342460e`): all 8 `builder-comp-int-int` shards pass (2.5–26.7 min) and `builder-comp-int` / `-comp-int` pass. **Margin note**: shard 4/8 ran 26.7 min — ~89% of the 30-min cap; the 8-shard + skip set is sufficient but thin, so if the int-int suite grows it may need a 9th–10th shard or one more skip before it times out again. (The remaining unit reds — `arm32_{linux,baremetal}`, `native_x64` — are separate modes, not this. NOTE: `native_x64` was NOT "WIP" — it was broken by an ELF PC32 reloc bug, fixed 2026-06-14 `dd74c91e`; that native_x64 ELF PC32 reloc bug is fixed and archived in claude-todo-done.md.)
 
 ## Testing: harness, runners & conformance coverage
