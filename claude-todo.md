@@ -956,8 +956,22 @@ urgency (no current miscompile; the writable placement is safe, just unhardened)
 - **Re-add work (the "separately" part)**: for each skipped package, either (a) profile + optimize its double-VM runtime so it fits a shard, or (b) make the explicit call that the double-VM lane adds no coverage over single-VM (`-int`) for that package (strong for the compiler-side ones — codegen/ir/types/asm test the COMPILER; `-int` already runs their tests through the VM; double-VM is the same logic + an extra dispatch layer). `pkg/binate/vm` is the one whose lost double-VM coverage is most arguable — its logic is still covered by `builder-comp-int` / `-comp-int` (single VM), and the lane's unique value is exercised by every OTHER package; re-adding it likely wants per-test `.skip` of its slowest tests rather than the whole package. When re-adding `codegen`, its `TestEmitDebug` per-test `.skip` still applies.
 - **Separately unmasked**: `pkg/std/os` (landed `3ca36c82`) fails `vm/lower: unhandled IR opcode c_call` on ALL three VM-leg unit modes — libc-backed (native-only), same category as the `rt`/`bootstrap` xfails. NOT a slow-skip case (it genuinely FAILS in the VM), so it's `.xfail`'d (not `.skip-pkg`'d) for `builder-comp-int` / `-comp-int` / `-int-int`, matching that convention. My skips merely unmasked it (the shard used to time out before reaching it); it was already reding `builder-comp-int` independently.
 - **Not a release blocker** (int-int non-blocking per `release-process.md`; was red at `bnc-0.0.7` too). Tracked here so the skips don't become permanent silent coverage loss.
-- **Round 3 (2026-08-23, unit run on `7c63dd90b`)**: the suite regrew and 6 of 8 shards timed out again (as the June margin note predicted). Profiling each timed-out shard's CI log (which package it STALLED on) found the new >30-min-alone offenders — all COMPILER-SIDE: `pkg/binate/interp` (Inc-3/4 growth: `loadSelfContained` full-compiles per test), `pkg/binate/repl`, `pkg/binate/lint`, and the native codegen backends `pkg/binate/native/{x64,aarch64,common,arm32}` (recent arm32/native work). Added `.skip-pkg.builder-comp-int-int` for all 7 (coverage retained by `builder-comp-int` — single VM already runs their tests through the VM, so double-VM adds no unique coverage, same rationale as codegen/ir/types/vm/asm-aarch64). The remaining heavy-but-FINISHED compiler packages (`parser` 742s, `cmd/bnlint` 839s, `irdata` 459s, `asm/parse` 368s, `cmd/bnfmt` 232s) are kept in the lane; to stop two of them clustering into one >30-min shard, unit int-int sharding was bumped **8 → 10** (`.github/workflows/unit-tests.yml`). CI-confirmation pending on the landing commit.
-
+- **Round 3 → superseded by Round 4.**  (Round 3 briefly skipped 7 more packages; that
+  was abandoned — skipping compiler-side packages generalizes to "skip nearly the whole
+  lane," defeating its purpose.)
+- **Round 4 (2026-08-23) — TEST-LEVEL SHARDING instead of skips.**  The lane was
+  package-granular, so a single package too heavy for the 30-min cap could only be skipped,
+  never split.  Fixed by adding `bni --test --shard-index i --shard-count n` (runs the tests
+  at `pos % n == i-1`), plumbed through run.sh: a package marked
+  `scripts/unittest/<pkg-key>.split.vm` runs on EVERY shard with the shard forwarded (its
+  tests split), while non-split packages stay package-sharded (one shard each).  The heavy
+  compiler-side packages (interp, repl, lint, native/{x64,aarch64,common,arm32}, codegen, ir,
+  types, vm, asm/aarch64, parser, irdata, asm/parse, cmd/bnlint, cmd/bnfmt) are now `.split.vm`
+  — RUN under double-VM (coverage restored), just spread across shards — and the old
+  `.skip-pkg.builder-comp-int-int` files were removed.  The VM lanes were sharded in
+  `unit-tests.yml` (int-int 12 shards + a 45-min cap; -int / -comp-int 6 shards each).  The
+  counts are tuned empirically against the caps — CI-confirmation pending on the landing
+  commit; bump shards if a shard still exceeds its cap.
 - **STATUS 2026-06-10 — GREEN (superseded — see Round 3)** (unit run on `3342460e`): all 8 `builder-comp-int-int` shards pass (2.5–26.7 min) and `builder-comp-int` / `-comp-int` pass. **Margin note**: shard 4/8 ran 26.7 min — ~89% of the 30-min cap; the 8-shard + skip set is sufficient but thin, so if the int-int suite grows it may need a 9th–10th shard or one more skip before it times out again. (The remaining unit reds — `arm32_{linux,baremetal}`, `native_x64` — are separate modes, not this. NOTE: `native_x64` was NOT "WIP" — it was broken by an ELF PC32 reloc bug, fixed 2026-06-14 `dd74c91e`; that native_x64 ELF PC32 reloc bug is fixed and archived in claude-todo-done.md.)
 
 ## Testing: harness, runners & conformance coverage
