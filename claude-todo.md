@@ -992,16 +992,29 @@ urgency (no current miscompile; the writable placement is safe, just unhardened)
   tests but each is irreducibly ~10min.  The ~30× gap beyond inherent double-VM cost HINTS a
   superlinear (O(N²)?) `injectPackageSet` — Binate has no built-in maps, so symbol registration
   may be linear-scan, invisible at single-VM speed and explosive at double-VM.
-- **DECISION NEEDED (int-int interp residual, non-blocking lane).**  Options: (A) root-cause the
-  `interp.New()`/`injectPackageSet` ~600s double-VM cost (if it's O(N²) symbol registration,
-  fixing it is real value beyond this lane); (B) skip interp's 8 `New()`-tests under int-int
-  (surgical, keeps ~25 pure-unit Value/imports/util/check tests, but name-fragile); (C) skip the
-  whole interp package under int-int (robust; the ~25 remaining pure-unit tests test byte-marshaling
-  / string logic that double-VM exercises nothing new about — the round-2-anticipated "double-VM
-  adds no coverage over -int for interp" call).  **Blocking lanes all green on `eaad88d22`**, so
-  int-int red does NOT block a BUILDER release; native_aa64's 30-min cancel is pre-existing
-  (≥4 runs), separate.  Awaiting user direction before touching this further.
-- **Deferred follow-up (once int-int is green):** tune the shard count / 45-min cap back down.
+- **Round 6 (2026-08-24) — ROOT-CAUSED + FIXED the interp double-VM cost (user chose "root-cause
+  the perf").**  It was NOT inherent to nesting: `vm.RegisterExtern` was O(N²).  `injectPackageSet`
+  calls it once per function of every injected standard package (hundreds), and each call did
+  (a) a linear `streq` dup-scan of all prior externs AND (b) a grow-by-one `make_slice(len+1)` +
+  copy-all of every prior `ExternBinding` — and an `ExternBinding` holds managed refs
+  (`Name @[]char`, `HandleAddr @VMFuncHandle`), so the copy-all did O(N²) REFCOUNT traffic
+  (rt.RefInc/RefDec per prior binding per append).  Invisible at native speed; ~600s under the
+  double-VM lane.  The `LookupExtern` comment even said "N is small (~30)" — an assumption
+  `injectPackageSet` violates.  **Fix:** gave the extern registry the same treatment `vm.Funcs`
+  already had (`func_index.bn`): a new `extern_index.bn` open-addressing name→index hash
+  (`ExternIndexBuckets`/`Mask`/`Count`, shares djb2 `hashName`/`nameEq`/`FuncIndexEntry`) makes the
+  dup-check AND `LookupExtern` O(1); `vm.Externs` is now an amortized-doubling backing
+  (`ExternsLen` logical count) so registering N externs is O(N) not O(N²).  Validated: interp under
+  `builder-comp-int-int` PASS (35 tests) went from ~640s/test (shard 3: 3 tests = 1925s) to
+  ~39s/test (35 tests = 1375s) — ~16× per-test, so interp's per-shard slice drops from a 32-min
+  wall to ~2 min.  vm/interp/repl all green hosted.  Landed: TBD (awaiting approval).
+- **Secondary residual (SECONDARY O(N²), smaller N — follow-up candidate):** `New()`'s dataSym
+  registration is still O(N²) — `registerDataSymAddr` / `ensureIfaceIdSym` call the linear
+  `lookupDataSymAddr` per insert (satentry typeinfos + ifaceids).  It's the ~170s/New-test residual
+  after the externs fix.  Same pattern/fix (add a name→addr hash to the dataSym table).  Not needed
+  for the lane to pass (interp already ~2min/shard) — extra headroom only.
+- **Deferred follow-up (once int-int is confirmed green):** tune the shard count / 45-min cap down.
+  native_aa64's 30-min cancel is pre-existing (≥4 runs), separate.
 - **STATUS 2026-06-10 — GREEN (superseded — see Round 3)** (unit run on `3342460e`): all 8 `builder-comp-int-int` shards pass (2.5–26.7 min) and `builder-comp-int` / `-comp-int` pass. **Margin note**: shard 4/8 ran 26.7 min — ~89% of the 30-min cap; the 8-shard + skip set is sufficient but thin, so if the int-int suite grows it may need a 9th–10th shard or one more skip before it times out again. (The remaining unit reds — `arm32_{linux,baremetal}`, `native_x64` — are separate modes, not this. NOTE: `native_x64` was NOT "WIP" — it was broken by an ELF PC32 reloc bug, fixed 2026-06-14 `dd74c91e`; that native_x64 ELF PC32 reloc bug is fixed and archived in claude-todo-done.md.)
 
 ## Testing: harness, runners & conformance coverage
