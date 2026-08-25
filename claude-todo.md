@@ -266,28 +266,6 @@ pointer's alignment, so `DataZero` padding terms are required between `len` and 
 current flat-`DataTerm` sequence emits none, relying on `2*w` spacing). Do it WHEN a wide-int ABI is
 built, together with a test that exercises `ptr≠int` (the only thing that validates it).
 
-### Escaping raw-`*func` closure with captures reads captures as 0 (dangling record) — 🔴 OPEN
-
-A `*func` (raw) closure that captures a stack local and then ESCAPES (is returned from
-the function that created the captures) reads its captures back as `0` — the capture
-record is stack-allocated in the creating frame and dangles after it returns.  Minimal
-repro (host-independent; found on the arm32 VM):
-
-    func mk(factor int) *func(int) int { return func(x int) int { return x * factor } }
-    func main() { var f *func(int) int = mk(3); testing.Println(f(4)) }   // prints 0, not 12
-
-The managed form is CORRECT — `@func` owns a heap, refcounted capture record that
-survives the escape (`func mk(factor int) @func(int) int { ... }` → `f(4)` == 12).  So
-this is arguably user error: an escaping raw closure capturing a stack local is a
-use-after-free, and `@func` is the intended escape for a capturing closure that
-outlives its creator.  BUT bnc emits a silent wrong value (0) rather than rejecting it.
-Decide: (a) the checker rejects an escaping `*func` closure that captures a non-static
-local — the safe call, matching "raw pointers are the escape hatch, UAF is user error,
-but never SILENTLY miscompile"; or (b) leave it as documented UAF.  Non-escaping
-`*func` capturing closures are fine (e.g. conformance 913 — captures + closure + call
-all in one frame).  Surfaced by the readonly-sweep adversarial review (`a606ba444`),
-whose probes used `*func`.
-
 ## Slimming `pkg/bootstrap`; C interop (`__c_call`)
 
 ### Eliminate the last C runtime shim + native syscall allocator (libc-free) — 🟡 OPEN (future)

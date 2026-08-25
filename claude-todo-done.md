@@ -6,6 +6,31 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Escaping raw-`*func` closure reads captures as 0 (dangling record) — ✅ NOT-A-BUG (2026-08-25)
+
+An escaping capturing `*func` — e.g. `func mk(factor int) *func(int) int { return
+func(x int) int { return x * factor } }`, whose returned closure reads `factor` back as
+`0` — is **spec-conformant undefined behavior**, not a miscompile. §10.10
+(`func.closure.allocation`) stack-allocates a capturing `*func`'s closure record in the
+enclosing frame and forbids auto-promotion to `@func`; §10.11
+(`func.closure.escape-lint`) makes escaping such a value "the programmer's
+responsibility," flagged by a **best-effort lint**, explicitly *not* a hard type error.
+`@func` is the intended form for a closure that outlives its constructing frame — its
+heap, refcounted record survives (the `@func` version of `mk` returns 12 correctly).
+
+No compiler/checker change. Rejecting an escaping `*func` in the checker (the old todo's
+option (a)) was declined: it would over-reject legitimate non-escaping `*func` closures
+(e.g. conformance 913 — captures + closure + call all in one frame) and contradict
+§10.11's lint-not-error design. The mitigation the spec prescribes already exists and
+works — `bnlint`'s `func-value-escape` rule (`pkg/binate/lint/func_value_escape.bn`,
+tested by `TestFuncValueEscapeCapturingReturn`) fires on exactly this `mk` case
+(`[func-value-escape] capturing *func(...) flows into a slot that outlives the enclosing
+frame ... use @func(...)`) and stays silent on the `@func` form. Best-effort by design:
+it covers return / file-scope init / pointer-rooted assignment, not every escape path
+(e.g. stashing the `*func` into a heap struct field), per §10.11. Surfaced by the
+readonly-sweep adversarial review (`a606ba444`); footgun-by-design call confirmed
+2026-08-25.
+
 ## `pkg/std/debug` arm32_linux segfault — validate the frame pointer in CaptureNativeFrames' walk — ✅ DONE (2026-08-23, `7c63dd90b`)
 
 `pkg/std/debug`'s from-code stacktrace (`rt.CaptureNativeFrames`) SIGSEGV'd on
