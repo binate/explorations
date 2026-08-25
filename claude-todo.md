@@ -266,6 +266,31 @@ pointer's alignment, so `DataZero` padding terms are required between `len` and 
 current flat-`DataTerm` sequence emits none, relying on `2*w` spacing). Do it WHEN a wide-int ABI is
 built, together with a test that exercises `ptr≠int` (the only thing that validates it).
 
+### `builder-comp_arm32_linux_int` residual: readonly-float64 wrong-code + a closure-arg hang — 🔴 OPEN
+
+Two ILP32-VM bugs left after the 64-bit multi-return / closure-capture register-pair
+fixes (see [plan-vm-64bit-on-32bit.md](plan-vm-64bit-on-32bit.md) Phase 4).  Both are
+xfail'd on `builder-comp_arm32_linux_int` (conformance 704, 913).
+
+- **readonly float64 wrong-code (704).** The VM lowering peels only `TYP_NAMED`
+  (`vmUnwrapNamed`), NOT `TYP_READONLY`, at its float-vs-int / 64-bit-scalar
+  classification sites — `is64BitScalar` (`lower_slots.bn`), `lowerCast`
+  (`lower_cast.bn`), and the LOAD_IMM / store-load float branches.  So a `readonly
+  float64` is mis-sized to ONE slot and mis-typed as non-float: its value truncates
+  to the low word (`50.0` → `0.0`; `cast(int, readonly float64)` does an int64→int
+  truncation instead of float64→int).  `readonly int64` is UNAFFECTED (a pair int64
+  moves 8 bytes either way) — it's the readonly+float interaction.  Fix: a
+  `types.StripWrappers` sweep across EVERY VM classification site — partial patches
+  to `is64BitScalar`+`lowerCast` alone did NOT suffice (the store/load/LOAD_IMM float
+  paths still truncated), so do it as one audited sweep + an ILP32 probe/conformance
+  test.  `is64BitScalarReturn` already uses `StripWrappers` — the return path is the model.
+
+- **913 closure-arg straddle HANGS.** A closure with 7 int + 1 float64 captures plus a
+  16-byte struct arg straddling the last GP slot wedges the ILP32 VM (infinite loop,
+  not just a wrong value).  The capture/arg slot re-marshal for that register-overflow
+  + aggregate-straddle shape needs root-causing (likely a slot-count / bound
+  mis-computation driving a loop).  xfail'd (skipped) so it does not hang the run.
+
 ## Slimming `pkg/bootstrap`; C interop (`__c_call`)
 
 ### Eliminate the last C runtime shim + native syscall allocator (libc-free) — 🟡 OPEN (future)
