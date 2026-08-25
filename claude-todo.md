@@ -1655,3 +1655,41 @@ unblock them:
 - **CI-confirmation PENDING** on `872019ebf` (run 32883150167) — the clean full-scale
   measurement of whether the 12 int-int shards now fit the 45-min cap.  If green with margin,
   the shard count / cap can be tuned down as a follow-up.
+
+## int-int lane: batch-ALL was WRONG — do the HYBRID (package-shard light + test-shard heavy) — IN PROGRESS
+
+- **CI result on `872019ebf` (batch-all + test-shard-1/N): STILL cancels — all 12 shards at 45min.**
+  The batching activated (shard log: "STARTING (batched): 51 packages") and there was NO regression,
+  but batching ALL packages per shard means EVERY shard loads ALL 51 package impls at double-VM.
+  That floor is per-shard-CONSTANT, so more shards can't reduce it.
+- **Floor decomposition (cross-checked vs the token+irdata batch = 159s):** core deps
+  (types/ir/ast, loaded by every batch) ~140s at double-VM; per-package impl load ~28s each.
+  batch-ALL floor = 140s + 51x28s ≈ ~26min (an isolation run `run.sh -v --shard 1/500
+  builder-comp-int-int` — near-zero tests — hit a 25-min timeout WITHOUT finishing, confirming the
+  floor alone is >25min locally, larger on CI).  So batching cut the PRE-batch ~42-min floor
+  (15 packages each re-loading the core) to ~26min (core once), but the all-impls sum is the new wall.
+- **DECISION (user, "(a). Doing all packages per shard was stupid"): the HYBRID.**
+  - PACKAGE-shard the LIGHT packages: each shard batches only ITS subset of light packages, so it
+    loads only that subset's impls (not all 51).  Runs those packages' FULL tests (not 1/N).
+  - TEST-shard only the FEW packages too big to fit one shard (the .split.vm heavies whose own tests
+    exceed a shard): batch them together (loaded on every shard) + run 1/N of their tests.
+  - Batch each shard's set (its light subset + the test-sharded heavies) into ONE cmd/bni invocation
+    → floor ~= core (~140s) + subset-light-impls + heavy-impls ≈ ~5-6min/shard.  Then shard count
+    tunes the remaining test-exec under cap.
+  - Per-package skips are already package-qualified (bni `pkg:pattern`, landed `a067cbcb9`).
+- **Where the code is:** `scripts/unittest/run.sh` BATCH_MODE block (gated `*-int-int`, off under
+  --check-xpass) + `runner_test_batch` in `scripts/unittest/runners/builder-comp-int-int.sh`
+  (landed `872019ebf`) — currently batch-ALL + test-shard-ALL (`--shard-index i --shard-count n` over
+  the combined set).  CHANGE to the hybrid: keep per-package exclusion checks (native-only/.xfail/
+  .skip-pkg); classify each non-excluded package as heavy (.split.vm) vs light; light → package-shard
+  (assign to one shard by position, collect into that shard's batch, NO --shard); heavy → collect into
+  every shard's batch WITH --shard-index/count over just the heavy set.  Emit one batch invocation
+  (or two: light-subset without --shard + heavies with --shard) per shard; map back cmd/bni's
+  per-package ok/FAIL/? lines (already done).  bni --test already shares the loader (main.bn:186) and
+  emits per-package results; no further bni change needed.
+- **Also fix while here:** runner_test_batch's output is CAPTURED (b_out=$(...)), so on a 45-min
+  timeout the results are lost AND there's no live progress.  Consider `tee` so partial progress
+  streams and a timeout leaves a diagnosable tail.
+- Landed-and-good regardless: `a067cbcb9` (bni pkg-qualified --skip), the batching mechanism itself
+  (correct + validated: token+irdata 159s vs 192s separate; exclusions correct; non-int-int
+  unaffected).  Only the batch-ALL SHARDING POLICY is wrong and being replaced by the hybrid.
