@@ -1007,7 +1007,7 @@ urgency (no current miscompile; the writable placement is safe, just unhardened)
   (`ExternsLen` logical count) so registering N externs is O(N) not O(N²).  Validated: interp under
   `builder-comp-int-int` PASS (35 tests) went from ~640s/test (shard 3: 3 tests = 1925s) to
   ~39s/test (35 tests = 1375s) — ~16× per-test, so interp's per-shard slice drops from a 32-min
-  wall to ~2 min.  vm/interp/repl all green hosted.  Landed: TBD (awaiting approval).
+  wall to ~2 min.  vm/interp/repl all green hosted.  Landed `e65280c55`.
 - **Secondary residual (SECONDARY O(N²), smaller N — follow-up candidate):** `New()`'s dataSym
   registration is still O(N²) — `registerDataSymAddr` / `ensureIfaceIdSym` call the linear
   `lookupDataSymAddr` per insert (satentry typeinfos + ifaceids).  It's the ~170s/New-test residual
