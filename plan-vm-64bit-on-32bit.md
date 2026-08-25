@@ -226,10 +226,21 @@ CI's `builder-comp_arm32_linux` job (un-runnable on macOS — no qemu-arm).
      runs in ~1.4s and prints 1328; the "infinite loop" was a measurement artifact
      (pre-`timeout -s KILL` repro runs left runaway qemu processes that starved the
      triple-emulated container's CPU).  Un-xfail'd (`bbf5509e3`).
-   - Net after Phases 4–6: **103 → ~10 open** — the misc bucket (iface-nil, any/box
-     recovery, slice-layout literals, stdlib strconv/time, `840`).  NEXT: the misc
-     bucket.  (A separate discovery — an escaping raw `*func` closure reads its
-     captures as 0 — is tracked in `claude-todo.md`.)
+6. **Phase 6 — misc bucket cleared + mode flipped to BLOCKING (2026-08-25). DONE.**
+   The residual ~10 misc failures resolved: **840** (64-bit const unsigned-compare
+   fold) was a real ILP32 checker bug — `foldConstBoolValue` had no case for a
+   const-bool ident, so `BT && (U > 5)` bailed to IR-gen's host-int fold which
+   truncates the 64-bit operand on ILP32; fixed by storing a bool const's value on
+   its symbol and resolving it (same-package + cross-package, `5e7b2cbd7`).
+   **278/280** (interned-literal shapes) and **385** (nil-iface fault message) and
+   **abs-positive-zero** (`__c_call`) got the arm32_linux_int markers the other VM
+   modes already carry (`d9d08462b`); **068** was already `.xfail.all`.
+   - **`builder-comp_arm32_linux_int` is now BLOCKING** (`e1874ed72`,
+     experimental=false in conformance-tests.yml) — the whole 103-failure residual
+     is cleared (fixed or correctly xfail'd/goldened as FFI / nil-fault / VM-behavior
+     non-goals).  Watching the first blocking CI run; any red is P0.
+   - A separate discovery — an escaping raw `*func` closure reads its captures as 0
+     — is tracked in `claude-todo.md` (not an arm32-int-specific bug).
 
 Rationale: buckets B(hard) and C(hard) are information-gated — speculative until
 the red run says what breaks. Getting the failing signal beats a blind audit
