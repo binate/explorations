@@ -1585,3 +1585,29 @@ unblock them:
   frontend doesn't yet) — proper fix is VCVT-promote float32→float64 in the emit; (2) with the
   mode green, promote `builder-comp_native_arm32_linux` false→blocking in conformance-tests.yml
   (plan-native-arm32.md P7), pending a green CI run of the landed fix.
+
+## int-int lane: Scope O(N²) fix landed but INSUFFICIENT; recompile floor is the real cost
+
+- **Scope symbol-table O(N²)→O(1) hash landed `650e3d898`** (types/scope.bn) — a genuine
+  compiler improvement (linear-scan Lookup/Define → lazy name→index hash), adversarial-review
+  clean on 7 hazards, conformance 393/0.  **But it did NOT fix int-int:** the CI unit run on
+  `650e3d898` still cancelled ALL 12 int-int shards at the 45-min cap.  (An earlier "~7×
+  speedup" claim was a MISREAD — I compared a pre-fix 2-test shard slice to a post-fix 23-test
+  unsharded run; a clean same-slice re-measure showed the per-package floor ~unchanged, within
+  noise.  irdata was also the wrong benchmark — it doesn't compile programs, so the scope fix
+  barely touches it.)
+- **Root cause (precise, per user):** the per-`--test <pkg>` floor is NOT a native recompile.
+  `COMPILED_INTERP` is a native `cmd/bni` built once/shard; each `--test <pkg>` has it LOAD
+  `cmd/bni`'s source (parse→typecheck→IR→bytecode) and interpret it, and the inner `cmd/bni`
+  then loads+lowers the tested package's whole dep tree — all redone per invocation, ~15×/shard.
+  The Scope fix speeds only the TYPECHECK slice of that; parse/lower/execute dominate.
+- **Caching the lowered `cmd/bni` bytecode is OFF THE TABLE** — it needs bytecode
+  serialization/reload in bni itself (a substantial bni feature), per user.
+- **Remaining levers (no big bni change):** (a) many more int-int shards, or (b) restructure the
+  runner to load `cmd/bni` once/shard and `--test` many packages per invocation (complicated by
+  per-package .skip/.split markers).  DECISION/DESIGN pending — bring the user a concrete proposal.
+- **native_arm32_linux variadic fix (`5d8181d86`) test regression FIXED-FORWARD (`3c83c357c`):**
+  the new variadic tests used stampHard (Arch+ABI only) → rode ambient PointerSize → passed on
+  the host unit lane but reddened the `builder-comp_arm32_linux` unit lane (needs ILP32
+  PointerSize=4 for the GP-even-pair assertions).  Fixed by stamping the FULL ILP32 hard-float
+  target (stampArm32HardFull) + restoring; verified 1/0 on host AND qemu arm32-linux.
