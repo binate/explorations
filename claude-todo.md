@@ -1570,3 +1570,18 @@ unblock them:
   second bullet of the (now retired) "clean up conformance tests to use
   array literal + `arr[:]`" cleanup — split out because it is a language
   feature, not a test cleanup.
+
+## native arm32-linux: variadic-floats-in-GP DONE — mode now green, promotable to P7
+
+- **Landed `5d8181d86` (2026-08-25):** `native/arm32` now passes variadic FLOAT args
+  in GP registers (AAPCS-VFP base-standard rule), fixing `regressions/c-call/
+  printf-variadic-float` — the ONE real failure that kept `builder-comp_native_arm32_linux`
+  non-blocking.  New `CallConv.VariadicFloatInGp` (arm32-hard-float only) makes the shared
+  V-walkers classify a variadic float as its same-width uint (GP pair, never VFP);
+  arm32 `emitCallArg` skips the VFP peel for variadic floats.  **Validated end-to-end under
+  qemu-arm** (a fresh `bnarm1` container on this worktree): printf-variadic-float PASSES,
+  707/888/926 stay green → the mode is now **2982/0**.  Adversarial review clean on 6 hazards.
+  **FOLLOW-UPS:** (1) a variadic FLOAT32 currently fails loud (C promotes variadic float→double;
+  frontend doesn't yet) — proper fix is VCVT-promote float32→float64 in the emit; (2) with the
+  mode green, promote `builder-comp_native_arm32_linux` false→blocking in conformance-tests.yml
+  (plan-native-arm32.md P7), pending a green CI run of the landed fix.
