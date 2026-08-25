@@ -158,6 +158,45 @@ CI's `builder-comp_arm32_linux` job (un-runnable on macOS — no qemu-arm).
      previously masked). So A/B/C are large progress but the mode is NOT fully
      green — it stays experimental/non-blocking until the tail is cleared; only
      then flip it to blocking in `conformance-tests.yml`.
+4. **Phase 4 — residual triage + first bug clusters (2026-08-25). IN PROGRESS.**
+   A fresh CI run settled at **2876 pass / 103 fail**.  Triaged the 103 from the
+   CI log's expected/actual diffs:
+   - **25 were NOT VM bugs.** The mode compared the VM's correct ILP32 output
+     against LP64 goldens — 20 tests (e.g. `cast(int, ·)` of a 64-bit value,
+     sizeof/alignof, build-arch/decl select, reflect field sizes) — and 5 FFI
+     compiled-only non-goals lacked their `.xfail`.  Gave the mode its own
+     `.expected.builder-comp_arm32_linux_int` goldens (`75de8f335`) + the 5
+     xfails (`2e3c26608`, mirror of `227424c7b`).  Own goldens, NOT runtime
+     OVERRIDE_MODE inheritance (per user): keeps the VM/compiled expectations
+     independent, and inheriting the sibling's xfails would wrongly XPASS the
+     VM's nil-fault / interp-error tests (which the VM PASSES).
+   - **Bucket C (sub-word unsigned arith), 15 tests — FIXED (`d4aee0d46`).**
+     `BC_UDIV`/`BC_UREM`/`BC_LSHR` read operands via `cast(uint64, regs[·])`,
+     which SIGN-extends a uint whose bit 31 is set on ILP32 (the signed `int`
+     slot reads back negative) → arithmetic instead of logical shift and
+     huge-magnitude unsigned divides.  Route the value operands through the
+     existing `zeroExtendHostWord(·, REG_SLOT)` (a no-op on LP64).  The unsigned
+     COMPARES were left as-is — sign-extension is order-preserving for unsigned
+     `<`/`>`, so they were already correct.
+   - **New layout bug found + FIXED (`11e6851ea`).** `alignof(int64)` /
+     `alignof(float64)` read back 4 not 8 on the arm32 VM: `bni` never calls
+     `types.SetTarget`, so it hit the `ensureInit` default `MaxAlign =
+     sizeof(*uint8)` (= pointer size = 4).  AAPCS 8-aligns the 8-byte
+     fundamentals (cmd/bnc's `setArm32Layout` already hardcodes 8), so this
+     undersized every 8-byte-member struct on the VM.  Defaulted `MaxAlign` to 8.
+   - Net: **103 → 63**.  Both code fixes cleared a 2-reviewer adversarial pass.
+   - **Residual 63** (genuine remaining VM/ABI bugs):
+     - **~44 — float / 64-bit through the func-value / iface / closure /
+       multi-return ABI** (`matrix/abi/*/f64/{2..5}`, `*closure_float*`,
+       `*funcval*`).  The B-hard "64-bit-scalar-rides-2-slots re-marshal across
+       the 3 dispatchers".  NEXT target.
+     - **~18 misc** (any/box recovery, iface-nil, slice-layout literals,
+       `readonly-wrapped-64bit-arg`, stdlib strconv/time, …).
+     - **1 — `840_const_unsigned_compare_fold`**: a 64-bit CONSTANT unsigned
+       compare (`U=2^63 > 5`) folding signed; distinct from the sub-word arith.
+   - Local repro: a `linux/amd64` Docker container (clang + arm cross-toolchain
+     + qemu-arm) that rebuilds arm32 `bni` per edit and runs single/dir tests
+     directly — the fast inner loop (CI is the full-sweep signal).
 
 Rationale: buckets B(hard) and C(hard) are information-gated — speculative until
 the red run says what breaks. Getting the failing signal beats a blind audit
