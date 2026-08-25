@@ -188,8 +188,8 @@ CI's `builder-comp_arm32_linux` job (un-runnable on macOS — no qemu-arm).
    - **Residual 63** (genuine remaining VM/ABI bugs):
      - **~44 — float / 64-bit through the func-value / iface / closure /
        multi-return ABI** (`matrix/abi/*/f64/{2..5}`, `*closure_float*`,
-       `*funcval*`).  The B-hard "64-bit-scalar-rides-2-slots re-marshal across
-       the 3 dispatchers".  NEXT target.
+       `*funcval*`).  The B-hard "64-bit-scalar-rides-2-slots re-marshal".  ✅
+       DONE (Phase 5).
      - **~18 misc** (any/box recovery, iface-nil, slice-layout literals,
        `readonly-wrapped-64bit-arg`, stdlib strconv/time, …).
      - **1 — `840_const_unsigned_compare_fold`**: a 64-bit CONSTANT unsigned
@@ -197,6 +197,32 @@ CI's `builder-comp_arm32_linux` job (un-runnable on macOS — no qemu-arm).
    - Local repro: a `linux/amd64` Docker container (clang + arm cross-toolchain
      + qemu-arm) that rebuilds arm32 `bni` per edit and runs single/dir tests
      directly — the fast inner loop (CI is the full-sweep signal).
+5. **Phase 5 — the f64 / closure ABI cluster (2026-08-25). DONE (landed).**
+   Root-caused the ~50-test cluster to two ILP32 register-pair bugs (both
+   LP64-invisible, where a 64-bit value fits one register):
+   - **BC_EXTRACT read a 64-bit struct/tuple field as one word** (`9f7223df7`,
+     hardened `512297b87`) — multi-return of float64 / large int64 kept only the
+     low word (`100.0` → `0.0`; a large int64 truncated).  Reads the pair now,
+     gated on the `is64BitScalar` dest-sizing predicate so a wrapped 64-bit field
+     can't clobber a neighbour slot.  Fixes the 24 `matrix/abi/*/f64/*` +
+     cross-pkg-mr + `multiret-int64-field`.
+   - **Closure captures read a 64-bit capture as one word, indexed by capture
+     count not slots** (`f3c26c1e3`) — a captured float64 read back 0.0, and a
+     wide capture shifted the following captures + user args.  Added `CaptureWide`
+     + a slot-cursor re-marshal.  Fixes the ~20 `*closure_float*` / `*funcval*`.
+   `BC_EXTRACT` was then split into `vm_extract.bn` for the file-length cap
+   (`649381ea2`).  Both code fixes cleared a 2-reviewer adversarial pass.
+   **48 of 50 cluster tests pass** (was 0).
+   - **Still open** (xfail'd `8bd6393d3`, tracked in `claude-todo.md`):
+     **704** — `readonly float64` is wrong-code on the ILP32 VM generally (the
+     wrapper isn't stripped at the float-vs-int / 64-bit classification sites:
+     `is64BitScalar`, `lowerCast`, LOAD_IMM), so it truncates; `readonly int64`
+     is fine.  Needs a `StripWrappers` sweep.  **913** — a closure with 7 int + 1
+     float captures + a straddling struct arg HANGS (infinite loop); root cause
+     not yet found.
+   - Net after Phases 4–5: **103 → ~13 open** — the misc bucket (iface-nil,
+     any/box recovery, slice-layout literals, `readonly-wrapped-64bit-arg`,
+     stdlib strconv/time, `840`).  NEXT: 704 + 913, then the misc bucket.
 
 Rationale: buckets B(hard) and C(hard) are information-gated — speculative until
 the red run says what breaks. Getting the failing signal beats a blind audit
