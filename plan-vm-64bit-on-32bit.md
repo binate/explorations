@@ -213,16 +213,23 @@ CI's `builder-comp_arm32_linux` job (un-runnable on macOS — no qemu-arm).
    `BC_EXTRACT` was then split into `vm_extract.bn` for the file-length cap
    (`649381ea2`).  Both code fixes cleared a 2-reviewer adversarial pass.
    **48 of 50 cluster tests pass** (was 0).
-   - **Still open** (xfail'd `8bd6393d3`, tracked in `claude-todo.md`):
-     **704** — `readonly float64` is wrong-code on the ILP32 VM generally (the
-     wrapper isn't stripped at the float-vs-int / 64-bit classification sites:
-     `is64BitScalar`, `lowerCast`, LOAD_IMM), so it truncates; `readonly int64`
-     is fine.  Needs a `StripWrappers` sweep.  **913** — a closure with 7 int + 1
-     float captures + a straddling struct arg HANGS (infinite loop); root cause
-     not yet found.
-   - Net after Phases 4–5: **103 → ~13 open** — the misc bucket (iface-nil,
-     any/box recovery, slice-layout literals, `readonly-wrapped-64bit-arg`,
-     stdlib strconv/time, `840`).  NEXT: 704 + 913, then the misc bucket.
+   - **704 + 913 — RESOLVED (2026-08-25).**  **704** (`readonly float64` wrong-code):
+     the VM peeled only `TYP_NAMED`, not `TYP_READONLY` / `TYP_ALIAS`, at its
+     float-vs-int / 64-bit-pair / struct-field classification sites, so a `readonly
+     float64` was mis-sized to one slot and mis-typed as non-float (truncated to 0.0).
+     Swept those sites to `types.StripWrappers` (`is64BitScalar`, `lowerCast`, the
+     binop/compare helpers, the const-float32 gate) + two structural fixes: a
+     float64→float64 wrapper-peel cast now emits `BC_MOV64` (both pair slots), and
+     `resolveToStruct` peels `readonly` so a `readonly S` field access resolves S's
+     offsets (`a606ba444`, `f1e92a801`).  Also fixed `matrix/globals/readonly/struct`
+     and `regressions/readonly-wrapped-64bit-arg`.  **913** was never a real hang — it
+     runs in ~1.4s and prints 1328; the "infinite loop" was a measurement artifact
+     (pre-`timeout -s KILL` repro runs left runaway qemu processes that starved the
+     triple-emulated container's CPU).  Un-xfail'd (`bbf5509e3`).
+   - Net after Phases 4–6: **103 → ~10 open** — the misc bucket (iface-nil, any/box
+     recovery, slice-layout literals, stdlib strconv/time, `840`).  NEXT: the misc
+     bucket.  (A separate discovery — an escaping raw `*func` closure reads its
+     captures as 0 — is tracked in `claude-todo.md`.)
 
 Rationale: buckets B(hard) and C(hard) are information-gated — speculative until
 the red run says what breaks. Getting the failing signal beats a blind audit
