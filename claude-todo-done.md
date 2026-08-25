@@ -6,6 +6,43 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## int-int (double-VM) unit lane — the recompile-floor saga: Scope hash → batching → HYBRID batching — ✅ DONE (2026-08-25, `291a3b476`)
+
+The double-VM lane (`builder-comp-int-int`) cancelled all 12 CI shards at the 45-min cap. Root cause:
+each `--test <pkg>` had the native `COMPILED_INTERP` LOAD cmd/bni's source
+(parse→typecheck→IR→bytecode) and interpret it, then the inner cmd/bni loaded+lowered the tested
+package's whole dep tree — redone ~15×/shard. The arc of fixes:
+
+- **Scope O(N²)→O(1) hash (`650e3d898`, types/scope.bn):** a genuine compiler win (linear-scan
+  Lookup/Define → lazy name→index hash, adversarial-clean, conformance 393/0), but it only sped the
+  TYPECHECK slice — parse/lower/execute dominate, so int-int still cancelled. (An early "~7×" claim
+  was a misread: pre-fix 2-test slice vs post-fix 23-test unsharded run; a same-slice re-measure showed
+  the floor ~unchanged.) Caching lowered cmd/bni bytecode was ruled out (needs bytecode
+  serialize/reload in bni — a big feature).
+- **Batching (`a067cbcb9` bni package-qualified `--skip pkg:pattern` + `872019ebf` run.sh):** cmd/bni
+  --test is multi-package with a SHARED loader (main.bn:186), so run.sh batches non-excluded packages
+  into ONE invocation → the core load is paid once/shard, not ~15×. Correct + validated, but the policy
+  was batch-ALL: every shard still loaded all ~51 package impls (a per-shard-CONSTANT ~26-min floor no
+  shard count could reduce), so CI still cancelled all 12 shards.
+- **HYBRID batching (`291a3b476`, the fix that stuck):** classify each non-excluded package as LIGHT
+  (not .split.vm) or HEAVY (.split.vm). Lights are PACKAGE-sharded — assigned to one shard by position,
+  full tests there — so a shard loads only its own light subset's impls (~3-4). Heavies are TEST-sharded
+  — batched on every shard with `--shard`, each running 1/N of its own tests. Two cmd/bni loads/shard
+  (light do_shard=0, heavy do_shard=1); output tee'd for live CI progress + a diagnosable timeout tail.
+  Per-shard load drops from ~51 impls to ~20 (15 heavy + ~3-4 light), and the light-subset term now
+  shrinks with shard count — so the lane is finally shardable (batch-all's floor was constant). Local
+  validation: 12-shard classification dry-run (heavy set identical everywhere, lights disjoint+complete,
+  coverage exactly-once), real double-VM smoke (token light 6/6, irdata heavy --shard 1/12) green,
+  adversarial review found no critical/major bugs. Follow-up (still open in claude-todo.md): watch CI on
+  `291a3b476`; if 12 shards still exceed 45min, bump the int-int shard count (more shards help now).
+
+Also landed in this saga (separate topic, parked here): the **native_arm32_linux variadic fix
+(`5d8181d86`) test regression, fixed-forward (`3c83c357c`)** — the new variadic tests used stampHard
+(Arch+ABI only) and rode ambient PointerSize, passing on the host unit lane but reddening
+`builder-comp_arm32_linux` (which needs ILP32 PointerSize=4 for the GP-even-pair assertions). Fixed by
+stamping the full ILP32 hard-float target (stampArm32HardFull) + restoring; verified 1/0 on host and
+qemu arm32-linux.
+
 ## Escaping raw-`*func` closure reads captures as 0 (dangling record) — ✅ NOT-A-BUG (2026-08-25)
 
 An escaping capturing `*func` — e.g. `func mk(factor int) *func(int) int { return

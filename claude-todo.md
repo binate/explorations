@@ -1586,88 +1586,14 @@ unblock them:
   mode green, promote `builder-comp_native_arm32_linux` false→blocking in conformance-tests.yml
   (plan-native-arm32.md P7), pending a green CI run of the landed fix.
 
-## int-int lane: Scope O(N²) fix landed but INSUFFICIENT; recompile floor is the real cost
+## int-int (double-VM) lane: hybrid batching LANDED (`291a3b476`) — watch CI, tune shard count if needed
 
-- **Scope symbol-table O(N²)→O(1) hash landed `650e3d898`** (types/scope.bn) — a genuine
-  compiler improvement (linear-scan Lookup/Define → lazy name→index hash), adversarial-review
-  clean on 7 hazards, conformance 393/0.  **But it did NOT fix int-int:** the CI unit run on
-  `650e3d898` still cancelled ALL 12 int-int shards at the 45-min cap.  (An earlier "~7×
-  speedup" claim was a MISREAD — I compared a pre-fix 2-test shard slice to a post-fix 23-test
-  unsharded run; a clean same-slice re-measure showed the per-package floor ~unchanged, within
-  noise.  irdata was also the wrong benchmark — it doesn't compile programs, so the scope fix
-  barely touches it.)
-- **Root cause (precise, per user):** the per-`--test <pkg>` floor is NOT a native recompile.
-  `COMPILED_INTERP` is a native `cmd/bni` built once/shard; each `--test <pkg>` has it LOAD
-  `cmd/bni`'s source (parse→typecheck→IR→bytecode) and interpret it, and the inner `cmd/bni`
-  then loads+lowers the tested package's whole dep tree — all redone per invocation, ~15×/shard.
-  The Scope fix speeds only the TYPECHECK slice of that; parse/lower/execute dominate.
-- **Caching the lowered `cmd/bni` bytecode is OFF THE TABLE** — it needs bytecode
-  serialization/reload in bni itself (a substantial bni feature), per user.
-- **Remaining levers (no big bni change):** (a) many more int-int shards, or (b) restructure the
-  runner to load `cmd/bni` once/shard and `--test` many packages per invocation (complicated by
-  per-package .skip/.split markers).  DECISION/DESIGN pending — bring the user a concrete proposal.
-- **native_arm32_linux variadic fix (`5d8181d86`) test regression FIXED-FORWARD (`3c83c357c`):**
-  the new variadic tests used stampHard (Arch+ABI only) → rode ambient PointerSize → passed on
-  the host unit lane but reddened the `builder-comp_arm32_linux` unit lane (needs ILP32
-  PointerSize=4 for the GP-even-pair assertions).  Fixed by stamping the FULL ILP32 hard-float
-  target (stampArm32HardFull) + restoring; verified 1/0 on host AND qemu arm32-linux.
-
-## int-int lane: BATCHING fix landed (the real fix for the recompile floor)
-
-- **Landed:** `a067cbcb9` (bni package-qualified `--skip` — `pkg:pattern`) + `872019ebf`
-  (run.sh batches the double-VM lane).  The dominant per-shard cost was the per-package
-  FLOOR — cmd/bni re-loading+lowering all of cmd/bni + each package's dep tree on every
-  `--test <pkg>` invocation (~15×/shard, irreducible by sharding since the heavy packages
-  are .split.vm and run on every shard).  cmd/bni --test is already multi-package with a
-  SHARED loader (main.bn:186), so run.sh now (on `*-int-int` only, off under --check-xpass)
-  collects all non-excluded packages and runs them in ONE `runner_test_batch` invocation:
-  `--test pkgA --test pkgB … --shard-index i --shard-count n --skip <pkg:pat,…>`.  The
-  floor is paid ONCE/shard instead of ~15×; --shard shards the COMBINED test set (even
-  load); per-package skips are package-qualified so they don't cross-match; native-only /
-  .xfail / .skip-pkg packages are excluded from the batch; results map back from cmd/bni's
-  per-package `ok`/`FAIL`/`?` lines.
-- **Validated locally:** token+irdata batch = 159s vs ~192s separate (floor now per-batch);
-  token+interp+os batch correctly batches only token, excludes interp (skip-pkg) + pkg/std/os*
-  (native-only); non-int-int modes unaffected (builder-comp-int still per-package); cmd/bni
-  tests + hygiene green.
-- **CI-confirmation PENDING** on `872019ebf` (run 32883150167) — the clean full-scale
-  measurement of whether the 12 int-int shards now fit the 45-min cap.  If green with margin,
-  the shard count / cap can be tuned down as a follow-up.
-
-## int-int lane: batch-ALL was WRONG — do the HYBRID (package-shard light + test-shard heavy) — IN PROGRESS
-
-- **CI result on `872019ebf` (batch-all + test-shard-1/N): STILL cancels — all 12 shards at 45min.**
-  The batching activated (shard log: "STARTING (batched): 51 packages") and there was NO regression,
-  but batching ALL packages per shard means EVERY shard loads ALL 51 package impls at double-VM.
-  That floor is per-shard-CONSTANT, so more shards can't reduce it.
-- **Floor decomposition (cross-checked vs the token+irdata batch = 159s):** core deps
-  (types/ir/ast, loaded by every batch) ~140s at double-VM; per-package impl load ~28s each.
-  batch-ALL floor = 140s + 51x28s ≈ ~26min (an isolation run `run.sh -v --shard 1/500
-  builder-comp-int-int` — near-zero tests — hit a 25-min timeout WITHOUT finishing, confirming the
-  floor alone is >25min locally, larger on CI).  So batching cut the PRE-batch ~42-min floor
-  (15 packages each re-loading the core) to ~26min (core once), but the all-impls sum is the new wall.
-- **DECISION (user, "(a). Doing all packages per shard was stupid"): the HYBRID.**
-  - PACKAGE-shard the LIGHT packages: each shard batches only ITS subset of light packages, so it
-    loads only that subset's impls (not all 51).  Runs those packages' FULL tests (not 1/N).
-  - TEST-shard only the FEW packages too big to fit one shard (the .split.vm heavies whose own tests
-    exceed a shard): batch them together (loaded on every shard) + run 1/N of their tests.
-  - Batch each shard's set (its light subset + the test-sharded heavies) into ONE cmd/bni invocation
-    → floor ~= core (~140s) + subset-light-impls + heavy-impls ≈ ~5-6min/shard.  Then shard count
-    tunes the remaining test-exec under cap.
-  - Per-package skips are already package-qualified (bni `pkg:pattern`, landed `a067cbcb9`).
-- **Where the code is:** `scripts/unittest/run.sh` BATCH_MODE block (gated `*-int-int`, off under
-  --check-xpass) + `runner_test_batch` in `scripts/unittest/runners/builder-comp-int-int.sh`
-  (landed `872019ebf`) — currently batch-ALL + test-shard-ALL (`--shard-index i --shard-count n` over
-  the combined set).  CHANGE to the hybrid: keep per-package exclusion checks (native-only/.xfail/
-  .skip-pkg); classify each non-excluded package as heavy (.split.vm) vs light; light → package-shard
-  (assign to one shard by position, collect into that shard's batch, NO --shard); heavy → collect into
-  every shard's batch WITH --shard-index/count over just the heavy set.  Emit one batch invocation
-  (or two: light-subset without --shard + heavies with --shard) per shard; map back cmd/bni's
-  per-package ok/FAIL/? lines (already done).  bni --test already shares the loader (main.bn:186) and
-  emits per-package results; no further bni change needed.
-- **Also fix while here:** runner_test_batch's output is CAPTURED (b_out=$(...)), so on a 45-min
-  timeout the results are lost AND there's no live progress.  Consider `tee` so partial progress
-  streams and a timeout leaves a diagnosable tail.
-- Landed-and-good regardless: `a067cbcb9` (bni pkg-qualified --skip), the batching mechanism itself
-  (correct + validated: token+irdata 159s vs 192s separate; exclusions correct; non-int-int
-  unaffected).  Only the batch-ALL SHARDING POLICY is wrong and being replaced by the hybrid.
+- **Hybrid batching landed `291a3b476`** (package-shard LIGHT packages, test-shard the .split.vm HEAVY
+  set; two cmd/bni loads/shard; output tee'd). Supersedes the batch-ALL policy (`872019ebf`), which
+  loaded all ~51 impls on every shard — a per-shard-CONSTANT ~26min floor no shard count could reduce.
+  Full saga (Scope hash `650e3d898` → batching `a067cbcb9`+`872019ebf` → hybrid) in claude-todo-done.md.
+- **OPEN (empirical — needs CI):** watch the `builder-comp-int-int` shards after `291a3b476`:
+  - If they fit under 45min → done; consider flipping the lane back to blocking (currently non-blocking).
+  - If still over → bump the int-int shard count in `.github/workflows/unit-tests.yml`
+    (`*-comp-int-int) shards=12`). More shards HELP now (they didn't with batch-all). CI-policy change
+    — get user sign-off before bumping.
