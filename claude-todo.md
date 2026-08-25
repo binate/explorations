@@ -1636,3 +1636,25 @@ unblock them:
   the host unit lane but reddened the `builder-comp_arm32_linux` unit lane (needs ILP32
   PointerSize=4 for the GP-even-pair assertions).  Fixed by stamping the FULL ILP32 hard-float
   target (stampArm32HardFull) + restoring; verified 1/0 on host AND qemu arm32-linux.
+
+## int-int lane: BATCHING fix landed (the real fix for the recompile floor)
+
+- **Landed:** `a067cbcb9` (bni package-qualified `--skip` — `pkg:pattern`) + `872019ebf`
+  (run.sh batches the double-VM lane).  The dominant per-shard cost was the per-package
+  FLOOR — cmd/bni re-loading+lowering all of cmd/bni + each package's dep tree on every
+  `--test <pkg>` invocation (~15×/shard, irreducible by sharding since the heavy packages
+  are .split.vm and run on every shard).  cmd/bni --test is already multi-package with a
+  SHARED loader (main.bn:186), so run.sh now (on `*-int-int` only, off under --check-xpass)
+  collects all non-excluded packages and runs them in ONE `runner_test_batch` invocation:
+  `--test pkgA --test pkgB … --shard-index i --shard-count n --skip <pkg:pat,…>`.  The
+  floor is paid ONCE/shard instead of ~15×; --shard shards the COMBINED test set (even
+  load); per-package skips are package-qualified so they don't cross-match; native-only /
+  .xfail / .skip-pkg packages are excluded from the batch; results map back from cmd/bni's
+  per-package `ok`/`FAIL`/`?` lines.
+- **Validated locally:** token+irdata batch = 159s vs ~192s separate (floor now per-batch);
+  token+interp+os batch correctly batches only token, excludes interp (skip-pkg) + pkg/std/os*
+  (native-only); non-int-int modes unaffected (builder-comp-int still per-package); cmd/bni
+  tests + hygiene green.
+- **CI-confirmation PENDING** on `872019ebf` (run 32883150167) — the clean full-scale
+  measurement of whether the 12 int-int shards now fit the 45-min cap.  If green with margin,
+  the shard count / cap can be tuned down as a follow-up.
