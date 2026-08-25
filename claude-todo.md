@@ -1016,8 +1016,16 @@ urgency (no current miscompile; the writable placement is safe, just unhardened)
   `dataSymNames`/`dataSymAddrs` vecs (the func_index↔vm.Funcs model — vecs stay as storage, a single
   `dataSymInsert` write path keeps vecs+hash in sync), so `lookupDataSymAddr` is O(1).  vm (with new
   datasym_index tests) + interp green hosted; adversarial review clean (all 6 hazards SAFE — vec↔hash
-  sync verified single-write-path, indices stay valid across vec growth).  Committed `0d766cb4d` on
-  the worktree; double-VM validation + landing pending.
+  sync verified single-write-path, indices stay valid across vec growth).  Landed `41f370c28`.
+  **MEASUREMENT CORRECTION:** the dataSym fix does NOT reduce interp's double-VM time — after it,
+  interp under `builder-comp-int-int` is 1388s (vs 1375s before it): within noise.  The extern fix
+  (`e65280c55`) was the WHOLE interp win; the dataSym table's N (satentries in the std set) is too
+  small for its O(N²) to matter for `New()`.  The dataSym fix's real value is (a) removing a latent
+  O(N²) in the EXECUTION-time `lookupDataSymAddr` (per `BC_DATA_SYM_ADDR` type assertion — O(types)→
+  O(1) for a type-heavy program) and (b) completing the O(N²)-registration cleanup consistently with
+  the extern fix — NOT the int-int headroom originally predicted.  int-int's pass/fail hinges on the
+  extern fix alone (CI pending — the `e65280c55` run was still queued 30min in due to runner backlog;
+  superseded by the combined `41f370c28` run).
 - **Deferred follow-up (once int-int is confirmed green):** tune the shard count / 45-min cap down.
   native_aa64's 30-min cancel is pre-existing (≥4 runs), separate.
 - **STATUS 2026-06-10 — GREEN (superseded — see Round 3)** (unit run on `3342460e`): all 8 `builder-comp-int-int` shards pass (2.5–26.7 min) and `builder-comp-int` / `-comp-int` pass. **Margin note**: shard 4/8 ran 26.7 min — ~89% of the 30-min cap; the 8-shard + skip set is sufficient but thin, so if the int-int suite grows it may need a 9th–10th shard or one more skip before it times out again. (The remaining unit reds — `arm32_{linux,baremetal}`, `native_x64` — are separate modes, not this. NOTE: `native_x64` was NOT "WIP" — it was broken by an ELF PC32 reloc bug, fixed 2026-06-14 `dd74c91e`; that native_x64 ELF PC32 reloc bug is fixed and archived in claude-todo-done.md.)
