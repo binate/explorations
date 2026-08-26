@@ -98,10 +98,10 @@ add a type-descriptor intern cache.
 
 ### Promote `pkg/stdx/containers/*` → `pkg/std/*` behind `expose` forwarders — 🟡 OPEN
 
-`pkg/stdx/{fmt,cmp,hash}` plus containers `iter` + `vec` are promoted to `pkg/std/*`
-behind `expose` forwarders (fmt: `a4f580e4e`; cmp+hash: `abfa3e66b`; iter+vec /
-batch A: `904c0a31b`).  Remaining containers: `table`, `mapfn`, `set`, `setfn`,
-`hashmap` (proposed batch B = table + mapfn; batch C = set + setfn + hashmap) — same
+`pkg/stdx/{fmt,cmp,hash}` plus containers `iter`, `vec`, `table`, `mapfn` are
+promoted to `pkg/std/*` behind `expose` forwarders (fmt: `a4f580e4e`; cmp+hash:
+`abfa3e66b`; iter+vec / batch A: `904c0a31b`; table+mapfn / batch B: `557fad1ad`).
+Remaining containers: `set`, `setfn`, `hashmap` (batch C, finishes the set) — same
 pattern, in batches (a few per commit, per the original request).  Per-package
 recipe: `git mv` the ifaces `.bni` + impls dir to `pkg/std/...`, rewrite the
 `package` clause + self-referencing doc comments, fix the tier note (tier-1x stdx →
