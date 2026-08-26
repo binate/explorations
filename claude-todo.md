@@ -727,31 +727,6 @@ hatch" sufficient (close this out)?
 
 ## Type-system & checker semantics
 
-### Value-receiver bodies aren't checked read-only — `r.field = …` in a value-receiver method is wrongly accepted — 🟠 OPEN (2026-08-25)
-
-**Severity: minor (fail-safe — the write hits a discarded copy, so no
-miscompile/UAF; just an un-diagnosed pointless mutation).** Spec §10.6
-(`func.method.value-recv`) marks this an **Open / known gap**: the design intent is
-that a value receiver `(r T)` is **read-only** inside its body (mutating the copy is
-pointless), but the checker does not enforce it — it does not reject `r.field =
-…`, and the "always read-only" property is only the semantic consequence of the
-copy being discarded, not a diagnosed rule (`func.method.value-recv-readonly`;
-Annex C).
-
-- **Test:** `conformance/spec/10-functions/068_err_value_recv_mutation_rejected` —
-  a negative (`.error`) test expecting the rejection; `.xfail.all` because bnc emits
-  no diagnostic today. Confirmed still failing 2026-08-25 (`run.sh --check-xpass
-  builder-comp-int` + `builder-comp`: 068 still XFAILs — no diagnostic), unlike
-  the reflect/readonly/named-func-value markers that were stale.
-- **Fix (a language-semantics decision — finalizes the open gap):** diagnose
-  `func.method.value-recv-readonly` — mark a value receiver's storage read-only so
-  a field-write lvalue rooted in it is rejected, mirroring a `readonly`-qualified
-  receiver `(r readonly T)`. Scope to confirm with the user: reject `r.field = …`
-  and whole-receiver reassignment `r = …`? a write through `&r`? Must NOT touch
-  pointer receivers (`*T`/`@T`) or a local re-bound from `r`. Rejects
-  currently-accepted code — audit the tree for existing value-receiver writes
-  first. Un-xfail `068` when done.
-
 ### `Self`-parameter method is uncallable through a generic constraint (Self binds to the type param, not its base) — 🟠 OPEN (2026-07-03)
 
 **Severity: minor (obscure `Self` corner; the fix is a semantics decision, not a
@@ -856,6 +831,36 @@ language extension, not a bug fix.
 - **Labeled break**: Binate currently has no labels. If/when we add them, termination analysis needs to track labels — a `break L` inside a nested for doesn't break the inner for (contrary to the current "any break disqualifies enclosing for/switch" rule). Revisit when labels are on the table.
 
 ## Spec authoring & language-decision residuals
+
+### Value receivers are mutable copies, not read-only — spec §10.6 + conformance 068 need updating — 🟠 OPEN (2026-08-26)
+
+**DECIDED 2026-08-26 (option b):** a value receiver `(r T)` is a **mutable copy**;
+read-only enforcement is the opt-in `readonly` form `(r readonly T)`, which the
+checker already enforces correctly (a write through it is rejected with `cannot
+assign to const-typed location`). `bnc` already implements (b) — a plain
+value-receiver mutation compiles; only the `readonly` form rejects it — so there is
+NO checker work; the residual is spec text + one conformance test.
+
+**Why (b):** the spec's stated intent (a plain value receiver is read-only, and
+`(r readonly T)` is "redundant with `(r T)`") was motivated by an easier
+non-copying optimization — lowering a value receiver as a never-null pointer
+receiver — but that reasoning predates the `readonly` keyword, which now provides
+that opt-in explicitly. Consistency/clarity of semantics wins over the aspirational
+read-only default.
+
+Follow-ups (spec author to review):
+- **Spec §10.6 (`func.method.value-recv`):** drop the "design intent is read-only"
+  Open/known-gap note and the "`(r readonly T)` … redundant with `(r T)` (a value
+  copy is read-only regardless)" line. State instead that `(r T)` is a mutable copy
+  (isolated from the caller) and `(r readonly T)` is the opt-in read-only receiver.
+  Retire the `func.method.value-recv-readonly` candidate rule (Annex C).
+- **Conformance `spec/10-functions/068_err_value_recv_mutation_rejected`:** its
+  premise (the mutation must be REJECTED) is now wrong. Delete it, or invert it to a
+  positive test that a value-receiver mutation compiles (copy isolation is already
+  pinned by `066_value_recv_copy_isolation`). Drop its `.xfail.all` when reworked.
+- Real code already relies on (b): the BinBuf mutate-and-return builder
+  (`asm/macho`, `asm/elf` — BUILDER-compiled) and `066`. No migration needed under
+  (b).
 
 ### Relational-comparison chain (`a < b < c`) diagnostic reach — nicety
 The `expr.compare.relational` rule: `a < b < c` is correctly rejected in every context, but the
