@@ -602,6 +602,16 @@ it is exactly the cast that is *unsound* elsewhere (dropping `readonly` from a
 view of static or shared data), so teaching it as the standard way to implement
 Stringer is bad.
 
+**Sharper as of bnc-0.0.14**, which tightened `cast`: dropping element-level
+`readonly` is no longer a `cast` at all (§8.3 `conv.readonly` — "another live
+handle may rely on the `readonly` view's immutability"), so the workaround above
+now fails to compile with *"cast cannot drop element-level readonly … use
+unsafe_cast (§8.7)"*. That leaves an implementer two choices, and both are bad:
+reach for **`unsafe_cast`** — an unverifiable conversion, in the one interface
+every printable type implements — or **copy the bytes** into a fresh `@[]char`
+purely to satisfy the signature. The friction is no longer cosmetic; the language
+now actively forbids the cheap way out.
+
 Options: **(a)** change `Stringer.String()` to `@[]readonly char` — a rendering
 is a value the caller only reads, and `@[]char → @[]readonly char` is implicit,
 so an impl that still returns a mutable slice keeps satisfying it (what breaks is
