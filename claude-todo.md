@@ -1586,13 +1586,21 @@ unblock them:
   mode green, promote `builder-comp_native_arm32_linux` false→blocking in conformance-tests.yml
   (plan-native-arm32.md P7), pending a green CI run of the landed fix.
 
-## int-int (double-VM) lane: hybrid batching LANDED (`291a3b476`) — watch CI, tune shard count if needed
+## int-int (double-VM) lane: hybrid batching + -O2 vehicle LANDED — watch CI, tune shard count if needed
 
-- **Hybrid batching landed `291a3b476`** (package-shard LIGHT packages, test-shard the .split.vm HEAVY
-  set; two cmd/bni loads/shard; output tee'd). Supersedes the batch-ALL policy (`872019ebf`), which
-  loaded all ~51 impls on every shard — a per-shard-CONSTANT ~26min floor no shard count could reduce.
-  Full saga (Scope hash `650e3d898` → batching `a067cbcb9`+`872019ebf` → hybrid) in claude-todo-done.md.
-- **OPEN (empirical — needs CI):** watch the `builder-comp-int-int` shards after `291a3b476`:
+- **Two landed fixes, both on the double-VM floor:**
+  - **Hybrid batching (`291a3b476`)** — package-shard LIGHT packages, test-shard the .split.vm HEAVY
+    set; two cmd/bni loads/shard; output tee'd. Supersedes the batch-ALL policy (`872019ebf`), which
+    loaded all ~51 impls on every shard — a per-shard-CONSTANT ~26min floor no shard count could reduce.
+    Full saga (Scope hash `650e3d898` → batching `a067cbcb9`+`872019ebf` → hybrid) in claude-todo-done.md.
+  - **-O2 compiled interp (`5494dd642`)** — `build_interp` (scripts/lib/build-compilers.sh) was building
+    COMPILED_INTERP with NO -O flag → clang default -O0. It's the VM lanes' execution vehicle (native
+    cmd/bni); at -O0 the whole double-VM pipeline runs several × slower. Now built `--cflag -O2` (the
+    release opt level, same as build-bni.sh). Measured: a token+irdata int-int slice's double-VM
+    execution dropped 152s→42s (~3.6×). Helps ALL three VM lanes (builder-comp-int, -int-int,
+    -comp-int); `build_interp_arm32` (qemu arm32-linux) deliberately left at -O0 — possible follow-up.
+- **OPEN (empirical — needs CI):** watch the `builder-comp-int-int` shards after `5494dd642` (both
+  fixes now in play — shardable floor AND ~4× faster vehicle):
   - If they fit under 45min → done; consider flipping the lane back to blocking (currently non-blocking).
   - If still over → bump the int-int shard count in `.github/workflows/unit-tests.yml`
     (`*-comp-int-int) shards=12`). More shards HELP now (they didn't with batch-all). CI-policy change
