@@ -1647,7 +1647,7 @@ unblock them:
   mode green, promote `builder-comp_native_arm32_linux` false→blocking in conformance-tests.yml
   (plan-native-arm32.md P7), pending a green CI run of the landed fix.
 
-## int-int (double-VM) lane: hybrid batching + -O2 vehicle LANDED — watch CI, tune shard count if needed
+## int-int (double-VM) lane: hybrid + -O2 STILL times out — heavy batch is the bottleneck; re-classify .split.vm at -O2
 
 - **Two landed fixes, both on the double-VM floor:**
   - **Hybrid batching (`291a3b476`)** — package-shard LIGHT packages, test-shard the .split.vm HEAVY
@@ -1660,9 +1660,23 @@ unblock them:
     release opt level, same as build-bni.sh). Measured: a token+irdata int-int slice's double-VM
     execution dropped 152s→42s (~3.6×). Helps ALL three VM lanes (builder-comp-int, -int-int,
     -comp-int); `build_interp_arm32` (qemu arm32-linux) deliberately left at -O0 — possible follow-up.
-- **OPEN (empirical — needs CI):** watch the `builder-comp-int-int` shards after `5494dd642` (both
-  fixes now in play — shardable floor AND ~4× faster vehicle):
-  - If they fit under 45min → done; consider flipping the lane back to blocking (currently non-blocking).
-  - If still over → bump the int-int shard count in `.github/workflows/unit-tests.yml`
-    (`*-comp-int-int) shards=12`). More shards HELP now (they didn't with batch-all). CI-policy change
-    — get user sign-off before bumping.
+- **CI RESULT on `5494dd642` (hybrid + -O2 interp): STILL times out — all 12 int-int shards hit the
+  45-min cap.**  Diagnosis from the tee'd shard-1 log: setup fast (gen1 ~27s, -O2 interp ~68s); LIGHT
+  batch (3 pkgs) loaded+ran in ~24s; then `STARTING (batched heavy/1-of-12): 15` and ZERO test output
+  for ~43 min until the kill — the HEAVY batch never finished even LOADING its 15 heavy packages
+  (≈ the whole compiler: types/ir/codegen/vm/native/*/parser/…) in one double-VM process.  The hybrid
+  fixed the light side but the heavy side is still batch-all: all 15 heavies load on EVERY shard, a
+  per-shard CONSTANT that test-sharding can't reduce.  (Under-validated pre-land: the local smoke used
+  ONE small heavy, irdata, never a full 15-heavy batch — the gap that bit.)
+- **FIX DIRECTION (needs work + a FULL-SHARD local test):** the `.split.vm` heavy set (17 pkgs) was
+  calibrated for -O0.  At -O2 (~3.6×) most of those pkgs' FULL suites likely now fit in one shard, so
+  they should be PACKAGE-sharded (loaded alone on their assigned shard), leaving only the genuinely-
+  too-big handful (maybe codegen/types/vm) in the load-everywhere test-sharded set — collapsing the
+  per-shard heavy load from 15 impls to ~2-3.  Requires MEASURING each currently-heavy pkg's full
+  double-VM suite time at -O2 and shrinking `.split.vm` accordingly (note: `.split.vm` is shared
+  across ALL VM modes — re-check int / comp-int too).  Validate a COMPLETE shard locally before
+  landing.  Shard-count bump is a secondary lever (helps only once the heavy per-shard load is small).
+- Non-blocking (unit-tests.yml comment) so main is unaffected — not on fire.  Related landings:
+  gen1/gen2 now also -O2 (`202389819`); perf/self.sh self-hosting benchmarks + CI wiring
+  (`8f134008e`, `3dc9da2a5`) now track bnc_compiles_bnc / bni_runs_hello / bni_runs_bni_hello as
+  single numbers.
