@@ -390,18 +390,19 @@ runner. It exercises the aarch64 ELF path — and the `__c_global` §5b GOT lowe
    the xfail set / fix real bugs → drop `experimental` once green. Not runnable on
    the macOS dev host (no aarch64-linux cross-libc / qemu).
 2. **Native arm64 runner via a cross-compiled `linux-arm64` bundle (option 1) —
-   🟢 plumbing + release-wiring LANDED; awaiting a release cut, then a runner.**
+   🟢 plumbing + release-wiring LANDED, `linux-arm64` bundle now PUBLISHED
+   (first shipped by `bnc-0.0.14`); awaiting a native runner.**
    Done: `build-{bnc,bni,bnas,bnlint,bnfmt}.sh` + `make-bundle.sh` gained a
    `--target`/non-host-`--platform` cross-compile path (`ec421c0b`) — Stage 1
    (BUILDER→gen1) stays host, Stage 2 cross-emits — and `release.yml` gained a
    `linux-arm64` matrix row that cross-builds on the x86_64 runner via the
    existing `bnc-0.0.10-linux-x64` BUILDER + `gcc-aarch64-linux-gnu` (`b32c53c9`),
    breaking the chicken-and-egg. Validated end-to-end on macos-arm64→macos-x64
-   (Rosetta), guarded by `e2e/cross-compile.sh`. **Remaining (🟡 OPEN):** (a) no
-   `linux-arm64` bundle is PUBLISHED yet — it needs a `bnc-*` release cut (the
-   next release will build it; deliberately not cut yet); (b) once published, a
-   native `ubuntu-*-arm` conformance runner (fetch-builder pulling the arm64
-   bundle) could replace the current qemu-aarch64 mode from residual (1)'s
+   (Rosetta), guarded by `e2e/cross-compile.sh`. The `bnc-0.0.14` release is the
+   first to publish the `linux-arm64` bundle — its `Build (linux-arm64)` matrix
+   row cross-built and attached it. **Remaining (🟡 OPEN):** a native
+   `ubuntu-*-arm` conformance runner (fetch-builder pulling the arm64 bundle)
+   could replace the current qemu-aarch64 mode from residual (1)'s
    `builder-comp_native_aa64_linux`.
 
 ### Annotations & C function interop — `__c_call` DONE; residual is the `#[link]` companion — 🟡 OPEN (low)
