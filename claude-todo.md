@@ -98,18 +98,24 @@ add a type-descriptor intern cache.
 
 ### Promote `pkg/stdx/containers/*` → `pkg/std/*` behind `expose` forwarders — 🟡 OPEN
 
-`pkg/stdx/{fmt,cmp,hash}` are already promoted to `pkg/std/*` behind `expose`
-forwarders (fmt: `a4f580e4e`; cmp+hash: `abfa3e66b`).  Remaining: the containers —
-`vec`, `iter`, `mapfn`, `set`, `setfn`, `table`, `hashmap` — same pattern, in
-batches (a few packages per commit, per the original request).  Per-package recipe:
-`git mv` the ifaces `.bni` + impls dir to `pkg/std/...`, rewrite the `package`
-clause, leave a forwarder `.bni` (`package "pkg/stdx/..."` + `expose
-"pkg/std/..."`) at the old path, add the new path to `stdPkgs()` in
-`pkg/binate/interp/externs.bn` (stdlib-injected requires every `pkg/std` `.bni`),
-and bnfmt.  Watch the interdependencies (hashmap→table→iter; set→setfn; table→cmp,
-hash) — a package and everything it imports should be consistent within a batch.
-The forwarder-generic checker support is in `bnc-0.0.14`, so this now builds+lints
-(no further BUILDER work needed).  Ties into #200 (Phase-6 expose conformance).
+`pkg/stdx/{fmt,cmp,hash}` plus containers `iter` + `vec` are promoted to `pkg/std/*`
+behind `expose` forwarders (fmt: `a4f580e4e`; cmp+hash: `abfa3e66b`; iter+vec /
+batch A: `904c0a31b`).  Remaining containers: `table`, `mapfn`, `set`, `setfn`,
+`hashmap` (proposed batch B = table + mapfn; batch C = set + setfn + hashmap) — same
+pattern, in batches (a few per commit, per the original request).  Per-package
+recipe: `git mv` the ifaces `.bni` + impls dir to `pkg/std/...`, rewrite the
+`package` clause + self-referencing doc comments, fix the tier note (tier-1x stdx →
+stable `std`, mirror `pkg/std/fmt`), leave a forwarder `.bni` (`package
+"pkg/stdx/..."` + `expose "pkg/std/..."`) at the old path, add the new path to
+`stdPkgs()` in `pkg/binate/interp/externs.bn` (stdlib-injected requires every
+`pkg/std` `.bni`), and bnfmt.  Watch the interdependencies (hashmap→table→iter;
+set→setfn; table→cmp,hash).  If a co-promoted package imports another in the same
+batch, point the import at the new `pkg/std` path; if a consumer needs `X.__Package`
+(externs.bn), import the REAL `pkg/std/X` (a forwarder + real import under one alias
+collide).  vec/iter were the only containers in the BUILDER-compiled surface (via
+`ir`→vec), verified BUILDER-clean; the rest are not, so no bootstrap-path concern.
+The forwarder-generic checker support is in `bnc-0.0.14`, so this builds+lints (no
+further BUILDER work needed).  Ties into #200 (Phase-6 expose conformance).
 
 ## Standard library — environment access
 
