@@ -107,6 +107,30 @@ typecheck. Approach: enumerate repo-wide → convert to `vec.Vec` / pre-size.
 Worth weighing a single systemic fix — give `slices.Append` amortized growth if
 `@[]T` gains a spare-capacity distinction — against per-site conversions.
 
+## Standard library — pkg/std namespace migration
+
+### Finish the stdx→std migration + remove the forwarders when the next BUILDER lands — 🟡 OPEN (gated on a BUILDER cut)
+
+The `pkg/stdx/*` compat forwarders (`fmt`, `cmp`, `hash`, `containers/*`) are still
+imported by the **BUILDER-compiled tree** (cmd/bnc + its pkg/binate deps: ir, native,
+types, …).  The current BUILDER (`bnc-0.0.14`) compiles that tree against its OWN
+bundled stdlib snapshot, which predates the promotion and only has the `pkg/stdx/*`
+paths — a BUILDER-tree `import "pkg/std/vec"` fails the gen1 build (`package
+"pkg/std/vec" not found`).  In-tree non-BUILDER consumers are already migrated
+(`b8d3615d2`); the `stdx-forwarder-imports` hygiene check (`a432c30db`) enforces that
+and exempts exactly the BUILDER tree (`is_builder_tree`).
+
+Once a BUILDER carrying the promoted `pkg/std` stdlib is cut (i.e. `BUILDER_VERSION`
+bumped to a release that includes the promotion, landed `abfa3e66b`..`a6cb15f87`):
+1. Migrate the BUILDER-tree imports `pkg/stdx/*` → `pkg/std/*` (grep the
+   `is_builder_tree` dirs — the 16 files reverted in `b8d3615d2`).
+2. Remove the `is_builder_tree` exemption from
+   `scripts/hygiene/stdx-forwarder-imports.sh` (it then flags a forwarder import
+   anywhere).
+3. Delete the `pkg/stdx/*` forwarder `.bni` files (`ifaces/stdlib/pkg/stdx/{fmt,cmp,
+   hash}` + `ifaces/stdlib/pkg/stdx/containers/*`) — nothing imports them anymore.
+   The check then auto-empties (no forwarders discovered → trivially passes).
+
 ## Standard library — environment access
 
 ### cmd/bnc: switch env reads from the `os.Env()` scan to `os.Getenv` after the next BUILDER bump — 🟡 OPEN
