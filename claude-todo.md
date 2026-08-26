@@ -713,6 +713,31 @@ hatch" sufficient (close this out)?
 
 ## Type-system & checker semantics
 
+### Value-receiver bodies aren't checked read-only — `r.field = …` in a value-receiver method is wrongly accepted — 🟠 OPEN (2026-08-25)
+
+**Severity: minor (fail-safe — the write hits a discarded copy, so no
+miscompile/UAF; just an un-diagnosed pointless mutation).** Spec §10.6
+(`func.method.value-recv`) marks this an **Open / known gap**: the design intent is
+that a value receiver `(r T)` is **read-only** inside its body (mutating the copy is
+pointless), but the checker does not enforce it — it does not reject `r.field =
+…`, and the "always read-only" property is only the semantic consequence of the
+copy being discarded, not a diagnosed rule (`func.method.value-recv-readonly`;
+Annex C).
+
+- **Test:** `conformance/spec/10-functions/068_err_value_recv_mutation_rejected` —
+  a negative (`.error`) test expecting the rejection; `.xfail.all` because bnc emits
+  no diagnostic today. Confirmed still failing 2026-08-25 (`run.sh --check-xpass
+  builder-comp-int` + `builder-comp`: 068 still XFAILs — no diagnostic), unlike
+  the reflect/readonly/named-func-value markers that were stale.
+- **Fix (a language-semantics decision — finalizes the open gap):** diagnose
+  `func.method.value-recv-readonly` — mark a value receiver's storage read-only so
+  a field-write lvalue rooted in it is rejected, mirroring a `readonly`-qualified
+  receiver `(r readonly T)`. Scope to confirm with the user: reject `r.field = …`
+  and whole-receiver reassignment `r = …`? a write through `&r`? Must NOT touch
+  pointer receivers (`*T`/`@T`) or a local re-bound from `r`. Rejects
+  currently-accepted code — audit the tree for existing value-receiver writes
+  first. Un-xfail `068` when done.
+
 ### `Self`-parameter method is uncallable through a generic constraint (Self binds to the type param, not its base) — 🟠 OPEN (2026-07-03)
 
 **Severity: minor (obscure `Self` corner; the fix is a semantics decision, not a
