@@ -6,6 +6,42 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `pkg/stdx/{cmp,hash}` + all `pkg/stdx/containers/*` promoted to `pkg/std/*` — ✅ DONE (2026-08-26)
+
+The stdx→std namespace migration for the comparison/hashing policies and the container
+library, each behind an `expose` compat forwarder at the old `pkg/stdx/...` path (new
+code imports `pkg/std/...`; existing `import "pkg/stdx/..."` keeps resolving the same
+entities).  Unblocked by the forwarder-generic checker fix in `bnc-0.0.14`
+(`resolveQualifiedGenericDeclPkg` — an exposed generic type now forwards in ALL
+positions, not just plain type expressions).
+
+Landed:
+- `pkg/std/fmt` (earlier: `a4f580e4e`).
+- `pkg/std/{cmp,hash}` — `abfa3e66b` (+ stale-tier-note fix `4239bacb9`).
+- containers, in batches: iter+vec `904c0a31b` (A); table+mapfn `557fad1ad` (B);
+  set+setfn+hashmap `a6cb15f87` (C).
+
+`pkg/stdx/containers/` now holds only the seven `expose` forwarders; every container
+implementation lives under `pkg/std`.  Notes for future promotions of this kind:
+- Each promoted package's imports of already-promoted deps point at `pkg/std/*` — a
+  tier-1 `std` package must not route through a tier-1x `stdx` forwarder to reach
+  another promoted package.
+- `externs.bn` `stdPkgs()` lists every new `pkg/std` package (stdlib-injected enforces
+  it; a generic-only package injects as a no-op but must still be listed).  A consumer
+  that needs `X.__Package` imports the REAL `pkg/std/X` (forwarder + real under one
+  alias collide).
+- vec/iter were the only containers in the BUILDER-compiled surface (via `ir`→`vec.Vec`),
+  verified BUILDER-clean; the rest are not.
+- An injected `pkg/std` package runs its own unit tests in COMPILED mode (pkg-skipped in
+  the VM, where the package IS the native instance) — smoke injected packages with
+  `builder-comp`, not just `builder-comp-int`.
+- The interp wrap/custom-set tests were made order-independent (`errors` located by name)
+  since generic-only packages carry empty descriptors and sort ahead of it.
+
+Still open (separate): #200 Phase-6 expose conformance bundle.  Migrating the in-tree
+consumers still on the `pkg/stdx/...` forwarders to the `pkg/std/...` paths is an optional
+future cleanup — the forwarders exist for exactly this back-compat.
+
 ## int-int (double-VM) lane GREEN via representative subset (+ -O2 vehicle) — ✅ DONE (2026-08-26, `083e1f334`)
 
 Capstone to the recompile-floor saga (earlier stages — Scope hash `650e3d898`, batching `a067cbcb9`+

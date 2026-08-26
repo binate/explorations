@@ -107,29 +107,6 @@ typecheck. Approach: enumerate repo-wide → convert to `vec.Vec` / pre-size.
 Worth weighing a single systemic fix — give `slices.Append` amortized growth if
 `@[]T` gains a spare-capacity distinction — against per-site conversions.
 
-## Standard library — pkg/std namespace migration
-
-### Promote `pkg/stdx/containers/*` → `pkg/std/*` behind `expose` forwarders — 🟡 OPEN
-
-`pkg/stdx/{fmt,cmp,hash}` plus containers `iter`, `vec`, `table`, `mapfn` are
-promoted to `pkg/std/*` behind `expose` forwarders (fmt: `a4f580e4e`; cmp+hash:
-`abfa3e66b`; iter+vec / batch A: `904c0a31b`; table+mapfn / batch B: `557fad1ad`).
-Remaining containers: `set`, `setfn`, `hashmap` (batch C, finishes the set) — same
-pattern, in batches (a few per commit, per the original request).  Per-package
-recipe: `git mv` the ifaces `.bni` + impls dir to `pkg/std/...`, rewrite the
-`package` clause + self-referencing doc comments, fix the tier note (tier-1x stdx →
-stable `std`, mirror `pkg/std/fmt`), leave a forwarder `.bni` (`package
-"pkg/stdx/..."` + `expose "pkg/std/..."`) at the old path, add the new path to
-`stdPkgs()` in `pkg/binate/interp/externs.bn` (stdlib-injected requires every
-`pkg/std` `.bni`), and bnfmt.  Watch the interdependencies (hashmap→table→iter;
-set→setfn; table→cmp,hash).  If a co-promoted package imports another in the same
-batch, point the import at the new `pkg/std` path; if a consumer needs `X.__Package`
-(externs.bn), import the REAL `pkg/std/X` (a forwarder + real import under one alias
-collide).  vec/iter were the only containers in the BUILDER-compiled surface (via
-`ir`→vec), verified BUILDER-clean; the rest are not, so no bootstrap-path concern.
-The forwarder-generic checker support is in `bnc-0.0.14`, so this builds+lints (no
-further BUILDER work needed).  Ties into #200 (Phase-6 expose conformance).
-
 ## Standard library — environment access
 
 ### cmd/bnc: switch env reads from the `os.Env()` scan to `os.Getenv` after the next BUILDER bump — 🟡 OPEN
