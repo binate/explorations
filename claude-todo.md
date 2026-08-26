@@ -61,22 +61,38 @@ open-addressing name→index map (mirroring `pkg/binate/vm/func_index.bn`);
 (cmd/bnc 1.42s → 1.29s median), net-neutral at `-O0`. Two adversarial reviews
 (staleness + semantic-equivalence) cleared it.
 
-### OPEN — finish the FuncSigs cluster (cheap, low-risk)
+### DONE — FuncSigs backed by vec.Vec, not O(n²) slices.Append (`69bdc45f9`)
 
-- `Module.FuncSigs @[]FuncSig` is a **value** slice; each `slices.Append`
-  growth deep-copies every entry (`__copy_FuncSig`/`__dtor_FuncSig` refcount
-  churn, ~5% of the ir bucket). Reserve capacity or store `@FuncSig` (1-word).
-- `lookupFunc*` each do a per-call `buf.CopyStr` (via
-  `qualifyForCurrentModule`) just to build the compare key — build-once /
-  intern.
+Key finding: `slices.Append` reallocates the whole slice and copies every
+element on EVERY call (`ns = make_slice(T, n+1); copy all; ns[n]=v`), so
+building a table one item at a time is **O(n²)** in allocations + copies — a top
+driver of the load's dominant allocation cost, far more than the ~5% "copy
+churn" first estimated. Switched `Module.FuncSigs` from `@[]FuncSig` to
+`@vec.Vec[FuncSig]` (amortized doubling). A further ~14% off `-O2` load on top
+of the index (cmd/bnc 1.10s → 0.94s median; cumulative from the pre-index
+baseline 1.27s → 0.94s, **−26%**). Adversarially reviewed (nil-init, value-copy
+`Get`, `Set` replace, index stability) — clean. Makes `ir` the first
+BUILDER-compiled package to depend on `pkg/stdx/containers/{vec,iter}` (proven
+BUILDER-clean by the gen1 build).
 
-### OPEN (bigger, deferred) — attack `rt.Alloc` volume
+### OPEN — per-lookup allocation in lookupFunc* (small)
 
-The 66% memory-management cost is the real prize but needs a broad effort:
-attribute `MemZero`/`rt.Alloc` to the biggest allocation sites (likely AST +
-IR node `make` and `slices.Append` doublings across the tree) and cut them
-(capacity reservation on hot slices, fewer transient allocations). Not yet
-scoped.
+`lookupFunc*` each do a per-call `buf.CopyStr` (via `qualifyForCurrentModule`)
+plus a qualify-concat — two allocations per lookup — just to build the compare
+key. Build-once / intern, or hash the (pkgPath, name) components without
+materializing the qualified string.
+
+### OPEN (bigger) — attack `rt.Alloc` volume systemically
+
+The 66% memory-management cost is the real prize. The O(n²) `slices.Append`
+pattern just fixed for FuncSigs applies verbatim to the sibling IR tables built
+the same way (`Consts`, `Structs`, `GlobalVars`, `TypeAliases`) and to hot
+`slices.Append`-in-a-loop sites across parse / typecheck — each is O(n²)
+alloc+copy. Separately, un-interned type-descriptor factories (`MakePointerType`
+/ `MakeManagedPtrType` / `MakeManagedSliceType` ≈ 166 `rt.Alloc` samples in the
+`-O0` profile) look like a clean caching win. Approach: enumerate
+`slices.Append`-in-a-loop sites repo-wide → convert to `vec.Vec` / pre-size;
+add a type-descriptor intern cache.
 
 ## Standard library — environment access
 
