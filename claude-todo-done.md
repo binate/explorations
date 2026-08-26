@@ -6,6 +6,25 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## int-int (double-VM) lane GREEN via representative subset (+ -O2 vehicle) — ✅ DONE (2026-08-26, `083e1f334`)
+
+Capstone to the recompile-floor saga (earlier stages — Scope hash `650e3d898`, batching `a067cbcb9`+
+`872019ebf`, hybrid `291a3b476` — logged in the prior int-int done entry).  Two more steps closed it:
+- **-O2 vehicle (`5494dd642` compiled interp, `202389819` gen1/gen2):** scripts/lib/build-compilers.sh
+  built the interp + compilers at clang's -O0 default; `--cflag -O2` (the release level, per
+  scripts/build-bni.sh) made the double-VM vehicle ~3.6× faster (token+irdata slice 152s→42s) and sped
+  every comp/VM lane.  But int-int STILL timed out.
+- **Representative subset (`083e1f334`, the fix that stuck):** a FULL-SHARD local validation (the step
+  skipped earlier that had let a bad config land) showed per-package double-VM cost is wildly uneven —
+  types/ir ~0.9s/test, but native/arm32 (353 tests) full >25min and a shard of {types,ir,vm,codegen}
+  took 5h44m (vm's tests run a VM → VM-on-VM-on-VM; codegen/native compile programs).  So int-int now
+  runs only types+ir test-sharded + all cheap (non-.split.vm) packages package-sharded; every
+  compile/run-heavy .split.vm package is skipped for this lane (its coverage comes from the single-VM
+  and native lanes, and the double-VM path is package-agnostic).  Real shard ~5min local.  Stopgap: the
+  real fix is bni execution perf (open in claude-todo.md).
+Also landed alongside: perf/self.sh self-hosting benchmarks + CI `self` job (`8f134008e`, `3dc9da2a5`)
+tracking bnc_compiles_bnc / bni_runs_hello / bni_runs_bni_hello.
+
 ## int-int (double-VM) unit lane — the recompile-floor saga: Scope hash → batching → HYBRID batching — ✅ DONE (2026-08-25, `291a3b476`)
 
 The double-VM lane (`builder-comp-int-int`) cancelled all 12 CI shards at the 45-min cap. Root cause:

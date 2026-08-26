@@ -1719,36 +1719,22 @@ unblock them:
   mode green, promote `builder-comp_native_arm32_linux` false→blocking in conformance-tests.yml
   (plan-native-arm32.md P7), pending a green CI run of the landed fix.
 
-## int-int (double-VM) lane: hybrid + -O2 STILL times out — heavy batch is the bottleneck; re-classify .split.vm at -O2
+## Improve bni EXECUTION performance (the VM) — the real fix behind the int-int stopgap
 
-- **Two landed fixes, both on the double-VM floor:**
-  - **Hybrid batching (`291a3b476`)** — package-shard LIGHT packages, test-shard the .split.vm HEAVY
-    set; two cmd/bni loads/shard; output tee'd. Supersedes the batch-ALL policy (`872019ebf`), which
-    loaded all ~51 impls on every shard — a per-shard-CONSTANT ~26min floor no shard count could reduce.
-    Full saga (Scope hash `650e3d898` → batching `a067cbcb9`+`872019ebf` → hybrid) in claude-todo-done.md.
-  - **-O2 compiled interp (`5494dd642`)** — `build_interp` (scripts/lib/build-compilers.sh) was building
-    COMPILED_INTERP with NO -O flag → clang default -O0. It's the VM lanes' execution vehicle (native
-    cmd/bni); at -O0 the whole double-VM pipeline runs several × slower. Now built `--cflag -O2` (the
-    release opt level, same as build-bni.sh). Measured: a token+irdata int-int slice's double-VM
-    execution dropped 152s→42s (~3.6×). Helps ALL three VM lanes (builder-comp-int, -int-int,
-    -comp-int); `build_interp_arm32` (qemu arm32-linux) deliberately left at -O0 — possible follow-up.
-- **CI RESULT on `5494dd642` (hybrid + -O2 interp): STILL times out — all 12 int-int shards hit the
-  45-min cap.**  Diagnosis from the tee'd shard-1 log: setup fast (gen1 ~27s, -O2 interp ~68s); LIGHT
-  batch (3 pkgs) loaded+ran in ~24s; then `STARTING (batched heavy/1-of-12): 15` and ZERO test output
-  for ~43 min until the kill — the HEAVY batch never finished even LOADING its 15 heavy packages
-  (≈ the whole compiler: types/ir/codegen/vm/native/*/parser/…) in one double-VM process.  The hybrid
-  fixed the light side but the heavy side is still batch-all: all 15 heavies load on EVERY shard, a
-  per-shard CONSTANT that test-sharding can't reduce.  (Under-validated pre-land: the local smoke used
-  ONE small heavy, irdata, never a full 15-heavy batch — the gap that bit.)
-- **FIX DIRECTION (needs work + a FULL-SHARD local test):** the `.split.vm` heavy set (17 pkgs) was
-  calibrated for -O0.  At -O2 (~3.6×) most of those pkgs' FULL suites likely now fit in one shard, so
-  they should be PACKAGE-sharded (loaded alone on their assigned shard), leaving only the genuinely-
-  too-big handful (maybe codegen/types/vm) in the load-everywhere test-sharded set — collapsing the
-  per-shard heavy load from 15 impls to ~2-3.  Requires MEASURING each currently-heavy pkg's full
-  double-VM suite time at -O2 and shrinking `.split.vm` accordingly (note: `.split.vm` is shared
-  across ALL VM modes — re-check int / comp-int too).  Validate a COMPLETE shard locally before
-  landing.  Shard-count bump is a secondary lever (helps only once the heavy per-shard load is small).
-- Non-blocking (unit-tests.yml comment) so main is unaffected — not on fire.  Related landings:
-  gen1/gen2 now also -O2 (`202389819`); perf/self.sh self-hosting benchmarks + CI wiring
-  (`8f134008e`, `3dc9da2a5`) now track bnc_compiles_bnc / bni_runs_hello / bni_runs_bni_hello as
-  single numbers.
+- **int-int lane is GREEN via a stopgap (`083e1f334`):** the double-VM lane now runs a REPRESENTATIVE
+  SUBSET — types + ir (moderate at double-VM, ~0.9s/test) test-sharded, all cheap (non-.split.vm)
+  packages package-sharded, every OTHER .split.vm package (codegen, vm, native/*, asm/*, lint, bnlint,
+  bnfmt, parser, irdata) SKIPPED for this lane.  Real shard ~5min local (was timing out at 45min).
+  Full saga (batch-all → hybrid → -O2 interp+gen1/gen2 → representative subset) in claude-todo-done.md.
+- **Why only a stopgap:** at double-VM, tests that compile or RUN programs are ~100× (VM interpreting
+  the VM).  vm's own tests run a bytecode VM → VM-on-VM-on-VM; a shard of {types,ir,vm,codegen} took
+  **5h44m**; native/arm32 (353 tests) full > 25min.  The compile/run-heavy packages can't rejoin the
+  double-VM lane until bni EXECUTION is much faster.
+- **THE REAL FIX (current focus): profile + speed up bni's bytecode-VM execution.**  The load phase
+  (parse/typecheck/IR/bytecode) is someone else's focus; this is EXECUTION — the `pkg/binate/vm`
+  dispatch loop.  Approach: run an execution-dominated Binate program (fib-style, minimal load) under a
+  release bni with a sampling profiler (macOS `sample`/Instruments; Linux `perf`) → find dispatch-loop
+  hotspots, then optimize.  Progress-tracking benchmarks already landed: perf/self.sh `bni_runs_hello`
+  / `bni_runs_bni_hello`; perf/001_fib.bn under builder-comp-int.  A faster VM lets the FULL double-VM
+  lane come back (re-add codegen/vm/native to INTINT_HEAVY) and speeds every VM lane + conformance.
+- Secondary/deferred: `build_interp_arm32` still -O0 (qemu arm32-linux lane) — possible -O2 follow-up.
