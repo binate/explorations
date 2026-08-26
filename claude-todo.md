@@ -33,6 +33,51 @@ test: a compiled/native higher-order fn calling a VM callback that indexes OOB, 
 the program aborts (not returns 0). Tracked against Plan 2
 (`explorations/done/plan-rt-fault-cleanup-pads.md`).
 
+## Performance — bni load time
+
+`bni` "loading" a program (parse → typecheck → IR-gen → bytecode-lower, before
+any execution) of a graph that pulls in the whole toolchain (`bni cmd/bni`,
+`bni cmd/bnc`) is the workload under study. Two independent levers, from
+profiling (macOS `sample`):
+
+- **Build optimization (separate lever, being handled by someone else).** The
+  dev / perf / conformance-int `bni` is built at `-O0` (~3.5s to load the
+  cmd/bni graph); the released `-O2` build loads the same graph in ~0.8s — ~4×,
+  purely from opt level (much of `-O0`'s `rt.BoundsCheck` is elided at `-O2`).
+  The VM-lane compiled interp now builds `-O2` (`5494dd642`).
+- **Allocation is the real cost (the algorithmic lever).** Load is
+  memory-management-bound, not compute-bound: at `-O2`, `rt` (mostly
+  `MemZero`) ≈ 44% + libc malloc/free ≈ 22% ≈ **66% memory management**;
+  IR-gen ≈ 20%; parse/typecheck/lower are minor. `MemZero`'s caller is the
+  generic `rt.Alloc`, so it scales with total allocation volume (AST nodes + IR
+  nodes + every `slices.Append` growth), NOT with any one table.
+
+### DONE — FuncSigs name→index map (`30f6d03ad`)
+
+IR-gen resolved every call target by linear-scanning `Module.FuncSigs` with
+`streq` (O(n) per lookup, O(n²) over a package). Replaced with an
+open-addressing name→index map (mirroring `pkg/binate/vm/func_index.bn`);
+`registerFuncSig` is the single append funnel. ~7–9% faster load at `-O2`
+(cmd/bnc 1.42s → 1.29s median), net-neutral at `-O0`. Two adversarial reviews
+(staleness + semantic-equivalence) cleared it.
+
+### OPEN — finish the FuncSigs cluster (cheap, low-risk)
+
+- `Module.FuncSigs @[]FuncSig` is a **value** slice; each `slices.Append`
+  growth deep-copies every entry (`__copy_FuncSig`/`__dtor_FuncSig` refcount
+  churn, ~5% of the ir bucket). Reserve capacity or store `@FuncSig` (1-word).
+- `lookupFunc*` each do a per-call `buf.CopyStr` (via
+  `qualifyForCurrentModule`) just to build the compare key — build-once /
+  intern.
+
+### OPEN (bigger, deferred) — attack `rt.Alloc` volume
+
+The 66% memory-management cost is the real prize but needs a broad effort:
+attribute `MemZero`/`rt.Alloc` to the biggest allocation sites (likely AST +
+IR node `make` and `slices.Append` doublings across the tree) and cut them
+(capacity reservation on hot slices, fewer transient allocations). Not yet
+scoped.
+
 ## Standard library — environment access
 
 ### cmd/bnc: switch env reads from the `os.Env()` scan to `os.Getenv` after the next BUILDER bump — 🟡 OPEN
