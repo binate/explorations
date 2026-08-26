@@ -82,17 +82,30 @@ plus a qualify-concat — two allocations per lookup — just to build the compa
 key. Build-once / intern, or hash the (pkgPath, name) components without
 materializing the qualified string.
 
-### OPEN (bigger) — attack `rt.Alloc` volume systemically
+### DONE — type-descriptor factories interned (`f21685deb`)
 
-The 66% memory-management cost is the real prize. The O(n²) `slices.Append`
-pattern just fixed for FuncSigs applies verbatim to the sibling IR tables built
-the same way (`Consts`, `Structs`, `GlobalVars`, `TypeAliases`) and to hot
-`slices.Append`-in-a-loop sites across parse / typecheck — each is O(n²)
-alloc+copy. Separately, un-interned type-descriptor factories (`MakePointerType`
-/ `MakeManagedPtrType` / `MakeManagedSliceType` ≈ 166 `rt.Alloc` samples in the
-`-O0` profile) look like a clean caching win. Approach: enumerate
-`slices.Append`-in-a-loop sites repo-wide → convert to `vec.Vec` / pre-size;
-add a type-descriptor intern cache.
+`MakePointerType` / `MakeManagedPtrType` / `MakeSliceType` /
+`MakeManagedSliceType` allocated a fresh Type per call, and the checker
+re-derives the same wrappers constantly (≈166 `rt.Alloc` samples in the `-O0`
+profile). Now memoized per element (`Type.Cached*` fields) — a further ~10% off
+`-O2` load (bni loading cmd/bnc → ~1.28s median; **~31% cumulative** from the
+pre-optimization baseline). The element↔wrapper managed-pointer refcount cycle
+is torn down at each compilation boundary (a registry + `ResetWrapperInterning`
+at `NewChecker`); the interp's RUNTIME value marshaling uses
+`MakeManagedSliceTypeUncached` (a value-scoped, uncached descriptor). Two
+adversarial reviews — the first caught the cycle leak, the second cleared the
+teardown + uncached-split fix. Conformance builder-comp 2982/0.
+
+### OPEN (bigger) — the remaining O(n²) `slices.Append` sweep
+
+`slices.Append` reallocates and copies the whole slice on every call, so
+building a table in a loop is O(n²) alloc+copy — a top driver of the load's
+dominant ~66% memory-management cost. Fixed for FuncSigs (→ `vec.Vec`); the same
+applies to the sibling IR tables (`Consts`, `Structs`, `GlobalVars`,
+`TypeAliases`) and to hot `slices.Append`-in-a-loop sites across parse /
+typecheck. Approach: enumerate repo-wide → convert to `vec.Vec` / pre-size.
+Worth weighing a single systemic fix — give `slices.Append` amortized growth if
+`@[]T` gains a spare-capacity distinction — against per-site conversions.
 
 ## Standard library — pkg/std namespace migration
 
