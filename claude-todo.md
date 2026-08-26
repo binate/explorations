@@ -832,35 +832,25 @@ language extension, not a bug fix.
 
 ## Spec authoring & language-decision residuals
 
-### Value receivers are mutable copies, not read-only — spec §10.6 + conformance 068 need updating — 🟠 OPEN (2026-08-26)
+### Value receivers are mutable copies, not read-only — conformance 068 residual — 🟠 OPEN (2026-08-26)
 
 **DECIDED 2026-08-26 (option b):** a value receiver `(r T)` is a **mutable copy**;
-read-only enforcement is the opt-in `readonly` form `(r readonly T)`, which the
-checker already enforces correctly (a write through it is rejected with `cannot
-assign to const-typed location`). `bnc` already implements (b) — a plain
-value-receiver mutation compiles; only the `readonly` form rejects it — so there is
-NO checker work; the residual is spec text + one conformance test.
+read-only enforcement is the opt-in `(r readonly T)`, which the checker enforces
+(`cannot assign to const-typed location`). `bnc` already implements (b); **spec
+landed** (docs `0eca692`: §10.4/§10.5/§10.6 + the §7.11 echo; the
+`func.method.value-recv-readonly` candidate rule retired). Note the consequence
+the spec now states, from the checker's object-const rule (`receiverAssignable`:
+const object → non-const receiver rejected): a read-only object may call
+`(r readonly T)` methods but **not** plain `(r T)` ones — `(r readonly T)` is the
+value-receiver form for read-only objects, not a redundant spelling.
 
-**Why (b):** the spec's stated intent (a plain value receiver is read-only, and
-`(r readonly T)` is "redundant with `(r T)`") was motivated by an easier
-non-copying optimization — lowering a value receiver as a never-null pointer
-receiver — but that reasoning predates the `readonly` keyword, which now provides
-that opt-in explicitly. Consistency/clarity of semantics wins over the aspirational
-read-only default.
-
-Follow-ups (spec author to review):
-- **Spec §10.6 (`func.method.value-recv`):** drop the "design intent is read-only"
-  Open/known-gap note and the "`(r readonly T)` … redundant with `(r T)` (a value
-  copy is read-only regardless)" line. State instead that `(r T)` is a mutable copy
-  (isolated from the caller) and `(r readonly T)` is the opt-in read-only receiver.
-  Retire the `func.method.value-recv-readonly` candidate rule (Annex C).
-- **Conformance `spec/10-functions/068_err_value_recv_mutation_rejected`:** its
-  premise (the mutation must be REJECTED) is now wrong. Delete it, or invert it to a
-  positive test that a value-receiver mutation compiles (copy isolation is already
-  pinned by `066_value_recv_copy_isolation`). Drop its `.xfail.all` when reworked.
-- Real code already relies on (b): the BinBuf mutate-and-return builder
-  (`asm/macho`, `asm/elf` — BUILDER-compiled) and `066`. No migration needed under
-  (b).
+**Remaining:** `conformance/spec/10-functions/068_err_value_recv_mutation_rejected`
+(+ `.error`, `.rules`, `.xfail.all`) — its premise (plain-receiver mutation must be
+REJECTED) is now wrong. Proposed: repoint it at the opt-in form — receiver
+`(c readonly Counter)`, same body, same `.error` text ("cannot assign to
+const-typed location"), `.rules` → `func.method.receiver-kinds` — so it pins the
+new normative content instead of being deleted (copy isolation of the plain form is
+already pinned by `066_value_recv_copy_isolation`); drop the `.xfail.all`.
 
 ### Relational-comparison chain (`a < b < c`) diagnostic reach — nicety
 The `expr.compare.relational` rule: `a < b < c` is correctly rejected in every context, but the
