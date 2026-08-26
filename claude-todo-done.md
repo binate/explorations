@@ -487,10 +487,13 @@ behavior-preservation, completeness, false-remap) returned zero findings. Verifi
 end-to-end that the fix unblocks the cmp/hash/containers promotion (hashmap + all
 containers pass with the promotion applied on top).
 
-**Follow-up**: resume the `pkg/stdx/{cmp,hash,containers/*}` → `pkg/std/*` promotion
-(saved off-branch), which needs a BUILDER release carrying this fix before it can land —
-deferred until a BUILDER cut is independently justified (a BUILDER release permanently
-extends the bootstrap ladder, so it is never cut just to unblock one task).
+**Follow-up (done on the fix side)**: `bnc-0.0.14` (which includes this fix) was
+released and BUILDER_VERSION / CHECK_TOOLS_VERSION bumped to it, so forwarder-using
+generic code now builds AND lints.  `pkg/stdx/{cmp,hash}` → `pkg/std/{cmp,hash}`
+behind `expose` forwarders landed `abfa3e66b` (interp wrap/custom-set tests updated
+to find `pkg/std/errors` by name — generic-only cmp/hash carry empty descriptors and
+sort ahead of it).  The remaining `pkg/stdx/containers/*` → `pkg/std/*` promotion is
+tracked as active work in claude-todo.md.
 
 ## `borrowable-char-param` bnlint rule + tree-wide adoption — DONE (2026-08-18)
 
