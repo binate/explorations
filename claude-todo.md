@@ -1786,7 +1786,8 @@ unblock them:
 
 Method: build bni `-O2 -g` (gen1 --cflag -O2 -g), run fib(N) (execution-dominated,
 minimal load), `sample <pid>` → aggregate heaviest leaves.  Track wins with
-perf/001_fib.bn (builder-comp-int) and perf/self.sh `bni_runs_*`.
+perf/001_fib.bn (builder-comp-int) and perf/self.sh `bni_runs_*`.  Cumulative on fib(37) so far:
+~10.7s (pre-opt) → ~4.83s (~2.2×) across the three landed VM optimizations below.
 
 - **Dispatch reorder — ✅ DONE (`835ec63bc`, ~1.7× on fib):** execLoop dispatched the
   register/memory/string handler GROUPS before the control-flow/call blocks, so every
@@ -1794,12 +1795,20 @@ perf/001_fib.bn (builder-comp-int) and perf/self.sh `bni_runs_*`.
   below control-flow, reordered by frequency, and guard execOp64 on 64-bit (REG_SLOT < 8).
   execStringOp (was 2nd-hottest, on a string-free program) + execOp64 dropped out of the
   top; fib(37) 10.7s→6.3s.  (Moved detail also in claude-todo-done.md if split later.)
-- **execArithOp double-call waste — TODO (low-hanging, doing next):** execArithOp calls
-  execIntArithOp THEN execFloatArithOp unconditionally, so a non-arith op passing through
-  (e.g. CMP) pays a wasted execFloatArithOp call (~4% of fib).  Add a range-guard so it
-  bails before the sub-calls.  Cheap + safe.
-- **Call machinery (pushFrame / frameLocals) — TODO (low-hanging next):** the per-call
-  frame-push / locals path is ~7.5% of fib post-reorder.  Profile + trim the hot path.
+- **execArithOp double-call waste — ✅ DONE (`63676b720`, ~6% fib):** execArithOp only calls
+  execFloatArithOp for the actual float-arith opcode ranges (BC_FADD..BC_FDIV,
+  BC_F32ADD..BC_F32DIV), so a pass-through CMP no longer pays a wasted execFloatArithOp
+  bail-call; int-arith path untaxed.  Validated + 196 float conformance tests.
+- **Call machinery (pushFrame / frameLocals) — PARTIAL: same-function frame-skip ✅ DONE
+  (`9c7ef5518`, ~12% fib):** frameLocals re-fetched f/code (vm.Funcs.Get + @VMFunc/@[]BCInstr
+  RefInc) on every call/return; now BC_CALL/BC_RETURN skip that when funcIdx is unchanged
+  (all of fib's self-recursion) and refresh only regs/frameBase via a refcount-free frameRegs.
+  Two adversarial reviews (incl. an empirical refcount/IR review that redirected us away from a
+  raw-borrow/GetRef approach — field reads through @VMFunc already don't RefInc, and the
+  raw-borrow had a grow-UAF hazard).  STILL OPEN: the 5 colder frameLocals sites (indirect/iface
+  calls, unwind, refdec) — guarding them needs a vm_exec.bn split (it's at the 500-line cap);
+  and pushFrame's frame-header write + register zeroing.  Also: the @Vec receiver RefInc on
+  vm.Funcs.Get is NOT removed by the skip (only skipped when funcIdx unchanged).
 - **O(1) dispatch: execLoop as a `switch instr.Op`** — LLVM -O2 jump-tables bnc's switch
   (proven: perf/003 vs 004; LLVM turns both switch AND if-chain into a single indexed
   lookup at -O2).  NOTE: after the reorder this is now LOWER value — the expensive
