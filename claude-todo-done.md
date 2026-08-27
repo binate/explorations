@@ -14,6 +14,19 @@ is green again — the 4 `matrix/loop-leak/const-nil-*` tests pass 4/0.  The rev
 VM unit tests + hygiene clean, confirmed on the exact landing base.  The ~12% fib VM-perf win
 can be re-attempted WITH a builder-comp-int-int gate — the author of 9c7ef5518 owns that call.
 
+**UPDATE 2026-08-27 — deeper root cause found; the re-attempt is BLOCKED on a compiler bug,
+not just a missing gate.**  Re-attempting `9c7ef5518` as-is still fails int-int.  The
+optimization is CORRECT — its frame math + refcount traffic are provably identical to the old
+`frameLocals` path for these different-function main↔sink tests.  The real defect is a latent
+bytecode-VM bug: a call to a function returning two raw pointers (`frameRegs`'s `(*int,*uint8)`
+return) does NOT fully restore `vm.SP` on return, leaking a word per call — harmless once, but
+this test calls it ~2×/iteration over 420k iterations and overflows.  Confirmed by INLINING
+`frameRegs` (removing the call, keeping the optimization) → all 4 tests pass 4/0 in int-int.
+Now tracked as an OPEN MAJOR in claude-todo.md ("VM miscompiles a 2-raw-pointer multi-return
+call — leaks vm.SP per call"), which carries the reproduce steps and the un-revert-once-fixed
+instruction (with int + int-int gating).  So the un-revert must wait for the multi-return
+lowering fix — NOT just re-apply with an added gate.
+
 --- Original diagnosis (for the record) ---
 
 

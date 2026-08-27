@@ -7,6 +7,54 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### VM miscompiles a 2-raw-pointer multi-return call — leaks `vm.SP` per call — 🔴 OPEN MAJOR (found 2026-08-27)
+
+**Severity: MAJOR** — the bytecode VM's lowering of a call to a function that
+returns two raw pointers `(*T, *U)` does not fully restore `vm.SP` on return,
+leaking a little VM stack per call. Latent: one call is harmless, but such a
+function called in a hot loop overflows the VM stack. A silent SP leak on a
+common return shape — any long-running interpreted program that calls such a
+function in a loop is at risk.
+
+**How found / reproduce.** The frame-skip VM optimization `9c7ef5518` added a
+helper `frameRegs(vm @VM, numRegs int, regsOff int) (*int, *uint8)` called on
+every BC_CALL/BC_RETURN. Under `builder-comp-int-int` (where `vm_exec.bn` itself
+runs as bytecode, so each `frameRegs` call is a real bytecode call
+~2×/loop-iteration), the 4 `conformance/matrix/loop-leak/const-nil-*` tests fail:
+3 with `runtime error: stack overflow`, and `const-nil-nested-mslice`
+deterministically with `panic: vm: recoverable fault with no cleanup pad` (the
+corrupted SP drives a fault into an unpadded block). Repro: `git revert --no-edit
+0d5f786a8` (re-apply the optimization — this is the same op as the un-revert
+below), then `./conformance/run.sh builder-comp-int-int const-nil` → 4 fail
+(~45-105s).
+
+**Root cause localized (confirmed).** The optimization is NOT at fault — its
+frame math and refcount traffic are provably identical to the old `frameLocals`
+path for these different-function main↔sink tests (both transitions re-fetch
+f/code, so nothing is skipped). The leak is in the *call to frameRegs*:
+**inlining frameRegs's two lines** at its two call sites (replacing `regs,
+frameBase = frameRegs(vm, f.NumRegs, regsOff)` with `regs = stackPtr(vm,
+regsOff)` + `frameBase = bit_cast(*uint8, bit_cast(int, vm.Stack) + regsOff +
+f.NumRegs * REG_SLOT)`) makes all 4 tests pass 4/0 in int-int. The known-good
+`frameLocals` returns a 4-value tuple `(@VMFunc,@[]BCInstr,*int,*uint8)` and does
+NOT leak; the defect is specific to the 2-value `(*int,*uint8)` return shape —
+hypothesis: the VM's register-pair-return path (vs the sret path a larger tuple
+takes) fails to restore SP on the callee return. Next step for whoever picks this
+up: diagnose the multi-return lowering (`pkg/binate/vm/lower_*` return handling +
+BC_RETURN's pop) and add a minimal unit test — a 2-`*T`-return fn called N times
+in a loop under int-int, asserting no `vm.SP` growth.
+
+**Once fixed: UN-REVERT `9c7ef5518`** (the frame-skip optimization, currently
+reverted by `0d5f786a8`). It is a correct ~12% fib VM-perf win, blocked only by
+this compiler bug; re-apply it with `git revert 0d5f786a8` (revert the revert).
+**Gate the un-revert on BOTH `builder-comp-int` AND `builder-comp-int-int`** — the
+original commit was validated only under single-`int`, which is exactly why this
+slipped through; the double-`int` mode runs `vm_exec.bn` as bytecode and is what
+exercises the leaking call. Minimum check: `./conformance/run.sh
+builder-comp-int-int const-nil` must be 4/0, plus the `pkg/binate/vm` unit tests,
+on top of the default modes. (See the done-log "const-nil loop-leak int-int
+regression" entry for the revert history.)
+
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
 **Severity: MAJOR** — a recoverable user-code fault (bounds / divide / shift /
