@@ -246,12 +246,25 @@ zero-entry phi would be malformed (consider an IR-verifier guard).  (3) The
 64-bit-scalar-on-ILP32 phi is now a loud reject, not supported — lift when 64-bit
 scalar promotion is wanted (needs register-pair copies in the VM + arm32).
 
-### Phase D — dominator / dataflow infrastructure (prerequisite for promotion)
-- Add `Block.Preds` (or compute predecessors), a dominator tree, and iterated
-  dominance frontiers — hand-rolled in the BUILDER subset (no generic set/map/closure
-  reliance). Verify BUILDER-compilability against the pinned 0.0.14 BUILDER on a
-  skeleton *before* building it out.
-- Tests: dominance on hand-built CFGs (diamond, loop, nested).
+### Phase D — dominator / dataflow infrastructure (prerequisite for promotion) — ✅ COMPLETE (`cd944ec81`)
+- **DONE.** `pkg/binate/ir/dom.bn`: `ComputeDom(f @Func) @DomInfo` computes
+  predecessors (derived by scanning each block's terminator successors — no
+  `Block.Preds` field added), DFS-postorder numbering, immediate dominators (the
+  Cooper-Harvey-Kennedy iterative fixed point over reverse postorder, with the
+  postorder-number finger walk for intersect), and dominance frontiers (Cooper's DF
+  walk). `DomInfo` also answers `Dominates(a, b)` and `IteratedDF(defBlocks)` — the
+  DF⁺ phi-placement query Phase 2a needs.
+- Block-index-based, hand-rolled (no generic set/map container, no closures); stays
+  within the BUILDER-compilable surface (`pkg/binate/ir` is BUILDER-compiled). A
+  skeleton was verified against the pinned 0.0.14 BUILDER *before* build-out, and the
+  whole package re-verified BUILDER-clean after.
+- Kept **package-private** (no `.bni` export) — the only consumers (mem2reg / Phase
+  2a and the tests) are in-package; export only when a cross-package consumer appears.
+- Tests (`dom_test.bn`): hand-built diamond, reducible loop (self-DF header), nested
+  diamonds, and straight line — asserting preds, idoms, DFs, the `Dominates` relation,
+  and iterated DF. Green under builder-comp and builder-comp-int. Adversarial review
+  (diamond/loop/nested + two irreducible CFGs hand-traced; test expectations
+  independently recomputed) found no bugs.
 
 ### Phase 2a — non-managed scalar SSA promotion (the real BCE enabler)
 - Promote function-local **non-managed scalar** memory slots (int/bool/…, incl. the
