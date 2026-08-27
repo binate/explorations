@@ -1023,3 +1023,9 @@ libc shim, as the native path uses).
   binary runs on linux/arm64, exiting 42.  **With round 26, bnld links clang output
   on both x86-64 and aarch64** — the GOT relocs were the only blocker.  Next: a CI
   e2e locking this in.
+
+- **Round 28 — CI e2e for LLVM-backend linking:** ✅ landed `79a7b9d9d`.  The
+  real-program e2e now also compiles the program with bnc's LLVM/clang backend (when
+  clang is present) and links those objects with bnld — the GOTPCRELX loads relaxed,
+  the same shim linking both backends — and runs it (exit 42).  Locks in round 26 in
+  CI (native x86-64 Linux).
