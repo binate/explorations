@@ -159,8 +159,12 @@ VM samples (vs ~12% in fib). Two distinct bounds-check costs, don't conflate the
 > under -O1+ too.  Adversarial review returned SAFE TO LAND; the fault-pad
 > orphaning risk was verified safe (a removed check's pad is dead bytecode — the VM
 > FaultTable is built from the post-BCE blk.Instrs, so nothing routes to it).
-> Default bni opt level stays 0 (int-mode load cheap); a follow-up will add an
-> executable -O1 test where a removed check coexists with a live fault pad.
+> Default bni opt level stays 0 (int-mode load cheap).  The executable -O1
+> fault-routing test (a removed const check coexisting with a live runtime check in
+> one function, faulting via the live check) landed as `86ca24db1`
+> (TestVMOptLevelBCEKeepsLiveFault).  **Phase 1 + 1.5 are now complete on both
+> paths.**  Next up is the loop-BCE build-out (Phase P/D/2a/3), pending a
+> sequencing decision.
 
 ### Phase 1 — pass infrastructure + `-On` gating (small, unblocks everything)
 - Add bnc `-O0..-O3` parsing (args.bn / CLIArgs): sets `OptLevel`; LLVM backend
