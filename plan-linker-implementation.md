@@ -881,3 +881,13 @@ links a real native object graph.
   allocator), indexed-access bounds checks, refcount cleanup — is linked by bnld
   and executes on a real kernel.  External surface unchanged (same five libc
   symbols); verified end to end.
+
+- **Round 18 — report all undefined symbols at once:** ✅ landed `4ffaa2d1a`.  The
+  resolver returned on the first undefined symbol, so a link missing several (e.g.
+  a real program's runtime referencing malloc/calloc/free/write/abort without a
+  shim) took one re-link per missing symbol to enumerate.  Resolve now collects
+  every distinct undefined GLOBAL reference (deduped across objects) and reports
+  them together — `undefined symbols: malloc, calloc, free, write, abort` — while a
+  single miss keeps the `undefined symbol: X` wording.  The detection predicate is
+  unchanged; verified end to end (bnld lists all five) plus dedup/order/singular/
+  cross-resolved-exclusion unit tests.
