@@ -906,3 +906,20 @@ links a real native object graph.
   64-bit scaled form).  `e2e/bnld-linux-aarch64.sh`'s new `dataval` loads an 8-byte
   value from .data via ADRP+LDR and exits with it (42), runtime-proving
   LDST64_ABS_LO12_NC on a real aa64 kernel (and the two-segment W^X image).
+
+### Direction (from 2026-08-27): make bnld able to REPLACE the external linker
+
+The goal is that bnc never needs clang/ld: bnld should link real programs against
+real libraries.  C-freeness is explicitly NOT a goal (on Unix we interact with C
+libraries).  So the work is linker features — archives, then linking against libc,
+etc. — not replacing libc.
+
+- **Round 21 — read System V / GNU `ar` archives:** ✅ landed `a80e98c56`.  The
+  ELF object reader was refactored into `parseObjectBytes(bytes, path)` (parses an
+  object from an in-memory range, copying everything out), and `ReadArchive` reads
+  a `.a` — magic, 60-byte member headers, short/`/N`-long names via the `//` table,
+  skipping the `/` symbol index and `//` table — returning each object member as an
+  InputObject labeled `path(member)`.  GNU/SysV format (what C libraries use on
+  Linux); bounds-safe on malformed input (incl. a 32-bit-overflow-safe size check).
+  Validated against a real llvm-ar GNU archive.  Next: symbol-based member
+  inclusion in Link() (pull only the members that resolve undefined refs) + the CLI.
