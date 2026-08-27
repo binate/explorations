@@ -1,6 +1,60 @@
 # Plan: devirtualize injected container policies (mapfn/setfn) — constant-func-arg specialization
 
-Status: DESIGN (2026-08-27). Author-review pending; adversarial review requested.
+Status: **DESIGN NOT VIABLE AS WRITTEN — adversarial review (2026-08-27) found FATAL
+FLAWS.** Kept for the record; do NOT implement approach C below without first resolving
+the type-system question. See "Review outcome" immediately below.
+
+## Review outcome (2026-08-27): DESIGN-HAS-FATAL-FLAWS
+
+An adversarial design review, grounded in the code, killed the central mechanism:
+
+- **The monomorphizer substitutes TYPES ONLY** (`ensureInstantiated` pushes
+  CurrentTypeParamNames/Types, consumed only by `resolveTypeExpr`'s type-name
+  rewrite). There is no value-substitution and no field-sensitivity. The constant
+  `*func` is STORED in one function (`hash.Fn`, `hash.bni:51`, the sole writer of
+  `FnHasher.fn`) and LOADED+CALLED in a DIFFERENT method (`FnHasher.Hash`,
+  `hash.bni:56`, the sole caller), separated by a heap-stored `Table.h` field. To
+  route `t.h.Hash(k)` to a constant-baking specialization, the compiler must know
+  `t.h.fn == funcSigHash` — which IS the interprocedural, field-sensitive func-value
+  constant-propagation this doc claimed to avoid. Step 3 of the sketch ("stored into
+  a field → mark that field constant-func … downstream specialization devirtualizes")
+  is hand-waving over the entire hard problem.
+- The only type-keyed way is to make **"FnHasher whose .fn is funcSigHash" a distinct
+  TYPE** and thread it as `Table`'s `H` type-argument — i.e. **value-parameterized /
+  singleton-function types.** That is a genuine TYPE-SYSTEM EXTENSION (new type
+  identity for a func value, mangling, checker consequences), NOT "extend the
+  instantiation key." This doc mislabeled the whole feature as a risk bullet.
+- **No optimizer shortcut works either.** Inlining the trivial `Fn`/`Hash`/`Equal`
+  one-liners still leaves `t.h.fn(k)` loading from a heap-allocated, ESCAPING,
+  refcounted `@Table` that outlives every constructor — classic inline + SROA cannot
+  scalar-replace it. For a policy embedded in a long-lived heap container it is a
+  type-system feature or nothing.
+- **The "first cut: direct-call-only" (below) closes 0% of the mapfn/setfn gap** — the
+  injected `*func` is NEVER called in the body that receives it (NewMapFn/NewTable
+  forward it; `Fn` stores it; only `FnHasher.Hash`/`FnEq.Equal` call it, on a field
+  load). So that de-risking increment erases none of the `c087ca69d` regression (it
+  would help unrelated generics like `sort(less)` that call the fn in-body).
+- Soundness (`fn` set-once, never reassigned, Table never re-homes the FnHasher) and
+  the weak_odr dedup argument were judged CORRECT — but moot, since the mechanism
+  under them can't be built. (Factual fix: `883f761ce` is the iv-thunk weak_odr fix,
+  NOT the instantiation dedup enabler — the `IsLinkOnce` that would cover these
+  specializations pre-exists on `ensureInstantiated`.)
+
+**Real options for the user (the doc foreclosed the small ones prematurely):**
+1. **Value-parameterized / singleton-function types** — the actual (C). A language
+   feature; rewrite the plan around it if pursued.
+2. **(A) revisited — a `Hashable`/`Comparable` key wrapper + the intrinsic `Default`
+   policy.** `hash.Default[K].Hash(k) = k.Hash()` ALREADY monomorphizes to a DIRECT
+   call today (parity). Small, works now. The real trade is "a per-key wrapper type"
+   vs. "a language extension" — a user decision, not a hack to dismiss.
+3. **Accept the ~3–5% on the one internal consumer** (ir's FuncSigIndex — the sole
+   motivation). Cheapest; weigh against option 1's size.
+
+The original approach-C design follows, unchanged, for the record.
+
+---
+
+Status (original): DESIGN (2026-08-27). Author-review pending; adversarial review requested.
 
 ## Problem
 
