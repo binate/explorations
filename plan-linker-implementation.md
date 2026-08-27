@@ -693,3 +693,10 @@ A running log as the linker is built (see §11 for the milestone plan).
   `binfmt` factoring (ELF constants redeclared locally for now); SHN_ABS/SHN_COMMON
   symbol kinds (→ the resolver); a golden-bytes fixture pinning the layout
   independently of the writer.
+- **M1 (resolve) — symbol resolver:** ✅ landed `579e856c8` (`resolve.bn`).
+  `Resolve` builds a global symbol table over a set of objects: strong-over-weak
+  precedence (either order), duplicate-strong error, undefined-GLOBAL error,
+  weak-undefined → 0, locals excluded; `SymbolTable.Lookup` maps a name to its
+  defining object/symbol (linear scan; hashed index a follow-up).  Tested over
+  synthetic multi-object inputs.  COMMON tentative defs stay deferred (foreign
+  objects only).  Next: layout (output sections + address assignment).
