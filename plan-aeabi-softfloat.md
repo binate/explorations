@@ -14,13 +14,25 @@ helper via `testing.Println`'s `*any` `float{32,64}.String()` branches).
 - Float add/sub group (`_arm_addsubsf3.o`: fadd/fsub/frsub/i2f/l2f/ui2f/ul2f): `54df54731`.
 - Float mul/div group (`_arm_muldivsf3.o`: fmul/fdiv): `70fc2f821`.
 - Double mul/div group (`_arm_muldivdf3.o`: dmul/ddiv): `12bf5c978`.
+- Comparison groups (`_arm_cmp{df,sf}2.o` + `_arm_unord{df,sf}2.o`:
+  {d,f}cmp{eq,lt,le,gt,ge,un}): `1b2647486`.
 
-All add/sub, mul, and div groups (f32 + f64) are now ported.  Remaining toward
-the needed 19: the compares (`_arm_cmpdf2.o` dcmpeq/dcmplt/…, `_arm_cmpsf2.o`
-fcmp*; `_arm_unord{df,sf}2.o` for cmpun).  Then the remaining single-symbol
-conversion members for the full AEABI set (f2iz, d2uiz, f2uiz, d2lz, f2lz,
-d2ulz, f2ulz, and dneg/fneg).  New runtime f64 mul/div conformance coverage:
-1223_float64_arith_runtime (companion to 635).
+**All 19 helpers the suite needs are now ported** (add/sub, mul, div, and the
+compares, both f32 and f64).  Remaining for the FULL AEABI set (C interop, not
+needed by the suite): the single-symbol conversion members — f2iz, d2uiz,
+f2uiz, d2lz, f2lz, d2ulz, f2ulz — and dneg/fneg.
+
+NOT provided (deliberate): the flag-setting compare variants
+`__aeabi_cdcmp{eq,le}` / `__aeabi_cdrcmple` (also in `_arm_cmpdf2.o`/`sf2.o`).
+The native backend never emits them and compiler-rt (our reference) does not
+define them; a breadcrumb documenting this lives in
+`runtime/baremetal_arm32/aeabi_float.s` (compare-group comment).  Revisit only
+if a linked GCC-compiled C object needs them.
+
+New runtime conformance coverage: 1223_float64_arith_runtime (f64 mul/div,
+companion to 635) and 1225_float64_compare_runtime (f64 compares, companion to
+639) — both use LOCAL operands so the ops aren't const-folded, and were
+confirmed to emit runtime `bl __aeabi_*` calls.
 
 ## Decisions (settled with the user, 2026-08-26)
 
