@@ -799,3 +799,15 @@ gated on a hermetic `_start` (startup), linking a real bnc-compiled Binate progr
   pair is unit-proven but not yet runtime-proven (would need an assembler operand
   feature).  Next: per-section RX/RW segments (stage 3b), then archives / a real
   bnc-compiled program (gated on a hermetic `_start`).
+- **Stage 3b — per-section RX/RW segments (W^X):** ✅ landed `5fef2398a`.  The
+  emitter mapped everything with one RWX PT_LOAD; now it emits two page-disjoint
+  segments — read-only/exec (.text/.rodata) and read-write (.data/.bss) — so no
+  segment is both writable and executable.  The RW group's page-aligned start is
+  decided in Layout (addresses freeze before relocation), while segment
+  permissions stay an emit concern; a single-group program still emits one
+  segment, and the lowest segment covers the ELF header + phdrs (AT_PHDR mapped).
+  Verified for page-aligned and non-page-aligned bases, a bss-only writable
+  segment, and W^X + page-congruence in checkLoadable; e2e/bnld-linux.sh gains
+  `datax`, which loads its exit code from .data and runs on a real kernel (proves
+  the two-segment image loads and .data is mapped/readable).  Next: archives, or a
+  real bnc-compiled program (gated on a hermetic `_start`).
