@@ -140,12 +140,33 @@ Emit group to ir_ops_managed.bn (+ relocated TestEmit* tests); also split the
 PRE-EXISTING over-limit gen_import.bn (507→450) → gen_import_aliasmap.bn (+ new
 alias-map round-trip tests).
 
-CAMPAIGN STATE: 6 landed on main (30f6d03ad FuncSigs-index, 69bdc45f9 FuncSigs-vec,
+### DONE — Module.Funcs amortized-growth vec (`bb2c0cbe8`)
+
+`Module.AddFunc` grew `m.Funcs` via grow-by-one `slices.Append` — O(n²) to
+register a module's thousands of funcs.  A re-profile put AddFunc +
+`slices.Append[@Func]` at ~4% of load self-time.  Same single-field-view fix as
+Instrs: add `FuncsVec @vec.Vec[@Func]` builder (seeded in NewModule), AddFunc
+Pushes + refreshes `Funcs = FuncsVec.Items()`; AddFunc is the sole writer, so all
+~740 readers are unchanged.  Review SHIP, full 6-mode conformance 0-failed; A/B
+~3% (noisy on a load-contended machine, direction consistent across 3 batches).
+
+CAMPAIGN STATE: 7 landed on main (30f6d03ad FuncSigs-index, 69bdc45f9 FuncSigs-vec,
 f21685deb type-interning, fa19d8a34 QualifyName, ecf68b2d4 qualify-borrow,
-5225d3a03 Instrs-vec) — Instrs-vec adds ~3–6% on top of the ~35% off the
-pre-optimization -O2 load from the first five. temp-5 is at main. The planned
-big-ticket levers are now landed; further sweep work is the user's call. The
-lever-(a) -O0→-O2 build split is someone else's.
+5225d3a03 Instrs-vec, bb2c0cbe8 Module.Funcs-vec) ≈ ~35%+ off the pre-optimization
+-O2 load. The lever-(a) -O0→-O2 build split is someone else's.
+
+RE-PROFILE (post-6-landed, `bni cmd/bnc --version`, /usr/bin/sample ×3): the
+profile has SHIFTED off pure allocation.  Dominant self-time now: `rt.BoundsCheck`
+~32% (every slice/array index in the load pipeline emits a runtime bounds check)
+and alloc/free/zero (`_xzm_free`/memset/`__bzero`/malloc/Alloc) ~33%.  Both are
+DESIGN-LEVEL levers, not sweeps: a bounds-check-ELISION pass (prove `i` in-bounds
+when it is a loop induction var bounded by `len`, analogous to the existing
+nil-check dedup `Block.NilCheckedSlots`) for the former; cutting allocation COUNT
+(source-determined in Binate) for the latter — both need a design discussion, not
+a unilateral pick.  The remaining pure-sweep item is `collectFuncStrings`
+(strings.bn) — an O(D²) linear-scan string dedup + `slices.Append` per distinct
+string constant, ~1.6% self-time; a djb2 interning map (like `funcSigHash`) fixes
+it.  NEXT: collectFuncStrings (user greenlit "then maybe").
 
 ## Standard library — pkg/std namespace migration
 
