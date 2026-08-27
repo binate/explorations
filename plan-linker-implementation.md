@@ -811,3 +811,47 @@ gated on a hermetic `_start` (startup), linking a real bnc-compiled Binate progr
   `datax`, which loads its exit code from .data and runs on a real kernel (proves
   the two-segment image loads and .data is mapped/readable).  Next: archives, or a
   real bnc-compiled program (gated on a hermetic `_start`).
+
+### 🎉 Real bnc-compiled program linked by bnld: PROVEN (round 14 recon)
+
+A genuine bnc-native-compiled Binate program, linked **entirely by bnld** (no
+clang/ld anywhere), runs on a real Linux kernel and exits 42 — the value returned
+by the bnc-compiled `compute()`.  This validates the whole from-scratch pipeline
+end to end: bnc native x86-64 codegen → bnas → bnld (read → resolve → layout →
+relocate → two-segment W^X emit) → execve.  The emitted image is a 118 KB static
+ELF64 with two PT_LOADs (R+X 0x5, R+W 0x6) and a 4 MiB `.bss` arena carried as
+memsz-only (not in the file) — the layout/emit handling all confirmed on the real
+program, not just unit fixtures.
+
+**What linking a real `main` program takes (the recon payoff):**
+
+- `bnc --backend native --target x86_64-linux -c -o <stem> prog.bn` emits **five**
+  ELF objects — `main` plus the auto-pulled runtime packages `builtins/rt`,
+  `builtins/reflect`, `builtins/lang`, `builtins/startup` — not one.  (Search paths
+  via `scripts/binate-paths.sh` → `BINATE_PACKAGE_INTERFACE_PATH` /
+  `BINATE_PACKAGE_IMPL_PATH`.)
+- The program entry is **`bn_entry`**: an ordinary function (sat-registry build →
+  `__init_all` → `main`) that *returns* and never touches the argv stack, so a
+  custom `_start` can simply `call bn_entry`.  Functions mangle as
+  `bn_F1_4_main1_7_compute` etc.
+- The only **genuinely-undefined (external) symbols** across the five objects are
+  five libc names: `malloc`, `calloc`, `free`, `write`, `abort`.  Everything else
+  is inter-object and resolves once the five link together.  A hand-written
+  hermetic shim (`_start` + a bump allocator over a `.bss` arena + `write`/`exit`
+  syscalls) satisfies them with no libc — then `bnld -o prog shim.o <5 objects>`
+  links and the binary runs.
+
+**Follow-on work this surfaced:**
+
+1. **C-free hermetic runtime (the real project):** those five libc symbols are the
+   remaining C dependency of a statically-linked Binate program.  A fully C-free
+   link (the C-Free Target goal) needs Binate/asm implementations of the allocator
+   and the `write`/`abort` primitives — the shim here is a throwaway stand-in.
+2. **Assembler ergonomics (minor, GAS-compat):** the text assembler requires an
+   external symbol to be `.global`-declared *before* it is referenced, else it errors
+   ("assembly failed") instead of emitting a relocation; comments are `//` only
+   (not `#`/`;`).  BSS is reserved with `.zero N` inside `.section bss`.
+3. **bnld needed no changes** to link a real program — the reader/resolver/layout/
+   relocate/emit stack built over rounds M0–13 was already sufficient for a real
+   native object graph.  Next candidates: a reproducible e2e for this (heavier — it
+   builds bnc), archives, or the C-free runtime.
