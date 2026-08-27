@@ -217,10 +217,19 @@ The pass is a lowering transform (not an `-On` optimization), backend-conditiona
   (`IsGlobalRef`, ID==-1) renders as `@<mangled>`, not `%v-1`; (2) a zero-entry
   phi would emit malformed LLVM (a well-formed producer never makes one; consider
   an IR-verifier guard).  Address both when mem2reg starts emitting phis.
-- **Shared `EliminatePhis` pass + VM lane — NEXT.** Write the shared
-  SSA-destruction pass; wire the VM to it (replacing `insertPhiCopies`); test
-  diamond + loop-back-edge + swap/cycle through the VM (executed).
-- **Native lanes (x64, aarch64, arm32)** — wire each to the shared pass; test.
+- **Shared `EliminatePhis` pass + OP_COPY — DONE (`2de26198d`).** The
+  SSA-destruction pass in `pkg/binate/ir` (critical-edge split + parallel-copy
+  sequencing with cycle-break temps; scalar-only, panics on aggregate/managed).
+  OP_COPY opcode.  Adversarial-reviewed (sequencing executed against an oracle for
+  swap / 3-cycle / chain / rho / dup-src / self).
+- **VM lane — DONE (`80b6a83b6`).** `lowerFunc` runs `EliminatePhis` at entry;
+  OP_COPY → BC_MOV/BC_MOV64; deleted the old buggy `insertPhiCopies`.  Executed
+  tests: diamond, swap loop (returns 100 vs a lost-copy's 200), critical-edge
+  split.  Reviewed SAFE TO LAND.
+- **Native lanes (x64, aarch64, arm32) — NEXT.** One shared hook in
+  `common.EmitObject` (before `EmitFunc`, covers all 3) + an OP_COPY arm in each
+  arch dispatch (`getOperand(Args[0].ID)` → `spillAndReset` to the id's slot);
+  test.
 - No promotion pass yet; this phase only proves the lowering.
 
 ### Phase D — dominator / dataflow infrastructure (prerequisite for promotion)
