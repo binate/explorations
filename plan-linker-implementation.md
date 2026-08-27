@@ -935,3 +935,11 @@ etc. — not replacing libc.
   bnld links a program against a real llvm-ar GNU archive, extracts only the needed
   member, and the binary runs.  Next: a CI e2e for archive linking; then `-l`/`-L`
   library search in the CLI.
+
+- **Round 23 — CI e2e for archive linking:** ✅ landed `c77e3ef26`.
+  `e2e/bnld-archive-linux.sh` assembles two objects (a `helper` that exits 42 and an
+  unused one), bundles them into a GNU archive with the system `ar`, links a `main`
+  that calls `helper` against the archive with bnld — which extracts the `helper`
+  member and leaves `unused` out — and runs it (exit 42).  Native x86-64 Linux only
+  (GNU `ar` + native run); skips elsewhere, no Docker.  Next: `-l`/`-L` library
+  search in the CLI.
