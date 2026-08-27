@@ -806,8 +806,15 @@ call/loop/jne calc, and a RIP-relative global read-modify-write.
 than the x64 *encoder* for the non-typical surface — SSE / float / xmm forms, and
 exotic addressing modes — so a program using those may hit a parser gap.  Audit
 `pkg/binate/asm/parse/x64*` against `pkg/binate/asm/x64` when such a consumer
-appears.  Also still open: **aarch64 → ELF** (`elf.WriteAArch64`) for
-aarch64-linux (bnas currently emits aarch64 as Mach-O only).
+appears.  **aarch64 → ELF is DONE** (`846802a77`): `bnas -target linux-aarch64`
+routes aarch64+linux to `elf.WriteAArch64` (the object format now follows the OS
+via `AssembleFile`'s `osName`; `""` keeps the per-arch host default).  The aa64
+text parser also gained the `#:lo12:label` ADD operand (`4dbd8bb4e`), so a
+hand-written ADRP+ADD pair reaches a datum; `e2e/bnld-linux-aarch64.sh`'s `hellopg`
+runtime-proves R_AARCH64_ADR_PREL_PG_HI21 + R_AARCH64_ADD_ABS_LO12_NC through bnld
+on linux/arm64.  Still narrower than the encoder on the aa64 side: `ldr [xn,
+#:lo12:sym]` (LDST64 lo12) and the GOT `:got:`/`:got_lo12:` operands are not yet in
+the text parser (the native backend emits them via the library, not text asm).
 
 ## bnfmt (self-hosted formatter)
 
