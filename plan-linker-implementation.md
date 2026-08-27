@@ -730,3 +730,11 @@ completion): a hermetic `_start` (startup), an `os.Chmod` stdlib add to mark the
 output executable (§7.2 gap), a `cmd/bnld` CLI + a public `Link()` entry chaining
 the stages, and a Linux-CI e2e (emit → chmod → run → check exit) — the one check
 that proves loadability, which the macOS dev host cannot run locally (D5).
+- **M1 (driver) — Link() + executable output:** ✅ landed `da00f402c` (`link.bn`).
+  Link chains read→resolve→layout→relocate→emit over a list of object paths
+  (rejecting a machine mismatch), resolves the entry symbol's address, and writes
+  the executable.  The emitter now creates the output 0o755, unlinking any existing
+  file first (so the create mode applies on re-link and re-linking a running build
+  avoids ETXTBSY) — no os.Chmod needed.  Tested end-to-end incl. a verified-patched
+  cross-object call and a re-link-over-existing case.  Next: cmd/bnld CLI, then a
+  Linux e2e proof-of-life.
