@@ -1036,3 +1036,22 @@ libc shim, as the native path uses).
   GOT relaxation on real clang output in CI — then structure-checks the result (a
   static ELF64 EM_AARCH64, two segments).  Not run (x86-64 host; no Docker); the
   aarch64 run is covered out-of-band + by the reloc unit tests.
+
+- **Round 30 — function value in the LLVM-link e2e:** ✅ landed `ddb2e6cb3`.  The
+  e2e's compute() now returns its heap-slice sum through a function value
+  (`applyfn(addfn, sum, 0)`), so the linked binary also exercises an indirect call
+  through a function pointer — the LLVM backend loads that address via the GOT
+  (relaxed by bnld) — complementing the data-address loads.  Verified on both
+  backends.
+
+**LLVM-backend linking (rounds 26–30) — done.** bnld links what bnc's LLVM/clang
+backend emits, on x86-64 and aarch64.  The only blocker was GOT relocations, relaxed
+(a static link has every symbol defined) to direct address computation: x86-64
+`mov …@GOTPCREL → lea`; aarch64 `adrp :got: / ldr :got_lo12: → adrp / add :lo12:`,
+plus `R_AARCH64_PREL32`.  Everything else (per-function sections, weak vague-linkage
+dedup, `.eh_frame` drop, non-PIE layout, 64/PC32/PLT32/branch/ADRP/ADD/LDST relocs)
+was already handled.  Proven end to end (real clang objects link + run, exit 42) and
+locked into CI.  bnld now links both bnc backends' output plus static archives, on
+x86-64 and aarch64.  Remaining toward full ld-replacement (future): non-mov
+GOTPCRELX / plain-GOTPCREL forms via GOT synthesis (clang doesn't emit them for bnc
+today), wiring bnc to invoke bnld for the final link, and dynamic linking.
