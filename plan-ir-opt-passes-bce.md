@@ -195,9 +195,10 @@ VM samples (vs ~12% in fib). Two distinct bounds-check costs, don't conflate the
 - Value is narrow (constant indices into fixed arrays), but it lands the pass
   pipeline end-to-end with real, testable behavior and the KEEP-test discipline.
 
-### Phase P — `OP_PHI` lowering (prerequisite for loops)
-> Nothing below Phase 1.5 can emit a phi until this lands. This is the big
-> unadmitted prerequisite.
+### Phase P — `OP_PHI` lowering (prerequisite for loops) — ✅ COMPLETE
+> **DONE 2026-08-27.** OP_PHI lowers on every backend (LLVM native phi; VM + all
+> 3 native backends via the shared EliminatePhis).  The whole path is dormant
+> until a phi PRODUCER (mem2reg / scalar SSA promotion, Phase 2a) lands.
 
 **DESIGN (settled with the user 2026-08-27): LLVM keeps native phis; a SINGLE
 shared SSA-destruction (phi-elimination) pass serves the VM + all 3 native
@@ -226,11 +227,24 @@ The pass is a lowering transform (not an `-On` optimization), backend-conditiona
   OP_COPY → BC_MOV/BC_MOV64; deleted the old buggy `insertPhiCopies`.  Executed
   tests: diamond, swap loop (returns 100 vs a lost-copy's 200), critical-edge
   split.  Reviewed SAFE TO LAND.
-- **Native lanes (x64, aarch64, arm32) — NEXT.** One shared hook in
-  `common.EmitObject` (before `EmitFunc`, covers all 3) + an OP_COPY arm in each
-  arch dispatch (`getOperand(Args[0].ID)` → `spillAndReset` to the id's slot);
-  test.
-- No promotion pass yet; this phase only proves the lowering.
+- **Native lanes (x64, aarch64, arm32) — DONE (`e85a3f8e1`).** One shared
+  `ir.EliminatePhis` hook in `common.EmitObject` (before `EmitFunc`, covers all 3)
+  + an OP_COPY arm in each arch dispatch (getOperand → reg-move → id's spill slot;
+  x64 factored into `emitCopy`/`x64_copy.bn` for file length).  Per-backend tests
+  confirm OP_COPY → a move, not the fail-loud default.  Reviewed SAFE TO LAND; the
+  review's finding (int64-on-ILP32 silent truncation) is fixed — EliminatePhis now
+  loudly rejects an integer phi wider than the target word (`t.Width >
+  TypInt().Width`), so a >word scalar phi fails to compile rather than truncating.
+- No promotion pass yet; this phase only proved the lowering.
+
+**Latent codegen items for the phi-PRODUCER work (Phase 2a), collected from the
+lane reviews — none can fire until something emits OP_PHI:** (1) LLVM + native
+OP_COPY/phi operands use `emitRef`/`getOperand`, not `emitValRef`/`emitValOperand`
+— a global-address pseudo (`IsGlobalRef`, ID -1) as a phi operand would render as
+`%v-1` / be dropped; switch when the producer can emit such operands.  (2) A
+zero-entry phi would be malformed (consider an IR-verifier guard).  (3) The
+64-bit-scalar-on-ILP32 phi is now a loud reject, not supported — lift when 64-bit
+scalar promotion is wanted (needs register-pair copies in the VM + arm32).
 
 ### Phase D — dominator / dataflow infrastructure (prerequisite for promotion)
 - Add `Block.Preds` (or compute predecessors), a dominator tree, and iterated
