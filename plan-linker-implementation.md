@@ -758,3 +758,11 @@ uses a single RWX PT_LOAD today); a richer runtime proof (cross-object call / ro
 at runtime); then **aarch64** (the 2nd target — reader handles ELF64 already;
 relocate needs the ADRP/lo12 kinds, emit is arch-agnostic); then archives and,
 gated on a hermetic `_start` (startup), linking a real bnc-compiled Binate program.
+- **M1 runtime proofs:** ✅ e2e extended (`b3efae819`) with a hello-world (writes
+  "hi\n" via a .rodata string reached by a PC-relative reloc) — proving rodata +
+  cross-section relocation run correctly, not just in unit tests.
+- **M2 (aarch64) — target wiring:** in progress.  Reader/layout/emit are
+  arch-agnostic (emit takes the machine); adding EM_AARCH64 + `-target
+  linux-aarch64` and proving Link→emit produces a valid aa64 ELF exec.  aa64
+  relocation patching (ADRP/lo12/CALL26 bit-fields) and a Docker-linux/arm64
+  run-e2e are the following rounds.
