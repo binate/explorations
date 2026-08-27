@@ -700,3 +700,10 @@ A running log as the linker is built (see §11 for the milestone plan).
   defining object/symbol (linear scan; hashed index a follow-up).  Tested over
   synthetic multi-object inputs.  COMMON tentative defs stay deferred (foreign
   objects only).  Next: layout (output sections + address assignment).
+- **M1 (layout) — section layout + addressing:** ✅ landed `29b32d932`
+  (`layout.bn`).  Merges content sections into per-kind output sections
+  (.text/.rodata/.data/.bss), packs each kind with per-input alignment, records
+  each input's placement (OutIndex/OutOffset on InputSection), and assigns virtual
+  addresses from a base in load order (uint address math for bases ≥ 2^31; bss
+  reserves size without data).  Tested for merge/ordering/addressing/alignment/
+  rodata.  Segment perms + page alignment left to emit.  Next: relocation patching.
