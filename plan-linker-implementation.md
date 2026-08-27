@@ -864,3 +864,11 @@ hard-coded).  It runs only on a native x86-64 Linux host and skips early
 everywhere else (no Docker/qemu; bnld's linking is already covered on other lanes
 by `bnld-linux.sh`).  bnld itself needed no changes — the M0–13 stack already
 links a real native object graph.
+
+- **Round 16 — aa64 `#:lo12:` text operand + ADRP+ADD runtime proof:** ✅ landed
+  `4dbd8bb4e`.  The aa64 text assembler gained the `add rd, rn, #:lo12:label`
+  operand (low-12-bits half of an ADRP+ADD address materialization → FIX_ADD_LO12),
+  via a side-effect-free lookahead confined to `add`.  `e2e/bnld-linux-aarch64.sh`'s
+  new `hellopg` reaches its `.rodata` string with ADRP+ADD instead of ADR, so bnld
+  applies R_AARCH64_ADR_PREL_PG_HI21 + R_AARCH64_ADD_ABS_LO12_NC and they run on a
+  real aa64 kernel — closing the R12 deferral (those relocs were unit-proven only).
