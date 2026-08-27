@@ -772,3 +772,14 @@ gated on a hermetic `_start` (startup), linking a real bnc-compiled Binate progr
   relocs cleanly (no number collision; ELFCLASS64 excludes ILP32) rather than
   mis-patching — pinned by a test.  Next: aa64 relocation patching (CALL26/JUMP26,
   ADRP page-split, ADD/LDR lo12, condbr/tstbr), then a linux/arm64 run-e2e.
+- **M2 (aarch64) — relocation patching:** ✅ landed `f49b3b94b`.  `Relocate` now
+  dispatches on the object's machine to `patchAArch64` (x86-64 logic extracted to
+  `patchX64`).  Handles ABS64 (S+A, 8-byte data), the imm26 branches (CALL26/
+  JUMP26, (S+A−P)>>2), ADRP (page delta split across immlo/immhi), ADR imm21,
+  ADD/LDST64 lo12 (low 12 bits of S+A, LDST64 scaled by 8), and CONDBR19/TSTBR14;
+  `patch32Field` does the read-modify-write of a 32-bit instruction field.  Every
+  PC-relative field is range-checked (mirroring x86-64 PC32) so an over-long
+  displacement errors loudly instead of truncating into a wrong target; GOT kinds
+  are rejected.  Tested end-to-end: a cross-object BL lands on its target, an ABS64
+  pointer holds a symbol's absolute address, and each field's boundary range check.
+  Next: a Docker linux/arm64 run-e2e exercising ADRP+ADD_LO12 at runtime.
