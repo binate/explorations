@@ -6,6 +6,32 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `cast(float64, <negative int expr>)` const-folded to a huge unsigned value — FIXED (2026-08-27, `3fa7fa15e`)
+
+Casting a compile-time NEGATIVE integer expression to `float64` mis-folded: the folded
+integer carried `TypUntypedInt` (Signed=false), so codegen picked `uitofp` and read the
+value as a huge unsigned `float64` — a SILENT constant miscompile. E.g. `cast(float64,
+-2147483647 - 1)` gave ~+9.2e18 instead of `-2147483648.0`, while the single-literal
+`cast(float64, -2147483648)` was already correct.
+
+Root cause: the IR const-fold of a negative untyped-int result stamped it `TypUntypedInt`
+(unsigned), so `emit_cast` selected `uitofp`. Fix (`pkg/binate/ir/gen_binary.bn` genBinary
+fold + `gen_const.bn` genConst AND genConstGroup): when the folded magnitude is negative
+(`LitSign` set), emit a SIGNED type — host-width `TypInt` for in-int32 values (width-neutral
+on ILP32), `TypInt64` for larger — so `sitofp` is chosen. Covers binary exprs, single
+top-level untyped-const refs, and grouped-const refs. `gen_binary.bn` was split (width
+helpers → `gen_binary_width.bn`) to stay under the file-length cap.
+
+Test: `conformance/1224_const_fold_cast_int_to_float` (negative literal / binary / single-const
+/ grouped-const forms must all agree). Verified green on LLVM, VM, native-x64, and arm32/ILP32
+(qemu-in-docker); host conformance 2987/0; hygiene 20/20. A minimal 3-lens adversarial review
+caught the genConstGroup gap (fixed before landing).
+
+The sibling direction — a genuinely-UNSIGNED magnitude >= 2^63 cast to float — is a SEPARATE,
+still-open MAJOR (needs unsigned-type-at-producers AND VM/native `uitofp`-for-unsigned; a
+`TypUint64` producer-only fix helps LLVM but DIVERGES from VM/native, so it's deferred as one
+holistic backend fix). Tracked in [claude-todo.md](claude-todo.md).
+
 ## Re-applied the frame-skip VM-execution optimization (`9c7ef5518`) — DONE (2026-08-27, `152be46dd`)
 
 `9c7ef5518` ("vm: skip the frame re-fetch on same-function call/return", a correct ~12% fib VM-perf
