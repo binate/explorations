@@ -1012,3 +1012,14 @@ libc shim, as the native path uses).
   the native path also needs), and the binary runs and exits 42 from the
   LLVM-compiled compute().  Next: the aarch64 GOT relaxation (ADRP+LDR→ADRP+ADD) +
   R_AARCH64_PREL32.
+
+- **Round 27 — aarch64 GOT relaxation + PREL32 (LLVM-backend, part 2):** ✅ landed
+  `c6cf71d07`.  bnld relaxes the aarch64 GOT address-materialization pair (a static
+  link has the symbol defined): `R_AARCH64_ADR_GOT_PAGE` patches like an ordinary
+  ADRP to the symbol, and `R_AARCH64_LD64_GOT_LO12_NC` rewrites the GOT-load LDR into
+  `add xd,xn,#:lo12:sym` (keeping Rd/Rn); a non-LDR at that site is rejected.  Also
+  added `R_AARCH64_PREL32` (a relative-pointer data word).  Validated out-of-band:
+  bnld links the real aarch64 LLVM-backend objects (+ an aarch64 libc shim) and the
+  binary runs on linux/arm64, exiting 42.  **With round 26, bnld links clang output
+  on both x86-64 and aarch64** — the GOT relocs were the only blocker.  Next: a CI
+  e2e locking this in.
