@@ -195,14 +195,32 @@ VM samples (vs ~12% in fib). Two distinct bounds-check costs, don't conflate the
 - Value is narrow (constant indices into fixed arrays), but it lands the pass
   pipeline end-to-end with real, testable behavior and the KEEP-test discipline.
 
-### Phase P — `OP_PHI` lowering in every backend (prerequisite for loops)
+### Phase P — `OP_PHI` lowering (prerequisite for loops)
 > Nothing below Phase 1.5 can emit a phi until this lands. This is the big
 > unadmitted prerequisite.
-- Implement `OP_PHI` lowering in LLVM codegen, x64, aarch64, arm32.
-- Fix/verify the VM's existing phi-copy path: split critical edges, add
-  parallel-copy (temp) sequencing for interdependent phis (or prove one-reg-per-SSA
-  makes both moot), and add tests feeding hand-built diamond + loop-back-edge phi IR
-  through **each** backend (LLVM, x64, aarch64, arm32, VM) — five lowering lanes.
+
+**DESIGN (settled with the user 2026-08-27): LLVM keeps native phis; a SINGLE
+shared SSA-destruction (phi-elimination) pass serves the VM + all 3 native
+backends** — rather than four separate phi-handling implementations.  The shared
+pass inserts copies in predecessors, splits critical edges, and sequences parallel
+copies (swap/cycle), once and well-tested; the native backends then need zero
+phi-specific code, and the VM's current `insertPhiCopies` (which has exactly the
+critical-edge fragility + lost-copy-on-swap bug the review flagged) is replaced.
+The pass is a lowering transform (not an `-On` optimization), backend-conditional
+(LLVM keeps phis), so it runs at the start of native/VM per-function lowering.
+
+- **LLVM lane — DONE (`1f22a3302`).** codegen emits `%vID = phi <type> [ val,
+  %pred ], ...` from Instr.Phis.  Test: TestEmitPhiDiamond (hand-built diamond).
+  Adversarial review SAFE TO LAND.  **Two latent notes for the phi-PRODUCER work
+  (can't fire until something emits OP_PHI):** (1) phi operands emit via
+  `emitRef(Val.ID)` — switch to `emitValRef` so a global-address pseudo
+  (`IsGlobalRef`, ID==-1) renders as `@<mangled>`, not `%v-1`; (2) a zero-entry
+  phi would emit malformed LLVM (a well-formed producer never makes one; consider
+  an IR-verifier guard).  Address both when mem2reg starts emitting phis.
+- **Shared `EliminatePhis` pass + VM lane — NEXT.** Write the shared
+  SSA-destruction pass; wire the VM to it (replacing `insertPhiCopies`); test
+  diamond + loop-back-edge + swap/cycle through the VM (executed).
+- **Native lanes (x64, aarch64, arm32)** — wire each to the shared pass; test.
 - No promotion pass yet; this phase only proves the lowering.
 
 ### Phase D — dominator / dataflow infrastructure (prerequisite for promotion)
