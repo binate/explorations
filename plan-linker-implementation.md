@@ -32,7 +32,8 @@ Five scope decisions, **ratified 2026-08-26** (the roadmap they imply is in §11
   proof).
 - **(D5) Mach-O** — **deferred behind ELF**, incl. ad-hoc code-signing. ⚠️ The dev
   host is an **arm64 Mac**, so ELF output isn't natively runnable locally
-  (validate via QEMU bare-metal + Linux CI); native-macOS runs wait for Mach-O.
+  (validate hosted output via **Docker** — aa64 native, x64 emulated — + Linux CI;
+  QEMU covers deferred bare-metal arm32); native-macOS runs wait for Mach-O.
 
 The **single most important framing correction** from review: the hard part of a
 *useful hosted* linker is **not** native-backend maturity (already ~done) and
@@ -200,24 +201,48 @@ toward doing Mach-O sooner than dead-last, though deferral stands for now.
 
 ---
 
-## 3. Target sequencing (reloc-complexity gradient)
+## 3. Target sequencing (ratified 2026-08-26)
 
-| Stage | Target | Reloc set | GOT? | Base | Output | Externals | Gates on |
-|---|---|---|---|---|---|---|---|
-| **v0** | bare-metal arm32 (native) | `ABS32`, `CALL/JUMP24`, `MOVW/MOVT_ABS` | none | 0x40000000 | flat / ELF-exec | none (32-bit-int proof) → `__aeabi_*` later | native arm32 backend (exists) |
-| **v1** | linux-x64 + linux-aarch64 (native) | + `PC32/PLT32`, `CALL26/JUMP26`, `ADRP/ADD/LDR_LO12`, `CONDBR19/TSTBR14` | none (hermetic) | ELF default | ELF64 exec (`PT_LOAD` segs) | hermetic `_start` (startup effort) | hosted ELF emit + `_start` |
-| **v2** | archives → Mach-O + signing → interpreted drivers | + Mach-O set; GOT if linking C | `__c_global` only | — | Mach-O exec | codesign | D5, §9 |
+**Decision: hosted `linux-x64` (native, hermetic) first — not bare-metal arm32.**
+Ordered to (a) avoid D4 in the early milestones and (b) attack M2's real risk
+(hosted ELF-exec emission + a hermetic `_start`) from the start, rather than in a
+throwaway warmup. **arm32 is deferred** — any non-trivial arm32 program pulls
+libgcc `__aeabi_*` (D4), so arm32 waits on the orthogonal `__aeabi_*` port
+(claude-todo); x64/aa64 have hardware 64-bit divide + FPUs and are D4-free.
 
-**Honest note on sequencing (M-E):** v0 (absolute relocs, fixed base, single
-segment, no libc, semihost exit) shares little with v1's *real* unknowns
-(multi-segment `PT_LOAD` with perms + the `p_vaddr ≡ p_offset (mod p_align)`
-loadability constraint; hermetic `_start` doing argc/argv/stack/syscall). So v0
-de-risks the **read→resolve→patch→emit plumbing** (~40%) but leaves v1's hard part
-un-prototyped. **Alternative first target for the user to weigh:** linux-x64/arm32
-static *transitionally linking crt1+libc* would de-risk hosted ELF-exec emit +
-`PT_LOAD` perms + `_start` handoff (the M2-critical parts) earliest, at the cost of
-not-yet-hermetic. v0 is the *greenest* target; hosted-with-libc is the most
-*de-risking* one. **User picks which risk to attack first.**
+| Order | Target | Reloc set | GOT? | `_start` | Local test | Notes |
+|---|---|---|---|---|---|---|
+| **1st** | linux-x64 (native, hermetic) | `ABS64`, `PC32`, `PLT32`(≡`PC32`) | none | own stub | Docker (qemu-emulated) + Linux CI (authoritative) | simplest hosted relocs → de-risks the reloc core first |
+| **2nd** | linux-aarch64 (native, hermetic) | + `CALL26/JUMP26`, `ADRP`+`ADD/LDR_LO12`, `CONDBR19/TSTBR14` | none | own stub | **Docker native on the arm64 Mac** (fast) | reuses all ELF-exec/`_start` work; only relocs differ |
+| **3rd** | general reader + GOT (links default LLVM/clang build) | + clang's full set incl. GOT | static GOT | — | Docker + CI | the D1/D2 extension (§11 M2+) |
+| **later** | archives; Mach-O + signing; interpreted drivers; **arm32** (post-`__aeabi_*` port) | Mach-O set; arm32 `MOVW/MOVT/JUMP24` | `__c_global` only | — | — | D4/D5/§9 gates |
+
+**Why hosted-x64-hermetic first (not bare-metal-arm32):**
+- **D4 avoidance** (the user's key point) — arm32, bare-metal *or* linux, needs
+  libgcc `__aeabi_*` for any 64-bit-int/float program; x64 needs none. Starting on
+  arm32 would restrict the proof to 32-bit-int-only or immediately drag in the
+  libgcc port.
+- **Attacks the real risk early** (reviewer M-E) — bare-metal-arm32 de-risks only
+  the read→resolve→patch→emit plumbing (~40%), not M2's ELF-exec
+  segments/perms/page-align + hermetic `_start` (the ~60% that is the true
+  long-pole). Hosted-x64 builds that machinery from milestone one.
+- **Locally testable** (D5 caveat) — hosted output runs in Docker on the Mac (aa64
+  natively, x64 emulated), with Linux CI authoritative; no dependence on a native
+  macOS run.
+- **Hermetic, not libc** — write our own tiny `_start` (argc/argv off the stack →
+  `bn_entry` → `exit` syscall; belongs in `pkg/builtins/startup`) rather than
+  transitionally linking crt1+libc. Linking libc would pull the general reader +
+  archives (the M2+ phase) in prematurely; a hermetic `_start` keeps the MVP
+  native-only.
+- **x64 before aa64** — x64's `PC32`/`PLT32` are the simplest relocs, so the
+  correctness-critical reloc core (the #1 risk) is proven on the easy case before
+  aa64's `ADRP`/lo12 bit-splits are added atop the same, now-proven, ELF-exec
+  machinery.
+
+**The gentle warmup lives *inside* the x64 target, not in a throwaway detour:**
+stage the ELF-exec sophistication — (1) a single RWX `PT_LOAD` + minimal `_start`
+running a trivial native Binate program (proof of life), then (2) proper
+multi-segment perms + page-alignment + the full `bn_entry`/startup chain.
 
 ---
 
@@ -241,9 +266,10 @@ not-yet-hermetic. v0 is the *greenest* target; hosted-with-libc is the most
     `scripts/fetch-builder.sh --tool bnc` on a snippet, not just the current
     compiler), and CLAUDE.md's enumerated BUILDER surface must be updated. This is
     more than "keep existing files clean."
-- **`parse_elf.bn`** — decode ELF32 (+ ELF64, dormant until v1) into the input
-  model (§5). Reference for exact field offsets: the test-private readback in
-  `asm/elf/elf_test.bn` (`rdU16/rdU32/rdU64` :1002 + hard-coded offset walk).
+- **`parse_elf.bn`** — decode ELF64 (x64/aa64 — the first targets; ELF32/arm32
+  dormant until the arm32 stage) into the input model (§5). Reference for exact
+  field offsets: the test-private readback in `asm/elf/elf_test.bn`
+  (`rdU16/rdU32/rdU64` :1002 + hard-coded offset walk).
 - **Round-trip test corpus (Min-3):** assemble/emit a fixture with **both `bnas`
   AND the native backend** → read back → assert sections/symbols/relocs match. The
   native backend shares `asm/elf`, but native vs bnas may exercise different reloc
@@ -273,37 +299,54 @@ not-yet-hermetic. v0 is the *greenest* target; hosted-with-libc is the most
 - **Cross-object test:** two objects with mutual external refs → resolve → patch →
   assert patched bytes.
 
-### Step 3 — flat/ELF-exec emit + bare-metal driver (M1 → proof of life)
+### Step 3 — hosted x64 ELF-exec + hermetic `_start` + `linux_x64` driver (M1 → proof of life)
 
-- **`emit_flat.bn`** — concatenate placed section data at fixed base.
-- **`emit_elf.bn` (exec)** — `ET_EXEC`, `PT_LOAD` program header(s), `e_entry`,
-  `e_phoff`; **BSS**: `p_memsz > p_filesz`, zero-init at load (§app-C item on BSS).
-  QEMU `-kernel` loads ELF.
-- **`bare_arm32.bn` driver** — merge by name, `AssignAddresses(0x40000000)`,
-  resolve, patch, emit; reproduce `baremetal.ld`'s boundary symbols
-  (`__bss_start/__bss_end`, `_stack_top`, `__exidx_start/__exidx_end`) and `KEEP`
-  the boot section. (Placement note F6: `baremetal.ld:10-14` says `.text.startup`
-  *ordering* "no longer matters" — entry is `ENTRY(_start)`→`e_entry`, not section
-  order — so the `KEEP` is defensive, not a layout-rooting requirement.)
-- **`cmd/bnld/main.bn`** — args via `pkg/stdx/flags` (as bnfmt/bnas/bnlint/bni now
-  do): `-o`, `-target`, `-e`, `-base`; compiled-driver dispatch.
-- **e2e:** assemble → `bnld` → `qemu-system-arm -M virt … -semihosting -kernel` →
-  exit code; new `e2e/bnld-baremetal.sh` mirroring the existing baremetal runner
-  with clang-link → `bnld`. **This is the proof-of-life milestone.**
+The first *runnable* target. Stage the ELF-exec sophistication so there is a
+warmup inside the useful target (not a throwaway detour):
 
-### Step 4 — hosted ELF exec (v1 / M2, the *useful* milestone)
+- **x64 reloc kinds** (§app-A): `ABS64`, `PC32`, `PLT32` (patched identically to
+  `PC32` for a defined symbol). No GOT (hermetic — §1.4).
+- **`emit_elf.bn` (exec)** — `ET_EXEC`, program header table, `e_entry`,
+  `e_phoff`. **Stage 3a:** a single RWX `PT_LOAD` covering everything (crudest
+  loadable ELF) to get a trivial native program running. **Stage 3b:**
+  multi-segment `PT_LOAD` with correct RX/RW/R perms, `p_align` = page size, the
+  `p_vaddr ≡ p_offset (mod p_align)` constraint, and BSS (`p_memsz > p_filesz`,
+  zero-filled).
+- **Hermetic `_start`** — with no libc, `pkg/builtins/startup` provides `_start`:
+  read argc/argv/envp off the entry stack, call `bn_entry` (= `main.__entry` →
+  `main.__init_all()` + `main.main()`), then the `exit`/`exit_group` syscall. Small
+  hand-written stub (x64 syscall ABI); belongs to the `startup`/FFI-export effort,
+  coordinated here. Stage 3a can start with a minimal `_start` that skips argv.
+- **`linux_x64.bn` driver** — merge by name, assign addresses, resolve, patch,
+  emit; set `e_entry = _start`.
+- **`cmd/bnld/main.bn`** — args via `pkg/stdx/flags` (as bnfmt/bnas/bnlint/bni):
+  `-o`, `-target`, `-e`, `-base`; compiled-driver dispatch.
+- **e2e:** native-compile a tiny Binate program → `bnld` → run in a **linux-x64
+  Docker container** (+ Linux CI as the authoritative x64 run) → check exit
+  code/output; new `e2e/bnld-linux.sh`. **This is the proof-of-life milestone —
+  first clang-free hosted link.**
 
-- ELF64 reader completion; x64 + aa64 reloc kinds (§app-A). No GOT for hermetic
-  code (§1.4); `PLT32`→treat as `PC32`.
-- **Multi-segment `PT_LOAD`** with correct RX/RW/R perms, `p_align` = page size,
-  the `p_vaddr ≡ p_offset (mod p_align)` constraint, and BSS.
-- **Hermetic `_start`** (the real long-pole): with no libc, `startup` must provide
-  `_start` (stack/argc/argv setup, call `bn_entry`, exit-syscall) — the hosted
-  analog of the bare-metal crt0. This belongs to the `startup`/FFI-export effort
-  and is coordinated here. *Intermediate option:* v1 links `crt1.o`+libc statically
-  (not hermetic) to defer `_start` — a sub-decision (ties to §3's sequencing
-  question).
-- `linux_x64.bn` / `linux_aarch64.bn` drivers.
+### Step 4 — linux-aarch64 (M2, hardening the useful milestone)
+
+- **aa64 reloc kinds** (§app-A): `ABS64`, `CALL26/JUMP26`, `ADRP` (page-hi21) +
+  `ADD/LDR_LO12` (the bit-split relocs — the trickiest; cross-check against the
+  assembler's inverse encoder), `CONDBR19`, `TSTBR14`. No GOT (hermetic).
+- Reuses **all** of Step 3's ELF-exec/segment/`_start` machinery — only the reloc
+  kinds and the `_start` syscall ABI differ. `linux_aarch64.bn` driver.
+- **e2e:** runs **natively in Docker on the arm64 Mac** (fast loop) + Linux CI.
+- Finish any Stage-3b hardening (perms/page-align/BSS) not yet done, so both hosted
+  targets are proper multi-segment executables.
+
+### Step 4b (deferred) — bare-metal arm32 + `bare_arm32` driver
+
+Deferred until the `__aeabi_*` port lands (D4) — arm32 can't run non-trivial
+programs without libgcc. When taken up: `emit_flat.bn` (concatenate at fixed base)
++ ELF-exec; `bare_arm32.bn` driver — `AssignAddresses(0x40000000)`, reproduce
+`baremetal.ld`'s boundary symbols (`__bss_start/__bss_end`, `_stack_top`,
+`__exidx_start/__exidx_end`) and `KEEP` the boot section (F6: `.text.startup`
+*ordering* "no longer matters" — entry is `e_entry`, so the `KEEP` is defensive);
+arm32 relocs (`ABS32`, `CALL/JUMP24`, `MOVW/MOVT_ABS`). e2e via
+`qemu-system-arm … -semihosting -kernel` (host-agnostic; runs on the Mac).
 
 ### Step 5 — archives (.a)
 
@@ -420,9 +463,11 @@ runnable-output milestone.
   linker-placement problem, tracked in plan-linker.md."* The linker is the home for
   honoring section-placement annotations (fixed-address symbols / named sections —
   MMIO, vector tables). This needs its **own mini-design** (annotation → object
-  metadata → linker placement) — flag it as a sub-project. **For v0, hardcode the
-  bare-metal placement** (matching `baremetal.ld`); generalizing to
-  `#[section]`/`#[link_at]` is a named follow-up (P4).
+  metadata → linker placement) — flag it as a sub-project. **It is not on the
+  MVP path at all:** the hosted x64/aa64 targets need only ordinary segment
+  placement; `#[section]`/`#[link_at]` is a bare-metal concern that arrives with
+  the deferred arm32 work (Step 4b), which can hardcode the `baremetal.ld`
+  placement first and generalize later (P4).
 
 ---
 
@@ -454,10 +499,13 @@ runnable-output milestone.
 - **Unit (reader):** round-trip against **both bnas and native** output (Min-3).
 - **Unit (resolve/relocate):** synthetic multi-object cross-refs; assert resolved
   addresses + patched bytes; explicit unresolved-symbol and weak-undef-→0 cases.
-- **e2e (v0):** assemble → `bnld` → QEMU semihosting → exit code; **comparison
+- **e2e (M1, x64):** native-compile a tiny program → `bnld` → run in a **linux-x64
+  Docker container** (+ Linux CI, authoritative) → exit code/output; **comparison
   test**: same objects linked by clang and by `bnld`, diff *behavior* (not bytes —
   layouts differ).
-- **e2e (v1):** assemble → `bnld` → run native on Linux CI (x64 + aa64).
+- **e2e (M2, aa64):** same, run **native in Docker on the arm64 Mac** + Linux CI.
+- **e2e (arm32, deferred):** `qemu-system-arm … -semihosting -kernel` (host-agnostic,
+  runs on the Mac) — once the `__aeabi_*` port (D4) unblocks arm32.
 - **Determinism (M-I):** assert byte-identical output across two runs of the same
   inputs (matters for CI caching / reproducible builds) — a property to design in,
   not retrofit.
@@ -470,17 +518,20 @@ runnable-output milestone.
 
 - **M0 — `binfmt` + ELF reader + round-trip.** Medium. Unblocks everything; pays
   down BinBuf/const duplication; BUILDER-cleanliness gate (F5).
-- **M1 — resolve + relocate (arm32) + flat/ELF-exec + `bare_arm32` + `cmd/bnld` +
-  `os.Chmod` seam + QEMU e2e.** **Medium** (not "a few days"). Sub-item risk:
-  reloc patch math (§app-A) and resolve diagnostics are correctness-critical;
-  bare-metal placement reproduction is fiddly; `os.Chmod` is a cross-platform
-  syscall add. 32-bit-int-only proof avoids D4. **Proof of life — first clang-free link.**
-- **M2 — hosted ELF exec (x64+aa64) + hermetic `_start`.** **Large, and the real
-  schedule sink** — but for a *revised* reason: **NOT** GOT relaxation (near-nil,
-  §1.4) and **NOT** native-backend maturity (~done: hosted native modes carry ~9
-  xfails and self-compile gen2). The cost is **hosted ELF-exec emission
-  (multi-segment `PT_LOAD` + perms + page-align) + the hermetic `_start`/startup
-  work**. The *useful* milestone.
+- **M1 — resolve + relocate (x64) + hosted ELF-exec + hermetic `_start` +
+  `linux_x64` driver + `cmd/bnld` + `os.Chmod` seam + Docker/CI e2e.** **Medium**
+  (not "a few days"). Sub-item risk: x64 reloc math (§app-A) and resolve
+  diagnostics are correctness-critical; the hermetic `_start` (argc/argv/syscall)
+  is new; `os.Chmod` is a cross-platform syscall add. Staged: single-`PT_LOAD`
+  proof (3a) → proper segments (3b). x64 is D4-free. **Proof of life — first
+  clang-free hosted link.**
+- **M2 — linux-aarch64 + segment/perms hardening.** **Large-ish** — but for a
+  *revised* reason: **NOT** GOT relaxation (near-nil, §1.4) and **NOT**
+  native-backend maturity (~done: hosted native modes carry ~9 xfails and
+  self-compile gen2). The cost is aa64's `ADRP`/lo12 bit-split relocs (the
+  trickiest — cross-check vs the assembler encoder) atop M1's now-proven ELF-exec +
+  multi-segment `PT_LOAD`/perms/page-align machinery. aa64 runs native-fast in
+  Docker on the arm64 Mac. Completes the *useful* (hosted, D4-free) milestone.
 - **M3 — archives.** Small. Also the `libgcc.a`-read path for arm32
   64-bit-int/float programs (pending the orthogonal `__aeabi_*` port, D4/§13).
 - **M2+ — full-featured reader + GOT (the D1/D2 extension; links the default
@@ -495,17 +546,22 @@ runnable-output milestone.
   wants it eventually for local native runs.
 - **M5 — interpreted drivers.** Small–Medium (entry-shape (a)).
 
-**Headline:** M0+M1 is a bounded medium effort depending only on things that
-exist. **Two** large phases follow: **M2** (hosted native ELF — long-pole is
-ELF-emit + hermetic `_start`, *not* native maturity or GOT relaxation, both mostly
-myths) and **M2+** (the general reader + GOT that makes `bnld` usable for the
-default LLVM build). Everything else (archives, Mach-O, interpreted drivers) is
-small-to-large but clearly sequenced behind those.
+**Headline:** M0+M1 stands up the hosted-x64 linker end to end — reader, resolver,
+x64 relocs, ELF-exec emission, and the hermetic `_start` (the one real
+MVP long-pole) — depending only on things that exist, and is D4-free. M2 adds aa64
+atop that proven machinery. The one genuinely large *later* mountain is **M2+**
+(the general reader + GOT that makes `bnld` usable for the default LLVM build).
+Everything else (archives, Mach-O, interpreted drivers, and arm32 post-`__aeabi_*`)
+is small-to-large but clearly sequenced behind those. Note the long-pole is
+**linker + startup code**, never native-backend maturity (~done) or GOT relaxation
+(near-nil for hermetic code).
 
 ## 12. Prerequisites & risks
 
-- **P1: hermetic `_start`** (startup effort) — the true M2 gate (not native
-  maturity). For v0, bare-metal crt0 already exists.
+- **P1: hermetic `_start`** (startup effort) — the true MVP long-pole, now on the
+  **M1** critical path (hosted-x64 has no existing crt0 — the bare-metal crt0
+  doesn't apply). A small x64-syscall stub in `pkg/builtins/startup`
+  (argc/argv → `bn_entry` → `exit`); Stage 3a can start argv-less.
 - **P2: `os.Chmod` seam** (§7.2) — on the critical path for any runnable output;
   small but cross-platform.
 - **P3: `binfmt` BUILDER-cleanliness** (§4 Step 1 / F5) — new BUILDER-compiled
@@ -514,11 +570,13 @@ small-to-large but clearly sequenced behind those.
   placement; not before v0 (hardcode first).
 - **R1: reloc patch correctness** (§app-A) — silent-miscompile class; cross-check
   every field against the assembler's inverse encoders; test exhaustively.
-- **R2: D1 coupling** (§2 D1 steelman) — native-only can't serve the *default*
-  build until native-default; a general reader would, sooner. User call.
+- **R2: D1 coupling** (§2 D1) — the native-only MVP serves only `--backend native`
+  builds; the M2+ general reader is what extends `bnld` to the default build
+  (ratified as a planned phase, not left to chance).
 - **R3: Mach-O ad-hoc signing** (D5) — real unimplemented format burden; ELF first.
-- **R4: sequencing** (§3) — v0 de-risks plumbing, not M2's ELF-emit/`_start`;
-  consider a hosted-with-libc first target if attacking M2 risk earliest matters.
+- **R4: sequencing** — **ratified (§3): hosted-x64-hermetic first**, arm32 deferred
+  (D4). Hosted output is Docker/CI-tested (the arm64-Mac can't run ELF natively);
+  the earlier "bare-metal-first vs hosted-with-libc" question is closed.
 
 ---
 
@@ -529,7 +587,7 @@ small-to-large but clearly sequenced behind those.
 source is the assembler's inverse encoder** (`arm32.ResolveFixups`, x64/aa64 fixup
 resolvers); the linker must match them exactly.
 
-**ARM32 (v0; REL — addend in field):**
+**ARM32 (deferred, post-`__aeabi_*` port — REL, addend baked in field):**
 | Reloc | Value | Field encoding | Range check |
 |---|---|---|---|
 | `R_ARM_ABS32` | `S + A` | 32-bit LE word | none |
@@ -537,14 +595,14 @@ resolvers); the linker must match them exactly.
 | `R_ARM_MOVW_ABS_NC` | `(S + A) & 0xFFFF` | imm4=val[15:12]→insn[19:16], imm12=val[11:0]→insn[11:0] | none (NC) |
 | `R_ARM_MOVT_ABS` | `((S + A) >> 16) & 0xFFFF` | same split | none |
 
-**x86-64 (v1; RELA — addend in `r_addend`, PC-rel already `−4`):**
+**x86-64 (M1, first target — RELA, addend in `r_addend`, PC-rel already `−4`):**
 | Reloc | Value | Field | Range |
 |---|---|---|---|
 | `R_X86_64_64` | `S + A` | 64-bit LE | none |
 | `R_X86_64_PC32` / `PLT32` | `S + A − P` | 32-bit LE (PLT32 identical for defined S) | signed 32 |
 | `R_X86_64_REX_GOTPCRELX` | GOT slot; `__c_global` only | build GOT entry `= S`, patch ref to slot (or relax `mov`→`lea`) | signed 32 |
 
-**AArch64 (v1; RELA):**
+**AArch64 (M2 — RELA):**
 | Reloc | Value | Field | Range |
 |---|---|---|---|
 | `R_AARCH64_ABS64` | `S + A` | 64-bit LE | none |
