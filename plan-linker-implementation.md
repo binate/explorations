@@ -743,3 +743,18 @@ that proves loadability, which the macOS dev host cannot run locally (D5).
   objects), parseArgs -> CLIArgs, unit-tested.  No build-script/CI wiring yet
   (separate decision).  Next: a Linux e2e proof-of-life (bnas exit-syscall program
   -> bnld -> run -> check exit code).
+
+### 🎉 M1 hosted-x86-64 proof-of-life: COMPLETE (2026-08-27, `472f542d5`)
+
+`e2e/bnld-linux.sh` proves it end to end: a tiny `exit(42)` x86-64 program
+assembled by `bnas`, linked by the Binate-native `bnld` (no clang/ld in the link),
+produces a static ELF64 executable that **runs on Linux and returns 42**.  The full
+read→resolve→layout→relocate→emit pipeline plus the `Link()` driver and `cmd/bnld`
+CLI are landed and unit-tested; the e2e joins the CI e2e matrix.  This closes the
+M0/M1 core (reader, resolver, layout, relocate, emit, driver, CLI, proof-of-life).
+
+Remaining hardening / next targets: per-section RX/RW segments (stage 3b — the emit
+uses a single RWX PT_LOAD today); a richer runtime proof (cross-object call / rodata
+at runtime); then **aarch64** (the 2nd target — reader handles ELF64 already;
+relocate needs the ADRP/lo12 kinds, emit is arch-agnostic); then archives and,
+gated on a hermetic `_start` (startup), linking a real bnc-compiled Binate program.
