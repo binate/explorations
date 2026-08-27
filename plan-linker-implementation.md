@@ -855,3 +855,12 @@ program, not just unit fixtures.
    relocate/emit stack built over rounds M0–13 was already sufficient for a real
    native object graph.  Next candidates: a reproducible e2e for this (heavier — it
    builds bnc), archives, or the C-free runtime.
+
+**Round 15 — regression test landed (`a798eb726`):** `e2e/bnld-real-program.sh`
+captures the milestone above: it builds bnc+bnas+bnld, native-compiles the trivial
+program, links it with the hermetic shim via bnld, and runs it (asserting exit 42
+from the compiled `compute()`).  The mangled symbol is discovered with `nm` (not
+hard-coded).  It runs only on a native x86-64 Linux host and skips early
+everywhere else (no Docker/qemu; bnld's linking is already covered on other lanes
+by `bnld-linux.sh`).  bnld itself needed no changes — the M0–13 stack already
+links a real native object graph.
