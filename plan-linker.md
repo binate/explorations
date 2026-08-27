@@ -1,5 +1,12 @@
 # Plan: Linker Kit Written in Binate
 
+> **Detailed implementation plan:**
+> [`plan-linker-implementation.md`](plan-linker-implementation.md) — re-grounded in
+> the current tree (this design doc predates most of the self-hosted toolchain and
+> carries several stale assumptions the implementation plan corrects). Adversarially
+> reviewed. Start there for the concrete build-out; this doc remains the design
+> rationale.
+
 ## Goal
 
 Replace the dependency on system linkers (`cc`, `ld`, `arm-none-eabi-ld`) with a
