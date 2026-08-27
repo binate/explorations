@@ -801,9 +801,11 @@ via `AssembleFile`'s `osName`; `""` keeps the per-arch host default).  The aa64
 text parser also gained the `#:lo12:label` ADD operand (`4dbd8bb4e`), so a
 hand-written ADRP+ADD pair reaches a datum; `e2e/bnld-linux-aarch64.sh`'s `hellopg`
 runtime-proves R_AARCH64_ADR_PREL_PG_HI21 + R_AARCH64_ADD_ABS_LO12_NC through bnld
-on linux/arm64.  Still narrower than the encoder on the aa64 side: `ldr [xn,
-#:lo12:sym]` (LDST64 lo12) and the GOT `:got:`/`:got_lo12:` operands are not yet in
-the text parser (the native backend emits them via the library, not text asm).
+on linux/arm64.  Also landed `ldr xt, [xn, #:lo12:label]` (LDST64 lo12, `7419309b8`), so hand-written
+ADRP+LDR loads a datum too.  Still narrower than the encoder on the aa64 side: only
+the GOT `:got:`/`:got_lo12:` operands remain absent from the text parser (the native
+backend emits those via the library, not text asm; and bnld rejects GOT relocs — a
+hermetic linker — so there is no consumer for them yet).
 
 ## bnfmt (self-hosted formatter)
 
