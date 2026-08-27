@@ -880,26 +880,6 @@ language extension, not a bug fix.
 
 ## Spec authoring & language-decision residuals
 
-### Value receivers are mutable copies, not read-only — conformance 068 residual — 🟠 OPEN (2026-08-26)
-
-**DECIDED 2026-08-26 (option b):** a value receiver `(r T)` is a **mutable copy**;
-read-only enforcement is the opt-in `(r readonly T)`, which the checker enforces
-(`cannot assign to const-typed location`). `bnc` already implements (b); **spec
-landed** (docs `0eca692`: §10.4/§10.5/§10.6 + the §7.11 echo; the
-`func.method.value-recv-readonly` candidate rule retired). Note the consequence
-the spec now states, from the checker's object-const rule (`receiverAssignable`:
-const object → non-const receiver rejected): a read-only object may call
-`(r readonly T)` methods but **not** plain `(r T)` ones — `(r readonly T)` is the
-value-receiver form for read-only objects, not a redundant spelling.
-
-**Remaining:** `conformance/spec/10-functions/068_err_value_recv_mutation_rejected`
-(+ `.error`, `.rules`, `.xfail.all`) — its premise (plain-receiver mutation must be
-REJECTED) is now wrong. Proposed: repoint it at the opt-in form — receiver
-`(c readonly Counter)`, same body, same `.error` text ("cannot assign to
-const-typed location"), `.rules` → `func.method.receiver-kinds` — so it pins the
-new normative content instead of being deleted (copy isolation of the plain form is
-already pinned by `066_value_recv_copy_isolation`); drop the `.xfail.all`.
-
 ### Relational-comparison chain (`a < b < c`) diagnostic reach — nicety
 The `expr.compare.relational` rule: `a < b < c` is correctly rejected in every context, but the
 dedicated "comparison operators do not chain" message fires only for the identifier-leading

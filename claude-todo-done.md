@@ -6,6 +6,32 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Value receivers are mutable copies (decision b) — spec §10.4–10.6 + conformance 068 — ✅ DONE (2026-08-26)
+
+Decided **(b)**: a value receiver `(r T)` is a **mutable copy** (isolated from the
+caller); read-only enforcement is opt-in via `(r readonly T)`, under which a write
+through `r` is a compile error. The original read-only-by-default intent — which
+would have enabled a non-copying optimization (lower a value receiver as a
+never-null pointer receiver) — predated the `readonly` keyword that now provides
+that opt-in explicitly, so consistency/clarity of semantics won. `bnc` already
+implemented (b), so no checker work.
+
+- **Spec** (docs `0eca692`): §10.4/§10.5/§10.6 updated (+ the §7.11 echo); the
+  `func.method.value-recv-readonly` candidate rule retired. `func.method.receiver-kinds`
+  now states the readonly-value-receiver rejection ("a value receiver may also be written
+  `(r readonly T)`: … a write through `r` is rejected"); `func.method.value-recv` covers
+  the mutable-copy semantics; dispatch keys off object-const (`func.method.object-const`),
+  so a read-only object may call `(r readonly T)` methods but not plain `(r T)` ones.
+- **Conformance** (binate `9edb37a18` + `a28bee953`): `068` was
+  `err_value_recv_mutation_rejected`, whose premise (plain-receiver mutation must be
+  REJECTED) is now wrong — that form is legal and its copy-isolation is pinned positively
+  by `066_value_recv_copy_isolation`. Retargeted `068` to the now-operative negative case,
+  a write through a `readonly` value receiver, which was otherwise uncovered: receiver
+  `(c readonly Counter)`, same `.error` (`cannot assign to const-typed location`), `.rules`
+  → `func.method.receiver-kinds`, `.xfail.all` dropped, renamed
+  `068_err_readonly_recv_mutation_rejected`. `066` (pos) + `068` (neg) now cover the
+  receiver read-only-ness from both sides.
+
 ## `pkg/stdx/{cmp,hash}` + all `pkg/stdx/containers/*` promoted to `pkg/std/*` — ✅ DONE (2026-08-26)
 
 The stdx→std namespace migration for the comparison/hashing policies and the container
