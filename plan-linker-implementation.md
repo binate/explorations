@@ -897,3 +897,12 @@ links a real native object graph.
   it now names both objects — `duplicate symbol: dup (defined in a.o and b.o)` —
   the actionable detail when linking a large object graph.  Tested + verified end
   to end.
+
+- **Round 20 — aa64 `ldr [xn, #:lo12:]` operand + LDST64 lo12 runtime proof:** ✅
+  landed `7419309b8`.  Completes the aa64 lo12 operand pair (ADD from round 16, now
+  LDR): the text assembler accepts `ldr xt, [xn, #:lo12:label]` → LdrImmLabel
+  (FIX_LDR_LO12 → R_AARCH64_LDST64_ABS_LO12_NC), via a bracket-wrapped side-effect-
+  free lookahead; a 32-bit destination is rejected (the reloc always encodes the
+  64-bit scaled form).  `e2e/bnld-linux-aarch64.sh`'s new `dataval` loads an 8-byte
+  value from .data via ADRP+LDR and exits with it (42), runtime-proving
+  LDST64_ABS_LO12_NC on a real aa64 kernel (and the two-segment W^X image).
