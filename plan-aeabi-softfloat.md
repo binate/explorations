@@ -5,6 +5,19 @@ landed `c0183674c`. This plan covers Phase 2: the soft-float helpers, which are
 what actually lets `libgcc.a` be dropped (even int-only programs pull a float
 helper via `testing.Println`'s `*any` `float{32,64}.String()` branches).
 
+## Progress (landed on main)
+
+- Phase 1 — 64-bit integer helpers (`aeabi_int.s`): `c0183674c`.
+- softfloat skeleton + `d2iz` (`_arm_fixdfsi.o`): `972ac6585`.
+- `d2f` (`_arm_truncdfsf2.o`): `587467e10`.
+- Double add/sub group (`_arm_addsubdf3.o`: dadd/dsub/drsub/f2d/i2d/l2d/ui2d/ul2d): `4f0176af5`.
+- Float add/sub group (`_arm_addsubsf3.o`: fadd/fsub/frsub/i2f/l2f/ui2f/ul2f): `54df54731`.
+
+Remaining member-groups toward the needed 19: muldiv (`_arm_muldivdf3.o` dmul/ddiv,
+`_arm_muldivsf3.o` fmul/fdiv — needs the 64x64->128 multiply foundation) and compares
+(`_arm_cmpdf2.o` dcmpeq/dcmplt/…, `_arm_cmpsf2.o` fcmp*).  Then the remaining
+single-symbol members for the full set (f2iz, d2uiz, d2lz, neg/unord, …).
+
 ## Decisions (settled with the user, 2026-08-26)
 
 - **Reference:** translate **LLVM compiler-rt** (`compiler-rt/lib/builtins`) into
