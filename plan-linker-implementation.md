@@ -766,3 +766,9 @@ gated on a hermetic `_start` (startup), linking a real bnc-compiled Binate progr
   linux-aarch64` and proving Link→emit produces a valid aa64 ELF exec.  aa64
   relocation patching (ADRP/lo12/CALL26 bit-fields) and a Docker-linux/arm64
   run-e2e are the following rounds.
+- **M2 (aarch64) — target wiring:** ✅ landed `254f40a7e`.  EM_AARCH64 +
+  `-target linux-aarch64`; the machine-agnostic pipeline links a reloc-free aa64
+  object to a loadable aa64 ELF exec.  The x86-only relocator rejects real aa64
+  relocs cleanly (no number collision; ELFCLASS64 excludes ILP32) rather than
+  mis-patching — pinned by a test.  Next: aa64 relocation patching (CALL26/JUMP26,
+  ADRP page-split, ADD/LDR lo12, condbr/tstbr), then a linux/arm64 run-e2e.
