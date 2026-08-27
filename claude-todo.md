@@ -33,51 +33,6 @@ test: a compiled/native higher-order fn calling a VM callback that indexes OOB, 
 the program aborts (not returns 0). Tracked against Plan 2
 (`explorations/done/plan-rt-fault-cleanup-pads.md`).
 
-### const-nil loop-leak tests stack-overflow / "no cleanup pad" in builder-comp-int-int — 🔴 OPEN MAJOR (found 2026-08-27)
-
-**Severity: MAJOR** — a VM-lowering / recoverable-fault regression. In
-`builder-comp-int-int` ONLY, four tests fail:
-`matrix/loop-leak/const-nil-{funcval,iface,mslice}` → `runtime error: stack
-overflow`, and `matrix/loop-leak/const-nil-nested-mslice` → a DETERMINISTIC
-`panic: vm: recoverable fault with no cleanup pad (lowering bug)`.  The other five
-default modes are green; **current `main` is red in int-int.**
-
-**CONFIRMED CULPRIT: `9c7ef5518` "vm: skip the frame re-fetch on same-function
-call/return"** — a VM-executor perf optimization (frameLocals → conditional
-re-fetch + new `frameRegs` helper on BC_CALL/BC_RETURN).  Bisected cleanly: its
-parent `f480c9744` passes the 4 tests in int-int (4/0), and `9c7ef5518` (and every
-commit after, through current main) fails them.  It is the ONLY commit touching
-`pkg/binate/vm/vm_exec.bn` / `vm_exec_helpers.bn` in `f480c9744..f49b3b94b`.  Its
-own commit message says it was validated "native + under builder-comp-int" —
-**builder-comp-int (single interpreter), NOT builder-comp-int-int (double)**, which
-is exactly the mode it breaks.  (Neither this session's string-interner nor
-Module.Funcs change is involved — both exonerated by the same runs.)
-
-The failure is a per-iteration VM-stack leak in the const-nil loop (each iteration
-bumps vm.SP without popping → recoverable stack-overflow fault after ~7-16s), and
-for nested-mslice the fault reaches a block with no cleanup pad ("no cleanup pad
-(lowering bug)").  The fast-path frame arithmetic (`frameRegs` = `frameLocals`
-minus the vm.Funcs.Get) looks computationally equivalent for the different-function
-main↔sink calls these tests use, so the exact line-bug is subtle and appears to
-surface only under the double-interpreter — a `frameBase` / SP interaction the
-single-interp coverage missed.
-
-**Related** to the re-entrant-execFunc fault-swallow MAJOR above (same Plan 2
-recoverable-fault / cleanup-pad machinery, `plan-rt-fault-cleanup-pads.md`) but
-distinct: this is a REGRESSION in the pure-VM loop path (no native callback
-involved), traced to a specific commit range.
-
-**Fix options:** (a) REVERT `9c7ef5518` — it is the sole change to those two VM
-files since its (green) parent, so a revert applies cleanly and restores int-int;
-it was a ~12% VM-perf win (fib) that can be re-attempted WITH int-int coverage.
-(b) Author fixes the fast-path directly (they have the frame-model context — the
-bug is a `frameBase`/vm.SP interaction the single-interp testing missed).  Whoever
-fixes it: add `builder-comp-int-int` to the change's test gate.  Tests already
-exist (`conformance/matrix/loop-leak/const-nil-*`) — do NOT xfail without
-root-cause (the nested-mslice one is a real lowering bug, not a stack-limit
-artifact).  (9c7ef5518 was authored in a different session — its author has the
-fast-path context to pinpoint the line bug quickly given this culprit ID.)
-
 ## Performance — bni load time
 
 `bni` "loading" a program (parse → typecheck → IR-gen → bytecode-lower, before
@@ -215,8 +170,9 @@ a unilateral pick.  The remaining pure-sweep item is `collectFuncStrings`
 (strings.bn) — an O(D²) linear-scan string dedup + `slices.Append` per distinct
 string constant, ~1.6% self-time; a djb2 interning map (like `funcSigHash`) fixes
 it.  DONE — landed as `37bf55fc4` (stringInterner in strings.bn; review SHIP,
-5/6 conformance modes 0-failed with the 6th, builder-comp-int-int, red on a
-PRE-EXISTING regression unrelated to this change — see the MAJOR entry at top).
+5/6 conformance modes 0-failed with the 6th, builder-comp-int-int, red at the time
+on a PRE-EXISTING regression unrelated to this change — since RESOLVED by reverting
+`9c7ef5518` (`0d5f786a8`); see the done log).
 
 ## Standard library — pkg/std namespace migration
 
