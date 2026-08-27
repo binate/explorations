@@ -217,6 +217,34 @@ it.  DONE — landed as `37bf55fc4` (stringInterner in strings.bn; review SHIP,
 on a PRE-EXISTING regression unrelated to this change — since RESOLVED by reverting
 `9c7ef5518` (`0d5f786a8`); see the done log).
 
+### Hand-rolled maps → stdlib mapfn/setfn + devirtualize injected policies — 🟡 OPEN follow-up
+
+LANDED: token.Lookup → mapfn.MapFn (`444554a5e` — O(1) keyword lookup; perf-neutral
+but uses the stdlib container instead of a linear scan).  iv-dispatch-thunk weak_odr
+fix (`883f761ce` — CRITICAL: genIvRecvThunk now sets IsLinkOnce, so a monomorphized
+generic value-receiver impl thunk [`hash.FnHasher[K]` / `cmp.FnEq[K]`] dedups across
+the packages that instantiate it; before, two packages sharing a mapfn/setfn key
+type hit a duplicate `__bn_thunk_*` symbol at link — THE root cause that forced
+hand-rolled maps.  conformance/1222 guards it).  FuncSig index → mapfn.MapFn
+(`c087ca69d`, −74 lines, first-match preserved via Put-when-absent).
+
+REGRESSION to fix at the ROOT (do NOT revert to hand-rolled): the FuncSig-index
+mapfn conversion measured ~3–5% SLOWER on the cmd/bnc load than the hand-rolled
+open-addressing map — mapfn/setfn inject hash/eq as `*func` values → INDIRECT calls
+per probe, whereas `hashmap.Map`'s intrinsic `Default` policies monomorphize to
+DIRECT `k.Hash()`/`k.Compare()`.  The fix that benefits EVERYONE (so nobody needs a
+custom table):
+- **(C) compiler DEVIRTUALIZATION of the injected-policy calls** — when the `*func`
+  a MapFn/SetFn is constructed with is a compile-time-known top-level function (e.g.
+  `NewMapFn(funcSigHash, streq)`), propagate it through NewMapFn into the table's
+  FnHasher/FnEq field and turn the per-probe indirect call into a direct, inlinable
+  call.  This is the real root-cause fix (`(A)` a Hashable string wrapper is a hack;
+  `(C)` is the right way).
+- **(B) a `table.PutIfAbsent` / GetOrPut primitive** — kills the Has+Put
+  double-probe registerFuncSig now does to keep first-wins.
+
+Once mapfn is at parity, convert the still-hand-rolled string interner (strings.bn).
+
 ## Standard library — pkg/std namespace migration
 
 ### Finish the stdx→std migration + remove the forwarders when the next BUILDER lands — 🟡 OPEN (gated on a BUILDER cut)
