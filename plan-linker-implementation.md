@@ -891,3 +891,9 @@ links a real native object graph.
   single miss keeps the `undefined symbol: X` wording.  The detection predicate is
   unchanged; verified end to end (bnld lists all five) plus dedup/order/singular/
   cross-resolved-exclusion unit tests.
+
+- **Round 19 — duplicate-symbol error names the colliding objects:** ✅ landed
+  `f42a454b0`.  Companion to round 18: a duplicate said only `duplicate symbol: X`;
+  it now names both objects — `duplicate symbol: dup (defined in a.o and b.o)` —
+  the actionable detail when linking a large object graph.  Tested + verified end
+  to end.
