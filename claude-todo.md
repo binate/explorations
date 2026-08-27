@@ -7,6 +7,26 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### Untyped int constant >= 2^63 cast to float: VM + native do SIGNED conversion (LLVM correct) — 🔴 MAJOR (2026-08-27)
+
+An UNTYPED integer constant whose value is >= 2^63 (e.g. `cast(float64,
+0xFFFFFFFFFFFFFFFF)` or `... - 0`) converts to `float64` as SIGNED on the VM and the
+native backends — yielding the negative value's float (`0xFFFFFFFFFFFFFFFF` -> -1.0)
+instead of its true magnitude (~1.8e19).  The LLVM backend is correct (`uitofp`).  An
+EXPLICIT `uint64` operand converts correctly on ALL backends — only the UNTYPED-int
+source diverges.  Silent wrong value; narrow (an untyped magnitude >= 2^63 in a float
+cast — one would normally write an explicit `uint64`).
+
+Root: the int->float lowering picks signed vs unsigned off the source type's `Signed`
+flag; `TypUntypedInt` has `Signed=false`, so LLVM's `emit_cast` picks `uitofp`
+(correct), but the VM / native int->float lowering evidently treats the untyped-int
+source as SIGNED.  Discovered 2026-08-27 while fixing the sibling `cast(float64,
+<int expr>)` NEGATIVE mis-fold (that one was LLVM-specific and IS fixed — the two are
+opposite manifestations of the same backend disagreement on untyped-int signedness).
+Needs: find the VM/native int->float signedness site and match LLVM (`uitofp` when the
+source is unsigned / `TypUntypedInt` Signed=false), plus a conformance test (restore
+the removed `>= 2^63` line of `1222_const_fold_cast_int_to_float`).
+
 ### `cast(float64, <int BINARY expr>)` const-folds to a WRONG (unsigned-looking) value — 🔴 MAJOR (2026-08-27)
 
 Casting a compile-time INTEGER expression to `float64` mis-folds when the operand
