@@ -923,3 +923,15 @@ etc. — not replacing libc.
   Linux); bounds-safe on malformed input (incl. a 32-bit-overflow-safe size check).
   Validated against a real llvm-ar GNU archive.  Next: symbol-based member
   inclusion in Link() (pull only the members that resolve undefined refs) + the CLI.
+
+- **Round 22 — extract archive members on demand in Link:** ✅ landed `b4e5ef255`.
+  Link classifies each input by magic (ELF object → always linked; `.a` → members
+  pulled on demand) and `selectMembers` extracts the members that resolve strong
+  undefined references, to a fixpoint (a pulled member's own refs pull further
+  members).  Weak references don't force extraction, and — agreeing with Resolve —
+  a symbol already defined strong OR weak is satisfied (a weak default isn't
+  overridden by dragging in the archive; a review caught this).  `cmd/bnld` needs
+  no change (it already passes positional inputs to Link).  Validated out-of-band:
+  bnld links a program against a real llvm-ar GNU archive, extracts only the needed
+  member, and the binary runs.  Next: a CI e2e for archive linking; then `-l`/`-L`
+  library search in the CLI.
