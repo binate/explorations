@@ -27,6 +27,20 @@ Needs: find the VM/native int->float signedness site and match LLVM (`uitofp` wh
 source is unsigned / `TypUntypedInt` Signed=false), plus a conformance test (restore
 the removed `>= 2^63` line of `1222_const_fold_cast_int_to_float`).
 
+ALSO (found 2026-08-27 by the adversarial review of the negative-fold fix): a
+NON-negative BINARY fold whose magnitude is in [2^63, 2^64-2^31-1] is mis-signed on
+LLVM too -- `gen_binary.bn`'s out-of-int32 branch (`if v < -2147483648 || v >
+2147483647 { EmitConstInt64(v, TypInt64()) }`) keys on the int64 BIT PATTERN `v`, and
+bignumToInt maps such a magnitude to a large-negative `v`, so it emits SIGNED TypInt64
+-> sitofp -> a NEGATIVE float (`cast(float64, 9223372036854775807 + 1)` -> ~-9.2e18
+instead of +9.2e18).  So the full `>= 2^63 -> float` fix is BOTH: (a) give a genuinely-
+unsigned magnitude an unsigned type at every const producer (gen_binary out-of-int32
+branch keyed on LitSign not `v`; EXPR_INT_LIT; gen_const / genConstGroup; the import
+producers) AND (b) make VM/native int->float honor an unsigned source (uitofp).  Both
+are needed for cross-mode agreement -- doing only (a) makes LLVM correct but DIVERGES
+from VM/native (empirically: a TypUint64 const still converts signed on the VM), which
+is worse for a dual-mode language, so this is deferred as one holistic backend fix.
+
 ### `cast(float64, <int BINARY expr>)` const-folds to a WRONG (unsigned-looking) value — 🔴 MAJOR (2026-08-27)
 
 Casting a compile-time INTEGER expression to `float64` mis-folds when the operand
