@@ -716,3 +716,17 @@ A running log as the linker is built (see §11 for the milestone plan).
   unresolvable defined symbol.  Tested end-to-end: a cross-object call lands on an
   independently-derived target address; ABS64 patches the target's address.
   Next: emit (ELF-executable writer).
+- **M1 (emit) — ELF64 executable writer:** ✅ landed `87a6abb48` (`emit_elf.bn`).
+  EmitElfExec writes a static ET_EXEC with one loadable PT_LOAD covering the ELF
+  header + program headers (so AT_PHDR is mapped) through the section data; each
+  section maps to its assigned vaddr, p_offset stays page-congruent (incl. a
+  non-page-aligned base), .bss is memsz-only, and guards reject a too-low base /
+  out-of-image entry.  Output is not yet +x (no os.Chmod).  Tested by re-parsing
+  the emitted file for the load-critical invariants.
+
+**Pipeline status:** read → resolve → layout → relocate → emit are all landed and
+unit-tested (30 tests).  Remaining for a *runnable* hosted-x64 proof-of-life (M1
+completion): a hermetic `_start` (startup), an `os.Chmod` stdlib add to mark the
+output executable (§7.2 gap), a `cmd/bnld` CLI + a public `Link()` entry chaining
+the stages, and a Linux-CI e2e (emit → chmod → run → check exit) — the one check
+that proves loadability, which the macOS dev host cannot run locally (D5).
