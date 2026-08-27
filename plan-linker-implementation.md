@@ -677,3 +677,19 @@ repo access; findings I verified against code before folding in:
   isn't "opaque" (F3); reloc-decode loss is Mach-O-only (F4); `.text.startup`
   ordering "no longer matters" (F6); chmod rationale is the runner's `[ -x ]` gate,
   not QEMU (Min-1).
+
+## Implementation progress
+
+A running log as the linker is built (see §11 for the milestone plan).
+
+- **M0 — ELF64 reader:** ✅ landed `7667300b9` (`pkg/binate/link`).  Parses an
+  ELF64 relocatable object into the InputObject model: header + content sections
+  (SHF_ALLOC-filtered, so `.note.GNU-stack`/`.debug_*` are dropped) + `.symtab`
+  symbols + `.rela.*` relocations.  Structural offsets/sizes are validated against
+  the file length (truncated/malformed → error, not abort); a 64-bit field that
+  would not fit a machine int fails loud (readOff) rather than truncating on a
+  32-bit target.  Validated by round-tripping the assembler's own ELF writer, plus
+  reject-non-ELF / reject-truncated and byte-reader unit tests.  Deferred: the
+  `binfmt` factoring (ELF constants redeclared locally for now); SHN_ABS/SHN_COMMON
+  symbol kinds (→ the resolver); a golden-bytes fixture pinning the layout
+  independently of the writer.
