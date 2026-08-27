@@ -6,6 +6,37 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## VM leaks `vm.SP` on a RAW aggregate call result (2-raw-pointer multi-return &c.) — DONE (2026-08-27, `20c51d0ca`)
+
+MAJOR. The bytecode VM copies an aggregate / multi-return call result back into caller space at
+BC_RETURN, growing `vm.SP`; that growth is reclaimed only if IR-gen sets `ctx.StmtGrewSP`
+(→ `OP_SP_RESTORE`, run as `BC_SP_RESTORE` resetting `vm.SP` to the frame end). Filed as
+"2-raw-pointer multi-return" with a hypothesis that a "register-pair vs sret return path" in the VM
+was at fault — **that hypothesis was wrong**: `lowerReturn` treats 2- and 4-value multi-returns
+identically (both → `packMultiReturn`). The real root cause is in IR-gen: `registerManagedCallResult`
+(gen_store_slot.bn) set `StmtGrewSP` only for MANAGED aggregate results (managed slice / func-value /
+iface-value, and `needsStructCopy` = `NeedsDestruction()`). A tuple of purely RAW fields
+(`(*int,*uint8)` → makeMultiReturnStructType, NeedsDestruction == false) matched no branch → no
+`OP_SP_RESTORE` → leak. So the axis was **raw-vs-managed, not 2-vs-4**: `frameLocals`
+`(@VMFunc,@[]BCInstr,*int,*uint8)` has managed fields so it was marked and didn't leak; the reverted
+frame-skip opt's `frameRegs (*int,*uint8)` is all-raw on the hottest path. Broader than the 2-pointer
+case: a raw `*[]T` slice, raw `[N]T` array, or raw struct / iface- / func-value return leaks the same
+way. Native / LLVM are unaffected (they treat `OP_SP_RESTORE` as a no-op).
+
+Fix (`20c51d0ca`): set `StmtGrewSP` for any result the VM copies back via `types.IsAggregateReturnKind`
+— the language-level by-address-return KIND gate (pure-kind, no size threshold; exported from
+pkg/binate/types for this, matching the VM's `isMultiWordField || isVMAddressAggregate`), reusing the
+canonical predicate rather than a fourth copy of the aggregate-kind list (per ir-backend-guidelines).
+Managed cleanup (registerTemp) stays managed-gated. Tests: gen_store_slot_test (raw multiret + raw
+slice mark SP-growing, raw `*T` does not, and an end-to-end method-call → caller emits OP_SP_RESTORE)
++ a `conformance/matrix/loop-leak/raw-multiret-ptr` cell (840000×/loop, overflows the 8 MB VM stack
+without the fix, prints 42 with it — verified under builder-comp-int). Two adversarial-review lenses
+returned LAND (the safety lens confirmed no copy-back address survives the statement: aggregate stores
+lower to BC_MEMCPY within-statement and the checker rejects `&call().field`). Verified: 703 ir + 1096
+types unit tests, hygiene 20/20, full builder-comp-int 2976/0. **Follow-up (deferred):** un-revert the
+frame-skip optimization `9c7ef5518` (currently reverted by `0d5f786a8`), gated on both
+builder-comp-int AND builder-comp-int-int + pkg/binate/vm unit tests.
+
 ## const-nil loop-leak int-int regression (VM frame-fetch opt `9c7ef5518`) — ✅ RESOLVED by revert (2026-08-27)
 
 **Resolved** by reverting the culprit: `0d5f786a8` "Revert 9c7ef5518".  builder-comp-int-int
