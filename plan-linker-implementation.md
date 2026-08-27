@@ -28,7 +28,7 @@ reviews pushed hard on these — don't treat the recommendations as settled):
 - **(D3) Driver model** — compiled drivers now, interpreted `-driver file.bn`
   later? → recommend **compiled-first** (interpreted deferred, not dropped).
 - **(D4) libgcc `__aeabi_*`** — replace with Binate/bnas helpers vs. read the GCC
-  archive. → recommend **v0 sidesteps it** (proof-of-life uses no div/float),
+  archive. → recommend **v0 sidesteps it** (proof-of-life uses only 32-bit integer math),
   then decide; *not* "small" (§2 D4).
 - **(D5) Mach-O** — defer behind ELF (code-signing gap)? → recommend **yes**.
 
@@ -167,16 +167,18 @@ change.
 ### D4 — libgcc `__aeabi_*`
 
 **Not "small."** `semihost.s` already provides `memcpy/memmove/memset/memcmp/
-abort`, so those are **not** the issue. What libgcc actually supplies (per
-`arm32_float.bn`, `arm32_int64_libcall.bn`, and
-`scripts/lib/find-arm32-baremetal-toolchain.sh:9` "lld pulls AEABI helpers
-`__aeabi_ldivmod` etc."): integer div/mod (`__aeabi_{idiv,uidiv,idivmod,
-uidivmod}`), 64-bit `__aeabi_{lmul,ldivmod,uldivmod}` (+ shifts), and float soft-
-helpers (`__aeabi_{d,f}{add,sub,mul,div,cmp*}`). Writing these ABI-exact in asm is
-bug-prone (64-bit long division especially); floats are a large lift.
+abort`, so those are **not** the issue. And **32-bit** integer math — *including
+divide* — uses hardware `SDIV`/`UDIV` (Cortex-A15 has integer divide;
+`arm32_ops.bn:333 emitDiv`), so it pulls no helper either. What libgcc actually
+supplies (verified): **64-bit** integer mul/div/mod/shift
+(`__aeabi_{lmul,ldivmod,uldivmod,llsl,llsr,lasr}`, `arm32_int64_libcall.bn`) and
+**software floating-point** (`__aeabi_{d,f}{add,sub,mul,div}`, `…cmp*`,
+`arm32_float.bn`). Writing these ABI-exact in asm is bug-prone (64-bit long
+division especially); floats are a large lift. (x64/aa64 have hardware 64-bit
+divide + FPUs, so this is arm32-only.)
 
-**Recommend:** **v0's proof-of-life uses a program that divides nothing and uses no
-floats → pulls essentially no `__aeabi_*`, so D4 doesn't block the proof.** When
+**Recommend:** **v0's proof-of-life uses only 32-bit integer arithmetic (no 64-bit
+math, no floats) → pulls zero `__aeabi_*`, so D4 doesn't block the proof.** When
 linking real programs, choose: implement the integer helpers as `bnas` objects
 (bounded), or bring **archive support (Step 5) forward and read `libgcc.a`**
 (lower-risk, at some hermeticity cost). Enumerate the exact set the target program
@@ -196,7 +198,7 @@ stage.
 
 | Stage | Target | Reloc set | GOT? | Base | Output | Externals | Gates on |
 |---|---|---|---|---|---|---|---|
-| **v0** | bare-metal arm32 (native) | `ABS32`, `CALL/JUMP24`, `MOVW/MOVT_ABS` | none | 0x40000000 | flat / ELF-exec | none (div-free proof) → `__aeabi_*` later | native arm32 backend (exists) |
+| **v0** | bare-metal arm32 (native) | `ABS32`, `CALL/JUMP24`, `MOVW/MOVT_ABS` | none | 0x40000000 | flat / ELF-exec | none (32-bit-int proof) → `__aeabi_*` later | native arm32 backend (exists) |
 | **v1** | linux-x64 + linux-aarch64 (native) | + `PC32/PLT32`, `CALL26/JUMP26`, `ADRP/ADD/LDR_LO12`, `CONDBR19/TSTBR14` | none (hermetic) | ELF default | ELF64 exec (`PT_LOAD` segs) | hermetic `_start` (startup effort) | hosted ELF emit + `_start` |
 | **v2** | archives → Mach-O + signing → interpreted drivers | + Mach-O set; GOT if linking C | `__c_global` only | — | Mach-O exec | codesign | D5, §9 |
 
@@ -466,7 +468,7 @@ runnable-output milestone.
   `os.Chmod` seam + QEMU e2e.** **Medium** (not "a few days"). Sub-item risk:
   reloc patch math (§app-A) and resolve diagnostics are correctness-critical;
   bare-metal placement reproduction is fiddly; `os.Chmod` is a cross-platform
-  syscall add. div-free proof avoids D4. **Proof of life — first clang-free link.**
+  syscall add. 32-bit-int-only proof avoids D4. **Proof of life — first clang-free link.**
 - **M2 — hosted ELF exec (x64+aa64) + hermetic `_start`.** **Large, and the real
   schedule sink** — but for a *revised* reason: **NOT** GOT relaxation (near-nil,
   §1.4) and **NOT** native-backend maturity (~done: hosted native modes carry ~9
