@@ -1542,29 +1542,45 @@ design if picked up.
 
 ## Port libgcc `__aeabi_*` helpers to Binate/bnas — drop the GCC `libgcc.a` dependency (C-Free)
 
-The native arm32 backend emits calls to ARM-EABI helper functions for operations
-the 32-bit ARM ISA can't do in one instruction, and those helpers are currently
-pulled from **GCC's `libgcc.a`** (linked via `--link-after-objs`, located by
-`scripts/lib/find-arm32-baremetal-toolchain.sh`). That is a C/GCC dependency at
-odds with the **C-Free Target** goal. This is an **orthogonal project** to the
-linker ([plan-linker-implementation.md](plan-linker-implementation.md), which just
-links whatever archive/objects it's handed) but complementary: it removes the one
-external archive a C-free arm32 link would otherwise still need.
+The native arm32 backend emits ARM-EABI helper calls for ops the 32-bit ARM ISA
+can't do in one instruction; historically pulled from GCC's `libgcc.a` (via
+`--link-after-objs`, located by `scripts/lib/find-arm32-baremetal-toolchain.sh`) —
+a C/GCC dependency at odds with the **C-Free Target** goal.
 
-Verified set the backend references (2026-08-26):
-- **64-bit** integer mul/div/mod/shift: `__aeabi_{lmul,ldivmod,uldivmod,llsl,llsr,lasr}`
-  (`pkg/binate/native/arm32/arm32_int64_libcall.bn`).
-- **Software floating-point**: `__aeabi_{d,f}{add,sub,mul,div}`, `…cmp*`
-  (`pkg/binate/native/arm32/arm32_float.bn`).
-- (32-bit integer divide uses hardware `SDIV`/`UDIV` on cortex-a15 —
-  `arm32_ops.bn:333 emitDiv` — so **no** helper; x64/aa64 have hardware 64-bit
-  divide + FPUs, so this is arm32-only.)
+**Incremental-link safety:** `libgcc.a` is an ARCHIVE linked AFTER the runtime
+objects, so a helper defined in a runtime object (linked first) resolves that
+symbol and libgcc's member is never pulled — letting the integer and float halves
+land independently while libgcc still supplies the not-yet-ported half.
 
-Project: port the needed helpers to Binate/`bnas` assembly (small, well-specified
-routines) and link those instead of `libgcc.a`. The integer helpers (64-bit long
-division being the fiddly one) are bounded; **full soft-float is the larger lift**,
-so a reasonable split is integer-first, float-later. Once done, the arm32 native
-build no longer needs any GCC artifact.
+### Phase 1 — 64-bit INTEGER helpers — ✅ DONE (landed `c0183674c`)
+`__aeabi_{lmul,ldivmod,uldivmod,llsl,llsr,lasr}` ported to bnas assembly in
+`runtime/baremetal_arm32/aeabi_int.s` (div/rem = 64-iteration binary long-division;
+shifts branch on count>=32; lmul = umull+mla), added to `targetRuntimeFiles`
+(`cmd/bnc/target.bn`). The IR guards div-by-zero / INT64_MIN÷-1 and masks shift
+counts to [0,63] upstream, so the helpers assume valid inputs. Verified on
+`builder-comp_native_arm32_baremetal` (qemu): full suite 2944/0 with aeabi_int.s
+linked; an empty-archive link resolves every INT reference from aeabi_int.o; two
+independent adversarial reviews (exhaustive + random simulation) found no bug.
+
+### Phase 2 — SOFT-FLOAT helpers — 🟠 OPEN (next)
+libgcc can't actually be dropped until float lands: even an int-only test pulls a
+float helper, because `testing.Println(args ...*any)` carries `float32/64.String()`
+branches that link into every binary. The EXACT set the current suite needs (from a
+no-libgcc full-suite link, 2026-08-26) is **19 symbols**:
+- arithmetic (5): `__aeabi_{dadd,ddiv,dmul,fadd,fmul}`
+- compare (3): `__aeabi_{dcmpeq,dcmplt,fcmpeq}`
+- convert (11): `__aeabi_{f2d,d2f,d2iz,i2d,i2f,l2d,l2f,ui2d,ui2f,ul2d,ul2f}`
+
+The full backend-emittable set is broader (`{f,d}sub`, `fdiv`, the other compares,
+`f2iz`/`f2uiz`) — a scope call: suite-minimal 19 vs complete soft-float for
+robustness. **Approach (decide before implementing):** (a) hand-write IEEE-754 in
+bnas assembly (matches Phase 1; large + error-prone rounding); (b) write the
+soft-float in BINATE (integer bit-manipulation on uint32/uint64, reuses the Phase-1
+int64 helpers, unit-testable) and lower float ops to Binate calls (a backend
+change); or (c) BINATE soft-float + thin bnas shims that keep the `__aeabi_*` names
+(backend unchanged; each shim is a near-direct tail-call, since arm32 soft-float
+passes a double in the same r0:r1 GP pair Binate uses for a uint64). The float
+emit sites are `pkg/binate/native/arm32/arm32_float.bn` / `arm32_float_cast.bn`.
 
 ## ARM32 bare-metal / native arm32 backend
 
