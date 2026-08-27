@@ -1001,3 +1001,14 @@ same as the native path, not LLVM-specific.
 Rough plan: (1) x64 GOTPCRELX relaxation + tests; (2) aarch64 GOT relaxation +
 PREL32 + tests; (3) an e2e linking real LLVM-backend objects end to end (with the
 libc shim, as the native path uses).
+
+- **Round 26 — x86-64 GOTPCRELX relaxation (LLVM-backend, part 1):** ✅ landed
+  `9b2b86b99`.  bnld relaxes `R_X86_64_REX_GOTPCRELX`/`GOTPCRELX` (`mov
+  sym@GOTPCREL(%rip),%reg`) to a direct `lea sym(%rip),%reg` — flip opcode
+  0x8b→0x8d, patch disp32 as S+A−P — valid because a static link has the symbol
+  defined.  Non-mov forms are rejected (loud), and the opcode byte is required to
+  lie within the reloc's own input section.  This was the one x64 blocker: bnld now
+  **links the real LLVM/clang-backend objects** of a bnc program (+ the libc shim
+  the native path also needs), and the binary runs and exits 42 from the
+  LLVM-compiled compute().  Next: the aarch64 GOT relaxation (ADRP+LDR→ADRP+ADD) +
+  R_AARCH64_PREL32.
