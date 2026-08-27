@@ -6,6 +6,19 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Re-applied the frame-skip VM-execution optimization (`9c7ef5518`) — DONE (2026-08-27, `152be46dd`)
+
+`9c7ef5518` ("vm: skip the frame re-fetch on same-function call/return", a correct ~12% fib VM-perf
+win) had been reverted by `0d5f786a8` because its `frameRegs` `(*int,*uint8)` return exposed the
+raw-aggregate `vm.SP` leak. With that leak fixed on main (`20c51d0ca`; see the entry below), the
+optimization was re-applied via `git revert 0d5f786a8` → `152be46dd`. Verified on the mode that
+exercised the leak: `builder-comp-int-int const-nil` = **4/0** (the 4 cells that had broken now
+pass), plus a targeted sample (loop-leak matrix + `040`/`058` recursion + `975`/`976` funcval
+multi-return + `1022`/`1030` closure aggregate-return) = **16/0 on both builder-comp-int AND
+builder-comp-int-int**, `pkg/binate/vm` unit tests green, hygiene 20/20 — a targeted/sampled check
+(the original break was scoped to the 4 int-int const-nil cells), not a full pass. Done directly with
+the leak fix rather than deferred.
+
 ## VM leaks `vm.SP` on a RAW aggregate call result (2-raw-pointer multi-return &c.) — DONE (2026-08-27, `20c51d0ca`)
 
 MAJOR. The bytecode VM copies an aggregate / multi-return call result back into caller space at

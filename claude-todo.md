@@ -75,20 +75,6 @@ profiling (macOS `sample`):
   generic `rt.Alloc`, so it scales with total allocation volume (AST nodes + IR
   nodes + every `slices.Append` growth), NOT with any one table.
 
-### Un-revert the frame-skip VM-execution optimization (`9c7ef5518`) — NOW UNBLOCKED
-
-`9c7ef5518` ("vm: skip the frame re-fetch on same-function call/return", a correct
-~12% fib VM-perf win) was reverted by `0d5f786a8` because its `frameRegs`
-`(*int,*uint8)` return exposed the raw-aggregate `vm.SP` leak — now fixed on main
-(`20c51d0ca`; see the done-log "VM leaks vm.SP on a RAW aggregate call result"
-entry). Re-apply it: `git revert 0d5f786a8` (revert the revert). **Gate on BOTH
-`builder-comp-int` AND `builder-comp-int-int`** — the original commit was validated
-only under single-`int`, which is exactly why the leak slipped through; the
-double-`int` mode runs `vm_exec.bn` as bytecode and is what exercises the leaking
-`frameRegs` call. Minimum check before landing: `./conformance/run.sh
-builder-comp-int-int const-nil` = 4/0, plus the `pkg/binate/vm` unit tests, on top
-of the default modes.
-
 ### DONE — FuncSigs name→index map (`30f6d03ad`)
 
 IR-gen resolved every call target by linear-scanning `Module.FuncSigs` with
