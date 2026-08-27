@@ -12,11 +12,13 @@ helper via `testing.Println`'s `*any` `float{32,64}.String()` branches).
 - `d2f` (`_arm_truncdfsf2.o`): `587467e10`.
 - Double add/sub group (`_arm_addsubdf3.o`: dadd/dsub/drsub/f2d/i2d/l2d/ui2d/ul2d): `4f0176af5`.
 - Float add/sub group (`_arm_addsubsf3.o`: fadd/fsub/frsub/i2f/l2f/ui2f/ul2f): `54df54731`.
+- Float mul/div group (`_arm_muldivsf3.o`: fmul/fdiv): `70fc2f821`.
 
-Remaining member-groups toward the needed 19: muldiv (`_arm_muldivdf3.o` dmul/ddiv,
-`_arm_muldivsf3.o` fmul/fdiv — needs the 64x64->128 multiply foundation) and compares
-(`_arm_cmpdf2.o` dcmpeq/dcmplt/…, `_arm_cmpsf2.o` fcmp*).  Then the remaining
-single-symbol members for the full set (f2iz, d2uiz, d2lz, neg/unord, …).
+Remaining member-groups toward the needed 19: f64 muldiv (`_arm_muldivdf3.o`
+dmul/ddiv — the div uses 3 half-width + 1 emulated full-width NR iterations,
+no uint128 needed) and compares (`_arm_cmpdf2.o` dcmpeq/dcmplt/…, `_arm_cmpsf2.o`
+fcmp*).  Then the remaining single-symbol members for the full set (f2iz, d2uiz,
+d2lz, neg/unord, …).
 
 ## Decisions (settled with the user, 2026-08-26)
 
