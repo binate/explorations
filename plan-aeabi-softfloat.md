@@ -48,9 +48,34 @@ helper via `testing.Println`'s `*any` `float{32,64}.String()` branches).
 - The package is force-loaded for the arm32-baremetal target the same way
   `pkg/builtins/rt` / `pkg/builtins/lang` are (`appendRtImport`-style hook in
   `cmd/bnc/compile_imports.bn`), so it compiles + links though nothing imports it.
-- Incremental-link safety (as in Phase 1): the shim object resolves `__aeabi_*`
-  before the libgcc archive, so functions land incrementally and libgcc is
-  removed from the runners only once the full set is covered.
+- Incremental-link safety — **but the landing unit is a libgcc MEMBER, not a
+  single function** (found the hard way, 2026-08-27). Unlike the cleanly
+  per-function int members, libgcc BUNDLES float helpers: `_arm_addsubdf3.o`
+  defines `dadd dsub drsub f2d i2d l2d ui2d ul2d` all together. If a shim defines
+  only `f2d` but the suite also needs `dadd` (unported), libgcc pulls
+  `_arm_addsubdf3.o` for `dadd`, which re-defines `f2d` → **duplicate symbol**.
+  So to shim ANY symbol from a member without a duplicate, all of that member's
+  *needed* symbols must be shimmed (so the member is never pulled). The members
+  are DISJOINT, so member-GROUPS still land incrementally (a fully-shimmed member
+  isn't pulled; other members stay in libgcc with no conflict).
+
+### libgcc float member -> AEABI symbols (the landing groups)
+```
+_arm_addsubdf3.o : dadd dsub drsub f2d i2d l2d ui2d ul2d
+_arm_muldivdf3.o : dmul ddiv
+_arm_cmpdf2.o    : dcmpeq dcmpge dcmpgt dcmple dcmplt        _arm_unorddf2.o: dcmpun
+_arm_fixdfsi.o   : d2iz     _arm_fixunsdfsi.o: d2uiz     _arm_truncdfsf2.o: d2f
+_arm_negdf2.o    : dneg     _fixdfdi.o: d2lz            _fixunsdfdi.o: d2ulz
+_arm_addsubsf3.o : fadd fsub frsub i2f l2f ui2f ul2f
+_arm_muldivsf3.o : fmul fdiv
+_arm_cmpsf2.o    : fcmpeq fcmpge fcmpgt fcmple fcmplt        _arm_unordsf2.o: fcmpun
+_arm_fixsfsi.o   : f2iz     _arm_fixunssfsi.o: f2uiz
+_arm_negsf2.o    : fneg     _fixsfdi.o: f2lz            _fixunssfdi.o: f2ulz
+```
+The single-symbol members (`d2iz`, `d2f`, `f2iz`, `d2lz`, the neg/unord ones …)
+are the smallest landable units — start the walking skeleton with one of those,
+not `f2d`.  `f2d`/`i2d`/`l2d`/`ui2d`/`ul2d` can only land WITH `dadd` (their
+member), so the double-add group is a big single landing.
 
 ## compiler-rt → Binate file map (foundation first)
 
@@ -67,15 +92,27 @@ helper via `testing.Println`'s `*any` `float{32,64}.String()` branches).
 
 ## Order of work
 
-1. **Walking skeleton:** one real function (`f2d` — exact, simple) end-to-end
-   through the package → force-load → shim → native link → qemu, to prove the
-   integration before bulk translation.
-2. **Foundation** (`fp_lib.h` helpers, incl. 64×64→128 multiply).
-3. Conversions (the 11 needed) → compares (3) → arithmetic (5) — the 19.
-4. The remainder of the complete AEABI set.
-5. Drop libgcc from the conformance + unittest runners; delete the find-script's
-   libgcc probe. Verify a fully C-free native_arm32_baremetal (full suite green,
-   no `--link-after-objs`).
+1. **Walking skeleton:** the integration mechanism is PROVEN (softfloat
+   force-loads/compiles/links; the shim links + defines `__aeabi_f2d` — the
+   duplicate-symbol error was itself proof the shim symbol is present). Redo the
+   end-to-end green proof with a SINGLE-symbol member (e.g. `d2iz`), which lands
+   with no duplicate. `F32ToF64` is already translated + host-unit-tested (kept
+   for the double-add group).
+2. **Single-symbol conversion members first** (each lands alone, no duplicate):
+   `d2iz d2f f2iz d2uiz f2uiz d2lz f2lz` (+ `dneg/fneg`, `dcmpun/fcmpun` for the
+   full set). Simple, and they build up the conversion coverage.
+3. **Foundation** (`fp_lib.h` helpers: rounding, `normalize`, 64×64→128 multiply)
+   as needed by the arithmetic groups.
+4. **Multi-symbol arithmetic/convert groups** (each a single landing): the
+   double-add group `_arm_addsubdf3.o` (`dadd dsub drsub f2d i2d l2d ui2d ul2d`),
+   float-add `_arm_addsubsf3.o`, muldiv `_arm_muldiv{df,sf}3.o`, compares
+   `_arm_cmp{df,sf}2.o`.
+5. Each group: translate → host unit tests (differential vs known bits / the VM)
+   → shim all the member's needed symbols → native link (that member no longer
+   pulled) → land.
+6. When the full needed set is covered: drop libgcc from the conformance +
+   unittest runners; delete the find-script's libgcc probe. Verify a fully
+   C-free native_arm32_baremetal (full suite green, no `--link-after-objs`).
 
 Verification throughout: differential against the VM/interpreter float results
 (the conformance suite already pins float output bit-identically across modes),
