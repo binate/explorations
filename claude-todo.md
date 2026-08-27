@@ -1715,7 +1715,7 @@ unblock them:
   mode green, promote `builder-comp_native_arm32_linux` false→blocking in conformance-tests.yml
   (plan-native-arm32.md P7), pending a green CI run of the landed fix.
 
-## Improve bni EXECUTION performance (the VM) — the real fix behind the int-int stopgap
+## Optimizations — bni EXECUTION performance (the VM)
 
 - **int-int lane is GREEN via a stopgap (`083e1f334`):** the double-VM lane now runs a REPRESENTATIVE
   SUBSET — types + ir (moderate at double-VM, ~0.9s/test) test-sharded, all cheap (non-.split.vm)
@@ -1734,3 +1734,44 @@ unblock them:
   / `bni_runs_bni_hello`; perf/001_fib.bn under builder-comp-int.  A faster VM lets the FULL double-VM
   lane come back (re-add codegen/vm/native to INTINT_HEAVY) and speeds every VM lane + conformance.
 - Secondary/deferred: `build_interp_arm32` still -O0 (qemu arm32-linux lane) — possible -O2 follow-up.
+
+
+### Optimization backlog (profile-driven — fib under the compiled VM, macOS `sample`)
+
+Method: build bni `-O2 -g` (gen1 --cflag -O2 -g), run fib(N) (execution-dominated,
+minimal load), `sample <pid>` → aggregate heaviest leaves.  Track wins with
+perf/001_fib.bn (builder-comp-int) and perf/self.sh `bni_runs_*`.
+
+- **Dispatch reorder — ✅ DONE (`835ec63bc`, ~1.7× on fib):** execLoop dispatched the
+  register/memory/string handler GROUPS before the control-flow/call blocks, so every
+  BC_CALL/BC_RETURN fell through ~6 wasted handler-function CALLS.  Moved the groups
+  below control-flow, reordered by frequency, and guard execOp64 on 64-bit (REG_SLOT < 8).
+  execStringOp (was 2nd-hottest, on a string-free program) + execOp64 dropped out of the
+  top; fib(37) 10.7s→6.3s.  (Moved detail also in claude-todo-done.md if split later.)
+- **execArithOp double-call waste — TODO (low-hanging, doing next):** execArithOp calls
+  execIntArithOp THEN execFloatArithOp unconditionally, so a non-arith op passing through
+  (e.g. CMP) pays a wasted execFloatArithOp call (~4% of fib).  Add a range-guard so it
+  bails before the sub-calls.  Cheap + safe.
+- **Call machinery (pushFrame / frameLocals) — TODO (low-hanging next):** the per-call
+  frame-push / locals path is ~7.5% of fib post-reorder.  Profile + trim the hot path.
+- **O(1) dispatch: execLoop as a `switch instr.Op`** — LLVM -O2 jump-tables bnc's switch
+  (proven: perf/003 vs 004; LLVM turns both switch AND if-chain into a single indexed
+  lookup at -O2).  NOTE: after the reorder this is now LOWER value — the expensive
+  wasted-CALL dispatch is already gone; the remaining dispatch is cheap inline comparisons,
+  so a jump table saves only a few %.  Still a cleaner structural form; pairs with the
+  IR-level multi-way-branch below (which makes it O(1) on native + bytecode too).
+- **IR-level multi-way-branch lowering (the "B" fix) — TODO:** bnc's `genSwitch`
+  (ir/gen_flow.bn) lowers `switch` to a linear if-else chain at the IR level.  LLVM -O2
+  jump-tables it for the LLVM backend, but the bnc-NATIVE backend and the BYTECODE path
+  (no BC_SWITCH op) stay linear.  Add a first-class dense-integer multi-way-branch IR
+  construct lowered per-backend (LLVM `switch` / native jump table / bytecode `BC_SWITCH`).
+  Baseline microtests landed (perf/003_dispatch_switch vs 004_dispatch_ifchain): native
+  -O0 switch 0.25s ≈ ifchain 0.28s; VM switch 3.9s vs ifchain 5.0s — both linear; the gap
+  after this lands is the win.
+- **BoundsCheck elimination — TODO (broader compiler optimization):** the VM bounds-checks
+  its own internal slice accesses (regs[], code[pc]) via rt.BoundsCheck (~6% of fib, and
+  growing).  TACTICAL: unchecked access (unsafe_index) on the proven-safe VM hot paths
+  (register indices are validated at load time; pc is bounded).  BROADER/BETTER: teach the
+  COMPILER to OMIT a bounds check wherever it can prove the index in range (range/bounds
+  analysis in codegen/IR) — benefits ALL Binate code, not just the VM.  The broader one is
+  the real win; the tactical VM edit is a stopgap if wanted sooner.
