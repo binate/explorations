@@ -952,3 +952,18 @@ etc. — not replacing libc.
   so order is irrelevant); an unresolvable `-l` is a usage error.  Unit-tested and
   validated end to end (`bnld -L dir -l helper` links + runs).  Next: a runtime e2e
   of transitive archive extraction via -l/-L.
+
+- **Round 25 — transitive archive extraction via -L/-l at run time:** ✅ landed
+  `a5e735ca1`.  The archive e2e now also links `main2` (calls `entrypt`, in the
+  archive, which calls `helper2`, also in the archive) with `bnld -L dir -l stuff`:
+  bnld extracts `entrypt` and then, from its reference, `helper2` (fixpoint),
+  leaving `unused2` out, and the binary runs and exits 42 — proving the -L/-l CLI
+  and correct runtime linkage of transitively-extracted members.
+
+**Archive linking (rounds 21–25) — done.** bnld now links against `.a` archives the
+way ld does: read GNU/SysV archives, extract members on demand by symbol (to a
+fixpoint, weak-aware), invoke with `-L`/`-l`, all runtime-proven in CI.  bnld links
+real GNU archives (validated against llvm-ar output).  Remaining toward full
+ld-replacement: symbol-index-driven lazy extraction (skip parsing unused members of
+a large library), and eventually dynamic linking (.so) — both future work, not
+started.
