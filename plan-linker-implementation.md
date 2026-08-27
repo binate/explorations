@@ -872,3 +872,12 @@ links a real native object graph.
   new `hellopg` reaches its `.rodata` string with ADRP+ADD instead of ADR, so bnld
   applies R_AARCH64_ADR_PREL_PG_HI21 + R_AARCH64_ADD_ABS_LO12_NC and they run on a
   real aa64 kernel — closing the R12 deferral (those relocs were unit-proven only).
+
+- **Round 17 — real-program e2e exercises the runtime memory path:** ✅ landed
+  `e15fd8128`.  The real-program e2e's `compute()` returned a constant, so the
+  linked binary proved only that static init ran.  It now allocates a managed
+  slice, fills it in a bounds-checked loop, and sums it (→ 42), so a passing run
+  proves the runtime memory path — `MakeManagedSlice` → malloc (shim bump
+  allocator), indexed-access bounds checks, refcount cleanup — is linked by bnld
+  and executes on a real kernel.  External surface unchanged (same five libc
+  symbols); verified end to end.
