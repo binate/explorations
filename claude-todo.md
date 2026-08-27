@@ -790,6 +790,19 @@ Referenced by the TODO comment in `cmd/bnc/test.bn`'s `isTestResultReturn`.
 
 ---
 
+## Optimization passes (loop-BCE project) — CI coverage
+
+### Add an optimization-level dimension to the conformance matrix — 🟡 OPEN (2026-08-27)
+The IR opt passes (`RunOptPasses`, `-O1+`: constant-index BCE landed; scalar SSA
+promotion / mem2reg is Phase 2a; loop-BCE is Phase 3) only run when opt is on, but
+the conformance suite runs at `-O0` (default), so these passes get **no end-to-end
+coverage** across the LLVM / native / VM backends — only IR-unit tests. Follow-up:
+make optimization level a **matrix dimension** so each backend mode also runs at
+`-O1`/`-O2` (agreed with the user 2026-08-27 as the intended structure). This is
+CI-wiring, kept deliberately **separate** from landing the passes themselves. Until
+it lands, mem2reg/loop-BCE rely on IR-unit coverage plus manual `-O2` spot-runs. See
+`plan-mem2reg-phase2a.md` and `plan-ir-opt-passes-bce.md`.
+
 ## Conformance matrix generators — port to Binate (dogfood)
 
 ### Port the `conformance/gen-*.py` matrix generators to Binate — 🟡 SCOPED, not started (2026-07-17)

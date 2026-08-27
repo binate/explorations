@@ -125,12 +125,12 @@ insurance that we never hand `EliminatePhis` a phi it panics on.
 - **Verifier on:** run the ir/opt tests with `SetVerifyIR(true)` so the
   no-surviving-use assertion is exercised.
 
-## Open scoping questions for the user
+## Scoping decisions
 
-- **Conformance at `-O1+`:** today the suite runs at `-O0` (default). Do we add an
-  opt-level conformance mode now (so mem2reg gets end-to-end coverage across all
-  backends), or land the pass with IR-unit coverage first and wire the opt-level
-  conformance mode as a follow-up? (Wiring a new conformance mode is a CI/scope
-  decision the user owns.)
+- **Conformance at `-O1+` — DECIDED (2026-08-27):** land the pass with IR-unit
+  coverage first; add end-to-end opt-level conformance as a **separate follow-up**,
+  structured as an **optimization-level dimension of the conformance matrix** (so
+  each backend mode also runs at `-O1`/`-O2`). Tracked in `claude-todo.md`. This is
+  the CI-wiring task, kept out of the pass-landing itself.
 - **Managed promotion (Phase 2b)** stays out of scope — deferred, needs the refcount
   handling `assertScalarPhi` explicitly rejects.
