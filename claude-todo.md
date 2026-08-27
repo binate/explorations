@@ -33,6 +33,38 @@ test: a compiled/native higher-order fn calling a VM callback that indexes OOB, 
 the program aborts (not returns 0). Tracked against Plan 2
 (`explorations/done/plan-rt-fault-cleanup-pads.md`).
 
+### const-nil loop-leak tests stack-overflow / "no cleanup pad" in builder-comp-int-int — 🔴 OPEN MAJOR (found 2026-08-27)
+
+**Severity: MAJOR** — a VM-lowering / recoverable-fault regression. In
+`builder-comp-int-int` ONLY, four tests fail:
+`matrix/loop-leak/const-nil-{funcval,iface,mslice}` → `runtime error: stack
+overflow`, and `matrix/loop-leak/const-nil-nested-mslice` → a DETERMINISTIC
+`panic: vm: recoverable fault with no cleanup pad (lowering bug)`.  The other five
+default modes are green; **current `main` is red in int-int.**
+
+**Regression, range-isolated to the link-commit work.**  Isolation (five targeted
+int-int runs — current main, `bb2c0cbe8`, `29b32d932`, all WITHOUT this session's
+string-interner or Module.Funcs changes) reproduces identically, so neither of
+those is the cause.  The int-int suite was green at base `f480c9744` (a prior
+full-6-mode conformance run, 0 int-int failures), so the regression entered the
+range `f480c9744..29b32d932` — the `pkg/binate/link` / `cmd/bnld` work, which also
+modified the SHARED VM executor `pkg/binate/vm/vm_exec.bn` and
+`pkg/binate/vm/vm_exec_helpers.bn` (plus `cmd/bnc/target.bn`).  An int-int-only
+(interpreted) failure from a vm_exec change fits: the recoverable stack-overflow
+fault these loop-leak tests rely on (Plan 2) is no longer recovered in the VM's
+loop path, and the nested-mslice "no cleanup pad" panic means the VM lowering
+emitted no fault pad for that const-nil path.
+
+**Related** to the re-entrant-execFunc fault-swallow MAJOR above (same Plan 2
+recoverable-fault / cleanup-pad machinery, `plan-rt-fault-cleanup-pads.md`) but
+distinct: this is a REGRESSION in the pure-VM loop path (no native callback
+involved), traced to a specific commit range.
+
+**Next:** bisect the vm_exec.bn / vm_exec_helpers.bn changes in
+`f480c9744..29b32d932`; the deterministic nested-mslice "no cleanup pad" panic is
+the lead.  Tests already exist (`conformance/matrix/loop-leak/const-nil-*`) — do
+NOT xfail without root-cause.
+
 ## Performance — bni load time
 
 `bni` "loading" a program (parse → typecheck → IR-gen → bytecode-lower, before
@@ -150,10 +182,13 @@ Pushes + refreshes `Funcs = FuncsVec.Items()`; AddFunc is the sole writer, so al
 ~740 readers are unchanged.  Review SHIP, full 6-mode conformance 0-failed; A/B
 ~3% (noisy on a load-contended machine, direction consistent across 3 batches).
 
-CAMPAIGN STATE: 7 landed on main (30f6d03ad FuncSigs-index, 69bdc45f9 FuncSigs-vec,
+CAMPAIGN STATE: 8 landed on main (30f6d03ad FuncSigs-index, 69bdc45f9 FuncSigs-vec,
 f21685deb type-interning, fa19d8a34 QualifyName, ecf68b2d4 qualify-borrow,
-5225d3a03 Instrs-vec, bb2c0cbe8 Module.Funcs-vec) ≈ ~35%+ off the pre-optimization
--O2 load. The lever-(a) -O0→-O2 build split is someone else's.
+5225d3a03 Instrs-vec, bb2c0cbe8 Module.Funcs-vec, 37bf55fc4 string-interner) ≈
+~35%+ off the pre-optimization -O2 load. The pure-sweep work is now COMPLETE — all
+the O(n²) slices.Append-in-a-loop / linear-dedup hotspots the profile surfaced are
+converted. The lever-(a) -O0→-O2 build split is someone else's, and
+bounds-check-elision (the ~32% lever below) is being worked on by someone else.
 
 RE-PROFILE (post-6-landed, `bni cmd/bnc --version`, /usr/bin/sample ×3): the
 profile has SHIFTED off pure allocation.  Dominant self-time now: `rt.BoundsCheck`
@@ -166,7 +201,9 @@ nil-check dedup `Block.NilCheckedSlots`) for the former; cutting allocation COUN
 a unilateral pick.  The remaining pure-sweep item is `collectFuncStrings`
 (strings.bn) — an O(D²) linear-scan string dedup + `slices.Append` per distinct
 string constant, ~1.6% self-time; a djb2 interning map (like `funcSigHash`) fixes
-it.  NEXT: collectFuncStrings (user greenlit "then maybe").
+it.  DONE — landed as `37bf55fc4` (stringInterner in strings.bn; review SHIP,
+5/6 conformance modes 0-failed with the 6th, builder-comp-int-int, red on a
+PRE-EXISTING regression unrelated to this change — see the MAJOR entry at top).
 
 ## Standard library — pkg/std namespace migration
 
