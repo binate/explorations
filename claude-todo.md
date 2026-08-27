@@ -1839,6 +1839,12 @@ perf/001_fib.bn (builder-comp-int) and perf/self.sh `bni_runs_*`.  Cumulative on
   Baseline microtests landed (perf/003_dispatch_switch vs 004_dispatch_ifchain): native
   -O0 switch 0.25s ≈ ifchain 0.28s; VM switch 3.9s vs ifchain 5.0s — both linear; the gap
   after this lands is the win.
+- **BoundsCheck elimination + IR opt-pass infra — TODO — see `plan-ir-opt-passes-bce.md`:**
+  Design settled (bnc `-On` gate distinct from --cflag but implying it for LLVM; mem2reg-lite;
+  IR-level so it helps LLVM + native backends + the interpreter).  Baseline: VM slice_sum ~6.5%;
+  native pays a per-access opaque rt.BoundsCheck call LLVM can't fold.  Phased: (1) pass infra +
+  gating, (2) mem2reg-lite, (3) BCE.  NOTE the VM's own code[pc] check (~6% of VM work) is a
+  SEPARATE tactical unsafe_index case, not IR-BCE-eliminable.  ORIGINAL note below:
 - **BoundsCheck elimination — TODO (broader compiler optimization):** the VM bounds-checks
   its own internal slice accesses (regs[], code[pc]) via rt.BoundsCheck (~6% of fib, and
   growing).  TACTICAL: unchecked access (unsafe_index) on the proven-safe VM hot paths
