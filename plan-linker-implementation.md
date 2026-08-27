@@ -943,3 +943,12 @@ etc. — not replacing libc.
   member and leaves `unused` out — and runs it (exit 42).  Native x86-64 Linux only
   (GNU `ar` + native run); skips elsewhere, no Docker.  Next: `-l`/`-L` library
   search in the CLI.
+
+- **Round 24 — `-L`/`-l` library search in the CLI:** ✅ landed `782b1a66b`.  bnld is
+  now invocable the way ld is: `-L<dir>` adds a search directory and `-l<name>`
+  links `lib<name>.a` from the first `-L` dir that has it (attached `-Ldir`/`-lc` and
+  space-separated forms).  These are pulled from argv before the flag parser and
+  resolved to archive paths (appended to the inputs — Link extracts to a fixpoint,
+  so order is irrelevant); an unresolvable `-l` is a usage error.  Unit-tested and
+  validated end to end (`bnld -L dir -l helper` links + runs).  Next: a runtime e2e
+  of transitive archive extraction via -l/-L.
