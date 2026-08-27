@@ -114,45 +114,37 @@ Correct + twice-reviewed but not worth its complexity → reverted (commit
 083e29c51 abandoned).  LESSON: the IR-internal tables (`Consts`/`GlobalVars`/
 `TypeAliases`) are the same low-value trap — do NOT convert them.
 
-### IN PROGRESS — option 3: Block.Instrs freeze (O(n²) Instr append)
+### DONE — option 3: Block.Instrs amortized-growth vec (was "freeze") — perf `5225d3a03`, gen_import split `f480c9744`
 
-Profile-verified WORTHWHILE (unlike Structs): LLVM BB sizes for pkg/binate/types
-avg 7.9 but long-tail p99=98/max=462; **O(n²) copies 8.5M vs O(n) 304K = 28×** —
-real quadratic, and each redundant realloc is a make_slice+free feeding the
-dominant malloc/free churn (~46.8% at -O2). Est ~2–5%. User approved proceeding
-(after a context compaction).
+O(n²) grow-by-one Instr append (slices.Append reallocs n+1 + copies all n per
+call) killed. Profile: 8.5M copies vs 304K instrs = 28× for pkg/binate/types.
 
-DESIGN (freeze pattern — keeps `Block.Instrs @[]@Instr` so the 87 consumer reads
-across 7 pkgs [codegen/vm/native×3] stay unchanged → NO get-copy overhead on the
-hot vm-lowering loop, which the rejected full-vec alternative would add):
-- Block (ir.bni): add `InstrsVec @vec.Vec[@Instr]` (gen-time builder) + `Frozen
-  bool` (idempotent freeze). Keep `Instrs @[]@Instr` (frozen output, consumer-facing).
-- AddBlock (ir.bn): seed `b.InstrsVec = vec.New[@Instr]()`.
-- addInstr (ir.bn): `b.InstrsVec.Push(instr)` (keep the NilCheckedSlots clear logic).
-- ~35 GEN-TIME `.Instrs` reads → InstrsVec, in: gen_func.bn, gen_flow.bn,
-  gen_stmt.bn, gen_local_cleanup.bn, gen_temp_cleanup.bn, gen_type_switch.bn,
-  verify.bn (VerifyFunc — gen-time per-func check, gen_func.bn:253, off by
-  default), data_satregistry.bn (rotateLastInstrsToFront). Add Block helpers:
-  `endsInTerminator() bool` (collapses ~20 `len(b.Instrs)==0 ||
-  !b.Instrs[len-1].IsTerminator()` sites), `lastInstr() @Instr`, `instrCount() int`.
-- rotateLastInstrsToFront (satregistry): reorder the VEC (read→rotate→rebuild),
-  because EmitSatRegistryWiring runs post-GeneratePackage but PRE-freeze (it emits
-  new instrs THEN reorders — both on InstrsVec).
-- FREEZE at `FinalizeStrings` entry (strings.bn): FIRST `for each func/block: if
-  !b.Frozen { b.Instrs = b.InstrsVec.Items(); b.Frozen = true }`, THEN collect
-  strings from Instrs. FinalizeStrings is called at EVERY consumer entry
-  (codegen/emit.bn:140, vm/lower.bn:27/117/186, native/common/common_emit_object.bn:15),
-  so freeze precedes all consumption. Idempotent via Frozen.
-- Post-GeneratePackage emitters (EmitInitDispatcher/EmitMainEntry/EmitSatRegistryWiring)
-  all run BEFORE FinalizeStrings → gen-time → InstrsVec. Consumers (87) UNCHANGED.
-- CRITICAL RISK: a misclassified read (gen-time left on Instrs = reads empty pre-freeze;
-  or post-freeze read of InstrsVec) → miscompile. Gate on FULL conformance + -O2 A/B
-  measure + a thorough adversarial review before landing (per standing auth).
+DESIGN DEVIATION from the saved two-field-freeze plan: implemented a SIMPLER
+single-field design instead. The freeze plan under-counted the test surface
+badly — hundreds of ir-package tests read `block.Instrs` right after gen WITHOUT
+calling FinalizeStrings, so a deferred freeze would leave them reading empty.
+Fix: keep `Instrs @[]@Instr` as the sole consumer field; addInstr does
+`InstrsVec.Push(instr); b.Instrs = InstrsVec.Items()` (Items() = O(1) sub-slice
+sharing the vec backing) so Instrs is ALWAYS the current view. Every reader —
+production gen-time, the 87 consumers, AND all tests — is UNCHANGED; no freeze,
+no `Frozen` flag, no read-classification/miscompile risk. rotateLastInstrsToFront
+reorders through the vec. Net: 3 code files (ir.bni/ir.bn/data_satregistry.bn)
+vs the freeze plan's ~8-file surface.
 
-CAMPAIGN STATE: 5 landed on main (30f6d03ad FuncSigs-index, 69bdc45f9 FuncSigs-vec,
-f21685deb type-interning, fa19d8a34 QualifyName, ecf68b2d4 qualify-borrow) ≈ **~35%
-off** the pre-optimization -O2 load. temp-5 is at main. STANDING AUTH: land each
-sweep commit after a clean minimal adversarial review (no per-land ask); the
+RESULT: ~3–6% faster load (`bni cmd/bnc --version`, 2 A/B batches). Gates: full
+6-mode conformance 0-failed (incl. gen2 self-host), 691 ir unit tests, 2 clean
+adversarial reviews (code SHIP + test SOUND). ir_block_builder_test.bn pins the
+shared-backing invariant (growth across 4→8→16→32 reallocs + rotate-through-vec).
+The +7 lines tipped ir.bn over the 500 soft limit → split its "Managed pointers"
+Emit group to ir_ops_managed.bn (+ relocated TestEmit* tests); also split the
+PRE-EXISTING over-limit gen_import.bn (507→450) → gen_import_aliasmap.bn (+ new
+alias-map round-trip tests).
+
+CAMPAIGN STATE: 6 landed on main (30f6d03ad FuncSigs-index, 69bdc45f9 FuncSigs-vec,
+f21685deb type-interning, fa19d8a34 QualifyName, ecf68b2d4 qualify-borrow,
+5225d3a03 Instrs-vec) — Instrs-vec adds ~3–6% on top of the ~35% off the
+pre-optimization -O2 load from the first five. temp-5 is at main. The planned
+big-ticket levers are now landed; further sweep work is the user's call. The
 lever-(a) -O0→-O2 build split is someone else's.
 
 ## Standard library — pkg/std namespace migration
