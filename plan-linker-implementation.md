@@ -1029,3 +1029,10 @@ libc shim, as the native path uses).
   clang is present) and links those objects with bnld — the GOTPCRELX loads relaxed,
   the same shim linking both backends — and runs it (exit 42).  Locks in round 26 in
   CI (native x86-64 Linux).
+
+- **Round 29 — aarch64 LLVM link in CI:** ✅ landed `a34d66b36`.  The e2e now also
+  compiles the program for aarch64 with the LLVM backend (clang cross-compiles the
+  .ll without a sysroot) and LINKS those objects with bnld — exercising the aarch64
+  GOT relaxation on real clang output in CI — then structure-checks the result (a
+  static ELF64 EM_AARCH64, two segments).  Not run (x86-64 host; no Docker); the
+  aarch64 run is covered out-of-band + by the reloc unit tests.
