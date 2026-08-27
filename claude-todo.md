@@ -42,28 +42,41 @@ overflow`, and `matrix/loop-leak/const-nil-nested-mslice` → a DETERMINISTIC
 `panic: vm: recoverable fault with no cleanup pad (lowering bug)`.  The other five
 default modes are green; **current `main` is red in int-int.**
 
-**Regression, range-isolated to the link-commit work.**  Isolation (five targeted
-int-int runs — current main, `bb2c0cbe8`, `29b32d932`, all WITHOUT this session's
-string-interner or Module.Funcs changes) reproduces identically, so neither of
-those is the cause.  The int-int suite was green at base `f480c9744` (a prior
-full-6-mode conformance run, 0 int-int failures), so the regression entered the
-range `f480c9744..29b32d932` — the `pkg/binate/link` / `cmd/bnld` work, which also
-modified the SHARED VM executor `pkg/binate/vm/vm_exec.bn` and
-`pkg/binate/vm/vm_exec_helpers.bn` (plus `cmd/bnc/target.bn`).  An int-int-only
-(interpreted) failure from a vm_exec change fits: the recoverable stack-overflow
-fault these loop-leak tests rely on (Plan 2) is no longer recovered in the VM's
-loop path, and the nested-mslice "no cleanup pad" panic means the VM lowering
-emitted no fault pad for that const-nil path.
+**CONFIRMED CULPRIT: `9c7ef5518` "vm: skip the frame re-fetch on same-function
+call/return"** — a VM-executor perf optimization (frameLocals → conditional
+re-fetch + new `frameRegs` helper on BC_CALL/BC_RETURN).  Bisected cleanly: its
+parent `f480c9744` passes the 4 tests in int-int (4/0), and `9c7ef5518` (and every
+commit after, through current main) fails them.  It is the ONLY commit touching
+`pkg/binate/vm/vm_exec.bn` / `vm_exec_helpers.bn` in `f480c9744..f49b3b94b`.  Its
+own commit message says it was validated "native + under builder-comp-int" —
+**builder-comp-int (single interpreter), NOT builder-comp-int-int (double)**, which
+is exactly the mode it breaks.  (Neither this session's string-interner nor
+Module.Funcs change is involved — both exonerated by the same runs.)
+
+The failure is a per-iteration VM-stack leak in the const-nil loop (each iteration
+bumps vm.SP without popping → recoverable stack-overflow fault after ~7-16s), and
+for nested-mslice the fault reaches a block with no cleanup pad ("no cleanup pad
+(lowering bug)").  The fast-path frame arithmetic (`frameRegs` = `frameLocals`
+minus the vm.Funcs.Get) looks computationally equivalent for the different-function
+main↔sink calls these tests use, so the exact line-bug is subtle and appears to
+surface only under the double-interpreter — a `frameBase` / SP interaction the
+single-interp coverage missed.
 
 **Related** to the re-entrant-execFunc fault-swallow MAJOR above (same Plan 2
 recoverable-fault / cleanup-pad machinery, `plan-rt-fault-cleanup-pads.md`) but
 distinct: this is a REGRESSION in the pure-VM loop path (no native callback
 involved), traced to a specific commit range.
 
-**Next:** bisect the vm_exec.bn / vm_exec_helpers.bn changes in
-`f480c9744..29b32d932`; the deterministic nested-mslice "no cleanup pad" panic is
-the lead.  Tests already exist (`conformance/matrix/loop-leak/const-nil-*`) — do
-NOT xfail without root-cause.
+**Fix options:** (a) REVERT `9c7ef5518` — it is the sole change to those two VM
+files since its (green) parent, so a revert applies cleanly and restores int-int;
+it was a ~12% VM-perf win (fib) that can be re-attempted WITH int-int coverage.
+(b) Author fixes the fast-path directly (they have the frame-model context — the
+bug is a `frameBase`/vm.SP interaction the single-interp testing missed).  Whoever
+fixes it: add `builder-comp-int-int` to the change's test gate.  Tests already
+exist (`conformance/matrix/loop-leak/const-nil-*`) — do NOT xfail without
+root-cause (the nested-mslice one is a real lowering bug, not a stack-limit
+artifact).  (9c7ef5518 was authored in a different session — its author has the
+fast-path context to pinpoint the line bug quickly given this culprit ID.)
 
 ## Performance — bni load time
 
