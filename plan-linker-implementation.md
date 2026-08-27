@@ -707,3 +707,12 @@ A running log as the linker is built (see §11 for the milestone plan).
   addresses from a base in load order (uint address math for bases ≥ 2^31; bss
   reserves size without data).  Tested for merge/ordering/addressing/alignment/
   rodata.  Segment perms + page alignment left to emit.  Next: relocation patching.
+- **M1 (relocate) — relocation patching (x86-64):** ✅ landed `a111bfc23`
+  (`relocate.bn`).  Computes each patch site's address P and target symbol's
+  address S (following undefined refs cross-object; weak-undef → 0), applies
+  R_X86_64_64 (S+A), PC32/PLT32 (S+A−P, signed-32 checked), rejects GOT/unknown
+  kinds, and writes into the merged output Data.  Bounds-checks the symbol index
+  (also in ReadObject) and the write; errors (not silently 0-writes) an
+  unresolvable defined symbol.  Tested end-to-end: a cross-object call lands on an
+  independently-derived target address; ABS64 patches the target's address.
+  Next: emit (ELF-executable writer).
