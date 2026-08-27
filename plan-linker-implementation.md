@@ -967,3 +967,37 @@ real GNU archives (validated against llvm-ar output).  Remaining toward full
 ld-replacement: symbol-index-driven lazy extraction (skip parsing unused members of
 a large library), and eventually dynamic linking (.so) — both future work, not
 started.
+
+### Next project: link the LLVM-backend's objects (recon 2026-08-27)
+
+Goal: bnld links what bnc's LLVM/clang path emits, so it can replace clang→ld there
+too.  Recon (compiled a program with `--target {x86_64,aarch64}-linux`, no
+`--backend native`, and inspected the objects): almost everything bnld already
+handles.  Per-function/per-datum sections (`.text.*`, `.data.rel.ro.*` → merge by
+flags into text/rodata/data/bss); the duplicate vague-linkage globals
+(`__ifaceid.*`, `__typeinfo.*`) are **WEAK** → the resolver already dedupes them;
+`.eh_frame` is unreferenced (no unwinding in Binate) and already dropped; the output
+is non-PIE static (no dynamic relocs).  The libc externals (malloc/write/…) are the
+same as the native path, not LLVM-specific.
+
+**The one blocker is GOT relocations:**
+- x86-64: `R_X86_64_REX_GOTPCRELX` (all observed sites are the `movq` form) — bnld
+  rejects it ("GOT relocation unsupported").  Everything else (64, PC32, PLT32) is
+  handled.
+- aarch64: `R_AARCH64_ADR_GOT_PAGE` + `R_AARCH64_LD64_GOT_LO12_NC` (rejected), plus
+  `R_AARCH64_PREL32` (a 32-bit PC-relative data reloc bnld doesn't yet handle).
+  ABS64/CALL26/JUMP26/ADRP/ADD_LO12/LDST64_LO12 are handled.
+
+**Approach — relaxation (a static link, every symbol defined, so no GOT needed):**
+- x86-64: `mov sym@GOTPCREL(%rip),%reg` → `lea sym(%rip),%reg` — flip opcode `0x8b`
+  → `0x8d`, patch disp32 as PC32 (S+A−P).
+- aarch64: `adrp x,:got:sym; ldr x,[x,:got_lo12:sym]` → `adrp x,sym; add x,x,:lo12:sym`
+  — `ADR_GOT_PAGE` patches like `ADR_PREL_PG_HI21`; `LD64_GOT_LO12_NC` rewrites the
+  LDR to an ADD (same Rd/Rn positions) and patches like `ADD_ABS_LO12_NC`.  Add the
+  trivial `PREL32` (S+A−P, 4-byte data).
+- GOT-section synthesis is the general fallback for any non-relaxable GOT reloc, but
+  none appear in the LLVM output — relaxation is the right first cut.
+
+Rough plan: (1) x64 GOTPCRELX relaxation + tests; (2) aarch64 GOT relaxation +
+PREL32 + tests; (3) an e2e linking real LLVM-backend objects end to end (with the
+libc shim, as the native path uses).
