@@ -783,3 +783,19 @@ gated on a hermetic `_start` (startup), linking a real bnc-compiled Binate progr
   are rejected.  Tested end-to-end: a cross-object BL lands on its target, an ABS64
   pointer holds a symbol's absolute address, and each field's boundary range check.
   Next: a Docker linux/arm64 run-e2e exercising ADRP+ADD_LO12 at runtime.
+- **M2 (aarch64) — runtime proof + ELF-aarch64 assembler output:** ✅ landed
+  `846802a77`.  The blocker: `bnas` only ever emitted Mach-O for aarch64, so
+  `bnld` (ELF-only) couldn't link a linux-aarch64 program end to end.  Fix:
+  `assemble.AssembleFile` gained an `osName` param and picks the object format by
+  OS (linux → ELF, darwin → Mach-O; `""` keeps the per-arch host default, so
+  every existing caller — incl. bnc's in-process runtime assembly — is unchanged);
+  `bnas` gained `-target <os>-<arch>` (e.g. `linux-aarch64`), routing aarch64+linux
+  to the existing `elf.WriteAArch64`.  `e2e/bnld-linux-aarch64.sh` then assembles +
+  links + **runs** an exit(42) and a hello program under linux/arm64 (native, or
+  Docker linux/arm64 — native on Apple silicon, binfmt/qemu on x86-64 Linux); hello
+  reaches its `.rodata` string via `adr`, so an R_AARCH64_ADR_PREL_LO21 relocation
+  is applied and exercised on a real kernel (verified locally: prints "hi", exits
+  0).  Deferred: ADRP+ADD_LO12 has no text-asm `:lo12:` syntax yet, so that reloc
+  pair is unit-proven but not yet runtime-proven (would need an assembler operand
+  feature).  Next: per-section RX/RW segments (stage 3b), then archives / a real
+  bnc-compiled program (gated on a hermetic `_start`).
