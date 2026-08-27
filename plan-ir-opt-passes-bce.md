@@ -142,6 +142,16 @@ VM samples (vs ~12% in fib). Two distinct bounds-check costs, don't conflate the
 
 ## Phased plan (each phase independently landable + green)
 
+> **STATUS 2026-08-27 — Phase 1 + Phase 1.5 LANDED (bnc path).** Commits
+> `036d06d5f` (the `-O0..-O3` flag) + `2b8de2bd8` (RunOptPasses runner +
+> constant-index BCE pass + bnc wiring at compileModuleVia and the 3 --emit-llvm
+> bypasses).  Validated: gen1 builds; ir 696 + cmd/bnc 135 unit tests green (6 BCE
+> + 4 flag new); `--emit-llvm -O1` drops const-in-range array checks and KEEPS the
+> runtime-index check; hygiene 20/20; a focused adversarial code review returned
+> SAFE TO LAND.  **Remaining for the full Phase-1 chokepoint:** thread
+> RunOptPasses into the interpreter's lowering path (interp.LoadProgram) so
+> interpreted programs get BCE too — a small follow-up (default bni opt level TBD).
+
 ### Phase 1 — pass infrastructure + `-On` gating (small, unblocks everything)
 - Add bnc `-O0..-O3` parsing (args.bn / CLIArgs): sets `OptLevel`; LLVM backend
   implies `--cflag -On` (emitted before user `--cflag`s). Keep `--cflag` standalone.
