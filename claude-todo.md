@@ -1540,6 +1540,32 @@ event loop mid-eval); not needed for the current Kernel request/reply model.
 Tracked here so archiving the plan doesn't strand it; belongs under the Kernel
 design if picked up.
 
+## Port libgcc `__aeabi_*` helpers to Binate/bnas — drop the GCC `libgcc.a` dependency (C-Free)
+
+The native arm32 backend emits calls to ARM-EABI helper functions for operations
+the 32-bit ARM ISA can't do in one instruction, and those helpers are currently
+pulled from **GCC's `libgcc.a`** (linked via `--link-after-objs`, located by
+`scripts/lib/find-arm32-baremetal-toolchain.sh`). That is a C/GCC dependency at
+odds with the **C-Free Target** goal. This is an **orthogonal project** to the
+linker ([plan-linker-implementation.md](plan-linker-implementation.md), which just
+links whatever archive/objects it's handed) but complementary: it removes the one
+external archive a C-free arm32 link would otherwise still need.
+
+Verified set the backend references (2026-08-26):
+- **64-bit** integer mul/div/mod/shift: `__aeabi_{lmul,ldivmod,uldivmod,llsl,llsr,lasr}`
+  (`pkg/binate/native/arm32/arm32_int64_libcall.bn`).
+- **Software floating-point**: `__aeabi_{d,f}{add,sub,mul,div}`, `…cmp*`
+  (`pkg/binate/native/arm32/arm32_float.bn`).
+- (32-bit integer divide uses hardware `SDIV`/`UDIV` on cortex-a15 —
+  `arm32_ops.bn:333 emitDiv` — so **no** helper; x64/aa64 have hardware 64-bit
+  divide + FPUs, so this is arm32-only.)
+
+Project: port the needed helpers to Binate/`bnas` assembly (small, well-specified
+routines) and link those instead of `libgcc.a`. The integer helpers (64-bit long
+division being the fiddly one) are bounded; **full soft-float is the larger lift**,
+so a reasonable split is integer-first, float-later. Once done, the arm32 native
+build no longer needs any GCC artifact.
+
 ## ARM32 bare-metal / native arm32 backend
 
 ### native arm32 backend — P6 (VFP + hard-float) in progress; P0–P5 done

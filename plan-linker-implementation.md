@@ -13,24 +13,26 @@ Nothing here is implemented yet: there is no `pkg/link`, no `cmd/bnld`.
 
 ## 0. What this plan decides
 
-Five scope decisions the **user owns** and should ratify before Step-1 code. Each
-has a recommendation *and* the steelman for the rejected option (adversarial
-reviews pushed hard on these — don't treat the recommendations as settled):
+Five scope decisions, **ratified 2026-08-26** (the roadmap they imply is in §11):
 
-- **(D1) Object scope** — general clang/GCC reader vs. Binate-native-backend-only.
-  → recommend **native-only** (already viable *today*, see §1.1 correction), but
-  see the §2 D1 steelman: native-only can't touch the *default* (LLVM) build until
-  native becomes the default backend.
-- **(D2) PIC/GOT** — how to handle position-independent relocs. → **mostly a
-  non-issue** once you separate GOT from PLT (§2 D2 / §1.4): a hermetic Binate
-  program emits **zero GOT relocs**; the pervasive `PLT32` is field-identical to
-  `PC32`. GOT only appears via `__c_global` (i.e. only when linking C).
-- **(D3) Driver model** — compiled drivers now, interpreted `-driver file.bn`
-  later? → recommend **compiled-first** (interpreted deferred, not dropped).
-- **(D4) libgcc `__aeabi_*`** — replace with Binate/bnas helpers vs. read the GCC
-  archive. → recommend **v0 sidesteps it** (proof-of-life uses only 32-bit integer math),
-  then decide; *not* "small" (§2 D4).
-- **(D5) Mach-O** — defer behind ELF (code-signing gap)? → recommend **yes**.
+- **(D1) Object scope** — **native-only for the MVP, then extend to a full,
+  general reader that also links the default (LLVM/clang) build.** The general
+  reader is a *planned later phase* (§11 M2+), not a rejected alternative.
+- **(D2) PIC/GOT** — **no GOT in the MVP; add GOT support after the MVP.** A
+  hermetic native program needs none (`PLT32`≡`PC32`; GOT only via `__c_global`),
+  but the D1 extension — linking clang/LLVM-build objects, which are PIC — *does*
+  need it, so GOT lands in the same post-MVP "full-featured" phase (§11 M2+).
+- **(D3) Driver model** — **compiled drivers first**, interpreted `-driver
+  file.bn` later — but design the `pkg/link` API with the interpreted path in view
+  now (§app-B).
+- **(D4) libgcc `__aeabi_*`** — **removing the `libgcc.a` dependency is an
+  orthogonal project** (port the helpers to Binate/bnas), tracked separately in
+  `claude-todo.md` — not a linker decision. The MVP links `libgcc.a` via archive
+  support (Step 5) for 64-bit-int/float programs, or sidesteps it (32-bit-int-only
+  proof).
+- **(D5) Mach-O** — **deferred behind ELF**, incl. ad-hoc code-signing. ⚠️ The dev
+  host is an **arm64 Mac**, so ELF output isn't natively runnable locally
+  (validate via QEMU bare-metal + Linux CI); native-macOS runs wait for Mach-O.
 
 The **single most important framing correction** from review: the hard part of a
 *useful hosted* linker is **not** native-backend maturity (already ~done) and
@@ -124,36 +126,34 @@ against libc.
 
 ---
 
-## 2. The five decisions (recommendation + steelman)
+## 2. The five decisions (ratified 2026-08-26)
 
-### D1 — Object scope: native-only vs. general reader
+### D1 — Object scope: native-only MVP → full general reader
 
-**Recommend native-only:** `bnld` consumes only Binate-native-backend + `bnas`
-objects (controlled conventions — single flags-by-name sections, `STT_NOTYPE`
-symbols, the enumerated `FIX_*`-mapped reloc set). This is viable **today** for any
-`--backend native` build (§1.1) — it does *not* wait on native maturing.
+**Decided: native-only for the MVP, then extend to full-featured.** The MVP `bnld`
+consumes only Binate-native-backend + `bnas` objects (controlled conventions —
+single flags-by-name sections, `STT_NOTYPE` symbols, the enumerated
+`FIX_*`-mapped reloc set), viable **today** for any `--backend native` build
+(§1.1) — fast path to a working, testable linker.
 
-**Steelman the rejected general reader (the real cost of native-only):** `bnld`
-under D1 can only link `--backend native` builds; it can **never** replace the
-linker in the **default (LLVM) build** until `--backend native` becomes the
-*default* backend — a separate, large, unrelated decision. A general ELF reader
-(eating clang objects: COMDAT/section groups, `SHF_MERGE`, full symbol
-types/sizes, `.eh_frame`, clang's PIC/GOT) would deliver a **clang-free *link*
-step for the default build immediately** (compile still uses `clang -c`, which is
-orthogonal to "stop invoking `ld`"). So for the narrow goal "stop shelling out to a
-system linker," general-reader is strictly more useful sooner; native-only is the
-right call only if the goal is the *fully* C-free/hermetic end state and we're
-willing to gate on native-default. **User decides.** This plan is written for
-D1=native.
+**Then** it grows into a *general* ELF reader that also links the **default
+(LLVM/clang) build**: clang objects bring COMDAT/section groups, `SHF_MERGE`
+string-merge, full symbol types/sizes, `.eh_frame` passthrough, and clang's
+PIC/GOT relocs (so the D2 extension rides along). This is a **planned phase (§11
+M2+)**, not a rejected option — it's what makes `bnld` able to replace the system
+linker in the *default* build, independent of whether `--backend native` ever
+becomes the default backend. End state: `bnld` links both native and clang output.
 
-### D2 — PIC/GOT
+### D2 — PIC/GOT: none in MVP, added post-MVP
 
-Per §1.4-detail, **for hermetic Binate programs there is nothing to decide**: no
-GOT, and `PLT32` patches as `PC32`. The only open question is the **C-linking
-path** (`__c_global` / static libc), which needs either a static GOT or x86
-`GOTPCRELX` relaxation. **Recommend: out of scope until we link C**; when it lands,
-prefer building a real GOT over instruction relaxation (avoids the ABI
-legal-sequence hazard). No decision blocks M0–M2.
+**Decided: no GOT in the MVP; add GOT support in the post-MVP "full-featured"
+phase.** A hermetic native program needs no GOT at all (§1.4-detail: `PLT32`≡`PC32`;
+GOT-indirect relocs appear only from `__c_global`), so M0–M2 handle zero GOT. GOT
+support then lands **together with the D1 general reader (§11 M2+)** — because
+clang/LLVM-build objects are PIC and *do* carry GOT relocs, and because
+`__c_global` / static-libc linking needs it. When it lands, prefer **building a
+real static GOT** over x86 `GOTPCRELX` instruction relaxation (relaxation has ABI
+rules about which sequences are legally rewritable — a silent-miscompile hazard).
 
 ### D3 — Driver model: compiled-first
 
@@ -164,33 +164,39 @@ Interpreted drivers are more feasible than the design doc thought (§9), but v1 
 doc Risk #6 — "design the API carefully"), so M5 can call it without a breaking
 change.
 
-### D4 — libgcc `__aeabi_*`
+### D4 — libgcc `__aeabi_*`: an orthogonal project (tracked separately)
 
-**Not "small."** `semihost.s` already provides `memcpy/memmove/memset/memcmp/
-abort`, so those are **not** the issue. And **32-bit** integer math — *including
-divide* — uses hardware `SDIV`/`UDIV` (Cortex-A15 has integer divide;
-`arm32_ops.bn:333 emitDiv`), so it pulls no helper either. What libgcc actually
-supplies (verified): **64-bit** integer mul/div/mod/shift
-(`__aeabi_{lmul,ldivmod,uldivmod,llsl,llsr,lasr}`, `arm32_int64_libcall.bn`) and
-**software floating-point** (`__aeabi_{d,f}{add,sub,mul,div}`, `…cmp*`,
-`arm32_float.bn`). Writing these ABI-exact in asm is bug-prone (64-bit long
-division especially); floats are a large lift. (x64/aa64 have hardware 64-bit
-divide + FPUs, so this is arm32-only.)
+**Decided: removing `libgcc.a` is its own project, not a linker sub-decision.**
+The native arm32 backend calls EABI helpers for ops the 32-bit ISA can't do in one
+instruction, pulled from **GCC's `libgcc.a`**. Verified set: **64-bit** integer
+mul/div/mod/shift (`__aeabi_{lmul,ldivmod,uldivmod,llsl,llsr,lasr}`,
+`arm32_int64_libcall.bn`) and **software float** (`__aeabi_{d,f}{add,sub,mul,div}`,
+`…cmp*`, `arm32_float.bn`); **32-bit** integer (incl. divide) is hardware
+`SDIV`/`UDIV`, no helper. (x64/aa64 have hardware 64-bit divide + FPUs, so this is
+arm32-only.)
 
-**Recommend:** **v0's proof-of-life uses only 32-bit integer arithmetic (no 64-bit
-math, no floats) → pulls zero `__aeabi_*`, so D4 doesn't block the proof.** When
-linking real programs, choose: implement the integer helpers as `bnas` objects
-(bounded), or bring **archive support (Step 5) forward and read `libgcc.a`**
-(lower-risk, at some hermeticity cost). Enumerate the exact set the target program
-pulls (via `nm` on the objects) before committing.
+Porting these helpers to Binate/bnas assembly — to drop the GCC dependency, per
+the **C-Free Target** goal — is **orthogonal to the linker** and tracked in
+`claude-todo.md`. For `bnld` itself there is nothing to decide: it links
+whatever archive/objects it's handed. The MVP either links `libgcc.a` via
+**archive support (Step 5)** for 64-bit-int/float programs, or sidesteps it with a
+32-bit-integer-only proof-of-life; once the port lands, `bnld` links the ported
+objects instead — no `bnld`-side change.
 
-### D5 — Mach-O: defer behind ELF
+### D5 — Mach-O: deferred behind ELF (with a dev-host caveat)
 
-macOS arm64 executables need **ad-hoc code signing** (`LC_CODE_SIGNATURE`); ld64
-does it implicitly today and **nothing in the repo reproduces it** (no `codesign`
-call anywhere). Mach-O load-command/dyld complexity is also higher. **Recommend
-ELF-first**; macOS dev-loop keeps using clang-link until a later Mach-O+signing
-stage.
+**Decided: defer Mach-O** (reader, writer, ad-hoc signing) behind ELF. macOS arm64
+executables need **ad-hoc code signing** (`LC_CODE_SIGNATURE` → a SHA-256
+code-directory); ld64 does it implicitly and **nothing in the repo reproduces it**
+(no `codesign` call anywhere). Mach-O load-command/dyld complexity is also higher.
+ELF (Linux + bare-metal) covers CI and the C-free goal first.
+
+**⚠️ Dev-host caveat:** the working machine is an **arm64 Mac**, so `bnld`'s ELF
+output cannot be *run natively* on it. Local validation of hosted output therefore
+goes through **Linux CI**; **bare-metal arm32 runs under QEMU**, which is
+host-agnostic and works fine on the Mac (another point for bare-metal-first, §3).
+macOS-native runs of `bnld` output must wait for the Mach-O stage — a mild pull
+toward doing Mach-O sooner than dead-last, though deferral stands for now.
 
 ---
 
@@ -475,14 +481,26 @@ runnable-output milestone.
   xfails and self-compile gen2). The cost is **hosted ELF-exec emission
   (multi-segment `PT_LOAD` + perms + page-align) + the hermetic `_start`/startup
   work**. The *useful* milestone.
-- **M3 — archives.** Small.
-- **M4 — Mach-O + ad-hoc signing.** Large. Deferred (D5).
+- **M3 — archives.** Small. Also the `libgcc.a`-read path for arm32
+  64-bit-int/float programs (pending the orthogonal `__aeabi_*` port, D4/§13).
+- **M2+ — full-featured reader + GOT (the D1/D2 extension; links the default
+  LLVM/clang build).** **Large — the second deliberate mountain.** A *general* ELF
+  reader (COMDAT/section groups, `SHF_MERGE`, full symbol types/sizes, `.eh_frame`
+  passthrough) + **static-GOT construction**, so `bnld` links clang-produced
+  objects and can replace the system linker in the *default* build — not just
+  `--backend native`. Ratified as a planned phase; sequenced **after** the
+  native-ELF MVP (M0–M2) proves the core. (Numbered "2+" to mark it as the phase
+  after M2, not a late add-on.)
+- **M4 — Mach-O + ad-hoc signing.** Large. Deferred (D5); the arm64-Mac dev host
+  wants it eventually for local native runs.
 - **M5 — interpreted drivers.** Small–Medium (entry-shape (a)).
 
 **Headline:** M0+M1 is a bounded medium effort depending only on things that
-exist. M2 is the big one — and its long-pole is **linker + startup code**, not the
-backend. Anyone reading this for go/no-go should aim effort at M2's ELF-emit +
-`_start`, not at "waiting for native" or "GOT relaxation" (both mostly myths).
+exist. **Two** large phases follow: **M2** (hosted native ELF — long-pole is
+ELF-emit + hermetic `_start`, *not* native maturity or GOT relaxation, both mostly
+myths) and **M2+** (the general reader + GOT that makes `bnld` usable for the
+default LLVM build). Everything else (archives, Mach-O, interpreted drivers) is
+small-to-large but clearly sequenced behind those.
 
 ## 12. Prerequisites & risks
 
