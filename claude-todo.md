@@ -96,16 +96,64 @@ at `NewChecker`); the interp's RUNTIME value marshaling uses
 adversarial reviews — the first caught the cycle leak, the second cleared the
 teardown + uncached-split fix. Conformance builder-comp 2982/0.
 
-### OPEN (bigger) — the remaining O(n²) `slices.Append` sweep
+### DONE — QualifyName single-alloc (`fa19d8a34`) + qualifyForCurrentModule borrow (`ecf68b2d4`)
 
-`slices.Append` reallocates and copies the whole slice on every call, so
-building a table in a loop is O(n²) alloc+copy — a top driver of the load's
-dominant ~66% memory-management cost. Fixed for FuncSigs (→ `vec.Vec`); the same
-applies to the sibling IR tables (`Consts`, `Structs`, `GlobalVars`,
-`TypeAliases`) and to hot `slices.Append`-in-a-loop sites across parse /
-typecheck. Approach: enumerate repo-wide → convert to `vec.Vec` / pre-size.
-Worth weighing a single systemic fix — give `slices.Append` amortized growth if
-`@[]T` gains a spare-capacity distinction — against per-site conversions.
+`mangle.QualifyName`'s common path built the qualified name in a strings.Builder
+then `buf.CopyStr`'d it (redundant double-alloc) → build directly in one
+make_slice (~2%). Then `qualifyForCurrentModule`/`qualifyForPkgPath` took an
+owning `@[]char` name, forcing `buf.CopyStr(name)` at ~13 lookup call sites →
+changed to `*[]readonly char` borrow, dropping the copies; cascaded (converged)
+through the 4 `@Block` emit methods (EmitCall/EmitFuncValue/…) (~2%).
+
+### REJECTED — Structs vec+index (net-neutral, reverted)
+
+Same FuncSigs pattern applied to `Module.Structs` (vec.Vec + name→index map,
+25 files) — but measured **~0%** (same-base -O2 A/B). `Structs` n (struct types
+per module) is small, so its O(n²) is tiny and the per-lookup Get-copy offset it.
+Correct + twice-reviewed but not worth its complexity → reverted (commit
+083e29c51 abandoned).  LESSON: the IR-internal tables (`Consts`/`GlobalVars`/
+`TypeAliases`) are the same low-value trap — do NOT convert them.
+
+### IN PROGRESS — option 3: Block.Instrs freeze (O(n²) Instr append)
+
+Profile-verified WORTHWHILE (unlike Structs): LLVM BB sizes for pkg/binate/types
+avg 7.9 but long-tail p99=98/max=462; **O(n²) copies 8.5M vs O(n) 304K = 28×** —
+real quadratic, and each redundant realloc is a make_slice+free feeding the
+dominant malloc/free churn (~46.8% at -O2). Est ~2–5%. User approved proceeding
+(after a context compaction).
+
+DESIGN (freeze pattern — keeps `Block.Instrs @[]@Instr` so the 87 consumer reads
+across 7 pkgs [codegen/vm/native×3] stay unchanged → NO get-copy overhead on the
+hot vm-lowering loop, which the rejected full-vec alternative would add):
+- Block (ir.bni): add `InstrsVec @vec.Vec[@Instr]` (gen-time builder) + `Frozen
+  bool` (idempotent freeze). Keep `Instrs @[]@Instr` (frozen output, consumer-facing).
+- AddBlock (ir.bn): seed `b.InstrsVec = vec.New[@Instr]()`.
+- addInstr (ir.bn): `b.InstrsVec.Push(instr)` (keep the NilCheckedSlots clear logic).
+- ~35 GEN-TIME `.Instrs` reads → InstrsVec, in: gen_func.bn, gen_flow.bn,
+  gen_stmt.bn, gen_local_cleanup.bn, gen_temp_cleanup.bn, gen_type_switch.bn,
+  verify.bn (VerifyFunc — gen-time per-func check, gen_func.bn:253, off by
+  default), data_satregistry.bn (rotateLastInstrsToFront). Add Block helpers:
+  `endsInTerminator() bool` (collapses ~20 `len(b.Instrs)==0 ||
+  !b.Instrs[len-1].IsTerminator()` sites), `lastInstr() @Instr`, `instrCount() int`.
+- rotateLastInstrsToFront (satregistry): reorder the VEC (read→rotate→rebuild),
+  because EmitSatRegistryWiring runs post-GeneratePackage but PRE-freeze (it emits
+  new instrs THEN reorders — both on InstrsVec).
+- FREEZE at `FinalizeStrings` entry (strings.bn): FIRST `for each func/block: if
+  !b.Frozen { b.Instrs = b.InstrsVec.Items(); b.Frozen = true }`, THEN collect
+  strings from Instrs. FinalizeStrings is called at EVERY consumer entry
+  (codegen/emit.bn:140, vm/lower.bn:27/117/186, native/common/common_emit_object.bn:15),
+  so freeze precedes all consumption. Idempotent via Frozen.
+- Post-GeneratePackage emitters (EmitInitDispatcher/EmitMainEntry/EmitSatRegistryWiring)
+  all run BEFORE FinalizeStrings → gen-time → InstrsVec. Consumers (87) UNCHANGED.
+- CRITICAL RISK: a misclassified read (gen-time left on Instrs = reads empty pre-freeze;
+  or post-freeze read of InstrsVec) → miscompile. Gate on FULL conformance + -O2 A/B
+  measure + a thorough adversarial review before landing (per standing auth).
+
+CAMPAIGN STATE: 5 landed on main (30f6d03ad FuncSigs-index, 69bdc45f9 FuncSigs-vec,
+f21685deb type-interning, fa19d8a34 QualifyName, ecf68b2d4 qualify-borrow) ≈ **~35%
+off** the pre-optimization -O2 load. temp-5 is at main. STANDING AUTH: land each
+sweep commit after a clean minimal adversarial review (no per-land ask); the
+lever-(a) -O0→-O2 build split is someone else's.
 
 ## Standard library — pkg/std namespace migration
 
