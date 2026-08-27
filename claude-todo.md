@@ -7,6 +7,29 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### `cast(float64, <int BINARY expr>)` const-folds to a WRONG (unsigned-looking) value — 🔴 MAJOR (2026-08-27)
+
+Casting a compile-time INTEGER expression to `float64` mis-folds when the operand
+is a BINARY expression rather than a single literal: a negative result is treated
+as if unsigned, yielding a huge positive `float64`.  SILENT wrong value in a
+constant — a miscompile.
+
+Minimal repro (host build; `cast(int, ...)` of the bad `float64` saturates to
+INT64_MAX = 9223372036854775807):
+
+    cast(float64, -2147483648)               // single literal      -> -2147483648.0  CORRECT
+    cast(float64, -2147483647 - 1)           // subtraction, same value -> ~+9.2e18    WRONG
+    cast(float64, -1000000000 - 1000000000)  // -2e9                -> ~+9.2e18         WRONG
+
+Discovered 2026-08-27 while unit-testing softfloat `i2d` (the softfloat function is
+correct; the wrong value was in the test's EXPECTED expression, which had to be
+rewritten to a single literal).  Root cause unknown — likely the checker / IR-gen
+const-fold of `cast(float64, <int expr>)` reading the folded integer as UNSIGNED
+(or a signedness mismatch on the binary-expr fold path that the single-literal path
+avoids).  Needs: a conformance test (the two forms must agree) + fix.  Narrow
+(constant int->float casts of binary expressions) but a real correctness defect.
+
+
 ### VM miscompiles a 2-raw-pointer multi-return call — leaks `vm.SP` per call — 🔴 OPEN MAJOR (found 2026-08-27)
 
 **Severity: MAJOR** — the bytecode VM's lowering of a call to a function that
