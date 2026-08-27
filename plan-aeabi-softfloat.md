@@ -13,12 +13,14 @@ helper via `testing.Println`'s `*any` `float{32,64}.String()` branches).
 - Double add/sub group (`_arm_addsubdf3.o`: dadd/dsub/drsub/f2d/i2d/l2d/ui2d/ul2d): `4f0176af5`.
 - Float add/sub group (`_arm_addsubsf3.o`: fadd/fsub/frsub/i2f/l2f/ui2f/ul2f): `54df54731`.
 - Float mul/div group (`_arm_muldivsf3.o`: fmul/fdiv): `70fc2f821`.
+- Double mul/div group (`_arm_muldivdf3.o`: dmul/ddiv): `12bf5c978`.
 
-Remaining member-groups toward the needed 19: f64 muldiv (`_arm_muldivdf3.o`
-dmul/ddiv — the div uses 3 half-width + 1 emulated full-width NR iterations,
-no uint128 needed) and compares (`_arm_cmpdf2.o` dcmpeq/dcmplt/…, `_arm_cmpsf2.o`
-fcmp*).  Then the remaining single-symbol members for the full set (f2iz, d2uiz,
-d2lz, neg/unord, …).
+All add/sub, mul, and div groups (f32 + f64) are now ported.  Remaining toward
+the needed 19: the compares (`_arm_cmpdf2.o` dcmpeq/dcmplt/…, `_arm_cmpsf2.o`
+fcmp*; `_arm_unord{df,sf}2.o` for cmpun).  Then the remaining single-symbol
+conversion members for the full AEABI set (f2iz, d2uiz, f2uiz, d2lz, f2lz,
+d2ulz, f2ulz, and dneg/fneg).  New runtime f64 mul/div conformance coverage:
+1223_float64_arith_runtime (companion to 635).
 
 ## Decisions (settled with the user, 2026-08-26)
 
