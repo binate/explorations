@@ -267,6 +267,7 @@ scalar promotion is wanted (needs register-pair copies in the VM + arm32).
   independently recomputed) found no bugs.
 
 ### Phase 2a — non-managed scalar SSA promotion (the real BCE enabler)
+**Detailed design: `plan-mem2reg-phase2a.md`.**
 - Promote function-local **non-managed scalar** memory slots (int/bool/…, incl. the
   loop-header induction phi across the back-edge — the reducible-loop case, which is
   the hard-but-necessary SSA-construction case, NOT "single-block") to SSA + phis.
