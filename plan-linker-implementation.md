@@ -738,3 +738,8 @@ that proves loadability, which the macOS dev host cannot run locally (D5).
   avoids ETXTBSY) — no os.Chmod needed.  Tested end-to-end incl. a verified-patched
   cross-object call and a re-link-over-existing case.  Next: cmd/bnld CLI, then a
   Linux e2e proof-of-life.
+- **M1 (cmd/bnld) — linker CLI:** ✅ landed `999b81438` (`cmd/bnld/main.bn`).  Thin
+  flags-based front end over link.Link (-o/-e/-target/-version + positional
+  objects), parseArgs -> CLIArgs, unit-tested.  No build-script/CI wiring yet
+  (separate decision).  Next: a Linux e2e proof-of-life (bnas exit-syscall program
+  -> bnld -> run -> check exit code).
