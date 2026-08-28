@@ -1,4 +1,15 @@
-# Phase 3 — loop-BCE (tightened soundness)
+# Phase 3 — loop-BCE (tightened soundness) — ✅ LANDED (`1362c1954`)
+
+**Status:** landed on main as `1362c1954`. `pkg/binate/ir/bce_loop.bn` (+ tests).
+Design review DESIGN SOUND; code review NO BUGS (soundness shown airtight via SSA
+— a `P+1` step must be dominated by `P`'s def, and `lengthProvablyLE` trusts SSA
+identity, not that coalescing happened). Full native `-O2` conformance 2990 pass
+/ 0 fail — the must-KEEP checks (310/311/314) still fault. End-to-end: the
+canonical raw-slice loop's `OP_BOUNDS_CHECK` is gone at `-O2` (1→0), output
+unchanged. v1 covers arrays + raw slices; managed slices (fault-pad-aware
+handling) are a follow-up. This is the marquee payoff — the whole
+Phase P + Phase D + Phase 2a + Phase 2b stack made it possible.
+
 
 **Prerequisite (decided 2026-08-27): Phase 2b load-forwarding
 (`plan-load-forwarding-phase2b.md`) lands FIRST.** The soundness review confirmed

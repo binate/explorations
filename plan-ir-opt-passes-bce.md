@@ -302,8 +302,17 @@ signal for the IR passes.)
 - Tests: semantics-preserving (unit + conformance across LLVM/native/VM); a
   size/quality check that induction vars are actually promoted.
 
-### Phase 3 — loop-BCE (tightened soundness)
-**Detailed design: `plan-loop-bce-phase3.md`.**
+### Phase 3 — loop-BCE (tightened soundness) — ✅ LANDED (`1362c1954`)
+**Detailed design: `plan-loop-bce-phase3.md`.** The marquee payoff: `bceLoop` in
+`RunOptPasses` (`-O1+`) removes an induction-variable `OP_BOUNDS_CHECK` for a
+counted loop when all three obligations are proven. Design + code reviewed;
+native `-O2` conformance 2990/0 (must-KEEP 310/311/314 still fault); end-to-end
+the canonical raw-slice loop's check is gone at `-O2`. v1 covers arrays + raw
+slices (Phase 2b load-forwarding `ddbc8fea5` coalesces the slice-length loads);
+**managed-slice loop-BCE is the remaining follow-up** — a `@[]T` slice escapes
+via the bounds check's own cleanup fault pad, so it needs fault-pad-aware
+forwarding. With this, the BCE project (Phase 1 → 1.5 → P → D → 2a → 2b → 3) is
+complete for arrays + raw slices.
 Remove `OP_BOUNDS_CHECK(idx, len)` for an induction-variable access **only** when
 ALL hold (else KEEP):
 1. **Upper bound:** the access's `idx` operand *is* (SSA-identical to) a loop-header
