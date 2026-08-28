@@ -55,6 +55,42 @@ analysis — a load reaches different stores on different paths). v1's single-st
 case covers the overwhelmingly-common loop-invariant collection: a param slice or
 a locally-initialized slice, iterated without reassignment.
 
+## Reach (accurate — soundness review corrected the over-sell)
+
+The pass is **sound for any type**, including managed aggregates (refcounting is
+explicit and operand-based, so forwarding leaves the RefInc/RefDec sequence
+byte-identical). BUT it only *fires* for a slot the escape analysis clears, and
+that excludes **managed slices in a bounds-checked loop**: a bounds check
+(`OP_BOUNDS_CHECK`/`OP_NIL_CHECK`/…) attaches a **fault pad** that
+`EmitLoad`s every live **managed** local for cleanup-RefDec, and `allocaEscapes`
+treats any `FaultPads` appearance as escape. So a `@[]T` slice escapes via the
+very bounds check we want to eliminate. Net v1 reach:
+
+- **Fires:** **raw slices** (`*[]T`/`*[]readonly T` — never RefDec'd, no pad
+  reference), fixed **arrays** (their length is a const, so loop-BCE needs no
+  forwarding at all), and managed aggregates with no faulting op in their live
+  range.
+- **Does NOT fire (deferred):** **managed slices** (`@[]T`) in a bounds-checked
+  loop — blocked by the fault-pad escape. Making these forward needs
+  fault-pad-aware handling (treat a pad's cleanup-load as a non-escaping use and
+  forward it too, with off-CFG dominance care) — a separate v2 step.
+
+So full loop-BCE on top of this covers **arrays + raw slices**; managed-slice
+loop-BCE is a follow-up.
+
+## Implementation notes (from the soundness review)
+
+- Reuse mem2reg's **cross-block** delete-plus-rewrite machinery
+  (`applyPromotion` shape: build the id-indexed repl map, rebuild blocks dropping
+  the alloca/store/loads, rewrite all `Args`/`Phis[].Val` uses), **including the
+  `assertNoSurvivingUses` fail-loud guard** — NOT the per-block `bceBlock` pattern.
+- Enforce **same-block textual order**: `Dominates(b, b)` is true regardless of
+  order, so a load in the store's block must be checked to come textually AFTER
+  the store (a pre-store load in the same block must NOT be forwarded).
+- Aggregate store/load types match in practice (no scalar-style `OP_CAST`
+  grounding needed) — **assert** it rather than assume; if a mismatch ever
+  appears, bail on that slot.
+
 ## Interaction with mem2reg (Phase 2a)
 
 mem2reg runs first and promotes non-escaping **scalar** slots (with phis). It

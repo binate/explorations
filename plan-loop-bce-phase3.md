@@ -5,8 +5,13 @@
 the design is sound but that condition 5's **slice** sub-case never fires without
 load-forwarding (no CSE; `len(s)` and `s[i]` load `s` twice → distinct
 `OP_SLICE_LEN` operands). Load-forwarding coalesces those loads so slice loop-BCE
-works; the **array** case (const-length equality) fires without it. So this phase
-targets arrays AND slices, on top of 2b.
+works; the **array** case (const-length equality) fires without it.
+
+**Reach after 2b: arrays + RAW slices (`*[]T`).** The 2b soundness review found
+that **managed slices (`@[]T`)** escape via the bounds check's own fault pad (it
+loads live managed locals for cleanup), so they are not forwarded and their
+loop-BCE is deferred to a v2 (fault-pad-aware handling). Raw slices — the common
+read-iteration borrow form — and arrays are covered.
 
 Design doc for the marquee payoff: remove `OP_BOUNDS_CHECK(idx, len)` for an
 induction-variable array/slice access inside a counted loop, now that mem2reg
