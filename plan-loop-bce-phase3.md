@@ -1,5 +1,13 @@
 # Phase 3 — loop-BCE (tightened soundness)
 
+**Prerequisite (decided 2026-08-27): Phase 2b load-forwarding
+(`plan-load-forwarding-phase2b.md`) lands FIRST.** The soundness review confirmed
+the design is sound but that condition 5's **slice** sub-case never fires without
+load-forwarding (no CSE; `len(s)` and `s[i]` load `s` twice → distinct
+`OP_SLICE_LEN` operands). Load-forwarding coalesces those loads so slice loop-BCE
+works; the **array** case (const-length equality) fires without it. So this phase
+targets arrays AND slices, on top of 2b.
+
 Design doc for the marquee payoff: remove `OP_BOUNDS_CHECK(idx, len)` for an
 induction-variable array/slice access inside a counted loop, now that mem2reg
 (Phase 2a) turns the induction variable into an SSA loop-header **phi** and Phase
