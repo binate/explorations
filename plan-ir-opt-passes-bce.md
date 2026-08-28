@@ -266,8 +266,28 @@ scalar promotion is wanted (needs register-pair copies in the VM + arm32).
   (diamond/loop/nested + two irreducible CFGs hand-traced; test expectations
   independently recomputed) found no bugs.
 
-### Phase 2a — non-managed scalar SSA promotion (the real BCE enabler)
-**Detailed design: `plan-mem2reg-phase2a.md`.**
+### Phase 2a — non-managed scalar SSA promotion (the real BCE enabler) — ✅ COMPLETE (`ea7687188`)
+**Detailed design: `plan-mem2reg-phase2a.md`.** `promoteScalars` in `RunOptPasses`
+(`-O1+`, before the BCE passes): the first `OP_PHI` producer — makes the Phase P +
+Phase D stack live and unblocks Phase 3. `pkg/binate/ir/mem2reg.bn` +
+`mem2reg_rename.bn`. Everything below was implemented; two review cycles (design +
+code) and a `-O2` conformance gate found + fixed one MAJOR (grounding, below); the
+no-surviving-use fail-loud assertion + phi/predecessor-parity check are in.
+**Validation:** full native `-O2` conformance **2987 pass / 0 fail**; `scalar-diff`
+131/131; VM `-O2` correct; IR unit tests green (compiled + VM). (The ~200 LLVM `-O2`
+failures are `clang -O2`, orthogonal — see the claude-todo entry; native is the clean
+signal for the IR passes.)
+- **Type grounding (the one bug the reviews/conformance caught):** a load reinterprets
+  memory AS its type, so a reaching value of a looser type (an untyped-int
+  `Signed=false` const/expr into a signed int slot) is grounded — the load is
+  rewritten in place into an `OP_CAST` to its own type, so a downstream
+  compare/div/shift/int→float still reads the slot's signedness. Without it a promoted
+  `x < -1` flipped signed→unsigned (`matrix/scalar-diff/cmp/64/signed`). The phi path
+  already carries the slot type, so only direct single-def forwarding needed it.
+- **Orphan-block prune (prerequisite):** gen leaves benign orphan blocks (an if.merge
+  whose arms all terminate) that branch into a phi-block; mem2reg prunes unreachable
+  blocks first so a phi never has fewer entries than the LLVM backend's CFG
+  predecessor count.
 - Promote function-local **non-managed scalar** memory slots (int/bool/…, incl. the
   loop-header induction phi across the back-edge — the reducible-loop case, which is
   the hard-but-necessary SSA-construction case, NOT "single-block") to SSA + phis.

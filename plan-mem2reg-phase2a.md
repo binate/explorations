@@ -1,4 +1,12 @@
-# Phase 2a — non-managed scalar SSA promotion (mem2reg)
+# Phase 2a — non-managed scalar SSA promotion (mem2reg) — ✅ LANDED (`ea7687188`)
+
+**Status:** landed on main as `ea7687188`. `pkg/binate/ir/mem2reg.bn` +
+`mem2reg_rename.bn` (+ tests). Design below is as-built. Validation: full native
+`-O2` conformance 2987 pass / 0 fail; `scalar-diff` 131/131; VM `-O2` correct; IR
+unit tests green (compiled + VM). The grounding fix (untyped `Signed=false` → cast,
+below) resolved the one MAJOR the `-O2` conformance gate caught. The ~200 LLVM `-O2`
+failures are `clang -O2`, orthogonal (tracked in claude-todo).
+
 
 Design doc for the first `OP_PHI` *producer*. Consumed by the existing lowering:
 LLVM keeps phis natively (Phase P LLVM lane); the VM + 3 native backends destruct
