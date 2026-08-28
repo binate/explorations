@@ -1,4 +1,15 @@
-# mem2reg: promote inner-loop induction vars (materialize-zero, not abort)
+# mem2reg: promote inner-loop induction vars (materialize-zero, not abort) — ✅ LANDED (`0e6c40b5f`)
+
+**Status:** landed on main as `0e6c40b5f`. Soundness review DESIGN SOUND
+(exhaustive — every promotable-scalar alloca in the ir package has a dominating
+store; the dead-outer-header-phi claim is airtight via Binate's structured
+control flow). Full native `-O2` conformance 2990/0. End-to-end: the nested
+`for r { for j:=0; j<len(a); j++ { a[j] } }` over a raw slice now promotes `j`
+and loop-BCE eliminates the inner check at `-O2` (was 1→1, now 1→0), output
+unchanged. Unlocks the ubiquitous nested-loop case — the biggest loop-BCE reach
+expansion. Pairs with the managed-slice follow-up
+(`plan-loop-bce-managed-slices.md`).
+
 
 Follow-up to Phase 2a. **Problem (found by benchmarking loop-BCE):** an
 induction variable of an INNER loop — the idiomatic `for r { … for j:=0;
