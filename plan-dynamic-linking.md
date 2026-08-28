@@ -105,3 +105,32 @@ Next (D2): port this to a bnld dynamic-ELF emitter — Resolve treats unresolved
 as dynamic imports; synthesize the sections above; generate PLT/GOT + JUMP_SLOT and
 retarget the CALL26; emit the PT_INTERP/PT_DYNAMIC/PT_LOAD ELF; wire `--dynamic`/`-l`
 into the CLI; e2e run in Docker.
+
+## D2 landed (2026-08-28): bnld links a dynamic ELF that calls libc
+
+- **Library** `251d5f73d` — `LinkDynElf` + `EmitDynElfExec` + the synthetic
+  "dynamic-stubs" object.  bnld produces a dynamically-linked aarch64 ELF whose
+  undefined externals (libc's `exit`) are bound at load by ld-linux-aarch64.so.1.
+  Reuses Resolve→Layout→Relocate unchanged (imports enter as a stubs object that
+  defines each at its PLT stub); BIND_NOW so no lazy PLT0 resolver.  Unit tests for the
+  table builders + the PT_INTERP/PT_DYNAMIC emitter + an end-to-end LinkDynElf test.
+- **CLI + e2e** `390e6e16a` — `bnld -dynamic` flag; `e2e/bnld-dynamic-linux.sh` builds
+  bnas+bnld, assembles `mov x0,#42 ; bl exit`, links `-dynamic`, checks the ELF names
+  the interp + libc.so.6, and RUNS it → exit 42.  Runs natively on any Linux host with
+  the aarch64 glibc loader (the CI path, no Docker); SKIPs on a non-Linux box unless
+  `BINATE_E2E_DOCKER=1` opts into a glibc arm64 container.  (CI auto-runs everything in
+  e2e/; e2e scripts must not invoke Docker by default — the run is native-or-skip.)
+
+Proven end to end: the bnld-linked binary runs and calls libc's exit through the
+synthesized PLT/GOT.
+
+### Next (D3+)
+- A stdio import (`puts("...")`) — exercises a call with a data argument + libc that
+  needs its init to have run (ld.so runs DT_INIT_ARRAY before _start, so it should work).
+- x86-64 ELF dynamic linking (different PLT/GOT/relocs; would let CI run it natively on
+  an x86-64 Linux runner without binfmt).
+- Multiple imports / a real archive of libc stubs; `-l`/`-rpath` ergonomics.
+- Then Mach-O dynamic (LC_LOAD_DYLINKER + LC_MAIN + LC_LOAD_DYLIB + chained fixups),
+  reusing the R31–R35 Mach-O writer/signer — the path to running on macOS arm64.
+- Consider giving e2e/bnld-linux-aarch64.sh the same native-or-skip + opt-in-Docker
+  treatment (it currently invokes docker by default).
