@@ -1165,3 +1165,26 @@ placed in a `__LINKEDIT` segment with an `LC_CODE_SIGNATURE` load command pointi
 it; plus wiring `Link` to select Mach-O output (a format arg or `LinkMacho` entry).
 R36 — e2e: link a real arm64 program with a direct macOS syscall (`x16`, `svc #0x80`)
 to exit(N), sign it, run it on this Mac, check the exit code.
+
+- **Round 35 — ad-hoc code-signing:** ✅ landed `64a1eb964`.  Modern macOS refuses to
+  run an unsigned executable, so `EmitMachoExec` now embeds an ad-hoc code signature.
+  New `macho_codesign.bn` builds a `CS_SuperBlob` holding a single `CodeDirectory`
+  (version 0x20400, flags adhoc|linker-signed, SHA-256 page hashes via
+  `pkg/binate/sha256`); `EmitMachoExec` places it in a trailing `__LINKEDIT` segment
+  pointed at by an `LC_CODE_SIGNATURE`, and gains an `identifier` parameter (it now
+  always signs — an unsigned binary is useless on macOS).  Each code slot i seals
+  `SHA-256(file[i*4096 : min(., codeLimit)])` with `codeLimit` = the signature's own
+  file offset (so it doesn't hash itself), the last page unpadded.  The CodeDirectory
+  byte layout was reverse-engineered field-for-field from a clang-signed arm64 binary
+  (and the page-hashing scheme confirmed by recomputing clang's own slots).  Validated
+  three ways: unit tests for the builder pieces; `emit_macho_test.bn` recomputes every
+  page hash of the emitted binary; and **the system `codesign -v` reports the output
+  "valid on disk" / "satisfies its Designated Requirement"** — macOS's own tooling
+  accepts the hand-written signature.
+
+**R36 (last) — make it actually run:** the signed binaries still get SIGKILL'd at
+exec because the test base `0x400000` violates the arm64 kernel's load constraints
+(it wants a 4 GB `__PAGEZERO`, base `0x100000000`).  R36 wires `Link` to select Mach-O
+output at that base, links a real program that exits via a direct macOS syscall
+(`mov x16,#1 ; mov x0,#N ; svc #0x80`, the BSD `exit`), signs it, and runs it on this
+Mac to check the exit code.
