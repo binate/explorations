@@ -16,11 +16,21 @@ helper via `testing.Println`'s `*any` `float{32,64}.String()` branches).
 - Double mul/div group (`_arm_muldivdf3.o`: dmul/ddiv): `12bf5c978`.
 - Comparison groups (`_arm_cmp{df,sf}2.o` + `_arm_unord{df,sf}2.o`:
   {d,f}cmp{eq,lt,le,gt,ge,un}): `1b2647486`.
+- Float->int conversion group (`_arm_fix*` / `_fix*`: d2uiz/d2lz/d2ulz,
+  f2iz/f2uiz/f2lz/f2ulz; d2iz was already done): `2accf6aea`.
 
-**All 19 helpers the suite needs are now ported** (add/sub, mul, div, and the
-compares, both f32 and f64).  Remaining for the FULL AEABI set (C interop, not
-needed by the suite): the single-symbol conversion members — f2iz, d2uiz,
-f2uiz, d2lz, f2lz, d2ulz, f2ulz — and dneg/fneg.
+**Every helper the native_arm32_baremetal suite pulls from libgcc is now
+ported** — a full no-libgcc suite link resolves with ZERO undefined `__aeabi_*`
+symbols (verified 2026-08-27: 2948 pass / 1 fail, the one failure being the
+pre-existing native-backend crash in `1224_const_fold_cast_int_to_float`, which
+also fails WITH libgcc and passes on host — a known-incomplete-backend issue,
+not a soft-float gap).  **NEXT: drop the libgcc `--link-after-objs` pass from
+the runners + delete the find-script's libgcc probe** (the actual C-Free step).
+
+For the FULL AEABI set beyond what the suite needs (C interop): only `dneg`/
+`fneg` remain — but the native backend lowers float negate INLINE (a sign-bit
+flip, no libcall), so these are only relevant for a linked GCC-compiled C
+object.  Deferred as low-priority.
 
 NOT provided (deliberate): the flag-setting compare variants
 `__aeabi_cdcmp{eq,le}` / `__aeabi_cdrcmple` (also in `_arm_cmpdf2.o`/`sf2.o`).
