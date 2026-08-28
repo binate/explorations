@@ -125,8 +125,10 @@ Proven end to end: the bnld-linked binary runs and calls libc's exit through the
 synthesized PLT/GOT.
 
 ### Next (D3+)
-- A stdio import (`puts("...")`) — exercises a call with a data argument + libc that
-  needs its init to have run (ld.so runs DT_INIT_ARRAY before _start, so it should work).
+- (done, `fe19a61ee`) stdio + multiple imports: a program calls `puts(msg)` then
+  `exit(0)` — two imports, a data argument, libc stdio (ld.so runs libc init before
+  _start).  Works with no linker change (buildDynStubs sizes tables per-import); the e2e
+  now links+runs `hello` (prints "hello from bnld", exit 0) alongside exit42.
 - x86-64 ELF dynamic linking (different PLT/GOT/relocs; would let CI run it natively on
   an x86-64 Linux runner without binfmt).
 - Multiple imports / a real archive of libc stubs; `-l`/`-rpath` ergonomics.
