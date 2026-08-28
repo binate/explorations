@@ -1188,3 +1188,12 @@ exec because the test base `0x400000` violates the arm64 kernel's load constrain
 output at that base, links a real program that exits via a direct macOS syscall
 (`mov x16,#1 ; mov x0,#N ; svc #0x80`, the BSD `exit`), signs it, and runs it on this
 Mac to check the exit code.
+
+- **Round 36 — run on macOS: BLOCKED, pivoted to dynamic linking.**  A bnld-linked
+  static Mach-O (correct base 0x100000000, 4 GB `__PAGEZERO`, `codesign -v` valid) is
+  still SIGKILL'd by the arm64 kernel as "Bad executable": **macOS arm64 does not run
+  statically-linked executables** (a dynamic binary doing the identical direct `svc`
+  syscall exits fine — the differentiator is dyld, not the syscall).  Per the user,
+  the project pivots to **dynamic linking** (ELF first, then Mach-O); see
+  `plan-dynamic-linking.md`.  R31–R35 (Mach-O reader / Link wiring / static exec
+  writer / SHA-256 / ad-hoc code-signing) all stand and carry forward.
