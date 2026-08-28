@@ -132,5 +132,7 @@ synthesized PLT/GOT.
 - Multiple imports / a real archive of libc stubs; `-l`/`-rpath` ergonomics.
 - Then Mach-O dynamic (LC_LOAD_DYLINKER + LC_MAIN + LC_LOAD_DYLIB + chained fixups),
   reusing the R31–R35 Mach-O writer/signer — the path to running on macOS arm64.
-- Consider giving e2e/bnld-linux-aarch64.sh the same native-or-skip + opt-in-Docker
-  treatment (it currently invokes docker by default).
+- (done) e2e Docker policy fixed for both bnld-dynamic-linux.sh and bnld-linux-aarch64.sh
+  (`fb791594a`): the aarch64 run happens under Docker only on a Linux CI lane (one
+  platform, not duplicated), never on a default local run — CI has no native aarch64
+  Linux runner (matrix is x86-64 Linux + arm64 macOS).
