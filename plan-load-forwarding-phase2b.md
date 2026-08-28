@@ -1,4 +1,13 @@
-# Phase 2b — load-forwarding (redundant-load elimination)
+# Phase 2b — load-forwarding (redundant-load elimination) — ✅ LANDED (`ddbc8fea5`)
+
+**Status:** landed on main as `ddbc8fea5`. `pkg/binate/ir/load_forward.bn`
+(+ tests). Design review DESIGN SOUND; code review NO BUGS. Full native `-O2`
+conformance 2990 pass / 0 fail (no regressions). Coalesces the two slice-header
+loads (`len(s)` + `s[i]`) onto one SSA value — confirmed on the canonical loop —
+which is what lets loop-BCE (Phase 3) match a slice's guard bound to its
+bounds-check length. Design below is as-built (v1: single dominating store; fires
+for raw slices + arrays; managed slices deferred — see "Reach" below).
+
 
 Prerequisite for full loop-BCE (Phase 3) over **slices**. The Phase 3 soundness
 review found that condition 5's slice sub-case (`L` ≡ `len` when both are
