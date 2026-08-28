@@ -803,6 +803,22 @@ CI-wiring, kept deliberately **separate** from landing the passes themselves. Un
 it lands, mem2reg/loop-BCE rely on IR-unit coverage plus manual `-O2` spot-runs. See
 `plan-mem2reg-phase2a.md` and `plan-ir-opt-passes-bce.md`.
 
+**BLOCKER discovered 2026-08-27 — `clang -O2` on the LLVM backend reddens ~200
+conformance tests (orthogonal to the IR opt passes).** The LLVM backend implies
+`clang -On`, so a `BINATE_FLAGS=-O2` conformance run compiles the generated code at
+clang `-O2` as well as running the bnc IR passes. A full `builder-comp` (LLVM) run at
+`-O2` gave **2782 passed / 205 failed**; the failures are dominated by managed /
+refcount / dtor / iface / fmt / stdlib tests. These are **NOT** caused by mem2reg: the
+SAME tests PASS on the clang-free **native** x64 backend at `-O2` (verified: 6/6
+representative failures pass on native; the full native `-O2` blast radius is just the
+`scalar-diff` signedness cells, addressed by the mem2reg grounding fix). So turning on
+an `-O2` LLVM matrix lane requires first understanding why `clang -O2` breaks these —
+likely latent UB / strict-aliasing in the generated code or the C runtime shims that
+clang exploits at `-O2` (a real correctness concern even if only triggered under
+optimization). This is its own investigation and gates the LLVM `-O2` lane; the native
+`-O2` lane is clean modulo the mem2reg fix. Reproduce: `BINATE_FLAGS=-O2
+./conformance/run.sh builder-comp`.
+
 ## Conformance matrix generators — port to Binate (dogfood)
 
 ### Port the `conformance/gen-*.py` matrix generators to Binate — 🟡 SCOPED, not started (2026-07-17)
