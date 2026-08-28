@@ -1055,3 +1055,52 @@ locked into CI.  bnld now links both bnc backends' output plus static archives, 
 x86-64 and aarch64.  Remaining toward full ld-replacement (future): non-mov
 GOTPCRELX / plain-GOTPCREL forms via GOT synthesis (clang doesn't emit them for bnc
 today), wiring bnc to invoke bnld for the final link, and dynamic linking.
+
+### Next project: static Mach-O support — link + run on macOS (plan 2026-08-27)
+
+Goal (user-selected over dynamic linking, which we decided bnld does NOT need):
+teach bnld to consume and produce Mach-O so a Binate program links with bnld and
+runs on macOS via a static Mach-O executable + direct syscalls + ad-hoc codesign
+(sidestepping dyld).  Five rounds:
+
+- R1 — Mach-O object reader (header/segments/symtab/relocs) → InputObject.
+- R2 — arm64 Mach-O relocations (translate to the canonical ELF kinds; addend model).
+- R3 — static Mach-O executable writer (__PAGEZERO/__TEXT/__DATA, LC_UNIXTHREAD/LC_MAIN).
+- R4 — macOS arm64 syscall ABI (x16, svc #0x80) + ad-hoc code-signing (LC_CODE_SIGNATURE).
+- R5 — e2e: bnld links a Mach-O program, runs on macOS (this Mac).
+
+- **Round 31 — Mach-O object reader:** ✅ landed `3260a5173`.  New
+  `pkg/binate/link/parse_macho.bn` normalizes a Mach-O `MH_OBJECT` byte slice into
+  the same `InputObject` model the ELF reader produces, so the resolver, layout, and
+  the per-arch relocation patchers (incl. the GOT relaxation from rounds 26–27) all
+  work on Mach-O input unchanged — the design lever is to translate at the reader and
+  reuse everything downstream.  It walks the 32-byte `mach_header_64` + load commands,
+  reads sections from `LC_SEGMENT_64` (classified into the `SF_*` flags —
+  pure-instructions→text, zerofill→bss, `__DATA`→data, else rodata; `section_64.align`'s
+  log2 exponent converted to a byte count), reads `nlist_64` symbols from `LC_SYMTAB`
+  in table order (N_EXT→global, N_WEAK_DEF/N_WEAK_REF→weak, else local; N_SECT→defined
+  section via a Mach-O→my index map, else −1), and translates each `relocation_info`
+  into a canonical ELF reloc kind: PAGE21→ADR_PREL_PG_HI21, PAGEOFF12→ADD_ABS_LO12 or
+  LDST64_ABS_LO12 (chosen by the ADD-vs-load opcode), BRANCH26→CALL26, 64-bit
+  UNSIGNED→ABS64 (implicit in-section field addend), the GOT_LOAD pair→the relaxable
+  GOT kinds, and ARM64_RELOC_ADDEND folded (24-bit sign-extended) into the following
+  reloc.  The little-endian `relocation_info` bitfield (r_symbolnum:24, r_pcrel:1,
+  r_length:2, r_extern:1, r_type:4) is decoded bit-exact.  Hardened against malformed
+  input (fail loud, never OOB/OOM): a segment command must hold its declared sections
+  within `cmdsize` (else the 80-byte section scan overruns the scratch arrays — an
+  OOB write); LC fixed fields are guarded by a `cmdsize` minimum before being read;
+  `nsyms`/total-reloc counts are bounded by the file size before allocating; scattered
+  and section-relative (non-extern) relocs are rejected; an x86-64 object's relocs are
+  rejected rather than decoded with the arm64 `r_type` table (silent-miscompile guard);
+  and a 32-bit absolute UNSIGNED is rejected rather than mis-emitted as PC-relative
+  PREL32.  These fixes all came out of an adversarial review (which confirmed clean:
+  every struct field offset, the bitfield extraction, the ADDEND sign-extension, and
+  the managed-slice exact-size copy idioms).  Reader is package-private
+  (`parseMachoBytes`); wiring it into `Link`'s input classifier comes with the exec
+  writer (R3).  7 unit tests: 4 assemble arm64 Mach-O objects in-process via the
+  existing `macho.WriteARM64` writer (pure byte work, runs on any host) and read them
+  back (machine, section classification, symbol bindings/sections, the
+  PAGE21/PAGEOFF12/BRANCH26 and GOT_LOAD translations); 3 hand-build malformed objects
+  and confirm the memory-safety guards reject a truncated command, oversized nsects,
+  and an absurd symbol count.  TODO deferred to a real clang object (R2): the ADDEND
+  path and sub-64-bit PAGEOFF12 loads are unexercised by bnas.
