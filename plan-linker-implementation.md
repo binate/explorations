@@ -1104,3 +1104,41 @@ runs on macOS via a static Mach-O executable + direct syscalls + ad-hoc codesign
   and confirm the memory-safety guards reject a truncated command, oversized nsects,
   and an absurd symbol count.  TODO deferred to a real clang object (R2): the ADDEND
   path and sub-64-bit PAGEOFF12 loads are unexercised by bnas.
+
+- **Round 32 — wire Mach-O into Link + cross-object integration:** ✅ landed
+  `3ca4a436a`.  `Link` now classifies a Mach-O object by its magic (`cf fa ed fe`)
+  and reads it via `parseMachoBytes`, so the public API accepts Mach-O input (the
+  output container is still ELF until the Mach-O exec writer's format-selection lands,
+  so a Mach-O arm64 input is relinked into a loadable arm64 ELF).  R31 only tested that
+  reloc *kinds* are translated; R32's new `macho_link_test.bn` proves they *apply*
+  correctly through the existing Resolve→Layout→Relocate pipeline:
+  `TestMachoCrossObjectRelocation` assembles two Mach-O objects (A references undefined
+  externals `msg`+`helper` via ADRP+ADD and BL; B defines them), links them, and checks
+  that after Relocate the BL's decoded imm26 lands *exactly* on helper's resolved
+  address and the ADRP+ADD pair reconstructs *exactly* msg's address — end-to-end
+  cross-object.  `TestLinkMachoObject` drives the public `Link` API on a Mach-O object
+  to a `checkLoadable`-verified executable.  Confirmed en route that bnas *can* emit
+  undefined-external references (declare them with `SetGlobal` first), so multi-object
+  Mach-O linking is viable — the R31 GOT-test "assembler error" was a missing
+  declaration, not a limitation.
+- **Round 33 — static Mach-O executable writer:** ✅ landed `d2b0ced5c`.
+  `EmitMachoExec` (`pkg/binate/link/emit_macho.bn`) mirrors `EmitElfExec`'s layout
+  (same LayoutResult, same two W^X load groups, same "lowest real segment starts at
+  file offset 0 so it maps the header" trick) but emits Mach-O load commands and an
+  `LC_UNIXTHREAD` that sets the initial PC directly — kernel loads the segments and
+  jumps to the entry, no dyld, no libc `_start`.  Structure: `__PAGEZERO` (vmaddr 0,
+  no access), `__TEXT` (RX; maps the header + ro/exec sections), `__DATA` (RW; only
+  when there is writable/bss data), then `LC_UNIXTHREAD`.  Reuses the shared
+  writeLE/groupStats/alignUp/writeFile helpers; arm64 only (non-arm64 rejected loud).
+  Verified two ways: three structural unit tests re-parse the output (MH_EXECUTE
+  identity, the segments, `LC_UNIXTHREAD __pc == entry`), and the emitted executables
+  parse cleanly under the *system's own* `otool -h/-l` (correct __PAGEZERO/__TEXT/__DATA
+  vmaddrs+offsets, RX/RW prots, pc == `_start`).
+
+**Still to do for R34–R35:** modern macOS arm64 refuses to run an *unsigned*
+executable, so R34 must ad-hoc code-sign the output — which needs a `CodeDirectory`
+with per-page **SHA-256** hashes.  No SHA-256 exists in the tree yet (confirmed by
+grep), so R34 begins with a SHA-256 support-library implementation (the "hashing"
+support work anticipated up front), then the CodeDirectory/SuperBlob + `__LINKEDIT`
+segment + `LC_CODE_SIGNATURE`.  R35 wires `Link` to select Mach-O output and runs the
+e2e (link a real program, sign it, run on this Mac, check the exit code).
