@@ -72,3 +72,36 @@ initialization needed.  This removes the hairiest part of a first cut.
 
 The R31–R35 Mach-O reader/writer/ad-hoc-signer all carry forward; nothing there is
 wasted — the Mach-O port of dynamic linking builds directly on them.
+
+## D1 result: approach VALIDATED end-to-end (2026-08-27)
+
+A from-scratch Python prototype (`explorations/proto-dynamic-elf-aarch64.py`) emits a
+minimal dynamic aarch64 ELF whose `_start` does `mov w0,#42 ; bl exit@plt`, and it
+**runs in Docker and exits 42** — ld.so loads it, and `LD_DEBUG=bindings` confirms
+`binding file ./proto to libc.so.6: normal symbol 'exit'`.  The risky unknown (does
+ld.so accept a hand-rolled dynamic ELF and bind the import) is now proven.  The exact
+working recipe to port to bnld:
+
+- **No section headers** (e_shnum=0); ld.so uses only program headers + `.dynamic`.
+- Four program headers: `PT_INTERP`, `PT_LOAD` r-x (page 0: ehdr+phdrs, .interp,
+  .hash, .dynsym, .dynstr, .rela.plt, .plt, .text), `PT_LOAD` rw (page 1: .dynamic,
+  .got.plt), `PT_DYNAMIC`.
+- **BIND_NOW** (`DT_FLAGS=DF_BIND_NOW` + `DT_BIND_NOW`): ld.so resolves the JUMP_SLOT
+  before `_start`, so **no PLT0 trampoline / `_dl_runtime_resolve` / lazy GOT init**.
+- `.hash` = SysV (nbucket=1, nchain=nsym); `.dynsym` = {null, exit(UND,FUNC,GLOBAL)};
+  `.dynstr` = `\0exit\0libc.so.6\0`.
+- `.rela.plt` = one `R_AARCH64_JUMP_SLOT` (r_info = (symidx<<32)|1026) → the import's
+  `.got.plt` slot.
+- `.plt` stub = `adrp x16,GOTpage ; ldr x17,[x16,#:lo12] ; add x16,x16,#:lo12 ; br x17`.
+- `.got.plt` = `[0]=&.dynamic, [1]=0, [2]=0, [3..]=import slots` (ld.so fills imports).
+- `.dynamic` = NEEDED(libc.so.6), HASH, STRTAB, SYMTAB, STRSZ, SYMENT(24),
+  PLTGOT(&.got.plt), PLTRELSZ(24), PLTREL(RELA=7), JMPREL(&.rela.plt), FLAGS(BIND_NOW),
+  BIND_NOW, NULL.
+- **Gotcha found:** a call site's `bl` PC-relative offset is from the `bl`
+  instruction's own address, not the function start — trivial but it segfaulted until
+  fixed.
+
+Next (D2): port this to a bnld dynamic-ELF emitter — Resolve treats unresolved externs
+as dynamic imports; synthesize the sections above; generate PLT/GOT + JUMP_SLOT and
+retarget the CALL26; emit the PT_INTERP/PT_DYNAMIC/PT_LOAD ELF; wire `--dynamic`/`-l`
+into the CLI; e2e run in Docker.
