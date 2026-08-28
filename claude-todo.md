@@ -792,7 +792,21 @@ Referenced by the TODO comment in `cmd/bnc/test.bn`'s `isTestResultReturn`.
 
 ## Optimization passes (loop-BCE project)
 
-### Managed-slice loop-BCE — fault-pad-aware load-forwarding — 🟡 OPEN (2026-08-28)
+### Managed-slice loop-BCE — needs redundant-load-elimination (by-address blocker) — 🟡 OPEN (2026-08-28)
+**Implementation attempted 2026-08-28 and REVERTED — hit a by-address ABI
+miscompile.** A `@[]T` is a 4-word aggregate passed/represented **by address**
+(LLVM `ptr`), so load-forwarding's *store*-forwarding (forward loads to the stored
+value `V`) makes the backend `extractvalue` a slice out of a **pointer** →
+wrong-code/SEGV on the VM at `-O1+` (`msmin`/`msloop`). Store-forwarding assumes a
+by-VALUE materialization (true for scalars + raw slices, false for by-address
+aggregates). The **fault-pad-aware escape/dominance analysis was soundness-reviewed
+DESIGN SOUND and is reusable**, but the core mechanism must change to
+**redundant-load-elimination**: forward the second slot load to a **dominating
+earlier LOAD** (which materializes the value), not to the stored value — then both
+`len(s)` ops read one materialized `OP_EXTRACT(load1,1)` and loop-BCE matches; the
+slot/store/first-load stay. This is a real redesign. Landed raw-slice/array
+load-forwarding is unaffected (by-value / escapes via fieldwise ops — verified
+correct). See `plan-loop-bce-managed-slices.md` (by-address blocker section).
 Loop-BCE (Phase 3, `1362c1954`) + load-forwarding (Phase 2b, `ddbc8fea5`) landed
 for arrays + **raw** slices. A **managed** slice (`@[]T`) in a bounds-checked loop
 is NOT covered: a bounds check attaches a fault pad that `EmitLoad`s every live

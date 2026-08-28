@@ -1,5 +1,44 @@
 # Managed-slice loop-BCE — fault-pad-aware load-forwarding
 
+> **⚠️ 2026-08-28: the store-forwarding approach below is WRONG for managed
+> slices — it hit a by-address ABI miscompile. See "By-address blocker" at the
+> top. The fault-pad soundness analysis (reviewed DESIGN SOUND) still holds and is
+> reusable, but the core mechanism must change from store-forwarding to
+> redundant-load-elimination. The implementation attempt was reverted.**
+
+## By-address blocker (the real problem, found by implementing + testing)
+
+A `@[]T` managed slice is a 4-word aggregate that the backends pass/represent
+**by address** (an LLVM `ptr` param; the IR type is still the slice value). This
+pass forwards a slot's LOADS to the single **stored value** `V`. When `V` is a
+by-address value (a managed-slice param, or any by-address aggregate), the
+backend then does `extractvalue %BnManagedSlice %ptr` on the **pointer** — the
+materialization the original `OP_LOAD` provided is gone → wrong-code (a slice-value
+read of an address; `msmin`/`msloop` SEGV/miscompile on the VM at `-O1+`). This is
+the "representation is ABI" trap: store-forwarding assumes the stored value is a
+first-class by-VALUE materialization, which holds for scalars and raw slices
+(small, by-value) but NOT for by-address aggregates.
+
+The landed raw-slice/array load-forwarding is unaffected (raw slices are by-value;
+by-address structs escape via fieldwise/field-access ops, so they were never
+forwarded — confirmed: the landed code gives correct results for managed slices,
+simply declining to forward them).
+
+## Corrected approach: redundant-load-elimination (forward to a dominating LOAD)
+
+For a by-address aggregate slot, coalesce the two length loads by forwarding the
+later load to a **dominating earlier LOAD of the same slot** (which materializes
+the value), NOT to the stored value. Both `len(s)` and `s[i]` then use the same
+materialized `OP_LOAD` result → `OP_EXTRACT(load1, 1)` for both → loop-BCE
+matches; the slot/store/first-load stay (so the value is still materialized). The
+fault-pad handling (below, reviewed sound) still applies to the pad's cleanup
+load. This is a different algorithm from the current single-store store-forwarding
+and is a real redesign — hence deferred pending a decision.
+
+---
+
+# (Original design — store-forwarding; superseded by the by-address blocker above)
+
 Follow-up that takes loop-BCE from "arrays + raw slices" to also cover **managed
 slices (`@[]T`)**. Lives in `pkg/binate/ir` (load-forwarding, `load_forward.bn`).
 
