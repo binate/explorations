@@ -6,6 +6,47 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `cast(float64, <untyped int const, negative or >= 2^63>)` — FIXED (2026-08-28, `f0e51a747`)
+
+The unsigned SIBLING of the negative-direction fix (test 1224), plus the NEGATIVE
+direction for the IMPORT path (which 1224 never covered).  An untyped integer const
+whose value has its high bit set -- a NEGATIVE value, or a non-negative magnitude
+>= 2^63 (uint64-only) -- reaches an int->float cast only in constant form.  Left
+untyped (TypUntypedInt) the two backends DISAGREE: LLVM (`isUnsigned = !Signed`)
+reads it unsigned (uitofp); the VM/native predicate (`Kind==TYP_INT && !Signed`)
+reads it signed.  So a negative const came out a huge POSITIVE float on LLVM, and a
+>= 2^63 const a huge NEGATIVE float on VM/native -- a silent divergence in BOTH
+directions.
+
+The old todo framed this as "VM/native do signed; LLVM correct" needing a holistic
+BACKEND fix; that premise was WRONG.  A `TypUint64` (concrete TYP_INT, !Signed)
+source already converts unsigned on ALL backends -- the fix is PRODUCER + CHECKER
+only, no backend-predicate change:
+
+1. Checker `attachConstLitVal` (check_const.bn) derived LitSign from the int64 BIT
+   PATTERN, mis-signing a >= 2^63 magnitude as negative.  Now uses the true bignum
+   sign -- checkExpr's stamp locally, else a `foldConstMagSign` re-fold for the
+   import path (whose .bni value is never checkExpr'd, so the passed type has no
+   lit stamp).
+
+2. Every IR const producer stamps an untyped high-bit-set const a CONCRETE type off
+   the checker's LitSign: negative -> signed (TypInt/TypInt64), >= 2^63 -> unsigned
+   (TypUint64), in-int32 non-neg -> untyped.  In-package: gen_expr, gen_binary,
+   gen_const (single + group), gen_util_literals (the ILP32 tryFoldOversizedConst).
+   Imported: gen_import / gen_register_import / gen_import_const / gen_repl
+   (GenConstMember, the parked const-member retry) via a shared importConstUntypedTyp.
+
+gen_repl.bn was split to gen_repl_types.bn to stay under the file-length cap.
+
+Two adversarial-review rounds each caught an import-surface gap (cross-package
+>= 2^63; then cross-package NEGATIVE) -- both were LLVM-only-testing blind spots,
+now fixed + tested.  Tests: conformance/1226 (single-package, all forms + negative
+controls), 1227 (cross-package, both directions), and a repl-package unit test
+driving the parked-member retry (proven to FAIL without the stamp).  Green on LLVM,
+VM, native-x64, native-aarch64; full host conformance 2992/0; ILP32 verified at the
+IR level (see the arm32-linux gen1-build todo -- a full ILP32 runtime run is blocked
+by unrelated toolchain drift).
+
 ## `cast(float64, <negative int expr>)` const-folded to a huge unsigned value — FIXED (2026-08-27, `3fa7fa15e`)
 
 Casting a compile-time NEGATIVE integer expression to `float64` mis-folded: the folded

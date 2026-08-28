@@ -7,39 +7,27 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### Untyped int constant >= 2^63 cast to float: VM + native do SIGNED conversion (LLVM correct) — 🔴 MAJOR (2026-08-27)
+### `builder-comp_arm32_linux` gen1 build fails on current ubuntu binutils (duplicate weak_odr thunks) — 🟠 BUILD-INFRA (found 2026-08-28)
 
-An UNTYPED integer constant whose value is >= 2^63 (e.g. `cast(float64,
-0xFFFFFFFFFFFFFFFF)` or `... - 0`) converts to `float64` as SIGNED on the VM and the
-native backends — yielding the negative value's float (`0xFFFFFFFFFFFFFFFF` -> -1.0)
-instead of its true magnitude (~1.8e19).  The LLVM backend is correct (`uitofp`).  An
-EXPLICIT `uint64` operand converts correctly on ALL backends — only the UNTYPED-int
-source diverges.  Silent wrong value; narrow (an untyped magnitude >= 2^63 in a float
-cast — one would normally write an explicit `uint64`).
+The `builder-comp_arm32_linux` conformance mode's gen1 build (compile cmd/bnc for
+the host, then cross-compile tests to arm32) fails at the HOST link step on a fresh
+`ubuntu:24.04` (current binutils `ld`): `multiple definition of
+FnHasher[uint8].__bn_thunk_Hash` / `FnEq[uint8].__bn_thunk_Equal` between
+`pkg/binate/ir.o` and `pkg/binate/token.o`.  These are the weak_odr iv-dispatch
+thunks (the same class `1222_generic_iv_thunk_cross_pkg` guards) that BOTH packages
+instantiate; the newer `ld` no longer merges them.
 
-Root: the int->float lowering picks signed vs unsigned off the source type's `Signed`
-flag; `TypUntypedInt` has `Signed=false`, so LLVM's `emit_cast` picks `uitofp`
-(correct), but the VM / native int->float lowering evidently treats the untyped-int
-source as SIGNED.  Discovered 2026-08-27 while fixing the sibling `cast(float64,
-<int expr>)` NEGATIVE mis-fold (that one was LLVM-specific and IS fixed — the two are
-opposite manifestations of the same backend disagreement on untyped-int signedness).
-Needs: find the VM/native int->float signedness site and match LLVM (`uitofp` when the
-source is unsigned / `TypUntypedInt` Signed=false), plus a conformance test (restore
-the removed `>= 2^63` line of `1222_const_fold_cast_int_to_float`).
+PRE-EXISTING and NOT arm32-specific: it is the HOST link of gen1 (amd64/arm64 Linux
+`ld`), reproduced on CLEAN `main` with no local changes.  macOS (Mach-O `ld`) merges
+them fine, and an older cached `ubuntu:24.04` image built gen1 OK, so it is binutils
+drift.  `ubuntu:22.04` fails differently (its clang is too old — no opaque pointers).
+This blocks a full arm32-linux RUNTIME conformance run in fresh docker images (only
+an IR-level ILP32 check is possible there now).
 
-ALSO (found 2026-08-27 by the adversarial review of the negative-fold fix): a
-NON-negative BINARY fold whose magnitude is in [2^63, 2^64-2^31-1] is mis-signed on
-LLVM too -- `gen_binary.bn`'s out-of-int32 branch (`if v < -2147483648 || v >
-2147483647 { EmitConstInt64(v, TypInt64()) }`) keys on the int64 BIT PATTERN `v`, and
-bignumToInt maps such a magnitude to a large-negative `v`, so it emits SIGNED TypInt64
--> sitofp -> a NEGATIVE float (`cast(float64, 9223372036854775807 + 1)` -> ~-9.2e18
-instead of +9.2e18).  So the full `>= 2^63 -> float` fix is BOTH: (a) give a genuinely-
-unsigned magnitude an unsigned type at every const producer (gen_binary out-of-int32
-branch keyed on LitSign not `v`; EXPR_INT_LIT; gen_const / genConstGroup; the import
-producers) AND (b) make VM/native int->float honor an unsigned source (uitofp).  Both
-are needed for cross-mode agreement -- doing only (a) makes LLVM correct but DIVERGES
-from VM/native (empirically: a TypUint64 const still converts signed on the VM), which
-is worse for a dual-mode language, so this is deferred as one holistic backend fix.
+Likely fix: emit the iv-dispatch thunks in a COMDAT/section group so current `ld`
+merges them, or otherwise make the weak_odr linkage survive newer binutils.
+Discovered while trying to run an arm32 runtime check for the `cast(float64, ...)`
+sibling fix (`f0e51a747`, done-log); that fix is IR-level-verified on ILP32.
 
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
