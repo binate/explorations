@@ -1142,3 +1142,26 @@ grep), so R34 begins with a SHA-256 support-library implementation (the "hashing
 support work anticipated up front), then the CodeDirectory/SuperBlob + `__LINKEDIT`
 segment + `LC_CODE_SIGNATURE`.  R35 wires `Link` to select Mach-O output and runs the
 e2e (link a real program, sign it, run on this Mac, check the exit code).
+
+- **Round 34 — SHA-256 for the code-signer:** ✅ landed `53cc093a9`.  Modern macOS
+  arm64 refuses to run an *unsigned* executable, and ad-hoc signing needs a
+  `CodeDirectory` with per-page SHA-256 — and no hashing existed in the tree.  Added a
+  FIPS 180-4 SHA-256 (`Sum256`, one-shot).  **Placement note:** first written in
+  `stdx`, but on review it is deliberately minimal (one-shot only; no streaming
+  Hasher, no fixed Digest type, no Hash interface), so per the user's call it lives in
+  the compiler tree as `pkg/binate/sha256` rather than polluting the shared stdlib — a
+  properly-designed hashing package belongs in stdx/std when someone builds it.  State
+  is kept in a 64-bit int masked to 32 bits after every add/rotate (explicit,
+  target-independent wraparound).  Validated against five reference digests from the
+  system `shasum`: the empty string, the two FIPS examples, a 64-byte
+  exact-block-boundary message (the padding rem>56 case), and all 256 byte values
+  0x00..0xff (binary data — the case the signer hits).  (A use-after-free in the test
+  helper — borrowing a managed temporary past its statement — was caught by the
+  data-carrying vectors failing while the empty one passed; the impl itself was clean.)
+
+**Still to do (R35–R36):** R35 — Mach-O ad-hoc code-signing: a `CS_SuperBlob`
+containing a `CodeDirectory` (per-page SHA-256 code slots, identifier, adhoc flag),
+placed in a `__LINKEDIT` segment with an `LC_CODE_SIGNATURE` load command pointing at
+it; plus wiring `Link` to select Mach-O output (a format arg or `LinkMacho` entry).
+R36 — e2e: link a real arm64 program with a direct macOS syscall (`x16`, `svc #0x80`)
+to exit(N), sign it, run it on this Mac, check the exit code.
