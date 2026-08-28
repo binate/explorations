@@ -303,6 +303,7 @@ signal for the IR passes.)
   size/quality check that induction vars are actually promoted.
 
 ### Phase 3 — loop-BCE (tightened soundness)
+**Detailed design: `plan-loop-bce-phase3.md`.**
 Remove `OP_BOUNDS_CHECK(idx, len)` for an induction-variable access **only** when
 ALL hold (else KEEP):
 1. **Upper bound:** the access's `idx` operand *is* (SSA-identical to) a loop-header
