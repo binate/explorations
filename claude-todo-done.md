@@ -18012,3 +18012,126 @@ Key learnings (superseded the 2026-07-09 audit, which had mis-scoped some of the
   now — this sweep just didn't (it did the Vec half only).  That is un-done work, not
   blocked work.
 
+
+## Performance — bni load time campaign — landed sub-items (2026-08)
+
+The `bni` load-time optimization campaign, moved from the active todo (which
+keeps only the still-open items + the design-level levers that remain; see the
+"Performance — bni load time" section in claude-todo.md).  Landed + rejected
+sub-steps, newest-relevant last:
+
+### DONE — FuncSigs name→index map (`30f6d03ad`)
+
+IR-gen resolved every call target by linear-scanning `Module.FuncSigs` with
+`streq` (O(n) per lookup, O(n²) over a package). Replaced with an
+open-addressing name→index map (mirroring `pkg/binate/vm/func_index.bn`);
+`registerFuncSig` is the single append funnel. ~7–9% faster load at `-O2`
+(cmd/bnc 1.42s → 1.29s median), net-neutral at `-O0`. Two adversarial reviews
+(staleness + semantic-equivalence) cleared it.
+
+### DONE — FuncSigs backed by vec.Vec, not O(n²) slices.Append (`69bdc45f9`)
+
+Key finding: `slices.Append` reallocates the whole slice and copies every
+element on EVERY call (`ns = make_slice(T, n+1); copy all; ns[n]=v`), so
+building a table one item at a time is **O(n²)** in allocations + copies — a top
+driver of the load's dominant allocation cost, far more than the ~5% "copy
+churn" first estimated. Switched `Module.FuncSigs` from `@[]FuncSig` to
+`@vec.Vec[FuncSig]` (amortized doubling). A further ~14% off `-O2` load on top
+of the index (cmd/bnc 1.10s → 0.94s median; cumulative from the pre-index
+baseline 1.27s → 0.94s, **−26%**). Adversarially reviewed (nil-init, value-copy
+`Get`, `Set` replace, index stability) — clean. Makes `ir` the first
+BUILDER-compiled package to depend on `pkg/stdx/containers/{vec,iter}` (proven
+BUILDER-clean by the gen1 build).
+
+### DONE — type-descriptor factories interned (`f21685deb`)
+
+`MakePointerType` / `MakeManagedPtrType` / `MakeSliceType` /
+`MakeManagedSliceType` allocated a fresh Type per call, and the checker
+re-derives the same wrappers constantly (≈166 `rt.Alloc` samples in the `-O0`
+profile). Now memoized per element (`Type.Cached*` fields) — a further ~10% off
+`-O2` load (bni loading cmd/bnc → ~1.28s median; **~31% cumulative** from the
+pre-optimization baseline). The element↔wrapper managed-pointer refcount cycle
+is torn down at each compilation boundary (a registry + `ResetWrapperInterning`
+at `NewChecker`); the interp's RUNTIME value marshaling uses
+`MakeManagedSliceTypeUncached` (a value-scoped, uncached descriptor). Two
+adversarial reviews — the first caught the cycle leak, the second cleared the
+teardown + uncached-split fix. Conformance builder-comp 2982/0.
+
+### DONE — QualifyName single-alloc (`fa19d8a34`) + qualifyForCurrentModule borrow (`ecf68b2d4`)
+
+`mangle.QualifyName`'s common path built the qualified name in a strings.Builder
+then `buf.CopyStr`'d it (redundant double-alloc) → build directly in one
+make_slice (~2%). Then `qualifyForCurrentModule`/`qualifyForPkgPath` took an
+owning `@[]char` name, forcing `buf.CopyStr(name)` at ~13 lookup call sites →
+changed to `*[]readonly char` borrow, dropping the copies; cascaded (converged)
+through the 4 `@Block` emit methods (EmitCall/EmitFuncValue/…) (~2%).
+
+### REJECTED — Structs vec+index (net-neutral, reverted)
+
+Same FuncSigs pattern applied to `Module.Structs` (vec.Vec + name→index map,
+25 files) — but measured **~0%** (same-base -O2 A/B). `Structs` n (struct types
+per module) is small, so its O(n²) is tiny and the per-lookup Get-copy offset it.
+Correct + twice-reviewed but not worth its complexity → reverted (commit
+083e29c51 abandoned).  LESSON: the IR-internal tables (`Consts`/`GlobalVars`/
+`TypeAliases`) are the same low-value trap — do NOT convert them.
+
+### DONE — option 3: Block.Instrs amortized-growth vec (was "freeze") — perf `5225d3a03`, gen_import split `f480c9744`
+
+O(n²) grow-by-one Instr append (slices.Append reallocs n+1 + copies all n per
+call) killed. Profile: 8.5M copies vs 304K instrs = 28× for pkg/binate/types.
+
+DESIGN DEVIATION from the saved two-field-freeze plan: implemented a SIMPLER
+single-field design instead. The freeze plan under-counted the test surface
+badly — hundreds of ir-package tests read `block.Instrs` right after gen WITHOUT
+calling FinalizeStrings, so a deferred freeze would leave them reading empty.
+Fix: keep `Instrs @[]@Instr` as the sole consumer field; addInstr does
+`InstrsVec.Push(instr); b.Instrs = InstrsVec.Items()` (Items() = O(1) sub-slice
+sharing the vec backing) so Instrs is ALWAYS the current view. Every reader —
+production gen-time, the 87 consumers, AND all tests — is UNCHANGED; no freeze,
+no `Frozen` flag, no read-classification/miscompile risk. rotateLastInstrsToFront
+reorders through the vec. Net: 3 code files (ir.bni/ir.bn/data_satregistry.bn)
+vs the freeze plan's ~8-file surface.
+
+RESULT: ~3–6% faster load (`bni cmd/bnc --version`, 2 A/B batches). Gates: full
+6-mode conformance 0-failed (incl. gen2 self-host), 691 ir unit tests, 2 clean
+adversarial reviews (code SHIP + test SOUND). ir_block_builder_test.bn pins the
+shared-backing invariant (growth across 4→8→16→32 reallocs + rotate-through-vec).
+The +7 lines tipped ir.bn over the 500 soft limit → split its "Managed pointers"
+Emit group to ir_ops_managed.bn (+ relocated TestEmit* tests); also split the
+PRE-EXISTING over-limit gen_import.bn (507→450) → gen_import_aliasmap.bn (+ new
+alias-map round-trip tests).
+
+### DONE — Module.Funcs amortized-growth vec (`bb2c0cbe8`)
+
+`Module.AddFunc` grew `m.Funcs` via grow-by-one `slices.Append` — O(n²) to
+register a module's thousands of funcs.  A re-profile put AddFunc +
+`slices.Append[@Func]` at ~4% of load self-time.  Same single-field-view fix as
+Instrs: add `FuncsVec @vec.Vec[@Func]` builder (seeded in NewModule), AddFunc
+Pushes + refreshes `Funcs = FuncsVec.Items()`; AddFunc is the sole writer, so all
+~740 readers are unchanged.  Review SHIP, full 6-mode conformance 0-failed; A/B
+~3% (noisy on a load-contended machine, direction consistent across 3 batches).
+
+CAMPAIGN STATE: 8 landed on main (30f6d03ad FuncSigs-index, 69bdc45f9 FuncSigs-vec,
+f21685deb type-interning, fa19d8a34 QualifyName, ecf68b2d4 qualify-borrow,
+5225d3a03 Instrs-vec, bb2c0cbe8 Module.Funcs-vec, 37bf55fc4 string-interner) ≈
+~35%+ off the pre-optimization -O2 load. The pure-sweep work is now COMPLETE — all
+the O(n²) slices.Append-in-a-loop / linear-dedup hotspots the profile surfaced are
+converted. The lever-(a) -O0→-O2 build split is someone else's, and
+bounds-check-elision (the ~32% lever below) is being worked on by someone else.
+
+RE-PROFILE (post-6-landed, `bni cmd/bnc --version`, /usr/bin/sample ×3): the
+profile has SHIFTED off pure allocation.  Dominant self-time now: `rt.BoundsCheck`
+~32% (every slice/array index in the load pipeline emits a runtime bounds check)
+and alloc/free/zero (`_xzm_free`/memset/`__bzero`/malloc/Alloc) ~33%.  Both are
+DESIGN-LEVEL levers, not sweeps: a bounds-check-ELISION pass (prove `i` in-bounds
+when it is a loop induction var bounded by `len`, analogous to the existing
+nil-check dedup `Block.NilCheckedSlots`) for the former; cutting allocation COUNT
+(source-determined in Binate) for the latter — both need a design discussion, not
+a unilateral pick.  The remaining pure-sweep item is `collectFuncStrings`
+(strings.bn) — an O(D²) linear-scan string dedup + `slices.Append` per distinct
+string constant, ~1.6% self-time; a djb2 interning map (like `funcSigHash`) fixes
+it.  DONE — landed as `37bf55fc4` (stringInterner in strings.bn; review SHIP,
+5/6 conformance modes 0-failed with the 6th, builder-comp-int-int, red at the time
+on a PRE-EXISTING regression unrelated to this change — since RESOLVED by reverting
+`9c7ef5518` (`0d5f786a8`); see the done log).
+
