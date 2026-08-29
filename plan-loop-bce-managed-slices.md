@@ -13,40 +13,85 @@ A `@[]T` managed slice is a 4-word aggregate that the backends pass/represent
 pass forwards a slot's LOADS to the single **stored value** `V`. When `V` is a
 by-address value (a managed-slice param, or any by-address aggregate), the
 backend then does `extractvalue %BnManagedSlice %ptr` on the **pointer** — the
-materialization the original `OP_LOAD` provided is gone → wrong-code (a slice-value
-read of an address; `msmin`/`msloop` SEGV/miscompile on the VM at `-O1+`). This is
+materialization the original `OP_LOAD` provided is gone → wrong-code. This is
 the "representation is ABI" trap: store-forwarding assumes the stored value is a
 first-class by-VALUE materialization, which holds for scalars and raw slices
 (small, by-value) but NOT for by-address aggregates.
 
-The landed raw-slice/array load-forwarding is unaffected (raw slices are by-value;
-by-address structs escape via fieldwise/field-access ops, so they were never
-forwarded — confirmed: the landed code gives correct results for managed slices,
-simply declining to forward them).
+### This is a LIVE latent bug in the LANDED code (MAJOR), not just a blocker
+
+The adversarial review (2026-08-28) corrected my earlier belief that the landed
+code "simply declines to forward managed slices." **It does not.** A managed-slice
+(or any >16B struct) PARAM is *whole-loaded*, not field-accessed, in gen's entry
+RefInc / `len(s)` / exit-RefDec (`gen_func.bn`, `gen_local_cleanup.bn`), so the
+slot does NOT escape; with the single param-spill store it IS forwarded — to the
+by-address `paramRef` → invalid LLVM. **Confirmed** by a full compile (not
+`--emit-llvm`, which doesn't validate):
+
+```
+$ bnc -O2 -o bin  (func slen(s @[]int) int { return len(s) })
+error: '%v0' defined with type 'ptr' but expected '%BnManagedSlice ...'
+  %v3 = extractvalue %BnManagedSlice %v0, 2
+```
+
+The failing function in a real build is `pkg/builtins/startup.SetArgs(args @[]char)`
+— a stdlib function; a >16B struct param (`func idb(p Big) Big`) trips it too.
+
+**Why it's dormant:** `RunOptPasses` is gated `level < 1` (`opt.bn`), so bnc's own
+IR opt runs ONLY at bnc `-O1+`; the gen/CI build and the standard conformance suite
+optimize via **clang `--cflag -O2`**, never bnc `-O2` (test compiles run at bnc
+`-O0`). Loop-BCE was validated with `BINATE_FLAGS=-O2` on the **native/VM** backends
+— which resolve `paramRef` to a spilled aggregate and accept the invalid IR — but
+the **LLVM backend at bnc `-O2` was never run**, so the wrong-code hole is real yet
+unhit. The `IsByvalParam` filter below is therefore a **required correctness fix**
+(covering managed slices AND large structs), not merely a conservative guard.
 
 ## Corrected approach: RLE — materialize one load after the store, forward to it
 
 > Design v2 (2026-08-28) — to be adversarially soundness-reviewed before
 > implementing, per the refcount-sensitive-pass process.
 
-### The by-value / by-address split (the fix's foundation)
+### Two ORTHOGONAL axes (the review's key correction — do not conflate them)
 
-Store-forwarding (forward loads to the stored value `V`) is correct **iff `V`'s
-backend representation is by-VALUE**. The predicate the codebase already shares
-between IR-gen and codegen is **`types.Type.IsByvalParam()`**: true ⟺ `SizeOf > 16`
-⟺ passed by-address (`ptr byval`). So:
+The reverted v1 and the first v2 draft both conflated two independent questions.
+They must be decoupled or the optimization dies on 32-bit (the primary target):
 
-- **`!a.TypeArg.IsByvalParam()`** (≤16B: scalars, raw slices `*[]T`=16B, small
-  structs) → **keep store-forwarding** unchanged. Validated (raw-slice loop-BCE
-  landed, 2990/0). A ≤16B value is first-class in every backend, so forwarding to
-  it is safe.
-- **`a.TypeArg.IsByvalParam()`** (>16B: managed slices `@[]T`=32B, large structs)
-  → **RLE** (below). Forwarding to `V` here is the exact bug that was reverted
-  (`V` is a `ptr`, so the backend `extractvalue`s a slice out of an address).
+| slot | by-address? (materialization) | in fault pads? (escape) |
+|---|---|---|
+| `@[]T` 64-bit (32B) | **yes → RLE** | yes → relaxed escape |
+| `@[]T` 32-bit (16B) | **no → store-forward** | yes → relaxed escape |
+| raw slice (16B) | no → store-forward | no → plain escape |
+| large struct >16B | yes → RLE (or just decline) | no → plain escape |
 
-This split is conservative-safe: RLE is correct for *any* slot, so using it for
-the >16B class (and store-forwarding only for the proven-safe ≤16B class) can
-never miscompile. It also leaves the landed ≤16B path untouched.
+- **Axis 1 — escape relaxation** (does a fault-pad `OP_LOAD(A)` count as escape?).
+  Gate on **managed-slice type** (the only thing gen loads into a cleanup pad),
+  regardless of size. A `@[]T` on *either* word size needs this, or its
+  bounds-check cleanup pad makes it escape and it is never forwarded → loop-BCE
+  can't match → **the whole feature does nothing on 32-bit** if this is gated on
+  size. Conditions 1 & 4 (pad-load-allowed escape; store dominates pad fault
+  point) apply whenever the relaxation is in effect.
+- **Axis 2 — materialization** (forward to `V`, or to an inserted load `L0`?).
+  Gate on **`a.TypeArg.IsByvalParam()`**: >16B (by-address) → **RLE** (insert
+  `L0`); ≤16B (by-value, incl. the 16B 32-bit `@[]T`) → **store-forward to `V`**
+  (a ≤16B value is first-class in every backend — validated by raw slices).
+
+`IsByvalParam()` is the correct by-value/by-address boundary (it is the exact
+predicate gen uses to decide `ptr byval` lowering — `gen_func.bn`). It is *not*
+literally `SizeOf > 16`: it has a kind-gate and an **HFA exemption** (an HFA
+struct passes by value in SIMD registers even when >16B, `abi_hfa.bn` — live on
+aa64), so an HFA correctly routes to store-forwarding. Use the predicate, not a
+size comparison.
+
+### MAJOR-#1 fix, standalone: filter store-forwarding to `!IsByvalParam()`
+
+Independently of managed slices, `analyzeForwardAlloca` (the store-forwarding
+analyzer) must **decline any `IsByvalParam()` slot** — that alone closes the live
+LLVM wrong-code hole for by-address params/large structs (it stops forwarding a
+slot to a by-address `V`). This is a correctness fix that should stand on its own
+(and covers large structs, which the managed-slice RLE does not re-enable — a
+>16B non-managed struct simply isn't forwarded, which is correct, just not
+optimized). RLE (below) then RE-ENABLES forwarding for the >16B *managed-slice*
+case via the materializing load.
 
 ### RLE mechanism (for a >16B by-address slot `A`)
 
@@ -91,14 +136,19 @@ header load out of the loop (a bonus).
 `forwardLoadsFunc` runs two independent sub-passes over the same `DomInfo` (CFG is
 unchanged by either — no dominator recompute):
 1. **Store-forwarding** (≤16B slots) → the existing `applyPromotion` path,
-   unchanged except the analyzer now filters to `!IsByvalParam()`.
-2. **RLE** (>16B slots) → a new `applyRLE`: re-scan `f.Blocks` for fresh
+   unchanged except the analyzer (a) filters to `!IsByvalParam()` and (b) applies
+   the relaxed (pad-load-allowed) escape when the slot is a managed slice, so a
+   16B 32-bit `@[]T` in a loop actually forwards.
+2. **RLE** (>16B managed slices) → a new `applyRLE`: re-scan `f.Blocks` for fresh
    positions (the store-fwd rebuild moved things), analyze, then in one rebuild
-   insert each `L0` after its `S`, drop the forwarded loads (by id) from both
-   `f.Blocks` and `f.FaultPads`, and reuse the shared `rewriteUsesInBlocks` +
-   `assertNoSurvivingUses` (with `allocaDeleted` all-false — RLE deletes loads,
-   not the alloca; the fail-loud still catches any un-rewritten forwarded-load
-   use).
+   insert each `L0` after its `S`, drop the forwarded loads **by their specific
+   ids** from both `f.Blocks` and `f.FaultPads`, and reuse the shared
+   `rewriteUsesInBlocks` + `assertNoSurvivingUses` (with `allocaDeleted` all-false
+   — RLE deletes loads, not the alloca; the fail-loud still catches any
+   un-rewritten forwarded-load use). **Delete-by-id, NOT by-alloca** (MINOR #4):
+   `instrIsDeleted` removes loads because their alloca is deleted; since RLE keeps
+   `A` and `L0` is itself an `OP_LOAD(A)`, a by-alloca rule would delete `L0` too.
+   Unit-test that `L0` survives.
 
 ### Tests
 
@@ -107,13 +157,20 @@ unchanged by either — no dominator recompute):
   `OP_EXTRACT`s read the new load; `A`+`S` remain. KEPT cases: a ≤16B slot still
   takes the store-forwarding path (no inserted load); a pad load whose fault point
   the store does not dominate → not forwarded; a two-store `@[]T` → not forwarded.
+- **LLVM backend at bnc `-O1+` (guards MAJOR #1 at the exact bug site):** a
+  managed-slice param and a >16B struct param must **full-compile** (clang
+  validates the IR — `--emit-llvm` does NOT) at bnc `-O2`. This is the coverage
+  gap that let the landed bug hide.
 - **loop-BCE end-to-end:** `for i:=0;i<len(s);i++{ s[i] }` over a `@[]int` slice
-  eliminates the inner check at `-O2` (1→0) AND runs correctly on **both** the
-  compiled backend and the **VM** (the reverted bug SEGV'd the VM at `-O1+`;
-  `msmin`/`msloop` must give 30 / 47 and balance refcounts).
-- **Conformance:** full native `-O2` stays green, plus a **VM** run (the fault-pad
-  path is VM-only) over the managed-refcount/stress cells (`250_managed_stress`,
-  `spec/18-memory/*`).
+  eliminates the inner check at `-O2` (1→0) AND runs correctly on the LLVM,
+  native, and **VM** backends (the reverted bug SEGV'd the VM at `-O1+`;
+  `msmin`/`msloop` must give 30 / 47 and balance refcounts). Include a **32-bit
+  (arm32)** end-to-end asserting the inner check is actually eliminated there
+  (MAJOR #2 — the 16B `@[]T` store-forward path).
+- **Conformance:** `BINATE_FLAGS=-O2` on the **LLVM** mode (`builder-comp` — the
+  never-run path that hides MAJOR #1), the native modes, and a **VM** run (the
+  fault-pad path is VM-only) over the managed-refcount/stress cells
+  (`250_managed_stress`, `spec/18-memory/*`).
 
 ### Risk
 

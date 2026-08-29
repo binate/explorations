@@ -7,6 +7,31 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### load-forwarding miscompiles by-address (>16B) params/structs on LLVM backend at bnc `-O1+` — 🟠 WRONG-CODE (found 2026-08-28, fix in flight)
+
+`pkg/binate/ir/load_forward.bn` (landed store-forwarding, `ddbc8fea5`) forwards a
+non-escaping single-store slot's loads to the **stored value `V`**. When `V` is a
+by-address value — a `IsByvalParam()` (>16B) param such as a managed slice `@[]T`
+(32B on LP64) or a large struct — the LLVM backend then emits `extractvalue
+%BnManagedSlice %ptr` on the **param pointer** → **invalid IR, clang rejects it**.
+Confirmed by full compile (NOT `--emit-llvm`, which skips validation):
+`func slen(s @[]int) int { return len(s) }` at `bnc -O2` errors `'%v0' defined
+with type 'ptr' but expected '%BnManagedSlice'`; a real build fails on stdlib
+`startup.SetArgs(args @[]char)`.
+
+**Dormant, not benign:** `RunOptPasses` is gated `level<1` (`opt.bn`) so bnc's IR
+opt runs only at bnc `-O1+`; gen/CI + standard conformance optimize via clang
+`--cflag -O2` (test compiles are bnc `-O0`). Loop-BCE was validated with
+`BINATE_FLAGS=-O2` on **native/VM only** (they accept the invalid IR); the **LLVM
+backend at bnc `-O2` is never run in CI**, so the hole is real but unhit.
+
+**Fix (in flight):** filter `analyzeForwardAlloca` to decline `IsByvalParam()`
+slots (closes the hole for managed slices AND large structs). Part of the
+managed-slice loop-BCE RLE redesign (`plan-loop-bce-managed-slices.md`); the RLE
+half then re-enables the >16B *managed-slice* case via a materializing load. Guard
+with an LLVM-backend `bnc -O2` full-compile regression test (the missing coverage).
+Found by the adversarial review of the RLE design.
+
 ### `builder-comp_arm32_linux` gen1 build fails on current ubuntu binutils (duplicate weak_odr thunks) — 🟠 BUILD-INFRA (found 2026-08-28)
 
 The `builder-comp_arm32_linux` conformance mode's gen1 build (compile cmd/bnc for
