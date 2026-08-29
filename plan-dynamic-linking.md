@@ -135,10 +135,13 @@ synthesized PLT/GOT.
   no Docker).  e2e split per arch (bnld-dynamic-linux.sh = x64, -aarch64.sh = aarch64).
   Adversarial review of the whole dynamic path came back clean.
 - Multiple imports / a real archive of libc stubs; `-l`/`-rpath` ergonomics.
-- (review follow-ups, low severity) dynamically import weak-undef externals too (they
-  currently resolve to 0, matching the static linker — a conscious choice to revisit);
-  add an ADRP range check to dynlink's encAdrp mirroring relocate.bn (currently
-  unreachable since plt<->got are always close).
+- (done, `e5527b716`) review follow-ups: weak-undef externals are now dynamically
+  imported (collected with their binding, marked STB_WEAK so ld.so binds-or-zeros); and
+  writePltStub range-checks the stub->GOT displacement (aarch64 ADRP page count / x86-64
+  disp32) and fails loud instead of silently truncating.  A focused review of the delta
+  was clean.  Known corner (PLT-only model): `&weak_fn` for a genuinely-absent weak
+  function is the non-null stub, not 0 — fine for calls; revisit if address-of-weak
+  matters (route it through a can-be-0 GOT entry).
 - Then Mach-O dynamic (LC_LOAD_DYLINKER + LC_MAIN + LC_LOAD_DYLIB + chained fixups),
   reusing the R31–R35 Mach-O writer/signer — the path to running on macOS arm64.
 - (done) e2e Docker policy fixed for both bnld-dynamic-linux.sh and bnld-linux-aarch64.sh
