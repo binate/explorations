@@ -148,3 +148,44 @@ synthesized PLT/GOT.
   (`fb791594a`): the aarch64 run happens under Docker only on a Linux CI lane (one
   platform, not duplicated), never on a default local run — CI has no native aarch64
   Linux runner (matrix is x86-64 Linux + arm64 macOS).
+
+## "More libc": data-symbol imports (GLOB_DAT) + multi-lib `-l` (plan, 2026-08-29)
+
+The dynamic linker today treats **every** undefined external as a *called function*:
+it defines each at a `.plt` stub with a `JUMP_SLOT` reloc, and `Relocate` *relaxes*
+the GOT-indirect relocs (aarch64 `ADR_GOT_PAGE`/`LD64_GOT_LO12_NC`, x86-64
+`REX_GOTPCRELX`) to direct addressing — valid only for a *defined* symbol. So a
+program that reads a libc **data** global (`environ`, `stdout`) via a GOT-indirect
+load — exactly what the native backend's `__c_global` emits — is silently
+miscompiled: the load is relaxed against a bogus address (the PLT stub). Closing
+that is the substance of "more libc". Decomposition (small, green, self-contained):
+
+- **ML2 — text-assembler GOT syntax.** `:got:`/`:got_lo12:` (aarch64) and
+  `@GOTPCREL` (x86-64) in `pkg/binate/asm/parse`, so `bnas` can assemble a
+  data-import program from `.s`. The programmatic API (`AdrpGot`/`LdrGotLo12`,
+  `MovGotPcRel`) already exists; this is only the text front-end. Own unit tests.
+  (Lands first so ML1 can be Docker-validated and ML3 can be a real `.s` e2e.)
+- **ML1 — linker data-symbol imports (GLOB_DAT), both arches.** Classify each import
+  by how it is *referenced*: a call reloc (aarch64 CALL26/JUMP26, x86-64 PLT32) →
+  PLT import (today's path); a GOT-indirect reloc → **GOT import** (data global or
+  address-taken). For GOT imports synthesize a `.got` section (one 8-byte slot each)
+  + a `.rela.dyn` with `R_*_GLOB_DAT` (aarch64 1025 / x86-64 6) so ld.so writes the
+  real address into the slot at load, and add `DT_RELA`/`DT_RELASZ`/`DT_RELAENT` to
+  `.dynamic`. Define each GOT import at its `.got` slot; fork `Relocate` so a
+  GOT-indirect ref to a GOT import **keeps the load** (aarch64: keep the `LDR`, don't
+  rewrite to `ADD`; x86-64: keep the `mov`, don't flip to `lea`) pointing at the
+  slot. A symbol referenced *both* ways is rejected loudly (rare; the real targets —
+  `exit`/`puts` call-only, `environ`/`stdout` GOT-only — never collide). Strong unit
+  tests via the programmatic assembler; **Docker-validate** ld.so actually binds the
+  GLOB_DAT before landing (as D1 validated JUMP_SLOT).
+- **ML3 — runnable e2e.** Extend the dynamic e2e (both arches) with a program that
+  reads `environ` through the GOT and derives its exit code from it, proving the
+  GLOB_DAT slot was bound. Native on the x86-64 Linux CI lane; aarch64 under Docker
+  on the Linux lane (per the existing e2e Docker policy).
+- **ML4 — multi-lib `-l` / correct `DT_NEEDED` (needs a decision).** Today the single
+  `DT_NEEDED` is hardcoded `libc.so.6`. A correct `DT_NEEDED` for `-lfoo` is the
+  library's **SONAME** (`libc.so.6`, not `libc.so`), which lives *inside* the `.so`'s
+  `.dynamic` (`DT_SONAME`). Options: (a) parse each `-l`'s `.so` to read `DT_SONAME`;
+  (b) a convention/flag to pass explicit SONAMEs. This is a real product fork —
+  **surface it to the user, don't pick unilaterally.** Independent of ML1–ML3 (they
+  keep the single libc.so.6 NEEDED), so it comes last.
