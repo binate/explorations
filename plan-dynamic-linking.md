@@ -190,14 +190,14 @@ that is the substance of "more libc". Decomposition (small, green, self-containe
   **surface it to the user, don't pick unilaterally.** Independent of ML1–ML3 (they
   keep the single libc.so.6 NEEDED), so it comes last.
 
-### ML2a + ML1 done (2026-08-29, on work-6; not yet landed to main)
+### ML2a + ML1 LANDED (2026-08-29)
 
-- **ML2a — aarch64 GOT operand syntax** (`b76957ff5`): `bnas` now assembles
+- **ML2a — aarch64 GOT operand syntax** (landed `d8a425b35`): `bnas` now assembles
   `adrp rd, :got:sym` (FIX_ADRP_GOT_HI21) + `ldr xt, [xn, #:got_lo12:sym]`
   (FIX_LD_GOT_LO12) — the `.s` front-end over the existing `AdrpGot`/`LdrGotLo12`
   API. Unit tests for both forms, plain-adrp non-regression, and the 32-bit
   rejection.
-- **ML1 — data-symbol imports via GLOB_DAT** (`163098af7`): imports are classified
+- **ML1 — data-symbol imports via GLOB_DAT** (landed `1a45642f3`): imports are classified
   (call→PLT vs GOT-load→data); data imports get a `.got` slot + `.rela.dyn`
   `R_*_GLOB_DAT`; `Relocate` keeps a data import's GOT load (aarch64 LDR / x86-64
   mov) pointing at the slot instead of relaxing it. Both arches; static links
