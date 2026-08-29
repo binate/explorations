@@ -32,6 +32,31 @@ half then re-enables the >16B *managed-slice* case via a materializing load. Gua
 with an LLVM-backend `bnc -O2` full-compile regression test (the missing coverage).
 Found by the adversarial review of the RLE design.
 
+### bnc `-O1+` on the LLVM backend: 24 remaining type-mismatch failures — 🟠 LLVM-BACKEND / opt (found 2026-08-28)
+
+Running `BINATE_FLAGS=-O2 ./conformance/run.sh builder-comp` (the never-run
+bnc-`-O1+`-on-LLVM path) after fixing the two masking bugs below (load-forwarding
+by-address + mem2reg phi predecessors) gives **2966 passed / 24 failed** (was
+100% broken). The 24 are pre-existing, revealed once compilation gets past the two
+masks, and cluster into ~2-3 classes — all fail-loud (clang rejects invalid IR),
+all confined to bnc-`-O1+`-on-LLVM (shipping builds use clang `--cflag -O2` on
+`-O0` bnc IR; native/VM `-O2` are green):
+- **raw-pointer promotion (~12):** `%vN = inttoptr i64 %vP to i8*` where `%vP` is
+  a `ptr` — mem2reg promotes a `*T` slot to an SSA ptr, but a downstream cast
+  emits `inttoptr i64` expecting an int. Tests: 012_pointers, 551_addr_of_global_scalar,
+  687_cross_pkg_extern_addr_rvalue, spec/07-types/{120,126,136}, spec/15-builtins/
+  {080_present_pointer,083,092_same}, spec/08-conversions/001_assignable, ...
+- **float-to-int (~8):** `'%vN' defined with type 'double' but expected 'iN'` —
+  matrix/scalar-diff/float-to-int/{8,16,32,64}/{signed,unsigned}, spec/08-conversions/
+  009_cast_float_int_saturation.
+- **misc:** stdlib/os/*, matrix/type-assert/type-switch/raw-absent,
+  regressions/readonly-wrapped-64bit-arg, 667_present_types.
+
+Same root pattern as the two fixed bugs: mem2reg/opt-pass promotion produces IR
+the native backend tolerates but the strict LLVM verifier rejects, in a config CI
+never exercises. Not blocking any shipping config. A dedicated bnc-`-O1+`-on-LLVM
+hardening pass (+ a CI lane running it) would close them.
+
 ### mem2reg phis mis-lower on the LLVM backend at bnc `-O1+` (invalid PHI predecessors) — 🟠 LLVM-BACKEND / opt (found 2026-08-28)
 
 At bnc `-O1+` with the **LLVM backend**, clang rejects the emitted IR:
