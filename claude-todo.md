@@ -32,6 +32,27 @@ half then re-enables the >16B *managed-slice* case via a materializing load. Gua
 with an LLVM-backend `bnc -O2` full-compile regression test (the missing coverage).
 Found by the adversarial review of the RLE design.
 
+### mem2reg phis mis-lower on the LLVM backend at bnc `-O1+` (invalid PHI predecessors) — 🟠 LLVM-BACKEND / opt (found 2026-08-28)
+
+At bnc `-O1+` with the **LLVM backend**, clang rejects the emitted IR:
+`invalid LLVM IR input: PHI node entries do not match predecessors!` — e.g. in
+stdlib `pkg/std/errors`: `%v140 = phi i64 [ %v23, %entry.0 ], [ %v56,
+%for.post.3 ]`. The phi's predecessor labels don't match the LLVM CFG block's
+actual predecessors. mem2reg is the ONLY phi producer, so these are mem2reg phis;
+the **native backend lowers them correctly** (native `-O2` conformance is 2990/0,
+which links std), so this is the **LLVM backend's phi-predecessor lowering** (or
+its block-splitting not patching phi entries), exposed by mem2reg being the first
+phi source. FAIL-LOUD (clang errors; no silent wrong-code) and confined to the
+never-run bnc-`-O1+`-on-LLVM config (CI optimizes via clang `--cflag -O2` on
+bnc-`-O0` IR; opt-pass validation used `BINATE_FLAGS=-O2` on native/VM only).
+
+The `[preheader, latch]` shape matches the dead outer-header phi that the #1
+materialize-zero fix (`0e6c40b5f`) creates, so this may be a regression from #1
+rather than original to Phase 2a — needs a bisect (rebuild pre-`0e6c40b5f` and
+re-run bnc `-O1` on LLVM). Blocks end-to-end validation of managed-slice loop-BCE
+on the LLVM backend at bnc `-O2`. Found alongside the load-forwarding by-address
+bug (above) when running the never-run LLVM-at-bnc-`-O2` path.
+
 ### `builder-comp_arm32_linux` gen1 build fails on current ubuntu binutils (duplicate weak_odr thunks) — 🟠 BUILD-INFRA (found 2026-08-28)
 
 The `builder-comp_arm32_linux` conformance mode's gen1 build (compile cmd/bnc for
