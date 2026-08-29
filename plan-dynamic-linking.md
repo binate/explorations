@@ -129,9 +129,16 @@ synthesized PLT/GOT.
   `exit(0)` — two imports, a data argument, libc stdio (ld.so runs libc init before
   _start).  Works with no linker change (buildDynStubs sizes tables per-import); the e2e
   now links+runs `hello` (prints "hello from bnld", exit 0) alongside exit42.
-- x86-64 ELF dynamic linking (different PLT/GOT/relocs; would let CI run it natively on
-  an x86-64 Linux runner without binfmt).
+- (done, `dd278c06a`) x86-64 ELF dynamic linking: generalized the linker (interp path,
+  R_X86_64_JUMP_SLOT, `jmp *disp32(%rip)` PLT stub); `bnld -target linux-x64 -dynamic`
+  links exit(42) + puts/exit `hello`, both RUN (native on the x86-64 Linux CI runner —
+  no Docker).  e2e split per arch (bnld-dynamic-linux.sh = x64, -aarch64.sh = aarch64).
+  Adversarial review of the whole dynamic path came back clean.
 - Multiple imports / a real archive of libc stubs; `-l`/`-rpath` ergonomics.
+- (review follow-ups, low severity) dynamically import weak-undef externals too (they
+  currently resolve to 0, matching the static linker — a conscious choice to revisit);
+  add an ADRP range check to dynlink's encAdrp mirroring relocate.bn (currently
+  unreachable since plt<->got are always close).
 - Then Mach-O dynamic (LC_LOAD_DYLINKER + LC_MAIN + LC_LOAD_DYLIB + chained fixups),
   reusing the R31–R35 Mach-O writer/signer — the path to running on macOS arm64.
 - (done) e2e Docker policy fixed for both bnld-dynamic-linux.sh and bnld-linux-aarch64.sh
