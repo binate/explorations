@@ -24,16 +24,105 @@ by-address structs escape via fieldwise/field-access ops, so they were never
 forwarded — confirmed: the landed code gives correct results for managed slices,
 simply declining to forward them).
 
-## Corrected approach: redundant-load-elimination (forward to a dominating LOAD)
+## Corrected approach: RLE — materialize one load after the store, forward to it
 
-For a by-address aggregate slot, coalesce the two length loads by forwarding the
-later load to a **dominating earlier LOAD of the same slot** (which materializes
-the value), NOT to the stored value. Both `len(s)` and `s[i]` then use the same
-materialized `OP_LOAD` result → `OP_EXTRACT(load1, 1)` for both → loop-BCE
-matches; the slot/store/first-load stay (so the value is still materialized). The
-fault-pad handling (below, reviewed sound) still applies to the pad's cleanup
-load. This is a different algorithm from the current single-store store-forwarding
-and is a real redesign — hence deferred pending a decision.
+> Design v2 (2026-08-28) — to be adversarially soundness-reviewed before
+> implementing, per the refcount-sensitive-pass process.
+
+### The by-value / by-address split (the fix's foundation)
+
+Store-forwarding (forward loads to the stored value `V`) is correct **iff `V`'s
+backend representation is by-VALUE**. The predicate the codebase already shares
+between IR-gen and codegen is **`types.Type.IsByvalParam()`**: true ⟺ `SizeOf > 16`
+⟺ passed by-address (`ptr byval`). So:
+
+- **`!a.TypeArg.IsByvalParam()`** (≤16B: scalars, raw slices `*[]T`=16B, small
+  structs) → **keep store-forwarding** unchanged. Validated (raw-slice loop-BCE
+  landed, 2990/0). A ≤16B value is first-class in every backend, so forwarding to
+  it is safe.
+- **`a.TypeArg.IsByvalParam()`** (>16B: managed slices `@[]T`=32B, large structs)
+  → **RLE** (below). Forwarding to `V` here is the exact bug that was reverted
+  (`V` is a `ptr`, so the backend `extractvalue`s a slice out of an address).
+
+This split is conservative-safe: RLE is correct for *any* slot, so using it for
+the >16B class (and store-forwarding only for the proven-safe ≤16B class) can
+never miscompile. It also leaves the landed ≤16B path untouched.
+
+### RLE mechanism (for a >16B by-address slot `A`)
+
+Conditions (reuse the reviewed-sound fault-pad analysis verbatim):
+1. **Relaxed escape.** `A` escapes iff used as anything other than `Args[0]` of a
+   plain `OP_LOAD`/`OP_STORE` in `f.Blocks`, or `Args[0]` of a plain `OP_LOAD` in
+   a `FaultPads` block.
+2. **Exactly one store `S`** (value `V`) in `f.Blocks`.
+3. **`S` dominates every normal load** (same-block ⇒ textually before).
+4. **`S` dominates every pad load's fault point** (the faulting op in `f.Blocks`
+   whose `PadBlock` is that pad, by pointer identity). Bail if any pad load has no
+   locatable fault point or is undominated.
+
+Mutation (differs from store-forwarding — this is the redesign):
+- **Insert `L0 = OP_LOAD(A)` immediately after `S`** (at `storePos+1` in
+  `storeBlk`). Since `S` dominates every load + every pad fault point (conds 3–4),
+  `L0` (right after `S`) dominates them too. `L0 == V` because `A` is single-store
+  and `S` just wrote `V`. `L0` is a **load result → by-VALUE in every backend**
+  (LLVM reconstructs the aggregate; the VM materializes it into a register) — the
+  property store-forwarding lacked.
+- **Forward every existing load** of `A` (normal + pad) to `L0`; delete them.
+  **Keep `A`, `S`, and `L0`.**
+
+Result: the guard's `len(s)` and the access's `len(s)`, formerly
+`OP_EXTRACT(guardLoad,1)` / `OP_EXTRACT(accessLoad,1)`, both become
+`OP_EXTRACT(L0,1)` → loop-BCE's `lengthProvablyLE` matches → inner check
+eliminated. The entry `RefInc`, exit `RefDec`, and every pad `RefDec` become
+`RefX(OP_EXTRACT(L0,2))` — the same slice object `V`, so the refcount trajectory
+is byte-identical (Binate refcounting is explicit + operand-based; a plain
+`OP_LOAD` carries no implicit inc/dec, so inserting `L0` is refcount-neutral).
+
+### Why inserting `L0` (vs reusing an existing dominating load)
+
+Robustness: `L0` is constructed to dominate everything (given conds 3–4), so
+there is no "no single dominating load exists → bail" gap and no loop-carried
+subtlety (an existing guard load lives *inside* the loop). Cost is one load
+instruction that replaces N — net fewer loads, and for a param slice it hoists the
+header load out of the loop (a bonus).
+
+### Apply integration
+
+`forwardLoadsFunc` runs two independent sub-passes over the same `DomInfo` (CFG is
+unchanged by either — no dominator recompute):
+1. **Store-forwarding** (≤16B slots) → the existing `applyPromotion` path,
+   unchanged except the analyzer now filters to `!IsByvalParam()`.
+2. **RLE** (>16B slots) → a new `applyRLE`: re-scan `f.Blocks` for fresh
+   positions (the store-fwd rebuild moved things), analyze, then in one rebuild
+   insert each `L0` after its `S`, drop the forwarded loads (by id) from both
+   `f.Blocks` and `f.FaultPads`, and reuse the shared `rewriteUsesInBlocks` +
+   `assertNoSurvivingUses` (with `allocaDeleted` all-false — RLE deletes loads,
+   not the alloca; the fail-loud still catches any un-rewritten forwarded-load
+   use).
+
+### Tests
+
+- **Unit (hand-built IR, `@[]T`-typed slot with a FaultPad):** RLE fires — a new
+  `OP_LOAD` appears right after the store; guard+access+pad loads are gone and all
+  `OP_EXTRACT`s read the new load; `A`+`S` remain. KEPT cases: a ≤16B slot still
+  takes the store-forwarding path (no inserted load); a pad load whose fault point
+  the store does not dominate → not forwarded; a two-store `@[]T` → not forwarded.
+- **loop-BCE end-to-end:** `for i:=0;i<len(s);i++{ s[i] }` over a `@[]int` slice
+  eliminates the inner check at `-O2` (1→0) AND runs correctly on **both** the
+  compiled backend and the **VM** (the reverted bug SEGV'd the VM at `-O1+`;
+  `msmin`/`msloop` must give 30 / 47 and balance refcounts).
+- **Conformance:** full native `-O2` stays green, plus a **VM** run (the fault-pad
+  path is VM-only) over the managed-refcount/stress cells (`250_managed_stress`,
+  `spec/18-memory/*`).
+
+### Risk
+
+Refcount-sensitive (rewrites managed cleanup RefDec operands) — gets an
+adversarial soundness review before landing. The by-value/by-address split rests
+on `IsByvalParam` being the true representation boundary (it is the shared IR-gen
+↔ codegen predicate); RLE's correctness rests on "a load result is by-value in
+every backend," which is backend-agnostic and the reason this approach is robust
+where store-forwarding was not.
 
 ---
 
