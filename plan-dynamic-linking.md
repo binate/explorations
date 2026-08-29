@@ -189,3 +189,32 @@ that is the substance of "more libc". Decomposition (small, green, self-containe
   (b) a convention/flag to pass explicit SONAMEs. This is a real product fork —
   **surface it to the user, don't pick unilaterally.** Independent of ML1–ML3 (they
   keep the single libc.so.6 NEEDED), so it comes last.
+
+### ML2a + ML1 done (2026-08-29, on work-6; not yet landed to main)
+
+- **ML2a — aarch64 GOT operand syntax** (`b76957ff5`): `bnas` now assembles
+  `adrp rd, :got:sym` (FIX_ADRP_GOT_HI21) + `ldr xt, [xn, #:got_lo12:sym]`
+  (FIX_LD_GOT_LO12) — the `.s` front-end over the existing `AdrpGot`/`LdrGotLo12`
+  API. Unit tests for both forms, plain-adrp non-regression, and the 32-bit
+  rejection.
+- **ML1 — data-symbol imports via GLOB_DAT** (`163098af7`): imports are classified
+  (call→PLT vs GOT-load→data); data imports get a `.got` slot + `.rela.dyn`
+  `R_*_GLOB_DAT`; `Relocate` keeps a data import's GOT load (aarch64 LDR / x86-64
+  mov) pointing at the slot instead of relaxing it. Both arches; static links
+  unaffected (GotImports empty → relax as before). **Docker-validated on aarch64
+  Linux**: a program that GOT-loads libc `stdout` and exits 42 iff non-null runs and
+  exits 42, LD_DEBUG confirming ld.so binds the binary's `stdout` slot via GLOB_DAT
+  (+ `exit` via the PLT). exit42/hello (no data imports) still run.
+- **glibc gotcha found + fixed**: emitting `DT_RELA` for a *zero-size* `.rela.dyn`
+  laid out adjacent to `.rela.plt` makes glibc's ld.so skip the JUMP_SLOT
+  relocations entirely (a called import binds to 0 → jump to null → SIGSEGV). Fix:
+  emit the `DT_RELA`/`RELASZ`/`RELAENT` trio only when there IS a data import (what
+  ld/lld do); the no-data-import path is byte-structure-unchanged.
+
+Still open (surfaced, not silently deferred):
+- **ML2b/ML3b — x86-64 GOT text syntax + runnable x64 environ e2e.** The x64
+  keep-mov fork is unit-tested but not yet runtime-validated end to end; the `.s`
+  front-end needs `@GOTPCREL` (the lexer has no `@` token yet — a small addition).
+  aarch64-first mirrors the D2/D3→D4 cadence.
+- **ML3 — commit a runnable environ/stdout e2e** (both arches) into `e2e/`.
+- **ML4 — multi-lib `-l` / correct `DT_NEEDED` SONAME** (still a user decision).
