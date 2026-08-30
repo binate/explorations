@@ -28,20 +28,18 @@ ported** — a full no-libgcc suite link resolves with ZERO undefined `__aeabi_*
 symbols (verified 2026-08-27: 2948 pass / 1 fail, the one failure being the
 pre-existing native-backend crash in `1224_const_fold_cast_int_to_float`, which
 also fails WITH libgcc and passes on host — a known-incomplete-backend issue,
-not a soft-float gap).  **NEXT: drop the libgcc `--link-after-objs` pass from
-the runners + delete the find-script's libgcc probe** (the actual C-Free step).
+not a soft-float gap).  libgcc was then DROPPED (`b0656b9b6`): the
+`--link-after-objs` pass was removed from all three bare-metal runners and the
+find-script's libgcc probe deleted — arm32-baremetal is C-Free.
 
-For the FULL AEABI set beyond what the suite needs (C interop): only `dneg`/
-`fneg` remain — but the native backend lowers float negate INLINE (a sign-bit
-flip, no libcall), so these are only relevant for a linked GCC-compiled C
-object.  Deferred as low-priority.
-
-NOT provided (deliberate): the flag-setting compare variants
-`__aeabi_cdcmp{eq,le}` / `__aeabi_cdrcmple` (also in `_arm_cmpdf2.o`/`sf2.o`).
-The native backend never emits them and compiler-rt (our reference) does not
-define them; a breadcrumb documenting this lives in
-`runtime/baremetal_arm32/aeabi_float.s` (compare-group comment).  Revisit only
-if a linked GCC-compiled C object needs them.
+The FULL AEABI set (beyond what the suite needs, for cross-toolchain C interop)
+is now complete too: `__aeabi_{d,f}neg` (`5c8606c43`, IEEE sign-bit flip) and
+the flag-setting compares `__aeabi_c{d,f}cmp{eq,le}` / `c{d,f}rcmple`
+(`2c828b2c3`, result in the CPSR Z/C flags per IHI0043, built on
+F{64,32}Compare + the `cmp`/`cmnmi` idiom).  Both are dormant in Binate-compiled
+binaries (the native backend inlines negate and uses the 0/1 compares) — they
+exist only so a linked GCC/clang-compiled C object resolves.  So EVERY
+`__aeabi_*` helper the target can reference is now provided in-tree.
 
 New runtime conformance coverage: 1223_float64_arith_runtime (f64 mul/div,
 companion to 635) and 1225_float64_compare_runtime (f64 compares, companion to
