@@ -230,3 +230,34 @@ Still open (surfaced, not silently deferred):
   string as `DT_NEEDED` (needs a minimal `.so`/`.dynamic` reader). Today the single
   `DT_NEEDED` is hardcoded `libc.so.6`.
 - Then **Mach-O dynamic** (dyld + LC_MAIN + LC_LOAD_DYLIB + chained fixups).
+
+## Roadmap reorder (2026-08-29): Mach-O dynamic BEFORE ML4
+
+Data-symbol imports are complete on both ELF arches. Per the user's call, the next
+work is **Mach-O dynamic linking** (run bnld-linked binaries natively on macOS
+arm64 — the whole reason we pivoted to dynamic linking); **ML4** (multi-lib `-l` via
+`.so` `DT_SONAME` parsing) is deferred to after it.
+
+### M1 recon finding: use the classic LC_DYLD_INFO_ONLY format, not chained fixups
+
+A minimal dynamic arm64 Mach-O whose `_start` does `mov w0,#42 ; bl _exit` (linked
+`clang -e _start -nostartfiles`) runs and exits 42.  Modern ld64 defaults to
+**chained fixups** (LC_DYLD_CHAINED_FIXUPS) — a compressed, complex import format —
+but `-Wl,-no_fixup_chains` produces the **classic LC_DYLD_INFO_ONLY** (bind-opcode)
+format, which **dyld on this macOS still accepts** (also ran, exit 42).  The classic
+format is much simpler to hand-roll, so bnld's Mach-O dynamic writer will use it.
+
+The mechanism mirrors ELF dynamic linking exactly: `bl _exit` → a `__stubs` entry in
+__TEXT → indirects through a `__got` pointer in __DATA_CONST → dyld binds that pointer
+to `_exit` at load (a BIND opcode in LC_DYLD_INFO).  So the ELF PLT/GOT design ports
+over: a synthesized stub + GOT slot per import, non-lazy (bind-at-load) to avoid the
+dyld_stub_binder/lazy machinery — the Mach-O analogue of DF_BIND_NOW.
+
+Load commands in the classic reference (superset; the minimal subset is being
+determined): __PAGEZERO, __TEXT, __DATA_CONST, __LINKEDIT segments; LC_DYLD_INFO_ONLY,
+LC_SYMTAB, LC_DYSYMTAB, LC_LOAD_DYLINKER(/usr/lib/dyld), LC_MAIN, LC_LOAD_DYLIB(
+/usr/lib/libSystem.B.dylib), LC_CODE_SIGNATURE (ad-hoc — required on arm64, already
+have the R35 signer), plus droppable LC_UUID/LC_BUILD_VERSION/LC_SOURCE_VERSION/
+LC_FUNCTION_STARTS/LC_DATA_IN_CODE (TBD which dyld actually requires).
+
+Reuses the R31–R35 Mach-O writer/signer (static exec writer + ad-hoc CodeDirectory).
