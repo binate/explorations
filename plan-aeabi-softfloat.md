@@ -18,6 +18,10 @@ helper via `testing.Println`'s `*any` `float{32,64}.String()` branches).
   {d,f}cmp{eq,lt,le,gt,ge,un}): `1b2647486`.
 - Float->int conversion group (`_arm_fix*` / `_fix*`: d2uiz/d2lz/d2ulz,
   f2iz/f2uiz/f2lz/f2ulz; d2iz was already done): `2accf6aea`.
+- 32-bit integer divide family (`__aeabi_{i,ui}div{,mod}`, in `aeabi_int.s` —
+  needed by the LLVM arm32 backend, which the native backend inlines): `efd376d43`.
+- **libgcc DROPPED — arm32-baremetal is C-Free**: removed the `--link-after-objs`
+  libgcc pass from all three bare-metal runners + the find-script probe: `b0656b9b6`.
 
 **Every helper the native_arm32_baremetal suite pulls from libgcc is now
 ported** — a full no-libgcc suite link resolves with ZERO undefined `__aeabi_*`
