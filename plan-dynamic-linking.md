@@ -357,3 +357,27 @@ code-signature ordering, LC sizes, and entryoff. Verdict SHIP for the validated 
 - **Follow-up (minor):** weak undefined imports are emitted as strong binds (no
   BIND_SYMBOL_FLAGS_WEAK_IMPORT / N_WEAK_REF) — a genuinely-absent weak symbol would
   hard-fail dyld instead of binding to 0. No impact for strong libSystem entry points.
+
+### MD3 in progress (2026-08-30): multi-import + rodata + a MAJOR parse_macho bug fixed
+
+Extending to multi-import + rodata surfaced a **major latent bug in `parse_macho`**
+(not new to MD3): a defined symbol's `InputSymbol.Value` was set to the raw nlist
+`n_value` instead of the offset *within* its section (`n_value - section.addr`).
+bnas/clang lay `__const` before `__text`, so any program with rodata puts `__text` at
+a non-zero object address → every `__text` symbol (incl. the entry) resolved off by
+that amount. In a dynamic Mach-O this made `LC_MAIN` entryoff land mid-`_start` (dyld
+jumped past the prologue → SIGSEGV / wrong exit); it equally corrupted the *static*
+Mach-O path. Escaped notice because static Mach-O never ran and prior test objects
+were text-only (`__text` at addr 0). **Fixed** (`b854118f8`, on work-6, not yet
+landed): capture each `section_64.addr`, set a section-defined symbol's Value to
+`n_value - sectionAddr`; regression test asserts `_start.Value==0` / `helper.Value==16`
+/ `msg.Value==0` for a `__const`-before-`__text` object.
+
+With that fix, **multi-import + rodata + stdio all run on macOS arm64**: a `hello`
+program (`write(1,msg,22)` via `adrp/add` to a rodata string, then `_exit(0)`) prints
+"hello from bnld macho" and exits 0; the exit(42)/exit(99) cases still pass.
+
+Remaining MD3: (a) commit a `-target macos-arm64` e2e (exit42 + hello) that RUNS on
+the macOS CI lane (natively — no Docker); (b) data (GOT) imports on Mach-O (still
+rejected — reuse the ELF GLOB_DAT/keep-load machinery: a __got slot + POINTER bind,
+no stub, Relocate keeps the GOT load).
