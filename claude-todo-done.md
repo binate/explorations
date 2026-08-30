@@ -47,6 +47,31 @@ both arm32 modes (ILP32 crash; passes on the 64-bit host, fails identically WITH
 libgcc) — a concurrent worker's const-fold test, tracked by the open `>=2^63`
 conversion-signedness item.
 
+## Managed-slice loop-BCE via redundant-load-elimination — DONE (2026-08-29, `526a2f0eb`)
+
+Re-enables load-forwarding (hence loop-BCE) for managed slices `@[]T`, which
+`01ef8a485` declined to close the LLVM extractvalue-on-ptr bug.  Store-forwarding a
+slot's loads to the stored value V is wrong for a by-address slice (V may be a
+`ptr` param); RLE instead inserts one materializing `OP_LOAD(A)` right after the
+single store and rewrites every load — normal AND fault-pad cleanup — to it (a load
+result is by-value in every backend), so the guard/access `len(s)` loads coalesce
+and loop-BCE eliminates the inner check.  **Used for ALL managed slices** (not the
+originally-designed >16B-only decoupling): RLE is correct for any type, and routing
+every managed slice through it keeps the store-forwarding path free of cleanup-pad
+slots (no `applyPromotion` change; mem2reg.bn stays under the length limit); fires
+on LP64 and ILP32.  The pad-escape relaxation is **managed-slice-ONLY** — iface/func
+values are also managed (they have cleanup pad loads) but are not collected, so they
+keep the strict escape rule (a bug where relaxing it dangled their pad RefDec — 10
+VM-`-O2` refcount failures — was caught by the VM-`-O2` subset-vs-baseline check and
+fixed).  `storeDominatesPad` gates the pad forwarding on the store dominating each
+pad's fault point.  Validated: native `-O2` conformance 2992/0; VM `-O2` managed
+subset matches the pre-change baseline exactly (234/12, the 12 pre-existing); refcount
+balance (`rt.LiveBlocks()` delta 0); a fault while a slice is live cleans up
+identically at `-O0`/`-O2`.  Code-reviewed SOUND (adversarial, refcount-focused).
+Completes the loop-BCE reach: arrays + raw slices + **managed slices**, single AND
+nested loops.  The earlier by-address-blocker + design history is in
+`plan-loop-bce-managed-slices.md`.
+
 ## load-forwarding miscompiled by-address (>16B) params/structs on LLVM at bnc `-O1+` — FIXED (2026-08-28, `01ef8a485`)
 
 `pkg/binate/ir/load_forward.bn` forwarded a non-escaping single-store slot's loads

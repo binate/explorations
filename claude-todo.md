@@ -699,38 +699,6 @@ Referenced by the TODO comment in `cmd/bnc/test.bn`'s `isTestResultReturn`.
 
 ---
 
-## Optimization passes (loop-BCE project)
-
-### Managed-slice loop-BCE — needs redundant-load-elimination (by-address blocker) — 🟡 OPEN (2026-08-28)
-**Implementation attempted 2026-08-28 and REVERTED — hit a by-address ABI
-miscompile.** A `@[]T` is a 4-word aggregate passed/represented **by address**
-(LLVM `ptr`), so load-forwarding's *store*-forwarding (forward loads to the stored
-value `V`) makes the backend `extractvalue` a slice out of a **pointer** →
-wrong-code/SEGV on the VM at `-O1+` (`msmin`/`msloop`). Store-forwarding assumes a
-by-VALUE materialization (true for scalars + raw slices, false for by-address
-aggregates). The **fault-pad-aware escape/dominance analysis was soundness-reviewed
-DESIGN SOUND and is reusable**, but the core mechanism must change to
-**redundant-load-elimination**: forward the second slot load to a **dominating
-earlier LOAD** (which materializes the value), not to the stored value — then both
-`len(s)` ops read one materialized `OP_EXTRACT(load1,1)` and loop-BCE matches; the
-slot/store/first-load stay. This is a real redesign. Landed raw-slice/array
-load-forwarding is unaffected (by-value / escapes via fieldwise ops — verified
-correct). See `plan-loop-bce-managed-slices.md` (by-address blocker section).
-Loop-BCE (Phase 3, `1362c1954`) + load-forwarding (Phase 2b, `ddbc8fea5`) landed
-for arrays + **raw** slices. A **managed** slice (`@[]T`) in a bounds-checked loop
-is NOT covered: a bounds check attaches a fault pad that `EmitLoad`s every live
-managed local for cleanup-RefDec, and `allocaEscapes` treats any `FaultPads`
-appearance as escape — so the `@[]T` slot escapes via the very check we want to
-remove, load-forwarding declines it, its two `OP_EXTRACT` length ops stay
-distinct, and loop-BCE's condition 5 can't match. To cover managed slices,
-load-forwarding needs **fault-pad-aware handling**: treat a pad's plain
-cleanup-load as a non-escaping use, forward it to the stored value too (correct —
-it RefDecs the same value), and verify the single store dominates the pad's
-attachment point (off-CFG dominance: the store dominates the faulting op's block).
-The forwarding itself is refcount-transparent (reviewed). Design/soundness: this
-was scoped out of the arrays+raw-slices v1 with the user 2026-08-28. See
-`plan-load-forwarding-phase2b.md` (Reach section) and `plan-loop-bce-phase3.md`.
-
 ## Optimization passes (loop-BCE project) — CI coverage
 
 ### Add an optimization-level dimension to the conformance matrix — 🟡 OPEN (2026-08-27)
