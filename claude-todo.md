@@ -16,7 +16,9 @@ done log) gives **2966 passed / 24 failed** (was
 100% broken). The 24 are pre-existing, revealed once compilation gets past the two
 masks, and cluster into ~2-3 classes — all fail-loud (clang rejects invalid IR),
 all confined to bnc-`-O1+`-on-LLVM (shipping builds use clang `--cflag -O2` on
-`-O0` bnc IR; native/VM `-O2` are green):
+`-O0` bnc IR; **native** `-O2` is green — 2992/0; the **VM at bnc `-O2` has ~12
+pre-existing latent failures too**, same never-run-config class — see the VM note
+at the end of this entry):
 - **raw-pointer promotion (~12):** `%vN = inttoptr i64 %vP to i8*` where `%vP` is
   a `ptr` — mem2reg promotes a `*T` slot to an SSA ptr, but a downstream cast
   emits `inttoptr i64` expecting an int. Tests: 012_pointers, 551_addr_of_global_scalar,
@@ -32,6 +34,21 @@ Same root pattern as the two fixed bugs: mem2reg/opt-pass promotion produces IR
 the native backend tolerates but the strict LLVM verifier rejects, in a config CI
 never exercises. Not blocking any shipping config. A dedicated bnc-`-O1+`-on-LLVM
 hardening pass (+ a CI lane running it) would close them.
+
+**VM at bnc `-O2` — ~12 pre-existing latent failures (found 2026-08-29 during the
+managed-slice RLE work).** The VM conformance runs at `bni`'s default `-O0`, so the
+VM at `-O2` (where `bni -O 2` runs `RunOptPasses`) is as unexercised as the LLVM
+path above. A managed-refcount-heavy conformance subset run through `bni -O 2`
+fails ~12 tests **independent of the managed-slice RLE change** (identical
+pass/fail with and without it — the RLE change added zero net failures): e.g.
+1079_any_slice_assert_refcount, 1093_any_struct_value_recovery_refcount,
+1117/1118/1120_managed_*_pointee_owning, 509_capture_managed, 510_capture_managed_slice,
+511_method_value_managed, 554_iface_refcount_balance, 595_funcvalue_struct_arg_refcount,
+713_var_infer_func_value_managed, 730_named_raw_slice_return. Mostly iface/func-value
++ capture refcount cases → likely an opt-pass (mem2reg/load-forwarding) interaction
+the VM tolerates less than native. Same "opt passes have no `-O2` end-to-end CI
+coverage" root as the LLVM 24 and the opt-level-matrix follow-up below; a VM-`-O2`
+lane would surface + gate these.
 
 ### `builder-comp_arm32_linux` gen1 build fails on current ubuntu binutils (duplicate weak_odr thunks) — 🟠 BUILD-INFRA (found 2026-08-28)
 
