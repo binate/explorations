@@ -6,6 +6,47 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Port libgcc `__aeabi_*` helpers to Binate/bnas — drop the GCC `libgcc.a` dependency (C-Free) — DONE (2026-08-29, `b0656b9b6`)
+
+arm32-baremetal is now C-Free: every AEABI runtime helper the target needs is
+provided in-tree by `runtime/baremetal_arm32/aeabi_{int,float}.s`, and the libgcc
+`--link-after-objs` pass was removed from all three bare-metal runners (native
+conformance, LLVM conformance, LLVM unittest) plus the probe in
+`scripts/lib/find-arm32-baremetal-toolchain.sh`.  A full no-libgcc link of BOTH
+arm32 backends resolves with zero undefined `__aeabi_*` symbols.
+
+Design: BINATE soft-float (integer bit-manipulation in
+`impls/core/common/pkg/builtins/softfloat/`, translated from LLVM compiler-rt,
+Apache-2.0 WITH LLVM-exception) + thin bnas shims in `aeabi_float.s` keeping the
+`__aeabi_*` names (backend unchanged; each shim a near-direct tail-call, since
+arm32 soft-float passes a double in the same r0:r1 GP pair Binate uses for a
+uint64).  The integer divides are pure bnas (`aeabi_int.s`).  Every helper had an
+adversarial differential review vs the host FPU / C `/`,`%` (billions of cases
+each, all clean).
+
+Landed commits:
+- Phase 1, 64-bit int (`lmul,ldivmod,uldivmod,llsl,llsr,lasr`): `c0183674c`
+- softfloat skeleton + d2iz: `972ac6585`; d2f: `587467e10`
+- double add/sub: `4f0176af5`; float add/sub: `54df54731`
+- float mul/div: `70fc2f821`; double mul/div: `12bf5c978`
+- compares ({d,f}cmp{eq,lt,le,gt,ge,un}): `1b2647486`
+- float->int conversions (d2uiz/d2lz/d2ulz, f2iz/f2uiz/f2lz/f2ulz): `2accf6aea`
+- 32-bit int divide (idiv/uidiv/idivmod/uidivmod): `efd376d43`
+- libgcc DROP (runners + find-script probe): `b0656b9b6`
+New runtime conformance coverage: 1223 (f64 mul/div), 1225 (f64 compares).
+
+Deferred (optional, NOT needed for C-Free — for full cross-toolchain C interop
+only): `__aeabi_{d,f}neg` (the native backend lowers float negate inline as a
+sign-bit flip, so no libcall is emitted) and the flag-setting `__aeabi_cdcmp*`
+compare variants (compiler-rt, our reference, doesn't define them; the backend
+never emits them).  Plan: `explorations/plan-aeabi-softfloat.md`; a breadcrumb
+lives in `runtime/baremetal_arm32/aeabi_float.s`.
+
+Pre-existing caveat (not this work): `1224_const_fold_cast_int_to_float` fails on
+both arm32 modes (ILP32 crash; passes on the 64-bit host, fails identically WITH
+libgcc) — a concurrent worker's const-fold test, tracked by the open `>=2^63`
+conversion-signedness item.
+
 ## load-forwarding miscompiled by-address (>16B) params/structs on LLVM at bnc `-O1+` — FIXED (2026-08-28, `01ef8a485`)
 
 `pkg/binate/ir/load_forward.bn` forwarded a non-escaping single-store slot's loads
