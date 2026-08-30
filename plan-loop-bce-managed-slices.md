@@ -51,6 +51,21 @@ unhit. The `IsByvalParam` filter below is therefore a **required correctness fix
 > Design v2 (2026-08-28) — to be adversarially soundness-reviewed before
 > implementing, per the refcount-sensitive-pass process.
 
+> **IMPLEMENTATION NOTE (2026-08-29, landed as the managed-slice-RLE commit):** the
+> decoupling below (≤16B managed → store-forward, >16B managed → RLE) was
+> simplified to **RLE for ALL managed slices** regardless of size. RLE is correct
+> for any type, and routing every managed slice through it keeps the
+> store-forwarding path free of any slot with cleanup fault-pad loads — so
+> `applyPromotion` needs no pad-load handling (which also kept `mem2reg.bn` under
+> the file-length limit). Still fires on both LP64 and ILP32 (MAJOR #2). One
+> refcount bug found + fixed during implementation: the escape relaxation must be
+> **managed-slice-ONLY** — iface/func values are also managed (they have cleanup
+> pad loads) but are not collected here, so relaxing their pad escape made
+> store-forwarding delete their alloca + pad load and leave the pad's RefDec
+> dangling (10 VM-`-O2` refcount failures, caught by the VM-`-O2` managed subset vs
+> baseline). Final VM-`-O2` managed-refcount subset matches the pre-change baseline
+> exactly (234/12; the 12 are pre-existing latent VM-`-O2` failures, unrelated).
+
 ### Two ORTHOGONAL axes (the review's key correction — do not conflate them)
 
 The reverted v1 and the first v2 draft both conflated two independent questions.
