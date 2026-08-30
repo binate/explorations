@@ -384,11 +384,11 @@ no stub, Relocate keeps the GOT load).
 
 ### MD3 DONE (2026-08-30): macOS e2e + Mach-O data (GOT) imports — full ELF parity
 
-- **MD3a — macOS e2e** (`04fe7d86c`, on work-6): `e2e/bnld-macho-dynamic.sh` builds
+- **MD3a — macOS e2e** (landed `e7481c15b`): `e2e/bnld-macho-dynamic.sh` builds
   bnas+bnld, links exit42 + hello (write + a rodata string) with `bnld -target
   macos-arm64 -dynamic`, and RUNS them natively on the macos-latest CI lane (no Docker
   — a Mach-O can't run in a Linux container); SKIPs the run elsewhere.
-- **MD3b — Mach-O data (GOT) imports** (`ab8911fb3`, on work-6): dynamic Mach-O now
+- **MD3b — Mach-O data (GOT) imports** (landed `f961164d7`): dynamic Mach-O now
   reaches libSystem *data* symbols (e.g. `___stdoutp`), not just functions — the Mach-O
   analogue of the ELF GLOB_DAT path, reusing the same machinery (classify call-vs-GOT,
   `SymbolTable.GotImports`, Relocate's keep-load `gotImp`).  The `__got` moved INTO
