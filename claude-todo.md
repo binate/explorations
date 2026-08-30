@@ -119,6 +119,49 @@ gap is within-package inlining + bounds-check inlining (a separate line of work;
 see the loop-BCE / inlining discussion). File-and-defer: high leverage, but
 orthogonal to the "narrow the gap across all programs" goal.
 
+### Close the native↔LLVM codegen gap via inlining — background
+
+Profiling `bnc` compiling `bnc` (`--backend native`), built four ways
+({clang,native}×{-O0,-O2}): native `-O2` ~21.5s, native `-O0` ~108s (our opt suite
+= ~5×, almost ALL mem2reg register-promotion; loop-BCE ~3% on this real workload —
+it shines only on tight numeric loops), clang `-O2` ~9.0s. So native trails clang
+~2.4×, and that gap is **codegen quality**, not our IR opt passes. bnc+clang is
+genuine **separate compilation** (each package is its own clang TU; all imports incl.
+`rt` are `declare` externs — confirmed in `cmd/bnc/compile_imports.bn` and the
+profile: `rt.BoundsCheck` is a CALL for clang too, ~2.5k samples). No LTO. clang's
+edge is **within-TU inlining**: `charsEqual` vanishes from clang's profile (inlined
+into `findSymbol`, same asm package); native leaves it a separate call (40%
+self-time). Two orthogonal inlining levers below. (The single-file microbench where
+"clang inlines rt.BoundsCheck" was a whole-program-bundled special case — rt is
+`define`d + hot/cold-split in that one-module executable — not the multi-package
+reality.)
+
+### (2a) Inline the bounds-check fast-path in gen — 🔵 IN PROGRESS (2026-08-29)
+
+`rt.BoundsCheck` is a cross-package CALL per array/slice access — ~25% of
+native-compile time, paid by BOTH backends (neither inlines across TUs). gen already
+emits `RefInc` inline (`emitRefIncInline`) but emits `OP_BOUNDS_CHECK` as a *call*.
+Emit the check **inline**: fast-path `if (unsigned)idx >= len goto slowfail;` (a
+compare + branch, no call), calling `rt.BoundsCheck`/a fail helper only on the rare
+failure. TU-independent → helps every program on every backend, and specifically
+closes the **single-file gap** where clang currently wins by bundling+inlining rt.
+Localized: `pkg/binate/ir/gen_access.bn`'s one `EmitBoundsCheck` site and/or each
+backend's `OP_BOUNDS_CHECK` lowering (LLVM `emit_instr.bn`, native x64/aarch64/arm32,
+VM). Must preserve exact fault semantics (the slow path still aborts with the same
+message + still attaches the recoverable-fault pad for the VM). Plan + adversarial
+review before implementing. **STARTING SHORTLY.**
+
+### (2b) Within-package function inliner — 🟡 OPEN (2026-08-29)
+
+The core native↔clang codegen-gap closer. clang inlines small same-package callees
+(`charsEqual`→`findSymbol`, and every tiny accessor) within a TU; native doesn't
+inline at all. Add an IR pass that inlines small same-package functions at their call
+sites (respecting TU/package boundaries, exactly like clang, so it's fair + generic —
+helps all programs regardless of their algorithmic quality). Bigger project: inlining
+heuristics (size/callsite thresholds), argument + refcount handling, recursion
+guards, code-bloat control, interaction with mem2reg/load-fwd/BCE ordering. This is
+where the leverage is for the ratio; do after (2a).
+
 ## Performance — bni load time
 
 `bni` "loading" a program (parse → typecheck → IR-gen → bytecode-lower, before
