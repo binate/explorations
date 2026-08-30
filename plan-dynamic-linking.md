@@ -312,3 +312,30 @@ the bnld port reuses Resolve -> Layout -> Relocate with a synthesized Mach-O
 - **MD3** — multiple imports + a data (GOT) import (stdout), mirroring the ELF datum
   e2e; wire `bnld -target macos-arm64 -dynamic`; e2e that RUNS natively on the macOS
   CI lane.
+
+### M2 refinement + MD2 DONE (2026-08-29): bnld links a runnable dynamic Mach-O
+
+Follow-up to the M2 recipe: **section-less segments work** — dropping the section
+records, DYSYMTAB, and indirect symtab from the prototype still runs (dyld binds via
+the opcodes, which name the symbol + segment/offset).  So bnld reuses the existing
+section-less `writeSeg64` and needs only LC_DYLD_INFO_ONLY + LC_SYMTAB (no DYSYMTAB).
+
+**MD2 landed-on-worktree (work-6):** `bnld -target macos-arm64 -dynamic` links an
+arm64 Mach-O whose `_start` calls libSystem `_exit`, and it **runs natively on macOS
+arm64** (`mov w0,#42 ; bl _exit` → exit 42; a `#99` variant exits 99 — proof the arg
+reaches `_exit`).  `otool -L` shows `/usr/lib/libSystem.B.dylib`; `codesign -v` passes
+(bnld's own R35 ad-hoc signature is dyld-acceptable at runtime — first runtime proof
+of the R35 signer, since static Mach-O never ran).  New code:
+- `pkg/binate/link/dynmacho.bn` — `LinkDynMacho` driver + bind-stream/symtab/stub
+  builders (reuses collectImports/classifyImports/Resolve/Layout/Relocate; a
+  synthesized `__stubs` object defines each import at its stub).
+- `pkg/binate/link/emit_dynmacho.bn` — `EmitDynMachoExec`: __PAGEZERO/__TEXT/
+  __DATA_CONST(SG_READ_ONLY, the __got)/__LINKEDIT + the dynamic load commands + the
+  R35 ad-hoc signature; 16 KB pages; LC_MAIN entry.
+- `cmd/bnld/main.bn` — `-target macos-arm64` (⇒ Mach-O, base 0x100004000; dynamic-only).
+- Unit tests (bind stream, symtab, stub encoding + range, end-to-end structural).
+
+Known MD2 limits (MD3): function (stub) imports only — a data (GOT) import is rejected;
+writable program data (a __DATA segment) is rejected; single hardcoded libSystem
+DT-equivalent.  Next (MD3): multi-import + a data import (via the ELF datum pattern) +
+`-target macos-arm64` e2e that RUNS on the macOS CI lane.
