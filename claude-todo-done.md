@@ -6,6 +6,45 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## load-forwarding miscompiled by-address (>16B) params/structs on LLVM at bnc `-O1+` — FIXED (2026-08-28, `01ef8a485`)
+
+`pkg/binate/ir/load_forward.bn` forwarded a non-escaping single-store slot's loads
+to the **stored value `V`**. When `V` was a by-address value — an `IsByvalParam()`
+(>16B) param such as a managed slice `@[]T` (32B on LP64) or a large struct — the
+LLVM backend emitted `extractvalue %BnManagedSlice %ptr` on the **param pointer** →
+invalid IR that clang rejects (e.g. `func slen(s @[]int) int { return len(s) }` at
+`bnc -O2`; a real build failed on stdlib `startup.SetArgs`). Dormant because
+`RunOptPasses` is gated at bnc `-O1+` while CI optimizes via clang `--cflag -O2` on
+`-O0` bnc IR; native/VM accept the invalid IR and the LLVM backend was never run at
+bnc `-O1+`. **Fix:** `analyzeForwardAlloca` declines `IsByvalParam()` slots (the
+exact predicate gen uses to pick byval lowering) — closes it for managed slices AND
+large structs; strictly conservative, so it cannot miscompile any backend. A
+follow-up re-enables the >16B managed-slice case via redundant-load-elimination
+(`plan-loop-bce-managed-slices.md`). Found by the adversarial review of the RLE
+design; code-reviewed SOUND. Took bnc-`-O1+`-on-LLVM from 100%-broken toward green
+(with the phi fix below) — remaining 24 failures tracked in claude-todo.md.
+
+## mem2reg phis mis-lowered on the LLVM backend at bnc `-O1+` (invalid PHI predecessors) — FIXED (2026-08-28, `8feb9490d`)
+
+At bnc `-O1+` with the **LLVM backend**, clang rejected `PHI node entries do not
+match predecessors` (e.g. stdlib `pkg/std/errors`). The backend emitted each phi's
+incoming edge with its IR predecessor block's own label, but a block that emits an
+inline RefInc/RefDec nil-check diamond splits into `ri.<n>.skip`/`rd.<n>.skip`
+sub-blocks — so the real LLVM predecessor is that trailing sub-block. **Not a
+regression from the #1 materialize-zero fix** — a bisect at `fb791594a` (pre-#1)
+reproduced it identically; it's a pre-existing Phase-2a-era defect, latent until
+mem2reg produced the first phis (the `add 0,0` in the failing phi is a plain
+zero-const loop-init, not a materialize-zero). Native/VM run `ir.EliminatePhis`
+(phis→copies) and never emit an LLVM phi, so they were unaffected. **Fix:**
+`assignBlockExitLabels` (`emit_phi_pred.bn`) precomputes each block's
+phi-predecessor exit label before the body is emitted (so back-edges resolve),
+mirroring the emitter's `tmpSeq` assignment (only OP_REFINC/OP_REFDEC split, one
+seq each — verified exhaustively), with a fail-loud assertion guarding future
+drift. Adds an `-O2` phi-split regression test; splits `emitDebugMetadata` out of
+`emit_debug.bn` for the file-length limit. Validated: default conformance 2990/0,
+`BINATE_FLAGS=-O2 builder-comp` 2966/24 (24 pre-existing, tracked). Code-reviewed
+SOUND.
+
 ## `cast(float64, <untyped int const, negative or >= 2^63>)` — FIXED (2026-08-28, `f0e51a747`)
 
 The unsigned SIBLING of the negative-direction fix (test 1224), plus the NEGATIVE

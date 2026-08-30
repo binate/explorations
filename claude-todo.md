@@ -7,36 +7,12 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### load-forwarding miscompiles by-address (>16B) params/structs on LLVM backend at bnc `-O1+` — 🟠 WRONG-CODE (found 2026-08-28, fix in flight)
-
-`pkg/binate/ir/load_forward.bn` (landed store-forwarding, `ddbc8fea5`) forwards a
-non-escaping single-store slot's loads to the **stored value `V`**. When `V` is a
-by-address value — a `IsByvalParam()` (>16B) param such as a managed slice `@[]T`
-(32B on LP64) or a large struct — the LLVM backend then emits `extractvalue
-%BnManagedSlice %ptr` on the **param pointer** → **invalid IR, clang rejects it**.
-Confirmed by full compile (NOT `--emit-llvm`, which skips validation):
-`func slen(s @[]int) int { return len(s) }` at `bnc -O2` errors `'%v0' defined
-with type 'ptr' but expected '%BnManagedSlice'`; a real build fails on stdlib
-`startup.SetArgs(args @[]char)`.
-
-**Dormant, not benign:** `RunOptPasses` is gated `level<1` (`opt.bn`) so bnc's IR
-opt runs only at bnc `-O1+`; gen/CI + standard conformance optimize via clang
-`--cflag -O2` (test compiles are bnc `-O0`). Loop-BCE was validated with
-`BINATE_FLAGS=-O2` on **native/VM only** (they accept the invalid IR); the **LLVM
-backend at bnc `-O2` is never run in CI**, so the hole is real but unhit.
-
-**Fix (in flight):** filter `analyzeForwardAlloca` to decline `IsByvalParam()`
-slots (closes the hole for managed slices AND large structs). Part of the
-managed-slice loop-BCE RLE redesign (`plan-loop-bce-managed-slices.md`); the RLE
-half then re-enables the >16B *managed-slice* case via a materializing load. Guard
-with an LLVM-backend `bnc -O2` full-compile regression test (the missing coverage).
-Found by the adversarial review of the RLE design.
-
 ### bnc `-O1+` on the LLVM backend: 24 remaining type-mismatch failures — 🟠 LLVM-BACKEND / opt (found 2026-08-28)
 
 Running `BINATE_FLAGS=-O2 ./conformance/run.sh builder-comp` (the never-run
-bnc-`-O1+`-on-LLVM path) after fixing the two masking bugs below (load-forwarding
-by-address + mem2reg phi predecessors) gives **2966 passed / 24 failed** (was
+bnc-`-O1+`-on-LLVM path) after fixing the two masking bugs (load-forwarding
+by-address `01ef8a485` + mem2reg phi predecessors `8feb9490d`, both LANDED — see
+done log) gives **2966 passed / 24 failed** (was
 100% broken). The 24 are pre-existing, revealed once compilation gets past the two
 masks, and cluster into ~2-3 classes — all fail-loud (clang rejects invalid IR),
 all confined to bnc-`-O1+`-on-LLVM (shipping builds use clang `--cflag -O2` on
@@ -56,27 +32,6 @@ Same root pattern as the two fixed bugs: mem2reg/opt-pass promotion produces IR
 the native backend tolerates but the strict LLVM verifier rejects, in a config CI
 never exercises. Not blocking any shipping config. A dedicated bnc-`-O1+`-on-LLVM
 hardening pass (+ a CI lane running it) would close them.
-
-### mem2reg phis mis-lower on the LLVM backend at bnc `-O1+` (invalid PHI predecessors) — 🟠 LLVM-BACKEND / opt (found 2026-08-28)
-
-At bnc `-O1+` with the **LLVM backend**, clang rejects the emitted IR:
-`invalid LLVM IR input: PHI node entries do not match predecessors!` — e.g. in
-stdlib `pkg/std/errors`: `%v140 = phi i64 [ %v23, %entry.0 ], [ %v56,
-%for.post.3 ]`. The phi's predecessor labels don't match the LLVM CFG block's
-actual predecessors. mem2reg is the ONLY phi producer, so these are mem2reg phis;
-the **native backend lowers them correctly** (native `-O2` conformance is 2990/0,
-which links std), so this is the **LLVM backend's phi-predecessor lowering** (or
-its block-splitting not patching phi entries), exposed by mem2reg being the first
-phi source. FAIL-LOUD (clang errors; no silent wrong-code) and confined to the
-never-run bnc-`-O1+`-on-LLVM config (CI optimizes via clang `--cflag -O2` on
-bnc-`-O0` IR; opt-pass validation used `BINATE_FLAGS=-O2` on native/VM only).
-
-The `[preheader, latch]` shape matches the dead outer-header phi that the #1
-materialize-zero fix (`0e6c40b5f`) creates, so this may be a regression from #1
-rather than original to Phase 2a — needs a bisect (rebuild pre-`0e6c40b5f` and
-re-run bnc `-O1` on LLVM). Blocks end-to-end validation of managed-slice loop-BCE
-on the LLVM backend at bnc `-O2`. Found alongside the load-forwarding by-address
-bug (above) when running the never-run LLVM-at-bnc-`-O2` path.
 
 ### `builder-comp_arm32_linux` gen1 build fails on current ubuntu binutils (duplicate weak_odr thunks) — 🟠 BUILD-INFRA (found 2026-08-28)
 
