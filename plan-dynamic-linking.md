@@ -381,3 +381,27 @@ Remaining MD3: (a) commit a `-target macos-arm64` e2e (exit42 + hello) that RUNS
 the macOS CI lane (natively — no Docker); (b) data (GOT) imports on Mach-O (still
 rejected — reuse the ELF GLOB_DAT/keep-load machinery: a __got slot + POINTER bind,
 no stub, Relocate keeps the GOT load).
+
+### MD3 DONE (2026-08-30): macOS e2e + Mach-O data (GOT) imports — full ELF parity
+
+- **MD3a — macOS e2e** (`04fe7d86c`, on work-6): `e2e/bnld-macho-dynamic.sh` builds
+  bnas+bnld, links exit42 + hello (write + a rodata string) with `bnld -target
+  macos-arm64 -dynamic`, and RUNS them natively on the macos-latest CI lane (no Docker
+  — a Mach-O can't run in a Linux container); SKIPs the run elsewhere.
+- **MD3b — Mach-O data (GOT) imports** (`ab8911fb3`, on work-6): dynamic Mach-O now
+  reaches libSystem *data* symbols (e.g. `___stdoutp`), not just functions — the Mach-O
+  analogue of the ELF GLOB_DAT path, reusing the same machinery (classify call-vs-GOT,
+  `SymbolTable.GotImports`, Relocate's keep-load `gotImp`).  The `__got` moved INTO
+  Layout as the synthesized object's writable section (so a data import is *defined at*
+  its slot); `LayoutPaged` parameterizes Layout's page size (16 KB for Mach-O; ELF keeps
+  linkPageSize); `EmitDynMachoExec` maps the read-only group → __TEXT and the writable
+  group (the __got) → __DATA_CONST (SG_READ_ONLY).  Writable *program* data (a __DATA
+  segment) is rejected loudly — a follow-up.  The e2e gained a `datum` program that
+  GOT-loads `___stdoutp` and exits 42 iff non-null (also calls `_exit`, so the mixed
+  function+data case); validated natively (ALL PASS).
+
+**Mach-O dynamic linking now has ELF parity**: function + data imports, runnable +
+CI-guarded on macOS arm64.  Remaining follow-ups (all documented, none blocking):
+writable program data (__DATA) for both dynamic backends; ABS64-to-an-import made loud;
+weak imports marked weak; and ML4 (multi-lib `-l` via `.so`/`.dylib` SONAME) on the ELF
+side.
