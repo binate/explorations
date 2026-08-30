@@ -35,12 +35,12 @@ Landed commits:
 - libgcc DROP (runners + find-script probe): `b0656b9b6`
 New runtime conformance coverage: 1223 (f64 mul/div), 1225 (f64 compares).
 
-Deferred (optional, NOT needed for C-Free — for full cross-toolchain C interop
-only): `__aeabi_{d,f}neg` (the native backend lowers float negate inline as a
-sign-bit flip, so no libcall is emitted) and the flag-setting `__aeabi_cdcmp*`
-compare variants (compiler-rt, our reference, doesn't define them; the backend
-never emits them).  Plan: `explorations/plan-aeabi-softfloat.md`; a breadcrumb
-lives in `runtime/baremetal_arm32/aeabi_float.s`.
+Full AEABI set completed for cross-toolchain C interop (not needed for C-Free
+itself; the native backend never emits them): `__aeabi_{d,f}neg` (IEEE sign-bit
+flip; `5c8606c43`) and the flag-setting compares `__aeabi_c{d,f}cmp{eq,le}` /
+`c{d,f}rcmple` (return the result in the CPSR Z/C flags per IHI0043;
+`2c828b2c3`).  With these, EVERY `__aeabi_*` helper the arm32-baremetal target
+can reference is provided in-tree.
 
 Pre-existing caveat (not this work): `1224_const_fold_cast_int_to_float` fails on
 both arm32 modes (ILP32 crash; passes on the 64-bit host, fails identically WITH
