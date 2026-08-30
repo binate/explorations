@@ -368,7 +368,7 @@ a non-zero object address → every `__text` symbol (incl. the entry) resolved o
 that amount. In a dynamic Mach-O this made `LC_MAIN` entryoff land mid-`_start` (dyld
 jumped past the prologue → SIGSEGV / wrong exit); it equally corrupted the *static*
 Mach-O path. Escaped notice because static Mach-O never ran and prior test objects
-were text-only (`__text` at addr 0). **Fixed** (`b854118f8`, on work-6, not yet
+were text-only (`__text` at addr 0). **Fixed** (landed `2c6b7bfaf`; was b854118f8, formerly not
 landed): capture each `section_64.addr`, set a section-defined symbol's Value to
 `n_value - sectionAddr`; regression test asserts `_start.Value==0` / `helper.Value==16`
 / `msg.Value==0` for a `__const`-before-`__text` object.
