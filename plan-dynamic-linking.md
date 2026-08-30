@@ -339,3 +339,21 @@ Known MD2 limits (MD3): function (stub) imports only — a data (GOT) import is 
 writable program data (a __DATA segment) is rejected; single hardcoded libSystem
 DT-equivalent.  Next (MD3): multi-import + a data import (via the ELF datum pattern) +
 `-target macos-arm64` e2e that RUNS on the macOS CI lane.
+
+### MD2 review (2026-08-29): SHIP, one fix applied + two noted follow-ups
+
+Adversarial review of the Mach-O dynamic writer verified multi-import consistency
+(stub i*12 / got i*8 / bind i*8 / n_strx all align), the segment/file congruence, the
+code-signature ordering, LC sizes, and entryoff. Verdict SHIP for the validated scope.
+- **Fixed before landing:** the `__got` was hard-capped at one 16 KB page (the
+  `gotCount` writer param was unused) — ≥2049 imports would silently emit a bind
+  offset past `__DATA_CONST`. Now `__DATA_CONST` is sized `alignUp(gotCount*8, page)`;
+  a 2049-import writer test guards it. (Latent — can't bite few-import libSystem use —
+  but a silent mis-emit, so fixed now.)
+- **Follow-up (minor):** an import referenced *only* by an ABS64 (`.quad _undef`) is
+  classified impPlt and gets a code stub rather than being rejected/handled as data —
+  exotic on arm64/Mach-O (address-take emits GOT_LOAD, which IS rejected). Make ABS64
+  -to-an-import loud like impGot. Touches shared classifyImports, so deferred.
+- **Follow-up (minor):** weak undefined imports are emitted as strong binds (no
+  BIND_SYMBOL_FLAGS_WEAK_IMPORT / N_WEAK_REF) — a genuinely-absent weak symbol would
+  hard-fail dyld instead of binding to 0. No impact for strong libSystem entry points.
