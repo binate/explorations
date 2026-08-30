@@ -261,3 +261,54 @@ have the R35 signer), plus droppable LC_UUID/LC_BUILD_VERSION/LC_SOURCE_VERSION/
 LC_FUNCTION_STARTS/LC_DATA_IN_CODE (TBD which dyld actually requires).
 
 Reuses the R31–R35 Mach-O writer/signer (static exec writer + ad-hoc CodeDirectory).
+
+### M2 recipe VALIDATED (2026-08-29): hand-rolled non-lazy dynamic Mach-O runs on macOS arm64
+
+`explorations/proto-dynamic-macho-arm64.py` emits a from-scratch minimal dynamic
+arm64 Mach-O whose `_start` does `mov w0,#42 ; bl <stub>`; the stub jumps through a
+`__got` slot that dyld binds to libSystem's `_exit` at load.  Ad-hoc signed, it
+**runs and exits 42** (3/3), and `dyld_info -fixups` confirms one bind:
+`__DATA_CONST/__got -> libSystem/_exit` (non-lazy).  The risky unknown — does dyld
+accept a hand-rolled classic-format dynamic Mach-O with a non-lazy GOT bind — is
+answered YES.  The exact working recipe bnld will port:
+
+- **Format: classic `LC_DYLD_INFO_ONLY`** (bind opcodes), NOT chained fixups.
+- **Non-lazy**, mirroring ELF DF_BIND_NOW: one `__got` slot per import in
+  `__DATA_CONST`, bound at load by a BIND opcode; a `__TEXT` stub `adrp x16,__got@page
+  ; ldr x16,[x16,#off] ; br x16` jumps through it.  No `__la_symbol_ptr`, no
+  `dyld_stub_binder`, no `__stub_helper`.
+- **Segments**: `__PAGEZERO` (vmsize 4GB), `__TEXT` (r-x, maps mach header + load
+  commands at file 0, then `__text`), `__DATA_CONST` (rw, `__got`; **MUST carry the
+  `SG_READ_ONLY` segment flag 0x10** — dyld rejects `__DATA_CONST` without it),
+  `__LINKEDIT`.  16 KB pages.
+- **Load commands** (minimal set that dyld accepts): `LC_SEGMENT_64` ×4;
+  `LC_DYLD_INFO_ONLY` (bind_off/size only); `LC_SYMTAB`; `LC_DYSYMTAB` (indirect
+  symtab: one entry -> the import's nlist, `__got.reserved1` = its indirect index);
+  `LC_LOAD_DYLINKER` (`/usr/lib/dyld`); **`LC_BUILD_VERSION`** (platform macOS,
+  minos — required by dyld4); `LC_UUID`; `LC_MAIN` (entryoff); `LC_LOAD_DYLIB`
+  (`/usr/lib/libSystem.B.dylib`); `LC_CODE_SIGNATURE`.  Droppable:
+  LC_SOURCE_VERSION, LC_FUNCTION_STARTS, LC_DATA_IN_CODE, LC_DYLD_EXPORTS_TRIE.
+- **Bind opcodes** for one import: `SET_DYLIB_ORDINAL_IMM 1`,
+  `SET_SYMBOL_TRAILING_FLAGS_IMM "_exit"`, `SET_TYPE_IMM POINTER`,
+  `SET_SEGMENT_AND_OFFSET_ULEB seg=__DATA_CONST off=slot`, `DO_BIND`, `DONE`.
+- **nlist** for an import: `n_strx`, `n_type=N_EXT` (0x01, undefined), `n_sect=0`,
+  `n_desc=(dylib_ordinal<<8)` (two-level), `n_value=0`.
+- **Signing**: arm64 requires a valid signature; bnld EMITS `LC_CODE_SIGNATURE` and
+  ad-hoc-signs via the R35 CodeDirectory signer (proven for static Mach-O).  (codesign
+  default-strict only balked at ADDING a missing LC_CODE_SIGNATURE — a prototype
+  artifact; with the LC present, `codesign -s -` is strict-clean.)
+
+The mechanism is the exact Mach-O analogue of the ELF PLT/GOT + BIND_NOW design, so
+the bnld port reuses Resolve -> Layout -> Relocate with a synthesized Mach-O
+"dynamic-stubs" structure — like LinkDynElf/buildDynStubs but emitting Mach-O.
+
+### bnld implementation plan (Mach-O dynamic) — rounds
+- **MD1** — recon + M2 recipe (this; done).
+- **MD2** — `LinkDynMacho` + a dynamic Mach-O writer: synthesize the __got + stub +
+  bind opcodes + symtab/dysymtab, reuse the R31–R35 segment writer + signer, emit the
+  load-command set above.  Milestone: bnld links a dynamic arm64 Mach-O whose _start
+  calls libSystem `exit(42)`, runs on macOS arm64.  (aarch64 first; x86-64 Mach-O
+  later if wanted.)
+- **MD3** — multiple imports + a data (GOT) import (stdout), mirroring the ELF datum
+  e2e; wire `bnld -target macos-arm64 -dynamic`; e2e that RUNS natively on the macOS
+  CI lane.
