@@ -320,7 +320,7 @@ records, DYSYMTAB, and indirect symtab from the prototype still runs (dyld binds
 the opcodes, which name the symbol + segment/offset).  So bnld reuses the existing
 section-less `writeSeg64` and needs only LC_DYLD_INFO_ONLY + LC_SYMTAB (no DYSYMTAB).
 
-**MD2 landed-on-worktree (work-6):** `bnld -target macos-arm64 -dynamic` links an
+**MD2 LANDED (d77f418b2):** `bnld -target macos-arm64 -dynamic` links an
 arm64 Mach-O whose `_start` calls libSystem `_exit`, and it **runs natively on macOS
 arm64** (`mov w0,#42 ; bl _exit` → exit 42; a `#99` variant exits 99 — proof the arg
 reaches `_exit`).  `otool -L` shows `/usr/lib/libSystem.B.dylib`; `codesign -v` passes
