@@ -6,6 +6,36 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Assembler symbol table O(n²) → O(1) — hash the symbol table — DONE (2026-08-30, `b818d72fd`)
+
+`Assembler.findSymbol` (`pkg/binate/asm/asm.bn`) was a linear `charsEqual` scan over
+every symbol, called per symbol reference during assembly → O(n²) in the symbol
+count.  A native-backend `bnc` compiling `bnc` spent ~60% of its time in symbol
+resolution (`charsEqual` the single hottest function at ~40% self-time).
+
+Fix: added `SymIndex`, a stdlib `mapfn.MapFn[*[]readonly char, int]` (djb2 `symHash`
+hasher + the existing `charsEqual` as injected equality), seeded by `New` and kept in
+lockstep by `addSymbol` (the sole append site, first-index-per-name to match the old
+first-match scan).  `findSymbol` is now an O(1) map lookup; `charsEqual` runs only on
+hash collisions.  Mirrors the same optimization already landed for `token.Lookup`
+(`444554a5e`) and `ir`'s `FuncSigIndex` — same container, same djb2+streq pattern,
+same borrowed-`*[]readonly char`-key-into-a-refcount-shared-backing lifetime
+argument (the `Symbols` array keeps each `Name`'s char backing alive across growth
+copies, so the borrowed keys never dangle).  Uses `pkg/stdx/containers/mapfn` (the
+stdx forwarder) — `pkg/std/mapfn` directly is blocked on a BUILDER bump.
+
+Tests (`pkg/binate/asm/asm_symindex_test.bn`, 3): basic lookup + miss, forward-ref
+fill-in leaves the index consistent, and a 300-label growth test forcing both a
+`Symbols`-array regrow (past `INITIAL_SYMBOLS`=64) and a map rehash — the one that
+would catch a dangling borrowed key.  Verified: `builder-comp` + `builder-comp-int`
+asm 16/0 (both LLVM and VM), `builder-comp native` 5/0 (all `asm.Assembler`
+struct-layout consumers), hygiene 20/20.  Minimal adversarial review found no real
+issues (all five lifetime/semantic-divergence attack vectors confirmed safe).
+
+Benchmark (bnc compiling bnc, {clang,native}×{-O0,-O2}) — measurement in progress;
+numbers to follow.  Pre-fix baseline (from the codegen-gap note): native `-O2`
+~21.5s, native `-O0` ~108s, clang `-O2` ~9.0s.
+
 ## Port libgcc `__aeabi_*` helpers to Binate/bnas — drop the GCC `libgcc.a` dependency (C-Free) — DONE (2026-08-29, `b0656b9b6`)
 
 arm32-baremetal is now C-Free: every AEABI runtime helper the target needs is

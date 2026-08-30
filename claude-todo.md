@@ -100,25 +100,6 @@ the program aborts (not returns 0). Tracked against Plan 2
 
 ## Performance — native compile speed
 
-### Assembler symbol table is O(n²) (linear `findSymbol`) — hash it — 🟡 OPEN (found 2026-08-29)
-
-Profiling a native-backend `bnc` compiling `bnc` (`--backend native`) shows **~60%
-of the time in symbol resolution**: `pkg/binate/asm/asm.bn` `Assembler.findSymbol`
-is a **linear scan** (`for i < NumSymbols { if charsEqual(Symbols[i].Name, name) }`)
-called per symbol reference during assembly → **O(n²)** in the symbol count, and
-`charsEqual` (per-char compare, with a per-char bounds-check) is the single hottest
-function (~40% self-time; `findSymbol`+`charsEqual` together ~60%). For bnc's own
-thousands of symbols this dominates. Fix: back the symbol table with a hash map
-(name → index), or intern names. Localized change in `pkg/binate/asm`. Likely
-**~halves** native compile time.
-
-NOTE: this is an **algorithmic** win that helps BOTH the native and clang/LLVM
-paths (both use bnc's assembler when `--backend native`), so it improves absolute
-compile time but does NOT primarily close the native-vs-clang *codegen* gap — that
-gap is within-package inlining + bounds-check inlining (a separate line of work;
-see the loop-BCE / inlining discussion). File-and-defer: high leverage, but
-orthogonal to the "narrow the gap across all programs" goal.
-
 ### Close the native↔LLVM codegen gap via inlining — background
 
 Profiling `bnc` compiling `bnc` (`--backend native`), built four ways
