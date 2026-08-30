@@ -211,10 +211,22 @@ that is the substance of "more libc". Decomposition (small, green, self-containe
   emit the `DT_RELA`/`RELASZ`/`RELAENT` trio only when there IS a data import (what
   ld/lld do); the no-data-import path is byte-structure-unchanged.
 
+- **ML3a — aarch64 data-import e2e** (landed `799da0559`): a `datum` program
+  GOT-loads libc `stdout` and exits 42 iff non-null; guards the .got + GLOB_DAT path
+  in CI alongside exit42's PLT/JUMP_SLOT path. Docker-verified (linux/arm64).
+- **ML2b — x86-64 `@GOTPCREL` `.s` syntax** (landed `94b32958d`): `mov rax, [rip +
+  sym@GOTPCREL]` → MOV(0x8B, a GOT load) + FIX_GOTPCREL, via a new `@` lexer token +
+  OP_RIPGOTLABEL. Unit tests + bad-suffix rejection.
+- **ML3b — x86-64 data-import e2e** (landed `2a84e4158`): the x64 `datum` sibling;
+  Docker-verified (linux/amd64), exits 42.
+
+So **data-symbol imports are complete on both arches** — implementation, `.s`
+syntax, and runnable CI-guarded e2e, all validated end to end (both binaries
+GOT-load libc `stdout`, bind it via GLOB_DAT, and exit 42, with `exit` via the PLT).
+
 Still open (surfaced, not silently deferred):
-- **ML2b/ML3b — x86-64 GOT text syntax + runnable x64 environ e2e.** The x64
-  keep-mov fork is unit-tested but not yet runtime-validated end to end; the `.s`
-  front-end needs `@GOTPCREL` (the lexer has no `@` token yet — a small addition).
-  aarch64-first mirrors the D2/D3→D4 cadence.
-- **ML3 — commit a runnable environ/stdout e2e** (both arches) into `e2e/`.
-- **ML4 — multi-lib `-l` / correct `DT_NEEDED` SONAME** (still a user decision).
+- **ML4 — multi-lib `-l` / correct `DT_NEEDED`.** User's chosen approach (2026-08-29):
+  **parse each `-l<name>`'s shared object for `DT_SONAME`** and record that exact
+  string as `DT_NEEDED` (needs a minimal `.so`/`.dynamic` reader). Today the single
+  `DT_NEEDED` is hardcoded `libc.so.6`.
+- Then **Mach-O dynamic** (dyld + LC_MAIN + LC_LOAD_DYLIB + chained fixups).
