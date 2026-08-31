@@ -32,9 +32,25 @@ asm 16/0 (both LLVM and VM), `builder-comp native` 5/0 (all `asm.Assembler`
 struct-layout consumers), hygiene 20/20.  Minimal adversarial review found no real
 issues (all five lifetime/semantic-divergence attack vectors confirmed safe).
 
-Benchmark (bnc compiling bnc, {clang,native}×{-O0,-O2}) — measurement in progress;
-numbers to follow.  Pre-fix baseline (from the codegen-gap note): native `-O2`
-~21.5s, native `-O0` ~108s, clang `-O2` ~9.0s.
+Benchmark (this host, darwin/arm64; a fixed clang-O2 bnc compiles cmd/bnc with
+the WORKLOAD's backend+opt varied; interleaved pre/post, min of repeats — the
+absolute seconds are host-specific, the pre/post deltas are the point):
+
+| workload    | pre-fix O(n²) | post-fix O(1) | speedup |
+| ----------- | ------------- | ------------- | ------- |
+| clang -O0   | 15.50s        | 15.30s        | 1.01x   |
+| clang -O2   | 60.35s        | 61.21s        | 0.99x   |
+| native -O0  | 31.67s        | 8.16s         | 3.88x   |
+| native -O2  | 47.63s        | 22.99s        | 2.07x   |
+
+The fix removes a ~constant ~24s of O(n²) symbol resolution from a native-backend
+bnc-compiling-bnc, independent of opt level (abs. saved: -O0 23.5s, -O2 24.6s).
+The clang/LLVM backend is unaffected (it emits LLVM text + calls clang; the
+in-process assembler only handles the tiny runtime `.s` files, so findSymbol is
+never hot there).  Relative speedup is larger at -O0 (assembly-dominated) than at
+-O2 (IR-opt adds a fixed cost); so the todo's "~halves" estimate was conservative
+for the native backend (~3.9x at -O0).  A tight 3-run cross-check of the headline
+config (clang-O2 compiler, compile cmd/bnc --backend native) gave 24.8s -> 6.4s.
 
 ## Port libgcc `__aeabi_*` helpers to Binate/bnas — drop the GCC `libgcc.a` dependency (C-Free) — DONE (2026-08-29, `b0656b9b6`)
 

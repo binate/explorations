@@ -7,6 +7,36 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### native `-O2` self-host: a bnc built `--backend native -O2` SIGSEGVs compiling a large program — 🟠 NATIVE-BACKEND / opt (found 2026-08-30)
+
+A `bnc` built with `--backend native -O2` (i.e. its own main module native-lowered
+after `-O2` IR opt) **segfaults (SIGSEGV / rc=139) while compiling a large program**
+(`cmd/bnc`) with `--backend native`.  It is fine on small programs — such a bnc runs
+`--version` and compiles/runs hello-world correctly (both default and `--backend
+native`) — so the miscompile only manifests on a large input.  A `--backend native
+-O0`-built bnc does NOT crash (compiles `cmd/bnc` fine).  So the trigger is the `-O2`
+IR opt of the native-lowered main module.
+
+Discovered while benchmarking the asm `findSymbol` fix (that fix is unrelated: the
+crash **reproduces on the parent commit `2c828b2c3`**, i.e. pre-fix, so it is not
+caused by the symbol-table change).  Root cause unknown — needs investigation;
+likely native-backend lowering of `-O2`-optimized IR (mem2reg/coalesced values)
+mis-emits in a path only the large self-host input exercises.
+
+Why CI doesn't catch it: conformance's `native` modes build the compiler-under-test
+via the LLVM path (clang) and run at `-O0`; the "native `-O2` is green 2992/0" figure
+is a *clang-built* compiler emitting native-`-O2` output for *small* programs.  This
+bug needs (a) a native-`-O2`-**built** compiler and (b) a large input — neither is in
+any lane.  A small conformance test won't reproduce it (hello works); catching it
+needs a native-`-O2` self-host build + self-compile check.  Not a shipping config
+(released bnc is clang-built; normal native mode uses `-O0`), so non-blocking, but a
+real wrong-code/crash defect.
+
+Repro: build gen1 (BUILDER→gen1), then
+`gen1 --backend native -O2 -o bnc_n2 cmd/bnc` (works), then
+`bnc_n2 --backend native -o /dev/null cmd/bnc` → SIGSEGV.
+
+
 ### bnc `-O1+` on the LLVM backend: 24 remaining type-mismatch failures — 🟠 LLVM-BACKEND / opt (found 2026-08-28)
 
 Running `BINATE_FLAGS=-O2 ./conformance/run.sh builder-comp` (the never-run
