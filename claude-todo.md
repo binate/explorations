@@ -163,27 +163,43 @@ the VM tolerates less than native. Same "opt passes have no `-O2` end-to-end CI
 coverage" root as the LLVM 24 and the opt-level-matrix follow-up below; a VM-`-O2`
 lane would surface + gate these.
 
-### `builder-comp_arm32_linux` gen1 build fails on current ubuntu binutils (duplicate weak_odr thunks) — 🟠 BUILD-INFRA (found 2026-08-28)
+### gen1 build fails on Linux: BUILDER (bnc-0.0.14) emits iv-dispatch thunks STRONG — 🟠 BUILD-INFRA, gated on a BUILDER cut (found 2026-08-28; root-caused 2026-08-31)
 
-The `builder-comp_arm32_linux` conformance mode's gen1 build (compile cmd/bnc for
-the host, then cross-compile tests to arm32) fails at the HOST link step on a fresh
-`ubuntu:24.04` (current binutils `ld`): `multiple definition of
-FnHasher[uint8].__bn_thunk_Hash` / `FnEq[uint8].__bn_thunk_Equal` between
-`pkg/binate/ir.o` and `pkg/binate/token.o`.  These are the weak_odr iv-dispatch
-thunks (the same class `1222_generic_iv_thunk_cross_pkg` guards) that BOTH packages
-instantiate; the newer `ld` no longer merges them.
+Every conformance mode (down to plain `builder-comp`) fails at the "Building gen1
+compiler" step.  The BUILDER (`bnc-0.0.14`) compiles cmd/bnc for the host and the
+Linux link reports `multiple definition of bn_...FnHasher...uint8...__bn_thunk_Hash`
+/ `...FnEq...uint8...__bn_thunk_Equal` across `pkg/binate/{ir,token,asm}.o` — the
+uint8-keyed `stdx/hash.FnHasher` / `stdx/cmp.FnEq` iv-dispatch thunks that all three
+packages instantiate (the class `1222_generic_iv_thunk_cross_pkg` guards).
 
-PRE-EXISTING and NOT arm32-specific: it is the HOST link of gen1 (amd64/arm64 Linux
-`ld`), reproduced on CLEAN `main` with no local changes.  macOS (Mach-O `ld`) merges
-them fine, and an older cached `ubuntu:24.04` image built gen1 OK, so it is binutils
-drift.  `ubuntu:22.04` fails differently (its clang is too old — no opaque pointers).
-This blocks a full arm32-linux RUNTIME conformance run in fresh docker images (only
-an IR-level ILP32 check is possible there now).
+ROOT CAUSE (corrected 2026-08-31 — the earlier "binutils drift on weak merging"
+diagnosis was WRONG): the BUILDER emits these thunks as **strong**, not weak_odr
+(`bnc-0.0.14` `--pkg pkg/binate/token --emit-llvm` → `define i64 @...__bn_thunk_Hash`,
+no `weak_odr`), and GNU `ld` correctly rejects duplicate strong defs.  It is NOT weak
+merging: a Docker check on `ubuntu:24.04` / binutils 2.42 merges duplicate `weak_odr`
+defs without complaint.  The fix that marks the thunks `weak_odr` — `883f761ce`
+(2026-08-27) — is NOT in `bnc-0.0.14` (it postdates the tag), so the BUILDER's
+emission is still strong.  macOS (ld64) tolerates the strong duplicates (coalesces
+distinct `.text.<name>` sections), which is why gen1 builds locally on macOS but
+fails on Linux GNU ld.
 
-Likely fix: emit the iv-dispatch thunks in a COMDAT/section group so current `ld`
-merges them, or otherwise make the weak_odr linkage survive newer binutils.
-Discovered while trying to run an arm32 runtime check for the `cast(float64, ...)`
-sibling fix (`f0e51a747`, done-log); that fix is IR-level-verified on ILP32.
+SOURCE FIXES LANDED (both inert until a BUILDER carries them — they change only what
+a from-source gen1 emits, and the failing link is the BUILDER's own emission before
+any from-source gen1 exists):
+  - `883f761ce` (2026-08-27) — iv-dispatch thunks are `weak_odr` (IsLinkOnce).
+    Sufficient alone for GNU ld, which merges weak.
+  - `0eef20a9d` (2026-08-31) — weak_odr defs go in COMDAT groups on ELF (extra
+    hardening; matches what clang emits for weak_odr; not required by GNU ld).
+
+RESOLUTION: cut a new BUILDER from current source.  No source-level change can fix
+the gen1 build directly.  Gated on a BUILDER cut — composes with the `stdx→std`
+migration item (also gated on the same cut).  Do NOT rush a BUILDER release for this
+alone (see `release-process.md`); batch it at a natural release point.
+
+Consequence until then: conformance is red on `main` (ALL modes) — a known
+pending-BUILDER state, red since ~2026-08-28; only IR-level ILP32 checks are possible
+for arm32-linux runtime.  Discovered while running an arm32 runtime check for the
+`cast(float64, ...)` sibling fix (`f0e51a747`, done-log; IR-level-verified on ILP32).
 
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
