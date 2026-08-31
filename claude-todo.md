@@ -222,17 +222,21 @@ the gen1 build directly.  Gated on a BUILDER cut — composes with the `stdx→s
 migration item (also gated on the same cut).  Do NOT rush a BUILDER release for this
 alone (see `release-process.md`); batch it at a natural release point.
 
-INTERIM CI SHIM (transitional — MUST be removed when `BUILDER_VERSION` advances to
-`>= bnc-0.0.15`, whose weak_odr thunks make it unnecessary): the CI gen1 helper
-`scripts/lib/build-compilers.sh` `build_gen1` passes `-Wl,--allow-multiple-definition`
-on Linux only, so the BUILDER→gen1 link accepts the ODR-identical strong-thunk dups
-— greening conformance / unit / perf while the BUILDER stays at `0.0.14`.  macOS is
-left strict (ld64 both tolerates the dups and rejects the GNU flag), keeping a
-collision backstop on the macOS lane.  NOT YET applied to the per-tool
-`scripts/build-*.sh` inline Stage-1 builds or the `e2e/*.sh` inline gen1 builds
-(the e2e lane builds bnas/bnld/bnfmt via those, so it stays red until they get the
-same shim or the BUILDER bumps) — extend at BUILDER-cut prep, since those scripts
-are the release build path too.
+INTERIM CI SHIM — landed `448f8d3ba` (transitional; MUST be removed when
+`BUILDER_VERSION` advances to `>= bnc-0.0.15`, whose weak_odr thunks make it
+unnecessary — remove by `grep -rl gen1_dupthunk_flag scripts/ e2e/`): every
+BUILDER→gen1 link passes `-Wl,--allow-multiple-definition` on Linux only, so it
+accepts the ODR-identical strong-thunk dups — greening conformance / unit / perf /
+e2e while the BUILDER stays at `0.0.14`.  macOS is left strict (ld64 both tolerates
+the dups and rejects the GNU flag), keeping a collision backstop on the macOS lane.
+All 14 gen1-build sites are covered: `scripts/lib/build-compilers.sh` `build_gen1`,
+`scripts/build-{bnc,bni,bnas,bnlint,bnld,bnfmt}.sh`, `scripts/resolve-gen1.sh`, and
+the inline `e2e/{bni-test-nil,bni-test-fault,bni-nil-check,fmt-os-args,shebang-exec,
+repl}.sh` builds.  Also at BUILDER-bump cleanup: `e2e/separate-compilation.sh`'s
+opt-in `run_sepc "builder"` lane has an unpatched BUILDER→binary link — inert today
+(skipped: 0.0.14 predates `--list-deps`; and cmd/bnas has no cross-package dup), and
+mooted by the weak_odr thunks once the BUILDER bumps, so it needs no shim, only a
+recheck.
 
 Consequence until then: conformance is red on `main` (ALL modes) — a known
 pending-BUILDER state, red since ~2026-08-28; only IR-level ILP32 checks are possible
