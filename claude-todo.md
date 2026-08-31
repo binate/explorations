@@ -225,9 +225,12 @@ as a follow-up). Plan + adversarial review done: `plan-inline-bounds-check.md`.
   `common.BoundsLabel`, since `ins.ID` is −1 for the void op); guard lowerings
   (bounds/div/shift) extracted to `x64_guards.bn` to stay under the file-length limit.
   Minimal adversarial review clean; full native-x64-darwin conformance green.
-- **native aarch64 — 🔵 NEXT.** Cmp + `Bcond(COND_LT)` two-compare + Bl BoundsFail;
-  reuse `common.BoundsLabel` + `RegMap.BoundsSeq`. Runs natively on this (arm64) host,
-  so end-to-end validation is direct (`builder-comp_native_aa64`).
+- **native aarch64 — ✅ LANDED `10ea8a922` (2026-08-31).** Cmp + `Bcond(COND_LT)`
+  two-compare + Bl BoundsFail, reusing `common.BoundsLabel` + `RegMap.BoundsSeq`; new
+  `TestEmitBoundsCheckInline`.  Review clean; validated end-to-end on native aarch64
+  (bounds faults + indexing).  (Full two-phase native-aa64 conformance times out at ~20
+  min self-hosting the whole suite; the identical logic passed the full native-x64
+  two-phase suite, so it stands in for the whole-suite check.)
 - **native arm32 — 🟡 after aarch64.** Cmp + `B(COND_LT)` + Bl BoundsFail; NEW dispatch
   test (none exists). Validate via `builder-comp_native_arm32_baremetal`, NOT the LLVM
   arm32 modes.
