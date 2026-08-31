@@ -224,12 +224,9 @@ So **data-symbol imports are complete on both arches** — implementation, `.s`
 syntax, and runnable CI-guarded e2e, all validated end to end (both binaries
 GOT-load libc `stdout`, bind it via GLOB_DAT, and exit 42, with `exit` via the PLT).
 
-Still open (surfaced, not silently deferred):
-- **ML4 — multi-lib `-l` / correct `DT_NEEDED`.** User's chosen approach (2026-08-29):
-  **parse each `-l<name>`'s shared object for `DT_SONAME`** and record that exact
-  string as `DT_NEEDED` (needs a minimal `.so`/`.dynamic` reader). Today the single
-  `DT_NEEDED` is hardcoded `libc.so.6`.
-- Then **Mach-O dynamic** (dyld + LC_MAIN + LC_LOAD_DYLIB + chained fixups).
+Still open at the time (both since done): **ML4 — multi-lib `-l` / correct
+`DT_NEEDED`** (landed — see "ML4 LANDED" below) and **Mach-O dynamic** (landed — see
+the MD sections below).
 
 ## Roadmap reorder (2026-08-29): Mach-O dynamic BEFORE ML4
 
@@ -403,5 +400,43 @@ no stub, Relocate keeps the GOT load).
 **Mach-O dynamic linking now has ELF parity**: function + data imports, runnable +
 CI-guarded on macOS arm64.  Remaining follow-ups (all documented, none blocking):
 writable program data (__DATA) for both dynamic backends; ABS64-to-an-import made loud;
-weak imports marked weak; and ML4 (multi-lib `-l` via `.so`/`.dylib` SONAME) on the ELF
-side.
+weak imports marked weak.
+
+### ML4 LANDED (2026-08-30): multi-lib `-l` — DT_NEEDED from each `.so`'s SONAME
+
+Landed `34b69a94d`.  A dynamic ELF link previously emitted a single hardcoded
+`DT_NEEDED` (`libc.so.6`), so a program could only import from libc.  bnld now records
+one `DT_NEEDED` per shared library, named by that library's **own SONAME** (its
+`DT_SONAME`, e.g. `libm.so.6` — not the `libm.so` symlink used to find it), so a
+program may import from non-libc libraries too.
+
+- **`parse_so.bn` (new): `readSoname`** — reads an ELF64 shared object's `DT_SONAME`:
+  walks the program headers for `PT_DYNAMIC` (+ the `PT_LOAD` map that turns the
+  `DT_STRTAB` vaddr into a file offset), then the `.dynamic` array for `DT_SONAME` +
+  `DT_STRTAB`.  Pure byte parsing (no execution), so bnld reads a target `.so` on any
+  host — a Linux `.so` links fine from macOS.
+- **`dynStrtab`/`buildDynStubs`/`patchDynSections`/`dynEntryCount`** now take a list of
+  needed libraries and emit one `DT_NEEDED` (and one `.dynstr` entry, one `.dynamic`
+  slot) per library.  `LinkDynElf` gained a `sharedLibPaths` param; `neededLibs`
+  prepends the default `libc.so.6` then adds each `.so`'s SONAME, **deduped**.
+- **cmd/bnld**: for a dynamic ELF link, `-l<name>` now prefers `lib<name>.so` (a shared
+  dependency, its SONAME → `DT_NEEDED`) over `lib<name>.a` (a static archive, linked in
+  as before); a static link or a Mach-O target keeps the archive-only behavior.
+- The default single-libc case is **byte-identical** to before (no regression).
+
+**Scope:** ELF-only, as planned.  Mach-O keeps its single hardcoded libSystem
+`DT_NEEDED` — its two-level namespace needs per-symbol dylib attribution (scan each
+dylib's exports), a separate/larger job.
+
+**Validation:** unit tests (`readSoname` ok / no-PT_DYNAMIC / no-DT_SONAME / bad-magic;
+`neededLibs` dedup; multi-lib `buildDynStubs`; `dynEntryCount`; cmd/bnld `.so`-preference
++ `.a`-fallback).  The e2e (both arches) relinks `exit42` with `-lm` against a **real
+glibc `libm.so.6`**, asserts both `libc.so.6` and `libm.so.6` appear as `DT_NEEDED` (the
+SONAME, not the filename), and runs it → exit 42.  Docker-validated locally on x86-64
+and aarch64.
+
+**Known limitation (fail-loud, non-blocking):** a `-l` whose `.so` is a GNU ld *linker
+script* (e.g. glibc's `libc.so` dev file is text `GROUP(...)`, not ELF) fails with "not
+an ELF file (bad magic)" rather than mis-linking.  `-lc` is redundant anyway (libc is
+the default); symlink-style `.so`s (libm, etc.) work.  Handling linker scripts would be
+its own feature — a possible future follow-up.
