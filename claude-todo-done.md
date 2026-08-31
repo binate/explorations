@@ -6,6 +6,41 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## bnc `-O1+` on the LLVM backend: the 24 type-mismatch failures — DONE (2026-08-31)
+
+`BINATE_FLAGS=-O2 ./conformance/run.sh builder-comp` (the never-run bnc-`-O1+`-on-LLVM
+path) went from 100% broken → **2992 passed / 0 failed** across five sub-class fixes.
+Root: the `-O1+` IR opt passes (mem2reg / load-forwarding) produce IR shapes the LLVM
+backend mislowered, none of it exercised by CI (shipping uses clang `--cflag -O2` on
+`-O0` bnc IR). Sub-classes, each landed after a clean adversarial review:
+- nil-into-pointer promotion — `bdad703db` (mem2reg grounds a promoted `nil` as a typed
+  OP_CONST_NIL, not a bogus int↔ptr cast).
+- GEP-on-promoted-pointer/global — `cfbd3accc` (emitGetElemPtr keys the 2-index array
+  form off the base pointee being an ARRAY, not off `Op != OP_ALLOC`).
+- readonly-wrapped bit_cast — `91022a6bd` (emitBitCast peels readonly/alias; same-size
+  identity path is float-aware).
+- float→int saturation poison — `d4fdad4de` (emitCast `freeze`s the fptosi/fptoui
+  result; `poison & 0` is not reliably 0 under clang -O2).
+- readonly/named struct field-layout — `f31d84a85` (the last 2: stdlib/os/010_modtime_
+  chain, stdlib/os/process/001_run). **Corrects an earlier misdiagnosis: these were NOT
+  a mem2reg-specific bug.** FieldOffset / StructLayout / TrailingPadding peeled only
+  TYP_ALIAS, not readonly/named (unlike SizeOf/AlignOf), so a struct reached through a
+  `*readonly S` receiver — whose pointee `readonly S` an SSA-opt-rewritten field GEP
+  base carries — got an EMPTY layout and structLLVMIndex emitted the un-remapped logical
+  field index (wrong field: `code` came back as 1<<56, `sec` as sec<<32). Triggered by
+  mem2reg OR forwardLoads (both via applyPromotion), which is why disabling either alone
+  did not fix it and same-module minimal repros did not reproduce (the trigger is a
+  `*readonly`-receiver field read reached through the opt-rewritten base). Fixed by
+  peeling via `peelNamedBounded` in all three layout queries; unit test
+  `TestStructLayoutThroughTransparentWrappers` (readonly / alias / named / readonly-over-
+  named).
+
+Still-open siblings (same "opt passes have no `-O2` end-to-end CI coverage" root):
+the VM at bnc `-O2` ~12 refcount failures (in claude-todo.md), and the native
+`--backend native -O2` self-host SIGSEGV — the native OP_GET_FIELD_PTR path already
+peels transparent wrappers (StructTypeOf), so `f31d84a85` likely does not fix it;
+verification pending.
+
 ## Hand-rolled maps → stdlib containers; injected-policy overhead fixed by the zero-size traits pattern — DONE (2026-08-31)
 
 token.Lookup → mapfn.MapFn (`444554a5e` — O(1) keyword lookup; perf-neutral).

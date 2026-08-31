@@ -100,94 +100,31 @@ Repro: build gen1 (BUILDER→gen1), then
 `gen1 --backend native -O2 -o bnc_n2 cmd/bnc` (works), then
 `bnc_n2 --backend native -o /dev/null cmd/bnc` → SIGSEGV.
 
-
-### bnc `-O1+` on the LLVM backend: 24 remaining type-mismatch failures — 🟠 LLVM-BACKEND / opt (found 2026-08-28)
-
-**PROGRESS (2026-08-31): nil-into-pointer promotion sub-class FIXED — `bdad703db`.**
-mem2reg's grounding now re-materializes a promoted `nil` (TYP_NIL) reaching value as
-a properly-typed `OP_CONST_NIL` instead of a bogus int↔ptr `OP_CAST` — a central fix
-in the one promotion site (replacing what would have been scattered IR-gen nil re-
-typing).  `-O2` conformance is now **2981 passed / 11 failed** (was 2966/24), zero
-regressions.  The remaining 11 (after nil + GEP + readonly-bitcast) cluster into:
-- **GEP-on-promoted-pointer/global (3): FIXED — `cfbd3accc`.** 551_addr_of_global_
-  scalar, 687_cross_pkg_extern_addr_rvalue, spec/07-types/136 — `invalid getelementptr
-  indices`.  `emitGetElemPtr` (codegen) now keys the 2-index array form off the base's
-  pointee (`TypeArg`) being an ARRAY, not off `Op != OP_ALLOC` — a promoted `&G`
-  IsGlobalRef (scalar pointee) that presents as OP_ALLOC now gets the single-index
-  pointer GEP.  `-O2` conformance 2980/12 after this + the nil fix; no regressions.
-- **readonly-wrapped bit_cast: FIXED — `91022a6bd`.** regressions/readonly-wrapped-
-  64bit-arg — `bit_cast(int64, f)` on a `readonly float64` emitted `add i64 <double>`;
-  emitBitCast now peels readonly/alias (not just named) when classifying, and the
-  same-size identity path is float-aware (`fadd`).
-- **float-to-int saturation poison: FIXED — `d4fdad4de`.** matrix/scalar-diff/float-to-
-  int/* + spec/08-conversions/009.  The saturating float→int lowering computes `fptosi`
-  unconditionally on an out-of-range/NaN float (LLVM POISON) and masks it out, but
-  `poison & 0` is not reliably 0, so clang -O2 miscompiled it to garbage.  emitCast now
-  `freeze`s the fptosi/fptoui result (LLVM-only; native/VM run a defined convert).
-- **stdlib/os (2): OPEN — a mem2reg -O2 miscompile (SAME pass as the native crash).**
-  stdlib/os/010_modtime_chain (`fi.ModTime().ToUnix()` first return word → 0) and
-  stdlib/os/process/001_run (`st.Code()` → 1<<56, a wrong-word extraction).  Pass off →
-  pass; bisected: disabling mem2reg (promoteScalars) fixes both (forwardLoads alone does
-  not).  Bisected to mem2reg (promoteScalars).  The miscompile is in the CALLEE library
-  function's -O2 compilation, not the caller: main's IR for the ToUnix/ModTime call
-  site is byte-identical at -O0 and -O2 (ToUnix/ModTime are `declare`d externs), so
-  the wrong value is produced INSIDE a `pkg/std/{time,os,os/process}` injected-native
-  function that mem2reg miscompiles at -O2.  That is why five same-module minimal
-  repros (plain/managed multi-return, accumulator-with-inner-loop) do NOT reproduce —
-  the trigger is the injected-native library body, not the call shape.  LIKELY the same
-  mem2reg bug as the native `--backend native -O2` self-host SIGSEGV.  Next step: emit
-  the -O2 IR of the specific miscompiled pkg/std function (or instrument mem2reg's
-  promoted-alloca set) to pin the wrong promotion/phi.  Deep — a focused follow-up.
-
-`-O2` conformance is now **2990 passed / 2 failed** after the four LLVM fixes
-(nil, GEP, readonly-bitcast, fptosi-freeze); the last 2 are the mem2reg item above.
-- **stdlib/os (2):** stdlib/os/010_modtime_chain, stdlib/os/process/001_run — value-
-  wrong; uninvestigated (may be `-O2` miscompile or environmental).
-
-The native `-O2` self-host SIGSEGV (separate entry above) is a DISTINCT mem2reg sub-
-bug (NOT nil-grounding — the nil fix did not resolve it).
+**UPDATE (2026-08-31):** the LLVM-side sibling (the stdlib/os -O2 miscompiles) turned
+out to be a struct field-layout bug — FieldOffset/StructLayout/TrailingPadding peeled
+only TYP_ALIAS, not readonly/named — fixed in `f31d84a85` (see done log). That fix does
+NOT obviously cover this crash: the native `OP_GET_FIELD_PTR` path already resolves its
+struct through `StructTypeOf` → `peelTransparent` (peels readonly/named/alias), so it
+did not hit the same empty-layout path. This SIGSEGV is therefore likely a DISTINCT
+native-backend bug (or a different FieldOffset caller — closure shims / tuple returns —
+that does not pre-peel). Verification pending: re-run the native-`-O2` self-host repro
+on current main to confirm it still reproduces after `f31d84a85`.
 
 
-Running `BINATE_FLAGS=-O2 ./conformance/run.sh builder-comp` (the never-run
-bnc-`-O1+`-on-LLVM path) after fixing the two masking bugs (load-forwarding
-by-address `01ef8a485` + mem2reg phi predecessors `8feb9490d`, both LANDED — see
-done log) gives **2966 passed / 24 failed** (was
-100% broken). The 24 are pre-existing, revealed once compilation gets past the two
-masks, and cluster into ~2-3 classes — all fail-loud (clang rejects invalid IR),
-all confined to bnc-`-O1+`-on-LLVM (shipping builds use clang `--cflag -O2` on
-`-O0` bnc IR; **native** `-O2` is green — 2992/0; the **VM at bnc `-O2` has ~12
-pre-existing latent failures too**, same never-run-config class — see the VM note
-at the end of this entry):
-- **raw-pointer promotion (~12):** `%vN = inttoptr i64 %vP to i8*` where `%vP` is
-  a `ptr` — mem2reg promotes a `*T` slot to an SSA ptr, but a downstream cast
-  emits `inttoptr i64` expecting an int. Tests: 012_pointers, 551_addr_of_global_scalar,
-  687_cross_pkg_extern_addr_rvalue, spec/07-types/{120,126,136}, spec/15-builtins/
-  {080_present_pointer,083,092_same}, spec/08-conversions/001_assignable, ...
-- **float-to-int (~8):** `'%vN' defined with type 'double' but expected 'iN'` —
-  matrix/scalar-diff/float-to-int/{8,16,32,64}/{signed,unsigned}, spec/08-conversions/
-  009_cast_float_int_saturation.
-- **misc:** stdlib/os/*, matrix/type-assert/type-switch/raw-absent,
-  regressions/readonly-wrapped-64bit-arg, 667_present_types.
+### VM at bnc `-O2`: ~12 pre-existing latent refcount failures — 🟠 VM / opt (found 2026-08-29 during the managed-slice RLE work)
 
-Same root pattern as the two fixed bugs: mem2reg/opt-pass promotion produces IR
-the native backend tolerates but the strict LLVM verifier rejects, in a config CI
-never exercises. Not blocking any shipping config. A dedicated bnc-`-O1+`-on-LLVM
-hardening pass (+ a CI lane running it) would close them.
-
-**VM at bnc `-O2` — ~12 pre-existing latent failures (found 2026-08-29 during the
-managed-slice RLE work).** The VM conformance runs at `bni`'s default `-O0`, so the
-VM at `-O2` (where `bni -O 2` runs `RunOptPasses`) is as unexercised as the LLVM
-path above. A managed-refcount-heavy conformance subset run through `bni -O 2`
-fails ~12 tests **independent of the managed-slice RLE change** (identical
-pass/fail with and without it — the RLE change added zero net failures): e.g.
-1079_any_slice_assert_refcount, 1093_any_struct_value_recovery_refcount,
-1117/1118/1120_managed_*_pointee_owning, 509_capture_managed, 510_capture_managed_slice,
-511_method_value_managed, 554_iface_refcount_balance, 595_funcvalue_struct_arg_refcount,
-713_var_infer_func_value_managed, 730_named_raw_slice_return. Mostly iface/func-value
-+ capture refcount cases → likely an opt-pass (mem2reg/load-forwarding) interaction
-the VM tolerates less than native. Same "opt passes have no `-O2` end-to-end CI
-coverage" root as the LLVM 24 and the opt-level-matrix follow-up below; a VM-`-O2`
-lane would surface + gate these.
+The VM conformance runs at `bni`'s default `-O0`, so the VM at `-O2` (where `bni -O 2`
+runs `RunOptPasses`) is unexercised by CI. A managed-refcount-heavy conformance subset
+run through `bni -O 2` fails ~12 tests **independent of the managed-slice RLE change**
+(identical pass/fail with and without it): e.g. 1079_any_slice_assert_refcount,
+1093_any_struct_value_recovery_refcount, 1117/1118/1120_managed_*_pointee_owning,
+509_capture_managed, 510_capture_managed_slice, 511_method_value_managed,
+554_iface_refcount_balance, 595_funcvalue_struct_arg_refcount,
+713_var_infer_func_value_managed, 730_named_raw_slice_return. Mostly iface/func-value +
+capture refcount cases → likely an opt-pass (mem2reg/load-forwarding) interaction the VM
+tolerates less than native. A VM-`-O2` lane would surface + gate these. Sibling of the
+now-resolved LLVM-`-O1+` MAJOR (see done log, `f31d84a85`) — same "opt passes have no
+`-O2` end-to-end CI coverage" root.
 
 ### gen1 build fails on Linux: BUILDER (bnc-0.0.14) emits iv-dispatch thunks STRONG — 🟠 BUILD-INFRA, gated on a BUILDER cut (found 2026-08-28; root-caused 2026-08-31)
 
