@@ -203,16 +203,33 @@ reality.)
 
 `rt.BoundsCheck` is a cross-package CALL per array/slice access — ~25% of
 native-compile time, paid by BOTH backends (neither inlines across TUs). gen already
-emits `RefInc` inline (`emitRefIncInline`) but emits `OP_BOUNDS_CHECK` as a *call*.
-Emit the check **inline**: fast-path `if (unsigned)idx >= len goto slowfail;` (a
-compare + branch, no call), calling `rt.BoundsCheck`/a fail helper only on the rare
-failure. TU-independent → helps every program on every backend, and specifically
+emits `RefInc` inline (`emitRefIncInline`) but emitted `OP_BOUNDS_CHECK` as a *call*.
+Emit the check **inline** instead, calling a fail helper (`rt.BoundsFail`) only on the
+rare failure. TU-independent → helps every program on every backend, and specifically
 closes the **single-file gap** where clang currently wins by bundling+inlining rt.
-Localized: `pkg/binate/ir/gen_access.bn`'s one `EmitBoundsCheck` site and/or each
-backend's `OP_BOUNDS_CHECK` lowering (LLVM `emit_instr.bn`, native x64/aarch64/arm32,
-VM). Must preserve exact fault semantics (the slow path still aborts with the same
-message + still attaches the recoverable-fault pad for the VM). Plan + adversarial
-review before implementing. **STARTING SHORTLY.**
+Preserves exact fault semantics (fail path aborts via `rt.BoundsFail`, the same sink
+`rt.BoundsCheck` calls → byte-identical message; compiled backends stay fatal, the
+VM's recoverable-fault pads are unaffected). Design: backend-level, single IR op;
+**two-compare signed form** `idx < 0 || idx >= len` (byte-identical to rt.BoundsCheck;
+single-unsigned-compare rejected as default — unsound for slice `hi+1` checks; noted
+as a follow-up). Plan + adversarial review done: `plan-inline-bounds-check.md`.
+
+- **LLVM backend — ✅ LANDED `a12c580f4` (2026-08-30).** `emit_bounds.bn`
+  (`emitBoundsCheckInline`) + dispatch in `emit_instr.bn`; the inline form splits the
+  emitting block, so `OP_BOUNDS_CHECK` is now mirrored in the phi-predecessor
+  exit-label pre-pass (`assignBlockExitLabels`, `bc.<n>.ok` terminal). Tests +
+  end-to-end validation (7 bounds-fault conformance green; clang accepts -O1 phi
+  labels). Minimal adversarial review: clean.
+- **native x64 — 🔵 NEXT.** Per-function fresh-label counter (a `BoundsSeq` field on
+  the per-function `RegMap`, namespaced by `funcSym` — `ins.ID` is −1 for the void op,
+  confirmed) + Cmp/Jcc two-compare + cold `rt.BoundsFail` call (needs
+  `a.SetGlobal(BoundsFail)`). Rewrite `TestEmitBoundsCheckCallsRuntime` (asserts the
+  old CALL). VM is already inline (no change); `common_call.bn` `isCallOp` membership
+  stays (cold path still calls). See `plan-inline-bounds-check.md` per-backend section.
+- **native aarch64 — 🟡 after x64.** Cmp + `Bcond(COND_LT)` two-compare + Bl BoundsFail.
+- **native arm32 — 🟡 after aarch64.** Cmp + `B(COND_LT)` + Bl BoundsFail; NEW dispatch
+  test (none exists). Validate via `builder-comp_native_arm32_baremetal`, NOT the LLVM
+  arm32 modes.
 
 ### (2b) Within-package function inliner — 🟡 OPEN (2026-08-29)
 
