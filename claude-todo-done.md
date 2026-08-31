@@ -18286,3 +18286,36 @@ it.  DONE — landed as `37bf55fc4` (stringInterner in strings.bn; review SHIP,
 on a PRE-EXISTING regression unrelated to this change — since RESOLVED by reverting
 `9c7ef5518` (`0d5f786a8`); see the done log).
 
+
+### (2a) Inline the bounds-check fast-path — ✅ DONE (2026-08-31)
+
+Replaced the per-array/slice-access `call rt.BoundsCheck(idx, len)` with an inline
+fault check in all four compiled backends (the VM was already inline). The in-bounds
+path is a compare + not-taken branch (no cross-TU call round-trip); only the
+never-taken fail path calls the noreturn `rt.BoundsFail` — the same abort sink
+rt.BoundsCheck used, so the diagnostic is byte-identical. TU-independent: helps every
+program on every backend and closes the single-file gap where clang won by
+bundling+inlining rt. Design: backend-level (OP_BOUNDS_CHECK stays one IR op);
+two-compare SIGNED form `idx < 0 || idx >= len` (byte-identical to rt.BoundsCheck; a
+single unsigned compare was rejected as default — unsound for the `hi+1` slice-range
+length operand, sound only via the gen_slice lo/hi check ordering; left as a possible
+follow-up). Plan + per-commit adversarial reviews: `plan-inline-bounds-check.md`.
+
+Landed commits:
+- LLVM: `a12c580f4` — `emit_bounds.bn` (`emitBoundsCheckInline`); the inline form splits
+  the emitting block, so OP_BOUNDS_CHECK is mirrored in the phi-predecessor exit-label
+  pre-pass (`assignBlockExitLabels`, `bc.<n>.ok` terminal).
+- native x64: `d4a9d2657` — Cmp/Jcc; guard lowerings (bounds/div/shift) extracted to
+  `x64_guards.bn` for file length.
+- native aarch64: `10ea8a922` — Cmp + `Bcond(COND_LT)`.
+- native arm32: `0bb8c1a77` — Cmp + `B(COND_LT)`.
+
+Shared infra: `common.BoundsLabel(funcSym, seq, fail)` + a per-function
+`RegMap.BoundsSeq` counter for the fail/ok local labels (the void OP_BOUNDS_CHECK has
+Instr.ID == -1, so labels can't key on the ID — the first review's build-break catch).
+Each backend validated end-to-end (bounds-fault + in-bounds conformance on its native
+mode; LLVM on builder-comp + -O1; arm32 on `builder-comp_native_arm32_baremetal`). All
+four minimal adversarial reviews: clean.
+
+Note: this work surfaced the CRITICAL -O1 local-array-BCE bug (silent bounds-check drop
+at bnc -O1) — tracked separately in claude-todo.md.

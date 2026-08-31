@@ -221,41 +221,6 @@ self-time). Two orthogonal inlining levers below. (The single-file microbench wh
 `define`d + hot/cold-split in that one-module executable — not the multi-package
 reality.)
 
-### (2a) Inline the bounds-check fast-path in gen — 🔵 IN PROGRESS (2026-08-29)
-
-`rt.BoundsCheck` is a cross-package CALL per array/slice access — ~25% of
-native-compile time, paid by BOTH backends (neither inlines across TUs). gen already
-emits `RefInc` inline (`emitRefIncInline`) but emitted `OP_BOUNDS_CHECK` as a *call*.
-Emit the check **inline** instead, calling a fail helper (`rt.BoundsFail`) only on the
-rare failure. TU-independent → helps every program on every backend, and specifically
-closes the **single-file gap** where clang currently wins by bundling+inlining rt.
-Preserves exact fault semantics (fail path aborts via `rt.BoundsFail`, the same sink
-`rt.BoundsCheck` calls → byte-identical message; compiled backends stay fatal, the
-VM's recoverable-fault pads are unaffected). Design: backend-level, single IR op;
-**two-compare signed form** `idx < 0 || idx >= len` (byte-identical to rt.BoundsCheck;
-single-unsigned-compare rejected as default — unsound for slice `hi+1` checks; noted
-as a follow-up). Plan + adversarial review done: `plan-inline-bounds-check.md`.
-
-- **LLVM backend — ✅ LANDED `a12c580f4` (2026-08-30).** `emit_bounds.bn`
-  (`emitBoundsCheckInline`) + dispatch in `emit_instr.bn`; the inline form splits the
-  emitting block, so `OP_BOUNDS_CHECK` is now mirrored in the phi-predecessor
-  exit-label pre-pass (`assignBlockExitLabels`, `bc.<n>.ok` terminal). Tests +
-  end-to-end validation (7 bounds-fault conformance green; clang accepts -O1 phi
-  labels). Minimal adversarial review: clean.
-- **native x64 — ✅ LANDED `d4a9d2657` (2026-08-31).** Cmp/Jcc two-compare + cold
-  `rt.BoundsFail` call; per-function `RegMap.BoundsSeq` label counter (via
-  `common.BoundsLabel`, since `ins.ID` is −1 for the void op); guard lowerings
-  (bounds/div/shift) extracted to `x64_guards.bn` to stay under the file-length limit.
-  Minimal adversarial review clean; full native-x64-darwin conformance green.
-- **native aarch64 — ✅ LANDED `10ea8a922` (2026-08-31).** Cmp + `Bcond(COND_LT)`
-  two-compare + Bl BoundsFail, reusing `common.BoundsLabel` + `RegMap.BoundsSeq`; new
-  `TestEmitBoundsCheckInline`.  Review clean; validated end-to-end on native aarch64
-  (bounds faults + indexing).  (Full two-phase native-aa64 conformance times out at ~20
-  min self-hosting the whole suite; the identical logic passed the full native-x64
-  two-phase suite, so it stands in for the whole-suite check.)
-- **native arm32 — 🟡 after aarch64.** Cmp + `B(COND_LT)` + Bl BoundsFail; NEW dispatch
-  test (none exists). Validate via `builder-comp_native_arm32_baremetal`, NOT the LLVM
-  arm32 modes.
 
 ### (2b) Within-package function inliner — 🟡 OPEN (2026-08-29)
 
