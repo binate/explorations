@@ -100,25 +100,25 @@ Repro: build gen1 (BUILDER→gen1), then
 `gen1 --backend native -O2 -o bnc_n2 cmd/bnc` (works), then
 `bnc_n2 --backend native -o /dev/null cmd/bnc` → SIGSEGV.
 
-**UPDATE (2026-08-31): NO LONGER REPRODUCES on current main.** The LLVM-side sibling
-(the stdlib/os -O2 miscompiles) was a struct field-layout bug — FieldOffset/StructLayout/
-TrailingPadding peeled only TYP_ALIAS, not readonly/named — fixed in `f31d84a85` (see done
-log). Suspecting the native crash shared that root, the documented repro was re-run on
-current main (worktree base `f31d84a85`): gen1 → `--backend native -O2 -o bnc_n2 cmd/bnc`
-→ `bnc_n2 --backend native -o /dev/null cmd/bnc` **exits 0 (no SIGSEGV)**. A causality
-check — reverting ONLY `layout.bn` to its pre-`f31d84a85` version and rebuilding — ALSO
-exits 0, so `f31d84a85` is NOT what fixed it (as expected: the native `OP_GET_FIELD_PTR`
-path already pre-peels via `StructTypeOf`). The crash was therefore fixed (or masked) by
-some commit that landed between the documented repro commit `2c828b2c3` and current main
-— plausibly one of the four earlier -O1 LLVM sub-class codegen fixes (nil-ground /
-GEP / readonly-bitcast / fptosi-freeze), which also touched shared codegen paths.
+**UPDATE (2026-08-31): LATENT — MASKED by the within-package inliner, NOT fixed.**
+Bisected `2c828b2c3`(SIGSEGV) .. current main(clean): the crash disappears exactly at
+`149da0a14` ("ir: within-package function inliner, Inc 1" — a new -O1+ IR pass
+`inlineCalls`, run FIRST in RunOptPasses before mem2reg). That pass does NOT touch
+native codegen; it only changes IR SHAPE (inlines small same-package callees). Disabling
+just `inlineCalls` on current main (layout fix `f31d84a85` present) brings the SIGSEGV
+straight back (verified: rc=139). So the underlying native-backend miscompile is STILL
+PRESENT — the inliner merely reshapes the `cmd/bnc` self-host input enough that the
+triggering IR no longer reaches the buggy native lowering. It will resurface if the
+inliner is disabled/narrowed, or a different large program hits the triggering shape.
+NOT the layout bug (`f31d84a85`): native `OP_GET_FIELD_PTR` pre-peels via `StructTypeOf`,
+and the crash predates and postdates that fix with the inliner off.
 
-REMAINING to close this: (a) confirm the crash still reproduces on `2c828b2c3` (rule out
-a flaky/environmental original), then (b) bisect `2c828b2c3..HEAD` to attribute the fix
-(or find it was merely masked by an IR-shape change, i.e. the latent native miscompile
-could still exist). NOT done here — each step is a full native-`-O2` self-host build; the
-non-repro on current main means it is not a live failure, so this is a confirm-and-
-attribute task, not an active crash. Original repro below.
+STATUS: open, latent, currently masked → non-blocking (no live failure on main) but a
+real native-backend wrong-code/crash defect. ROOT CAUSE still unknown — next step is to
+capture the crashing case with the inliner OFF (build `gen1` with `inlineCalls` gated
+off, `gen1 --backend native -O2 -o bnc_n2 cmd/bnc`, then run `bnc_n2` under lldb on the
+`cmd/bnc` self-compile to get the faulting native frame / miscompiled function), then
+fix the native lowering. Deep native-backend follow-up. Original repro below.
 
 
 ### VM at bnc `-O2`: ~12 pre-existing latent refcount failures — 🟠 VM / opt (found 2026-08-29 during the managed-slice RLE work)
