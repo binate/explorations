@@ -18319,3 +18319,13 @@ four minimal adversarial reviews: clean.
 
 Note: this work surfaced the CRITICAL -O1 local-array-BCE bug (silent bounds-check drop
 at bnc -O1) — tracked separately in claude-todo.md.
+
+**Benchmark (2026-08-31):** clean A/B on the native path — two `--backend native -O0`-built
+bncs from sources differing ONLY in the four (2a) commits (reverted vs current main),
+both compiling `cmd/bnc`, min of 3 runs: CALL checks 21.185s → INLINE checks 17.263s =
+**18.5% faster (1.23×)**, +0.8% binary size. Consistent with the profile (rt.BoundsCheck
+~32% of self-time as a call; inlining removes the call round-trip, keeps the compare).
+Caveat: measured on the native-`-O0`-**built** config; the native-`-O2`-built config
+still SIGSEGVs compiling `cmd/bnc` (the tracked MAJOR bug, reproduces on current main),
+so its number is unavailable. (2a) also inlined the LLVM/clang path, so it is an absolute
+speedup on both backends — the native↔clang *ratio* is (2b)'s target, not (2a)'s.
