@@ -91,6 +91,28 @@ Repro: build gen1 (BUILDER→gen1), then
 
 ### bnc `-O1+` on the LLVM backend: 24 remaining type-mismatch failures — 🟠 LLVM-BACKEND / opt (found 2026-08-28)
 
+**PROGRESS (2026-08-31): nil-into-pointer promotion sub-class FIXED — `bdad703db`.**
+mem2reg's grounding now re-materializes a promoted `nil` (TYP_NIL) reaching value as
+a properly-typed `OP_CONST_NIL` instead of a bogus int↔ptr `OP_CAST` — a central fix
+in the one promotion site (replacing what would have been scattered IR-gen nil re-
+typing).  `-O2` conformance is now **2977 passed / 15 failed** (was 2966/24), zero
+regressions.  The remaining 15 cluster into three sub-classes:
+- **GEP-on-promoted-pointer/global (3):** 551_addr_of_global_scalar, 687_cross_pkg_
+  extern_addr_rvalue, spec/07-types/136_ptr_addressof_raw_even_managed — `invalid
+  getelementptr indices`.  Root cause: `emitGetElemPtr` (codegen) picks 1-index vs
+  2-index off `Op != OP_ALLOC`, but a promoted `&G` IsGlobalRef presents as OP_ALLOC
+  with a scalar (non-array) pointee, so it wrongly takes the 2-index array path.  Fix:
+  key the 2-index form off the pointee (`TypeArg`) being an ARRAY.  NEXT.
+- **float-to-int (9):** matrix/scalar-diff/float-to-int/{8,16,32,64}/{signed,unsigned}
+  + spec/08-conversions/009_cast_float_int_saturation + regressions/readonly-wrapped-
+  64bit-arg — `double` vs `iN` type mismatch / wrong value.  Not yet root-caused.
+- **stdlib/os (2):** stdlib/os/010_modtime_chain, stdlib/os/process/001_run — value-
+  wrong; uninvestigated (may be `-O2` miscompile or environmental).
+
+The native `-O2` self-host SIGSEGV (separate entry above) is a DISTINCT mem2reg sub-
+bug (NOT nil-grounding — the nil fix did not resolve it).
+
+
 Running `BINATE_FLAGS=-O2 ./conformance/run.sh builder-comp` (the never-run
 bnc-`-O1+`-on-LLVM path) after fixing the two masking bugs (load-forwarding
 by-address `01ef8a485` + mem2reg phi predecessors `8feb9490d`, both LANDED — see
