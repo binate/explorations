@@ -100,15 +100,25 @@ Repro: build gen1 (BUILDER→gen1), then
 `gen1 --backend native -O2 -o bnc_n2 cmd/bnc` (works), then
 `bnc_n2 --backend native -o /dev/null cmd/bnc` → SIGSEGV.
 
-**UPDATE (2026-08-31):** the LLVM-side sibling (the stdlib/os -O2 miscompiles) turned
-out to be a struct field-layout bug — FieldOffset/StructLayout/TrailingPadding peeled
-only TYP_ALIAS, not readonly/named — fixed in `f31d84a85` (see done log). That fix does
-NOT obviously cover this crash: the native `OP_GET_FIELD_PTR` path already resolves its
-struct through `StructTypeOf` → `peelTransparent` (peels readonly/named/alias), so it
-did not hit the same empty-layout path. This SIGSEGV is therefore likely a DISTINCT
-native-backend bug (or a different FieldOffset caller — closure shims / tuple returns —
-that does not pre-peel). Verification pending: re-run the native-`-O2` self-host repro
-on current main to confirm it still reproduces after `f31d84a85`.
+**UPDATE (2026-08-31): NO LONGER REPRODUCES on current main.** The LLVM-side sibling
+(the stdlib/os -O2 miscompiles) was a struct field-layout bug — FieldOffset/StructLayout/
+TrailingPadding peeled only TYP_ALIAS, not readonly/named — fixed in `f31d84a85` (see done
+log). Suspecting the native crash shared that root, the documented repro was re-run on
+current main (worktree base `f31d84a85`): gen1 → `--backend native -O2 -o bnc_n2 cmd/bnc`
+→ `bnc_n2 --backend native -o /dev/null cmd/bnc` **exits 0 (no SIGSEGV)**. A causality
+check — reverting ONLY `layout.bn` to its pre-`f31d84a85` version and rebuilding — ALSO
+exits 0, so `f31d84a85` is NOT what fixed it (as expected: the native `OP_GET_FIELD_PTR`
+path already pre-peels via `StructTypeOf`). The crash was therefore fixed (or masked) by
+some commit that landed between the documented repro commit `2c828b2c3` and current main
+— plausibly one of the four earlier -O1 LLVM sub-class codegen fixes (nil-ground /
+GEP / readonly-bitcast / fptosi-freeze), which also touched shared codegen paths.
+
+REMAINING to close this: (a) confirm the crash still reproduces on `2c828b2c3` (rule out
+a flaky/environmental original), then (b) bisect `2c828b2c3..HEAD` to attribute the fix
+(or find it was merely masked by an IR-shape change, i.e. the latent native miscompile
+could still exist). NOT done here — each step is a full native-`-O2` self-host build; the
+non-repro on current main means it is not a live failure, so this is a confirm-and-
+attribute task, not an active crash. Original repro below.
 
 
 ### VM at bnc `-O2`: ~12 pre-existing latent refcount failures — 🟠 VM / opt (found 2026-08-29 during the managed-slice RLE work)
