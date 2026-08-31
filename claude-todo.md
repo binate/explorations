@@ -7,7 +7,19 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### bnc `-O1+` on LLVM SILENTLY DROPS the bounds check for a local-array dynamic index — 🔴 LLVM / opt, silent wrong-code (found 2026-08-30)
+### bnc `-O1+` SILENTLY DROPS the bounds check for a local-array dynamic index — 🔴 opt (IR pass), silent wrong-code + RED CI (found 2026-08-30; VM/CI escalation 2026-08-31)
+
+**UPDATE 2026-08-31: this is NOT LLVM-only — it affects the VM path too, and it is
+now REDDENING main.** The unit test `TestVMOptLevelBCEKeepsLiveFault`
+(`pkg/binate/vm/vm_fault_test.bn`, added by `86ca24db1`) — `f(i){ var a [4]int;
+a[2]=7; return a[i] }`, expecting the runtime `a[i]` check to survive at -O1 — FAILS
+("expected exactly the runtime-index check to survive at -O1"): the check is dropped,
+so `pkg/binate/vm` is RED on current main. Confirmed pre-existing/independent of the
+inliner (fails with `inlineCalls` disabled). So the bug is at the IR-opt level (removes
+the `OP_BOUNDS_CHECK` before any backend), hitting BOTH the LLVM backend AND the VM —
+correct the "LLVM-only / non-shipping" framing below accordingly (the VM is exercised
+by `builder-comp-int*` conformance + these unit tests). Root pass still unpinned
+(mem2reg/load-forward local-array promotion side effect; NOT bceConstIndex/bceLoop).
 
 A **local array** `var a [N]T` accessed with a **dynamic (non-constant) index**
 `a[j]` **loses its `OP_BOUNDS_CHECK` at bnc `-O1+`** — the compiled program reads out
