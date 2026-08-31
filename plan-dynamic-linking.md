@@ -399,8 +399,8 @@ no stub, Relocate keeps the GOT load).
 
 **Mach-O dynamic linking now has ELF parity**: function + data imports, runnable +
 CI-guarded on macOS arm64.  Remaining follow-ups (all documented, none blocking):
-ABS64-to-an-import made loud; weak imports marked weak.  (Writable program `__DATA` is
-now done — see "Writable __DATA LANDED" below.)
+weak imports marked weak; generalize the direct-reference rejection (see "ABS64-to-import
+LANDED" below).  (Writable program `__DATA` and ABS64-to-import are now done — see below.)
 
 ### ML4 LANDED (2026-08-30): multi-lib `-l` — DT_NEEDED from each `.so`'s SONAME
 
@@ -479,4 +479,31 @@ NATIVELY on macOS arm64 (`codesign -v` clean; `dyld_info` shows the `_exit` bind
 `__DATA` offset 8, i.e. past the program `.data`); ELF x86-64 + aarch64 via Docker.
 Adversarial review: SHIP (after the `.bss`-bloat fix).
 
-Remaining follow-ups: ABS64-to-an-import made loud; weak Mach-O imports marked weak.
+Remaining follow-ups: weak Mach-O imports marked weak; generalize the direct-reference
+rejection (see below).
+
+### ABS64-to-import LANDED (2026-08-31): loud rejection, not a silent stub address
+
+Landed `8b4f4be26`.  An undefined external referenced only by an absolute 64-bit
+relocation (`.quad extern` — `R_AARCH64_ABS64` / `R_X86_64_64`) was mis-classified as a
+called (PLT) import — `classifyImports` defaults anything not GOT-reached to `impPlt` —
+so it was defined at a PLT stub and the ABS64 relocation resolved to the *stub's*
+address: the wrong address, silently (a data symbol points at a code stub; a function's
+address-identity is the stub, not the function).  `classifyImports` now rejects an
+import reached by an ABS64 relocation with a clear error pointing at the supported
+alternative (a GOT-indirect reference → `impGot` → GOT slot + GLOB_DAT).  Shared by both
+backends (Mach-O `ARM64_RELOC_UNSIGNED`-8 normalizes to `R_AARCH64_ABS64`).  Fully
+*handling* it (a dynamic ABS64 reloc so the loader writes the real address) is a larger
+separate feature — not done; the loud error closes the silent-miscompile hole.  Tests:
+`classifyImports` rejects both ABS64 kinds; end-to-end `LinkDynElf` rejects a `.quad
+extern`.  Adversarial review: SHIP.
+
+**Generalization (next, agreed 2026-08-31).** The ABS64 fix closes one instance of a
+broader hole: an import reached only by *any* direct, non-call, non-GOT relocation
+defaults to `impPlt` and resolves to the stub address too.  Confirmed reachable: `lea
+rax,[rip+extern]` (a direct, non-`@GOTPCREL` reference) emits `R_X86_64_PC32` against the
+import → today silently the stub address.  Calls are safe (`call extern` → PLT32, caught)
+and GOT references are safe (`@GOTPCREL` / `:got:` → GOTPCRELX/ADR_GOT_PAGE, handled), so
+the general rule — reject an import reached by any reloc that is neither a call nor a GOT
+reference — subsumes ABS64 without breaking calls or GOT refs.  To do next: widen
+`classifyImports` to that rule, enumerating the reloc kinds carefully + re-review.
