@@ -107,14 +107,22 @@ regressions.  The remaining 11 (after nil + GEP + readonly-bitcast) cluster into
   64bit-arg — `bit_cast(int64, f)` on a `readonly float64` emitted `add i64 <double>`;
   emitBitCast now peels readonly/alias (not just named) when classifying, and the
   same-size identity path is float-aware (`fadd`).
-- **scalar-diff float-to-int VALUE-corruption (9): OPEN — deeper than a float cast.**
-  matrix/scalar-diff/float-to-int/{8,16,32,64}/{signed,unsigned} + spec/08-conversions/
-  009_cast_float_int_saturation.  These COMPILE at -O2 but produce garbage/address-like
-  output part-way through (e.g. `8517134664` where `1` expected).  Only the scalar-DIFF
-  variant (many locals + many `testing.Println` calls) fails — the simpler matrix/scalar
-  /float-to-int passes — so it is a complexity/scale-triggered -O2 value corruption
-  (spill / opt-pass interaction, corrupted call-arg marshaling), NOT a float-conversion
-  bug.  A silent miscompile; needs its own root-cause.
+- **float-to-int saturation poison: FIXED — `d4fdad4de`.** matrix/scalar-diff/float-to-
+  int/* + spec/08-conversions/009.  The saturating float→int lowering computes `fptosi`
+  unconditionally on an out-of-range/NaN float (LLVM POISON) and masks it out, but
+  `poison & 0` is not reliably 0, so clang -O2 miscompiled it to garbage.  emitCast now
+  `freeze`s the fptosi/fptoui result (LLVM-only; native/VM run a defined convert).
+- **stdlib/os (2): OPEN — a mem2reg -O2 miscompile (SAME pass as the native crash).**
+  stdlib/os/010_modtime_chain (`fi.ModTime().ToUnix()` first return word → 0) and
+  stdlib/os/process/001_run (`st.Code()` → 1<<56, a wrong-word extraction).  Pass off →
+  pass; bisected: disabling mem2reg (promoteScalars) fixes both (forwardLoads alone does
+  not).  Cross-package injected-native aggregate / multi-return; hard to minimize (a
+  local-struct multi-return repro does NOT reproduce).  LIKELY THE SAME mem2reg escape/
+  promotion bug as the native `--backend native -O2` self-host SIGSEGV — one fix may
+  close all three.  NEXT.
+
+`-O2` conformance is now **2990 passed / 2 failed** after the four LLVM fixes
+(nil, GEP, readonly-bitcast, fptosi-freeze); the last 2 are the mem2reg item above.
 - **stdlib/os (2):** stdlib/os/010_modtime_chain, stdlib/os/process/001_run — value-
   wrong; uninvestigated (may be `-O2` miscompile or environmental).
 
