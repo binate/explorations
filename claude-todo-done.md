@@ -6,6 +6,54 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## bnc `-O1+` SILENTLY DROPPED the bounds check for a param-dependent array index — DONE (2026-08-31, commit ab1140840)
+
+A local fixed array `var a [N]T` indexed by anything that traces back to a
+**function parameter** lost its `OP_BOUNDS_CHECK` at bnc `-O1+` on EVERY backend
+(LLVM, the bytecode VM, native) — a silent out-of-bounds read that did NOT fault.
+The `-O0` path was always correct; only the `-O1` IR opt passes were affected, and
+`-O1` is not a conformance mode, so it went uncaught until `TestVMOptLevelBCEKeepsLiveFault`
+reddened `pkg/binate/vm` on main.
+
+**Root cause (pinned, NOT the todo's original guess):** the value operand for
+"function parameter N" is a placeholder `@Instr` whose `.ID` equals the param's ID
+(the entry `store <param>, <slot>`, plus every by-ID param reference — interface-value
+thunks, method-value receivers, copy/dtor bodies).  It was spelled
+`Op = OP_CONST_INT` (enum value 0, default `IntVal` 0).  Backends resolve an operand
+by ID and never read its `.Op`, so `-O0` was correct everywhere.  But the shared
+IR-level SSA passes DO read `.Op`: mem2reg / load-forwarding forward the placeholder
+as the reaching value of a param-slot load, and the BCE passes then treat that
+"const 0" as a provably-safe constant.  This made THREE distinct checks fire wrongly:
+`bceConstIndex` on a dynamic index `a[j]` (0 <= 0 < len → dropped); `bceLoop`
+lower-bound on `for i := p; i < N; i++ { a[i] }` (param init satisfied "const >= 0",
+so a negative `p` skipped the check); and `bceLoop` upper-bound on
+`for i := 0; i < n; i++ { a[i] }` (`lengthProvablyLE` read the param bound `n` as 0,
+"proved" 0 <= len, dropped the check → n > len read OOB).  The passes were correct
+given a lying opcode.
+
+**Fix:** gave the placeholder an honest opcode `OP_PARAM` (appended before NUM_OPS)
+at all 12 by-ID placeholder sites.  It is never lowered as a def — only ever an
+operand — so no backend needs a new case; the change is invisible to codegen/vm/native.
+`bceConstIndex` still removes the genuinely-safe const-index checks; the three
+param-dependent cases are now correctly kept.
+
+**Tests:** `ir/opt_test` gained `TestBCEKeepsLocalArrayDynamicIndex`,
+`TestBCELoopKeepsCheckWhenInductionStartsFromParam`, and
+`TestBCELoopKeepsCheckWhenBoundIsParam` (gen from source → RunOptPasses level 1 →
+the param-dependent check survives) — all three proven to fail without the fix.
+`vm/vm_fault_test.TestVMOptLevelBCEKeepsLiveFault` (was red on main) now green;
+iropcode canary + OpName spread updated for the new tail op.  Three-lens adversarial
+review (enumeration completeness / cross-backend consumer safety incl. native arm32 /
+def-safety + opt interactions) came back clean — and is what surfaced the two extra
+`bceLoop` miscompiles, which were then covered.  Verified end-to-end (pre-fix compiler
+mis-runs, post-fix faults) on all three shapes at `-O1` on LLVM, VM, and native;
+`-O0` unchanged; raw-slice / managed-slice indexing unchanged; full builder-comp
+conformance 2992/0.
+
+**Follow-up (optional, not blocking):** the 12 placeholder sites are hand-duplicated
+with no shared constructor — a `newParamRef(param) @Instr` helper would make the next
+such change a single edit and remove the recurrence foot-gun.
+
 ## bnc `-O1+` on the LLVM backend: the 24 type-mismatch failures — DONE (2026-08-31)
 
 `BINATE_FLAGS=-O2 ./conformance/run.sh builder-comp` (the never-run bnc-`-O1+`-on-LLVM
