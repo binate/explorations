@@ -261,13 +261,29 @@ doesn't check it and isn't run after opt). `InlineSizeThreshold` (const, tuneabl
   ran diamonds/if-else/loops-with-back-edges/managed-returns on native AND the VM at
   -O1, LiveBlocks delta 0).  Added an execution-based VM test (`vm_inline_test.bn`,
   runs inlined code at -O1) to close the CI coverage gap the review flagged.
-- **Inc 3 — 🔵 NEXT.** Fault-pad cloning: clone the callee's FaultPads into the caller,
-  remap each faulting op's PadBlock, reconcile OP_UNWIND_RETURN with the caller frame —
-  unlocks callees with bounds/div/shift checks (e.g. `charsEqual`).  BEFORE Inc 4, also
-  harden `assertInlinedFuncWellFormed` with an operand-scope/dominance check: today
-  dominance is trivially safe (the continuation has one predecessor), but Inc 4's
-  multi-return phi merge breaks that invariant and a dominance bug would miscompile
-  silently on VM/native (LLVM-loud only).
+- **Inc 3a — ✅ LANDED `07ec24068` (2026-08-31).** Faulting ops (bounds/div/shift/nil
+  checks) allowed in a leaf callee when each op's cleanup pad is EMPTY (no managed
+  local/param live at the fault → pad is just OP_UNWIND_RETURN).  The cloned fault op
+  reuses the CALLER's call-site pad (RefDecs the caller's live-at-call set, unwinds the
+  single merged frame) — no pad cloning or unwind reconciliation.  `cloneInstrFields`
+  sets a cloned fault op's PadBlock = `call.PadBlock`; `inlinableCallee` requires any
+  faulting op's pad to be exactly one OP_UNWIND_RETURN and the call site to have a pad.
+  Unlocks raw-slice/array-index leaf callees (e.g. `charsEqual`: raw-slice params + int
+  locals → empty pads).  Adversarial review: no leak/double-free/wrong-fault (built
+  bnc+bni; 30-iteration `rt.LiveBlocks()` fault loops, delta 0).  `vm_inline_leak_test.bn`
+  adds the load-bearing coverage (a managed CALLER local live across an inlined empty-pad
+  fault must be RefDec'd by the reused pad) + positive/negative inlining controls +
+  div/shift fault kinds + managed-param / managed-temp-at-fault rejection.  Multi-block +
+  fault + OOB *leak* is absent by design (such a callee exceeds the size threshold, so it
+  doesn't inline); its safety follows by composition from the single-block leak tests ×
+  the multi-block-with-fault in-bounds test.
+- **Inc 3b — 🔵 NEXT.** Non-empty-pad fault cloning: clone the callee's FaultPads into
+  the caller, remap each faulting op's PadBlock, reconcile OP_UNWIND_RETURN with the
+  caller frame — unlocks callees with a managed local/param live at a bounds/div/shift
+  check.  BEFORE Inc 4, also harden `assertInlinedFuncWellFormed` with an
+  operand-scope/dominance check: today dominance is trivially safe (the continuation has
+  one predecessor), but Inc 4's multi-return phi merge breaks that invariant and a
+  dominance bug would miscompile silently on VM/native (LLVM-loud only).
 - Inc 4 multiple return sites (phi merge at the continuation); Inc 5 multi-value/
   aggregate returns; Inc 6 non-leaf + recursion/cycle guard + code-growth budget +
   benchmark.
