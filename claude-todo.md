@@ -388,16 +388,30 @@ type, use a zero-size traits policy over `table.Table`.  (Resolved/landed pieces
 token.Lookup, the iv-thunk weak_odr fix, and the FuncSig index's mapfn→traits
 conversion — are in claude-todo-done.md.)
 
-Remaining open-coded maps to convert (all currently DIRECT-dispatch, so this is
-consolidation onto the shared engine, not a perf change — see the survey in the done
-entry):
+A borrow key (`*[]readonly char`) into a name owned elsewhere is the shape these use;
+it is safe ONLY if that backing outlives the table.  For OVERWRITE-capable maps that
+also required a `table.Table` fix: **`Put` now refreshes the stored key on update**
+(`7101419c7`) so a replaced entry's key re-points at the live backing instead of
+dangling.
+
 - ~~pkg/binate/ir/strings.bn stringInterner~~ — DONE (`6fde0a0b5`): `table.Table`
-  reusing `FuncSigHasher`/`FuncSigEq`, −51 lines; SHIP review clean.
+  reusing `FuncSigHasher`/`FuncSigEq`, −51 lines; append-only, SHIP review clean.
+- ~~pkg/binate/vm/{func,extern,datasym}_index.bn~~ — DONE (`9dec92ab0`): folded onto
+  one `table.Table` + shared zero-size `VmNameHasher`/`VmNameEq` (net −96 lines).  The
+  `*IndexSet` params became `*[]readonly char` borrows (a literal arg then aliases
+  immortal rodata instead of a mortal `@[]char` copy).  Caught+fixed in review: the
+  `vm.Funcs` store is append-only EXCEPT LowerOneFunc's same-sig REPL replace (`Set`
+  in place), which now re-Puts the name BEFORE the Set so the key refresh re-points it
+  at the live replacement (`TestLowerOneFuncRedefRefreshesIndexKey` guards it).
 - **pkg/binate/types/scope.bn** scope symbol table
-  (`symBuckets`/`symMask`/`scopeHashName`).  Hot on name resolution; BUILDER tree.
-- **pkg/binate/vm/{func,extern,datasym}_index.bn** — three near-identical name→idx
-  indices sharing `FuncIndexEntry` + `hashName`; fold onto one `table.Table` + shared
-  policies.  NOT BUILDER → `pkg/std/table`.
+  (`symBuckets`/`symMask`/`scopeHashName`) — **PARKED behind the next BUILDER cut.**
+  Hot on name resolution; BUILDER tree.  Its open-coded table stores Syms *indices*
+  (names live in `Syms`), so `Define`'s in-place same-name overwrite is trivially
+  safe; a name-keyed `table.Table` with borrow keys needs the `Put` key-refresh
+  (`7101419c7`) on that overwrite — but scope is BUILDER-compiled against the BUILDER's
+  bundled stdlib, which won't carry that fix until a BUILDER is cut.  Do NOT cut a
+  BUILDER just for this (see "a BUILDER release is expensive"); convert scope.bn when a
+  BUILDER carrying the `table.Put` fix lands for independent reasons.
 
 Also worth doing (orthogonal API addition to pkg/std/table): a **`PutIfAbsent` /
 `GetOrPut`** primitive to kill the Has+Put double-probe the first-wins inserts do
