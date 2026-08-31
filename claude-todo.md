@@ -116,10 +116,16 @@ regressions.  The remaining 11 (after nil + GEP + readonly-bitcast) cluster into
   stdlib/os/010_modtime_chain (`fi.ModTime().ToUnix()` first return word → 0) and
   stdlib/os/process/001_run (`st.Code()` → 1<<56, a wrong-word extraction).  Pass off →
   pass; bisected: disabling mem2reg (promoteScalars) fixes both (forwardLoads alone does
-  not).  Cross-package injected-native aggregate / multi-return; hard to minimize (a
-  local-struct multi-return repro does NOT reproduce).  LIKELY THE SAME mem2reg escape/
-  promotion bug as the native `--backend native -O2` self-host SIGSEGV — one fix may
-  close all three.  NEXT.
+  not).  Bisected to mem2reg (promoteScalars).  The miscompile is in the CALLEE library
+  function's -O2 compilation, not the caller: main's IR for the ToUnix/ModTime call
+  site is byte-identical at -O0 and -O2 (ToUnix/ModTime are `declare`d externs), so
+  the wrong value is produced INSIDE a `pkg/std/{time,os,os/process}` injected-native
+  function that mem2reg miscompiles at -O2.  That is why five same-module minimal
+  repros (plain/managed multi-return, accumulator-with-inner-loop) do NOT reproduce —
+  the trigger is the injected-native library body, not the call shape.  LIKELY the same
+  mem2reg bug as the native `--backend native -O2` self-host SIGSEGV.  Next step: emit
+  the -O2 IR of the specific miscompiled pkg/std function (or instrument mem2reg's
+  promoted-alloca set) to pin the wrong promotion/phi.  Deep — a focused follow-up.
 
 `-O2` conformance is now **2990 passed / 2 failed** after the four LLVM fixes
 (nil, GEP, readonly-bitcast, fptosi-freeze); the last 2 are the mem2reg item above.
