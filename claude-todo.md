@@ -323,10 +323,8 @@ conversion — are in claude-todo-done.md.)
 Remaining open-coded maps to convert (all currently DIRECT-dispatch, so this is
 consolidation onto the shared engine, not a perf change — see the survey in the done
 entry):
-- **pkg/binate/ir/strings.bn** stringInterner → `table.Table` reusing
-  `FuncSigHasher`/`FuncSigEq` (same key type, same `funcSigHash`).  BUILDER tree →
-  `pkg/stdx` forwarders.  Note the interner's `Buckets[h]==0`-means-free convention
-  stores `1+idx`; `table.Table` handles occupancy itself, so V is just the Out index.
+- ~~pkg/binate/ir/strings.bn stringInterner~~ — DONE (`6fde0a0b5`): `table.Table`
+  reusing `FuncSigHasher`/`FuncSigEq`, −51 lines; SHIP review clean.
 - **pkg/binate/types/scope.bn** scope symbol table
   (`symBuckets`/`symMask`/`scopeHashName`).  Hot on name resolution; BUILDER tree.
 - **pkg/binate/vm/{func,extern,datasym}_index.bn** — three near-identical name→idx
