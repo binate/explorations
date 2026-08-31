@@ -95,14 +95,14 @@ Repro: build gen1 (BUILDER→gen1), then
 mem2reg's grounding now re-materializes a promoted `nil` (TYP_NIL) reaching value as
 a properly-typed `OP_CONST_NIL` instead of a bogus int↔ptr `OP_CAST` — a central fix
 in the one promotion site (replacing what would have been scattered IR-gen nil re-
-typing).  `-O2` conformance is now **2977 passed / 15 failed** (was 2966/24), zero
-regressions.  The remaining 15 cluster into three sub-classes:
-- **GEP-on-promoted-pointer/global (3):** 551_addr_of_global_scalar, 687_cross_pkg_
-  extern_addr_rvalue, spec/07-types/136_ptr_addressof_raw_even_managed — `invalid
-  getelementptr indices`.  Root cause: `emitGetElemPtr` (codegen) picks 1-index vs
-  2-index off `Op != OP_ALLOC`, but a promoted `&G` IsGlobalRef presents as OP_ALLOC
-  with a scalar (non-array) pointee, so it wrongly takes the 2-index array path.  Fix:
-  key the 2-index form off the pointee (`TypeArg`) being an ARRAY.  NEXT.
+typing).  `-O2` conformance is now **2980 passed / 12 failed** (was 2966/24), zero
+regressions.  The remaining 12 (after the nil + GEP fixes) cluster into:
+- **GEP-on-promoted-pointer/global (3): FIXED — `cfbd3accc`.** 551_addr_of_global_
+  scalar, 687_cross_pkg_extern_addr_rvalue, spec/07-types/136 — `invalid getelementptr
+  indices`.  `emitGetElemPtr` (codegen) now keys the 2-index array form off the base's
+  pointee (`TypeArg`) being an ARRAY, not off `Op != OP_ALLOC` — a promoted `&G`
+  IsGlobalRef (scalar pointee) that presents as OP_ALLOC now gets the single-index
+  pointer GEP.  `-O2` conformance 2980/12 after this + the nil fix; no regressions.
 - **float-to-int (9):** matrix/scalar-diff/float-to-int/{8,16,32,64}/{signed,unsigned}
   + spec/08-conversions/009_cast_float_int_saturation + regressions/readonly-wrapped-
   64bit-arg — `double` vs `iN` type mismatch / wrong value.  Not yet root-caused.
