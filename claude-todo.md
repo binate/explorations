@@ -95,17 +95,26 @@ Repro: build gen1 (BUILDER→gen1), then
 mem2reg's grounding now re-materializes a promoted `nil` (TYP_NIL) reaching value as
 a properly-typed `OP_CONST_NIL` instead of a bogus int↔ptr `OP_CAST` — a central fix
 in the one promotion site (replacing what would have been scattered IR-gen nil re-
-typing).  `-O2` conformance is now **2980 passed / 12 failed** (was 2966/24), zero
-regressions.  The remaining 12 (after the nil + GEP fixes) cluster into:
+typing).  `-O2` conformance is now **2981 passed / 11 failed** (was 2966/24), zero
+regressions.  The remaining 11 (after nil + GEP + readonly-bitcast) cluster into:
 - **GEP-on-promoted-pointer/global (3): FIXED — `cfbd3accc`.** 551_addr_of_global_
   scalar, 687_cross_pkg_extern_addr_rvalue, spec/07-types/136 — `invalid getelementptr
   indices`.  `emitGetElemPtr` (codegen) now keys the 2-index array form off the base's
   pointee (`TypeArg`) being an ARRAY, not off `Op != OP_ALLOC` — a promoted `&G`
   IsGlobalRef (scalar pointee) that presents as OP_ALLOC now gets the single-index
   pointer GEP.  `-O2` conformance 2980/12 after this + the nil fix; no regressions.
-- **float-to-int (9):** matrix/scalar-diff/float-to-int/{8,16,32,64}/{signed,unsigned}
-  + spec/08-conversions/009_cast_float_int_saturation + regressions/readonly-wrapped-
-  64bit-arg — `double` vs `iN` type mismatch / wrong value.  Not yet root-caused.
+- **readonly-wrapped bit_cast: FIXED — `91022a6bd`.** regressions/readonly-wrapped-
+  64bit-arg — `bit_cast(int64, f)` on a `readonly float64` emitted `add i64 <double>`;
+  emitBitCast now peels readonly/alias (not just named) when classifying, and the
+  same-size identity path is float-aware (`fadd`).
+- **scalar-diff float-to-int VALUE-corruption (9): OPEN — deeper than a float cast.**
+  matrix/scalar-diff/float-to-int/{8,16,32,64}/{signed,unsigned} + spec/08-conversions/
+  009_cast_float_int_saturation.  These COMPILE at -O2 but produce garbage/address-like
+  output part-way through (e.g. `8517134664` where `1` expected).  Only the scalar-DIFF
+  variant (many locals + many `testing.Println` calls) fails — the simpler matrix/scalar
+  /float-to-int passes — so it is a complexity/scale-triggered -O2 value corruption
+  (spill / opt-pass interaction, corrupted call-arg marshaling), NOT a float-conversion
+  bug.  A silent miscompile; needs its own root-cause.
 - **stdlib/os (2):** stdlib/os/010_modtime_chain, stdlib/os/process/001_run — value-
   wrong; uninvestigated (may be `-O2` miscompile or environmental).
 
