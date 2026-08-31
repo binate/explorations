@@ -303,11 +303,28 @@ doesn't check it and isn't run after opt). `InlineSizeThreshold` (const, tuneabl
   refcount abort.  **Behavioral CI gap:** no -O1 conformance lane (same as the tracked
   opt-level-matrix item), so inlined-code correctness is structural-tested + manually
   validated, not run in CI.
-- **Inc 2 — 🔵 NEXT.** Multi-block callees: CFG clone (block split at the call +
-  return→continuation for a single return site).  Still leaf, no-fault, ≤1 scalar.
-- Inc 3 fault-pad cloning (unlocks bounds-check-containing callees like `charsEqual`);
-  Inc 4 multiple return sites (phi merge); Inc 5 multi-value/aggregate returns; Inc 6
-  non-leaf + recursion/cycle guard + code-growth budget + benchmark.
+- **Inc 2 — ✅ LANDED `175c31c91` (2026-08-31).** Multi-block callees via CFG split
+  (block split at the call → continuation; two-pass block clone with Block1/Block2
+  remap; single cloned OP_RETURN → jump to continuation).  No phis at inline time
+  (pre-mem2reg) → no phi-predecessor rewiring.  Review: no miscompile (built bnc+bni,
+  ran diamonds/if-else/loops-with-back-edges/managed-returns on native AND the VM at
+  -O1, LiveBlocks delta 0).  Added an execution-based VM test (`vm_inline_test.bn`,
+  runs inlined code at -O1) to close the CI coverage gap the review flagged.
+- **Inc 3 — 🔵 NEXT.** Fault-pad cloning: clone the callee's FaultPads into the caller,
+  remap each faulting op's PadBlock, reconcile OP_UNWIND_RETURN with the caller frame —
+  unlocks callees with bounds/div/shift checks (e.g. `charsEqual`).  BEFORE Inc 4, also
+  harden `assertInlinedFuncWellFormed` with an operand-scope/dominance check: today
+  dominance is trivially safe (the continuation has one predecessor), but Inc 4's
+  multi-return phi merge breaks that invariant and a dominance bug would miscompile
+  silently on VM/native (LLVM-loud only).
+- Inc 4 multiple return sites (phi merge at the continuation); Inc 5 multi-value/
+  aggregate returns; Inc 6 non-leaf + recursion/cycle guard + code-growth budget +
+  benchmark.
+
+Coverage note: the multi-block/managed/loop inline paths only run at -O1, which has no
+conformance lane (see the opt-level-matrix todo), so CI coverage is the `vm_inline_test`
+exec test + structural unit tests + per-increment adversarial review; the default size
+threshold (15) keeps loop/managed callees below it in real programs today.
 
 Original framing: the core native↔clang codegen-gap closer. clang inlines small
 same-package callees (`charsEqual`→`findSymbol`, and every tiny accessor) within a TU;
