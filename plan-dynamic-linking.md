@@ -398,9 +398,9 @@ no stub, Relocate keeps the GOT load).
   function+data case); validated natively (ALL PASS).
 
 **Mach-O dynamic linking now has ELF parity**: function + data imports, runnable +
-CI-guarded on macOS arm64.  Remaining follow-ups (all documented, none blocking):
-weak imports marked weak; generalize the direct-reference rejection (see "ABS64-to-import
-LANDED" below).  (Writable program `__DATA` and ABS64-to-import are now done — see below.)
+CI-guarded on macOS arm64.  Remaining follow-up (documented, non-blocking): weak Mach-O
+imports marked weak.  (Writable program `__DATA`, ABS64-to-import, and the general
+direct-reference rejection are now done — see below.)
 
 ### ML4 LANDED (2026-08-30): multi-lib `-l` — DT_NEEDED from each `.so`'s SONAME
 
@@ -479,8 +479,8 @@ NATIVELY on macOS arm64 (`codesign -v` clean; `dyld_info` shows the `_exit` bind
 `__DATA` offset 8, i.e. past the program `.data`); ELF x86-64 + aarch64 via Docker.
 Adversarial review: SHIP (after the `.bss`-bloat fix).
 
-Remaining follow-ups: weak Mach-O imports marked weak; generalize the direct-reference
-rejection (see below).
+Remaining follow-up: weak Mach-O imports marked weak (see below for the ABS64 and general
+direct-reference rejections that landed after this).
 
 ### ABS64-to-import LANDED (2026-08-31): loud rejection, not a silent stub address
 
@@ -498,12 +498,23 @@ separate feature — not done; the loud error closes the silent-miscompile hole.
 `classifyImports` rejects both ABS64 kinds; end-to-end `LinkDynElf` rejects a `.quad
 extern`.  Adversarial review: SHIP.
 
-**Generalization (next, agreed 2026-08-31).** The ABS64 fix closes one instance of a
+**Generalization LANDED (2026-08-31, `631501e66`).** The ABS64 fix was one instance of a
 broader hole: an import reached only by *any* direct, non-call, non-GOT relocation
-defaults to `impPlt` and resolves to the stub address too.  Confirmed reachable: `lea
-rax,[rip+extern]` (a direct, non-`@GOTPCREL` reference) emits `R_X86_64_PC32` against the
-import → today silently the stub address.  Calls are safe (`call extern` → PLT32, caught)
-and GOT references are safe (`@GOTPCREL` / `:got:` → GOTPCRELX/ADR_GOT_PAGE, handled), so
-the general rule — reject an import reached by any reloc that is neither a call nor a GOT
-reference — subsumes ABS64 without breaking calls or GOT refs.  To do next: widen
-`classifyImports` to that rule, enumerating the reloc kinds carefully + re-review.
+defaulted to `impPlt` and resolved to the stub address too — reachable via `lea
+rax,[rip+extern]` (a direct, non-`@GOTPCREL` reference) → `R_X86_64_PC32`.
+`classifyImports` now classifies each import-targeting reloc as call / GOT / other and
+rejects an import reached by any *other* reloc (subsuming ABS64; `isAbs64Reloc` removed).
+Calls stay safe (`call`/`bl extern` → PLT32 / CALL26 / JUMP26 = `isCallReloc`) and GOT
+references stay safe (`@GOTPCREL` / `:got:` → GOTPCRELX/REX_GOTPCRELX / ADR_GOT_PAGE +
+LD64_GOT_LO12_NC = `isGotReloc`, both halves of the aarch64 pair), so no real program is
+newly rejected — verified: exit42/hello/datum/wdata/-lm all still link and run on both ELF
+arches + Mach-O native (hello's `lea [rip+msg]`/`adrp msg` target INTERNAL symbols, not
+imports).  Matches real-linker behavior (a direct reference to an undefined symbol in a
+PIE is rejected).  Unit test rejects five direct-reference kinds (ABS64 ×2, PC32,
+ADR_PREL_PG_HI21, PREL32); the ABS64 end-to-end `LinkDynElf` rejection is retained.
+Adversarial review: SHIP.
+
+Only remaining dynamic-linking follow-up: **weak Mach-O imports marked weak** (a weak
+undefined import is currently emitted as a strong bind, so dyld hard-fails the load if
+the symbol is absent instead of binding-or-zeroing; ELF weak imports are already
+handled).
