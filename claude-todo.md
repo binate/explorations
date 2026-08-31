@@ -261,10 +261,33 @@ self-time). Two orthogonal inlining levers below. (The single-file microbench wh
 reality.)
 
 
-### (2b) Within-package function inliner — 🟡 OPEN (2026-08-29)
+### (2b) Within-package function inliner — 🔵 IN PROGRESS (2026-08-29)
 
-The core native↔clang codegen-gap closer. clang inlines small same-package callees
-(`charsEqual`→`findSymbol`, and every tiny accessor) within a TU; native doesn't
+Plan + two adversarial reviews (plan + Inc-1 code): `plan-within-package-inliner.md`.
+A new -O1+ IR pass `inlineCalls` (run first in RunOptPasses, before mem2reg) clones a
+small same-package callee's body into the caller at a direct OP_CALL, deleting the call.
+Refcounting is explicit + self-balancing, so a faithful clone-and-substitute needs no
+reconstruction; operands are object refs, so cloning is an object→object remap + a
+per-clone ID renumber, guarded by the pass's own ID-uniqueness assertion (verify.bn
+doesn't check it and isn't run after opt). `InlineSizeThreshold` (const, tuneable = 15).
+
+- **Inc 1 — ✅ LANDED `149da0a14` (2026-08-31).** Single-block, leaf (no calls),
+  no-fault (no PadBlock), ≤1 SCALAR result (whitelist), params+in-block-values-only
+  callees — zero CFG surgery.  Covers tiny scalar accessors.  Code review: no
+  miscompile (byval-param path + module-wide string table both verified).  Validated
+  end-to-end at -O1 (scalar, managed-param borrow, return-managed-param) — correct, no
+  refcount abort.  **Behavioral CI gap:** no -O1 conformance lane (same as the tracked
+  opt-level-matrix item), so inlined-code correctness is structural-tested + manually
+  validated, not run in CI.
+- **Inc 2 — 🔵 NEXT.** Multi-block callees: CFG clone (block split at the call +
+  return→continuation for a single return site).  Still leaf, no-fault, ≤1 scalar.
+- Inc 3 fault-pad cloning (unlocks bounds-check-containing callees like `charsEqual`);
+  Inc 4 multiple return sites (phi merge); Inc 5 multi-value/aggregate returns; Inc 6
+  non-leaf + recursion/cycle guard + code-growth budget + benchmark.
+
+Original framing: the core native↔clang codegen-gap closer. clang inlines small
+same-package callees (`charsEqual`→`findSymbol`, and every tiny accessor) within a TU;
+native doesn't
 inline at all. Add an IR pass that inlines small same-package functions at their call
 sites (respecting TU/package boundaries, exactly like clang, so it's fair + generic —
 helps all programs regardless of their algorithmic quality). Bigger project: inlining
