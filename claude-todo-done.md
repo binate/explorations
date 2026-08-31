@@ -6,6 +6,28 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Hand-rolled maps → stdlib containers; injected-policy overhead fixed by the zero-size traits pattern — DONE (2026-08-31)
+
+token.Lookup → mapfn.MapFn (`444554a5e` — O(1) keyword lookup; perf-neutral).
+iv-dispatch-thunk weak_odr fix (`883f761ce` — CRITICAL: genIvRecvThunk sets
+IsLinkOnce so a monomorphized generic value-receiver impl thunk [`hash.FnHasher[K]` /
+`cmp.FnEq[K]`] dedups across the packages that instantiate it; before, two packages
+sharing a mapfn/setfn key type hit a duplicate `__bn_thunk_*` symbol at link — the
+root cause that had forced open-coded maps.  conformance/1222 guards it).
+
+FuncSig index: first mapfn.MapFn (`c087ca69d`, −74 lines, first-match via
+Put-when-absent), which measured ~3–5% SLOWER on the cmd/bnc load — mapfn/setfn inject
+hash/eq as `*func` → INDIRECT calls per probe.  Root-caused and fixed via the
+ZERO-SIZE TRAITS pattern (`81be9f86e`): `table.Table[*[]readonly char, int,
+FuncSigHasher, FuncSigEq]`, where the empty-struct policies' `Hash`/`Equal`
+monomorphize to DIRECT inlinable calls (emitted LLVM IR: 0 indirect calls vs mapfn's
+2/probe) — open-coded-map parity, NO compiler change.  This SUPERSEDED the proposed
+compiler devirtualization (approach C, `explorations/done/plan-devirt-injected-policies.md`
+— abandoned: the constant `*func` is stored in one function and called in another
+across a heap field, needing value-parameterized types, a language extension, not a
+monomorphizer key tweak).  Converting the OTHER open-coded maps (strings/scope/vm×3)
+to the same pattern is the open follow-up in claude-todo.md.
+
 ## Assembler symbol table O(n²) → O(1) — hash the symbol table — DONE (2026-08-30, `b818d72fd`)
 
 `Assembler.findSymbol` (`pkg/binate/asm/asm.bn`) was a linear `charsEqual` scan over

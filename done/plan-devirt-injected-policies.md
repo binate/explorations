@@ -1,8 +1,21 @@
 # Plan: devirtualize injected container policies (mapfn/setfn) — constant-func-arg specialization
 
-Status: **DESIGN NOT VIABLE AS WRITTEN — adversarial review (2026-08-27) found FATAL
-FLAWS.** Kept for the record; do NOT implement approach C below without first resolving
-the type-system question. See "Review outcome" immediately below.
+Status: **RESOLVED / SUPERSEDED (2026-08-31) — devirtualization NOT needed.** The
+injected-policy overhead is fixed *today*, with no compiler change, by using a
+**zero-size trait-type policy** over `table.Table` instead of `mapfn`/`FnHasher`: a
+zero-size struct whose `Hash`/`Equal` are methods (impl `hash.Hasher[K]` /
+`cmp.Eq[K]`) monomorphizes `t.h.Hash(k)` / `t.e.Equal(a,b)` to **direct** calls (the
+same mechanism `hash.Default` uses), so there is nothing to devirtualize. Confirmed:
+ir's FuncSigIndex converted to `table.Table[*[]readonly char, int, FuncSigHasher,
+FuncSigEq]` — emitted LLVM IR has **0 indirect calls** vs `mapfn`'s **2 per probe**.
+So approach C below (constant-func-arg specialization) is abandoned — and it had
+FATAL FLAWS anyway (adversarial review 2026-08-27; see "Review outcome"). Kept for
+the record only. The generalizable lesson: **for a hot map, use a zero-size traits
+policy over `pkg/std/table` for direct dispatch; reserve `mapfn`/`setfn` (runtime
+`*func`) for genuinely-dynamic policies.**
+
+Original status: **DESIGN NOT VIABLE AS WRITTEN — adversarial review (2026-08-27)
+found FATAL FLAWS.**
 
 ## Review outcome (2026-08-27): DESIGN-HAS-FATAL-FLAWS
 

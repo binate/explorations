@@ -294,33 +294,34 @@ plus a qualify-concat — two allocations per lookup — just to build the compa
 key. Build-once / intern, or hash the (pkgPath, name) components without
 materializing the qualified string.
 
-### Hand-rolled maps → stdlib mapfn/setfn + devirtualize injected policies — 🟡 OPEN follow-up
+### Convert remaining open-coded maps → table.Table + zero-size traits policies — 🟡 OPEN
 
-LANDED: token.Lookup → mapfn.MapFn (`444554a5e` — O(1) keyword lookup; perf-neutral
-but uses the stdlib container instead of a linear scan).  iv-dispatch-thunk weak_odr
-fix (`883f761ce` — CRITICAL: genIvRecvThunk now sets IsLinkOnce, so a monomorphized
-generic value-receiver impl thunk [`hash.FnHasher[K]` / `cmp.FnEq[K]`] dedups across
-the packages that instantiate it; before, two packages sharing a mapfn/setfn key
-type hit a duplicate `__bn_thunk_*` symbol at link — THE root cause that forced
-hand-rolled maps.  conformance/1222 guards it).  FuncSig index → mapfn.MapFn
-(`c087ca69d`, −74 lines, first-match preserved via Put-when-absent).
+The zero-size traits-policy pattern — a user-defined empty struct whose `Hash`/`Equal`
+are methods (impl `hash.Hasher[K]` / `cmp.Eq[K]`), passed as `table.Table`'s H/E type
+params — monomorphizes `t.h.Hash(k)` / `t.e.Equal(a,b)` to DIRECT, inlinable calls:
+open-coded-map parity while sharing the stdlib open-addressing engine.  It is the
+answer to "use a stdlib container without the mapfn `*func` indirect-call tax":
+reserve `mapfn`/`setfn` for genuinely-dynamic policies; for a hot map with a fixed key
+type, use a zero-size traits policy over `table.Table`.  (Resolved/landed pieces —
+token.Lookup, the iv-thunk weak_odr fix, and the FuncSig index's mapfn→traits
+conversion — are in claude-todo-done.md.)
 
-REGRESSION to fix at the ROOT (do NOT revert to hand-rolled): the FuncSig-index
-mapfn conversion measured ~3–5% SLOWER on the cmd/bnc load than the hand-rolled
-open-addressing map — mapfn/setfn inject hash/eq as `*func` values → INDIRECT calls
-per probe, whereas `hashmap.Map`'s intrinsic `Default` policies monomorphize to
-DIRECT `k.Hash()`/`k.Compare()`.  The fix that benefits EVERYONE (so nobody needs a
-custom table):
-- **(C) compiler DEVIRTUALIZATION of the injected-policy calls** — when the `*func`
-  a MapFn/SetFn is constructed with is a compile-time-known top-level function (e.g.
-  `NewMapFn(funcSigHash, streq)`), propagate it through NewMapFn into the table's
-  FnHasher/FnEq field and turn the per-probe indirect call into a direct, inlinable
-  call.  This is the real root-cause fix (`(A)` a Hashable string wrapper is a hack;
-  `(C)` is the right way).
-- **(B) a `table.PutIfAbsent` / GetOrPut primitive** — kills the Has+Put
-  double-probe registerFuncSig now does to keep first-wins.
+Remaining open-coded maps to convert (all currently DIRECT-dispatch, so this is
+consolidation onto the shared engine, not a perf change — see the survey in the done
+entry):
+- **pkg/binate/ir/strings.bn** stringInterner → `table.Table` reusing
+  `FuncSigHasher`/`FuncSigEq` (same key type, same `funcSigHash`).  BUILDER tree →
+  `pkg/stdx` forwarders.  Note the interner's `Buckets[h]==0`-means-free convention
+  stores `1+idx`; `table.Table` handles occupancy itself, so V is just the Out index.
+- **pkg/binate/types/scope.bn** scope symbol table
+  (`symBuckets`/`symMask`/`scopeHashName`).  Hot on name resolution; BUILDER tree.
+- **pkg/binate/vm/{func,extern,datasym}_index.bn** — three near-identical name→idx
+  indices sharing `FuncIndexEntry` + `hashName`; fold onto one `table.Table` + shared
+  policies.  NOT BUILDER → `pkg/std/table`.
 
-Once mapfn is at parity, convert the still-hand-rolled string interner (strings.bn).
+Also worth doing (orthogonal API addition to pkg/std/table): a **`PutIfAbsent` /
+`GetOrPut`** primitive to kill the Has+Put double-probe the first-wins inserts do
+(registerFuncSig, and the interner's first-wins dedup).
 
 ## Standard library — pkg/std namespace migration
 
