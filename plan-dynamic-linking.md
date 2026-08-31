@@ -399,8 +399,8 @@ no stub, Relocate keeps the GOT load).
 
 **Mach-O dynamic linking now has ELF parity**: function + data imports, runnable +
 CI-guarded on macOS arm64.  Remaining follow-ups (all documented, none blocking):
-writable program data (__DATA) for both dynamic backends; ABS64-to-an-import made loud;
-weak imports marked weak.
+ABS64-to-an-import made loud; weak imports marked weak.  (Writable program `__DATA` is
+now done — see "Writable __DATA LANDED" below.)
 
 ### ML4 LANDED (2026-08-30): multi-lib `-l` — DT_NEEDED from each `.so`'s SONAME
 
@@ -440,3 +440,43 @@ script* (e.g. glibc's `libc.so` dev file is text `GROUP(...)`, not ELF) fails wi
 an ELF file (bad magic)" rather than mis-linking.  `-lc` is redundant anyway (libc is
 the default); symlink-style `.so`s (libm, etc.) work.  Handling linker scripts would be
 its own feature — a possible future follow-up.
+
+### Writable __DATA LANDED (2026-08-30): mutable program globals in a dynamic link
+
+Landed `b8f32ea44`.  A dynamically-linked program with mutable globals (`.data`) or
+zero-init storage (`.bss`) can now be linked on both dynamic backends.
+
+- **ELF: already worked — no code change.**  `Layout` already merges program
+  `.data`/`.bss` with the synthesized RW sections (`.got`/`.got.plt`/`.dynamic`) into
+  one RW group, and `EmitDynElfExec` emits a RW `PT_LOAD` with correct filesz/memsz
+  (incl. NOBITS `.bss`).  Verified end-to-end on both arches (mutate a `.data` + a
+  `.bss` global → exit 42; a 1 MB `.bss` stays an 8 KB file).  Added `wdata` regression
+  e2e coverage so it stays working.
+- **Mach-O: implemented (Option A — single writable `__DATA`).**  Program `.data`/`.bss`
+  AND the `__got` now share ONE writable `__DATA` segment (no `SG_READ_ONLY`), mirroring
+  ELF's single RW segment; dyld binds the `__got` in the writable `__DATA` (classic
+  pre-`__DATA_CONST` behavior).  The rename `__DATA_CONST` → `__DATA` is required, not
+  cosmetic: dyld rejects a segment *named* `__DATA_CONST` that lacks `SG_READ_ONLY`.  The
+  `__got` is no longer at the segment start (program `.data` precedes it), so
+  `buildMachoBind` emits each POINTER bind at `gotSegOff + i*8`, where `gotSegOff` is the
+  `__got`'s laid-out vaddr minus the `__DATA` base.  The writable-program-data rejection
+  is removed; `writeSeg64Flags`/`MACHO_SG_READ_ONLY` are gone.  (Trade-off: the `__got`
+  is no longer frozen read-only after fixups — the `__DATA_CONST` hardening — which is
+  not a correctness concern.)
+- **`.bss`-bloat bug found + fixed (adversarial review).**  The first cut set
+  `__LINKEDIT`'s *file* offset to `dataFileOff + dataVm` (vmsize, which includes the
+  `.bss` zero-fill), so a large `.bss` bloated the file 1:1 (a 1 MB `.bss` → a 1.1 MB
+  file — the e2e's `.zero 4` was too small to expose it).  Fixed to
+  `alignUp(dataFileOff + dataFileSize, page)` (file-backed bytes only, mirroring the
+  static emitter), keeping `__LINKEDIT` page-congruent; a 1 MB `.bss` Mach-O is now
+  ~49 KB.  Guarded by a host-independent unit test (`TestEmitDynMachoExecLargeBss`:
+  file ≤ 128 KB AND `__DATA` vmsize ≥ 1 MB).
+
+**Validation:** unit tests (`buildMachoBind` non-zero `gotSegOff`; end-to-end
+`LinkDynMacho` with a writable `.data` section — no longer rejected; the large-`.bss`
+no-bloat test).  The e2e gained a `wdata` program on all three lanes; Mach-O validated
+NATIVELY on macOS arm64 (`codesign -v` clean; `dyld_info` shows the `_exit` bind at
+`__DATA` offset 8, i.e. past the program `.data`); ELF x86-64 + aarch64 via Docker.
+Adversarial review: SHIP (after the `.bss`-bloat fix).
+
+Remaining follow-ups: ABS64-to-an-import made loud; weak Mach-O imports marked weak.
