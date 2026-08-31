@@ -220,13 +220,14 @@ as a follow-up). Plan + adversarial review done: `plan-inline-bounds-check.md`.
   exit-label pre-pass (`assignBlockExitLabels`, `bc.<n>.ok` terminal). Tests +
   end-to-end validation (7 bounds-fault conformance green; clang accepts -O1 phi
   labels). Minimal adversarial review: clean.
-- **native x64 — 🔵 NEXT.** Per-function fresh-label counter (a `BoundsSeq` field on
-  the per-function `RegMap`, namespaced by `funcSym` — `ins.ID` is −1 for the void op,
-  confirmed) + Cmp/Jcc two-compare + cold `rt.BoundsFail` call (needs
-  `a.SetGlobal(BoundsFail)`). Rewrite `TestEmitBoundsCheckCallsRuntime` (asserts the
-  old CALL). VM is already inline (no change); `common_call.bn` `isCallOp` membership
-  stays (cold path still calls). See `plan-inline-bounds-check.md` per-backend section.
-- **native aarch64 — 🟡 after x64.** Cmp + `Bcond(COND_LT)` two-compare + Bl BoundsFail.
+- **native x64 — ✅ LANDED `d4a9d2657` (2026-08-31).** Cmp/Jcc two-compare + cold
+  `rt.BoundsFail` call; per-function `RegMap.BoundsSeq` label counter (via
+  `common.BoundsLabel`, since `ins.ID` is −1 for the void op); guard lowerings
+  (bounds/div/shift) extracted to `x64_guards.bn` to stay under the file-length limit.
+  Minimal adversarial review clean; full native-x64-darwin conformance green.
+- **native aarch64 — 🔵 NEXT.** Cmp + `Bcond(COND_LT)` two-compare + Bl BoundsFail;
+  reuse `common.BoundsLabel` + `RegMap.BoundsSeq`. Runs natively on this (arm64) host,
+  so end-to-end validation is direct (`builder-comp_native_aa64`).
 - **native arm32 — 🟡 after aarch64.** Cmp + `B(COND_LT)` + Bl BoundsFail; NEW dispatch
   test (none exists). Validate via `builder-comp_native_arm32_baremetal`, NOT the LLVM
   arm32 modes.
