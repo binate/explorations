@@ -287,18 +287,22 @@ doesn't check it and isn't run after opt). `InlineSizeThreshold` (const, tuneabl
   built via native -O2 with the inliner ACTIVE-during-build vs DISABLED, each timed compiling
   cmd/bnc (`--backend native`, x86_64-darwin under Rosetta on this arm64 host — relative delta
   valid, absolutes emulated).  Noisy (concurrent workers + Rosetta): ON 59/72/78s, OFF
-  101/95/60s → min-based ~2%, mean ~18% but unreliable.  Structural (machine-independent,
+  101/95/60s → looked like ~2% BY WALL-CLOCK, but that was a noise artifact.  Re-measured by
+  USER CPU time (robust to concurrent-worker load): ON ~56.2s (rock-stable 55.6/56.4/56.5),
+  OFF ~70-91s → the inliner is ~19% (ON vs OFF-min) to ~30% (mean) FASTER on the native
+  self-compile, AT THE DEFAULT THRESHOLD 15.  OFF is also noisier (more calls → more Rosetta
+  translation/contention), so the inliner speeds up AND stabilizes.  Structural (machine-independent,
   clean): the inliner removes 100% of same-package small-function calls at -O1 (arith 12→0,
-  accessors 8→0, multi-value clamp 4→0).  **KEY FINDING:** the small self-compile win is
-  because the HOT functions that drive the clang↔native gap exceed the default
-  `InlineSizeThreshold = 15` — e.g. `charsEqual` (the note's ~40%-self-time case) is ~45-60 IR
-  instrs (loop + 2 bounds-checked indexed loads + 3 returns; confirmed: NOT inlined at 15/40,
-  INLINED at 200 → pure size).  So the inliner is CORRECT + complete for small callees but its
-  DEFAULT threshold is too conservative to realize the gap-closing purpose.
-- **Threshold tuning — 🔵 HIGH-VALUE NEXT.** Raise `InlineSizeThreshold` (tuneable, per the
-  user's original ask) to catch charsEqual-class hot functions, and re-benchmark to find the
-  sweet spot (code-growth vs speed).  Best on a QUIET machine (the darwin/Rosetta + concurrent-
-  worker noise made the threshold-15 numbers inconclusive).  Arguably higher-value than Inc 6.
+  accessors 8→0, multi-value clamp 4→0).  Additional headroom: the HOT functions that drive
+  the clang↔native gap EXCEED the default `InlineSizeThreshold = 15` — e.g. `charsEqual` (the
+  note's ~40%-self-time case) is ~45-60 IR instrs (loop + 2 bounds-checked indexed loads + 3
+  returns; confirmed NOT inlined at 15/40, INLINED at 200 → pure size).  So the inliner ALREADY
+  delivers a substantial win at 15 (broad small-function inlining); catching charsEqual-class
+  functions via threshold tuning would add MORE — not a prerequisite for the win.
+- **Threshold tuning — 🔵 additional headroom.** Default 15 already wins ~19-30%; raising
+  `InlineSizeThreshold` (tuneable) to catch charsEqual-class hot functions (~45-60 instrs) adds
+  more.  Re-benchmark by USER CPU time (NOT wall-clock — that was the noise source; no quiet
+  machine needed) to find the code-growth-vs-speed sweet spot.
 - **Inc 6 — deferred (consider compacting first).** Non-leaf callees (callees that call other
   functions) + recursion/cycle guard + code-growth budget.  The last planned increment.
 
