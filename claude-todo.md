@@ -313,13 +313,24 @@ doesn't check it and isn't run after opt). `InlineSizeThreshold` (const, tuneabl
   masking small (inline) vs big (skip) callees; the review caught it.  Leaf callees can
   only have empty/single-block pads (a multi-block pad's dtor CALL makes the callee
   non-leaf → rejected earlier), so multi-block-pad handling is moot.
-- **Inc 4 — 🔵 NEXT.** Multiple return sites (phi merge at the continuation).  BEFORE
-  Inc 4, harden `assertInlinedFuncWellFormed` with a DOMINANCE check: today dominance is
-  trivially safe (the continuation has one predecessor), but Inc 4's multi-return phi
-  merge breaks that invariant and a dominance bug would miscompile silently on VM/native
-  (LLVM-loud only).  (Operand-scope is already checked as of Inc 3b; dominance remains.)
-- Inc 5 multi-value/aggregate returns; Inc 6 non-leaf + recursion/cycle guard +
-  code-growth budget + benchmark.
+- **Inc 4 — ✅ LANDED `f8af01af8` (2026-08-31).** Multiple return sites.  Binate IR-gen
+  emits one OP_RETURN per `return` (early returns are NOT funnelled), so any callee with
+  an early return had >1 return site and was skipped.  Handled via the multi-block
+  continuation: with >1 return AND a result, a return-value SLOT (OP_ALLOC in the caller's
+  pre-call region) merges the values — each cloned OP_RETURN becomes `store rv -> slot` +
+  jump, and the continuation loads the slot as the call value.  The slot is the
+  pre-mem2reg alloca/store/load shape (NO phi introduced; mem2reg promotes it) and is
+  dominance-safe (pre-call region dominates all cloned blocks + the continuation).  Managed
+  returns balance: OP_STORE/OP_LOAD are pure bit copies (no implicit refcount), so the
+  returned value's +1 flows store->load->caller unchanged.  Single return flows directly
+  (no slot); void multi-return just jumps.  Adversarial review validated across VM + LLVM +
+  native aarch64 (10 tests at raised threshold; managed loops delta 0).  Hardening:
+  `assertInlinedFuncWellFormed`'s operand-scope check generalized from fault-pad operands
+  to ALL f.Blocks/f.FaultPads operands (the operand-scope hardening the todo flagged;
+  DOMINANCE remains unneeded — the alloca slot is dominance-safe by construction).
+- **Inc 5 — 🔵 NEXT.** Multi-value returns (`(int, err)`) + by-value aggregate/struct/slice
+  returns (sret/retbuf) — lifts the `≤1 scalar result` filter.
+- Inc 6 non-leaf + recursion/cycle guard + code-growth budget + benchmark.
 
 Coverage note: the multi-block/managed/loop inline paths only run at -O1, which has no
 conformance lane (see the opt-level-matrix todo), so CI coverage is the `vm_inline_test`
