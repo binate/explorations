@@ -41,7 +41,7 @@ THUNK — the thunk performs the C->Binate ABI adaptation (narrow-param normaliz
 other C-vs-Binate ABI differences) and the returned pointer points at the thunk, not the bare
 Binate entry.  This is the same thunk mechanism as the #[c_export]-thunk item above (a
 #[c_export] is just the named/eager instance of "give C a callable pointer to this function").
-Design the builtin + thunk generation together with that item.
+Design the builtin + thunk generation together with that item. NOTE (2026-09-01, c_export-prefix review): now that #[c_export] normalization is a C-entry PREFIX (the mangled `sym` sits AFTER it), taking a function's address yields `sym` and thus SKIPS normalization — so this builtin MUST return the ALIAS/prefix address (the C-ABI entry), not the bare mangled entry, for a #[c_export] function, and must synthesize an equivalent normalizing prefix/thunk for a non-c_export function.
 
 ### VM at bnc `-O2`: ~12 pre-existing latent refcount failures — 🟠 VM / opt (found 2026-08-29 during the managed-slice RLE work)
 
