@@ -263,7 +263,7 @@ doesn't check it and isn't run after opt). `InlineSizeThreshold` (const, tuneabl
   - Coverage gap (follow-up, likely safe by construction): no test for a non-dtor managed-
     aggregate (@[]int) result live at a CALLER fault via a MULTI-block (merge-slot) callee —
     can't fit the default size threshold, so the path is threshold-gated.
-- **Inc 5b — 🔵 IN PROGRESS.** Multi-VALUE (tuple) returns `(int, err)`.  Design (settled):
+- **Inc 5b — ✅ LANDED `652e066c8` (2026-09-01).** Multi-VALUE (tuple) returns `(int, err)`.  Design:
   a multi-value call result is a `makeMultiReturnStructType` tuple, and EVERY use is
   `OP_EXTRACT(callresult, i)` — even `return f()` passthrough extracts+repacks
   (gen_return.bn), so there is NO whole-tuple flow.  Approach: PACK — at the return, build a
@@ -277,7 +277,15 @@ doesn't check it and isn't run after opt). `InlineSizeThreshold` (const, tuneabl
   build the tuple at the one return.  Multi-return (multi-block): the merge slot IS the tuple
   type, each return does the N field-stores, the continuation loads the tuple.  Rejected: a
   result field that isn't isInlinableResultType (e.g. func-value/iface-value).
-- Inc 6 non-leaf + recursion/cycle guard + code-growth budget + benchmark.
+  PACK approach validated by review (all CONFIRMED-SAFE): managed multi-value (@Node,@Node) /
+  (@[]int,int) / (int,@Node) -O0==-O1 LiveBlocks Δ0; discarded field RefDec'd once by the
+  tuple's call-result-temp dtor; multi-block two-return-site → 3 distinct entry-hoisted tuple
+  allocas (no cross-path aliasing).  Residual (safe by composition, untested): managed multi-
+  value live across a fault (5b × the pad-sweep) and `return f()` passthrough (extract path).
+- **Cumulative benchmark — 🔵 NEXT.** Measure the native -O1 inliner win from Inc 1-5b
+  (bnc -O1 --backend native, inliner on vs off) — quantifies the whole within-package inliner.
+- **Inc 6 — deferred (consider compacting first).** Non-leaf callees (callees that call other
+  functions) + recursion/cycle guard + code-growth budget.  The last planned increment.
 
 Coverage note: the multi-block/managed/loop inline paths only run at -O1, which has no
 conformance lane (see the opt-level-matrix todo), so CI coverage is the `vm_inline_test`
