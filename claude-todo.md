@@ -7,29 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### conformance 1227 is MISSING its arm32_baremetal xfail (fmt.Print is a no-op on baremetal) — 🟡 TEST HYGIENE (found 2026-09-01)
-
-`conformance/1227_xpkg_const_uint_to_float` fails on builder-comp_native_arm32_baremetal (and,
-by the same mechanism, on the LLVM builder-comp_arm32_baremetal via the shared OVERRIDE_MODE
-xfails).  ROOT CAUSE (definitive, from source — NOT a codegen bug and NOT native-arm32-
-specific): the test prints via `fmt.Print`, which writes to `os.Stdout`; on baremetal
-`os.Stdout` is an empty @File whose `Write` returns `(0, errNoFS())` — "a bare-metal target
-has no standard output" (impls/stdlib/pkg/std/os/os_baremetal.bn:29,151).  So `fmt.Print`
-produces NO output on ANY baremetal target.  (Tests that DO print on baremetal use
-testing.Println -> sys/sys_baremetal.bn -> semihosting SYS_WRITEC, bypassing os.Stdout.)
-Empirically confirmed: fmt.Print("hi") on native arm32 baremetal -> empty; testing.Println ->
-works.
-
-This is the KNOWN baremetal-fmt limitation, already handled by an
-`.xfail.builder-comp_arm32_baremetal` marker on EVERY OTHER pkg/std/fmt conformance test —
-all 15 (1090/1135/1138/1150/1157/1158/1159/1162/1163/1167/1169/1171/1196/1224/1226).  1227
-(added 2026-08-30/31, f0e51a747/077b317e0) is the LONE fmt test missing that marker.
-FIX: add `1227_xpkg_const_uint_to_float.xfail.builder-comp_arm32_baremetal` to match its 15
-siblings.  (An earlier note here framing this as a native-arm32 uint64->float codegen bug /
-"MUST fix not xfail" was WRONG — the symptom is no-output, and the established handling IS the
-xfail.)  SEPARATE larger option: make os.Stdout write via semihosting on baremetal so fmt
-works there (would let all 16 xfails drop) — a platform enhancement, not a 1227 fix.
-
 ### native: #[c_export] narrow-param normalization gate misses a native func handed to C as a raw callback pointer — 🟡 NATIVE-BACKEND / ABI, scope-limitation (found 2026-09-01, same review; DISCUSS)
 
 The reg/stack narrow-param normalization fires only for functions with a `#[c_export]`
