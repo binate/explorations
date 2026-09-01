@@ -6,6 +6,35 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `link`/bnld used word-sized `int`/`uint` for 64-bit addresses — broke on ILP32 — DONE (2026-09-01, commit b2c68b22b)
+
+The Mach-O/ELF linker (`pkg/binate/link`, bnld) threaded 64-bit TARGET addresses
+through word-sized `int`/`uint` — 64-bit on an LP64 host, only 32-bit on ILP32
+(arm32) — so >32-bit address constants (machoBase 0x100004000, __PAGEZERO, GOT/PLT
+slots) overflowed the checker's fit check and `pkg/binate/link` failed to COMPILE
+on arm32, and any address arithmetic that did compile would truncate at runtime.
+
+Fix: carry every target virtual address in `uint64` and every machine-instruction
+word / displacement in `int64`; file offsets/sizes/counts stay `int`.  Added
+`writeU64` for the 8-byte address fields (segment vmaddr/vmsize, ELF p_vaddr,
+R_AARCH64_ABS64 / R_X86_64_64 targets, r_offset, .got.plt[0], DT_* d_val) and
+`alignUpU64`.  This also fixed two latent ILP32 miscompiles that were correct only
+by accident on LP64: the r_info `(i + 1) << 32` construction (shifted clean out of
+a 32-bit int) and patch32Field's 0xffffffff mask (overflowed int32).
+OutputSection.Addr/Size, Layout/LayoutPaged base, symbolAddr, secVaddr, groupStats,
+the Emit*/Link* entry points (link.bni) and the cmd/bnld + cmd/bnc callers all
+moved to `uint64`.
+
+Verified: builder-comp link/bnld/bnc green; the bnld dynamic-linking e2e (native
+arm64 Mach-O + Docker ELF x86-64/aarch64, real runs) all pass; and a new FS-free
+guard (`ilp32_addr_test.bn` — writeU64, R_AARCH64_ABS64 above 4 GB, a 0x100004000
+load base through Layout, patch32Field's mask) computes correctly on a real 32-bit
+host under qemu-system-arm.
+
+The arm32 CI lane itself stays red for the SEPARATE gen1-link-collision cluster
+(which un-masked this bug — red since ~2026-08-28); making that lane green is that
+cluster's work, not this item.
+
 ## native: sign-extend narrow #[c_export] register params on entry — DONE (2026-09-01, commit a171551d0)
 
 The register-half sibling of the sub-word STACK-arg spill fix (4798da30a).  A #[c_export]

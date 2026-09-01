@@ -122,31 +122,6 @@ pending-BUILDER state, red since ~2026-08-28; only IR-level ILP32 checks are pos
 for arm32-linux runtime.  Discovered while running an arm32 runtime check for the
 `cast(float64, ...)` sibling fix (`f0e51a747`, done-log; IR-level-verified on ILP32).
 
-### `link`/bnld uses word-sized `int`/`uint` for 64-bit addresses — breaks on ILP32 — 🟠 PORTABILITY (found 2026-08-31)
-
-The Mach-O/ELF linker (`pkg/binate/link`, bnld) threads 64-bit TARGET addresses
-through `uint` / `int` parameters — e.g. `writePltStub(..., uint, uint)` called with
-`cast(uint, 0x200000000)` / `cast(uint, 0x100000000)`, `encMachoStub(...,
-cast(uint, 0x100004000), ...)`, plus ARM64 instruction words like
-`cast(int, 0xd61f0000 | ...)`.  On a 64-bit host `uint`/`int` are 64-bit so it
-works; on ILP32 (arm32) they are 32-bit, so those >32-bit constants fail the
-checker's fit check and `pkg/binate/link` fails to COMPILE.  A cross-linker must
-handle 64-bit target addresses regardless of host word size, so addresses want
-`uint64` and instruction words `uint32`, not word-sized `int`/`uint`.
-
-Scope: an audit of bnld's address/offset handling — helper signatures + call sites
-+ the `*_test.bn` fixtures (the visible failures are in `dynlink_test.bn:172,176`
-and `dynmacho_test.bn:101,108`).  Larger than the sibling `int`→`int64` fixes
-because it touches the linker's public helpers, not just constants.
-
-Part of the ILP32-portability cluster un-masked by the gen1-link shim
-(`448f8d3ba`) — the `int`/`uint`-assumed-64-bit bugs that were hidden while the
-gen1 link collision reddened every arm32 lane since ~2026-08-28.  Sibling fixes for
-the same class: `conformance/1227` (`077b317e0`, landed — cast(int64)), plus
-softfloat_cmp_test (bit_cast cast(uint64)), sha256 (word values int→int64), and
-conformance/1226 (baremetal fmt xfail) prepared.  This link/bnld audit is the
-remaining, larger piece.
-
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
 **Severity: MAJOR** — a recoverable user-code fault (bounds / divide / shift /
