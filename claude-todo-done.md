@@ -50,9 +50,10 @@ mis-runs, post-fix faults) on all three shapes at `-O1` on LLVM, VM, and native;
 `-O0` unchanged; raw-slice / managed-slice indexing unchanged; full builder-comp
 conformance 2992/0.
 
-**Follow-up (optional, not blocking):** the 12 placeholder sites are hand-duplicated
-with no shared constructor — a `newParamRef(param) @Instr` helper would make the next
-such change a single edit and remove the recurrence foot-gun.
+**Follow-up (done, commit 933983f17):** the 12 placeholder sites, previously
+hand-duplicated with no shared constructor, now funnel through `ir.newParamRef(p
+@Param) @Instr` (sets ID / Typ / Op = OP_PARAM / IsByvalParamRef).  The next
+param-placeholder site is a one-line call that can't get the opcode wrong.
 
 ## bnc `-O1+` on the LLVM backend: the 24 type-mismatch failures — DONE (2026-08-31)
 
