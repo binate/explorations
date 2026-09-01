@@ -399,27 +399,6 @@ bumped to a release that includes the promotion, landed `abfa3e66b`..`a6cb15f87`
    hash}` + `ifaces/stdlib/pkg/stdx/containers/*`) — nothing imports them anymore.
    The check then auto-empties (no forwarders discovered → trivially passes).
 
-## Standard library — environment access
-
-### cmd/bnc: switch env reads from the `os.Env()` scan to `os.Getenv` after the next BUILDER bump — 🟡 OPEN
-
-Stage 7 of `plan-package-search-paths.md` added `os.Getenv` (a public wrapper over the
-`os.Env()` snapshot) and routed bni/bnlint through it. cmd/bnc is compiled by the frozen
-BUILDER, whose bundled `os.bni` predates `os.Getenv`, so it cannot call the new symbol —
-it reads `os.Env()` directly via a local `envLookup` helper (`cmd/bnc/util.bn`), a
-temporary duplicate of `os.Getenv`. Once `BUILDER_VERSION` is bumped to a builder that
-ships `os.Getenv`, delete `envLookup` and have cmd/bnc's `envPaths` call `os.Getenv`
-(matching bni/bnlint). Covered end-to-end by `e2e/env-paths.sh`.
-
-### Remove the unsafe `pkg/std/os/sys.Getenv`; route all env access through `os.Env()` — 🟡 OPEN
-
-`sys.Getenv` reads the live libc environment, which is mutable (setenv/putenv, other
-threads) — unsafe. The safe source of truth is the `os.Env()` snapshot (seeded from envp
-at startup, immutable/shared); `os.Getenv` is already built on it. The one remaining
-`sys.Getenv` consumer is `os/process/lookpath` (`ambientPath`, reading `PATH`); migrate
-it to `os.Getenv` (or `os.Env()`), then delete `sys.Getenv` from `pkg/std/os/sys` (its
-`.bni` decl, impl, and `sys/process_test.bn` coverage go with it).
-
 ## Documentation hygiene
 
 ### Code comments reference only normative docs + TODOs; rehome the implementation "specs" — 🟡 OPEN

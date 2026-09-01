@@ -6,6 +6,33 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## cmd/bnc: read env via os.Getenv (drop the envLookup BUILDER-workaround) — DONE (2026-09-01, commit 4d0b6047d)
+
+cmd/bnc's `envPaths` read the `os.Env()` snapshot through a local `envLookup`
+helper — a hand-copy of `os.Getenv` — because the then-frozen BUILDER's bundled
+`os.bni` predated `os.Getenv`.  The gate turned out already satisfied: the pinned
+BUILDER (`bnc-0.0.14`) ships `os.Getenv` (verified by compiling a snippet with the
+BUILDER `bnc` directly), so `envPaths` now calls `os.Getenv` (matching bni/bnlint)
+and `envLookup` is deleted.  The bnc/bni/bnlint envPath-test comments that said
+"os/sys.Getenv" were corrected to "os.Getenv".  Verified: gen1 build, unit tests,
+and `e2e/env-paths.sh` (5/0); a minimal adversarial review confirmed `os.Getenv`
+is a byte-for-byte behavioral equivalent of the deleted `envLookup`.
+
+## Remove the unsafe pkg/std/os/sys.Getenv; resolve PATH via os.Getenv — DONE (2026-09-01, commit 57f2f8560)
+
+`sys.Getenv` wrapped libc `getenv(3)`, reading the LIVE mutable environment
+(setenv/putenv, other threads) — a race the immutable `os.Env()` startup snapshot
+avoids.  The sole code consumer, `os/process`'s `ambientPath` (PATH for LookPath),
+now calls `os.Getenv` (os/process gains a `pkg/std/os` import; acyclic — os does
+not import os/process); `sys.Getenv`, its private `cStrToChars` helper, the
+`sys.bni` decl, and the sys `TestGetenv` are deleted.  A repo-wide sweep confirmed
+`ambientPath` was the only code caller.  A minimal adversarial review confirmed the
+live-env → snapshot change is safe: nothing relies on LookPath seeing a
+runtime-mutated libc PATH (the runner builds a fresh envp for the child's `execve`
+and never `setenv`s the parent; a Binate caller can still steer LookPath via
+`os.SetEnv`).  Verified: gen1 build (acyclic import), unit tests (os/sys,
+os/process), e2e/env-paths.sh.
+
 ## Nested generic-method emission double-freed a value-with-managed-field param — DONE (2026-08-31, commit `47cb68f4e`)
 
 `emitInstantiatedMethod` registered a generic-receiver method's FuncSig only AFTER
