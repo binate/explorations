@@ -90,26 +90,30 @@ libraries) dynamically is expected and essential — it is the sanctioned "C int
   builds cmd/bnc with the link import); this pulls `pkg/binate/link` + `pkg/binate/sha256`
   into the BUILDER-compiled surface (CLAUDE.md updated).
 
-**Remaining:** Step 7 (interpreted drivers — the original goal).  Follow-ups: macOS/Mach-O
-via bnld (`LinkDynMacho` + an `LC_MAIN`→`_main` entry; bnld's Mach-O linking is already
-done + natively validated, so this is a modest addition, NOT a redesign — see below); the
-default LLVM backend + `--linker bnld` (untested; should work); `--link-after-objs`/`-l`
-through bnld.
+**Remaining:** Step 7 (interpreted drivers — the original goal).  Follow-ups: the default
+LLVM backend + `--linker bnld` (untested; should work); `--link-after-objs`/`-l` through
+bnld.  (macOS/Mach-O via bnld is now LANDED — see below.)
 
-### Why macOS + bnld is feasible (a modest follow-up, not a blocker)
+### macOS + bnld — LANDED (2026-09-01, commit 3314904ff)
 
-bnld already links dynamic Mach-O (`LinkDynMacho`: function + data imports, writable
-`__DATA`, weak imports — all validated NATIVELY on macOS arm64).  So the linker core is
-done.  What the first cut scoped out:
+`linkWithBnld` now has a `macho` branch (`linkMachoWithBnld`) calling `LinkDynMacho` (base
+`0x100004000`) with the program's own C `main` (`_main`, from `#[c_export("main")]`) as the
+entry.  dyld's `LC_MAIN` runs it after libSystem init — and DOES pass argc/argv/envp
+directly, so no `_start` is needed and `os.Args()` works.
 
-1. `linkWithBnld` gates to ELF and rejects Mach-O; add a `macho` branch calling
-   `LinkDynMacho` (base `0x100004000`) instead of `LinkDynElf`.
-2. **No `_start`/`__libc_start_main` bootstrap is needed on macOS** — dyld runs the
-   program's `LC_MAIN` entry *after* libSystem is initialized, so the entry gets a working
-   libc for free.  The entry becomes the Binate `main` (Mach-O symbol `_main`, from
-   `#[c_export("main")]`); `LinkDynMacho` points `LC_MAIN` at it.  (To verify when
-   implementing: whether dyld passes argc/argv to the `LC_MAIN` entry directly, or a tiny
-   macOS `_start` that reads them off the stack and calls `_main` is needed.)
-3. bnc has no explicit `macos-arm64`/`aarch64-darwin` target *key* (only `x86_64-darwin`);
-   a host build on Apple Silicon works implicitly, but a `--target macos-arm64` key would
-   be added for cross-builds.
+It was NOT the "modest addition" first assumed: two fixes were needed to run a real
+(absolute-pointer-bearing) program under mandatory arm64-macOS PIE.
+
+1. bnld emitted no `LC_DYLD_INFO` rebase stream, so absolute in-image pointers (vtables,
+   type info, descriptor nodes) kept their unslid value after ASLR and faulted.  Added
+   rebase-opcode emission (`collectMachoRebaseSites` / `buildMachoRebase` +
+   `EmitDynMachoExec` wiring).
+2. `parse_macho` classified `__DATA_CONST` (where the codegen puts `rodata_relro` — those
+   pointers) as read-only, so bnld placed it in read-only `__TEXT` where dyld can't rebase.
+   Fixed to treat `__DATA_CONST` as writable data (→ bnld's writable `__DATA`).  Latent
+   before rebase: harmless at a fixed base, fatal once the PIE slides.
+
+Validated by `e2e/bnc-bnld-macos.sh` (compile + link + run natively under dyld + ASLR,
+exit 42) plus the buildMachoRebase / `__DATA_CONST` unit tests.  Still host-only: bnc has
+no `macos-arm64` `--target` key (only `x86_64-darwin`), so cross-building a macOS Mach-O
+from Linux is a follow-up — tracked in claude-todo.md ("bnld (self-hosted linker)").
