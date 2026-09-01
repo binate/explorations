@@ -6,6 +6,35 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Nested generic-method emission double-freed a value-with-managed-field param — DONE (2026-08-31, commit `47cb68f4e`)
+
+`emitInstantiatedMethod` registered a generic-receiver method's FuncSig only AFTER
+genFunc'ing its body (ordinary funcs register all sigs in a pre-pass BEFORE any
+body).  A generic-receiver method is emitted lazily at a use site, and one emission
+can re-enter and emit a SIBLING nested inside this one's in-progress genFunc (M2's
+body calls sibling M3 → ensureInstantiatedMethods re-walks and emits a not-yet-
+emitted sibling whose body calls back into M2).  That nested call to the in-progress
+method found NO params via lookupFuncParams, so coerceArg saw a nil param type,
+skipped needsStructCopy, and OMITTED the by-value copy (RefInc) of a
+managed-field-bearing struct argument → under-retained → double-free (`__dtor_<T>`
+on freed memory; e.g. hashmap's `TestManagedKeyBackwardShift`, EXC_BAD_ACCESS in
+`__dtor_mkey` under libgmalloc — heap corruption, so nondeterministic).
+
+Latent until `54c85ec66` (the transitive-extern dup-symbol fix) let same-module
+generic middle methods compile at all — before, the pattern errored at link, so this
+codegen path was never exercised.  The `__dtor`/`__copy` helpers were themselves
+correct; the imbalance was the missing caller-side copy.
+
+Fix (`47cb68f4e`): register the sig BEFORE genFunc, resolving params/results from
+the synthetic decl via the same irResolveParamType / resolveTypeExpr genFunc uses
+(types byte-identical to the former typesOfParams(f.Params)/f.Results), mirroring
+the non-generic pre-pass.  Also fixes forward-referenced / mutually-recursive
+generic-method calls.  conformance/1229 reproduces it deterministically (a value
+struct with a managed field through a nested generic-method chain; garbage vs 42).
+Both adversarial reviews SHIP.  This unblocked the clean shared-helper
+`table.GetOrPut` (`d1d45777f`), which ships with exactly the extracted-grow
+factoring that had tripped it.
+
 ## bnc `-O1+` SILENTLY DROPPED the bounds check for a param-dependent array index — DONE (2026-08-31, commit ab1140840)
 
 A local fixed array `var a [N]T` indexed by anything that traces back to a
