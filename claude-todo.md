@@ -117,9 +117,10 @@ opt-in `run_sepc "builder"` lane has an unpatched BUILDER→binary link — iner
 mooted by the weak_odr thunks once the BUILDER bumps, so it needs no shim, only a
 recheck.
 
-Consequence until then: conformance is red on `main` (ALL modes) — a known
-pending-BUILDER state, red since ~2026-08-28; only IR-level ILP32 checks are possible
-for arm32-linux runtime.  Discovered while running an arm32 runtime check for the
+State: the interim shim (above) greened the host lanes — conformance / unit / perf /
+e2e on the host self-host modes now pass; before it (red since ~2026-08-28) EVERY
+lane died at the gen1 link.  The BUILDER cut remains the permanent fix (drops both the
+shim and the collision).  Discovered while running an arm32 runtime check for the
 `cast(float64, ...)` sibling fix (`f0e51a747`, done-log; IR-level-verified on ILP32).
 
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)

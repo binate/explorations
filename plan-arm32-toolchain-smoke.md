@@ -20,12 +20,11 @@ run as 32-bit binaries.
 ## Current arm32-buildability (checked 2026-08-31, checker-level)
 
 - ✓ **bni, bnas, bnlint, bnfmt** — checker-clean for arm32; smoke-testable now.
-- ✗ **bnc, bnld** — both blocked on the SAME bug: `pkg/binate/link/emit_dynmacho.bn`
-  (:16, :19, :120, plus the dynlink/dynmacho `*_test.bn` fixtures) uses `int` for
-  64-bit Mach-O addresses/values → `cannot assign untyped int to int` on ILP32.
-  bnc pulls this in because it embeds the Mach-O emitter + self-signer.  This is
-  the tracked `link`/bnld address-width item — fixing it (int/uint → int64/uint64
-  for addresses) unblocks BOTH bnc and bnld.
+- ✓ **bnc, bnld** — now checker-clean for arm32 too: the link address-width fix
+  landed (`b2c68b22b`, "carry 64-bit target addresses in uint64 for ILP32 hosts"),
+  so `pkg/binate/link/emit_dynmacho.bn` no longer holds 64-bit Mach-O addresses in
+  word-sized `int`, and cmd/bnld — plus cmd/bnc, which embeds the Mach-O emitter /
+  self-signer — compile for arm32.  Ready to add to the smoke.
 
 ## Per-tool minimal smoke
 
@@ -41,12 +40,18 @@ run as 32-bit binaries.
 
 ## Steps
 
-1. Write `e2e/arm32-toolchain-smoke.sh` (SKIP-guarded), covering the four clean
-   tools now (bni, bnas, bnlint, bnfmt): cross-build + qemu-run `--version` + one op.
-2. Make it actually RUN in CI (not just SKIP): add `qemu-user-static` +
-   `gcc-arm-linux-gnueabihf` to the e2e runner, or a dedicated lane — same setup the
-   conformance arm32 modes use.  (Workflow change — a separate decision.)
-3. Fix the `link`/bnld address-width bug → unblocks bnc + bnld → add their smokes.
+1. **DONE** — `e2e/arm32-toolchain-smoke.sh` (`ce33e6c79`), covering the four clean
+   tools (bni, bnas, bnlint, bnfmt): cross-build + qemu-run `--version` + one real op
+   each; each check requires exit 0 AND the expected output.  Validated end-to-end
+   under qemu (6/6) and confirmed green on the real ubuntu-x64 CI runner.
+2. **DONE** — CI wiring: `.skip.darwin` markers keep the arm32 scripts off the
+   (~10x-cost) macOS lane (`ca3a42678`), and a Linux-only, arm32-gated
+   `qemu-user-static` + `gcc-arm-linux-gnueabihf` install step turns the smoke on
+   (`c8a972232`).  (arm32-aeabi-dormant-helpers still needs qemu-system-arm — a
+   separate follow-up.)
+3. **NOW UNBLOCKED** — the `link`/bnld address-width bug is fixed (`b2c68b22b`), so
+   bnc + bnld compile for arm32.  Add them to the smoke (bnc: compile + run a hello;
+   bnld: link a tiny object set) and drop the omission note in the script header.
 
 ## Gotchas
 
@@ -60,5 +65,5 @@ run as 32-bit binaries.
 
 ## Effort
 
-Script + the four clean tools: small (a modeled e2e script).  bnc + bnld gated on
-the one link fix.  CI wiring is a workflow change the user owns.
+Script + the four clean tools + CI wiring: DONE.  bnc + bnld are now unblocked
+(link fixed `b2c68b22b`) — adding them to the smoke is the one remaining piece.
