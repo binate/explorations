@@ -236,16 +236,32 @@ doesn't check it and isn't run after opt). `InlineSizeThreshold` (const, tuneabl
   fault + OOB *leak* is absent by design (such a callee exceeds the size threshold, so it
   doesn't inline); its safety follows by composition from the single-block leak tests ×
   the multi-block-with-fault in-bounds test.
-- **Inc 3b — 🔵 NEXT.** Non-empty-pad fault cloning: clone the callee's FaultPads into
-  the caller, remap each faulting op's PadBlock, reconcile OP_UNWIND_RETURN with the
-  caller frame — unlocks callees with a managed local/param live at a bounds/div/shift
-  check.  BEFORE Inc 4, also harden `assertInlinedFuncWellFormed` with an
-  operand-scope/dominance check: today dominance is trivially safe (the continuation has
-  one predecessor), but Inc 4's multi-return phi merge breaks that invariant and a
-  dominance bug would miscompile silently on VM/native (LLVM-loud only).
-- Inc 4 multiple return sites (phi merge at the continuation); Inc 5 multi-value/
-  aggregate returns; Inc 6 non-leaf + recursion/cycle guard + code-growth budget +
-  benchmark.
+- **Inc 3b — ✅ LANDED `61aacdad2` (2026-08-31).** Non-empty SINGLE-BLOCK fault-pad
+  cloning: a leaf callee whose faulting op has a non-empty but single-block cleanup pad
+  (a managed value — local, temp, OR param — live at the fault: straight-line RefDec[s]
+  then OP_UNWIND_RETURN) inlines.  `fixupInlinedPads` clones the pad into the caller's
+  FaultPads (operands remapped via `cloneSingleBlockPad`) and replaces its terminal
+  OP_UNWIND_RETURN with an OP_JUMP into the caller's call-site pad — CHAINING callee→
+  caller cleanup → one unwind.  Faithful clone → refcounting balances by construction.
+  `assertInlinedFuncWellFormed` now also scans FaultPads for ID uniqueness, checks no
+  fault op's PadBlock dangles at a callee pad, and verifies every pad operand is defined
+  within the merged func (the operand-scope hardening).  Adversarial review: no
+  leak/double-free/wrong-fault across managed-ptr local/temp/param, dtor-bearing param,
+  two-locals-in-one-pad, multi-block, 2-level unwind (all `rt.LiveBlocks()` delta 0).
+  **Correction (my earlier error):** a managed PARAM is NOT a special case — it inlines
+  exactly like a local/temp (the owned-param entry-RefInc balances the cloned pad's
+  RefDec); the ONLY gate is the shared `InlineSizeThreshold`.  A claim of a "managed-
+  param remap gap / blocked method receivers" was wrong — it was the size threshold
+  masking small (inline) vs big (skip) callees; the review caught it.  Leaf callees can
+  only have empty/single-block pads (a multi-block pad's dtor CALL makes the callee
+  non-leaf → rejected earlier), so multi-block-pad handling is moot.
+- **Inc 4 — 🔵 NEXT.** Multiple return sites (phi merge at the continuation).  BEFORE
+  Inc 4, harden `assertInlinedFuncWellFormed` with a DOMINANCE check: today dominance is
+  trivially safe (the continuation has one predecessor), but Inc 4's multi-return phi
+  merge breaks that invariant and a dominance bug would miscompile silently on VM/native
+  (LLVM-loud only).  (Operand-scope is already checked as of Inc 3b; dominance remains.)
+- Inc 5 multi-value/aggregate returns; Inc 6 non-leaf + recursion/cycle guard +
+  code-growth budget + benchmark.
 
 Coverage note: the multi-block/managed/loop inline paths only run at -O1, which has no
 conformance lane (see the opt-level-matrix todo), so CI coverage is the `vm_inline_test`
