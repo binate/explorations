@@ -30,16 +30,6 @@ siblings.  (An earlier note here framing this as a native-arm32 uint64->float co
 xfail.)  SEPARATE larger option: make os.Stdout write via semihosting on baremetal so fmt
 works there (would let all 16 xfails drop) — a platform enhancement, not a 1227 fix.
 
-### native/arm32: sub-word paths pass wordBits=64 to SubWordNarrow on a 32-bit target — 🟡 NATIVE-BACKEND / arm32 (found 2026-09-01, same review)
-
-arm32 `normalizeNarrowRegParamArm32` and `emitFrameLoadSized` (both in arm32_emit_func.bn)
-call `SubWordNarrow(t, 64)`, while arm32's own `emitSubWordNarrow` (arm32_ops.bn:222)
-correctly uses `SubWordNarrow(t, 32)` "at wordBits=32".  Harmless today (both normalize
-only sz 1/2 = Width 8/16, `< 32` and `< 64` alike → identical `signed`), but latent: extend
-either to sz==4 (int32) and `SubWordNarrow(int32, 64)` returns (32,true) — misclassifying
-word-sized int32 as narrow — vs the correct (0,false) at wordBits=32.  Fix: use
-`SubWordNarrow(t, 32)` in both arm32 sub-word paths (landed a171551d0 / 4798da30a).
-
 ### native: #[c_export] narrow-param normalization gate misses a native func handed to C as a raw callback pointer — 🟡 NATIVE-BACKEND / ABI, scope-limitation (found 2026-09-01, same review; DISCUSS)
 
 The reg/stack narrow-param normalization fires only for functions with a `#[c_export]`

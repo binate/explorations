@@ -6,6 +6,18 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## native/arm32: pass wordBits=32 (not 64) to SubWordNarrow in the sub-word param paths — DONE (2026-09-01, commit f1be038bc)
+
+arm32's two sub-word PARAM paths (`normalizeNarrowRegParamArm32`, `emitFrameLoadSized`
+in arm32_emit_func.bn) passed `common.SubWordNarrow(t, 64)` on a 32-bit target; both
+now pass `(t, 32)`, matching arm32's own `emitSubWordNarrow` (arm32_ops.bn) so all
+three of arm32's SubWordNarrow sites agree on the register width.  Behavior-identical
+today (both guard sz ∈ {1,2} = Width 8/16, where the `signed` result they read is the
+same at 32 and 64), fixing the latent trap where extending a guard to a word-sized
+int32 would make `SubWordNarrow(int32, 64)` return (32, true) — misclassifying int32
+as narrow-signed — vs the correct (0, false) at wordBits=32.  Verified: gen1 build,
+bnfmt, pkg/binate/native/arm32 unit tests 355/0.
+
 ## native: peel readonly/alias in codegen scalar classifiers (StripWrappers) — DONE (2026-09-01, commit 771e00d96)
 
 The native backends classified a scalar's signedness / width / kind by peeling only
