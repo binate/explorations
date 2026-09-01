@@ -263,11 +263,20 @@ doesn't check it and isn't run after opt). `InlineSizeThreshold` (const, tuneabl
   - Coverage gap (follow-up, likely safe by construction): no test for a non-dtor managed-
     aggregate (@[]int) result live at a CALLER fault via a MULTI-block (merge-slot) callee —
     can't fit the default size threshold, so the path is threshold-gated.
-- **Inc 5b — 🔵 NEXT.** Multi-VALUE (tuple) returns `(int, err)`: the call result is a
-  makeMultiReturnStructType destructured via OP_EXTRACT(callresult, i); OP_RETURN carries N
-  value args.  Needs either packing the N values into a tuple value per return (reuse the 5a
-  aggregate path) or routing each OP_EXTRACT to return-value/slot i.  (A naive filter lift
-  hangs — the single-return path takes only Args[0].)
+- **Inc 5b — 🔵 IN PROGRESS.** Multi-VALUE (tuple) returns `(int, err)`.  Design (settled):
+  a multi-value call result is a `makeMultiReturnStructType` tuple, and EVERY use is
+  `OP_EXTRACT(callresult, i)` — even `return f()` passthrough extracts+repacks
+  (gen_return.bn), so there is NO whole-tuple flow.  Approach: PACK — at the return, build a
+  tuple VALUE from the N OP_RETURN args (EmitAlloc(tupleType) + per-field EmitGetFieldPtr+
+  EmitStore + EmitLoad), set retVal = that tuple, and reuse the EXISTING sweep unchanged
+  (replByID[callID] = tuple; the callers' OP_EXTRACTs then extract from a valid tuple).
+  Faithful/refcount-neutral: store/load are bit copies, so the tuple carries each return
+  value's +1 exactly as the retbuf would; the caller's extract copy-RefIncs + call-result-
+  temp cleanup (rewritten to the tuple) balance as un-inlined; managed tuples live at a fault
+  compose with the FaultPads sweep (a5f1feeeb).  Single-return (single-block, cloneInlinedBody):
+  build the tuple at the one return.  Multi-return (multi-block): the merge slot IS the tuple
+  type, each return does the N field-stores, the continuation loads the tuple.  Rejected: a
+  result field that isn't isInlinableResultType (e.g. func-value/iface-value).
 - Inc 6 non-leaf + recursion/cycle guard + code-growth budget + benchmark.
 
 Coverage note: the multi-block/managed/loop inline paths only run at -O1, which has no
