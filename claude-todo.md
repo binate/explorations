@@ -283,8 +283,22 @@ doesn't check it and isn't run after opt). `InlineSizeThreshold` (const, tuneabl
   tuple's call-result-temp dtor; multi-block two-return-site → 3 distinct entry-hoisted tuple
   allocas (no cross-path aliasing).  Residual (safe by composition, untested): managed multi-
   value live across a fault (5b × the pad-sweep) and `return f()` passthrough (extract path).
-- **Cumulative benchmark — 🔵 NEXT.** Measure the native -O1 inliner win from Inc 1-5b
-  (bnc -O1 --backend native, inliner on vs off) — quantifies the whole within-package inliner.
+- **Cumulative benchmark — ✅ DONE (2026-09-01), with a key finding.** Real workload: bnc
+  built via native -O2 with the inliner ACTIVE-during-build vs DISABLED, each timed compiling
+  cmd/bnc (`--backend native`, x86_64-darwin under Rosetta on this arm64 host — relative delta
+  valid, absolutes emulated).  Noisy (concurrent workers + Rosetta): ON 59/72/78s, OFF
+  101/95/60s → min-based ~2%, mean ~18% but unreliable.  Structural (machine-independent,
+  clean): the inliner removes 100% of same-package small-function calls at -O1 (arith 12→0,
+  accessors 8→0, multi-value clamp 4→0).  **KEY FINDING:** the small self-compile win is
+  because the HOT functions that drive the clang↔native gap exceed the default
+  `InlineSizeThreshold = 15` — e.g. `charsEqual` (the note's ~40%-self-time case) is ~45-60 IR
+  instrs (loop + 2 bounds-checked indexed loads + 3 returns; confirmed: NOT inlined at 15/40,
+  INLINED at 200 → pure size).  So the inliner is CORRECT + complete for small callees but its
+  DEFAULT threshold is too conservative to realize the gap-closing purpose.
+- **Threshold tuning — 🔵 HIGH-VALUE NEXT.** Raise `InlineSizeThreshold` (tuneable, per the
+  user's original ask) to catch charsEqual-class hot functions, and re-benchmark to find the
+  sweet spot (code-growth vs speed).  Best on a QUIET machine (the darwin/Rosetta + concurrent-
+  worker noise made the threshold-15 numbers inconclusive).  Arguably higher-value than Inc 6.
 - **Inc 6 — deferred (consider compacting first).** Non-leaf callees (callees that call other
   functions) + recursion/cycle guard + code-growth budget.  The last planned increment.
 
