@@ -7,28 +7,28 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### native-arm32-baremetal: cross-package uint64 (>= 2^63) const -> float64 converts SIGNED — 🔴 OPEN BLOCKING (found 2026-09-01, conformance 1227)
+### native-arm32-baremetal: 1227 xpkg uint64-const->float64 produces NO output (crash) — 🔴 OPEN BLOCKING (found 2026-09-01)
 
 `conformance/1227_xpkg_const_uint_to_float` FAILS on builder-comp_native_arm32_baremetal,
 which conformance-tests.yml adds to the CI matrix as a BLOCKING (`false`, non-experimental)
-mode — so main is RED there.  Observed both WITH and WITHOUT the readonly-peel sweep
-(771e00d96): reverting the sweep's pkg/binate/native changes and re-running the single test
-on native arm32 still fails, so it is PRE-EXISTING, not caused by the sweep.  It does NOT
-fail on native aa64 / native x64 / the VM (builder-comp-int) — those suites are 0-failure —
-so it is native-arm32-SPECIFIC.  The test has no xfail marker for any mode.
+mode.  Observed both WITH and WITHOUT the readonly-peel sweep (771e00d96) — reverting the
+sweep's pkg/binate/native changes and re-running the single test on native arm32 still fails
+— so it is PRE-EXISTING, not caused by the sweep.  It does NOT fail on native aa64 / native
+x64 / the VM (builder-comp-int) (those suites are 0-failure), so it is native-arm32-specific.
+No xfail marker exists for any mode.
 
-Symptom: a cross-package untyped const >= 2^63 (imported via .bni, stamped TypUint64 by the
-gen_import producers per f0e51a747) converts to float64 as SIGNED on native arm32, so the
-`cast(float64, ...) > 1.0e19` / `> 0.0` lines read a negative value -> expected `true`, got
-`false` (first failing line).
+SYMPTOM (as observed; mechanism NOT yet root-caused): the program prints NOTHING — the
+conformance runner shows `actual:` empty (after strip_signal_msgs), consistent with a runtime
+CRASH (SIGSEGV/abort) before any output, NOT a wrong true/false value.  (An earlier note here
+guessed "converts SIGNED -> got false"; that was an unverified inference and is WRONG — the
+actual output is empty.)  The test casts cross-package untyped consts >= 2^63 (stamped
+TypUint64 per f0e51a747) to float64 and also does negative int64 round-trips.
 
-The arm32 int->float path (arm32_float_cast.bn:86) DOES consult common.IsUnsignedIntType and
-selects __aeabi_ul2d vs __aeabi_l2d, and IsUnsignedIntType(TypUint64) is true — so the defect
-is upstream of the helper choice: likely the imported const's IR type is not TypUint64 on the
-ILP32 / native-arm32 path (an import-stamp or const-fold divergence on a 32-bit target), or
-the u64->float lowering / const-fold runs before the type is stamped.  NEXT: dump the IR type
-+ operand of the imported const on native arm32 vs aa64/x64 for the UT_BIG / UT_2P63 lines.
-MUST be root-caused and fixed (native arm32 is first-class + blocking CI) — do NOT xfail.
+__aeabi_ul2d (U64->F64) IS provided by runtime/baremetal_arm32/aeabi_float.s (line 85), so a
+missing soft-float helper is NOT the cause.  NEXT: reproduce under qemu with raw output to see
+the crash, bisect which of the 8 printed lines crashes, disasm that line's native-arm32
+codegen.  MUST be root-caused and fixed (native arm32 is first-class + blocking CI) — do NOT
+xfail.
 
 ### native/arm32: sub-word paths pass wordBits=64 to SubWordNarrow on a 32-bit target — 🟡 NATIVE-BACKEND / arm32 (found 2026-09-01, same review)
 
