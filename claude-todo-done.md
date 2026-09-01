@@ -6,6 +6,31 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## native: sign-extend narrow #[c_export] register params on entry — DONE (2026-09-01, commit a171551d0)
+
+The register-half sibling of the sub-word STACK-arg spill fix (4798da30a).  A #[c_export]
+Binate function is entered directly by a C caller; AAPCS64/Apple leave bits[32:63] of an
+argument register UNSPECIFIED for a sub-64-bit integer arg (an aarch64 w-write zeroes the
+upper half), so a C caller passing int32 -5 lands 0x00000000FFFFFFFB in x0.  The native
+backend keeps sub-word values sign/zero-extended in their 64-bit home and, once mem2reg
+promotes the param at -O1+, spills the whole register and reloads it with a plain 8-byte
+LDR + 64-bit compare (no re-extension) — so the dirty upper bits read positive (ffi_sgn(-5)
+returned 0 instead of 1).  CONFIRMED LIVE (the original todo marked it "latent"): repro'd
+via a private #[c_export] Sgn(int32) called from C at --backend native -O2.
+
+Fix: for a function with a #[c_export] name, sign-/zero-extend each narrow GP register
+param to its type width before the spill — normalizeNarrowRegParam (aarch64 Sxt/Uxt b/h/w),
+normalizeNarrowRegParamX64 (Movsx/Movzx/Movsxd), normalizeNarrowRegParamArm32 (Sxt/Uxt b/h;
+int32 is word-sized on AAPCS32).  Native→native already satisfies the invariant
+(emitSubWordNarrow extends after every narrowing) and re-extending an already-extended
+value is a no-op, so the mangled native→native entry is unaffected — hence gating on
+#[c_export] is the correct scope (confirmed: emitSubWordNarrow invariant + native
+conformance green at -O0 + self-host clean at -O2).  Regression coverage: e2e/ffi-export.sh
+gains the private Sgn exercised at --backend native and --backend native -O2 (4/4 green);
+unit tests pin the exact per-type extension instructions.  Clean adversarial review (no
+blockers); three inherited/pre-existing minors tracked in claude-todo.md (SubWordNarrow
+alias/readonly signedness; arm32 wordBits=64; callback-gate scope).
+
 ## cmd/bnc: read env via os.Getenv (drop the envLookup BUILDER-workaround) — DONE (2026-09-01, commit 4d0b6047d)
 
 cmd/bnc's `envPaths` read the `os.Env()` snapshot through a local `envLookup`

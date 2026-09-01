@@ -7,26 +7,51 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### native: register-passed NARROW arg from an LLVM-compiled caller may read garbage upper bits — 🟠 NATIVE-BACKEND / ABI, latent (found 2026-08-31, adversarial review)
+### native: SubWordNarrow misclassifies signed narrow ALIAS/`readonly` params as unsigned — 🟠 NATIVE-BACKEND / ABI (found 2026-09-01, adversarial review of the reg-narrow fix)
 
-Sibling of the sub-word STACK-arg spill bug fixed in the native backends (commit landing
-the size+sign-correct `spillScalarStackArg`/`spillScalarStackArgX64`/`emitFrameLoadSized`).
-The REGISTER-param spill path (e.g. aarch64 `aarch64_emit_func.bn` `Str(a, true, argReg,
-off)`) stores the full 8-byte argument register unconditionally.  Native→native is fine
-(the caller does a 64-bit Mov of a correctly sign/zero-extended source).  The exposure is
-a native callee reached from an LLVM- or C-compiled caller (a func-value / closure passed
-into a dependency, or a `#[c_export]` entry): such a caller may pass a sub-32-bit / int32
-argument in a register whose bits[32:63] are UNSPECIFIED under Apple's ARM64 ABI.  The
-callee then spills the full 8 bytes and a promoted use reads them with a plain 8-byte
-reload + 64-bit CMP/CBNZ (getOperand; no re-extension) — the SAME contamination class as
-the stack-arg bug, on the register half of the invariant.
+`common.SubWordNarrow` (pkg/binate/native/common/common_scalar.bn:21) peels only
+TYP_NAMED (`UnwrapNamed`), then reads `t.Width`/`t.Signed`.  But the SIZE it is paired
+with — `t.SizeOf()` (types/layout.bn) — peels alias (TYP_ALIAS) AND readonly (TYP_READONLY)
+too.  So for a transparent `type Byte = int8` alias or a `readonly int8` param:
+`SizeOf()` → 1 (narrow, fires the sz==1 extension branch) but `SubWordNarrow` → (0,false)
+(the alias/readonly node has Width 0 / isn't IsInteger), so `signed=false` → a SIGNED
+narrow alias is ZERO-extended.  Failure: `type Byte = int8; #[c_export("f")] func f(x Byte)
+int32 {...}`, C calls `f(-5)` → callee reads 251.
 
-STATUS: latent — no live failing program constructed yet (needs a narrow-typed arg
-crossing the LLVM→native register boundary at -O1+).  NOT a regression (predates the
-stack fix).  Proper fix: mask/sign-extend narrow REGISTER params to their type width on
-spill (mirror `spillScalarStackArg`'s size+sign dispatch for the reg case).  Verify-then-
-fix: first build a repro (a native callee with a narrow param invoked from an LLVM-
-compiled caller that leaves dirty upper bits), then apply the symmetric fix + a test.
+Shared across paths — NOT introduced by the reg-narrow fix (a171551d0), INHERITED:
+- reg path: normalizeNarrowRegParam / *X64 / *Arm32 (a171551d0).
+- stack path: spillScalarStackArg / spillScalarStackArgX64 / emitFrameLoadSized (4798da30a).
+- the sign/zero-extension INVARIANT machinery: emitSubWordNarrow (all 3 backends) —
+  so a signed narrow alias is mis-extended even for native→native, consistent with
+  `ir.typeWidth` (gen_binary_width.bn) also peeling only TYP_NAMED (alias-int8 treated
+  as full-word throughout IR).  Distinct `type Byte int8` (TYP_NAMED) is handled correctly.
+
+Fix: peel alias+readonly+named in `SubWordNarrow` before reading Width/Signed (mirror
+SizeOf's peel).  This also corrects emitSubWordNarrow, so it needs its own adversarial
+review (touches the invariant machinery pervasively) + native conformance across all three
+backends.  Add an e2e ffi-export case with a signed narrow alias param.
+
+### native/arm32: sub-word paths pass wordBits=64 to SubWordNarrow on a 32-bit target — 🟡 NATIVE-BACKEND / arm32 (found 2026-09-01, same review)
+
+arm32 `normalizeNarrowRegParamArm32` and `emitFrameLoadSized` (both in arm32_emit_func.bn)
+call `SubWordNarrow(t, 64)`, while arm32's own `emitSubWordNarrow` (arm32_ops.bn:222)
+correctly uses `SubWordNarrow(t, 32)` "at wordBits=32".  Harmless today (both normalize
+only sz 1/2 = Width 8/16, `< 32` and `< 64` alike → identical `signed`), but latent: extend
+either to sz==4 (int32) and `SubWordNarrow(int32, 64)` returns (32,true) — misclassifying
+word-sized int32 as narrow — vs the correct (0,false) at wordBits=32.  Fix: use
+`SubWordNarrow(t, 32)` in both arm32 sub-word paths (landed a171551d0 / 4798da30a).
+
+### native: #[c_export] narrow-param normalization gate misses a native func handed to C as a raw callback pointer — 🟡 NATIVE-BACKEND / ABI, scope-limitation (found 2026-09-01, same review; DISCUSS)
+
+The reg/stack narrow-param normalization fires only for functions with a `#[c_export]`
+name (`len(f.CExportNames) > 0`).  A non-c_export Binate function whose address is passed
+to C as a callback (e.g. a qsort/signal comparator) and invoked by C with a sub-word arg
+would NOT be normalized, so the original dirty-upper-bits bug persists on that entry.
+Passing a Binate function pointer to C is NOT a documented/supported interop path today
+(reference_c_interop: __c_call / __c_global / #[c_export] only), so this is inert now.
+If callbacks-to-C become supported, widen the gate (normalize any function reachable via
+a C-ABI function-pointer type) or make the narrow-param extension unconditional.
+Pending discussion with the user before any action.
 
 ### VM at bnc `-O2`: ~12 pre-existing latent refcount failures — 🟠 VM / opt (found 2026-08-29 during the managed-slice RLE work)
 
