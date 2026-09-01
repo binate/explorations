@@ -1,0 +1,76 @@
+# Plan: bnc → bnld integration (make bnc link with the self-hosted linker)
+
+## Goal
+
+Make `bnc` use `bnld` (the self-hosted linker) for the final link, so the Binate
+toolchain links **without the C linker/driver** (clang/ld).  We are shedding the C
+*linker/driver*, **not libc**: on a hosted system, linking against libc (and other C
+libraries) dynamically is expected and essential — it is the sanctioned "C interface"
+(libc/syscalls), not something to reimplement.  bnld already links libc dynamically
+(see plan-dynamic-linking.md); this project bootstraps a bnc program into it.
+
+## Ratified decisions (2026-08-31)
+
+- **Delivery: library compiled into bnc (Option B).**  `cmd/bnc` imports `pkg/binate/link`
+  and calls `link.LinkDynElf` / `link.LinkDynMacho` directly (no subprocess), behind an
+  opt-in flag, target-gated.  Verified cheap: the current BUILDER (bnc-0.0.14) compiles
+  `cmd/bnld` (= `pkg/binate/link` + a thin CLI), so the library is already
+  BUILDER-compatible — no BUILDER release, no rewrites; its deps (`asm/*`, `buf`,
+  `sha256`, `os`) are mostly already in bnc's tree (bnc embeds `asm/assemble`).  This is
+  the plan's stated "linker as library" design idea and the foundation for Step 7.
+  `cmd/bnld` stays as a thin CLI over the same library.
+- **ELF bootstrap: our own `_start` → `__libc_start_main` (Option 1).**  bnc/runtime
+  provides a tiny per-arch `_start` (x86-64, aarch64) that reads argc/argv/envp off the
+  stack and calls libc's `__libc_start_main(main, argc, argv, 0, 0, rtld_fini,
+  stack_end)` — imported dynamically from libc.so.6.  This gives proper libc init (TLS,
+  errno, malloc arena, stdio) with **no dependence on system crt objects** (`Scrt1.o` /
+  `crti.o` / `crtn.o`) and **no clang**.  Rationale: clang/gcc locate crt objects via
+  baked-in sysroot + GCC-install detection + multiarch-triple probing (exposed by
+  `clang -print-file-name` / `-print-search-dirs`) — distro-specific "magic" we'd
+  otherwise have to reimplement (Option 2, rejected).  `Scrt1.o`'s only job is to call
+  `__libc_start_main`; writing our own `_start` skips it, and since a Binate program does
+  its own init via `bn_entry` (not C `.init_array`/`_init`), we expect to need no crt
+  objects at all (to verify in Step 2).  What remains — libc.so.6 (found via `-L` dirs,
+  as ML4's e2e located libm.so.6) + the hardcoded ELF interpreter path — bnld already
+  handles.
+- **macOS bootstrap: LC_MAIN (already handled).**  dyld/libSystem's start invokes the
+  `LC_MAIN` entry *after* libc init, so `main` gets an initialized libc for free — bnld
+  already emits `LC_MAIN`.  The hard case is Linux ELF.
+
+## Non-goals
+
+- Avoiding libc itself (it is the sanctioned C interface; bare-metal + direct syscalls
+  is a separate, deferred track — arm32).
+- Replacing clang for targets bnld does not yet cover (arm32, bare-metal): the flag is
+  **opt-in and target-gated** to linux-x64 / linux-aarch64 / macos-arm64; clang stays
+  the default and the linker for everything else.
+
+## Step decomposition
+
+1. **PoC — de-risk the bootstrap (no bnc changes).**  Hand-written `_start` →
+   `__libc_start_main` + a `main` that exercises libc (malloc, a stdio/`write` call,
+   errno), assembled by `bnas`, linked by `bnld -dynamic`, run in Docker (x86-64 +
+   aarch64).  Proves Option 1's core assumption (our `_start` reaches a working libc)
+   before touching bnc.
+2. **Hosted `_start` in the runtime**, per-arch, gated to bnld-link mode (must not
+   collide with clang's crt1 `_start`).  Confirm no crt1/crti/crtn/`.init_array` frame
+   is needed (bn_entry covers init).
+3. **Wire `pkg/binate/link` into `cmd/bnc`** + a linker-choice flag (opt-in, default
+   clang), target-gated.
+4. **Replace the clang spawn (bnld mode)** with `link.LinkDynElf`/`LinkDynMacho`,
+   passing the program objects + runtime, `-dynamic`, the entry.
+5. **e2e:** build a real bnc program with the flag, run it (Docker Linux + native
+   macOS), check libc works (malloc/stdio/args).
+6. **Then Step 7** (interpreted drivers) — the original prompt for this work.
+
+## Companion task (DONE)
+
+- **bnld in the release bundle** (landed `e63d018c9`): `make-bundle.sh` builds bnld into
+  the bundle, so the next BUILDER ships it; `fetch-builder.sh --tool bnld` recognized.
+
+## Prerequisites confirmed
+
+- `pkg/binate/link` is BUILDER-compatible (BUILDER compiles `cmd/bnld`).
+- bnld links a real bnc program today (e2e/bnld-real-program.sh) — but via a hermetic
+  shim (bump allocator + syscall stubs), static; this project replaces that with the
+  real libc bootstrap.
