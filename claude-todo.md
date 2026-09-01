@@ -13,10 +13,9 @@ Sibling of the sub-word STACK-arg spill bug fixed in the native backends (commit
 the size+sign-correct `spillScalarStackArg`/`spillScalarStackArgX64`/`emitFrameLoadSized`).
 The REGISTER-param spill path (e.g. aarch64 `aarch64_emit_func.bn` `Str(a, true, argReg,
 off)`) stores the full 8-byte argument register unconditionally.  Native→native is fine
-(the caller does a 64-bit Mov of a correctly sign/zero-extended source).  But under
-`--backend native` only the main module is... actually EVERY package is native-lowered —
-however dependencies compiled via the LLVM path in a MIXED build, and `#[c_export]` /
-func-value entries reached from LLVM-compiled or C callers, may pass a sub-32-bit / int32
+(the caller does a 64-bit Mov of a correctly sign/zero-extended source).  The exposure is
+a native callee reached from an LLVM- or C-compiled caller (a func-value / closure passed
+into a dependency, or a `#[c_export]` entry): such a caller may pass a sub-32-bit / int32
 argument in a register whose bits[32:63] are UNSPECIFIED under Apple's ARM64 ABI.  The
 callee then spills the full 8 bytes and a promoted use reads them with a plain 8-byte
 reload + 64-bit CMP/CBNZ (getOperand; no re-extension) — the SAME contamination class as
