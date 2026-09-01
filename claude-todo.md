@@ -49,6 +49,29 @@ inliner is disabled/narrowed, or a different large program hits the triggering s
 NOT the layout bug (`f31d84a85`): native `OP_GET_FIELD_PTR` pre-peels via `StructTypeOf`,
 and the crash predates and postdates that fix with the inliner off.
 
+**ROOT CAUSE PINNED (2026-08-31): native aarch64 sub-word stack-arg spill loads a full 8 bytes.**
+Minimal repro (self-contained, native only): an 11-param function whose params 8-10 are
+stack-passed bools, with phi-producing conditional int locals before a long else-if on
+those bools — native `-O1+` picks the WRONG branch; native `-O0` and the LLVM backend at
+any -O are correct. Darwin aarch64 PACKS sub-word stack args at natural size (`stackArg
+Footprint`→(1,1) for bool; `StackArgNaturalSize`=SizeOf when NaturalSizeStackArgs), and
+the caller stores them packed (`strb`, 1-byte stride). But the callee incoming-param
+spill (`aarch64_emit_func.bn` scalar-stack-arg `else` branch, ~line 266) loads every
+scalar stack param with a full 8-byte `aarch64.Ldr` — so for a packed 1-byte bool it
+reads the ADJACENT args' bytes + uninitialized slot padding into the value. At -O0 a
+later narrow reload masks it; at -O1+ mem2reg promotes the bool and the branch tests the
+contaminated 8-byte word → wrong control flow. In the real self-host this makes
+emitFuncvalSpillShimAA64 read usePackMulti/retIsHfa wrong → the usePackMulti arm runs
+with a single-return fvTyp → funcValMultiReturnTupleAA64 returns nil → storeMultiReturn
+TupleFieldsAA64 derefs nil.Fields (addr 0x68) → SIGSEGV. (Confirmed by disasm: params
+read at [sp+0x180],[+0x181],[+0x182] — 1-byte stride, 8-byte loads.)
+FIX: the scalar stack-param spill must load exactly StackArgNaturalSize bytes,
+zero-extended (Ldrb/Ldrh/Ldr-w32), not an unconditional 8-byte Ldr. LIKELY the same
+defect in native x64 + arm32 emit-func spills (unverified). Needs native conformance
+(builder-comp_native_aa64 etc.) to verify; sign-extension of signed sub-word args to
+double-check. Also: the `main.bn` line-362 comment ("only the main module honors
+--backend native") is STALE — line 304-308 routes EVERY package through native.
+
 STATUS: open, latent, currently masked → non-blocking (no live failure on main) but a
 real native-backend wrong-code/crash defect. ROOT CAUSE still unknown — next step is to
 capture the crashing case with the inliner OFF (build `gen1` with `inlineCalls` gated
