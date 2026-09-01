@@ -289,26 +289,27 @@ doesn't check it and isn't run after opt). `InlineSizeThreshold` (const, tuneabl
   returns; confirmed NOT inlined at 15/40, INLINED at 200 → pure size).  So the inliner ALREADY
   delivers a substantial win at 15 (broad small-function inlining); catching charsEqual-class
   functions via threshold tuning would add MORE — not a prerequisite for the win.
-- **clang↔native END-TO-END compile time — measured ~12.5× (2026-09-01), NOT the codegen gap;
-  contradicts the established ~2.4× and needs attributing.** A clang-built bnc vs a
-  native-backend-built bnc (both current main), each compiling cmd/bnc, USER CPU ×3, run
-  NATIVELY on aarch64-darwin (no Rosetta — `--backend native` with no `--target` uses
-  HostConfig = aarch64-darwin; both produce byte-identical 12MB binaries, so identical work):
-  clang ~3.76s (3.75/3.76/3.77) vs native ~46.9s (46.9/47.0) → ~12.5×.  **This directly
-  contradicts the background section's carefully-profiled clang -O2 9.0s / native -O2 21.5s =
-  ~2.4× codegen gap, so 12.5× is NOT the codegen-quality number.**  Reconciliation (partly
-  verified, partly hypothesis): (a) clang went 9.0→3.76 — consistent with the landed front-end
-  perf sweeps making compilation cheaper; (b) native went 21.5→46.9 — the anomaly.  Leading
-  cause: the native path now emits objects IN-PROCESS (`native.EmitObject` → asm/macho writer,
-  compile.bn:220) and the whole in-process assembler stack was pulled into cmd/bnc RECENTLY
-  (`2a1c555`), almost certainly AFTER the 2.4× measurement (which used external clang/as
-  assembly — fast, identical both sides).  A native-compiled bnc runs that unoptimized
-  in-process object writer as slow native code, so the end-to-end 12.5× conflates true codegen
-  quality (the ~2.4× the inliner targets) with the new in-process assembler.  Linking is
-  external clang for both (default; `--linker bnld` is opt-in), so not the cause.  NOT YET
-  CONFIRMED: profile native-bnc's ~46.9s to attribute how much is asm/macho `EmitObject` vs
-  codegen proper.  (Earlier same-day x86_64/Rosetta run of this — clang 4.4s / native 57s — was
-  doubly wrong: wrong lens AND the same in-process-assembler conflation; superseded by this.)
+- **native `-O2` under-optimizing — ⚠️ likely regression, mem2reg win collapsed 5×→~1.6×
+  (2026-09-01, needs root-cause).** Chasing an apparent "clang↔native ~9-12× gap" (see the
+  RETRACTED note below) led here: the real issue is that native `-O2` barely improves on `-O0`.
+  Measured (native-backend bnc compiling cmd/bnc at -O0 workload, USER CPU, aarch64-darwin,
+  single clean run each): native bnc built **-O0** 18.46s vs built **-O2** 11.62s → only **1.6×**.
+  The background section documents native -O0 108s → -O2 21.5s = **~5×, "almost ALL mem2reg
+  register-promotion."**  So the native backend's -O2 optimization now delivers ~1.6× where it
+  once delivered ~5×.  If native -O2 gave its historical 5×, the native bnc would be ~3.7s on
+  this workload → clang↔native gap ≈ 2.9× (clang-O2 bnc = 1.26s), consistent with the documented
+  ~2.4× — i.e. the whole "large gap" is this under-optimization, not codegen quality.  ROOT-CAUSE
+  candidates being investigated: (1) is `promoteScalars` (mem2reg) actually running in the native
+  `-O2` path and still producing phis? (2) does the native register allocator still keep the
+  promoted SSA values in registers, or does it now spill them (making promotion inert)?  When /
+  by what commit it regressed is unknown — bisect if it's a true regression.
+- **RETRACTED: "clang↔native codegen gap ~12.5×" (2026-09-01).** Earlier same-day I reported a
+  ~12.5× (and a ~13× x86_64/Rosetta variant) clang-vs-native gap and mis-reconciled it twice
+  (first blaming Rosetta, then the in-process assembler — both WRONG; the workload is identical
+  by construction so neither matters).  The number was real but the label was wrong: it is
+  dominated by native `-O2` under-optimizing (entry above), NOT codegen quality.  Do not cite
+  ~12.5× as the codegen gap; the codegen gap is ~2.4× per the background section, currently
+  masked by the mem2reg-win regression.
 - **Non-leaf inlining incremental win on cmd/bnc — ~0% (2026-09-01).** native bnc with non-leaf
   inlining ON vs OFF (leaf gate restored), same workload: 56.8-57.1s both → no measurable
   difference.  Expected: at `InlineSizeThreshold = 15` almost no NON-leaf callee fits (a call +
