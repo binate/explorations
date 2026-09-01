@@ -7,6 +7,28 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### native: register-passed NARROW arg from an LLVM-compiled caller may read garbage upper bits — 🟠 NATIVE-BACKEND / ABI, latent (found 2026-08-31, adversarial review)
+
+Sibling of the sub-word STACK-arg spill bug fixed in the native backends (commit landing
+the size+sign-correct `spillScalarStackArg`/`spillScalarStackArgX64`/`emitFrameLoadSized`).
+The REGISTER-param spill path (e.g. aarch64 `aarch64_emit_func.bn` `Str(a, true, argReg,
+off)`) stores the full 8-byte argument register unconditionally.  Native→native is fine
+(the caller does a 64-bit Mov of a correctly sign/zero-extended source).  But under
+`--backend native` only the main module is... actually EVERY package is native-lowered —
+however dependencies compiled via the LLVM path in a MIXED build, and `#[c_export]` /
+func-value entries reached from LLVM-compiled or C callers, may pass a sub-32-bit / int32
+argument in a register whose bits[32:63] are UNSPECIFIED under Apple's ARM64 ABI.  The
+callee then spills the full 8 bytes and a promoted use reads them with a plain 8-byte
+reload + 64-bit CMP/CBNZ (getOperand; no re-extension) — the SAME contamination class as
+the stack-arg bug, on the register half of the invariant.
+
+STATUS: latent — no live failing program constructed yet (needs a narrow-typed arg
+crossing the LLVM→native register boundary at -O1+).  NOT a regression (predates the
+stack fix).  Proper fix: mask/sign-extend narrow REGISTER params to their type width on
+spill (mirror `spillScalarStackArg`'s size+sign dispatch for the reg case).  Verify-then-
+fix: first build a repro (a native callee with a narrow param invoked from an LLVM-
+compiled caller that leaves dirty upper bits), then apply the symmetric fix + a test.
+
 ### native `-O2` self-host: a bnc built `--backend native -O2` SIGSEGVs compiling a large program — 🟠 NATIVE-BACKEND / opt (found 2026-08-30)
 
 A `bnc` built with `--backend native -O2` (i.e. its own main module native-lowered
