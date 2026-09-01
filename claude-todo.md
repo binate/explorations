@@ -1024,6 +1024,25 @@ the GOT `:got:`/`:got_lo12:` operands remain absent from the text parser (the na
 backend emits those via the library, not text asm; and bnld rejects GOT relocs — a
 hermetic linker — so there is no consumer for them yet).
 
+## bnld (self-hosted linker)
+
+### bnc has no `macos-arm64` / `aarch64-darwin` --target key — macOS Mach-O is host-only — 🟢 ENHANCEMENT
+
+`bnc --linker bnld` links a native macOS arm64 Mach-O (dyld + libSystem, LC_MAIN →
+`_main`, PIE rebase-fixups for absolute pointers), but only for a HOST build on Apple
+Silicon: bnc has no explicit `macos-arm64` (aarch64-darwin) `--target` key, only
+`x86_64-darwin`.  So a macOS Mach-O cannot be cross-produced from a non-macOS host —
+unlike bnas/bnld, which take `-target macos-arm64` and generate host-independent Mach-O
+bytes.
+
+Add an `aarch64-darwin` / `macos-arm64` target key (arm64 + Mach-O + `main` entrypoint,
+mirroring the existing `x86_64-darwin` key in `cmd/bnc/target.bn`) so bnc can
+cross-target a macOS arm64 binary from Linux.  That would also let
+`e2e/bnc-bnld-macos.sh` run its build + structure check on the Linux CI runner (it
+currently SKIPs the whole flow off a macOS arm64 host, since the host-implicit target is
+the only route to Mach-O).  See `plan-bnc-bnld-integration.md` (item 3) for the original
+note.
+
 ## bnfmt (self-hosted formatter)
 
 ### Batch the `bnfmt-format` hygiene check via multi-file bnfmt — 🟡 OPEN (gated on CHECK_TOOLS)
