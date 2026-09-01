@@ -6,6 +6,34 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## native: peel readonly/alias in codegen scalar classifiers (StripWrappers) — DONE (2026-09-01, commit 771e00d96)
+
+The native backends classified a scalar's signedness / width / kind by peeling only
+TYP_NAMED (common.UnwrapNamed) and reading `.Signed` / `.Width` / `.Kind` off the still-
+wrapped node.  A TYP_READONLY wrapper carries default-false `.Signed`, width 0, and its own
+Kind, so a `readonly int8` compared `x < 0` picked the UNSIGNED condition (lo / SETB) and a
+sign-extended -3 sorted positive.  Latent at -O0 (the checker strips readonly for
+compare/extract rvalues) but LIVE at -O1+ (mem2reg promotes a readonly-typed param onto the
+classifier operand): a C caller of `#[c_export] func(x readonly int8)` at -O2 read the wrong
+sign (ffi_ro(-3) returned 0).
+
+Started as "MINOR 1: SubWordNarrow peel" from the reg-narrow review, but the adversarial
+review of the fix showed it was systemic — the VM already used types.StripWrappers and arm32
+was already converted (with tests), but aarch64/x64 were not.  Routed every native scalar
+classifier through the peel-all helper (24 sites -> types.StripWrappers; common SubWordNarrow
+/ IsUnsignedIntType -> peelTransparent).  The review also surfaced a MAJOR sibling the
+UnwrapNamed enumeration missed: x64 emitFloatCast read `.Width` off the UN-peeled source, so a
+named / readonly uint64 (Width 0 on the wrapper) took the SIGNED CVTSI2SD instead of the
+unsigned add-back — flipping the sign of a bit-63-set value (broken at all opt levels for
+`type U uint64`, diverging from the VM).  Peeled it; hardened the aarch64/x64 float predicates
+against a post-StripWrappers nil.
+
+Verified: full native conformance builder-comp_native_aa64 (2995/0) + _native_x64 (2995/0) +
+VM builder-comp-int (2985/0); native+VM unit tests (new aarch64/x64 readonly-compare + x64
+readonly-uint64->float tests); e2e/ffi-export.sh readonly int8 param at --backend native -O2
+(4/4); clean adversarial review (2 findings found + fixed, re-review CONFIRMED-RESOLVED).
+common.UnwrapNamed left defined but now unused (documented named-only primitive).
+
 ## `link`/bnld used word-sized `int`/`uint` for 64-bit addresses — broke on ILP32 — DONE (2026-09-01, commit b2c68b22b)
 
 The Mach-O/ELF linker (`pkg/binate/link`, bnld) threaded 64-bit TARGET addresses

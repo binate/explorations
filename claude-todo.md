@@ -7,29 +7,28 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### native: SubWordNarrow misclassifies signed narrow ALIAS/`readonly` params as unsigned — 🟠 NATIVE-BACKEND / ABI (found 2026-09-01, adversarial review of the reg-narrow fix)
+### native-arm32-baremetal: cross-package uint64 (>= 2^63) const -> float64 converts SIGNED — 🔴 OPEN BLOCKING (found 2026-09-01, conformance 1227)
 
-`common.SubWordNarrow` (pkg/binate/native/common/common_scalar.bn:21) peels only
-TYP_NAMED (`UnwrapNamed`), then reads `t.Width`/`t.Signed`.  But the SIZE it is paired
-with — `t.SizeOf()` (types/layout.bn) — peels alias (TYP_ALIAS) AND readonly (TYP_READONLY)
-too.  So for a transparent `type Byte = int8` alias or a `readonly int8` param:
-`SizeOf()` → 1 (narrow, fires the sz==1 extension branch) but `SubWordNarrow` → (0,false)
-(the alias/readonly node has Width 0 / isn't IsInteger), so `signed=false` → a SIGNED
-narrow alias is ZERO-extended.  Failure: `type Byte = int8; #[c_export("f")] func f(x Byte)
-int32 {...}`, C calls `f(-5)` → callee reads 251.
+`conformance/1227_xpkg_const_uint_to_float` FAILS on builder-comp_native_arm32_baremetal,
+which conformance-tests.yml adds to the CI matrix as a BLOCKING (`false`, non-experimental)
+mode — so main is RED there.  Observed both WITH and WITHOUT the readonly-peel sweep
+(771e00d96): reverting the sweep's pkg/binate/native changes and re-running the single test
+on native arm32 still fails, so it is PRE-EXISTING, not caused by the sweep.  It does NOT
+fail on native aa64 / native x64 / the VM (builder-comp-int) — those suites are 0-failure —
+so it is native-arm32-SPECIFIC.  The test has no xfail marker for any mode.
 
-Shared across paths — NOT introduced by the reg-narrow fix (a171551d0), INHERITED:
-- reg path: normalizeNarrowRegParam / *X64 / *Arm32 (a171551d0).
-- stack path: spillScalarStackArg / spillScalarStackArgX64 / emitFrameLoadSized (4798da30a).
-- the sign/zero-extension INVARIANT machinery: emitSubWordNarrow (all 3 backends) —
-  so a signed narrow alias is mis-extended even for native→native, consistent with
-  `ir.typeWidth` (gen_binary_width.bn) also peeling only TYP_NAMED (alias-int8 treated
-  as full-word throughout IR).  Distinct `type Byte int8` (TYP_NAMED) is handled correctly.
+Symptom: a cross-package untyped const >= 2^63 (imported via .bni, stamped TypUint64 by the
+gen_import producers per f0e51a747) converts to float64 as SIGNED on native arm32, so the
+`cast(float64, ...) > 1.0e19` / `> 0.0` lines read a negative value -> expected `true`, got
+`false` (first failing line).
 
-Fix: peel alias+readonly+named in `SubWordNarrow` before reading Width/Signed (mirror
-SizeOf's peel).  This also corrects emitSubWordNarrow, so it needs its own adversarial
-review (touches the invariant machinery pervasively) + native conformance across all three
-backends.  Add an e2e ffi-export case with a signed narrow alias param.
+The arm32 int->float path (arm32_float_cast.bn:86) DOES consult common.IsUnsignedIntType and
+selects __aeabi_ul2d vs __aeabi_l2d, and IsUnsignedIntType(TypUint64) is true — so the defect
+is upstream of the helper choice: likely the imported const's IR type is not TypUint64 on the
+ILP32 / native-arm32 path (an import-stamp or const-fold divergence on a 32-bit target), or
+the u64->float lowering / const-fold runs before the type is stamped.  NEXT: dump the IR type
++ operand of the imported const on native arm32 vs aa64/x64 for the UT_BIG / UT_2P63 lines.
+MUST be root-caused and fixed (native arm32 is first-class + blocking CI) — do NOT xfail.
 
 ### native/arm32: sub-word paths pass wordBits=64 to SubWordNarrow on a 32-bit target — 🟡 NATIVE-BACKEND / arm32 (found 2026-09-01, same review)
 
