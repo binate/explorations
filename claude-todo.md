@@ -243,8 +243,31 @@ doesn't check it and isn't run after opt). `InlineSizeThreshold` (const, tuneabl
   `assertInlinedFuncWellFormed`'s operand-scope check generalized from fault-pad operands
   to ALL f.Blocks/f.FaultPads operands (the operand-scope hardening the todo flagged;
   DOMINANCE remains unneeded — the alloca slot is dominance-safe by construction).
-- **Inc 5 — 🔵 NEXT.** Multi-value returns (`(int, err)`) + by-value aggregate/struct/slice
-  returns (sret/retbuf) — lifts the `≤1 scalar result` filter.
+- **Inc 5a — ✅ LANDED `fe5103a13` (2026-08-31).** By-value aggregate single results
+  (struct / slice / managed-slice / array): `isScalarResultType` → `isInlinableResultType`.
+  No new machinery — the aggregate VALUE flows via retVal / the aggregate-typed merge slot;
+  OP_STORE/OP_LOAD bit-copy it with no implicit refcount, so a managed slice's +1 rides
+  through unchanged.  Aggregates whose cleanup needs a dtor CALL (struct-with-@field,
+  [N]@Node, @[]@Node) are STRUCTURALLY rejected by the leaf filter (verified: a 2-instr
+  @[]@Node callee, far under threshold, still rejected) → no leak/double-free hole.
+  Func-value/iface-value results stay excluded (cross-mode vtable).  Review (3rd attempt;
+  first two died on API stalls) CONFIRMED-SAFE across VM: leaf managed aggregate, multi-
+  return managed slice via slot (-O0==-O1, LiveBlocks Δ0), no regression.
+  - **Pad-sweep fix — ✅ LANDED `a5f1feeeb` (2026-08-31)** (pre-existing MAJOR bug found
+    during the 5a review).  `rewriteUsesInBlocks` swept only f.Blocks, not f.FaultPads, so a
+    MANAGED call result live at a fault (`mk().v + a[i]`) left the fault pad referencing the
+    deleted OP_CALL — a silent stale RefDec pre-Inc-4, an assertOperandsInScope panic since.
+    Reachable at -O1 since Inc 1 (managed-ptr results) + Inc 3a (pads); -O0 shipping builds
+    don't inline, so no landed test hit it.  Fix: sweep f.FaultPads too.  Regression tests
+    added.
+  - Coverage gap (follow-up, likely safe by construction): no test for a non-dtor managed-
+    aggregate (@[]int) result live at a CALLER fault via a MULTI-block (merge-slot) callee —
+    can't fit the default size threshold, so the path is threshold-gated.
+- **Inc 5b — 🔵 NEXT.** Multi-VALUE (tuple) returns `(int, err)`: the call result is a
+  makeMultiReturnStructType destructured via OP_EXTRACT(callresult, i); OP_RETURN carries N
+  value args.  Needs either packing the N values into a tuple value per return (reuse the 5a
+  aggregate path) or routing each OP_EXTRACT to return-value/slot i.  (A naive filter lift
+  hangs — the single-return path takes only Args[0].)
 - Inc 6 non-leaf + recursion/cycle guard + code-growth budget + benchmark.
 
 Coverage note: the multi-block/managed/loop inline paths only run at -O1, which has no
