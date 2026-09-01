@@ -74,3 +74,42 @@ libraries) dynamically is expected and essential — it is the sanctioned "C int
 - bnld links a real bnc program today (e2e/bnld-real-program.sh) — but via a hermetic
   shim (bump allocator + syscall stubs), static; this project replaces that with the
   real libc bootstrap.
+
+## Steps 1–5 LANDED (2026-08-31)
+
+- **Step 1 (PoC):** the `_start` → `__libc_start_main` + dynamic-libc bootstrap proven
+  on both ELF arches via bnld (hand-written `.s`, run in Docker, exit 42).
+- **Steps 2–5 (`bnc --linker bnld`):** landed `f1590d6ef`.  `cmd/bnc` imports
+  `pkg/binate/link` and links directly (no clang); `--linker <clang|bnld>` flag (default
+  clang), target-gated to ELF linux-x64/linux-aarch64; an embedded per-arch `_start`
+  (assembled in-process) calls libc's `__libc_start_main`.  `e2e/bnc-bnld-linux.sh`
+  builds a real program with `--backend native --linker bnld` and runs it (both arches,
+  exit 42) — the whole toolchain with no C linker/driver.  Adversarial review SHIP (3
+  low-severity findings fixed pre-land: reject `--link-after-objs`, namespace the scratch
+  object, clean up the scratch `.s` on all paths).  Confirmed BUILDER-compatible (gen1
+  builds cmd/bnc with the link import); this pulls `pkg/binate/link` + `pkg/binate/sha256`
+  into the BUILDER-compiled surface (CLAUDE.md updated).
+
+**Remaining:** Step 7 (interpreted drivers — the original goal).  Follow-ups: macOS/Mach-O
+via bnld (`LinkDynMacho` + an `LC_MAIN`→`_main` entry; bnld's Mach-O linking is already
+done + natively validated, so this is a modest addition, NOT a redesign — see below); the
+default LLVM backend + `--linker bnld` (untested; should work); `--link-after-objs`/`-l`
+through bnld.
+
+### Why macOS + bnld is feasible (a modest follow-up, not a blocker)
+
+bnld already links dynamic Mach-O (`LinkDynMacho`: function + data imports, writable
+`__DATA`, weak imports — all validated NATIVELY on macOS arm64).  So the linker core is
+done.  What the first cut scoped out:
+
+1. `linkWithBnld` gates to ELF and rejects Mach-O; add a `macho` branch calling
+   `LinkDynMacho` (base `0x100004000`) instead of `LinkDynElf`.
+2. **No `_start`/`__libc_start_main` bootstrap is needed on macOS** — dyld runs the
+   program's `LC_MAIN` entry *after* libSystem is initialized, so the entry gets a working
+   libc for free.  The entry becomes the Binate `main` (Mach-O symbol `_main`, from
+   `#[c_export("main")]`); `LinkDynMacho` points `LC_MAIN` at it.  (To verify when
+   implementing: whether dyld passes argc/argv to the `LC_MAIN` entry directly, or a tiny
+   macOS `_start` that reads them off the stack and calls `_main` is needed.)
+3. bnc has no explicit `macos-arm64`/`aarch64-darwin` target *key* (only `x86_64-darwin`);
+   a host build on Apple Silicon works implicitly, but a `--target macos-arm64` key would
+   be added for cross-builds.
