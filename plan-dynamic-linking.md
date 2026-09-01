@@ -398,9 +398,8 @@ no stub, Relocate keeps the GOT load).
   function+data case); validated natively (ALL PASS).
 
 **Mach-O dynamic linking now has ELF parity**: function + data imports, runnable +
-CI-guarded on macOS arm64.  Remaining follow-up (documented, non-blocking): weak Mach-O
-imports marked weak.  (Writable program `__DATA`, ABS64-to-import, and the general
-direct-reference rejection are now done — see below.)
+CI-guarded on macOS arm64.  All follow-ups are now done (writable program `__DATA`,
+ABS64-to-import, the general direct-reference rejection, and weak imports — see below).
 
 ### ML4 LANDED (2026-08-30): multi-lib `-l` — DT_NEEDED from each `.so`'s SONAME
 
@@ -479,8 +478,8 @@ NATIVELY on macOS arm64 (`codesign -v` clean; `dyld_info` shows the `_exit` bind
 `__DATA` offset 8, i.e. past the program `.data`); ELF x86-64 + aarch64 via Docker.
 Adversarial review: SHIP (after the `.bss`-bloat fix).
 
-Remaining follow-up: weak Mach-O imports marked weak (see below for the ABS64 and general
-direct-reference rejections that landed after this).
+All follow-ups landed after this (weak Mach-O imports, the ABS64 and general
+direct-reference rejections) — see below.
 
 ### ABS64-to-import LANDED (2026-08-31): loud rejection, not a silent stub address
 
@@ -514,7 +513,46 @@ PIE is rejected).  Unit test rejects five direct-reference kinds (ABS64 ×2, PC3
 ADR_PREL_PG_HI21, PREL32); the ABS64 end-to-end `LinkDynElf` rejection is retained.
 Adversarial review: SHIP.
 
-Only remaining dynamic-linking follow-up: **weak Mach-O imports marked weak** (a weak
-undefined import is currently emitted as a strong bind, so dyld hard-fails the load if
-the symbol is absent instead of binding-or-zeroing; ELF weak imports are already
-handled).
+### Weak Mach-O imports LANDED (2026-08-31, `34bbb152a`): bind-to-0, not load failure
+
+A weak undefined import on Mach-O was emitted as a *strong* bind, so dyld aborted the
+load if the symbol was genuinely absent instead of binding it to 0.  Two coupled fixes
+(the feature needs both — an assembler that conveys weak-ness and a linker that acts on
+it):
+
+- **asm/macho (object writer):** a weak *undefined* symbol now gets `N_WEAK_REF` (0x0040)
+  in its nlist `n_desc` — the reference-side analogue of the `N_WEAK_DEF` already emitted
+  for a weak *definition*, and the Mach-O analogue of the ELF writer's `STB_WEAK` (which
+  already covered undefs).  Without this the linker never saw the weak binding
+  (`parse_macho` read the object back as `BIND_GLOBAL`).  Inert for existing static
+  objects: every current `SetWeak` caller defines the label first (Section ≥ 0 → the
+  unchanged `N_WEAK_DEF` path), so only a genuine `.weak`-on-undefined takes the new
+  branch.
+- **link (dynmacho):** `buildMachoBind` sets `BIND_SYMBOL_FLAGS_WEAK_IMPORT` (0x1) on a
+  weak import's `SET_SYMBOL_TRAILING_FLAGS` opcode, and `buildMachoSymtab` sets
+  `N_WEAK_REF` in its `n_desc`.  `LinkDynMacho` threads the per-import binding (from
+  `collectImports`, previously discarded) through both.
+
+Chain: `.weak` → object `N_WEAK_REF` → parse `BIND_WEAK` → linker weak bind.  ELF already
+handled weak imports (`STB_WEAK`), so this was Mach-O-only.  Tests: `TestBuildMachoWeakImport`
+(WEAK_IMPORT flag + `N_WEAK_REF`), `TestLinkDynMachoWeakImport` (end-to-end via `SetWeak`:
+the weak import's exec nlist carries `N_WEAK_REF`, the strong one does not — also covers
+the asm/macho writer fix).  The e2e gained `weakabs`: a GOT-loaded, genuinely-absent weak
+import that exits 42 because dyld bound it to 0 — validated NATIVELY on macOS arm64 (a
+strong bind aborts the load, exit 134).  Adversarial review: SHIP.
+
+## Dynamic linking: COMPLETE (2026-08-31)
+
+Both backends now support the full dynamic-linking feature set, all runnable and
+CI-guarded (ELF x86-64 + aarch64 via Docker on the Linux lane; Mach-O arm64 natively on
+the macOS lane):
+
+- **Function imports** (PLT stub + JUMP_SLOT / __TEXT stub + POINTER bind).
+- **Data imports** (GOT slot + GLOB_DAT / __got slot + POINTER bind, load kept).
+- **Multi-library `-l`** (ELF): one `DT_NEEDED` per shared library, from its `DT_SONAME`.
+- **Writable program `__DATA`** (.data/.bss) on both backends.
+- **Direct-reference rejection**: an import reached by any non-call/non-GOT relocation
+  (ABS64, PC32, …) is a loud error, not a silent stub-address miscompile.
+- **Weak imports** (both backends): bound-or-zeroed, not a load failure.
+
+No open dynamic-linking follow-ups remain.
