@@ -158,7 +158,7 @@ self-time). Two orthogonal inlining levers below. (The single-file microbench wh
 reality.)
 
 
-### (2b) Within-package function inliner — 🔵 IN PROGRESS (2026-08-29)
+### (2b) Within-package function inliner — ✅ CORE COMPLETE (2026-09-01); only threshold-tuning headroom open
 
 Plan + two adversarial reviews (plan + Inc-1 code): `plan-within-package-inliner.md`.
 A new -O1+ IR pass `inlineCalls` (run first in RunOptPasses, before mem2reg) clones a
@@ -292,26 +292,29 @@ doesn't check it and isn't run after opt). `InlineSizeThreshold` (const, tuneabl
   `InlineSizeThreshold` (tuneable) to catch charsEqual-class hot functions (~45-60 instrs) adds
   more.  Re-benchmark by USER CPU time (NOT wall-clock — that was the noise source; no quiet
   machine needed) to find the code-growth-vs-speed sweet spot.
-- **Inc 6 — 🔵 NEXT (the last planned increment).** Non-leaf callees — inline a callee that
-  itself CALLs other functions (today inlinableCallee rejects ANY call-family op: the leaf gate
-  at pkg/binate/ir/inline_calls.bn).  Design sketch (to flesh out on resume):
-    - Lift the leaf rejection.  A cloned non-leaf body carries its own OP_CALLs; Phase 2 already
-      RE-SCANS after each inline, so those exposed calls get considered for inlining in turn
-      (transitive inlining falls out naturally) — which is exactly why the two guards below are
-      mandatory.
-    - RECURSION / CYCLE guard: A→B→A (or any SCC) would inline forever.  Options: refuse to
-      inline a call whose target is already on the current inline stack / in the caller's inline
-      ancestry; or a hard per-call-chain depth cap.  Simplest safe start: never inline a
-      DIRECTLY-OR-transitively-self-referential callee (detect via the module call graph, or a
-      per-site visited-set), plus a depth cap as a backstop.
-    - CODE-GROWTH budget: transitive inlining can blow up code size.  Cap total inlined instrs
-      per caller (or a growth ratio), and/or keep the existing InlineSizeThreshold per callee.
-      log() what's skipped by the budget (no silent truncation).
-    - Refcount: a cloned call keeps its arg-passing + result refcount ops verbatim (faithful
-      clone), same as every prior increment — the call op itself is just cloned, not removed.
-    - Tests: transitive inline correctness + no-leak; a recursion case that must NOT infinite-loop
-      (guard fires); a code-growth case that hits the budget.  Then benchmark by USER CPU
-      (native self-compile) to see the additional win over the ~19-30% Inc 1-5b already give.
+- **Inc 6 — ✅ LANDED `ef292f152` (2026-09-01).** Non-leaf callees: a callee whose body
+  contains a direct OP_CALL is inlined; the cloned body carries its own calls, and a fixpoint
+  re-scan in inlineCallsInFunc exposes them as fresh sites (transitive inlining).  The clone
+  path already copies an OP_CALL + its call-site cleanup pad faithfully (the pad machinery is
+  generic over any pad-bearing op), so refcounting stays exact by construction — only the
+  eligibility gate + driver loop changed.  Two guards: a RECURSION guard (inline_recursion.bn:
+  computeRecursiveFuncs marks every function on a direct-call cycle via an iterative
+  back-edge-target DFS; refusing to inline a marked callee breaks every cycle, so expansion
+  follows the finite acyclic remainder) and a per-function GROWTH budget (inlined into only up
+  to max(InlineGrowthFloor 256, origSize × InlineGrowthFactor 4) instrs; past that, sites stay
+  real calls).  DIRECT calls only — indirect / iface / c-call / handle dispatch still
+  disqualifies a callee (can't be transitively inlined; cloning them raises unvalidated
+  cross-mode-vtable / c-ABI questions; a possible follow-up).  Adversarial review SOUND across
+  all six risk areas (termination, stale-analysis-after-mutation, refcount faithfulness of
+  cloned calls+pads, the cross-round use-sweep, budget arithmetic, the direct-only gate) — no
+  counterexample.  Tests: vm exec/leak/termination/budget (vm_inline_nonleaf_test.bn), ir
+  markCycleTargets units (inline_recursion_test.bn), an IR-level non-leaf-inlined test, a
+  codegen transitive-inline test.  inline_calls.bn split (shape predicates →
+  inline_eligibility.bn) to stay under the file-length cap.
+- **Increment labels scrubbed — ✅ LANDED `0d940933e` + folded into `ef292f152` (2026-09-01).**
+  Removed all ~118 "Inc N" development-progress labels from the inliner's comments and test
+  messages — meaningless in the tree — each rewritten to name its mechanism in its own terms.
+  CLAUDE.md updated with the rule (no dev-progress labels in code).
 
 Coverage note: the multi-block/managed/loop inline paths only run at -O1, which has no
 conformance lane (see the opt-level-matrix todo), so CI coverage is the `vm_inline_test`
