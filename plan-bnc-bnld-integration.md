@@ -90,9 +90,9 @@ libraries) dynamically is expected and essential — it is the sanctioned "C int
   builds cmd/bnc with the link import); this pulls `pkg/binate/link` + `pkg/binate/sha256`
   into the BUILDER-compiled surface (CLAUDE.md updated).
 
-**Remaining:** Step 7 (interpreted drivers — the original goal).  Follow-ups: the default
-LLVM backend + `--linker bnld` (untested; should work); `--link-after-objs`/`-l` through
-bnld.  (macOS/Mach-O via bnld is now LANDED — see below.)
+**Remaining:** Step 7 (interpreted drivers — the original goal).  Follow-up:
+`--link-after-objs`/`-l` through bnld.  (macOS/Mach-O via bnld AND the default LLVM
+backend + `--linker bnld` are both LANDED — see below.)
 
 ### macOS + bnld — LANDED (2026-09-01, commit 3314904ff)
 
@@ -117,3 +117,17 @@ Validated by `e2e/bnc-bnld-macos.sh` (compile + link + run natively under dyld +
 exit 42) plus the buildMachoRebase / `__DATA_CONST` unit tests.  Still host-only: bnc has
 no `macos-arm64` `--target` key (only `x86_64-darwin`), so cross-building a macOS Mach-O
 from Linux is a follow-up — tracked in claude-todo.md ("bnld (self-hosted linker)").
+
+### LLVM backend + bnld — LANDED (2026-09-01, commits c47a41edb + c397ac14d)
+
+`--linker bnld` with the DEFAULT LLVM backend (not `--backend native`) — clang COMPILES
+the object, bnld LINKs it, no ld.  ELF (linux-x64/aarch64) worked with no code change
+(verified end-to-end, `e2e/bnc-bnld-llvm-linux.sh`).  macOS needed one fix: clang emits a
+section-relative (non-extern) relocation in `__compact_unwind`, which bnld's Mach-O reader
+rejects.  `__compact_unwind` (and `__eh_frame`) are intermediate unwind-metadata sections
+ld64 consumes into `__unwind_info`; bnld does no unwind processing, so it now DROPS them
+(a symbol defined in a dropped section becomes undefined).  The program runs — arm64 keeps
+frame-pointer chains — and it is the only section clang gives section-relative relocs
+(every data/function pointer uses an extern reloc).  `e2e/bnc-bnld-macos.sh` now covers
+both backends.  General section-relative reloc resolution (for a KEPT section, should one
+ever need it) is a tracked follow-up in claude-todo.md.
