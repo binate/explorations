@@ -289,18 +289,26 @@ doesn't check it and isn't run after opt). `InlineSizeThreshold` (const, tuneabl
   returns; confirmed NOT inlined at 15/40, INLINED at 200 → pure size).  So the inliner ALREADY
   delivers a substantial win at 15 (broad small-function inlining); catching charsEqual-class
   functions via threshold tuning would add MORE — not a prerequisite for the win.
-- **clang↔native codegen gap — ⚠️ MEASURED ~13× (2026-09-01).** First direct clang-vs-native
-  comparison: a clang/LLVM-built bnc vs a native-backend-built bnc (both current main, both
-  x86_64-darwin under Rosetta so the ratio isolates codegen), each compiling cmd/bnc via the
-  native backend, USER CPU ×3.  clang ~4.42s (4.42/4.42/4.42) vs native ~57s (56.8/57.0/57.1)
-  → **native is ~13× slower**.  Caveat: under Rosetta, which likely translates clang's
-  conventional output better than the native backend's, so the on-real-x86_64 gap is probably
-  smaller — but it is LARGE.  The inliner (leaf, Inc 1-5b) already closed part of the pre-inliner
-  gap (whole-inliner ON vs OFF ~19-30%); the remaining ~13× is dominated by what clang -O2 does
-  that the native backend does not yet: bounds-check elision, good register allocation, broader
-  optimization (cf. the "Performance — native compile speed" section: rt.BoundsCheck ~32% +
-  alloc ~33% are the design-level levers).  ACTIONABLE NEXT STEP if closing the gap is a
-  priority: profile the native-compiled bnc to attribute the ~13× to specific causes.
+- **clang↔native END-TO-END compile time — measured ~12.5× (2026-09-01), NOT the codegen gap;
+  contradicts the established ~2.4× and needs attributing.** A clang-built bnc vs a
+  native-backend-built bnc (both current main), each compiling cmd/bnc, USER CPU ×3, run
+  NATIVELY on aarch64-darwin (no Rosetta — `--backend native` with no `--target` uses
+  HostConfig = aarch64-darwin; both produce byte-identical 12MB binaries, so identical work):
+  clang ~3.76s (3.75/3.76/3.77) vs native ~46.9s (46.9/47.0) → ~12.5×.  **This directly
+  contradicts the background section's carefully-profiled clang -O2 9.0s / native -O2 21.5s =
+  ~2.4× codegen gap, so 12.5× is NOT the codegen-quality number.**  Reconciliation (partly
+  verified, partly hypothesis): (a) clang went 9.0→3.76 — consistent with the landed front-end
+  perf sweeps making compilation cheaper; (b) native went 21.5→46.9 — the anomaly.  Leading
+  cause: the native path now emits objects IN-PROCESS (`native.EmitObject` → asm/macho writer,
+  compile.bn:220) and the whole in-process assembler stack was pulled into cmd/bnc RECENTLY
+  (`2a1c555`), almost certainly AFTER the 2.4× measurement (which used external clang/as
+  assembly — fast, identical both sides).  A native-compiled bnc runs that unoptimized
+  in-process object writer as slow native code, so the end-to-end 12.5× conflates true codegen
+  quality (the ~2.4× the inliner targets) with the new in-process assembler.  Linking is
+  external clang for both (default; `--linker bnld` is opt-in), so not the cause.  NOT YET
+  CONFIRMED: profile native-bnc's ~46.9s to attribute how much is asm/macho `EmitObject` vs
+  codegen proper.  (Earlier same-day x86_64/Rosetta run of this — clang 4.4s / native 57s — was
+  doubly wrong: wrong lens AND the same in-process-assembler conflation; superseded by this.)
 - **Non-leaf inlining incremental win on cmd/bnc — ~0% (2026-09-01).** native bnc with non-leaf
   inlining ON vs OFF (leaf gate restored), same workload: 56.8-57.1s both → no measurable
   difference.  Expected: at `InlineSizeThreshold = 15` almost no NON-leaf callee fits (a call +
