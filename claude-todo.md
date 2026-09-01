@@ -265,10 +265,29 @@ doesn't check it and isn't run after opt). `InlineSizeThreshold` (const, tuneabl
   returns; confirmed NOT inlined at 15/40, INLINED at 200 → pure size).  So the inliner ALREADY
   delivers a substantial win at 15 (broad small-function inlining); catching charsEqual-class
   functions via threshold tuning would add MORE — not a prerequisite for the win.
-- **Threshold tuning — 🔵 additional headroom.** Default 15 already wins ~19-30%; raising
-  `InlineSizeThreshold` (tuneable) to catch charsEqual-class hot functions (~45-60 instrs) adds
-  more.  Re-benchmark by USER CPU time (NOT wall-clock — that was the noise source; no quiet
-  machine needed) to find the code-growth-vs-speed sweet spot.
+- **clang↔native codegen gap — ⚠️ MEASURED ~13× (2026-09-01).** First direct clang-vs-native
+  comparison: a clang/LLVM-built bnc vs a native-backend-built bnc (both current main, both
+  x86_64-darwin under Rosetta so the ratio isolates codegen), each compiling cmd/bnc via the
+  native backend, USER CPU ×3.  clang ~4.42s (4.42/4.42/4.42) vs native ~57s (56.8/57.0/57.1)
+  → **native is ~13× slower**.  Caveat: under Rosetta, which likely translates clang's
+  conventional output better than the native backend's, so the on-real-x86_64 gap is probably
+  smaller — but it is LARGE.  The inliner (leaf, Inc 1-5b) already closed part of the pre-inliner
+  gap (whole-inliner ON vs OFF ~19-30%); the remaining ~13× is dominated by what clang -O2 does
+  that the native backend does not yet: bounds-check elision, good register allocation, broader
+  optimization (cf. the "Performance — native compile speed" section: rt.BoundsCheck ~32% +
+  alloc ~33% are the design-level levers).  ACTIONABLE NEXT STEP if closing the gap is a
+  priority: profile the native-compiled bnc to attribute the ~13× to specific causes.
+- **Non-leaf inlining incremental win on cmd/bnc — ~0% (2026-09-01).** native bnc with non-leaf
+  inlining ON vs OFF (leaf gate restored), same workload: 56.8-57.1s both → no measurable
+  difference.  Expected: at `InlineSizeThreshold = 15` almost no NON-leaf callee fits (a call +
+  its refcount ops already eats the budget), so non-leaf inlining rarely fires on real code
+  today.  The leaf inliner did the ~19-30%; non-leaf is correctness-complete but latent until
+  the threshold rises.
+- **Threshold tuning — 🔵 additional headroom (the real remaining inliner lever).** Default 15
+  already wins ~19-30% AND gates out most non-leaf inlining; raising `InlineSizeThreshold`
+  (tuneable) to catch charsEqual-class hot functions (~45-60 instrs) — and to let non-leaf
+  inlining actually fire — is what adds more.  Re-benchmark by USER CPU time (NOT wall-clock —
+  that was the noise source) to find the code-growth-vs-speed sweet spot.
 - **Inc 6 — ✅ LANDED `ef292f152` (2026-09-01).** Non-leaf callees: a callee whose body
   contains a direct OP_CALL is inlined; the cloned body carries its own calls, and a fixpoint
   re-scan in inlineCallsInFunc exposes them as fresh sites (transitive inlining).  The clone
