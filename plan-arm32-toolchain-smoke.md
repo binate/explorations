@@ -49,9 +49,10 @@ run as 32-bit binaries.
    `qemu-user-static` + `gcc-arm-linux-gnueabihf` install step turns the smoke on
    (`c8a972232`).  (arm32-aeabi-dormant-helpers still needs qemu-system-arm — a
    separate follow-up.)
-3. **NOW UNBLOCKED** — the `link`/bnld address-width bug is fixed (`b2c68b22b`), so
-   bnc + bnld compile for arm32.  Add them to the smoke (bnc: compile + run a hello;
-   bnld: link a tiny object set) and drop the omission note in the script header.
+3. **DONE** — bnc + bnld added to the smoke (`08162ce03`): bnc compiles + runs a
+   hello (with an explicit `--target arm32-linux`, since under qemu bnc execs the
+   native clang), bnld assembles an object via bnas and links it to an ELF64 ET_EXEC
+   (header structure-checked).  All six tools now covered; validated 9/9 under qemu.
 
 ## Gotchas
 
@@ -65,5 +66,4 @@ run as 32-bit binaries.
 
 ## Effort
 
-Script + the four clean tools + CI wiring: DONE.  bnc + bnld are now unblocked
-(link fixed `b2c68b22b`) — adding them to the smoke is the one remaining piece.
+All three steps DONE: the smoke covers all six tools (bni, bnas, bnlint, bnfmt, bnc, bnld), runs green on the ubuntu-x64 e2e lane, and skips the macOS lane.  Remaining optional follow-up: enable arm32-aeabi-dormant-helpers (needs qemu-system-arm on the runner).
