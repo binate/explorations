@@ -7,17 +7,41 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### native: #[c_export] narrow-param normalization gate misses a native func handed to C as a raw callback pointer — 🟡 NATIVE-BACKEND / ABI, scope-limitation (found 2026-09-01, same review; DISCUSS)
+### native: fold #[c_export] narrow-param normalization into a C-entry THUNK (Binate callers should not pay it) — 🟡 NATIVE-BACKEND / perf (found 2026-09-01, from the reg/stack narrow-arg fix)
 
-The reg/stack narrow-param normalization fires only for functions with a `#[c_export]`
-name (`len(f.CExportNames) > 0`).  A non-c_export Binate function whose address is passed
-to C as a callback (e.g. a qsort/signal comparator) and invoked by C with a sub-word arg
-would NOT be normalized, so the original dirty-upper-bits bug persists on that entry.
-Passing a Binate function pointer to C is NOT a documented/supported interop path today
-(reference_c_interop: __c_call / __c_global / #[c_export] only), so this is inert now.
-If callbacks-to-C become supported, widen the gate (normalize any function reachable via
-a C-ABI function-pointer type) or make the narrow-param extension unconditional.
-Pending discussion with the user before any action.
+The narrow reg/stack param sign-/zero-extension for #[c_export] functions
+(normalizeNarrowRegParam / spillScalarStackArg, gated on `len(f.CExportNames) > 0`; landed
+a171551d0 / 4798da30a) currently sits on the function's SHARED prologue — and #[c_export]
+adds the C name as an ALIAS at the SAME entry offset (aarch64_emit_func.bn DefineLabel;
+gen_func.bn CExportNames), so a native->native caller of a #[c_export] function executes the
+(redundant) normalization too.  Native callers already pass sign/zero-extended narrow args
+(the emitSubWordNarrow invariant), so that extension is wasted work for them.
+
+Fix: emit the C name as a small THUNK rather than a same-address alias — the thunk normalizes
+the narrow params (sxtb/uxtb/...) then falls through / tail-branches to the mangled Binate
+entry, which itself carries NO normalization.  Then C->Binate goes through the thunk (pays
+the cost, correctly) and Binate->Binate (the mangled symbol) skips it.  (Requires changing
+c_export emission from alias-at-entry to a thunk + moving where the normalization is placed.)
+Same thunk mechanism as the C-func-pointer builtin below — design them together.
+
+### native: builtin to obtain a raw C-callable function pointer (THUNK) for ANY Binate function — 🟡 NATIVE-BACKEND / C-interop, feature (found 2026-09-01; supersedes the c_export callback-gate scope-limitation)
+
+Today the only supported C->Binate entry is a `#[c_export]`-named function; there is no way
+to hand an arbitrary Binate function to C as a raw callback pointer (a qsort / signal /
+event-loop comparator).  Consequently the narrow-param normalization is gated on
+`len(f.CExportNames) > 0`, and a non-c_export function reached via a C-ABI function pointer
+would NOT be normalized (the dirty-upper-bits bug would persist on that entry).  DECISION
+(2026-09-01): do NOT widen the gate / make normalization unconditional — that callback path
+is unsupported today, so the gate is correct and paying per-function entry overhead to defend
+it is not worth it.
+
+Proper support (the real fix for the callback scope-limitation): a builtin special function
+that, given any Binate function, yields a raw C function pointer by generating a C-ABI ADAPTER
+THUNK — the thunk performs the C->Binate ABI adaptation (narrow-param normalization + any
+other C-vs-Binate ABI differences) and the returned pointer points at the thunk, not the bare
+Binate entry.  This is the same thunk mechanism as the #[c_export]-thunk item above (a
+#[c_export] is just the named/eager instance of "give C a callable pointer to this function").
+Design the builtin + thunk generation together with that item.
 
 ### VM at bnc `-O2`: ~12 pre-existing latent refcount failures — 🟠 VM / opt (found 2026-08-29 during the managed-slice RLE work)
 
