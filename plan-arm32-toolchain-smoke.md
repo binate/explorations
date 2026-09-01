@@ -47,8 +47,8 @@ run as 32-bit binaries.
 2. **DONE** — CI wiring: `.skip.darwin` markers keep the arm32 scripts off the
    (~10x-cost) macOS lane (`ca3a42678`), and a Linux-only, arm32-gated
    `qemu-user-static` + `gcc-arm-linux-gnueabihf` install step turns the smoke on
-   (`c8a972232`).  (arm32-aeabi-dormant-helpers still needs qemu-system-arm — a
-   separate follow-up.)
+   (`c8a972232`).  (arm32-aeabi-dormant-helpers is now enabled too — `4d3aff3bf` adds
+   qemu-system-arm + lld + gcc-arm-none-eabi for it.)
 3. **DONE** — bnc + bnld added to the smoke (`08162ce03`): bnc compiles + runs a
    hello (with an explicit `--target arm32-linux`, since under qemu bnc execs the
    native clang), bnld assembles an object via bnas and links it to an ELF64 ET_EXEC
@@ -66,4 +66,4 @@ run as 32-bit binaries.
 
 ## Effort
 
-All three steps DONE: the smoke covers all six tools (bni, bnas, bnlint, bnfmt, bnc, bnld), runs green on the ubuntu-x64 e2e lane, and skips the macOS lane.  Remaining optional follow-up: enable arm32-aeabi-dormant-helpers (needs qemu-system-arm on the runner).
+All three steps DONE: the smoke covers all six tools (bni, bnas, bnlint, bnfmt, bnc, bnld), runs green on the ubuntu-x64 e2e lane, and skips the macOS lane.  Both arm32 e2e scripts (toolchain-smoke + aeabi-dormant-helpers) now run on the ubuntu-x64 lane — `4d3aff3bf` enabled dormant-helpers (qemu-system-arm + lld + gcc-arm-none-eabi, arm32-gated) and hardened its probe (SKIP if lld absent) + made it POSIX-clean.
