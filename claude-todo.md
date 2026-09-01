@@ -1055,6 +1055,20 @@ currently SKIPs the whole flow off a macOS arm64 host, since the host-implicit t
 the only route to Mach-O).  See `plan-bnc-bnld-integration.md` (item 3) for the original
 note.
 
+### bnld's Mach-O reader has no general section-relative (non-extern) reloc support — 🟢 ENHANCEMENT
+
+`parse_macho` resolves only EXTERN (symbol-indexed) relocations; a non-extern
+(section-number + addend) relocation in a KEPT section is rejected loud.  Today the only
+section clang emits section-relative relocs into is `__compact_unwind` (unwind metadata),
+which bnld DROPS (ld64 consumes it into `__unwind_info`; bnld does no unwind processing) —
+so LLVM-backend + `--linker bnld` links on macOS with no section-relative resolution
+needed (all data/function pointers use extern relocs).  If a future clang/LLVM object puts
+a section-relative reloc in a section bnld must KEEP, add general support: map r_symbolnum
+(1-based section number) → the InputSection, and resolve to (final section address +
+in-section offset) — e.g. via a synthesized section-base symbol + the offset as addend, so
+the existing symbol-based Relocate path works unchanged.  Until then the drop is the
+correct, minimal-linker behavior.
+
 ## bnfmt (self-hosted formatter)
 
 ### Batch the `bnfmt-format` hygiene check via multi-file bnfmt — 🟡 OPEN (gated on CHECK_TOOLS)
