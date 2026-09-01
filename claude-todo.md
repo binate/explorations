@@ -7,28 +7,28 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### native-arm32-baremetal: 1227 xpkg uint64-const->float64 produces NO output (crash) — 🔴 OPEN BLOCKING (found 2026-09-01)
+### conformance 1227 is MISSING its arm32_baremetal xfail (fmt.Print is a no-op on baremetal) — 🟡 TEST HYGIENE (found 2026-09-01)
 
-`conformance/1227_xpkg_const_uint_to_float` FAILS on builder-comp_native_arm32_baremetal,
-which conformance-tests.yml adds to the CI matrix as a BLOCKING (`false`, non-experimental)
-mode.  Observed both WITH and WITHOUT the readonly-peel sweep (771e00d96) — reverting the
-sweep's pkg/binate/native changes and re-running the single test on native arm32 still fails
-— so it is PRE-EXISTING, not caused by the sweep.  It does NOT fail on native aa64 / native
-x64 / the VM (builder-comp-int) (those suites are 0-failure), so it is native-arm32-specific.
-No xfail marker exists for any mode.
+`conformance/1227_xpkg_const_uint_to_float` fails on builder-comp_native_arm32_baremetal (and,
+by the same mechanism, on the LLVM builder-comp_arm32_baremetal via the shared OVERRIDE_MODE
+xfails).  ROOT CAUSE (definitive, from source — NOT a codegen bug and NOT native-arm32-
+specific): the test prints via `fmt.Print`, which writes to `os.Stdout`; on baremetal
+`os.Stdout` is an empty @File whose `Write` returns `(0, errNoFS())` — "a bare-metal target
+has no standard output" (impls/stdlib/pkg/std/os/os_baremetal.bn:29,151).  So `fmt.Print`
+produces NO output on ANY baremetal target.  (Tests that DO print on baremetal use
+testing.Println -> sys/sys_baremetal.bn -> semihosting SYS_WRITEC, bypassing os.Stdout.)
+Empirically confirmed: fmt.Print("hi") on native arm32 baremetal -> empty; testing.Println ->
+works.
 
-SYMPTOM (as observed; mechanism NOT yet root-caused): the program prints NOTHING — the
-conformance runner shows `actual:` empty (after strip_signal_msgs), consistent with a runtime
-CRASH (SIGSEGV/abort) before any output, NOT a wrong true/false value.  (An earlier note here
-guessed "converts SIGNED -> got false"; that was an unverified inference and is WRONG — the
-actual output is empty.)  The test casts cross-package untyped consts >= 2^63 (stamped
-TypUint64 per f0e51a747) to float64 and also does negative int64 round-trips.
-
-__aeabi_ul2d (U64->F64) IS provided by runtime/baremetal_arm32/aeabi_float.s (line 85), so a
-missing soft-float helper is NOT the cause.  NEXT: reproduce under qemu with raw output to see
-the crash, bisect which of the 8 printed lines crashes, disasm that line's native-arm32
-codegen.  MUST be root-caused and fixed (native arm32 is first-class + blocking CI) — do NOT
-xfail.
+This is the KNOWN baremetal-fmt limitation, already handled by an
+`.xfail.builder-comp_arm32_baremetal` marker on EVERY OTHER pkg/std/fmt conformance test —
+all 15 (1090/1135/1138/1150/1157/1158/1159/1162/1163/1167/1169/1171/1196/1224/1226).  1227
+(added 2026-08-30/31, f0e51a747/077b317e0) is the LONE fmt test missing that marker.
+FIX: add `1227_xpkg_const_uint_to_float.xfail.builder-comp_arm32_baremetal` to match its 15
+siblings.  (An earlier note here framing this as a native-arm32 uint64->float codegen bug /
+"MUST fix not xfail" was WRONG — the symptom is no-output, and the established handling IS the
+xfail.)  SEPARATE larger option: make os.Stdout write via semihosting on baremetal so fmt
+works there (would let all 16 xfails drop) — a platform enhancement, not a 1227 fix.
 
 ### native/arm32: sub-word paths pass wordBits=64 to SubWordNarrow on a 32-bit target — 🟡 NATIVE-BACKEND / arm32 (found 2026-09-01, same review)
 
