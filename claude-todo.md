@@ -7,6 +7,39 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### Nested generic-method emission double-frees a value-with-managed-field param — 🟠 IR-gen / refcount (found 2026-08-31; exposed by `54c85ec66`)
+
+A generic method M2 of type T (e.g. `Table.insertAbsent`) that CALLS another
+generic method M3 of T (e.g. an extracted `Table.grow`) triggers M3's monomorphized
+body to be emitted RE-ENTRANTLY (nested inside M2's `genFunc`, via
+`ensureMethodsForInstName` at gen_method.bn:222).  When T is instantiated with a
+VALUE type that has a managed field (e.g. hashmap's test `mkey struct { k int; ref
+@cell }`), that nested emission produces a REFCOUNT IMBALANCE in the caller-side
+copy/dtor of the value param — a double-free: `__dtor_mkey` runs on freed memory.
+
+- Symptom: `pkg/std/hashmap`'s `TestManagedKeyBackwardShift` crashes
+  (EXC_BAD_ACCESS in `__dtor_mkey`) under libgmalloc / the unit runner;
+  NONDETERMINISTIC (a plain run often passes — it is heap corruption).
+- Trigger is EMISSION-side, not execution: the test inserts only 3 keys into a
+  cap-8 table, so `grow` never RUNS; merely EXTRACTING `grow` into its own method
+  (so `insertAbsent` calls it) is enough.  With `grow` INLINE in `insertAbsent`
+  (no nested emission) it is clean.
+- This pattern never COMPILED before `54c85ec66` (the monomorphizer dup-symbol
+  fix) — a middle generic method hit "invalid redefinition" — so its codegen was
+  never exercised.  The dup-symbol fix is correct and stays; this is a SEPARATE,
+  latent refcount/codegen bug it uncovered.
+- The `__dtor_mkey` / `__copy_mkey` helpers themselves are CORRECT (RefDec/RefInc
+  the `@cell` field once); the imbalance is in a caller (insertAbsent/Put) emitting
+  an extra dtor or a missing copy of the value param.
+- Repro: `explorations`-adjacent scratch program `hashmap.Map[mkey,int]` with
+  Put×3 + Remove (the hashmap unit test verbatim); build gen1 with the table's
+  insert routed through an extracted `grow`, run under `DYLD_INSERT_LIBRARIES=
+  /usr/lib/libgmalloc.dylib`.
+- Blocks: the CLEAN shared-helper `pkg/std/table.GetOrPut` (the first-wins insert
+  primitive) wants to factor the insert/grow into a shared `insertAbsent` — the
+  extracted `grow` in that factoring is what trips this.  (A shared `insertAbsent`
+  with `grow` kept INLINE avoids it, but the codegen bug should be fixed.)
+
 ### native `-O2` self-host: a bnc built `--backend native -O2` SIGSEGVs compiling a large program — 🟠 NATIVE-BACKEND / opt (found 2026-08-30)
 
 A `bnc` built with `--backend native -O2` (i.e. its own main module native-lowered
