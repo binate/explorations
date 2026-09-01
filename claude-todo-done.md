@@ -84,6 +84,103 @@ hand-duplicated with no shared constructor, now funnel through `ir.newParamRef(p
 @Param) @Instr` (sets ID / Typ / Op = OP_PARAM / IsByvalParamRef).  The next
 param-placeholder site is a one-line call that can't get the opcode wrong.
 
+## native `-O2` self-host SIGSEGV — DONE (2026-08-31, `4798da30a`)
+
+RESOLVED at the root.  A `bnc` built `--backend native -O2` segfaulted while compiling a
+large program (`cmd/bnc`).  Root cause: the native callee incoming-parameter spill loaded
+every scalar stack argument with a full-width load, but Darwin aarch64 PACKS sub-word
+stack args at their natural size (bool=1 byte, strb by the caller) — so the 8-byte load
+read the adjacent packed arg's bytes + uninitialized padding.  Hidden at -O0 (a later
+narrow reload masked it) and hidden on `main` (the within-package inliner reshapes the
+self-host IR so the promoted-bool branch shape didn't arise — which is why bisect pointed
+at the inliner commit `149da0a14` as a MASK, not a fix); it bit at -O1+ once mem2reg
+promoted the arg and a 64-bit CMP tested the contaminated word.  Concretely,
+emitFuncvalSpillShimAA64 read a stack-passed bool (usePackMulti) wrong → nil tuple deref.
+
+Fix (`4798da30a`): the scalar stack-arg spill loads exactly StackArgNaturalSize bytes,
+sign-extended for a signed narrow arg (LDRSB/LDRSH/LDRSW), zero-extended for bool/unsigned/
+float — via `spillScalarStackArg` (aarch64) / `spillScalarStackArgX64` / `emitFrameLoadSized`;
+x64/arm32 don't pack so their guards are inert/defensive.  The signed-extension half was
+caught by adversarial review (a negative int8/16/32 stack arg otherwise read positive) and
+is covered by conformance 1230 + an aarch64 unit test.  Verified: native aa64 conformance
+2993/0, native -O2 self-host self-compiles clean, 1230 green on LLVM/VM/native aa64/x64/arm32.
+
+Sibling still OPEN (claude-todo.md): the REGISTER-passed narrow-arg upper-bits hole from an
+LLVM/C caller — same invariant, different path, no repro yet.  Full investigation history
+(bisect + mask analysis) follows.
+
+### native `-O2` self-host: a bnc built `--backend native -O2` SIGSEGVs compiling a large program — 🟠 NATIVE-BACKEND / opt (found 2026-08-30)
+
+A `bnc` built with `--backend native -O2` (i.e. its own main module native-lowered
+after `-O2` IR opt) **segfaults (SIGSEGV / rc=139) while compiling a large program**
+(`cmd/bnc`) with `--backend native`.  It is fine on small programs — such a bnc runs
+`--version` and compiles/runs hello-world correctly (both default and `--backend
+native`) — so the miscompile only manifests on a large input.  A `--backend native
+-O0`-built bnc does NOT crash (compiles `cmd/bnc` fine).  So the trigger is the `-O2`
+IR opt of the native-lowered main module.
+
+Discovered while benchmarking the asm `findSymbol` fix (that fix is unrelated: the
+crash **reproduces on the parent commit `2c828b2c3`**, i.e. pre-fix, so it is not
+caused by the symbol-table change).  Root cause unknown — needs investigation;
+likely native-backend lowering of `-O2`-optimized IR (mem2reg/coalesced values)
+mis-emits in a path only the large self-host input exercises.
+
+Why CI doesn't catch it: conformance's `native` modes build the compiler-under-test
+via the LLVM path (clang) and run at `-O0`; the "native `-O2` is green 2992/0" figure
+is a *clang-built* compiler emitting native-`-O2` output for *small* programs.  This
+bug needs (a) a native-`-O2`-**built** compiler and (b) a large input — neither is in
+any lane.  A small conformance test won't reproduce it (hello works); catching it
+needs a native-`-O2` self-host build + self-compile check.  Not a shipping config
+(released bnc is clang-built; normal native mode uses `-O0`), so non-blocking, but a
+real wrong-code/crash defect.
+
+Repro: build gen1 (BUILDER→gen1), then
+`gen1 --backend native -O2 -o bnc_n2 cmd/bnc` (works), then
+`bnc_n2 --backend native -o /dev/null cmd/bnc` → SIGSEGV.
+
+**UPDATE (2026-08-31): LATENT — MASKED by the within-package inliner, NOT fixed.**
+Bisected `2c828b2c3`(SIGSEGV) .. current main(clean): the crash disappears exactly at
+`149da0a14` ("ir: within-package function inliner, Inc 1" — a new -O1+ IR pass
+`inlineCalls`, run FIRST in RunOptPasses before mem2reg). That pass does NOT touch
+native codegen; it only changes IR SHAPE (inlines small same-package callees). Disabling
+just `inlineCalls` on current main (layout fix `f31d84a85` present) brings the SIGSEGV
+straight back (verified: rc=139). So the underlying native-backend miscompile is STILL
+PRESENT — the inliner merely reshapes the `cmd/bnc` self-host input enough that the
+triggering IR no longer reaches the buggy native lowering. It will resurface if the
+inliner is disabled/narrowed, or a different large program hits the triggering shape.
+NOT the layout bug (`f31d84a85`): native `OP_GET_FIELD_PTR` pre-peels via `StructTypeOf`,
+and the crash predates and postdates that fix with the inliner off.
+
+**ROOT CAUSE PINNED (2026-08-31): native aarch64 sub-word stack-arg spill loads a full 8 bytes.**
+Minimal repro (self-contained, native only): an 11-param function whose params 8-10 are
+stack-passed bools, with phi-producing conditional int locals before a long else-if on
+those bools — native `-O1+` picks the WRONG branch; native `-O0` and the LLVM backend at
+any -O are correct. Darwin aarch64 PACKS sub-word stack args at natural size (`stackArg
+Footprint`→(1,1) for bool; `StackArgNaturalSize`=SizeOf when NaturalSizeStackArgs), and
+the caller stores them packed (`strb`, 1-byte stride). But the callee incoming-param
+spill (`aarch64_emit_func.bn` scalar-stack-arg `else` branch, ~line 266) loads every
+scalar stack param with a full 8-byte `aarch64.Ldr` — so for a packed 1-byte bool it
+reads the ADJACENT args' bytes + uninitialized slot padding into the value. At -O0 a
+later narrow reload masks it; at -O1+ mem2reg promotes the bool and the branch tests the
+contaminated 8-byte word → wrong control flow. In the real self-host this makes
+emitFuncvalSpillShimAA64 read usePackMulti/retIsHfa wrong → the usePackMulti arm runs
+with a single-return fvTyp → funcValMultiReturnTupleAA64 returns nil → storeMultiReturn
+TupleFieldsAA64 derefs nil.Fields (addr 0x68) → SIGSEGV. (Confirmed by disasm: params
+read at [sp+0x180],[+0x181],[+0x182] — 1-byte stride, 8-byte loads.)
+FIX: the scalar stack-param spill must load exactly StackArgNaturalSize bytes,
+zero-extended (Ldrb/Ldrh/Ldr-w32), not an unconditional 8-byte Ldr. LIKELY the same
+defect in native x64 + arm32 emit-func spills (unverified). Needs native conformance
+(builder-comp_native_aa64 etc.) to verify; sign-extension of signed sub-word args to
+double-check. Also: the `main.bn` line-362 comment ("only the main module honors
+--backend native") is STALE — line 304-308 routes EVERY package through native.
+
+STATUS: open, latent, currently masked → non-blocking (no live failure on main) but a
+real native-backend wrong-code/crash defect. ROOT CAUSE still unknown — next step is to
+capture the crashing case with the inliner OFF (build `gen1` with `inlineCalls` gated
+off, `gen1 --backend native -O2 -o bnc_n2 cmd/bnc`, then run `bnc_n2` under lldb on the
+`cmd/bnc` self-compile to get the faulting native frame / miscompiled function), then
+fix the native lowering. Deep native-backend follow-up. Original repro below.
+
 ## bnc `-O1+` on the LLVM backend: the 24 type-mismatch failures — DONE (2026-08-31)
 
 `BINATE_FLAGS=-O2 ./conformance/run.sh builder-comp` (the never-run bnc-`-O1+`-on-LLVM
