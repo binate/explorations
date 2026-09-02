@@ -74,8 +74,10 @@ fall-through), native arm32 2951/0, VM builder-comp-int 2985/0; aa64 unit tests 
 thunk test; ffi-export.sh e2e 4/4; hygiene 20/20. Adversarial re-review CONFIRMED the design on
 all three backends (found + fixed one test-only blocker: the test used a bare `sym` undefined
 in test scope -> symFor("test","test.Sgn")). This lands the perf item "Binate callers should
-not pay #[c_export] normalization". FOLLOW-UP (non-blocking, reviewer Point 5): add x64 + arm32
-non-empty-thunk unit-test analogs (x64 int8 param; arm32 int8/int16 since int32 is word-sized).
+not pay #[c_export] normalization". FOLLOW-UP (reviewer Point 5) DONE (commit f7a2779e5): added x64 + arm32
+non-empty-thunk unit-test analogs (both use an int8 param — the minimal narrow GP arg; on arm32
+int32 is word-sized so it would give an empty alias==sym prefix), matching aarch64's
+TestEmitFuncCExportNarrowParamPrefix.
 Prior related landings this session: reg-narrow a171551d0, readonly-sweep 771e00d96, 1227 xfail
 f99916ef2; MINOR 2 (arm32 wordBits) f1be038bc.
 
