@@ -92,10 +92,11 @@ libraries) dynamically is expected and essential — it is the sanctioned "C int
 
 **Remaining:** none of the milestone items — Step 7 (interpreted drivers, the original
 goal) LANDED 2026-09-01 as `9e865237d` (`bnld -driver`; design + review in
-plan-step7-driver.md).  Optional follow-ups only: `--link-after-objs`/`-l` through bnld;
-and the Step 7 v1 shortcuts (driver search paths as flags; a public driver-API package so
-drivers can live in examples/).  macOS/Mach-O via bnld AND the default LLVM backend +
-`--linker bnld` were LANDED earlier — see below.
+plan-step7-driver.md).  Optional follow-ups: `--link-after-objs` (extra objects + shared
+libs) through the bnld path DONE 2026-09-02 as `c1a9293c5`.  Still open: the Step 7 v1
+shortcuts — driver search paths as flags DONE (`dadd3ce9c`); a public driver-API package
+so drivers can live in examples/ remains.  macOS/Mach-O via bnld AND the default LLVM
+backend + `--linker bnld` were LANDED earlier — see below.
 
 ### macOS + bnld — LANDED (2026-09-01, commit 3314904ff)
 
