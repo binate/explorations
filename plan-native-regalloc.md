@@ -212,13 +212,24 @@ and `clobbers(ins)`.
   recorded above; the bounds-check/nil-check exclusion was verified SOUND on all three arches. No
   codegen change → all modes green. Per-arch **physical** register-class descriptors are deferred to
   each arch's stage (they are emission-coupled, not arch-neutral).
-- **Stage 1 — aarch64 linear-scan, caller-saved only (X9–X15); spill any interval that spans a
-  clobber.** Rewire the landing handlers (C1/C3/C5), drop per-instruction reset for allocated
-  values, add the bring-up assertion (below). Wins for straight-line + clobber-free loops (hotloop →
-  registers). Validate `native_aa64`; update byte-count tests; disassemble `hotloop`. (aarch64's
-  returning-call clobber set = `EmitsReturningBl` with no per-arch additions, so it is complete.)
-- **Stage 2 — aarch64 callee-saved (X19–X28) + prologue/epilogue save/restore + param entry shuffle
-  (G1).** Cross-clobber values stay in registers. Validate `native_aa64` + USER-CPU benchmark.
+- **Stage 1a — arch-neutral linear-scan assignment in `common`. DONE — landed `54d53251c`.**
+  `regalloc_scan.bn`: `RegClassDesc`, `ClobberPositions`, whole-interval `LinearScan` with expiry.
+  No emission change; unit-tested (no-overlap invariant, pressure spill, clobber-span, spansClobber).
+- **Stage 1b — aarch64 register allocation wired into emission. DONE — landed `f4bb7f4b7`.**
+  **REORDERED from the plan (adversarially reviewed, sound):** homes come from the **callee-saved**
+  bank X19–X28, NOT caller-saved X9–X15 — disjoint from the X9–X17 scratch pool (existing scratch
+  path untouched) and callee-saved so a homed value survives calls (no clobber-spill). This folds the
+  plan's Stage 1 (caller-saved) and Stage 2 (callee-saved) into one step, adding prologue/epilogue
+  save/restore. `AllocateRegisters` runs the pipeline; getOperand/nextReg use a persistent home-map;
+  PlanFrame reserves the save area inside the frame; params/call-results land in home registers; the
+  landing handlers (C1) and REM read-after-write (C5) are handled; floats/aggregates excluded (C6).
+  **New bug class found + fixed:** ops that mutate an OPERAND register in place —
+  `emitRefIncInline`'s pre-index writeback `LDR [ptr,#-16]!` corrupted a homed pointer (safe only
+  under spill-everything); fixed to SUB-into-scratch. The pre-landing 3-reviewer sweep found no other
+  instance. Validated: `native_aa64` conformance 2995/0; bnc self-compiles natively; -O2 `hotloop`
+  keeps loop-carried values in registers. Regression test `conformance/1231_regalloc_managed_ptr_refinc`.
+  Note: since all homes are callee-saved, the clobber machinery (`spansClobber`/`ClobberPositions`)
+  is present but inert on aarch64 — it activates when a stage populates caller-saved (Stage 5).
 - **Stage 3 — x64** (two-address, RAX/RDX/RCX reserved+clobbered, R12–R15). Validate `native_x64`.
 - **Stage 4 — arm32** (pool already callee-saved; int64 spilled). Validate `native_arm32`; protect the
   1-xfail baseline.

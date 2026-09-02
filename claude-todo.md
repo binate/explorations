@@ -194,7 +194,7 @@ Possible later extension (not planned): inlining callees containing
 indirect/iface/c-call/handle dispatch (currently disqualifying; raises
 cross-mode-vtable / c-ABI questions).
 
-### Native register allocator — 🔵 IN PROGRESS (Stage 0 landed; Stage 1 next, 2026-09-01)
+### Native register allocator — 🔵 IN PROGRESS (aarch64 DONE + landed; x64/arm32 next, 2026-09-02)
 
 THE lever for the native↔clang gap.  ROOT CAUSE CONFIRMED (disassembly): the native backend
 is a **stack machine with no register allocation** — `common.PlanFrame` gives every scalar SSA
@@ -229,13 +229,43 @@ validator catches a dropped range).  Three-reviewer adversarial pass: code sound
 clobber-set omissions (RODATA_MSLICE_COPY, STACK_FRAMES) + recorded the per-arch clobbers above;
 bounds/nil-check exclusion verified sound on all three arches.
 
-**Stage 1 (NEXT):** aarch64 linear-scan, caller-saved only (X9–X15), spill any interval spanning a
-clobber.  aarch64's returning-call clobber set = `EmitsReturningBl` with no per-arch additions, so
-it is the safe first consumer.  Rewire the landing handlers (call-result/param/return land in the
-home register, not the slot; aarch64 REM read-after-write), drop the per-instruction reg reset for
-allocated values, add the independent bring-up clobber assertion.  Validate `native_aa64`; update
-byte-count tests; disassemble `hotloop`.  (An unrelated "correct stale Backend-dispatch comment"
-change remains worktree-only / not landed.)
+**Stage 1a (DONE — landed `54d53251c`):** the arch-neutral linear-scan assignment in
+`native/common` (`regalloc_scan.bn`) — `RegClassDesc`, `ClobberPositions`, `LinearScan`
+(whole-interval, expiry). No emission change; unit-tested (distinct regs / pressure spill / expiry
+reuse / clobber-span / spansClobber semantics / the no-overlap invariant).
+
+**Stage 1b (DONE — landed `f4bb7f4b7`):** aarch64 register allocation wired into emission.
+**DEVIATION from the plan (adversarially reviewed, confirmed sound):** home registers come from the
+**callee-saved** bank X19–X28, NOT the plan's caller-saved X9–X15 — chosen because it is disjoint
+from the X9–X17 scratch pool (so the existing operand-reload / scratch path is untouched) and
+because callee-saved registers survive calls (no clobber-spill needed).  This re-orders the plan's
+Stage 1 (caller-saved) and Stage 2 (callee-saved) into one step, at the cost of prologue/epilogue
+save/restore.  `AllocateRegisters` (a RegMap method) runs the pipeline; getOperand/nextReg consult a
+persistent home-map; PlanFrame reserves the save area inside the frame; params/call-results land in
+home registers.  **Miscompile found + fixed:** `emitRefIncInline` used a pre-index writeback
+(`LDR [ptr,#-16]!`) that mutated the pointer register — safe only under spill-everything (throwaway
+scratch), fatal with the pointer in a persistent home register (`make(T)` returned `ptr-16`, field
+reads yielded the refcount).  Fixed to a SUB-into-scratch (like refdec); regression test
+`conformance/1231_regalloc_managed_ptr_refinc`.  A new bug **class** — ops that mutate an operand
+register in place — the pre-landing 3-reviewer pass swept for and found no other instance.  Validated:
+`native_aa64` conformance **2995 passed / 0 failed**; bnc self-compiles natively; -O2 `hotloop`
+keeps loop-carried values in registers.
+
+**NEXT — remaining arches + refinements:**
+- **x64** (plan Stage 3): wire the allocator into `native/x64`; its descriptor must add **OP_REFINC**
+  to the clobber set (x64 calls rt.RefInc), reserve RAX/RDX/RCX (ret/div/shift), and handle the
+  two-address `rd ∉ operands-read-after-write` constraint.  The same "operand-mutation" bug class
+  must be swept (x64 has its own in-place-mutating lowerings).  Validate `native_x64_darwin`.
+- **arm32** (plan Stage 4): wire into `native/arm32`; descriptor adds the int64 + soft-float AEABI
+  libcall clobbers; int64 stays spilled (register pairs).  Validate `native_arm32_baremetal`,
+  protect the 1-xfail baseline.
+- **Stage 5 refinements** (additive): caller-saved homes for call-free regions of leaf functions
+  (avoids the prologue save/restore when a value never crosses a call — the current all-callee-saved
+  choice pays save/restore even for leaves); interval splitting; copy coalescing (elide phi-copy
+  `mov`s); a spill-cost heuristic (use-density × loop depth — the current naive "spill the new
+  interval on pressure" is correct but suboptimal); float register allocation.
+
+(An unrelated "correct stale Backend-dispatch comment" change remains worktree-only / not landed.)
 
 ## Performance — bni load time
 
