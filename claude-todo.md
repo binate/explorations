@@ -340,6 +340,35 @@ heuristics (size/callsite thresholds), argument + refcount handling, recursion
 guards, code-bloat control, interaction with mem2reg/load-fwd/BCE ordering. This is
 where the leverage is for the ratio; do after (2a).
 
+### Native register allocator — 🔵 IN PROGRESS (Stage 0 next, 2026-09-01)
+
+THE lever for the native↔clang gap.  ROOT CAUSE CONFIRMED (disassembly): the native backend
+is a **stack machine with no register allocation** — `common.PlanFrame` gives every scalar SSA
+value a stack slot and the emitter resets registers after every instruction
+(`common.bn:113-115` "spill everything ... a real allocator can reclaim later"), so every op is
+ldr/compute/str through memory.  `hotloop` (6 loop-carried values) = **80 memory ops** native vs
+**8** clang.  This is why native `-O2` ≈ `-O0` (mem2reg promotes, the backend spills it away) and
+native is ~9-12× slower than clang whole-program.
+
+**PLAN: `explorations/plan-native-regalloc.md`** (v2, incorporates an adversarial review).
+Design: linear-scan over **range-list** live intervals built from the **liveness fixpoint**;
+shared liveness/intervals/scan in `native/common` + per-arch register-class descriptor; the
+correctness core is a per-op **clobber & scratch model** (each arch declares `clobbers(ins)` —
+caller-saved for ALL BL-emitting ops incl. OP_REFDEC/MAKE/BOX/MAKE_SLICE/fault-checks, x64
+div/shift fixed regs, arm32 div-check's 7-reg scratch); values live across a clobber → callee-
+saved or spill.  Review-flagged handler changes (NOT "untouched"): call-result/param/return
+handlers must land values in the home register not the slot; aarch64 REM + x64 two-address/div
+need `rd ∉ operands-read-after-write`; float scalars must be explicitly excluded; stop hardcoding
+X16 / x64 pool-order.  Staged aarch64→x64→arm32, each green + cherry-pickable.
+
+**Stage 0 (NEXT):** the reusable core in `native/common`, NO codegen change (all modes stay
+green) — RPO linearization (handle unreachable blocks), liveness fixpoint (backward dataflow),
+range-list interval construction (correct for the loop-carried phi-copy-shared-id: one id, defs
+in latch + pre-header), per-arch clobber-set enumeration, and a validator; unit-tested on
+hand-built IR (loop phi case + forced-pressure spill).  Then Stage 1 = aarch64 caller-saved-only
+allocation.  (Work on the binate worktree; the small "correct stale Backend-dispatch comment"
+commit `94b336ab8` is worktree-only / undecided — not landed.)
+
 ## Performance — bni load time
 
 `bni` "loading" a program (parse → typecheck → IR-gen → bytecode-lower, before
