@@ -6,6 +6,20 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## bnc: aarch64-darwin (macos-arm64) --target key for cross-building macOS Mach-O — DONE (2026-09-02, commit 6b32c8b3e)
+
+bnc had no explicit macos-arm64 target key (only x86_64-darwin), so a macOS arm64 Mach-O
+came only from a host build on Apple Silicon.  Added the "aarch64-darwin" key — arm64 +
+LP64 + Mach-O output + "main" entrypoint, mirroring x86_64-darwin: cmd/bnc/target.bn's
+applyTarget sets the aarch64-apple-darwin triple, nativeArchForTarget /
+nativeObjFormatForTarget map it to aarch64 / macho, and buildcfg.ConfigForTargetKey maps it
+to (aarch64, darwin) so the #[build] gates and the #[c_export("main")] entry resolve.  So
+bnc can cross-target a macOS arm64 binary from any host; pair with --linker bnld (clang can
+cross-COMPILE a Mach-O object but not cross-LINK it without a macOS SDK, and bnld does the
+final link).  Verified: `bnc --backend native --target aarch64-darwin --linker bnld`
+produces a runnable arm64 Mach-O.  Tests: buildcfg_test chkKey("aarch64-darwin");
+e2e/bnc-bnld-macos.sh drives both backends with the explicit --target aarch64-darwin key.
+
 ## bni load time — traits-policy table.Table conversions (batch 2) + GetOrPut — DONE (archived 2026-09-02)
 
 Follow-on to the earlier archived pieces (token.Lookup, the iv-thunk weak_odr
