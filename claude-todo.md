@@ -7,18 +7,41 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### native: concurrent native-compiles collide -> "native backend failed to emit object" — 🟠 OPEN (found 2026-09-01)
+### native: concurrent native-compiles collide -> "native backend failed to emit object" — 🟠 OPEN, ROOT-CAUSED (found 2026-09-01; diagnosed + reproduced 2026-09-01)
 
-Non-deterministic: the SAME gen1 native-compiling the SAME package (and `--backend native
-cmd/bnc`) FAILS then SUCCEEDS depending on whether other native-compiles overlap. Strongly
-suggests shared/global state (or a fixed temp path) in the native EmitObject path that is
-unsafe under concurrent invocations — apparently including WITHIN a single `gen1 --backend
-native cmd/bnc` build if it compiles dependency packages in parallel. Confounds direct
-repros; the conformance (sequential build) is unaffected, so it is not blocking the thunk
-verification. NEEDS: find the shared state (grep native EmitObject / asm for package-global
-buffers or fixed temp paths) and make it per-invocation. Discovered while verifying the
-c_export thunk above.
+ROOT CAUSE (confirmed, reproduced): NOT native-backend-specific and NOT shared *process* state
+— it is a shared FILESYSTEM path. When `--build-dir` is unset, `outPrefixFor` (cmd/bnc/compile.bn)
+returns the fixed prefix `/tmp/binate_<base>_` where `<base> = shortName(-o output || input
+filename)` — process-independent, and dir-stripped (shortName), so even two builds to DIFFERENT
+directories with the same basename (e.g. two checkouts each building `bnc`) share it. Every
+module's intermediates land at `/tmp/binate_<base>_<module>.{ll,o}`; the whole-program link
+path then `remove()`s every `oFiles[i]` after linking (cmd/bnc/main.bn ~425). Two concurrent
+builds with the same base clobber each other: one finishes and deletes the shared `*.o` while
+the other is still linking -> `clang: error: no such file or directory:
+'/tmp/binate_<base>_pkg__...o'` -> `error: link failed`. Same fixed-path bug in TWO more spots:
+`assembleDotSFile` (cmd/bnc/main.bn:69 -> `/tmp/bnrt_<stem>.o`) and `bnld_link.bn:115`
+(`/tmp/bnrt_start_<obase>`). The `outPrefixFor` doc-comment already ADMITS it: "the historical
+layout that shares /tmp across concurrent runs." The harness is immune because every runner
+passes `--build-dir "$(mktemp -d)"`; the bug bites manual/ad-hoc concurrent builds without
+`--build-dir` (exactly the direct `gen1 --backend native cmd/bnc` repro attempts that first
+surfaced it).
 
+REPRO (deterministic): 3 concurrent `gen1 --backend native -o <same> cmd/bnc` (no --build-dir),
+x3 rounds -> 6/9 failed, each round exactly 1 survivor + 2 clobbered, all with the "no such file
+.../tmp/binate_<base>_<module>.o -> link failed" signature. A tiny 1-module program does NOT
+repro (window too small); the many-module cmd/bnc does.
+
+FIX (proposed, pending user decision on approach): make the default (no --build-dir) intermediate
+location unique per invocation. Best primitive = libc `mkdtemp` via the existing `__c_call`
+mechanism (atomic, race-free, matches the harness's `mktemp -d`; no new syscall, no PID-recycle
+risk) creating `/tmp/binate_XXXXXX`, used as the effective build dir so all three fixed-path
+sites inherit it. Single central change (default cli.BuildDir when empty). Open sub-decisions:
+(a) home the helper as idiomatic `os.MkdirTemp` (expands os API: bni + hosted __c_call impl +
+baremetal stub + tests) vs a local cmd/bnc helper; (b) cleanup policy — the link path already
+removes the .o's so rmdir the now-empty temp dir at exit; the single-module (emit-.o, no link)
+path must KEEP its .o, so it can't auto-clean (leaks one temp dir, same as today's /tmp leak).
+bnc always runs as a compiled HOST binary (the VM runs test programs, not bnc), and hosted `os`
+already uses __c_call pervasively, so __c_call("mkdtemp") is compat-safe.
 ### native: builtin to obtain a raw C-callable function pointer (THUNK) for ANY Binate function — 🟡 NATIVE-BACKEND / C-interop, feature (found 2026-09-01; supersedes the c_export callback-gate scope-limitation)
 
 Today the only supported C->Binate entry is a `#[c_export]`-named function; there is no way
