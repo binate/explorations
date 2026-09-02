@@ -384,10 +384,15 @@ flagged LAYOUT SEMANTICS that become breaking once drivers depend on them.  Reso
   compact packing** and `p_paddr` from LMA.  Cannot be patched onto the contiguous model —
   budget a rewrite.  The entry-in-range guard (`entry>=base && entry<memEnd`) must relax for
   multi-region.
-- **Region state carries BOTH a VMA cursor and an LMA cursor + length**, and the engine
-  **checks region overflow** (accumulated size ≤ length; GNU ld errors here — load-bearing for
-  fixed flash/RAM).  Case A's `.data` advances RAM's VMA cursor and FLASH's LMA cursor
-  simultaneously; FLASH overflow must count text+rodata+data-image.
+- **Region state carries ONE allocation cursor + length** (CORRECTED from the earlier
+  "two cursors" pin — the implementation and adversarial review, 2026-09-02, found a single
+  cursor is not just sufficient but *required*).  A single `Next` per region is drawn from by
+  a section's VMA (`> REGION`) AND by a section's LMA (`AT> REGION`), so case A's `.text >
+  FLASH` and `.data`'s `AT> FLASH` load image serialize in flash (`_sidata` lands right after
+  `.text`); TWO independent cursors would let `.text`'s VMA and `.data`'s LMA both start at
+  FLASH origin and OVERLAP.  This matches GNU ld (a region has one position pointer).  The
+  engine **checks region overflow** (accumulated `Next` ≤ origin+length; GNU ld errors here —
+  load-bearing for fixed flash/RAM), counting text+rodata+data-image against FLASH.
 - **`*(COMMON)`** has no input-model representation (`InputSymbol` lacks SHN_COMMON); the
   reader/engine must synthesize a common area from tentative defs.  Real for baremetal C
   (cases A/D).
@@ -403,10 +408,17 @@ flagged LAYOUT SEMANTICS that become breaking once drivers depend on them.  Reso
 
 ### Revised plan ordering (post-review)
 
-1. Engine core — `LayoutBuilder` (one object; primitives + section-convenience methods), glob
-   matcher, consume-once pool, eager address assignment, VMA+LMA region cursors + overflow
-   check, orphan policy; produces `LayoutResult` (now with per-section LMA) + an absolute
-   script-symbol set.  Unit-tested on synthetic InputObjects (no emit).
+1. ✅ DONE (landed 2026-09-02, commit d1914bdc0) — Engine core `LayoutBuilder`: primitives,
+   glob matcher (split into `builder_glob.bn`), consume-once pool, eager address assignment,
+   ONE allocation cursor per region + overflow check, fail-loud routing-after-content guards,
+   input-size clamp, orphan policy; produces `LayoutResult` (with per-section `Lma`; `Addr`
+   stays VMA) + an absolute script-symbol set (`AbsSyms`).  Unit-tested on synthetic
+   InputObjects (no emit).  NOT the two-cursor model the earlier pin described — see the
+   corrected majors bullet above.  Deferred to the emit step (4): the OUTPUT-SECTION START is
+   not auto-aligned to its own `Align` (individual inputs get correct aligned VMAs, but
+   `OutputSection.Addr` can be non-`Align`-aligned; ELF `sh_addr ≡ 0 mod sh_addralign` must be
+   satisfied when emit is wired — either auto-align the section start then or mandate
+   `SectionAlign`/`SetDot` by contract; LMA start alignment likewise).
 2. Absolute-symbol injection into `Resolve`/`Lookup`; `Finish` wiring.
 3. **arm32 relocator** (`patchArm32`) — prerequisite for A/D.
 4. Emit rewrite: LMA-keyed per-region ELF packing (`p_paddr` from LMA, multi-region file
