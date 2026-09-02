@@ -1,13 +1,21 @@
 # Proposal: `__c_entry` — a raw C-callable function pointer for any Binate function (`proposal-c-entry-builtin`)
 
-Status: **PROPOSAL — adversarially reviewed (two lenses, both SOUND-WITH-MUST-FIXES;
-all fixes applied below), awaiting ratification.** Spec design only; the
-implementation is planned/executed separately. Executes the todo "native:
-builtin to obtain a raw C-callable function pointer (THUNK) for ANY Binate
-function" (which supersedes the c_export callback-gate scope-limitation).
-**The review also surfaced two MAJOR pre-existing `#[c_export]` implementation
-bugs, raised separately in `claude-todo.md` (§8 below) — they gate nothing in
-this design but must not be laundered by it.**
+Status: **RATIFIED — spec landed as Draft, pending implementation (2026-09-02, docs `a03d4b2`).**
+Ratified with a framing correction from the owner: **the spec must not mention
+thunks, backends, or ABI mechanics** — thunks exist only because of an
+implementation choice (Binate-only entries are made cheaper by not being
+C-callable; under a different choice or C ABI, every function might be directly
+C-callable), so the landed spec text states only the language-level observable
+(`pkg.cexport.semantics`: callable from C with the mapped C signature, behaves
+as a call to `f`, caller-side §18.5 obligations, single-thread execution-model
+limit, mechanism deliberately unspecified) plus `pkg.centry` /
+`pkg.centry.eligible` / `pkg.centry.identity`. The four open questions were
+ratified as recommended: name `__c_entry`; generics rejected for now; signature
+rule shared with `#[c_export]`; `*uint8` result. §§2-3 below are the
+pre-correction draft (superseded by the landed rules — the spec is
+authoritative); §4's implementation notes remain valid **implementer guidance
+that is deliberately NOT spec content**. The two MAJOR `#[c_export]` bugs of §8
+remain open in `claude-todo.md`.
 
 ## 1. Problem
 

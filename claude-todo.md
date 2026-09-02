@@ -109,7 +109,7 @@ THUNK — the thunk performs the C->Binate ABI adaptation (narrow-param normaliz
 other C-vs-Binate ABI differences) and the returned pointer points at the thunk, not the bare
 Binate entry.  This is the same thunk mechanism as the #[c_export]-thunk item above (a
 #[c_export] is just the named/eager instance of "give C a callable pointer to this function").
-Design the builtin + thunk generation together with that item. **Proposal written + adversarially reviewed (2026-09-02): `proposal-c-entry-builtin.md`** — spec design for `__c_entry(f) -> *uint8` (the "C entry" concept + companion §16.9 corrections + open bikesheds), awaiting ratification; implementation to be planned separately. NOTE (2026-09-01, c_export-prefix review): now that #[c_export] normalization is a C-entry PREFIX (the mangled `sym` sits AFTER it), taking a function's address yields `sym` and thus SKIPS normalization — so this builtin MUST return the ALIAS/prefix address (the C-ABI entry), not the bare mangled entry, for a #[c_export] function, and must synthesize an equivalent normalizing prefix/thunk for a non-c_export function.
+Design the builtin + thunk generation together with that item. **Proposal written + adversarially reviewed (2026-09-02): `proposal-c-entry-builtin.md`** — spec design for `__c_entry(f) -> *uint8` (the "C entry" concept + companion §16.9 corrections + open bikesheds), **RATIFIED — spec landed as Draft (docs `a03d4b2`, 2026-09-02):** rules `pkg.cexport.semantics` + `pkg.centry`/`.eligible`/`.identity` (§16.9), `__c_entry(f) -> *uint8`, mechanism deliberately unspecified in spec text (no thunk/ABI talk — owner's framing). **Remaining: the implementation** (the proposal's §4 carries the implementer notes: use-site-weak emission, branch-not-fall-through/ld64 lesson, degenerate direct-reference case, and the two related MAJOR bugs above must be fixed or at least not worsened by it). NOTE (2026-09-01, c_export-prefix review): now that #[c_export] normalization is a C-entry PREFIX (the mangled `sym` sits AFTER it), taking a function's address yields `sym` and thus SKIPS normalization — so this builtin MUST return the ALIAS/prefix address (the C-ABI entry), not the bare mangled entry, for a #[c_export] function, and must synthesize an equivalent normalizing prefix/thunk for a non-c_export function.
 
 ### `_func_handle` accepts a generic function reference — latent dangling-symbol link failure — 🟢 minor (found 2026-09-02)
 
@@ -374,6 +374,21 @@ flat `pkg/std/{vec,table,mapfn,fmt,cmp,hash,…}`).  Remaining steps:
    trivially) when no forwarders exist, and re-arms when the next promotion adds some.
 
 ## Documentation hygiene
+
+### An ABI spec does not exist — calling-convention / C-type-mapping material has no home — 🟡 OPEN (raised 2026-09-02)
+
+Observed while ratifying `proposal-c-entry-builtin`: the language spec now
+deliberately avoids backend/ABI mechanics (per the owner: "the spec shouldn't be
+worrying about backends or even the ABI"), but there is **no ABI spec** to push
+that material into. Facts that currently have no normative home (or squat in the
+language spec): the per-target calling convention and register/stack argument
+conventions, sub-word canonicalization expectations at entries/returns, and the
+C-type mapping detail inside `pkg.cexport.signature` (slice = `{T* data;
+ptrdiff_t len}`, the byval cutoff, sret, the func-value field order) — which is
+arguably ABI-spec content the language spec merely references. §7.13 layout
+stays in the language spec (it is the dual-mode language contract), but the
+*calling-convention* layer needs its own document. Decide scope + home
+(docs/abi? an annex?) with the owner before authoring.
 
 ### Code comments reference only normative docs + TODOs; rehome the implementation "specs" — 🟡 OPEN
 
