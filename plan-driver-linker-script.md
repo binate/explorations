@@ -191,15 +191,131 @@ Dynamic ELF / Mach-O keep their structural layout; scripted layout is a **static
 6. **Explicit PHDRS emit** (case B) + a higher-half-style e2e.
 7. Ship the Layer-1 + Layer-2 API in `pkg/binate/link.bni`; reference scripted drivers.
 
-## Open scope questions for the user
+## Scope decisions (user, 2026-09-02)
 
-1. **v1 implementation cut**: is "primitives + spec for A/C/D now, explicit-PHDRS emit (B)
-   second, but ALL primitive signatures (incl. segments) shipped in v1 so the shape is
-   locked" the right line?  Or should B's emit be in the first cut too?
-2. **Raw-binary output**: confirm we want bnld to emit raw binary (needed for C).  It's a new
-   output backend (no ELF/Mach-O container) — small, but a new format we "support
-   internally."
-3. **Representative set**: are A (Cortex-M firmware), B (higher-half kernel), C (MBR
-   bootloader), D (our baremetal) the right four to lock the shape against, or is there
-   another class (e.g. a hypervisor / a position-independent loader / a multi-region DSP
-   image) whose shape we should also check now?
+1. **v1 cut**: implement primitives + spec for **A/C/D now**; **B's explicit-PHDRS emit lands
+   second** — but ALL Layer-1 primitive signatures (incl. segments) ship in v1 so the shape
+   is locked now.
+2. **Raw-binary output**: **yes** — add a raw-binary emit backend (needed for C, common for
+   firmware images).
+3. **Representative set**: **A/B/C/D is enough** to lock the shape — proceed to pin down the
+   primitive signatures against them.
+
+## API pin-down (design step 1) — the four use cases as driver code
+
+Each use case written against the Layer-1 primitives, to prove the signatures are complete
+and ergonomic BEFORE implementation.  (Illustrative Binate; error handling elided; a driver's
+`Drive(objs @[]@[]char, out @[]char, target @[]char)` first reads the object paths into
+`@[]@InputObject` via `link.ReadObject` — shown as `readAll(objs)` — and, if it links
+archives, selects members via `link.SelectMembers`.)
+
+### D. baremetal (declarative Layer-2 — the common case)
+
+    script := link.NewScript("_start")
+    script.Region("RAM", 0x40000000, 16*1024*1024, link.AttrRWX)
+    sText := script.Section(".text", link.SF_READ|link.SF_EXEC); sText.Region("RAM"); sText.Align(4)
+    sText.Keep("*(.text.startup)"); sText.Place("*(.text*)"); sText.Place("*(.rodata*)")
+    sX := script.Section(".ARM.exidx", link.SF_READ); sX.Region("RAM"); sX.Align(4)
+    sX.SymbolAtDot("__exidx_start"); sX.Place("*(.ARM.exidx*)"); sX.SymbolAtDot("__exidx_end")
+    // ... .ARM.extab, .data ...
+    sBss := script.Section(".bss", link.SF_READ|link.SF_WRITE); sBss.Region("RAM"); sBss.Align(4)
+    sBss.SymbolAtDot("__bss_start"); sBss.Place("*(.bss*)"); sBss.Place("*(COMMON)")
+    sBss.SymbolAtDot("__bss_end")
+    script.AlignDot(8)
+    script.Symbol("_stack_top", 0x40000000 + 16*1024*1024)   // driver knows the literals
+    err := link.LinkWithScript(readAll(objs), script, out)   // ELF (default)
+
+### C. MBR bootloader (imperative Layer-1 — raw binary, data, pad)
+
+    b := link.NewLayout(link.EM_X86_64); b.SetInputs(readAll(objs))
+    b.SetDot(0x7C00)
+    b.BeginSection(".text", link.SF_READ|link.SF_EXEC); b.Place("*(.text*)", false); b.EndSection()
+    b.BeginSection(".sig", link.SF_READ)
+    b.PadTo(0x7C00 + 0x1FE, 0x00)         // fill to offset 510
+    b.EmitData([2]uint8{0x55, 0xAA})       // boot signature (SHORT 0xAA55, little-endian)
+    b.EndSection()
+    if e := b.Finish(); len(e) != 0 { return e }   // resolve + relocate
+    err := b.EmitRawBinary(out)
+
+### A. Cortex-M firmware (imperative — two regions, LMA≠VMA ROM→RAM copy)
+
+    b := link.NewLayout(link.EM_ARM); b.SetInputs(readAll(objs))
+    b.DefineRegion("FLASH", 0x08000000, 512*1024, link.AttrRX)
+    b.DefineRegion("RAM",   0x20000000, 128*1024, link.AttrRWX)
+    b.SetDotToRegion("FLASH")
+    b.BeginSection(".isr_vector", link.SF_READ); b.SectionAtRegion("FLASH")
+    b.Place("*(.isr_vector)", true /*KEEP*/); b.EndSection()
+    b.BeginSection(".text", link.SF_READ|link.SF_EXEC); b.SectionAtRegion("FLASH")
+    b.Place("*(.text*)", false); b.Place("*(.rodata*)", false); b.EndSection()
+    dataSec := b.BeginSection(".data", link.SF_READ|link.SF_WRITE)
+    b.SectionAtRegion("RAM")            // VMA cursor = RAM
+    b.SectionLoadRegion("FLASH")        // AT> FLASH : LMA cursor = FLASH
+    b.SymbolAtDot("_sdata"); b.Place("*(.data*)", false); b.SymbolAtDot("_edata")
+    b.EndSection()
+    b.DefineSymbol("_sidata", b.LoadAddrOf(dataSec))   // LOADADDR(.data)
+    b.BeginSection(".bss", link.SF_READ|link.SF_WRITE); b.SectionAtRegion("RAM")
+    b.SymbolAtDot("_sbss"); b.Place("*(.bss*)", false); b.Place("*(COMMON)", false)
+    b.SymbolAtDot("_ebss"); b.EndSection()
+    b.DefineSymbol("_estack", 0x20000000 + 128*1024)
+    b.SetEntry("Reset_Handler")
+    if e := b.Finish(); len(e) != 0 { return e }
+    err := b.EmitElf(out)              // ELF carrying p_paddr(LMA)≠p_vaddr(VMA) for .data
+
+### B. Higher-half kernel (imperative — explicit PHDRS, LMA = VMA − offset)  [v1 shape; emit 2nd]
+
+    KVMA := cast(uint64, 0xffffffff80000000)
+    b := link.NewLayout(link.EM_X86_64); b.SetInputs(readAll(objs))
+    segText := b.DefineSegment("text", link.PT_LOAD, link.PF_R|link.PF_X)
+    segData := b.DefineSegment("data", link.PT_LOAD, link.PF_R|link.PF_W)
+    b.SetDot(0x100000)                                   // physical load
+    boot := b.BeginSection(".boot", link.SF_READ|link.SF_EXEC)
+    b.Place("*(.multiboot)", true); b.AssignSection(boot, segText); b.EndSection()
+    b.SetDot(b.Dot() + KVMA)                             // move to high half
+    t := b.BeginSection(".text", link.SF_READ|link.SF_EXEC)
+    b.SectionLoadAddr(b.Dot() - KVMA)                    // AT(ADDR(.text) - KVMA)
+    b.Place("*(.text*)", false); b.AssignSection(t, segText); b.EndSection()
+    // ... .rodata -> segText, .data/.bss -> segData, each SectionLoadAddr(Dot()-KVMA) ...
+    b.SetEntry("_start")
+    if e := b.Finish(); len(e) != 0 { return e }
+    err := b.EmitElf(out)              // explicit PHDRS emit — the part landing second
+
+### What the exercise changed / pinned
+
+- **`SetInputs(objs)`** (the pool patterns match against) is explicit and separate from
+  reading — the driver reads paths→objects (and selects archive members via
+  `link.SelectMembers`) first.  `Place`/`Keep` glob over the pool's input-section names.
+- **Two cursors per region**: a VMA cursor (`SetDotToRegion`/`SectionAtRegion`) and an
+  independent **LMA cursor** (`SectionLoadRegion` for `AT>`).  `SectionLoadAddr(addr)` sets an
+  explicit LMA (kernel `AT()`).  Default LMA = VMA when neither is set.
+- **`Section` handle** returned by `BeginSection`/`Section`, needed by `LoadAddrOf(sec)`
+  (LOADADDR) and `AssignSection(sec, seg)` (PHDRS).
+- **`Dot()`** exposes the live location counter for driver-side arithmetic (kernel `AT()`,
+  higher-half offset) — the one thing the driver can't precompute.
+- **`Finish()`** is a distinct step (resolve cross-refs against frozen addresses + inject
+  script symbols + relocate) BEFORE `EmitElf`/`EmitRawBinary` — so the output FORMAT is
+  chosen after layout, and the same laid-out image can emit as ELF or raw binary.
+- **Region attrs** (`AttrRX`/`AttrRWX`/…) and **segment/phdr consts** (`PT_LOAD`, `PF_*`)
+  join the shipped consts alongside `EM_*`.  Region origin/length are driver literals (no
+  accessor needed); only LMA (`LoadAddrOf`) is engine-computed.
+- Declarative Layer-2 (`NewScript`/`Section`/`Place`/`Keep`/`SymbolAtDot`/`AlignDot`) is a
+  thin recorder that replays as the Layer-1 calls above — case D shows it; A/B/C use Layer-1
+  directly where they need LMA/segments/raw-data.
+
+### Refined Layer-1 primitive set (result of the pin-down)
+
+    NewLayout(machine) @LayoutBuilder
+    (b) SetInputs(objs @[]@InputObject)
+    (b) DefineRegion(name, origin uint64, length uint64, attrs int)
+    (b) Dot() uint64 / SetDot(addr) / AlignDot(n) / SetDotToRegion(name)
+    (b) BeginSection(name, flags) @Section / EndSection()
+        (sec)  SectionAtRegion(name) / SectionLoadRegion(name) / SectionLoadAddr(lma)
+    (b) Place(pattern, keep bool) / EmitData(bytes) / PadTo(addr, fill uint8)
+    (b) DefineSymbol(name, value uint64) / SymbolAtDot(name) / LoadAddrOf(sec) uint64
+    (b) DefineSegment(name, ptype, flags) @Segment / AssignSection(sec, seg)
+    (b) SetEntry(name) / SetEntryAddr(addr)
+    (b) Finish() @[]readonly char
+    (b) EmitElf(out) @[]readonly char / EmitRawBinary(out) @[]readonly char
+    // helpers: ReadObject/ReadArchive (have), SelectMembers(objs, archives) @[]@InputObject
+
+The shape covers A/B/C/D.  Next: implement (plan step 2 — engine core), with `DefineSegment`/
+`AssignSection`/`SectionLoadAddr` signatures shipped but their EMIT (case B) landing second.
