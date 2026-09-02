@@ -67,3 +67,20 @@ that printed `/tmp/cltest_bin shard-index 2 shard-count 4 --skip Foo`.
 Each step under qemu locally (Darwin has qemu-system-arm + ld.lld) and finally
 the full `scripts/unittest/run.sh builder-comp_arm32_baremetal` green with the
 markers; keep the Unit gate red until it lands (per the owner).
+
+
+## Status (2026-09-02)
+- Steps 1-3 (infra) landed `d4f2dfd52`.
+- Wiring (step 4-5): baremetal runner forwards `SKIP_FILTER`/`TEST_SHARD_*` via
+  `-append`; `--skip` is comma-separated multi-pattern — landed `ff5fcdf99`.
+- Markers (step 6): `cmd/bnld` xfail (`ff5fcdf99`), `pkg/binate/link` xfail
+  (`57cbd4c44`).  **link was xfail'd, NOT skip'd** — 56/133 of its tests write+read
+  /tmp object fixtures (no clean skip-prefix; the pure tests are covered on
+  arm32_linux), so a whole-package xfail is cleaner than a brittle 56-entry skip list.
+  (My earlier "baremetal runtime bug" read was WRONG — those tests are FS via
+  WriteX86_64/ReadObject, not a memcpy/allocator defect.)
+- The `--skip`/`--split` wiring is landed but currently UNUSED (link=xfail, bnld=xfail,
+  vm not sharded) — it's there for when the vm arena leak is bounded (then a
+  `pkg-binate-vm.split.builder-comp_arm32_baremetal` marker can shard vm to fit).
+- **Remaining baremetal red: `pkg/binate/vm` only** — the 4 MiB-arena LEAK (NOT xfail'd,
+  per the owner).  Next: investigate the leak (see claude-todo.md).
