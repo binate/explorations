@@ -127,6 +127,42 @@ before the API is fixed. Proposed initial signature, pending the spike:
 4. **Error/fault surfacing.** A driver fault (VM_STATUS_FAULTED) must become a clean
    bnld error + non-zero exit, not a swallowed failure — reuse cmd/bni's fault handling.
 
+## Implementation blueprint (spike — API verified 2026-09-01)
+
+The spike is de-risked: every API piece exists. `pkg/binate/interp/runfunc_typed_test.bn`
+is the canonical embedder template. The bnld `-driver` path is:
+
+    // inject set = stdlib + the compiled link library (its compiler-synthesized
+    // __Package() accessor — emitted for EVERY module, so link.__Package() exists).
+    var pkgs = append(interp.StandardPackages(), link.__Package())
+    var it @interp.Interp = interp.New(<stack>, pkgs)   // injects + marks link interface-only
+    it.AddBniPath(root); it.AddImplPath(root)            // resolve the driver's imports
+    var file @ast.File = parser.New(driverBytes, driverPath).ParseFile()
+    var loadErrs = it.LoadProgram([file])                // resolves imports, typechecks, lowers
+    // typed cross-boundary call — RunFuncTyped marshals Value args ↔ the VM:
+    var args = [interp.StringSliceValue(objs), interp.StringValue(out), interp.StringValue(target)]
+    var results, runErrs = it.RunFuncTyped(<driver-pkg>, "Drive", args)
+    var err @[]char = results[0].AsString()              // "" = ok
+
+Confirmed: `interp.New` injects `pkgs` as compiled instances AND adds them to
+`Ldr.InterfaceOnly` (link runs compiled, loads from its `.bni` only, is not lowered);
+`RunFuncTyped` type-checks + marshals `Value` args (`StringValue`/`StringSliceValue`
+supported) and returns `Value` results; `__Package()` is emitted for every module.
+Ratified `Drive` types adjust to the `Value` API: `Drive(objs @[]@[]char, out @[]char,
+target @[]char) @[]char`.
+
+**Design refinement the mapping surfaced — driver location.** A driver `import
+"pkg/binate/link"` and needs link's `.bni` to type-check; that interface is INTERNAL to
+the binate repo and is not shipped with a released toolchain. So the "standard drivers in
+`examples/`" decision cannot hold as-is: either (a) the spike + standard drivers live in
+the binate repo (where `pkg/binate/link.bni` exists), or (b) bnld first exposes a STABLE
+PUBLIC driver-API package (a curated `.bni`, distinct from the internal `link`) that
+drivers import and that ships with the toolchain — the cleaner long-term shape, a small
+design addition. Spike lives in the binate repo; revisit examples/ placement once a public
+driver-API package exists. (Spike-open items to settle empirically: whether `LoadProgram`
+needs the driver to be `package main` / have a `func main`, and the driver's package path
+passed to `RunFuncTyped`.)
+
 ## Incremental plan
 
 1. **Spike:** `bnld -driver` embeds the VM, injects `pkg/binate/link` + stdlib, runs a
