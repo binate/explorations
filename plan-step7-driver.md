@@ -163,6 +163,43 @@ driver-API package exists. (Spike-open items to settle empirically: whether `Loa
 needs the driver to be `package main` / have a `func main`, and the driver's package path
 passed to `RunFuncTyped`.)
 
+## Spike results (2026-09-01)
+
+The spike is built and runs the loop end-to-end **up to the typed call**, proving the core
+feasibility. What landed on the worktree (WIP, unlanded): `drivers/elf.bn` (a reference
+static-ELF driver exporting `Drive(objs @[]@[]char, out @[]char, target @[]char) @[]char`),
+and `cmd/bnld/{driver.bn,main.bn}` — a `-driver <path>` + `-I <root>` path that embeds the
+VM via `interp.New(16MB, StandardPackages() + link.__Package())`, reads+parses the driver,
+`LoadProgram`s it, and calls `RunFuncTyped("main", "Drive", [StringSliceValue(objs),
+StringValue(out), StringValue(target)])`. **bnld built** (it now embeds the VM + front-end
++ link, ~3 MB), assembled an `exit42.o` with bnas, and `bnld -driver drivers/elf.bn`
+parsed, injected, loaded, and lowered the driver with no crash.
+
+**What worked:** VM embed; injecting compiled `link` by `link.__Package()`; interface-only
+load of the injected set; parsing + `LoadProgram` of the driver (imports `pkg/binate/link`
++ `pkg/binate/buf` resolved via the standard search paths); reaching `RunFuncTyped`.
+
+**The one wrinkle it surfaced (clear fix):** `RunFuncTyped` resolves the target via
+`Checker.PackageType(pkg, fn)` → `lookupPackage` — a **CheckPackage-registered package
+scope**. But `TypecheckAll` (what `LoadProgram` uses) checks the driver as a MAIN PROGRAM
+via `c.Check(mainFile)`, NOT `c.CheckPackage("main", …)`, so `"main"` is not a
+lookupPackage-able scope and `RunFuncTyped("main","Drive")` returns "function not found in
+the type checker". So the entry-contract call needs the driver's function to live in a
+CheckPackage-registered scope. Three ways to close it (pick in the next increment):
+1. Load the driver as a NAMED package (the `TypecheckPackages` path cmd/bni uses for test
+   packages) rather than a main program, then `RunFuncTyped("<driver-pkg>","Drive",…)`.
+   Cleanest; the driver becomes `package "<name>"` at a loader-findable path.
+2. Add an interp entry that checks the loaded main file via `CheckPackage("main", …)` (or
+   registers the main scope under "main") so `RunFuncTyped("main", …)` resolves.
+3. Fall back to `RunFunc` (mangled-name call) with hand-marshaled `@[]int` args — avoids
+   the type-checker lookup but reintroduces the aggregate-arg marshaling `RunFuncTyped`
+   was chosen to handle.
+
+Recommendation: (1) — align the driver contract to a named package. Also carry the
+already-noted spike shortcut (the standard search paths are hard-coded in `runDriver`;
+they should come from binate-paths.sh as flags) and the driver-location finding
+(binate repo, not examples/, until a public driver-API package exists).
+
 ## Incremental plan
 
 1. **Spike:** `bnld -driver` embeds the VM, injects `pkg/binate/link` + stdlib, runs a
