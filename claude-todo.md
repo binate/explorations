@@ -7,41 +7,45 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### native: concurrent native-compiles collide -> "native backend failed to emit object" — 🟠 OPEN, ROOT-CAUSED (found 2026-09-01; diagnosed + reproduced 2026-09-01)
+### native: concurrent native-compiles collide -> "native backend failed to emit object" — 🟡 os.MkdirTemp READY TO LAND; bnc wiring PARKED on a BUILDER cut (found + root-caused + reproduced 2026-09-01)
 
-ROOT CAUSE (confirmed, reproduced): NOT native-backend-specific and NOT shared *process* state
-— it is a shared FILESYSTEM path. When `--build-dir` is unset, `outPrefixFor` (cmd/bnc/compile.bn)
-returns the fixed prefix `/tmp/binate_<base>_` where `<base> = shortName(-o output || input
-filename)` — process-independent, and dir-stripped (shortName), so even two builds to DIFFERENT
-directories with the same basename (e.g. two checkouts each building `bnc`) share it. Every
-module's intermediates land at `/tmp/binate_<base>_<module>.{ll,o}`; the whole-program link
-path then `remove()`s every `oFiles[i]` after linking (cmd/bnc/main.bn ~425). Two concurrent
-builds with the same base clobber each other: one finishes and deletes the shared `*.o` while
-the other is still linking -> `clang: error: no such file or directory:
-'/tmp/binate_<base>_pkg__...o'` -> `error: link failed`. Same fixed-path bug in TWO more spots:
-`assembleDotSFile` (cmd/bnc/main.bn:69 -> `/tmp/bnrt_<stem>.o`) and `bnld_link.bn:115`
-(`/tmp/bnrt_start_<obase>`). The `outPrefixFor` doc-comment already ADMITS it: "the historical
-layout that shares /tmp across concurrent runs." The harness is immune because every runner
-passes `--build-dir "$(mktemp -d)"`; the bug bites manual/ad-hoc concurrent builds without
-`--build-dir` (exactly the direct `gen1 --backend native cmd/bnc` repro attempts that first
-surfaced it).
+ROOT CAUSE (confirmed + reproduced): a shared FILESYSTEM path, NOT native-specific
+and NOT shared process state.  With no `--build-dir`, `outPrefixFor` (cmd/bnc/compile.bn)
+returned the fixed prefix `/tmp/binate_<base>_` (<base> = shortName(-o output || input),
+dir-stripped -> even two different-directory builds of a same-basename target shared it);
+every module's intermediates landed at `/tmp/binate_<base>_<module>.{ll,o}`, and the
+whole-program link path `remove()`s every object after linking (main.bn ~428).  Two
+concurrent builds with the same base clobbered each other -> `clang: no such file
+'/tmp/binate_<base>_<module>.o' -> link failed`.  Same fixed-/tmp bug in assembleDotSFile
+and bnld_link.  Harness is immune (every runner passes `--build-dir "$(mktemp -d)"`); the
+bug bites manual/ad-hoc concurrent builds.  REPRO (deterministic): 3 concurrent
+`gen1 --backend native -o <same> cmd/bnc` x3 rounds -> 6/9 failed, 1 survivor + 2 clobbered
+per round, all with the "no such file -> link failed" signature.
 
-REPRO (deterministic): 3 concurrent `gen1 --backend native -o <same> cmd/bnc` (no --build-dir),
-x3 rounds -> 6/9 failed, each round exactly 1 survivor + 2 clobbered, all with the "no such file
-.../tmp/binate_<base>_<module>.o -> link failed" signature. A tiny 1-module program does NOT
-repro (window too small); the many-module cmd/bnc does.
+FIX = two pieces:
+1. **std/os: add MkdirTemp** (commit ea82ee543 on the work branch) — atomic unique-directory
+   creation via libc mkdtemp(3) over __c_call; os.MkdirTemp(dir, prefix) + sys.MkdirTemp,
+   baremetal stub, os.bni/sys.bni decls, unit test.  Builds + passes through the CURRENT
+   BUILDER (adds no new-to-BUILDER feature; verified `builder-comp std/os` green 3/3).
+   **READY TO LAND now.**
+2. **bnc wiring** — default the build dir to a fresh os.MkdirTemp temp dir for LINKING/
+   ARCHIVING modes (whole-program / --library / --test), rmdir after link; DELIVERABLE-object
+   modes (-c / --pkg) emit to the current directory (findable) instead of /tmp.  **PARKED:
+   does NOT build under the current BUILDER (bnc-0.0.14).**  cmd/bnc's stdlib deps resolve
+   from the BUILDER's FROZEN bundle at gen1-build time (mixing current-tree .bni with frozen
+   .a is deliberately disallowed — build-compilers.sh), so cmd/bnc calling os.MkdirTemp gives
+   `undefined: MkdirTemp` until a BUILDER cut ships MkdirTemp in the frozen bundle.  Per "A
+   BUILDER Release Is Expensive — Never Rush One," NOT cutting one to unblock this.  The wiring
+   is verified correct via a probe (a temporary local __c_call("mkdtemp") variant built gen1
+   clean + cmd/bnc/os unit tests green + hygiene 20/20); saved as
+   `explorations/parked/bnc-per-invocation-build-dir.patch`.
 
-FIX (proposed, pending user decision on approach): make the default (no --build-dir) intermediate
-location unique per invocation. Best primitive = libc `mkdtemp` via the existing `__c_call`
-mechanism (atomic, race-free, matches the harness's `mktemp -d`; no new syscall, no PID-recycle
-risk) creating `/tmp/binate_XXXXXX`, used as the effective build dir so all three fixed-path
-sites inherit it. Single central change (default cli.BuildDir when empty). Open sub-decisions:
-(a) home the helper as idiomatic `os.MkdirTemp` (expands os API: bni + hosted __c_call impl +
-baremetal stub + tests) vs a local cmd/bnc helper; (b) cleanup policy — the link path already
-removes the .o's so rmdir the now-empty temp dir at exit; the single-module (emit-.o, no link)
-path must KEEP its .o, so it can't auto-clean (leaks one temp dir, same as today's /tmp leak).
-bnc always runs as a compiled HOST binary (the VM runs test programs, not bnc), and hosted `os`
-already uses __c_call pervasively, so __c_call("mkdtemp") is compat-safe.
+TO FINISH (post-BUILDER-cut, whenever one is independently justified and ships os.MkdirTemp):
+apply `parked/bnc-per-invocation-build-dir.patch`, rebase, build gen1 (now resolves
+os.MkdirTemp from the new frozen bundle), re-run the concurrent-build repro to confirm 0/N,
+then land.  (User decision 2026-09-01: keep os.MkdirTemp as a stdlib addition + park the bnc
+wiring for a BUILDER cut, rather than a local __c_call helper that would land now.)
+
 ### native: builtin to obtain a raw C-callable function pointer (THUNK) for ANY Binate function — 🟡 NATIVE-BACKEND / C-interop, feature (found 2026-09-01; supersedes the c_export callback-gate scope-limitation)
 
 Today the only supported C->Binate entry is a `#[c_export]`-named function; there is no way
