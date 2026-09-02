@@ -93,17 +93,37 @@ that keeps values in registers across instructions must therefore know, per inst
 registers each op **destroys** — both ABI-clobbered (calls) and scratch the handler grabs. This is
 the standard "instruction clobber set / regmask" model, and it subsumes several review findings.
 
-Each arch supplies **`clobbers(ins) → set of physical registers`** the lowering of `ins` destroys:
+Each arch supplies **`clobbers(ins) → set of physical registers`** the lowering of `ins` destroys.
+The **arch-neutral** half — which ops emit a call that can RETURN to the next instruction (across
+which caller-saved is not preserved) on EVERY backend — is `common.EmitsReturningBl(op)`, landed and
+adversarially-audited in Stage 0. The decisive criterion is "does the emitted call **return** to the
+following instruction," NOT "does it emit a BL" — that distinction is what excludes the fault checks
+that only call a noreturn fail path.
 
-- **Returning-BL ops clobber all caller-saved.** This set is bigger than `isCallOp` (C4): it must
-  include OP_CALL*/OP_C_CALL/OP_SAT_LOOKUP/iface **and** OP_MAKE (`Bl rt.Alloc`), OP_BOX
-  (`Bl rt.Box`), OP_MAKE_SLICE (`Bl rt.MakeManagedSlice`), the fault checks
-  OP_DIV_CHECK/OP_SHIFT_CHECK/OP_BOUNDS_CHECK (rt calls, args X0–X3), and **OP_REFDEC**
-  (`Bl rt.ZeroRefDestroy`, conditional but ubiquitous). Missing any = silent clobber of a
-  cross-op value.
+- **Returning-call ops clobber all caller-saved (arch-neutral, in `EmitsReturningBl`).** Verified
+  against the actual lowering in all three backends: OP_CALL*/OP_C_CALL/OP_SAT_LOOKUP/iface,
+  OP_MAKE (`rt.Alloc`), OP_BOX (`rt.Box`), OP_MAKE_SLICE (`rt.MakeManagedSlice`),
+  **OP_RODATA_MSLICE_COPY** (owned-literal `rt.MakeManagedSlice`), **OP_STACK_FRAMES**
+  (`rt.CaptureNativeFrames`), the **UNCONDITIONAL** guards OP_DIV_CHECK/OP_SHIFT_CHECK
+  (`rt.DivCheck`/`rt.ShiftCheck`, return on valid input), and **OP_REFDEC** (`rt.ZeroRefDestroy`,
+  conditional dtor slow path but it RETURNS).
+- **EXCLUDED — NOT clobbers:** OP_BOUNDS_CHECK (inline compares + a conditional branch to a cold,
+  **noreturn** `rt.BoundsFail`; the in-bounds path executes no call — this corrects v2's earlier
+  claim that bounds-check was a caller-saved clobber) and OP_NIL_CHECK (a native no-op). Verified
+  identical on all three backends.
+- **PER-ARCH additions (NOT arch-neutral — each backend's descriptor must add these on top of
+  `EmitsReturningBl`, or it silently keeps values in caller-saved regs across them):**
+  - **x64:** **OP_REFINC** — x64 calls `rt.RefInc`, whereas aarch64/arm32 inline the bump. (Stage 3.)
+  - **arm32 (soft-float / ILP32):** int64 **OP_MUL/OP_DIV/OP_REM/OP_SHL/OP_SHR** (`__aeabi_l*`) and,
+    under soft-float, float **OP_ADD/SUB/MUL/DIV**, the float comparisons, and float **OP_CAST**
+    (`__aeabi_[fd]*`). aarch64/x64 use hardware int/FP for these. Note 32-bit OP_DIV/OP_REM on the
+    cortex-a15 target use hardware SDIV/UDIV — no call. (Stage 4.)
+  - **aarch64 needs none** — the arch-neutral core alone is its complete returning-call set, so
+    Stage 1 is safe consuming `EmitsReturningBl` directly.
 - **x64 fixed-register ops clobber their fixed regs:** div/rem → {RAX,RDX}; shift → {RCX}.
 - **Scratch-hungry handlers clobber their working set:** arm32 `emitDivCheck64` clobbers R4–R10 (7);
-  aarch64 `emitStructCopy` clobbers 3; etc. (enumerate per handler during Stage 0).
+  aarch64 `emitStructCopy` clobbers 3; etc. (enumerate per handler in each arch's stage, alongside
+  its physical register-class descriptor).
 
 The allocator's contract, per instruction `ins` with clobber set `C`:
 1. No value **live across** `ins` (live-in ∧ live-out, i.e. not defined/killed here) may occupy a
@@ -178,15 +198,25 @@ and `clobbers(ins)`.
 
 ## Staging (incremental; each stage lands green & cherry-pickable)
 
-- **Stage 0 — the reusable core in `common`, no emission change.** Linearization (+unreachable),
-  liveness fixpoint, **range-list** intervals, and the **`clobbers` set** enumeration per arch.
-  Plus a validator (every allocatable id has an interval; ranges respect def-before-use per the
-  fixpoint; clobber sets complete). Unit-tested on hand-built IR incl. the **loop-carried
-  phi-copy-shared-id** case and a forced-pressure spill. No codegen change → all modes green.
+- **Stage 0 — the reusable core in `common`, no emission change. DONE (implemented + adversarially
+  reviewed; not yet landed on main).** `regalloc_liveness.bn` (RPO linearization + unreachable
+  handling, allocatable-scalar universe, backward liveness **fixpoint**), `regalloc_interval.bn`
+  (**range-list** intervals from the fixpoint + a validator), and `regalloc_clobber.bn`
+  (`EmitsReturningBl` — the arch-neutral returning-call set). The validator checks well-formedness,
+  def/use coverage, AND (driven independently from the liveness sets) that each interval covers every
+  position the value is live — the pass-through-hole check. Unit-tested compiled + under the VM: the
+  **loop-carried phi-copy-shared-id** interval, a genuine within-block dead hole, a forced 5-way
+  pressure overlap, the fixpoint's loop convergence + upward-use guard, and that the validator catches
+  a dropped live range. Three-reviewer adversarial pass found the code sound and fixed two clobber-set
+  omissions (OP_RODATA_MSLICE_COPY, OP_STACK_FRAMES — now in the set) and the per-arch clobber points
+  recorded above; the bounds-check/nil-check exclusion was verified SOUND on all three arches. No
+  codegen change → all modes green. Per-arch **physical** register-class descriptors are deferred to
+  each arch's stage (they are emission-coupled, not arch-neutral).
 - **Stage 1 — aarch64 linear-scan, caller-saved only (X9–X15); spill any interval that spans a
   clobber.** Rewire the landing handlers (C1/C3/C5), drop per-instruction reset for allocated
   values, add the bring-up assertion (below). Wins for straight-line + clobber-free loops (hotloop →
-  registers). Validate `native_aa64`; update byte-count tests; disassemble `hotloop`.
+  registers). Validate `native_aa64`; update byte-count tests; disassemble `hotloop`. (aarch64's
+  returning-call clobber set = `EmitsReturningBl` with no per-arch additions, so it is complete.)
 - **Stage 2 — aarch64 callee-saved (X19–X28) + prologue/epilogue save/restore + param entry shuffle
   (G1).** Cross-clobber values stay in registers. Validate `native_aa64` + USER-CPU benchmark.
 - **Stage 3 — x64** (two-address, RAX/RDX/RCX reserved+clobbered, R12–R15). Validate `native_x64`.
