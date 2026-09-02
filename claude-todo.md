@@ -52,6 +52,8 @@ by the implementer.
 
 ### native: builtin to obtain a raw C-callable function pointer (THUNK) for ANY Binate function — 🟡 NATIVE-BACKEND / C-interop, feature (found 2026-09-01; supersedes the c_export callback-gate scope-limitation)
 
+STATUS (2026-09-02): **front-end + codegen guard LANDED** (commit 3defdc02d, `__c_entry` Inc A part 1) — token/parser/checker (pkg.centry/.eligible: declared non-generic top-level fn ref; *uint8; compiled-only; generic guard present) + 5 checker tests; a genBuiltin C_ENTRY panic-guard replaces the silent EmitConstInt(0) fall-through. Adversarial review: SAFE-TO-LAND-WITH-GUARD (front-end correct per spec). REMAINING (per plan-c-entry-impl.md): the real codegen — Inc A finish = OP_C_ENTRY IR op + LLVM lowering (reference f's mangled entry as *uint8) + a conformance test (xfail native); Inc B = native aa64/x64/arm32 use-site-weak C-entry thunk (reuse the c_export thunk machinery) + drop the native xfails; Inc C = the _func_handle generic-guard fix (below).
+
 Today the only supported C->Binate entry is a `#[c_export]`-named function; there is no way
 to hand an arbitrary Binate function to C as a raw callback pointer (a qsort / signal /
 event-loop comparator).  Consequently the narrow-param normalization is gated on

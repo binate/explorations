@@ -45,7 +45,10 @@ arm (operand shape) + `checkCGlobal` (compiled-only + raw-pointer result).
 
 ## Increments (land each independently green)
 
-- **Inc A — front-end + LLVM + conformance (xfail native).**
+- **Inc A — front-end + LLVM + conformance (xfail native).** [front-end + codegen
+  guard LANDED 2026-09-02, commit 3defdc02d — steps 1-3 below done + tested + reviewed;
+  the genBuiltin C_ENTRY arm currently PANICS (guard), replaced by the real lowering in
+  steps 4-5.]
   1. `token.bn`: add `C_ENTRY` builtin token (`__c_entry`) in the builtin range +
      keywordMap; `TokenName`.
   2. `parser/parse_builtin.bn`: `parseCEntry` — `__c_entry ( Expr )`, one operand
