@@ -941,6 +941,11 @@ in-section offset) — e.g. via a synthesized section-base symbol + the offset a
 the existing symbol-based Relocate path works unchanged.  Until then the drop is the
 correct, minimal-linker behavior.
 
+DEFERRED 2026-09-02 (reviewed alongside the other bnld follow-ups): confirmed preemptive —
+nothing currently reaches the reject (the only section-relative relocs are in the dropped
+unwind sections), so this stays parked until a real clang/LLVM object needs a
+section-relative reloc in a KEPT section.
+
 ## bnfmt (self-hosted formatter)
 
 ### Batch the `bnfmt-format` hygiene check via multi-file bnfmt — 🟡 OPEN (gated on CHECK_TOOLS)
