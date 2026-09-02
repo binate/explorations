@@ -6,6 +6,32 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## gen1 build fails on Linux: BUILDER emitted iv-dispatch thunks STRONG — DONE (2026-09-02, BUILDER bump bnc-0.0.15 + shim removal c515dc2cd)
+
+ROOT CAUSE (recap): BUILDER bnc-0.0.14 emitted the uint8-keyed std/hash.FnHasher /
+std/cmp.FnEq iv-dispatch thunks (__bn_thunk_Hash / __bn_thunk_Equal), which
+pkg/binate/{ir,token,asm} each instantiate, as STRONG (not weak_odr) — so the
+BUILDER->gen1 link on GNU ld rejected the duplicates and every conformance/unit/perf/
+e2e lane died at "Building gen1 compiler" on Linux.  macOS ld64 tolerated the strong
+dups, so gen1 built there.  The source fix (883f761ce: thunks weak_odr / IsLinkOnce;
+0eef20a9d: COMDAT groups on ELF) was inert until a BUILDER carried it, because the
+failing link was the BUILDER's own emission before any from-source gen1 exists.
+
+RESOLUTION: BUILDER_VERSION bumped to bnc-0.0.15 (carries 883f761ce), which emits the
+thunks weak_odr.  The transitional Linux-only CI shim (448f8d3ba —
+`-Wl,--allow-multiple-definition` on every BUILDER->gen1 link) was then removed from all
+14 gen1-build sites (scripts/lib/build-compilers.sh, scripts/build-{bnc,bni,bnas,bnlint,
+bnld,bnfmt}.sh, scripts/resolve-gen1.sh, e2e/{bni-test-nil,bni-test-fault,bni-nil-check,
+fmt-os-args,shebang-exec,repl}.sh) in c515dc2cd.
+
+VERIFIED: bnc-0.0.15 `--emit-llvm` shows `define weak_odr` for the thunks and `nm` on
+the .o shows `W`; in ubuntu-24.04 / GNU ld 2.42, `ld -r` of pkg/binate/{token,ir,asm}.o
+WITHOUT the shim links cleanly (the exact "multiple definition" failure is gone).  macOS
+regression: gen1 builds via the edited build-compilers.sh (builder-comp green), e2e/repl.sh
+58/58 with its edited inline gen1 build, all 14 scripts `sh -n`-clean, hygiene 20/20.
+e2e/separate-compilation.sh needed no change: bnc-0.0.15 still predates --list-deps, so
+its opt-in --builder lane keeps auto-skipping (version-stamped message accurate).
+
 ## native: concurrent native-compiles collide -> "native backend failed to emit object" — DONE (2026-09-01/02; commits 41911cfdf + 68e57a461)
 
 ROOT CAUSE (confirmed + reproduced): a shared FILESYSTEM path, NOT native-specific and NOT

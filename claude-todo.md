@@ -68,61 +68,6 @@ Binate entry.  This is the same thunk mechanism as the #[c_export]-thunk item ab
 #[c_export] is just the named/eager instance of "give C a callable pointer to this function").
 Design the builtin + thunk generation together with that item. NOTE (2026-09-01, c_export-prefix review): now that #[c_export] normalization is a C-entry PREFIX (the mangled `sym` sits AFTER it), taking a function's address yields `sym` and thus SKIPS normalization — so this builtin MUST return the ALIAS/prefix address (the C-ABI entry), not the bare mangled entry, for a #[c_export] function, and must synthesize an equivalent normalizing prefix/thunk for a non-c_export function.
 
-### gen1 build fails on Linux: BUILDER (bnc-0.0.14) emits iv-dispatch thunks STRONG — 🟠 BUILD-INFRA, gated on a BUILDER cut (found 2026-08-28; root-caused 2026-08-31)
-
-Every conformance mode (down to plain `builder-comp`) fails at the "Building gen1
-compiler" step.  The BUILDER (`bnc-0.0.14`) compiles cmd/bnc for the host and the
-Linux link reports `multiple definition of bn_...FnHasher...uint8...__bn_thunk_Hash`
-/ `...FnEq...uint8...__bn_thunk_Equal` across `pkg/binate/{ir,token,asm}.o` — the
-uint8-keyed `stdx/hash.FnHasher` / `stdx/cmp.FnEq` iv-dispatch thunks that all three
-packages instantiate (the class `1222_generic_iv_thunk_cross_pkg` guards).
-
-ROOT CAUSE (corrected 2026-08-31 — the earlier "binutils drift on weak merging"
-diagnosis was WRONG): the BUILDER emits these thunks as **strong**, not weak_odr
-(`bnc-0.0.14` `--pkg pkg/binate/token --emit-llvm` → `define i64 @...__bn_thunk_Hash`,
-no `weak_odr`), and GNU `ld` correctly rejects duplicate strong defs.  It is NOT weak
-merging: a Docker check on `ubuntu:24.04` / binutils 2.42 merges duplicate `weak_odr`
-defs without complaint.  The fix that marks the thunks `weak_odr` — `883f761ce`
-(2026-08-27) — is NOT in `bnc-0.0.14` (it postdates the tag), so the BUILDER's
-emission is still strong.  macOS (ld64) tolerates the strong duplicates (coalesces
-distinct `.text.<name>` sections), which is why gen1 builds locally on macOS but
-fails on Linux GNU ld.
-
-SOURCE FIXES LANDED (both inert until a BUILDER carries them — they change only what
-a from-source gen1 emits, and the failing link is the BUILDER's own emission before
-any from-source gen1 exists):
-  - `883f761ce` (2026-08-27) — iv-dispatch thunks are `weak_odr` (IsLinkOnce).
-    Sufficient alone for GNU ld, which merges weak.
-  - `0eef20a9d` (2026-08-31) — weak_odr defs go in COMDAT groups on ELF (extra
-    hardening; matches what clang emits for weak_odr; not required by GNU ld).
-
-RESOLUTION: cut a new BUILDER from current source.  No source-level change can fix
-the gen1 build directly.  Gated on a BUILDER cut — composes with the `stdx→std`
-migration item (also gated on the same cut).  Do NOT rush a BUILDER release for this
-alone (see `release-process.md`); batch it at a natural release point.
-
-INTERIM CI SHIM — landed `448f8d3ba` (transitional; MUST be removed when
-`BUILDER_VERSION` advances to `>= bnc-0.0.15`, whose weak_odr thunks make it
-unnecessary — remove by `grep -rl gen1_dupthunk_flag scripts/ e2e/`): every
-BUILDER→gen1 link passes `-Wl,--allow-multiple-definition` on Linux only, so it
-accepts the ODR-identical strong-thunk dups — greening conformance / unit / perf /
-e2e while the BUILDER stays at `0.0.14`.  macOS is left strict (ld64 both tolerates
-the dups and rejects the GNU flag), keeping a collision backstop on the macOS lane.
-All 14 gen1-build sites are covered: `scripts/lib/build-compilers.sh` `build_gen1`,
-`scripts/build-{bnc,bni,bnas,bnlint,bnld,bnfmt}.sh`, `scripts/resolve-gen1.sh`, and
-the inline `e2e/{bni-test-nil,bni-test-fault,bni-nil-check,fmt-os-args,shebang-exec,
-repl}.sh` builds.  Also at BUILDER-bump cleanup: `e2e/separate-compilation.sh`'s
-opt-in `run_sepc "builder"` lane has an unpatched BUILDER→binary link — inert today
-(skipped: 0.0.14 predates `--list-deps`; and cmd/bnas has no cross-package dup), and
-mooted by the weak_odr thunks once the BUILDER bumps, so it needs no shim, only a
-recheck.
-
-State: the interim shim (above) greened the host lanes — conformance / unit / perf /
-e2e on the host self-host modes now pass; before it (red since ~2026-08-28) EVERY
-lane died at the gen1 link.  The BUILDER cut remains the permanent fix (drops both the
-shim and the collision).  Discovered while running an arm32 runtime check for the
-`cast(float64, ...)` sibling fix (`f0e51a747`, done-log; IR-level-verified on ILP32).
-
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
 **Severity: MAJOR** — a recoverable user-code fault (bounds / divide / shift /
