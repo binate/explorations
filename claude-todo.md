@@ -34,7 +34,7 @@ self-compiled bnc exposed it.
 LESSON (important): for native-backend changes the AUTHORITATIVE test is the LINKED
 SELF-COMPILE (conformance native_* modes), NOT a .o disasm or a small-link e2e.
 
-VERIFIED: native aa64 conformance 2995/0 (fixed, was 0/2995). PENDING at last check (running):
+VERIFIED: native aa64 conformance 2995/0 (fixed, was 0/2995). RE-REVIEW (agent, 2026-09-01): design CONFIRMED correct on all 3 backends (aa64/x64 branch-to-atom-start-sym => relocation; arm32 in-place ELF displacement in the one contiguous .text — correct, NOT a reloc). Found ONE blocker: the new aarch64 TestEmitFuncCExportNarrowParamPrefix used a bare `sym` (a local of emitFunc, undefined in test scope) => package --test build broke; FIXED to symFor("test","test.Sgn") (re-running aa64 unit test to confirm). Amend the commit with that test fix before landing (test-file only; does not affect the running conformance). FOLLOW-UP (reviewer Point 5, not blocking): add x64 + arm32 non-empty-thunk unit-test analogs (x64 int8 param; arm32 int8/int16 since int32 is word-sized). PENDING at last check (running):
 builder-comp_native_x64_darwin (was 523/2995 with the broken fall-through),
 builder-comp_native_arm32_baremetal (stayed green), builder-comp-int; + adversarial re-review
 of the branch delta (diff: scratchpad/thunk_branch.diff; reviewer agent a5d244f29afeffeee).
