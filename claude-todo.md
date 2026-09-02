@@ -523,8 +523,24 @@ do NOT xfail vm — investigate this leak properly (it is presumably the same ra
 refcount class as native/arm32). The test-level sharding infra now exists (`d4f2dfd52`:
 compiled-runner `--shard`/`--skip` + bare-metal argv from the semihosting command line), and
 it PARTIALLY helps — vm 1/8 and 1/16-shard-1 fit the arena, but the leak is uneven so some
-shards (e.g. 5/16) still exhaust — which confirms the leak, not the binary size, is the real
-issue. Once bounded/fixed, a `pkg-binate-vm.split.builder-comp_arm32_baremetal` marker can
+shards (e.g. 5/16) still exhaust — which confirms the leak, not the binary size, is  the real
+issue.
+
+ROOT-CAUSED (2026-09-02): it is the opt-in **VM.Shutdown**, NOT a fixture/allocator defect. A VM
+holding managed-global CONTENT (`var g @T`, etc.), dropped WITHOUT calling `Shutdown`, leaks that
+content: the generated `@VM` destructor frees the static-data storage blocks (ownedBlocks) but
+cannot RefDec what a global points AT — that needs running the `<pkg>.__vm_teardown_globals` bytecode
+(`vm.CallByVMFunc`), a live-VM op a plain destructor can't do, and there is NO user-destructor hook
+to inject it (done/plan-vm-static-data-refcount.md). So Shutdown is opt-in BY DESIGN ("an embedder
+that spins VMs up and down calls Shutdown; a one-shot process need not"). The 55-file vm suite IS the
+spin-up-and-down case, and 40 of its files create VMs WITHOUT Shutdown → managed-global content
+accumulates → 4 MiB exhaustion. Confirmed via rt.LiveBlocks(): 50 no-Shutdown drops leak 50 blocks;
+WITH Shutdown, delta 0 (genModule+VM+Shutdown also 0). FIX = the vm tests must Shutdown their VMs
+before dropping (test-hygiene sweep, ~40 files, mostly via shared helpers lowerFromSource / mkVM /
+runVMAtLevel / runMechModule / buildPhi* / …); auto-teardown in the destructor is infeasible (no
+hook). Same class as native/arm32.
+
+Once bounded/fixed, a `pkg-binate-vm.split.builder-comp_arm32_baremetal` marker can
 shard vm to fit; until then it is a KNOWN-RED baremetal package (not xfail'd, per the owner).
 
 Distinct from the leak: `pkg/binate/link` and `cmd/bnld` also fail on baremetal but for
