@@ -7,7 +7,23 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### native: #[c_export] narrow-arg normalization -> C-entry THUNK — 🔵 IN PROGRESS (branch-thunk implemented, verification pending; 2026-09-01)
+### native: #[c_export] narrow-arg normalization -> C-entry THUNK — 🟢 READY TO LAND (all modes green; 2026-09-01)
+
+READY-TO-LAND (2026-09-01): commit on work-2 is 52f2a754c (RE-READ branch HEAD at land time — it
+was amended twice: 61ebfd7ea -> then test-blocker fix). FULL verification GREEN: native aa64
+2995/0, native x64 2995/0, native arm32 2951/0, VM builder-comp-int 2985/0; aa64 unit tests
+(incl. new TestEmitFuncCExportNarrowParamPrefix) pass; ffi-export.sh e2e 4/4; adversarial
+re-review CONFIRMED (design correct all 3 backends), its one blocker (test's undefined `sym`)
+fixed. LANDING STEPS post-compaction (needs EXPLICIT per-instance approval for the cherry-pick;
+user said "compact then land" = intent, still confirm at the moment): rebase work-2 onto current
+local main (git -C <worktree> fetch ~/binate/binate main && rebase FETCH_HEAD) -> scripts/hygiene/run.sh
+(read overall line) -> base-check (separate cmd: local main HEAD == worktree HEAD^) -> re-read
+worktree HEAD -> cherry-pick that hash onto ~/binate/binate -> push from local main -> resync
+worktree -> move this entry to claude-todo-done.md. Non-blocking follow-ups remain below.
+
+[ORIGINAL IN-PROGRESS DETAIL BELOW]
+
+### native: #[c_export] narrow-arg normalization -> C-entry THUNK (detail) — 🟢 READY TO LAND
 
 STATUS: implemented as a branch-thunk, committed on the work-2 worktree as 61ebfd7ea (NOT
 landed — needs remaining conformance + a clean adversarial review + explicit per-instance
