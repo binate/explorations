@@ -81,6 +81,35 @@ dependency).  This is NAME stability (drivers import the blessed `pkg/bnld`, nev
 - `drivers/elf.bn` → `examples/` importing `pkg/bnld`; e2e (`bnld-driver-linux.sh`) points
   `bnld -I` at the shipped tier.
 
+## FINAL DECISION (2026-09-02) — keep `pkg/binate/link`, ship its `.bni`
+
+Neither MOVE nor SPLIT is needed.  The cycle problem only arose from having a SECOND package
+forward to link; with a single package there is no forwarding and no cycle.  The plan:
+
+- **Keep the package as `pkg/binate/link`** (the name `link` is fine — it's namespaced under
+  `pkg/binate/`, so not a generic "linker").  No rename, no facade, no `bnldabi`/`bnldapi`.
+- **Move `pkg/binate/link.bni` into the shipped `ifaces/` subtree** (proposed
+  `ifaces/tools/pkg/binate/link.bni` — a dedicated tier, consistent with the earlier
+  tools-tier choice) so `make-bundle`'s `cp -R ifaces/` ships it.  The impl stays at
+  `pkg/binate/link/*.bn` (compiled into bnc/bnld, injected, NOT shipped); the loader pairs
+  `.bni` (BniPath) and impl (ImplPath) via independent search loops, so split locations are
+  fine.  Wire `ifaces/tools` into `scripts/binate-paths.sh`'s iface list so BOTH the bnc
+  self-build and driver builds resolve `import "pkg/binate/link"` from it (it leaves
+  `pkg/binate/link.bni`'s old repo-root location, so the ifaces/tools copy is the single
+  source of truth).
+- **No split.**  Verified `link.bni`'s entire public surface (the 4 `Input*` types, `EM_*`
+  consts, `ReadObject`/`ReadArchive`, `Link`/`LinkDynElf`/`LinkDynMacho`) is driver-facing,
+  and bnc/bnld use only a subset of it — nothing internal-only is exported, so there's no
+  bnc-only surface to hold back.  (If that changes later — an internal-only decl appears in
+  `link.bni` — revisit: split a public `link.bni` from an internal one.)
+- **Migrate `drivers/elf.bn` → `examples/`** (it already imports `pkg/binate/link`; no import
+  change).  Point the driver e2e's `-I` at the shipped location (via binate-paths).
+- Injection is unchanged: bnld already injects `link.__Package()`; a driver's `link.*` calls
+  resolve to the injected compiled instance.  (`linkInjectSet()` stays `StandardPackages()+1`.)
+
+The rest of this doc (below) records the superseded MOVE/SPLIT exploration and the cycle
+finding that ruled out a forwarding facade.
+
 ## Alias DIRECTION + the import-cycle constraint (user correction 2026-09-02)
 
 The user corrected the alias direction: the INTERNAL package must alias the PUBLIC types
