@@ -212,10 +212,25 @@ that **runs → exit 42** (Docker linux/amd64) — the interpreted driver (in th
 compiled `link.Link` to a working executable.  The interp additions are purely new
 functions (existing users unaffected; interp is not BUILDER surface).
 
-Remaining before landing v1: an e2e (bnc/bnas → `bnld -driver` → run, both arches), a
-`LoadCallable` unit test, hygiene, and de-shortcutting the search paths (flags from
-binate-paths.sh).  `LoadCallable` does not run the driver package's own top-level `var`
-initializers — fine for a stateless driver; a follow-up if drivers need package state.
+### Adversarial review + v1 ready (2026-09-01, commit 26a521aac)
+
+Two focused adversarial passes (interp additions; bnld driver path).  One MAJOR, since
+fixed: `LoadCallable` emitted NO package-init dispatcher, so `RunFuncTyped`'s
+`main.__init_all` guard always missed and NO lowered package's init ran — not just the
+driver's own `var` initializers (the documented limitation) but every lowered dependency's
+`__init`, silently zeroing their globals.  Fixed: `LoadCallable` now collects init names
+and emits a `main.__init_all` dispatcher (the callable analogue of LoadProgram's), and the
+e2e's init-driver case regression-guards it (a top-level `var` initializer must run or the
+link fails).  Minor fixes: `driver.bn` reports parser errors + releases the result Value on
+the non-conforming-Drive path; bnld rejects `-dynamic`/shared `-l` on the `-driver` path;
+`stripQuotes` gains asymmetric-quote tests.  Everything else in the review checked out
+(Release discipline, arg marshaling, interface-dispatch registration, TypecheckDriver).
+
+v1 is COMPLETE and validated: `e2e/bnld-driver-linux.sh` ALL PASS (exit42→42, hello→0,
+init-driver→42); `builder-comp interp bnld bni repl` 4 passed; hygiene 20/20.  Remaining
+follow-ups (tracked, not blocking): de-shortcut the search paths (flags from
+binate-paths.sh); driver location vs a public driver-API package; aarch64/other targets in
+the e2e; a `LoadCallable`-with-imports unit test (currently covered by the e2e).
 
 ## Incremental plan
 
