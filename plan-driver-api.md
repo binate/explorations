@@ -81,17 +81,46 @@ dependency).  This is NAME stability (drivers import the blessed `pkg/bnld`, nev
 - `drivers/elf.bn` → `examples/` importing `pkg/bnld`; e2e (`bnld-driver-linux.sh`) points
   `bnld -I` at the shipped tier.
 
-## ★ Two sub-choices for sign-off
+## Alias DIRECTION + the import-cycle constraint (user correction 2026-09-02)
 
-**★A — type exposure: ALIAS (recommended) vs REDECLARE.**
-- *Alias* (above): `type InputObject = link.InputObject`.  Thin, zero conversion, but ships
-  `link.bni` as pkg/bnld's dep and gives name-stability only (if link changes a struct,
-  pkg/bnld's contract changes with it).
-- *Redeclare*: pkg/bnld declares its OWN `Input*` structs; forwards deep-copy/convert at the
-  boundary.  Self-contained `.bni` (link.bni need not ship), true type-decoupling — but
-  ReadObject/ReadArchive must deep-copy nested managed slices on every call, ~150 more lines,
-  and conversion is error-prone.  Recommendation: **alias for v1**; revisit decoupling if/when
-  link's internal types need to diverge from the public ones.
+The user corrected the alias direction: the INTERNAL package must alias the PUBLIC types
+(`link.InputObject = bnld.InputObject`), NOT the reverse — because `pkg/binate/link` (and
+its `.bni`) will NOT ship, so the public types must be OWNED by the shipped package.
+
+But **Binate's loader rejects package import cycles** (`loader_load.bn` emits
+`cycleErrorMsg`).  So the literal "bnld FORWARDS to link" (bnld→link) + "link ALIASES bnld's
+types" (link→bnld) is a rejected `pkg/bnld` ↔ `pkg/binate/link` cycle.  An acyclic design
+that ships only `pkg/bnld.bni` and exposes both the types and the functions must break the
+cycle.  Two shapes do:
+
+**★ Shape MOVE — one public package; the linker BECOMES `pkg/bnld`.**
+Rename `pkg/binate/link` → `pkg/bnld` (package name `bnld`): the 8244-line linker's `package`
+decl changes in ~20 files (files within a package don't self-qualify, so no internal churn),
+its `.bni` ships in the tools tier, and the 4 external callers switch `link.*`→`bnld.*`.  No
+internal package remains (or a thin leaf-ward `pkg/binate/link` alias-shim that imports bnld,
+only if some internal caller is left unmigrated).  Cleanest END STATE (single public package
+owns types+funcs+impl), but re-homes a large BUILDER-surface package (update CLAUDE.md's
+BUILDER list; settle where an iface-shipped/compiled-in package's source physically lives).
+
+**★ Shape SPLIT — keep the linker in place; add two tiny public packages.**
+- `pkg/bnldabi` (public LEAF, ships `.bni`; no imports): OWNS the `Input*` types + `EM_*`
+  consts.
+- `pkg/binate/link` STAYS put (8244 lines unmoved): stops defining the types, instead imports
+  `pkg/bnldabi` and uses/aliases them (`type InputObject = bnldabi.InputObject` — the
+  "internal aliases public" the user asked for).  `link.bni` still does NOT ship.
+- `pkg/bnld` (public facade, ships `.bni`): re-exports the types by alias
+  (`type InputObject = bnldabi.InputObject`) and FORWARDS the 5 functions to link.
+- Dependency graph `bnld → {link, bnldabi}`, `link → bnldabi`, `bnldabi → ∅` — ACYCLIC.
+  Minimal risk (linker untouched), but TWO public packages + a forwarding facade.
+
+Recommendation: **SPLIT** — it honors "internal aliases public / only bnld ships" with a
+tiny, low-risk diff to the 8244-line linker (swap 4 struct defs + 2 consts for an import),
+vs MOVE re-homing the whole package.  The cost is one extra public leaf (`pkg/bnldabi`).
+(If a single public package is preferred over two, MOVE is the way, accepting the big rename.)
+
+Type-DECOUPLING (public types as DISTINCT structs from link's, with boundary conversion) is
+NOT proposed for either shape — both use aliases so there's zero conversion; the public types
+ARE link's types.  Revisit only if link's internals must later diverge from the public ABI.
 
 **★B — shipping tier: dedicated `tools` tier (recommended) vs reuse `stdlib`.**
 - pkg/bnld should NOT be reachable by a normal compile (it's driver-only, and its impl isn't
