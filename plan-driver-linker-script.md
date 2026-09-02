@@ -319,3 +319,101 @@ archives, selects members via `link.SelectMembers`.)
 
 The shape covers A/B/C/D.  Next: implement (plan step 2 — engine core), with `DefineSegment`/
 `AssignSection`/`SectionLoadAddr` signatures shipped but their EMIT (case B) landing second.
+
+## Review resolutions (rev 3, 2026-09-02)
+
+Adversarial design review (grounded against `layout.bn`/`emit_elf.bn`/`resolve.bn`/
+`relocate.bn` + the shipped `.bni`) found NO break to the exported API (`OutputSection`/
+`LayoutResult` are package-internal → additive to extend; the builder API is all-new), but
+flagged LAYOUT SEMANTICS that become breaking once drivers depend on them.  Resolutions:
+
+**Semantics pins (decided):**
+
+1. **Orphan / unplaced-section policy (user, 2026-09-02): Layer-1 strict, Layer-2
+   auto-places.**  In the low-level builder, an input section left unplaced AND referenced is
+   a **hard link error** (fail loud — the driver places what it needs; matches Binate's
+   explicitness).  The high-level/declarative convenience auto-places orphans by kind
+   (text/rodata/data/bss, like today's `Layout`) so the common case stays easy.  An explicit
+   `Discard(pattern)` drops sections intentionally.  (Never silently drop a referenced
+   section.)
+2. **`Place`/`Keep` = first-match-wins + consume-once.**  An input section is claimed by the
+   FIRST matching `Place`/`Keep` and never placed again (so case D's
+   `Keep("*(.text.startup)")` then `Place("*(.text*)")` does not double-place it).  The
+   builder tracks a consumed set over the `SetInputs` pool.
+3. **`Place` baseline ordering = pool order.**  Matched sections append in `SetInputs` object
+   order, then in-object section order.  `SORT_*` variants are additive later (a sort-key arg
+   / new primitive); the baseline is pinned now so drivers can rely on it.
+
+**Invariants (locked):**
+
+4. **`OutputSection.Addr` stays VMA; add a separate `LMA` field.**  `Relocate`/`symbolAddr`
+   patch against VMA (correct — relocations resolve to run-time addresses); emit places bytes
+   at LMA.  Overloading `Addr` for LMA would miscompile every relocation in the LMA≠VMA cases
+   — hard invariant.
+5. **Injected symbols need an absolute-value representation.**  `SymDef`
+   (`Name,ObjIdx,SymIdx,Binding`) can't express `DefineSymbol("_estack",0x…)` or a
+   `.`-snapshot.  Add an absolute-symbol list consulted by `Lookup`/`symbolAddr`, injected
+   after addresses freeze, precedence pinned vs input defs (a strong script symbol colliding
+   with a strong input def is an error, as `Resolve` already does; `Provide*` is the additive
+   escape).  **`SymbolAtDot` captures an absolute VMA snapshot** — correct for the
+   static/bare-metal/freestanding (non-PIE) scope; section-relative would only matter for PIE,
+   which stays on the structural path.
+6. **Addresses are assigned EAGERLY during `BeginSection`/`Place`**, not deferred to
+   `Finish` — so `LoadAddrOf(sec)` (case A) is resolvable when the driver calls it pre-`Finish`.
+   `Finish` only resolves cross-refs + injects symbols + relocates.  `Place` MUST honor each
+   input section's own alignment (today's `Layout` does `alignUp` per input) — a
+   must-preserve, not a new feature.
+
+**Layer-1 / Layer-2 unification (resolves the "no mixing seam" blocker):**
+
+7. **One `LayoutBuilder`; the declarative layer is section-oriented CONVENIENCE METHODS on
+   it, not a separate recorder.**  Drop the standalone `NewScript`/`LayoutScript` value and
+   `LinkWithScript` one-shot from v1.  A `@Section` handle (from `BeginSection`) carries the
+   readable chained sugar (`Region`/`Align`/`Keep`/`Place`/`SymbolAtDot`); the low-level
+   primitives are methods on the same builder.  Mixing declarative + imperative is then FREE
+   (same object) — case D reads declaratively, A/B/C drop to primitives, all on one builder.
+   A portable/inspectable script-as-DATA value + `ApplyScript` remains available as a purely
+   additive future layer if wanted.  (This still gives "both layers" per the earlier
+   decision — high-level sugar + low-level escape hatch — just unified on one object.)
+
+**Majors — additive, but designed in from day one (not deferred):**
+
+- **Emit rewrite (the real work).**  `EmitElfExec` today uses one `base=sections[0].Addr`,
+  file offset `= dataStart+(Addr-base)`, and `p_paddr:=p_vaddr` — which yields a ~400 MB file
+  for FLASH(0x08000000)+RAM(0x20000000) and wrong paddr.  Replace with **LMA-keyed, per-region
+  compact packing** and `p_paddr` from LMA.  Cannot be patched onto the contiguous model —
+  budget a rewrite.  The entry-in-range guard (`entry>=base && entry<memEnd`) must relax for
+  multi-region.
+- **Region state carries BOTH a VMA cursor and an LMA cursor + length**, and the engine
+  **checks region overflow** (accumulated size ≤ length; GNU ld errors here — load-bearing for
+  fixed flash/RAM).  Case A's `.data` advances RAM's VMA cursor and FLASH's LMA cursor
+  simultaneously; FLASH overflow must count text+rodata+data-image.
+- **`*(COMMON)`** has no input-model representation (`InputSymbol` lacks SHN_COMMON); the
+  reader/engine must synthesize a common area from tentative defs.  Real for baremetal C
+  (cases A/D).
+- **arm32 (`EM_ARM`) relocation is a PREREQUISITE for the A/D e2e**, not part of "e2e."
+  `Relocate` handles only x64/aarch64; `EM_ARM` isn't even a const.  A `patchArm32`
+  (R_ARM_ABS32, CALL/JUMP24, PREL31 for `.ARM.exidx`, Thumb variants) must land before the
+  A/D proofs.  The layout ENGINE is machine-independent, so engine-core work is unblocked.
+
+**Minor (additive/deferrable):** multi-byte fill patterns (`PadTo` is single-byte),
+`SUBALIGN`, independent LMA alignment, `SORT_*`, `PROVIDE`/weak, `NOLOAD`, literal-data sugar
+(`Short/Long/Quad` over `EmitData`).  Overlays and `.=.+N` gaps are already expressible
+(`SetDot` to a repeated VMA; `SetDot(Dot()+N)`).
+
+### Revised plan ordering (post-review)
+
+1. Engine core — `LayoutBuilder` (one object; primitives + section-convenience methods), glob
+   matcher, consume-once pool, eager address assignment, VMA+LMA region cursors + overflow
+   check, orphan policy; produces `LayoutResult` (now with per-section LMA) + an absolute
+   script-symbol set.  Unit-tested on synthetic InputObjects (no emit).
+2. Absolute-symbol injection into `Resolve`/`Lookup`; `Finish` wiring.
+3. **arm32 relocator** (`patchArm32`) — prerequisite for A/D.
+4. Emit rewrite: LMA-keyed per-region ELF packing (`p_paddr` from LMA, multi-region file
+   offsets, relaxed entry guard) + the **raw-binary** backend.
+5. `*(COMMON)` synthesis.
+6. e2e proofs: D (baremetal → QEMU), A (firmware ROM-copy), C (raw-binary + signature).
+7. Explicit-PHDRS emit (case B) + higher-half e2e.
+8. Ship the builder API in `pkg/binate/link.bni`; reference scripted drivers.
+
+Verdict (review): shape is sound to start the engine core with the above pins resolved.
