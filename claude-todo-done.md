@@ -6,6 +6,43 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## VM at bnc `-O2`: load-forwarding store-forwarded by-address aggregates — DONE (2026-09-01, commits 1a7f773bb + 0fcdb9cfd)
+
+Root cause of the "~12 latent refcount failures": `forwardLoads`
+(pkg/binate/ir/load_forward.bn) STORE-FORWARDING deletes a single-store slot and
+rewrites its loads to the stored value V (via applyPromotion) — sound only for a
+BY-VALUE slot, but its only gate was `IsByvalParam()` (>16B).  A `<=16B` by-address
+aggregate — whose OP_LOAD keeps the slot ADDRESS (types' isAggregateLoadTyp /
+IsAggregateTyp = {STRUCT, ARRAY, SLICE, MANAGED_SLICE, FUNC_VALUE + managed,
+INTERFACE_VALUE + managed}) — slipped through, so substituting V handed the VM a
+value where an address was expected.  Invisible at `-O0` (RunOptPasses is a no-op)
+and tolerated by LLVM/native; at `bni -O 2` the VM read a nil iface / a garbage func
+pointer / a reclaimed-SP struct.
+
+Fixed in two steps, keyed on by-address-ness (isBitCastMemoryLoweredKind):
+- **1a7f773bb** — decline interface + function values (raw + managed) from
+  store-forwarding; resolved 509/510/511/554/713/1079/1093.
+- **0fcdb9cfd** — generalize: route ALL slices (raw AND managed) through the
+  address-preserving RLE path (raw slices previously took the unsound
+  store-forwarding path — the 1054_type_switch_basic bug) and decline struct/array
+  too.  Store-forwarding is now left with exactly the by-VALUE scalar slots.
+
+Verified: a full `bni -O 2` sweep of 736 single-file conformance tests is
+O2==O0-consistent (zero tests pass at `-O0` but fail at `-O2`).  ir unit tests pin
+each declined by-address kind (iface/func/struct/array) + raw/managed-slice RLE +
+the named-distinct-slice peel.  LLVM `-O1` and native `-O1` spot checks confirm
+raw-slice RLE preserves loop-BCE on every backend.  Two adversarial reviews: the
+first surfaced the struct/array/raw-slice generalization beyond the initial
+iface/func fix; the second confirmed the decline-set equivalence
+(isBitCastMemoryLoweredKind ∪ {raw slice} == the authoritative by-address set) and
+flagged the three-predicate cross-file fragility, now guarded by an INVARIANT
+comment + per-kind TestForward*Declined tripwire tests.
+
+Not this class (separate): 1117/1118/1120_managed_*_pointee_owning fail at `bni -O0`
+too.  Meta: the VM at `-O2` still has no CI lane (conformance runs `bni` at `-O0`;
+bnc default IR is `-O0`) — adding one would gate this class going forward, but
+wiring CI is a separate, user-owned decision.
+
 ## native: #[c_export] narrow-arg normalization -> C-entry THUNK — DONE (2026-09-01, commit 81b3e6d36)
 
 #[c_export] previously placed the narrow-arg sign/zero-extension on the function's SHARED
