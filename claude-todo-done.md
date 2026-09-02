@@ -63,8 +63,14 @@ iface/func fix; the second confirmed the decline-set equivalence
 flagged the three-predicate cross-file fragility, now guarded by an INVARIANT
 comment + per-kind TestForward*Declined tripwire tests.
 
-Not this class (separate): 1117/1118/1120_managed_*_pointee_owning fail at `bni -O0`
-too.  Meta: the VM at `-O2` still has no CI lane (conformance runs `bni` at `-O0`;
+False alarm resolved: the original list's "1117/1118/1120_managed_*_pointee_owning
+fail at `bni -O0` too" was a WRONG-TEST-NAME artifact — the real tests are
+`1117_managed_array` / `1118_managed_func_value` / `1120_managed_iface_value`
+`_pointee_owning`; the probed `managed_ptr` / `managed_slice` / `managed_struct`
+names never existed (file-not-found → empty output → "FAIL").  The real three pass
+at `-O0` AND `-O2` (verified via `./conformance/run.sh builder-comp-int`: 3/0), as
+expected — they carry no xfail and are green in every default CI mode.  Meta: the VM
+at `-O2` still has no CI lane (conformance runs `bni` at `-O0`;
 bnc default IR is `-O0`) — adding one would gate this class going forward, but
 wiring CI is a separate, user-owned decision.
 
