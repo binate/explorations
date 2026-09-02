@@ -8,6 +8,19 @@ calling the **compiled** `pkg/binate/link` library. The dual-mode showcase — i
 This doc proposes the design; it does not implement it. Open questions for
 sign-off are collected at the end.
 
+## Decisions (ratified 2026-09-01)
+
+1. **Entry contract: typed `Drive`.** The driver exports a typed entry (not a
+   `main`-shaped program); bnld parses the CLI and calls it. See the entry-contract
+   section for the arg-marshaling consideration this introduces (the key spike risk).
+2. **v1 API surface: high-level only** — today's `link.bni` exports (`Link` /
+   `LinkDynElf` / `LinkDynMacho` + `ReadObject` / `ReadArchive`). Primitive-level
+   composition is deferred to v2.
+3. **Scope this milestone: v1** — the spike + a standard ELF driver + an e2e. No v2
+   primitives yet.
+4. **Standard drivers live in `examples/`** — free-language, user-copyable, not
+   BUILDER-constrained.
+
 ## Why
 
 A custom driver lets a user change link *policy* — load base, section ordering, entry
@@ -63,9 +76,23 @@ Two candidate shapes:
   @[]readonly char` (returns "" or an error); bnld parses the CLI and calls it. A
   clearer contract, but rigid (bnld fixes the argument shape).
 
-Recommendation: **(A)** for v1 — a driver is just a program that links, with the linker
-library handed to it. It keeps bnld's job tiny (embed VM, inject link, run) and lets
-driver authors evolve their own arg handling. A typed entry can be layered later.
+**RATIFIED: (B) typed `Drive`.** bnld parses the CLI and calls the driver's typed entry.
+
+**Arg-marshaling consideration (the key spike risk).** The VM invokes an interpreted
+function via `vm.CallFunc(name, args @[]int)` — args are WORDS. bnld (compiled) must
+therefore marshal `Drive`'s arguments into words that the interpreted `Drive` reads
+correctly across the compiled→VM boundary. Scalars (`int`, `uint64`, a `*char`) are one
+word each and easy. An AGGREGATE arg — `objs @[]@[]readonly char` (a 4-word managed-slice)
+— is the risk: it must be passed by the same convention the VM expects for that parameter
+shape (by-address vs the 4 words in-line). Options if direct aggregate passing is awkward:
+(i) pass `objs` by a single pointer to a compiled-built slice header; (ii) make `Drive`
+take C-shaped `(argc int, argv **char)` and a couple of `*char`s (all scalar words);
+(iii) fall back to having bnld install the args in the startup `args` cell and `Drive`
+read `os.Args()` (no aggregate crosses the call). The spike resolves which is needed
+before the API is fixed. Proposed initial signature, pending the spike:
+
+    func Drive(objs @[]@[]readonly char, out *[]readonly char, target *[]readonly char)
+            @[]readonly char   // "" on success, else an error message
 
 ### Driver API surface (decision point)
 
@@ -115,13 +142,10 @@ driver authors evolve their own arg handling. A typed entry can be layered later
 5. **(v2, separate)** export the primitives + validate managed-aggregate interop for
    fully-custom drivers.
 
-## Open questions (for sign-off)
+## Open questions — RESOLVED
 
-1. **Entry contract:** (A) `main`-shaped driver (recommended) or (B) a typed `Drive`
-   entry?
-2. **v1 API surface:** high-level `Link*` + `ReadObject`/`ReadArchive` only (recommended),
-   deferring primitive exposure to v2?
-3. **Where do standard drivers live** — `examples/`, a new `drivers/`, or inside the bnld
-   repo tree? (Affects whether they're BUILDER-compiled or free-language.)
-4. **Scope for this milestone:** just the spike + a std ELF driver + e2e (v1), or push
-   into the primitive-level v2 API now?
+All four were signed off 2026-09-01 (see "Decisions (ratified)" above): (1) typed
+`Drive` entry; (2) high-level API only for v1; (3) v1 scope = spike + std ELF driver +
+e2e; (4) standard drivers in `examples/`.  The one thing the spike must still settle is
+mechanical, not a policy choice: how `Drive`'s aggregate `objs` argument is marshaled
+across the compiled→VM boundary (see the entry-contract section).
