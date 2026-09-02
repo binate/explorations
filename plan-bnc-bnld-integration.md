@@ -90,9 +90,12 @@ libraries) dynamically is expected and essential — it is the sanctioned "C int
   builds cmd/bnc with the link import); this pulls `pkg/binate/link` + `pkg/binate/sha256`
   into the BUILDER-compiled surface (CLAUDE.md updated).
 
-**Remaining:** Step 7 (interpreted drivers — the original goal).  Follow-up:
-`--link-after-objs`/`-l` through bnld.  (macOS/Mach-O via bnld AND the default LLVM
-backend + `--linker bnld` are both LANDED — see below.)
+**Remaining:** none of the milestone items — Step 7 (interpreted drivers, the original
+goal) LANDED 2026-09-01 as `9e865237d` (`bnld -driver`; design + review in
+plan-step7-driver.md).  Optional follow-ups only: `--link-after-objs`/`-l` through bnld;
+and the Step 7 v1 shortcuts (driver search paths as flags; a public driver-API package so
+drivers can live in examples/).  macOS/Mach-O via bnld AND the default LLVM backend +
+`--linker bnld` were LANDED earlier — see below.
 
 ### macOS + bnld — LANDED (2026-09-01, commit 3314904ff)
 

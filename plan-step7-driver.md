@@ -226,6 +226,8 @@ the non-conforming-Drive path; bnld rejects `-dynamic`/shared `-l` on the `-driv
 `stripQuotes` gains asymmetric-quote tests.  Everything else in the review checked out
 (Release discipline, arg marshaling, interface-dispatch registration, TypecheckDriver).
 
+v1 LANDED on main as commit 9e865237d (2026-09-01).
+
 v1 is COMPLETE and validated: `e2e/bnld-driver-linux.sh` ALL PASS (exit42→42, hello→0,
 init-driver→42); `builder-comp interp bnld bni repl` 4 passed; hygiene 20/20.  Remaining
 follow-ups (tracked, not blocking): de-shortcut the search paths (flags from
