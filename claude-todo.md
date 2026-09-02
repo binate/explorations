@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### native: concurrent native-compiles collide -> "native backend failed to emit object" — 🟡 os.MkdirTemp READY TO LAND; bnc wiring PARKED on a BUILDER cut (found + root-caused + reproduced 2026-09-01)
+### native: concurrent native-compiles collide -> "native backend failed to emit object" — 🟡 os.MkdirTemp LANDED; bnc wiring PARKED on a BUILDER cut (found + root-caused + reproduced 2026-09-01)
 
 ROOT CAUSE (confirmed + reproduced): a shared FILESYSTEM path, NOT native-specific
 and NOT shared process state.  With no `--build-dir`, `outPrefixFor` (cmd/bnc/compile.bn)
@@ -23,7 +23,7 @@ bug bites manual/ad-hoc concurrent builds.  REPRO (deterministic): 3 concurrent
 per round, all with the "no such file -> link failed" signature.
 
 FIX = two pieces:
-1. **std/os: add MkdirTemp** (commit ea82ee543 on the work branch) — atomic unique-directory
+1. **std/os: add MkdirTemp** (LANDED 2026-09-01, commit 41911cfdf) — atomic unique-directory
    creation via libc mkdtemp(3) over __c_call; os.MkdirTemp(dir, prefix) + sys.MkdirTemp,
    baremetal stub, os.bni/sys.bni decls, unit test.  Builds + passes through the CURRENT
    BUILDER (adds no new-to-BUILDER feature; verified `builder-comp std/os` green 3/3).
