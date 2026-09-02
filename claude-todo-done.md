@@ -251,6 +251,38 @@ heuristics (size/callsite thresholds), argument + refcount handling, recursion
 guards, code-bloat control, interaction with mem2reg/load-fwd/BCE ordering. This is
 where the leverage is for the ratio; do after (2a).
 
+## arm32/ILP32 linker read side — DONE (2026-09-02, commits 2b7c7f242 + f7b89f5bd)
+
+`builder-comp_arm32_linux` (and `_arm32_baremetal`) had 6 `pkg/binate/link` unit
+failures: the Mach-O load-command scan missed LC_MAIN / LC_DYLD_INFO_ONLY, and the
+ad-hoc code-signature verifier read the 0xfade… magics as poison. Root cause:
+`pkg/binate/link/bytes.bn`'s `u32`/`u64` readers returned `int` (LP64-only) — on an
+ILP32 host a 32-bit field with bit 31 set overflows the `<< 24`, and a 64-bit field
+can't be held at all (`<< 32…56` = LLVM poison). This is the READ-side counterpart
+to `b2c68b22b` (which widened the write/layout side to uint64/int64 but left the
+parse side on `int`). Reproduced under qemu in Docker; `pkg/binate/link` now passes
+133/133 on both LP64 and arm32.
+
+- `2b7c7f242` — u32/u64 → int64; ~94 call sites narrowed to their semantic type
+  (offsets/counts → cast(int); reloc bit-field + instruction words → int64 so the
+  bit-31 r_type extraction is correct; section-relative symbol math stays int,
+  modular-exact under Binate's defined two's-complement wraparound). Plus `writeBU64`
+  replacing a poison `writeBE(…,8)` for the CodeDirectory's 8-byte fields, `beU32`
+  widened, and an execSegLimit read-back guard. Two adversarial reviews (reader fix +
+  this) came back clean.
+- `f7b89f5bd` — defensive follow-up: several parse_elf/parse_so reads discarded
+  `readOff`'s fit-check `ok` (silent-0 on an out-of-range field). `parseSymbols` /
+  `parseRelocs` now return an ok flag and `parseObjectBytes` fails loud; the section
+  reader validates sh_size/sh_addralign (sh_offset only on the file-data path — NOBITS
+  never consumes it); parse_so reads DT_SONAME/DT_STRTAB through readOff.
+
+Residual (NOT done, separate representation-widening question): the InputObject struct
+fields keep b2c68b22b's widths — `InputSymbol.Value` / `InputSection.Size` are `uint`,
+`InputReloc.Addend` is `int` — so a value genuinely exceeding 32 bits on an arm32 host
+would still truncate at the store. Not test-exercised (the toolchain's assembler emits
+no such values). Also: no direct tests for the new loud-fail error paths (the readOff
+mechanism itself is covered by TestReadOff).
+
 ## REPL redef dropped pointer-receiver mutations on macOS — DONE (2026-09-01, commit feff63a85)
 
 `e2e/repl.sh` was red on `macos-latest` only (cases `tier4-method-redef-replace` /
