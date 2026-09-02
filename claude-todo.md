@@ -280,17 +280,6 @@ materializing the qualified string.
 
 ## Standard library — pkg/std namespace migration
 
-### Widen the stdx-forwarder-imports check to scan perf/ — 🟡 ACTIVE
-
-The `stdx-forwarder-imports` hygiene check walks only `cmd pkg ifaces impls
-conformance examples e2e` — NOT `perf/` — so the 7 perf benchmarks that imported
-`pkg/stdx/fmt` were never flagged (found + migrated during the forwarder removal,
-`daa0d9b1c`).  Add `perf` to the check's `find` dir list so a future promotion's
-stray perf import is caught.  (scripts/ has no standalone .bn/.bni files — the
-fetch-builder canary is a heredoc inside a .sh — so a .bn/.bni-based check cannot
-cover it regardless.)  Dormant today (no forwarders exist); matters at the next
-promotion.
-
 ### Promote stdx/flags → std/flags — 🟡 ACTIVE (queued after the forwarder removal)
 
 `pkg/stdx/flags` (the tier-1x command-line flag parser) is standards-track; promote
@@ -301,13 +290,16 @@ resolving and the stdx-forwarder-imports mechanism re-arms.
 1. Move the flags interface (`ifaces/stdlib/pkg/stdx/flags.bni`) + impl
    (`impls/stdlib/pkg/stdx/flags/`) to `pkg/std/flags`; add the `pkg/stdx/flags`
    forwarder .bni.
-2. As a SUBSEQUENT commit, convert importers to `pkg/std/flags`.
+2. As a SUBSEQUENT commit, convert any NON-BUILDER-tree importers to `pkg/std/flags`,
+   and add a BUILDER-tree TODO for the rest (they migrate only after a BUILDER
+   carrying `pkg/std/flags` is cut — do NOT cut a BUILDER just for this).
 
-FINDING (2026-09-02): all 5 importers are NON-BUILDER-tree — cmd/{bnas,bnfmt,bni,
-bnld,bnlint}; cmd/bnc does NOT use flags.  So there is NO BUILDER-tree importer, and
-the "BUILDER-tree TODO / requires a BUILDER bump" the task anticipated appears
-unnecessary — all importers can migrate immediately.  Confirm with the user before
-assuming no BUILDER-tree carve-out is needed.
+Importers of `pkg/stdx/flags`: cmd/{bnas,bnfmt,bni,bnld,bnlint} (cmd/bnc does not use
+flags).  These tool CLIs build against the BUILDER-bundled stdlib (that is the point
+of the BUILDER tree), so they CANNOT import `pkg/std/flags` until a BUILDER carrying
+it is cut — their flags imports stay on the forwarder with a BUILDER-tree TODO.  So
+this round is effectively step 1 (promote + forwarder) only; consumer conversion is
+deferred to the post-BUILDER-cut follow-up.
 
 ## Documentation hygiene
 

@@ -26,6 +26,14 @@ a single `return` as a workaround because the frozen BUILDER (bnc-0.0.14) that c
 `pkg/binate/link` for gen1 still has this bug — revertable once a BUILDER carrying this
 fix is cut.
 
+## hygiene/stdx-forwarder-imports: scan perf/ too — DONE (2026-09-02, `b85b13c86`)
+
+The `stdx-forwarder-imports` check walked cmd/pkg/ifaces/impls/conformance/examples/
+e2e but not perf/, so the 7 perf benchmarks that imported `pkg/stdx/fmt` went
+unflagged (found + migrated in `daa0d9b1c`).  Added `perf` to the check's `find` dir
+list.  (scripts/ not added: no standalone .bn/.bni files there — the fetch-builder
+canary is a heredoc in a .sh — so a .bn/.bni-based check cannot cover it.)
+
 ## Finish the stdx→std migration — DONE (2026-09-02)
 
 The `pkg/stdx/*` compat forwarders (`fmt`, `cmp`, `hash`, `containers/*`) existed only
