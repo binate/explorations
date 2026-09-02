@@ -320,27 +320,6 @@ plus a qualify-concat — two allocations per lookup — just to build the compa
 key. Build-once / intern, or hash the (pkgPath, name) components without
 materializing the qualified string.
 
-### Remaining table.Table conversions — 🟡 PARKED behind the next BUILDER cut
-
-The zero-size traits-policy pattern — an empty struct whose `Hash`/`Equal`
-methods (impl `hash.Hasher[K]` / `cmp.Eq[K]`) are `table.Table`'s H/E type
-params — monomorphizes to DIRECT, inlinable calls: open-coded-map parity on the
-stdlib open-addressing engine. Use it for hot fixed-key maps; reserve
-`mapfn`/`setfn` for genuinely-dynamic policies. Borrow keys (`*[]readonly
-char` into a name owned elsewhere) are safe ONLY if the backing outlives the
-table; overwrite-capable maps need `table.Put`'s stored-key refresh
-(`7101419c7`). Landed conversions are in the done log.
-
-- **pkg/binate/types/scope.bn** scope symbol table
-  (`symBuckets`/`symMask`/`scopeHashName`): hot on name resolution, but
-  BUILDER-compiled against the BUILDER's bundled stdlib, which lacks the
-  `table.Put` key-refresh its `Define` in-place overwrite needs. Convert when a
-  BUILDER carrying `7101419c7` is cut for independent reasons — do NOT cut a
-  BUILDER for this.
-- **`GetOrPut` adoption** in registerFuncSig / the string interner (drop their
-  Has+Put double-probe): same parking — BUILDER-compiled, needs a BUILDER
-  carrying `table.GetOrPut` (`d1d45777f`).
-
 ## Standard library — pkg/std namespace migration
 
 ### Finish the stdx→std migration — 🟡 IN PROGRESS (BUILDER cut done: BUILDER_VERSION now bnc-0.0.15, which bundles the promoted pkg/std)

@@ -6,6 +6,30 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Open-coded maps → table.Table: last BUILDER-parked conversions landed — DONE (2026-09-02)
+
+The open-coded-map sweep is complete — no open-coded (hand-rolled open-addressing)
+maps remain in the tree.  The two items parked behind a BUILDER cut landed once
+`BUILDER_VERSION` reached bnc-0.0.15 (which bundles `table.Put`'s stored-key
+refresh `7101419c7` and `table.GetOrPut` `d1d45777f`):
+
+- **pkg/binate/types/scope.bn** (`7845c7fe7`): the scope symbol index (the hottest
+  name-resolution path) → `table.Table[*[]readonly char, int, ScopeNameHasher,
+  ScopeNameEq]` with zero-size trait policies.  Dual-mode preserved (nil table /
+  linear scan for the many small block/function scopes; lazy `symHashActivate` past
+  scopeHashThreshold, table self-grows after).  The old table stored Syms INDICES
+  (overwrite-trivially-safe); the name-keyed table stores a `*[]readonly char`
+  borrow of `Syms[idx].Name`, so `Define`'s in-place overwrite re-Puts the name
+  BEFORE replacing `Syms[idx]` — `table.Put`'s key refresh re-points the stored key
+  at the replacement's Name.  New unit test pins the hash-active overwrite+grow
+  path; full `builder-comp` conformance 2997/0; SHIP review.
+- **registerFuncSig + string interner** (`aa9e25b94`): first-wins inserts now use
+  `table.GetOrPut` (one probe, not Has+Put).  SHIP review.
+
+(Earlier conversions — FuncSig index, string interner storage, vm func/extern/
+datasym indices — plus the `table.Put` key-refresh and `table.GetOrPut` additions,
+and the generic-method-emission double-free fix they surfaced, are recorded above.)
+
 ## gen1 build fails on Linux: BUILDER emitted iv-dispatch thunks STRONG — DONE (2026-09-02, BUILDER bump bnc-0.0.15 + shim removal c515dc2cd)
 
 ROOT CAUSE (recap): BUILDER bnc-0.0.14 emitted the uint8-keyed std/hash.FnHasher /
