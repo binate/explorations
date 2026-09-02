@@ -229,10 +229,13 @@ the non-conforming-Drive path; bnld rejects `-dynamic`/shared `-l` on the `-driv
 v1 LANDED on main as commit 9e865237d (2026-09-01).
 
 v1 is COMPLETE and validated: `e2e/bnld-driver-linux.sh` ALL PASS (exit42→42, hello→0,
-init-driver→42); `builder-comp interp bnld bni repl` 4 passed; hygiene 20/20.  Remaining
-follow-ups (tracked, not blocking): de-shortcut the search paths (flags from
-binate-paths.sh); driver location vs a public driver-API package; aarch64/other targets in
-the e2e; a `LoadCallable`-with-imports unit test (currently covered by the e2e).
+init-driver→42); `builder-comp interp bnld bni repl` 4 passed; hygiene 20/20.
+
+Follow-ups:
+- DONE (2026-09-02, `dadd3ce9c`): search paths as flags (`-I` / `--impl-path`, fed from
+  binate-paths.sh — no baked-in formula); aarch64 case added to the e2e.
+- Remaining (tracked, not blocking): driver location vs a public driver-API package; a
+  `LoadCallable`-with-imports unit test (currently covered by the e2e).
 
 ## Incremental plan
 
