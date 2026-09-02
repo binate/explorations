@@ -556,6 +556,22 @@ refcount-heavy run. Confirm with the same per-class RawAlloc/RawFree leak dump u
 and fix in kind (own the fixtures via managed slices, or free them). MAJOR per the
 raise-don't-workaround rule; the xfail is a tracked hold, not a silent workaround.
 
+**`pkg/binate/vm` hits the SAME arena leak on `builder-comp_arm32_baremetal`** (added
+2026-09-02): its 57-file suite exits with `rt.RawAlloc: arena exhausted`. Decision (owner):
+do NOT xfail vm — investigate this leak properly (it is presumably the same raw-fixture /
+refcount class as native/arm32). The test-level sharding infra now exists (`d4f2dfd52`:
+compiled-runner `--shard`/`--skip` + bare-metal argv from the semihosting command line), and
+it PARTIALLY helps — vm 1/8 and 1/16-shard-1 fit the arena, but the leak is uneven so some
+shards (e.g. 5/16) still exhaust — which confirms the leak, not the binary size, is the real
+issue. Once bounded/fixed, a `pkg-binate-vm.split.builder-comp_arm32_baremetal` marker can
+shard vm to fit; until then it is a KNOWN-RED baremetal package (not xfail'd, per the owner).
+
+Distinct from the leak: `pkg/binate/link` and `cmd/bnld` also fail on baremetal but for
+FILESYSTEM reasons (readFile / os.Create — no filesystem under semihosting), not memory. Those
+are handled by the sharding infra's `--skip` (link: skip the FS tests, run the pure ones) and a
+whole-package xfail (cmd/bnld: entirely FS) — see plan-baremetal-test-sharding.md steps 4-6
+(runner/run.sh wiring + markers), still to land.
+
 ### `data_pkg_descriptor.bn` header/slice-width conflation — 🟢 LOW (non-urgent cleanup)
 The `GetTarget().IntSize` "footgun" was a MISDIAGNOSIS and the native-accessor header reads
 were switched to `ManagedHeaderSize()` (main `581216d9`) — see [claude-todo-done.md](claude-todo-done.md).
