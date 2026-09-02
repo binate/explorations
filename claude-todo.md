@@ -7,6 +7,49 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### LLVM backend: `#[c_export]` sub-word/bool RETURNS lack signext/zeroext — C callers read garbage — 🔴 OPEN MAJOR (found 2026-09-02)
+
+**Severity: MAJOR** — silent wrong values at the C boundary. bnc's LLVM codegen
+emits `define i8/i16/i1 @…` with **no** signext/zeroext return attributes
+anywhere (repo grep: none; only an unrelated zext in emit_funcvals_shim.bn), but
+C callers RELY on callee-extended sub-word returns: darwin-arm64 (DarwinPCS —
+clang callers elide re-extension via AssertSext at -O1+) and x86-64 (de-facto
+clang ABI: signext/zeroext assumed on i1/i8/i16 returns). So a C caller of an
+LLVM-compiled `#[c_export]` function returning int8/int16/bool can read dirty
+upper bits at -O1+. The NATIVE backends are unaffected (emitReturn moves the
+full-width canonical value — over-satisfies). Untested today:
+e2e/ffi-export.sh exports only word-sized `int` returns.
+**Root cause:** missing platform-convention return attributes on LLVM `define`s
+(and matching `declare`s where relevant).
+**Discovered:** adversarial review (ABI lens) of `proposal-c-entry-builtin.md`
+(2026-09-02) — the proposal's C-entry contract covers returns; this is an
+Axis-2 gap against it, pre-existing in landed `#[c_export]`.
+**Proposed fix:** emit signext/zeroext per platform convention; C-driver e2e
+(clang -O2 caller; negative int8/int16 + bool returns). Test/xfail step owed by
+the implementer (authoring session had no binate worktree).
+
+### native C entries: narrow integer STACK args not canonicalized on 8-byte-slot conventions — 🔴 OPEN MAJOR (found 2026-09-02)
+
+**Severity: MAJOR** — the stack-path sibling of the register-arg dirty-upper-bits
+bug (fixed `a171551d0`/`81b3e6d36`). A C caller stores exactly 1/2/4 bytes for a
+narrow stack arg (slot remainder = stale junk); a `#[c_export]` C entry taking a
+narrow int on the STACK (e.g. ≥7 GP args on SysV x64) spills it with a
+full-width unextending load — the natural-size sized-spill exists only for
+AAPCS64_Darwin (common_callconv.bn NaturalSizeStackArgs; x64_emit_func.bn's
+natSize==0 path) — landing junk in the 64-bit canonical home → wrong values at
+-O1+ / 64-bit compares. Native→native is fine (native callers store the full
+canonical word — `4798da30a`'s "callers had no bug" reasoning covers native
+callers only). emitCExportRegNorm{,X64,Arm32} normalize register args only.
+Untested: ffi-export.sh functions have ≤2 params; conformance 1230 is
+native→native.
+**Root cause:** the C-entry thunk re-extends register args only; no stack-slot
+re-extension on 8-byte-slot conventions (SysV x64 both OSes, AAPCS64-linux).
+**Discovered:** same review as the entry above.
+**Proposed fix:** the C-entry thunk (and the future `__c_entry` thunk)
+load-extend-stores narrow incoming stack args on those conventions (mirror the
+darwin sized-spill path); ≥7-arg narrow-stack-arg C-driver e2e. Test/xfail owed
+by the implementer.
+
 ### codegen: a by-value struct returned from >1 `return` site emits duplicate `%v-1.agrp` allocas → LLVM rejects it — 🔴 OPEN (found 2026-09-02)
 
 **Symptom.** `bnc` (LLVM backend) fails to compile with
@@ -66,7 +109,18 @@ THUNK — the thunk performs the C->Binate ABI adaptation (narrow-param normaliz
 other C-vs-Binate ABI differences) and the returned pointer points at the thunk, not the bare
 Binate entry.  This is the same thunk mechanism as the #[c_export]-thunk item above (a
 #[c_export] is just the named/eager instance of "give C a callable pointer to this function").
-Design the builtin + thunk generation together with that item. NOTE (2026-09-01, c_export-prefix review): now that #[c_export] normalization is a C-entry PREFIX (the mangled `sym` sits AFTER it), taking a function's address yields `sym` and thus SKIPS normalization — so this builtin MUST return the ALIAS/prefix address (the C-ABI entry), not the bare mangled entry, for a #[c_export] function, and must synthesize an equivalent normalizing prefix/thunk for a non-c_export function.
+Design the builtin + thunk generation together with that item. **Proposal written + adversarially reviewed (2026-09-02): `proposal-c-entry-builtin.md`** — spec design for `__c_entry(f) -> *uint8` (the "C entry" concept + companion §16.9 corrections + open bikesheds), awaiting ratification; implementation to be planned separately. NOTE (2026-09-01, c_export-prefix review): now that #[c_export] normalization is a C-entry PREFIX (the mangled `sym` sits AFTER it), taking a function's address yields `sym` and thus SKIPS normalization — so this builtin MUST return the ALIAS/prefix address (the C-ABI entry), not the bare mangled entry, for a #[c_export] function, and must synthesize an equivalent normalizing prefix/thunk for a non-c_export function.
+
+### `_func_handle` accepts a generic function reference — latent dangling-symbol link failure — 🟢 minor (found 2026-09-02)
+
+check_builtin.bn's `_func_handle` arm checks only Ident→SYM_FUNC /
+pkg-selector→SYM_FUNC — no TypeParams guard — so `_func_handle(GenericF)`
+type-checks; codegen's lookupFuncValueType then returns nil, the
+__shim/__vt/__handle triple is silently skipped, and the `@__handle.<…>`
+reference dangles at link. Fix: checker rejection ("operand must be a
+non-generic declared function") + a unit test. Surfaced by the
+`proposal-c-entry-builtin.md` review (its `pkg.centry.eligible` bans generics
+explicitly; this is the same guard `_func_handle` is missing).
 
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
