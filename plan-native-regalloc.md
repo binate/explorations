@@ -1,239 +1,239 @@
 # Plan: a real register allocator for the native backend
 
+> **Revision history.** v1 proposed a linear-scan allocator threaded "invisibly" through the
+> existing emitter seam. An adversarial review (2026-09-01) found that premise false in
+> correctness-critical places (call-result/param/return handlers write stack **slots**, not
+> registers; x64 div/shift and aarch64 REM depend on pool order / read-after-write; the
+> scratch pool can't be naively split — arm32's div-check needs all 7 pool registers at
+> once), and that the interval model must be range-lists built from the liveness fixpoint,
+> not `[firstDef,lastUse]` (wrong for loop-carried phi copies). This v2 folds those in. The
+> algorithm (linear-scan), the shared-core-in-`common` split, and the aarch64→x64→arm32
+> staging are unchanged.
+
 ## Problem & goal
 
-The native backend (`pkg/binate/native/`) generates code by a **"spill everything"**
-policy: `common.RegMap.PlanFrame` gives *every* scalar SSA value its own stack slot,
-and the per-arch emitter uses a rotating scratch pool (`nextReg`) that is **reset after
-every instruction** (`spillAndReset` → `ResetRegs`) and every block. Nothing is ever
-live in a register across an instruction boundary — every operand is `ldr`'d from its
-slot and every result is `str`'d back. The policy is self-documented as a placeholder
-(`common/common.bn:113-115`: "Correct but slow; a real allocator can reclaim later").
+The native backend (`pkg/binate/native/`) generates code by a **"spill everything"** policy:
+`common.RegMap.PlanFrame` gives *every* scalar SSA value its own stack slot, and the per-arch
+emitter uses a rotating scratch pool (`nextReg`) that is **reset after every instruction**
+(`spillAndReset` → `ResetRegs`) and every block. Nothing is ever live in a register across an
+instruction boundary — every operand is `ldr`'d from its slot and every result `str`'d back.
+Self-documented placeholder: `common/common.bn:113-115` ("Correct but slow; a real allocator
+can reclaim later").
 
-This is the dominant cause of the native↔clang gap. Measured: a 6-value arithmetic loop
-`hotloop` emits **80 memory ops** with the native backend vs **8** with clang (which keeps
-everything in registers); on the bnc self-compile, native `-O2` is ~9–12× slower than
-clang and barely beats native `-O0` (the IR opt passes run, but the backend discards
-their result — mem2reg promotes loop variables to registers-in-principle, then the
-backend spills them all).
+This is the dominant native↔clang gap. Measured: a 6-value arithmetic loop `hotloop` emits
+**80 memory ops** natively vs **8** with clang; on the bnc self-compile native `-O2` is ~9–12×
+slower than clang and barely beats native `-O0` (the IR opt passes run — mem2reg promotes loop
+vars — but the backend spills the result away).
 
-**Goal:** replace the placeholder with a real register allocator so scalar values live in
-registers across their lifetimes, spilling only under genuine pressure — getting native
-codegen into the same ballpark as clang. This is a foundation to build once and extend,
-not a throwaway.
+**Goal:** a real register allocator so scalar values live in registers across their lifetimes,
+spilling only under genuine pressure — native codegen into clang's ballpark. Build the
+foundation once and extend it (splitting, coalescing, float regs); do not build something that
+needs tearing out.
 
-## What the allocator operates on (established facts)
+## Established facts (from codegen recon; anchors are the `temp-1` tree)
 
-From the codegen recon (anchors are current `temp-1` tree):
+- **Flow:** `native.EmitObject → common.EmitObject → {ir.EliminatePhis(f); e.EmitFunc}`; per-arch
+  `emitFunc` calls `rm.PlanFrame(f)`, emits prologue, then a per-block loop of `emitInstr` +
+  `spillAndReset` (`common_emit_object.bn:23-32`, `aarch64_emit_func.bn:110-367`).
+- **Phi-free input.** `ir.EliminatePhis` runs first (`common_emit_object.bn:30`): phis → `OP_COPY`
+  moves, critical edges split. The copies for one phi all carry the **phi's SSA id**
+  (`ir_phi_elim.bn:250-259`) — one id, several `OP_COPY` defs across predecessors. **Scalar-only,
+  fail-loud** (`assertScalarPhi` panics on aggregate/managed/wide-int).
+- **Allocatable universe (v2, precise):** an SSA id is register-allocatable iff it is a **scalar
+  SpillID with NO AllocID**, is **not a float** (`!IsFloatScalarTyp` — see C6 below), and is not
+  int64-on-a-32-bit-target (arm32 int64 stays spilled in v1). Everything else stays in memory:
+  anything with an AllocID (`OP_ALLOC`, `OP_MAKE_SLICE`, aggregate params/results, aggregate SSA
+  values held as pointers), and any address-taken alloca (no `OP_ADDR_OF`; `&x` reuses the alloca
+  id and materializes `add rd,sp,#off`, `aarch64_regmap.bn:96-111`). Address-taken *scalars* are
+  therefore already excluded (they are OP_ALLOCs). **A register-allocated value STILL keeps its
+  stack slot** — the scalar `box()` path spills to the slot and boxes from that address
+  (`aarch64_emit.bn:99-105`), and spilled/reloaded values need a home — so `PlanFrame` keeps
+  allocating slots for all values.
+- **Register inventory / reserved, per arch** (see recon): aarch64 free pool X9–X15 (caller-saved)
+  + X16/X17 (currently unsafe fallback) + **X19–X28 callee-saved unused**; reserved SP/FP/LR/XZR/
+  X18, arg X0–X7, ret X0, sret X8. x64 pool R10,R11,RCX,RDX,R8,R9,RDI; RAX reserved; **two-address**
+  binops; DIV needs RDX:RAX; shift needs CL; **R12–R15 callee-saved unused**. arm32 pool R4–R10
+  (**callee-saved, already prologue-saved**); R11=FP, R12/IP dedicated scratch, R13/14/15=SP/LR/PC;
+  int64 = register pairs.
+- **No liveness exists.** Must be built. Natural home: `common` (IR is arch-neutral).
+- **VM impact: none.** `vm/lower_*.bn` uses only stateless `native/common` helpers, never
+  `RegMap`/`PlanFrame`. **No DWARF** in the native backend, so no debug-location work.
+- **Testing:** per-arch `*_emit_test.bn` assert byte-count/shape; three native conformance modes
+  (`native_aa64`, `native_x64_darwin`, `native_arm32_baremetal`) gate correctness — codegen-clean
+  baselines today (arm32 1 xfail; aa64/x64 8 distinct, all nil-deref/panic). Fail-loud (panic on
+  pool exhaustion, `a.SetError` on unimplemented) surfaces regressions immediately.
 
-- **Flow:** `native.EmitObject → common.EmitObject → {ir.EliminatePhis(f); e.EmitFunc}`;
-  per-arch `emitFunc` calls `rm.PlanFrame(f)`, emits prologue, then a per-block loop of
-  `emitInstr` + `spillAndReset` (`common_emit_object.bn:23-32`,
-  `aarch64_emit_func.bn:110-367`).
-- **Phi-free input.** `ir.EliminatePhis` runs before emission (`common_emit_object.bn:30`):
-  phis become `OP_COPY` moves; critical edges are split. So the allocator sees a **phi-free
-  CFG**. Subtlety: the copies for one phi all carry the **phi's SSA id**
-  (`ir_phi_elim.bn:250-259`) — one id, several defining `OP_COPY`s across predecessors.
-  Live-range construction must treat these as one value.
-- **Allocatable universe = scalar SSA values.** Exactly the non-aggregate, non-alloc
-  `SpillIDs`: int / bool / raw-pointer (and float, see below). This coincides with
-  `EliminatePhis`' `assertScalarPhi`-accepted set. **Must stay in memory regardless:**
-  anything with an `AllocID` — `OP_ALLOC`, `OP_MAKE_SLICE`, aggregate params/results,
-  aggregate SSA values (represented as pointers into a data region), and any address-taken
-  alloca (the IR has no `OP_ADDR_OF`; `&x` reuses the alloca id and materializes
-  `add rd, sp, #off` on demand, `aarch64_regmap.bn:96-111`). Fault pads are VM-only and
-  irrelevant to the native path.
-- **The seam** the allocator threads through is `getOperand` / `nextReg` / `spillAndReset`
-  in each arch's `*_regmap.bn` — the op handlers call these and are otherwise arch code we
-  do NOT rewrite.
-- **Register inventory (free/reserved), per arch:**
-  - **aarch64** (`aarch64_regmap.bn`): pool today = X9–X15 (7, caller-saved) + X16/X17
-    (IP0/IP1, unsafe fallback). Reserved: SP, X29/FP, X30/LR, XZR, X18. **X19–X28 (10
-    callee-saved) entirely unused** — the prologue saves only FP/LR. Arg X0–X7, ret X0,
-    sret X8, FP args/ret D0–D7.
-  - **x64** (`x64_regmap.bn`): pool today = R10,R11,RCX,RDX,R8,R9,RDI (7). RAX reserved
-    (ret + IMUL/IDIV). **Two-address**: binops emit `mov rd,lhs; op rd,rhs`. **DIV/REM**
-    need RDX:RAX; **shifts** need count in CL. R12–R15 callee-saved unused. sret ptr in RDI.
-  - **arm32** (`arm32_regmap.bn`): pool today = R4–R10 (7, **callee-saved, already saved in
-    prologue**). R11=FP, R12/IP = dedicated scratch, R13/14/15 = SP/LR/PC. 64-bit ints are
-    multi-register (`arm32_int64.bn`); args R0–R3, sret in R0.
-- **Fixed-register constraints** the allocator must respect (§5 of recon): call arg passing
-  (X0–X7 / D0–D7, overflow to outgoing stack), call results (X0 / D0 / X0..N / X8-sret),
-  `OP_RETURN`, x64 DIV (RDX:RAX) and shift (CL), and the rt-call fault checks
-  (`OP_DIV_CHECK`/`OP_SHIFT_CHECK`/`OP_BOUNDS_CHECK` pass args in X0–X3), `OP_MAKE`/`OP_BOX`
-  (X0/X1, result X0). Every `BL` clobbers all caller-saved regs; today the
-  `ResetRegs`-after-every-call discipline enforces that.
-- **No liveness analysis exists** anywhere today — it must be built from scratch. Natural
-  home: `common` (IR blocks/instrs are arch-neutral).
-- **Testing surface:** per-arch `*_emit_test.bn` assert emitted **byte counts / shapes**
-  (not exact bytes); three native conformance modes gate end-to-end correctness
-  (`native_aa64`, `native_x64_darwin`, `native_arm32_baremetal`). Current xfail baselines
-  are essentially codegen-clean: arm32 = 1 xfail, aa64/x64 = 8 distinct (all
-  nil-deref/panic/interp cases, not codegen). Pool exhaustion and unimplemented ops
-  **fail loud** (panic / `a.SetError`), so regressions surface immediately.
+## Algorithm: linear-scan over **range-list** live intervals
 
-## Algorithm: linear-scan, whole-interval (v1), extensible
+Linear-scan (liveness → intervals → scan → assign) is the right AOT baseline. Two v2 corrections
+to make it the *right foundation* (not a redo):
 
-Choose **linear-scan over live intervals** — the standard "right" baseline for an AOT
-backend not chasing peak. Graph-coloring is more work for marginal gain at this stage;
-crucially, linear-scan's core (liveness → intervals → scan → assignment) is the *same*
-infrastructure that the later refinements (interval splitting, coalescing) extend, so
-this is a foundation, not a throwaway.
+- **R1 — range-list intervals.** Represent each interval as a **sorted list of live ranges**
+  (LLVM `LiveInterval` / Wimmer style), even though v1 assigns a single location per interval.
+  A single `[start,end]` would have to be replaced to support holes/splitting later; the
+  range-list is the durable representation.
+- **R2 — intervals from the liveness fixpoint, NOT def-use.** Build ranges from per-block
+  live-in/live-out sets (backward dataflow to fixpoint over the phi-free CFG). `[firstDef,lastUse]`
+  is *wrong* for a loop-carried phi id: in RPO the header **use** precedes the latch **def**, so a
+  first-def-to-last-use interval ends before the back-edge def and the register is freed mid-loop →
+  the latch `OP_COPY` clobbers a reassigned value. Liveness makes the value live-in across the whole
+  loop (used-before-redefined in the latch), which is the only sound basis. One-register-per-id is
+  fully compatible with several defs — that is the intent of the shared phi id.
 
-**v1 = whole-interval assignment**: each allocatable value is either (a) assigned ONE
-physical register for its entire live interval, or (b) **spilled** (lives in its stack
-slot; loaded into a scratch register on each use, stored on each def — i.e. today's
-behavior, but only for the values that couldn't get a register). This already keeps the
-common case (loop-carried and straight-line temps) in registers. Interval *splitting*
-(register when possible, spilled only in the pressured sub-range) is a later additive
-refinement over the same intervals — explicitly deferred, not a redo.
+**v1 assignment = whole-interval** (one register for a value's whole interval, or spilled entirely).
+Interval *splitting* (register in the un-pressured sub-range, spilled elsewhere) is a Stage-5
+refinement — but because intervals are already range-lists with per-range locations, splitting adds
+locations to existing ranges rather than replacing the representation.
 
-### Pipeline (all per-function, after `EliminatePhis`, before emission)
+## The clobber & scratch model (the correctness core — v2's main addition)
 
-1. **Linearize + number.** Order blocks in reverse-postorder; number instructions. Loops
-   must nest contiguously enough that a value live across a back-edge gets a live interval
-   spanning the loop (standard).
-2. **Liveness.** Backward dataflow over the phi-free CFG: `live-out(b) = ∪ live-in(succ)`;
-   `live-in(b) = use(b) ∪ (live-out(b) − def(b))`. Only allocatable scalar ids. The
-   phi-copy-shared-id case: an id defined by multiple `OP_COPY`s is one value; its uses and
-   all its defs contribute to one interval.
-3. **Build intervals.** For each allocatable id, a live interval (contiguous [start,end]
-   in v1; holes are a later refinement) from first def to last use, extended across any
-   loop it is live around. Record, per interval, whether it **crosses a call** (spans any
-   call instruction) — this drives the caller/callee-saved decision.
-4. **Assign registers (linear scan).** Walk intervals in start order, maintaining an active
-   set. For each interval, expire finished actives (free their regs), then:
-   - Pick a free register from the appropriate class (below). If none, **spill** the
-     interval whose end is furthest away (Poletto-Sarkar heuristic) — either the new
-     interval or an active one — marking the loser spilled.
-   - **Register class by call-crossing:** an interval that crosses a call must take a
-     **callee-saved** register (survives the clobber) or be spilled; an interval that never
-     crosses a call may take a **caller-saved** register (cheaper — no prologue save). This
-     is the whole reason to unlock X19–X28 / R12–R15.
-5. **Emit.** The per-arch `getOperand`/`nextReg`/`spillAndReset` consult the assignment:
-   a register-allocated value uses its stable register (no reset, persists across
-   instructions); a spilled value loads into / stores from a scratch. The
-   per-instruction/per-block `ResetRegs` for allocated values goes away; a small **scratch
-   set** (e.g. aarch64 X16/X17) is reserved for reloading spilled operands and for the
-   existing address-materialization.
-6. **Prologue/epilogue.** Save/restore exactly the callee-saved registers the allocation
-   used (aa64/x64 add these; arm32 already saves its R4–R10 pool). Extend the frame layout
-   for the saved-register area.
+The native backend **unifies "value registers" and "op-internal scratch" in one pool**, and the
+current design stays correct only because it resets that pool every instruction. A real allocator
+that keeps values in registers across instructions must therefore know, per instruction, which
+registers each op **destroys** — both ABI-clobbered (calls) and scratch the handler grabs. This is
+the standard "instruction clobber set / regmask" model, and it subsumes several review findings.
 
-### How fixed-register constraints & call-clobbering are handled
+Each arch supplies **`clobbers(ins) → set of physical registers`** the lowering of `ins` destroys:
 
-The recon shows the op handlers **already marshal** values into/out of fixed registers:
-call arg handlers move operands (from `getOperand`) into X0–X7; result handlers move X0
-into the result's `nextReg`; the x64 div/shift handlers stage RDX:RAX / CL. With the
-allocator, `getOperand` returns the value's *home register*, and the handler's existing
-`mov`/marshal moves it to the ABI register — so **fixed constraints need no pre-coloring;
-the existing marshaling code keeps working**, provided the allocator does not hand a
-persistent value one of the fixed/clobbered registers at the wrong time. We guarantee that
-structurally by keeping the constrained registers **out of the allocatable pool**:
+- **Returning-BL ops clobber all caller-saved.** This set is bigger than `isCallOp` (C4): it must
+  include OP_CALL*/OP_C_CALL/OP_SAT_LOOKUP/iface **and** OP_MAKE (`Bl rt.Alloc`), OP_BOX
+  (`Bl rt.Box`), OP_MAKE_SLICE (`Bl rt.MakeManagedSlice`), the fault checks
+  OP_DIV_CHECK/OP_SHIFT_CHECK/OP_BOUNDS_CHECK (rt calls, args X0–X3), and **OP_REFDEC**
+  (`Bl rt.ZeroRefDestroy`, conditional but ubiquitous). Missing any = silent clobber of a
+  cross-op value.
+- **x64 fixed-register ops clobber their fixed regs:** div/rem → {RAX,RDX}; shift → {RCX}.
+- **Scratch-hungry handlers clobber their working set:** arm32 `emitDivCheck64` clobbers R4–R10 (7);
+  aarch64 `emitStructCopy` clobbers 3; etc. (enumerate per handler during Stage 0).
 
-- **aarch64:** allocatable = caller-saved {X9–X15} (for non-call-crossing intervals) +
-  callee-saved {X19–X28} (for call-crossing). X0–X7 stay ABI-only (used transiently by
-  handlers, and clobbered by calls anyway); X16/X17 = scratch; X8 = sret; SP/FP/LR/XZR/X18
-  reserved.
-- **x64:** allocatable = {R10,R11,R8,R9,RDI} caller-saved + {R12–R15} callee-saved. Keep
-  **RAX/RDX/RCX out of the allocatable pool** (reserved for return, DIV, and shift-count)
-  so the two-address/div/shift handlers stay correct without the allocator reasoning about
-  their mid-instruction clobbers. (Reclaiming RCX/RDX for allocation is a later refinement
-  that models div/shift as clobbers.)
-- **arm32:** allocatable = {R4–R10} (already callee-saved & prologue-saved) for everything;
-  R0–R3 ABI-only, R12/IP scratch. int64 values occupy register *pairs* — treat a 64-bit id
-  as needing two adjacent-classed registers or spill (v1 may simply spill int64 to keep the
-  first cut simple, matching today).
+The allocator's contract, per instruction `ins` with clobber set `C`:
+1. No value **live across** `ins` (live-in ∧ live-out, i.e. not defined/killed here) may occupy a
+   register in `C`. The scan enforces this by making `C` unavailable for any interval whose range
+   spans `ins`; such a value takes a non-clobbered register (callee-saved) or spills.
+2. The handler's transient scratch is drawn **from `C`** (guaranteed free by (1)), so scratch never
+   collides with a persistent value.
 
-Calls are the clobber points: because call-crossing intervals are already forced to
-callee-saved (or spilled), and the arg/scratch registers used at a call are caller-saved
-and never hold a persistent value across the call, **the call site needs no per-call
-`ResetRegs`** — the allocation already guarantees no live value sits in a clobbered
-register across the `BL`. (We keep an assertion to that effect during bring-up.)
+**Reserved scratch for ordinary ops.** Most ops need only enough scratch to reload spilled operands
+and land a spilled result. Reserve a small fixed scratch set per arch (aarch64: X16/X17 — but see
+C3: stop hardcoding X16 elsewhere; x64: reserve a pair; arm32: R12/IP is already the reserved
+scratch) sized to the **worst ORDINARY op** (reload ≤2 operands + a result temp for read-after-write
+lowerings like REM). Special ops (div-check64, struct copy, div, shift) declare a larger `clobbers`
+set instead of drawing from the tiny reserved set.
+
+This model **is** the fix for C2/C3/C4: call-clobber, rt-op clobber, x64 fixed regs, and per-handler
+scratch demand are all one mechanism.
+
+## Handlers that CHANGE (v2 is explicit; "untouched" was false)
+
+The op handlers that *read* operands via `getOperand` keep working (getOperand returns the home
+register or reloads a spilled value). But these handlers **produce/land** values into stack slots
+today and must be changed to land into the value's **home register** when it is register-allocated
+(falling back to slot when spilled):
+
+- **Call results:** `collectScalarReturn` (aarch64_call.bn:370-379) `Str X0→slot` → must `Mov home←X0`
+  (or Str→slot if spilled). Same for float returns and `collectMultiReturnFields`
+  (aarch64_call.bn:304-362).
+- **Parameters:** the entry prologue (aarch64_emit_func.bn:162-350) `Str`s each incoming arg reg to
+  its slot → a register-allocated param needs an **arg-reg → home-reg move at entry** (G1), and
+  must move off X0–X7 before the first clobbering op.
+- **`OP_RETURN` value production** where it stages results.
+- **Read-after-write lowerings must respect `rd ∉ {operands read after the write}`** (C5): aarch64
+  **OP_REM** (`Sdiv rd; Msub rd,rd,rhs,lhs` re-reads lhs/rhs) and x64 two-address (`mov rd,lhs;
+  op rd,rhs` when `rd==rhs`) and x64 div. Enforce via an allocator constraint (don't give `rd` a
+  register equal to an operand read after the def) or a scratch temp for the intermediate.
+- **Stop hardcoding pool registers by identity/order** (C3): aarch64's hardcoded `X16`
+  (aarch64_emit_func.bn:279, aarch64_call.bn:56/146/155) must move to the declared scratch set; x64
+  shift/div must **name** RCX/RDX/RAX explicitly and declare them clobbered, not fish them out of the
+  rotating pool (which the allocator no longer advances).
+
+Everything else (`emitBinop` arithmetic, `getOperand` reads, address materialization) is untouched.
+
+## Register classes (per-arch descriptor)
+
+Each arch supplies a small descriptor the shared allocator consults (never physical numbers):
+caller-saved-allocatable, callee-saved-allocatable, reserved-scratch, reserved (never allocated),
+and `clobbers(ins)`.
+
+- **aarch64:** caller-saved-alloc {X9–X15}; callee-saved-alloc {X19–X28} (prologue save/restore what
+  is used); scratch {X16,X17}; X0–X7 ABI-only (not allocated — transient at calls, clobbered anyway);
+  X8 sret; SP/FP/LR/XZR/X18 reserved.
+- **x64:** caller-saved-alloc {R10,R11,R8,R9,RDI}; callee-saved-alloc {R12–R15}; **RAX/RDX/RCX
+  reserved** (ret + div + shift), declared in the relevant ops' clobber sets; a reserved scratch
+  pair. (Reclaiming RCX/RDX via clobber-modeling is a Stage-5 refinement.)
+- **arm32:** allocatable {R4–R10} (already callee-saved & prologue-saved) for scalars; R0–R3 ABI-only;
+  R12/IP reserved scratch; int64 **spilled in v1** (its handlers need the whole pool as scratch, so
+  a live int64-in-registers is infeasible until those handlers shrink — do not regress the ~1-xfail
+  baseline).
 
 ## Architecture: shared core, per-arch descriptor
 
-- **Shared in `common/`** (new): linearization, liveness, interval construction, and the
-  linear-scan assignment loop — all arch-neutral (they read IR + a register-class
-  descriptor). Extend `RegMap` (or add a sibling `Alloc` table) to store the *stable*
-  per-id → register (or spilled) result, distinct from today's transient `IDs/Regs`.
-- **Per-arch register-class descriptor** (new small struct each arch fills): the caller-
-  saved allocatable set, the callee-saved allocatable set, the scratch set, and the
-  reserved/fixed registers — the allocator consults only this, never physical numbers.
-- **Per-arch emission** stays where it is; only `getOperand`/`nextReg`/`spillAndReset` (and
-  prologue/epilogue callee-save) change to consult the stable allocation. The op handlers
-  are untouched. This is the low-risk seam the recon identified.
+- **Shared in `common/` (new):** linearization (RPO, handling **unreachable blocks** — G3: skip or
+  give empty allocations so `getOperand` never returns −1 for them), liveness (fixpoint), range-list
+  interval construction, and the linear-scan assignment loop — all arch-neutral (read IR + the
+  register-class descriptor + `clobbers`). Store the **stable** per-id → location (register or
+  spilled) in an `Alloc` table on/beside `RegMap`, distinct from today's transient `IDs/Regs`.
+- **Per-arch:** the register-class descriptor + `clobbers(ins)`; the changed landing/scratch handlers
+  above; prologue/epilogue callee-save; frame-layout update (G2: the callee-saved save area shifts
+  SP-relative offsets — `stackArgsBase`/spill/alloc/outgoing must all account for it consistently in
+  `PlanFrame`).
 
-## Staging (incremental; each stage lands green)
+## Staging (incremental; each stage lands green & cherry-pickable)
 
-Land aarch64 fully first (cleanest, unused callee-saved regs, near-clean conformance
-baseline), then x64, then arm32. Each stage is a self-contained, cherry-pickable commit
-that keeps its conformance mode green.
+- **Stage 0 — the reusable core in `common`, no emission change.** Linearization (+unreachable),
+  liveness fixpoint, **range-list** intervals, and the **`clobbers` set** enumeration per arch.
+  Plus a validator (every allocatable id has an interval; ranges respect def-before-use per the
+  fixpoint; clobber sets complete). Unit-tested on hand-built IR incl. the **loop-carried
+  phi-copy-shared-id** case and a forced-pressure spill. No codegen change → all modes green.
+- **Stage 1 — aarch64 linear-scan, caller-saved only (X9–X15); spill any interval that spans a
+  clobber.** Rewire the landing handlers (C1/C3/C5), drop per-instruction reset for allocated
+  values, add the bring-up assertion (below). Wins for straight-line + clobber-free loops (hotloop →
+  registers). Validate `native_aa64`; update byte-count tests; disassemble `hotloop`.
+- **Stage 2 — aarch64 callee-saved (X19–X28) + prologue/epilogue save/restore + param entry shuffle
+  (G1).** Cross-clobber values stay in registers. Validate `native_aa64` + USER-CPU benchmark.
+- **Stage 3 — x64** (two-address, RAX/RDX/RCX reserved+clobbered, R12–R15). Validate `native_x64`.
+- **Stage 4 — arm32** (pool already callee-saved; int64 spilled). Validate `native_arm32`; protect the
+  1-xfail baseline.
+- **Stage 5 (additive, on the same foundation):** interval splitting (add locations to ranges),
+  copy coalescing (elide `EliminatePhis` `OP_COPY`s by giving src=dst one register), spill-cost
+  heuristics (use-density × loop depth), float register file (D8–D15 callee-saved), reclaim x64
+  RCX/RDX, arm32 int64-in-registers.
 
-- **Stage 0 — liveness + intervals in `common`, no emission change.** Build the analysis and
-  a validator (assert well-formedness: every allocatable id gets an interval; intervals
-  respect def-before-use; call-crossing flags correct). Unit-test in isolation with
-  hand-built IR. No codegen change → all modes still green. *This is the reusable core.*
-- **Stage 1 — aarch64 linear-scan, caller-saved only (X9–X15); spill anything that crosses a
-  call.** No prologue changes yet. Wins for straight-line code and call-free loops
-  (hotloop → registers). Rewire `getOperand`/`nextReg`/`spillAndReset`; drop the
-  per-instruction reset for allocated values. Validate: `native_aa64` conformance green;
-  update byte-count unit tests; disassemble `hotloop` to confirm the memory-op drop.
-- **Stage 2 — aarch64 callee-saved (X19–X28) + prologue/epilogue save-restore.** Call-crossing
-  intervals now stay in registers. Validate `native_aa64` + a benchmark (bnc self-compile,
-  USER CPU) to measure the win.
-- **Stage 3 — x64** (two-address, RAX/RDX/RCX reserved, R12–R15 callee-saved). Validate
-  `native_x64_darwin`.
-- **Stage 4 — arm32** (pool already callee-saved; int64 pairs — spill int64 in v1). Validate
-  `native_arm32_baremetal` (protect the ~1-xfail baseline).
-- **Stage 5 (additive refinements, separately prioritized):** interval splitting (register in
-  the un-pressured sub-range), copy coalescing (the `EliminatePhis` `OP_COPY`s — allocate
-  source and dest to the same register to elide the move), better spill heuristics
-  (spill-cost by use-density, loop-depth weighting), a real float register file (D8–D15
-  callee-saved), reclaiming x64 RCX/RDX via clobber modeling, and arm32 int64-in-registers.
+## Correctness & validation (miscompile is the top risk)
 
-## Correctness is the top risk — validation
+A wrong assignment is a **silent** wrong-register read. Front-load validation:
 
-A wrong allocation is a **silent miscompile** (a value read from the wrong register). This
-is the highest-severity failure mode, so validation is front-loaded:
+- **Bring-up assertion, driven INDEPENDENTLY of the interval-crossing predicate** (C4 corollary):
+  enumerate clobber points from `clobbers(ins)` and assert no live allocatable value sits in a
+  clobbered register there. If the assertion and the allocation shared one (buggy) predicate it would
+  be blind — so derive them separately during bring-up.
+- **Three native conformance modes** after every stage (codegen-clean baselines → regressions show
+  immediately as failures/xpass).
+- **Per-arch unit tests** updated to the new emit shape, pinning: a clobber-crossing value →
+  callee-saved; a forced spill; the phi-copy-shared-id loop interval; the REM/two-address
+  read-after-write constraint.
+- **USER-CPU benchmark** (native self-compile of cmd/bnc, aarch64, no Rosetta) after Stages 1/2;
+  target: from ~9–12× toward clang's ballpark.
+- **Adversarial review of each stage's diff.**
 
-- The three native **conformance modes** are the end-to-end gate; run the relevant one after
-  every stage. They are essentially codegen-clean today, so a regression shows as new
-  failures / xpass immediately.
-- **Per-arch unit tests** (`*_emit_test.bn`, `*_regmap_test.bn`) are updated to the new emit
-  shape and pin the allocator's behavior on small hand-built functions (a call-crossing
-  value → callee-saved; a spill under forced pressure; a phi-copy-shared-id interval).
-- A **bring-up assertion**: at every call site, assert no live allocatable value is in a
-  caller-saved register (catches a call-clobber bug loudly instead of as data corruption).
-  Keep it behind the existing verify path during development.
-- **Adversarial review** of this plan *before* code, and of each stage's diff (focus: the
-  call-clobber/callee-saved interaction, fixed-register marshaling, the phi-copy-shared-id
-  live range, x64 two-address/div/shift, arm32 int64/tight-pressure, loop-carried interval
-  extension across back-edges, spill-slot correctness for values that are both
-  register-allocated somewhere and spilled elsewhere once splitting lands).
-- **Benchmark by USER CPU** (native self-compile of cmd/bnc, aarch64, no Rosetta) after
-  Stages 1/2 to quantify the win; target: from ~9–12× toward clang's ballpark.
+## Sharp edges (call out in each stage's review)
 
-## Sharp edges to get right (call these out in review)
-
-1. **Call-crossing detection & the caller/callee-saved split** — the core correctness lever.
-   An interval that spans a call in a caller-saved register = corruption.
-2. **Phi-copy-shared-id** — multiple `OP_COPY` defs of one id; the interval is their union,
-   and the spill slot is shared (`ir_phi_elim.bn` already relies on one-slot-per-id).
-3. **Loop-carried intervals across back-edges** — must extend to the loop's full extent, or a
-   value gets a register reused mid-loop.
-4. **Fixed-register marshaling still works** because constrained regs are out of the pool;
-   verify no handler assumes `getOperand` reloads from memory (some may rely on the reload
-   side effect today — audit each handler's operand use).
-5. **x64 two-address `mov rd,lhs`** when `rd`==`rhs` (result aliases the second operand) —
-   the classic swap/clobber hazard.
-6. **Frame layout** now includes a callee-saved save area; every SP-relative offset
-   (spill/alloc/outgoing-args) must account for it consistently (`PlanFrame`).
-7. **arm32 int64** register pairs and the tighter 7-register pool — v1 spills int64 to avoid
-   pair allocation, but must not regress the near-clean baseline.
+1. **Clobber-set completeness (C4)** — REFDEC/MAKE/BOX/MAKE_SLICE/fault-checks are BLs; missing one =
+   corruption. Assertion must be independent.
+2. **Scratch starvation (C2)** — the reserved scratch set must cover the worst *ordinary* op; special
+   handlers declare bigger clobber sets. arm32 div-check64 = 7 (whole pool) → values live across it
+   spill.
+3. **Landing into home registers (C1)** — call-result/param/return handlers must stop writing slots
+   for register-allocated values.
+4. **Read-after-write (C5)** — aarch64 REM, x64 two-address/div: `rd` ∉ operands-read-after-write.
+5. **Loop-carried phi-copy-shared-id (R2)** — one id, defs in latch + pre-header; interval from the
+   liveness fixpoint or the register frees mid-loop.
+6. **Frame layout (G2)** — callee-saved save area shifts every SP-relative offset consistently.
+7. **Float exclusion (C6)** — a float scalar matches "scalar non-alloc SpillID"; must be filtered out
+   or its boundary handlers (which shuttle GP↔slot) leave a home register stale.
+8. **Hardcoded pool registers (C3)** — aarch64 X16, x64 RCX/RDX-by-order — must become declared.
+9. **Param placement (G1)** — arg-reg → home-reg at entry, off X0–X7 before the first clobber.
+10. **Unreachable blocks (G3)** — RPO won't reach them; don't leave their operands unallocated.
 
 ## Non-goals (v1)
 
-Float register allocation (floats keep using GP spill slots / D-reg moves at boundaries as
-today), interval splitting, coalescing, and graph-coloring — all deferred to Stage 5 as
-additive work on the same foundation.
+Float register allocation, interval splitting, copy coalescing, graph-coloring, arm32
+int64-in-registers, reclaiming x64 RCX/RDX — all Stage 5, additive on this foundation.
