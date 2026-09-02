@@ -302,27 +302,33 @@ table; overwrite-capable maps need `table.Put`'s stored-key refresh
 
 ## Standard library — pkg/std namespace migration
 
-### Finish the stdx→std migration + remove the forwarders when the next BUILDER lands — 🟡 OPEN (gated on a BUILDER cut)
+### Finish the stdx→std migration — 🟡 IN PROGRESS (BUILDER cut done: BUILDER_VERSION now bnc-0.0.15, which bundles the promoted pkg/std)
 
-The `pkg/stdx/*` compat forwarders (`fmt`, `cmp`, `hash`, `containers/*`) are still
-imported by the **BUILDER-compiled tree** (cmd/bnc + its pkg/binate deps: ir, native,
-types, …).  The current BUILDER (`bnc-0.0.14`) compiles that tree against its OWN
-bundled stdlib snapshot, which predates the promotion and only has the `pkg/stdx/*`
-paths — a BUILDER-tree `import "pkg/std/vec"` fails the gen1 build (`package
-"pkg/std/vec" not found`).  In-tree non-BUILDER consumers are already migrated
-(`b8d3615d2`); the `stdx-forwarder-imports` hygiene check (`a432c30db`) enforces that
-and exempts exactly the BUILDER tree (`is_builder_tree`).
+Background: the `pkg/stdx/*` compat forwarders (`fmt`, `cmp`, `hash`, `containers/*`)
+were imported by the **BUILDER-compiled tree** (cmd/bnc + its pkg/binate deps).  The
+old BUILDER (`bnc-0.0.14`) predated the promotion (landed `abfa3e66b`..`a6cb15f87`) so
+a BUILDER-tree `import "pkg/std/vec"` failed the gen1 build; the BUILDER tree was kept
+on the forwarders and exempted from the `stdx-forwarder-imports` hygiene check
+(`a432c30db`, `is_builder_tree`) until a BUILDER carrying the promotion was cut.
+Non-BUILDER consumers were already migrated (`b8d3615d2`).
 
-Once a BUILDER carrying the promoted `pkg/std` stdlib is cut (i.e. `BUILDER_VERSION`
-bumped to a release that includes the promotion, landed `abfa3e66b`..`a6cb15f87`):
-1. Migrate the BUILDER-tree imports `pkg/stdx/*` → `pkg/std/*` (grep the
-   `is_builder_tree` dirs — the 16 files reverted in `b8d3615d2`).
-2. Remove the `is_builder_tree` exemption from
-   `scripts/hygiene/stdx-forwarder-imports.sh` (it then flags a forwarder import
-   anywhere).
-3. Delete the `pkg/stdx/*` forwarder `.bni` files (`ifaces/stdlib/pkg/stdx/{fmt,cmp,
-   hash}` + `ifaces/stdlib/pkg/stdx/containers/*`) — nothing imports them anymore.
-   The check then auto-empties (no forwarders discovered → trivially passes).
+**bnc-0.0.15 is that BUILDER** (cut + BUILDER_VERSION bumped, verified it bundles the
+flat `pkg/std/{vec,table,mapfn,fmt,cmp,hash,…}`).  Remaining steps:
+
+1. **DONE (`f2f6dd594`):** migrated the BUILDER-tree CONTAINER imports —
+   `pkg/stdx/containers/{vec,table,mapfn}` → `pkg/std/{vec,table,mapfn}` (11 imports
+   across asm, token, ir, types).  gen1-clean against bnc-0.0.15.
+2. **TODO — fmt/cmp/hash:** migrate the remaining BUILDER-tree imports
+   `pkg/stdx/{fmt,cmp,hash}` → `pkg/std/{fmt,cmp,hash}` (grep the `is_builder_tree`
+   dirs; ~14 fmt + 1 cmp + 1 hash).
+3. **TODO — forwarder + exemption cleanup (after step 2, when NOTHING imports the
+   forwarders):** delete the `pkg/stdx/*` forwarder `.bni` files
+   (`ifaces/stdlib/pkg/stdx/{fmt,cmp,hash}` + `ifaces/stdlib/pkg/stdx/containers/*`)
+   and remove the `is_builder_tree` exemption from
+   `scripts/hygiene/stdx-forwarder-imports.sh`.  **KEEP the check MECHANISM itself** —
+   it's the general "no one imports a compat forwarder" guard, and future stdlib
+   promotions will add new forwarders it must keep guarding; it auto-empties (passes
+   trivially) when no forwarders exist, and re-arms when the next promotion adds some.
 
 ## Documentation hygiene
 
