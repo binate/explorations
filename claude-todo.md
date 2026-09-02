@@ -166,206 +166,33 @@ self-time). Two orthogonal inlining levers below. (The single-file microbench wh
 reality.)
 
 
-### (2b) Within-package function inliner — ✅ CORE COMPLETE (2026-09-01); only threshold-tuning headroom open
+### (2b) Inliner threshold tuning — the remaining inliner lever — 🔵 OPEN (2026-09-01)
 
-Plan + two adversarial reviews (plan + Inc-1 code): `plan-within-package-inliner.md`.
-A new -O1+ IR pass `inlineCalls` (run first in RunOptPasses, before mem2reg) clones a
-small same-package callee's body into the caller at a direct OP_CALL, deleting the call.
-Refcounting is explicit + self-balancing, so a faithful clone-and-substitute needs no
-reconstruction; operands are object refs, so cloning is an object→object remap + a
-per-clone ID renumber, guarded by the pass's own ID-uniqueness assertion (verify.bn
-doesn't check it and isn't run after opt). `InlineSizeThreshold` (const, tuneable = 15).
+The core within-package inliner is COMPLETE (see the done log: all increments
+landed through non-leaf inlining `ef292f152`; ~19-30% faster native self-compile
+by USER CPU at the default `InlineSizeThreshold = 15`). What remains:
 
-- **Inc 1 — ✅ LANDED `149da0a14` (2026-08-31).** Single-block, leaf (no calls),
-  no-fault (no PadBlock), ≤1 SCALAR result (whitelist), params+in-block-values-only
-  callees — zero CFG surgery.  Covers tiny scalar accessors.  Code review: no
-  miscompile (byval-param path + module-wide string table both verified).  Validated
-  end-to-end at -O1 (scalar, managed-param borrow, return-managed-param) — correct, no
-  refcount abort.  **Behavioral CI gap:** no -O1 conformance lane (same as the tracked
-  opt-level-matrix item), so inlined-code correctness is structural-tested + manually
-  validated, not run in CI.
-- **Inc 2 — ✅ LANDED `175c31c91` (2026-08-31).** Multi-block callees via CFG split
-  (block split at the call → continuation; two-pass block clone with Block1/Block2
-  remap; single cloned OP_RETURN → jump to continuation).  No phis at inline time
-  (pre-mem2reg) → no phi-predecessor rewiring.  Review: no miscompile (built bnc+bni,
-  ran diamonds/if-else/loops-with-back-edges/managed-returns on native AND the VM at
-  -O1, LiveBlocks delta 0).  Added an execution-based VM test (`vm_inline_test.bn`,
-  runs inlined code at -O1) to close the CI coverage gap the review flagged.
-- **Inc 3a — ✅ LANDED `07ec24068` (2026-08-31).** Faulting ops (bounds/div/shift/nil
-  checks) allowed in a leaf callee when each op's cleanup pad is EMPTY (no managed
-  local/param live at the fault → pad is just OP_UNWIND_RETURN).  The cloned fault op
-  reuses the CALLER's call-site pad (RefDecs the caller's live-at-call set, unwinds the
-  single merged frame) — no pad cloning or unwind reconciliation.  `cloneInstrFields`
-  sets a cloned fault op's PadBlock = `call.PadBlock`; `inlinableCallee` requires any
-  faulting op's pad to be exactly one OP_UNWIND_RETURN and the call site to have a pad.
-  Unlocks raw-slice/array-index leaf callees (e.g. `charsEqual`: raw-slice params + int
-  locals → empty pads).  Adversarial review: no leak/double-free/wrong-fault (built
-  bnc+bni; 30-iteration `rt.LiveBlocks()` fault loops, delta 0).  `vm_inline_leak_test.bn`
-  adds the load-bearing coverage (a managed CALLER local live across an inlined empty-pad
-  fault must be RefDec'd by the reused pad) + positive/negative inlining controls +
-  div/shift fault kinds + managed-param / managed-temp-at-fault rejection.  Multi-block +
-  fault + OOB *leak* is absent by design (such a callee exceeds the size threshold, so it
-  doesn't inline); its safety follows by composition from the single-block leak tests ×
-  the multi-block-with-fault in-bounds test.
-- **Inc 3b — ✅ LANDED `61aacdad2` (2026-08-31).** Non-empty SINGLE-BLOCK fault-pad
-  cloning: a leaf callee whose faulting op has a non-empty but single-block cleanup pad
-  (a managed value — local, temp, OR param — live at the fault: straight-line RefDec[s]
-  then OP_UNWIND_RETURN) inlines.  `fixupInlinedPads` clones the pad into the caller's
-  FaultPads (operands remapped via `cloneSingleBlockPad`) and replaces its terminal
-  OP_UNWIND_RETURN with an OP_JUMP into the caller's call-site pad — CHAINING callee→
-  caller cleanup → one unwind.  Faithful clone → refcounting balances by construction.
-  `assertInlinedFuncWellFormed` now also scans FaultPads for ID uniqueness, checks no
-  fault op's PadBlock dangles at a callee pad, and verifies every pad operand is defined
-  within the merged func (the operand-scope hardening).  Adversarial review: no
-  leak/double-free/wrong-fault across managed-ptr local/temp/param, dtor-bearing param,
-  two-locals-in-one-pad, multi-block, 2-level unwind (all `rt.LiveBlocks()` delta 0).
-  **Correction (my earlier error):** a managed PARAM is NOT a special case — it inlines
-  exactly like a local/temp (the owned-param entry-RefInc balances the cloned pad's
-  RefDec); the ONLY gate is the shared `InlineSizeThreshold`.  A claim of a "managed-
-  param remap gap / blocked method receivers" was wrong — it was the size threshold
-  masking small (inline) vs big (skip) callees; the review caught it.  Leaf callees can
-  only have empty/single-block pads (a multi-block pad's dtor CALL makes the callee
-  non-leaf → rejected earlier), so multi-block-pad handling is moot.
-- **Inc 4 — ✅ LANDED `f8af01af8` (2026-08-31).** Multiple return sites.  Binate IR-gen
-  emits one OP_RETURN per `return` (early returns are NOT funnelled), so any callee with
-  an early return had >1 return site and was skipped.  Handled via the multi-block
-  continuation: with >1 return AND a result, a return-value SLOT (OP_ALLOC in the caller's
-  pre-call region) merges the values — each cloned OP_RETURN becomes `store rv -> slot` +
-  jump, and the continuation loads the slot as the call value.  The slot is the
-  pre-mem2reg alloca/store/load shape (NO phi introduced; mem2reg promotes it) and is
-  dominance-safe (pre-call region dominates all cloned blocks + the continuation).  Managed
-  returns balance: OP_STORE/OP_LOAD are pure bit copies (no implicit refcount), so the
-  returned value's +1 flows store->load->caller unchanged.  Single return flows directly
-  (no slot); void multi-return just jumps.  Adversarial review validated across VM + LLVM +
-  native aarch64 (10 tests at raised threshold; managed loops delta 0).  Hardening:
-  `assertInlinedFuncWellFormed`'s operand-scope check generalized from fault-pad operands
-  to ALL f.Blocks/f.FaultPads operands (the operand-scope hardening the todo flagged;
-  DOMINANCE remains unneeded — the alloca slot is dominance-safe by construction).
-- **Inc 5a — ✅ LANDED `fe5103a13` (2026-08-31).** By-value aggregate single results
-  (struct / slice / managed-slice / array): `isScalarResultType` → `isInlinableResultType`.
-  No new machinery — the aggregate VALUE flows via retVal / the aggregate-typed merge slot;
-  OP_STORE/OP_LOAD bit-copy it with no implicit refcount, so a managed slice's +1 rides
-  through unchanged.  Aggregates whose cleanup needs a dtor CALL (struct-with-@field,
-  [N]@Node, @[]@Node) are STRUCTURALLY rejected by the leaf filter (verified: a 2-instr
-  @[]@Node callee, far under threshold, still rejected) → no leak/double-free hole.
-  Func-value/iface-value results stay excluded (cross-mode vtable).  Review (3rd attempt;
-  first two died on API stalls) CONFIRMED-SAFE across VM: leaf managed aggregate, multi-
-  return managed slice via slot (-O0==-O1, LiveBlocks Δ0), no regression.
-  - **Pad-sweep fix — ✅ LANDED `a5f1feeeb` (2026-08-31)** (pre-existing MAJOR bug found
-    during the 5a review).  `rewriteUsesInBlocks` swept only f.Blocks, not f.FaultPads, so a
-    MANAGED call result live at a fault (`mk().v + a[i]`) left the fault pad referencing the
-    deleted OP_CALL — a silent stale RefDec pre-Inc-4, an assertOperandsInScope panic since.
-    Reachable at -O1 since Inc 1 (managed-ptr results) + Inc 3a (pads); -O0 shipping builds
-    don't inline, so no landed test hit it.  Fix: sweep f.FaultPads too.  Regression tests
-    added.
-  - Coverage gap (follow-up, likely safe by construction): no test for a non-dtor managed-
-    aggregate (@[]int) result live at a CALLER fault via a MULTI-block (merge-slot) callee —
-    can't fit the default size threshold, so the path is threshold-gated.
-- **Inc 5b — ✅ LANDED `652e066c8` (2026-09-01).** Multi-VALUE (tuple) returns `(int, err)`.  Design:
-  a multi-value call result is a `makeMultiReturnStructType` tuple, and EVERY use is
-  `OP_EXTRACT(callresult, i)` — even `return f()` passthrough extracts+repacks
-  (gen_return.bn), so there is NO whole-tuple flow.  Approach: PACK — at the return, build a
-  tuple VALUE from the N OP_RETURN args (EmitAlloc(tupleType) + per-field EmitGetFieldPtr+
-  EmitStore + EmitLoad), set retVal = that tuple, and reuse the EXISTING sweep unchanged
-  (replByID[callID] = tuple; the callers' OP_EXTRACTs then extract from a valid tuple).
-  Faithful/refcount-neutral: store/load are bit copies, so the tuple carries each return
-  value's +1 exactly as the retbuf would; the caller's extract copy-RefIncs + call-result-
-  temp cleanup (rewritten to the tuple) balance as un-inlined; managed tuples live at a fault
-  compose with the FaultPads sweep (a5f1feeeb).  Single-return (single-block, cloneInlinedBody):
-  build the tuple at the one return.  Multi-return (multi-block): the merge slot IS the tuple
-  type, each return does the N field-stores, the continuation loads the tuple.  Rejected: a
-  result field that isn't isInlinableResultType (e.g. func-value/iface-value).
-  PACK approach validated by review (all CONFIRMED-SAFE): managed multi-value (@Node,@Node) /
-  (@[]int,int) / (int,@Node) -O0==-O1 LiveBlocks Δ0; discarded field RefDec'd once by the
-  tuple's call-result-temp dtor; multi-block two-return-site → 3 distinct entry-hoisted tuple
-  allocas (no cross-path aliasing).  Residual (safe by composition, untested): managed multi-
-  value live across a fault (5b × the pad-sweep) and `return f()` passthrough (extract path).
-- **Cumulative benchmark — ✅ DONE (2026-09-01), with a key finding.** Real workload: bnc
-  built via native -O2 with the inliner ACTIVE-during-build vs DISABLED, each timed compiling
-  cmd/bnc (`--backend native`, x86_64-darwin under Rosetta on this arm64 host — relative delta
-  valid, absolutes emulated).  Noisy (concurrent workers + Rosetta): ON 59/72/78s, OFF
-  101/95/60s → looked like ~2% BY WALL-CLOCK, but that was a noise artifact.  Re-measured by
-  USER CPU time (robust to concurrent-worker load): ON ~56.2s (rock-stable 55.6/56.4/56.5),
-  OFF ~70-91s → the inliner is ~19% (ON vs OFF-min) to ~30% (mean) FASTER on the native
-  self-compile, AT THE DEFAULT THRESHOLD 15.  OFF is also noisier (more calls → more Rosetta
-  translation/contention), so the inliner speeds up AND stabilizes.  Structural (machine-independent,
-  clean): the inliner removes 100% of same-package small-function calls at -O1 (arith 12→0,
-  accessors 8→0, multi-value clamp 4→0).  Additional headroom: the HOT functions that drive
-  the clang↔native gap EXCEED the default `InlineSizeThreshold = 15` — e.g. `charsEqual` (the
-  note's ~40%-self-time case) is ~45-60 IR instrs (loop + 2 bounds-checked indexed loads + 3
-  returns; confirmed NOT inlined at 15/40, INLINED at 200 → pure size).  So the inliner ALREADY
-  delivers a substantial win at 15 (broad small-function inlining); catching charsEqual-class
-  functions via threshold tuning would add MORE — not a prerequisite for the win.
-- **whole-program native codegen is ~9-12× slower than clang on the bnc self-compile; native
-  `-O2` barely beats `-O0` — regalloc is the lever (2026-09-01).** VERIFIED (a logging clang
-  wrapper on PATH, current bnc): `bnc --backend native cmd/bnc` invokes clang exactly ONCE — the
-  LINK — with ZERO `clang -c`.  So `--backend native` compiles EVERY package itself via
-  native.EmitObject (the whole-program driver routes deps AND main through the native backend;
-  the old compile.bn comment claiming "only the main module is native" was stale — corrected).
-  Measured natively on aarch64-darwin (no Rosetta; both bncs produce byte-identical output, so
-  identical work), USER CPU: clang-O2 bnc ~3.76s vs native-O2 bnc ~46.9s compiling cmd/bnc → the
-  ~9-12× IS a real whole-program native-vs-clang codegen gap.  RECONCILES with the background
-  section's ~2.4×: that was the EARLIER main-only-native era (native lowered just the main
-  module → mostly clang → small gap); once the driver was changed to native-lower every package
-  (main.bn: "Honor --backend native for dependencies too"), the full native gap showed.  The
-  lever: native `-O2` gives only ~1.6× over `-O0` (native bnc -O0 18.5s → -O2 11.6s) vs the
-  background's ~5× "almost ALL mem2reg register-promotion" — yet mem2reg DOES run + promote at
-  the IR level (verified `sum()`: 11 alloca/load/store at -O0 → 0 + 2 phis at -O2).  So the weak
-  link is the **native register allocator not capitalizing on the promoted SSA (spilling under
-  pressure)**, not the IR passes.  NEXT: disassemble a native hot function to confirm spill-heavy
-  codegen → pins the collapsed -O2 benefit on regalloc.  RETRACTED / wrong turns along the way
-  (all corrected above): "only the main module is native" (false — 0 clang `-c`); the Rosetta
-  blame; the in-process-assembler blame (workload is identical, so it cancels); "bnld is
-  ELF-only" (false — bnld links Mach-O via linkMachoWithBnld).
-- **Non-leaf inlining incremental win on cmd/bnc — ~0% (2026-09-01).** native bnc with non-leaf
-  inlining ON vs OFF (leaf gate restored), same workload: 56.8-57.1s both → no measurable
-  difference.  Expected: at `InlineSizeThreshold = 15` almost no NON-leaf callee fits (a call +
-  its refcount ops already eats the budget), so non-leaf inlining rarely fires on real code
-  today.  The leaf inliner did the ~19-30%; non-leaf is correctness-complete but latent until
-  the threshold rises.
-- **Threshold tuning — 🔵 additional headroom (the real remaining inliner lever).** Default 15
-  already wins ~19-30% AND gates out most non-leaf inlining; raising `InlineSizeThreshold`
-  (tuneable) to catch charsEqual-class hot functions (~45-60 instrs) — and to let non-leaf
-  inlining actually fire — is what adds more.  Re-benchmark by USER CPU time (NOT wall-clock —
-  that was the noise source) to find the code-growth-vs-speed sweet spot.
-- **Inc 6 — ✅ LANDED `ef292f152` (2026-09-01).** Non-leaf callees: a callee whose body
-  contains a direct OP_CALL is inlined; the cloned body carries its own calls, and a fixpoint
-  re-scan in inlineCallsInFunc exposes them as fresh sites (transitive inlining).  The clone
-  path already copies an OP_CALL + its call-site cleanup pad faithfully (the pad machinery is
-  generic over any pad-bearing op), so refcounting stays exact by construction — only the
-  eligibility gate + driver loop changed.  Two guards: a RECURSION guard (inline_recursion.bn:
-  computeRecursiveFuncs marks every function on a direct-call cycle via an iterative
-  back-edge-target DFS; refusing to inline a marked callee breaks every cycle, so expansion
-  follows the finite acyclic remainder) and a per-function GROWTH budget (inlined into only up
-  to max(InlineGrowthFloor 256, origSize × InlineGrowthFactor 4) instrs; past that, sites stay
-  real calls).  DIRECT calls only — indirect / iface / c-call / handle dispatch still
-  disqualifies a callee (can't be transitively inlined; cloning them raises unvalidated
-  cross-mode-vtable / c-ABI questions; a possible follow-up).  Adversarial review SOUND across
-  all six risk areas (termination, stale-analysis-after-mutation, refcount faithfulness of
-  cloned calls+pads, the cross-round use-sweep, budget arithmetic, the direct-only gate) — no
-  counterexample.  Tests: vm exec/leak/termination/budget (vm_inline_nonleaf_test.bn), ir
-  markCycleTargets units (inline_recursion_test.bn), an IR-level non-leaf-inlined test, a
-  codegen transitive-inline test.  inline_calls.bn split (shape predicates →
-  inline_eligibility.bn) to stay under the file-length cap.
-- **Increment labels scrubbed — ✅ LANDED `0d940933e` + folded into `ef292f152` (2026-09-01).**
-  Removed all ~118 "Inc N" development-progress labels from the inliner's comments and test
-  messages — meaningless in the tree — each rewritten to name its mechanism in its own terms.
-  CLAUDE.md updated with the rule (no dev-progress labels in code).
+- **Raise `InlineSizeThreshold`** (tuneable const, currently 15) to catch
+  charsEqual-class hot functions (~45-60 IR instrs — confirmed NOT inlined at
+  15/40, inlined at 200) and to let NON-leaf inlining actually fire (at 15 almost
+  no non-leaf callee fits — measured ~0% incremental; correctness-complete but
+  latent). Find the code-growth-vs-speed sweet spot; growth guards exist
+  (`InlineGrowthFloor` 256 / `InlineGrowthFactor` 4).
+- **Benchmark by USER CPU time, not wall-clock** — wall-clock was the noise
+  source that initially hid the win (concurrent-worker load).
+- **Threshold-gated test debt to pay when raising** (paths unreachable under 15;
+  judged safe by construction/composition in review, but untested): (i) a
+  non-dtor managed-aggregate (`@[]int`) result live at a CALLER fault via a
+  multi-block merge-slot callee; (ii) managed multi-value live across a fault
+  (tuple-pack × the FaultPads sweep); (iii) `return f()` passthrough (extract
+  path).
+- Coverage context: the multi-block/managed/loop inline paths run only at -O1,
+  which has no conformance lane (see the opt-level-matrix todo) — validation is
+  the VM exec/leak tests + structural tests.
 
-Coverage note: the multi-block/managed/loop inline paths only run at -O1, which has no
-conformance lane (see the opt-level-matrix todo), so CI coverage is the `vm_inline_test`
-exec test + structural unit tests + per-increment adversarial review; the default size
-threshold (15) keeps loop/managed callees below it in real programs today.
-
-Original framing: the core native↔clang codegen-gap closer. clang inlines small
-same-package callees (`charsEqual`→`findSymbol`, and every tiny accessor) within a TU;
-native doesn't
-inline at all. Add an IR pass that inlines small same-package functions at their call
-sites (respecting TU/package boundaries, exactly like clang, so it's fair + generic —
-helps all programs regardless of their algorithmic quality). Bigger project: inlining
-heuristics (size/callsite thresholds), argument + refcount handling, recursion
-guards, code-bloat control, interaction with mem2reg/load-fwd/BCE ordering. This is
-where the leverage is for the ratio; do after (2a).
+Possible later extension (not planned): inlining callees containing
+indirect/iface/c-call/handle dispatch (currently disqualifying; raises
+cross-mode-vtable / c-ABI questions).
 
 ### Native register allocator — 🔵 IN PROGRESS (Stage 0 landed; Stage 1 next, 2026-09-01)
 
