@@ -305,9 +305,11 @@ flat `pkg/std/{vec,table,mapfn,fmt,cmp,hash,…}`).  Remaining steps:
 1. **DONE (`f2f6dd594`):** migrated the BUILDER-tree CONTAINER imports —
    `pkg/stdx/containers/{vec,table,mapfn}` → `pkg/std/{vec,table,mapfn}` (11 imports
    across asm, token, ir, types).  gen1-clean against bnc-0.0.15.
-2. **TODO — fmt/cmp/hash:** migrate the remaining BUILDER-tree imports
-   `pkg/stdx/{fmt,cmp,hash}` → `pkg/std/{fmt,cmp,hash}` (grep the `is_builder_tree`
-   dirs; ~14 fmt + 1 cmp + 1 hash).
+2. **DONE (`0c759580f`):** migrated the BUILDER-tree fmt/cmp/hash imports —
+   `pkg/stdx/{fmt,cmp,hash}` → `pkg/std/{fmt,cmp,hash}` (16 imports: 14 fmt across
+   cmd/bnc + native/{x64,arm32,common,aarch64} + ir; 1 cmp + 1 hash in ir.bni).
+   gen1-clean against bnc-0.0.15.  Now NOTHING in-tree imports a fmt/cmp/hash
+   forwarder — step 3 can proceed for those three (containers too).
 3. **TODO — forwarder + exemption cleanup (after step 2, when NOTHING imports the
    forwarders):** delete the `pkg/stdx/*` forwarder `.bni` files
    (`ifaces/stdlib/pkg/stdx/{fmt,cmp,hash}` + `ifaces/stdlib/pkg/stdx/containers/*`)
