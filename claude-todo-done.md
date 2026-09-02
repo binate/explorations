@@ -6,6 +6,42 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## native: #[c_export] narrow-arg normalization -> C-entry THUNK — DONE (2026-09-01, commit 81b3e6d36)
+
+#[c_export] previously placed the narrow-arg sign/zero-extension on the function's SHARED
+prologue (gated `len(f.CExportNames)>0`), with the C name an ALIAS at the mangled entry
+offset — so native->native callers of a #[c_export] function paid the redundant extends.
+Now each backend (aarch64/x64/arm32) emits the C name(s) as a THUNK: alias label(s) ->
+emitCExportRegNorm{,X64,Arm32} (the narrow-arg extends) -> BRANCH to the mangled `sym`.
+Native callers enter at `sym` and skip the normalization; C callers enter at the C name and
+pay it (correctly). The branch is emitted ONLY when the normalization emitted bytes (detected
+via a.CurrentOffset()); an empty prefix keeps alias==sym (single atom, old behavior).
+Per-param normalization was removed from the spill loops; arm32 emitSpillParam dropped its
+cExport param. New test: aarch64 TestEmitFuncCExportNarrowParamPrefix.
+
+WHY A BRANCH, NOT FALL-THROUGH (root cause of a mid-work regression): the first attempt used a
+fall-through prefix. BROKEN on macOS — ld64 links per-symbol atoms
+(MH_SUBSECTIONS_VIA_SYMBOLS) and does NOT keep the small alias atom adjacent to the body atom,
+so fall-through landed in inter-atom padding -> udf -> SIGILL at process entry (args_main's
+`#[c_export("main")] _entry` has int32 argc -> non-empty prefix). native aa64 self-host was
+0/2995. A standalone .o disasm AND the ffi-export e2e both PASSED (small links kept atoms
+adjacent) — only the linked, dead-stripped self-compiled bnc exposed it. On aa64/x64 the fix
+is a branch to the atom-start `sym` => a relocation (survives reordering); on arm32 it is an
+in-place ELF displacement in the one contiguous .text (section-level linking, no atomization).
+
+LESSON: for native-backend changes the AUTHORITATIVE test is the LINKED SELF-COMPILE
+(conformance native_* modes), NOT a .o disasm or a small-link e2e.
+
+VERIFIED (all green): native aa64 2995/0, native x64 2995/0 (was 523/2995 with the broken
+fall-through), native arm32 2951/0, VM builder-comp-int 2985/0; aa64 unit tests incl. the new
+thunk test; ffi-export.sh e2e 4/4; hygiene 20/20. Adversarial re-review CONFIRMED the design on
+all three backends (found + fixed one test-only blocker: the test used a bare `sym` undefined
+in test scope -> symFor("test","test.Sgn")). This lands the perf item "Binate callers should
+not pay #[c_export] normalization". FOLLOW-UP (non-blocking, reviewer Point 5): add x64 + arm32
+non-empty-thunk unit-test analogs (x64 int8 param; arm32 int8/int16 since int32 is word-sized).
+Prior related landings this session: reg-narrow a171551d0, readonly-sweep 771e00d96, 1227 xfail
+f99916ef2; MINOR 2 (arm32 wordBits) f1be038bc.
+
 ## conformance 1227: xfail on arm32-baremetal (fmt.Print is a no-op there) — DONE (2026-09-01, commit f99916ef2)
 
 

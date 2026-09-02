@@ -7,57 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### native: #[c_export] narrow-arg normalization -> C-entry THUNK — 🟢 READY TO LAND (all modes green; 2026-09-01)
-
-READY-TO-LAND (2026-09-01): commit on work-2 is 52f2a754c (RE-READ branch HEAD at land time — it
-was amended twice: 61ebfd7ea -> then test-blocker fix). FULL verification GREEN: native aa64
-2995/0, native x64 2995/0, native arm32 2951/0, VM builder-comp-int 2985/0; aa64 unit tests
-(incl. new TestEmitFuncCExportNarrowParamPrefix) pass; ffi-export.sh e2e 4/4; adversarial
-re-review CONFIRMED (design correct all 3 backends), its one blocker (test's undefined `sym`)
-fixed. LANDING STEPS post-compaction (needs EXPLICIT per-instance approval for the cherry-pick;
-user said "compact then land" = intent, still confirm at the moment): rebase work-2 onto current
-local main (git -C <worktree> fetch ~/binate/binate main && rebase FETCH_HEAD) -> scripts/hygiene/run.sh
-(read overall line) -> base-check (separate cmd: local main HEAD == worktree HEAD^) -> re-read
-worktree HEAD -> cherry-pick that hash onto ~/binate/binate -> push from local main -> resync
-worktree -> move this entry to claude-todo-done.md. Non-blocking follow-ups remain below.
-
-[ORIGINAL IN-PROGRESS DETAIL BELOW]
-
-### native: #[c_export] narrow-arg normalization -> C-entry THUNK (detail) — 🟢 READY TO LAND
-
-STATUS: implemented as a branch-thunk, committed on the work-2 worktree as 61ebfd7ea (NOT
-landed — needs remaining conformance + a clean adversarial review + explicit per-instance
-approval). The code is DONE; do not re-derive it.
-
-DESIGN: #[c_export] previously put the narrow-arg sign/zero-extension on the SHARED prologue
-(gated len(f.CExportNames)>0), with the C name an ALIAS at the mangled entry offset — so
-native->native callers paid redundant extends. Now each backend emits the C name(s) as a
-THUNK: alias label(s) -> emitCExportRegNorm{,X64,Arm32} (the narrow-arg extends) -> BRANCH to
-the mangled `sym`; native callers enter at `sym` and skip it. The branch is emitted ONLY when
-the normalization emitted something (detected via a.CurrentOffset()); an empty prefix keeps
-alias==sym offset (one atom, old behavior). Per-param normalization removed from the spill
-loops; arm32 emitSpillParam dropped its cExport param. New test: aarch64
-TestEmitFuncCExportNarrowParamPrefix (alias offset < mangled; thunk bytes = SXTW + branch).
-
-WHY A BRANCH, NOT FALL-THROUGH (root cause): the first attempt used a fall-through prefix.
-BROKEN — macOS ld64 links per-symbol atoms (MH_SUBSECTIONS_VIA_SYMBOLS) and does NOT keep the
-small alias atom adjacent to the body atom, so fall-through landed in inter-atom padding -> udf
--> SIGILL at process entry (args_main #[c_export("main")] _entry has int32 argc -> non-empty
-prefix). native aa64 self-host conformance was 0/2995. A standalone .o disasm AND the
-ffi-export e2e both PASSED (small links kept atoms adjacent) — only the linked, dead-stripped
-self-compiled bnc exposed it.
-
-LESSON (important): for native-backend changes the AUTHORITATIVE test is the LINKED
-SELF-COMPILE (conformance native_* modes), NOT a .o disasm or a small-link e2e.
-
-VERIFIED: native aa64 conformance 2995/0 (fixed, was 0/2995). RE-REVIEW (agent, 2026-09-01): design CONFIRMED correct on all 3 backends (aa64/x64 branch-to-atom-start-sym => relocation; arm32 in-place ELF displacement in the one contiguous .text — correct, NOT a reloc). Found ONE blocker: the new aarch64 TestEmitFuncCExportNarrowParamPrefix used a bare `sym` (a local of emitFunc, undefined in test scope) => package --test build broke; FIXED to symFor("test","test.Sgn") (re-running aa64 unit test to confirm). Amend the commit with that test fix before landing (test-file only; does not affect the running conformance). FOLLOW-UP (reviewer Point 5, not blocking): add x64 + arm32 non-empty-thunk unit-test analogs (x64 int8 param; arm32 int8/int16 since int32 is word-sized). PENDING at last check (running):
-builder-comp_native_x64_darwin (was 523/2995 with the broken fall-through),
-builder-comp_native_arm32_baremetal (stayed green), builder-comp-int; + adversarial re-review
-of the branch delta (diff: scratchpad/thunk_branch.diff; reviewer agent a5d244f29afeffeee).
-Then rebase onto current local main, hygiene, land with explicit approval. Base at commit
-time was after 0d940933e; already-landed this session: reg-narrow a171551d0, readonly-sweep
-771e00d96, 1227 xfail f99916ef2; MINOR 2 (arm32 wordBits) landed by another worker f1be038bc.
-
 ### native: concurrent native-compiles collide -> "native backend failed to emit object" — 🟠 OPEN (found 2026-09-01)
 
 Non-deterministic: the SAME gen1 native-compiling the SAME package (and `--backend native
@@ -69,23 +18,6 @@ repros; the conformance (sequential build) is unaffected, so it is not blocking 
 verification. NEEDS: find the shared state (grep native EmitObject / asm for package-global
 buffers or fixed temp paths) and make it per-invocation. Discovered while verifying the
 c_export thunk above.
-
-### native: fold #[c_export] narrow-param normalization into a C-entry THUNK (Binate callers should not pay it) — 🟡 NATIVE-BACKEND / perf (found 2026-09-01, from the reg/stack narrow-arg fix)
-
-The narrow reg/stack param sign-/zero-extension for #[c_export] functions
-(normalizeNarrowRegParam / spillScalarStackArg, gated on `len(f.CExportNames) > 0`; landed
-a171551d0 / 4798da30a) currently sits on the function's SHARED prologue — and #[c_export]
-adds the C name as an ALIAS at the SAME entry offset (aarch64_emit_func.bn DefineLabel;
-gen_func.bn CExportNames), so a native->native caller of a #[c_export] function executes the
-(redundant) normalization too.  Native callers already pass sign/zero-extended narrow args
-(the emitSubWordNarrow invariant), so that extension is wasted work for them.
-
-Fix: emit the C name as a small THUNK rather than a same-address alias — the thunk normalizes
-the narrow params (sxtb/uxtb/...) then falls through / tail-branches to the mangled Binate
-entry, which itself carries NO normalization.  Then C->Binate goes through the thunk (pays
-the cost, correctly) and Binate->Binate (the mangled symbol) skips it.  (Requires changing
-c_export emission from alias-at-entry to a thunk + moving where the normalization is placed.)
-Same thunk mechanism as the C-func-pointer builtin below — design them together.
 
 ### native: builtin to obtain a raw C-callable function pointer (THUNK) for ANY Binate function — 🟡 NATIVE-BACKEND / C-interop, feature (found 2026-09-01; supersedes the c_export callback-gate scope-limitation)
 
