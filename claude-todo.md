@@ -376,27 +376,27 @@ doesn't check it and isn't run after opt). `InlineSizeThreshold` (const, tuneabl
   returns; confirmed NOT inlined at 15/40, INLINED at 200 → pure size).  So the inliner ALREADY
   delivers a substantial win at 15 (broad small-function inlining); catching charsEqual-class
   functions via threshold tuning would add MORE — not a prerequisite for the win.
-- **"compile bnc via --backend native" only exercises native codegen on the MAIN MODULE —
-  benchmark caveat + a native-regalloc signal (2026-09-01).** Root-caused a day of wrong
-  clang↔native "gap" numbers.  KEY FACT (compile.bn:223): the native backend "is still a walking
-  skeleton that only lowers the main module" — `--backend native` compiles ONLY cmd/bnc's main
-  package (its 290-line `main()` driver); all ~66 dependency packages (parser/types/ir/codegen/
-  rt/…) go through clang.  So a native-built bnc is ~99% clang + a native `main()`, and
-  "native-bnc compiles bnc" measures native codegen of ONE atypical giant function vs clang's —
-  NOT a whole-program codegen gap.  `sample` confirms ~88% of the native bnc's compile time is in
-  the native-compiled `bn_..main` (offsets to +22KB — one huge function); deps (clang) are minor.
-  The real signal in that one function: native's `main()` is ~9× slower than clang's and `-O2`
-  barely helps it (native main -O0 18.5s → -O2 11.6s = 1.6×, vs the background's ~5× "almost ALL
-  mem2reg").  mem2reg DOES run + promote (the -O2 IR has phis; verified `sum()` 11 alloca/load/
-  store → 0 + 2 phis), so the weak link is the **native register allocator spilling the promoted
-  SSA under high register pressure** in the big (inlining-bloated) `main()`, making promotion
-  inert.  (Ironic corollary: more within-package inlining bloats `main()` → more pressure → can
-  HURT native until regalloc improves.)  NEXT: disassemble native `main()` to confirm spill-heavy
-  hot loop → pins the collapsed -O2 benefit on regalloc, the actionable lever.  RETRACTED (all
-  built on this narrow/misunderstood measurement): the ~13× (x86_64/Rosetta) and ~12.5×
-  (aarch64) "codegen gap", the Rosetta blame, and the in-process-assembler blame — all WRONG.
-  The whole-program codegen gap can't be fairly measured until native compiles past the main
-  module; the background section's ~2.4× remains the best estimate.
+- **whole-program native codegen is ~9-12× slower than clang on the bnc self-compile; native
+  `-O2` barely beats `-O0` — regalloc is the lever (2026-09-01).** VERIFIED (a logging clang
+  wrapper on PATH, current bnc): `bnc --backend native cmd/bnc` invokes clang exactly ONCE — the
+  LINK — with ZERO `clang -c`.  So `--backend native` compiles EVERY package itself via
+  native.EmitObject (the whole-program driver routes deps AND main through the native backend;
+  the old compile.bn comment claiming "only the main module is native" was stale — corrected).
+  Measured natively on aarch64-darwin (no Rosetta; both bncs produce byte-identical output, so
+  identical work), USER CPU: clang-O2 bnc ~3.76s vs native-O2 bnc ~46.9s compiling cmd/bnc → the
+  ~9-12× IS a real whole-program native-vs-clang codegen gap.  RECONCILES with the background
+  section's ~2.4×: that was the EARLIER main-only-native era (native lowered just the main
+  module → mostly clang → small gap); once the driver was changed to native-lower every package
+  (main.bn: "Honor --backend native for dependencies too"), the full native gap showed.  The
+  lever: native `-O2` gives only ~1.6× over `-O0` (native bnc -O0 18.5s → -O2 11.6s) vs the
+  background's ~5× "almost ALL mem2reg register-promotion" — yet mem2reg DOES run + promote at
+  the IR level (verified `sum()`: 11 alloca/load/store at -O0 → 0 + 2 phis at -O2).  So the weak
+  link is the **native register allocator not capitalizing on the promoted SSA (spilling under
+  pressure)**, not the IR passes.  NEXT: disassemble a native hot function to confirm spill-heavy
+  codegen → pins the collapsed -O2 benefit on regalloc.  RETRACTED / wrong turns along the way
+  (all corrected above): "only the main module is native" (false — 0 clang `-c`); the Rosetta
+  blame; the in-process-assembler blame (workload is identical, so it cancels); "bnld is
+  ELF-only" (false — bnld links Mach-O via linkMachoWithBnld).
 - **Non-leaf inlining incremental win on cmd/bnc — ~0% (2026-09-01).** native bnc with non-leaf
   inlining ON vs OFF (leaf gate restored), same workload: 56.8-57.1s both → no measurable
   difference.  Expected: at `InlineSizeThreshold = 15` almost no NON-leaf callee fits (a call +
