@@ -322,35 +322,34 @@ materializing the qualified string.
 
 ## Standard library — pkg/std namespace migration
 
-### Finish the stdx→std migration — 🟡 IN PROGRESS (BUILDER cut done: BUILDER_VERSION now bnc-0.0.15, which bundles the promoted pkg/std)
+### Widen the stdx-forwarder-imports check to scan perf/ — 🟡 ACTIVE
 
-Background: the `pkg/stdx/*` compat forwarders (`fmt`, `cmp`, `hash`, `containers/*`)
-were imported by the **BUILDER-compiled tree** (cmd/bnc + its pkg/binate deps).  The
-old BUILDER (`bnc-0.0.14`) predated the promotion (landed `abfa3e66b`..`a6cb15f87`) so
-a BUILDER-tree `import "pkg/std/vec"` failed the gen1 build; the BUILDER tree was kept
-on the forwarders and exempted from the `stdx-forwarder-imports` hygiene check
-(`a432c30db`, `is_builder_tree`) until a BUILDER carrying the promotion was cut.
-Non-BUILDER consumers were already migrated (`b8d3615d2`).
+The `stdx-forwarder-imports` hygiene check walks only `cmd pkg ifaces impls
+conformance examples e2e` — NOT `perf/` — so the 7 perf benchmarks that imported
+`pkg/stdx/fmt` were never flagged (found + migrated during the forwarder removal,
+`daa0d9b1c`).  Add `perf` to the check's `find` dir list so a future promotion's
+stray perf import is caught.  (scripts/ has no standalone .bn/.bni files — the
+fetch-builder canary is a heredoc inside a .sh — so a .bn/.bni-based check cannot
+cover it regardless.)  Dormant today (no forwarders exist); matters at the next
+promotion.
 
-**bnc-0.0.15 is that BUILDER** (cut + BUILDER_VERSION bumped, verified it bundles the
-flat `pkg/std/{vec,table,mapfn,fmt,cmp,hash,…}`).  Remaining steps:
+### Promote stdx/flags → std/flags — 🟡 ACTIVE (queued after the forwarder removal)
 
-1. **DONE (`f2f6dd594`):** migrated the BUILDER-tree CONTAINER imports —
-   `pkg/stdx/containers/{vec,table,mapfn}` → `pkg/std/{vec,table,mapfn}` (11 imports
-   across asm, token, ir, types).  gen1-clean against bnc-0.0.15.
-2. **DONE (`0c759580f`):** migrated the BUILDER-tree fmt/cmp/hash imports —
-   `pkg/stdx/{fmt,cmp,hash}` → `pkg/std/{fmt,cmp,hash}` (16 imports: 14 fmt across
-   cmd/bnc + native/{x64,arm32,common,aarch64} + ir; 1 cmp + 1 hash in ir.bni).
-   gen1-clean against bnc-0.0.15.  Now NOTHING in-tree imports a fmt/cmp/hash
-   forwarder — step 3 can proceed for those three (containers too).
-3. **TODO — forwarder + exemption cleanup (after step 2, when NOTHING imports the
-   forwarders):** delete the `pkg/stdx/*` forwarder `.bni` files
-   (`ifaces/stdlib/pkg/stdx/{fmt,cmp,hash}` + `ifaces/stdlib/pkg/stdx/containers/*`)
-   and remove the `is_builder_tree` exemption from
-   `scripts/hygiene/stdx-forwarder-imports.sh`.  **KEEP the check MECHANISM itself** —
-   it's the general "no one imports a compat forwarder" guard, and future stdlib
-   promotions will add new forwarders it must keep guarding; it auto-empties (passes
-   trivially) when no forwarders exist, and re-arms when the next promotion adds some.
+`pkg/stdx/flags` (the tier-1x command-line flag parser) is standards-track; promote
+it to the stable `pkg/std/flags` home, leaving a `pkg/stdx/flags` compat forwarder
+(`package "pkg/stdx/flags"` + `expose "pkg/std/flags"`) so existing importers keep
+resolving and the stdx-forwarder-imports mechanism re-arms.
+
+1. Move the flags interface (`ifaces/stdlib/pkg/stdx/flags.bni`) + impl
+   (`impls/stdlib/pkg/stdx/flags/`) to `pkg/std/flags`; add the `pkg/stdx/flags`
+   forwarder .bni.
+2. As a SUBSEQUENT commit, convert importers to `pkg/std/flags`.
+
+FINDING (2026-09-02): all 5 importers are NON-BUILDER-tree — cmd/{bnas,bnfmt,bni,
+bnld,bnlint}; cmd/bnc does NOT use flags.  So there is NO BUILDER-tree importer, and
+the "BUILDER-tree TODO / requires a BUILDER bump" the task anticipated appears
+unnecessary — all importers can migrate immediately.  Confirm with the user before
+assuming no BUILDER-tree carve-out is needed.
 
 ## Documentation hygiene
 

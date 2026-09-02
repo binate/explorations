@@ -6,6 +6,34 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Finish the stdx→std migration — DONE (2026-09-02)
+
+The `pkg/stdx/*` compat forwarders (`fmt`, `cmp`, `hash`, `containers/*`) existed only
+so the BUILDER-compiled tree (cmd/bnc + its pkg/binate deps) could keep resolving those
+packages while the BUILDER's bundled stdlib predated the promotion.  Once bnc-0.0.15
+(which bundles the flat `pkg/std/{vec,table,mapfn,fmt,cmp,hash,…}`) became the BUILDER,
+the tree could import the pkg/std homes directly and the forwarders were removed:
+
+1. **`f2f6dd594`** — BUILDER-tree CONTAINER imports `pkg/stdx/containers/{vec,table,
+   mapfn}` → `pkg/std/{vec,table,mapfn}` (11 across asm/token/ir/types).
+2. **`0c759580f`** — BUILDER-tree fmt/cmp/hash imports `pkg/stdx/{fmt,cmp,hash}` →
+   `pkg/std/{fmt,cmp,hash}` (16: 14 fmt across cmd/bnc + native/{x64,arm32,common,
+   aarch64} + ir; cmp + hash in ir.bni).
+3. **`daa0d9b1c`** — the last stragglers: 7 perf benchmarks + the fetch-builder smoke
+   canary (all `pkg/stdx/fmt`), which sit outside the dirs the stdx-forwarder-imports
+   check scans (perf/, scripts/) so were never flagged.
+4. **`66b3e7bde`** — deleted the 10 forwarders (fmt, cmp, hash, containers/*), fixed the
+   `pkg/std/*` home doc-comments that described them / named siblings by old pkg/stdx
+   paths, and dropped the `is_builder_tree` exemption from stdx-forwarder-imports.sh
+   (the check mechanism stays — auto-discovers, passes trivially when empty, re-arms on
+   the next promotion).
+
+The real, unpromoted stdx packages (`flags`, `slices`) remain in pkg/stdx.  (Earlier
+non-BUILDER consumers had been migrated in `b8d3615d2`.)  Follow-ups tracked as active
+items in the todo: widen the stdx-forwarder-imports scan-set to include perf/ (the
+check never scanned it, which is how the perf `pkg/stdx/fmt` imports slipped through),
+and promote `stdx/flags` → `std/flags`.
+
 ## Open-coded maps → table.Table: last BUILDER-parked conversions landed — DONE (2026-09-02)
 
 The open-coded-map sweep is complete — no open-coded (hand-rolled open-addressing)
