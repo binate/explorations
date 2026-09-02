@@ -7,6 +7,53 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### native: #[c_export] narrow-arg normalization -> C-entry THUNK — 🔵 IN PROGRESS (branch-thunk implemented, verification pending; 2026-09-01)
+
+STATUS: implemented as a branch-thunk, committed on the work-2 worktree as 61ebfd7ea (NOT
+landed — needs remaining conformance + a clean adversarial review + explicit per-instance
+approval). The code is DONE; do not re-derive it.
+
+DESIGN: #[c_export] previously put the narrow-arg sign/zero-extension on the SHARED prologue
+(gated len(f.CExportNames)>0), with the C name an ALIAS at the mangled entry offset — so
+native->native callers paid redundant extends. Now each backend emits the C name(s) as a
+THUNK: alias label(s) -> emitCExportRegNorm{,X64,Arm32} (the narrow-arg extends) -> BRANCH to
+the mangled `sym`; native callers enter at `sym` and skip it. The branch is emitted ONLY when
+the normalization emitted something (detected via a.CurrentOffset()); an empty prefix keeps
+alias==sym offset (one atom, old behavior). Per-param normalization removed from the spill
+loops; arm32 emitSpillParam dropped its cExport param. New test: aarch64
+TestEmitFuncCExportNarrowParamPrefix (alias offset < mangled; thunk bytes = SXTW + branch).
+
+WHY A BRANCH, NOT FALL-THROUGH (root cause): the first attempt used a fall-through prefix.
+BROKEN — macOS ld64 links per-symbol atoms (MH_SUBSECTIONS_VIA_SYMBOLS) and does NOT keep the
+small alias atom adjacent to the body atom, so fall-through landed in inter-atom padding -> udf
+-> SIGILL at process entry (args_main #[c_export("main")] _entry has int32 argc -> non-empty
+prefix). native aa64 self-host conformance was 0/2995. A standalone .o disasm AND the
+ffi-export e2e both PASSED (small links kept atoms adjacent) — only the linked, dead-stripped
+self-compiled bnc exposed it.
+
+LESSON (important): for native-backend changes the AUTHORITATIVE test is the LINKED
+SELF-COMPILE (conformance native_* modes), NOT a .o disasm or a small-link e2e.
+
+VERIFIED: native aa64 conformance 2995/0 (fixed, was 0/2995). PENDING at last check (running):
+builder-comp_native_x64_darwin (was 523/2995 with the broken fall-through),
+builder-comp_native_arm32_baremetal (stayed green), builder-comp-int; + adversarial re-review
+of the branch delta (diff: scratchpad/thunk_branch.diff; reviewer agent a5d244f29afeffeee).
+Then rebase onto current local main, hygiene, land with explicit approval. Base at commit
+time was after 0d940933e; already-landed this session: reg-narrow a171551d0, readonly-sweep
+771e00d96, 1227 xfail f99916ef2; MINOR 2 (arm32 wordBits) landed by another worker f1be038bc.
+
+### native: concurrent native-compiles collide -> "native backend failed to emit object" — 🟠 OPEN (found 2026-09-01)
+
+Non-deterministic: the SAME gen1 native-compiling the SAME package (and `--backend native
+cmd/bnc`) FAILS then SUCCEEDS depending on whether other native-compiles overlap. Strongly
+suggests shared/global state (or a fixed temp path) in the native EmitObject path that is
+unsafe under concurrent invocations — apparently including WITHIN a single `gen1 --backend
+native cmd/bnc` build if it compiles dependency packages in parallel. Confounds direct
+repros; the conformance (sequential build) is unaffected, so it is not blocking the thunk
+verification. NEEDS: find the shared state (grep native EmitObject / asm for package-global
+buffers or fixed temp paths) and make it per-invocation. Discovered while verifying the
+c_export thunk above.
+
 ### native: fold #[c_export] narrow-param normalization into a C-entry THUNK (Binate callers should not pay it) — 🟡 NATIVE-BACKEND / perf (found 2026-09-01, from the reg/stack narrow-arg fix)
 
 The narrow reg/stack param sign-/zero-extension for #[c_export] functions
