@@ -198,8 +198,8 @@ and `clobbers(ins)`.
 
 ## Staging (incremental; each stage lands green & cherry-pickable)
 
-- **Stage 0 — the reusable core in `common`, no emission change. DONE (implemented + adversarially
-  reviewed; not yet landed on main).** `regalloc_liveness.bn` (RPO linearization + unreachable
+- **Stage 0 — the reusable core in `common`, no emission change. DONE — landed on main
+  (`3bf3ac146`), adversarially reviewed.** `regalloc_liveness.bn` (RPO linearization + unreachable
   handling, allocatable-scalar universe, backward liveness **fixpoint**), `regalloc_interval.bn`
   (**range-list** intervals from the fixpoint + a validator), and `regalloc_clobber.bn`
   (`EmitsReturningBl` — the arch-neutral returning-call set). The validator checks well-formedness,

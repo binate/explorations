@@ -363,7 +363,7 @@ heuristics (size/callsite thresholds), argument + refcount handling, recursion
 guards, code-bloat control, interaction with mem2reg/load-fwd/BCE ordering. This is
 where the leverage is for the ratio; do after (2a).
 
-### Native register allocator — 🔵 IN PROGRESS (Stage 0 next, 2026-09-01)
+### Native register allocator — 🔵 IN PROGRESS (Stage 0 landed; Stage 1 next, 2026-09-01)
 
 THE lever for the native↔clang gap.  ROOT CAUSE CONFIRMED (disassembly): the native backend
 is a **stack machine with no register allocation** — `common.PlanFrame` gives every scalar SSA
@@ -376,21 +376,35 @@ native is ~9-12× slower than clang whole-program.
 **PLAN: `explorations/plan-native-regalloc.md`** (v2, incorporates an adversarial review).
 Design: linear-scan over **range-list** live intervals built from the **liveness fixpoint**;
 shared liveness/intervals/scan in `native/common` + per-arch register-class descriptor; the
-correctness core is a per-op **clobber & scratch model** (each arch declares `clobbers(ins)` —
-caller-saved for ALL BL-emitting ops incl. OP_REFDEC/MAKE/BOX/MAKE_SLICE/fault-checks, x64
-div/shift fixed regs, arm32 div-check's 7-reg scratch); values live across a clobber → callee-
-saved or spill.  Review-flagged handler changes (NOT "untouched"): call-result/param/return
+correctness core is a per-op **clobber & scratch model**.  The arch-neutral half is
+`common.EmitsReturningBl` (ops emitting a call that can RETURN — call family, sat-lookup,
+MAKE/BOX/MAKE_SLICE, RODATA_MSLICE_COPY, STACK_FRAMES, the unconditional DIV/SHIFT guards,
+REFDEC's returning dtor); bounds/nil checks are NOT clobbers (bounds-check's only call is a cold
+noreturn fail path).  Per-arch additions each descriptor must add on top: x64 OP_REFINC (x64 calls
+rt.RefInc; aa64/arm32 inline it); arm32 int64 MUL/DIV/REM/SHL/SHR + soft-float arith/compare/cast
+AEABI libcalls.  Values live across a clobber → callee-saved or spill.  Review-flagged handler
+changes (NOT "untouched"): call-result/param/return
 handlers must land values in the home register not the slot; aarch64 REM + x64 two-address/div
 need `rd ∉ operands-read-after-write`; float scalars must be explicitly excluded; stop hardcoding
 X16 / x64 pool-order.  Staged aarch64→x64→arm32, each green + cherry-pickable.
 
-**Stage 0 (NEXT):** the reusable core in `native/common`, NO codegen change (all modes stay
-green) — RPO linearization (handle unreachable blocks), liveness fixpoint (backward dataflow),
-range-list interval construction (correct for the loop-carried phi-copy-shared-id: one id, defs
-in latch + pre-header), per-arch clobber-set enumeration, and a validator; unit-tested on
-hand-built IR (loop phi case + forced-pressure spill).  Then Stage 1 = aarch64 caller-saved-only
-allocation.  (Work on the binate worktree; the small "correct stale Backend-dispatch comment"
-commit `94b336ab8` is worktree-only / undecided — not landed.)
+**Stage 0 (DONE — landed `3bf3ac146`):** the reusable core in `native/common`, NO codegen change
+(all native modes stay green) — `regalloc_liveness.bn` (RPO linearization + unreachable handling,
+allocatable-scalar universe, backward liveness fixpoint), `regalloc_interval.bn` (range-list
+intervals from the fixpoint + a liveness-driven validator), `regalloc_clobber.bn`
+(`EmitsReturningBl`).  Unit-tested compiled + under the VM (loop-carried phi-copy-shared-id
+interval, genuine within-block hole, 5-way pressure, fixpoint convergence + upward-use guard,
+validator catches a dropped range).  Three-reviewer adversarial pass: code sound; fixed two
+clobber-set omissions (RODATA_MSLICE_COPY, STACK_FRAMES) + recorded the per-arch clobbers above;
+bounds/nil-check exclusion verified sound on all three arches.
+
+**Stage 1 (NEXT):** aarch64 linear-scan, caller-saved only (X9–X15), spill any interval spanning a
+clobber.  aarch64's returning-call clobber set = `EmitsReturningBl` with no per-arch additions, so
+it is the safe first consumer.  Rewire the landing handlers (call-result/param/return land in the
+home register, not the slot; aarch64 REM read-after-write), drop the per-instruction reg reset for
+allocated values, add the independent bring-up clobber assertion.  Validate `native_aa64`; update
+byte-count tests; disassemble `hotloop`.  (An unrelated "correct stale Backend-dispatch comment"
+change remains worktree-only / not landed.)
 
 ## Performance — bni load time
 
