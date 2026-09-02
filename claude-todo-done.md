@@ -6,6 +6,32 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## bni load time — traits-policy table.Table conversions (batch 2) + GetOrPut — DONE (archived 2026-09-02)
+
+Follow-on to the earlier archived pieces (token.Lookup, the iv-thunk weak_odr
+fix, the FuncSig index's mapfn→traits conversion). All landed on `main`:
+
+- **pkg/binate/ir/strings.bn stringInterner** (`6fde0a0b5`): `table.Table`
+  reusing `FuncSigHasher`/`FuncSigEq`, −51 lines; append-only, SHIP review clean.
+- **pkg/binate/vm/{func,extern,datasym}_index.bn** (`9dec92ab0`): folded onto one
+  `table.Table` + shared zero-size `VmNameHasher`/`VmNameEq` (net −96 lines); the
+  `*IndexSet` params became `*[]readonly char` borrows (a literal arg aliases
+  immortal rodata instead of a mortal `@[]char` copy). Caught+fixed in review:
+  `vm.Funcs` is append-only EXCEPT LowerOneFunc's same-sig REPL replace (`Set` in
+  place), which now re-Puts the name BEFORE the Set so the key refresh re-points
+  it at the live replacement (`TestLowerOneFuncRedefRefreshesIndexKey` guards it).
+- **`table.GetOrPut(key, val) -> (V, bool)`** (`d1d45777f`): first-wins, one
+  probe, never overwrites. Its shared-helper factoring (insert/grow extracted,
+  shared by Put + GetOrPut) uncovered and required a compiler fix — see the
+  "Nested generic-method emission" done entry (`47cb68f4e`).
+- **Build-opt lever resolved** (owned by another worker): the VM-lane compiled
+  interp builds at `-O2` (`5494dd642`) — ~4× faster load than the `-O0` dev
+  build (mostly `rt.BoundsCheck` elision at `-O2`).
+
+Still open in the todo: the two design-level levers (bounds-check elision,
+allocation count), the small lookupFunc* per-lookup-allocation item, and the
+BUILDER-parked scope.bn / GetOrPut-adoption conversions.
+
 ## Within-package function inliner (2b) — DONE (core complete 2026-09-01; archived 2026-09-02)
 
 All increments, benchmarking, and the codegen-gap investigation below are complete;

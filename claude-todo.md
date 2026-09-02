@@ -241,30 +241,20 @@ change remains worktree-only / not landed.)
 
 `bni` "loading" a program (parse → typecheck → IR-gen → bytecode-lower, before
 any execution) of a graph that pulls in the whole toolchain (`bni cmd/bni`,
-`bni cmd/bnc`) is the workload under study. Two independent levers, from
-profiling (macOS `sample`):
+`bni cmd/bnc`) is the workload under study. Profile (macOS `sample`): load is
+**memory-management-bound**, not compute-bound — at `-O2`, `rt` (mostly
+`MemZero`) ≈ 44% + libc malloc/free ≈ 22% ≈ **66% memory management**; IR-gen
+≈ 20%; parse/typecheck/lower minor. `MemZero`'s caller is the generic
+`rt.Alloc`, so it scales with total allocation volume, not any one table.
+Measure at `-O2` (the `-O0` dev build is ~4× slower to load, mostly un-elided
+`rt.BoundsCheck`; the VM-lane compiled interp builds `-O2` since `5494dd642`).
 
-- **Build optimization (separate lever, being handled by someone else).** The
-  dev / perf / conformance-int `bni` is built at `-O0` (~3.5s to load the
-  cmd/bni graph); the released `-O2` build loads the same graph in ~0.8s — ~4×,
-  purely from opt level (much of `-O0`'s `rt.BoundsCheck` is elided at `-O2`).
-  The VM-lane compiled interp now builds `-O2` (`5494dd642`).
-- **Allocation is the real cost (the algorithmic lever).** Load is
-  memory-management-bound, not compute-bound: at `-O2`, `rt` (mostly
-  `MemZero`) ≈ 44% + libc malloc/free ≈ 22% ≈ **66% memory management**;
-  IR-gen ≈ 20%; parse/typecheck/lower are minor. `MemZero`'s caller is the
-  generic `rt.Alloc`, so it scales with total allocation volume (AST nodes + IR
-  nodes + every `slices.Append` growth), NOT with any one table.
+### Design-level levers — 🟡 OPEN, need a design discussion (partly owned by others)
 
-### Status — pure sweeps COMPLETE; remaining levers are design-level
-
-The O(n²) `slices.Append`-in-a-loop / linear-dedup hotspots the profile surfaced
-are all converted (8 landed on `main`, ~35%+ off the pre-opt `-O2` load — the
-individual writeups moved to the done log).  A re-profile shows the two dominant
-remaining self-time costs are `rt.BoundsCheck` (~32%) and alloc/free/zero (~33%) —
-both DESIGN-LEVEL levers (a bounds-check-ELISION pass; cutting allocation COUNT)
-that need a design discussion, not a unilateral pick, and are partly owned by
-others.  The small still-open sweep items are below.
+After the pure O(n²)-sweep round (archived in the done log), the two dominant
+self-time costs are `rt.BoundsCheck` (~32%) and alloc/free/zero (~33%). The
+levers are a **bounds-check-elision pass** and **cutting allocation COUNT** —
+both design-level; do not pick unilaterally.
 
 ### OPEN — per-lookup allocation in lookupFunc* (small)
 
@@ -273,50 +263,26 @@ plus a qualify-concat — two allocations per lookup — just to build the compa
 key. Build-once / intern, or hash the (pkgPath, name) components without
 materializing the qualified string.
 
-### Convert remaining open-coded maps → table.Table + zero-size traits policies — 🟡 OPEN
+### Remaining table.Table conversions — 🟡 PARKED behind the next BUILDER cut
 
-The zero-size traits-policy pattern — a user-defined empty struct whose `Hash`/`Equal`
-are methods (impl `hash.Hasher[K]` / `cmp.Eq[K]`), passed as `table.Table`'s H/E type
-params — monomorphizes `t.h.Hash(k)` / `t.e.Equal(a,b)` to DIRECT, inlinable calls:
-open-coded-map parity while sharing the stdlib open-addressing engine.  It is the
-answer to "use a stdlib container without the mapfn `*func` indirect-call tax":
-reserve `mapfn`/`setfn` for genuinely-dynamic policies; for a hot map with a fixed key
-type, use a zero-size traits policy over `table.Table`.  (Resolved/landed pieces —
-token.Lookup, the iv-thunk weak_odr fix, and the FuncSig index's mapfn→traits
-conversion — are in claude-todo-done.md.)
+The zero-size traits-policy pattern — an empty struct whose `Hash`/`Equal`
+methods (impl `hash.Hasher[K]` / `cmp.Eq[K]`) are `table.Table`'s H/E type
+params — monomorphizes to DIRECT, inlinable calls: open-coded-map parity on the
+stdlib open-addressing engine. Use it for hot fixed-key maps; reserve
+`mapfn`/`setfn` for genuinely-dynamic policies. Borrow keys (`*[]readonly
+char` into a name owned elsewhere) are safe ONLY if the backing outlives the
+table; overwrite-capable maps need `table.Put`'s stored-key refresh
+(`7101419c7`). Landed conversions are in the done log.
 
-A borrow key (`*[]readonly char`) into a name owned elsewhere is the shape these use;
-it is safe ONLY if that backing outlives the table.  For OVERWRITE-capable maps that
-also required a `table.Table` fix: **`Put` now refreshes the stored key on update**
-(`7101419c7`) so a replaced entry's key re-points at the live backing instead of
-dangling.
-
-- ~~pkg/binate/ir/strings.bn stringInterner~~ — DONE (`6fde0a0b5`): `table.Table`
-  reusing `FuncSigHasher`/`FuncSigEq`, −51 lines; append-only, SHIP review clean.
-- ~~pkg/binate/vm/{func,extern,datasym}_index.bn~~ — DONE (`9dec92ab0`): folded onto
-  one `table.Table` + shared zero-size `VmNameHasher`/`VmNameEq` (net −96 lines).  The
-  `*IndexSet` params became `*[]readonly char` borrows (a literal arg then aliases
-  immortal rodata instead of a mortal `@[]char` copy).  Caught+fixed in review: the
-  `vm.Funcs` store is append-only EXCEPT LowerOneFunc's same-sig REPL replace (`Set`
-  in place), which now re-Puts the name BEFORE the Set so the key refresh re-points it
-  at the live replacement (`TestLowerOneFuncRedefRefreshesIndexKey` guards it).
 - **pkg/binate/types/scope.bn** scope symbol table
-  (`symBuckets`/`symMask`/`scopeHashName`) — **PARKED behind the next BUILDER cut.**
-  Hot on name resolution; BUILDER tree.  Its open-coded table stores Syms *indices*
-  (names live in `Syms`), so `Define`'s in-place same-name overwrite is trivially
-  safe; a name-keyed `table.Table` with borrow keys needs the `Put` key-refresh
-  (`7101419c7`) on that overwrite — but scope is BUILDER-compiled against the BUILDER's
-  bundled stdlib, which won't carry that fix until a BUILDER is cut.  Do NOT cut a
-  BUILDER just for this (see "a BUILDER release is expensive"); convert scope.bn when a
-  BUILDER carrying the `table.Put` fix lands for independent reasons.
-
-~~Also worth doing: a `PutIfAbsent` / `GetOrPut` primitive~~ — DONE (`d1d45777f`):
-`table.GetOrPut(key, val) -> (V, bool)` (first-wins, one probe, never overwrites).
-Its clean shared-helper factoring (insert/grow extracted, shared by Put + GetOrPut)
-uncovered and required a compiler fix — see the done log's "Nested generic-method
-emission" entry (`47cb68f4e`).  registerFuncSig / the interner could adopt GetOrPut
-to drop their Has+Put double-probe, but they are BUILDER-compiled and can't call it
-until a BUILDER carrying GetOrPut is cut (same parking as scope.bn above).
+  (`symBuckets`/`symMask`/`scopeHashName`): hot on name resolution, but
+  BUILDER-compiled against the BUILDER's bundled stdlib, which lacks the
+  `table.Put` key-refresh its `Define` in-place overwrite needs. Convert when a
+  BUILDER carrying `7101419c7` is cut for independent reasons — do NOT cut a
+  BUILDER for this.
+- **`GetOrPut` adoption** in registerFuncSig / the string interner (drop their
+  Has+Put double-probe): same parking — BUILDER-compiled, needs a BUILDER
+  carrying `table.GetOrPut` (`d1d45777f`).
 
 ## Standard library — pkg/std namespace migration
 
