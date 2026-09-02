@@ -200,6 +200,23 @@ already-noted spike shortcut (the standard search paths are hard-coded in `runDr
 they should come from binate-paths.sh as flags) and the driver-location finding
 (binate repo, not examples/, until a public driver-API package exists).
 
+### Wrinkle CLOSED (2026-09-01) — the loop works end-to-end
+
+Took option (1).  Added `interp.LoadCallable(files, pkgPath)` (+ `TypecheckDriver`): it
+registers the driver as a CheckPackage'd, lookup-able package scope (not a main program)
+and lowers it as a regular package — no `main`/entry required.  `drivers/elf.bn` is now
+`package "driver"` (no stub main); bnld reads the driver's package name from its parsed
+file and calls `RunFuncTyped(<driver-pkg>, "Drive", …)`.  Result: `bnld -driver
+drivers/elf.bn -I <root> -target linux-x64 -o exit42 exit42.o` produces a valid static ELF
+that **runs → exit 42** (Docker linux/amd64) — the interpreted driver (in the VM) drove the
+compiled `link.Link` to a working executable.  The interp additions are purely new
+functions (existing users unaffected; interp is not BUILDER surface).
+
+Remaining before landing v1: an e2e (bnc/bnas → `bnld -driver` → run, both arches), a
+`LoadCallable` unit test, hygiene, and de-shortcutting the search paths (flags from
+binate-paths.sh).  `LoadCallable` does not run the driver package's own top-level `var`
+initializers — fine for a stateless driver; a follow-up if drivers need package state.
+
 ## Incremental plan
 
 1. **Spike:** `bnld -driver` embeds the VM, injects `pkg/binate/link` + stdlib, runs a
