@@ -251,6 +251,13 @@ register in place — the pre-landing 3-reviewer pass swept for and found no oth
 `native_aa64` conformance **2995 passed / 0 failed**; bnc self-compiles natively; -O2 `hotloop`
 keeps loop-carried values in registers.
 
+**BENCHMARK (2026-09-02, aarch64 native, no Rosetta, user CPU):** the native↔clang codegen gap at
+-O2, same workload (native-compile of cmd/bnc, `--linker bnld` so no clang in the loop): bnc_clang
+(LLVM -O2) **8.79s** vs bnc_native (native -O2) **30.76s** → **~3.4×** (was **~9–12×** before
+register allocation).  Register allocation delivered a ~3× speedup in native-compiled code.  The
+remaining gap is the Stage-5 headroom (naive spill heuristic, no caller-saved homes for leaves, no
+coalescing/splitting, no float regs).
+
 **NEXT — remaining arches + refinements:**
 - **x64** (plan Stage 3): wire the allocator into `native/x64`; its descriptor must add **OP_REFINC**
   to the clobber set (x64 calls rt.RefInc), reserve RAX/RDX/RCX (ret/div/shift), and handle the
