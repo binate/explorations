@@ -27,16 +27,17 @@ delivers, via semihosting `SYS_GET_CMDLINE` (0x15), the string
 that printed `/tmp/cltest_bin shard-index 2 shard-count 4 --skip Foo`.
 
 ## Steps
-1. **DONE (verified)** — `semihost.SemihostGetCmdline(buf *uint8, cap int) int`
+**Steps 1-3 landed in `d4f2dfd52`.**
+1. **DONE** — `semihost.SemihostGetCmdline(buf *uint8, cap int) int`
    in `runtime/baremetal_arm32/semihost.{bni,s}` (SYS_GET_CMDLINE; returns the
    length or -1). Baremetal-gated, not BUILDER-compiled.
-2. `impls/core/common/pkg/builtins/startup/args_baremetal.bn` — replace the
+2. **DONE** — `impls/core/common/pkg/builtins/startup/args_baremetal.bn` — replaces the
    empty-placeholder argv with: fetch the cmdline via SemihostGetCmdline, split
    on spaces into argv, install via SetArgs; fall back to the 1-element
    placeholder when there is no cmdline (preserves the len>=1 invariant).
    Baremetal-gated (`is(entrypoint,"start")`), imports pkg/semihost — not
    BUILDER-compiled.
-3. `cmd/bnc/gen_test_runner.bn` — extend the generated runner's runtime filter
+3. **DONE** — `cmd/bnc/gen_test_runner.bn` — extends the generated runner's runtime filter
    (currently `--run <substr>`) to also honor `--shard-index N`,
    `--shard-count M`, and `--skip <substr>`, mirroring cmd/bni's semantics: run
    test at position p (0-based, over the run/skip-selected set) iff
@@ -52,6 +53,15 @@ that printed `/tmp/cltest_bin shard-index 2 shard-count 4 --skip Foo`.
 6. Markers: `pkg-binate-vm.split.builder-comp_arm32_baremetal` (shard count that
    fits the arena), `pkg-binate-link.skip.…` / `cmd-bnld.skip.…` (FS-test
    patterns; if a package is entirely FS-dependent it stays a whole xfail).
+
+## Per-package application (decided)
+- **vm**: do NOT xfail; the 4 MiB-arena LEAK is the real issue (sharding only
+  partially helps — some shards still exhaust) — investigate the leak properly as
+  separate work (see claude-todo.md).  Once the leak is fixed/bounded, a `.split`
+  marker can shard vm to fit.
+- **link**: `.skip` the filesystem-dependent tests (readFile-based Emit*/Link*),
+  leaving the pure tests to run on bare-metal.
+- **cmd/bnld**: entirely FS (os.Create) — whole-package xfail.
 
 ## Verify
 Each step under qemu locally (Darwin has qemu-system-arm + ld.lld) and finally
