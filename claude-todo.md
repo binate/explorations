@@ -194,7 +194,7 @@ Possible later extension (not planned): inlining callees containing
 indirect/iface/c-call/handle dispatch (currently disqualifying; raises
 cross-mode-vtable / c-ABI questions).
 
-### Native register allocator — 🔵 IN PROGRESS (aarch64 DONE + landed; x64/arm32 next, 2026-09-02)
+### Native register allocator — 🔵 IN PROGRESS (aarch64 + x64 DONE + landed; arm32 next, 2026-09-02)
 
 THE lever for the native↔clang gap.  ROOT CAUSE CONFIRMED (disassembly): the native backend
 is a **stack machine with no register allocation** — `common.PlanFrame` gives every scalar SSA
@@ -258,11 +258,26 @@ register allocation).  Register allocation delivered a ~3× speedup in native-co
 remaining gap is the Stage-5 headroom (naive spill heuristic, no caller-saved homes for leaves, no
 coalescing/splitting, no float regs).
 
+**Stage 3 (DONE — landed `712241d57`):** x86-64 register allocation wired into emission,
+mirroring the aarch64 wiring — homes in the SysV callee-saved bank RBX/R12–R15 (disjoint from the
+R10..RDI scratch pool), `AllocateRegisters` before `PlanFrame`, prologue save / epilogue restore,
+scalar-param home-landing, `emitEpilogueAndRet` takes the RegMap.  `CallerSaved` is empty (clobber
+machinery inert), so the plan's x64 OP_REFINC clobber is NOT needed here — it belongs with
+caller-saved homes in Stage 5.  The operand-mutation sweep found TWO homing-induced bugs (both
+fixed): the SHL/SHR count relied on `scratchReg` landing on RCX after two getOperands, which breaks
+when an operand is homed OR already register-cached (count goes to the wrong reg → shift by garbage
+CL) — now moved to RCX explicitly with the pool cursor reserved past it; and `emitUint64ToDouble`
+did `and src,1` in place, mutating the integer operand (fatal if the uint64 were homed and reused)
+— now computes `(src&1)` into a second scratch, `src` read-only.  Regression
+`conformance/1233_regalloc_shift_homed_operands` bites the shift bug (verified 261-vs-21 with the
+bug reintroduced).  The emitUint64ToDouble fix has no bespoke test: triggering needs the uint64
+operand homed, and on x64 the allocator spills params for every constructible shape (confirmed by
+disassembly + a buggy-build run of an adversarial reviewer's cast-cast counterexample, which stayed
+correct) — covered by 1233 + full conformance + uint64→double correctness tests 1193/1226.
+Pre-landing adversarial review: no miscompiles, all focus areas sound.  Validated:
+`native_x64_darwin` conformance **2996 passed / 0 failed**.
+
 **NEXT — remaining arches + refinements:**
-- **x64** (plan Stage 3): wire the allocator into `native/x64`; its descriptor must add **OP_REFINC**
-  to the clobber set (x64 calls rt.RefInc), reserve RAX/RDX/RCX (ret/div/shift), and handle the
-  two-address `rd ∉ operands-read-after-write` constraint.  The same "operand-mutation" bug class
-  must be swept (x64 has its own in-place-mutating lowerings).  Validate `native_x64_darwin`.
 - **arm32** (plan Stage 4): wire into `native/arm32`; descriptor adds the int64 + soft-float AEABI
   libcall clobbers; int64 stays spilled (register pairs).  Validate `native_arm32_baremetal`,
   protect the 1-xfail baseline.
@@ -270,7 +285,10 @@ coalescing/splitting, no float regs).
   (avoids the prologue save/restore when a value never crosses a call — the current all-callee-saved
   choice pays save/restore even for leaves); interval splitting; copy coalescing (elide phi-copy
   `mov`s); a spill-cost heuristic (use-density × loop depth — the current naive "spill the new
-  interval on pressure" is correct but suboptimal); float register allocation.
+  interval on pressure" is correct but suboptimal); float register allocation.  Also: on x64,
+  function params are currently never usefully homed — the allocator homes internal temps but a
+  param cast/reused across ops still reloads per use from its slot (disassembly-confirmed); the
+  param home-landing code is correct but effectively dead today.  Homing params is a clear win.
 
 (An unrelated "correct stale Backend-dispatch comment" change remains worktree-only / not landed.)
 
