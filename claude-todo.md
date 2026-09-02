@@ -7,45 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### native: concurrent native-compiles collide -> "native backend failed to emit object" — 🟡 os.MkdirTemp LANDED; bnc wiring PARKED on a BUILDER cut (found + root-caused + reproduced 2026-09-01)
-
-ROOT CAUSE (confirmed + reproduced): a shared FILESYSTEM path, NOT native-specific
-and NOT shared process state.  With no `--build-dir`, `outPrefixFor` (cmd/bnc/compile.bn)
-returned the fixed prefix `/tmp/binate_<base>_` (<base> = shortName(-o output || input),
-dir-stripped -> even two different-directory builds of a same-basename target shared it);
-every module's intermediates landed at `/tmp/binate_<base>_<module>.{ll,o}`, and the
-whole-program link path `remove()`s every object after linking (main.bn ~428).  Two
-concurrent builds with the same base clobbered each other -> `clang: no such file
-'/tmp/binate_<base>_<module>.o' -> link failed`.  Same fixed-/tmp bug in assembleDotSFile
-and bnld_link.  Harness is immune (every runner passes `--build-dir "$(mktemp -d)"`); the
-bug bites manual/ad-hoc concurrent builds.  REPRO (deterministic): 3 concurrent
-`gen1 --backend native -o <same> cmd/bnc` x3 rounds -> 6/9 failed, 1 survivor + 2 clobbered
-per round, all with the "no such file -> link failed" signature.
-
-FIX = two pieces:
-1. **std/os: add MkdirTemp** (LANDED 2026-09-01, commit 41911cfdf) — atomic unique-directory
-   creation via libc mkdtemp(3) over __c_call; os.MkdirTemp(dir, prefix) + sys.MkdirTemp,
-   baremetal stub, os.bni/sys.bni decls, unit test.  Builds + passes through the CURRENT
-   BUILDER (adds no new-to-BUILDER feature; verified `builder-comp std/os` green 3/3).
-   **READY TO LAND now.**
-2. **bnc wiring** — default the build dir to a fresh os.MkdirTemp temp dir for LINKING/
-   ARCHIVING modes (whole-program / --library / --test), rmdir after link; DELIVERABLE-object
-   modes (-c / --pkg) emit to the current directory (findable) instead of /tmp.  **PARKED:
-   does NOT build under the current BUILDER (bnc-0.0.14).**  cmd/bnc's stdlib deps resolve
-   from the BUILDER's FROZEN bundle at gen1-build time (mixing current-tree .bni with frozen
-   .a is deliberately disallowed — build-compilers.sh), so cmd/bnc calling os.MkdirTemp gives
-   `undefined: MkdirTemp` until a BUILDER cut ships MkdirTemp in the frozen bundle.  Per "A
-   BUILDER Release Is Expensive — Never Rush One," NOT cutting one to unblock this.  The wiring
-   is verified correct via a probe (a temporary local __c_call("mkdtemp") variant built gen1
-   clean + cmd/bnc/os unit tests green + hygiene 20/20); saved as
-   `explorations/parked/bnc-per-invocation-build-dir.patch`.
-
-TO FINISH (post-BUILDER-cut, whenever one is independently justified and ships os.MkdirTemp):
-apply `parked/bnc-per-invocation-build-dir.patch`, rebase, build gen1 (now resolves
-os.MkdirTemp from the new frozen bundle), re-run the concurrent-build repro to confirm 0/N,
-then land.  (User decision 2026-09-01: keep os.MkdirTemp as a stdlib addition + park the bnc
-wiring for a BUILDER cut, rather than a local __c_call helper that would land now.)
-
 ### native: builtin to obtain a raw C-callable function pointer (THUNK) for ANY Binate function — 🟡 NATIVE-BACKEND / C-interop, feature (found 2026-09-01; supersedes the c_export callback-gate scope-limitation)
 
 Today the only supported C->Binate entry is a `#[c_export]`-named function; there is no way

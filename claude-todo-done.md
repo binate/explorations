@@ -6,6 +6,40 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## native: concurrent native-compiles collide -> "native backend failed to emit object" — DONE (2026-09-01/02; commits 41911cfdf + 68e57a461)
+
+ROOT CAUSE (confirmed + reproduced): a shared FILESYSTEM path, NOT native-specific and NOT
+shared process state.  With no `--build-dir`, `outPrefixFor` (cmd/bnc/compile.bn) returned the
+fixed, process-independent prefix `/tmp/binate_<base>_` (<base> = shortName(-o output || input),
+dir-stripped -> even two different-directory builds of a same-basename target shared it); every
+module's intermediates landed at `/tmp/binate_<base>_<module>.{ll,o}`, and the link path
+`remove()`s every object after linking.  Two concurrent builds with the same base clobbered each
+other -> `clang: no such file '/tmp/binate_<base>_<module>.o' -> link failed`.  Same fixed-/tmp
+bug in assembleDotSFile and bnld_link.  The CI harness was always immune (every runner passes
+`--build-dir "$(mktemp -d)"`); the bug bit manual/ad-hoc concurrent builds.  REPRO: 3 concurrent
+`gen1 --backend native -o <same> cmd/bnc` x3 rounds -> 6/9 failed (1 survivor + 2 clobbered per
+round).
+
+FIX (two commits):
+1. **std/os: MkdirTemp** (41911cfdf) — atomic unique-directory creation via libc mkdtemp(3) over
+   __c_call; os.MkdirTemp(dir, prefix) + sys.MkdirTemp, baremetal stub, os.bni/sys.bni decls,
+   unit test.  Adversarial review: SAFE-TO-LAND.  Landable through the then-current BUILDER (adds
+   no new-to-BUILDER feature).
+2. **bnc: per-invocation build dir** (68e57a461) — outPrefixFor drops the shared /tmp fallback
+   (empty build dir -> current directory, used only by deliverable-object modes).  effectiveBuildDir:
+   a LINKING/ARCHIVING build (whole-program / --library / --test) with no --build-dir creates a
+   fresh unique dir via os.MkdirTemp and removes it after the objects are linked/archived+deleted.
+   DELIVERABLE-object modes (-c / --pkg) emit their object as output, so with no --build-dir they
+   write to the current directory (findable), not a temp dir.
+
+BUILDER DEPENDENCY (why it took two steps): cmd/bnc's stdlib deps resolve from the BUILDER's
+FROZEN bundle at gen1-build time, so cmd/bnc calling os.MkdirTemp needed MkdirTemp IN the frozen
+bundle.  Piece 1 landed first; piece 2 was parked (per "A BUILDER Release Is Expensive — Never
+Rush One") until BUILDER_VERSION was bumped to bnc-0.0.15 (which ships MkdirTemp), then applied +
+landed.  VERIFIED after the bump: the concurrent-build repro is now 0/9 (was 6/9), the produced
+self-compiled bnc is a valid Mach-O arm64 executable that compiles+runs a test program, cmd/bnc
+unit tests pass, hygiene 20/20.
+
 ## bnc: aarch64-darwin (macos-arm64) --target key for cross-building macOS Mach-O — DONE (2026-09-02, commit 6b32c8b3e)
 
 bnc had no explicit macos-arm64 target key (only x86_64-darwin), so a macOS arm64 Mach-O
