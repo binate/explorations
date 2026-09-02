@@ -50,48 +50,6 @@ load-extend-stores narrow incoming stack args on those conventions (mirror the
 darwin sized-spill path); ≥7-arg narrow-stack-arg C-driver e2e. Test/xfail owed
 by the implementer.
 
-### codegen: a by-value struct returned from >1 `return` site emits duplicate `%v-1.agrp` allocas → LLVM rejects it — 🔴 OPEN (found 2026-09-02)
-
-**Symptom.** `bnc` (LLVM backend) fails to compile with
-`error: multiple definition of local value named 'v-1.agrp'` — two
-`%v-1.agrp = alloca [N x iW]` in the same function.
-
-**Minimal repro** (fails on the current tree AND the pinned BUILDER bnc-0.0.14):
-
-    type Handle struct { Idx int }
-    func mk(x int) Handle {
-        var h Handle
-        if x < 0 { h.Idx = -1; return h }
-        h.Idx = x
-        return h
-    }
-
-**Trigger.** A function whose single return VALUE is a by-value struct (coerced to
-`[N x iW]`) with MORE THAN ONE `return` statement, where the returned value is read
-from memory (a local var). `(uint64, bool)`-style multi-SCALAR returns are unaffected
-(existing `symbolAddr`/`Resolve` return `(…, @[]readonly char)` from several sites and
-compile) — the defect is specific to a single by-value STRUCT result.
-
-**Root cause.** `pkg/binate/codegen/emit_agg_coerce.bn` (~line 269-283) names the
-return-coercion slot `%v<retID>.agrp`, where `retID` is the return operand's value id.
-For a memory operand that id is the `-1` "no-SSA-id" sentinel (cf. `emit_cast.bn:18`
-"the IsGlobalRef pseudo has ID -1"), so every such `return` in a function emits an
-alloca named `%v-1.agrp`; with >1 return site the entry-hoist
-(`emit_alloca_hoist.bn`) produces duplicate SSA names, which LLVM rejects.
-
-**Proposed fix.** Name the return-coercion `.agrp` slot by a key unique per OP_RETURN
-(the return instruction's own id, or a per-function counter) rather than the operand
-value id (which can be -1); or hoist ONE shared return-coercion slot per function and
-reuse it across all returns. Add a codegen/conformance regression test (the repro).
-
-**Discovered** implementing the scripted-layout `LayoutBuilder`
-(plan-driver-linker-script.md): `BeginSection` returned a by-value `Section` struct
-from two sites. Worked around THERE by making it single-return (a hard constraint:
-`pkg/binate/link` is BUILDER-compiled surface and the frozen BUILDER has this bug too,
-so it can't be fixed for that file without a BUILDER release) — but the underlying
-codegen defect is general and should be fixed in-tree regardless. Any function
-returning a small struct by value from multiple `return`s hits it.
-
 ### native: builtin to obtain a raw C-callable function pointer (THUNK) for ANY Binate function — 🟡 NATIVE-BACKEND / C-interop, feature (found 2026-09-01; supersedes the c_export callback-gate scope-limitation)
 
 Today the only supported C->Binate entry is a `#[c_export]`-named function; there is no way

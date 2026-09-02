@@ -6,6 +6,26 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## codegen: by-value struct returned from >1 `return` site emitted duplicate `%v-1.agrp` allocas — DONE (2026-09-02, commit a5a4253ad)
+
+A function returning a single in-register aggregate (a by-value struct coerced to
+`[N x iW]`) from more than one `return` emitted the return-coercion alloca named
+`%v<retID>.agrp` at every return; OP_RETURN is a terminator with no SSA result, so retID
+was the `-1` sentinel and every return produced `%v-1.agrp` (+ load `%v-1.agr`) —
+duplicate local names LLVM rejects (`multiple definition of local value named
+'v-1.agrp'`).  Minimal repro: `func f() T { if c { return a }; return b }` with T a
+struct.  Fix (mirrors the coerced-multi-return `%mrret.slot`): hoist ONE function-scoped
+`%aggret.slot` at entry when the function returns a single `aggRetCoerced` result, and
+have both the GP (`emitAggReturn`) and x86-64 SSE (`sysvEmitReturn`) return paths store
+into it and load a per-return `retSeq`-tagged `%aggret.v<seq>`; the per-OP_RETURN
+`emitReturnAggAllocaDecl` hoist was removed.  Regression:
+`conformance/1234_multiret_struct_by_value` (GP int-field + x86-64 SSE float64 structs,
+each returned from two sites).  Found implementing the scripted-layout `LayoutBuilder`
+([plan-driver-linker-script.md](plan-driver-linker-script.md)); `link.BeginSection` keeps
+a single `return` as a workaround because the frozen BUILDER (bnc-0.0.14) that compiles
+`pkg/binate/link` for gen1 still has this bug — revertable once a BUILDER carrying this
+fix is cut.
+
 ## Finish the stdx→std migration — DONE (2026-09-02)
 
 The `pkg/stdx/*` compat forwarders (`fmt`, `cmp`, `hash`, `containers/*`) existed only
