@@ -1,8 +1,35 @@
-# Public driver-API package `pkg/bnld` (Step 7 follow-up)
+# Public driver-API (Step 7 follow-up)
 
-Status: DESIGN — decisions taken 2026-09-02, pending final sign-off on two sub-choices
-(marked ★ below).  Follow-up to the interpreted linker drivers (Step 7, `bnld -driver`;
-see plan-step7-driver.md).  Goal: a stable, PUBLIC, bnld-specific package that driver
+Status: **LANDED 2026-09-02, commit `6efec9cf1`.**  The landed approach is NOT the
+`pkg/bnld` facade this doc first explored — it is simpler: **ship `pkg/binate/link.bni`
+itself** (keep the name; it's namespaced under `pkg/binate/`).  Follow-up to the
+interpreted linker drivers (Step 7, `bnld -driver`; see plan-step7-driver.md).  Goal: a
+PUBLIC interface driver authors import, so a driver can build against a *released*
+toolchain.
+
+## What actually landed (`6efec9cf1`) — read this first
+
+- `pkg/binate/link.bni` moved into a new **`ifaces/toolchain/`** tier so a release bundle
+  ships it (make-bundle `cp -R`'s `ifaces/`).  The impl stays at `pkg/binate/link/*.bn`
+  (tier 2, unshipped); bnld injects the compiled instance into an interpreted driver, so a
+  driver only needs the shipped interface to type-check.
+- `ifaces/toolchain` wired into `scripts/binate-paths.sh` (covers `--base $BINATE_DIR` +
+  the bundle) and `--prepend`ed into EVERY BUILDER-based bnc/bnld compile site (the 7 build
+  scripts, the shared `build-compilers.sh:build_gen1`, and 6 inline-stage-1 e2e scripts).
+- No facade, no rename, no types split — those were RULED OUT (see below): Binate rejects
+  import cycles, so a public package that forwards to a kept-internal `link` can't work;
+  and the user chose to keep the name `link` and just ship its `.bni`.
+- `drivers/elf.bn` stays in the binate repo for now (exercised by
+  `e2e/bnld-driver-linux.sh`); its move to the external `examples` repo waits on a release
+  that ships `link.bni`.
+
+The sections below are the SUPERSEDED design exploration (the `pkg/bnld` facade, the alias
+direction, the import-cycle finding, MOVE-vs-SPLIT) — kept for rationale on why the simpler
+"ship `link.bni`" approach won.
+
+## Original goal (superseded framing)
+
+A stable, PUBLIC, bnld-specific package that driver
 authors import, so standard drivers can live in `examples/` and build against a *released*
 toolchain — instead of importing the internal `pkg/binate/link`.
 

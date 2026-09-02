@@ -234,8 +234,21 @@ init-driver→42); `builder-comp interp bnld bni repl` 4 passed; hygiene 20/20.
 Follow-ups:
 - DONE (2026-09-02, `dadd3ce9c`): search paths as flags (`-I` / `--impl-path`, fed from
   binate-paths.sh — no baked-in formula); aarch64 case added to the e2e.
-- Remaining (tracked, not blocking): driver location vs a public driver-API package; a
-  `LoadCallable`-with-imports unit test (currently covered by the e2e).
+- DONE (2026-09-02, `6efec9cf1`): public driver-API — ship `pkg/binate/link.bni`.  Not a
+  facade/rename/split: the name `link` stays (it's namespaced under `pkg/binate/`, so not a
+  generic "linker").  Moved `link.bni` into a new `ifaces/toolchain/` tier so a release
+  bundle ships it (make-bundle cp -R's `ifaces/`); the impl stays at `pkg/binate/link/*.bn`
+  (tier 2, unshipped) and bnld injects the compiled instance, so a driver only needs the
+  shipped interface.  Wired `ifaces/toolchain` into `binate-paths.sh` plus EVERY
+  BUILDER-based bnc/bnld compile site (the 7 build scripts, the shared
+  `build-compilers.sh:build_gen1`, and 6 inline-stage-1 e2e scripts — the last two sets
+  were caught by adversarial review after the first pass missed them).  Design + the
+  rejected facade/import-cycle exploration: [`plan-driver-api.md`](plan-driver-api.md).
+- Remaining (tracked, not blocking): `drivers/elf.bn` stays in the binate repo (the
+  reference driver, exercised by `e2e/bnld-driver-linux.sh`); migrate it to the external
+  `examples` repo when the next release ships `link.bni` (that repo builds against a
+  released bundle, so it can't build the driver until then).  A `LoadCallable`-with-imports
+  unit test (currently covered by the e2e).
 
 ## Incremental plan
 
