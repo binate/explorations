@@ -90,20 +90,44 @@ Binate entry.  This is the same thunk mechanism as the #[c_export]-thunk item ab
 #[c_export] is just the named/eager instance of "give C a callable pointer to this function").
 Design the builtin + thunk generation together with that item. NOTE (2026-09-01, c_export-prefix review): now that #[c_export] normalization is a C-entry PREFIX (the mangled `sym` sits AFTER it), taking a function's address yields `sym` and thus SKIPS normalization — so this builtin MUST return the ALIAS/prefix address (the C-ABI entry), not the bare mangled entry, for a #[c_export] function, and must synthesize an equivalent normalizing prefix/thunk for a non-c_export function.
 
-### VM at bnc `-O2`: ~12 pre-existing latent refcount failures — 🟠 VM / opt (found 2026-08-29 during the managed-slice RLE work)
+### VM at bnc `-O2`: load-forwarding store-forwards by-address aggregates — iface/func FIXED, struct/array/raw-slice REMAIN — 🟠 VM / opt (found 2026-08-29; root-caused + iface/func fixed 2026-09-01)
 
-The VM conformance runs at `bni`'s default `-O0`, so the VM at `-O2` (where `bni -O 2`
-runs `RunOptPasses`) is unexercised by CI. A managed-refcount-heavy conformance subset
-run through `bni -O 2` fails ~12 tests **independent of the managed-slice RLE change**
-(identical pass/fail with and without it): e.g. 1079_any_slice_assert_refcount,
-1093_any_struct_value_recovery_refcount, 1117/1118/1120_managed_*_pointee_owning,
-509_capture_managed, 510_capture_managed_slice, 511_method_value_managed,
-554_iface_refcount_balance, 595_funcvalue_struct_arg_refcount,
-713_var_infer_func_value_managed, 730_named_raw_slice_return. Mostly iface/func-value +
-capture refcount cases → likely an opt-pass (mem2reg/load-forwarding) interaction the VM
-tolerates less than native. A VM-`-O2` lane would surface + gate these. Sibling of the
-now-resolved LLVM-`-O1+` MAJOR (see done log, `f31d84a85`) — same "opt passes have no
-`-O2` end-to-end CI coverage" root.
+Root cause (was "~12 latent refcount failures"): `forwardLoads` (pkg/binate/ir/load_forward.bn)
+STORE-FORWARDING deletes an alloca and rewrites its loads to the single stored value V
+(via applyPromotion, like mem2reg) — sound only for a genuine BY-VALUE slot, but its only
+gate was `IsByvalParam()` (>16B).  A `<=16B` **by-address aggregate** — whose OP_LOAD keeps
+the slot ADDRESS, per types' `isAggregateLoadTyp`/`IsAggregateTyp` = {STRUCT, ARRAY,
+SLICE, MANAGED_SLICE, FUNC_VALUE, MANAGED_FUNC_VALUE, INTERFACE_VALUE,
+INTERFACE_VALUE_MANAGED} — slips through, so substituting V hands the VM a value where an
+address is expected.  Invisible at `-O0` (RunOptPasses is a no-op) and tolerated by
+LLVM/native; at `bni -O 2` the VM read a nil iface / garbage func pointer / reclaimed-SP
+struct.
+
+**FIXED (binate 1a7f773bb):** interface values + function values (raw + managed) now
+declined from store-forwarding — resolves 509/510/511/554/713/1079/1093 (managed slice
+already went via the address-preserving RLE path).  A full `bni -O 2` sweep of 736
+single-file conformance tests is clean except the two below.
+
+**STILL OPEN (the principled completion — the "1054" task):** small non-managed **STRUCT**
+and **ARRAY** slots, and **raw SLICE** (`*[]T`), are the SAME by-address class and are still
+store-forwarded.  Only raw-slice manifests today: **1054_type_switch_basic** (store-forwards
+`*[]*Shape`; the 1a7f773bb change improved it from a crash to 7/8 lines but did not close
+it).  Struct/array are latent (no triggering conformance shape yet: a non-managed `<=16B`
+struct/array with a single whole-value store from an SP-temporary and a whole-value load in
+a later statement).  Correct fix (per the reg-narrow-review follow-up): key the store-forward
+decline on **by-address-ness itself** rather than enumerating iface/func — route ALL slices
+(raw + managed) through the address-preserving RLE path (raw-slice forwarding is needed for
+loop-BCE header coalescing, so it must be RLE'd, not just declined), and decline struct/array
+outright.  Also correct the stale load_forward.bn header claim that store-forwarding is sound
+for "raw slices, small structs" (it is not — they are by-address).
+
+Meta: the VM at `-O2` has no CI lane (conformance runs `bni` at `-O0`; bnc default IR is
+`-O0`), which is why this went unseen — sibling of the resolved LLVM-`-O1+` MAJOR (done log
+`f31d84a85`), same "opt passes have no `-O2` end-to-end CI coverage" root.  A VM-`-O2` lane
+would surface + gate this class (wiring is a separate, user-owned decision).
+
+Note: 1117/1118/1120_managed_*_pointee_owning (in the original list) fail at `bni -O0` too via
+direct `bni`, so they are NOT this O2 class — a separate matter.
 
 ### gen1 build fails on Linux: BUILDER (bnc-0.0.14) emits iv-dispatch thunks STRONG — 🟠 BUILD-INFRA, gated on a BUILDER cut (found 2026-08-28; root-caused 2026-08-31)
 
