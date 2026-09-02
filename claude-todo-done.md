@@ -6,6 +6,31 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## REPL redef dropped pointer-receiver mutations on macOS — DONE (2026-09-01, commit feff63a85)
+
+`e2e/repl.sh` was red on `macos-latest` only (cases `tier4-method-redef-replace` /
+`tier4-method-shadow-diff-sig`): after redefining a `*T` pointer-receiver method in
+the REPL, the next call passed the receiver BY VALUE, so the body mutated a copy and
+the change was silently lost (Linux passed).
+
+Root cause: `setOrAppendFuncSig` (pkg/binate/ir/gen.bn) replaces a redefined FuncSig
+in place via `FuncSigs.Set(idx, sig)`, which drops the old sig and frees its `Name`
+`@[]char`.  `mod.FuncSigIndex` (a `pkg/std/table` Table) keys BORROW that `Name`
+backing (`*[]readonly char`), so the stored key dangled — same bytes, freed distinct
+allocation.  A later `lookupFuncParams("<pkg>.T.M")` streq'd the query against the
+dangling key: glibc left the freed bytes intact (match), macOS clobbered them (MISS).
+On a miss `genMethodCall` got empty params and SKIPPED `applyReceiverConversion`, so
+the pointer receiver went by value.  Allocator-dependence = the whole "macOS-only".
+
+Fix: re-`Put` the key onto the new sig's live `Name` backing BEFORE the `Set` (so
+Put's probe doesn't read the about-to-be-freed key).  Identical to the vm.Funcs
+same-sig REPL-replace refresh (`9dec92ab0`, vm/lower.bn + func_index.bn); these two
+are the only in-place-replace-on-borrow-keyed-index sites.  Added
+`TestFuncSigIndexReplaceRefreshesBorrowKey` (distinct mutable backings + post-replace
+clobber → fails on EVERY platform without the fix, unlike the old shared-literal
+test).  repl e2e 58/58; pkg/binate/ir 774; pkg/binate/repl 73.  Adversarial review
+clean.
+
 ## VM at bnc `-O2`: load-forwarding store-forwarded by-address aggregates — DONE (2026-09-01, commits 1a7f773bb + 0fcdb9cfd)
 
 Root cause of the "~12 latent refcount failures": `forwardLoads`
