@@ -230,7 +230,20 @@ and `clobbers(ins)`.
   keeps loop-carried values in registers. Regression test `conformance/1231_regalloc_managed_ptr_refinc`.
   Note: since all homes are callee-saved, the clobber machinery (`spansClobber`/`ClobberPositions`)
   is present but inert on aarch64 — it activates when a stage populates caller-saved (Stage 5).
-- **Stage 3 — x64** (two-address, RAX/RDX/RCX reserved+clobbered, R12–R15). Validate `native_x64`.
+- **Stage 3 — x64 register allocation wired into emission. DONE — landed `712241d57`.**
+  Same callee-saved-first reorder as Stage 1b: homes = RBX/R12–R15 (disjoint from the R10..RDI
+  scratch pool), `CallerSaved` empty so the clobber machinery is inert (the plan's x64 OP_REFINC
+  clobber is deferred to Stage 5 with caller-saved homes). `AllocateRegisters` before `PlanFrame`;
+  getOperand/nextReg home fast-path; prologue save / epilogue restore; scalar-param home-landing.
+  **Two operand-mutation bugs found + fixed:** the SHL/SHR count relied on `scratchReg` landing on
+  RCX after two getOperands (breaks when an operand is homed or register-cached → shift by garbage
+  CL) → now moves the count to RCX explicitly and reserves the pool cursor past it; and
+  `emitUint64ToDouble` did `and src,1` in place, mutating the integer operand → now uses a second
+  scratch. Regression `conformance/1233_regalloc_shift_homed_operands` (bites the shift bug). The
+  emitUint64ToDouble fix has no bespoke test (triggering needs the uint64 homed, which x64 spills
+  for every constructible shape — disassembly-confirmed); covered by 1233 + full conformance +
+  1193/1226. Pre-landing adversarial review: no miscompiles. Validated: `native_x64_darwin`
+  conformance 2996/0.
 - **Stage 4 — arm32** (pool already callee-saved; int64 spilled). Validate `native_arm32`; protect the
   1-xfail baseline.
 - **Stage 5 (additive, on the same foundation):** interval splitting (add locations to ranges),
