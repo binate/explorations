@@ -233,8 +233,14 @@ native 30.76s); the remaining gap is exactly the Stage-5 headroom below.
   the extra homing budget rarely prevents spills over the 10 callee-saved homes).  Full write-up
   (incl. the 5× regression + the allocator caller-saved-ineligible fix, and two miscompiles found —
   param-landing permutation, emitStringToArray X0 scratch) in `plan-native-regalloc.md`.
-- **Interval splitting** (register in the un-pressured sub-range, spilled elsewhere) and **copy
-  coalescing** (elide the `EliminatePhis` `OP_COPY`s by giving src=dst one register).
+- **Copy coalescing — TRIED aa64+x64, NEUTRAL, SHELVED (2026-09-03).** Reused a dying OP_COPY
+  source's register so the move elides.  Correct, but neutral: the LIFO free pool already coalesces
+  the common case for free (source dying at a copy is the most-recently-freed reg).  See
+  `plan-native-regalloc.md` Stage 5b + the META note (two neutral refinements ⇒ v1 already captured
+  the codegen-quality wins; register refinements won't close the ~2.5× gap).
+- **Interval splitting** (register in the un-pressured sub-range, spilled elsewhere) — likely the
+  same neutral story per the META note; **float register allocation** is the one untried item with
+  a distinct mechanism (float scalars are non-allocatable today).
 - **Spill-cost heuristic** (use-density × loop depth) — the current naive "spill the newest interval
   on pressure" is correct but suboptimal.
 - **Float register allocation** (float scalars are non-allocatable today — D8–D15 callee-saved on
