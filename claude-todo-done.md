@@ -6,6 +6,33 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## ir: per-call FuncSig lookup consolidation (lookupFuncSig) — DONE (2026-09-02, commit 3d078c4c2)
+
+`genCall` / `genMethodCall` / `managedFuncValueTypeForName` each read several fields
+of a callee's signature via separate per-field wrappers (`lookupFuncParams` /
+`lookupFuncIsVariadic` / `lookupFuncResults` / `lookupFuncMultiReturnType`), each of
+which re-qualified the name (a throwaway `buf.CopyStr` compare-key), re-probed the
+FuncSig index, and re-copied the FuncSig — ~5 qualify+probe+copy round-trips per call
+on the IR-gen load path. Added `lookupFuncSig(gc, name) -> (FuncSig, bool)`: qualify +
+probe + copy ONCE; the zero `FuncSig` on miss (empty Params/Results, false IsVariadic,
+nil MultiReturnType) matches each wrapper's miss return. `genCall` now does one lookup;
+`genMethodCall` keeps TWO deliberate lookups (Params/IsVariadic BEFORE `buildCallArgs`;
+funcFound/Results/MultiReturnType re-read AFTER, because a nested method call in the
+args can register a transitive callee's sig during `buildCallArgs` — the
+transitive-extern fallback's emit-or-not decision must see that post-arg state, else it
+double-emits a `declare` → "invalid redefinition" at link). The three now-unused
+wrappers were removed; `lookupFuncResults` (5 callers) + `lookupFuncExists` (14) stay.
+Regression test `conformance/1232_transitive_method_nested_in_own_args` (fails without
+the post-args re-read; passes with it). Adversarially reviewed (the review found + I
+fixed a single-snapshot ordering regression before landing); full builder-comp
+conformance 2999 passed / 0 failed.
+
+The DEEPER optimization from the original entry — not materializing the qualified key
+at all (intern it, or hash the (pkgPath, name) components directly) — is NOT part of
+this and remains OPEN in [claude-todo.md](claude-todo.md): this reduced the NUMBER of
+qualify+copy round-trips per call (~5 → 1-2), but each remaining `lookupFuncSig` still
+does one `qualifyForCurrentModule` `CopyStr`.
+
 ## vm bare-metal: arena exhaustion fixed by right-sizing test stacks + per-test wrapper-interner teardown — DONE (2026-09-02, commit 4d97a55f0)
 
 The `builder-comp_arm32_baremetal` `pkg/binate/vm` suite aborted `rt.RawAlloc: arena

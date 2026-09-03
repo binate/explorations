@@ -295,10 +295,13 @@ both design-level; do not pick unilaterally.
 
 ### OPEN — per-lookup allocation in lookupFunc* (small)
 
-`lookupFunc*` each do a per-call `buf.CopyStr` (via `qualifyForCurrentModule`)
-plus a qualify-concat — two allocations per lookup — just to build the compare
-key. Build-once / intern, or hash the (pkgPath, name) components without
-materializing the qualified string.
+Each `lookupFunc*` / `lookupFuncSig` still does a per-call `buf.CopyStr` (via
+`qualifyForCurrentModule`) plus a qualify-concat to build the compare key. The
+per-CALL-SITE redundancy is now gone — call sites were consolidated to one (or two,
+in `genMethodCall`) `lookupFuncSig` calls instead of ~5 per-field wrappers (see
+[claude-todo-done.md](claude-todo-done.md), commit 3d078c4c2) — but each remaining
+lookup still allocates. Build-once / intern the qualified key, or hash the
+(pkgPath, name) components without materializing the qualified string.
 
 ## Standard library — pkg/std namespace migration
 
