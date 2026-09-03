@@ -114,6 +114,32 @@ a single `return` as a workaround because the frozen BUILDER (bnc-0.0.14) that c
 `pkg/binate/link` for gen1 still has this bug — revertable once a BUILDER carrying this
 fix is cut.
 
+## conformance/unittest/perf `-comp-comp*` modes under-test by one bnc generation — FIXED (2026-09-02, `ef2b09e3b`)
+
+The self-host fixpoint modes ran one generation short of their names, so
+builder-comp-comp duplicated builder-comp, builder-comp-comp-int duplicated
+builder-comp-int, and the gen3 fixpoint was never verified.
+
+Mode naming (authoritative, per owner): `builder` = BUILDER bnc; each `comp` = one
+from-tree self-host generation — builder-comp = gen1, builder-comp-comp = gen2,
+builder-comp-comp-comp = gen3; `-int` = the bni is built by that generation
+(builder-comp-int = gen1 bni, builder-comp-comp-int = gen2 bni).  gen1 = BUILDER-built
+cmd/bnc; genN = gen(N-1)-built.  `run.sh`'s legend was corrected to match in
+`7f88a08ff`.
+
+Fixed in all three mode→runner harnesses (conformance/runners, scripts/unittest/
+runners, perf/runners): builder-comp-comp → gen2, builder-comp-comp-comp → gen3,
+builder-comp-comp-int → gen2 bni; added a `build_gen3` helper (`gen2` compiles
+cmd/bnc → gen3) + extended cleanup_compilers.  builder-comp / builder-comp-int /
+builder-comp-int-int already used gen1 correctly.  The doubled-name native modes
+(builder-comp_native_x64-comp_native_x64 etc.) are a different naming axis
+(target+backend) and are deliberately gen1 — untouched.  Adversarial review caught
+that the initial fix missed the perf harness; the amended commit covers all three.
+
+FOLLOW-UP (watch): the newly-correct gen2/gen3 lanes may surface previously-hidden
+gen2/gen3 miscompiles on the first full CI run.  If any lane reddens, that is a
+genuine (previously-masked) bug — file it as its own entry.
+
 ## hygiene/stdx-forwarder-imports: scan perf/ too — DONE (2026-09-02, `b85b13c86`)
 
 The `stdx-forwarder-imports` check walked cmd/pkg/ifaces/impls/conformance/examples/
