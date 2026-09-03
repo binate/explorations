@@ -47,6 +47,26 @@ wordBytes=4 — where LP64 is a single 8-byte word).
   right, so it is in the arm32 store/address instruction selection, not shared IR).
 - **Test**: `conformance/439_iv_in_slice_raw` (no xfail added — deliberately left
   red so it stays visible until fixed).
+- **DEFINITIVE ROOT CAUSE (2026-09-03): a USE-AFTER-FREE in the test, NOT a native
+  miscompile.** `make_slice(*I, 2)[:]` builds a MANAGED-slice temporary that OWNS the
+  heap backing; the raw slice `s` only BORROWS it; the temp is RefDec'd/freed at the end
+  of that statement, so `s` dangles for the rest of main. Proven by a gdb hardware
+  watchpoint: the corrupting write is `rt.writeTags` (the arena's boundary-tag writer)
+  during a Println-internal allocation that REUSES the freed backing and stamps a block
+  tag (value 16 = block size) into its middle. Corroborated: binding the backing to a
+  variable first (`var m @[]Pair = make_slice(..); var s *[]Pair = m[:]`) works, and the
+  MANAGED-slice sibling `440_iv_in_slice_mgd` (`@[]@I`, owns) PASSES on native arm32.
+  LLVM/aa64/x64 "pass" 439 only because their allocators don't immediately reuse the
+  freed block (benign UAF); baremetal's tight arena reuses it → corruption. Per the
+  project memory model (CLAUDE.md: a raw slice of a temporary used after the statement is
+  USER ERROR; the compiler must NOT suppress the RefDec), the compiler is correct and
+  439 is a buggy test. SUPERSEDES the "native arm32 regalloc" localization below (that
+  was wrong). RESOLUTION is a semantics call for the owner: (a) fix 439 to own its
+  backing (bind to a managed var) — 440 already covers the managed case, so 439 could
+  instead own via a var and keep the raw-slice-of-iv coverage; or (b) if `make_slice()[:]`
+  is INTENDED to extend the temp's lifetime, then it IS a compiler lifetime bug (but the
+  documented model says it is not). Only 439 in the whole conformance suite uses
+  `make_slice(..)[:]`.
 - **MINIMAL REPRO (no iface needed — 2026-09-03)**: the iv is a red herring. It
   reproduces with a plain 2-word struct raw slice:
   ```
