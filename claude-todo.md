@@ -156,7 +156,7 @@ Possible later extension (not planned): inlining callees containing
 indirect/iface/c-call/handle dispatch (currently disqualifying; raises
 cross-mode-vtable / c-ABI questions).
 
-### Native register allocator — 🔵 IN PROGRESS (aarch64 + x64 DONE + landed; arm32 next, 2026-09-02)
+### Native register allocator — 🟢 v1 DONE (all three backends landed; Stage 5 refinements open, 2026-09-02)
 
 THE lever for the native↔clang gap.  ROOT CAUSE CONFIRMED (disassembly): the native backend
 is a **stack machine with no register allocation** — `common.PlanFrame` gives every scalar SSA
@@ -239,10 +239,31 @@ correct) — covered by 1233 + full conformance + uint64→double correctness te
 Pre-landing adversarial review: no miscompiles, all focus areas sound.  Validated:
 `native_x64_darwin` conformance **2996 passed / 0 failed**.
 
-**NEXT — remaining arches + refinements:**
-- **arm32** (plan Stage 4): wire into `native/arm32`; descriptor adds the int64 + soft-float AEABI
-  libcall clobbers; int64 stays spilled (register pairs).  Validate `native_arm32_baremetal`,
-  protect the 1-xfail baseline.
+**Stage 4 (DONE — landed `d49bd66a2`):** arm32 register allocation wired into emission.  Unlike
+aarch64/x64 (callee-saved homes), arm32 has **no free callee-saved register** — R4–R10 is the
+getOperand scratch pool, R11 the frame pointer — so homes are **caller-saved (R0–R3)** and the
+clobber machinery, inert on aarch64/x64, goes **active for the first time**.  New arch-neutral piece:
+a **type-aware** clobber classifier (`RegClassDesc` gains `Int64OpsClobber` / `SoftFloatOpsClobber`;
+`isClobberInstr` flags arm32's AEABI libcalls — int64 MUL/DIV/REM/SHL/SHR and int64↔float CAST
+always, plus float arith/compare/cast under soft-float — by operand *type*, so int32 arithmetic
+isn't over-clobbered); aarch64/x64 leave both flags false (unchanged, inert).  No prologue
+save/restore (caller-saved).  **Core rule:** R0–R3 homes overlap the arg/target/return registers, so
+emitFunc **un-homes** the operands of every op that marshals into R0–R3 (`EmitsReturningBl` call
+family + `OP_RETURN`) — they revert to spill (slots disjoint from R0–R3), sidestepping the
+per-`mov` permutation corruption (a handle-call target overwritten by an arg; a multi-return pack
+`mov r1,r2; mov r2,r1` losing field 2).  The int64/soft-float libcalls need no un-homing — their
+operands (int64/float) are non-allocatable.  Params spill-then-reload; call results home-aware.
+**One diagnostic-only defect found in pre-landing review + fixed:** `OP_BOUNDS_CHECK`'s cold
+`rt.BoundsFail(idx,len)` marshalling wasn't permutation-safe (a `len` homed in R0 corrupted the
+panic message's length; program still aborts) — fixed by staging len through IP (un-homing would
+despill the *hot* indexing path for a *cold* diagnostic); regression
+`TestDispatchBoundsFailMarshalIsPermutationSafe` (verified it bites the naive 2-move).  Two
+independent adversarial reviews (clobber-set completeness; exclusion/result/param/rodata) otherwise
+clean; the review also confirmed the emitStringToArray R0→pool-scratch change fixes a *pre-existing*
+miscompile.  Validated: `native_arm32_baremetal` conformance **2953 passed / 0 failed** (1-xfail
+baseline held); aarch64/x64 native unit tests + conformance smoke unchanged.
+
+**NEXT — Stage 5 refinements:**
 - **Stage 5 refinements** (additive): caller-saved homes for call-free regions of leaf functions
   (avoids the prologue save/restore when a value never crosses a call — the current all-callee-saved
   choice pays save/restore even for leaves); interval splitting; copy coalescing (elide phi-copy

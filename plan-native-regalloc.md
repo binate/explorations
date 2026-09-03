@@ -244,8 +244,29 @@ and `clobbers(ins)`.
   for every constructible shape — disassembly-confirmed); covered by 1233 + full conformance +
   1193/1226. Pre-landing adversarial review: no miscompiles. Validated: `native_x64_darwin`
   conformance 2996/0.
-- **Stage 4 — arm32** (pool already callee-saved; int64 spilled). Validate `native_arm32`; protect the
-  1-xfail baseline.
+- **Stage 4 — arm32 register allocation wired into emission. DONE — landed `d49bd66a2`.**
+  Unlike aarch64/x64 (callee-saved homes), arm32 has **no free callee-saved register** — R4–R10 is
+  the scratch pool getOperand hands out and R11 is the frame pointer — so homes are **caller-saved**
+  (R0–R3), and the clobber machinery, inert on aarch64/x64 (empty `CallerSaved`), goes **active for
+  the first time**. New arch-neutral piece: a **type-aware** clobber classifier (`RegClassDesc`
+  gains `Int64OpsClobber` / `SoftFloatOpsClobber`; `isClobberInstr` flags arm32's AEABI libcalls —
+  int64 MUL/DIV/REM/SHL/SHR and int64↔float CAST always, plus float arith/compare/cast under
+  soft-float — by operand *type*, so int32 arithmetic isn't over-clobbered); aarch64/x64 leave both
+  flags false (unchanged). No prologue save/restore (caller-saved). **The core correctness rule:**
+  R0–R3 homes overlap the arg/target/return registers, so a homed value marshalled *into* those
+  registers would be clobbered by the marshalling, and >1 forms a permutation the naive per-`mov`
+  order corrupts — so emitFunc **un-homes** the operands of every op that marshals into R0–R3 (the
+  `EmitsReturningBl` call family + `OP_RETURN`); they revert to spill (read from slots, disjoint from
+  R0–R3). The int64/soft-float libcalls need no un-homing because their operands (int64/float) are
+  non-allocatable. Params land via spill-then-reload; call results collected home-aware.
+  **One diagnostic-only defect found in pre-landing review + fixed:** `OP_BOUNDS_CHECK`'s cold
+  `rt.BoundsFail(idx,len)` marshalling wasn't permutation-safe (a `len` homed in R0 corrupted the
+  panic message's length) — fixed by staging len through IP (chosen over un-homing, which would
+  despill the hot indexing path for a cold diagnostic); regression
+  `TestDispatchBoundsFailMarshalIsPermutationSafe`. Two independent adversarial reviews (clobber-set
+  completeness; exclusion/result/param/rodata) otherwise clean; the review also confirmed the
+  emitStringToArray R0→pool-scratch change fixes a *pre-existing* miscompile. Validated:
+  `native_arm32_baremetal` conformance 2953/0 (1-xfail baseline held); aarch64/x64 unaffected.
 - **Stage 5 (additive, on the same foundation):** interval splitting (add locations to ranges),
   copy coalescing (elide `EliminatePhis` `OP_COPY`s by giving src=dst one register), spill-cost
   heuristics (use-density × loop depth), float register file (D8–D15 callee-saved), reclaim x64
