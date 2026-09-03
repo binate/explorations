@@ -354,10 +354,16 @@ Steps:
    accessors (`Interpreted`/`SetInterpreted`/`Pending`/`PendingMark`/`Scope`) in the
    `.bni`; consumers (interp/check.bn, interp/check_test.bn, repl/session.bn,
    repl/decl.bn) switched to the accessors. .bni 1534 -> 1249. DONE (commit 2ea59031e): gen1 + all Checker-consumer unit tests + full conformance (2999/0) green.
-2. Then relocate more (Scope, Symbol, internal bookkeeping structs:
-   GenericInstantiation / Impl / PendingDecl / PendingConstraintCheck / PkgEntry /
-   CaptureFrame) as follow-on commits — each independently green. Keep genuine public
-   DATA types (Type/Field/Param/Method/CheckError/TargetInfo/FieldLayout) as-is.
+2. Relocate internal structs. DONE (commit 7f20dda06): Scope -> opaque forward-decl
+   (methods stay), and GenericInstantiation / Impl / CaptureFrame /
+   PendingConstraintCheck / PkgEntry fully removed from the .bni (pure-internal,
+   moved to their owning .bn). No consumer changes. .bni 1249 -> 1142. gen1 + unit
+   tests + conformance (3000/0) green.
+3. Symbol -> opaque with Kind()/Type() accessors (repl reads existing.Kind/.Type on a
+   Lookup result). [next]
+   Skip PendingDecl (5 lines, repl reads its fields, net-negative to opaque). Keep
+   genuine public DATA types (Type/Field/Param/Method/CheckError/TargetInfo/
+   FieldLayout) as-is.
 
 Validate each: hygiene, types + all Checker-consumer unit tests (interp/repl/ir/lint/
 vm/codegen), gen1 build, conformance smoke. Land per-commit with approval.
