@@ -415,26 +415,27 @@ vm/codegen), gen1 build, conformance smoke. Land per-commit with approval.
 
 ## Standard library — pkg/std namespace migration
 
-### Promote stdx/flags → std/flags — 🟡 ACTIVE (queued after the forwarder removal)
+### flags: promote to pkg/std + adopt in cmd/bnc — 🟡 IN PROGRESS
 
-`pkg/stdx/flags` (the tier-1x command-line flag parser) is standards-track; promote
-it to the stable `pkg/std/flags` home, leaving a `pkg/stdx/flags` compat forwarder
-(`package "pkg/stdx/flags"` + `expose "pkg/std/flags"`) so existing importers keep
-resolving and the stdx-forwarder-imports mechanism re-arms.
+`flags` (the command-line flag parser) graduated from tier-1x `stdx` to the stable
+`pkg/std` layer.  cmd/bnc is the last tool still hand-rolling its parser
+(plan-flags-package.md step 5); it adopts `flags` via the `pkg/stdx/flags`
+forwarder because it is BUILDER-compiled and the pinned BUILDER bundle ships
+`pkg/stdx/flags` but not `pkg/std/flags`.
 
-1. Move the flags interface (`ifaces/stdlib/pkg/stdx/flags.bni`) + impl
-   (`impls/stdlib/pkg/stdx/flags/`) to `pkg/std/flags`; add the `pkg/stdx/flags`
-   forwarder .bni.
-2. As a SUBSEQUENT commit, convert any NON-BUILDER-tree importers to `pkg/std/flags`,
-   and add a BUILDER-tree TODO for the rest (they migrate only after a BUILDER
-   carrying `pkg/std/flags` is cut — do NOT cut a BUILDER just for this).
-
-Importers of `pkg/stdx/flags`: cmd/{bnas,bnfmt,bni,bnld,bnlint} (cmd/bnc does not use
-flags).  These tool CLIs build against the BUILDER-bundled stdlib (that is the point
-of the BUILDER tree), so they CANNOT import `pkg/std/flags` until a BUILDER carrying
-it is cut — their flags imports stay on the forwarder with a BUILDER-tree TODO.  So
-this round is effectively step 1 (promote + forwarder) only; consumer conversion is
-deferred to the post-BUILDER-cut follow-up.
+1. **DONE (`8658c1dd3`):** moved flags → `pkg/std/flags`, added the `pkg/stdx/flags`
+   compat forwarder, migrated the 5 gen2-built tools (cmd/{bnas,bnfmt,bni,bnld,
+   bnlint}) to `pkg/std/flags`, and injected `pkg/std/flags` into the VM
+   (stdPkgs()).  The forwarder is intentionally consumer-less until step 2.
+2. **TODO — convert cmd/bnc to `pkg/stdx/flags`** (plan-flags-package.md step 5):
+   rewrite `cmd/bnc/args.bn` parseArgs on the flags API (drop splitColon / local
+   streq; absorb the intended behavior changes — missing-value errors, `--version`
+   a normal flag, strict unknown-flag), update `args_test.bn`, re-add the
+   `is_builder_tree` exemption to `stdx-forwarder-imports.sh` (cmd/bnc now imports
+   the forwarder), and smoke bnc's whole BUILDER tree + gen1.
+3. **NEXT BUILDER BUMP:** straightforward `pkg/stdx/flags` → `pkg/std/flags` in
+   cmd/bnc + remove the `pkg/stdx/flags` forwarder + drop the exemption.  Do NOT cut
+   a BUILDER just for this.
 
 ## Documentation hygiene
 
