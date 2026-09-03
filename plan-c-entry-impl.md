@@ -86,6 +86,16 @@ Split into two safe sub-increments; native currently fails LOUD on OP_C_ENTRY (e
 arch dispatch's `SetError "unimplemented IR op c_entry"` default), so no silent
 miscompile exists today.
 
+**Inc B1 LANDED (2026-09-02, commit 5d24fbe49)** exactly as designed below: the
+degenerate address reference on all three backends (aa64 ADRP+ADD, x64 RIP-LEA,
+arm32 MOVW/MOVT via emitCEntryAddr / emitSymAddr) + the common.EmitObject
+narrow-arg fail-loud gate (CheckCEntryNarrowArgs) using each target's word size +
+ir.FuncParamTypesByName + conformance 1235_c_entry_qsort (verified LLVM / native
+aa64 / native x64; xfail VM/int + baremetal). Adversarial review clean; the gate
+is intentionally conservative (flags narrow GP scalars by type, so it also
+over-rejects the safe stack-passed-narrow-arg case — B2 removes the gate). Inc B2
+remains open.
+
 - **Inc B1 — degenerate reference + narrow-arg fail-loud gate.** For a callback
   whose args are all pointer/word-size/float/aggregate (the common case: qsort /
   bsearch / signal comparators), f's mangled entry IS a correct C entry on native,
