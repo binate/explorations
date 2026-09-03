@@ -79,3 +79,51 @@ arm (operand shape) + `checkCGlobal` (compiled-only + raw-pointer result).
 
 Calling a raw C function pointer *from* Binate; per-value/closure thunks; widening
 the always-on entry normalization; VM-mode FFI; cross-thread/async-signal invocation.
+
+## Inc B — native codegen (execution-ready design, 2026-09-02)
+
+Split into two safe sub-increments; native currently fails LOUD on OP_C_ENTRY (each
+arch dispatch's `SetError "unimplemented IR op c_entry"` default), so no silent
+miscompile exists today.
+
+- **Inc B1 — degenerate reference + narrow-arg fail-loud gate.** For a callback
+  whose args are all pointer/word-size/float/aggregate (the common case: qsort /
+  bsearch / signal comparators), f's mangled entry IS a correct C entry on native,
+  so OP_C_ENTRY lowers to the ADDRESS of @<mangled f> (no thunk). Only *narrow GP
+  integer args* (int8/int16, and int32 on the 64-bit backends) need the c_export-
+  style normalization — defer those to B2 and FAIL LOUD for now (never silently
+  reference the mangled entry for a narrow-arg fn — that would reintroduce the
+  dirty-upper-bits bug).
+  - Gate (common, has `mod`): a pre-pass in `common.EmitObject` (or per-EmitFunc)
+    — for each OP_C_ENTRY, `findFuncNamed(mod, ins.StrVal)` (ir/data_satregistry.bn)
+    → if any param peels to an INTEGER/bool scalar (NOT pointer/float/aggregate;
+    IsFloatScalarTyp/IsAggregateTyp excluded) with SizeOf < 8 → ReportEmitError
+    ("native __c_entry: adaptation thunk for narrow-argument callbacks not yet
+    implemented; use only pointer/word-size args, or the LLVM backend"). Conservative
+    cross-arch (over-conservative for int32 on arm32 — safe). VERIFY the StrVal↔f.Name
+    match empirically (same qualification the func-value path relies on).
+  - Per-arch degenerate materialization (emitInstr OP_C_ENTRY case): the mangled
+    function symbol's address into the result reg — aa64 `SetGlobal(symFor(pkg,StrVal))`
+    + Adrp + AddImmLabel (mirror OP_DATA_SYM_ADDR, but symFor not symPrefixed, since
+    StrVal is the func NAME not a mangled data sym); x64 LEA rip-relative; arm32
+    MOVW/MOVT (or the arch's local-symbol-address idiom). Binate statically links all
+    packages into one binary, so an imported fn is a LOCAL symbol (PC-relative, NOT
+    GOT-indirect like OP_C_GLOBAL).
+  - Then the conformance test (below) passes on native + LLVM; xfail ONLY the
+    compiled-only VM/int modes (builder-comp-int / -comp-int / -int-int /
+    _arm32_linux_int) — the clean 498 set, no native/baremetal churn.
+- **Inc B2 — narrow-arg adaptation thunk.** Emit a use-site, WEAK
+  `__centry.<mangled>` thunk (emitCExportRegNorm{,X64,Arm32} normalization → branch
+  to <mangled>, NOT fall-through — ld64 atom lesson), collected like the func-value
+  shims (one weak survivor program-wide = pkg.centry.identity); OP_C_ENTRY then
+  references the thunk for narrow-arg fns and the mangled entry otherwise. Drop the
+  B1 gate. Authoritative test = the linked native self-compile.
+
+## Conformance test (lands with Inc B1)
+
+`<N>_c_entry_qsort.bn`: a Binate `int(*)(const void*, const void*)` comparator handed
+to libc `qsort` via `__c_entry`, sorting an int32 array (all args pointer/word-size →
+degenerate-safe, so it works on native under B1). Verified manually on LLVM host
+(`[3,1,4,1,5] -> [1,1,3,4,5]`). Model on 498_c_call_basic; xfail the compiled-only
+VM/int modes. (Baremetal LLVM would need xfail too if it uses libc qsort — or write
+a pointer/identity variant that needs no libc to also cover baremetal.)
