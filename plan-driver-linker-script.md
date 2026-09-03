@@ -426,12 +426,30 @@ flagged LAYOUT SEMANTICS that become breaking once drivers depend on them.  Reso
    object defs win over a same-named abs symbol; `DefineSymbol`/`SymbolAtDot` are
    last-write-wins.  `LayoutBuilder.Resolve()` wires it.  Symbol surface split into
    `builder_symbols.bn` (+`_test`).
-3. **arm32 relocator** (`patchArm32`) — prerequisite for A/D.
-4. Emit rewrite: LMA-keyed per-region ELF packing (`p_paddr` from LMA, multi-region file
-   offsets, relaxed entry guard) + the **raw-binary** backend.
-5. `*(COMMON)` synthesis.
-6. e2e proofs: D (baremetal → QEMU), A (firmware ROM-copy), C (raw-binary + signature).
-7. Explicit-PHDRS emit (case B) + higher-half e2e.
+DISCOVERY (2026-09-02) — REORDERED.  A compiled arm32-baremetal object is **ELF32 / REL /
+Machine ARM**, but bnld's reader (`parse_elf.bn`) is hardcoded **ELF64** and reads **SHT_RELA
+only** (extracts ZERO relocs from an arm32 object's `.rel.*`), and `emit_elf.bn` writes
+**ELF64** executables.  So arm32 linking needs a full **ELF32 read + emit** path (Ehdr/Shdr/
+Sym/Rel layouts all differ; `r_info` is `(sym<<8)|type` in ELF32), not just `patchArm32` —
+the original step 3 underestimated this.  The reloc set an arm32 program actually uses (read
+off a real object): `R_ARM_ABS32`, `R_ARM_CALL`, `R_ARM_JUMP24`, `R_ARM_MOVW_ABS_NC`,
+`R_ARM_MOVT_ABS`, `R_ARM_PREL31`, `R_ARM_NONE` (no Thumb, no REL32).  Per the user
+(2026-09-02): prove the scripted layout on ELF64 / raw-binary FIRST; ELF32+arm32 is a
+dedicated follow-on.
+
+3. **Emit rewrite (ELF64) + raw-binary backend.**  Generalize `emit_elf.bn` from the hard
+   2-PT_LOAD/single-base model to LMA-keyed per-region packing (`p_paddr` from LMA,
+   multi-region file offsets, relaxed entry guard) and honor the output-section-start
+   alignment deferred from step 1.  Add the **raw-binary** backend (concatenate sections by
+   LMA, no ELF container — arch-agnostic).  Wire `LayoutBuilder.EmitElf` / `EmitRawBinary`
+   over `Result()`+`Resolve()`+`Relocate`.
+4. `*(COMMON)` synthesis.
+5. e2e proofs on what already works: **C (raw-binary blob + signature — arch-agnostic)** and
+   a **scripted static x64/aarch64 (ELF64)** program that runs.
+6. Explicit-PHDRS emit (case B) + a higher-half-style e2e (ELF64).
+7. **ELF32 read + emit** (parametrize `parse_elf`/`emit_elf` by ELF class; SHT_REL reading) +
+   **`patchArm32`** (the reloc set above, REL implicit addends) — then the arm32 firmware/
+   baremetal proofs (A/D → QEMU).  This is the deferred arm32 work.
 8. Ship the builder API in `pkg/binate/link.bni`; reference scripted drivers.
 
 Verdict (review): shape is sound to start the engine core with the above pins resolved.
