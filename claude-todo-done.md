@@ -61,13 +61,16 @@ increments, each with a clean adversarial review (no CRITICAL/MAJOR):
   leaf package `pkg/binate/irsym` (`44742a994`) to make room in `ir.bni` (1500 → 1384)
   for B2's additions (no `.bni` cap bump — the goal is to LOWER interface sizes).
 
-Follow-ups tracked separately in the active todo: the `_func_handle` generic-guard fix
-(Inc C); the FFI C-representability widening. Not done: a narrow-arg END-TO-END test
-through a real C caller — the conformance harness is pure Binate + libc (no C sidecars)
-and no portable libc callback passes a narrow int by value; it is expressible via a
-cinterop C-sidecar caller (`examples/cinterop` style, `--link-after-objs`) and is a
-worthwhile follow-up. The thunk's register-normalization bytes are inherited from the
-shipped `emitCExportRegNorm` it reuses (byte-checked by the `#[c_export]` tests).
+Both landed with clean adversarial reviews. The narrow-arg thunk's END-TO-END path
+through a real C caller — untestable in the pure-Binate+libc conformance harness — is
+now covered by `e2e/c-entry-narrow-callback.sh` (`7071047c1`): a C sidecar
+(`--link-after-objs`, modeled on `e2e/c-subword-return.sh`) invokes the callback with a
+dirty-upper int32 argument, at -O2 (where the miscompile surfaces via mem2reg promotion);
+verified that suppressing the thunk flips native to the wrong result, so the test
+genuinely guards it. Follow-up still open (tracked in the active todo): the FFI
+C-representability widening (`__c_call`/`__c_global`/`__c_entry` should admit
+well-laid-out aggregates, not blanket-reject them).  The `_func_handle` generic-guard fix
+(surfaced by the same review) landed as its own item (see below).
 
 ## ir: per-call FuncSig lookup consolidation (lookupFuncSig) — DONE (2026-09-02, commit 3d078c4c2)
 
