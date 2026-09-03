@@ -45,10 +45,15 @@ arm (operand shape) + `checkCGlobal` (compiled-only + raw-pointer result).
 
 ## Increments (land each independently green)
 
-- **Inc A — front-end + LLVM + conformance (xfail native).** [front-end + codegen
-  guard LANDED 2026-09-02, commit 3defdc02d — steps 1-3 below done + tested + reviewed;
-  the genBuiltin C_ENTRY arm currently PANICS (guard), replaced by the real lowering in
-  steps 4-5.]
+- **Inc A — front-end + LLVM (steps 1-4). LANDED 2026-09-02** — front-end + codegen
+  guard (3defdc02d), then the LLVM codegen (f78e4d3eb): OP_C_ENTRY + EmitCEntry + the
+  getelementptr-0 emission (f's mangled entry as i8*, no thunk); FFI arms split into
+  genFFIBuiltin; unit tests (ir + codegen) + manual qsort round-trip; adversarial review
+  SAFE-TO-LAND (imported-fn case verified NOT to dangle — imports declare eagerly). The
+  end-to-end CONFORMANCE TEST (step 5) is deferred to Inc B: once native works it passes on
+  native + LLVM and only the compiled-only VM/int modes need xfail (the clean 498 pattern),
+  avoiding ~5 fragile native xfails that would just be deleted again. Reviewer note (m2): add
+  an expose-forwarder + __c_entry conformance case when that interaction is in scope.
   1. `token.bn`: add `C_ENTRY` builtin token (`__c_entry`) in the builtin range +
      keywordMap; `TokenName`.
   2. `parser/parse_builtin.bn`: `parseCEntry` — `__c_entry ( Expr )`, one operand
