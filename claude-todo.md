@@ -50,27 +50,6 @@ load-extend-stores narrow incoming stack args on those conventions (mirror the
 darwin sized-spill path); ≥7-arg narrow-stack-arg C-driver e2e. Test/xfail owed
 by the implementer.
 
-### native: builtin to obtain a raw C-callable function pointer (THUNK) for ANY Binate function — 🟡 NATIVE-BACKEND / C-interop, feature (found 2026-09-01; supersedes the c_export callback-gate scope-limitation)
-
-STATUS (2026-09-02): **Inc A LANDED (front-end 3defdc02d + LLVM codegen f78e4d3eb); Inc B1 LANDED (native codegen 5d24fbe49).** Inc A: token/parser/checker + OP_C_ENTRY + the getelementptr-0 LLVM lowering (f's mangled entry as *uint8, no thunk; imported-fn case verified not to dangle) + unit tests + manual qsort round-trip; both adversarial reviews clean. Inc B1: native aa64/x64/arm32 lower OP_C_ENTRY to the ADDRESS of f's mangled entry (aa64 ADRP+ADD, x64 RIP-LEA, arm32 MOVW/MOVT — local symbol, PC-relative) — the DEGENERATE reference — plus a common.EmitObject pre-pass (CheckCEntryNarrowArgs) that FAILS LOUD on any __c_entry whose target has a narrow GP integer/bool param (the degenerate reference can't normalize its dirty high bits at the C boundary); ir.FuncParamTypesByName does the by-name lookup; conformance 1235_c_entry_qsort verified on LLVM + native aa64 + native x64 (xfail VM/int + baremetal, mirroring __c_call); adversarial review clean (no CRITICAL/MAJOR; the gate is conservative — over-rejects stack-passed narrow args, a safe direction, documented). REMAINING: Inc B2 = the narrow-arg use-site-weak C-entry adaptation thunk (emitCExportRegNorm normalization → branch to <mangled>, one weak survivor = pkg.centry.identity), which lets OP_C_ENTRY reference the thunk for narrow-arg fns and DROP the B1 fail-loud gate; Inc C = the _func_handle generic-guard fix (below). [superseded note below:] front-end + codegen guard LANDED (commit 3defdc02d, `__c_entry` Inc A part 1) — token/parser/checker (pkg.centry/.eligible: declared non-generic top-level fn ref; *uint8; compiled-only; generic guard present) + 5 checker tests; a genBuiltin C_ENTRY panic-guard replaces the silent EmitConstInt(0) fall-through. Adversarial review: SAFE-TO-LAND-WITH-GUARD (front-end correct per spec). REMAINING (per plan-c-entry-impl.md): the real codegen — Inc A finish = OP_C_ENTRY IR op + LLVM lowering (reference f's mangled entry as *uint8) + a conformance test (xfail native); Inc B = native aa64/x64/arm32 use-site-weak C-entry thunk (reuse the c_export thunk machinery) + drop the native xfails; Inc C = the _func_handle generic-guard fix (below).
-
-Today the only supported C->Binate entry is a `#[c_export]`-named function; there is no way
-to hand an arbitrary Binate function to C as a raw callback pointer (a qsort / signal /
-event-loop comparator).  Consequently the narrow-param normalization is gated on
-`len(f.CExportNames) > 0`, and a non-c_export function reached via a C-ABI function pointer
-would NOT be normalized (the dirty-upper-bits bug would persist on that entry).  DECISION
-(2026-09-01): do NOT widen the gate / make normalization unconditional — that callback path
-is unsupported today, so the gate is correct and paying per-function entry overhead to defend
-it is not worth it.
-
-Proper support (the real fix for the callback scope-limitation): a builtin special function
-that, given any Binate function, yields a raw C function pointer by generating a C-ABI ADAPTER
-THUNK — the thunk performs the C->Binate ABI adaptation (narrow-param normalization + any
-other C-vs-Binate ABI differences) and the returned pointer points at the thunk, not the bare
-Binate entry.  This is the same thunk mechanism as the #[c_export]-thunk item above (a
-#[c_export] is just the named/eager instance of "give C a callable pointer to this function").
-Design the builtin + thunk generation together with that item. **Proposal written + adversarially reviewed (2026-09-02): `proposal-c-entry-builtin.md`** — spec design for `__c_entry(f) -> *uint8` (the "C entry" concept + companion §16.9 corrections + open bikesheds), **RATIFIED — spec landed as Draft (docs `a03d4b2`, 2026-09-02):** rules `pkg.cexport.semantics` + `pkg.centry`/`.eligible`/`.identity` (§16.9), `__c_entry(f) -> *uint8`, mechanism deliberately unspecified in spec text (no thunk/ABI talk — owner's framing). **Remaining: the implementation** (the proposal's §4 carries the implementer notes: use-site-weak emission, branch-not-fall-through/ld64 lesson, degenerate direct-reference case, and the two related MAJOR bugs above must be fixed or at least not worsened by it). NOTE (2026-09-01, c_export-prefix review): now that #[c_export] normalization is a C-entry PREFIX (the mangled `sym` sits AFTER it), taking a function's address yields `sym` and thus SKIPS normalization — so this builtin MUST return the ALIAS/prefix address (the C-ABI entry), not the bare mangled entry, for a #[c_export] function, and must synthesize an equivalent normalizing prefix/thunk for a non-c_export function.
-
 ### `_func_handle` accepts a generic function reference — latent dangling-symbol link failure — 🟢 minor (found 2026-09-02)
 
 check_builtin.bn's `_func_handle` arm checks only Ident→SYM_FUNC /

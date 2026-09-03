@@ -1,5 +1,11 @@
 # Plan: implement `__c_entry(f) -> *uint8` (`plan-c-entry-impl`)
 
+**COMPLETE (2026-09-03).** Inc A landed (`3defdc02d` + `f78e4d3eb`), Inc B1 (`5d24fbe49`),
+Inc B2 (`929cfcebf`), on the `pkg/binate/irsym` extraction (`44742a994`). See the done-log
+entry in `claude-todo-done.md`. Remaining follow-ups (tracked in the active todo, not part
+of this plan): the `_func_handle` generic-guard fix, the FFI C-representability widening, and
+a narrow-arg end-to-end test via a cinterop C-sidecar caller.
+
 Implements the ratified spec rules `pkg.centry` / `pkg.centry.eligible` /
 `pkg.centry.identity` + the shared `pkg.cexport.semantics` (docs `a03d4b2`, §16.9).
 Design + implementer notes: `proposal-c-entry-builtin.md` (§3 builtin, §4 thunk).

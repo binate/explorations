@@ -6,6 +6,37 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `__c_entry(f) -> *uint8` — C-callable function pointer for any Binate function — DONE (2026-09-03)
+
+Hand an arbitrary declared Binate function to C as a raw callback pointer (qsort /
+signal / event-loop comparator), spec §16.9 `pkg.centry`/`.eligible`/`.identity`
+(ratified Draft, docs `a03d4b2`; proposal `proposal-c-entry-builtin.md`). Landed in
+increments, each with a clean adversarial review (no CRITICAL/MAJOR):
+
+- **Inc A** — front-end + LLVM codegen (`3defdc02d` + `f78e4d3eb`): token/parser/checker
+  (a declared non-generic top-level function reference → `*uint8`, compiled-mode only),
+  `OP_C_ENTRY`, and the LLVM `getelementptr i8, i8* @<mangled>, i64 0` lowering.
+- **Inc B1** — native degenerate reference (`5d24fbe49`): aa64 ADRP+ADD / x64 RIP-LEA /
+  arm32 MOVW/MOVT of f's LOCAL mangled entry, plus a `common.EmitObject` fail-loud gate
+  for narrow-GP-arg callbacks. Conformance `1235_c_entry_qsort` (LLVM + native aa64/x64;
+  xfail VM/int + baremetal).
+- **Inc B2** — native narrow-arg adaptation thunk (`929cfcebf`): a use-site WEAK
+  `__centry.<mangled>` thunk (the shared `emitCExportRegNorm{,X64,Arm32}` normalization →
+  BRANCH to the mangled entry; one weak survivor program-wide = `pkg.centry.identity`),
+  with full sret handling; drops the B1 gate. `ir.CEntryTargetFunc` (defined-or-synthetic
+  target lookup) replaces the B1 `FuncParamTypesByName`.
+- **Prerequisite refactor** — extracted the module symbol-table entry types into a new
+  leaf package `pkg/binate/irsym` (`44742a994`) to make room in `ir.bni` (1500 → 1384)
+  for B2's additions (no `.bni` cap bump — the goal is to LOWER interface sizes).
+
+Follow-ups tracked separately in the active todo: the `_func_handle` generic-guard fix
+(Inc C); the FFI C-representability widening. Not done: a narrow-arg END-TO-END test
+through a real C caller — the conformance harness is pure Binate + libc (no C sidecars)
+and no portable libc callback passes a narrow int by value; it is expressible via a
+cinterop C-sidecar caller (`examples/cinterop` style, `--link-after-objs`) and is a
+worthwhile follow-up. The thunk's register-normalization bytes are inherited from the
+shipped `emitCExportRegNorm` it reuses (byte-checked by the `#[c_export]` tests).
+
 ## ir: per-call FuncSig lookup consolidation (lookupFuncSig) — DONE (2026-09-02, commit 3d078c4c2)
 
 `genCall` / `genMethodCall` / `managedFuncValueTypeForName` each read several fields
