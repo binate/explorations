@@ -7,6 +7,37 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### conformance/unittest `-comp-comp*` modes under-test by ONE bnc generation — 🔴 OPEN MAJOR (found 2026-09-02)
+
+**Severity: MAJOR** — the self-host fixpoint modes never run at the generation
+their name specifies, so gen2/gen3 codegen-drift bugs are NOT caught in CI.
+
+Mode naming (authoritative): `builder` = BUILDER bnc; each `comp` = one from-tree
+self-host generation, so builder-comp = gen1, builder-comp-comp = gen2,
+builder-comp-comp-comp = gen3; the `-int` suffix means the bni is built by that
+generation (builder-comp-int = gen1 bni, builder-comp-comp-int = gen2 bni).
+(gen1 = BUILDER-built cmd/bnc; genN = gen(N-1)-built.)  `run.sh`'s legend states
+this correctly as of `7f88a08ff`.
+
+But every runner (both `conformance/runners/` and `scripts/unittest/runners/`) is
+ONE GENERATION SHORT:
+- `builder-comp-comp`: uses gen1 (`build_gen1` + `$GEN1_COMPILER`) — should be gen2.
+  Currently IDENTICAL to builder-comp.
+- `builder-comp-comp-comp`: uses gen2 (`$GEN2_COMPILER`) — should be gen3.
+- `builder-comp-comp-int`: bni built by gen1 (`build_interp "$GEN1_COMPILER"`) —
+  should be gen2 bni.  Currently IDENTICAL to builder-comp-int.
+(builder-comp / builder-comp-int / builder-comp-int-int use gen1 — CORRECT.)
+
+Impact: builder-comp-comp is a duplicate of builder-comp; the gen3 fixpoint is
+never verified.  CLAUDE.md's "self-compilation works through gen1 and gen2
+(builder-comp-comp / builder-comp-comp-comp)" describes the BUGGY behavior.
+
+Fix: make each runner build+use the generation its name specifies — add a
+`build_gen3` helper (gen2 compiles cmd/bnc → gen3) for builder-comp-comp-comp;
+builder-comp-comp → gen2; builder-comp-comp-int → gen2 bni.  RISK: may surface
+previously-hidden gen2/gen3 miscompiles (CI could go red) and adds build time
+(higher gens).  Land deliberately, not as a drive-by.
+
 ### LLVM backend: `#[c_export]` sub-word/bool RETURNS lack signext/zeroext — C callers read garbage — 🔴 OPEN MAJOR (found 2026-09-02)
 
 **Severity: MAJOR** — silent wrong values at the C boundary. bnc's LLVM codegen
