@@ -1008,6 +1008,23 @@ lint wanted (return / store-to-outliving-field / assign-to-global of a raw slice
 borrowing a local), or is the current narrow rule + "raw is an opt-in escape
 hatch" sufficient (close this out)?
 
+### `dangling-raw-borrow-of-temporary` lint rule (§9.7) — 🟢 LOWER PRIORITY (2026-09-03)
+A concrete instance of the broader escape-lint decision above.  `var s *[]T =
+make_slice(..)[:]` binds a raw slice to a borrow of a `make_slice(..)` TEMPORARY,
+which spec §9.7 (`mem.temporary`) releases at end of statement — so any later use of
+`s` is a use-after-free (programmer error, correctly NOT suppressed by the compiler).
+This bit `conformance/439_iv_in_slice_raw`: benign on LLVM / native aa64 / native x64
+(freed block not immediately reused), but corrupted on the native-arm32 bare-metal
+no-free-until-teardown arena (freed backing reused; gdb-watchpoint traced the write to
+rt.writeTags).  Fixed by owning the backing (`0d86fb9be`; write-up in
+claude-todo-done.md).  A rule flagging a raw slice/pointer bound to a borrow of a
+statement-scoped temporary and used past that statement would catch this class
+statically — same family as `func-value-escape` / `iface-borrow-escape`.  Caveat:
+`conformance/` is NOT in the lint scope today (hygiene lints compiler/stdlib source;
+conformance is excluded as intentional fixtures), so catching it in 439-like tests would
+ALSO need a decision to lint conformance.  Lower priority: §9.7 makes it programmer error
+and owning the backing is the trivial fix.
+
 ## Hygiene checks: tier dependencies & file length
 
 ### Lower the file-length `.bni` cap toward 1000/1200 — 🟡 OPEN
