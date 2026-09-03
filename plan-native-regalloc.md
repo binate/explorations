@@ -267,7 +267,35 @@ and `clobbers(ins)`.
   completeness; exclusion/result/param/rodata) otherwise clean; the review also confirmed the
   emitStringToArray R0→pool-scratch change fixes a *pre-existing* miscompile. Validated:
   `native_arm32_baremetal` conformance 2953/0 (1-xfail baseline held); aarch64/x64 unaffected.
-- **Stage 5 (additive, on the same foundation):** interval splitting (add locations to ranges),
+- **Stage 5a — caller-saved homes (the native↔clang gap-closer; IN PROGRESS 2026-09-02).**
+  Profiling the native self-compile (after the rt.MemZero/MemCopy widening closed the
+  memory-management pessimization) shows the native-specific cost is spill-heavy hot functions —
+  many of them LEAVES (charsEqual, streq, symHash, table lookups) — round-tripping values through
+  memory AND paying prologue/epilogue save/restore for their callee-saved homes even though they
+  never call anything.  aa64/x64 today home ONLY in the callee-saved bank (aa64 X19–X28, x64
+  RBX/R12–R15), so a value that never spans a call still (a) competes for that limited bank and
+  spills under pressure, and (b) forces a save/restore.  Fix: also home NON-call-spanning values in
+  caller-saved registers, which need no save/restore.
+  - **Design: home in the ARG bank, not a scratch-pool carve.** aa64's caller-saved registers split
+    into two DISJOINT banks — X0–X7 (args/returns) and X9–X17 (the operand-reload / op-scratch
+    pool) — so caller-saved homes can live in X0–X7 without touching the scratch pool at all (x64
+    similarly: the arg regs RDI/RSI/RDX/RCX/R8/R9 are distinct from the R10/R11 scratch).  This is
+    exactly arm32's model (homes in R0–R3, scratch R4–R10) and reuses its machinery, sidestepping
+    the "scratch pool can't be split" sharp edge entirely.  The alternative (carving homes out of
+    X9–X15) would shrink the scratch pool and risk starving a wide op — not needed.
+  - **Reused, already in place:** LinearScan already prefers CallerSaved for non-call-spanning
+    values and CalleeSaved for spanning ones; the clobber model (`spansClobber`/`ClobberPositions`,
+    isClobberInstr = EmitsReturningBl on aa64/x64) keeps a call-spanning value out of the caller-saved
+    bank; `AllocateRegisters` records only CalleeSaved homes in `SavedRegs` (so caller-saved homes
+    get NO save/restore — the leaf win); the homed-param spill-then-reload already lands homed params
+    from slots.
+  - **Per-backend changes (mirror arm32):** populate `rdesc.CallerSaved` with the arg bank; add the
+    UN-HOMING exclusion (X0–X7 overlap the arg/target/return registers, so un-home the operands of
+    every call-family op (`EmitsReturningBl`) and `OP_RETURN` — reuse `RegMap.UnhomeID` — so their
+    marshalling reads from slots, disjoint from the home bank, avoiding the per-`mov` permutation
+    corruption).  Keep CalleeSaved for spanning values.  Increments: aa64 first, then x64.  Validate
+    each with `native_aa64` / `native_x64_darwin` conformance + a USER-CPU self-compile benchmark.
+- **Stage 5 (further, additive):** interval splitting (add locations to ranges),
   copy coalescing (elide `EliminatePhis` `OP_COPY`s by giving src=dst one register), spill-cost
   heuristics (use-density × loop depth), float register file (D8–D15 callee-saved), reclaim x64
   RCX/RDX, arm32 int64-in-registers.
