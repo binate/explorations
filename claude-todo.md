@@ -324,7 +324,7 @@ Steps:
 1. Checker → opaque. Struct body moved to `types/checker_state.bn`; forward-decl +
    accessors (`Interpreted`/`SetInterpreted`/`Pending`/`PendingMark`/`Scope`) in the
    `.bni`; consumers (interp/check.bn, interp/check_test.bn, repl/session.bn,
-   repl/decl.bn) switched to the accessors. .bni 1534 -> 1249. [in validation]
+   repl/decl.bn) switched to the accessors. .bni 1534 -> 1249. DONE (commit 2ea59031e): gen1 + all Checker-consumer unit tests + full conformance (2999/0) green.
 2. Then relocate more (Scope, Symbol, internal bookkeeping structs:
    GenericInstantiation / Impl / PendingDecl / PendingConstraintCheck / PkgEntry /
    CaptureFrame) as follow-on commits — each independently green. Keep genuine public
