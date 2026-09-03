@@ -6,6 +6,17 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `_func_handle` of a generic function — checker rejection — DONE (2026-09-03, commit 1d91a0827)
+
+`check_builtin.bn`'s `_func_handle` (RAW_FUNC_ADDR) arm accepted any Ident/selector
+resolving to a SYM_FUNC without a TypeParams guard, so `_func_handle(GenericF)`
+type-checked, then codegen's `lookupFuncValueType` returned nil, the __shim/__vt/__handle
+triple was silently skipped, and the `@__handle.<…>` reference dangled at link. Fixed:
+capture the resolved SYM_FUNC and reject it when its type has type parameters (the same
+non-generic guard `__c_entry`'s `pkg.centry.eligible` enforces). Unit test
+`TestCheckBuiltinFuncHandleRejectsGeneric`. Surfaced by the `proposal-c-entry-builtin.md`
+review.
+
 ## `__c_entry(f) -> *uint8` — C-callable function pointer for any Binate function — DONE (2026-09-03)
 
 Hand an arbitrary declared Binate function to C as a raw callback pointer (qsort /

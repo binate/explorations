@@ -50,17 +50,6 @@ load-extend-stores narrow incoming stack args on those conventions (mirror the
 darwin sized-spill path); ≥7-arg narrow-stack-arg C-driver e2e. Test/xfail owed
 by the implementer.
 
-### `_func_handle` accepts a generic function reference — latent dangling-symbol link failure — 🟢 minor (found 2026-09-02)
-
-check_builtin.bn's `_func_handle` arm checks only Ident→SYM_FUNC /
-pkg-selector→SYM_FUNC — no TypeParams guard — so `_func_handle(GenericF)`
-type-checks; codegen's lookupFuncValueType then returns nil, the
-__shim/__vt/__handle triple is silently skipped, and the `@__handle.<…>`
-reference dangles at link. Fix: checker rejection ("operand must be a
-non-generic declared function") + a unit test. Surfaced by the
-`proposal-c-entry-builtin.md` review (its `pkg.centry.eligible` bans generics
-explicitly; this is the same guard `_func_handle` is missing).
-
 ### FFI type C-representability: unchecked for `__c_entry` callbacks + defined too narrowly for `__c_call`/`__c_global` — should be WIDENED — 🟢 design / minor (found 2026-09-02)
 
 Two connected gaps in how the FFI builtins decide which types may cross the C
