@@ -6,6 +6,33 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## vm bare-metal: arena exhaustion fixed by right-sizing test stacks + per-test wrapper-interner teardown — DONE (2026-09-02, commit 4d97a55f0)
+
+The `builder-comp_arm32_baremetal` `pkg/binate/vm` suite aborted `rt.RawAlloc: arena
+exhausted` on its shared 4 MiB no-free-until-teardown arena. The prior diagnosis
+(VM.Shutdown / managed-global content leak) was a real but MINOR contributor; the dominant
+cause was FRAGMENTATION. Measured at the abort via a temporary liveBytes counter in
+rt_baremetal.bn: live ~1.1 MiB, carve frontier ~3.0 MiB, failing request = a 1 MiB VM
+stack. 64 tests used `NewVM(1024*1024)` for trivial programs; churning megabyte blocks
+among permanent allocations left no contiguous 1 MiB span. The permanent blocks were
+largely the global wrapper-type interner (`types.wrapperInternRegistry`), whose
+element<->wrapper reference cycles refcounting never reclaims; `NewChecker` tears them down
+per compilation, but the ~14 hand-built-IR vm test files never create a checker, so their
+wrapper graphs accumulated for the whole process (host: ~2500 never-freed blocks by suite
+end).
+
+Fix: a shared `newTestVM(size)` harness constructor that (a) is fed `testVMStackSize =
+64 KiB` at the 64 generic call sites (tests pinning a specific stack size keep their
+literal), and (b) calls the now-exported `types.ResetWrapperInterning()` at each VM
+creation, bounding interner accumulation to one test. `leak_test.bn`'s two
+rt.LiveBlocks()-measuring helpers keep raw `NewVM` so the teardown does not run inside
+their measurement window. Also swept `vm.Shutdown()` into the result-returning
+exec/inline/extern helpers (the minor managed-global-content leak). All 352 vm host tests
+pass; the whole suite runs on baremetal with `arena=0`.
+
+Does NOT green vm on baremetal by itself: a pre-existing multi-return-bool MISCOMPILE hangs
+a class of vm tests — tracked in claude-todo.md (MAJOR, investigate next).
+
 ## codegen: by-value struct returned from >1 `return` site emitted duplicate `%v-1.agrp` allocas — DONE (2026-09-02, commit a5a4253ad)
 
 A function returning a single in-register aggregate (a by-value struct coerced to

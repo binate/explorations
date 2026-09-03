@@ -509,33 +509,42 @@ Still open: `pkg/binate/native/arm32` is a SEPARATE package xfail'd on `builder-
 raw TEST FIXTURES that `RawAlloc` and never free, exhausting the bare-metal arena under a
 refcount-heavy run. Confirm with the same per-class RawAlloc/RawFree leak dump used for the VM work,
 and fix in kind (own the fixtures via managed slices, or free them). MAJOR per the
-raise-don't-workaround rule; the xfail is a tracked hold, not a silent workaround.
+raise-don't-workaround rule; the xfail is a tracked hold, not a silent workaround. NOTE (2026-09-02): the vm baremetal exhaustion this was assumed analogous to turned out to be FRAGMENTATION (oversized test VM stacks + a never-reset wrapper interner), NOT raw fixture leaks (see claude-todo-done.md `4d97a55f0`) — re-examine native/arm32 with that lens (its test VM/allocation sizes + interner use) before assuming the fixture-leak model.
 
-**`pkg/binate/vm` hits the SAME arena leak on `builder-comp_arm32_baremetal`** (added
-2026-09-02): its 57-file suite exits with `rt.RawAlloc: arena exhausted`. Decision (owner):
-do NOT xfail vm — investigate this leak properly (it is presumably the same raw-fixture /
-refcount class as native/arm32). The test-level sharding infra now exists (`d4f2dfd52`:
-compiled-runner `--shard`/`--skip` + bare-metal argv from the semihosting command line), and
-it PARTIALLY helps — vm 1/8 and 1/16-shard-1 fit the arena, but the leak is uneven so some
-shards (e.g. 5/16) still exhaust — which confirms the leak, not the binary size, is  the real
-issue.
+**`pkg/binate/vm` bare-metal: arena exhaustion FIXED (2026-09-02, `4d97a55f0`); a
+pre-existing multi-return-bool MISCOMPILE now blocks green — MAJOR, investigate next.**
 
-ROOT-CAUSED (2026-09-02): it is the opt-in **VM.Shutdown**, NOT a fixture/allocator defect. A VM
-holding managed-global CONTENT (`var g @T`, etc.), dropped WITHOUT calling `Shutdown`, leaks that
-content: the generated `@VM` destructor frees the static-data storage blocks (ownedBlocks) but
-cannot RefDec what a global points AT — that needs running the `<pkg>.__vm_teardown_globals` bytecode
-(`vm.CallByVMFunc`), a live-VM op a plain destructor can't do, and there is NO user-destructor hook
-to inject it (done/plan-vm-static-data-refcount.md). So Shutdown is opt-in BY DESIGN ("an embedder
-that spins VMs up and down calls Shutdown; a one-shot process need not"). The 55-file vm suite IS the
-spin-up-and-down case, and 40 of its files create VMs WITHOUT Shutdown → managed-global content
-accumulates → 4 MiB exhaustion. Confirmed via rt.LiveBlocks(): 50 no-Shutdown drops leak 50 blocks;
-WITH Shutdown, delta 0 (genModule+VM+Shutdown also 0). FIX = the vm tests must Shutdown their VMs
-before dropping (test-hygiene sweep, ~40 files, mostly via shared helpers lowerFromSource / mkVM /
-runVMAtLevel / runMechModule / buildPhi* / …); auto-teardown in the destructor is infeasible (no
-hook). Same class as native/arm32.
+The `builder-comp_arm32_baremetal` vm suite shared one 4 MiB no-free-until-teardown arena and
+aborted `rt.RawAlloc: arena exhausted`. CORRECTED root cause: FRAGMENTATION, not the
+"VM.Shutdown / managed-global content leak" the earlier note below diagnosed (that leak is real
+but MINOR — a few blocks per no-Shutdown VM, not the 4 MiB driver). Measured at the abort: live
+~1.1 MiB but frontier ~3.0 MiB, and the failing request is a 1 MiB VM stack. 64 tests allocated
+`NewVM(1024*1024)` for trivial programs; churning megabyte blocks among PERMANENT allocations
+left no contiguous 1 MiB span. The permanent blocks were largely the global wrapper-type interner
+(`types.wrapperInternRegistry`), never torn down for the ~14 hand-built-IR test files that bypass
+`NewChecker`'s `ResetWrapperInterning`. Fix (landed `4d97a55f0`): route the 64 generic stacks
+through `newTestVM(testVMStackSize = 64 KiB)`, which also calls the now-exported
+`types.ResetWrapperInterning` per test to bound accumulation; plus the managed-global-content
+`Shutdown` sweep (the minor leak) on the result-returning exec/inline/extern helpers. Baremetal
+now runs with `arena=0`. Full write-up in claude-todo-done.md.
 
-Once bounded/fixed, a `pkg-binate-vm.split.builder-comp_arm32_baremetal` marker can
-shard vm to fit; until then it is a KNOWN-RED baremetal package (not xfail'd, per the owner).
+NEW BLOCKER — MAJOR (this is the "investigate the miscompile" follow-up): with memory fixed, a
+CLASS of vm tests INFINITE-LOOP on `builder-comp_arm32_baremetal`. Confirmed
+`TestVMExtractMultiReturnBoolField` — a trivial `compileAndRun` of
+`func mr() (int, bool) { return 42, true }` with `a, ok = mr()`. Multi-return of INTS
+(`TestVMExtractMultiReturnInts`) is fine; the BOOL (sub-word) return element is the trigger. The
+full suite minus that one test still times out ⇒ MORE hangers exist (shard 1/4's 88 tests run in
+~1 s, so the non-hanging tests are fast; the hangers are the whole cost). PROVEN PRE-EXISTING:
+the base commit `57cbd4c44` (before the fix above) hangs on the identical test — independent of
+the memory fix (which is generic and would perturb all `compileAndRun` tests uniformly; only the
+specific pattern hangs). NOT `bnc` native codegen: a minimal `(int,bool)` program compiled
+DIRECTLY to baremetal runs correctly (prints "2", exits 0). So the hang is in the arm32-compiled
+COMPILER/VM (`compileAndRun` = parser/checker/ir + bytecode exec) looping while it PROCESSES a
+multi-return-bool program — a `bnc` arm32(LLVM-baremetal) miscompile of some function in that
+cone, root cause UNKNOWN. Next steps: bisect `compileAndRun` (front-end vs bytecode exec) to
+localize which stage loops, then which arm32 codegen construct; enumerate the full hanger list
+(shards 2/4, 3/4, 4/4 untested). Until fixed (or the hangers skip-listed), vm stays KNOWN-RED on
+baremetal; NO sharding is needed once the hangers are excluded (the rest is fast).
 
 Distinct from the leak: `pkg/binate/link` and `cmd/bnld` also fail on baremetal but for
 FILESYSTEM reasons (readFile / os.Create — no filesystem under semihosting), not memory. Those
