@@ -161,10 +161,13 @@ Adopt one tool at a time, each its own commit (tests stay green between):
    a poor fit for the flags model, so it was replaced with a flag-only CLI
    (`-main-dir`/`-main-file`/`-test <pkg>`/`-repl`); positionals are now only the
    program's argv. See `plan-bni-cli-redesign.md`.
-5. `bnc` — **DEFERRED**: parks until a BUILDER bump independently justifies one
-   (a BUILDER release is expensive and must not be cut just to unblock this).
-   bnc's converted parser would build through the *current* BUILDER, but landing
-   it is not urgent; do it when a BUILDER cut happens for other reasons.
+5. `bnc` — **DONE** (landed `cd38d9e5b`): converted to `pkg/stdx/flags` (the
+   forwarder, which the pinned BUILDER bundle ships) since bnc is BUILDER-compiled
+   and the bundle lacks `pkg/std/flags`.  Same strict-model behavior changes as the
+   other tools (missing-value / unknown-flag errors; `--version` a normal flag),
+   plus a value-form `--optimize-level`; the -O0..-O3 flags stay.  On the next
+   BUILDER bump it becomes a trivial `pkg/stdx/flags` -> `pkg/std/flags` swap +
+   forwarder removal.
 
 Each conversion needed small consumer changes (e.g. missing-value now errors;
 `--version` becomes a normal flag). When bnc is eventually converted it drops

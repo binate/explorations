@@ -307,12 +307,12 @@ forwarder because it is BUILDER-compiled and the pinned BUILDER bundle ships
    compat forwarder, migrated the 5 gen2-built tools (cmd/{bnas,bnfmt,bni,bnld,
    bnlint}) to `pkg/std/flags`, and injected `pkg/std/flags` into the VM
    (stdPkgs()).  The forwarder is intentionally consumer-less until step 2.
-2. **TODO — convert cmd/bnc to `pkg/stdx/flags`** (plan-flags-package.md step 5):
-   rewrite `cmd/bnc/args.bn` parseArgs on the flags API (drop splitColon / local
-   streq; absorb the intended behavior changes — missing-value errors, `--version`
-   a normal flag, strict unknown-flag), update `args_test.bn`, re-add the
-   `is_builder_tree` exemption to `stdx-forwarder-imports.sh` (cmd/bnc now imports
-   the forwarder), and smoke bnc's whole BUILDER tree + gen1.
+2. **DONE (`cd38d9e5b`):** cmd/bnc parses args with `pkg/stdx/flags` — parseArgs
+   on flags.FlagSet (-I/-L via StringListSepVar, -O0..-O3 as bool flags + a value
+   form `--optimize-level`, strict missing-value/unknown-flag errors, `--version`
+   a normal flag -> CLIArgs.ShowVersion), args_test.bn reworked, and the
+   `is_builder_tree` exemption re-added.  gen1+gen2 build + 144 cmd/bnc tests +
+   hygiene 20/20 + CLI smoke all green.
 3. **NEXT BUILDER BUMP:** straightforward `pkg/stdx/flags` → `pkg/std/flags` in
    cmd/bnc + remove the `pkg/stdx/flags` forwarder + drop the exemption.  Do NOT cut
    a BUILDER just for this.
