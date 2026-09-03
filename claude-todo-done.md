@@ -98,6 +98,45 @@ compiles+runs the odd-local → SP-growing-stmt → call shape (hangs on baremet
 regresses).  Whole vm suite now runs on arm32 bare-metal, unsharded, ~4s, `arena=0` — so with
 both this and `4d97a55f0`, vm needs NO baremetal sharding or skip-list.
 
+## Shrink pkg/binate/types public interface (opaque handles) — DONE (2026-09-03)
+
+`pkg/binate/types.bni` was over the 1500-line soft limit (1534) because the package
+exposed too much internal state in its public interface. An interface cannot be
+file-split (one `.bni` per package), so the fix was to stop exporting what importers
+don't need — exposing big engine structs as OPAQUE handles (forward-decl `type X` in
+the `.bni`, `struct` body in a `.bn`), the idiom `interp.bni` already uses for `Interp`.
+
+Validated against BUILDER (bnc-0.0.15): the pattern compiles/links/runs; a cross-pkg
+field access on an opaque type is rejected (so the build enumerates any consumer that
+still touches a hidden field); and — key — when the field is opaque to the caller,
+`x.F()` resolves to a same-named METHOD (spec expr.member: "a field takes precedence
+over a same-named method" applies only where the field is visible), so accessors reuse
+the field name with ZERO internal churn.
+
+Landed in four commits:
+1. 2ea59031e — Checker -> opaque. 318-line struct body -> types/checker_state.bn;
+   forward-decl + Interpreted/SetInterpreted/Pending/PendingMark/Scope accessors in the
+   .bni; interp/repl consumers switched to the accessors. 1534 -> 1249.
+2. 7f20dda06 — relocate internal structs. Scope -> opaque forward-decl (methods stay);
+   GenericInstantiation/Impl/CaptureFrame/PendingConstraintCheck/PkgEntry fully removed
+   from the .bni (pure-internal, moved to their owning .bn). No consumer changes.
+   1249 -> 1142.
+3. e645a082e — Symbol -> opaque with Kind()/Type() accessors (repl read those two off a
+   Scope.Lookup result). 1142 -> 1109.
+4. 7e58e1db7 — internalize ScopeNameHasher/ScopeNameEq (zero-size symbol-table hash
+   policies, 0 external refs): their type + impl decls moved from the .bni into
+   scope.bn. 1109 -> 1088.
+
+Result: types.bni 1534 -> 1088 (-446, -29%). Each commit: gen1 build + full
+Checker-consumer unit tests (types/interp/repl/lint/vm/codegen/ir) + full builder-comp
+conformance (3000/0) green. The .bni now holds only genuine public API: the data types
+(Type/Field/Param/Method), layout (TargetInfo/FieldLayout), check results (CheckError/
+PendingDecl), and the opaque Checker/Scope/Symbol handles with their methods.
+
+Deliberately kept as-is: Type/Field/Param/Method/CheckError/TargetInfo/FieldLayout are
+genuine public DATA types consumers read fields of; PendingDecl (5 lines, repl reads its
+fields) was net-negative to opaque.
+
 ## vm bare-metal: arena exhaustion fixed by right-sizing test stacks + per-test wrapper-interner teardown — DONE (2026-09-02, commit 4d97a55f0)
 
 The `builder-comp_arm32_baremetal` `pkg/binate/vm` suite aborted `rt.RawAlloc: arena

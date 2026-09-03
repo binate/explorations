@@ -292,40 +292,6 @@ in `genMethodCall`) `lookupFuncSig` calls instead of ~5 per-field wrappers (see
 lookup still allocates. Build-once / intern the qualified key, or hash the
 (pkgPath, name) components without materializing the qualified string.
 
-## Shrink pkg/binate/types public interface (opaque handles) — 🟡 ACTIVE (2026-09-02)
-
-`pkg/binate/types.bni` was over the 1500-line soft limit (1534) because the package
-exposes too much internal state — chiefly the `Checker` struct (318 lines / 49 fields,
-of which only 4 are read/written cross-package). It cannot be file-split (one `.bni`
-per package). Fix: expose big engine structs as OPAQUE handles (forward-decl `type X`
-in the `.bni`, `struct` body in a `.bn`), the idiom `interp.bni` already uses for
-`Interp`. Validated against BUILDER (bnc-0.0.15): the pattern compiles/links/runs; a
-cross-pkg field access on an opaque type is rejected; and — key — when the field is
-opaque to the caller, `x.F()` resolves to a same-named METHOD (the spec's "field takes
-precedence over a same-named method", expr.member, applies only where the field is
-visible), so accessors can reuse the field name with ZERO internal churn.
-
-Steps:
-1. Checker → opaque. Struct body moved to `types/checker_state.bn`; forward-decl +
-   accessors (`Interpreted`/`SetInterpreted`/`Pending`/`PendingMark`/`Scope`) in the
-   `.bni`; consumers (interp/check.bn, interp/check_test.bn, repl/session.bn,
-   repl/decl.bn) switched to the accessors. .bni 1534 -> 1249. DONE (commit 2ea59031e): gen1 + all Checker-consumer unit tests + full conformance (2999/0) green.
-2. Relocate internal structs. DONE (commit 7f20dda06): Scope -> opaque forward-decl
-   (methods stay), and GenericInstantiation / Impl / CaptureFrame /
-   PendingConstraintCheck / PkgEntry fully removed from the .bni (pure-internal,
-   moved to their owning .bn). No consumer changes. .bni 1249 -> 1142. gen1 + unit
-   tests + conformance (3000/0) green.
-3. Symbol -> opaque with Kind()/Type() accessors. DONE (commit e645a082e): repl
-   switched its two field reads to accessors; .bni 1142 -> 1109. gen1 + unit tests
-   + conformance (3000/0) green.
-4. Internalize ScopeNameHasher / ScopeNameEq (zero-size table policies, 0 external
-   refs) — move their type + impl decls from the .bni into scope.bn. [in progress]
-   Skip PendingDecl (5 lines, repl reads its fields, net-negative to opaque). Keep
-   genuine public DATA types (Type/Field/Param/Method/CheckError/TargetInfo/
-   FieldLayout) as-is — after step 4 the .bni is all genuine public API.
-
-Validate each: hygiene, types + all Checker-consumer unit tests (interp/repl/ir/lint/
-vm/codegen), gen1 build, conformance smoke. Land per-commit with approval.
 
 ## Standard library — pkg/std namespace migration
 
