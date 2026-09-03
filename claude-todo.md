@@ -404,11 +404,14 @@ Steps:
    PendingConstraintCheck / PkgEntry fully removed from the .bni (pure-internal,
    moved to their owning .bn). No consumer changes. .bni 1249 -> 1142. gen1 + unit
    tests + conformance (3000/0) green.
-3. Symbol -> opaque with Kind()/Type() accessors (repl reads existing.Kind/.Type on a
-   Lookup result). [next]
+3. Symbol -> opaque with Kind()/Type() accessors. DONE (commit e645a082e): repl
+   switched its two field reads to accessors; .bni 1142 -> 1109. gen1 + unit tests
+   + conformance (3000/0) green.
+4. Internalize ScopeNameHasher / ScopeNameEq (zero-size table policies, 0 external
+   refs) — move their type + impl decls from the .bni into scope.bn. [in progress]
    Skip PendingDecl (5 lines, repl reads its fields, net-negative to opaque). Keep
    genuine public DATA types (Type/Field/Param/Method/CheckError/TargetInfo/
-   FieldLayout) as-is.
+   FieldLayout) as-is — after step 4 the .bni is all genuine public API.
 
 Validate each: hygiene, types + all Checker-consumer unit tests (interp/repl/ir/lint/
 vm/codegen), gen1 build, conformance smoke. Land per-commit with approval.
