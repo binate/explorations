@@ -33,6 +33,40 @@ this and remains OPEN in [claude-todo.md](claude-todo.md): this reduced the NUMB
 qualify+copy round-trips per call (~5 → 1-2), but each remaining `lookupFuncSig` still
 does one `qualifyForCurrentModule` `CopyStr`.
 
+## vm bare-metal: frame-alignment hang fixed — pushFrame kept vm.SP aligned via a shared rounded extent — DONE (2026-09-02, commit a546e5da3)
+
+After the arena fix (`4d97a55f0`), a class of `pkg/binate/vm` tests INFINITE-LOOPED on
+`builder-comp_arm32_baremetal` — the whole suite timed out.  It LOOKED like a
+"multi-return-bool miscompile" (`TestVMExtractMultiReturnBoolField`: `func mr() (int, bool)`
+with `a, ok = mr()` hung; multi-return of ints was fine), but it was NOT a codegen miscompile:
+a minimal `(int,bool)` program compiled directly to baremetal runs correctly.
+
+Root cause: a VM frame-alignment bug.  The bytecode VM writes each frame's header through an
+`*int` at `frameStart = vm.SP`, so vm.SP must be aligned at every frame push.  `pushFrame` set
+`vm.SP = frameStart + (FRAME_HDR + NumRegs*REG_SLOT + FrameSize)` WITHOUT rounding, so a
+function with a sub-word-odd `FrameSize` (a lone `bool` local makes it 9) left vm.SP unaligned.
+A hosted x86 target tolerates the unaligned header store (every non-arm mode passed), but strict-
+alignment arm DATA-ABORTS on it, and the bare-metal image has no fault recovery, so it spun
+forever.  The `bool` made `main`'s frame odd; multi-return of ints kept it even — which is what
+made the trigger look like "multi-return".
+
+Localized by stage-markers (hang in `execFunc`), an opcode trace (`STACK_ALLOC, LOAD_IMM,
+STORE8` then `BC_CALL`), and pushFrame markers that reached the header write with a 4-unaligned
+`hdr` (base + vm.SP=77).  Fix: a single `frameExtent(f) = (FRAME_HDR + f.NumRegs*REG_SLOT +
+f.FrameSize + 7) & ~7` helper that BOTH `pushFrame` (advancing vm.SP) and `BC_SP_RESTORE`
+(restoring it to a frame end) derive from — rounding only pushFrame is insufficient, since
+SP_RESTORE would restore to the unrounded end and a call after an SP-growing statement
+(`a, ok = mr(); noop()`) would re-abort.  Also rounded `BC_STRING_COPY_ARR`'s vm.SP advance
+(the one remaining unrounded push; every other push site already rounds to 8).
+
+Adversarially reviewed (found and fixed the SP_RESTORE gap; re-review confirmed the invariant is
+inductively closed — all 24 vm.SP mutation sites are 8-aligned).  Tests
+(`vm_frame_align_test.bn`): TestFrameExtentIs8Aligned + TestPushFrameKeepsSPAligned pin the sites
+on hosted CI (both fail on LP64 without the rounding); TestFrameAlignSPRestoreThenCall
+compiles+runs the odd-local → SP-growing-stmt → call shape (hangs on baremetal if SP_RESTORE
+regresses).  Whole vm suite now runs on arm32 bare-metal, unsharded, ~4s, `arena=0` — so with
+both this and `4d97a55f0`, vm needs NO baremetal sharding or skip-list.
+
 ## vm bare-metal: arena exhaustion fixed by right-sizing test stacks + per-test wrapper-interner teardown — DONE (2026-09-02, commit 4d97a55f0)
 
 The `builder-comp_arm32_baremetal` `pkg/binate/vm` suite aborted `rt.RawAlloc: arena

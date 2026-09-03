@@ -532,42 +532,18 @@ Still open: `pkg/binate/native/arm32` is a SEPARATE package xfail'd on `builder-
 raw TEST FIXTURES that `RawAlloc` and never free, exhausting the bare-metal arena under a
 refcount-heavy run. Confirm with the same per-class RawAlloc/RawFree leak dump used for the VM work,
 and fix in kind (own the fixtures via managed slices, or free them). MAJOR per the
-raise-don't-workaround rule; the xfail is a tracked hold, not a silent workaround. NOTE (2026-09-02): the vm baremetal exhaustion this was assumed analogous to turned out to be FRAGMENTATION (oversized test VM stacks + a never-reset wrapper interner), NOT raw fixture leaks (see claude-todo-done.md `4d97a55f0`) — re-examine native/arm32 with that lens (its test VM/allocation sizes + interner use) before assuming the fixture-leak model.
+raise-don't-workaround rule; the xfail is a tracked hold, not a silent workaround. NOTE (2026-09-02): the vm baremetal exhaustion this was assumed analogous to turned out to be FRAGMENTATION (oversized test VM stacks + a never-reset wrapper interner), NOT raw fixture leaks (see claude-todo-done.md `4d97a55f0`) — re-examine native/arm32 with that lens (its test VM/allocation sizes + interner use) before assuming the fixture-leak model. (The vm HANG that surfaced alongside the exhaustion was a SEPARATE VM `pushFrame` frame-alignment bug, `a546e5da3` — if native/arm32 HANGS rather than exhausts on baremetal, weigh that class too.)
 
-**`pkg/binate/vm` bare-metal: arena exhaustion FIXED (2026-09-02, `4d97a55f0`); a
-pre-existing multi-return-bool MISCOMPILE now blocks green — MAJOR, investigate next.**
-
-The `builder-comp_arm32_baremetal` vm suite shared one 4 MiB no-free-until-teardown arena and
-aborted `rt.RawAlloc: arena exhausted`. CORRECTED root cause: FRAGMENTATION, not the
-"VM.Shutdown / managed-global content leak" the earlier note below diagnosed (that leak is real
-but MINOR — a few blocks per no-Shutdown VM, not the 4 MiB driver). Measured at the abort: live
-~1.1 MiB but frontier ~3.0 MiB, and the failing request is a 1 MiB VM stack. 64 tests allocated
-`NewVM(1024*1024)` for trivial programs; churning megabyte blocks among PERMANENT allocations
-left no contiguous 1 MiB span. The permanent blocks were largely the global wrapper-type interner
-(`types.wrapperInternRegistry`), never torn down for the ~14 hand-built-IR test files that bypass
-`NewChecker`'s `ResetWrapperInterning`. Fix (landed `4d97a55f0`): route the 64 generic stacks
-through `newTestVM(testVMStackSize = 64 KiB)`, which also calls the now-exported
-`types.ResetWrapperInterning` per test to bound accumulation; plus the managed-global-content
-`Shutdown` sweep (the minor leak) on the result-returning exec/inline/extern helpers. Baremetal
-now runs with `arena=0`. Full write-up in claude-todo-done.md.
-
-NEW BLOCKER — MAJOR (this is the "investigate the miscompile" follow-up): with memory fixed, a
-CLASS of vm tests INFINITE-LOOP on `builder-comp_arm32_baremetal`. Confirmed
-`TestVMExtractMultiReturnBoolField` — a trivial `compileAndRun` of
-`func mr() (int, bool) { return 42, true }` with `a, ok = mr()`. Multi-return of INTS
-(`TestVMExtractMultiReturnInts`) is fine; the BOOL (sub-word) return element is the trigger. The
-full suite minus that one test still times out ⇒ MORE hangers exist (shard 1/4's 88 tests run in
-~1 s, so the non-hanging tests are fast; the hangers are the whole cost). PROVEN PRE-EXISTING:
-the base commit `57cbd4c44` (before the fix above) hangs on the identical test — independent of
-the memory fix (which is generic and would perturb all `compileAndRun` tests uniformly; only the
-specific pattern hangs). NOT `bnc` native codegen: a minimal `(int,bool)` program compiled
-DIRECTLY to baremetal runs correctly (prints "2", exits 0). So the hang is in the arm32-compiled
-COMPILER/VM (`compileAndRun` = parser/checker/ir + bytecode exec) looping while it PROCESSES a
-multi-return-bool program — a `bnc` arm32(LLVM-baremetal) miscompile of some function in that
-cone, root cause UNKNOWN. Next steps: bisect `compileAndRun` (front-end vs bytecode exec) to
-localize which stage loops, then which arm32 codegen construct; enumerate the full hanger list
-(shards 2/4, 3/4, 4/4 untested). Until fixed (or the hangers skip-listed), vm stays KNOWN-RED on
-baremetal; NO sharding is needed once the hangers are excluded (the rest is fast).
+**`pkg/binate/vm` bare-metal: RESOLVED (2026-09-02) — green, unsharded.**  Two independent
+bugs kept it red, both now fixed: (1) arena FRAGMENTATION from oversized test VM stacks + a
+never-reset wrapper interner (`4d97a55f0`); (2) a VM frame-alignment bug — `pushFrame` left
+`vm.SP` unaligned for a sub-word-odd `FrameSize` (a lone `bool` local ⇒ 9), so the NEXT frame's
+`*int` header store data-aborts on strict-align arm and the bare-metal image spins with no
+recovery (`a546e5da3`).  It was NOT a codegen miscompile — a direct `(int,bool)` compile runs
+fine; the VM's own frame push was the culprit, and it only LOOKED like "multi-return-bool"
+because the `bool` local made the frame odd (multi-return of ints stayed even).  The whole suite
+now runs on `builder-comp_arm32_baremetal` in ~4s, unsharded, `arena=0`.  Write-ups in
+claude-todo-done.md.
 
 Distinct from the leak: `pkg/binate/link` and `cmd/bnld` also fail on baremetal but for
 FILESYSTEM reasons (readFile / os.Create — no filesystem under semihosting), not memory. Those
