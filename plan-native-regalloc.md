@@ -293,9 +293,29 @@ and `clobbers(ins)`.
     callee-saved (or spill), exactly like a call-spanning value — they keep their home.  This
     `excludeCallerIDs` allocator capability is the reusable part if caller-saved homes is ever
     revisited.
+- **Stage 5b — copy coalescing — TRIED aa64+x64, NEUTRAL, SHELVED (2026-09-03).**
+  Implemented: a `coalesce` flag on AllocateRegisters builds `copySrc[dstId]` (the first
+  RPO-order OP_COPY source per dst); LinearScan, when assigning a copy dst whose source's register
+  is still free (source died at the copy → no interference), REUSES it so the move is `mov r,r`,
+  which the backend elides (x64 already did; aa64 added).  Correct (native unit tests + aa64
+  loop-heavy conformance subset green; unit tests pin the hint).  **Result: NEUTRAL** on the
+  self-compile (16.85 vs 17.20s, interleaved) → shelved (preserved on a local branch).
+  **Why neutral — the instructive part: the LIFO free pool already coalesces the common case for
+  free.** A source that dies at its copy is the most-recently-freed register, so the dst reuses it
+  naturally with no hint (perf/005_slice_sum's compiled binary was BYTE-IDENTICAL with and without
+  coalescing).  The explicit hint only helps rare NON-adjacent copies (a handful of movs across the
+  whole compiler, absorbed by function-alignment padding), and the per-function copySrc build is
+  slight overhead — hence neutral-to-slightly-negative.
+- **META (after two neutral Stage-5 refinements — caller-saved homes AND copy coalescing):** v1's
+  simple heuristics (whole-interval assignment, LIFO free pool, callee-saved homes) already
+  captured the codegen-quality wins.  Further register-allocation refinements are NOT expected to
+  close the remaining ~2.5× native↔clang gap; that gap is now dominated by things register
+  allocation can't touch (e.g. clang's vectorization of the byte/word memory loops).  Interval
+  splitting / spill-cost heuristics below are likely the same story; float register allocation is
+  the one untried item with a distinct mechanism (float scalars are non-allocatable today).
 - **Stage 5 (further, additive):** interval splitting (add locations to ranges),
-  copy coalescing (elide `EliminatePhis` `OP_COPY`s by giving src=dst one register), spill-cost
-  heuristics (use-density × loop depth), float register file (D8–D15 callee-saved), reclaim x64
+  spill-cost heuristics (use-density × loop depth), float register file (D8–D15 callee-saved),
+  reclaim x64
   RCX/RDX, arm32 int64-in-registers.
 
 ## Correctness & validation (miscompile is the top risk)
