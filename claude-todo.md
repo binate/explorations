@@ -113,6 +113,35 @@ non-generic declared function") + a unit test. Surfaced by the
 `proposal-c-entry-builtin.md` review (its `pkg.centry.eligible` bans generics
 explicitly; this is the same guard `_func_handle` is missing).
 
+### FFI type C-representability: unchecked for `__c_entry` callbacks + defined too narrowly for `__c_call`/`__c_global` — should be WIDENED — 🟢 design / minor (found 2026-09-02)
+
+Two connected gaps in how the FFI builtins decide which types may cross the C
+boundary:
+
+1. **`__c_entry` doesn't validate its callback target's parameter/return types
+   are C-representable at all.** `checkCEntry` (check_c_interop.bn) only checks
+   the operand is a declared non-generic top-level function; unlike `__c_call`
+   (which runs `isCCompatibleArgType`), it never inspects the callback's
+   *signature*. So a callback with, say, a managed-slice / interface / struct
+   parameter type-checks, and the native narrow-arg gate (common_c_entry_gate.bn)
+   even treats such a param as "safe" (excluded as an aggregate) — yet whether it
+   is a *valid* C callback is unverified. Surfaced by the Inc B1 adversarial
+   review (2026-09-02).
+2. **But the fix is NOT to copy the current `isCCompatibleArgType`** — that
+   predicate is too restrictive. Per owner direction (2026-09-02): aggregates
+   *can* cross the C boundary as long as C forms/reads the correct aggregate — a
+   raw slice `[]T` is a 2-word `{ptr,len}`, a struct is its C layout, a
+   managed-slice `@[]T` is a 4-word header. So the notion of "C-compatible" should
+   be **widened** to admit well-laid-out aggregates, not used to blanket-reject
+   them. The real design question for the MANAGED cases is refcount ownership
+   across the boundary (who RefInc/RefDec's a `@[]T` / `@T` handed to or returned
+   from C) — that needs a decision, not a blanket ban.
+
+So the work is a single widened C-representability predicate shared by
+`__c_entry`, `__c_call`, `__c_global`, and `#[c_export]` signature checking, plus
+a decision on managed-type ownership at the FFI boundary. Applies to the LLVM
+backend too (not native-specific). Not blocking; predates Inc B1.
+
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
 **Severity: MAJOR** — a recoverable user-code fault (bounds / divide / shift /
