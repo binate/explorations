@@ -47,6 +47,31 @@ wordBytes=4 — where LP64 is a single 8-byte word).
   right, so it is in the arm32 store/address instruction selection, not shared IR).
 - **Test**: `conformance/439_iv_in_slice_raw` (no xfail added — deliberately left
   red so it stays visible until fixed).
+- **MINIMAL REPRO (no iface needed — 2026-09-03)**: the iv is a red herring. It
+  reproduces with a plain 2-word struct raw slice:
+  ```
+  type Pair struct { a int; b int }
+  var s *[]Pair = make_slice(Pair, 2)[:]
+  s[0].a = 11; s[1].a = 13
+  testing.Println(s[0].a); testing.Println(s[1].a)   // prints 11, 16  (16 = backingLen!)
+  ```
+  Confirmed via extensive bisection of the repro. RULED OUT (all correct on native
+  arm32): the field STORE (base+i*8+off is right), the element stride (8), the field
+  offset, `types.SizeOf(iface)` (=8), 1-word-element slices, offset-4/+8 fields, plain
+  `[N]Pair` ARRAYS, MANAGED slices `@[]Pair`, and reading into a LOCAL first. It fails
+  ONLY for: a RAW slice (`*[]T`, from `make_slice(..)[:]`) of a MULTI-WORD element,
+  reading a field at OFFSET 0 (`&s[i].a == &s[i]`) DIRECTLY as a variadic-interface
+  call arg. `Println` corrupts the heap backing itself (a following read-into-local
+  also returns the garbage), so it is a WRITE to the backing during the boxed-arg
+  Println, not a bad read. The offset-0 field is the trigger (offset-4/8 fields never
+  corrupt), which is why it looked "2-word-iv"-specific.
+- **Localized to**: the native arm32 register allocator's caller-saved/home handling
+  around the OP_BOX + OP_CALL(Println) sequence (`pkg/binate/native/common/regalloc_*.bn`,
+  `arm32_regmap.bn` nextReg homes in caller-saved R0-R3 "only when not live across a
+  clobber"). aarch64/x64 lower the SAME IR correctly, so it is arm32-emitter/regalloc-
+  specific, not shared-IR. NOT yet pinned to a single line — the scan/clobber logic
+  reads as correct, so the defect is subtler (likely a spill-slot / home-vs-scratch
+  interaction specific to the offset-0 element-ptr operand of the box). STILL OPEN.
 - **Proposed fix**: TBD after root-cause — likely in the native arm32 (or shared
   ILP32) element-write path so a 2-word iv element writes both words at the right
   offsets.
