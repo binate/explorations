@@ -437,12 +437,29 @@ off a real object): `R_ARM_ABS32`, `R_ARM_CALL`, `R_ARM_JUMP24`, `R_ARM_MOVW_ABS
 (2026-09-02): prove the scripted layout on ELF64 / raw-binary FIRST; ELF32+arm32 is a
 dedicated follow-on.
 
-3. **Emit rewrite (ELF64) + raw-binary backend.**  Generalize `emit_elf.bn` from the hard
-   2-PT_LOAD/single-base model to LMA-keyed per-region packing (`p_paddr` from LMA,
-   multi-region file offsets, relaxed entry guard) and honor the output-section-start
-   alignment deferred from step 1.  Add the **raw-binary** backend (concatenate sections by
-   LMA, no ELF container — arch-agnostic).  Wire `LayoutBuilder.EmitElf` / `EmitRawBinary`
-   over `Result()`+`Resolve()`+`Relocate`.
+3. ✅ DONE (landed 2026-09-03, commit 2a9c42f86) — Emit rewrite (ELF64) + raw-binary backend.
+   `deriveSegments` (`emit_seg.bn`) coalesces output sections into PT_LOAD segments by
+   writability + VMA−LMA delta + LMA contiguity (a ≥1-page LMA gap splits, so the file is
+   not inflated across region gaps); `EmitElfExec` (`emit_elf.bn`) rewritten to pack the file
+   by LMA with `p_paddr`=LMA / `p_vaddr`=VMA, per-segment page-congruent offsets, and a
+   relaxed "entry inside some loaded segment" guard.  The ordinary whole-link 2-segment output
+   is byte-offset-unchanged (existing `emit_elf_test` + an independent `readelf` confirm; the
+   ROM-copy case shows p_paddr flash ≠ p_vaddr RAM, packed compactly).  Raw-binary backend
+   `EmitRawBinaryImage` (`emit_raw.bn`): section bytes by LMA, no container, gaps zero-filled,
+   NOBITS skipped, overlap = hard error.  `Finish`/`EmitElf`/`EmitRawBinary` wired on the
+   builder (`builder_emit.bn`) over `Result()`+`Resolve()`+`Relocate`; `SetInputs` now marks
+   every input `OutIndex=-1` so an unplaced-but-referenced section is a hard error, not a
+   silent alias of output section 0.  Adversarial review caught one real defect (fixed in the
+   same commit): the header-prefix guard checked only the VMA base, but `p_paddr` also backs
+   up by dataStart, so a low-LMA (`Paddr<dataStart≤Vaddr`) layout underflowed `p_paddr` —
+   now the LMA base is guarded too.  Note on the step-1 "output-section-start alignment"
+   deferral: emit writes NO section headers (`e_shoff`=0), so there is no `sh_addr ≡ 0 mod
+   sh_addralign` to satisfy; the load-bearing alignment is page-congruence (handled) and
+   per-section start alignment is a driver contract (`SectionAlign`/`SetDot`).  Known limit
+   (valid, not wrong): a same-region `data → bss → data` layout over-coalesces, storing the
+   sandwiched bss as file zeros (fatness = that bss's size; trailing bss costs nothing) —
+   splitting it would force a shared-page PT_LOAD overlap or a silent address-moving
+   re-align, both worse, so coalescing (what GNU ld does here) stands.
 4. `*(COMMON)` synthesis.
 5. e2e proofs on what already works: **C (raw-binary blob + signature — arch-agnostic)** and
    a **scripted static x64/aarch64 (ELF64)** program that runs.
