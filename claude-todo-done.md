@@ -33,6 +33,37 @@ this and remains OPEN in [claude-todo.md](claude-todo.md): this reduced the NUMB
 qualify+copy round-trips per call (~5 → 1-2), but each remaining `lookupFuncSig` still
 does one `qualifyForCurrentModule` `CopyStr`.
 
+## conformance/439_iv_in_slice_raw: use-after-free in the TEST, fixed by owning the backing — DONE (2026-09-03, commit 1b77f407e)
+
+439 (`*[]*I` raw slice of iface values) failed ONLY on `builder-comp_native_arm32_baremetal`
+(`s[1].Foo()` returned garbage), which a prior session recorded as a MAJOR native-arm32 iface-slot
+miscompile and bisected to the 4d97a55f0..508fa9424 window (implying recent / possibly-this-session
+commits).  Both framings were wrong.  Bisect showed it already failed at d1914bdc0 — before that
+window and before all of this session's commits (vm-interpreter + a types.bni decl + build scripts;
+none touch native codegen).  A gdb hardware watchpoint then caught the corrupting write:
+`rt.writeTags` (the arena's boundary-tag writer) during a Println-internal allocation that REUSED
+the test's freed backing.
+
+Root cause: the TEST wrote `var s *[]*I = make_slice(*I, 2)[:]` — a raw slice borrowing a managed
+TEMPORARY.  Per spec §9.7 (`mem.temporary`), a raw borrow of a temporary's backing must not outlive
+its statement; the temporary is released at end of statement, so the later `s[i]=&t` / `s[i].Foo()`
+uses were a use-after-free.  The compiler is CORRECT (§9.7: a UAF is programmer error, not
+suppressed).  It was benign on LLVM / native aa64 / native x64 (their allocators don't immediately
+reuse the freed block) but corrupted on the native-arm32 bare-metal no-free-until-teardown arena
+(freed block reused).  Confirmed three ways: the watchpoint; binding the backing to a var makes it
+work; the managed-slice sibling 440_iv_in_slice_mgd (`@[]@I`, owns) already passes on native arm32.
+
+Fix: own the backing — `var backing @[]*I = make_slice(*I, 2); var s *[]*I = backing[:]`.  439 now
+passes on native arm32 AND builder-comp (LLVM).  Also removed the stale plan-*.md reference in its
+comment (durable-docs rule).
+
+Follow-up pondered (NOT built — needs an owner decision): no bnlint rule catches "a raw borrow of a
+`make_slice(..)` temporary that outlives its statement" (bnlint has func-value-escape /
+iface-borrow-escape / borrowable-char-param, but not this), and conformance/ is not in the lint
+scope anyway (hygiene lints the compiler/stdlib source; conformance is excluded as intentional
+fixtures).  A "dangling-raw-borrow-of-temporary" rule (§9.7) would be a well-defined, useful
+addition; wiring it (and whether to lint conformance) is a separate scope call.
+
 ## vm bare-metal: frame-alignment hang fixed — pushFrame kept vm.SP aligned via a shared rounded extent — DONE (2026-09-02, commit a546e5da3)
 
 After the arena fix (`4d97a55f0`), a class of `pkg/binate/vm` tests INFINITE-LOOPED on
