@@ -228,8 +228,12 @@ operand-mutation; arm32 bounds-fail marshalling), and the per-backend validation
 native 30.76s); the remaining gap is exactly the Stage-5 headroom below.
 
 **Stage 5 refinements** (additive, on the same foundation):
-- **Caller-saved homes for call-free regions of leaf functions** — the current all-callee-saved
-  choice pays prologue/epilogue save/restore even for a value that never crosses a call.
+- **Caller-saved homes (leaf / call-free regions) — TRIED aa64, NEUTRAL, SHELVED (2026-09-02).**
+  Homed non-call-spanning values in the caller-saved arg bank (no save/restore).  Correct +
+  conformance-subset-green, but neutral on the self-compile (the leaf save/restore win is too small;
+  the extra homing budget rarely prevents spills over the 10 callee-saved homes).  Full write-up
+  (incl. the 5× regression + the allocator caller-saved-ineligible fix, and two miscompiles found —
+  param-landing permutation, emitStringToArray X0 scratch) in `plan-native-regalloc.md`.
 - **Interval splitting** (register in the un-pressured sub-range, spilled elsewhere) and **copy
   coalescing** (elide the `EliminatePhis` `OP_COPY`s by giving src=dst one register).
 - **Spill-cost heuristic** (use-density × loop depth) — the current naive "spill the newest interval
