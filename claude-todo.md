@@ -218,37 +218,54 @@ Possible later extension (not planned): inlining callees containing
 indirect/iface/c-call/handle dispatch (currently disqualifying; raises
 cross-mode-vtable / c-ABI questions).
 
-### Native-compile profile → memory management dominates; MemZero/MemCopy widened, more levers open — 🔵 OPEN (2026-09-02)
+### Native-compile profile (2026-09-02): what closes the native↔clang gap vs. what's just generally hot
 
 A `sample` profile of the **native-built** bnc compiling cmd/bnc
 (`--backend native --linker bnld`, aarch64) — the workload behind the ~3.4×
 native↔clang gap — breaks the self-time down as: **memory management ~50%**
 (`rt.MemZero` ~42% alone, + malloc/free + refcount dtors), **register allocator's
 own bookkeeping ~20%** (`slices.Append[LiveRange]`, `__dtor_ms_LiveRange`, linear
-`LookupHome`/`Spill`/`Alloc`), **linker (bnld) ~15%** (O(n²) `charsEqual` /
-`findDefIdx` string symbol resolution), **other compiler ~13%** (string compares,
-tables).  So the dominant remaining gap is NOT classic register-spill codegen — it
-is memory management + the regalloc's own churn + the linker.
+`LookupHome`/`Spill`/`Alloc`), **linker (bnld) ~15%** (O(n²) symbol resolution),
+**other compiler ~13%** (string compares, tables).
+
+**The lens that matters for this project is "does it close the native↔clang
+gap?", not "is it hot?".**  Most of the hot buckets are *general* build-speed —
+they run in BOTH the clang-built and the native-built bnc, so optimizing them
+speeds both and leaves the gap unchanged (an algorithmic O(n²)→O(1) win is not
+something clang recovers for the native side alone).  The exception was MemZero:
+clang *already* lowered its byte loop to a vectorized memset, so only the native
+side was paying — fixing the source closed the gap.
 
 - **DONE — `rt.MemZero`/`MemCopy` widened to word-at-a-time (landed `43054b3f1`).**
-  They were byte-at-a-time loops (clang lowers to vectorized memset/memcpy; the
-  native backend emitted them verbatim).  Now a machine word (`int`: 8B LP64 / 4B
-  ILP32) per iteration through the aligned middle, byte lead-in + tail; pure Binate
+  Byte-at-a-time loops (clang lowers to vectorized memset/memcpy; the native
+  backend emitted them verbatim) → one machine word (`int`: 8B LP64 / 4B ILP32)
+  per iteration through the aligned middle, byte lead-in + tail; pure Binate
   (bare-metal-safe).  Measured **native compile of cmd/bnc 29.7s → 22.2s (~25%
   faster)**, gap **~3.4× → ~2.5×**.  Adversarial review clean; LP64 conformance
   2999/0; native aa64/x64 unaffected.
-- **OPEN — regalloc's own data-structure overhead (~15-20%).** The v1 allocator
-  uses `slices.Append` (O(n) reallocation) for LiveRange/LiveInterval lists and
-  linear scans for `LookupHome`/`LookupSpill`/`LookupAlloc`; the managed-slice
-  dtors then refcount all of it.  Switch to `vec.Vec` (amortized growth) + an
-  id→home index map.  Speeds every native compile; distinct from the Stage-5
-  codegen refinements below.
-- **OPEN — bnld O(n²) symbol resolution (~15%).** `link.findDefIdx` does a linear
-  string search per reference.  Hash the defined-symbol table.  Linker-perf, only
-  when linking with bnld (not clang).
-- **OPEN — broader memory management** (allocation volume, malloc/free, refcount
-  dtors) — the largest bucket after MemZero; a re-profile after the above will
-  show the new dominant cost.  Relates to the bni-load-time memory-management work.
+- **The gap-closer from here is Stage 5** (native codegen quality) — see the
+  register-allocator entry below.  The two remaining hot profile buckets are
+  *general* build-speed and filed separately (they do NOT close the gap):
+
+### Native/bnld build throughput — regalloc data-structure churn (general, does NOT close the native↔clang gap) — 🔵 OPEN (2026-09-02)
+
+~15-20% of the native-compile self-time is the v1 register allocator's OWN
+bookkeeping: `slices.Append` (O(n) reallocation) for the LiveRange/LiveInterval
+lists, linear scans in `LookupHome`/`LookupSpill`/`LookupAlloc`, and the
+managed-slice dtors refcounting all of it.  Switch to `vec.Vec` (amortized
+growth) + an id→home index map.  This speeds every `--backend native` build for
+BOTH the clang-built and native-built bnc, so it does not narrow the
+native↔clang codegen gap — it's a throughput win, pursue when build speed (not
+the gap) is the goal.
+
+### Native/bnld build throughput — bnld O(n²) symbol resolution (general, does NOT close the gap) — 🔵 OPEN (2026-09-02)
+
+~15% of the native-compile self-time (with `--linker bnld`) is the self-hosted
+linker's symbol resolution: `link.findDefIdx` / `charsEqual` do a linear string
+search per reference = O(references × defs).  Hash the defined-symbol table for
+O(1) lookup.  Only runs when linking with bnld (not clang), and helps both bnc
+flavors equally, so — like the regalloc-churn item — a build-throughput win, not
+a native↔clang gap-closer.
 
 ### Native register allocator — Stage 5 refinements — 🔵 OPEN (v1 landed 2026-09-02)
 
