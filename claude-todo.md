@@ -25,15 +25,26 @@ wordBytes=4 — where LP64 is a single 8-byte word).
   with the OLD byte-loop rt too (NOT caused by the rt change).
 - **Scope**: native arm32 ONLY. LLVM `builder-comp` 2999/0; native aa64/x64 pass
   439 individually.
-- **Regression window**: broke on native arm32 somewhere in
-  `4d97a55f0..508fa9424` (between the register-allocator Stage-4-era base and
-  current main). NOT `ee494a151` nor the print sweep `edae7e27c` — both predate a
-  green-arm32 base. No native/arm32 backend code changed in the window, so the
-  cause is a shared-layer change (ir / types / codegen) that shifts the ILP32
-  2-word-iv-slot element-write. Exact culprit needs a bisect.
-- **Root cause**: unknown — needs investigation (likely the ILP32
-  slice-element-store lowering for a 2-word aggregate element, or the iv-wrap
-  store width/offset on a 4-byte-word target).
+- **NOT a regression in `4d97a55f0..508fa9424`** (correction 2026-09-02, verified
+  by bisect): 439 already fails on native arm32 at `d1914bdc0` — the commit BEFORE
+  that window, and before all of `4d97a55f0` / `a546e5da3` / `508fa9424` (which are
+  vm-interpreter changes + one `types.bni` decl + build scripts — none touch native
+  codegen). It is a PRE-EXISTING native arm32 backend gap, not a regression, and not
+  caused by those commits. Why it looked recent: the Slice P.4 fix `ee494a151` fixed
+  the SHARED `pkg/ir` iv-CONSTRUCTION and dropped 439's xfails, but only for the
+  `boot-*` modes that existed in May 2026; `builder-comp_native_arm32_baremetal` is a
+  NEWER mode that never had a 439 xfail, so it went red the moment the native arm32
+  mode began running the test. The regalloc-wiring `d49bd66a2` is also innocent — the
+  bug predates it.
+- **Root cause**: in the NATIVE arm32 codegen of the store, NOT a type-size
+  hardcode — `types.SizeOf` for an iface value is correctly parameterized
+  (`layout.bn:139` returns `2 * ptrSize()` = 8 on ILP32), and the shared `pkg/ir`
+  correctly CONSTRUCTS the iv `{data, vtable}`. The defect is the native arm32
+  emission of the 2-word (8-byte) iv store into slice element i>0 on ILP32: a raw
+  dump of the 2-element backing shows s[0] is stored correctly but s[1]'s words are
+  corrupted (s[1].data != &t2). Needs instruction-level analysis of the element-
+  pointer + 8-byte-store emission for the 2nd element (source-level size/stride are
+  right, so it is in the arm32 store/address instruction selection, not shared IR).
 - **Test**: `conformance/439_iv_in_slice_raw` (no xfail added — deliberately left
   red so it stays visible until fixed).
 - **Proposed fix**: TBD after root-cause — likely in the native arm32 (or shared
