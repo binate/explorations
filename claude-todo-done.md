@@ -6,6 +6,27 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## LLVM backend: `#[c_export]` sub-int/bool RETURNS lacked signext/zeroext — DONE (2026-09-03, commit 9ef53bcf7)
+
+MAJOR, LLVM-only. `#[c_export]` is emitted as a plain `alias i8, ptr @<mangled>` to the
+function's mangled `define` (no thunk), so the `define` IS the C-ABI entry. bnc emitted
+`define i8/i16/i1 @…` with no `signext`/`zeroext` return attribute, so a clang caller at
+-O1+ (which trusts callee extension via AssertS/Zext and elides its own re-extension) read
+dirty upper bits — silent wrong values at the C boundary on darwin-arm64 (DarwinPCS) and
+x86-64. Native backends were unaffected (emitReturn moves the full-width canonical value —
+over-satisfies). Fixed: `cabiIntExtAttr(t)` in `pkg/binate/codegen/emit_types.bn` returns
+`"signext "` (signed int8/int16), `"zeroext "` (uint8/uint16/bool i1), or `""`
+(i32-and-wider/ptr/float/non-scalar), applied in `emit_debug.bn` to the single-scalar,
+non-sret, non-coerced-aggregate return of a c_export define. The `ret iN %v` line is
+unchanged — the attribute rides on the `define` and LLVM extends in the callee. Params need
+no LLVM change (the callee reads the `iN` low bits, always correct); the narrow-ARG concern
+is native-side (separate open todo). Tests: 7 codegen unit tests pin the emitted
+signext/zeroext (and its absence on word returns / non-c_export narrows); `e2e/ffi-export.sh`
+gains narrow int8/int16/uint8/bool exports read by an -O2 clang caller — verified it FAILS
+without the fix (reads 507/130944/456, the raw untruncated args, instead of -5/-128/200).
+Adversarial review clean (no CRITICAL/MAJOR). Found in the `proposal-c-entry-builtin.md` ABI
+review (2026-09-02).
+
 ## `_func_handle` of a generic function — checker rejection — DONE (2026-09-03, commit 1d91a0827)
 
 `check_builtin.bn`'s `_func_handle` (RAW_FUNC_ADDR) arm accepted any Ident/selector

@@ -7,27 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### LLVM backend: `#[c_export]` sub-word/bool RETURNS lack signext/zeroext — C callers read garbage — 🔴 OPEN MAJOR (found 2026-09-02)
-
-**Severity: MAJOR** — silent wrong values at the C boundary. bnc's LLVM codegen
-emits `define i8/i16/i1 @…` with **no** signext/zeroext return attributes
-anywhere (repo grep: none; only an unrelated zext in emit_funcvals_shim.bn), but
-C callers RELY on callee-extended sub-word returns: darwin-arm64 (DarwinPCS —
-clang callers elide re-extension via AssertSext at -O1+) and x86-64 (de-facto
-clang ABI: signext/zeroext assumed on i1/i8/i16 returns). So a C caller of an
-LLVM-compiled `#[c_export]` function returning int8/int16/bool can read dirty
-upper bits at -O1+. The NATIVE backends are unaffected (emitReturn moves the
-full-width canonical value — over-satisfies). Untested today:
-e2e/ffi-export.sh exports only word-sized `int` returns.
-**Root cause:** missing platform-convention return attributes on LLVM `define`s
-(and matching `declare`s where relevant).
-**Discovered:** adversarial review (ABI lens) of `proposal-c-entry-builtin.md`
-(2026-09-02) — the proposal's C-entry contract covers returns; this is an
-Axis-2 gap against it, pre-existing in landed `#[c_export]`.
-**Proposed fix:** emit signext/zeroext per platform convention; C-driver e2e
-(clang -O2 caller; negative int8/int16 + bool returns). Test/xfail step owed by
-the implementer (authoring session had no binate worktree).
-
 ### native C entries: narrow integer STACK args not canonicalized on 8-byte-slot conventions — 🔴 OPEN MAJOR (found 2026-09-02)
 
 **Severity: MAJOR** — the stack-path sibling of the register-arg dirty-upper-bits
