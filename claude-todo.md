@@ -273,7 +273,6 @@ baseline held); aarch64/x64 native unit tests + conformance smoke unchanged.
   param cast/reused across ops still reloads per use from its slot (disassembly-confirmed); the
   param home-landing code is correct but effectively dead today.  Homing params is a clear win.
 
-(An unrelated "correct stale Backend-dispatch comment" change remains worktree-only / not landed.)
 
 ## Performance — bni load time
 
