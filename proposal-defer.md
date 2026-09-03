@@ -3,8 +3,10 @@
 Status: **PROPOSAL — scoping DECIDED (owner, 2026-09-02): option A, function-scoped
 with the loop restriction.** Earlier draft was block-scoped; two adversarial
 reviews (memory-model/semantics; spec-consistency) ran against it and their
-still-applicable findings are folded in; the scoping rework below needs its own
-brief review pass before ratification of the remaining open questions (§7).
+still-applicable findings are folded in; the option-A rework passed its own
+delta review (SOUND-WITH-MUST-FIXES — the borrow-not-consume call contract and
+the operand-release timing pinned; both applied). Awaiting ratification of the
+remaining open questions (§7).
 Spec design only; implementation planned separately.
 
 ## 1. Why now — the recorded rationale doesn't hold
@@ -67,8 +69,8 @@ statement (deliberate; Go behaves the same). No identifier in the tree spells
 
 New section — **§14.13 "Defer statements"**, inserted after §14.12
 (break/continue); Terminating statements renumber to §14.14 and the deliberate
-absences to §14.15, with a cross-reference sweep (~15 `§14.13`/`§14.14`
-citations across ~9 spec files, enumerated by grep at landing time). Rules
+absences to §14.15, with a cross-reference sweep (18 `§14.13`/`§14.14`
+citations across 9 spec files, per grep; re-enumerate at landing time). Rules
 (declared at column 0 in the spec file — the blockquotes here are presentation
 only):
 
@@ -77,10 +79,13 @@ only):
 > **callee** — the function reference, the function value, or a method's
 > receiver — **and every argument are evaluated when the defer statement
 > executes**; the **call executes at function exit**. The evaluated values are
-> retained with the **function's lifetime** (released after the deferred call
-> runs, or at function exit if the call never runs its slot is simply released
-> — *not* as statement temporaries; see the §18.4 amendment below); the call
-> consumes them under the ordinary call contract (§18.5). Where an operand
+> retained with the **function's lifetime**: they behave as anonymous
+> function-scope locals, released with the function's exit releases (§18.4)
+> **after all pending deferred calls have run** — *not* as statement
+> temporaries (see the §18.4/§9.7 amendment below). The deferred call
+> **borrows** them as the caller's references under the ordinary call contract
+> (§18.5 `mem.param` — the caller-side reference is unaffected by the call).
+> Where an operand
 > undergoes a **managed→raw** conversion at the defer site (§8.4), the
 > **pre-conversion managed value** is what is retained, and the borrow is
 > delivered at call time — preserving the argument-borrow liveness guarantee.
@@ -104,9 +109,10 @@ only):
 > calls), is rejected.
 >
 > `stmt.defer.no-loop` _(Constraint)_ — A defer statement shall not appear
-> **lexically inside a `for` statement** (its body or its clauses) of the same
-> function; an intervening function literal lifts the restriction (the defer
-> then belongs to the literal). Rejected with a message of the form "defer may
+> **lexically inside a `for` statement** with no intervening function literal
+> between the defer statement and the `for` (a defer inside such a literal
+> belongs to the literal and is unrestricted). Rejected with a message of the
+> form "defer may
 > not appear in a loop; wrap the loop body in a function or call the cleanup
 > explicitly". _(Rationale: this keeps each lexical defer to at most one
 > pending call — a fixed, statically-known set — so `defer` costs no hidden
@@ -149,12 +155,12 @@ only):
 
 Amendments the statement forces (the ratification touch-list):
 
-- **§18.4 `mem.temporary` carve-out (normative)**: a defer statement's
-  evaluated callee/receiver/argument values are **not** statement temporaries
-  — they are retained with the enclosing **function's** lifetime and released
-  after the deferred call runs (or at function exit if it never runs); the
-  defer statement's *other* temporaries still release at the end of the
-  statement.
+- **§18.4 `mem.temporary` + §9.7 `decl.scope.statement` carve-out
+  (normative)**: a defer statement's evaluated callee/receiver/argument values
+  are **not** statement temporaries — they behave as anonymous function-scope
+  locals, released with the function's exit releases **after all pending
+  deferred calls have run** (`stmt.defer.exit`); the defer statement's *other*
+  temporaries still release at the end of the statement.
 - **§18.4 release-order note + §21.5 unspecified-behavior row**: requalified —
   deferred calls are **sequenced before** the function-exit releases
   (`stmt.defer.exit`); *among the releases themselves* order remains
@@ -229,7 +235,13 @@ hoist (`defer closeIfSet(&f)`) reads state set after the defer statement.
 
 Each lexical defer statement gets **fixed frame slots**: an armed flag plus
 its retained operand values, materialized as **anonymous function-scope
-slots** alongside named locals (ctx.Vars-style at function depth), so every
+slots**. Two conditions the balance depends on: the slots are
+**pre-registered at function-entry depth** (a pre-pass over the function's
+static lexical-defer set, like parameters — NOT registered at the defer
+statement, else a nested-block defer's slots get scope-released and truncated
+out of later sweeps at block exit), and they are **nil/false-initialized at
+entry** (the backends do not zero allocas; a return taken before the defer
+executes must sweep nil no-op slots, not stack garbage). Under those two, every
 existing release sweep — return's whole-function cleanup
 (`emitDecForManagedLocals`, already emitted per return site) and the VM-only
 fault pads (`emitPadCleanup`) — releases the retained operands unchanged; no
