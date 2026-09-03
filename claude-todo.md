@@ -203,15 +203,6 @@ BOTH the clang-built and native-built bnc, so it does not narrow the
 native↔clang codegen gap — it's a throughput win, pursue when build speed (not
 the gap) is the goal.
 
-### Native/bnld build throughput — bnld O(n²) symbol resolution (general, does NOT close the gap) — 🔵 OPEN (2026-09-02)
-
-~15% of the native-compile self-time (with `--linker bnld`) is the self-hosted
-linker's symbol resolution: `link.findDefIdx` / `charsEqual` do a linear string
-search per reference = O(references × defs).  Hash the defined-symbol table for
-O(1) lookup.  Only runs when linking with bnld (not clang), and helps both bnc
-flavors equally, so — like the regalloc-churn item — a build-throughput win, not
-a native↔clang gap-closer.
-
 ### Native register allocator — Stage 5 refinements — 🔵 OPEN (v1 landed 2026-09-02)
 
 v1 — linear-scan over **range-list** live intervals from the liveness fixpoint; shared

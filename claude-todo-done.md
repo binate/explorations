@@ -6,6 +6,27 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Native/bnld build throughput — bnld symbol resolution was O(n²) — DONE (2026-09-03, commit 9f0d1def1)
+
+The self-hosted linker's symbol resolution scanned the defined-symbol list linearly per
+reference (`link.findDefIdx` / `charsEqual`) = O(references × defs) — ~15% of the native
+self-compile's self-time with `--linker bnld`.  Fixed by adding `SymbolTable.defIndex`, a
+stdlib `table.Table[*[]readonly char, int, LinkNameHasher, LinkNameEq]` (name → Defs index)
+under zero-size djb2/charsEqual policies (DIRECT inlinable dispatch — the same pattern the
+ir/vm/types string→index tables use), built incrementally in `ResolveWithAbs`.  All three
+`findDefIdx` sites are now O(1): pass-1 definition collection (`Get`), pass-2
+undefined-reference check (`Has`), and `Lookup` (the hot path, called once per relocation by
+`Relocate`; `Get`, with a linear fallback when defIndex is nil for a hand-built table).  A
+weak→strong upgrade rewrites `defs[existing]` in place, keeping its index.  Scoped to
+`findDefIdx` (what the todo named and the only symbol-count-quadratic path); the small
+`Abs`/`GotImports` scans and the cold-path undefined-dedup `nameIndex` were left as-is.
+Tests: `name_index_test.bn` (policies) + `TestResolveManySymbolsAcrossGrowth` (40
+heap-allocated names → forces the index to grow/rehash three times, which the ≤2-symbol
+resolve tests never did; asserts each name maps to its own (object, symbol) entry).  Verified
+end-to-end: a `--linker bnld` build of a multi-package program (main + os + rt) links and
+runs.  Adversarial review clean (no CRITICAL/MAJOR/MINOR).  A build-throughput improvement,
+not a native↔clang gap-closer.
+
 ## LLVM backend: `#[c_export]` sub-int/bool RETURNS lacked signext/zeroext — DONE (2026-09-03, commit 9ef53bcf7)
 
 MAJOR, LLVM-only. `#[c_export]` is emitted as a plain `alias i8, ptr @<mangled>` to the
