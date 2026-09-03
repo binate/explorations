@@ -19317,3 +19317,130 @@ Caveat: measured on the native-`-O0`-**built** config; the native-`-O2`-built co
 still SIGSEGVs compiling `cmd/bnc` (the tracked MAJOR bug, reproduces on current main),
 so its number is unavailable. (2a) also inlined the LLVM/clang path, so it is an absolute
 speedup on both backends — the native↔clang *ratio* is (2b)'s target, not (2a)'s.
+
+## Cleanup 2026-09-02 — items archived from claude-todo.md
+
+### Native register allocator v1 — landed on all three native backends (2026-09-02)
+
+Trimmed from claude-todo.md once all v1 stages landed; the active todo keeps only the
+Stage-5 refinements + a summary pointer.  Commits: Stage 0 `3bf3ac146`, Stage 1a `54d53251c`,
+aarch64 `f4bb7f4b7`, x64 `712241d57`, arm32 `d49bd66a2`, classifier tests `0439ee0f9`.
+
+### Native register allocator — 🟢 v1 DONE (all three backends landed; Stage 5 refinements open, 2026-09-02)
+
+THE lever for the native↔clang gap.  ROOT CAUSE CONFIRMED (disassembly): the native backend
+is a **stack machine with no register allocation** — `common.PlanFrame` gives every scalar SSA
+value a stack slot and the emitter resets registers after every instruction
+(`common.bn:113-115` "spill everything ... a real allocator can reclaim later"), so every op is
+ldr/compute/str through memory.  `hotloop` (6 loop-carried values) = **80 memory ops** native vs
+**8** clang.  This is why native `-O2` ≈ `-O0` (mem2reg promotes, the backend spills it away) and
+native is ~9-12× slower than clang whole-program.
+
+**PLAN: `explorations/plan-native-regalloc.md`** (v2, incorporates an adversarial review).
+Design: linear-scan over **range-list** live intervals built from the **liveness fixpoint**;
+shared liveness/intervals/scan in `native/common` + per-arch register-class descriptor; the
+correctness core is a per-op **clobber & scratch model**.  The arch-neutral half is
+`common.EmitsReturningBl` (ops emitting a call that can RETURN — call family, sat-lookup,
+MAKE/BOX/MAKE_SLICE, RODATA_MSLICE_COPY, STACK_FRAMES, the unconditional DIV/SHIFT guards,
+REFDEC's returning dtor); bounds/nil checks are NOT clobbers (bounds-check's only call is a cold
+noreturn fail path).  Per-arch additions each descriptor must add on top: x64 OP_REFINC (x64 calls
+rt.RefInc; aa64/arm32 inline it); arm32 int64 MUL/DIV/REM/SHL/SHR + soft-float arith/compare/cast
+AEABI libcalls.  Values live across a clobber → callee-saved or spill.  Review-flagged handler
+changes (NOT "untouched"): call-result/param/return
+handlers must land values in the home register not the slot; aarch64 REM + x64 two-address/div
+need `rd ∉ operands-read-after-write`; float scalars must be explicitly excluded; stop hardcoding
+X16 / x64 pool-order.  Staged aarch64→x64→arm32, each green + cherry-pickable.
+
+**Stage 0 (DONE — landed `3bf3ac146`):** the reusable core in `native/common`, NO codegen change
+(all native modes stay green) — `regalloc_liveness.bn` (RPO linearization + unreachable handling,
+allocatable-scalar universe, backward liveness fixpoint), `regalloc_interval.bn` (range-list
+intervals from the fixpoint + a liveness-driven validator), `regalloc_clobber.bn`
+(`EmitsReturningBl`).  Unit-tested compiled + under the VM (loop-carried phi-copy-shared-id
+interval, genuine within-block hole, 5-way pressure, fixpoint convergence + upward-use guard,
+validator catches a dropped range).  Three-reviewer adversarial pass: code sound; fixed two
+clobber-set omissions (RODATA_MSLICE_COPY, STACK_FRAMES) + recorded the per-arch clobbers above;
+bounds/nil-check exclusion verified sound on all three arches.
+
+**Stage 1a (DONE — landed `54d53251c`):** the arch-neutral linear-scan assignment in
+`native/common` (`regalloc_scan.bn`) — `RegClassDesc`, `ClobberPositions`, `LinearScan`
+(whole-interval, expiry). No emission change; unit-tested (distinct regs / pressure spill / expiry
+reuse / clobber-span / spansClobber semantics / the no-overlap invariant).
+
+**Stage 1b (DONE — landed `f4bb7f4b7`):** aarch64 register allocation wired into emission.
+**DEVIATION from the plan (adversarially reviewed, confirmed sound):** home registers come from the
+**callee-saved** bank X19–X28, NOT the plan's caller-saved X9–X15 — chosen because it is disjoint
+from the X9–X17 scratch pool (so the existing operand-reload / scratch path is untouched) and
+because callee-saved registers survive calls (no clobber-spill needed).  This re-orders the plan's
+Stage 1 (caller-saved) and Stage 2 (callee-saved) into one step, at the cost of prologue/epilogue
+save/restore.  `AllocateRegisters` (a RegMap method) runs the pipeline; getOperand/nextReg consult a
+persistent home-map; PlanFrame reserves the save area inside the frame; params/call-results land in
+home registers.  **Miscompile found + fixed:** `emitRefIncInline` used a pre-index writeback
+(`LDR [ptr,#-16]!`) that mutated the pointer register — safe only under spill-everything (throwaway
+scratch), fatal with the pointer in a persistent home register (`make(T)` returned `ptr-16`, field
+reads yielded the refcount).  Fixed to a SUB-into-scratch (like refdec); regression test
+`conformance/1231_regalloc_managed_ptr_refinc`.  A new bug **class** — ops that mutate an operand
+register in place — the pre-landing 3-reviewer pass swept for and found no other instance.  Validated:
+`native_aa64` conformance **2995 passed / 0 failed**; bnc self-compiles natively; -O2 `hotloop`
+keeps loop-carried values in registers.
+
+**BENCHMARK (2026-09-02, aarch64 native, no Rosetta, user CPU):** the native↔clang codegen gap at
+-O2, same workload (native-compile of cmd/bnc, `--linker bnld` so no clang in the loop): bnc_clang
+(LLVM -O2) **8.79s** vs bnc_native (native -O2) **30.76s** → **~3.4×** (was **~9–12×** before
+register allocation).  Register allocation delivered a ~3× speedup in native-compiled code.  The
+remaining gap is the Stage-5 headroom (naive spill heuristic, no caller-saved homes for leaves, no
+coalescing/splitting, no float regs).
+
+**Stage 3 (DONE — landed `712241d57`):** x86-64 register allocation wired into emission,
+mirroring the aarch64 wiring — homes in the SysV callee-saved bank RBX/R12–R15 (disjoint from the
+R10..RDI scratch pool), `AllocateRegisters` before `PlanFrame`, prologue save / epilogue restore,
+scalar-param home-landing, `emitEpilogueAndRet` takes the RegMap.  `CallerSaved` is empty (clobber
+machinery inert), so the plan's x64 OP_REFINC clobber is NOT needed here — it belongs with
+caller-saved homes in Stage 5.  The operand-mutation sweep found TWO homing-induced bugs (both
+fixed): the SHL/SHR count relied on `scratchReg` landing on RCX after two getOperands, which breaks
+when an operand is homed OR already register-cached (count goes to the wrong reg → shift by garbage
+CL) — now moved to RCX explicitly with the pool cursor reserved past it; and `emitUint64ToDouble`
+did `and src,1` in place, mutating the integer operand (fatal if the uint64 were homed and reused)
+— now computes `(src&1)` into a second scratch, `src` read-only.  Regression
+`conformance/1233_regalloc_shift_homed_operands` bites the shift bug (verified 261-vs-21 with the
+bug reintroduced).  The emitUint64ToDouble fix has no bespoke test: triggering needs the uint64
+operand homed, and on x64 the allocator spills params for every constructible shape (confirmed by
+disassembly + a buggy-build run of an adversarial reviewer's cast-cast counterexample, which stayed
+correct) — covered by 1233 + full conformance + uint64→double correctness tests 1193/1226.
+Pre-landing adversarial review: no miscompiles, all focus areas sound.  Validated:
+`native_x64_darwin` conformance **2996 passed / 0 failed**.
+
+**Stage 4 (DONE — landed `d49bd66a2`):** arm32 register allocation wired into emission.  Unlike
+aarch64/x64 (callee-saved homes), arm32 has **no free callee-saved register** — R4–R10 is the
+getOperand scratch pool, R11 the frame pointer — so homes are **caller-saved (R0–R3)** and the
+clobber machinery, inert on aarch64/x64, goes **active for the first time**.  New arch-neutral piece:
+a **type-aware** clobber classifier (`RegClassDesc` gains `Int64OpsClobber` / `SoftFloatOpsClobber`;
+`isClobberInstr` flags arm32's AEABI libcalls — int64 MUL/DIV/REM/SHL/SHR and int64↔float CAST
+always, plus float arith/compare/cast under soft-float — by operand *type*, so int32 arithmetic
+isn't over-clobbered); aarch64/x64 leave both flags false (unchanged, inert).  No prologue
+save/restore (caller-saved).  **Core rule:** R0–R3 homes overlap the arg/target/return registers, so
+emitFunc **un-homes** the operands of every op that marshals into R0–R3 (`EmitsReturningBl` call
+family + `OP_RETURN`) — they revert to spill (slots disjoint from R0–R3), sidestepping the
+per-`mov` permutation corruption (a handle-call target overwritten by an arg; a multi-return pack
+`mov r1,r2; mov r2,r1` losing field 2).  The int64/soft-float libcalls need no un-homing — their
+operands (int64/float) are non-allocatable.  Params spill-then-reload; call results home-aware.
+**One diagnostic-only defect found in pre-landing review + fixed:** `OP_BOUNDS_CHECK`'s cold
+`rt.BoundsFail(idx,len)` marshalling wasn't permutation-safe (a `len` homed in R0 corrupted the
+panic message's length; program still aborts) — fixed by staging len through IP (un-homing would
+despill the *hot* indexing path for a *cold* diagnostic); regression
+`TestDispatchBoundsFailMarshalIsPermutationSafe` (verified it bites the naive 2-move).  Two
+independent adversarial reviews (clobber-set completeness; exclusion/result/param/rodata) otherwise
+clean; the review also confirmed the emitStringToArray R0→pool-scratch change fixes a *pre-existing*
+miscompile.  Validated: `native_arm32_baremetal` conformance **2953 passed / 0 failed** (1-xfail
+baseline held); aarch64/x64 native unit tests + conformance smoke unchanged.
+
+
+### Test runner improvements — landed items (archived 2026-09-02)
+
+The remaining open items (per-test-function filtering, timeout/hang handling, package
+parallelization) stay in claude-todo.md.
+
+- ~~**Better docs/help**~~: DONE. Both runners show description, examples, flag docs, test format/convention docs, xfail mechanism. READMEs added for conformance/ and scripts/unittest/.
+- ~~**Better output**~~: DONE. `-v` (verbose: all test names), `-q` (quiet: failures+summary only), default (dots for passes, detail for failures).
+- ~~**Mode sets in files**~~: DONE. `scripts/modesets/` directory with one file per set (basic, all, full). Adding a new mode set is just adding a file. Both runners read from the shared directory. Help output dynamically lists available sets.
+- ~~**Better mode specification**~~: DONE. Comma-separated modes (`boot,boot-comp`) expand into sequential runs. Works alongside mode set files.
+- ~~**Better filtering (unit tests)**~~: DONE. Fixed unit test runner to use substring match (was exact match). `token` now matches `pkg/token`, consistent with conformance runner.
