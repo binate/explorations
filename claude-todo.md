@@ -7,6 +7,39 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### native arm32: 2-word iface-value slot write for a raw-slice element is miscompiled (`439_iv_in_slice_raw`) — 🔴 OPEN MAJOR (found 2026-09-02)
+
+**Severity: MAJOR** — silent wrong-code on the native arm32 (ILP32) backend.
+`conformance/439_iv_in_slice_raw` (`*[]*I`, `s[i] = &t`, then `s[i].Foo()`)
+**passes on LLVM, native aarch64, and native x64**, but on
+`builder-comp_native_arm32_baremetal` the SECOND element dispatches through a
+bad vtable: `s[1].Foo()` returns garbage (`805306368` = `0x30000000`) instead of
+`2` (`s[0]` is correct). The iv slot is 2 words `{data, vtable}`; the Slice P.4
+fix (`ee494a151`, `pkg/ir` iv-element-write hint) made this construct a proper
+iv on the other backends, but the native arm32 slice-element-write path lays
+down the words wrong for the 2nd element on ILP32 (an 8-byte / 2-word slot where
+wordBytes=4 — where LP64 is a single 8-byte word).
+
+- **Discovery**: surfaced running native arm32 conformance for the unrelated
+  rt.MemZero/MemCopy widening; confirmed the failure reproduces on current main
+  with the OLD byte-loop rt too (NOT caused by the rt change).
+- **Scope**: native arm32 ONLY. LLVM `builder-comp` 2999/0; native aa64/x64 pass
+  439 individually.
+- **Regression window**: broke on native arm32 somewhere in
+  `4d97a55f0..508fa9424` (between the register-allocator Stage-4-era base and
+  current main). NOT `ee494a151` nor the print sweep `edae7e27c` — both predate a
+  green-arm32 base. No native/arm32 backend code changed in the window, so the
+  cause is a shared-layer change (ir / types / codegen) that shifts the ILP32
+  2-word-iv-slot element-write. Exact culprit needs a bisect.
+- **Root cause**: unknown — needs investigation (likely the ILP32
+  slice-element-store lowering for a 2-word aggregate element, or the iv-wrap
+  store width/offset on a 4-byte-word target).
+- **Test**: `conformance/439_iv_in_slice_raw` (no xfail added — deliberately left
+  red so it stays visible until fixed).
+- **Proposed fix**: TBD after root-cause — likely in the native arm32 (or shared
+  ILP32) element-write path so a 2-word iv element writes both words at the right
+  offsets.
+
 ### conformance/unittest `-comp-comp*` modes under-test by ONE bnc generation — 🔴 OPEN MAJOR (found 2026-09-02)
 
 **Severity: MAJOR** — the self-host fixpoint modes never run at the generation
