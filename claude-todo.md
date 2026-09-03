@@ -249,6 +249,38 @@ Possible later extension (not planned): inlining callees containing
 indirect/iface/c-call/handle dispatch (currently disqualifying; raises
 cross-mode-vtable / c-ABI questions).
 
+### Native-compile profile → memory management dominates; MemZero/MemCopy widened, more levers open — 🔵 OPEN (2026-09-02)
+
+A `sample` profile of the **native-built** bnc compiling cmd/bnc
+(`--backend native --linker bnld`, aarch64) — the workload behind the ~3.4×
+native↔clang gap — breaks the self-time down as: **memory management ~50%**
+(`rt.MemZero` ~42% alone, + malloc/free + refcount dtors), **register allocator's
+own bookkeeping ~20%** (`slices.Append[LiveRange]`, `__dtor_ms_LiveRange`, linear
+`LookupHome`/`Spill`/`Alloc`), **linker (bnld) ~15%** (O(n²) `charsEqual` /
+`findDefIdx` string symbol resolution), **other compiler ~13%** (string compares,
+tables).  So the dominant remaining gap is NOT classic register-spill codegen — it
+is memory management + the regalloc's own churn + the linker.
+
+- **DONE — `rt.MemZero`/`MemCopy` widened to word-at-a-time (landed `43054b3f1`).**
+  They were byte-at-a-time loops (clang lowers to vectorized memset/memcpy; the
+  native backend emitted them verbatim).  Now a machine word (`int`: 8B LP64 / 4B
+  ILP32) per iteration through the aligned middle, byte lead-in + tail; pure Binate
+  (bare-metal-safe).  Measured **native compile of cmd/bnc 29.7s → 22.2s (~25%
+  faster)**, gap **~3.4× → ~2.5×**.  Adversarial review clean; LP64 conformance
+  2999/0; native aa64/x64 unaffected.
+- **OPEN — regalloc's own data-structure overhead (~15-20%).** The v1 allocator
+  uses `slices.Append` (O(n) reallocation) for LiveRange/LiveInterval lists and
+  linear scans for `LookupHome`/`LookupSpill`/`LookupAlloc`; the managed-slice
+  dtors then refcount all of it.  Switch to `vec.Vec` (amortized growth) + an
+  id→home index map.  Speeds every native compile; distinct from the Stage-5
+  codegen refinements below.
+- **OPEN — bnld O(n²) symbol resolution (~15%).** `link.findDefIdx` does a linear
+  string search per reference.  Hash the defined-symbol table.  Linker-perf, only
+  when linking with bnld (not clang).
+- **OPEN — broader memory management** (allocation volume, malloc/free, refcount
+  dtors) — the largest bucket after MemZero; a re-profile after the above will
+  show the new dominant cost.  Relates to the bni-load-time memory-management work.
+
 ### Native register allocator — Stage 5 refinements — 🔵 OPEN (v1 landed 2026-09-02)
 
 v1 — linear-scan over **range-list** live intervals from the liveness fixpoint; shared
