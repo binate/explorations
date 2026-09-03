@@ -1,13 +1,17 @@
 # Proposal: `defer` — deferred calls at function exit (`proposal-defer`)
 
-Status: **PROPOSAL — scoping DECIDED (owner, 2026-09-02): option A, function-scoped
-with the loop restriction.** Earlier draft was block-scoped; two adversarial
-reviews (memory-model/semantics; spec-consistency) ran against it and their
-still-applicable findings are folded in; the option-A rework passed its own
-delta review (SOUND-WITH-MUST-FIXES — the borrow-not-consume call contract and
-the operand-release timing pinned; both applied). Awaiting ratification of the
-remaining open questions (§7).
-Spec design only; implementation planned separately.
+Status: **RATIFIED (owner, 2026-09-02) — spec landed as docs commit `03dd078`
+(new §14.13, Draft — ratified, not yet implemented).** Scoping is option A
+(function-scoped with the loop restriction), and the three remaining questions
+were ratified per the recommendations ("recs are fine"): call-only operand
+including `defer panic(…)`; no deferred calls on a VM-isolated fault; the
+`defer` keyword reserved immediately. Earlier draft was block-scoped; two
+adversarial reviews (memory-model/semantics; spec-consistency) ran against it
+and their still-applicable findings are folded in; the option-A rework passed
+its own delta review (SOUND-WITH-MUST-FIXES — the borrow-not-consume call
+contract and the operand-release timing pinned; both applied).
+Spec design only; implementation tracked in `claude-todo.md` (Language-feature
+proposals → defer).
 
 ## 1. Why now — the recorded rationale doesn't hold
 
@@ -269,14 +273,14 @@ BUILDER-compiled tree waits for a BUILDER cut that carries it.
 (option A), over pure-Go function scoping (hidden unbounded allocation in
 loops) and block scoping (silent conditional-defer false friend).
 
-**Still open for ratification:**
-1. **Operand breadth.** Call-only (recommended, `stmt.defer.call`); sub-point:
-   `defer panic("…")` allowed as recommended — exclude it if too clever.
-2. **Faults under the VM's internal isolation facility.** Recommended: no
-   deferred calls on an isolated fault (both modes agree; the facility is
-   extra-spec).
-3. **Reserve the keyword immediately on ratification** (recommended — zero
-   collisions today) vs only when the implementation lands.
+**RATIFIED (owner, 2026-09-02, "recs are fine"):**
+1. **Operand breadth:** call-only (`stmt.defer.call`), with `defer panic("…")`
+   allowed (it is a call of the predeclared `panic`).
+2. **Faults under the VM's internal isolation facility:** no deferred calls on
+   an isolated fault (both modes agree; the facility is extra-spec — the VM's
+   fault pads release the operand slots but run no calls).
+3. **Keyword:** `defer` reserved immediately (25th keyword, §5.4; zero
+   identifier collisions in the tree at ratification time).
 
 ## 8. Sources
 

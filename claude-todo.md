@@ -1085,6 +1085,39 @@ language extension, not a bug fix.
 
 ## Language-feature proposals
 
+### `defer` — spec RATIFIED & landed (docs `03dd078`); implementation 🔴 OPEN
+
+Spec: new **§14.13 Defer statements** (Draft — ratified 2026-09-02, not yet
+implemented), six rules (`stmt.defer`, `.call`, `.no-loop`, `.exit`, `.return`,
+`.no-abort`); design + rationale + amendment record in
+`explorations/proposal-defer.md`. Summary: function-scoped Go semantics; defer
+banned lexically inside `for` (no intervening function literal) so every
+lexical defer runs ≤1×/activation in lexical order → fixed frame slots, no
+hidden allocation; eager callee/arg evaluation; operands live as anonymous
+function-scope locals released after all defers run, borrowed per `mem.param`;
+runs on return/fall-off only, LIFO (= reverse lexical), before the
+function-exit releases; never on panic/trap/exit (panic inside a deferred call
+abandons the rest); REPL immediate-mode `defer` rejected.
+
+Implementation sketch (recon done; see proposal §6):
+- **token/parser/AST:** keyword via `pkg/binate/token` table (mechanical);
+  `DeferStmt = "defer" Expression` — non-simple statement; not an ASI trigger.
+- **checker:** operand-must-be-a-call (incl. predeclared `panic`; builtin
+  keyword forms rejected); `stmt.defer.no-loop` as a syntactic walk (error text
+  pinned by the spec rule); reject immediate-mode `defer` in the REPL.
+- **IR gen:** per-lexical-defer frame slots (armed flag + operand slots),
+  **pre-registered at function-entry depth and nil-initialized** (else
+  nested-block slots get scope-released/truncated or garbage-swept — see
+  proposal §6); per-return-site emission of the defer-run sequence **before**
+  the existing `emitDecForManagedLocals` (`gen_return.bn`); discarded managed
+  results released per call; VM fault pads (`emitPadCleanup`) release operand
+  slots but emit no calls.
+- **BUILDER:** current BUILDER predates the keyword — `defer` must NOT be used
+  in cmd/bnc's BUILDER-compiled tree until a future BUILDER ships it.
+- **Tests:** conformance (ordering, conditional defer, loop rejection,
+  managed→raw operand retention, panic-in-defer, cross-mode agreement) + unit
+  tests; guide/overview already describe the feature (docs `03dd078`).
+
 ### Switch `fallthrough` — proposal
 - Not in the current grammar (`grammar.ebnf`). Binate switch cases are implicit-break (Go-style), but there's no opt-in for Go's `fallthrough` keyword.
 - Would add one reserved keyword, one AST statement kind (`STMT_FALLTHROUGH`), and one IR lowering (branch to the next case's entry block, skipping its case-value check).
