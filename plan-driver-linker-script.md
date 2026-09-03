@@ -460,7 +460,20 @@ dedicated follow-on.
    sandwiched bss as file zeros (fatness = that bss's size; trailing bss costs nothing) —
    splitting it would force a shared-page PT_LOAD overlap or a silent address-moving
    re-align, both worse, so coalescing (what GNU ld does here) stands.
-4. `*(COMMON)` synthesis.
+4. ✅ DONE (landed 2026-09-03, commit caf1f1b97) — `*(COMMON)` synthesis.  Reader
+   (`parse_elf.bn`) reads `st_size` for every symbol and recognizes `SHN_COMMON`, setting
+   `InputSymbol.Common` with `Size`=st_size and `Value`=st_value (alignment); `SHN_ABS`
+   still folds to −1 (no writer emits it).  `InputSymbol` gained `Size`/`Common` (additive,
+   shipped `.bni`).  Engine (`builder_common.bn`): `Place("*(COMMON)")` allocates each
+   common in the open section (align `dot`, define at that VMA via the abs set, advance by
+   size); same-named commons merge to max size/align and allocate once; a real GLOBAL/WEAK
+   def or a `DefineSymbol` name supersedes the common (a file-LOCAL same-name def does NOT —
+   the review-fixed defect), reservation is NOBITS.  An unplaced-but-referenced common stays
+   a hard error (strict-orphan).  Reader test rewrites an assembled object's symbol entry to
+   `SHN_COMMON` (the assembler emits none).  Adversarial review caught one real defect (fixed
+   in-commit): `hasRealDef` ignored binding, so a `static`-local same-name def suppressed a
+   global common, leaving it unresolvable — now it requires global/weak binding, mirroring
+   `Resolve`.
 5. e2e proofs on what already works: **C (raw-binary blob + signature — arch-agnostic)** and
    a **scripted static x64/aarch64 (ELF64)** program that runs.
 6. Explicit-PHDRS emit (case B) + a higher-half-style e2e (ELF64).
