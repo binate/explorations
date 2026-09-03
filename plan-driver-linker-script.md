@@ -419,7 +419,13 @@ flagged LAYOUT SEMANTICS that become breaking once drivers depend on them.  Reso
    `OutputSection.Addr` can be non-`Align`-aligned; ELF `sh_addr ≡ 0 mod sh_addralign` must be
    satisfied when emit is wired — either auto-align the section start then or mandate
    `SectionAlign`/`SetDot` by contract; LMA start alignment likewise).
-2. Absolute-symbol injection into `Resolve`/`Lookup`; `Finish` wiring.
+2. ✅ DONE (landed 2026-09-02, commit 5bd7c8b22) — Absolute-symbol injection into
+   `Resolve`/`symbolAddr`: `SymbolTable.Abs` + `lookupAbs`; `ResolveWithAbs(objs, abs)`
+   skips abs-covered names in the undefined check (`Resolve` delegates with an empty set —
+   whole-link path unchanged); `symbolAddr` resolves a Lookup-miss against the abs set;
+   object defs win over a same-named abs symbol; `DefineSymbol`/`SymbolAtDot` are
+   last-write-wins.  `LayoutBuilder.Resolve()` wires it.  Symbol surface split into
+   `builder_symbols.bn` (+`_test`).
 3. **arm32 relocator** (`patchArm32`) — prerequisite for A/D.
 4. Emit rewrite: LMA-keyed per-region ELF packing (`p_paddr` from LMA, multi-region file
    offsets, relaxed entry guard) + the **raw-binary** backend.
