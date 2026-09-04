@@ -64,47 +64,57 @@ regular call's byval/agg-coerce ABI helpers; `OP_C_CALL` alloca-hoist case.
 Checker + IR-gen ownership + e2e (small/large struct, raw slice, managed-ptr
 borrow) tests all green; ≤16 aggregate path correct on both backends.
 
-**Adversarial review (2026-09-02) found two CRITICALs — both being fixed before
-landing (owner chose "fix x64 C-ABI now, full feature"):**
+**Adversarial review (2026-09-02) found two CRITICALs — both FIXED + runtime-
+verified on all three targets × both backends (owner: "fix x64 C-ABI now, full
+feature", then "arm32 is a first-class backend — fix it"):**
 
-1. **CRITICAL — void `__c_call` + aggregate arg → LLVM duplicate `%v-1.*` names →
-   compile failure.** A void `__c_call` used `newVoidInstr` (ID = -1); LLVM arg
-   scratch slots are named `%v<ID>.<slot>`, so two void calls collide on
-   `%v-1.bv0`. **Fix:** give a void `__c_call` a real unique ID + `TypVoid()`
+1. **CRITICAL (fixed) — void `__c_call` + aggregate arg → LLVM duplicate `%v-1.*`
+   names → compile failure.** A void `__c_call` used `newVoidInstr` (ID = -1);
+   LLVM arg scratch slots are named `%v<ID>.<slot>`, so two void calls collided on
+   `%v-1.bv0`. **Fix:** void `__c_call` now gets a real unique ID + `TypVoid()`
    result (structurally identical to a void `OP_CALL`, which already works through
-   the register allocator and every backend's TYP_VOID result no-op);
-   `emit_ccall` void detection updated to `Typ==nil || Kind==TYP_VOID`. Done.
-2. **CRITICAL — >16-byte aggregate arg uses the WRONG C ABI on x86_64 → silent
-   miscompile (both backends).** Binate's internal x64 conv passes >16 aggregates
-   as pointer-in-register (`IndirectLargeAggregates=true`); the C SysV-AMD64 ABI
-   passes them MEMORY class (`ptr byval(T)`, bytes copied to the outgoing stack).
-   clang's callee reads the stack → garbage (repro: two 24-byte structs → 28 /
-   garbage vs 42; aarch64 correct). Affects large structs AND managed-slices
-   (`@[]T` = 32 bytes). **Fix — use a C-boundary conv for `OP_C_CALL`:**
-   - LLVM: emit `ptr byval(<T>) align N` for a >16 aggregate `OP_C_CALL` arg on
-     x64 (call site + declare); LLVM then does the SysV classification itself.
-   - Native: a C-boundary `CallConv` variant with `IndirectLargeAggregates=false`.
-     The walker's existing `!SplitAggregates && >16 → memory` path (x64) and
-     `emitAggregateArg`'s memory-class copy-to-stack already handle it — no new
-     emission code.
-   - Target-specific: **x64 SysV** C conv = ILA=false (→ memory); **AAPCS64** C
-     conv UNCHANGED (ILA=true — AAPCS64 C genuinely passes >16 indirect, so
-     aarch64 was already correct); **arm32 AAPCS32** likely ALSO divergent (C
-     passes aggregates by-value split, not indirect) → C conv ILA=false → the
-     `SplitAggregates=true` split path. arm32 divergence to be VERIFIED against
-     clang (beyond the review, which tested x64/aarch64 only) and fixed with the
-     same mechanism if confirmed.
+   the register allocator + every backend's TYP_VOID result no-op); `emit_ccall`
+   void detection is `Typ==nil || Kind==TYP_VOID`.
+2. **CRITICAL (fixed) — >16-byte aggregate arg used the WRONG C ABI → silent
+   miscompile.** Binate's INTERNAL conv passes >16 aggregates as a pointer
+   (`IndirectLargeAggregates=true`), uniformly across targets; the platform C ABI
+   differs per target. **Fix — one centralized C-boundary conv
+   (`CallConv.ForCBoundary()`, keyed off a new `CAbiIndirectLargeAggregates`
+   ctor field) used by BOTH the frame sizing (PlanFrame) AND each backend's
+   OP_C_CALL emission:**
+   - **x86_64 SysV** — C passes >16 MEMORY class (`ptr byval(T)`, bytes on the
+     outgoing stack). LLVM: emit `ptr byval(<T>) align 8` (call + declare). Native:
+     ForCBoundary ILA=false → the walker's `!SplitAggregates && >16 → memory` path
+     + emitAggregateArg's copy-to-stack.
+   - **AAPCS64** — C passes >16 INDIRECT (pointer to a copy), matching Binate's
+     internal conv, so `CAbiIndirectLargeAggregates=true` → unchanged (aarch64 was
+     already correct).
+   - **AAPCS32 (arm32)** — C passes aggregates BY VALUE coerced to `[N x iW]`
+     (split r0-r3 + stack), a THIRD shape. Confirmed vs clang armv7 (`[3 x i64]`).
+     LLVM: emit the coerced `[N x iW]` (call + declare) via a `.cagL<i>` load from
+     the byval spill. Native: ForCBoundary ILA=false → the split path.
+   - **arm32 crash root-caused + fixed:** the split path (never exercised for >16
+     before — internal calls use ILA-pointer) crashed when a struct-return-call
+     RESULT fed a >16 aggregate c_call arg, because **PlanFrame sized the
+     outgoing-args area with the INTERNAL conv while emission used the C-boundary
+     conv → under-reservation → a live spill (a Println slice-header pointer)
+     overlapped the outgoing args and was clobbered**. Fixed by routing PlanFrame's
+     OP_C_CALL sizing through `ForCBoundary()` too (frame + emission now agree).
 
-**Also (MINOR, review):** `emitCCallDeclare` param shapes disagree with call-site
-shapes (LLVM-tolerated for direct calls today) — folded into the byval declare
-fix. **e2e must be strengthened:** the current e2e passes on x64 by accident
-(single-arg struct aliases top-of-stack) and never exercises void or
-multi-aggregate-arg calls — add both so x64 CI actually catches these.
+**Verified (runtime):** x86_64 (both backends, cross+Rosetta), aarch64 (both,
+host), arm32 (both, Docker arm64 container + qemu-arm) — small/large struct, raw
+slice, managed-ptr borrow, TWO >16 aggs, void agg, struct-return-result args all
+→ 42. Unit tests green for every changed package (types, ir, codegen,
+native/{common,x64,aarch64,arm32}); `__c_call` conformance green; static IR
+matches clang on x64 (byval) + arm32 (`[N x iW]`). e2e
+`e2e/c-call-aggregate-args.sh` strengthened (multi-aggregate + void) and given an
+arm32-under-qemu leg (self-skips without the cross-toolchain, runs on Linux CI).
 
-**Remaining:** native x64 C-conv + verify; verify aarch64 unchanged; verify+fix
-arm32; strengthen e2e (void + multi-aggregate); spec `pkg.ccall` update (docs) +
-decouple `pkg.cglobal`'s "same constraint as __c_call args" cross-ref + drop the
-stale `"void"`-return pending note; adversarial re-review; then land.
+**Remaining before landing:** spec `pkg.ccall` update (docs) + decouple
+`pkg.cglobal`'s "same constraint as __c_call args" cross-ref + drop the stale
+`"void"`-return pending note (owner to bless wording); adversarial re-review of
+the fixes; hygiene; land as ONE commit (checker widening + all codegen + tests
+together — a split leaves a silent-miscompile window).
 
 (Original related gap, still open as a follow-on: **`__c_entry` doesn't validate
 its callback target's param/return types are C-representable** — `checkCEntry`
