@@ -495,7 +495,19 @@ dedicated follow-on.
      one.  (Used hand-asm objects, like `bnld-driver-linux.sh` — proving the scripted
      layout+emit; linking full bnc programs is already covered by the whole-link
      `bnld-real-program.sh`.)
-6. Explicit-PHDRS emit (case B) + a higher-half-style e2e (ELF64).
+6. ✅ DONE (landed 2026-09-03, commits ab4e6b127 + 871101449 + adbd3ae88) — Explicit-PHDRS
+   emit (case B) + a higher-half e2e.  The ELF writer now shares a segment-writing core
+   (`writeElfFromSegments`) between the auto-derive path (`EmitElfExec`) and a new
+   explicit-PHDRS path (`EmitElfExecPhdrs` over `segmentsFromExplicit`): a driver's
+   `DefineSegment`/`AssignSection` control the program-header table, each segment carrying
+   its own p_type/p_flags and p_vaddr(VMA)/p_paddr(LMA).  Shipped the segment API
+   (`DefineSegment`/`AssignSection`/`SectionLoadAddr`/`Dot` + `Segment`/`PT_LOAD`/`PF_*`).
+   `drivers/higherhalf.bn` lays out a higher-half kernel (run high `0xffffffff80…`, load low
+   via `AT(Dot()-KVMA)`, explicit text R+X / data R+W segments); `e2e/bnld-higherhalf.sh`
+   structure-checks the emitted ELF (two PT_LOADs, p_vaddr high / p_paddr physical, W^X).
+   It structure-checks rather than boots — a higher-half kernel needs a multiboot loader +
+   QEMU to run, out of scope.  A section assigned to two segments is rejected (overlapping
+   PT_LOADs), with negative tests for all explicit-PHDRS error paths.
 7. **ELF32 read + emit** (parametrize `parse_elf`/`emit_elf` by ELF class; SHT_REL reading) +
    **`patchArm32`** (the reloc set above, REL implicit addends) — then the arm32 firmware/
    baremetal proofs (A/D → QEMU).  This is the deferred arm32 work.
