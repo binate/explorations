@@ -260,6 +260,45 @@ compiles+runs the odd-local → SP-growing-stmt → call shape (hangs on baremet
 regresses).  Whole vm suite now runs on arm32 bare-metal, unsharded, ~4s, `arena=0` — so with
 both this and `4d97a55f0`, vm needs NO baremetal sharding or skip-list.
 
+## native C entries: narrow integer STACK args now canonicalized on non-packing conventions — DONE (2026-09-03, commits 03f908e7e + cea46a49d)
+
+The stack-path sibling of the register-arg dirty-upper-bits bug (a171551d0 / 81b3e6d36).
+A `#[c_export]` C entry taking a narrow integer / bool scalar on the STACK (the >=7th GP
+arg on SysV x64, any spilled narrow arg on AAPCS64-linux, or int8 / int16 on AAPCS32 —
+the todo under-scoped it to 8-byte-slot conventions; arm32's 4-byte slots have the same
+bug for sub-word args) was loaded full-width without re-extension.  A C caller stores only
+the arg's low natural-size bytes into the rounded slot and leaves the rest junk, so a
+native callee's full-width spill dragged that junk into the value's canonical home — wrong
+once -O1+ promotes the param and a 64-bit (32-bit on arm32) signed compare tests it.
+Native->native was fine (native callers store the full extended word).
+
+Fix (cea46a49d): each backend's scalar-stack-arg spill helper (spillScalarStackArgX64,
+spillScalarStackArg, emitFrameLoadSized) already carried the natural-size sign-/zero-extend
+logic but only reached it when cc.StackArgNaturalSize != 0 — true only for AAPCS64_Darwin
+(which packs).  Additively override it: for a #[c_export] entry (isCExport, threaded from
+emitFunc as len(f.CExportNames) > 0), when the convention does NOT pack and the arg is a
+narrow non-float non-aggregate scalar, load at natural size and extend.  Same sized load
+the darwin path already uses (one-for-one instruction swap, no extra cost), idempotent for
+native callers, so it lives in the shared spill for both C and native entry — matching
+81b3e6d36's note.  Darwin and non-c_export functions byte-identical; floats / aggregates
+excluded.  Approach + implementation both adversarially reviewed clean.
+
+Tests: per-arch unit tests pin the sized-extending load for a #[c_export] narrow stack arg
+(int8/int16/int32 sign-extend, bool/uint zero-extend) with non-c_export plain-load negative
+controls + a darwin-inertness case; e2e/ffi-export.sh gained a 9-int32-param facade whose
+9th arg is stack-passed on both SysV and AAPCS64, called through a wide (long) C prototype
+that forces dirty high slot bytes (bug reproduces on a non-packing native target — Linux CI;
+inert on the darwin host).  Validated: native unit tests 5/5, e2e 6/6, native aa64 + x64
+conformance 3000/0 each, hygiene 20/20.  Prep commit 03f908e7e first split arm32's
+aggregate-param spill into arm32_spill_aggregate.bn to keep arm32_emit_func.bn under the
+file-length soft limit.
+
+Related follow-up (NOT done): common_c_entry_gate.bn's comment (justifying the __c_entry
+narrow-arg over-rejection) claims the narrow-stack case is "degenerate-safe (callee prologue
+re-extends it)" — inaccurate for non-c_export __c_entry targets even after this fix (the
+prologue re-extends only for c_export; the gate's fail-loud over-rejection is what protects
+them).  When the __c_entry narrow-arg thunk is built it must handle stack args itself.
+
 ## Shrink pkg/binate/types public interface (opaque handles) — DONE (2026-09-03)
 
 `pkg/binate/types.bni` was over the 1500-line soft limit (1534) because the package

@@ -7,27 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### native C entries: narrow integer STACK args not canonicalized on 8-byte-slot conventions — 🔴 OPEN MAJOR (found 2026-09-02)
-
-**Severity: MAJOR** — the stack-path sibling of the register-arg dirty-upper-bits
-bug (fixed `a171551d0`/`81b3e6d36`). A C caller stores exactly 1/2/4 bytes for a
-narrow stack arg (slot remainder = stale junk); a `#[c_export]` C entry taking a
-narrow int on the STACK (e.g. ≥7 GP args on SysV x64) spills it with a
-full-width unextending load — the natural-size sized-spill exists only for
-AAPCS64_Darwin (common_callconv.bn NaturalSizeStackArgs; x64_emit_func.bn's
-natSize==0 path) — landing junk in the 64-bit canonical home → wrong values at
--O1+ / 64-bit compares. Native→native is fine (native callers store the full
-canonical word — `4798da30a`'s "callers had no bug" reasoning covers native
-callers only). emitCExportRegNorm{,X64,Arm32} normalize register args only.
-Untested: ffi-export.sh functions have ≤2 params; conformance 1230 is
-native→native.
-**Root cause:** the C-entry thunk re-extends register args only; no stack-slot
-re-extension on 8-byte-slot conventions (SysV x64 both OSes, AAPCS64-linux).
-**Discovered:** same review as the entry above.
-**Proposed fix:** the C-entry thunk (and the future `__c_entry` thunk)
-load-extend-stores narrow incoming stack args on those conventions (mirror the
-darwin sized-spill path); ≥7-arg narrow-stack-arg C-driver e2e. Test/xfail owed
-by the implementer.
 
 ### FFI `__c_call` argument C-representability WIDENING — in progress (Inc 1) — 🟡 implementing (found 2026-09-02)
 
