@@ -43,100 +43,27 @@ Also: common_c_entry.bn:102's comment ("dirty high bits when it is passed in a r
 scopes the hazard to registers and doesn't acknowledge the stack gap — fix alongside.
 Owe a stack-passed __c_entry conformance/e2e + unit test.
 
-### FFI `__c_call` argument C-representability WIDENING — in progress (Inc 1) — 🟡 implementing (found 2026-09-02)
+### FFI C-representability follow-ons (after `__c_call` arg widening landed) — 🟢 follow-ons (2026-09-04)
 
-**Goal:** `__c_call("sym", Ret, args…)` argument types widened from scalar/pointer
-to **any type with a defined C-ABI layout** (struct by value, raw slice `*[]T`,
-managed-slice `@[]T`, managed pointer `@T`, interface/func value) — the only
-rejection is an opaque-by-value type. Managed args carry the ORDINARY Binate
-parameter-ownership contract (§18.5 `mem.param`), with C doing any RefInc/RefDec
-BY HAND: `@T`/`@[]T`/`@func` = borrow; interface value = owning-delivery; by-value
-struct with managed fields = copy+RefInc (C RefDecs its copy). (Owner direction
-2026-09-02: contract is exactly the Binate one, C does its part manually; no
-special "borrow-all" or "unmanaged-only" rule.) Return type stays scalar/pointer/
-"void" (struct returns deferred). `__c_global` / `__c_entry` widening are separate
-follow-ons; `#[c_export]` too.
+`__c_call` argument widening LANDED (`bfb0f5d89`): args admit any defined-ABI-
+layout type (struct by value, raw/managed slice, managed ptr, interface/func
+value) with the ordinary `mem.param` ownership (C does RefInc/RefDec by hand);
+correct on x86_64 / aarch64 / arm32 × LLVM + native.  Remaining, sharing the same
+widened C-representability idea:
 
-**Implemented (uncommitted, worktree):** checker admits via
-`isCArgType = !embedsOpaqueByValue`; IR-gen routes args through the shared
-`coerceArg` (mem.param ownership, by construction); LLVM `emit_ccall` reuses the
-regular call's byval/agg-coerce ABI helpers; `OP_C_CALL` alloca-hoist case.
-Checker + IR-gen ownership + e2e (small/large struct, raw slice, managed-ptr
-borrow) tests all green; ≤16 aggregate path correct on both backends.
+- **`__c_entry` callback signature validation** — `checkCEntry` only checks the
+  operand is a declared non-generic top-level function; it never validates the
+  callback's param/return types are C-representable.  Share the widened predicate
+  across `__c_entry`, `__c_global`, and `#[c_export]` signature checking.
+- **Aggregate RETURN types (sret) for `__c_call`** — returns are still restricted
+  to scalar/pointer/"void"; struct/aggregate returns unsupported.
+- **`__c_global` aggregate types** — still scalar/pointer only.
+- **MINOR (review):** `writeByvalMemType` hardcodes `align 8` — a 16-aligned /
+  vector aggregate would be mis-ABI'd vs clang (no such type exists in Binate
+  today; latent).
+- **MINOR (review):** `isCArgType` conservatively over-rejects `*[]Opaque` /
+  `@[]Opaque` (the slice HEADER has a defined layout and could be admitted).
 
-**Adversarial review (2026-09-02) found two CRITICALs — both FIXED + runtime-
-verified on all three targets × both backends (owner: "fix x64 C-ABI now, full
-feature", then "arm32 is a first-class backend — fix it"):**
-
-1. **CRITICAL (fixed) — void `__c_call` + aggregate arg → LLVM duplicate `%v-1.*`
-   names → compile failure.** A void `__c_call` used `newVoidInstr` (ID = -1);
-   LLVM arg scratch slots are named `%v<ID>.<slot>`, so two void calls collided on
-   `%v-1.bv0`. **Fix:** void `__c_call` now gets a real unique ID + `TypVoid()`
-   result (structurally identical to a void `OP_CALL`, which already works through
-   the register allocator + every backend's TYP_VOID result no-op); `emit_ccall`
-   void detection is `Typ==nil || Kind==TYP_VOID`.
-2. **CRITICAL (fixed) — >16-byte aggregate arg used the WRONG C ABI → silent
-   miscompile.** Binate's INTERNAL conv passes >16 aggregates as a pointer
-   (`IndirectLargeAggregates=true`), uniformly across targets; the platform C ABI
-   differs per target. **Fix — one centralized C-boundary conv
-   (`CallConv.ForCBoundary()`, keyed off a new `CAbiIndirectLargeAggregates`
-   ctor field) used by BOTH the frame sizing (PlanFrame) AND each backend's
-   OP_C_CALL emission:**
-   - **x86_64 SysV** — C passes >16 MEMORY class (`ptr byval(T)`, bytes on the
-     outgoing stack). LLVM: emit `ptr byval(<T>) align 8` (call + declare). Native:
-     ForCBoundary ILA=false → the walker's `!SplitAggregates && >16 → memory` path
-     + emitAggregateArg's copy-to-stack.
-   - **AAPCS64** — C passes >16 INDIRECT (pointer to a copy), matching Binate's
-     internal conv, so `CAbiIndirectLargeAggregates=true` → unchanged (aarch64 was
-     already correct).
-   - **AAPCS32 (arm32)** — C passes aggregates BY VALUE coerced to `[N x iW]`
-     (split r0-r3 + stack), a THIRD shape. Confirmed vs clang armv7 (`[3 x i64]`).
-     LLVM: emit the coerced `[N x iW]` (call + declare) via a `.cagL<i>` load from
-     the byval spill. Native: ForCBoundary ILA=false → the split path.
-   - **arm32 crash root-caused + fixed:** the split path (never exercised for >16
-     before — internal calls use ILA-pointer) crashed when a struct-return-call
-     RESULT fed a >16 aggregate c_call arg, because **PlanFrame sized the
-     outgoing-args area with the INTERNAL conv while emission used the C-boundary
-     conv → under-reservation → a live spill (a Println slice-header pointer)
-     overlapped the outgoing args and was clobbered**. Fixed by routing PlanFrame's
-     OP_C_CALL sizing through `ForCBoundary()` too (frame + emission now agree).
-
-**Adversarial RE-review of the fixes found a THIRD CRITICAL (fixed):** the native
-fix used `ForCBoundary`, but the LLVM backend's x64 memory-class classifier
-(`types.SysVArgInMemory` → `sysvArgConsumes`) still modeled a >16 aggregate as
-consuming ONE GP register (the internal ILA-pointer). At the C boundary a >16
-struct is MEMORY class (0 registers), so a ≤16 aggregate that FOLLOWS a >16 one
-was misclassified onto the stack instead of registers → LLVM x64 read garbage
-(repro `f(4 i32, big/*24B*/, two/*16B*/)` → garbage vs 300; native correct). Fixed
-by a C-boundary classifier variant: `types.SysVArgInMemoryC` (>16 → MEMORY, 0
-regs) + `codegen.aggMemClassMaybeC`, routed from the OP_C_CALL sites
-(`writeByvalArgLLVM`, `emitAggCallArgPreamble`); the declare (`emitCCallDeclare`)
-is now position-aware too so it matches the call site (also closes the review's
-declare/call-site MINOR). Two remaining review MINORs are latent/safe, noted as
-follow-ons: `writeByvalMemType` hardcodes `align 8` (no 16-aligned/vector types
-exist today); `isCArgType` conservatively over-rejects `*[]Opaque`/`@[]Opaque`
-(the slice HEADER has a defined layout — could be admitted).
-
-**Verified (runtime):** x86_64 (both backends, cross+Rosetta), aarch64 (both,
-host), arm32 (both, Docker arm64 container + qemu-arm) — small/large struct, raw
-slice, managed-ptr borrow, TWO >16 aggs, void agg, struct-return-result args, AND
-the ≤16-after->16 register-pressure shape (`mix`) all → 42. Unit tests green for every changed package (types, ir, codegen,
-native/{common,x64,aarch64,arm32}); `__c_call` conformance green; static IR
-matches clang on x64 (byval) + arm32 (`[N x iW]`). e2e
-`e2e/c-call-aggregate-args.sh` strengthened (multi-aggregate + void) and given an
-arm32-under-qemu leg (self-skips without the cross-toolchain, runs on Linux CI).
-
-**Remaining before landing:** spec `pkg.ccall` update (docs) + decouple
-`pkg.cglobal`'s "same constraint as __c_call args" cross-ref + drop the stale
-`"void"`-return pending note (owner to bless wording); adversarial re-review of
-the fixes; hygiene; land as ONE commit (checker widening + all codegen + tests
-together — a split leaves a silent-miscompile window).
-
-(Original related gap, still open as a follow-on: **`__c_entry` doesn't validate
-its callback target's param/return types are C-representable** — `checkCEntry`
-only checks the operand is a declared non-generic top-level function. The widened
-predicate should be shared by `__c_entry`, `__c_global`, and `#[c_export]`
-signature checking once `__c_call` Inc 1 lands.)
 
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 

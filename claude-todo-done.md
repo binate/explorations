@@ -6,6 +6,41 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+
+### FFI `__c_call` arguments widened to any defined-ABI-layout type — DONE (2026-09-04, `bfb0f5d89`)
+
+`__c_call` arguments (previously scalar/pointer only) now admit any type with a
+defined C-ABI layout — struct by value, raw slice `*[]T`, managed-slice `@[]T`,
+managed pointer `@T`, interface/function value — passed per the platform C ABI +
+the ordinary `mem.param` ownership (C does RefInc/RefDec by hand).  Only
+opaque-by-value is rejected.  Return type unchanged (scalar/pointer/"void").
+
+Implementation: checker `isCArgType`; IR-gen routes args through the shared
+`coerceArg`; codegen uses a centralized C-boundary convention
+(`CallConv.ForCBoundary()` + a `CAbiIndirectLargeAggregates` field) consulted by
+BOTH `PlanFrame` (native outgoing-args sizing) and each backend's OP_C_CALL
+emission, plus an LLVM C-boundary register-cursor classifier
+(`types.SysVArgInMemoryC` / `codegen.aggMemClassMaybeC`); a void `__c_call` now
+takes a real unique instruction ID.  The C-boundary aggregate ABI is
+target-specific: x86_64 SysV MEMORY (`ptr byval`); AAPCS64 indirect (unchanged);
+AAPCS32 (arm32) by-value coerced `[N x iW]`.
+
+Two adversarial reviews found three CRITICALs, all fixed + runtime-verified:
+(1) void `__c_call` + aggregate arg → duplicate LLVM `%v-1.*` names → compile
+failure; (2) >16-byte aggregate used the wrong C ABI on x86_64 (pointer-in-reg vs
+byval-on-stack), and the arm32 variant crashed because `PlanFrame` under-reserved
+the outgoing-args area while emission used the C-boundary conv — a live spill
+overlapped it (fixed by routing both through `ForCBoundary`); (3) a ≤16-byte
+aggregate FOLLOWING a >16-byte one on x86_64 was misclassified onto the stack
+(the LLVM register cursor counted the >16 agg as a register).
+
+Verified on x86_64 (cross-compile + Rosetta), aarch64 (host), arm32 (Docker arm64
+container + qemu-arm) × LLVM + native.  Tests: checker accept-cases, IR-gen
+ownership tests, and `e2e/c-call-aggregate-args.sh` (small/large struct, raw
+slice, managed-ptr borrow, two-aggregate, void, and a ≤16-after->16
+register-pressure case; the arm32 leg cross-compiles + runs under qemu on Linux
+CI).  Follow-ons (`__c_entry`/`__c_global` C-representability validation,
+aggregate returns, two MINORs) tracked in claude-todo.md.
 ## Native/bnld build throughput — regalloc data-structure churn — DONE (2026-09-03, commits 28059295d + 4afc437a4)
 
 The v1 register allocator's own bookkeeping was ~15-20% of native-compile self-time.
