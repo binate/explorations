@@ -1022,7 +1022,7 @@ runs on return/fall-off only, LIFO (= reverse lexical), before the
 function-exit releases; never on panic/trap/exit (panic inside a deferred call
 abandons the rest); REPL immediate-mode `defer` rejected.
 
-Implementation sketch (recon done; see proposal §6):
+Implementation sketch (recon done; see proposal §6; detailed impl design in [plan-defer.md](plan-defer.md)):
 - **token/parser/AST:** keyword via `pkg/binate/token` table (mechanical);
   `DeferStmt = "defer" Expression` — non-simple statement; not an ASI trigger.
 - **checker:** operand-must-be-a-call (incl. predeclared `panic`; builtin
