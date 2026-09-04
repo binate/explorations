@@ -7,6 +7,68 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### Reserved-namespace gap: synthesized `_pkg*` globals collide with legal user names — 🔴 OPEN latent MAJOR (found 2026-09-04, ABI-spec recon)
+
+**Severity: MAJOR (latent)** — silent symbol collision. The checker reserves
+only `__`-prefixed identifiers and `__bn_inst__` (mangle.IsReservedIdentifier;
+single-underscore names deliberately allowed on the stated ground that all
+synthesized names are `__`-namespaced), but the per-package descriptor
+emitters synthesize SINGLE-underscore globals through the ordinary bn_G
+namespace: `_pkgname`, `_pkg_info`, `_pkg_funcs`, `_pkg_globals`,
+`_pkg_vtables`, `_pkg_satentries`, `_pkg_satfrag` (codegen
+emit_pkg_descriptor.bn / emit_satfrag_pin.bn; native *_pkg_descriptor.bn). A
+user `var _pkg_info ...` at package level passes the checker and mangles to
+the identical symbol (`_pkg_satfrag` is even strong — duplicate-symbol
+error at best, silent shadowing at worst). Proposed fix: either rename the
+synthesized family into `__` (ABI-visible rename) or extend the reserved
+check to the `_pkg` prefix at package scope. Needs a test either way. The ABI
+spec (abi/05 §5.4) carries a Status note flagging this.
+
+### LLVM `__c_entry`-only targets: narrow scalar returns lack signext/zeroext — 🔴 SUSPECTED MAJOR, needs verification (found 2026-09-04, ABI-spec recon)
+
+Same defect class as the FIXED c_export bug (9ef53bcf7): the return-extension
+attribute is gated on `len(f.CExportNames) > 0` (codegen emit_debug.bn ~:115),
+so a function reached ONLY through a `__c_entry` pointer (not also
+`#[c_export]`) that returns int8/int16/bool presents an LLVM define with NO
+signext/zeroext to the C caller through the callback — an optimizing C caller
+(clang -O1+ on darwin-arm64/x64) can read dirty high bits. Found by code
+reading only — NOT verified end-to-end; needs an e2e repro (ffi-export.sh
+style, callback returning int8 summed by a -O2 C caller) before fixing.
+Likely fix: mark __c_entry targets in IR-gen (gen_builtin_ffi.bn) and widen
+the emit_debug gate. Native backends unaffected (full-width returns).
+
+### Inbound `#[c_export]` with a >16-byte by-value param presents the INTERNAL pointer convention to C (x64/arm32) — 🔴 OPEN MAJOR (latent; found 2026-09-04, ABI-spec recon)
+
+Binate's internal convention passes >16-byte by-value aggregates as a single
+pointer-to-copy on every target (deliberate, matches LLVM plain-ptr). Only
+the OUTBOUND `__c_call` direction re-adapts to the true C ABI (byval on x64,
+by-value split on arm32; aarch64 coincides). An exported (`#[c_export]`)
+function with such a param therefore expects the internal pointer form while
+a conforming C caller passes SysV MEMORY / AAPCS by-value — silent garbage on
+x64/arm32. Latent because c_export signatures are UNVALIDATED today (see the
+FFI C-representability follow-ons entry: sharing the representability
+predicate across c_export/__c_entry/__c_global is already listed there); the
+proper fix is either rejecting such signatures at the export (cheap) or
+emitting an adapting entry thunk (full fidelity). The ABI spec (abi/04 §4.4)
+carries a Status note. aarch64 unaffected.
+
+### Native capturing closure passed INTO bytecode: untagged env record → panic or silent misdispatch — 🟡 OPEN, needs an owner decision (found 2026-09-04, ABI-spec recon)
+
+A native capturing closure's data word points at an UNTAGGED environment
+struct (gen_func_lit.bn: one field per capture, no kind word), but the VM's
+BC_CALL_FUNC_VALUE requires data-kind tag 1 (VM closure rec) or 2 (VM
+compiled-closure rec) — so such a value passed as a callback into interpreted
+code panics 'unsupported function-value data kind'; worse, if capture word 0
+happens to equal 1 or 2 it would be silently MISDISPATCHED as a VM record
+(real hazard, not just fail-loud). The Phase-3 done-note's claim of "a common
+kind-tag at the start of data" holds only for VM-created records. Decide:
+(a) designed boundary — spec it as "a native capturing closure is not
+dispatchable by the interpreter" and make the check fully loud (tag ALL
+native closure records or range-check the pointer); or (b) gap — tag native
+closure env structs with a kind word (ABI change to the env layout). The ABI
+spec (abi/03 §3.6) carries a Status note. Non-capturing values (data null)
+are unaffected.
+
 
 
 ### FFI C-representability follow-ons (after `__c_call` arg widening landed) — 🟢 follow-ons (2026-09-04)
@@ -231,20 +293,34 @@ forwarder because it is BUILDER-compiled and the pinned BUILDER bundle ships
 
 ## Documentation hygiene
 
-### An ABI spec does not exist — calling-convention / C-type-mapping material has no home — 🟡 OPEN (raised 2026-09-02)
+### ABI spec — first version AUTHORED (docs 2fc2b2e); follow-up decisions open — 🟡 (2026-09-04)
 
-Observed while ratifying `proposal-c-entry-builtin`: the language spec now
-deliberately avoids backend/ABI mechanics (per the owner: "the spec shouldn't be
-worrying about backends or even the ABI"), but there is **no ABI spec** to push
-that material into. Facts that currently have no normative home (or squat in the
-language spec): the per-target calling convention and register/stack argument
-conventions, sub-word canonicalization expectations at entries/returns, and the
-C-type mapping detail inside `pkg.cexport.signature` (slice = `{T* data;
-ptrdiff_t len}`, the byval cutoff, sret, the func-value field order) — which is
-arguably ABI-spec content the language spec merely references. §7.13 layout
-stays in the language spec (it is the dual-mode language contract), but the
-*calling-convention* layer needs its own document. Decide scope + home
-(docs/abi? an annex?) with the owner before authoring.
+The ABI spec now exists: `docs/abi/` (sibling to `docs/spec/`), 7 chapters +
+index — scope/model (three convention layers; cross-producer
+interchangeability), calling convention (per-target registers, sret,
+multi-return, sub-word canonical form), dispatch convention (shim seam,
+handle contract, trampolines, 7-slot cap), C boundary (type mapping,
+c_export/__c_entry mechanics, arm32-linux HFA deviation), symbol naming (the
+bn_ grammar), linkage/object format (bindings, sections, relocs, startup),
+runtime-at-ABI-level (Draft; manifest stays gated on spec §20.2). Grounded in
+a 7-reader implementation recon (2026-09-04). Marked Provisional — "ABI not
+declared stable". Remaining owner decisions:
+
+1. **Rule-ID wiring**: `abi.*` IDs use the standard lede grammar but are not
+   in `rule-ids.txt` (extractor scans docs/spec/*.md only) nor the §4.5
+   prefix table. Extend the apparatus, or leave the ABI spec un-extracted?
+2. **Move vs cite** for the C-type mapping squatting in
+   `pkg.cexport.signature` (16b): the ABI spec §4.2 states it with 16b as
+   coordinate authority; slimming 16b to a citation is a language-spec edit
+   needing ratification.
+3. **Ratify spec-over-LLVM authority** for the empirically-pinned legs
+   (multi-return register budgets incl. x64 x87 ST0/ST1; arm32
+   sret-pointer-returned-in-R0): abi/01 §1.2 Note claims the spec is now the
+   authority; confirm.
+4. Whether/when any part gets declared **Stable** (abi §1.4).
+5. `ir-backend-guidelines.md` rehoming (separate entry below): the ABI spec
+   now covers its calling-convention/mangling/linkage material; the IR-vs-
+   backend responsibility-split guidance still needs a home.
 
 ### Code comments reference only normative docs + TODOs; rehome the implementation "specs" — 🟡 OPEN
 
@@ -1824,6 +1900,32 @@ unblock them:
   note elsewhere in this file — the same key-ergonomics gap.
 
 ## Opportunistic code cleanups
+
+### Stale comments contradicting live ABI behavior (found 2026-09-04, ABI-spec recon) — 🟢 sweep
+
+All contradict code that has since changed; fix the comments, don't trust
+them (the ABI spec was authored from the code, not these):
+
+- "dormant until the gate flips" family — the SSE and HFA gates are LIVE
+  (SysVSseInRegs true for x64 since ce759c416; HfaInSimd true for aa64 since
+  48e3787b1): common_callconv.bn:90,164; common_callconv_ctors.bn:48-50;
+  x64_sse.bn:19-20; x64_return.bn:52,293; x64_call.bn:187;
+  emit_sysv_coerce.bn:39-40; aarch64_hfa.bn:18-20; abi_return.bn HFA notes.
+- common_callconv_vfp.bn:47-50 "no target stamps yet" — arm32-linux stamps
+  FLOAT_ABI_HARD (cmd/bnc target.bn).
+- aarch64_return.bn:9-16 / aarch64_call.bn:195-199 claim sret at ">64
+  bytes" — operative threshold is InternalSretBytes=16.
+- arm32_call.bn:22-25 header claims float64-in-multi-return is "deferred
+  (P5.3)" — implemented (also an increment label, banned in code comments).
+- irdata/data_strings.bn:30-33 + native/aarch64/aarch64.bn:28-29 say the .ms
+  string header lands in "data" — actual routing is rodata_relro.
+- asm/elf/elf_util.bn:211-216 claims aarch64 low-12/GOT fixups "have no ELF
+  mapping yet" — mapped directly below (:237-245).
+- codegen/emit_funcvals_sig.bn:160-176 (writeShimResultLLVM aggRetCoerced
+  branch) appears unreachable — all callers are behind isAggregateReturn,
+  which is true for every AggRetCoerced result; comment contradicts
+  abi_return.bn. Verify + delete or fix.
+
 
 ### Use interfaces more (where an interface is the best/natural design)
 - **Framing (2026-07-16)**: the bar is NOT "opportunistic / cheap
