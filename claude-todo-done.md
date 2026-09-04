@@ -6,6 +6,27 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## interp: opaque imported types unregistered → driver method + dtor dispatch — DONE (2026-09-03, commits b02ca1fff + f7c7495e5)
+
+An interpreted `bnld -driver` could not call a METHOD on an imported OPAQUE type: the
+interp's cross-package type registration (`ir.RegisterStructTypes`) registered only struct
+and aliased decls, so an opaque `type X` (bodiless `.bni` forward decl, spec §7.12) hit
+`resolveTypeExpr`'s `TypInt()` fallback and the method extern mangled with an `int` receiver
+→ VM `extern not found: pkg/builtins/lang.int.SetInputs`.  Fixed (b02ca1fff) by registering
+opaque decls as named types (`RegisterStructTypes` + `RegisterSelfTypes`) so `@X` resolves to
+the named type whose name mangles method / dtor externs correctly.
+
+The registration then exposed a leak (adversarial review): a driver's opaque `@X` local was
+freed via a NULL-dtor RefDec — the importer can't see X's fields to decide NeedsDestruction.
+Fixed (f7c7495e5) with the opaque-export dtor guarantee — the defining package force-emits a
+public `__dtor_X` for every opaque-exported type (trivial if non-destructible) and the
+importer's opaque `@X` drop RefDecs through it.
+
+Discovered building the scripted-layout driver API (plan-driver-linker-script.md step 5).
+Tests: `TestRegisterStructTypesOpaqueForwardDecl`, `TestOpaqueManagedPtrRefDecRunsDtor`,
+`TestOpaqueExportedStructForcesDtor` (pkg/binate/ir) + the `e2e/bnld-rawbin.sh` proof.  A
+latent follow-on (external-C opaque MANAGED types) is tracked in claude-todo.md.
+
 ## Native/bnld build throughput — bnld symbol resolution was O(n²) — DONE (2026-09-03, commit 9f0d1def1)
 
 The self-hosted linker's symbol resolution scanned the defined-symbol list linearly per

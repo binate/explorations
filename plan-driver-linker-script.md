@@ -474,8 +474,20 @@ dedicated follow-on.
    in-commit): `hasRealDef` ignored binding, so a `static`-local same-name def suppressed a
    global common, leaving it unresolvable — now it requires global/weak binding, mirroring
    `Resolve`.
-5. e2e proofs on what already works: **C (raw-binary blob + signature — arch-agnostic)** and
-   a **scripted static x64/aarch64 (ELF64)** program that runs.
+5. e2e proofs on what already works.
+   - ✅ DONE (landed 2026-09-03, commit 71ebbed50) — **C (raw-binary blob + signature)**:
+     `drivers/rawbin.bn` + `e2e/bnld-rawbin.sh` drive the scripted `LayoutBuilder` via
+     `bnld -driver` to emit a 512-byte MBR image (code at 0x7C00, pad to 510, 0x55AA), and
+     structure-check it — arch-agnostic, host-independent.  This forced two prerequisites:
+     (i) **shipping a subset of the builder API** to the driver-facing `.bni` (`LayoutBuilder`
+     opaque + `Section` + `NewLayout` + the raw-binary methods — a down-payment on step 8),
+     and (ii) fixing a MAJOR interp bug — **opaque imported types were unregistered** so a
+     driver's method call on an opaque `@X` mis-dispatched, and their **dtors weren't run**
+     on drop (leak); both fixed (commits b02ca1fff + f7c7495e5; see claude-todo-done.md).
+   - TODO — a **scripted static x64/aarch64 (ELF64)** program that RUNS: needs `EmitElf` +
+     `SetEntry` shipped to the `.bni`, a driver that reads real bnc objects and lays out
+     `.text`/`.rodata`/`.data`/`.bss` + entry, and (for the RUN) the x86-64 Linux e2e lane
+     (like `bnld-real-program.sh`).
 6. Explicit-PHDRS emit (case B) + a higher-half-style e2e (ELF64).
 7. **ELF32 read + emit** (parametrize `parse_elf`/`emit_elf` by ELF class; SHT_REL reading) +
    **`patchArm32`** (the reloc set above, REL implicit addends) — then the arm32 firmware/

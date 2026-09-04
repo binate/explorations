@@ -7,37 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### interp: opaque imported types unregistered → methods on them mis-dispatch in `bnld -driver` — 🔴 OPEN MAJOR (found 2026-09-03)
-
-**Severity: MAJOR** — blocks the driver-scripted-layout goal (plan-driver-linker-script.md
-step 5+): an interpreted `bnld -driver` cannot call a METHOD on an imported OPAQUE type.
-The compiled linker registers the methods fine (e.g.
-`___handle.bn_..._link2_13_LayoutBuilder9_SetInputs` exists in a built `bnld`), but the
-driver's interp path fails to resolve the opaque receiver type and mangles the extern with
-an `int` receiver, so the VM aborts: `panic: vm: extern not found:
-pkg/builtins/lang.int.SetInputs`.
-**Root cause:** `pkg/binate/ir/RegisterStructTypes` (via
-`interp/imports.bn:registerAllStructTypes`) Pass 1 registers only `d.TypeRef.Kind ==
-ast.TEXPR_STRUCT` decls. An opaque type (`type LayoutBuilder`, no body — spec §7.12) is
-skipped, so a reference to `@LayoutBuilder` in the driver hits `resolveTypeExpr`'s
-`TypInt()` fallback (same fallback the alias-registration comment there warns about) and
-mis-lowers to a scalar int — so the method extern name uses `pkg/builtins/lang.int` instead
-of `pkg/binate/link.LayoutBuilder`. Opaque types compile FINE under full `bnc` (verified: a
-program using an opaque-export type built cleanly with BUILDER bnc-0.0.15); only the
-interp's cross-package registration omits them.
-**Discovered:** shipping a subset of the scripted `LayoutBuilder` API (opaque `type
-LayoutBuilder` + method decls) in `ifaces/toolchain/pkg/binate/link.bni` and writing a
-`bnld -driver` that calls `b.SetInputs(...)` etc. `NewLayout` (a free FUNCTION returning
-`@LayoutBuilder`) resolves fine; the first METHOD call panics. `drivers/elf.bn` never hit
-this — it only calls the free function `link.Link`.
-**Proposed fix:** register opaque (bodiless) imported types in the interp's cross-package
-type registration so `@OpaqueType` resolves to the named opaque type (a by-reference handle
-— only the NAME is needed for method mangling; no layout). Likely `RegisterStructTypes` (or
-a sibling) plus the type resolver's opaque handling; `pkg/binate/ir` is BUILDER-compiled, so
-the change must stay BUILDER-compilable (no new-to-BUILDER feature — it isn't). Test: a
-`bnld -driver` e2e that calls a method on an imported opaque type (the shipped builder API),
-currently blocked.
-
 ### native C entries: narrow integer STACK args not canonicalized on 8-byte-slot conventions — 🔴 OPEN MAJOR (found 2026-09-02)
 
 **Severity: MAJOR** — the stack-path sibling of the register-arg dirty-upper-bits
@@ -928,6 +897,19 @@ DEFERRED 2026-09-02 (reviewed alongside the other bnld follow-ups): confirmed pr
 nothing currently reaches the reject (the only section-relative relocs are in the dropped
 unwind sections), so this stays parked until a real clang/LLVM object needs a
 section-relative reloc in a KEPT section.
+
+### opaque-export of an external-C managed type would call a never-defined dtor — 🟡 LATENT (noted 2026-09-03)
+
+**Latent — not reachable today.** The opaque-export dtor guarantee (landed b02ca1fff /
+f7c7495e5: a package force-emits a public `__dtor_X` for a `.bni` forward-declared type,
+and an importer's opaque `@X` drop RefDecs through it) assumes the defining package actually
+BUILDS + LINKS that dtor.  A `.bni` that forward-declares `type X` with NO `.bn` body and NO
+in-tree provider — held as `@X` and dropped — would emit a call to an undefined
+`pkg.__dtor_X`.  Cannot arise now: every shipped opaque forward-decl has a `.bn` body, and a
+managed `@X` (refcount-headered) cannot name a purely-external C/asm allocation (those are
+`*X`, not `@X`).  Only relevant if external-C opaque MANAGED types are ever introduced —
+then the checker should require an in-tree/linked dtor for an opaque-exported managed type.
+Found: adversarial review of the opaque-export dtor fix.
 
 ## bnfmt (self-hosted formatter)
 
