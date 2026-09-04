@@ -212,6 +212,16 @@ operand-mutation; arm32 bounds-fail marshalling), and the per-backend validation
 **~9–12×** to **~3.4×** (aarch64, native-compile of cmd/bnc via `--linker bnld`: clang 8.79s vs
 native 30.76s); the remaining gap is exactly the Stage-5 headroom below.
 
+**Reproducible gap benchmark: `perf/native-vs-llvm.sh` (landed `1547956aa`).** Builds bnc
+`--backend llvm -O2` vs `--backend native -O2` from the current tree and times each doing the
+identical work (self-compile `<target>`, default cmd/bnc, via `--backend native --linker bnld`),
+reporting the native/llvm ratio. **Current measured ratio (2026-09-04): ~3.9×** (native-built
+bnc ~6.8s vs llvm-built ~1.7s), corroborated by binary size — native 10.9 MB vs llvm 4.5 MB
+(~2.4× more code). **This is HIGHER than the ~3.4×/~2.5× recorded above and needs digging into**
+(the earlier figures may have used different conditions, or something regressed since — bisect
+the benchmark against `43054b3f1`/`f4bb7f4b7` to tell which). 3.9× is bad; closing it is the
+point of this whole section.
+
 **Stage 5 refinements** (additive, on the same foundation):
 - **Caller-saved homes (leaf / call-free regions) — TRIED aa64, NEUTRAL, SHELVED (2026-09-02).**
   Homed non-call-spanning values in the caller-saved arg bank (no save/restore).  Correct +
