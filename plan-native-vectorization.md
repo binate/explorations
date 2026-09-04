@@ -122,7 +122,16 @@ a run of GP registers (manual unroll + word-remainder tail on the existing byte 
   permanent fallback for arm32 / any target without SIMD.  It does NOT make the SIMD
   work below unnecessary — closing the MemZero/MemCopy gap REQUIRES the wide asm.
 
-### V1/V2a STP wide-store MemZero — IMPLEMENTED, pending land (2026-09-04)
+### V1/V2a STP wide-store MemZero — LANDED (2026-09-04)
+
+Landed on main: `97ea35125` (DC-ZVA/MRS encoders), `f9fe6e3dd` (sub-word
+LDR/STR post/pre-index fix + load/store file split), `53a422f5b` (the hand-asm
+MemZero `.s` seam + the `--library` archive fix + its e2e).  Validation: hygiene
+20/20, native + LLVM aa64 conformance 3000/0 each, e2e ffi-export 7/0 (incl. a
+new allocating-`--library` regression check), all four aa64 backend×linker
+combos.  A minimal adversarial review found one MAJOR defect — `--library`
+archives on aa64 were missing the gated-off MemZero (only 3 of the 4 link/
+archive paths were wired) — fixed before landing.
 
 Built the aarch64 hand-asm `rt.MemZero` via a new runtime `.s` link seam (V2a),
 using STP-of-XZR wide stores (NOT DC ZVA yet).  Result and consequences:
