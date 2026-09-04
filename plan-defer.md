@@ -376,3 +376,149 @@ require all of them, so any split is landing-cadence only, not a scope cut.
 5. **Fall-off exits.** Are the two `gen_func.bn` void-return arms (entry-tail +
    "check all blocks") the complete set of normal void exits, or can other
    non-terminated blocks reach a void return without passing through them?
+
+## 8. Adversarial review outcomes & design revisions (2026-09-04)
+
+Two independent adversarial reviews ran against §1–§7: one on the
+memory/refcounting-ownership lens, one on control-flow/exit-path/spec/front-end.
+**Both verdicts: SOUND-WITH-MUST-FIXES.** The fixed-frame-slot approach is
+correct and no reviewer preferred the closure alternative. The front-end
+(token/parser/checker) design is sound as written and fully cleared (call-only,
+no-loop `InLoopBody`, `InFunc`/REPL-immediate, parser headers/ASI, builtin
+rejection, pre-pass/literal non-double-count, terminating analysis). The
+must-fixes below apply to §3 (IR-gen) and supersede the conflicting prose there.
+
+### MUST-FIX 1 (critical, mem-C1) — coerce operands to call-ready form EAGERLY at the defer site, not at exit
+
+The §3.4/§3.5 "store natural (pre-coercion) form, run `coerceArg` at exit" is
+**wrong** for coercions keyed on the argument's IR opcode / untyped-ness rather
+than its type: string-literal→`@[]char`/`@[]readonly char` (`OP_CONST_STRING`,
+`gen_call.bn:56`), `nil`→typed-slice (`OP_CONST_NIL`, `:70`), untyped-scalar→
+param width (`coerceScalarWidth`, `:120` / `gen_binary_width.bn:103-109`). A
+value LOADED from a slot is `OP_LOAD` with a concrete type, so those arms can
+never fire at exit → a mis-shaped value is stored (2-word const into a 4-word
+managed-slice slot), and the callee's entry `emitManagedSliceRefInc` then
+RefInc/RefDecs a **garbage refptr** → heap corruption / UAF for any `@[]char`/
+`@[]T` param. (`defer panic("x")` may survive by luck since panic's param is a
+raw `*[]readonly char`; `@[]char` params do not.)
+
+Revised operand model:
+- **At the defer site (eager):** evaluate each operand (`genExpr`), then run the
+  **constant/literal + width** coercions immediately (`EmitStringToChars`,
+  nil→typed, `coerceScalarWidth`), producing a **call-ready, param-typed** value.
+  Store it into a **param-typed** slot, acquiring slot ownership via the tested
+  `emitStoreManagedSlot(ctx, b, slot, val, slotTyp, isInit=true)`
+  (`gen_store_slot.bn:49` — the move-if-fresh / RefInc-if-borrow dispatcher;
+  reuse it rather than a hand-rolled RefInc — mem-N4). `OperandTypes[k]` = the
+  **param type** for these.
+- **The one exception — managed→raw args** (`@[]T`/`@T` arg to a raw `*[]T`
+  param): store the **pre-conversion managed value** in a **managed-typed** slot
+  (spec `stmt.defer`: retain the pre-conversion managed value, deliver the borrow
+  at call time). `OperandTypes[k]` = the managed type here.
+- **At exit (type-driven, replayable from a load):** ONLY the borrow/delivery
+  coercions — `EmitManagedToRaw` for a managed→raw slot, the `@Iface`
+  deliver-ref RefInc (a load is never "fresh" so it takes the RefInc arm,
+  `gen_call.bn:110-118`), and the callee-copy `emitStructCopy` for a
+  `needsStructCopy` operand (`:82-95`). No constant/width coercion at exit.
+
+This also dissolves §3.6 bullet 1 (the string-temp-at-exit worry): the
+string→chars copy now happens at the defer site and its temp is swept by the
+defer statement's own end-of-statement `emitTempCleanup`.
+
+### MUST-FIX 2 (major, mem-M1) — DEFER_METHOD receiver conversion is eager too
+
+A pointer-receiver method on an addressable value receiver (`defer v.Close()`,
+`Close` has `*T` recv, `v` a struct local) needs the receiver **address**,
+computed by `applyReceiverConversion` (`gen_method_recv.bn:23`) via
+`genSelectorPtr` **from the AST `srcExpr`** — unreconstructable at exit from a
+stored value (taking `&slot` addresses a copy → pointer method mutates the copy,
+silent divergence). Fix: run `applyReceiverConversion` **at the defer site**
+(srcExpr in hand) and store the already-converted receiver (the `*T` address for
+a pointer method; the loaded value for a value/`@T` method). At exit just load +
+call. (`defer p.Close()` with `p @T` value-or-managed receiver is already fine.)
+
+### MUST-FIX 3 (critical, cf-F1) — fall-off must run defers while body-scope locals are still LIVE
+
+On the fall-off exit, the outermost body `genBlock` (`gen_stmt.bn:22`) ALREADY
+runs `emitDecForScopeVars` + truncates `ctx.Vars` (`:57-58`) for the body's own
+managed locals BEFORE control returns to `gen_func.bn`'s fall-off arm — so
+inserting `emitPendingDefers` there runs defers AFTER the body locals were
+released. That violates `stmt.defer.exit` ("deferred calls run while the
+function's still-open scopes' locals are live; then locals release") and makes
+`return` and fall-off **diverge** (return centralizes cleanup in
+`genReturnStmt`, which runs while `ctx.Vars` is full because `genBlock` skips
+cleanup on a terminated block). UAF for a raw operand borrowing a managed
+body-local (`p := makeManaged(); defer inspect(&p)` on fall-off frees `p` before
+`inspect` runs).
+
+Fix: route the function-body fall-off through the SAME epilogue as return, with
+body-scope locals still live. Add `genBlockEx(ctx, b, stmt, skipFalloffCleanup)`
+(`genBlock` = `genBlockEx(…, false)`); `gen_func.bn` calls it with
+`skipFalloffCleanup = (len(ctx.Defers) > 0)` for the body — on a non-terminated
+(fall-off) body exit it then skips the body-scope `emitDecForScopeVars` +
+truncate, leaving the full `ctx.Vars` (body + entry) intact so `gen_func.bn`'s
+fall-off arm runs `emitPendingDefers` THEN `emitDecForManagedLocals` over the
+FULL set. Gated on has-defers → zero behavior change for defer-free functions.
+(Return path unchanged and already correct.) Test: a void function that falls
+off with a `defer` observing a managed local via a raw borrow, and its
+`return`-terminated twin, asserting identical behavior.
+
+### MUST-FIX 4 (major, cf-F2) — `emitPendingDefers` uses SCOPED temp cleanup, never the clearing form / never SP_RESTORE at a return site
+
+`emitTempCleanup`/`…Body` CLEAR the shared `ctx.Temps` and emit `OP_SP_RESTORE`
+when `StmtGrewSP` (`gen_temp_cleanup.bn:71,106,53-58`). At the return value-arm
+insertion point `ctx.Temps` already holds the return expression's in-flight
+temps (e.g. `return "lit"`'s `OP_RODATA_MSLICE_COPY`, `gen_return.bn:100`);
+clearing them early or emitting `SP_RESTORE` would corrupt the returned value on
+the VM (`SP_RESTORE` truncates the aggregate before `BC_RETURN` copies it back).
+Fix: `emitPendingDefers` snapshots `savedTempLen := len(ctx.Temps)` on entry and
+uses the scoped `emitTempCleanupSince(ctx, b, savedTempLen)`
+(`gen_temp_cleanup.bn:150`) inside each `thenB` — never the clearing form, never
+`SP_RESTORE` at the return site. This also covers the fall-off leak (no trailing
+`emitTempCleanupForReturn` there). A temp created in the armed-only `thenB` must
+be RefDec'd IN `thenB` (it does not dominate `contB` — a `contB` RefDec = UAF).
+
+### MUST-FIX 5 (major, cf-F3 / mem-N1) — pre-pass walk mirrors `genStmt` recursion; `genDeferStmt` HARD-FAILS on a missed `DeferSite`
+
+The §3.3 pre-pass walk must enumerate exactly the `STMT_DEFER` set `genStmt`
+reaches: `STMT_BLOCK`, `STMT_IF` Body+Else, `STMT_SWITCH` case bodies,
+`STMT_TYPE_SWITCH` case bodies, nested blocks — **not** descending into function
+literals (each literal re-enters `genFuncWithPrependedParams` with its own
+pre-pass). A `defer` in an `if`/`switch`/nested block is legal (only loops are
+banned), so under-walking silently drops a legal defer. `genDeferStmt` MUST
+abort (verify-style) when `same(site.Stmt, stmt)` finds no site — never no-op
+(the current `genStmt` default `gen_stmt.bn:145` IS a silent drop). Test a defer
+nested in each construct.
+
+### Minor fixes to fold in
+
+- **mem-N2** — a discarded managed **struct** result (`needsStructCopy(ResultType)`)
+  needs store-to-temp + `emitStructDtor`, not a scalar RefDec.
+- **mem-N3** — `emitPendingDefers` uses raw `EmitCall` (no `OP_SP_RESTORE`
+  between deferred calls); not a leak (bounded by static defer count, reclaimed
+  by `BC_RETURN`). Add a comment so nobody "fixes" it by inserting SP restores.
+- **cf-F4** — the `gen_func.bn:222` check-all-blocks loop re-reads
+  `len(f.Blocks)` while `emitPendingDefers` appends blocks; safe only because
+  every runner block is terminated in-iteration. Snapshot `n := len(f.Blocks)`
+  before the loop and/or assert runner blocks are terminated.
+- **cf-F5** — the IIFE operand `defer func(){…}()` classifies as the FUNCVAL
+  shape (the literal is lifted to its own `Func` with its own pre-pass; not
+  double-counted). Add it to the §3.5 shape list + a conformance test.
+- **cf-F6** — Inc A's `genDeferStmt` fail-loud is an abort/panic (there is no
+  first-class IR-gen user-error channel); it is genuinely non-miscompiling
+  (checker already rejects invalid defers; only valid ones reach codegen and
+  abort). Describe it as an abort, not a "clean COMPILE_ERROR". Since a valid
+  `defer` would abort the compiler in Inc A, prefer landing Inc A and Inc B
+  close together (or as one commit) so there is no lasting "valid defer crashes
+  bnc" window — the keyword is brand-new (zero collisions) so this is not a
+  regression, but keep the window short.
+
+### Cleared by review (no action)
+
+Ownership ledger balances for all four managed kinds, the `@Iface` move model,
+managed→raw, struct-copy, conditional/return/fault paths (mem scenarios 1–10);
+the armed flag is needed only for CALL correctness, not cleanup (cleanup is
+nil-safe). The four exit-insertion points are the complete normal-exit set;
+LIFO=reverse-lexical-with-armed-gate; no-abort holds on both compiled traps and
+VM fault pads; `defer panic` LIFO abandonment is correct; the no-loop flag
+covers both `for` shapes; parser/ASI/REPL/builtin-rejection all correct.
