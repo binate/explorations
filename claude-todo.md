@@ -101,10 +101,26 @@ feature", then "arm32 is a first-class backend — fix it"):**
      overlapped the outgoing args and was clobbered**. Fixed by routing PlanFrame's
      OP_C_CALL sizing through `ForCBoundary()` too (frame + emission now agree).
 
+**Adversarial RE-review of the fixes found a THIRD CRITICAL (fixed):** the native
+fix used `ForCBoundary`, but the LLVM backend's x64 memory-class classifier
+(`types.SysVArgInMemory` → `sysvArgConsumes`) still modeled a >16 aggregate as
+consuming ONE GP register (the internal ILA-pointer). At the C boundary a >16
+struct is MEMORY class (0 registers), so a ≤16 aggregate that FOLLOWS a >16 one
+was misclassified onto the stack instead of registers → LLVM x64 read garbage
+(repro `f(4 i32, big/*24B*/, two/*16B*/)` → garbage vs 300; native correct). Fixed
+by a C-boundary classifier variant: `types.SysVArgInMemoryC` (>16 → MEMORY, 0
+regs) + `codegen.aggMemClassMaybeC`, routed from the OP_C_CALL sites
+(`writeByvalArgLLVM`, `emitAggCallArgPreamble`); the declare (`emitCCallDeclare`)
+is now position-aware too so it matches the call site (also closes the review's
+declare/call-site MINOR). Two remaining review MINORs are latent/safe, noted as
+follow-ons: `writeByvalMemType` hardcodes `align 8` (no 16-aligned/vector types
+exist today); `isCArgType` conservatively over-rejects `*[]Opaque`/`@[]Opaque`
+(the slice HEADER has a defined layout — could be admitted).
+
 **Verified (runtime):** x86_64 (both backends, cross+Rosetta), aarch64 (both,
 host), arm32 (both, Docker arm64 container + qemu-arm) — small/large struct, raw
-slice, managed-ptr borrow, TWO >16 aggs, void agg, struct-return-result args all
-→ 42. Unit tests green for every changed package (types, ir, codegen,
+slice, managed-ptr borrow, TWO >16 aggs, void agg, struct-return-result args, AND
+the ≤16-after->16 register-pressure shape (`mix`) all → 42. Unit tests green for every changed package (types, ir, codegen,
 native/{common,x64,aarch64,arm32}); `__c_call` conformance green; static IR
 matches clang on x64 (byval) + arm32 (`[N x iW]`). e2e
 `e2e/c-call-aggregate-args.sh` strengthened (multi-aggregate + void) and given an
