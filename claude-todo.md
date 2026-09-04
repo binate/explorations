@@ -8,6 +8,41 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 ## MAJOR
 
 
+### native __c_entry: narrow integer STACK args of a non-c_export callback target not normalized — 🔴 OPEN MAJOR (found 2026-09-04)
+
+**Severity: MAJOR** (silent wrong-value at a C->Binate callback boundary; LOW likelihood).
+The stack-arg sibling of the __c_entry register normalization — analogous to the just-fixed
+#[c_export] stack bug (main commit cea46a49d), but on the __c_entry path.
+
+The __c_entry adaptation thunk (common_c_entry.bn + the per-arch x64/aarch64/arm32
+_c_entry.bn, Inc B2) normalizes only narrow ARGUMENT-REGISTER params (it calls
+emitCExportRegNorm{,X64,Arm32} then branches to the mangled entry) — it does NOT normalize
+narrow STACK args.  And collectCEntryThunkTargets' funcHasNarrowGPParam flags a target for a
+thunk on ANY narrow GP param (reg OR stack), so a target whose narrow param is stack-passed
+gets a thunk that does nothing for it.  The mangled entry's spill normalizes narrow stack
+args only for #[c_export] functions (spillScalarStackArg* gated on len(f.CExportNames) > 0,
+cea46a49d).  So: a __c_entry callback target that (a) takes a narrow int/bool on the STACK
+(>=7th GP arg on SysV x64, >=9th on AAPCS64, or int8/int16 beyond the 4 arg regs on AAPCS32)
+AND (b) is NOT itself #[c_export], has that stack arg's dirty high bits left un-normalized ->
+wrong value at -O1+ / 64-bit compare.  Untested: common_c_entry_test.bn covers only
+register-passed narrow params; conformance 1235_c_entry_qsort is a 2-arg comparator.
+
+**Discovered:** while going to correct the (now-gone) fail-loud-gate comment the c_export
+stack-fix approach review flagged; the gate was replaced by the Inc B2 thunk, which turns
+out to handle registers only — the exact "the __c_entry thunk must handle stack args itself"
+follow-up the review predicted, now live.
+
+**Proposed fix (needs a decision):** either (a) the __c_entry thunk also normalizes narrow
+STACK args in place — load-extend-store each narrow stack slot at the entry-relative SP
+offset before branching to the mangled entry (mirrors emitCExportRegNorm but for stack); or
+(b) mark __c_entry targets so the shared mangled-entry spill (spillScalarStackArg*) extends
+their stack args too (reuses cea46a49d's mechanism, but the spill must learn the func is a
+__c_entry target).  (a) keeps normalization in the thunk (consistent with the reg path,
+doesn't touch native callers of the same function); (b) reuses the existing spill path.
+Also: common_c_entry.bn:102's comment ("dirty high bits when it is passed in a register")
+scopes the hazard to registers and doesn't acknowledge the stack gap — fix alongside.
+Owe a stack-passed __c_entry conformance/e2e + unit test.
+
 ### FFI `__c_call` argument C-representability WIDENING — in progress (Inc 1) — 🟡 implementing (found 2026-09-02)
 
 **Goal:** `__c_call("sym", Ret, args…)` argument types widened from scalar/pointer
