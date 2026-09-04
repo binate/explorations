@@ -217,10 +217,17 @@ native 30.76s); the remaining gap is exactly the Stage-5 headroom below.
 identical work (self-compile `<target>`, default cmd/bnc, via `--backend native --linker bnld`),
 reporting the native/llvm ratio. **Current measured ratio (2026-09-04): ~3.9×** (native-built
 bnc ~6.8s vs llvm-built ~1.7s), corroborated by binary size — native 10.9 MB vs llvm 4.5 MB
-(~2.4× more code). **This is HIGHER than the ~3.4×/~2.5× recorded above and needs digging into**
-(the earlier figures may have used different conditions, or something regressed since — bisect
-the benchmark against `43054b3f1`/`f4bb7f4b7` to tell which). 3.9× is bad; closing it is the
-point of this whole section.
+(~2.4× more code).
+
+**The ~3.4×/~2.5× recorded above is a DIFFERENT (non-comparable) metric — reconciled by bisecting
+the benchmark.** Running `native-vs-llvm.sh` at the historical commits gives a clean, monotonically
+improving trend by ONE consistent code-quality metric: `f4bb7f4b7` (regalloc v1) **6.9×**
+(18.1s/2.65s, native 10.6 MB) → `43054b3f1` (MemZero widen) **5.0×** (13.8s/2.66s, native 10.7 MB)
+→ now **3.9×**.  The old figures are consistently ~2× SMALLER than this at the same commits, so
+they measured something else (throughput-contaminated, not the pure native-built-vs-llvm-built
+code-quality ratio).  So: native codegen IS steadily improving (6.9→5.0→3.9), the native binary is
+always ~2.4× the llvm one, and the real code-quality gap is ~3.9× — large, and the target of this
+section.  Use `perf/native-vs-llvm.sh` as the canonical gap number going forward.
 
 **Stage 5 refinements** (additive, on the same foundation):
 - **Caller-saved homes (leaf / call-free regions) — TRIED aa64, NEUTRAL, SHELVED (2026-09-02).**
