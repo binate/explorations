@@ -326,9 +326,16 @@ sized load holds regardless of entry kind (negative controls -> full-word contro
 e2e/c-entry-narrow-callback.sh gained a 9-int32-param NON-c_export callback whose 9th
 (stack-passed on both SysV and AAPCS64) arg is driven dirty through a wide C prototype.
 Validated: native unit tests 5/5, c-entry e2e 2/2, native aa64 + x64 conformance 3000/0 each,
-hygiene 20/20.  (Possible follow-up, not required: tighten funcHasNarrowGPParam to fire only
-for register-passed narrow params so a stack-only-narrow target goes degenerate instead of
-getting a redundant no-op thunk.)
+hygiene 20/20.  Follow-up DONE (commit e46fd4580): the thunk-emission decision now
+fires only for a REGISTER-passed narrow param — shared common.CEntryRegNormWalk is the single
+source of truth behind both the decision (funcHasNarrowGPRegParam -> collectCEntryThunkTargets,
+now taking the backend CallConv via ArchEmitter.CallConv()) and the emitCExportRegNorm*
+register normalization, with the sret arg-register shift derived via cc.SretInGpArgReg (SysV/
+AAPCS32 shift, AAPCS64 X8 no-shift).  A stack-only-narrow __c_entry target now goes degenerate
+(no redundant no-op thunk); the x64/arm32 thunks shed a now-dead PlanFrame.  Behavior-preserving
+for #[c_export] + register __c_entry thunks (thunk bytes unchanged); native unit tests 5/5,
+c-entry e2e 2/2, native aa64 + x64 conformance 3000/0 each, hygiene 20/20; impl adversarially
+reviewed SHIP.)
 
 ## native C entries: narrow integer STACK args now canonicalized on non-packing conventions — DONE (2026-09-03, commits 03f908e7e + cea46a49d)
 
