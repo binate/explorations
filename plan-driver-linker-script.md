@@ -521,10 +521,26 @@ dedicated follow-on.
      NONE.  Adversarially reviewed against real bnc-produced arm32 objects; all offsets/bit-ops
      verified.  Executable EMIT stays ELF64-only behind a loud `EM_ARM` reject guard (so a
      now-readable arm32 object can't flow into a silent malformed-ELFCLASS64 write).
-   - **ELF32 emit** — parametrize `writeElfFromSegments`/`EmitDynElfExec` by class (Elf32
-     Ehdr=52B / Phdr=32B with `p_flags` at offset 24; 4-byte addresses), replacing the guard.
-     Enables both the scripted-driver `EmitElf` path and the whole-link `Link` path for arm32.
-   - **arm32 firmware/baremetal proofs** (A/D → QEMU).
+   - ✅ DONE (landed 2026-09-04, commit 9765da038) — **ELF32 emit**.  `writeElfFromSegments` is
+     parametrized by class (derived `is64 := machine != EM_ARM`): a 52-byte Elf32_Ehdr and
+     32-byte Elf32_Phdr program headers (with `p_flags` at offset 24, not 4) and 4-byte
+     addresses, replacing the guard.  Enables both the scripted-driver `EmitElf` path and the
+     whole-link `Link` path for arm32 (`Link`/`EmitElfExec` now accept `EM_ARM`); the
+     dynamic-ELF writer still rejects `EM_ARM` (arm32 links statically).  Verified: emitted
+     image accepted by `arm-none-eabi-readelf` as an ELF32 EXEC with one `R E` PT_LOAD.
+   - ✅ DONE (landed 2026-09-04, commit 1fc38d034) — **arm32 baremetal proof (case D → QEMU)**.
+     `drivers/baremetal-arm.bn` (arm32 analogue of `drivers/staticelf.bn`) scripts an ELF32
+     image at the 0x40000000 RAM base; `e2e/bnld-arm32-baremetal.sh` links two hand-asm arm32
+     objects via `bnld -driver` (a cross-object `bl` → R_ARM_JUMP24 the linker resolves +
+     patches; the callee writes "OK" to the PL011 UART) and BOOTS the result under
+     `qemu-system-arm -M virt`, passing only if "OK" appears.  The boot is the real proof:
+     the unrelocated branch targets itself, so a no-op relocator would spin and never print.
+     DISCOVERY: `bnas` `.s` takes immediate-only `movw/movt` and constant-only `.int32`, so a
+     hand-asm program cannot emit MOVW_ABS_NC / MOVT_ABS / ABS32 relocations — the e2e
+     exercises the cross-object JUMP24 + full pipeline via the boot; MOVW/MOVT/ABS32/PREL31/
+     NONE are covered by the `relocate_arm32_test.bn` unit tests (real field-decode).
+   Step 7 (the deferred arm32 work) is COMPLETE — the linker reads, relocates, and emits
+   arm32 (ELF32) and a scripted driver produces a bootable baremetal image.
 8. Ship the builder API in `pkg/binate/link.bni`; reference scripted drivers.
 
 Verdict (review): shape is sound to start the engine core with the above pins resolved.
