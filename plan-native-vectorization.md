@@ -74,7 +74,17 @@ Re-profiled the current (widened) native bnc self-compiling cmd/bnc.  Current
   `bzero` call (aa64 `DC ZVA`; verified by disassembly); native runs a scalar word
   loop.
 - **byte string-compares (`charsEqual`/`streq`/`symHash`) — 6.8%** — LLVM vectorizes;
-  native scalar.
+  native scalar.  **TRIED word-widening these (shared `buf.CharsEqual`, word bulk +
+  byte tail) — REGRESSED ~10% (best 11.76s vs 10.64s), reverted.**  The compared
+  strings are mostly SHORT (section names `"text"`/`"data"`, identifiers), so the
+  word-compare's setup (align check + two bit_casts + lead-in) PLUS the added function
+  call cost more than the 3-byte loop it replaced.  LLVM closes this gap with INLINE
+  BRANCHLESS SIMD (no call, no setup); a call-based word-compare helper fundamentally
+  can't match that.  Closing this gap needs inline SIMD (auto-vectorization or a lean
+  inline compare), NOT a helper — parked behind the MemZero wide-store work.
+  (Side note: `rt` is a builtins package baked into the pinned BUILDER, so a new
+  `rt.MemEqual` does NOT resolve in the BUILDER-compiled tree — a shared helper for
+  BUILDER-compiled callers must live in a REGULAR tree package like `buf`.)
 - sha256 (code-signer rotate/loop) — 2.6%; MemCopy — ~0% on this workload.
 So the memory-fill loop is confirmed the top gap even post-widening; the string
 compares are second.
