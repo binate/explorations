@@ -66,17 +66,34 @@ native slower than LLVM," to size each gap source before building anything.**
 
 ## Approaches, cheapest-first
 
-### Step 0 — RE-PROFILE the current native bnc (do this before anything)
+### Step 0 — RE-PROFILE the current native bnc — DONE (2026-09-03)
 
-Build the current (post-widening) native bnc and `sample` it self-compiling cmd/bnc,
-and separately profile / disassemble the LLVM-built bnc on the SAME workload.  Produce
-a CURRENT "where is native slower than LLVM" breakdown — per hot function, native
-self-time vs the LLVM lowering (a scalar loop vs a `bzero` call / inline NEON / a
-vectorized compare).  Every stage below is sized and ordered from THIS, not the stale
-pre-widening table.  Cost: minutes.  This settles how much MemZero/MemCopy/string-loop
-gap actually remains after the widening.
+Re-profiled the current (widened) native bnc self-compiling cmd/bnc.  Current
+"where is native slower than LLVM" breakdown (of 10880 leaf samples):
+- **`rt.MemZero` — 12.2%** — the #1 gap.  LLVM lowers its fill loop to a libc
+  `bzero` call (aa64 `DC ZVA`; verified by disassembly); native runs a scalar word
+  loop.
+- **byte string-compares (`charsEqual`/`streq`/`symHash`) — 6.8%** — LLVM vectorizes;
+  native scalar.
+- sha256 (code-signer rotate/loop) — 2.6%; MemCopy — ~0% on this workload.
+So the memory-fill loop is confirmed the top gap even post-widening; the string
+compares are second.
 
-### V0 — scalar UNROLL of the runtime memory loops (NO new infrastructure) — cheap side-experiment, NOT the main gap-closer
+### V0 — 4-word UNROLL of the runtime memory loops — DONE & LANDED (`4fd5789e5`, 2026-09-03)
+
+Unrolled the `MemZero`/`MemCopy` bulk word loops 4× (pure Binate, every target).
+**Measured: MemZero 12.2% → 8.1% of self-time; native cmd/bnc self-compile 12.42s →
+12.08s best-of-5, winning EVERY interleaved round (~2.8%) — a real, consistent
+gap-closer** (contrast the two neutral register refinements).  Adversarial review
+clean; LP64 conformance 3000/0, native arm32 2955/0; rt tests extended to exercise the
+unroll to 95-byte fills.  This confirms a meaningful chunk of MemZero was loop
+overhead, NOT store bandwidth.  The **residual 8.1% is the store side** — a scalar loop
+moving 8 B/store cannot reach `DC ZVA` (64 B/instr); closing that needs the wide-store
+work (V1/V2) below.  (Original note, retained:) a scalar unroll alone does not close the
+MemZero gap; it moves the native side only (LLVM re-idiom-recognizes the unrolled loop
+back to `bzero`), and it is the permanent fallback for arm32 / no-SIMD arches.
+
+### V0 details / original framing — scalar unroll bound
 
 A quick check of how much is just loop overhead: store **4–8 words per iteration** from
 a run of GP registers (manual unroll + word-remainder tail on the existing byte tail),
