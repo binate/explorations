@@ -122,6 +122,43 @@ a run of GP registers (manual unroll + word-remainder tail on the existing byte 
   permanent fallback for arm32 / any target without SIMD.  It does NOT make the SIMD
   work below unnecessary — closing the MemZero/MemCopy gap REQUIRES the wide asm.
 
+### V1/V2a STP wide-store MemZero — IMPLEMENTED, pending land (2026-09-04)
+
+Built the aarch64 hand-asm `rt.MemZero` via a new runtime `.s` link seam (V2a),
+using STP-of-XZR wide stores (NOT DC ZVA yet).  Result and consequences:
+
+- **Rigorous A/B (native bnc self-compiling cmd/bnc, `--backend native
+  --linker bnld`, 5 interleaved rounds, same machine):** baseline (scalar word
+  MemZero) best 7.69s vs STP wide-store best 6.82s — **~12% faster**, winning
+  every round.  MemZero fell from the #1 leaf (the ~8% pre-change) to ~1.7% of
+  self-time.  A bigger gap-closer than the 4-word unroll (~2.8%).
+- **The rt `.s` seam works and the BUILDER "wall" was a non-issue.** gen1 is
+  built by the frozen BUILDER against its *bundled* rt (`--base $blib`), not the
+  tree's — only `pkg/binate/*` comes from source (`--prepend $BINATE_DIR`).  So
+  #[build]-gating the tree's Binate MemZero off for aarch64 cannot break the
+  gen1 self-link; gen2+ (built by the tree's cmd/bnc, which carries the new `.s`
+  wiring) picks up the gated tree rt + the `.s`.  The `.s` defines the mangled
+  `rt.MemZero` symbol (`_`-prefixed on Mach-O); same-package callers (Alloc)
+  resolve it through rt.bni exactly as the semihost `.s` functions do.  Wired
+  into all three aarch64 link paths (clang: main + test; bnld: ELF + Mach-O).
+  Validated across all four backend×linker combos + rt's exhaustive MemZero
+  alignment×size suite.
+- **Assembler bug found + fixed on the way:** `ldrStrSubWordEmit` silently
+  emitted NOTHING for any addressing mode other than the unsigned offset, so a
+  hand-written `strb wzr, [x0], #1` (post-index) assembled to an empty slot —
+  silent wrong-code.  Latent (codegen only emits offset-form sub-word stores).
+  Fixed: added the pre/post-index encoding and made the fallthrough SetError.
+- **DC ZVA is now diminishing returns for this workload.** MemZero at ~1.7% is
+  dominated by SMALL fills (managed objects are tens of bytes), where DC ZVA
+  (whole-cache-line, needs alignment + size ≥ a line) does not even apply — the
+  STP head/tail already handles them.  DC ZVA would still matter for a workload
+  with large zero-fills (matching libc `bzero`'s absolute bar there), so the
+  DC-ZVA/MRS encoders (already landed as the V1 foundation) are kept, but the
+  DC-ZVA MemZero upgrade is deferred behind bigger gaps.
+- **The dominant remaining gap is now the string-compares** (`charsEqual` /
+  `streq` / `link.charsEqual` / `symHash` ≈ 10% of self-time), which the
+  call-based word-widen already showed regresses — they need INLINE SIMD.
+
 ### V1 — SIMD instruction encoders in the asm layer (the shared prerequisite for everything below)
 
 Add the minimum vector instruction set to `asm/aarch64` (NEON) and `asm/x64`
