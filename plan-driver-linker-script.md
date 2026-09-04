@@ -484,10 +484,17 @@ dedicated follow-on.
      and (ii) fixing a MAJOR interp bug — **opaque imported types were unregistered** so a
      driver's method call on an opaque `@X` mis-dispatched, and their **dtors weren't run**
      on drop (leak); both fixed (commits b02ca1fff + f7c7495e5; see claude-todo-done.md).
-   - TODO — a **scripted static x64/aarch64 (ELF64)** program that RUNS: needs `EmitElf` +
-     `SetEntry` shipped to the `.bni`, a driver that reads real bnc objects and lays out
-     `.text`/`.rodata`/`.data`/`.bss` + entry, and (for the RUN) the x86-64 Linux e2e lane
-     (like `bnld-real-program.sh`).
+   - ✅ DONE (landed 2026-09-03, commits 53a1ca498 + eec223d50) — a **scripted static
+     x64/aarch64 (ELF64)** program that RUNS.  Shipped `AlignDot`/`SetEntry`/`EmitElf` to
+     the driver `.bni`; `drivers/staticelf.bn` places the RO group (.text, .rodata) at
+     0x400000, page-aligns the RW group (.data/.bss), resolves `_start`, and calls
+     `EmitElf`.  `e2e/bnld-staticelf.sh` links `exit42` + `hello` via `bnld -driver` and
+     RUNS them on linux-x86-64 (native/Docker): `exit42`→42, `hello`→"hi"; aarch64
+     structure-checked (e_machine 183).  Also hardened emit to skip truly-empty sections
+     (53a1ca498) so a program with only `.text` emits one PT_LOAD, not a degenerate empty
+     one.  (Used hand-asm objects, like `bnld-driver-linux.sh` — proving the scripted
+     layout+emit; linking full bnc programs is already covered by the whole-link
+     `bnld-real-program.sh`.)
 6. Explicit-PHDRS emit (case B) + a higher-half-style e2e (ELF64).
 7. **ELF32 read + emit** (parametrize `parse_elf`/`emit_elf` by ELF class; SHT_REL reading) +
    **`patchArm32`** (the reloc set above, REL implicit addends) — then the arm32 firmware/
