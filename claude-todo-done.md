@@ -295,6 +295,41 @@ compiles+runs the odd-local → SP-growing-stmt → call shape (hangs on baremet
 regresses).  Whole vm suite now runs on arm32 bare-metal, unsharded, ~4s, `arena=0` — so with
 both this and `4d97a55f0`, vm needs NO baremetal sharding or skip-list.
 
+## native __c_entry: narrow integer STACK args of a non-c_export callback target now normalized — DONE (2026-09-04, commit 53c044368)
+
+The stack-arg sibling of the __c_entry register normalization — analogous to the #[c_export]
+stack bug (cea46a49d), but on the __c_entry path.  The __c_entry adaptation thunk
+(common_c_entry.bn + per-arch x64/aarch64/arm32 _c_entry.bn) normalizes only narrow
+ARGUMENT-REGISTER params (emitCExportRegNorm{,X64,Arm32} + branch); it does not touch narrow
+STACK args.  And cea46a49d's mangled-entry stack normalization was gated on
+len(f.CExportNames) > 0.  So a __c_entry callback target that (a) took a narrow int/bool on
+the STACK and (b) was NOT itself #[c_export] had its dirty high slot bytes left in -> wrong
+value at -O1+ / a 64-bit compare.
+
+Design reviewed (a/b/d): the gate could NOT be widened to "is a __c_entry target" (option b)
+because __c_entry admits an IMPORTED callback (checkCEntry accepts a pkg.Name selector) whose
+spill is compiled in ITS OWN package, which does not know it is __c_entry'd elsewhere — a
+same-package-only partial fix.  A thunk-side stack rewrite (option a) works but duplicates the
+stack-offset math and adds per-call cost.  Chose (d): DROP the isCExport gate so
+spillScalarStackArgX64 / spillScalarStackArg / emitFrameLoadSized size-and-extend a narrow
+non-float non-aggregate scalar stack arg on every non-packing convention UNCONDITIONALLY — a
+one-for-one instruction swap, idempotent for native callers (they store the full extended
+word), so a semantic no-op for native calls.  Each package thereby canonicalizes its own
+functions' narrow stack args at the mangled entry every caller reaches, closing the gap for
+same- and cross-package __c_entry targets alike and subsuming the #[c_export] case.  A
+stack-only-narrow __c_entry target still gets a (harmless no-op) thunk from funcHasNarrowGPParam;
+common_c_entry.bn comments updated for the register/stack division of labor.
+
+Both the approach and the implementation were adversarially reviewed (impl review: SHIP after
+one stale-comment fix).  Tests: cea46a49d's per-arch unit tests restructured to assert the
+sized load holds regardless of entry kind (negative controls -> full-word controls);
+e2e/c-entry-narrow-callback.sh gained a 9-int32-param NON-c_export callback whose 9th
+(stack-passed on both SysV and AAPCS64) arg is driven dirty through a wide C prototype.
+Validated: native unit tests 5/5, c-entry e2e 2/2, native aa64 + x64 conformance 3000/0 each,
+hygiene 20/20.  (Possible follow-up, not required: tighten funcHasNarrowGPParam to fire only
+for register-passed narrow params so a stack-only-narrow target goes degenerate instead of
+getting a redundant no-op thunk.)
+
 ## native C entries: narrow integer STACK args now canonicalized on non-packing conventions — DONE (2026-09-03, commits 03f908e7e + cea46a49d)
 
 The stack-path sibling of the register-arg dirty-upper-bits bug (a171551d0 / 81b3e6d36).
