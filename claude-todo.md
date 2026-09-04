@@ -29,34 +29,74 @@ load-extend-stores narrow incoming stack args on those conventions (mirror the
 darwin sized-spill path); ≥7-arg narrow-stack-arg C-driver e2e. Test/xfail owed
 by the implementer.
 
-### FFI type C-representability: unchecked for `__c_entry` callbacks + defined too narrowly for `__c_call`/`__c_global` — should be WIDENED — 🟢 design / minor (found 2026-09-02)
+### FFI `__c_call` argument C-representability WIDENING — in progress (Inc 1) — 🟡 implementing (found 2026-09-02)
 
-Two connected gaps in how the FFI builtins decide which types may cross the C
-boundary:
+**Goal:** `__c_call("sym", Ret, args…)` argument types widened from scalar/pointer
+to **any type with a defined C-ABI layout** (struct by value, raw slice `*[]T`,
+managed-slice `@[]T`, managed pointer `@T`, interface/func value) — the only
+rejection is an opaque-by-value type. Managed args carry the ORDINARY Binate
+parameter-ownership contract (§18.5 `mem.param`), with C doing any RefInc/RefDec
+BY HAND: `@T`/`@[]T`/`@func` = borrow; interface value = owning-delivery; by-value
+struct with managed fields = copy+RefInc (C RefDecs its copy). (Owner direction
+2026-09-02: contract is exactly the Binate one, C does its part manually; no
+special "borrow-all" or "unmanaged-only" rule.) Return type stays scalar/pointer/
+"void" (struct returns deferred). `__c_global` / `__c_entry` widening are separate
+follow-ons; `#[c_export]` too.
 
-1. **`__c_entry` doesn't validate its callback target's parameter/return types
-   are C-representable at all.** `checkCEntry` (check_c_interop.bn) only checks
-   the operand is a declared non-generic top-level function; unlike `__c_call`
-   (which runs `isCCompatibleArgType`), it never inspects the callback's
-   *signature*. So a callback with, say, a managed-slice / interface / struct
-   parameter type-checks, and the native narrow-arg gate (common_c_entry_gate.bn)
-   even treats such a param as "safe" (excluded as an aggregate) — yet whether it
-   is a *valid* C callback is unverified. Surfaced by the Inc B1 adversarial
-   review (2026-09-02).
-2. **But the fix is NOT to copy the current `isCCompatibleArgType`** — that
-   predicate is too restrictive. Per owner direction (2026-09-02): aggregates
-   *can* cross the C boundary as long as C forms/reads the correct aggregate — a
-   raw slice `[]T` is a 2-word `{ptr,len}`, a struct is its C layout, a
-   managed-slice `@[]T` is a 4-word header. So the notion of "C-compatible" should
-   be **widened** to admit well-laid-out aggregates, not used to blanket-reject
-   them. The real design question for the MANAGED cases is refcount ownership
-   across the boundary (who RefInc/RefDec's a `@[]T` / `@T` handed to or returned
-   from C) — that needs a decision, not a blanket ban.
+**Implemented (uncommitted, worktree):** checker admits via
+`isCArgType = !embedsOpaqueByValue`; IR-gen routes args through the shared
+`coerceArg` (mem.param ownership, by construction); LLVM `emit_ccall` reuses the
+regular call's byval/agg-coerce ABI helpers; `OP_C_CALL` alloca-hoist case.
+Checker + IR-gen ownership + e2e (small/large struct, raw slice, managed-ptr
+borrow) tests all green; ≤16 aggregate path correct on both backends.
 
-So the work is a single widened C-representability predicate shared by
-`__c_entry`, `__c_call`, `__c_global`, and `#[c_export]` signature checking, plus
-a decision on managed-type ownership at the FFI boundary. Applies to the LLVM
-backend too (not native-specific). Not blocking; predates Inc B1.
+**Adversarial review (2026-09-02) found two CRITICALs — both being fixed before
+landing (owner chose "fix x64 C-ABI now, full feature"):**
+
+1. **CRITICAL — void `__c_call` + aggregate arg → LLVM duplicate `%v-1.*` names →
+   compile failure.** A void `__c_call` used `newVoidInstr` (ID = -1); LLVM arg
+   scratch slots are named `%v<ID>.<slot>`, so two void calls collide on
+   `%v-1.bv0`. **Fix:** give a void `__c_call` a real unique ID + `TypVoid()`
+   result (structurally identical to a void `OP_CALL`, which already works through
+   the register allocator and every backend's TYP_VOID result no-op);
+   `emit_ccall` void detection updated to `Typ==nil || Kind==TYP_VOID`. Done.
+2. **CRITICAL — >16-byte aggregate arg uses the WRONG C ABI on x86_64 → silent
+   miscompile (both backends).** Binate's internal x64 conv passes >16 aggregates
+   as pointer-in-register (`IndirectLargeAggregates=true`); the C SysV-AMD64 ABI
+   passes them MEMORY class (`ptr byval(T)`, bytes copied to the outgoing stack).
+   clang's callee reads the stack → garbage (repro: two 24-byte structs → 28 /
+   garbage vs 42; aarch64 correct). Affects large structs AND managed-slices
+   (`@[]T` = 32 bytes). **Fix — use a C-boundary conv for `OP_C_CALL`:**
+   - LLVM: emit `ptr byval(<T>) align N` for a >16 aggregate `OP_C_CALL` arg on
+     x64 (call site + declare); LLVM then does the SysV classification itself.
+   - Native: a C-boundary `CallConv` variant with `IndirectLargeAggregates=false`.
+     The walker's existing `!SplitAggregates && >16 → memory` path (x64) and
+     `emitAggregateArg`'s memory-class copy-to-stack already handle it — no new
+     emission code.
+   - Target-specific: **x64 SysV** C conv = ILA=false (→ memory); **AAPCS64** C
+     conv UNCHANGED (ILA=true — AAPCS64 C genuinely passes >16 indirect, so
+     aarch64 was already correct); **arm32 AAPCS32** likely ALSO divergent (C
+     passes aggregates by-value split, not indirect) → C conv ILA=false → the
+     `SplitAggregates=true` split path. arm32 divergence to be VERIFIED against
+     clang (beyond the review, which tested x64/aarch64 only) and fixed with the
+     same mechanism if confirmed.
+
+**Also (MINOR, review):** `emitCCallDeclare` param shapes disagree with call-site
+shapes (LLVM-tolerated for direct calls today) — folded into the byval declare
+fix. **e2e must be strengthened:** the current e2e passes on x64 by accident
+(single-arg struct aliases top-of-stack) and never exercises void or
+multi-aggregate-arg calls — add both so x64 CI actually catches these.
+
+**Remaining:** native x64 C-conv + verify; verify aarch64 unchanged; verify+fix
+arm32; strengthen e2e (void + multi-aggregate); spec `pkg.ccall` update (docs) +
+decouple `pkg.cglobal`'s "same constraint as __c_call args" cross-ref + drop the
+stale `"void"`-return pending note; adversarial re-review; then land.
+
+(Original related gap, still open as a follow-on: **`__c_entry` doesn't validate
+its callback target's param/return types are C-representable** — `checkCEntry`
+only checks the operand is a declared non-generic top-level function. The widened
+predicate should be shared by `__c_entry`, `__c_global`, and `#[c_export]`
+signature checking once `__c_call` Inc 1 lands.)
 
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
