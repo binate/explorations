@@ -62,6 +62,25 @@ Tests: `TestRegisterStructTypesOpaqueForwardDecl`, `TestOpaqueManagedPtrRefDecRu
 `TestOpaqueExportedStructForcesDtor` (pkg/binate/ir) + the `e2e/bnld-rawbin.sh` proof.  A
 latent follow-on (external-C opaque MANAGED types) is tracked in claude-todo.md.
 
+## `bnfmt-format` hygiene check batched into one bnfmt --check — DONE (2026-09-03, commit 69d626fe7)
+
+`scripts/hygiene/bnfmt-format.sh` forked the bundled bnfmt once per file (~1,500 execs,
+~5.9s).  CHECK_TOOLS_VERSION reached bnc-0.0.15, whose bundled bnfmt does multi-file
+`--check` (processes every file, names each offender on stderr as `<path>: not formatted`
+/ `<path>: <parse error>`, exits non-zero iff any failed) — so the gate was satisfied.
+Rewired to a single `bnfmt --check <all files>` whose offending paths are parsed from
+stderr (`sed 's/: .*//' | sort -u`).  Pass/fail is bnfmt's aggregate exit code, so a
+stderr mis-parse can't flip a fail into a pass.  Dropped the check from ~5.9s to ~1.8s
+(~3×) — NOT the "sub-second" the todo guessed: the per-file fork/exec overhead (~4s) is
+gone, but bnfmt re-parsing + re-formatting ~1,500 files is ~1.8s of irreducible
+single-process work.  Added fail-loud guards for the word-split precondition (a
+whitespace/glob path, or an empty file set, would let a file be silently dropped and the
+check pass — impossible on today's tree, guarded anyway).  Also dropped a stale
+bnc-0.0.12-pre3 reference from the header comment.  Adversarial review clean (no
+CRITICAL/MAJOR).  Detour worth noting: chased a phantom "bnfmt multi-file bug" that was
+really zsh not word-splitting during interactive debugging — the script runs under
+/bin/sh, which splits correctly, so the script was always fine.
+
 ## Native/bnld build throughput — bnld symbol resolution was O(n²) — DONE (2026-09-03, commit 9f0d1def1)
 
 The self-hosted linker's symbol resolution scanned the defined-symbol list linearly per

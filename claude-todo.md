@@ -944,16 +944,6 @@ Found: adversarial review of the opaque-export dtor fix.
 
 ## bnfmt (self-hosted formatter)
 
-### Batch the `bnfmt-format` hygiene check via multi-file bnfmt — 🟡 OPEN (gated on CHECK_TOOLS)
-bnfmt now accepts multiple files per run and names offending files on `--check`
-(landed `7821afd0`), but `scripts/hygiene/bnfmt-format.sh` still forks the bundled
-bnfmt once PER FILE (~1,219 forks, ~7.5s). Rewire it to pass all files in ONE
-`bnfmt --check` invocation (parsing the `<path>: not formatted` lines bnfmt now
-emits) to drop the check to ~sub-second, like the other batched hygiene checks.
-GATED: the check runs the CHECK_TOOLS-bundled bnfmt, so this needs a
-CHECK_TOOLS_VERSION bump to a bundle that ships multi-file bnfmt (a release ≥ the one
-containing `7821afd0`).
-
 ## bnlint rules, unused-entity checks & lint skips
 
 ### Raw-slice escape: decide whether a BROADER best-effort escape lint is wanted — 🟡 NEEDS DECISION
