@@ -6,6 +6,41 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Native/bnld build throughput — regalloc data-structure churn — DONE (2026-09-03, commits 28059295d + 4afc437a4)
+
+The v1 register allocator's own bookkeeping was ~15-20% of native-compile self-time.
+Two commits, both pure throughput (identical codegen — same intervals, assignments,
+and emitted code):
+
+- **28059295d — size the build lists up front.** The interval/liveness/scan builders
+  seeded id-/block-indexed lists by growing them one element at a time with
+  `slices.Append` (reallocates + refcounts the whole backing per push — O(n²) for the
+  seed loops). Values are dense in [0, NextID) and blocks in [0, nBlocks), so the sizes
+  are known: `rawByID`, the interval accumulator, `buildSuccs`, and the liveness
+  bool-sets are `make_slice`'d to the exact size; `LinearScan`'s expire step compacts
+  the active-set arrays in place instead of rebuilding three fresh slices per interval.
+  (Sized `make_slice`, not `vec.Vec` — the bounds are statically known, so one
+  allocation beats amortized growth and adds no import to this BUILDER-compiled package.)
+- **4afc437a4 — O(1) Lookup{Home,Spill,Alloc}.** Each was a linear scan over the
+  parallel (IDs, values) arrays, hit once per operand from the emitters
+  (O(operands × table)). Backed each with a memoized id-indexed slot array (dense ids →
+  a direct-indexed `@[]int` beats a hashmap), rebuilt lazily iff the backing IDs array
+  changed length. The memo fields are package-private, so the ~1000 backend test
+  fixtures that poke `SpillIDs`/`AllocIDs` directly needed no changes. `UnhomeID`
+  force-invalidates the home memo so it stays correct under any mutation order. The
+  RegMap accessor layer split out to `regmap_accessors.bn` (+ its tests) to keep
+  `common.bn` under the file-length cap.
+
+Measured: native-compiling `pkg/binate/ir` (a large real package) dropped from ~20.1s to
+~12.65s user CPU (30 forced compiles × 2 interleaved runs) — **~37% less compiler
+self-time**. The before/after binaries differ only in regalloc code, so the delta is
+purely this change; it is larger than the ~15-20% estimate because ir has large
+functions where the fixed O(n²)/superlinear terms dominated. Adversarial review clean
+(one latent `UnhomeID` memo fragility found → hardened + regression test); native/common
+and all three backends' unit tests green; full native aa64 conformance 3000/0; hygiene
+20/20. Like the bnld symbol-resolution item, this speeds every `--backend native` build
+(both clang-built and native-built bnc) and does NOT narrow the native↔clang gap.
+
 ## interp: opaque imported types unregistered → driver method + dtor dispatch — DONE (2026-09-03, commits b02ca1fff + f7c7495e5)
 
 An interpreted `bnld -driver` could not call a METHOD on an imported OPAQUE type: the

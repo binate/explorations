@@ -158,19 +158,10 @@ side was paying — fixing the source closed the gap.
   faster)**, gap **~3.4× → ~2.5×**.  Adversarial review clean; LP64 conformance
   2999/0; native aa64/x64 unaffected.
 - **The gap-closer from here is Stage 5** (native codegen quality) — see the
-  register-allocator entry below.  The two remaining hot profile buckets are
-  *general* build-speed and filed separately (they do NOT close the gap):
-
-### Native/bnld build throughput — regalloc data-structure churn (general, does NOT close the native↔clang gap) — 🔵 OPEN (2026-09-02)
-
-~15-20% of the native-compile self-time is the v1 register allocator's OWN
-bookkeeping: `slices.Append` (O(n) reallocation) for the LiveRange/LiveInterval
-lists, linear scans in `LookupHome`/`LookupSpill`/`LookupAlloc`, and the
-managed-slice dtors refcounting all of it.  Switch to `vec.Vec` (amortized
-growth) + an id→home index map.  This speeds every `--backend native` build for
-BOTH the clang-built and native-built bnc, so it does not narrow the
-native↔clang codegen gap — it's a throughput win, pursue when build speed (not
-the gap) is the goal.
+  register-allocator entry below.  The other two hot profile buckets were
+  *general* build-speed (they did NOT close the gap) and are both now landed —
+  regalloc data-structure churn and bnld's O(n²) symbol resolution — see
+  [claude-todo-done.md](claude-todo-done.md).
 
 ### Native register allocator — Stage 5 refinements — 🔵 OPEN (v1 landed 2026-09-02)
 
