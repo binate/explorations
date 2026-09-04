@@ -508,9 +508,23 @@ dedicated follow-on.
    It structure-checks rather than boots — a higher-half kernel needs a multiboot loader +
    QEMU to run, out of scope.  A section assigned to two segments is rejected (overlapping
    PT_LOADs), with negative tests for all explicit-PHDRS error paths.
-7. **ELF32 read + emit** (parametrize `parse_elf`/`emit_elf` by ELF class; SHT_REL reading) +
-   **`patchArm32`** (the reloc set above, REL implicit addends) — then the arm32 firmware/
-   baremetal proofs (A/D → QEMU).  This is the deferred arm32 work.
+7. The deferred arm32 work, in sub-pieces:
+   - ✅ DONE (landed 2026-09-04, commit 42ee3b8a3) — **ELF32 read + `patchArm32`**.  The object
+     reader is parametrized by ELF class (an `elfFmt` layout descriptor in `elf_fmt.bn`
+     capturing the Elf32/Elf64 field-offset AND field-order divergence — `Elf32_Sym` is
+     name/value/size/info/other/shndx vs Elf64's name/info/other/shndx/value/size); `readOffC`
+     reads a class-appropriate 4- or 8-byte field (the 8-byte `readOff` over-reads an ELF32
+     field and spuriously fails its high-word-zero check); `SHT_REL` is read alongside
+     `SHT_RELA`, decoding `r_info` as `(sym<<8)|type`.  `patchArm32` (dispatched on `EM_ARM`)
+     handles ABS32, CALL/JUMP24 (imm24 branch, the -8 pipeline bias riding in the field,
+     4-align + signed-26-bit checks), MOVW_ABS_NC/MOVT_ABS (split imm4:imm12), PREL31, and
+     NONE.  Adversarially reviewed against real bnc-produced arm32 objects; all offsets/bit-ops
+     verified.  Executable EMIT stays ELF64-only behind a loud `EM_ARM` reject guard (so a
+     now-readable arm32 object can't flow into a silent malformed-ELFCLASS64 write).
+   - **ELF32 emit** — parametrize `writeElfFromSegments`/`EmitDynElfExec` by class (Elf32
+     Ehdr=52B / Phdr=32B with `p_flags` at offset 24; 4-byte addresses), replacing the guard.
+     Enables both the scripted-driver `EmitElf` path and the whole-link `Link` path for arm32.
+   - **arm32 firmware/baremetal proofs** (A/D → QEMU).
 8. Ship the builder API in `pkg/binate/link.bni`; reference scripted drivers.
 
 Verdict (review): shape is sound to start the engine core with the above pins resolved.
