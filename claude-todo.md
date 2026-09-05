@@ -229,6 +229,27 @@ code-quality ratio).  So: native codegen IS steadily improving (6.9→5.0→3.9)
 always ~2.4× the llvm one, and the real code-quality gap is ~3.9× — large, and the target of this
 section.  Use `perf/native-vs-llvm.sh` as the canonical gap number going forward.
 
+**Ranked gap-source worklist (profiled 2026-09-04, native bnc self-compiling cmd/bnc + native-vs-llvm
+disassembly diff).** The gap is dominated by native NOT keeping values in registers — it round-trips
+nearly every temporary through the stack.  Whole-binary: native 2.42M instrs / 53% memory ops vs llvm
+0.94M / 41% (2.6× more instrs, 3.3× more loads/stores).  The disassembly shows literal
+`str Xa,[sp,#K]; ldr Xb,[sp,#K]` store-then-immediately-reload pairs — **26,881** adjacent such pairs
+across the binary (each a guaranteed-redundant load).  Hottest leaf `livenessFixpoint` (the regalloc
+liveness pass itself) is 61% memory ops: 1144 vs llvm's 135 (8.5×).
+1. **Store-to-load forwarding + redundant-load elimination** — a local peephole (ldr from a
+   just-stored slot → reuse the source reg, drop the load; drop the store if dead).  Cheapest,
+   mechanical, kills the 26,881 adjacent pairs + more.  Prototype first; measure with the benchmark.
+2. **Register promotion (keep IR temporaries in registers; mem2reg-equivalent)** — the deep lever
+   and bulk of the gap.  Native materializes ~every temp to a stack slot; llvm's mem2reg keeps them
+   in registers.  **This is why the Stage-5 refinements above were NEUTRAL** — they tuned the margins
+   (a few more homes, coalescing) while almost everything spills to begin with.  Bigger project.
+3. **Inline hot small leaves** — llvm inlines `charsEqual`/`streq`/`LiveInterval.Start` (0 instrs in
+   the llvm binary); native leaves them out-of-line.  Native's inliner should catch these; inlining
+   also unlocks #1/#2 across the merged body.
+4. **String/byte compares** (`charsEqual`/`streq`/`FnEq uint8`/`symHash` ≈ 900 samples) — needs #3
+   then SIMD (see `plan-native-vectorization.md`).
+5. **`ShiftCheck`** (242 samples, rt per-shift bounds check; 27 native vs 16 llvm instrs) — minor.
+
 **Stage 5 refinements** (additive, on the same foundation):
 - **Caller-saved homes (leaf / call-free regions) — TRIED aa64, NEUTRAL, SHELVED (2026-09-02).**
   Homed non-call-spanning values in the caller-saved arg bank (no save/restore).  Correct +
