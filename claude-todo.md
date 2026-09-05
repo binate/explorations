@@ -81,18 +81,32 @@ synthesized family into `__` (ABI-visible rename) or extend the reserved
 check to the `_pkg` prefix at package scope. Needs a test either way. The ABI
 spec (abi/05 §5.4) carries a Status note flagging this.
 
-### LLVM `__c_entry`-only targets: narrow scalar returns lack signext/zeroext — 🔴 SUSPECTED MAJOR, needs verification (found 2026-09-04, ABI-spec recon)
+### LLVM `__c_entry`-only targets: narrow scalar returns lack signext/zeroext — 🔴 CONFIRMED MAJOR (found 2026-09-04, ABI-spec recon; verified e2e 2026-09-04)
 
-Same defect class as the FIXED c_export bug (9ef53bcf7): the return-extension
-attribute is gated on `len(f.CExportNames) > 0` (codegen emit_debug.bn ~:115),
-so a function reached ONLY through a `__c_entry` pointer (not also
-`#[c_export]`) that returns int8/int16/bool presents an LLVM define with NO
-signext/zeroext to the C caller through the callback — an optimizing C caller
-(clang -O1+ on darwin-arm64/x64) can read dirty high bits. Found by code
-reading only — NOT verified end-to-end; needs an e2e repro (ffi-export.sh
-style, callback returning int8 summed by a -O2 C caller) before fixing.
-Likely fix: mark __c_entry targets in IR-gen (gen_builtin_ffi.bn) and widen
-the emit_debug gate. Native backends unaffected (full-width returns).
+Same defect class as the FIXED c_export bug (9ef53bcf7).  `OP_C_ENTRY` lowers to a
+bare pointer to f's mangled `define` (codegen emit_instr.bn ~:275, the "degenerate"
+no-thunk case), and the return-extension attribute at emit_debug.bn ~:115 is gated
+on `len(f.CExportNames) > 0`, so a function reached ONLY through a `__c_entry`
+pointer (not also `#[c_export]`) that returns int8/int16/uint8/bool presents an LLVM
+define with NO signext/zeroext — an optimizing C caller (clang -O1+ on
+darwin-arm64/x64) reads dirty high bits through the callback.
+
+VERIFIED end-to-end (2026-09-04): a non-c_export callback returning int8/int16/uint8
+handed to C via __c_entry and read by a clang -O2 driver returned 507 / 130944 / 456
+(the raw untruncated dirty values) instead of -5 / -128 / 200 — and the emitted
+define carries no signext/zeroext.  Native unaffected (full-width canonical returns;
+the __centry thunk handles the arg side).
+
+Fix: emitFuncDbg already has `m @ir.Module`; add a shared IR-layer helper for the
+module's set of __c_entry target names (one OP_C_ENTRY scan — the native side already
+scans in native/common `collectCEntryThunkTargets`; `ir.CEntryTargetFunc` resolves
+name→func), and widen the emit_debug gate to fire for a c_export OR c_entry-target
+define (reusing `cabiIntExtAttr`).  Tests: a codegen unit test pinning the attribute
+on a c_entry-only narrow-return define + an e2e (c-entry-narrow-callback.sh scaffold).
+BOUNDARY: this fixes whole-program / same-package __c_entry; a narrow-return target in
+a SEPARATELY-compiled package whose only __c_entry use is in another package wouldn't
+be marked in its own compile (the degenerate-pointer case is declaration-site-bound,
+like c_export) — tracked as a known edge, not fixed here.
 
 ### Inbound `#[c_export]` with a >16-byte by-value param presents the INTERNAL pointer convention to C (x64/arm32) — 🔴 OPEN MAJOR (latent; found 2026-09-04, ABI-spec recon)
 
