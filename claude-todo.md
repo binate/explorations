@@ -81,33 +81,6 @@ synthesized family into `__` (ABI-visible rename) or extend the reserved
 check to the `_pkg` prefix at package scope. Needs a test either way. The ABI
 spec (abi/05 §5.4) carries a Status note flagging this.
 
-### LLVM `__c_entry`-only targets: narrow scalar returns lack signext/zeroext — 🔴 CONFIRMED MAJOR (found 2026-09-04, ABI-spec recon; verified e2e 2026-09-04)
-
-Same defect class as the FIXED c_export bug (9ef53bcf7).  `OP_C_ENTRY` lowers to a
-bare pointer to f's mangled `define` (codegen emit_instr.bn ~:275, the "degenerate"
-no-thunk case), and the return-extension attribute at emit_debug.bn ~:115 is gated
-on `len(f.CExportNames) > 0`, so a function reached ONLY through a `__c_entry`
-pointer (not also `#[c_export]`) that returns int8/int16/uint8/bool presents an LLVM
-define with NO signext/zeroext — an optimizing C caller (clang -O1+ on
-darwin-arm64/x64) reads dirty high bits through the callback.
-
-VERIFIED end-to-end (2026-09-04): a non-c_export callback returning int8/int16/uint8
-handed to C via __c_entry and read by a clang -O2 driver returned 507 / 130944 / 456
-(the raw untruncated dirty values) instead of -5 / -128 / 200 — and the emitted
-define carries no signext/zeroext.  Native unaffected (full-width canonical returns;
-the __centry thunk handles the arg side).
-
-Fix: emitFuncDbg already has `m @ir.Module`; add a shared IR-layer helper for the
-module's set of __c_entry target names (one OP_C_ENTRY scan — the native side already
-scans in native/common `collectCEntryThunkTargets`; `ir.CEntryTargetFunc` resolves
-name→func), and widen the emit_debug gate to fire for a c_export OR c_entry-target
-define (reusing `cabiIntExtAttr`).  Tests: a codegen unit test pinning the attribute
-on a c_entry-only narrow-return define + an e2e (c-entry-narrow-callback.sh scaffold).
-BOUNDARY: this fixes whole-program / same-package __c_entry; a narrow-return target in
-a SEPARATELY-compiled package whose only __c_entry use is in another package wouldn't
-be marked in its own compile (the degenerate-pointer case is declaration-site-bound,
-like c_export) — tracked as a known edge, not fixed here.
-
 ### Inbound `#[c_export]` with a >16-byte by-value param presents the INTERNAL pointer convention to C (x64/arm32) — 🔴 OPEN MAJOR (latent; found 2026-09-04, ABI-spec recon)
 
 Binate's internal convention passes >16-byte by-value aggregates as a single
@@ -162,6 +135,14 @@ widened C-representability idea:
   today; latent).
 - **MINOR (review):** `isCArgType` conservatively over-rejects `*[]Opaque` /
   `@[]Opaque` (the slice HEADER has a defined layout and could be admitted).
+- **Cross-package `__c_entry` narrow-return extension** — the LLVM narrow-return
+  fix (DONE, `ecc6653e7`) marks c_entry targets via MarkCEntryTargets, which only
+  sees `__c_entry` uses in the module being compiled.  A narrow-return target in a
+  SEPARATELY compiled package (`--pkg`) whose only `__c_entry` use is in another
+  package is emitted unmarked → no signext/zeroext (whole-program builds are fine).
+  Like `#[c_export]`, the degenerate-pointer entry is declaration-site-bound; a full
+  fix carries the "C entry taken" fact to the target's own compile (a decl-recorded
+  eligibility/attribute) or makes such `__c_entry` require whole-program.
 
 
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)

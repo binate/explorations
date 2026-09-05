@@ -41,6 +41,46 @@ slice, managed-ptr borrow, two-aggregate, void, and a ≤16-after->16
 register-pressure case; the arm32 leg cross-compiles + runs under qemu on Linux
 CI).  Follow-ons (`__c_entry`/`__c_global` C-representability validation,
 aggregate returns, two MINORs) tracked in claude-todo.md.
+## LLVM `__c_entry`-only targets: narrow scalar returns lacked signext/zeroext — DONE (2026-09-04, commit ecc6653e7)
+
+MAJOR, LLVM-only.  Same defect class as the #[c_export] return-extension fix
+(9ef53bcf7), for the other C-ABI entry.  On the LLVM backend `__c_entry(f)` lowers
+to a bare pointer to f's mangled `define` (emit_instr.bn OP_C_ENTRY, the no-thunk
+"degenerate" case — the C ABI lowers each narrow ARG itself), so that define IS the
+C-ABI entry.  But the sub-`int` return-extension attribute at emit_debug.bn was gated
+on `len(f.CExportNames) > 0`, so a __c_entry-ONLY target (not also #[c_export])
+returning int8/int16/uint8/bool emitted `define iN` with NO signext/zeroext.  A clang
+caller at -O1+ trusts the callee's ABI extension (AssertS/Zext) and elides its own, so
+it read dirty upper bits through the callback — silent wrong values at the C boundary
+on darwin-arm64/x64.
+
+VERIFIED e2e before fixing: a non-c_export int8/int16/uint8 callback via __c_entry read
+by an -O2 C driver printed 507 / 130944 / 456 (raw untruncated args) instead of
+-5 / -128 / 200; the emitted define carried no signext/zeroext.  Native unaffected
+(full-width canonical returns; the __centry thunk handles the arg side).
+
+Fix: `ir.MarkCEntryTargets(m)` scans the module's OP_C_ENTRY uses once and sets a new
+`Func.CEntryTaken` flag on each in-module target (reusing findFuncNamed — the same
+StrVal↔Name resolution ir.CEntryTargetFunc / the native collectCEntryThunkTargets rely
+on).  The LLVM driver (EmitModule) runs it before emitting defines, and the emit_debug
+gate now fires for a c_export OR c_entry-target define (reusing cabiIntExtAttr — the
+attribute rides on the define, the `ret iN` is unchanged).  Tests: two codegen unit
+tests pin signext (int8) / zeroext (uint8) on a c_entry-only narrow-return define (the
+existing TestEmitNarrowReturnNoCExportNoExt still guards that ordinary narrow returns
+stay attribute-free); e2e/c-entry-narrow-return.sh drives the repro on BOTH the LLVM and
+native backends (fails 507/130944/456 without the fix, -5/-128/200 with it).  Adversarial
+review clean across six axes (MarkCEntryTargets resolution sound; gate no false pos/neg;
+EmitModule the only LLVM define path, marking runs first + after opt passes; extern/
+synthetic funcs safe; native inert).  Found in the proposal-c-entry-builtin.md ABI recon.
+
+Known BOUNDARY (not a regression — byte-identical to before, which also never extended
+these): a narrow-return target in a SEPARATELY compiled package whose only __c_entry use
+is in another package is not marked in its own compile.  Whole-program / same-package is
+fixed.  Tracked as a follow-on under "FFI C-representability follow-ons" in claude-todo.md.
+Minor test note: the two unit tests' unused `__c_entry(R)` relies on compileToLLVM running
+no opt passes (robust today; the e2e is independently robust) — latent only if a future
+dead-instruction pass lands AND the tests move to compileToLLVMOpt.
+
 ## Native/bnld build throughput — regalloc data-structure churn — DONE (2026-09-03, commits 28059295d + 4afc437a4)
 
 The v1 register allocator's own bookkeeping was ~15-20% of native-compile self-time.
