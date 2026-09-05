@@ -94,7 +94,28 @@ FFI C-representability follow-ons entry: sharing the representability
 predicate across c_export/__c_entry/__c_global is already listed there); the
 proper fix is either rejecting such signatures at the export (cheap) or
 emitting an adapting entry thunk (full fidelity). The ABI spec (abi/04 §4.4)
-carries a Status note. aarch64 unaffected.
+carries a Status note. aarch64 unaffected. **Owner chose full fidelity (b);
+LLVM x86-64 leg LANDED — see plan-c-export-bigagg-param.md; arm32 LLVM + both
+native backends remain.**
+
+### Inbound multi-VALUE-return `#[c_export]` with a >2-register tuple is silently miscompiled at the C boundary — 🔴 OPEN MAJOR (found 2026-09-04, adversarial review)
+
+A `#[c_export]` function returning a multi-value tuple that exceeds the return
+registers — e.g. `func F(...) (int64, int64, int64)` (24 bytes) — is silently
+miscompiled: a conforming C caller (`struct { long a, b, c; } f(...)`) reads
+garbage. Root cause (per review): `multiRetNeedsSret` /
+`CallConv.FuncReturnsBigMultiReturn` returns FALSE for such a tuple, so the LLVM
+def returns a first-class `<{i64,i64,i64}>` instead of using explicit sret, and
+that lowering does NOT match the C sret struct-return ABI on x86-64. A single
+>16-byte AGGREGATE return correctly uses explicit sret and works (`5 10 15`) —
+ONLY the multi-VALUE-return tuple path is wrong. NOT caused by the >16-param entry
+thunk: it reproduces via the plain ALIAS path with ZERO params (`mnp() ->
+garbage`), so the thunk (a byte-for-byte return pass-through) neither introduces
+nor fixes it. Discovered in the adversarial review of the >16-param thunk. Fix:
+route a >N-register multi-return tuple through explicit sret (fix
+FuncReturnsBigMultiReturn's threshold to match the C sret cutoff), or reject
+multi-return c_exports until then. Needs a C-driver test reading a multi-return by
+struct, and the same per-target analysis (aarch64/arm32 cutoffs differ).
 
 ### Native capturing closure passed INTO bytecode: untagged env record → panic or silent misdispatch — 🟡 OPEN, needs an owner decision (found 2026-09-04, ABI-spec recon)
 
