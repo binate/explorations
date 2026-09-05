@@ -309,9 +309,18 @@ nearly every temporary through the stack.  Whole-binary: native 2.42M instrs / 5
 `str Xa,[sp,#K]; ldr Xb,[sp,#K]` store-then-immediately-reload pairs — **26,881** adjacent such pairs
 across the binary (each a guaranteed-redundant load).  Hottest leaf `livenessFixpoint` (the regalloc
 liveness pass itself) is 61% memory ops: 1144 vs llvm's 135 (8.5×).
-1. **Store-to-load forwarding + redundant-load elimination** — a local peephole (ldr from a
-   just-stored slot → reuse the source reg, drop the load; drop the store if dead).  Cheapest,
-   mechanical, kills the 26,881 adjacent pairs + more.  Prototype first; measure with the benchmark.
+1. **Within-block value retention (reload-caching) — LANDED aarch64 (60ed89b0e).** Instead of a
+   post-hoc peephole, the aarch64 allocator now keeps computed/reloaded values in the caller-saved
+   scratch pool (X9..X15) ACROSS instructions within a block (occupancy-aware allocation), so a
+   later use reads the register instead of reloading its slot — eliminating the redundant reloads at
+   emit time.  ~5% faster native self-compile (native/llvm gap 3.77x→3.67x median, same-machine
+   before/after via `perf/native-vs-llvm.sh`); full native_aa64 conformance green (3000/0).  The long
+   debug bottomed out at an AssignReg id-reuse double-cache (the IR reuses a mutable var's value id
+   across load/modify/store; the reload cached id→oldReg, the redefinition appended id→newReg, and
+   LookupReg returned the stale first entry → `i=i+1` stored the pre-increment value) — fixed by
+   AssignReg REPLACING, not appending, a duplicate id entry.  REMAINING: (a) port the retention to
+   x64 and arm32 (still round-robin, no retention); (b) dead-store elimination — only the reload is
+   avoided so far; the redundant STORE of each store-then-reload pair is not yet dropped.
 2. **Register promotion (keep IR temporaries in registers; mem2reg-equivalent)** — the deep lever
    and bulk of the gap.  Native materializes ~every temp to a stack slot; llvm's mem2reg keeps them
    in registers.  **This is why the Stage-5 refinements above were NEUTRAL** — they tuned the margins
