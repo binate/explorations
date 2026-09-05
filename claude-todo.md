@@ -1231,20 +1231,6 @@ language extension, not a bug fix.
 
 ## Language-feature proposals
 
-### `defer` of a generic-instantiation call — follow-up 🟡 OPEN
-
-`defer` (§14.13) is implemented and landed on `main` (commit `4596e1dd2`; see
-[plan-defer.md](plan-defer.md), moved to [claude-todo-done.md](claude-todo-done.md)).
-All shapes work — direct, static method, interface method, function-value/IIFE,
-`defer panic(...)`, and variadic (pack + spread) — across LLVM / bytecode VM /
-native.  The ONE remaining unsupported shape is a **generic-instantiation
-deferred call** (`defer g[int](x)`): it fails loud at codegen
-(`classifyDeferShape` → `panic("defer of a generic-instantiation call is not yet
-supported")`), never miscompiles.  Implementing it needs the lazy-instantiation
-machinery (ensure the specialized func exists at the defer site, then reconstruct
-its direct call at exit like `genCallInstantiate` does).  Low priority — exotic
-in practice.  When done, add a conformance test and drop the fail-loud arm.
-
 ### Switch `fallthrough` — proposal
 - Not in the current grammar (`grammar.ebnf`). Binate switch cases are implicit-break (Go-style), but there's no opt-in for Go's `fallthrough` keyword.
 - Would add one reserved keyword, one AST statement kind (`STMT_FALLTHROUGH`), and one IR lowering (branch to the next case's entry block, skipping its case-value check).
