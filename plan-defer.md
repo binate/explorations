@@ -1,6 +1,6 @@
 # Plan: implement `defer` (spec §14.13)
 
-Status: **DRAFT for adversarial review** (author, 2026-09-04). Spec §14.13 is
+Status: **LANDED** (2026-09-04, commits `9d5895f40` + `4596e1dd2`; spec §14.13 flipped Draft→implemented in docs `c04ab22`).  Both plan reviews and two implementation re-reviews folded in.  Originally drafted for adversarial review (author, 2026-09-04). Spec §14.13 is
 ratified (docs `03dd078`); design in [proposal-defer.md](proposal-defer.md).
 This plan is the *implementation* design — how the six rules (`stmt.defer`,
 `.call`, `.no-loop`, `.exit`, `.return`, `.no-abort`) become code across

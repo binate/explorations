@@ -7,6 +7,43 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### `defer` statement (§14.13) — DONE (2026-09-04, commits `9d5895f40` + `4596e1dd2`)
+
+Implemented the ratified `defer` statement across token/parser/AST/checker/IR-gen
+(design: [plan-defer.md](plan-defer.md), which folded in two adversarial plan
+reviews; the implementation then got two more adversarial reviews).  Function-
+scoped Go semantics with the loop restriction; fixed-frame-slot lowering (no
+hidden heap allocation).
+
+- **Front-end** (`9d5895f40`): `DEFER` keyword (auto-lexed, not an ASI trigger),
+  `STMT_DEFER` (reuses `Stmt.X`), parser arm; checker rules `stmt.defer.call`
+  (operand must be an `EXPR_CALL`, not a builtin form), `stmt.defer.no-loop` (a
+  dedicated `InLoopBody` flag reset across function-literal boundaries), and the
+  enclosing-function requirement (`InFunc`; rejects REPL immediate-mode `defer`).
+- **IR-gen** (`4596e1dd2`): a function-entry pre-pass allocates an armed flag +
+  typed operand slots at entry depth (nil-init'd; managed ones registered in
+  `ctx.Vars`); operands evaluated eagerly, stored call-ready; `emitPendingDefers`
+  runs armed defers LIFO at each normal exit BEFORE the whole-function release;
+  VM fault pads release operands but run no deferred calls (`stmt.defer.no-abort`).
+  Shapes: direct, static method, interface method, function-value/IIFE, panic,
+  and variadic (`func.variadic.pack` + spread).
+
+Correctness points the reviews drove: `coerceArg` split into eager (opcode/
+untyped-keyed) + delivery (type-keyed borrow/copy) phases so a managed→raw
+operand retains its pre-conversion value; the fall-off exit keeps body-scope
+managed locals live while deferred calls run (`genBlockEx skipFalloffCleanup`);
+an implicit `*any` box of a value operand snapshots by value at the defer site
+(`SnapshotBorrows`), including composite/array literals (loaded to a value so
+they take the snapshot path) and the variadic-pack backing (pre-allocated at
+entry depth so its managed elements survive to the call) — the two UAF bugs the
+implementation re-review caught, both fixed + verified.  Verified: LLVM (x64),
+native x64, native aarch64, bytecode VM (14 conformance tests + ir/checker/
+parser/token unit tests); full LLVM conformance 3016/0; hygiene 20/20.  Spec
+§14.13 flipped Draft→implemented (docs `c04ab22`).
+
+Remaining follow-up (in [claude-todo.md](claude-todo.md)): a
+generic-instantiation deferred call (`defer g[int](x)`) still fails loud.
+
 ### FFI `__c_call` arguments widened to any defined-ABI-layout type — DONE (2026-09-04, `bfb0f5d89`)
 
 `__c_call` arguments (previously scalar/pointer only) now admit any type with a
