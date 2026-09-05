@@ -41,8 +41,9 @@ native x64, native aarch64, bytecode VM (14 conformance tests + ir/checker/
 parser/token unit tests); full LLVM conformance 3016/0; hygiene 20/20.  Spec
 §14.13 flipped Draft→implemented (docs `c04ab22`).
 
-Remaining follow-up (in [claude-todo.md](claude-todo.md)): a
-generic-instantiation deferred call (`defer g[int](x)`) still fails loud.
+Follow-up now landed too (2026-09-05, `c83cef1c7`): the generic-instantiation
+deferred call (`defer g[int](x)`) is implemented — all defer shapes are
+supported, no fail-loud paths remain.
 
 ### FFI `__c_call` arguments widened to any defined-ABI-layout type — DONE (2026-09-04, `bfb0f5d89`)
 
