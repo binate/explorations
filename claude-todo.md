@@ -7,6 +7,63 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### ABI-spec adversarial review (2026-09-04): implementation gaps raised — 🔴 several OPEN
+
+Seven adversarial reviewers verified the draft ABI spec against the code
+(349 claims); the spec was corrected (docs 6c27343). These surviving findings
+are IMPLEMENTATION gaps, each with a Status note in docs/abi/ pointing here:
+
+1. **darwin-aa64 variadic HFA mis-ABI — MAJOR (clang-verified).** A variadic
+   HFA aggregate through `__c_call` rides D registers (the V-walkers saturate
+   only the GP cursor; the HFA emit arm has no VariadicStackOnly guard —
+   common_callconv_variadic.bn:47-51, common_callconv.bn:149-155,278-284,
+   aarch64_call.bn:140-162) while Apple's ABI puts every variadic composite
+   on the stack (verified against clang arm64-apple: caller stores to [sp]).
+   C callee's va_arg reads garbage. Fix: saturate the FP cursor too at the
+   variadic boundary under VariadicStackOnly + force variadic aggregates to
+   the stack path; conformance test.
+2. **Dispatch-seam narrow values — suspected MAJOR, needs repro.** The LLVM
+   producer passes narrow scalars as bare iN slots (no ext, emit_call_funcvalue.bn:451,
+   emit_funcvals_sig.bn:240-246) and native seam callers never re-canonicalize
+   narrow seam-call RESULTS (collectShimReturnX64 x64_call_indirect.bn:340-357
+   — only direct calls get the cleanup) while native callees rely on
+   canonical register form (64-bit TESTs on bools). Chain LLVM/VM caller →
+   native shim → native callee (or native seam caller ← LLVM shim result)
+   can deliver dirty high bits. Same class as the fixed c_export bugs, on the
+   dispatch seam. Verify end-to-end, then fix (shim/collect re-extension).
+3. **native arm32 dispatch-seam encoding divergence — MAJOR decision.** The
+   native arm32 backend even-pair-pads 64-bit/8-aligned dispatch slots and
+   (hard-float) uses VFP registers on the seam (arm32_funcvalue_marshal.bn:25-43,
+   arm32_call_indirect.bn:158,274), while LLVM (two-i32 positional split,
+   emit_funcvals_sig.bn:90-108, added by a5511a8d1 for exactly this reason)
+   and the VM (positional a0..a6 bank) do neither. Placements coincide only
+   at even GP parity; existing conformance covers only same-producer/even
+   parity. Decide the contract (positional per abi/03 §3.3 vs padded), fix
+   the divergent side, add odd-parity cross-producer tests.
+4. **Compiled→VM multi-return func-value dispatch unrealized.** ensureHandle
+   picks TrampolineScalar for a multi-return VM function (single-multi-word
+   gate, vm_funcvalue_handle.bn:17-18) and TrampolineAggregate panics on
+   multi-result (vm.bn:218-220) — a compiled caller's retbuf-shape call
+   misdispatches. Also: the VM picks the aggregate trampoline for a 0-byte
+   struct result where compiled producers use the scalar shape. Fix or make
+   fail-loud; test.
+5. **LLVM `__c_call` narrow ARGUMENTS lack signext/zeroext — suspected,
+   argument-direction sibling of the fixed 9ef53bcf7 return bug**
+   (emit_ccall.bn:33-56,90-101 — no ext attrs anywhere on args). Hazard on
+   platforms whose C ABI lets callees assume caller-extension (darwin-aa64;
+   de-facto SysV). Verify with an -O2 clang callee, then fix.
+6. **arm32 hard-float ≥9-float-scalar-arg divergence.** Caller-side
+   classification/stack sizing uses the monotonic 8-budget V-walkers with no
+   VfpBackfill dispatch (common_callconv_variadic.bn:44-110) while the callee
+   and register lookup use the back-fill allocator — stack offsets skew for
+   calls with more than 8 float-scalar args. Route the V-walkers through the
+   allocator; test at 9+ floats.
+7. **Library builds never build the interface-satisfaction registry.**
+   EmitSatRegistryWiring wires only __entry (data_satregistry.bn:23-27);
+   the --library path never calls it and bn_init runs package inits only
+   (library.bn:110-125) — every interface assertion in a library MISSES.
+   Fix: bn_init builds the registry from the facade's _pkg_satfrag first.
+
 ### Reserved-namespace gap: synthesized `_pkg*` globals collide with legal user names — 🔴 OPEN latent MAJOR (found 2026-09-04, ABI-spec recon)
 
 **Severity: MAJOR (latent)** — silent symbol collision. The checker reserves
@@ -359,6 +416,33 @@ declared stable". Remaining owner decisions:
 5. `ir-backend-guidelines.md` rehoming (separate entry below): the ABI spec
    now covers its calling-convention/mangling/linkage material; the IR-vs-
    backend responsibility-split guidance still needs a home.
+
+**Adversarial review DONE (2026-09-04):** 7 reviewers, 349 claims verified,
+49 findings; all spec-text fixes applied (docs 6c27343 — incl. correcting
+the stale main-native/deps-LLVM build claim, the retbuf sizing contract,
+the multi-return-not-C-replicable mapping, buffer alignment rules, and the
+coalescing-vs-TU-local symbol split), 16b status staleness fixed (ad91a26).
+Implementation gaps found by the review are raised under MAJOR above.
+Additional owner decisions from the review:
+6. **`pkg.cexport.signature` multi-return row** in 16b still claims a
+   packed-struct/sret C form; the review showed multi-results are not
+   C-ABI-replicable (in-register form ≠ platform composite rule; sret
+   conditions differ). Language-spec correction to ratify (abi/04 §4.2
+   carries the corrected statement + Status note).
+7. **`prog.entry.glue` vs realization**: bn_init exists only in --library
+   artifacts, and bn_entry reaches init via an internal dispatcher, not
+   bn_init — spec/17 reads as if both symbols exist everywhere. Reconcile
+   (fix spec text or implementation).
+8. **`__c_entry` cross-producer identity**: LLVM yields the mangled address,
+   native the __centry thunk — a mixed-producer program would violate
+   pkg.centry.identity. Harmonize or scope the rule.
+9. **Variadic `__c_call` C default promotions**: neither checked nor
+   performed (a float32 tail arg silently mis-reads as va_arg double).
+   Decide: checker reject vs IR-gen promote. (Spec now documents
+   no-promotions + programmer-pre-promotes, abi/02 §2.8.)
+10. **Mangled-symbol alphabet**: package paths are unvalidated; an
+    out-of-set byte or '.' would corrupt the symbol namespace. Add loader/
+    checker enforcement (minor).
 
 ### Code comments reference only normative docs + TODOs; rehome the implementation "specs" — 🟡 OPEN
 
