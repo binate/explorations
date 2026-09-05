@@ -38,7 +38,22 @@ alias / native narrow-reg prefix). aarch64 never needs a thunk.
 
 ## Increments
 
-1. **LLVM x86-64** (this file's first landing). Tractable: the C-ABI byval param
+1. **LLVM x86-64 — LANDED (`e9f9a6166`, 2026-09-05).** `emitCExportEntries` emits a
+   C-ABI entry thunk (`pkg/binate/codegen/emit_cexport_thunk.bn`) instead of the plain
+   alias when a param needs adaptation: each param declared in the C form
+   (`SysVArgInMemoryC` — byval for the >16 agg), forwarded in the internal form
+   (plain `ptr`). Three adversarial-review rounds found + fixed three distinct facets
+   of the register-cursor shift: (a) a ≤16 agg after a >16 agg is register-class in C
+   but memory-class internally → spill to alloca; (b) the spill store must use the
+   incoming param's spelling (`%BnSlice`/`%BnIfaceValue`/`%BnFuncValue` for a
+   first-class 2-word aggregate, not `[N x iW]`) or the IR is invalid; (c) the spill
+   alloca must be sized to the stored type, not the natural type, or a
+   non-word-multiple struct silently miscompiles at -O2 (SROA drops an eightbyte).
+   Validated end-to-end under Rosetta (x86_64-darwin) at -O0 and -O2; five codegen
+   tests + an `e2e/ffi-export.sh` bigagg check. Review CONFIRMED-CLEAN for the thunk's
+   scope. (The original design sketch below is superseded by the landed code.)
+
+1. **LLVM x86-64 (original sketch).** Tractable: the C-ABI byval param
    IS a `ptr` at the LLVM value level, so the thunk is
    `define <ret> @"name"(ptr byval(%T) align N %a, <others>) { %r = call <ret>
    @<mangled>(ptr %a, <others>); ret <ret> %r }` — the internal define's

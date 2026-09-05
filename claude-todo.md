@@ -95,7 +95,7 @@ predicate across c_export/__c_entry/__c_global is already listed there); the
 proper fix is either rejecting such signatures at the export (cheap) or
 emitting an adapting entry thunk (full fidelity). The ABI spec (abi/04 §4.4)
 carries a Status note. aarch64 unaffected. **Owner chose full fidelity (b);
-LLVM x86-64 leg LANDED — see plan-c-export-bigagg-param.md; arm32 LLVM + both
+LLVM x86-64 leg LANDED (`e9f9a6166`) — see plan-c-export-bigagg-param.md; arm32 LLVM + both
 native backends remain.**
 
 ### Inbound multi-VALUE-return `#[c_export]` with a >2-register tuple is silently miscompiled at the C boundary — 🔴 OPEN MAJOR (found 2026-09-04, adversarial review)
