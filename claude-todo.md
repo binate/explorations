@@ -7,62 +7,89 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### ABI-spec adversarial review (2026-09-04): implementation gaps raised — 🔴 several OPEN
+### ABI review #1: darwin-aa64 variadic HFA mis-ABI — 🔴 OPEN MAJOR (2026-09-04, clang-verified)
 
-Seven adversarial reviewers verified the draft ABI spec against the code
-(349 claims); the spec was corrected (docs 6c27343). These surviving findings
-are IMPLEMENTATION gaps, each with a Status note in docs/abi/ pointing here:
+From the ABI-spec adversarial review (7 reviewers, 349 claims; spec corrected
+docs 6c27343 — abi/02 §2.8 carries the Status note). A variadic HFA aggregate
+through `__c_call` on aarch64-darwin rides D registers while Apple's ABI puts
+every variadic composite on the stack (verified against clang arm64-apple:
+caller stores to [sp]) — the C callee's va_arg reads garbage. Root cause: the
+V-walkers saturate only the GP cursor at the fixed/variadic boundary; the
+variadic force-to-stack rule is gated on float scalars only; the aa64 HFA emit
+arm lacks the VariadicStackOnly guard (common_callconv_variadic.bn:47-51,
+common_callconv.bn:149-155,278-284, aarch64_call.bn:140-162 vs :103). Fix:
+under VariadicStackOnly saturate the FP cursor too and route variadic
+aggregates through the stack path; e2e test with a C va_arg callee.
 
-1. **darwin-aa64 variadic HFA mis-ABI — MAJOR (clang-verified).** A variadic
-   HFA aggregate through `__c_call` rides D registers (the V-walkers saturate
-   only the GP cursor; the HFA emit arm has no VariadicStackOnly guard —
-   common_callconv_variadic.bn:47-51, common_callconv.bn:149-155,278-284,
-   aarch64_call.bn:140-162) while Apple's ABI puts every variadic composite
-   on the stack (verified against clang arm64-apple: caller stores to [sp]).
-   C callee's va_arg reads garbage. Fix: saturate the FP cursor too at the
-   variadic boundary under VariadicStackOnly + force variadic aggregates to
-   the stack path; conformance test.
-2. **Dispatch-seam narrow values — suspected MAJOR, needs repro.** The LLVM
-   producer passes narrow scalars as bare iN slots (no ext, emit_call_funcvalue.bn:451,
-   emit_funcvals_sig.bn:240-246) and native seam callers never re-canonicalize
-   narrow seam-call RESULTS (collectShimReturnX64 x64_call_indirect.bn:340-357
-   — only direct calls get the cleanup) while native callees rely on
-   canonical register form (64-bit TESTs on bools). Chain LLVM/VM caller →
-   native shim → native callee (or native seam caller ← LLVM shim result)
-   can deliver dirty high bits. Same class as the fixed c_export bugs, on the
-   dispatch seam. Verify end-to-end, then fix (shim/collect re-extension).
-3. **native arm32 dispatch-seam encoding divergence — MAJOR decision.** The
-   native arm32 backend even-pair-pads 64-bit/8-aligned dispatch slots and
-   (hard-float) uses VFP registers on the seam (arm32_funcvalue_marshal.bn:25-43,
-   arm32_call_indirect.bn:158,274), while LLVM (two-i32 positional split,
-   emit_funcvals_sig.bn:90-108, added by a5511a8d1 for exactly this reason)
-   and the VM (positional a0..a6 bank) do neither. Placements coincide only
-   at even GP parity; existing conformance covers only same-producer/even
-   parity. Decide the contract (positional per abi/03 §3.3 vs padded), fix
-   the divergent side, add odd-parity cross-producer tests.
-4. **Compiled→VM multi-return func-value dispatch unrealized.** ensureHandle
-   picks TrampolineScalar for a multi-return VM function (single-multi-word
-   gate, vm_funcvalue_handle.bn:17-18) and TrampolineAggregate panics on
-   multi-result (vm.bn:218-220) — a compiled caller's retbuf-shape call
-   misdispatches. Also: the VM picks the aggregate trampoline for a 0-byte
-   struct result where compiled producers use the scalar shape. Fix or make
-   fail-loud; test.
-5. **LLVM `__c_call` narrow ARGUMENTS lack signext/zeroext — suspected,
-   argument-direction sibling of the fixed 9ef53bcf7 return bug**
-   (emit_ccall.bn:33-56,90-101 — no ext attrs anywhere on args). Hazard on
-   platforms whose C ABI lets callees assume caller-extension (darwin-aa64;
-   de-facto SysV). Verify with an -O2 clang callee, then fix.
-6. **arm32 hard-float ≥9-float-scalar-arg divergence.** Caller-side
-   classification/stack sizing uses the monotonic 8-budget V-walkers with no
-   VfpBackfill dispatch (common_callconv_variadic.bn:44-110) while the callee
-   and register lookup use the back-fill allocator — stack offsets skew for
-   calls with more than 8 float-scalar args. Route the V-walkers through the
-   allocator; test at 9+ floats.
-7. **Library builds never build the interface-satisfaction registry.**
-   EmitSatRegistryWiring wires only __entry (data_satregistry.bn:23-27);
-   the --library path never calls it and bn_init runs package inits only
-   (library.bn:110-125) — every interface assertion in a library MISSES.
-   Fix: bn_init builds the registry from the facade's _pkg_satfrag first.
+### ABI review #2: dispatch-seam narrow values not canonicalized — 🔴 SUSPECTED MAJOR, needs repro (2026-09-04)
+
+Status note: abi/03 §3.3. The LLVM producer passes narrow scalars as bare iN
+dispatch slots (no extension — emit_call_funcvalue.bn:451,
+emit_funcvals_sig.bn:240-246) and native seam callers never re-canonicalize
+narrow seam-call RESULTS (collectShimReturnX64 x64_call_indirect.bn:340-357 —
+only direct calls get the caller-side cleanup), while native callees rely on
+canonical register form (64-bit TESTs on bools). Chain LLVM/VM caller →
+native shim → native callee (or native seam caller ← LLVM shim result) can
+deliver dirty high bits — same class as the fixed c_export sub-word bugs, on
+the dispatch seam. Verify end-to-end first (needs a cross-producer or
+VM-involved repro), then fix (shim/collect re-extension) on all three arches.
+
+### ABI review #3: native arm32 dispatch-seam encoding diverges from LLVM/VM — 🔴 OPEN MAJOR, needs a contract decision (2026-09-04)
+
+Status note: abi/03 §3.3. The native arm32 backend even-pair-pads 64-bit and
+8-aligned dispatch slots and (hard-float) places float scalars in VFP
+registers on the func-value/iface seam (arm32_funcvalue_marshal.bn:25-43,
+arm32_call_indirect.bn:158,274), while the LLVM backend (two-i32 positional
+split, emit_funcvals_sig.bn:90-108, added by a5511a8d1 for exactly this
+reason) and the VM (positional a0..a6 bank) use the positional all-integer
+encoding abi/03 §3.3 specifies. Placements coincide only at even GP parity;
+existing conformance covers only same-producer / even-parity shapes. Decide
+the contract (positional per the spec vs padded), fix the divergent side, add
+odd-parity cross-producer tests.
+
+### ABI review #4: compiled→VM multi-return func-value dispatch unrealized — 🔴 OPEN (2026-09-04)
+
+Status note: abi/03 §3.5. ensureHandle selects TrampolineScalar for a
+multi-return VM function (single-multi-word gate,
+vm_funcvalue_handle.bn:17-18) and TrampolineAggregate panics on multi-result
+metadata (vm.bn:218-220) — a compiled caller's retbuf-shape call
+misdispatches (panic at best, misdispatch if garbage matches a tag). Also:
+the VM selects the aggregate trampoline for a 0-byte struct result where
+compiled producers use the scalar shape. Fix (teach ensureHandle +
+TrampolineAggregate the multi-return retbuf shape; align the 0-byte edge) or
+make fail-loud; test both directions.
+
+### ABI review #5: LLVM `__c_call` narrow ARGUMENTS lack signext/zeroext — 🔴 SUSPECTED, needs verification (2026-09-04)
+
+Status note: abi/04 §4.6. The argument-direction sibling of the fixed
+9ef53bcf7 return bug: emit_ccall.bn:33-56,90-101 emits no extension
+attributes on `__c_call` arguments (attrs exist only on exported-function
+returns). Hazard on platforms whose C ABI lets the callee assume
+caller-extension (darwin-aa64 DarwinPCS; de-facto SysV x64). Verify with an
+-O2 clang callee reading an int8/int16 arg, then fix (extension attributes or
+explicit widening at the call site). Native backends unaffected (canonical
+full-word args).
+
+### ABI review #6: arm32 hard-float caller/callee divergence beyond 8 float args — 🔴 OPEN (2026-09-04)
+
+Status note: abi/02 §2.9. Caller-side classification and stack sizing use the
+monotonic 8-register-budget V-walkers with no VfpBackfill dispatch
+(common_callconv_variadic.bn:44-110), while the callee side and the
+concrete-register lookup use the AAPCS-VFP back-fill allocator — so caller
+and callee disagree on stack offsets for a call with more than 8 float-scalar
+arguments (back-fill fits up to 16 float32s). Route the V-walkers through the
+allocator (thread the mask/latch, variadicEffType applied first); test at 9+
+float args, mixed float32/float64.
+
+### ABI review #7: library builds never build the interface-satisfaction registry — 🔴 OPEN MAJOR for --library users (2026-09-04)
+
+Status note: abi/06 §6.7. EmitSatRegistryWiring wires only __entry
+(data_satregistry.bn:23-27); the --library driver never calls it and bn_init
+runs package initializers only (library.bn:110-125) — so in a library
+artifact rt.BuildSatRegistry never runs and every interface
+assertion/satisfaction lookup MISSES. Fix: bn_init builds the registry from
+the facade's _pkg_satfrag node before running inits; e2e library test with a
+type assertion.
 
 ### Reserved-namespace gap: synthesized `_pkg*` globals collide with legal user names — 🔴 OPEN latent MAJOR (found 2026-09-04, ABI-spec recon)
 
@@ -490,27 +517,58 @@ declared stable". Remaining owner decisions:
 the stale main-native/deps-LLVM build claim, the retbuf sizing contract,
 the multi-return-not-C-replicable mapping, buffer alignment rules, and the
 coalescing-vs-TU-local symbol split), 16b status staleness fixed (ad91a26).
-Implementation gaps found by the review are raised under MAJOR above.
-Additional owner decisions from the review:
-6. **`pkg.cexport.signature` multi-return row** in 16b still claims a
-   packed-struct/sret C form; the review showed multi-results are not
-   C-ABI-replicable (in-register form ≠ platform composite rule; sret
-   conditions differ). Language-spec correction to ratify (abi/04 §4.2
-   carries the corrected statement + Status note).
-7. **`prog.entry.glue` vs realization**: bn_init exists only in --library
-   artifacts, and bn_entry reaches init via an internal dispatcher, not
-   bn_init — spec/17 reads as if both symbols exist everywhere. Reconcile
-   (fix spec text or implementation).
-8. **`__c_entry` cross-producer identity**: LLVM yields the mangled address,
-   native the __centry thunk — a mixed-producer program would violate
-   pkg.centry.identity. Harmonize or scope the rule.
-9. **Variadic `__c_call` C default promotions**: neither checked nor
-   performed (a float32 tail arg silently mis-reads as va_arg double).
-   Decide: checker reject vs IR-gen promote. (Spec now documents
-   no-promotions + programmer-pre-promotes, abi/02 §2.8.)
-10. **Mangled-symbol alphabet**: package paths are unvalidated; an
-    out-of-set byte or '.' would corrupt the symbol namespace. Add loader/
-    checker enforcement (minor).
+Implementation gaps found by the review are raised under MAJOR as the
+"ABI review #1–#7" entries; the review's owner-decision items are the
+"ABI review #8–#12" entries below.
+
+### ABI review #8: `pkg.cexport.signature` multi-return row — language-spec correction to ratify — 🟡 (2026-09-04)
+
+16b's `pkg.cexport.signature` still claims a packed-struct/sret C form for a
+multi-result export; the review showed multi-results are not C-ABI-replicable
+(the in-register form is not the platform composite rule, and the sret
+trigger is the internal register-count rule, not C's size rule — they
+coincide only incidentally). abi/04 §4.2 carries the corrected statement +
+Status note. Ratify the 16b correction (restrict the row / mark multi-return
+export unsupported), and decide whether the export validator (see the FFI
+C-representability follow-ons entry) should reject multi-result exports.
+
+### ABI review #9: `prog.entry.glue` vs realization — reconcile spec/17 with the implementation — 🟡 (2026-09-04)
+
+Status note: abi/06 §6.7. spec/17's prog.entry.glue reads as if both glue
+symbols exist in every artifact and bn_entry reaches init through bn_init;
+the realization emits bn_init only in --library builds ("an ordinary program
+never gets a bn_init", gen_init.bn:261-263) and bn_entry calls the internal
+__init_all dispatcher. Decide: fix the spec text (per-artifact symbols) or
+change the implementation (emit bn_init everywhere and route bn_entry
+through it).
+
+### ABI review #10: `__c_entry` cross-producer pointer identity — harmonize or scope — 🟡 (2026-09-04)
+
+Status note: abi/04 §4.5. For the same narrow-parameter f, the LLVM lowering
+yields the mangled definition address while the native lowering yields the
+weak `__centry.<mangled>` thunk address — a mixed-producer program would
+violate pkg.centry.identity ("same pointer value for the same f").
+Options: harmonize (LLVM also references the weak thunk name for
+narrow-param targets) or scope the language-spec rule to single-producer
+programs.
+
+### ABI review #11: variadic `__c_call` C default promotions — decide reject vs promote — 🟡 (2026-09-04)
+
+Neither checked nor performed today: a float32 (or sub-int) variadic tail
+argument crosses at its own width and the C callee's va_arg mis-reads it
+(va_arg expects the promoted double/int). The ABI spec now documents
+no-promotions + programmer-pre-promotes (abi/02 §2.8). Decide the durable
+contract: checker rejects unpromoted variadic tail types (loud), or IR-gen
+promotes them (convenient, matches C compilers). Then implement + test.
+
+### ABI review #12: mangled-symbol alphabet unenforced for package paths — 🟢 minor (2026-09-04)
+
+Status note: abi/05 §5.2. The mangler copies package-path bytes verbatim and
+nothing validates them (PackageClause takes any string literal): an
+out-of-alphabet byte violates the [A-Za-z0-9_] symbol guarantee, and a '.'
+would break the decorated-name discriminator and Demangle's first-dot split.
+Add loader/checker validation of package-path segments (charset + no '.');
+test with a hostile path.
 
 ### Code comments reference only normative docs + TODOs; rehome the implementation "specs" — 🟡 OPEN
 
