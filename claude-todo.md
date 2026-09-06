@@ -45,7 +45,7 @@ reason) and the VM (positional a0..a6 bank) use the positional all-integer
 encoding abi/03 §3.3 specifies. Placements coincide only at even GP parity;
 existing conformance covers only same-producer / even-parity shapes. Decide
 the contract (positional per the spec vs padded), fix the divergent side, add
-odd-parity cross-producer tests.
+odd-parity cross-producer tests.  Plan + phased design (soft-float even-pair drop, then hard-float GP-bit-image seam): see plan-arm32-dispatch-seam-positional.md.
 
 ### ABI review #4: compiled→VM multi-return func-value dispatch unrealized — 🔴 OPEN (2026-09-04)
 
