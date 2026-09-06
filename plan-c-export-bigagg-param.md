@@ -63,10 +63,19 @@ alias / native narrow-reg prefix). aarch64 never needs a thunk.
    the C-ABI byval param classification `SysVArgInMemoryC` / `aggMemClassMaybeC(cabi=true)`
    and `writeMemByvalParamDefine` from `emit_ccall.bn` / `emit_mem_byval.bn`. Carry
    the return signext/zeroext (cabiIntExtAttr) and sret forwarding.
-2. **LLVM arm32.** The C-ABI form of a >16 struct param is NOT a simple byval-ptr
-   (clang coerces to words / uses byval per its ARM rules) — the thunk must
-   reconstruct a `ptr` from the split C-ABI form. INVESTIGATE what clang / the
-   existing `emit_ccall.bn` arm32 path emits before implementing.
+2. **LLVM arm32 — LANDED (`aa7cf377c`, 2026-09-05).** Confirmed: on arm32 (AAPCS32)
+   the C ABI passes a >16-byte aggregate BY VALUE coerced to `[N x iW]` (via
+   `aggCoerceLLTy`, alignment-aware — `[3 x i64]` for a 24-byte 8-aligned struct,
+   `[5 x i32]` for a 20-byte 4-aligned one), NOT the x86-64 `ptr byval`.  So the thunk
+   spills every >16 param (store the coerced value to an alloca, forward the internal
+   plain `ptr`), unlike x86-64's byval-ptr pass-through.  Factored the per-target
+   C-ABI param type into a shared `writeCAbiParamType` (used by both the `__c_call`
+   declare and the thunk); generalized `cExportThunkParamSpills` to "arrives as a
+   value, forwarded as a pointer"; `cExportNeedsThunk` fires on `PointerSize==4` too.
+   Validated end-to-end under real arm32 emulation (Docker armhf + qemu) at -O0 AND
+   -O2 (lone big struct, non-word-multiple 20-byte struct, big+scalars+small, sret,
+   r0-r3-boundary struct, slice/iface/func); pre-fix alias SIGSEGVs.  Adversarial
+   review CONFIRMED-CLEAN (12+-case emulated matrix).
 3. **Native x86-64.** The current model (alias label → in-place narrow-reg fixup
    → jmp `sym`) does NOT work: the C-ABI and internal register/stack assignments
    differ (the agg is stack-value in C, ptr-in-reg internally, shifting every
