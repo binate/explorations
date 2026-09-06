@@ -76,7 +76,20 @@ alias / native narrow-reg prefix). aarch64 never needs a thunk.
    -O2 (lone big struct, non-word-multiple 20-byte struct, big+scalars+small, sret,
    r0-r3-boundary struct, slice/iface/func); pre-fix alias SIGSEGVs.  Adversarial
    review CONFIRMED-CLEAN (12+-case emulated matrix).
-3. **Native x86-64 — IN PROGRESS.** The current model (alias label → in-place
+3. **Native x86-64 — LANDED (`cebfc6695`, 2026-09-05).** Adapter trampoline
+   (`x64_cexport_trampoline.bn`): frame + `call sym`, reading each arg at its C-ABI
+   position (`cc.ForCBoundary()`) and placing it at sym's internal position (`cc`) —
+   a >16 agg becomes a pointer to the incoming C-stack bytes (sym's prologue memcpys
+   from it), scalars/≤16 aggs copied word-for-word (narrow ones extended), floats
+   left in XMM (unshifted). Phase-1 spills the GP arg regs to a scratch frame so
+   phase-2 writes can't clobber a live source. Validated end-to-end under Rosetta at
+   -O0 AND -O2 across 18 signatures (lone/non-word-multiple/two big aggs, stack
+   overflow, narrow-after-big, floats interleaved, sret+big-param, multi-name);
+   pre-fix crashes. Adversarial review CONFIRMED-CLEAN on FIRST pass (disassembled +
+   ran 18 sigs × -O0/-O2). Details of the superseded design sketch below.
+
+3. **Native x86-64 (design sketch — superseded by the landed code).** The current
+   model (alias label → in-place
    narrow-reg fixup → jmp `sym`) does NOT work for a >16 agg: the C ABI passes it on
    the stack (MEMORY, consuming 0 GP regs) but `sym` expects a pointer in a GP reg,
    which shifts every later param's register/stack slot. **Design: an adapter
