@@ -126,6 +126,29 @@ assertion/satisfaction lookup MISSES. Fix: bn_init builds the registry from
 the facade's _pkg_satfrag node before running inits; e2e library test with a
 type assertion.
 
+### LLVM `__c_call`: variadic call-site signature spells a fixed AGGREGATE param uncoerced → won't compile — 🔴 OPEN MAJOR (found 2026-09-06, ABI review #1 e2e)
+
+A variadic `__c_call` whose FIXED args include a by-value aggregate emits invalid
+LLVM and clang rejects it — the program won't compile.  `emitCCall`
+(`pkg/binate/codegen/emit_ccall.bn`) builds the explicit varargs call-site
+function type `(<fixed-types>, ...)` with `llvmType(arg.Typ)` — the RAW Binate
+type (e.g. `%bn_S1_..V2` for a small struct) — while the ARGUMENT itself is
+emitted C-ABI-COERCED via `writeByvalArgLLVM` (e.g. `[2 x float]`).  LLVM requires
+each fixed call-type param to match its arg, so it errors, e.g.
+`call i32 (%bn_..V2, i32, ...) @f([2 x float] %.., i32 %.., ...)`.  The sibling
+`emitCCallDeclare` already does it right (`writeCAbiParamType`, position-aware).
+This is fail-loud (a compile error), NOT a silent miscompile.  Native backends
+handle the shape fine — verified via the ABI review #1 e2e: native compiled + ran
+a `f(struct V2 fixed, int n, ...)` call correctly; only the LLVM backend could
+not compile it.
+
+Proposed fix: in `emitCCall`, build the fixed-arg type list and spell the varargs
+signature params with `writeCAbiParamType(out, arg.Typ, fixedTypes, i)` instead of
+`llvmType`, mirroring `emitCCallDeclare`.  Test: a `__c_call` to a variadic C
+function with a fixed by-value struct arg needs a C sidecar (an e2e case) — re-add
+the `fixed_then_var` case that was dropped from `e2e/c-call-variadic-hfa.sh` for
+exactly this reason.
+
 ### Reserved-namespace gap: synthesized `_pkg*` globals collide with legal user names — 🔴 OPEN latent MAJOR (found 2026-09-04, ABI-spec recon)
 
 **Severity: MAJOR (latent)** — silent symbol collision. The checker reserves
