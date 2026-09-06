@@ -1,5 +1,9 @@
 # Plan: inbound `#[c_export]` >16-byte by-value param — full-fidelity adapting thunk (fix (b))
 
+**STATUS (2026-09-06): COMPLETE — all four increments landed** (LLVM x64
+`e9f9a6166`, LLVM arm32 `aa7cf377c`, native x64 `cebfc6695`, native arm32
+`1e33182dd`). Fix (b) is done on every backend and target.
+
 Tracks the fix for the MAJOR latent ABI bug: an inbound `#[c_export]` function
 with a >16-byte by-value aggregate parameter presents Binate's **internal**
 pointer convention to a C caller on x86-64 / arm32 → silent garbage. Owner chose
@@ -111,8 +115,24 @@ alias / native narrow-reg prefix). aarch64 never needs a thunk.
    shift NSRN). Validate end-to-end under Rosetta at -O0 AND -O2, like the LLVM
    legs. I emit the raw register/stack moves here (no LLVM to lower the ABI), so
    this is the most error-prone leg — expect adversarial-review iteration.
-4. **Native arm32.** As x64 but the agg arrives split across r0–r3 + stack; gather
-   into a copy, pass its pointer, remap. Verify on `builder-comp_native_arm32_baremetal`.
+4. **Native arm32 — LANDED (`1e33182dd`, 2026-09-06).** Adapter trampoline
+   (`arm32_cexport_trampoline.bn`): as x64 but the aggregate arrives split across
+   r0–r3 + stack, so the trampoline GATHERS each >16-byte aggregate's split words
+   (staged regs + incoming stack) into a contiguous frame slot and passes a pointer
+   to it (x64 could `lea` contiguous C-stack bytes; AAPCS32 cannot). Scalars / ≤16
+   aggs copied word-for-word (narrow extended) with the 4-byte AAPCS32 word count
+   (`cc.ArgWords`, NOT the free `common.ArgWords` which is 8-byte — a disassembly
+   caught a half-copied gather). Adversarial review then caught a CRITICAL
+   soft-float bug: the float branch fired for ALL floats and its "leave it in VFP"
+   path DROPPED a soft-float float that lands in a GP register after a big aggregate
+   (soft-float floats ride GP, not VFP) — fixed by gating on
+   `types.Arm32HardFloat()` (matching `emitSpillParam`), so soft-float floats fall
+   through the GP marshal path. Validated end-to-end under qemu-arm: hard-float
+   (arm32-linux, 9 signatures incl. sret+big and float-interleaved) at -O0/-O2 all
+   correct; soft-float (arm32-baremetal object + gnueabi driver) `f(Big, float32)`
+   returns the right value (pre-fix drops the float); pre-trampoline path segfaults.
+   Codegen shape test + a soft-float differential regression test (confirmed to fail
+   on the pre-fix code).
 
 ## Test plan
 
