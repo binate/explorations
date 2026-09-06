@@ -76,14 +76,28 @@ alias / native narrow-reg prefix). aarch64 never needs a thunk.
    -O2 (lone big struct, non-word-multiple 20-byte struct, big+scalars+small, sret,
    r0-r3-boundary struct, slice/iface/func); pre-fix alias SIGSEGVs.  Adversarial
    review CONFIRMED-CLEAN (12+-case emulated matrix).
-3. **Native x86-64.** The current model (alias label → in-place narrow-reg fixup
-   → jmp `sym`) does NOT work: the C-ABI and internal register/stack assignments
-   differ (the agg is stack-value in C, ptr-in-reg internally, shifting every
-   later param). Needs a real trampoline: point the internal reg at the incoming
-   C-stack aggregate (already a caller-owned copy — no memcpy needed) and remap
-   the other args, then reach `sym`. The incoming stack aggregate stays live for
-   `sym`'s duration. Design the reg/stack remap (interacts with narrow-reg
-   normalization when both are present).
+3. **Native x86-64 — IN PROGRESS.** The current model (alias label → in-place
+   narrow-reg fixup → jmp `sym`) does NOT work for a >16 agg: the C ABI passes it on
+   the stack (MEMORY, consuming 0 GP regs) but `sym` expects a pointer in a GP reg,
+   which shifts every later param's register/stack slot. **Design: an adapter
+   trampoline**, mirroring the closure/func-value shims
+   (`x64_closure_shim_aggregate.bn` — a register-only fast path + a stack-spill
+   path). Per param compute the C-ABI position (`cc.ForCBoundary()` →
+   `CallArgRegStart`/`CallArgStackOff`) and the internal position (`cc`), then move
+   each arg from its C slot to its internal slot before reaching `sym`:
+   - a >16 agg: `lea` the address of the incoming C-stack aggregate into `sym`'s
+     internal GP reg (the C-passed stack copy is live for `sym`'s duration — no
+     memcpy);
+   - scalars / ≤16 aggs: reg→reg (a permutation — internal cursor ≥ C cursor, so
+     process in reverse to avoid clobber) or, when args overflow the registers,
+     stack→stack at the shifted offset (the C stack layout includes the big agg's
+     bytes, the internal one a pointer, so offsets differ → the stack-spill path
+     with its own outgoing-args frame + `call sym`).
+   Composes with the existing narrow-reg normalization (still applied per param),
+   the sret RDI shift, and the SEPARATE float/XMM cursor (a >16 GP agg does not
+   shift NSRN). Validate end-to-end under Rosetta at -O0 AND -O2, like the LLVM
+   legs. I emit the raw register/stack moves here (no LLVM to lower the ABI), so
+   this is the most error-prone leg — expect adversarial-review iteration.
 4. **Native arm32.** As x64 but the agg arrives split across r0–r3 + stack; gather
    into a copy, pass its pointer, remap. Verify on `builder-comp_native_arm32_baremetal`.
 
