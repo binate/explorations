@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### ABI review #1: darwin-aa64 variadic HFA mis-ABI — 🔴 OPEN MAJOR (2026-09-04, clang-verified)
+### ABI review #1: darwin-aa64 variadic HFA mis-ABI — 🟡 IN PROGRESS MAJOR (2026-09-04, clang-verified; claimed 2026-09-06)
 
 From the ABI-spec adversarial review (7 reviewers, 349 claims; spec corrected
 docs 6c27343 — abi/02 §2.8 carries the Status note). A variadic HFA aggregate
