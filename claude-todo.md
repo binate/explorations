@@ -34,7 +34,7 @@ deliver dirty high bits — same class as the fixed c_export sub-word bugs, on
 the dispatch seam. Verify end-to-end first (needs a cross-producer or
 VM-involved repro), then fix (shim/collect re-extension) on all three arches.
 
-### ABI review #3: native arm32 dispatch-seam encoding diverges from LLVM/VM — 🔴 OPEN MAJOR, needs a contract decision (2026-09-04)
+### ABI review #3: native arm32 dispatch-seam encoding diverges from LLVM/VM — 🟡 IN PROGRESS (work-6, 2026-09-06); was OPEN MAJOR, needs a contract decision (2026-09-04)
 
 Status note: abi/03 §3.3. The native arm32 backend even-pair-pads 64-bit and
 8-aligned dispatch slots and (hard-float) places float scalars in VFP
