@@ -360,20 +360,25 @@ liveness pass itself) is 61% memory ops: 1144 vs llvm's 135 (8.5×).
    debug bottomed out at an AssignReg id-reuse double-cache (the IR reuses a mutable var's value id
    across load/modify/store; the reload cached id→oldReg, the redefinition appended id→newReg, and
    LookupReg returned the stale first entry → `i=i+1` stored the pre-increment value) — fixed by
-   AssignReg REPLACING, not appending, a duplicate id entry.  REMAINING: (a) port the retention to
-   x64 and arm32 (still round-robin, no retention); (b) dead-store elimination — only the reload is
-   avoided so far; the redundant STORE of each store-then-reload pair is not yet dropped.
-   **UPDATE:** arm32 ported and LANDED (62f474df1) — a clean aarch64-style mirror
-   (R4..R10 pool is callee-saved, disjoint from the R0..R3 homes; emitters don't
-   hardcode the pool), validated by native_arm32_linux conformance under qemu-arm
-   (3020 passed, 0 failed).  x64 is IN PROGRESS and harder: its caller-saved pool
-   (R10/R11/RCX/RDX/R8/R9/RDI) is pervasively ISA-hardcoded mid-instruction
-   (RCX shifts, RAX/RDX mul/div, R8/R9/R11 float, RDI memcpy-shaped paths) and the
-   shift/div emitters assume round-robin pool-slot positions, so retention needs a
-   whitelist (retain across occupancy-clean ops; reset before hardcoding/slot-assuming
-   ops).  A whitelist prototype miscompiles (startup hangs on x64/Rosetta; one bug —
-   a full-width bit_cast reusing a homed result's register — fixed, at least one
-   more remains); parked on the `x64-wip` branch pending disassembly-diff debugging.
+   AssignReg REPLACING, not appending, a duplicate id entry.
+   **UPDATE (all three backends LANDED):** arm32 `62f474df1` (aarch64-style mirror; R4..R10
+   callee-saved pool disjoint from R0..R3 homes; native_arm32_linux 3020/0 under qemu-arm) and
+   x64 `7558a35ec` (feature) atop `4a7bbba26` (a prerequisite assembler fix — see below).  x64's
+   caller-saved pool (R10/R11/RCX/RDX/R8/R9/RDI) is pervasively ISA-hardcoded mid-instruction
+   (RCX shifts, RAX/RDX mul/div, R8/R9/R11 float, RDI memcpy-shaped paths), so retention flows
+   only through a whitelist of occupancy-clean ops (`retentionSafe`) and the emit loop resets the
+   cache before every other op; native_x64 conformance 3020/0.  Two bugs surfaced during the x64
+   port: (1) a full-width bit_cast that reused a homed result's register (reverted — bit_cast now
+   always moves to a fresh reg); (2) a LATENT x64 assembler byte-REX hazard — `emitRex` omitted
+   REX for 8-bit ops on RSP/RBP/RSI/RDI, so a byte spill of RDI assembled as a write to BH (a
+   silent miscompile; reproducer conformance 902) — fixed comprehensively in its own commit
+   `4a7bbba26` with asm-level encoding tests.
+   REMAINING: (a) dead-store elimination — only the reload is avoided so far; the redundant STORE
+   of each store-then-reload pair is not yet dropped.  (b) x64 OP_CAST's unsigned-int64<->float
+   lowering picks GP scratch non-occupancy-aware (`pickScratchGP`/`pickTwoScratchGP`), currently
+   safe only because that lowering always branches (→ post-op cache reset); make those pickers
+   occupancy-aware (evict like `allocReg`) so OP_CAST's retention-safety no longer rides on the
+   incidental branch (TODO noted in `retentionSafe`, x64_regmap.bn).
 2. **Register promotion (keep IR temporaries in registers; mem2reg-equivalent)** — the deep lever
    and bulk of the gap.  Native materializes ~every temp to a stack slot; llvm's mem2reg keeps them
    in registers.  **This is why the Stage-5 refinements above were NEUTRAL** — they tuned the margins
