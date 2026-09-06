@@ -170,7 +170,7 @@ Fixed (f7c7495e5) with the opaque-export dtor guarantee — the defining package
 public `__dtor_X` for every opaque-exported type (trivial if non-destructible) and the
 importer's opaque `@X` drop RefDecs through it.
 
-Discovered building the scripted-layout driver API (plan-driver-linker-script.md step 5).
+Discovered building the scripted-layout driver API (done/plan-driver-linker-script.md step 5).
 Tests: `TestRegisterStructTypesOpaqueForwardDecl`, `TestOpaqueManagedPtrRefDecRunsDtor`,
 `TestOpaqueExportedStructForcesDtor` (pkg/binate/ir) + the `e2e/bnld-rawbin.sh` proof.  A
 latent follow-on (external-C opaque MANAGED types) is tracked in claude-todo.md.
@@ -535,7 +535,7 @@ into it and load a per-return `retSeq`-tagged `%aggret.v<seq>`; the per-OP_RETUR
 `emitReturnAggAllocaDecl` hoist was removed.  Regression:
 `conformance/1234_multiret_struct_by_value` (GP int-field + x86-64 SSE float64 structs,
 each returned from two sites).  Found implementing the scripted-layout `LayoutBuilder`
-([plan-driver-linker-script.md](plan-driver-linker-script.md)); `link.BeginSection` keeps
+([plan-driver-linker-script.md](done/plan-driver-linker-script.md)); `link.BeginSection` keeps
 a single `return` as a workaround because the frozen BUILDER (bnc-0.0.14) that compiles
 `pkg/binate/link` for gen1 still has this bug — revertable once a BUILDER carrying this
 fix is cut.
@@ -19896,3 +19896,23 @@ parallelization) stay in claude-todo.md.
 - ~~**Mode sets in files**~~: DONE. `scripts/modesets/` directory with one file per set (basic, all, full). Adding a new mode set is just adding a file. Both runners read from the shared directory. Help output dynamically lists available sets.
 - ~~**Better mode specification**~~: DONE. Comma-separated modes (`boot,boot-comp`) expand into sequential runs. Works alongside mode set files.
 - ~~**Better filtering (unit tests)**~~: DONE. Fixed unit test runner to use substring match (was exact match). `token` now matches `pkg/token`, consistent with conformance runner.
+
+### Inbound `#[c_export]` with a >16-byte by-value param presented the INTERNAL pointer convention to C (x64/arm32) — ✅ RESOLVED 2026-09-06 (fix (b), all backends)
+
+Binate's internal convention passes >16-byte by-value aggregates as a single
+pointer-to-copy on every target (deliberate, matches LLVM plain-ptr), while a
+conforming C caller passes SysV MEMORY (x64) / AAPCS by-value split (arm32) —
+so an inbound `#[c_export]` with such a param read garbage on x64/arm32
+(aarch64 coincides, unaffected). Owner chose **fix (b)**: an adapting entry
+(a C-ABI thunk on the LLVM path, a frame-based adapter trampoline on the native
+path) that re-marshals each divergent param to the internal form and forwards to
+the mangled definition. Landed across four increments (see
+plan-c-export-bigagg-param.md): LLVM x86-64 `e9f9a6166`, LLVM arm32 `aa7cf377c`,
+native x86-64 `cebfc6695`, native arm32 `1e33182dd`. Each validated end-to-end
+under Rosetta / qemu-arm at -O0 and -O2 (pre-fix crashes/garbles); native arm32
+additionally caught a CRITICAL soft-float bug in adversarial review (a soft-float
+float in a GP register after the aggregate was dropped) fixed by gating on
+`types.Arm32HardFloat()`. NOTE: native arm32 `#[c_export]` interop from
+gcc/bfd-linked Thumb C is still blocked by a SEPARATE defect (missing ARM
+mapping symbols) — see that entry in claude-todo.md.
+

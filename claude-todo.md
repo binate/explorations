@@ -108,23 +108,6 @@ synthesized family into `__` (ABI-visible rename) or extend the reserved
 check to the `_pkg` prefix at package scope. Needs a test either way. The ABI
 spec (abi/05 §5.4) carries a Status note flagging this.
 
-### Inbound `#[c_export]` with a >16-byte by-value param presents the INTERNAL pointer convention to C (x64/arm32) — 🔴 OPEN MAJOR (latent; found 2026-09-04, ABI-spec recon)
-
-Binate's internal convention passes >16-byte by-value aggregates as a single
-pointer-to-copy on every target (deliberate, matches LLVM plain-ptr). Only
-the OUTBOUND `__c_call` direction re-adapts to the true C ABI (byval on x64,
-by-value split on arm32; aarch64 coincides). An exported (`#[c_export]`)
-function with such a param therefore expects the internal pointer form while
-a conforming C caller passes SysV MEMORY / AAPCS by-value — silent garbage on
-x64/arm32. Latent because c_export signatures are UNVALIDATED today (see the
-FFI C-representability follow-ons entry: sharing the representability
-predicate across c_export/__c_entry/__c_global is already listed there); the
-proper fix is either rejecting such signatures at the export (cheap) or
-emitting an adapting entry thunk (full fidelity). The ABI spec (abi/04 §4.4)
-carries a Status note. aarch64 unaffected. **Owner chose full fidelity (b);
-LLVM x86-64 leg LANDED (`e9f9a6166`) — see plan-c-export-bigagg-param.md; arm32 LLVM + both
-native backends remain.**
-
 ### Native arm32 objects lack ARM/Thumb mapping symbols (`$a`/`$t`/`$d`) + STT_FUNC → interworking broken for gcc/bfd-linked Thumb callers — 🔴 OPEN MAJOR (found 2026-09-06, native arm32 c_export validation)
 
 The native arm32 backend emits A32 (ARM) code, but its objects carry NO ARM ELF
