@@ -21,7 +21,7 @@ common_callconv.bn:149-155,278-284, aarch64_call.bn:140-162 vs :103). Fix:
 under VariadicStackOnly saturate the FP cursor too and route variadic
 aggregates through the stack path; e2e test with a C va_arg callee.
 
-### ABI review #2: dispatch-seam narrow values not canonicalized — 🔴 SUSPECTED MAJOR, needs repro (2026-09-04)
+### ABI review #2: dispatch-seam narrow values not canonicalized — 🚧 IN PROGRESS (2026-09-06), 🔴 SUSPECTED MAJOR, needs repro (2026-09-04)
 
 Status note: abi/03 §3.3. The LLVM producer passes narrow scalars as bare iN
 dispatch slots (no extension — emit_call_funcvalue.bn:451,
