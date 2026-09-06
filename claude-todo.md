@@ -31,8 +31,43 @@ only direct calls get the caller-side cleanup), while native callees rely on
 canonical register form (64-bit TESTs on bools). Chain LLVM/VM caller →
 native shim → native callee (or native seam caller ← LLVM shim result) can
 deliver dirty high bits — same class as the fixed c_export sub-word bugs, on
-the dispatch seam. Verify end-to-end first (needs a cross-producer or
-VM-involved repro), then fix (shim/collect re-extension) on all three arches.
+the dispatch seam.
+
+Investigation 2026-09-06 (verified, read-only). Per-seam-role, per-arch state:
+- SHIM re-extends incoming narrow slot ARG before calling callee: ABSENT on
+  all three (x64_funcvalue_shim.bn:205-231 plain SZ64 move — "incoming and
+  outgoing move in lockstep"; aarch64_funcvalue_shim.bn:194-208 plain 64-bit
+  Mov; arm32_funcvalue_marshal.bn:447-460 plain 32-bit Mov).
+- SEAM-CALLER re-canonicalizes narrow RESULT: ABSENT on x64
+  (collectShimReturnX64 = plain Mov RAX→rd SZ64); PRESENT on aa64
+  (aarch64_call_indirect.bn:384 canonicalizeSubWordReturn) and arm32
+  (arm32_call_indirect.bn:362 → emitWidthExtend on retSz 1/2). So x64 is
+  asymmetric — its DIRECT-call return path canonicalizes (x64_call.bn:405-429)
+  but its dispatch-seam result path does not.
+- SEAM-CALLER writes canonical slot ARGs: native keeps every value 64-bit
+  canonical, incl. bit_cast (OP_BIT_CAST re-narrows via emitSubWordNarrow /
+  arm64/VM equivalents), so native never emits a dirty slot.
+
+Reachability: NOT triggerable in any current single-program build. --backend
+is whole-program per bnc invocation; the VM keeps canonical registers (so
+VM↔native narrow traffic is clean — the §3.3 "VM re-narrows" guarantee is met
+by canonical VM values, not per-type re-narrowing); and the LLVM vs native
+func-value symbols use different naming (LLVM @__vt./@__shim. vs native
+<mangled>__vt/__shim) so they do not coalesce across backends. The only real
+repro is a bespoke mixed-backend link (one pkg default/LLVM, one --backend
+native, linked together — infra exists in the separate-compile e2e flow) with
+a func value carrying a narrow-typed param/return flowing across the boundary,
+plus an adversarially-dirtied high-bit value (LLVM doesn't guarantee dirty
+bits) — same trick as e2e/c-subword-return.sh. Latent MAJOR: real
+spec-noncompliant consumers (§3.3 says a consumer "shall not rely on a narrow
+slot's high bits") but zero current reachability.
+
+Proposed fix (cheap, defensive, all-native, mirrors existing machinery): (1)
+native shim re-extends a narrow non-float scalar slot ARG before the callee
+call, all three arches (reuse canonicalizeSubWordReturn / emitWidthExtend /
+Movsx-Movzx-Movsxd); (2) x64 collectShimReturnX64 re-canonicalizes the narrow
+RESULT, matching aa64/arm32. Awaiting decision: fix now vs leave tracked; and
+whether to build the mixed-backend repro harness.
 
 ### ABI review #3: native arm32 dispatch-seam encoding diverges from LLVM/VM — 🟡 IN PROGRESS (work-6, 2026-09-06); was OPEN MAJOR, needs a contract decision (2026-09-04)
 
