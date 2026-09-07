@@ -7,6 +7,40 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### native arm32 hard-float variadic `__c_call`: FIXED float args before `...` wrongly ride VFP — 🔴 OPEN MAJOR (found 2026-09-06, ABI review #6 adversarial review)
+
+**Severity: MAJOR** — silent ABI miscompile at the C boundary. Under AAPCS-VFP
+(arm32-linux hard-float), a variadic function is marshaled entirely by the BASE
+standard: **every** argument — including the NAMED/fixed float/double params
+before `...` — is passed in core registers / on the stack, NOT in VFP. clang
+implements this at function granularity (`IsAAPCS_VFP = !isVariadic && …`).
+Verified with clang `-target arm-linux-gnueabihf -mfloat-abi=hard`: for
+`callee(double base, int n, ...)` the caller emits `vmov r0, r1, d16` — the
+fixed `double base` goes to the core pair **r0:r1**, not d0.
+
+Binate's native arm32 caller instead peels a *fixed* float to VFP whenever the
+per-arg `!isVariadic` (arm32_call.bn:167 → emitCallArgFloatHard → CallArgFpReg),
+and the V-walkers only reclassify a float to GP when `k >= fixedCount`
+(variadicEffType). So for a variadic `__c_call` that declares a fixed float/
+double param, the fixed float rides VFP and consumes ZERO GP words — shifting
+every later arg's core-reg/stack slot. A conforming C callee reads garbage for
+the fixed float AND every arg after it.
+
+Root cause: the VFP-vs-GP decision is keyed on the PER-ARG position relative to
+`fixedCount`, but the AAPCS-VFP rule is per-CALL: if the call is variadic at all
+(`CFixedArgs < len(Args)`), ALL float args use the base standard. Fix: gate the
+VFP peel (arm32_call.bn) and `variadicEffType`'s float→uint rewrite on
+call-is-non-variadic, not on the per-arg `isVariadic`.
+
+Pre-existing — NOT introduced by ABI review #6 (the old monotonic V-walker also
+peeled fixed floats to VFP); ABI #6 neither caused nor fixed it. Latent: needs a
+C variadic function with a fixed float/double parameter (printf-family have
+none), so uncommon but legal C and fully expressible via `__c_call`. Test:
+C-sidecar e2e under builder-comp_native_arm32_linux (qemu) calling such a
+function; or a native-caller emit/walker unit test asserting a fixed float in a
+variadic call lands in GP. Needs an owner decision on whether to fix now or
+schedule.
+
 ### ABI review #3: native arm32 dispatch-seam encoding diverges from LLVM/VM — 🟡 Phase A LANDED (soft-float, c3caaef29, 2026-09-06); Phase B (hard-float) IN PROGRESS (work-6, 2026-09-06)
 
 Contract decided (positional all-integer per abi/03 §3.3; native is the
