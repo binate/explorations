@@ -7,6 +7,35 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### ABI review #1: darwin-aa64 variadic HFA mis-ABI — DONE (2026-09-06, `f210d213e`)
+
+On Apple's arm64 ABI (DarwinPCS, `cc.VariadicStackOnly`) every variadic
+`__c_call` argument is passed on the stack, composites included — but the native
+aa64 backend rode a variadic HFA in the SIMD arg registers, so a clang `va_arg`
+callee read garbage (a 2xfloat32 HFA vararg summed to INT_MAX instead of 42;
+reproduced native-vs-LLVM before the fix).  Two halves, now consistent:
+
+- The V-walkers (`common_callconv_variadic.bn`) close BOTH argument register
+  files (ngrn AND nsrn) at the fixed/variadic boundary, so every variadic arg —
+  int, float scalar, or HFA — overflows to the stack via the ordinary
+  `argRegWordsStackWords` path.  This subsumed the float-scalar-only special case
+  `argRegWordsStackWordsV`, which was removed.
+- The aa64 emit HFA branch (`aarch64_call.bn`) gained the `VariadicStackOnly`
+  guard so a variadic HFA takes the stack path, matching the walker — and the
+  outgoing-args reservation, which routes through the same walker via
+  `ForCBoundary()`.
+
+Also corrected a stale ctor comment (`HfaInSimd()` is true on aa64, not "false
+today").
+
+Tests: `common_callconv_variadic_test.bn` walker classification (fixed HFA ->
+regs, variadic HFA -> stack, Linux AAPCS64 keeps it in regs, float+HFA offsets);
+`e2e/c-call-variadic-hfa.sh` — a real C `va_arg` callee reading variadic HFAs of
+several shapes (2xf32, 4xf32, 2xf64, double-then-HFA), green on LLVM + native.
+Minimal adversarial review found no defects.  The `fixed_then_var` e2e case (a
+fixed by-value aggregate before `...`) is held back pending the separate LLVM
+call-site-signature bug (still open in [claude-todo.md](claude-todo.md)).
+
 ### `defer` statement (§14.13) — DONE (2026-09-04, commits `9d5895f40` + `4596e1dd2`)
 
 Implemented the ratified `defer` statement across token/parser/AST/checker/IR-gen

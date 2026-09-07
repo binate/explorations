@@ -7,20 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### ABI review #1: darwin-aa64 variadic HFA mis-ABI — 🟡 IN PROGRESS MAJOR (2026-09-04, clang-verified; claimed 2026-09-06)
-
-From the ABI-spec adversarial review (7 reviewers, 349 claims; spec corrected
-docs 6c27343 — abi/02 §2.8 carries the Status note). A variadic HFA aggregate
-through `__c_call` on aarch64-darwin rides D registers while Apple's ABI puts
-every variadic composite on the stack (verified against clang arm64-apple:
-caller stores to [sp]) — the C callee's va_arg reads garbage. Root cause: the
-V-walkers saturate only the GP cursor at the fixed/variadic boundary; the
-variadic force-to-stack rule is gated on float scalars only; the aa64 HFA emit
-arm lacks the VariadicStackOnly guard (common_callconv_variadic.bn:47-51,
-common_callconv.bn:149-155,278-284, aarch64_call.bn:140-162 vs :103). Fix:
-under VariadicStackOnly saturate the FP cursor too and route variadic
-aggregates through the stack path; e2e test with a C va_arg callee.
-
 ### ABI review #2: dispatch-seam narrow values not canonicalized — 🚧 IN PROGRESS (2026-09-06), 🔴 SUSPECTED MAJOR, needs repro (2026-09-04)
 
 Status note: abi/03 §3.3. The LLVM producer passes narrow scalars as bare iN
