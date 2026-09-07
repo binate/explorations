@@ -143,35 +143,6 @@ assertion/satisfaction lookup MISSES. Fix: bn_init builds the registry from
 the facade's _pkg_satfrag node before running inits; e2e library test with a
 type assertion.
 
-### LLVM `__c_call`: C-ABI aggregate param spelling disagreed with the argument → won't compile — 🟡 FIX PREPARED, pending land (found 2026-09-06, ABI review #1 e2e)
-
-A `__c_call` passing a by-value AGGREGATE emitted invalid LLVM (clang rejected the
-module).  One root cause — the `__c_call` param-type spelling disagreed with the
-argument `writeByvalArgLLVM` produced — two facets:
-
-1. **Variadic call-site signature (all targets):** `emitCCall`
-   (`pkg/binate/codegen/emit_ccall.bn`) spelled the explicit `(<fixed-types>, ...)`
-   varargs signature with raw `llvmType(arg.Typ)` (e.g. `%bn_S1_..V2`) while the
-   argument is C-ABI-coerced (e.g. `[2 x float]`).
-2. **x86-64 SSE (float-containing) aggregates (declare AND call-site, variadic AND
-   NON-variadic):** the argument is emitted SSE-split (`sysvWriteCallArg` ->
-   `<2 x float>`/`double`, a 2-eightbyte aggregate splitting into TWO args) but the
-   param type was folded to the GP `[N x i64]` form -> `[1 x i64]` != `<2 x float>`,
-   rejected even for a plain non-variadic float-aggregate `__c_call`.  This facet
-   was a pre-existing x64 bug (reachable since aggregate `__c_call` args landed,
-   #227); the variadic work merely surfaced it.
-
-Fix (prepared; pending landing approval): new `writeCCallParamType` =
-`writeCAbiParamType` PLUS the x64 SSE split (`sysvWriteDeclareParamTypes`, one type
-per eightbyte), used by both the declare and the varargs call-site sig.  Kept
-`__c_call`-specific rather than folded into the shared `writeCAbiParamType`,
-because that helper is also used by the `#[c_export]` thunk (see next entry).
-Tests: `TestEmitCCallVariadicFixedAggregateCoercedSig` (aa64),
-`TestEmitCCallX64SseAggregateParamMatchesArg` (x64), and the re-added
-`fixed_then_var` case in `e2e/c-call-variadic-hfa.sh`; x64 `.ll` clang-accepted.
-Two rounds of adversarial review (each found a real gap — the x64 facet, then a
-c_export-thunk regression from an over-broad shared-helper edit — both addressed).
-
 ### LLVM `#[c_export]` thunk: x86-64 SSE (float) aggregate param spelled/forwarded in the GP form — 🔴 OPEN MAJOR (found 2026-09-06, ABI review #1 re-review)
 
 Sibling of the `__c_call` bug above, on the `#[c_export]` ENTRY THUNK path

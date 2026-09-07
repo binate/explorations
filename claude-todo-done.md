@@ -7,6 +7,36 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### LLVM `__c_call`: C-ABI aggregate param spelling disagreed with the argument — DONE (2026-09-06, `5f3a0b063`)
+
+A `__c_call` passing a by-value AGGREGATE emitted invalid LLVM (clang rejected the
+module — the program would not compile).  One root cause (the `__c_call`
+param-type spelling disagreed with the argument `writeByvalArgLLVM` produced), two
+facets: (1) the variadic call-site `(<fixed-types>, ...)` signature used raw
+`llvmType` for a fixed aggregate while the arg is C-ABI-coerced; (2) on x86-64 a
+float-containing (SSE-class) aggregate is emitted SSE-split (`<2 x float>` /
+`double`, a 2-eightbyte aggregate splitting into TWO args) but the param type was
+folded to the GP `[N x i64]` form — a mismatch even for a plain NON-variadic
+float-aggregate `__c_call` (a pre-existing x64 bug latent since aggregate
+`__c_call` args landed, #227; the variadic work surfaced it).
+
+Fix: new `writeCCallParamType` (`emit_ccall.bn`) = `writeCAbiParamType` PLUS the
+x64 SSE split (`sysvWriteDeclareParamTypes`, one type per eightbyte), used by both
+the declare and the varargs call-site signature — so declare, signature, and
+arguments agree on all three targets.  Kept `__c_call`-specific (NOT folded into
+the shared `writeCAbiParamType`) because that helper is also used by the
+`#[c_export]` thunk, which forwards params in the GP shape; the thunk's own
+SSE-aggregate handling is a separate open bug (see
+[claude-todo.md](claude-todo.md)).
+
+Tests: `TestEmitCCallVariadicFixedAggregateCoercedSig` (aa64),
+`TestEmitCCallX64SseAggregateParamMatchesArg` (x64, non-variadic + variadic,
+declare + call); `e2e/c-call-variadic-hfa.sh` re-adds the `fixed_then_var` case
+(fixed by-value struct before `...`), green on LLVM + native; x64 `.ll` and the
+c_export thunk both clang-accepted (no regression); full codegen suite green.
+Three rounds of adversarial review, each catching a real gap (x64 facet, then a
+c_export-thunk regression from an over-broad shared-helper edit), final clean.
+
 ### ABI review #1: darwin-aa64 variadic HFA mis-ABI — DONE (2026-09-06, `f210d213e`)
 
 On Apple's arm64 ABI (DarwinPCS, `cc.VariadicStackOnly`) every variadic
