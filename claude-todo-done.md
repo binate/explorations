@@ -7,6 +7,33 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### ABI review #5: LLVM `__c_call` narrow ARGUMENTS lack signext/zeroext — DONE (2026-09-06, `c1680b7a6`)
+
+Confirmed a real MAJOR miscompile on darwin-arm64 (DarwinPCS) and fixed
+(codegen, LLVM-only). abi/04 §4.6; the argument-direction sibling of the
+9ef53bcf7 #[c_export] narrow-RETURN fix. An LLVM __c_call passing a narrow
+(int8/int16/uint8/bool) argument emitted a bare `i8`/`i16`/`i1` with no
+signext/zeroext, so an -O2 clang callee that trusts caller-extension read the
+dirty full-width register: a C driver calling a #[c_export] wrapper's __c_call
+read 507/130772/456 instead of -5/-300/200.
+
+Fix: new `writeCAbiParamExtAttr` (param/arg-position ` signext`/` zeroext`, the
+analog of `cabiIntExtAttr`'s return-position prefix form) applied to a FIXED
+narrow scalar at the call site (`writeByvalArgLLVM`, gated `isCCall && i <
+CFixedArgs`) and on the matching `declare` / varargs signature
+(`writeCCallParamType`). Variadic-TAIL args left bare — C default-argument-
+promotion (char/short -> int) governs them, a separate concern the caller
+handles by widening. The regular Binate-call path is untouched (callee reads the
+iN low bits, always correct; no C ABI crossed), and native backends pass
+canonical full-width args, so LLVM-only. Covered by codegen unit tests
+(emit_ccall_test.bn: signext/zeroext on call+declare per narrow type, absence on
+word/tail/regular-call args) + e2e/ffi-ccall-narrow.sh (LLVM required + native
+self-skip; verified it reads 507/130772/456 without the fix). Minimal
+adversarial review clean on all axes. One adjacent latent item noted (NOT this
+fix): a #[c_export] function taking a narrow PARAM does not carry
+signext/zeroext on its thunk param list — safe today (the Binate callee reads
+the iN low bits) but worth tracking if a stricter consumer appears.
+
 ### ABI review #2: dispatch-seam narrow values not canonicalized — DONE (2026-09-06, `6d85f416d`)
 
 The func-value / interface dispatch seam (abi/03 §3.3) lets a producer pass a
