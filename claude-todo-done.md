@@ -138,6 +138,38 @@ slice, managed-ptr borrow, two-aggregate, void, and a ≤16-after->16
 register-pressure case; the arm32 leg cross-compiles + runs under qemu on Linux
 CI).  Follow-ons (`__c_entry`/`__c_global` C-representability validation,
 aggregate returns, two MINORs) tracked in claude-todo.md.
+## LLVM __c_entry narrow-return extension — SEPARATE-COMPILATION parity — DONE (2026-09-06, commit 5d174acb8)
+
+Follow-up to ecc6653e7.  That fix extended a __c_entry target's narrow scalar return
+by scanning the module's OP_C_ENTRY uses (MarkCEntryTargets → Func.CEntryTaken) — a
+USE-site trigger, so it worked for whole-program / same-package but NOT for separate
+compilation: a narrow-return callback compiled in its own `bnc --pkg` invocation never
+sees a cross-package `__c_entry(f)` use, so its define was emitted without signext/
+zeroext and an -O2 C caller read dirty upper bits.  (Tracked as the "Cross-package
+__c_entry narrow-return extension" FFI follow-on.)
+
+Fix: make the LLVM narrow-return extension UNCONDITIONAL — every single-narrow-scalar
+return (int8/int16/uint8/bool) carries signext/zeroext, matching the native backends
+(emitReturn moves a full-width canonical value) and the VM.  The trigger is now a pure
+function of the define's own signature/shape, so it fires identically in an isolated
+--pkg compile → separate compilation has the same result ABI as whole-program.  The
+extension is harmless for internal Binate callers (they read the iN low bits) and is
+one cheap extend the native backends already emit.  This SUBSUMES and REMOVES the
+c_entry-specific machinery (Func.CEntryTaken, ir.MarkCEntryTargets + its emit.bn call
+and iropcode import, and the c_export/c_entry gate conditions) — net -72 lines.
+
+Tests: TestEmitNarrowReturnExtendedUnconditionally pins that an ORDINARY narrow return
+(no #[c_export], no __c_entry) now extends — the codegen-level parity property (the
+define extends with no use visible).  e2e/c-entry-narrow-return-separate.sh compiles a
+callback package in ISOLATION via `--pkg cbpkg --emit-llvm` and asserts the emitted
+define carries signext/signext/zeroext — the exact property the use-site marking missed
+(verified: the predecessor emitted plain `define iN` there).  ir + codegen unit tests
+green; whole-program __c_entry run prints -5/-128/200; hygiene 20/20.  Adversarial
+review clean across six axes (declare/define split benign — the attribute is never on a
+call site or extern declare; function-value shims unaffected — emitted by a different
+path and correctly stay un-extended; gate only ever attaches to i8/i16/i1; removal
+complete; no stale test expectations; parity is a pure function of f's shape).
+
 ## LLVM `__c_entry`-only targets: narrow scalar returns lacked signext/zeroext — DONE (2026-09-04, commit ecc6653e7)
 
 MAJOR, LLVM-only.  Same defect class as the #[c_export] return-extension fix

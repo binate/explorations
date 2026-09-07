@@ -241,15 +241,6 @@ widened C-representability idea:
   today; latent).
 - **MINOR (review):** `isCArgType` conservatively over-rejects `*[]Opaque` /
   `@[]Opaque` (the slice HEADER has a defined layout and could be admitted).
-- **Cross-package `__c_entry` narrow-return extension** — the LLVM narrow-return
-  fix (DONE, `ecc6653e7`) marks c_entry targets via MarkCEntryTargets, which only
-  sees `__c_entry` uses in the module being compiled.  A narrow-return target in a
-  SEPARATELY compiled package (`--pkg`) whose only `__c_entry` use is in another
-  package is emitted unmarked → no signext/zeroext (whole-program builds are fine).
-  Like `#[c_export]`, the degenerate-pointer entry is declaration-site-bound; a full
-  fix carries the "C entry taken" fact to the target's own compile (a decl-recorded
-  eligibility/attribute) or makes such `__c_entry` require whole-program.
-
 
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
