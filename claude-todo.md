@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### Native aa64/x64 CLOSURE shims: narrow args not canonicalized (sibling of ABI review #2) — 🔴 OPEN MAJOR, latent (2026-09-06)
+### Native aa64/x64 CLOSURE shims: narrow args not canonicalized (sibling of ABI review #2) — 🚧 IN PROGRESS (2026-09-06), 🔴 MAJOR, latent
 
 Found during ABI review #2's adversarial review. That fix re-extends narrow
 register-passed slots in the func-value / interface dispatch SHIMS; capturing-
