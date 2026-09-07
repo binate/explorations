@@ -407,12 +407,20 @@ liveness pass itself) is 61% memory ops: 1144 vs llvm's 135 (8.5×).
    REX for 8-bit ops on RSP/RBP/RSI/RDI, so a byte spill of RDI assembled as a write to BH (a
    silent miscompile; reproducer conformance 902) — fixed comprehensively in its own commit
    `4a7bbba26` with asm-level encoding tests.
-   REMAINING: (a) dead-store elimination — only the reload is avoided so far; the redundant STORE
-   of each store-then-reload pair is not yet dropped.  (b) x64 OP_CAST's unsigned-int64<->float
-   lowering picks GP scratch non-occupancy-aware (`pickScratchGP`/`pickTwoScratchGP`), currently
-   safe only because that lowering always branches (→ post-op cache reset); make those pickers
-   occupancy-aware (evict like `allocReg`) so OP_CAST's retention-safety no longer rides on the
-   incidental branch (TODO noted in `retentionSafe`, x64_regmap.bn).
+   The OP_CAST float-cast picker follow-up LANDED (`e8461747d`): `pickScratchGP`/`pickTwoScratchGP`
+   are now occupancy-aware (evict like `allocReg`), so OP_CAST is occupancy-safe by construction,
+   not by an incidental branch.
+   x64 retention VERIFIED doing real work (2026-09-06): compiling the same cmd/bnc source with the
+   x64 backend WITH vs WITHOUT retention removes ~16% of value reloads (mov from frame) and ~14% of
+   frame-address recomputes (lea from frame) — −3% total instructions, −4.1% code size; spills
+   unchanged (by design).  A wall-clock delta is not easily visible (those reloads are cheap L1
+   hits).  **MEASUREMENT GOTCHA that wasted time this round:** `perf/native-vs-llvm.sh` builds N with
+   `--backend native`, i.e. the HOST backend — on an arm64 dev box that is aarch64, so it CANNOT see
+   x64/arm32 codegen changes (an x64-retention revert leaves the aarch64 output identical → looks
+   "neutral").  Measure a non-host backend by static reload-counting on a `--target x86_64-darwin`
+   (or arm32) build, or on real x64/arm32 hardware/CI — NOT via the host `perf` script.
+   REMAINING: dead-store elimination — only the reload is avoided so far; the redundant STORE of
+   each store-then-reload pair is not yet dropped.
 2. **Register promotion (keep IR temporaries in registers; mem2reg-equivalent)** — the deep lever
    and bulk of the gap.  Native materializes ~every temp to a stack slot; llvm's mem2reg keeps them
    in registers.  **This is why the Stage-5 refinements above were NEUTRAL** — they tuned the margins
