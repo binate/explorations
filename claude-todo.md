@@ -86,18 +86,25 @@ func-value shim fix — canonicalizeSubWordReturn / canonicalizeSubWordSeamX64
 already exist); add a closure case to e2e/dispatch-seam-narrow.sh + per-backend
 unit tests.
 
-### ABI review #3: native arm32 dispatch-seam encoding diverges from LLVM/VM — 🟡 IN PROGRESS (work-6, 2026-09-06); was OPEN MAJOR, needs a contract decision (2026-09-04)
+### ABI review #3: native arm32 dispatch-seam encoding diverges from LLVM/VM — 🟡 Phase A LANDED (soft-float, c3caaef29, 2026-09-06); Phase B (hard-float) OPEN
 
-Status note: abi/03 §3.3. The native arm32 backend even-pair-pads 64-bit and
-8-aligned dispatch slots and (hard-float) places float scalars in VFP
-registers on the func-value/iface seam (arm32_funcvalue_marshal.bn:25-43,
-arm32_call_indirect.bn:158,274), while the LLVM backend (two-i32 positional
-split, emit_funcvals_sig.bn:90-108, added by a5511a8d1 for exactly this
-reason) and the VM (positional a0..a6 bank) use the positional all-integer
-encoding abi/03 §3.3 specifies. Placements coincide only at even GP parity;
-existing conformance covers only same-producer / even-parity shapes. Decide
-the contract (positional per the spec vs padded), fix the divergent side, add
-odd-parity cross-producer tests.  Plan + phased design (soft-float even-pair drop, then hard-float GP-bit-image seam): see plan-arm32-dispatch-seam-positional.md.
+Contract decided (positional all-integer per abi/03 §3.3; native is the
+divergent side to fix). **Phase A (soft-float)** LANDED as c3caaef29: the
+soft-float func-value/iface/closure seam is now flat (caller
+emitShimUserArgsFlatArm32/placeSeamWordArm32; shim incoming pad gated off via
+seamIncomingEvenPairArm32; predicates split to arm32_funcvalue_classify.bn).
+Verified: 548 seam conformance tests under builder-comp_native_arm32_baremetal,
+all arm32 unit tests (5 inverted byte-refs + 1 new caller byte-ref), hygiene
+20/20; adversarial review clean.
+
+**Phase B (hard-float, arm32-linux) — OPEN**: the seam still routes floats
+through VFP and even-pair-pads 64-bit/8-aligned slots (gated on Arm32HardFloat()
+so it is byte-identical to pre-c3caaef29). Rework: floats ride GP bit-image
+slots on the seam (caller places bits in GP; shim VMOVs GP↔VFP for the
+underlying); reworks the arm32_shim_float.bn / closure-VFP-up-shift /
+multiret-FP-store subsystem (~41 sites). Also add hard-float UNIT coverage
+(seamIncomingEvenPair==true is currently unit-uncovered — the review's one
+note). Plan + phased design: see plan-arm32-dispatch-seam-positional.md.
 
 ### ABI review #4: compiled→VM multi-return func-value dispatch unrealized — 🔴 OPEN (2026-09-04)
 

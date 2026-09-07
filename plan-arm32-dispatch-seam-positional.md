@@ -1,9 +1,9 @@
 # Plan: native arm32 dispatch-seam → positional all-integer (match LLVM/VM)
 
-Status: IN PROGRESS (work-6, started 2026-09-06). Owner decision made: the
-dispatch seam contract is **positional all-integer** (spec `abi/03` §3.3); the
-native arm32 backend is the divergent side and gets fixed. Tracks
-`claude-todo.md` "ABI review #3".
+Status: Phase A LANDED (`c3caaef29`, 2026-09-06); Phase B (hard-float) open.
+Owner decision made: the dispatch seam contract is **positional all-integer**
+(spec `abi/03` §3.3); the native arm32 backend is the divergent side and gets
+fixed. Tracks `claude-todo.md` "ABI review #3".
 
 ## The contract (authoritative)
 
@@ -74,11 +74,20 @@ exactly seam→AAPCS32.
 
 Two phases, because the float ABIs differ sharply in blast radius.
 
-### Phase A — soft-float seam (`arm32-baremetal`): drop seam even-pair padding
+### Phase A — soft-float seam (`arm32-baremetal`): drop seam even-pair padding — LANDED `c3caaef29`
 
 On soft-float, floats already ride GP as their same-width integer twin, so the
 *only* divergence is the even-pair padding. The outgoing (underlying-AAPCS32)
 even-pair stays; the **incoming/seam** even-pair goes.
+
+As landed, the caller went further than "pre-split argTypes": a dedicated flat
+placer (`emitShimUserArgsFlatArm32` / `placeSeamWordArm32`) computes flat slots
+directly from `ins.Args` (bypassing `CallArgRegStart`'s even-pair), and the
+incoming pads are gated by a single predicate `seamIncomingEvenPairArm32` =
+`Arm32HardFloat() && paddedKeepsTypeArm32` — false (flat) on soft-float, and
+equal to the old condition on hard-float, so **hard-float is byte-identical**
+(Phase B untouched). The classification predicates were split out to
+`arm32_funcvalue_classify.bn` (+ test) for the length cap.
 
 - **Caller** (`shimArgTypesArm32` + `emitShimUserArgsArm32`, shared by
   `emitCallFuncValue` and `emitCallIfaceMethod`): place seam args
@@ -121,20 +130,37 @@ Shim: `arm32_funcvalue_marshal.bn`, `arm32_funcvalue_shim.bn`,
 Shared predicates encoding the divergence: `paddedKeepsTypeArm32`,
 `hardFloatShimSkipArm32`, `shimInWordsForTypeArm32`, `isPair64Typ` (seam use).
 
-## Test plan (the todo demands odd-parity cross-producer coverage)
+## Test plan / how "cross-producer" is actually covered
 
-- **Unit** (`pkg/binate/native/arm32/*_test.bn`): the seam word-count +
-  register-placement walk (`shimInWordsArm32` / `shimOutRegs` /
-  `shimArgTypesArm32`) at odd parity — e.g. `(int32, int64)` (the int64 must
-  land in consecutive slots 1,2, NOT padded to 2,3), `(int32, aggregate)`,
-  `(float64, …)` under both float ABIs.
-- **Conformance cross-producer**: a test whose func-value / iface call crosses
-  producers at ODD parity — compiled arm32 caller → VM callee and VM caller →
-  compiled arm32 shim — with a leading 32-bit arg forcing odd parity before a
-  64-bit / 8-aligned / float arg. Run under BOTH
-  `builder-comp_native_arm32_baremetal` (soft) and
-  `builder-comp_native_arm32_linux` (hard). Existing coverage is same-producer /
-  even-parity, which is why this never surfaced.
+A note on "cross-producer": the conformance harness compiles a whole test with
+ONE backend per run, so a single run is same-producer. Genuine backend-mixing
+(native caller ↔ LLVM/VM shim in one binary) is not a single-run conformance
+thing here. What actually pins the cross-producer contract is: the **unit tests
+pin native's caller AND shim to the exact flat layout** the LLVM/VM contract
+defines (so neither can silently re-diverge to even-pair — a self-consistent
+native regression would still redden the byte-refs), **plus** the odd-parity
+conformance tests producing a producer-independent expected value under native,
+LLVM, and VM modes.
+
+Landed coverage (Phase A):
+- **Unit** (soft-float, `setArm32Target()`): the 5 byte-ref tests that pinned
+  the incoming even-pair now pin the flat layout — `(int64,)` and `(float64,)`
+  (marshal), `(struct24,)` indirect-large (marshal), sret+`(int,int64)` with a
+  reg/stack **straddle** (spill), 1-cap closure `(int64)` (closure). Plus a new
+  **caller** byte-ref `TestEmitShimUserArgsFlatInt64ByteRefArm32` pinning
+  `emitShimUserArgsFlatArm32`, and the classification-predicate tests (moved to
+  `arm32_funcvalue_classify_test.bn`).
+- **Conformance** (`builder-comp_native_arm32_baremetal`, soft): the odd-parity
+  int64 func-value tests 1018 (incl. int64-first `sinkR0R1`), 1019 (spill), the
+  cross-package 1020, and 1006 (native-dispatch shape) all pass; 548
+  func-value/iface/closure tests pass, 0 failed. Hygiene 20/20.
+- Hard-float unit tests pass; hard-float paths are byte-identical (gated), so no
+  regression. Native hard-float conformance (`builder-comp_native_arm32_linux`)
+  needs `qemu-arm` — CI covers it.
+
+Phase B will add hard-float unit coverage (currently `seamIncomingEvenPair ==
+true` is unit-uncovered — the reviewer's one note) and the GP-bit-image seam
+tests.
 
 ## Risk / verification
 
