@@ -26,7 +26,7 @@ func-value shim fix — canonicalizeSubWordReturn / canonicalizeSubWordSeamX64
 already exist); add a closure case to e2e/dispatch-seam-narrow.sh + per-backend
 unit tests.
 
-### ABI review #3: native arm32 dispatch-seam encoding diverges from LLVM/VM — 🟡 Phase A LANDED (soft-float, c3caaef29, 2026-09-06); Phase B (hard-float) OPEN
+### ABI review #3: native arm32 dispatch-seam encoding diverges from LLVM/VM — 🟡 Phase A LANDED (soft-float, c3caaef29, 2026-09-06); Phase B (hard-float) IN PROGRESS (work-6, 2026-09-06)
 
 Contract decided (positional all-integer per abi/03 §3.3; native is the
 divergent side to fix). **Phase A (soft-float)** LANDED as c3caaef29: the
@@ -37,7 +37,7 @@ Verified: 548 seam conformance tests under builder-comp_native_arm32_baremetal,
 all arm32 unit tests (5 inverted byte-refs + 1 new caller byte-ref), hygiene
 20/20; adversarial review clean.
 
-**Phase B (hard-float, arm32-linux) — OPEN**: the seam still routes floats
+**Phase B (hard-float, arm32-linux) — IN PROGRESS (work-6, 2026-09-06)**: the seam still routes floats
 through VFP and even-pair-pads 64-bit/8-aligned slots (gated on Arm32HardFloat()
 so it is byte-identical to pre-c3caaef29). Rework: floats ride GP bit-image
 slots on the seam (caller places bits in GP; shim VMOVs GP↔VFP for the
