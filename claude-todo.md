@@ -58,16 +58,26 @@ compiled producers use the scalar shape. Fix (teach ensureHandle +
 TrampolineAggregate the multi-return retbuf shape; align the 0-byte edge) or
 make fail-loud; test both directions.
 
-### ABI review #5: LLVM `__c_call` narrow ARGUMENTS lack signext/zeroext — 🟡 IN PROGRESS — verifying (claimed 2026-09-06) (2026-09-04)
+### ABI review #5: LLVM `__c_call` narrow ARGUMENTS lack signext/zeroext — 🟢 CONFIRMED + FIX READY, pending land (2026-09-06)
 
 Status note: abi/04 §4.6. The argument-direction sibling of the fixed
-9ef53bcf7 return bug: emit_ccall.bn:33-56,90-101 emits no extension
-attributes on `__c_call` arguments (attrs exist only on exported-function
-returns). Hazard on platforms whose C ABI lets the callee assume
-caller-extension (darwin-aa64 DarwinPCS; de-facto SysV x64). Verify with an
--O2 clang callee reading an int8/int16 arg, then fix (extension attributes or
-explicit widening at the call site). Native backends unaffected (canonical
-full-word args).
+9ef53bcf7 return bug. CONFIRMED a real MAJOR miscompile on darwin-arm64
+(DarwinPCS): an LLVM __c_call passing a narrow (int8/int16/uint8/bool) arg
+emitted a bare `i8`/`i16`/`i1` with no signext/zeroext, so an -O2 clang callee
+that trusts caller-extension read the dirty full-width register — a C driver
+calling a #[c_export] wrapper's __c_call read 507/130772/456 instead of
+-5/-300/200.
+
+Fix implemented (codegen, LLVM-only): new writeCAbiParamExtAttr (param-position
+` signext`/` zeroext`, the analog of cabiIntExtAttr's return-position prefix)
+applied to a FIXED narrow scalar at the call site (writeByvalArgLLVM, gated on
+isCCall && i < CFixedArgs) and on the matching declare / varargs signature
+(writeCCallParamType). Variadic-TAIL args left bare (C default-arg-promotion is
+a separate concern). Native backends unaffected (canonical full-word args —
+verified they over-satisfy and pass the e2e too). Covered by codegen unit tests
+(emit_ccall_test.bn) + e2e/ffi-ccall-narrow.sh (verified FAILS without the fix).
+Not yet landed on main — awaiting cherry-pick approval; move to done with the
+landed commit once it lands.
 
 ### ABI review #6: arm32 hard-float caller/callee divergence beyond 8 float args — 🔴 OPEN (2026-09-04)
 
