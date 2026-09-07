@@ -7,6 +7,33 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### ABI review #2: dispatch-seam narrow values not canonicalized — DONE (2026-09-06, `6d85f416d`)
+
+The func-value / interface dispatch seam (abi/03 §3.3) lets a producer pass a
+narrow scalar (int8/int16/bool; int32 on 64-bit) in a slot with only its low bits
+guaranteed, and the LLVM backend does so (bare iN, no signext/zeroext). Native
+callees keep values 64-bit-canonical and read the full register, but the native
+SHIMS forwarded an incoming narrow slot verbatim and the x64 seam caller took the
+narrow RESULT register as-is (aa64/arm32 already canonicalized results). So dirty
+high bits from an LLVM producer reached a native consumer across a mixed-backend
+link and flipped a compare. Latent (only cross-producer / mixed-backend triggers
+it; pure-native and VM↔native keep everything canonical).
+
+Fixed (`6d85f416d`): re-extend register-passed narrow scalars in
+emitShimArgMarshal{,X64,Arm32} + the spill marshal (per width+signedness, keyed on
+SizeOf so bool is handled; float/pointer/word-size/aggregate no-ops;
+outgoing-stack slots left alone — the callee re-extends narrow stack params on
+load), and re-canonicalize the narrow result in x64 collectShimReturnX64. Helpers:
+aa64 canonicalizeSubWordReturn, x64 canonicalizeSubWordSeamX64 (x64_call.bn), arm32
+canonicalizeSubWordSeamArm32 (arm32_call_return.bn). Interface dispatch shares the
+shim, so it's covered. Tests: per-backend unit tests (extend-emitted length check +
+int8-vs-uint8 signedness byte-diff) and e2e/dispatch-seam-narrow.sh (mixed-backend
+runtime repro). Validated: native aa64+x64 conformance 3000/0, unit tests green,
+hygiene 20/20; runtime-verified arg dir 222→111 (aa64) and result dir 0→1 (x64);
+adversarial review SHIP. The aa64/x64 CLOSURE shims carry the same latent bug and
+remain tracked as an OPEN MAJOR in claude-todo.md (arm32 closures were fixed for
+free via helper reuse).
+
 ### LLVM `__c_call`: C-ABI aggregate param spelling disagreed with the argument — DONE (2026-09-06, `5f3a0b063`)
 
 A `__c_call` passing a by-value AGGREGATE emitted invalid LLVM (clang rejected the
