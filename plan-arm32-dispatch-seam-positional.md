@@ -149,6 +149,24 @@ multiret RESULT path (`storeMultiReturnTupleFieldsShimArm32` et al. — a return
 tuple's float fields are orthogonal to how args cross); and every direct-call /
 callee / C-export float path (bucket b).
 
+**Coupling finding (2026-09-06, during implementation recon): Phase B is ONE
+atomic change, not three separable landings.** The three sub-parts share machinery
+that forces them together: (1) the caller-side placement (`emitShimUserArgsArm32`)
+and the shim marshal (`emitShimArgMarshalArm32` / `emitSpillMarshalArm32`) are
+shared by func-value, iface, AND closure — flipping a float from VFP to a GP
+bit-image slot in the marshal changes all three at once, and the closure's
+float-param VFP target is capture-shifted (the reason its separate up-shift
+exists), so the closure up-shift must be reworked in the same change or it
+double-handles / mis-targets; (2) the caller-side return collect
+(`collectShimReturnArm32`) is shared, so once it reads a float return from R0 the
+shim MUST write R0 for func-value AND closure returns together; (3) the GP
+even-pair flatten and the float-to-GP move are entangled through the single caller
+path choice (flat placer handles both). So B1+B2+B3 land as one commit, validated
+by the FULL `builder-comp_native_arm32_linux` conformance suite in Docker (the
+real-program safety net) plus new hard-float unit byte-refs. The riskiest surface
+is `emitClosureShimArm32` / `emitClosureParamVfpUpShiftArm32` (VFP up-shift,
+capture handling, spill variants) — implement + Docker-verify incrementally there.
+
 ## Site inventory (native arm32)
 
 Caller: `arm32_call_indirect.bn` (`emitCallFuncValue`, `shimArgTypesArm32`,
