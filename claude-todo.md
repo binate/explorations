@@ -52,8 +52,39 @@ Proposed fix (cheap, defensive, all-native, mirrors existing machinery): (1)
 native shim re-extends a narrow non-float scalar slot ARG before the callee
 call, all three arches (reuse canonicalizeSubWordReturn / emitWidthExtend /
 Movsx-Movzx-Movsxd); (2) x64 collectShimReturnX64 re-canonicalizes the narrow
-RESULT, matching aa64/arm32. Awaiting decision: fix now vs leave tracked; and
-whether to build the mixed-backend repro harness.
+RESULT, matching aa64/arm32.
+
+Decision (2026-09-06): option (a) — fix + build the mixed-backend repro e2e.
+Implemented across all three backends (emitShimArgMarshal{,X64,Arm32} + spill
+marshal re-extend register-passed narrow slots; x64 collectShimReturnX64
+re-canonicalizes the result), keyed on SizeOf so bool is handled; float / pointer
+/ word-size / aggregate are no-ops; outgoing-stack slots left alone (callee
+re-extends on load). Interface dispatch shares the shim (covered). Tests:
+per-backend unit tests (extend-emitted length check + int8-vs-uint8 signedness
+byte-diff) and e2e/dispatch-seam-narrow.sh (mixed-backend runtime repro, both
+directions). Validated: native aa64 + x64 conformance 3000/0, native unit tests
+green, hygiene 20/20, arg dir 222->111 (aa64), result dir 0->1 (x64). Adversarial
+review: SHIP. Awaiting landing approval. When landed, move this to the done log
+with the commit hash.
+
+### Native aa64/x64 CLOSURE shims: narrow args not canonicalized (sibling of ABI review #2) — 🔴 OPEN MAJOR, latent (2026-09-06)
+
+Found during ABI review #2's adversarial review. That fix re-extends narrow
+register-passed slots in the func-value / interface dispatch SHIMS; capturing-
+CLOSURE shims are a separate marshalling path. On arm32 the closure shims REUSE
+emitShimArgMarshalArm32 / emitSpillMarshalArm32, so they were fixed for free; on
+aarch64 and x64 the closure shims have their OWN marshalling
+(aarch64_closure_shim*.bn, x64_closure_shim*.bn, incl. the spill / pack /
+aggregate variants) that forwards a narrow user arg to the native closure body
+with a bare full-width move — no canonicalizeSubWord*. So an LLVM producer
+dispatching a narrow arg (dirty high bits) to a native capturing closure across a
+mixed-backend link miscompares — the same class ABI review #2 closes for
+func-values, now inconsistently present (arm32 fixed, aa64/x64 not). Latent (only
+cross-producer / mixed-backend triggers it, like #2). Fix: re-extend
+register-passed narrow scalars in the aa64/x64 closure marshalling (mirror the
+func-value shim fix — canonicalizeSubWordReturn / canonicalizeSubWordSeamX64
+already exist); add a closure case to e2e/dispatch-seam-narrow.sh + per-backend
+unit tests.
 
 ### ABI review #3: native arm32 dispatch-seam encoding diverges from LLVM/VM — 🟡 IN PROGRESS (work-6, 2026-09-06); was OPEN MAJOR, needs a contract decision (2026-09-04)
 
