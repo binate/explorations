@@ -46,7 +46,7 @@ multiret-FP-store subsystem (~41 sites). Also add hard-float UNIT coverage
 (seamIncomingEvenPair==true is currently unit-uncovered — the review's one
 note). Plan + phased design: see plan-arm32-dispatch-seam-positional.md.
 
-### ABI review #4: compiled→VM multi-return func-value dispatch unrealized — 🔴 OPEN (2026-09-04)
+### ABI review #4: compiled→VM multi-return func-value dispatch unrealized — 🟡 IN PROGRESS (2026-09-04; claimed 2026-09-06)
 
 Status note: abi/03 §3.5. ensureHandle selects TrampolineScalar for a
 multi-return VM function (single-multi-word gate,
