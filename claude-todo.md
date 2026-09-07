@@ -80,17 +80,6 @@ multiret-FP-store subsystem (~41 sites). Also add hard-float UNIT coverage
 (seamIncomingEvenPair==true is currently unit-uncovered — the review's one
 note). Plan + phased design: see plan-arm32-dispatch-seam-positional.md.
 
-### ABI review #6: arm32 hard-float caller/callee divergence beyond 8 float args — 🟡 IN PROGRESS (claimed 2026-09-06), 🔴 OPEN (2026-09-04)
-
-Status note: abi/02 §2.9. Caller-side classification and stack sizing use the
-monotonic 8-register-budget V-walkers with no VfpBackfill dispatch
-(common_callconv_variadic.bn:44-110), while the callee side and the
-concrete-register lookup use the AAPCS-VFP back-fill allocator — so caller
-and callee disagree on stack offsets for a call with more than 8 float-scalar
-arguments (back-fill fits up to 16 float32s). Route the V-walkers through the
-allocator (thread the mask/latch, variadicEffType applied first); test at 9+
-float args, mixed float32/float64.
-
 ### Inbound `#[c_export]` narrow PARAM under-declares signext/zeroext (LLVM) — 🟢 LOW / not-a-miscompile (found 2026-09-06, ABI review #5 adversarial review)
 
 Cosmetic/completeness ABI-metadata gap, NOT a correctness bug — deliberately

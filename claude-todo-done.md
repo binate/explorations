@@ -7,6 +7,34 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### ABI review #6: native arm32 hard-float caller/callee divergence beyond 8 float args — DONE (2026-09-07, `5cebc7b65`)
+
+The AAPCS-VFP (arm32-linux hard-float) caller's variadic V-walkers
+(CallArgRegStartV / CallArgStackOffV / CallStackBytesV) classified float scalars
+with the monotonic 8-slot NSRN cursor and had NO VfpBackfill dispatch, while the
+callee param setup, the non-V walkers, and CallArgFpReg all use the AAPCS-VFP
+co-processor back-fill (s0..s15 = d0..d7, up to 16 float32s). So a call with more
+than 8 in-register floats disagreed: the monotonic caller phantom-spilled the 9th
+float to the outgoing-args area, pushing every later STACKED arg to the wrong
+offset while the callee read them at the back-fill offsets — a silent miscompile
+of any trailing stacked arg (abi/02 §2.9).
+
+Fixed (`5cebc7b65`): each V-walker dispatches to a new vfp*V variant when
+cc.VfpBackfill; the variadic tail is handled by variadicEffType (a variadic float
+rides GP per the base standard, cc.VariadicFloatInGp). The non-V vfp walkers now
+delegate to the V-variants (fixedCount = len), removing the duplicated allocator
+loop. Verified: 3 native/common unit tests (float32>8, mixed float32/float64,
+variadic-tail-rides-GP) + all backend unit tests (common 246 / arm32 367 / aa64
+181 / x64 285); disassembly of an arm32-linux native compile (9 float32 -> s0..s8,
+trailing int -> [sp+0], callee reads it from incoming offset 0 — they agree);
+conformance/1257_arm32_hardfloat_many_float_args (runs under
+builder-comp_native_arm32_linux in CI); hygiene 20/20; adversarial review confirmed
+the core fix sound.
+
+Follow-up raised by the adversarial review (SEPARATE, pre-existing MAJOR, tracked
+in claude-todo.md): a FIXED float arg before `...` in a variadic __c_call wrongly
+rides VFP — AAPCS-VFP marshals a variadic function entirely by the base standard.
+
 ### Native aa64/x64 CLOSURE shims: narrow args not canonicalized (sibling of ABI review #2) — DONE (2026-09-06, `f520a9087`)
 
 Found during ABI review #2's adversarial review. The func-value/iface dispatch-seam
