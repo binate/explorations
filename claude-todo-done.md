@@ -59,7 +59,12 @@ and closed the all-zero-size-multi-return corner (IsAggregateReturn true but
 ResultImageSize 0). Covered by types tests (ResultImageSize natural-vs-rounded,
 0-byte single + all-zero multi) and vm tests (ensureHandle selection across
 multi/scalar/0-byte/all-zero-tuple; TrampolineAggregate multi-return copy
-end-to-end).
+end-to-end).  Follow-up e2e (`45e73f5c9`, `e2e/xmfuncvalue.sh`): a bytecode
+program hands its funcs by value to a native-injected package that calls them
+back — native-caller -> VM-callee, the reverse of xmiface.sh — pinning the
+multi-return (TrampolineAggregate) and scalar (TrampolineScalar) paths; verified
+as a real regression pin (pre-fix it aborts with `TrampolineScalar: data is not
+a VM closure record`).
 
 ### ABI review #5: LLVM `__c_call` narrow ARGUMENTS lack signext/zeroext — DONE (2026-09-06, `c1680b7a6`)
 
