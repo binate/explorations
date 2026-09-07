@@ -86,7 +86,7 @@ synthesized family into `__` (ABI-visible rename) or extend the reserved
 check to the `_pkg` prefix at package scope. Needs a test either way. The ABI
 spec (abi/05 §5.4) carries a Status note flagging this.
 
-### Inbound multi-VALUE-return `#[c_export]` with a >2-register tuple is silently miscompiled at the C boundary — 🔴 OPEN MAJOR (found 2026-09-04, adversarial review)
+### Inbound multi-VALUE-return `#[c_export]` with a >2-register tuple is silently miscompiled at the C boundary — 🟠 IN PROGRESS (temp-5) MAJOR (found 2026-09-04, adversarial review)
 
 A `#[c_export]` function returning a multi-value tuple that exceeds the return
 registers — e.g. `func F(...) (int64, int64, int64)` (24 bytes) — is silently
