@@ -58,7 +58,7 @@ compiled producers use the scalar shape. Fix (teach ensureHandle +
 TrampolineAggregate the multi-return retbuf shape; align the 0-byte edge) or
 make fail-loud; test both directions.
 
-### ABI review #5: LLVM `__c_call` narrow ARGUMENTS lack signext/zeroext — 🔴 SUSPECTED, needs verification (2026-09-04)
+### ABI review #5: LLVM `__c_call` narrow ARGUMENTS lack signext/zeroext — 🟡 IN PROGRESS — verifying (claimed 2026-09-06) (2026-09-04)
 
 Status note: abi/04 §4.6. The argument-direction sibling of the fixed
 9ef53bcf7 return bug: emit_ccall.bn:33-56,90-101 emits no extension
