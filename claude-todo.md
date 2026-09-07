@@ -79,6 +79,27 @@ assertion/satisfaction lookup MISSES. Fix: bn_init builds the registry from
 the facade's _pkg_satfrag node before running inits; e2e library test with a
 type assertion.
 
+### Inbound `#[c_export]` narrow PARAM under-declares signext/zeroext (LLVM) — 🟢 LOW / not-a-miscompile (found 2026-09-06, ABI review #5 adversarial review)
+
+Cosmetic/completeness ABI-metadata gap, NOT a correctness bug — deliberately
+distinct from ABI review #5 (which fixed the OUTBOUND `__c_call` narrow-arg
+direction, a real miscompile). An LLVM `#[c_export]` function with a sub-`int`
+param (int8/int16/uint8/bool) spells the define's param bare — e.g. `define i32
+@bn_...takeNarrow(i8 %v0)`, reached by the C-name alias — with no
+signext/zeroext, whereas clang would emit `i8 signext`/`i8 zeroext` for the same
+C prototype. The c_export THUNK path (>16-agg param case, writeCAbiParamType) is
+bare too. This is SAFE today: the Binate callee reads the iN low bits (its body
+re-extends, e.g. `sext i8 -> i32`), so a conforming C caller's already-extended
+arg is read correctly regardless of the missing attribute — the callee never
+assumes clean high bits (unlike the outbound C callee that #5 fixed). Worth
+closing only for ABI-declaration parity with clang and to harden against a
+future stricter consumer (LTO across the C boundary, a tool reading param
+attrs). Fix if done: apply the same `writeCAbiParamExtAttr` on the c_export
+define's params (emit path) and the thunk param list (writeCAbiParamType's
+c_export caller); the return direction already uses `cabiIntExtAttr`. Low
+priority — do not prioritize over any real-miscompile ABI item.
+
+
 ### Reserved-namespace gap: synthesized `_pkg*` globals collide with legal user names — 🔴 OPEN latent MAJOR (found 2026-09-04, ABI-spec recon)
 
 **Severity: MAJOR (latent)** — silent symbol collision. The checker reserves

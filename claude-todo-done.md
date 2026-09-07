@@ -29,10 +29,9 @@ canonical full-width args, so LLVM-only. Covered by codegen unit tests
 (emit_ccall_test.bn: signext/zeroext on call+declare per narrow type, absence on
 word/tail/regular-call args) + e2e/ffi-ccall-narrow.sh (LLVM required + native
 self-skip; verified it reads 507/130772/456 without the fix). Minimal
-adversarial review clean on all axes. One adjacent latent item noted (NOT this
-fix): a #[c_export] function taking a narrow PARAM does not carry
-signext/zeroext on its thunk param list — safe today (the Binate callee reads
-the iN low bits) but worth tracking if a stricter consumer appears.
+adversarial review clean on all axes. (An adjacent inbound-direction item it
+surfaced — narrow `#[c_export]` PARAMs under-declaring signext/zeroext, safe but
+not clang-parity — is tracked as its own active todo entry, not here.)
 
 ### ABI review #2: dispatch-seam narrow values not canonicalized — DONE (2026-09-06, `6d85f416d`)
 
