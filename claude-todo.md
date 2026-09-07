@@ -341,8 +341,16 @@ liveness pass itself) is 61% memory ops: 1144 vs llvm's 135 (8.5×).
    x64/arm32 codegen changes (an x64-retention revert leaves the aarch64 output identical → looks
    "neutral").  Measure a non-host backend by static reload-counting on a `--target x86_64-darwin`
    (or arm32) build, or on real x64/arm32 hardware/CI — NOT via the host `perf` script.
-   REMAINING: dead-store elimination — only the reload is avoided so far; the redundant STORE of
-   each store-then-reload pair is not yet dropped.
+   Dead-store elimination (lazy spill) LANDED x64 (`3ef8e76c5`): a spilled scalar stays DIRTY in
+   its register and is written to its slot only when it leaves the register while still live (on
+   eviction, or before a cache-drop reset if live-after that point — per-point liveness from
+   `common.ComputeLiveBeforeAll`); a value used only from its register is never stored.  Shared
+   machinery (RegMap `DirtyIDs` + `CurAsm` back-channel; `ComputeLiveBeforeAll`) is additive — only
+   `isAllocatableDef` results are lazy-spilled, aggregates/floats keep the eager store.  Effect
+   (x64, cmd/bnc): frame stores −18.5% (209,611→170,802), −1.7% instructions; conformance 3020/0.
+   Design + code both adversarially reviewed (the plan review caught 2 fatal + 3 major holes).
+   REMAINING: port lazy spill to aarch64 and arm32 (their emit loops mirror x64's; the shared
+   machinery is in place).  See `plan-native-dead-store-elim.md`.
 2. **Register promotion (keep IR temporaries in registers; mem2reg-equivalent)** — the deep lever
    and bulk of the gap.  Native materializes ~every temp to a stack slot; llvm's mem2reg keeps them
    in registers.  **This is why the Stage-5 refinements above were NEUTRAL** — they tuned the margins
