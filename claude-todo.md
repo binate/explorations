@@ -57,7 +57,7 @@ arguments (back-fill fits up to 16 float32s). Route the V-walkers through the
 allocator (thread the mask/latch, variadicEffType applied first); test at 9+
 float args, mixed float32/float64.
 
-### ABI review #7: library builds never build the interface-satisfaction registry — 🔴 OPEN MAJOR for --library users (2026-09-04)
+### ABI review #7: library builds never build the interface-satisfaction registry — 🟡 IN PROGRESS (claimed 2026-09-06), 🔴 MAJOR for --library users (2026-09-04)
 
 Status note: abi/06 §6.7. EmitSatRegistryWiring wires only __entry
 (data_satregistry.bn:23-27); the --library driver never calls it and bn_init
