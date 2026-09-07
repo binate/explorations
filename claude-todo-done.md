@@ -20060,3 +20060,19 @@ unchanged.  Unit tests: `elfSymType` + `ElfTextMappingSymbol` per backend.
 Adversarial review CONFIRMED-CLEAN (no critical/major bugs; the shared-writer
 inference assumption is documented on `elfSymType`).
 
+
+### Native arm32 #[c_export] end-to-end CI coverage — ✅ ADDED 2026-09-06 (commit 5321a8543)
+
+The two native-arm32 #[c_export] bugs fixed this session (the >16-byte by-value
+param trampoline `1e33182dd` and the STT_FUNC + `$a`/`$x` mapping-symbol
+interworking fix `ec5643124`) both went uncaught because no CI job exercised
+native-arm32 c_export end-to-end: conformance is pure Binate (ARM→ARM, no Thumb
+caller), and e2e/ffi-export.sh's native check runs on the HOST arch, never native
+arm32.  Closed that gap: e2e/arm32-ffi-export.sh compiles a #[c_export] facade
+with the native arm32 backend and calls it from a Thumb C driver (gcc/bfd, so the
+STT_FUNC interworking is actually exercised — clang/lld tolerates its absence)
+passing a >16-byte struct by value, run under qemu-arm.  Auto-discovered by the
+e2e workflow; the `arm32` name prefix gates in the existing qemu +
+gcc-arm-linux-gnueabihf install on the Linux runner; self-SKIPs without the
+toolchain and on macOS.  Validated end-to-end in a CI-like container (all cases
+pass; pre-fix it SIGILLs / garbles).
