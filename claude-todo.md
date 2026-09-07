@@ -38,16 +38,6 @@ arguments (back-fill fits up to 16 float32s). Route the V-walkers through the
 allocator (thread the mask/latch, variadicEffType applied first); test at 9+
 float args, mixed float32/float64.
 
-### ABI review #7: library builds never build the interface-satisfaction registry — 🟡 IN PROGRESS (claimed 2026-09-06), 🔴 MAJOR for --library users (2026-09-04)
-
-Status note: abi/06 §6.7. EmitSatRegistryWiring wires only __entry
-(data_satregistry.bn:23-27); the --library driver never calls it and bn_init
-runs package initializers only (library.bn:110-125) — so in a library
-artifact rt.BuildSatRegistry never runs and every interface
-assertion/satisfaction lookup MISSES. Fix: bn_init builds the registry from
-the facade's _pkg_satfrag node before running inits; e2e library test with a
-type assertion.
-
 ### Inbound `#[c_export]` narrow PARAM under-declares signext/zeroext (LLVM) — 🟢 LOW / not-a-miscompile (found 2026-09-06, ABI review #5 adversarial review)
 
 Cosmetic/completeness ABI-metadata gap, NOT a correctness bug — deliberately

@@ -66,6 +66,39 @@ multi-return (TrampolineAggregate) and scalar (TrampolineScalar) paths; verified
 as a real regression pin (pre-fix it aborts with `TrampolineScalar: data is not
 a VM closure record`).
 
+### ABI review #7: library builds never build the interface-satisfaction registry — DONE (2026-09-06, `590f454eb`)
+
+Fixed a MAJOR --library bug (abi/06 §6.7). A `--library` artifact has no
+`__entry` — the program entry point where the whole-program path wires the
+registry fill (EmitSatRegistryWiring). Its C entry is `bn_init` (EmitLibInit),
+which ran only the package initializers, so rt.BuildSatRegistry never ran and the
+registry stayed empty: every interface assertion/satisfaction lookup in a library
+MISSED (comma-ok -> false; expression form -> panic).
+
+Fix: EmitLibInit now fills the registry as the first work in bn_init's run block
+— after the run-once guard store, before the package inits (a top-level var
+initializer run by an init may assert) — walking the facade's own `_pkg_satfrag`
+node (the library's root, mirroring how the program walks from main's node), and
+sets m.SatRegistryRequested so codegen pins the node (emitSatFragPin /
+collectDefinedDataSyms) and the LEA retains the graph under dead-strip. The
+registry-fill emission is factored into a shared emitBuildSatRegistryCall used by
+both the program (`__entry`) and library (`bn_init`) wiring. Backend-neutral
+IR-gen, so it fixes both LLVM and native; library builds are compile-only, so it
+never runs on the interp path. Also dropped two stale `M5` increment labels and
+corrected the now-inaccurate SatRegistryRequested field doc in ir.bni.
+
+Covered by an IR unit test (EmitLibInit sets the flag + emits the `_pkg_satfrag`
+LEA ahead of the init calls; TestEmitLibInit updated to skip the new call) and
+e2e/library-iface-assert.sh (a `--library` archive whose #[c_export] does an
+interface-to-interface assertion, driven by a C host calling bn_init; LLVM +
+native, verified it returns the -1 miss sentinel WITHOUT the fix and 42 with it,
+on both backends). Minimal adversarial review clean on all 7 axes. Pre-existing
+design caveat noted (not introduced here): a satentry-carrying package reachable
+in a `.a` only via graph edges but never pulled in by an ordinary
+function/vtable symbol resolves to its weak empty fallback (satentries dropped) —
+the documented property of the decentralized `_pkg_satfrag` design; the common
+case (a facade using a type pulls that type's object) is fine.
+
 ### ABI review #5: LLVM `__c_call` narrow ARGUMENTS lack signext/zeroext — DONE (2026-09-06, `c1680b7a6`)
 
 Confirmed a real MAJOR miscompile on darwin-arm64 (DarwinPCS) and fixed
