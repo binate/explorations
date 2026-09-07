@@ -166,38 +166,6 @@ synthesized family into `__` (ABI-visible rename) or extend the reserved
 check to the `_pkg` prefix at package scope. Needs a test either way. The ABI
 spec (abi/05 §5.4) carries a Status note flagging this.
 
-### Native arm32 objects lack ARM/Thumb mapping symbols (`$a`/`$t`/`$d`) + STT_FUNC → interworking broken for gcc/bfd-linked Thumb callers — 🔴 OPEN MAJOR (found 2026-09-06, native arm32 c_export validation)
-
-The native arm32 backend emits A32 (ARM) code, but its objects carry NO ARM ELF
-mapping symbols (`$a` ARM / `$t` Thumb / `$d` data — required by the ARM ELF
-ABI) and mark function symbols STT_NOTYPE rather than STT_FUNC. (`readelf -s` on
-a `--backend native --target arm32-linux` object shows zero `$a` and
-`take_add` = NOTYPE; the LLVM object of the same package has `$a` throughout and
-STT_FUNC.) Without the mapping symbols the linker cannot identify ARM code to
-insert a Thumb→ARM interworking veneer, so a **Thumb** caller's `BL` enters the
-ARM function still in Thumb state → the ARM encoding is decoded as Thumb →
-SIGILL / SIGSEGV. armhf gcc defaults to Thumb-2, so a C program compiled with
-gcc calling ANY native arm32 `#[c_export]` function crashes (confirmed under
-qemu-arm: even a trivial `int take_add(int,int)`). Forcing the caller to ARM
-(`-marm`) works; clang+lld tolerates the missing symbols (synthesizes veneers
-regardless) so the conformance `native_arm32_linux` path (clang+lld) is
-unaffected — which is why this was never caught (conformance is pure-Binate
-ARM→ARM; the e2e ffi-export native check runs on the HOST arch, never native
-arm32).
-
-Discovery: validating the native arm32 >16-byte `#[c_export]` trampoline
-(plan-c-export-bigagg-param.md Inc 4) under gcc-armhf + qemu. The trampoline
-itself is correct (all validation cases pass under clang+lld-Thumb and
-gcc `-marm`); this is a separate, pre-existing object-emission defect.
-
-Proper fix: the native arm32 object emitter must emit ARM mapping symbols (`$a`
-at each ARM code-region start, `$d` at inline data / literal pools, `$t` at any
-Thumb) and set STT_FUNC on function symbols. Also check whether native aarch64
-omits the AArch64 `$x`/`$d` mapping symbols (same ABI requirement; interworking
-is not the trigger there, but data-in-code disassembly / some linkers rely on
-them). Until fixed, native arm32 `#[c_export]` is only reliably callable from
-clang/lld-linked or ARM-mode C.
-
 ### Inbound multi-VALUE-return `#[c_export]` with a >2-register tuple is silently miscompiled at the C boundary — 🔴 OPEN MAJOR (found 2026-09-04, adversarial review)
 
 A `#[c_export]` function returning a multi-value tuple that exceeds the return

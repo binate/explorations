@@ -19916,3 +19916,29 @@ float in a GP register after the aggregate was dropped) fixed by gating on
 gcc/bfd-linked Thumb C is still blocked by a SEPARATE defect (missing ARM
 mapping symbols) — see that entry in claude-todo.md.
 
+
+### Native arm32 objects lacked ARM/Thumb mapping symbols + STT_FUNC → interworking broken for gcc/bfd-linked Thumb callers — ✅ RESOLVED 2026-09-06 (commit ec5643124)
+
+Native ELF objects marked every symbol STT_NOTYPE and carried no ARM ELF ABI
+mapping symbols.  bfd classifies a call target's instruction set from its symbol
+type, so a Thumb C caller (armhf gcc's default) calling a native arm32
+`#[c_export]` function got no Thumb→ARM interworking veneer and crashed (SIGILL);
+clang/lld tolerated it, which is why conformance `native_arm32_linux` (clang+lld)
+never caught it, and the e2e ffi-export native check runs on the host arch.
+Found while validating the native arm32 >16-byte `#[c_export]` trampoline
+(plan-c-export-bigagg-param.md Inc 4).
+
+Fixed (commit ec5643124): the shared ELF writer marks a defined non-local symbol
+in an executable section STT_FUNC (`elfSymType` — the native backends put only
+function entries there; data goes to separate sections; block labels are local),
+which is what fixes the interworking crash and also lets debuggers/profilers
+resolve code symbols on every native ELF target.  Plus `common.EmitObject` now
+defines the ARM ELF ABI text mapping symbol at `.text:0` — `$a` (A32) on ARM32,
+`$x` (A64) on aarch64 ELF, none for x86-64 or Mach-O (`.text` is pure code, so
+one covers the section).  Validated end-to-end under qemu: a default (Thumb) gcc
+armhf caller now calls native arm32 `#[c_export]` functions correctly (was
+SIGILL); aarch64-linux + x86_64-linux ELF still run; aarch64-darwin Mach-O
+unchanged.  Unit tests: `elfSymType` + `ElfTextMappingSymbol` per backend.
+Adversarial review CONFIRMED-CLEAN (no critical/major bugs; the shared-writer
+inference assumption is documented on `elfSymType`).
+
