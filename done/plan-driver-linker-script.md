@@ -1,6 +1,13 @@
 # Driver scripts with linker-script-level control (Step 7, phase 2)
 
-Status: DESIGN (2026-09-02, rev 2).  Follow-up to the interpreted linker drivers (Step 7;
+Status: COMPLETE (landed 2026-09-05).  All steps done — see the "Revised plan ordering"
+section below for the per-step landed commits.  A bnld driver can now express, imperatively
+(Layer-1 LayoutBuilder) or declaratively (Layer-2 LayoutScript/LinkWithScript), everything a
+GNU ld linker script expresses within what Binate's linker supports; cases A/B/C/D all have
+working reference drivers + e2es (raw MBR blob, static ELF, higher-half kernel, arm32
+baremetal that boots in QEMU, arm32 firmware ROM-copy).
+
+Original design status: DESIGN (2026-09-02, rev 2).  Follow-up to the interpreted linker drivers (Step 7;
 plan-step7-driver.md) and the shipped `pkg/binate/link` interface (plan-driver-api.md,
 landed `6efec9cf1`).  Goal (user, 2026-09-02): make a bnld driver script able to do
 everything a GNU ld linker script can, **within what we support internally** — so a driver
@@ -541,6 +548,29 @@ dedicated follow-on.
      NONE are covered by the `relocate_arm32_test.bn` unit tests (real field-decode).
    Step 7 (the deferred arm32 work) is COMPLETE — the linker reads, relocates, and emits
    arm32 (ELF32) and a scripted driver produces a bootable baremetal image.
-8. Ship the builder API in `pkg/binate/link.bni`; reference scripted drivers.
+8. ✅ DONE (landed 2026-09-05) — Ship the builder API + Layer-2 declarative spec.
+   - **Full Layer-1 API exposed to drivers** (commit c58bc13e2): the imperative engine
+     already implemented + unit-tested regions, region-relative section routing, layout-defined
+     symbols, and LOADADDR, but only a subset was in the driver-facing `link.bni`.  Declared the
+     rest — `DefineRegion`/`SetDotToRegion`/`SectionAtRegion`/`SectionLoadRegion`/`SectionAlign`/
+     `DefineSymbol`/`SymbolAtDot`/`LoadAddrOf`/`SetEntryAddr` — the complete linker-script
+     surface.  `drivers/firmware-arm.bn` is the case-A reference (FLASH+RAM regions, `.data`
+     ROM-copy LMA≠VMA, boundary symbols); `e2e/bnld-arm32-firmware.sh` structure-checks the
+     ROM-copy segment (p_vaddr≠p_paddr).
+   - **Interp `__copy_<T>` injection** (commit e1ad41fdd): the data-model Layer-2 needs an
+     interpreted driver to copy by-value managed structs (a `link.ScriptItem`) of an injected
+     package's type; the compiler generated `__copy_<T>` but never listed it in the package
+     descriptor / force-emitted its func-value handle, so the VM couldn't resolve it by name.
+     Added an `IsStructCopy` flag mirroring `IsStructDtor` across all four codegen backends +
+     the VM descriptor gatherer.  (Adversarial-reviewed; the review caught the missed VM site.)
+   - **Layer-2 declarative spec** (commit 2499875d4): `LayoutScript`/`SectionSpec`/`ScriptItem`/
+     `RegionSpec`/`SegmentSpec`/`AbsSymSpec` + the `Place`/`SymAt`/`SetDotTo`/`AlignTo` item
+     constructors + `CompileScript`/`LinkWithScript`, shipped in `link.bni` and compiling to
+     Layer-1.  `drivers/script-arm.bn` is the declarative arm32 baremetal reference;
+     `e2e/bnld-arm32-script.sh` links through it and BOOTS the result under qemu-system-arm.
+
+   Plan COMPLETE: a bnld driver can express — imperatively (Layer-1) or declaratively
+   (Layer-2) — everything a GNU ld linker script can, within what Binate's linker supports;
+   cases A/B/C/D all have working, tested reference drivers.
 
 Verdict (review): shape is sound to start the engine core with the above pins resolved.
