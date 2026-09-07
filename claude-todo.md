@@ -46,18 +46,6 @@ multiret-FP-store subsystem (~41 sites). Also add hard-float UNIT coverage
 (seamIncomingEvenPair==true is currently unit-uncovered — the review's one
 note). Plan + phased design: see plan-arm32-dispatch-seam-positional.md.
 
-### ABI review #4: compiled→VM multi-return func-value dispatch unrealized — 🟡 IN PROGRESS (2026-09-04; claimed 2026-09-06)
-
-Status note: abi/03 §3.5. ensureHandle selects TrampolineScalar for a
-multi-return VM function (single-multi-word gate,
-vm_funcvalue_handle.bn:17-18) and TrampolineAggregate panics on multi-result
-metadata (vm.bn:218-220) — a compiled caller's retbuf-shape call
-misdispatches (panic at best, misdispatch if garbage matches a tag). Also:
-the VM selects the aggregate trampoline for a 0-byte struct result where
-compiled producers use the scalar shape. Fix (teach ensureHandle +
-TrampolineAggregate the multi-return retbuf shape; align the 0-byte edge) or
-make fail-loud; test both directions.
-
 ### ABI review #6: arm32 hard-float caller/callee divergence beyond 8 float args — 🔴 OPEN (2026-09-04)
 
 Status note: abi/02 §2.9. Caller-side classification and stack sizing use the

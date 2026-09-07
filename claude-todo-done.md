@@ -7,6 +7,35 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### ABI review #4: compiled→VM multi-return func-value dispatch unrealized — DONE (2026-09-06, `7075e925d`)
+
+Fixed (VM cross-mode func-value dispatch). abi/03 §3.5. A compiled caller
+invokes a VM-side function value through the vtable.call slot in a shape chosen
+solely from the func-value TYPE (`types.IsAggregateReturn`): the retbuf shim
+shape (`void(retbuf, data, args)`) for every multi-return tuple and any single
+wide/coerced aggregate. But `ensureHandle` selected `TrampolineAggregate` only
+for a SINGLE multi-word result (the per-result `ResultMultiWord[0]` gate), so a
+multi-return func value fell through to the one-word `TrampolineScalar` — the
+caller's retbuf pointer landed in `data` (misdispatch: panic at best, corruption
+if a stale tag matched). The same gate mis-classified a 0-byte struct result as
+aggregate where a compiled caller uses the scalar shape.
+
+Fix: drive selection and copy size off the same predicates the compiled caller
+uses, kept distinct (they diverge for an all-zero-size tuple: retbuf-shaped,
+0-byte copy). `VMFunc.ResultUsesRetbuf = types.IsAggregateReturn(f.Results)` is
+the selection discriminator (ensureHandle picks TrampolineAggregate iff set);
+`VMFunc.ResultRetbufBytes = types.ResultImageSize(f.Results)` (new helper: the
+natural, un-rounded image size — NOT the 8-rounded AggregateReturnSize, which
+would overrun the caller's natural-typed retbuf alloca) is the memcpy size.
+AggregateReturnSize refactored to round8(ResultImageSize) — behavior identical.
+TrampolineAggregate drops its single-result panic and fail-louds on an image
+wider than the 64-byte cross-mode relocation window. Adversarial review found
+and closed the all-zero-size-multi-return corner (IsAggregateReturn true but
+ResultImageSize 0). Covered by types tests (ResultImageSize natural-vs-rounded,
+0-byte single + all-zero multi) and vm tests (ensureHandle selection across
+multi/scalar/0-byte/all-zero-tuple; TrampolineAggregate multi-return copy
+end-to-end).
+
 ### ABI review #5: LLVM `__c_call` narrow ARGUMENTS lack signext/zeroext — DONE (2026-09-06, `c1680b7a6`)
 
 Confirmed a real MAJOR miscompile on darwin-arm64 (DarwinPCS) and fixed
