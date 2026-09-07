@@ -143,7 +143,7 @@ assertion/satisfaction lookup MISSES. Fix: bn_init builds the registry from
 the facade's _pkg_satfrag node before running inits; e2e library test with a
 type assertion.
 
-### LLVM `#[c_export]` thunk: x86-64 SSE (float) aggregate param spelled/forwarded in the GP form — 🔴 OPEN MAJOR (found 2026-09-06, ABI review #1 re-review)
+### LLVM `#[c_export]` thunk: x86-64 SSE (float) aggregate param spelled/forwarded in the GP form — 🟡 IN PROGRESS MAJOR (found 2026-09-06, ABI review #1 re-review; claimed 2026-09-06)
 
 Sibling of the `__c_call` bug above, on the `#[c_export]` ENTRY THUNK path
 (`pkg/binate/codegen/emit_cexport_thunk.bn`).  When a `#[c_export]` function needs
