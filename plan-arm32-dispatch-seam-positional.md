@@ -106,17 +106,48 @@ equal to the old condition on hard-float, so **hard-float is byte-identical**
 
 ### Phase B — hard-float seam (`arm32-linux`): floats ride GP bit images
 
-- **Caller**: force seam float args into GP slots as bit images (not VFP), and
-  read a scalar float *return* from R0 (bit image), bitcast to float. This
-  *removes* the hard-float seam handling at the call site (the
-  `callInstrUnhandledFloatB1Arm32` fail-loud, the VFP-spill deferral) — seam
-  calls become GP-only like soft-float.
-- **Shim**: gain a **GP-slot → VFP-register** marshal for each float arg
-  (`VMOV`/`VLDR` the bits into the s/d register the underlying reads) and a
-  **VFP → GP** step for a scalar float return (underlying returns in VFP → shim
-  moves to R0 for the seam's GP bit-image return). `hardFloatShimSkipArm32` and
-  the VFP-on-seam subsystem (`arm32_shim_float.bn`, closure VFP up-shift,
-  multiret FP store) are reworked to this model.
+Key realization from the site map (2026-09-06): a float's runtime value ALREADY
+homes in GP value slots on this backend — `emitValOperand` returns a float32's
+32-bit image in a GP reg (reloaded from its spill slot), and `load64` returns a
+float64's lo/hi words in two GP regs. So the CALLER needs NO VMOV: hard-float
+floats ride the SAME flat placer as soft-float (`emitShimUserArgsFlatArm32` — the
+`if !Arm32HardFloat()` fork collapses). VMOVs are needed only INSIDE the shim
+(GP bit-image → the underlying's VFP reg) and on RETURN (underlying's VFP result
+→ R0[:R1] for the seam). `seamIncomingEvenPairArm32` becomes always-false (the
+hard seam is now flat too). Most of `arm32_shim_float.bn` becomes dead — the
+whole VFP-bank-spill fail-loud family (`funcValueShimUnhandledFloatB1Arm32`,
+`callInstrUnhandledFloatB1Arm32`, `anyFloatScalarSpillsVfpArm32`,
+`anyNonFloatScalarUserParamArm32`, `hardFloatShimSkipArm32`) deletes (a spilled
+float becomes an ordinary GP stack slot the marshal handles).
+
+Three coordinated landings (each atomic caller+shim+tests, each conformance-green
+via the Docker `builder-comp_native_arm32_linux` loop):
+
+- **B1 — scalar float PARAM across the seam.** Caller: collapse the fork so
+  hard-float floats ride `emitShimUserArgsFlatArm32`. Shim: delete the
+  `hardFloatShimSkipArm32` skips; add a float branch that reads the incoming GP
+  bit-image word(s) and VMOVs (`VmovCoreToSingle` / `VmovCoresToDouble`) into
+  `cc.CallArgFpReg`'s reg — advancing the INCOMING GP cursor but NOT the outgoing
+  GP cursor (a VFP dest occupies no outgoing GP slot; same incoming≠outgoing
+  divergence by-address aggregates already have). Delete the fail-loud family +
+  its guards (`arm32_funcvalue_shim.bn`, `arm32_funcvalue_spill.bn`,
+  `arm32_call_indirect.bn`, `arm32_iface_dispatch.bn`). A void/GP/aggregate-return
+  shim stays a frameless tail-branch (param VMOVs emitted before the branch).
+- **B2 — scalar float RETURN across the seam.** Shim: a scalar-float return can
+  no longer tail-branch — new framed shape (BL + `VmovSingleToCore` /
+  `VmovDoubleToCores` VFP→R0[:R1] + return); `funcValueShimIsTailBranchArm32`
+  returns false for a float return. Caller: `collectShimReturnArm32` reads the
+  seam float return from R0[:R1] (raw bits), bypassing the direct-call VFP read
+  (`emitCallReturnFloatHard` stays for real direct calls).
+- **B3 — closure float PARAMS.** Rewrite the incoming half of
+  `emitClosureParamVfpUpShiftArm32` to source the param from GP bit-image seam
+  slots (outgoing half → VFP unchanged); drop the mixed-spill fail-loud.
+
+UNCHANGED (verify, don't touch): float CAPTURES (ride the data block, not the
+seam — `emitClosureCaptureVfpLoadArm32`, `anyCaptureHasScalarFloatArm32`); the
+multiret RESULT path (`storeMultiReturnTupleFieldsShimArm32` et al. — a returned
+tuple's float fields are orthogonal to how args cross); and every direct-call /
+callee / C-export float path (bucket b).
 
 ## Site inventory (native arm32)
 
