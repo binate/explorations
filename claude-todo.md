@@ -7,6 +7,25 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### `--backend native` programs HANG at startup when built at `-O1`/`-O2` — 🔴 OPEN MAJOR (found 2026-09-07, adversarial review of aarch64 DSE)
+
+**Severity: MAJOR** — the native backend is unusable at any optimization level
+above `-O0`.  A trivial `func main() { __c_call("exit", "void", cast(int32, 42)) }`
+compiled with `--backend native -O1` (or `-O2`) hangs at startup; `sample` shows
+the spin in `captureEnv` (`pkg/builtins/startup`), which under `--backend native`
+is **LLVM-compiled** (only the main package is native; deps go through LLVM) and
+runs BEFORE any native code.  The all-LLVM `-O1` build of the same source runs
+fine, so it is specific to the `--backend native` + `-O1` combination (something
+in how the native driver builds/links the LLVM-compiled deps at `-O1`).  NOT
+caused by dead-store elimination (that only touches `pkg/binate/native/*`, and it
+reproduces before any native code runs) — it is pre-existing and was surfaced
+incidentally.  **Impact:** native is only ever *run* at `-O0` today (conformance,
+self-host), so this has been invisible; but it means the within-block retention /
+dead-store-elimination work's intended `-O1+` payoff (mem2reg, long-lived SSA
+values) cannot be measured or shipped until it is fixed.  Root cause unknown —
+needs investigation (start: diff the `-O0` vs `-O1` native-driver build/link of
+`pkg/builtins/startup`, and bisect the `-O1` opt passes).
+
 ### native arm32 hard-float variadic `__c_call`: FIXED float args before `...` wrongly ride VFP — 🔴 OPEN MAJOR (found 2026-09-06, ABI review #6 adversarial review)
 
 **Severity: MAJOR** — silent ABI miscompile at the C boundary. Under AAPCS-VFP
@@ -354,8 +373,19 @@ liveness pass itself) is 61% memory ops: 1144 vs llvm's 135 (8.5×).
    `isAllocatableDef` results are lazy-spilled, aggregates/floats keep the eager store.  Effect
    (x64, cmd/bnc): frame stores −18.5% (209,611→170,802), −1.7% instructions; conformance 3020/0.
    Design + code both adversarially reviewed (the plan review caught 2 fatal + 3 major holes).
-   REMAINING: port lazy spill to aarch64 and arm32 (their emit loops mirror x64's; the shared
-   machinery is in place).  See `plan-native-dead-store-elim.md`.
+   Also LANDED aarch64 (`7b89584f8`): aarch64's clean pool means the internal-reset ops are the
+   returning-BL family + OP_RETURN's sret store + OP_RODATA_ARRAY's inline byte-store loop, so the
+   pre-op barrier fires on `EmitsReturningBl(op) || op == OP_RETURN || op == OP_RODATA_ARRAY` (a
+   DENYLIST — a new op whose emitter resets the cache or writes a pool register outside allocReg
+   MUST be added).  The RODATA_ARRAY case was a latent gap an adversarial review caught (masked in
+   practice by an adjacent CONST_STRING adrp).  X16/X17 get a spill-aware eviction every
+   instruction.  native_aa64 conformance 3020/0.
+   REMAINING: port lazy spill to arm32 — the biggest port: its soft-float and int64 ops lower via
+   libcalls that reset internally and are type-dispatched (`instrIsFloat(ins)` / int64-pair), so
+   the barrier must be TYPE-aware, not op-code-only: `instrIsFloat(ins) || int64Pair(ins) ||
+   EmitsReturningBl(op) || op == OP_RETURN || op == OP_RODATA_ARRAY` (plus audit arm32 for
+   RODATA_ARRAY-class reset-without-fixup gaps).  Validate via Docker+qemu native_arm32_linux.
+   See `plan-native-dead-store-elim.md`.
 2. **Register promotion (keep IR temporaries in registers; mem2reg-equivalent)** — the deep lever
    and bulk of the gap.  Native materializes ~every temp to a stack slot; llvm's mem2reg keeps them
    in registers.  **This is why the Stage-5 refinements above were NEUTRAL** — they tuned the margins
