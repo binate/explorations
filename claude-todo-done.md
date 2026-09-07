@@ -7,6 +7,27 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### ABI review #3: native arm32 dispatch-seam encoding diverged from LLVM/VM — DONE (Phase A `c3caaef29` 2026-09-06, Phase B `578989411` 2026-09-07)
+
+The native arm32 func-value/iface/closure/cross-mode dispatch seam ran args
+through the full AAPCS32 machinery — even-pair-padding 64-bit/8-aligned GP slots
+and (hard-float) placing float scalars in VFP registers — diverging from the
+positional all-integer contract (abi/03 §3.3) that LLVM (pre-split i32 shim sig)
+and the VM (positional argSlots) implement. Self-consistent within the native
+producer, so same-producer/even-parity worked; it diverged cross-producer and at
+odd register parity.
+
+Fixed in two phases, both landed: **Phase A** (`c3caaef29`) made the SOFT-float
+seam flat (positional GP, no even-pair pad); **Phase B** (`578989411`) made the
+HARD-float seam flat too — floats ride GP bit-image slots, the shim VMOVs them
+into the underlying's VFP reg (or the outgoing stack when the VFP bank spills, so
+the 9+-float case is HANDLED, not fail-loud), and a scalar float return comes
+back in R0[:R1]. Deleted the VFP-bank-spill fail-loud family and the intricate
+closure float-param VFP up-shift. Verified: full builder-comp_native_arm32_linux
+conformance (3020/0) in Docker + qemu, soft-float seam unchanged, arm32 unit
+byte-refs, hygiene 20/20, adversarial reviews clean. Plan (both phases, coupling
+analysis): done/plan-arm32-dispatch-seam-positional.md.
+
 ### ABI review #6: native arm32 hard-float caller/callee divergence beyond 8 float args — DONE (2026-09-07, `5cebc7b65`)
 
 The AAPCS-VFP (arm32-linux hard-float) caller's variadic V-walkers

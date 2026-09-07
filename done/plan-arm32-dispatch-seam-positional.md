@@ -1,6 +1,9 @@
 # Plan: native arm32 dispatch-seam → positional all-integer (match LLVM/VM)
 
-Status: Phase A LANDED (`c3caaef29`, 2026-09-06); Phase B (hard-float) open.
+Status: COMPLETE. Phase A LANDED (`c3caaef29`, 2026-09-06); Phase B LANDED
+(`578989411`, 2026-09-07). ABI review #3 fully closed — the native arm32
+dispatch seam is positional all-integer under both float ABIs, matching the spec
+(docs/abi/03 §3.3), LLVM, and the VM.
 Owner decision made: the dispatch seam contract is **positional all-integer**
 (spec `abi/03` §3.3); the native arm32 backend is the divergent side and gets
 fixed. Tracks `claude-todo.md` "ABI review #3".
@@ -104,7 +107,25 @@ equal to the old condition on hard-float, so **hard-float is byte-identical**
 - **Spill shim** (`emitFuncvalSpillShimArm32` / `emitSpillMarshalArm32`) and
   **closure shim** (`arm32_closure_shim*.bn`): same incoming-side flattening.
 
-### Phase B — hard-float seam (`arm32-linux`): floats ride GP bit images
+### Phase B — hard-float seam (`arm32-linux`): floats ride GP bit images — LANDED `578989411`
+
+As landed: the caller collapsed onto the single flat placer (`emitShimUserArgsArm32`,
+float bits already in GP via `emitValOperand`/`load64`); the shim VMOVs the GP
+bit-image into the underlying's VFP reg via `CallArgFpReg` over the right view
+(`params` for func-value/iface, `captures++params` + `fpDestOff=NumCaptureParams`
+for closures so float captures shift the slot), or copies to the outgoing stack at
+`vfpCallArgStackOff` when the VFP bank spills — so the **9+-float VFP-bank-spill
+case is handled, not fail-loud** (better than planned). Scalar float returns use a
+framed VMOV shim (VFP→R0[:R1]); the caller reads R0[:R1]. Deleted the whole
+VFP-bank-spill fail-loud family and the intricate closure float-param VFP up-shift
+(a GP→VFP move has no permutation hazard). Verified: full
+`builder-comp_native_arm32_linux` conformance (3020/0 pre-rebase; seam+1257 692/0
+post-rebase after two concurrent VFP/seam commits landed under it), soft-float
+seam unchanged (685/0), all arm32 unit byte-refs, hygiene 20/20, two adversarial
+reviews clean. `arm32_funcvalue_spill.bn` was split (type-list helpers →
+`arm32_funcvalue_spill_types.bn`) to stay under the length cap.
+
+Original Phase B design (for the record):
 
 Key realization from the site map (2026-09-06): a float's runtime value ALREADY
 homes in GP value slots on this backend — `emitValOperand` returns a float32's

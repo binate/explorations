@@ -60,26 +60,6 @@ function; or a native-caller emit/walker unit test asserting a fixed float in a
 variadic call lands in GP. Needs an owner decision on whether to fix now or
 schedule.
 
-### ABI review #3: native arm32 dispatch-seam encoding diverges from LLVM/VM — 🟡 Phase A LANDED (soft-float, c3caaef29, 2026-09-06); Phase B (hard-float) IN PROGRESS (work-6, 2026-09-06)
-
-Contract decided (positional all-integer per abi/03 §3.3; native is the
-divergent side to fix). **Phase A (soft-float)** LANDED as c3caaef29: the
-soft-float func-value/iface/closure seam is now flat (caller
-emitShimUserArgsFlatArm32/placeSeamWordArm32; shim incoming pad gated off via
-seamIncomingEvenPairArm32; predicates split to arm32_funcvalue_classify.bn).
-Verified: 548 seam conformance tests under builder-comp_native_arm32_baremetal,
-all arm32 unit tests (5 inverted byte-refs + 1 new caller byte-ref), hygiene
-20/20; adversarial review clean.
-
-**Phase B (hard-float, arm32-linux) — IN PROGRESS (work-6, 2026-09-06)**: the seam still routes floats
-through VFP and even-pair-pads 64-bit/8-aligned slots (gated on Arm32HardFloat()
-so it is byte-identical to pre-c3caaef29). Rework: floats ride GP bit-image
-slots on the seam (caller places bits in GP; shim VMOVs GP↔VFP for the
-underlying); reworks the arm32_shim_float.bn / closure-VFP-up-shift /
-multiret-FP-store subsystem (~41 sites). Also add hard-float UNIT coverage
-(seamIncomingEvenPair==true is currently unit-uncovered — the review's one
-note). Plan + phased design: see plan-arm32-dispatch-seam-positional.md.
-
 ### Inbound `#[c_export]` narrow PARAM under-declares signext/zeroext (LLVM) — 🟢 LOW / not-a-miscompile (found 2026-09-06, ABI review #5 adversarial review)
 
 Cosmetic/completeness ABI-metadata gap, NOT a correctness bug — deliberately
