@@ -7,6 +7,31 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### Native aa64/x64 CLOSURE shims: narrow args not canonicalized (sibling of ABI review #2) — DONE (2026-09-06, `f520a9087`)
+
+Found during ABI review #2's adversarial review. The func-value/iface dispatch-seam
+fix (`6d85f416d`) re-extends narrow register-passed slots in those SHIMS; the
+aarch64/x64 capturing-CLOSURE shims are a separate marshalling path that forwarded a
+narrow (int8/int16/bool) USER-arg scalar to the native closure body with a bare
+full-width move, so dirty high bits from an LLVM producer reaching a native closure
+across a mixed-backend link flipped a compare (same abi/03 §3.3 hazard). arm32
+closures reuse the func-value marshal helpers and were fixed by #2 already.
+
+Fixed (`f520a9087`): re-extend register-passed narrow USER-arg scalars at all 9
+aa64/x64 closure marshalling sites — the register-only fast path, the shared spill
+helper (threaded the param type), the register-only aggregate marshaller, the x64
+staged aggregate-spill mover, and the float marshaller — reusing
+canonicalizeSubWordReturn / canonicalizeSubWordSeamX64. Captures are native-canonical
+(excluded); every ≤16-byte aggregate is routed by-address before these sites, so only
+a scalar or indirect-large pointer reaches the extend (a no-op for the latter);
+outgoing-stack args are re-extended by the callee on load. Two aggregate marshallers'
+early-return branches became if/else + one trailing extend (behavior-preserving).
+Tests: per-backend closure narrow-arg unit tests (extend-emitted + int8/uint8
+signedness) and a native capturing-closure case in e2e/dispatch-seam-narrow.sh.
+Validated: native aa64+x64 conformance 3020/0, unit tests green, hygiene 20/20;
+adversarial review SHIP. This completes the dispatch-seam narrow-value hazard class
+(func-value/iface #2 + closures) across all three backends.
+
 ### ABI review #4: compiled→VM multi-return func-value dispatch unrealized — DONE (2026-09-06, `7075e925d`)
 
 Fixed (VM cross-mode func-value dispatch). abi/03 §3.5. A compiled caller

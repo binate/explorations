@@ -7,25 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### Native aa64/x64 CLOSURE shims: narrow args not canonicalized (sibling of ABI review #2) — 🚧 IN PROGRESS (2026-09-06), 🔴 MAJOR, latent
-
-Found during ABI review #2's adversarial review. That fix re-extends narrow
-register-passed slots in the func-value / interface dispatch SHIMS; capturing-
-CLOSURE shims are a separate marshalling path. On arm32 the closure shims REUSE
-emitShimArgMarshalArm32 / emitSpillMarshalArm32, so they were fixed for free; on
-aarch64 and x64 the closure shims have their OWN marshalling
-(aarch64_closure_shim*.bn, x64_closure_shim*.bn, incl. the spill / pack /
-aggregate variants) that forwards a narrow user arg to the native closure body
-with a bare full-width move — no canonicalizeSubWord*. So an LLVM producer
-dispatching a narrow arg (dirty high bits) to a native capturing closure across a
-mixed-backend link miscompares — the same class ABI review #2 closes for
-func-values, now inconsistently present (arm32 fixed, aa64/x64 not). Latent (only
-cross-producer / mixed-backend triggers it, like #2). Fix: re-extend
-register-passed narrow scalars in the aa64/x64 closure marshalling (mirror the
-func-value shim fix — canonicalizeSubWordReturn / canonicalizeSubWordSeamX64
-already exist); add a closure case to e2e/dispatch-seam-narrow.sh + per-backend
-unit tests.
-
 ### ABI review #3: native arm32 dispatch-seam encoding diverges from LLVM/VM — 🟡 Phase A LANDED (soft-float, c3caaef29, 2026-09-06); Phase B (hard-float) IN PROGRESS (work-6, 2026-09-06)
 
 Contract decided (positional all-integer per abi/03 §3.3; native is the
