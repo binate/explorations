@@ -100,29 +100,6 @@ assertion/satisfaction lookup MISSES. Fix: bn_init builds the registry from
 the facade's _pkg_satfrag node before running inits; e2e library test with a
 type assertion.
 
-### LLVM `#[c_export]` thunk: x86-64 SSE (float) aggregate param spelled/forwarded in the GP form — 🟡 IN PROGRESS MAJOR (found 2026-09-06, ABI review #1 re-review; claimed 2026-09-06)
-
-Sibling of the `__c_call` bug above, on the `#[c_export]` ENTRY THUNK path
-(`pkg/binate/codegen/emit_cexport_thunk.bn`).  When a `#[c_export]` function needs
-a thunk (e.g. it has a >16-byte by-value aggregate param, `cExportNeedsThunk`),
-the thunk declares each param via `writeCAbiParamType` and forwards it via
-`writeParamTypeLLVM` — both the GP `[N x i64]` form.  For an x86-64 SSE
-(float-containing) aggregate param the C ABI (and the internal define, via
-`sysvWriteDefineParams`) uses the SSE-split form (`<2 x float>` / per-eightbyte),
-so the thunk's GP spelling is ABI-wrong at the C boundary: a C caller passing the
-aggregate in XMM registers mismatches the thunk's `[N x i64]` GP param.  It
-currently COMPILES (self-consistent within the thunk) but is silently wrong.
-(Discovered because folding the SSE split into the shared `writeCAbiParamType`
-turned this latent issue into a hard clang rejection — dangling unnamed param +
-`%caN` type mismatch — for a float-aggregate thunk param; the `__c_call` fix was
-therefore kept out of the shared helper, leaving this thunk path at its
-pre-existing GP behavior.)  Proper fix: teach `emitCExportThunk` to declare a
-register-class SSE aggregate param one name per eightbyte and reconstruct/forward
-it in the internal define's SSE shape (like `sysvParamPrologue` does define-side),
-rather than the GP `[N x i64]` forward.  Test: a `#[c_export]` fn with a float
-aggregate param (+ a >16 aggregate to force the thunk), driven by a C caller
-(e2e).
-
 ### Reserved-namespace gap: synthesized `_pkg*` globals collide with legal user names — 🔴 OPEN latent MAJOR (found 2026-09-04, ABI-spec recon)
 
 **Severity: MAJOR (latent)** — silent symbol collision. The checker reserves

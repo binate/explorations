@@ -34,6 +34,35 @@ adversarial review SHIP. The aa64/x64 CLOSURE shims carry the same latent bug an
 remain tracked as an OPEN MAJOR in claude-todo.md (arm32 closures were fixed for
 free via helper reuse).
 
+### LLVM `#[c_export]` thunk: x86-64 SSE (float) aggregate param passed by the C ABI — DONE (2026-09-06, `b2b2d272f`)
+
+Sibling of the `__c_call` C-ABI aggregate-param fix (previous entry).  The `#[c_export]` entry thunk (emitted
+when a function has a >16-byte by-value aggregate param) mishandled an x86-64 SSE
+(float-containing) <=16-byte aggregate param: it declared + forwarded the param in
+the GP `[N x i64]` coercion, while the C ABI passes it SSE-split in XMM (+ a GP reg
+per integer eightbyte) and the mangled internal define takes it SSE-split too.
+Under opaque pointers a direct call carries its own signature, so it COMPILED but
+was a SILENT miscompile (the thunk read the arg from registers the C caller never
+used, and/or forwarded a shape the callee didn't expect).  x86-64 only (SysVInSse);
+aarch64 never thunks.
+
+Two sub-cases: (1) register-class BOTH ways (any pure-float aggregate) — declared
+AND forwarded SSE-split straight through (`sysvWriteThunkSseParams`); (2)
+register-class in C but MEMORY-class internally (only a MIXED int+float aggregate
+hits this, when a preceding >16 aggregate + enough int args fill the internal GP
+file) — declared SSE-split, reconstructed into a slot (`sysvWriteThunkSseSpill`),
+and forwarded `ptr byval(<T>)` to the memory-class internal define.  Predicates
+`cExportThunkParamCSse` (drives the declaration) / `cExportThunkParamIsSse` (the
+straight-through forward) in `emit_cexport_thunk.bn`.
+
+Tests: `TestEmitCExportThunkSseAggParamX64` + `TestEmitCExportThunkMixedSseStraddleX64`
+(codegen); `e2e/ffi-export.sh` `ffi_bigvec` (>16 struct + float aggregate) and
+`ffi_bigmix` (>16 struct + 5 int64s + {i64,f64} straddle), a C driver passing all
+by value — green on aa64 (alias path) locally, exercising the thunk on x64 CI.
+Three rounds of adversarial review, each catching a real gap (the x64 SSE facet,
+the c_export-thunk regression from an over-broad shared-helper edit, and the mixed
+int+float straddle residual), final clean.  Discovered while validating ABI review #1.
+
 ### LLVM `__c_call`: C-ABI aggregate param spelling disagreed with the argument — DONE (2026-09-06, `5f3a0b063`)
 
 A `__c_call` passing a by-value AGGREGATE emitted invalid LLVM (clang rejected the
