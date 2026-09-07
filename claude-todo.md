@@ -46,7 +46,7 @@ multiret-FP-store subsystem (~41 sites). Also add hard-float UNIT coverage
 (seamIncomingEvenPair==true is currently unit-uncovered — the review's one
 note). Plan + phased design: see plan-arm32-dispatch-seam-positional.md.
 
-### ABI review #6: arm32 hard-float caller/callee divergence beyond 8 float args — 🔴 OPEN (2026-09-04)
+### ABI review #6: arm32 hard-float caller/callee divergence beyond 8 float args — 🟡 IN PROGRESS (claimed 2026-09-06), 🔴 OPEN (2026-09-04)
 
 Status note: abi/02 §2.9. Caller-side classification and stack sizing use the
 monotonic 8-register-budget V-walkers with no VfpBackfill dispatch
