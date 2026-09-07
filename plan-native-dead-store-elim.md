@@ -100,6 +100,59 @@ slot, emit the store and mark clean.
   reloaded; a barrier/branch/block-end that drops a live dirty value; eviction of
   a dirty value without a store; the reloaded-value-is-clean assumption.
 
+## Adversarial review findings — CORRECTED DESIGN (supersedes the above where noted)
+
+An adversarial design review found two fatal holes and three major gaps in the
+first draft. The corrected design:
+
+- **F1 (was fatal): gate lazy-spill on `isAllocatableDef`.** `PlanFrame` gives a
+  spill slot to EVERY value-producing instruction (aggregates, floats,
+  int64-on-32bit included), and `getOperand` caches any of them — so the "dirty
+  universe == liveness universe" claim was FALSE (liveness covers only
+  allocatable scalars). Only `isAllocatableDef` results are marked DIRTY and
+  lazy-spilled; every non-allocatable result keeps the eager store on definition
+  exactly as today. Now the dirty set and the liveness set coincide.
+- **F2 (was fatal): the pre-op barrier stores `liveBefore[pos]`, not
+  `liveAfter[pos]`.** The barrier `ResetRegs` runs BEFORE `emitInstr`, so the op's
+  own operands (which will cache-miss and reload) must be stored first; a
+  last-use operand is absent from `liveAfter[pos]`. Use
+  `liveBefore[pos] = uses(pos) ∪ (liveAfter[pos] \ def(pos))` for the pre-op
+  barrier (block-entry uses `LiveIn[b]`, though the cache is empty there). The
+  POST-op branch/returning-call reset correctly uses `liveAfter[pos]`. The two
+  sites need DIFFERENT sets.
+- **F3 (major): the direct `EvictReg` sites must store-before-evict too.**
+  `pickScratchGP`/`pickTwoScratchGP` (x64_float.bn, OP_CAST's uint64↔double
+  lowering — retention-safe, so dirty cache flows in) call `m.EvictReg` directly
+  on candidates that include RDX/R11 (pool regs). Route them through the same
+  store-if-dirty-with-slot helper (or push the store into a wrapper). Their
+  "eviction is loss-free" doc-comments become false under lazy spill and must be
+  updated.
+- **F4 (major): the eviction store guards on `LookupSpill(id) >= 0`.** A
+  materialized alloca pointer is cached via `nextReg → AssignReg` but has an
+  AllocID, not a SpillID (`LookupSpill == -1`); storing to slot -1 corrupts the
+  frame. F1's gate excludes allocas (non-allocatable), but keep the guard anyway.
+- **F5 (major): set the DIRTY bit per call-site, not inside `AssignReg`.**
+  `nextReg → AssignReg` is shared by result-def (dirty=true), slot-reload
+  (dirty=false, clean — the slot already holds the value), and alloca-materialize
+  (clean). `AssignReg`'s REPLACE path (the mutable-variable id-reuse case, the
+  same one the AssignReg-replace fix addressed) is a fresh def → dirty=true. The
+  reload path must clear the bit after `nextReg`. Getting the replace case wrong
+  elides a redefined value's store → a later reload reads the OLD value.
+
+**Confirmed sound (no change):** `LiveOut` is indexed by f.Blocks position,
+matching the emit loop's `for bi`; `AllocateRegisters` neither retains liveness
+nor mutates `f`, so `emitFunc` recomputing `ComputeLiveness(f, 8)` is
+deterministic and cheap; homed values bypass the cache (never in IDs/Regs) so
+`spillDirtyLive` can't touch them; slots are 1:1 per id so a reloaded value is
+genuinely clean.
+
+**Build the invariant validator FIRST** (the review's recommendation): a
+debug-mode check that every slot reload (`getOperand`'s `LookupSpill` path)
+targets a slot that has been written on the emit path — executable proof of the
+invariant that catches F1/F2/F3 immediately. A per-function monotonic
+"everWritten" slot set is a cheap first cut (a slot is valid once any store
+writes it; reload asserts membership); tighten to per-path if needed.
+
 ## Risks
 
 1. **A missed store = silent miscompile** (reload reads a stale/garbage slot).
