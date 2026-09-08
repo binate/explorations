@@ -180,8 +180,10 @@ classify to GP, with the non-variadic VFP contrast) + an arm32 emit-level test
 `TestVfpVWalkerVariadicTailRidesGp` encoded the bug (asserted a fixed float32
 rides VFP) and was rewritten.  e2e/arm32-ccall-variadic-fixedfloat.sh drives a
 native arm32 `__c_call` into a gcc-arm-linux-gnueabihf AAPCS-VFP va_arg callee
-under qemu-arm — verified in a container it reads 72/1073217536 (garbage) WITHOUT
-the fix and 377/1774 WITH it.  Disassembly confirms the fixed double lands in
+under qemu-arm — a fixed double, two fixed doubles, and a fixed float32 (the
+4-byte single-GP-word case, added as a follow-up in ad193b16b); verified in a
+container it reads 72/1073217536/88 (garbage) WITHOUT the fix and 377/1774/288
+WITH it.  Disassembly confirms the fixed double lands in
 r0:r1, matching clang -mfloat-abi=hard.  Minimal adversarial review clean on all
 8 axes.
 
