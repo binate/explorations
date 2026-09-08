@@ -313,6 +313,25 @@ and `clobbers(ins)`.
   allocation can't touch (e.g. clang's vectorization of the byte/word memory loops).  Interval
   splitting / spill-cost heuristics below are likely the same story; float register allocation is
   the one untried item with a distinct mechanism (float scalars are non-allocatable today).
+- **META CORRECTION (2026-09-08, adversarial per-hot-function attribution of the native `-O2`
+  self-compile, main `9fa1a37ff`, host aarch64):** the META note above is WRONG that the remaining
+  gap is "dominated by things register allocation can't touch (clang's vectorization)." Measured:
+  clang emits ZERO compute-vector ops (no `add.4s`/`cmeq`/`uminv`) — its ~35K q-register
+  instructions are wide aggregate copies / zero-init in COLD functions, none in the hot path, so
+  vectorization is ≈ 1–2% of the gap. Excluding a ~33%-of-runtime shared floor (`rt.MemZero` is
+  byte-identical N vs L, plus malloc/dyld/kernel/irreducible dataflow), the *active* gap splits
+  **~53% aggregate-copy** and **~45% scalar spill/reload**. The aggregate-copy half — slice/struct
+  locals materialized and copied field-by-field through stack slots (308,903 mem→mem copy-pairs =
+  25.6% of N's instructions, 41.6% of them 4-word managed-slice-header copies, 94% internal locals
+  and NOT ABI-mandated) — is by design UNREACHABLE by register allocation (aggregates are
+  non-allocatable), which is exactly why the two neutral Stage-5 experiments couldn't move it; it
+  needs an IR-level **SROA + copy-propagation** pass (see the todo "Native codegen quality" entry).
+  The scalar-spill half IS register-allocator work and is still OPEN via the untried knobs
+  (spill-cost heuristics / interval splitting / more homes) — the SHELVED caller-saved-homes and
+  coalescing were the wrong knobs, not proof the allocator is tapped out (e.g. `livenessFixpoint`,
+  the #1 hot function, reloads its receiver from `[sp]` on every field access where clang holds it
+  in a register). So the biggest single lever is SROA, NOT register allocation; SIMD
+  (`plan-native-vectorization.md`) is low-value.
 - **Stage 5 (further, additive):** interval splitting (add locations to ranges),
   spill-cost heuristics (use-density × loop depth), float register file (D8–D15 callee-saved),
   reclaim x64
