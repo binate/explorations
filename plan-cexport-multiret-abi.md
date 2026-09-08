@@ -71,25 +71,46 @@ sret's, 8B `(i32,i32)` sret's on arm32.
 | `(f32,f32,f32)` 12B | arm32-hard | s0-s2 (HFA) | s0-s2 | none (alias) |
 | `(i32,i32)` 8B | arm32-hard | r0 sret | r0,r1 | sret |
 
+## A fourth divergence (x86-64 only): C-register but internal-sret
+
+Discovered while verifying native x64 via Rosetta: on x86-64 the internal
+GP-return budget (3 words) is NARROWER than what the C ABI packs into ≤2
+eightbytes.  So a tuple of >3 narrow fields ≤16 bytes — e.g. `(int32,int32,int32,
+int32)` (16B, 4 words) or `(int16 × 4)` (8B, 4 words) — is INTERNALLY sret'd but
+the C ABI returns it IN registers.  This inverts the "internal-sret ⟹ C-sret"
+assumption (which holds on aa64/arm32, whose register budgets exceed the C
+cutoff).  Handled by a fourth kind, `CRET_ADAPT_COERCE_FROM_SRET`: the entry hands
+the body a LOCAL buffer as its sret pointer, then reloads clang's coerced form
+from it.  aa64/arm32 never hit it (the classifier is target-aware).
+
+Also: the LLVM coerced-return SSE test must classify eightbytes directly
+(`tupleReturnHasSseEightbyteX64` via SysVClassify), NOT via `SysVInSse`, which
+excludes the anonymous tuple from the coerced-KIND set — else a `(f32,f32)` tuple
+gets the GP `[1 x i64]` form instead of `<2 x float>` and the 2nd float is lost.
+
 ## Work items
 
-- [x] LLVM: sret adaptation (thunk declares C sret, calls FCA def, stores into
-      buffer). Split cUseSret (C-facing) vs intUseSret (internal call) with two
-      register cursors so a divergent multi-return + aggregate param classifies
-      params against the correct cursor on x64/arm32. `emit_cexport_thunk.bn`.
-- [ ] LLVM: in-register packing coercion (reinterpret internal → clang's coerced
-      form). Extend `cExportRetNeedsAdapt` + the thunk return handling.
-- [ ] Native aa64: sret trampoline (save x8, call sym, store x0.. into [x8]) +
-      in-register repack. `aarch64_*`.
-- [ ] Native x64: sret + repack trampoline (RDI sret shifts args — arg-unshift
-      like the big-agg trampoline). `x64_*`.
-- [ ] Native arm32: sret + repack trampoline (R0 sret shifts args). `arm32_*`.
-- [ ] Tests: predicate unit tests (all targets); IR-shape unit tests; native
-      encoding unit tests; e2e C-driver reading multi-returns by struct across
-      the tuple shapes above.
+- [x] LLVM: sret adaptation + in-register packing coercion + COERCE_FROM_SRET +
+      SSE-eightbyte coerced return. `emit_cexport_thunk.bn`. Shared classifier in
+      `pkg/binate/native/common` (both backends consult it).
+      **Runtime-verified on aa64 (host) and x64 (Rosetta).**
+- [x] Native aa64: return-adapt trampoline (sret store via X8 / in-register
+      repack; stack-arg copy; narrow-reg normalize). `aarch64_cexport_retadapt.bn`.
+      **Runtime-verified (sret, coerce, HFA-alias, stack-args, float-fields).**
+- [x] Native x64: generalized trampoline (dual sret cursors + arg re-marshal +
+      sret store / coerce / coerce-from-sret; SSE + x87 return). `x64_cexport_
+      trampoline.bn`. **Runtime-verified via Rosetta (all sub-cases).**
+- [ ] Native arm32: generalized trampoline (R0 sret shift + return adapt). Needs
+      the soft/hard-float store dispatch (storeMultiReturnTupleFields{,Hard}Arm32).
+      **NOT locally runtime-testable — no qemu-arm on this host; CI/qemu only.**
+- [ ] Tests: shared-classifier unit tests (all targets — pure, no qemu); native
+      encoding unit tests; e2e C-driver across the tuple shapes (aa64/x64 local,
+      arm32 in CI).
 
 ## Testability note
 
-Host is aa64: the LLVM path, native aa64, and the predicate unit tests run here.
-Native x64 / arm32 trampolines are verified by unit tests + CI (LLVM x64/arm32
-via the e2e; native x64/arm32 via `builder-comp_native_*` conformance).
+Host is aa64.  Runtime-verified locally: LLVM aa64 + native aa64 directly; LLVM
+x64 + native x64 via Rosetta (`--target x86_64-darwin`, `arch -x86_64`).  LLVM
+arm32 codegen is inspectable (`--target arm32-linux --emit-llvm`) and correct;
+its RUNTIME (and native arm32's) is CI-only (qemu, `builder-comp_*arm32*`
+modes).
