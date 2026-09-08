@@ -63,25 +63,6 @@ it). E2e required (callback returning a multi-value tuple, C va-style driver
 reading the platform struct — mirror e2e/ffi-export.sh's multi-return
 driver). Spec Status note at abi/04 §4.2 tracks this; update it on landing.
 
-### Native capturing closure passed INTO bytecode: untagged env record → panic or silent misdispatch — 🟡 IN PROGRESS (claimed 2026-09-07), needs an owner decision (found 2026-09-04, ABI-spec recon)
-
-A native capturing closure's data word points at an UNTAGGED environment
-struct (gen_func_lit.bn: one field per capture, no kind word), but the VM's
-BC_CALL_FUNC_VALUE requires data-kind tag 1 (VM closure rec) or 2 (VM
-compiled-closure rec) — so such a value passed as a callback into interpreted
-code panics 'unsupported function-value data kind'; worse, if capture word 0
-happens to equal 1 or 2 it would be silently MISDISPATCHED as a VM record
-(real hazard, not just fail-loud). The Phase-3 done-note's claim of "a common
-kind-tag at the start of data" holds only for VM-created records. Decide:
-(a) designed boundary — spec it as "a native capturing closure is not
-dispatchable by the interpreter" and make the check fully loud (tag ALL
-native closure records or range-check the pointer); or (b) gap — tag native
-closure env structs with a kind word (ABI change to the env layout). The ABI
-spec (abi/03 §3.6) carries a Status note. Non-capturing values (data null)
-are unaffected.
-
-
-
 ### FFI C-representability follow-ons (after `__c_call` arg widening landed) — 🟢 follow-ons (2026-09-04)
 
 `__c_call` argument widening LANDED (`bfb0f5d89`): args admit any defined-ABI-
@@ -115,7 +96,7 @@ widened C-representability idea:
 - **MINOR (review):** `isCArgType` conservatively over-rejects `*[]Opaque` /
   `@[]Opaque` (the slice HEADER has a defined layout and could be admitted).
 
-### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
+### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🟡 IN PROGRESS (claimed 2026-09-08, work-2/session) MAJOR (found 2026-07-18)
 
 **Severity: MAJOR** — a recoverable user-code fault (bounds / divide / shift /
 call-through-nil / stack-overflow — Plan 2) raised inside a **re-entrant** `execFunc`

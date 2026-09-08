@@ -7,6 +7,42 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### Native capturing closure passed INTO bytecode: untagged env record → panic or silent misdispatch — DONE (2026-09-08, `41a5aa48c`)
+
+Fixed (owner chose option b/1: make native capturing closures VM-dispatchable via
+an env kind-tag, after adversarial reviews of the design AND the implementation).
+A native/LLVM capturing closure's function-value `data` pointed at a raw env
+struct (one field per capture, no kind word); the VM's BC_CALL_FUNC_VALUE reads
+`data[0]` as a kind discriminator, so a native capturing closure passed into
+interpreted code read capture-word-0 as the kind → panic ("unsupported
+function-value data kind") or, if a captured value equaled 1/2, a silent
+memory-unsafe MISDISPATCH.  Latent (no conformance mode passed a native capturing
+closure into VM code) but reachable via the existing cross-mode boundary.
+
+Fix: prepend an `int` kind field (`DATA_KIND_NATIVE_CLOSURE=3`) as field 0 of the
+closure env struct so `data` is self-describing (conforming to the Phase-3 ABI
+contract).  On kind 3 the VM dispatches through the func value's own vtable.call
+shim (reads captures from the env, runs the native body) with data = the env
+base — the same path a non-capturing native func value takes, threading the
+non-null env; never a VM frame push.  This kills both the panic and the
+misdispatch and makes native capturing closures callable from the interpreter
+(seamless cross-mode interop).  Prepending field 0 shifts every capture to env
+field i+1; new ir.Func.CaptureField{Type,Offset,Index} helpers apply the shift in
+ONE place and every capture-shape reader routes through them (all native shims
+across aarch64/x64/arm32, the codegen LLVM loads, the VM CaptureOffsets build).
+Both producers tag the env — gen_func_lit (closures) AND gen_method_value (method
+values).  The generic struct dtor is field-index-agnostic (unchanged; skips the
+non-managed kind word).
+
+Covered by e2e/xmclosure.sh (native single/two/managed-capture closures dispatched
+by the VM — panic/misdispatch pre-fix, 15/7/3 with the fix) + closure/method-value
+conformance on LLVM and native-aa64 + unit tests across ir/vm/codegen/native (all
+backends).  Two leak tests during review confirmed no leak/UAF of the env across
+the cross-mode call (native 70->70, cross-mode 8427->8427).  Plan:
+plan-native-closure-vm-tag.md.  Design/impl both cleared minimal adversarial
+reviews.  (The `3` constant is mirrored in ir as `dataKindNativeClosure` because
+pkg/binate/ir cannot import the runtime — guarded by the e2e.)
+
 ### ABI review #12: mangled-symbol alphabet unenforced for package paths — DONE (2026-09-07, commit `5e82c809d`)
 
 Fixed (loader). abi/05 §5.2. The mangler copies package-path bytes VERBATIM into

@@ -99,4 +99,7 @@ is an un-migrated site.
 ## Status
 
 - 2026-09-07: claimed; design settled (option 1) after an adversarial review of
-  (1) vs (2) vs (3).  Implementation not yet started.
+  (1) vs (2) vs (3).
+- 2026-09-08: LANDED (`41a5aa48c`).  Implementation + a second adversarial review
+  (of the implementation) both clean; e2e/xmclosure.sh + closure/method-value
+  conformance (LLVM + native-aa64) + all backends' unit tests green.
