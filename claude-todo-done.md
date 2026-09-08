@@ -7,6 +7,33 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### ABI review #12: mangled-symbol alphabet unenforced for package paths — DONE (2026-09-07, commit `5e82c809d`)
+
+Fixed (loader). abi/05 §5.2. The mangler copies package-path bytes VERBATIM into
+linker symbols (alphabet [A-Za-z0-9_]); identifiers are grammar-constrained but
+package paths (PackageClause / ImportSpec) were unvalidated. An out-of-alphabet
+byte leaked into a symbol, and a '.' additionally broke the decorated-name
+discriminator + Demangle's first-dot split — a definition and its cross-package
+reference then mangled to DIFFERENT symbols. Confirmed: an aliased
+`import x "ev.il"` produced `@bn_F1_2_ev2_2_il9___Package` referenced-but-
+undefined (obscure clang "undefined value" failure).
+
+Fix: mangle.IsValidPackagePath (a '/'-separated sequence of NON-EMPTY
+[A-Za-z0-9_] segments; the empty PATH stays valid as the 0-segment primitive-leaf
+package, empty SEGMENTS rejected so a/b vs a//b can't dual-register) enforced in
+loader.loadPackage — the single chokepoint every loaded package flows through
+(whole-program deps, --pkg targets, transitive imports), before any filesystem
+access. bnc aborts on loader errors before checking, so a hostile path yields one
+clean "invalid package path" error instead of an undefined-symbol link failure,
+and never reaches the mangler. The entry package's own clause is already
+constrained ("a program's entry package must be named main").
+
+Two adversarial reviews SOUND. Tests: mangle IsValidPackagePath (accepts
+normal/empty-path/underscore; rejects '.', space, '-', '+', high byte, NUL,
+leading/trailing/doubled/lone '/') + loader loadPackage-rejects-hostile-path.
+Follow-up (open): update ABI spec §5.2's now-stale "unvalidated / enforcement
+gap" text — tracked under Documentation hygiene in claude-todo.md.
+
 ## Inbound multi-VALUE-return `#[c_export]` C-ABI adaptation — DONE (2026-09-07, 12dde66fe)
 
 A `#[c_export]` function returning a multi-value tuple presented Binate's INTERNAL

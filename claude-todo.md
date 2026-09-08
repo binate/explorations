@@ -163,42 +163,69 @@ quote numbers from this file (they go stale):**
 ### Native codegen quality — closing the native↔LLVM gap — 🔵 OPEN
 
 The lens is **"does it close the gap?"**, not "is it hot?" — most hot buckets
-run in BOTH builds and leave the ratio unchanged. Profiles (2026-09-04, done
-log) show the gap is dominated by native round-tripping temporaries through
-the stack (~2.6× more instructions, ~3.3× more memory ops than llvm; tens of
-thousands of adjacent store-then-reload pairs). Ranked levers:
+run in BOTH builds and leave the ratio unchanged. **Verified attribution
+(2026-09-08, native `-O2` self-compile of cmd/bnc, host aarch64, main
+`9fa1a37ff`): native/llvm wall-clock ≈ 4.19×; N/L instructions 2.51×, memory
+ops 3.23×, calls 1.12×.** An adversarial per-hot-function disassembly pass split
+the *active* codegen gap (excluding a ~33%-of-runtime shared floor — `rt.MemZero`
+is byte-identical N vs L, plus malloc/dyld/kernel/irreducible dataflow) as
+**~53% aggregate-copy, ~45% scalar spill/reload, ~1–2% vectorization**. Ranked
+levers (this REPLACES the earlier ranking; see the plan-native-regalloc META
+CORRECTION 2026-09-08):
 
-1. **Register promotion (mem2reg-equivalent) — THE big lever.** Native
-   materializes ~every temp to a stack slot; llvm keeps them in registers.
-   This is why the tried register-level refinements were neutral (they tuned
-   margins while everything spills — see the done log's META note). Bigger
-   project.
-2. **Inliner threshold tuning.** The core within-package inliner is complete
-   (done log); raise `InlineSizeThreshold` (currently 15) so charsEqual-class
-   hot leaves (~45–60 IR instrs; confirmed inlined at 200) and non-leaf
-   inlining actually fire — llvm inlines these to zero instructions, and
-   inlining also unlocks promotion/retention across the merged body. Growth
-   guards exist (`InlineGrowthFloor`/`InlineGrowthFactor`). Threshold-gated
-   test debt to pay when raising: (i) a non-dtor managed-aggregate result
+1. **Aggregate scalar-replacement (SROA) + copy-propagation — THE biggest
+   lever (~53% of the gap).** Native materializes `@[]T`/struct locals in stack
+   slots and copies them field-by-field slot→slot: 308,903 mem→mem copy-pairs =
+   25.6% of N's instructions, 41.6% of them 4-word managed-slice-header copies,
+   94% internal locals (NOT ABI-mandated → SROA-addressable). mem2reg is
+   scalar-only so it never touches these; clang breaks the aggregates into
+   scalar fields (SROA) and promotes them. Build an IR-level SROA pass feeding
+   the existing mem2reg + scalar regalloc. New pass; the main event.
+2. **Register-allocation quality (scalar spill/reload) — ~45% of the gap.** The
+   landed allocator is whole-interval linear-scan, callee-saved homes only
+   (~10 regs), naive newest-interval spill, no splitting/rematerialization, so
+   values round-trip the stack under pressure where clang keeps them in
+   registers (e.g. `livenessFixpoint` reloads its receiver from `[sp]` on every
+   field access; clang holds it in a register). The two SHELVED Stage-5
+   refinements (caller-saved homes, copy coalescing) were the wrong knobs;
+   spill-cost heuristics / interval splitting / more homes are untried and
+   target this ~45% directly.
+3. **Inliner threshold tuning — gates #1 and #2 for the hot tiny functions.**
+   Raise `InlineSizeThreshold` (currently 15). The 1.12× overall call ratio
+   UNDERSTATES this: the hot leaves clang inlines away and native keeps
+   standalone — `charsEqual`, `streq`, `std.cmp.FnEq.Equal`, `LiveInterval.Start`,
+   `symHash`, `charEqAA64` (~600 profile samples combined) — pay full frames +
+   boundary aggregate-materialization + (for the `LiveInterval.Start` getter) a
+   receiver RefInc/RefDec churn standalone. Inlining removes those AND is the
+   pass-ordering prerequisite that lets SROA/regalloc help the merged bodies.
+   Growth guards exist (`InlineGrowthFloor`/`InlineGrowthFactor`). Threshold-
+   gated test debt to pay when raising: (i) a non-dtor managed-aggregate result
    live at a CALLER fault via a multi-block merge-slot callee; (ii) a managed
    multi-value live across a fault; (iii) `return f()` passthrough. The
    multi-block/managed/loop inline paths run only at -O1, which has no
    conformance lane (see the opt-level matrix item below). Possible later
    extension (not planned): inlining callees containing
    indirect/iface/c-call/handle dispatch (currently disqualifying).
-3. **SIMD string/byte compares** (`charsEqual`/`streq`/`symHash`) — needs #2
-   first; see `plan-native-vectorization.md`.
-   (Within-block retention + dead-store elimination are COMPLETE on all three
-   backends — aarch64's barrier unified to the safe-by-default allowlist in
-   `501b2d9eb`, so all three share that form; done log. Measure the payoff at
-   -O1+ now that the native -O1/-O2 startup hang is fixed, `181ff6807`.)
-4. **Smaller / speculative:** float register allocation (float scalars are
-   non-allocatable today — the one untried register refinement with a
-   distinct mechanism); spill-cost heuristic (current: naive newest-interval
-   spill); home function params (landing code correct but effectively dead —
-   a param still reloads per use); arm32 int64-in-registers; reclaim x64
-   RCX/RDX (clobber-modeled); rt.ShiftCheck cost (minor); interval splitting
-   (likely neutral per the META note).
+4. **NOT vectorization (corrects the prior "it's clang's vectorization"
+   conclusion).** clang emits ZERO compute-vector ops (no `add.4s`/`cmeq`/
+   `uminv`); its ~35K q-register instructions are wide aggregate copies /
+   zero-init in COLD functions, none in the hot path — ~1–2% of the gap. SIMD
+   byte/word compares (`plan-native-vectorization.md`) are therefore a
+   low-value lever, not the residual the regalloc plan gave up on.
+5. **Codegen defects found during the attribution (file/fix independently):**
+   `LiveInterval.Start` (a borrow getter) emits receiver RefInc/RefDec +
+   `rt.ZeroRefDestroy`; `mul rd,i,#1` (index×1) not strength-reduced; a double
+   `OP_BOUNDS_CHECK` on one access.
+6. **Smaller / speculative:** float register allocation (float scalars are
+   non-allocatable today — distinct mechanism); home function params (landing
+   code correct but effectively dead — a param still reloads per use); arm32
+   int64-in-registers; reclaim x64 RCX/RDX (clobber-modeled); rt.ShiftCheck
+   cost (minor).
+
+(Within-block retention + dead-store elimination are COMPLETE on all three
+backends — aarch64's barrier unified to the safe-by-default allowlist in
+`501b2d9eb`; done log. The native -O1/-O2 startup hang that blocked -O1+
+measurement is fixed, `181ff6807`.)
 
 ### IR optimization passes (help LLVM + native backends + the VM) — 🟡 OPEN
 
@@ -378,15 +405,6 @@ argument crosses at its own width and the C callee's va_arg mis-reads it
 no-promotions + programmer-pre-promotes (abi/02 §2.8). Decide the durable
 contract: checker rejects unpromoted variadic tail types (loud), or IR-gen
 promotes them (convenient, matches C compilers). Then implement + test.
-
-### ABI review #12: mangled-symbol alphabet unenforced for package paths — 🟠 IN PROGRESS 🟢 minor (2026-09-04; claimed 2026-09-07)
-
-Status note: abi/05 §5.2. The mangler copies package-path bytes verbatim and
-nothing validates them (PackageClause takes any string literal): an
-out-of-alphabet byte violates the [A-Za-z0-9_] symbol guarantee, and a '.'
-would break the decorated-name discriminator and Demangle's first-dot split.
-Add loader/checker validation of package-path segments (charset + no '.');
-test with a hostile path.
 
 ### Code comments reference only normative docs + TODOs; rehome the implementation "specs" — 🟡 OPEN
 
