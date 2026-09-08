@@ -120,6 +120,46 @@ test: a compiled/native higher-order fn calling a VM callback that indexes OOB, 
 the program aborts (not returns 0). Tracked against Plan 2
 (`explorations/done/plan-rt-fault-cleanup-pads.md`).
 
+**STATUS (2026-09-08, work-2 `0b0926498`, reviewed, pending landing):** fixed by
+"bail the outer execLoop". New `callFaultPending(vm)` = `FaultRaised || (Status ==
+FAULTED && CleanupDepth == 0)`; the outer `execLoop`'s three call-dispatch arms
+(`execExternCall` — had NO check before — plus `BC_CALL_FUNC_VALUE` /
+`BC_CALL_IFACE_METHOD`) now dispatch the call op's cleanup pad on a swallowed
+re-entrant fault. `CleanupDepth == 0` gate is load-bearing: `Status` stays FAULTED
+through a whole unwind, so an unguarded check re-fires when a pad's RefDec dispatches
+a pad-less `_call_dtor` (→ vmPanic). The trampolines are deliberately NOT made
+fatal (they double as `CallIfaceMethod`'s host-recovery path). Test:
+`TestReentrantExecFuncFaultPropagates` (pkg/binate/vm). Adversarial review surfaced
+the pad-less-synthetic-call gap below.
+
+### Deferred / method-value-wrapper call ops have NO fault pad — 🔴 OPEN MAJOR (found 2026-09-08)
+
+**Severity: MAJOR (narrow reach).** Deferred calls (`ir/gen_defer_exit.bn`
+`emitDeferRun`: `EmitCall` / `EmitCallFuncValue` / `EmitCallIfaceMethod`) and
+method-value wrapper calls (`ir/gen_method_value.bn` ~428/431/449) are emitted
+WITHOUT `attachFaultPad`, unlike every ordinary call (`gen_call.bn` tags each with a
+call-site pad). So the op has no `FaultTable` entry. When a recoverable fault reaches
+such an op, `dispatchFaultPad` finds no pad and `vmPanic`s
+("recoverable fault with no cleanup pad (lowering bug)") instead of unwinding.
+
+**Reach:** only when the pad-less op is one the VM re-dispatches on a fault — i.e. a
+DEFERRED (or method-value-wrapper) call routed through the extern / func-value /
+iface arm whose callee **re-enters a VM callback that faults**, or a **fresh** fault
+at such an op (e.g. a deferred nil-func-value call). A deferred DIRECT call to a
+plain VM function that faults recovers fine (its callee unwinds via
+`BC_UNWIND_RETURN`, which pops a pad-less frame transparently) — verified. Pre-
+existing: the func-value/iface arms already `vmPanic`ed here on a fresh fault; the
+re-entrant-swallow fix (`0b0926498`) extends the same loud (correctly-labelled)
+`vmPanic` to the extern arm and the swallowed-fault path — an improvement over the
+prior SILENT swallow, but the underlying gap remains.
+
+**Fix direction:** attach a cleanup pad to deferred / method-value-wrapper calls too.
+NON-TRIVIAL: deferred calls run interleaved with the return's own managed-local
+cleanup, so the pad's live-managed set must be computed correctly for the defer-exit
+program point (naively reusing the whole-function live set risks a double-RefDec
+against the return cleanup). Needs a repro test (cross-mode deferred re-entrant
+fault, or a deferred nil-func-value call) marked xfail until fixed.
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
