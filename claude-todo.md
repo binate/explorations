@@ -61,7 +61,7 @@ The work (ir/gen_init.bn + the cmd/bnc program/library drivers):
   spec/17 §17.3.2 Status notes the divergence) — clear both Status notes on
   landing.
 
-### FFI C-representability follow-ons (after `__c_call` arg widening landed) — 🟢 follow-ons (2026-09-04)
+### FFI C-representability follow-ons (after `__c_call` arg widening landed) — 🟡 IN PROGRESS (claimed 2026-09-08, work-3/session) follow-ons (2026-09-04)
 
 `__c_call` argument widening LANDED (`bfb0f5d89`): args admit any defined-ABI-
 layout type (struct by value, raw/managed slice, managed ptr, interface/func
