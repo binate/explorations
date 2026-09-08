@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### Emit `bn_init` in every artifact; `bn_entry` = `bn_init(); main.main()` — 🔴 OPEN MAJOR, DECIDED — awaiting assignment (2026-09-08; ABI review #9)
+### Emit `bn_init` in every artifact; `bn_entry` = `bn_init(); main.main()` — 🟡 IN PROGRESS (claimed 2026-09-07, temp-6/work-6), DECIDED (2026-09-08; ABI review #9)
 
 **Owner decision (2026-09-08): option (b)** — make the realization match
 `prog.entry.glue` as written ("simpler to understand and consistent"), rather
