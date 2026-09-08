@@ -335,7 +335,7 @@ no-promotions + programmer-pre-promotes (abi/02 §2.8). Decide the durable
 contract: checker rejects unpromoted variadic tail types (loud), or IR-gen
 promotes them (convenient, matches C compilers). Then implement + test.
 
-### ABI review #12: mangled-symbol alphabet unenforced for package paths — 🟢 minor (2026-09-04)
+### ABI review #12: mangled-symbol alphabet unenforced for package paths — 🟠 IN PROGRESS 🟢 minor (2026-09-04; claimed 2026-09-07)
 
 Status note: abi/05 §5.2. The mangler copies package-path bytes verbatim and
 nothing validates them (PackageClause takes any string literal): an
