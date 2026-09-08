@@ -63,23 +63,6 @@ it). E2e required (callback returning a multi-value tuple, C va-style driver
 reading the platform struct — mirror e2e/ffi-export.sh's multi-return
 driver). Spec Status note at abi/04 §4.2 tracks this; update it on landing.
 
-### Reserved-namespace gap: synthesized `_pkg*` globals collide with legal user names — 🟡 IN PROGRESS (claimed 2026-09-07, work-2), 🔴 latent MAJOR (found 2026-09-04, ABI-spec recon)
-
-**Severity: MAJOR (latent)** — silent symbol collision. The checker reserves
-only `__`-prefixed identifiers and `__bn_inst__` (mangle.IsReservedIdentifier;
-single-underscore names deliberately allowed on the stated ground that all
-synthesized names are `__`-namespaced), but the per-package descriptor
-emitters synthesize SINGLE-underscore globals through the ordinary bn_G
-namespace: `_pkgname`, `_pkg_info`, `_pkg_funcs`, `_pkg_globals`,
-`_pkg_vtables`, `_pkg_satentries`, `_pkg_satfrag` (codegen
-emit_pkg_descriptor.bn / emit_satfrag_pin.bn; native *_pkg_descriptor.bn). A
-user `var _pkg_info ...` at package level passes the checker and mangles to
-the identical symbol (`_pkg_satfrag` is even strong — duplicate-symbol
-error at best, silent shadowing at worst). Proposed fix: either rename the
-synthesized family into `__` (ABI-visible rename) or extend the reserved
-check to the `_pkg` prefix at package scope. Needs a test either way. The ABI
-spec (abi/05 §5.4) carries a Status note flagging this.
-
 ### Native capturing closure passed INTO bytecode: untagged env record → panic or silent misdispatch — 🟡 IN PROGRESS (claimed 2026-09-07), needs an owner decision (found 2026-09-04, ABI-spec recon)
 
 A native capturing closure's data word points at an UNTAGGED environment

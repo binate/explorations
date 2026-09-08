@@ -168,6 +168,37 @@ pointer-keyed dbgTypeID cache was a net LOSS — single test −34% but aggregat
 (2026-06-10, unprofiled).
 
 
+
+### Reserved-namespace gap: synthesized `_pkg*` globals collided with legal user names — DONE (2026-09-07, `7b553761e`; spec `docs`)
+
+Fixed a latent MAJOR silent symbol collision (found 2026-09-04, ABI-spec recon).
+The per-package descriptor emitters synthesized SINGLE-underscore globals
+(`_pkgname`, `_pkg_info`, `_pkg_funcs`, `_pkg_globals`, `_pkg_vtables`,
+`_pkg_satentries`, `_pkg_satfrag`) through the ordinary `bn_G` namespace, but the
+checker reserves only `__`-prefixed identifiers — so a user package-level `var
+_pkg_info ...` mangled (via the same `mangle.GlobalName`) to the IDENTICAL symbol:
+a silent duplicate-symbol miscompile (`_pkg_satfrag` strong -> hard link error;
+others shadow).  This violated abi/05 §5.4 ("every synthesized name lives in the
+`__` namespace").
+
+Fix (chose the rename, not a new reserved prefix): renamed the whole family
+single-underscore -> double-underscore (`__pkgname`, `__pkg_info`, ...) at every
+producer + consumer across all four codegen paths (LLVM codegen, VM lowerer,
+native x64/aarch64/arm32 via native/common) + ir satregistry, plus a
+boundary-aware comment/doc sweep (source FILE names like `data_pkg_*.bn` left
+intact).  `IsReservedIdentifier` already covers `__`, so no checker change and no
+user restriction — single-underscore user names (incl. `_pkg*`) are now genuinely
+collision-free, as the code comments already claimed.  ABI-internal + per-build
+symbols, so the rename is self-consistent.
+
+conformance/1258_reserved_pkg_global_names declares user `_pkgname`/`_pkg_info`/.../
+`_pkg_satfrag` package globals (collided pre-fix) and prints their sum -> 7654321;
+passes on LLVM + native.  `--emit-llvm` confirms user `_pkg_info` (len-9) and
+synth `__pkg_info` (len-10) are now distinct.  All changed packages' unit tests
+green (codegen 329 / ir 788 / vm 360 / native common 252 / x64 286 / aa64 186 /
+arm32 370); hygiene 20/20; adversarial review clean (full producer<->consumer
+satregistry-graph audit).  Spec abi/05 §5.4 updated (gap note removed; `__pkg*`
+listed among the synthesized `__` names).
 ### Inbound `#[c_export]` narrow PARAM under-declares signext/zeroext (LLVM) — DONE / partial-by-design (`0eb059a8f`, 2026-09-07)
 
 ABI-declaration parity, not a miscompile. An LLVM `#[c_export]` narrow scalar
