@@ -5,28 +5,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ---
 
-## CRITICAL
-
-### `--backend native` programs HANG at startup when built at `-O1`/`-O2` — 🟠 IN PROGRESS CRITICAL (found 2026-09-07, adversarial review of aarch64 DSE; upgraded MAJOR→CRITICAL + claimed 2026-09-07)
-
-**Severity: CRITICAL** (upgraded from MAJOR — the native backends are P0, so a
-backend that is unusable above `-O0` is a critical defect, not a major one) —
-the native backend is unusable at any optimization level above `-O0`.  A trivial `func main() { __c_call("exit", "void", cast(int32, 42)) }`
-compiled with `--backend native -O1` (or `-O2`) hangs at startup; `sample` shows
-the spin in `captureEnv` (`pkg/builtins/startup`), which under `--backend native`
-is **LLVM-compiled** (only the main package is native; deps go through LLVM) and
-runs BEFORE any native code.  The all-LLVM `-O1` build of the same source runs
-fine, so it is specific to the `--backend native` + `-O1` combination (something
-in how the native driver builds/links the LLVM-compiled deps at `-O1`).  NOT
-caused by dead-store elimination (that only touches `pkg/binate/native/*`, and it
-reproduces before any native code runs) — it is pre-existing and was surfaced
-incidentally.  **Impact:** native is only ever *run* at `-O0` today (conformance,
-self-host), so this has been invisible; but it means the within-block retention /
-dead-store-elimination work's intended `-O1+` payoff (mem2reg, long-lived SSA
-values) cannot be measured or shipped until it is fixed.  Root cause unknown —
-needs investigation (start: diff the `-O0` vs `-O1` native-driver build/link of
-`pkg/builtins/startup`, and bisect the `-O1` opt passes).
-
 ## MAJOR
 
 ### native arm32 hard-float variadic `__c_call`: FIXED float args before `...` wrongly ride VFP — 🟡 IN PROGRESS (claimed 2026-09-07), 🔴 MAJOR (found 2026-09-06, ABI review #6 adversarial review)

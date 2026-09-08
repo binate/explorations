@@ -7,6 +7,44 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### `--backend native` programs HANG at startup at `-O1`/`-O2` — CRITICAL native miscompile — DONE (2026-09-07, commit `181ff6807`)
+
+Fixed (native aarch64 backend).  A `--backend native` program built at -O1/-O2
+hung at startup.  The todo's diagnosis was WRONG: it hypothesized an LLVM-
+compiled dep and "not native / not DSE".  Disassembly of the hang showed the
+opposite — under `--backend native` the startup deps ARE native-compiled, and
+the spin was a **native-backend aarch64 -O1 miscompile**.
+
+Root cause: the aarch64 lazy-spill dead-store elimination emitted a block's
+LIVE-OUT spill in the POST-op barrier, AFTER emitInstr had already emitted the
+block's terminator branch.  For an unconditional back-edge (OP_JUMP) that store
+is unreachable; for a conditional OP_BRANCH it is dead on the taken path.  So a
+loop-carried value updated in the body (a counter's `i = i + 1`) never reached
+its spill slot, and the loop header — a fresh block that reloads cross-block
+values from their slots — reloaded the stale value forever (infinite loop).
+`pkg/builtins/startup.captureEnv`'s environment scan is exactly this loop shape
+and runs before main, so EVERY native -O1/-O2 program hung.  Invisible until now
+because conformance runs native only at -O0 (locals stay in memory → the store
+was already eager and correctly placed).
+
+Fix: before emitting an OP_JUMP / OP_BRANCH terminator, spill the block's
+live-out dirties (aarch64_emit_func.bn).  spillDirtyLive marks values clean
+without evicting, so an OP_BRANCH's condition operand stays cached for emitInstr;
+the post-op ResetRegs still drops the cache after.  x64 and arm32 were already
+protected — their pre-op gate is an ALLOWLIST (retentionSafe / arm32Retention-
+Safe: arithmetic/load/store only), so branches fall through to the pre-op spill
+BEFORE the branch; aarch64's DENYLIST pre-op gate excluded branches, which was
+the gap.  (A separate "aarch64-unify" follow-up that switches aarch64 to the
+allowlist form would structurally subsume this targeted branch-spill.)
+
+Verification: adversarial review SOUND (no counterexample across OP_BRANCH
+condition-liveness, terminator completeness, double-spill ordering, x64/arm32
+safety, -O0 regression); full native-aa64 conformance 3021/0/9; native
+aarch64+common unit tests green.  Regression pin: `e2e/native-opt-loop.sh` builds
+an explicit-loop program at native -O1/-O2 (+ LLVM -O1 and native -O0 controls)
+and fails on a hang — verified it hangs (rc 142) on the pre-fix compiler and
+prints 4950 after.
+
 ### ABI review #3: native arm32 dispatch-seam encoding diverged from LLVM/VM — DONE (Phase A `c3caaef29` 2026-09-06, Phase B `578989411` 2026-09-07)
 
 The native arm32 func-value/iface/closure/cross-mode dispatch seam ran args
