@@ -94,6 +94,18 @@ widened C-representability idea:
   operand is a declared non-generic top-level function; it never validates the
   callback's param/return types are C-representable.  Share the widened predicate
   across `__c_entry`, `__c_global`, and `#[c_export]` signature checking.
+- **MINOR (review, pre-existing): `__c_entry` of a target with a >16-byte
+  by-value aggregate PARAMETER gets no adaptation thunk** — `#[c_export]` adapts
+  such a param (x86-64 `ptr byval` / arm32 by-value coerced vs the internal single
+  pointer; `cExportNeedsThunk`/`cExportNeedsTrampoline*` include the byval check),
+  but the `__c_entry` thunk decision keys only on narrow-register args + return
+  adaptation (native `collectCEntryThunkTargets`; LLVM `cEntryLLVMNeedsThunk` =
+  return-only `cExportRetNeedsAdapt`), so a C caller passing such a struct by value
+  through the callback pointer is mis-ABI'd (reads the internal pointer convention).
+  Surfaced by the multi-return `__c_entry` adversarial review; the multi-return fix
+  did not touch it.  Fold the byval-param check into the `__c_entry` thunk decision
+  (reuse the `#[c_export]` param-adaptation path) alongside the signature-validation
+  item above.
 - **Aggregate RETURN types (sret) for `__c_call`** — returns are still restricted
   to scalar/pointer/"void"; struct/aggregate returns unsupported.
 - **`__c_global` aggregate types** — still scalar/pointer only.
