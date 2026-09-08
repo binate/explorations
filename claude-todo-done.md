@@ -41,6 +41,28 @@ Does NOT cover the separately-tracked, pre-existing arm32 LARGE (both-sret)
 multi-return def bug (partial sret-buffer write, both backends) — that stays in
 the active todo (assigned temp-5), to be investigated next.
 
+## arm32 large multi-return `#[c_export]` "bug" — RETRACTED, NOT A COMPILER BUG (2026-09-07)
+
+While runtime-testing the multi-value-return `#[c_export]` fix on arm32 (Docker
+arm32v7 + qemu), a LARGE both-sret tuple (e.g. `(int64,int64,int64)` = 24B)
+appeared miscompiled at the C boundary — a crash, or reading `111 0 222` instead
+of `111 222 333`.  I filed it as a likely-CRITICAL pre-existing bug.  It is NOT a
+bug — the fault was the C test DRIVER, not the compiler.  On ILP32 (arm32) C
+`long` is 4 bytes, but Binate `int64` is 8 bytes (== C `long long`); the driver
+declared `struct { long a,b,c; }` (12 bytes) for a `(int64,int64,int64)` return
+(24 bytes), so it UNDER-SIZED the sret buffer (the callee's 24-byte write
+overflowed the caller's 12-byte buffer → crash) AND read the fields at 4-byte
+stride (0,4,8) instead of 8 (0,8,16) → `111 0 222`.  The COMPILER is correct: the
+internal (Binate→Binate) path returns 121 (all three fields right), the def
+disassembles to correct stride-8 stores, and a driver using `long long` returns
+`111 222 333` / `1 5 9` on BOTH native and LLVM arm32.  No compiler change.
+
+Lesson: a C driver crossing the Binate boundary on arm32 (ILP32) must map
+`int64`→`long long`, NOT `long` (which is 4 bytes there).  `int`→`int`,
+`int16`→`short`, `int8`→`signed char` are fine.  On LP64 hosts (aa64/x64) `long`
+happens to be 8 bytes so the same driver works there — which is why the e2e
+(aa64/x64 hosts) and my aa64/x64 Rosetta drivers were unaffected.
+
 ## Perf-todo consolidation — histories archived from claude-todo.md (2026-09-07)
 
 The sprawling perf sections were unified into one `## Performance` umbrella in

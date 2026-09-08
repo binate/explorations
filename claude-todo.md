@@ -7,38 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### arm32 large (>16-byte) multi-value-return sret buffer partially written / corrupted — 🟠 ASSIGNED (temp-5, 2026-09-07), 🔴 likely CRITICAL (found 2026-09-07)
-
-**Severity: likely CRITICAL** (pending internal-call confirmation). A multi-value
-return whose tuple exceeds the arm32 register budget so BOTH the C ABI and the
-internal convention return it via an sret buffer — e.g. `(int64,int64,int64)`
-(24B, 6 GP words) or `(int64 × 9)` (72B) — is miscompiled on arm32: the sret
-buffer is only PARTIALLY written and the result is non-deterministic (crash /
-wrong data). Reproduces on BOTH backends (native arm32 AND LLVM arm32).
-
-Discovered while runtime-testing the `#[c_export]` multi-return divergence fix on
-arm32 (via Docker `arm32v7/debian` + qemu, armhf hard-float). These large tuples
-go through the plain `#[c_export]` ALIAS (no trampoline — C and internal agree
-it's sret), so the divergence fix does NOT touch them; the fault is in the DEF's
-own sret-multi-return write. Evidence: a C driver fills a 32-byte buffer with
-`0xAA`, calls `t3i()` returning `(111,222,333)`; result bytes are
-`[0]=111 [4]=0 [8]=222 [12+]=0xAA` — i.e. only ~12 of 24 bytes written, tail
-untouched — and a different driver instead crashes / prints `111 0 222`. The
-mangled def's DISASSEMBLY writes all six words at the correct offsets (0,8,16),
-so the disasm and runtime DISAGREE — root cause unknown (relocation/veneer,
-interworking, or a codegen/layout bug). The `#[c_export]` SRET-adapt TRAMPOLINE
-writes the buffer CORRECTLY (via `storeMultiReturnTupleFieldsShimArm32`), so the
-fault is specifically the def's sret-multi-return emission — which internal
-(Binate→Binate) callers of a >16-byte multi-return use too, so this is LIKELY
-GENERAL (not c_export-only). aa64 and x64 are unaffected (a 24B / 72B tuple
-round-trips correctly there). NOT confirmed for the internal-call path — a full
-arm32-linux executable won't cross-link on the macOS host; confirm via the
-`builder-comp_native_arm32_baremetal` / `builder-comp_arm32_linux` conformance
-(CI/qemu) or a Docker-linked full program. If internal calls ARE affected, arm32
-conformance is not covering large (>4-GP-word) multi-returns — add coverage.
-Next: reproduce internally, disasm-vs-runtime diff the def to find the miscompile
-site (per the "Debug Miscompiles by Disassembling" protocol), root-cause, fix.
-
 ### Reserved-namespace gap: synthesized `_pkg*` globals collide with legal user names — 🟡 IN PROGRESS (claimed 2026-09-07, work-2), 🔴 latent MAJOR (found 2026-09-04, ABI-spec recon)
 
 **Severity: MAJOR (latent)** — silent symbol collision. The checker reserves
