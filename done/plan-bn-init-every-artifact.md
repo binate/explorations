@@ -1,7 +1,7 @@
 # Plan: emit `bn_init` in every artifact; `bn_entry` = `bn_init(); main.main()`
 
-Status: IMPLEMENTED + VERIFIED on work-6 (`e6a94a9fe`), awaiting landing
-approval. Tracks the `claude-todo.md` entry "Emit `bn_init` in every artifact"
+Status: COMPLETE — landed `e6abbd234` (2026-09-08); docs Status notes cleared
+`1fc94b6`. Was the `claude-todo.md` entry "Emit `bn_init` in every artifact"
 (ABI review #9, owner decision option (b), 2026-09-08).
 
 ## Verification (all green)

@@ -7,6 +7,31 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### Emit `bn_init` in every artifact; `bn_entry` = `bn_init(); main.main()` — DONE (2026-09-08, `e6abbd234`)
+
+`bn_init` (the reserved well-known init symbol) is now emitted in EVERY compiled
+artifact, not just `--library` builds, and a program's `bn_entry` is literally
+`bn_init(); main.main()` (spec abi/06 §6.7 / spec/17 §17.3.2 — both Status
+divergence notes cleared in docs `1fc94b6`). A C host can now call `bn_init`
+against a program-shaped link instead of hitting an undefined symbol.
+
+- `EmitLibInit` → `EmitBnInit` (emitted for programs AND libraries); new
+  `EmitBnEntry` (`__entry` = `bn_init(); main.main()`). Deleted
+  `EmitSatRegistryWiring` + `rotateLastInstrsToFront` — the registry fill lives in
+  `bn_init` now, before the inits by construction; `emitBuildSatRegistryCall` has
+  one caller. Mangle `isLibInitFuncName` → `isBnInitFuncName`.
+- The INTERP path is unchanged: it keeps `__init_all` / `EmitMainEntry` and
+  builds its satisfaction registry host-side (it can't emit `bn_init`, which
+  emits a `rt.BuildSatRegistry` call the interp doesn't lower).
+- Tests: gen_init unit (`TestEmitBnEntry`, `TestProgramEmitsBnInitAndBnEntry`,
+  `TestEmitBnInit*`), codegen `emit_bninit_test.bn`, e2e `program-bn-init.sh` (a C
+  host calls `bn_init` + exports on a program archive with no main run → `42 1`).
+- Verified: full conformance LLVM 3021/0, native-aa64 3021/0,
+  native-arm32-baremetal 2976/0, native-arm32-linux (hard-float) 3021/0; hygiene
+  20/20; adversarial review clean. Landed `e6abbd234`, rebased over the concurrent
+  `__pkg_satfrag` `__`-namespace rename (`7b553761e`). Plan:
+  [done/plan-bn-init-every-artifact.md](done/plan-bn-init-every-artifact.md).
+
 ### `__c_entry` of a multi-result function bypasses the multi-return C-ABI adaptation — DONE (2026-09-08, `0a4926b14`)
 
 Fixed (owner chose option (a): extend the `#[c_export]` multi-value-return C-ABI

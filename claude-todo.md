@@ -33,34 +33,6 @@ same value into the same slot must emit distinct `.ssN_v` names. (May also be
 reachable WITHOUT inlining — any IR with two identical-(dst,src) stores — so it
 is a real LLVM-backend defect, not merely an inliner artifact.)
 
-### Emit `bn_init` in every artifact; `bn_entry` = `bn_init(); main.main()` — 🟡 IN PROGRESS (claimed 2026-09-07, temp-6/work-6), DECIDED (2026-09-08; ABI review #9)
-
-**Owner decision (2026-09-08): option (b)** — make the realization match
-`prog.entry.glue` as written ("simpler to understand and consistent"), rather
-than rewording the spec. Today `bn_init` is emitted only in `--library`
-builds ("an ordinary program never gets a bn_init", ir/gen_init.bn) and a
-program's `bn_entry` calls the internal `<main>.__init_all` dispatcher
-directly — so a C host following the spec and calling `bn_init` against a
-program-shaped link gets an undefined symbol.
-
-The work (ir/gen_init.bn + the cmd/bnc program/library drivers):
-- Emit `bn_init` in EVERY artifact (EmitLibInit's shape: run-once guard →
-  satisfaction-registry build from the build root's `_pkg_satfrag` →
-  dependency-order inits), build root = `main` for a program.
-- `bn_entry` becomes literally `bn_init(); main.main()` — dropping its own
-  registry + `__init_all` wiring and collapsing the two emission paths
-  (emitBuildSatRegistryCall gets one caller).
-- The run-once guard makes `bn_init` + `bn_entry` (or re-entry) compose
-  safely for hosts — test that composition explicitly.
-- Tests: gen_init unit (program emits both symbols; bn_entry calls bn_init);
-  e2e — a program-shaped link whose C host calls `bn_init` only, then an
-  exported function, without running main (library-iface-assert.sh keeps the
-  library leg); baremetal `bl bn_entry` stays covered by the arm32
-  conformance modes.
-- Spec is already aligned (docs e28b6fb: abi/06 §6.7 states the contract;
-  spec/17 §17.3.2 Status notes the divergence) — clear both Status notes on
-  landing.
-
 ### FFI C-representability follow-ons (after `__c_call` arg widening landed) — 🟡 IN PROGRESS (claimed 2026-09-08, work-3/session) follow-ons (2026-09-04)
 
 `__c_call` argument widening LANDED (`bfb0f5d89`): args admit any defined-ABI-
