@@ -7,6 +7,23 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### Native backend miscompiles at aggressive inlining (SEGV self-compiling) — blocks the inliner-threshold lever on native — 🟡 OPEN (found 2026-09-08, work-1)
+
+**Severity: MAJOR (latent miscompile).** Raising `InlineSizeThreshold` 15→200
+to pursue the inliner perf lever produces a `--backend native -O2` bnc that SEGVs
+when self-compiling cmd/bnc; at the default threshold 15 native is fine, and the
+LLVM (`-O2`) bnc built from the SAME source runs fine — so it is a native-backend
+miscompile exposed specifically by aggressive inlining, DISTINCT from the LLVM
+duplicate-value-name bug (that one is fixed, `663d59500` pending land). Root cause
+UNKNOWN — likely the native backend mishandling an IR shape the higher threshold
+exposes (inliner-cloned refcount-cleanup pads, multi-block/managed/merge-slot
+inline paths), which have NO -O1 conformance lane so nothing exercises them. This
+blocks the inliner-threshold lever on native: the lever can't be measured/landed
+until BOTH backends survive a raised threshold. Next: bisect the threshold to the
+smallest value that triggers the SEGV, then disassemble the crashing native bnc
+against a working one (per the "Debug Miscompiles by Disassembling" protocol) to
+find the miscompile site.
+
 ### LLVM backend emits DUPLICATE local value names for two OP_STOREs sharing (dst,src) — clang rejects; blocks higher inliner thresholds — 🟡 IN PROGRESS (claimed 2026-09-08, work-1)
 
 **Severity: MAJOR (latent; fail-loud).** `codegen/emit_copy_ssa.bn`'s
