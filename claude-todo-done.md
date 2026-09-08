@@ -63,6 +63,20 @@ Lesson: a C driver crossing the Binate boundary on arm32 (ILP32) must map
 happens to be 8 bytes so the same driver works there — which is why the e2e
 (aa64/x64 hosts) and my aa64/x64 Rosetta drivers were unaffected.
 
+## ABI review #8: `pkg.cexport.signature` multi-return row — DONE (2026-09-08, docs 259ece2)
+
+Resolved by the implementation converging on the row's claim: the inbound
+multi-return C-ABI adaptation (`12dde66fe`) makes a multi-result export
+genuinely present the platform struct-return ABI, so 16b's row needed only
+sharpening ("a struct with the result fields, returned per the platform C
+ABI"), not restriction. The ABI spec was updated to the adaptation reality
+(abi/04 §4.2 rewritten — adaptation cases + the mangled-def/internal-callers
+unaffected rule; §4.4 rewritten around the adapting-entry model; abi/02 §2.7
+Note scoped to the INTERNAL form), folded into the stale-Status sweep for the
+seven fixed review gaps (docs 259ece2). Residual split out as its own MAJOR:
+`__c_entry` of a multi-result function bypasses the adaptation (decided fix
+(a) — extend the `__centry.` thunk; active todo).
+
 ## Perf-todo consolidation — histories archived from claude-todo.md (2026-09-07)
 
 The sprawling perf sections were unified into one `## Performance` umbrella in

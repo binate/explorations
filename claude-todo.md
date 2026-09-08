@@ -7,22 +7,33 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### `__c_entry` of a multi-result function bypasses the multi-return C-ABI adaptation — 🔴 OPEN (found 2026-09-08, ABI review #8 follow-through)
+### `__c_entry` of a multi-result function bypasses the multi-return C-ABI adaptation — 🔴 OPEN MAJOR, DECIDED: fix (a) — awaiting assignment (2026-09-08)
 
-The inbound multi-return adaptation (`12dde66fe`) is wired to `#[c_export]`
-NAMES only (LLVM emit_cexport_thunk.bn; native *_cexport_trampoline.bn /
-aarch64_cexport_retadapt.bn via common.CExportMultiReturnAdaptKind). A
-`__c_entry(f)` where f returns a multi-value tuple still yields the UNADAPTED
-entry (LLVM: the mangled def; native: at most the narrow-arg `__centry.`
-thunk), and checkCEntry (check_c_interop.bn) does not restrict result shapes —
-so a C caller invoking the callback reads the internal multi-return
-convention: the exact mis-ABI class 12dde66fe fixed for exports, reachable
-through the callback pointer. Fix options (owner's call): (a) extend the
-adaptation to `__c_entry` targets — the `__centry.` thunk grows the same
-return adaptation the export thunk has (then pkg.centry.identity wants the
-export and centry paths to agree on the pointer, cf. ABI review #10); or
-(b) checkCEntry rejects multi-result targets (cheap, loud; folds into the
-open "__c_entry signature validation" follow-on). Needs an e2e either way.
+**Owner decision (2026-09-08): option (a) — extend the adaptation to
+`__c_entry` targets.** The inbound multi-return adaptation (`12dde66fe`) is
+wired to `#[c_export]` NAMES only (LLVM emit_cexport_thunk.bn; native
+*_cexport_trampoline.bn / aarch64_cexport_retadapt.bn via
+common.CExportMultiReturnAdaptKind). A `__c_entry(f)` where f returns a
+multi-value tuple yields the UNADAPTED entry (LLVM: the mangled def; native:
+at most the narrow-arg `__centry.` thunk), and checkCEntry does not restrict
+result shapes — so a C caller invoking the callback reads the internal
+multi-return convention: the exact mis-ABI class 12dde66fe fixed for exports,
+reachable through the callback pointer.
+
+The work: grow the `__c_entry` path (LLVM OP_C_ENTRY lowering; native
+`__centry.` thunk emission in common_c_entry.bn + per-arch emitters) the same
+return adaptation the export entries have, reusing
+common.CExportMultiReturnAdaptKind and the existing thunk/trampoline
+machinery. Mind the interactions: (1) `pkg.centry.identity` — every
+evaluation of `__c_entry(f)` must still yield one program-wide pointer (the
+weak `__centry.` coalescing handles this; the thunk-needed predicate must now
+include multi-result, not just narrow-GP-params); (2) ABI review #10 (LLVM
+vs native `__c_entry` values differ cross-producer) — extending the LLVM side
+from a plain GEP to a thunk is a chance to converge on the weak-thunk name on
+both backends, resolving #10 in the same stroke (or at least not worsening
+it). E2e required (callback returning a multi-value tuple, C va-style driver
+reading the platform struct — mirror e2e/ffi-export.sh's multi-return
+driver). Spec Status note at abi/04 §4.2 tracks this; update it on landing.
 
 ### Reserved-namespace gap: synthesized `_pkg*` globals collide with legal user names — 🟡 IN PROGRESS (claimed 2026-09-07, work-2), 🔴 latent MAJOR (found 2026-09-04, ABI-spec recon)
 
@@ -311,17 +322,6 @@ coalescing-vs-TU-local symbol split), 16b status staleness fixed (ad91a26).
 Implementation gaps found by the review are raised under MAJOR as the
 "ABI review #1–#7" entries; the review's owner-decision items are the
 "ABI review #8–#12" entries below.
-
-### ABI review #8: `pkg.cexport.signature` multi-return row — language-spec correction to ratify — 🟡 (2026-09-04)
-
-16b's `pkg.cexport.signature` still claims a packed-struct/sret C form for a
-multi-result export; the review showed multi-results are not C-ABI-replicable
-(the in-register form is not the platform composite rule, and the sret
-trigger is the internal register-count rule, not C's size rule — they
-coincide only incidentally). abi/04 §4.2 carries the corrected statement +
-Status note. Ratify the 16b correction (restrict the row / mark multi-return
-export unsupported), and decide whether the export validator (see the FFI
-C-representability follow-ons entry) should reject multi-result exports.
 
 ### ABI review #9: `prog.entry.glue` vs realization — reconcile spec/17 with the implementation — 🟡 (2026-09-04)
 
