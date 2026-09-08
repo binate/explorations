@@ -63,7 +63,7 @@ function; or a native-caller emit/walker unit test asserting a fixed float in a
 variadic call lands in GP. Needs an owner decision on whether to fix now or
 schedule.
 
-### Inbound `#[c_export]` narrow PARAM under-declares signext/zeroext (LLVM) — 🟢 LOW / not-a-miscompile (found 2026-09-06, ABI review #5 adversarial review)
+### Inbound `#[c_export]` narrow PARAM under-declares signext/zeroext (LLVM) — 🟡 IN PROGRESS (work-6, 2026-09-07); LOW / not-a-miscompile (found 2026-09-06, ABI review #5 adversarial review)
 
 Cosmetic/completeness ABI-metadata gap, NOT a correctness bug — deliberately
 distinct from ABI review #5 (which fixed the OUTBOUND `__c_call` narrow-arg
