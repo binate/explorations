@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### `__c_entry` of a multi-result function bypasses the multi-return C-ABI adaptation — 🔴 OPEN MAJOR, DECIDED: fix (a) — awaiting assignment (2026-09-08)
+### `__c_entry` of a multi-result function bypasses the multi-return C-ABI adaptation — 🟡 IN PROGRESS (claimed 2026-09-07, temp-5), DECIDED: fix (a) (2026-09-08)
 
 **Owner decision (2026-09-08): option (a) — extend the adaptation to
 `__c_entry` targets.** The inbound multi-return adaptation (`12dde66fe`) is
