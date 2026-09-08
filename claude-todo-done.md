@@ -153,6 +153,38 @@ multi-return (TrampolineAggregate) and scalar (TrampolineScalar) paths; verified
 as a real regression pin (pre-fix it aborts with `TrampolineScalar: data is not
 a VM closure record`).
 
+### native arm32 hard-float variadic `__c_call`: FIXED float args before `...` wrongly ride VFP — DONE (2026-09-07, `05037fe18`)
+
+Fixed a MAJOR silent ABI miscompile (found in ABI review #6's adversarial
+review; pre-existing, NOT caused by #6).  Under AAPCS-VFP (arm32-linux
+hard-float) a variadic call is marshaled entirely by the base standard: EVERY
+float/double arg, including the NAMED/fixed ones before `...`, rides the GP core
+registers / stack, never VFP.  The native arm32 caller keyed the VFP-vs-GP
+decision per-ARG (emitter peeled a float to VFP when `!isVariadic`; the vfp*V
+walkers reclassified a float to GP only past `fixedCount`), so a variadic
+`__c_call` with a fixed float/double param placed it in VFP, consumed zero GP
+words, and shifted every later arg — a conforming C callee read garbage for the
+fixed float and everything after it.
+
+Fix: gate on call-is-variadic (`fixedCount < len(argTypes)`), not per-arg.  The
+three vfp*V walkers pass `callIsVariadic` to `variadicEffType` (reclassifying
+every float to GP in a variadic call); `emitCallArg`'s VFP peel is gated on
+`!callIsVariadic`.  Only variadic `__c_call` is touched — Binate calls are never
+variadic; soft-float and aa64/x64 (not VfpBackfill) are unaffected.  The float32
+rejection stays per-arg (a tail float32 still needs C double-promotion; a fixed
+float32 rides GP as 4 bytes).
+
+Covered by CallConv-level unit tests (fixed float64/float32 in a variadic call
+classify to GP, with the non-variadic VFP contrast) + an arm32 emit-level test
+(fixed double emitted into the GP pair r0:r1, not peeled).  The pre-existing
+`TestVfpVWalkerVariadicTailRidesGp` encoded the bug (asserted a fixed float32
+rides VFP) and was rewritten.  e2e/arm32-ccall-variadic-fixedfloat.sh drives a
+native arm32 `__c_call` into a gcc-arm-linux-gnueabihf AAPCS-VFP va_arg callee
+under qemu-arm — verified in a container it reads 72/1073217536 (garbage) WITHOUT
+the fix and 377/1774 WITH it.  Disassembly confirms the fixed double lands in
+r0:r1, matching clang -mfloat-abi=hard.  Minimal adversarial review clean on all
+8 axes.
+
 ### ABI review #7: library builds never build the interface-satisfaction registry — DONE (2026-09-06, `590f454eb`)
 
 Fixed a MAJOR --library bug (abi/06 §6.7). A `--library` artifact has no
