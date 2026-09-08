@@ -7,6 +7,34 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### Emit `bn_init` in every artifact; `bn_entry` = `bn_init(); main.main()` — 🔴 OPEN MAJOR, DECIDED — awaiting assignment (2026-09-08; ABI review #9)
+
+**Owner decision (2026-09-08): option (b)** — make the realization match
+`prog.entry.glue` as written ("simpler to understand and consistent"), rather
+than rewording the spec. Today `bn_init` is emitted only in `--library`
+builds ("an ordinary program never gets a bn_init", ir/gen_init.bn) and a
+program's `bn_entry` calls the internal `<main>.__init_all` dispatcher
+directly — so a C host following the spec and calling `bn_init` against a
+program-shaped link gets an undefined symbol.
+
+The work (ir/gen_init.bn + the cmd/bnc program/library drivers):
+- Emit `bn_init` in EVERY artifact (EmitLibInit's shape: run-once guard →
+  satisfaction-registry build from the build root's `_pkg_satfrag` →
+  dependency-order inits), build root = `main` for a program.
+- `bn_entry` becomes literally `bn_init(); main.main()` — dropping its own
+  registry + `__init_all` wiring and collapsing the two emission paths
+  (emitBuildSatRegistryCall gets one caller).
+- The run-once guard makes `bn_init` + `bn_entry` (or re-entry) compose
+  safely for hosts — test that composition explicitly.
+- Tests: gen_init unit (program emits both symbols; bn_entry calls bn_init);
+  e2e — a program-shaped link whose C host calls `bn_init` only, then an
+  exported function, without running main (library-iface-assert.sh keeps the
+  library leg); baremetal `bl bn_entry` stays covered by the arm32
+  conformance modes.
+- Spec is already aligned (docs e28b6fb: abi/06 §6.7 states the contract;
+  spec/17 §17.3.2 Status notes the divergence) — clear both Status notes on
+  landing.
+
 ### `__c_entry` of a multi-result function bypasses the multi-return C-ABI adaptation — 🟡 IN PROGRESS (claimed 2026-09-07, temp-5), DECIDED: fix (a) (2026-09-08)
 
 **Owner decision (2026-09-08): option (a) — extend the adaptation to
@@ -322,16 +350,6 @@ coalescing-vs-TU-local symbol split), 16b status staleness fixed (ad91a26).
 Implementation gaps found by the review are raised under MAJOR as the
 "ABI review #1–#7" entries; the review's owner-decision items are the
 "ABI review #8–#12" entries below.
-
-### ABI review #9: `prog.entry.glue` vs realization — reconcile spec/17 with the implementation — 🟡 (2026-09-04)
-
-Status note: abi/06 §6.7. spec/17's prog.entry.glue reads as if both glue
-symbols exist in every artifact and bn_entry reaches init through bn_init;
-the realization emits bn_init only in --library builds ("an ordinary program
-never gets a bn_init", gen_init.bn:261-263) and bn_entry calls the internal
-__init_all dispatcher. Decide: fix the spec text (per-artifact symbols) or
-change the implementation (emit bn_init everywhere and route bn_entry
-through it).
 
 ### ABI review #10: `__c_entry` cross-producer pointer identity — harmonize or scope — 🟡 (2026-09-04)
 

@@ -63,6 +63,18 @@ Lesson: a C driver crossing the Binate boundary on arm32 (ILP32) must map
 happens to be 8 bytes so the same driver works there — which is why the e2e
 (aa64/x64 hosts) and my aa64/x64 Rosetta drivers were unaffected.
 
+## ABI review #9: `prog.entry.glue` vs realization — DECIDED (b), 2026-09-08 (docs e28b6fb)
+
+Owner chose option (b): the implementation will match the spec as written —
+`bn_init` emitted in every artifact (guard → satisfaction registry →
+dependency-order inits) and `bn_entry` literally `bn_init(); main.main()` —
+rather than rewording `prog.entry.glue` around the current asymmetry
+(program-only `bn_entry` via an internal dispatcher; library-only `bn_init`).
+Spec aligned (docs e28b6fb: abi/06 §6.7 states the contract with a Status
+note on the divergence; spec/17 §17.3.2's "implemented" claim qualified).
+The implementation work is a top-level MAJOR entry in the active todo,
+awaiting assignment.
+
 ## ABI review #8: `pkg.cexport.signature` multi-return row — DONE (2026-09-08, docs 259ece2)
 
 Resolved by the implementation converging on the row's claim: the inbound
