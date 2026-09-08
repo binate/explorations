@@ -107,6 +107,29 @@ gets the GP `[1 x i64]` form instead of `<2 x float>` and the 2nd float is lost.
       encoding unit tests; e2e C-driver across the tuple shapes (aa64/x64 local,
       arm32 in CI).
 
+## Native arm32: divergence fix done; a SEPARATE pre-existing bug found
+
+Native arm32 trampoline landed (generalized from x64: R0 sret shift + return
+adapt; soft/hard-float store dispatch via storeMultiReturnTupleFieldsShimArm32).
+Verified via Docker (arm32v7 debian + qemu binfmt, hard-float armhf, `-no-pie
+-fno-PIC`): SRET-adapt `(int32,int32)` → `7 9`; COERCE `(int16,int16)` → `5 6`,
+`(int8×4)` → `1 2 3 4`.  HFA alias `(f64,f64,f64)` → `1 2 3`.
+
+**But a SEPARATE, pre-existing arm32 bug surfaced** — NOT the divergence class,
+NOT touched by this work: a LARGE multi-return where BOTH the C ABI and the
+internal convention sret (e.g. `(int64,int64,int64)` = 24B, `(int64 × 9)` = 72B)
+is miscompiled at the C boundary via the plain ALIAS path (no trampoline).  The
+mangled def's disassembly writes the sret buffer at the correct offsets (0,8,16),
+yet at runtime only the first ~12 bytes land (`[12]`+ stay 0xAA fill) and the
+result is non-deterministic (crash / wrong data), on BOTH backends (native AND
+LLVM-arm32).  The SRET-adapt trampoline writes the buffer CORRECTLY (via
+storeMultiReturnTupleFieldsShimArm32), so the fault is in the DEF's own
+sret-multi-return write — which internal (Binate→Binate) callers of the same def
+also use, so this is likely a GENERAL arm32 sret-multi-return codegen bug, not a
+c_export-only one.  Could not confirm the internal-call path locally (a full
+arm32-linux executable won't cross-link on the macOS host).  Needs its own
+investigation; tracked separately from this divergence fix.
+
 ## Testability note
 
 Host is aa64.  Runtime-verified locally: LLVM aa64 + native aa64 directly; LLVM
