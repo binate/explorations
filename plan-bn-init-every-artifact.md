@@ -1,8 +1,31 @@
 # Plan: emit `bn_init` in every artifact; `bn_entry` = `bn_init(); main.main()`
 
-Status: IN PROGRESS (claimed 2026-09-07, temp-6/work-6). Tracks the
-`claude-todo.md` entry "Emit `bn_init` in every artifact" (ABI review #9,
-owner decision option (b), 2026-09-08).
+Status: IMPLEMENTED + VERIFIED on work-6 (`e6a94a9fe`), awaiting landing
+approval. Tracks the `claude-todo.md` entry "Emit `bn_init` in every artifact"
+(ABI review #9, owner decision option (b), 2026-09-08).
+
+## Verification (all green)
+
+- Unit tests (builder-comp): ir + mangle + codegen packages pass. New/renamed:
+  `TestEmitBnEntry`, `TestProgramEmitsBnInitAndBnEntry`, `TestEmitBnInit*`,
+  codegen `emit_bninit_test.bn`, `data_satregistry_test.bn`.
+- Conformance FULL: LLVM `builder-comp` 3021/0; native-aa64 3021/0;
+  native-arm32-baremetal (soft-float, `bl bn_entry`) 2976/0; native-arm32-linux
+  (hard-float, Docker) 3021/0. Interp path (unchanged) exercised via smoke.
+- e2e `e2e/program-bn-init.sh`: a C host calls `bn_init` (twice) + two exports on
+  a program-shaped archive WITHOUT running main → `42 1` (init ran once;
+  run-once guard held). LLVM + native both pass.
+- Hygiene 20/20.
+- Adversarial review: sound to land, no critical/major issues; interp
+  correctness, `_pkg_satfrag` dead-strip liveness (native reloc + LLVM
+  `@llvm.used`), run-once guard, registry-before-inits order, mangling, and
+  old-name residue all verified clean. Flagged minor stale comments folded in.
+
+## Still pending (on landing)
+
+Clear the two spec Status divergence notes in the `docs` repo (they say
+`bn_init` is emitted only in `--library`): `spec/17` §17.3.2 and `abi/06` §6.7.
+Do this in the docs repo AFTER the code is on `main` (edit → commit → push).
 
 ## Problem
 
