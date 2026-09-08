@@ -61,34 +61,6 @@ The work (ir/gen_init.bn + the cmd/bnc program/library drivers):
   spec/17 §17.3.2 Status notes the divergence) — clear both Status notes on
   landing.
 
-### `__c_entry` of a multi-result function bypasses the multi-return C-ABI adaptation — 🟡 IN PROGRESS (claimed 2026-09-07, temp-5), DECIDED: fix (a) (2026-09-08)
-
-**Owner decision (2026-09-08): option (a) — extend the adaptation to
-`__c_entry` targets.** The inbound multi-return adaptation (`12dde66fe`) is
-wired to `#[c_export]` NAMES only (LLVM emit_cexport_thunk.bn; native
-*_cexport_trampoline.bn / aarch64_cexport_retadapt.bn via
-common.CExportMultiReturnAdaptKind). A `__c_entry(f)` where f returns a
-multi-value tuple yields the UNADAPTED entry (LLVM: the mangled def; native:
-at most the narrow-arg `__centry.` thunk), and checkCEntry does not restrict
-result shapes — so a C caller invoking the callback reads the internal
-multi-return convention: the exact mis-ABI class 12dde66fe fixed for exports,
-reachable through the callback pointer.
-
-The work: grow the `__c_entry` path (LLVM OP_C_ENTRY lowering; native
-`__centry.` thunk emission in common_c_entry.bn + per-arch emitters) the same
-return adaptation the export entries have, reusing
-common.CExportMultiReturnAdaptKind and the existing thunk/trampoline
-machinery. Mind the interactions: (1) `pkg.centry.identity` — every
-evaluation of `__c_entry(f)` must still yield one program-wide pointer (the
-weak `__centry.` coalescing handles this; the thunk-needed predicate must now
-include multi-result, not just narrow-GP-params); (2) ABI review #10 (LLVM
-vs native `__c_entry` values differ cross-producer) — extending the LLVM side
-from a plain GEP to a thunk is a chance to converge on the weak-thunk name on
-both backends, resolving #10 in the same stroke (or at least not worsening
-it). E2e required (callback returning a multi-value tuple, C va-style driver
-reading the platform struct — mirror e2e/ffi-export.sh's multi-return
-driver). Spec Status note at abi/04 §4.2 tracks this; update it on landing.
-
 ### FFI C-representability follow-ons (after `__c_call` arg widening landed) — 🟢 follow-ons (2026-09-04)
 
 `__c_call` argument widening LANDED (`bfb0f5d89`): args admit any defined-ABI-

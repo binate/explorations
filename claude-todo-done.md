@@ -7,6 +7,51 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### `__c_entry` of a multi-result function bypasses the multi-return C-ABI adaptation — DONE (2026-09-08, `0a4926b14`)
+
+Fixed (owner chose option (a): extend the `#[c_export]` multi-value-return C-ABI
+adaptation — `12dde66fe` — to `__c_entry` targets, on both backends × all three
+arches). `__c_entry(f)` handed C a pointer to f's RAW mangled entry, so a callback
+returning a multi-value tuple whose platform C struct-return ABI diverges from
+Binate's internal register-return convention was read wrong across the boundary
+(the exact mis-ABI class `12dde66fe` fixed for exports, reached through the
+callback pointer). The fix reuses the existing `#[c_export]` return machinery:
+
+- **common**: `CallConv.CExportMultiReturnRetAdaptKind(@ir.Func)` (@ir.Func wrapper
+  over `CExportMultiReturnAdaptKind`) + `FuncReturnsViaInternalSret`;
+  `collectCEntryThunkTargets` now flags a return-adapt target, not only a
+  narrow-register-arg one.
+- **native (x64/arm32/aarch64)**: `emitCEntryThunks` routes a return-adapt target
+  through the `#[c_export]` return trampoline (calls the mangled entry, repacks the
+  return) instead of the arg-normalize-and-branch thunk. The x64/arm32 trampolines
+  now derive their internal-sret shape from the func directly
+  (`FuncReturnsViaInternalSret`), so they need only a bare RegMap (no PlanFrame).
+- **LLVM**: emits a weak `linkonce_odr __centry.<mangled>` return-adaptation thunk
+  (the generalized `emitCAbiAdapterThunk`) for a divergent return, and OP_C_ENTRY
+  takes its address; the thunk name matches the native `cEntryThunkSym`, converging
+  both backends on one weak symbol (narrows ABI review #10 for the multi-return
+  case). Classification predicates split into `emit_cexport_classify.bn`.
+
+Adversarial review caught a CRITICAL, runtime-confirmed miscompile before landing:
+the thunk's internal-call return type was first computed as `llvmType(MultiReturnType)`
+(the PADDED raw tuple) instead of the definition's FLAT coerced boundary form, so a
+padded tuple like `(int32,int64)` read the second field from the wrong return
+register — and this REGRESSED the released `#[c_export]` path too. Fixed by using
+`lookupRetType` (imported targets are in `funcRetTypes` via `RegisterImports`, so
+cross-package resolves), and added the `(int32,int64)` shape to the e2e (both
+`#[c_export]` and `__c_entry`) plus a unit test — the coverage gap that let it slip.
+
+Verified end-to-end via a C driver invoking multi-return callbacks through
+`__c_entry` (e2e/ffi-export.sh `check_centry`) on aa64 {LLVM,native} (e2e), x64
+{LLVM,native} (Rosetta), arm32 LLVM (Docker/qemu) — all incl. the padded shape.
+Native arm32 is baremetal-only (no libc runtime path); covered by the unit-emit
+test and the trampoline shared with `12dde66fe` (the review-found bug was
+LLVM-path-only and never affected native). Unit tests: common + per-arch + codegen.
+A pre-existing MINOR asymmetry the review surfaced — a `__c_entry` target with a
+`>16-byte` by-value aggregate PARAMETER still gets no thunk (unlike `#[c_export]`)
+— is tracked under the FFI follow-ons in claude-todo.md. (Spec abi/04 §4.2 Status
+note update pending — see coverage follow-up below.)
+
 ### Native capturing closure passed INTO bytecode: untagged env record → panic or silent misdispatch — DONE (2026-09-08, `41a5aa48c`)
 
 Fixed (owner chose option b/1: make native capturing closures VM-dispatchable via
