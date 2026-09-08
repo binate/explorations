@@ -5,12 +5,13 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ---
 
-## MAJOR
+## CRITICAL
 
-### `--backend native` programs HANG at startup when built at `-O1`/`-O2` — 🔴 OPEN MAJOR (found 2026-09-07, adversarial review of aarch64 DSE)
+### `--backend native` programs HANG at startup when built at `-O1`/`-O2` — 🟠 IN PROGRESS CRITICAL (found 2026-09-07, adversarial review of aarch64 DSE; upgraded MAJOR→CRITICAL + claimed 2026-09-07)
 
-**Severity: MAJOR** — the native backend is unusable at any optimization level
-above `-O0`.  A trivial `func main() { __c_call("exit", "void", cast(int32, 42)) }`
+**Severity: CRITICAL** (upgraded from MAJOR — the native backends are P0, so a
+backend that is unusable above `-O0` is a critical defect, not a major one) —
+the native backend is unusable at any optimization level above `-O0`.  A trivial `func main() { __c_call("exit", "void", cast(int32, 42)) }`
 compiled with `--backend native -O1` (or `-O2`) hangs at startup; `sample` shows
 the spin in `captureEnv` (`pkg/builtins/startup`), which under `--backend native`
 is **LLVM-compiled** (only the main package is native; deps go through LLVM) and
@@ -26,7 +27,9 @@ values) cannot be measured or shipped until it is fixed.  Root cause unknown —
 needs investigation (start: diff the `-O0` vs `-O1` native-driver build/link of
 `pkg/builtins/startup`, and bisect the `-O1` opt passes).
 
-### native arm32 hard-float variadic `__c_call`: FIXED float args before `...` wrongly ride VFP — 🔴 OPEN MAJOR (found 2026-09-06, ABI review #6 adversarial review)
+## MAJOR
+
+### native arm32 hard-float variadic `__c_call`: FIXED float args before `...` wrongly ride VFP — 🟡 IN PROGRESS (claimed 2026-09-07), 🔴 MAJOR (found 2026-09-06, ABI review #6 adversarial review)
 
 **Severity: MAJOR** — silent ABI miscompile at the C boundary. Under AAPCS-VFP
 (arm32-linux hard-float), a variadic function is marshaled entirely by the BASE
