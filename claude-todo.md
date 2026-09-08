@@ -190,7 +190,7 @@ CORRECTION 2026-09-08):
    refinements (caller-saved homes, copy coalescing) were the wrong knobs;
    spill-cost heuristics / interval splitting / more homes are untried and
    target this ~45% directly.
-3. **Inliner threshold tuning — gates #1 and #2 for the hot tiny functions.**
+3. **Inliner threshold tuning — gates #1 and #2 for the hot tiny functions.** 🟡 IN PROGRESS (claimed 2026-09-08, work-1)
    Raise `InlineSizeThreshold` (currently 15). The 1.12× overall call ratio
    UNDERSTATES this: the hot leaves clang inlines away and native keeps
    standalone — `charsEqual`, `streq`, `std.cmp.FnEq.Equal`, `LiveInterval.Start`,
