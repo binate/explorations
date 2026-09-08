@@ -352,12 +352,23 @@ liveness pass itself) is 61% memory ops: 1144 vs llvm's 135 (8.5×).
    MUST be added).  The RODATA_ARRAY case was a latent gap an adversarial review caught (masked in
    practice by an adjacent CONST_STRING adrp).  X16/X17 get a spill-aware eviction every
    instruction.  native_aa64 conformance 3020/0.
-   REMAINING: port lazy spill to arm32 — the biggest port: its soft-float and int64 ops lower via
-   libcalls that reset internally and are type-dispatched (`instrIsFloat(ins)` / int64-pair), so
-   the barrier must be TYPE-aware, not op-code-only: `instrIsFloat(ins) || int64Pair(ins) ||
-   EmitsReturningBl(op) || op == OP_RETURN || op == OP_RODATA_ARRAY` (plus audit arm32 for
-   RODATA_ARRAY-class reset-without-fixup gaps).  Validate via Docker+qemu native_arm32_linux.
-   See `plan-native-dead-store-elim.md`.
+   Also LANDED arm32 (`d478c167d`) — dead-store elimination now on ALL THREE backends.  arm32 was
+   the hardest: its soft-float and int64-pair ops lower via AEABI libcalls that reset internally
+   (type-dispatched via `instrIsFloat` / `instrIs64`).  A first type-aware DENYLIST attempt
+   miscompiled (198/3020 conformance failures in managed/refcount code): an op with an INLINE
+   alternate path (a bounds-check fail path, a refcount skip) emits its allocReg-eviction spill
+   INSIDE that path, which the mainline jumps over — so a dirty value evicted there is never stored
+   at runtime and reloads garbage.  A denylist can't safely enumerate every such op, so arm32 uses
+   the safe-by-default ALLOWLIST (`arm32RetentionSafe` — proven-clean 32-bit-integer ops only,
+   float/int64 excluded by type), same shape as x64's `retentionSafe`.  native_arm32_linux
+   conformance 3020/0; code-reviewed clean.
+   REMAINING (follow-up): unify aarch64 from its DENYLIST (`EmitsReturningBl || OP_RETURN ||
+   OP_RODATA_ARRAY`) to the safe-by-default ALLOWLIST, matching x64 and arm32.  aarch64's denylist
+   is currently CORRECT (verified: its bounds-check / guard fail paths marshal via direct `Mov`,
+   no allocReg-spill-in-skipped-path; 3020/0), but the denylist is the fragile form — a future
+   reset-y / inline-alt-path op would silently gap.  The allowlist costs a little aarch64 retention
+   (it barriers before OP_CONST etc.) and needs a native_aa64 re-validation run.  See
+   `plan-native-dead-store-elim.md`.
 2. **Register promotion (keep IR temporaries in registers; mem2reg-equivalent)** — the deep lever
    and bulk of the gap.  Native materializes ~every temp to a stack slot; llvm's mem2reg keeps them
    in registers.  **This is why the Stage-5 refinements above were NEUTRAL** — they tuned the margins
