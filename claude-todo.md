@@ -71,7 +71,7 @@ conformance is not covering large (>4-GP-word) multi-returns — add coverage.
 Next: reproduce internally, disasm-vs-runtime diff the def to find the miscompile
 site (per the "Debug Miscompiles by Disassembling" protocol), root-cause, fix.
 
-### Reserved-namespace gap: synthesized `_pkg*` globals collide with legal user names — 🔴 OPEN latent MAJOR (found 2026-09-04, ABI-spec recon)
+### Reserved-namespace gap: synthesized `_pkg*` globals collide with legal user names — 🟡 IN PROGRESS (claimed 2026-09-07, work-2), 🔴 latent MAJOR (found 2026-09-04, ABI-spec recon)
 
 **Severity: MAJOR (latent)** — silent symbol collision. The checker reserves
 only `__`-prefixed identifiers and `__bn_inst__` (mangle.IsReservedIdentifier;
