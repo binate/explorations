@@ -11,6 +11,9 @@ no longer resolve in the tree, though git history retains them.
 
 The sprawling perf sections were unified into one `## Performance` umbrella in
 the active todo; the landed/superseded histories they carried move here.
+(Landed inside commit `5db7cc76` together with a concurrent worker's c_export
+note — that commit's message describes only the c_export part; the bulk of its
+claude-todo.md diff is this consolidation.)
 
 **Native-compile background + profiles.** The 2026-08/09 profiling that framed
 the work: the native↔clang gap is CODEGEN QUALITY, not IR passes (the -O0→-O2
