@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### LLVM backend emits DUPLICATE local value names for two OP_STOREs sharing (dst,src) — clang rejects; blocks higher inliner thresholds — 🟡 OPEN (found 2026-09-08, work-1)
+### LLVM backend emits DUPLICATE local value names for two OP_STOREs sharing (dst,src) — clang rejects; blocks higher inliner thresholds — 🟡 IN PROGRESS (claimed 2026-09-08, work-1)
 
 **Severity: MAJOR (latent; fail-loud).** `codegen/emit_copy_ssa.bn`'s
 `emitStoreSSARec` names each scalarized aggregate-store temp
