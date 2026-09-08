@@ -7,6 +7,107 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+## Perf-todo consolidation — histories archived from claude-todo.md (2026-09-07)
+
+The sprawling perf sections were unified into one `## Performance` umbrella in
+the active todo; the landed/superseded histories they carried move here.
+
+**Native-compile background + profiles.** The 2026-08/09 profiling that framed
+the work: the native↔clang gap is CODEGEN QUALITY, not IR passes (the -O0→-O2
+opt-suite factor is almost all mem2reg-class register promotion; loop-BCE ~3%
+on real workloads); bnc+clang is genuine separate compilation (each package
+its own TU, rt calls stay calls), so clang's edge is within-TU inlining
+(charsEqual inlined away vs 40% native self-time). Profile 2026-09-02 buckets
+(native bnc self-compile): memory management ~50% (MemZero ~42%), regalloc
+bookkeeping ~20%, bnld ~15%. Landed from it: `rt.MemZero`/`MemCopy` widened to
+word-at-a-time (`43054b3f1`, ~25% faster native self-compile — the one bucket
+that closed the gap because clang had vectorized its side); regalloc
+data-structure churn (`28059295d`+`4afc437a4`) and bnld O(n²) symbol
+resolution (`9f0d1def1`) were general build-speed (own entries below).
+**Metric reconciliation (2026-09-04):** `perf/native-vs-llvm.sh` (landed
+`1547956aa`) is the canonical code-quality ratio; bisecting it gave a clean
+monotone trend — regalloc v1 `f4bb7f4b7` 6.9× → MemZero widen `43054b3f1`
+5.0× → 2026-09-04 3.9× (binary ~2.4× llvm's size) — while the older ~3.4×/
+~2.5× figures measured a throughput-contaminated something-else (consistently
+~2× smaller at the same commits); use the script only.
+
+**Regalloc Stage-5: within-block retention + dead-store elimination — LANDED
+on all three native backends (2026-09-04..06).** Retention (values stay in
+the scratch pool across instructions; reloads eliminated at emit time):
+aarch64 `60ed89b0e` (~5% self-compile; debug bottomed out at an AssignReg
+id-reuse double-cache — fixed by REPLACE-not-append), arm32 `62f474df1`
+(callee-saved pool disjoint from homes), x64 `7558a35ec` via a
+`retentionSafe` allowlist (its caller-saved pool is ISA-hardcoded
+mid-instruction) atop `4a7bbba26` — a LATENT x64 assembler byte-REX fix
+(`emitRex` omitted REX for 8-bit ops on RSP/RBP/RSI/RDI, so a byte spill of
+RDI wrote BH; reproducer conformance 902) — plus the OP_CAST occupancy-aware
+scratch picker `e8461747d`. Dead-store elim (dirty values spill only when
+they leave the register while live): x64 `3ef8e76c5` (frame stores −18.5% on
+cmd/bnc), aarch64 `7b89584f8` (DENYLIST barrier: returning-BLs + OP_RETURN +
+OP_RODATA_ARRAY — the RODATA case caught by adversarial review), arm32
+`d478c167d` (ALLOWLIST after a denylist attempt miscompiled 198 tests — the
+lesson: an op with an INLINE alternate path emits its eviction spill inside
+the skipped path, so denylists can't be safely enumerated). x64 retention
+verified by static counting: −16% value reloads, −14% frame-address
+recomputes, −3% instructions. Tried-and-shelved as NEUTRAL (META: v1 already
+captured the register-level wins): caller-saved leaf homes (2026-09-02), copy
+coalescing (2026-09-03) — write-ups in `plan-native-regalloc.md`.
+
+**VM execution round 1 — LANDED (fib ~10.7s → ~6s):** execLoop dispatch
+reorder `835ec63bc` (~1.7× — the handler groups sat above control-flow, so
+every CALL/RETURN paid ~6 wasted handler calls) and the execArithOp
+float-bail fix `63676b720` (~6%). The same-function frame-skip `9c7ef5518`
+(~12%) was REVERTED (`0d5f786a8`) for an int-int regression whose real root
+cause — the VM leaking vm.SP on RAW aggregate call results — was then fixed
+(`20c51d0ca`, own entry below); the un-revert is an OPEN item in the active
+todo's VM-execution section.
+
+**Double-VM lane rounds 1–7 (2026-06-10 .. 2026-08-24).** Rounds 1–2:
+whole-package `.skip-pkg` markers for the >24-min packages (mechanism landed
+in run.sh; also unmasked `pkg/std/os`'s genuine c_call VM failure — xfail'd,
+not skipped). Round 3 (skip 7 more) abandoned — generalized to skipping the
+lane. Round 4: TEST-LEVEL sharding — `bni --test --shard-index/--shard-count`
++ `.split.vm` markers; skips removed. Round 5: interp's compile-heavy test
+families skipped under int-int only (`eaad88d22`; `bni --skip` extended to
+comma-separated). Round 6: ROOT-CAUSED the ~600s/test interp blow-up —
+`vm.RegisterExtern` was O(N²) (linear dup-scan + grow-by-one copy-all with
+per-binding refcount traffic); fixed with an open-addressing extern index +
+amortized-doubling backing (`e65280c55`, ~16×/test). Round 7: the secondary
+dataSym O(N²) got the same hash treatment (`41f370c28`) — no int-int effect
+(N too small) but removes a latent execution-time O(N²) per
+BC_DATA_SYM_ADDR. Superseded by the representative-subset capstone
+(`083e1f334`, own entry below). Kept-in-tree mitigations for the still-skipped
+packages: codegen's `TestEmitDebug` per-test skip (`1bffc43`; a 2026-05-13
+pointer-keyed dbgTypeID cache was a net LOSS — single test −34% but aggregate
++16%; lesson: profile before guessing) and the `pkg/asm/aarch64` skip
+(2026-06-10, unprofiled).
+
+
+### Inbound `#[c_export]` narrow PARAM under-declares signext/zeroext (LLVM) — DONE / partial-by-design (`0eb059a8f`, 2026-09-07)
+
+ABI-declaration parity, not a miscompile. An LLVM `#[c_export]` narrow scalar
+param (int8/int16/uint8/bool) was declared bare (`i8 %v`) where clang emits
+`i8 signext`/`i8 zeroext`. Safe today (a conforming C caller extends; the callee
+reads the low bits and re-extends), so the only value was parity for LTO / tools
+that read param attrs.
+
+Fixed the SAFE, zero-cost part (`0eb059a8f`): the existing `#[c_export]` THUNK
+(emitted when a param needs C-ABI adaptation, e.g. a >16-byte byval aggregate)
+now applies `writeCAbiParamExtAttr` to its narrow scalar param declarations, so a
+thunk'd C entry matches clang; it forwards the arg BARE to the bare internal
+define (Binate param ABI unchanged). No new thunks -> no runtime cost.
+
+Deliberately NOT done (won't-fix): the plain-alias c_export shape (a C name
+aliasing the mangled internal define) keeps bare params. An LLVM alias cannot
+carry param attrs, and putting signext on the SHARED internal define would
+miscompile separately-compiled Binate callers — they pass narrow args bare and
+the callee re-extends, but signext lowers to an AssertSext the DAG combiner uses
+to elide that re-extension, leaking the caller's dirty high bits (adversarial-
+review-confirmed). Full parity there would require FORCING a forwarding thunk (a
+runtime cost) purely for a declaration attribute on a LOW-priority, functionally-
+correct case — not worth it. (Return-direction parity was already universal and
+safe: Binate returns full-width canonical values.)
+
 ### `--backend native` programs HANG at startup at `-O1`/`-O2` — CRITICAL native miscompile — DONE (2026-09-07, commit `181ff6807`)
 
 Fixed (native aarch64 backend).  A `--backend native` program built at -O1/-O2

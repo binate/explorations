@@ -39,27 +39,6 @@ conformance is not covering large (>4-GP-word) multi-returns — add coverage.
 Next: reproduce internally, disasm-vs-runtime diff the def to find the miscompile
 site (per the "Debug Miscompiles by Disassembling" protocol), root-cause, fix.
 
-### Inbound `#[c_export]` narrow PARAM under-declares signext/zeroext (LLVM) — 🟡 IN PROGRESS (work-6, 2026-09-07); LOW / not-a-miscompile (found 2026-09-06, ABI review #5 adversarial review)
-
-Cosmetic/completeness ABI-metadata gap, NOT a correctness bug — deliberately
-distinct from ABI review #5 (which fixed the OUTBOUND `__c_call` narrow-arg
-direction, a real miscompile). An LLVM `#[c_export]` function with a sub-`int`
-param (int8/int16/uint8/bool) spells the define's param bare — e.g. `define i32
-@bn_...takeNarrow(i8 %v0)`, reached by the C-name alias — with no
-signext/zeroext, whereas clang would emit `i8 signext`/`i8 zeroext` for the same
-C prototype. The c_export THUNK path (>16-agg param case, writeCAbiParamType) is
-bare too. This is SAFE today: the Binate callee reads the iN low bits (its body
-re-extends, e.g. `sext i8 -> i32`), so a conforming C caller's already-extended
-arg is read correctly regardless of the missing attribute — the callee never
-assumes clean high bits (unlike the outbound C callee that #5 fixed). Worth
-closing only for ABI-declaration parity with clang and to harden against a
-future stricter consumer (LTO across the C boundary, a tool reading param
-attrs). Fix if done: apply the same `writeCAbiParamExtAttr` on the c_export
-define's params (emit path) and the thunk param list (writeCAbiParamType's
-c_export caller); the return direction already uses `cabiIntExtAttr`. Low
-priority — do not prioritize over any real-miscompile ABI item.
-
-
 ### Reserved-namespace gap: synthesized `_pkg*` globals collide with legal user names — 🔴 OPEN latent MAJOR (found 2026-09-04, ABI-spec recon)
 
 **Severity: MAJOR (latent)** — silent symbol collision. The checker reserves
@@ -162,257 +141,149 @@ test: a compiled/native higher-order fn calling a VM callback that indexes OOB, 
 the program aborts (not returns 0). Tracked against Plan 2
 (`explorations/done/plan-rt-fault-cleanup-pads.md`).
 
-## Performance — native compile speed
+## Performance
 
-### Close the native↔LLVM codegen gap via inlining — background
+One umbrella for all perf work. **How to measure — run the benchmarks; never
+quote numbers from this file (they go stale):**
 
-Profiling `bnc` compiling `bnc` (`--backend native`), built four ways
-({clang,native}×{-O0,-O2}): native `-O2` ~21.5s, native `-O0` ~108s (our opt suite
-= ~5×, almost ALL mem2reg register-promotion; loop-BCE ~3% on this real workload —
-it shines only on tight numeric loops), clang `-O2` ~9.0s. So native trails clang
-~2.4×, and that gap is **codegen quality**, not our IR opt passes. bnc+clang is
-genuine **separate compilation** (each package is its own clang TU; all imports incl.
-`rt` are `declare` externs — confirmed in `cmd/bnc/compile_imports.bn` and the
-profile: `rt.BoundsCheck` is a CALL for clang too, ~2.5k samples). No LTO. clang's
-edge is **within-TU inlining**: `charsEqual` vanishes from clang's profile (inlined
-into `findSymbol`, same asm package); native leaves it a separate call (40%
-self-time). Two orthogonal inlining levers below. (The single-file microbench where
-"clang inlines rt.BoundsCheck" was a whole-program-bundled special case — rt is
-`define`d + hot/cold-split in that one-module executable — not the multi-package
-reality.)
+- **Native↔LLVM code-quality gap:** `perf/native-vs-llvm.sh` — the canonical
+  ratio (same tree, same work: native-built vs llvm-built bnc self-compiling
+  cmd/bnc). Figures quoted in pre-2026-09-04 notes were a different,
+  throughput-contaminated metric — not comparable.
+- **VM execution:** `perf/001_fib.bn` (builder-comp-int) and `perf/self.sh`
+  `bni_runs_hello` / `bni_runs_bni_hello`.
+- **Compile speed:** `perf/self.sh bnc_compiles_bnc`; always compare **USER
+  CPU time**, not wall-clock (concurrent-worker noise has hidden real wins).
+- **GOTCHA (has wasted time):** `perf/native-vs-llvm.sh` builds
+  `--backend native` = the **host** backend — on an arm64 box it cannot see
+  x64/arm32 codegen changes (a revert looks "neutral"). Measure non-host
+  backends by static instruction/reload counting on a `--target` build, or on
+  real hardware/CI.
 
+### Native codegen quality — closing the native↔LLVM gap — 🔵 OPEN
 
-### (2b) Inliner threshold tuning — the remaining inliner lever — 🔵 OPEN (2026-09-01)
+The lens is **"does it close the gap?"**, not "is it hot?" — most hot buckets
+run in BOTH builds and leave the ratio unchanged. Profiles (2026-09-04, done
+log) show the gap is dominated by native round-tripping temporaries through
+the stack (~2.6× more instructions, ~3.3× more memory ops than llvm; tens of
+thousands of adjacent store-then-reload pairs). Ranked levers:
 
-The core within-package inliner is COMPLETE (see the done log: all increments
-landed through non-leaf inlining `ef292f152`; ~19-30% faster native self-compile
-by USER CPU at the default `InlineSizeThreshold = 15`). What remains:
+1. **Register promotion (mem2reg-equivalent) — THE big lever.** Native
+   materializes ~every temp to a stack slot; llvm keeps them in registers.
+   This is why the tried register-level refinements were neutral (they tuned
+   margins while everything spills — see the done log's META note). Bigger
+   project.
+2. **Inliner threshold tuning.** The core within-package inliner is complete
+   (done log); raise `InlineSizeThreshold` (currently 15) so charsEqual-class
+   hot leaves (~45–60 IR instrs; confirmed inlined at 200) and non-leaf
+   inlining actually fire — llvm inlines these to zero instructions, and
+   inlining also unlocks promotion/retention across the merged body. Growth
+   guards exist (`InlineGrowthFloor`/`InlineGrowthFactor`). Threshold-gated
+   test debt to pay when raising: (i) a non-dtor managed-aggregate result
+   live at a CALLER fault via a multi-block merge-slot callee; (ii) a managed
+   multi-value live across a fault; (iii) `return f()` passthrough. The
+   multi-block/managed/loop inline paths run only at -O1, which has no
+   conformance lane (see the opt-level matrix item below). Possible later
+   extension (not planned): inlining callees containing
+   indirect/iface/c-call/handle dispatch (currently disqualifying).
+3. **Retention/DSE residue (small):** unify aarch64's dead-store-elim barrier
+   from its DENYLIST form to the safe-by-default ALLOWLIST used by x64/arm32
+   — the denylist is verified correct today but fragile (a future op with an
+   inline alternate path would silently gap); costs some aarch64 retention +
+   a native_aa64 revalidation. See `plan-native-dead-store-elim.md`.
+   (Within-block retention + dead-store elimination themselves are LANDED on
+   all three backends — done log.)
+4. **SIMD string/byte compares** (`charsEqual`/`streq`/`symHash`) — needs #2
+   first; see `plan-native-vectorization.md`.
+5. **Smaller / speculative:** float register allocation (float scalars are
+   non-allocatable today — the one untried register refinement with a
+   distinct mechanism); spill-cost heuristic (current: naive newest-interval
+   spill); home function params (landing code correct but effectively dead —
+   a param still reloads per use); arm32 int64-in-registers; reclaim x64
+   RCX/RDX (clobber-modeled); rt.ShiftCheck cost (minor); interval splitting
+   (likely neutral per the META note).
 
-- **Raise `InlineSizeThreshold`** (tuneable const, currently 15) to catch
-  charsEqual-class hot functions (~45-60 IR instrs — confirmed NOT inlined at
-  15/40, inlined at 200) and to let NON-leaf inlining actually fire (at 15 almost
-  no non-leaf callee fits — measured ~0% incremental; correctness-complete but
-  latent). Find the code-growth-vs-speed sweet spot; growth guards exist
-  (`InlineGrowthFloor` 256 / `InlineGrowthFactor` 4).
-- **Benchmark by USER CPU time, not wall-clock** — wall-clock was the noise
-  source that initially hid the win (concurrent-worker load).
-- **Threshold-gated test debt to pay when raising** (paths unreachable under 15;
-  judged safe by construction/composition in review, but untested): (i) a
-  non-dtor managed-aggregate (`@[]int`) result live at a CALLER fault via a
-  multi-block merge-slot callee; (ii) managed multi-value live across a fault
-  (tuple-pack × the FaultPads sweep); (iii) `return f()` passthrough (extract
-  path).
-- Coverage context: the multi-block/managed/loop inline paths run only at -O1,
-  which has no conformance lane (see the opt-level-matrix todo) — validation is
-  the VM exec/leak tests + structural tests.
+### IR optimization passes (help LLVM + native backends + the VM) — 🟡 OPEN
 
-Possible later extension (not planned): inlining callees containing
-indirect/iface/c-call/handle dispatch (currently disqualifying; raises
-cross-mode-vtable / c-ABI questions).
+- **Pass infra + mem2reg + BCE** — design settled
+  (`plan-ir-opt-passes-bce.md`, `plan-mem2reg-phase2a.md`): bnc `-On` gate
+  (distinct from --cflag, implying it for LLVM); phases (1) infra+gating,
+  (2) mem2reg-lite, (3) bounds-check elimination. Constant-index BCE landed;
+  mem2reg is Phase 2a. BCE is also the top lever for bni LOAD time
+  (rt.BoundsCheck ≈ a third of load self-time) and helps VM-executed code.
+- **Multi-way-branch IR construct:** `genSwitch` lowers to a linear if-else
+  chain; LLVM -O2 jump-tables it, but the native backends and the bytecode
+  path (no BC_SWITCH) stay linear. Add a dense-integer multi-way branch
+  lowered per backend (LLVM `switch` / native jump table / `BC_SWITCH`).
+  Baselines landed: perf/003_dispatch_switch vs 004_dispatch_ifchain. (A
+  jump-table rewrite of the VM's own execLoop dispatch is LOW value since the
+  dispatch reorder — cheap inline comparisons remain.)
+- **Opt-level conformance-matrix dimension (CI; agreed 2026-08-27):** the
+  passes only run at -O1+, conformance runs -O0 → no end-to-end coverage.
+  Make optimization level a matrix dimension. **BLOCKER for the LLVM lane:**
+  `clang -O2` reddens ~200 conformance tests (managed/refcount/dtor/iface/
+  fmt) — NOT the IR passes (the same tests pass on native -O2); likely latent
+  UB/strict-aliasing that clang exploits — its own investigation, a real
+  correctness concern. Reproduce: `BINATE_FLAGS=-O2 ./conformance/run.sh
+  builder-comp`. The native -O2 lane is clean modulo the mem2reg grounding
+  fix.
 
-### Native-compile profile (2026-09-02): what closes the native↔clang gap vs. what's just generally hot
+### VM execution speed (bni) — 🔵 OPEN (unblocks the double-VM lane)
 
-A `sample` profile of the **native-built** bnc compiling cmd/bnc
-(`--backend native --linker bnld`, aarch64) — the workload behind the ~3.4×
-native↔clang gap — breaks the self-time down as: **memory management ~50%**
-(`rt.MemZero` ~42% alone, + malloc/free + refcount dtors), **register allocator's
-own bookkeeping ~20%** (`slices.Append[LiveRange]`, `__dtor_ms_LiveRange`, linear
-`LookupHome`/`Spill`/`Alloc`), **linker (bnld) ~15%** (O(n²) symbol resolution),
-**other compiler ~13%** (string compares, tables).
+A faster VM lets the full double-VM lane return and speeds every VM lane.
+Landed so far (done log): dispatch reorder `835ec63bc` (~1.7× on fib),
+execArithOp float-bail fix `63676b720`. Open:
 
-**The lens that matters for this project is "does it close the native↔clang
-gap?", not "is it hot?".**  Most of the hot buckets are *general* build-speed —
-they run in BOTH the clang-built and the native-built bnc, so optimizing them
-speeds both and leaves the gap unchanged (an algorithmic O(n²)→O(1) win is not
-something clang recovers for the native side alone).  The exception was MemZero:
-clang *already* lowered its byte loop to a vectorized memset, so only the native
-side was paying — fixing the source closed the gap.
+- **Re-land the same-function frame-skip (un-revert `9c7ef5518`, ~12% fib).**
+  It was reverted (`0d5f786a8`) for an int-int regression whose real cause —
+  the VM leaking `vm.SP` on raw aggregate call results — is FIXED
+  (`20c51d0ca`); the optimization itself is correct. Gate the un-revert on
+  builder-comp-int AND builder-comp-int-int + pkg/binate/vm unit tests.
+  Still open after re-landing: the 5 colder frameLocals sites (needs a
+  vm_exec.bn split — it is at the file-length cap), pushFrame's frame-header
+  write + register zeroing, and the @Vec receiver RefInc on vm.Funcs.Get.
+- **VM-internal bounds checks** (`regs[]`, `code[pc]` — several % of fib and
+  growing): tactical `unsafe_index` on the proven-safe hot paths (register
+  indices validated at load; pc bounded) as a stopgap, vs waiting for the
+  compiler BCE pass above (the real fix — but note the `code[pc]` check is
+  NOT IR-BCE-eliminable; it stays a tactical case either way).
 
-- **DONE — `rt.MemZero`/`MemCopy` widened to word-at-a-time (landed `43054b3f1`).**
-  Byte-at-a-time loops (clang lowers to vectorized memset/memcpy; the native
-  backend emitted them verbatim) → one machine word (`int`: 8B LP64 / 4B ILP32)
-  per iteration through the aligned middle, byte lead-in + tail; pure Binate
-  (bare-metal-safe).  Measured **native compile of cmd/bnc 29.7s → 22.2s (~25%
-  faster)**, gap **~3.4× → ~2.5×**.  Adversarial review clean; LP64 conformance
-  2999/0; native aa64/x64 unaffected.
-- **The gap-closer from here is Stage 5** (native codegen quality) — see the
-  register-allocator entry below.  The other two hot profile buckets were
-  *general* build-speed (they did NOT close the gap) and are both now landed —
-  regalloc data-structure churn and bnld's O(n²) symbol resolution — see
-  [claude-todo-done.md](claude-todo-done.md).
+### bni load time — 🟡 OPEN (levers need a design discussion)
 
-### Native register allocator — Stage 5 refinements — 🔵 OPEN (v1 landed 2026-09-02)
+Loading toolchain-sized graphs (parse → typecheck → IR-gen → lower) is
+memory-management-bound (profile in the done log: ~two-thirds
+alloc/zero/free — `rt.MemZero` via the generic `rt.Alloc` scales with total
+allocation VOLUME — plus rt.BoundsCheck ≈ a third of self-time). Measure at
+-O2. After the O(n²) sweeps (done log), the levers are:
 
-v1 — linear-scan over **range-list** live intervals from the liveness fixpoint; shared
-liveness/intervals/scan in `native/common` + a per-arch register-class descriptor + a per-op
-clobber/scratch model — is **landed on all three native backends**: aarch64 `f4bb7f4b7`,
-x64 `712241d57`, arm32 `d49bd66a2` (plus Stage 0 core `3bf3ac146`, Stage 1a scan `54d53251c`,
-and the clobber-classifier unit tests `0439ee0f9`).  Design: `explorations/plan-native-regalloc.md`.
-The per-stage detail — the callee-saved-vs-caller-saved home choices, the miscompiles found + fixed
-(aarch64 `emitRefIncInline` pre-index writeback; x64 SHL/SHR-count + `emitUint64ToDouble`
-operand-mutation; arm32 bounds-fail marshalling), and the per-backend validation — is archived in
-[claude-todo-done.md](claude-todo-done.md).  It cut the native↔clang **-O2 codegen** gap from
-**~9–12×** to **~3.4×** (aarch64, native-compile of cmd/bnc via `--linker bnld`: clang 8.79s vs
-native 30.76s); the remaining gap is exactly the Stage-5 headroom below.
+- **Bounds-check elision** — the IR BCE pass above.
+- **Cut allocation COUNT** — design-level; do not pick unilaterally (partly
+  owned by others).
+- **lookupFunc*/lookupFuncSig per-lookup allocation (small):** call sites are
+  consolidated (`3d078c4c2`, done log) but each remaining lookup still does a
+  CopyStr + qualify-concat per call — intern the qualified key or hash the
+  (pkgPath, name) components without materializing it.
 
-**Reproducible gap benchmark: `perf/native-vs-llvm.sh` (landed `1547956aa`).** Builds bnc
-`--backend llvm -O2` vs `--backend native -O2` from the current tree and times each doing the
-identical work (self-compile `<target>`, default cmd/bnc, via `--backend native --linker bnld`),
-reporting the native/llvm ratio. **Current measured ratio (2026-09-04): ~3.9×** (native-built
-bnc ~6.8s vs llvm-built ~1.7s), corroborated by binary size — native 10.9 MB vs llvm 4.5 MB
-(~2.4× more code).
+### Double-VM (`*-int-int`) lane — 🟡 stopgap in place
 
-**The ~3.4×/~2.5× recorded above is a DIFFERENT (non-comparable) metric — reconciled by bisecting
-the benchmark.** Running `native-vs-llvm.sh` at the historical commits gives a clean, monotonically
-improving trend by ONE consistent code-quality metric: `f4bb7f4b7` (regalloc v1) **6.9×**
-(18.1s/2.65s, native 10.6 MB) → `43054b3f1` (MemZero widen) **5.0×** (13.8s/2.66s, native 10.7 MB)
-→ now **3.9×**.  The old figures are consistently ~2× SMALLER than this at the same commits, so
-they measured something else (throughput-contaminated, not the pure native-built-vs-llvm-built
-code-quality ratio).  So: native codegen IS steadily improving (6.9→5.0→3.9), the native binary is
-always ~2.4× the llvm one, and the real code-quality gap is ~3.9× — large, and the target of this
-section.  Use `perf/native-vs-llvm.sh` as the canonical gap number going forward.
+GREEN via the representative-subset stopgap (`083e1f334`; the full saga —
+skip rounds, test-level sharding, the two O(N²) registration fixes — is in
+the done log): types+ir run test-sharded plus all cheap packages; every
+compile/run-heavy `.split.vm` package (codegen, vm, native/*, asm/*, lint,
+bnlint, bnfmt, parser, irdata) is skipped in THIS lane only (their logic is
+covered by the single-VM and native lanes). Open:
 
-**Ranked gap-source worklist (profiled 2026-09-04, native bnc self-compiling cmd/bnc + native-vs-llvm
-disassembly diff).** The gap is dominated by native NOT keeping values in registers — it round-trips
-nearly every temporary through the stack.  Whole-binary: native 2.42M instrs / 53% memory ops vs llvm
-0.94M / 41% (2.6× more instrs, 3.3× more loads/stores).  The disassembly shows literal
-`str Xa,[sp,#K]; ldr Xb,[sp,#K]` store-then-immediately-reload pairs — **26,881** adjacent such pairs
-across the binary (each a guaranteed-redundant load).  Hottest leaf `livenessFixpoint` (the regalloc
-liveness pass itself) is 61% memory ops: 1144 vs llvm's 135 (8.5×).
-1. **Within-block value retention (reload-caching) — LANDED aarch64 (60ed89b0e).** Instead of a
-   post-hoc peephole, the aarch64 allocator now keeps computed/reloaded values in the caller-saved
-   scratch pool (X9..X15) ACROSS instructions within a block (occupancy-aware allocation), so a
-   later use reads the register instead of reloading its slot — eliminating the redundant reloads at
-   emit time.  ~5% faster native self-compile (native/llvm gap 3.77x→3.67x median, same-machine
-   before/after via `perf/native-vs-llvm.sh`); full native_aa64 conformance green (3000/0).  The long
-   debug bottomed out at an AssignReg id-reuse double-cache (the IR reuses a mutable var's value id
-   across load/modify/store; the reload cached id→oldReg, the redefinition appended id→newReg, and
-   LookupReg returned the stale first entry → `i=i+1` stored the pre-increment value) — fixed by
-   AssignReg REPLACING, not appending, a duplicate id entry.
-   **UPDATE (all three backends LANDED):** arm32 `62f474df1` (aarch64-style mirror; R4..R10
-   callee-saved pool disjoint from R0..R3 homes; native_arm32_linux 3020/0 under qemu-arm) and
-   x64 `7558a35ec` (feature) atop `4a7bbba26` (a prerequisite assembler fix — see below).  x64's
-   caller-saved pool (R10/R11/RCX/RDX/R8/R9/RDI) is pervasively ISA-hardcoded mid-instruction
-   (RCX shifts, RAX/RDX mul/div, R8/R9/R11 float, RDI memcpy-shaped paths), so retention flows
-   only through a whitelist of occupancy-clean ops (`retentionSafe`) and the emit loop resets the
-   cache before every other op; native_x64 conformance 3020/0.  Two bugs surfaced during the x64
-   port: (1) a full-width bit_cast that reused a homed result's register (reverted — bit_cast now
-   always moves to a fresh reg); (2) a LATENT x64 assembler byte-REX hazard — `emitRex` omitted
-   REX for 8-bit ops on RSP/RBP/RSI/RDI, so a byte spill of RDI assembled as a write to BH (a
-   silent miscompile; reproducer conformance 902) — fixed comprehensively in its own commit
-   `4a7bbba26` with asm-level encoding tests.
-   The OP_CAST float-cast picker follow-up LANDED (`e8461747d`): `pickScratchGP`/`pickTwoScratchGP`
-   are now occupancy-aware (evict like `allocReg`), so OP_CAST is occupancy-safe by construction,
-   not by an incidental branch.
-   x64 retention VERIFIED doing real work (2026-09-06): compiling the same cmd/bnc source with the
-   x64 backend WITH vs WITHOUT retention removes ~16% of value reloads (mov from frame) and ~14% of
-   frame-address recomputes (lea from frame) — −3% total instructions, −4.1% code size; spills
-   unchanged (by design).  A wall-clock delta is not easily visible (those reloads are cheap L1
-   hits).  **MEASUREMENT GOTCHA that wasted time this round:** `perf/native-vs-llvm.sh` builds N with
-   `--backend native`, i.e. the HOST backend — on an arm64 dev box that is aarch64, so it CANNOT see
-   x64/arm32 codegen changes (an x64-retention revert leaves the aarch64 output identical → looks
-   "neutral").  Measure a non-host backend by static reload-counting on a `--target x86_64-darwin`
-   (or arm32) build, or on real x64/arm32 hardware/CI — NOT via the host `perf` script.
-   Dead-store elimination (lazy spill) LANDED x64 (`3ef8e76c5`): a spilled scalar stays DIRTY in
-   its register and is written to its slot only when it leaves the register while still live (on
-   eviction, or before a cache-drop reset if live-after that point — per-point liveness from
-   `common.ComputeLiveBeforeAll`); a value used only from its register is never stored.  Shared
-   machinery (RegMap `DirtyIDs` + `CurAsm` back-channel; `ComputeLiveBeforeAll`) is additive — only
-   `isAllocatableDef` results are lazy-spilled, aggregates/floats keep the eager store.  Effect
-   (x64, cmd/bnc): frame stores −18.5% (209,611→170,802), −1.7% instructions; conformance 3020/0.
-   Design + code both adversarially reviewed (the plan review caught 2 fatal + 3 major holes).
-   Also LANDED aarch64 (`7b89584f8`): aarch64's clean pool means the internal-reset ops are the
-   returning-BL family + OP_RETURN's sret store + OP_RODATA_ARRAY's inline byte-store loop, so the
-   pre-op barrier fires on `EmitsReturningBl(op) || op == OP_RETURN || op == OP_RODATA_ARRAY` (a
-   DENYLIST — a new op whose emitter resets the cache or writes a pool register outside allocReg
-   MUST be added).  The RODATA_ARRAY case was a latent gap an adversarial review caught (masked in
-   practice by an adjacent CONST_STRING adrp).  X16/X17 get a spill-aware eviction every
-   instruction.  native_aa64 conformance 3020/0.
-   Also LANDED arm32 (`d478c167d`) — dead-store elimination now on ALL THREE backends.  arm32 was
-   the hardest: its soft-float and int64-pair ops lower via AEABI libcalls that reset internally
-   (type-dispatched via `instrIsFloat` / `instrIs64`).  A first type-aware DENYLIST attempt
-   miscompiled (198/3020 conformance failures in managed/refcount code): an op with an INLINE
-   alternate path (a bounds-check fail path, a refcount skip) emits its allocReg-eviction spill
-   INSIDE that path, which the mainline jumps over — so a dirty value evicted there is never stored
-   at runtime and reloads garbage.  A denylist can't safely enumerate every such op, so arm32 uses
-   the safe-by-default ALLOWLIST (`arm32RetentionSafe` — proven-clean 32-bit-integer ops only,
-   float/int64 excluded by type), same shape as x64's `retentionSafe`.  native_arm32_linux
-   conformance 3020/0; code-reviewed clean.
-   aarch64 barrier UNIFIED to the allowlist (`501b2d9eb`): all three backends now use the same
-   safe-by-default form (`arm32RetentionSafe` / `aarch64RetentionSafe` / x64 `retentionSafe`) — a
-   missed reset-y / inline-alt-path op can no longer silently gap.  aarch64's version is
-   op-code-only (no type refinement — LP64 + hardware FP means the arithmetic/compare/cast op codes
-   are clean at every width); strictly more conservative than the old denylist (barriers a superset)
-   so it can't regress; native_aa64 conformance 3021/0.  Within-block retention + dead-store
-   elimination are now BOTH landed on all three backends — this line of the gap work is complete;
-   the deeper levers (register promotion #2, inlining #3) are the remaining path.
-   NOTE: the `-O1+` native startup hang (MAJOR bug, above) currently blocks measuring the retention
-   /DSE payoff at its intended optimization level — native is only ever run at `-O0` today.
-2. **Register promotion (keep IR temporaries in registers; mem2reg-equivalent)** — the deep lever
-   and bulk of the gap.  Native materializes ~every temp to a stack slot; llvm's mem2reg keeps them
-   in registers.  **This is why the Stage-5 refinements above were NEUTRAL** — they tuned the margins
-   (a few more homes, coalescing) while almost everything spills to begin with.  Bigger project.
-3. **Inline hot small leaves** — llvm inlines `charsEqual`/`streq`/`LiveInterval.Start` (0 instrs in
-   the llvm binary); native leaves them out-of-line.  Native's inliner should catch these; inlining
-   also unlocks #1/#2 across the merged body.
-4. **String/byte compares** (`charsEqual`/`streq`/`FnEq uint8`/`symHash` ≈ 900 samples) — needs #3
-   then SIMD (see `plan-native-vectorization.md`).
-5. **`ShiftCheck`** (242 samples, rt per-shift bounds check; 27 native vs 16 llvm instrs) — minor.
-
-**Stage 5 refinements** (additive, on the same foundation):
-- **Caller-saved homes (leaf / call-free regions) — TRIED aa64, NEUTRAL, SHELVED (2026-09-02).**
-  Homed non-call-spanning values in the caller-saved arg bank (no save/restore).  Correct +
-  conformance-subset-green, but neutral on the self-compile (the leaf save/restore win is too small;
-  the extra homing budget rarely prevents spills over the 10 callee-saved homes).  Full write-up
-  (incl. the 5× regression + the allocator caller-saved-ineligible fix, and two miscompiles found —
-  param-landing permutation, emitStringToArray X0 scratch) in `plan-native-regalloc.md`.
-- **Copy coalescing — TRIED aa64+x64, NEUTRAL, SHELVED (2026-09-03).** Reused a dying OP_COPY
-  source's register so the move elides.  Correct, but neutral: the LIFO free pool already coalesces
-  the common case for free (source dying at a copy is the most-recently-freed reg).  See
-  `plan-native-regalloc.md` Stage 5b + the META note (two neutral refinements ⇒ v1 already captured
-  the codegen-quality wins; register refinements won't close the ~2.5× gap).
-- **Interval splitting** (register in the un-pressured sub-range, spilled elsewhere) — likely the
-  same neutral story per the META note; **float register allocation** is the one untried item with
-  a distinct mechanism (float scalars are non-allocatable today).
-- **Spill-cost heuristic** (use-density × loop depth) — the current naive "spill the newest interval
-  on pressure" is correct but suboptimal.
-- **Float register allocation** (float scalars are non-allocatable today — D8–D15 callee-saved on
-  aarch64/arm32-VFP, the XMM file on x64).
-- **Home function params** — on x64 the allocator homes internal temps but a param cast/reused
-  across ops still reloads per use from its slot (disassembly-confirmed); the param home-landing
-  code is correct but effectively dead today.
-- **arm32 int64-in-registers** and **reclaiming x64 RCX/RDX** (clobber-modeled) — both spilled /
-  reserved in v1.
-
-## Performance — bni load time
-
-`bni` "loading" a program (parse → typecheck → IR-gen → bytecode-lower, before
-any execution) of a graph that pulls in the whole toolchain (`bni cmd/bni`,
-`bni cmd/bnc`) is the workload under study. Profile (macOS `sample`): load is
-**memory-management-bound**, not compute-bound — at `-O2`, `rt` (mostly
-`MemZero`) ≈ 44% + libc malloc/free ≈ 22% ≈ **66% memory management**; IR-gen
-≈ 20%; parse/typecheck/lower minor. `MemZero`'s caller is the generic
-`rt.Alloc`, so it scales with total allocation volume, not any one table.
-Measure at `-O2` (the `-O0` dev build is ~4× slower to load, mostly un-elided
-`rt.BoundsCheck`; the VM-lane compiled interp builds `-O2` since `5494dd642`).
-
-### Design-level levers — 🟡 OPEN, need a design discussion (partly owned by others)
-
-After the pure O(n²)-sweep round (archived in the done log), the two dominant
-self-time costs are `rt.BoundsCheck` (~32%) and alloc/free/zero (~33%). The
-levers are a **bounds-check-elision pass** and **cutting allocation COUNT** —
-both design-level; do not pick unilaterally.
-
-### OPEN — per-lookup allocation in lookupFunc* (small)
-
-Each `lookupFunc*` / `lookupFuncSig` still does a per-call `buf.CopyStr` (via
-`qualifyForCurrentModule`) plus a qualify-concat to build the compare key. The
-per-CALL-SITE redundancy is now gone — call sites were consolidated to one (or two,
-in `genMethodCall`) `lookupFuncSig` calls instead of ~5 per-field wrappers (see
-[claude-todo-done.md](claude-todo-done.md), commit 3d078c4c2) — but each remaining
-lookup still allocates. Build-once / intern the qualified key, or hash the
-(pkgPath, name) components without materializing the qualified string.
-
+- **Re-add the heavy packages once VM execution is faster** (section above) —
+  or make the explicit per-package call that double-VM adds no coverage over
+  single-VM for it (strong for the compiler-side packages, which `-int`
+  already runs through one VM; weakest for `pkg/binate/vm` itself — prefer
+  per-test skips there over losing its lane entirely).
+- Residual mitigations still in tree for when packages rejoin: codegen's
+  `TestEmitDebug` per-test skip (the DWARF path is unprofiled — profile
+  before guessing; a 2026-05-13 cache attempt was a net LOSS, done log) and
+  `pkg/asm/aarch64` (unprofiled, same hypothesis).
+- Tune the int-int shard count / 45-min cap down once stable;
+  `build_interp_arm32` is still -O0 (possible -O2 follow-up).
 
 ## Standard library — pkg/std namespace migration
 
@@ -1074,35 +945,6 @@ Referenced by the TODO comment in `cmd/bnc/test.bn`'s `isTestResultReturn`.
 
 ---
 
-## Optimization passes (loop-BCE project) — CI coverage
-
-### Add an optimization-level dimension to the conformance matrix — 🟡 OPEN (2026-08-27)
-The IR opt passes (`RunOptPasses`, `-O1+`: constant-index BCE landed; scalar SSA
-promotion / mem2reg is Phase 2a; loop-BCE is Phase 3) only run when opt is on, but
-the conformance suite runs at `-O0` (default), so these passes get **no end-to-end
-coverage** across the LLVM / native / VM backends — only IR-unit tests. Follow-up:
-make optimization level a **matrix dimension** so each backend mode also runs at
-`-O1`/`-O2` (agreed with the user 2026-08-27 as the intended structure). This is
-CI-wiring, kept deliberately **separate** from landing the passes themselves. Until
-it lands, mem2reg/loop-BCE rely on IR-unit coverage plus manual `-O2` spot-runs. See
-`plan-mem2reg-phase2a.md` and `plan-ir-opt-passes-bce.md`.
-
-**BLOCKER discovered 2026-08-27 — `clang -O2` on the LLVM backend reddens ~200
-conformance tests (orthogonal to the IR opt passes).** The LLVM backend implies
-`clang -On`, so a `BINATE_FLAGS=-O2` conformance run compiles the generated code at
-clang `-O2` as well as running the bnc IR passes. A full `builder-comp` (LLVM) run at
-`-O2` gave **2782 passed / 205 failed**; the failures are dominated by managed /
-refcount / dtor / iface / fmt / stdlib tests. These are **NOT** caused by mem2reg: the
-SAME tests PASS on the clang-free **native** x64 backend at `-O2` (verified: 6/6
-representative failures pass on native; the full native `-O2` blast radius is just the
-`scalar-diff` signedness cells, addressed by the mem2reg grounding fix). So turning on
-an `-O2` LLVM matrix lane requires first understanding why `clang -O2` breaks these —
-likely latent UB / strict-aliasing in the generated code or the C runtime shims that
-clang exploits at `-O2` (a real correctness concern even if only triggered under
-optimization). This is its own investigation and gates the LLVM `-O2` lane; the native
-`-O2` lane is clean modulo the mem2reg fix. Reproduce: `BINATE_FLAGS=-O2
-./conformance/run.sh builder-comp`.
-
 ## Conformance matrix generators — port to Binate (dogfood)
 
 ### Port the `conformance/gen-*.py` matrix generators to Binate — 🟡 SCOPED, not started (2026-07-17)
@@ -1473,163 +1315,6 @@ they become read-only-after-load (the dynamic loader applies relocations, then t
 page is remapped read-only).  This is a new object-writer feature
 (segment/section/load-command emission); verify on both formats + arm32.  Low
 urgency (no current miscompile; the writable placement is safe, just unhardened).
-
-## Performance (double-VM `*-int-int` runtime)
-
-### pkg/codegen `TestEmitDebug*` dominates `boot-comp-int-int` runtime (perf)
-- **Symptom**: pkg/codegen unit tests take ~1084s in CI under
-  `boot-comp-int-int` (vs ~4s under `boot-comp-int`). The 26
-  `TestEmitDebug*` tests account for ~78% of that runtime (~500s
-  on local Apple Silicon, scaling up on CI x86). Top offenders:
-  `TestEmitDebugStructWithArrayAndSliceFields` (~79s),
-  `TestEmitDebugSliceFieldInStruct` (~41s),
-  `TestEmitDebugSliceOfPointerChain` (~32s).
-- **Isolated repro**: `TestEmitDebugStructWithArrayAndSliceFields`
-  alone — 0.7s under `boot-comp-int`, ~120s under
-  `boot-comp-int-int` (>100× slowdown for one test).
-- **Mitigation in tree**: `scripts/unittest/pkg-codegen.skip.boot-comp-int-int`
-  skips the `TestEmitDebug` substring under double interp. Coverage
-  is preserved by every other mode that exercises codegen
-  (`boot`, `boot-comp`, `boot-comp-int`, `boot-comp-comp*`).
-- **Root cause to investigate**: each `TestEmitDebug*` runs
-  `compileToLLVM(src)` with `SetDebugInfo(true)`. The DWARF emission
-  path (DICompositeType chains, DIDerivedType members, member
-  scope/baseType references) is heavy on string-building and
-  small allocations. Under double interp every byte append /
-  small allocation pays 2× bytecode-dispatch overhead, and there
-  are many of them per test.
-- **Possible angles** (investigated; first attempt was a net loss):
-  1. Buffered string construction in `pkg/codegen/emit_debug*.bn`
-     — coalesce per-node fragments to reduce CharBuf grows.  On
-     inspection the literal-string `WriteStr` calls are already
-     coalesced; the only repeating fusable pattern is `WriteByte('!')
-     + WriteInt(id)` (~18 sites).  Mechanically fusable but ~18
-     dispatches saved per node-emit × ~10 nodes/test ≈ milliseconds.
-     Won't move 100s+ runtimes meaningfully.
-  2. Cache stable strings (e.g. DI tag names, common type keys).
-     **Tried 2026-05-13**: pointer-keyed cache in `dbgTypeID` that
-     short-circuits `dbgTypeKey` for repeat lookups.  Single-test
-     baseline 160s → 106s (-34%), but aggregate of all 26
-     `TestEmitDebug*` went 441s → 513s (+16%) under boot-comp-int-int
-     locally — the added pointer-scan per call pays off only when
-     the registry is large (few slow tests) but slows the small-
-     registry common case.  Reverted; needs a cache that's O(1)
-     per call (e.g. a side-table on `@types.Type` itself, with the
-     attendant `pkg/types` layout-contract implications).
-  3. Reduce redundant work in the type registry — same composite
-     type is rebuilt every call to `compileToLLVM`.  Cross-test
-     state would also need per-module id offsets to keep nodes
-     self-consistent; non-trivial.
-- **Real next step**: actually profile before guessing again.  The
-  intuition that "many small allocations × double-interp overhead"
-  is the cost was correct in direction but wrong in distribution —
-  most of the cost isn't where it looks like it should be.
-- **Not blocking anything**; mitigation in tree (`1bffc43`).
-
-### pkg/asm/aarch64 slow under `builder-comp-int-int` (perf)
-- **Symptom**: under `builder-comp-int-int`, the
-  `pkg/asm/aarch64` test package alone is slow enough to time
-  out its CI shard at the 30-min cap. Other packages in the
-  same mode finish comfortably.
-- **Mitigation in tree**: skipped via the whole-package skip
-  mechanism `scripts/unittest/pkg-binate-asm-aarch64.skip-pkg.builder-comp-int-int`
-  (2026-06-10 — migrated from the old `.xfail`; slowness is a skip,
-  not an expected failure). Coverage is preserved by `builder-comp`,
-  `builder-comp-int`, `builder-comp-comp*` and the native_aa64 / arm32
-  modes — this is purely a double-interp pacing issue. See the
-  "int-int slow-package skips" entry below in this group.
-- **Hypothesis**: same shape as the codegen `TestEmitDebug*`
-  entry above — many small CharBuf / refcount / bounds-check
-  operations per emitted instruction, each paying 2× bytecode-
-  dispatch overhead under VM-on-VM. The aarch64 assembler is
-  string-heavy (encoding tables, mnemonic dispatch). Hasn't
-  been profiled.
-- **Next step**: profile one `pkg/asm/aarch64` test under
-  `builder-comp-int-int` to confirm the hypothesis and identify
-  the actual hot path before guessing at fixes. See the codegen
-  entry above for the lesson on guessing-without-profiling.
-- **Not blocking anything**; mitigation in tree.
-
-### int-int slow-package skips — re-add after optimizing (or decide double-VM coverage isn't worth it) — FILED 2026-06-10
-- **Context**: `builder-comp-int-int` (double-VM, VM-interpreting-VM) was "globally broken — every cell SIGSEGV'd" until `c997cf2e` (2026-06-09) made cells actually run. Now-healthy, the lane runs ~120+ min of work and was timing out its CI shards. Bumping unit sharding 4→8 (binate `e40fe3a0`) helped the light half but **4 of 8 shards still timed out at the 30-min cap, each completing ≤1 package** — i.e. a handful of packages each take **>~24 min (or hang) under double-VM**, which sharding can't fix (a single package can't be split across shards).
-- **New mechanism (not xfail)**: added a whole-package skip — `scripts/unittest/<pkg-key>.skip-pkg.<mode>` (run.sh). Distinct from `.xfail` (asserts the package FAILS; XPASS-errors if it ever passes) and from `.skip` (drops individual tests but still runs the package). `.skip-pkg` omits the whole package from a mode because it's too slow there; it is NOT a failure (the tests pass — they're just not run in this lane). Counted as `pkg-skipped` in the summary.
-- **Skipped under `builder-comp-int-int`**: round 1 (2026-06-10) — `pkg/binate/codegen` (its `TestEmitDebug` per-test `.skip` was insufficient), `pkg/binate/ir`, `pkg/binate/types`, `pkg/std/math/big`, `pkg/binate/asm/aarch64` (migrated from `.xfail`); these took 6 of 8 shards green. Round 2 (2026-06-10) — added `pkg/binate/vm` itself (CI showed it was the last timed-out shard's >24-min offender). The set was found empirically (heuristic + iterating on which shard still timed out), since the timed-out shards never log the offender's time.
-- **Re-add work (the "separately" part)**: for each skipped package, either (a) profile + optimize its double-VM runtime so it fits a shard, or (b) make the explicit call that the double-VM lane adds no coverage over single-VM (`-int`) for that package (strong for the compiler-side ones — codegen/ir/types/asm test the COMPILER; `-int` already runs their tests through the VM; double-VM is the same logic + an extra dispatch layer). `pkg/binate/vm` is the one whose lost double-VM coverage is most arguable — its logic is still covered by `builder-comp-int` / `-comp-int` (single VM), and the lane's unique value is exercised by every OTHER package; re-adding it likely wants per-test `.skip` of its slowest tests rather than the whole package. When re-adding `codegen`, its `TestEmitDebug` per-test `.skip` still applies.
-- **Separately unmasked**: `pkg/std/os` (landed `3ca36c82`) fails `vm/lower: unhandled IR opcode c_call` on ALL three VM-leg unit modes — libc-backed (native-only), same category as the `rt`/`bootstrap` xfails. NOT a slow-skip case (it genuinely FAILS in the VM), so it's `.xfail`'d (not `.skip-pkg`'d) for `builder-comp-int` / `-comp-int` / `-int-int`, matching that convention. My skips merely unmasked it (the shard used to time out before reaching it); it was already reding `builder-comp-int` independently.
-- **Not a release blocker** (int-int non-blocking per `release-process.md`; was red at `bnc-0.0.7` too). Tracked here so the skips don't become permanent silent coverage loss.
-- **Round 3 → superseded by Round 4.**  (Round 3 briefly skipped 7 more packages; that
-  was abandoned — skipping compiler-side packages generalizes to "skip nearly the whole
-  lane," defeating its purpose.)
-- **Round 4 (2026-08-23) — TEST-LEVEL SHARDING instead of skips.**  The lane was
-  package-granular, so a single package too heavy for the 30-min cap could only be skipped,
-  never split.  Fixed by adding `bni --test --shard-index i --shard-count n` (runs the tests
-  at `pos % n == i-1`), plumbed through run.sh: a package marked
-  `scripts/unittest/<pkg-key>.split.vm` runs on EVERY shard with the shard forwarded (its
-  tests split), while non-split packages stay package-sharded (one shard each).  The heavy
-  compiler-side packages (interp, repl, lint, native/{x64,aarch64,common,arm32}, codegen, ir,
-  types, vm, asm/aarch64, parser, irdata, asm/parse, cmd/bnlint, cmd/bnfmt) are now `.split.vm`
-  — RUN under double-VM (coverage restored), just spread across shards — and the old
-  `.skip-pkg.builder-comp-int-int` files were removed.  The VM lanes were sharded in
-  `unit-tests.yml` (int-int 12 shards + a 45-min cap; -int / -comp-int 6 shards each).  The
-  counts are tuned empirically against the caps — CI-confirmation pending on `bf86b23dd`; bump shards if a shard still exceeds its cap.
-- **Round 5 (2026-08-24) — interp compile-heavy tests skipped under int-int only** (`eaad88d22`).
-  CI on `bf86b23dd` showed all 12 int-int shards still hit the 45-min cap: `pkg/binate/interp`
-  dominated the lane.  Its ~38 typed/aggregate-RunFunc tests (`RunFuncTyped*`,
-  `InterpCallIfaceMethod*`, `WrapPackage*`) each run a full `loadSelfContained` compile, which
-  under nested interpretation (~100×) costs minutes apiece — interp alone was ~555 min.  These
-  three families are now dropped **only** under double-VM via
-  `scripts/unittest/pkg-binate-interp.skip.builder-comp-int-int` (they keep full coverage under
-  `-int` and `-comp`).  To express three name-families in one marker, `bni --skip` was extended
-  from a single substring to **comma-separated** (`skipMatchesAny`; empty parts/empty spec match
-  nothing).  Validated locally: interp under `-int` with the marker runs exactly 35 (light) tests,
-  0 failures.  Expected int-int total ~750 → ~200 min, giving 12 shards / 45-min cap headroom.
-  CI-confirmation on `eaad88d22`: **still over-cap** — all 12 shards hit 45min again.  Shard-log
-  breakdown (3/12): build 53s, `pkg/binate/parser` 18 tests 250s, then **`pkg/binate/interp`
-  3 tests = 1925s (~640s/test)**.  The residual is NOT the `loadSelfContained` families (those
-  are skipped) but `interp_test.bn`'s 8 `New()`-calling tests: `interp.New()` injects the FULL
-  standard package set (`injectPackageSet(StandardPackages())`) into a fresh VM, which costs
-  ~600s under double-VM vs ~0.2s single-VM — a ~3000× blow-up (well past the ~100× inherent
-  double-VM cost).  Test-level sharding CANNOT fix a per-test setup cost; there are only ~8 such
-  tests but each is irreducibly ~10min.  The ~30× gap beyond inherent double-VM cost HINTS a
-  superlinear (O(N²)?) `injectPackageSet` — Binate has no built-in maps, so symbol registration
-  may be linear-scan, invisible at single-VM speed and explosive at double-VM.
-- **Round 6 (2026-08-24) — ROOT-CAUSED + FIXED the interp double-VM cost (user chose "root-cause
-  the perf").**  It was NOT inherent to nesting: `vm.RegisterExtern` was O(N²).  `injectPackageSet`
-  calls it once per function of every injected standard package (hundreds), and each call did
-  (a) a linear `streq` dup-scan of all prior externs AND (b) a grow-by-one `make_slice(len+1)` +
-  copy-all of every prior `ExternBinding` — and an `ExternBinding` holds managed refs
-  (`Name @[]char`, `HandleAddr @VMFuncHandle`), so the copy-all did O(N²) REFCOUNT traffic
-  (rt.RefInc/RefDec per prior binding per append).  Invisible at native speed; ~600s under the
-  double-VM lane.  The `LookupExtern` comment even said "N is small (~30)" — an assumption
-  `injectPackageSet` violates.  **Fix:** gave the extern registry the same treatment `vm.Funcs`
-  already had (`func_index.bn`): a new `extern_index.bn` open-addressing name→index hash
-  (`ExternIndexBuckets`/`Mask`/`Count`, shares djb2 `hashName`/`nameEq`/`FuncIndexEntry`) makes the
-  dup-check AND `LookupExtern` O(1); `vm.Externs` is now an amortized-doubling backing
-  (`ExternsLen` logical count) so registering N externs is O(N) not O(N²).  Validated: interp under
-  `builder-comp-int-int` PASS (35 tests) went from ~640s/test (shard 3: 3 tests = 1925s) to
-  ~39s/test (35 tests = 1375s) — ~16× per-test, so interp's per-shard slice drops from a 32-min
-  wall to ~2 min.  vm/interp/repl all green hosted.  Landed `e65280c55`.
-- **Round 7 (2026-08-24) — FIXED the SECONDARY O(N²) (the dataSym table).**  `New()`'s dataSym
-  registration was also O(N²): `materializeTypeInfos` / `ensureIfaceIdSym` / `registerDataSymAddr`
-  each insert one entry BEHIND a linear `lookupDataSymAddr` scan (typeinfos + iface-ids), and the
-  same scan ran per execution-time `BC_DATA_SYM_ADDR`.  The ~170s/New-test residual after the
-  externs fix.  **Fix:** `datasym_index.bn` adds a name→index hash into the existing
-  `dataSymNames`/`dataSymAddrs` vecs (the func_index↔vm.Funcs model — vecs stay as storage, a single
-  `dataSymInsert` write path keeps vecs+hash in sync), so `lookupDataSymAddr` is O(1).  vm (with new
-  datasym_index tests) + interp green hosted; adversarial review clean (all 6 hazards SAFE — vec↔hash
-  sync verified single-write-path, indices stay valid across vec growth).  Landed `41f370c28`.
-  **MEASUREMENT CORRECTION:** the dataSym fix does NOT reduce interp's double-VM time — after it,
-  interp under `builder-comp-int-int` is 1388s (vs 1375s before it): within noise.  The extern fix
-  (`e65280c55`) was the WHOLE interp win; the dataSym table's N (satentries in the std set) is too
-  small for its O(N²) to matter for `New()`.  The dataSym fix's real value is (a) removing a latent
-  O(N²) in the EXECUTION-time `lookupDataSymAddr` (per `BC_DATA_SYM_ADDR` type assertion — O(types)→
-  O(1) for a type-heavy program) and (b) completing the O(N²)-registration cleanup consistently with
-  the extern fix — NOT the int-int headroom originally predicted.  int-int's pass/fail hinges on the
-  extern fix alone (CI pending — the `e65280c55` run was still queued 30min in due to runner backlog;
-  superseded by the combined `41f370c28` run).
-- **Deferred follow-up (once int-int is confirmed green):** tune the shard count / 45-min cap down.
-  native_aa64's 30-min cancel is pre-existing (≥4 runs), separate.
-- **STATUS 2026-06-10 — GREEN (superseded — see Round 3)** (unit run on `3342460e`): all 8 `builder-comp-int-int` shards pass (2.5–26.7 min) and `builder-comp-int` / `-comp-int` pass. **Margin note**: shard 4/8 ran 26.7 min — ~89% of the 30-min cap; the 8-shard + skip set is sufficient but thin, so if the int-int suite grows it may need a 9th–10th shard or one more skip before it times out again. (The remaining unit reds — `arm32_{linux,baremetal}`, `native_x64` — are separate modes, not this. NOTE: `native_x64` was NOT "WIP" — it was broken by an ELF PC32 reloc bug, fixed 2026-06-14 `dd74c91e`; that native_x64 ELF PC32 reloc bug is fixed and archived in claude-todo-done.md.)
 
 ## Testing: harness, runners & conformance coverage
 
@@ -2207,79 +1892,3 @@ them (the ABI spec was authored from the code, not these):
   frontend doesn't yet) — proper fix is VCVT-promote float32→float64 in the emit; (2) with the
   mode green, promote `builder-comp_native_arm32_linux` false→blocking in conformance-tests.yml
   (plan-native-arm32.md P7), pending a green CI run of the landed fix.
-
-## Optimizations — bni EXECUTION performance (the VM)
-
-- **int-int lane is GREEN via a stopgap (`083e1f334`):** the double-VM lane now runs a REPRESENTATIVE
-  SUBSET — types + ir (moderate at double-VM, ~0.9s/test) test-sharded, all cheap (non-.split.vm)
-  packages package-sharded, every OTHER .split.vm package (codegen, vm, native/*, asm/*, lint, bnlint,
-  bnfmt, parser, irdata) SKIPPED for this lane.  Real shard ~5min local (was timing out at 45min).
-  Full saga (batch-all → hybrid → -O2 interp+gen1/gen2 → representative subset) in claude-todo-done.md.
-- **Why only a stopgap:** at double-VM, tests that compile or RUN programs are ~100× (VM interpreting
-  the VM).  vm's own tests run a bytecode VM → VM-on-VM-on-VM; a shard of {types,ir,vm,codegen} took
-  **5h44m**; native/arm32 (353 tests) full > 25min.  The compile/run-heavy packages can't rejoin the
-  double-VM lane until bni EXECUTION is much faster.
-- **THE REAL FIX (current focus): profile + speed up bni's bytecode-VM execution.**  The load phase
-  (parse/typecheck/IR/bytecode) is someone else's focus; this is EXECUTION — the `pkg/binate/vm`
-  dispatch loop.  Approach: run an execution-dominated Binate program (fib-style, minimal load) under a
-  release bni with a sampling profiler (macOS `sample`/Instruments; Linux `perf`) → find dispatch-loop
-  hotspots, then optimize.  Progress-tracking benchmarks already landed: perf/self.sh `bni_runs_hello`
-  / `bni_runs_bni_hello`; perf/001_fib.bn under builder-comp-int.  A faster VM lets the FULL double-VM
-  lane come back (re-add codegen/vm/native to INTINT_HEAVY) and speeds every VM lane + conformance.
-- Secondary/deferred: `build_interp_arm32` still -O0 (qemu arm32-linux lane) — possible -O2 follow-up.
-
-
-### Optimization backlog (profile-driven — fib under the compiled VM, macOS `sample`)
-
-Method: build bni `-O2 -g` (gen1 --cflag -O2 -g), run fib(N) (execution-dominated,
-minimal load), `sample <pid>` → aggregate heaviest leaves.  Track wins with
-perf/001_fib.bn (builder-comp-int) and perf/self.sh `bni_runs_*`.  Cumulative on fib(37) so far:
-~10.7s (pre-opt) → ~4.83s (~2.2×) across the three landed VM optimizations below.
-
-- **Dispatch reorder — ✅ DONE (`835ec63bc`, ~1.7× on fib):** execLoop dispatched the
-  register/memory/string handler GROUPS before the control-flow/call blocks, so every
-  BC_CALL/BC_RETURN fell through ~6 wasted handler-function CALLS.  Moved the groups
-  below control-flow, reordered by frequency, and guard execOp64 on 64-bit (REG_SLOT < 8).
-  execStringOp (was 2nd-hottest, on a string-free program) + execOp64 dropped out of the
-  top; fib(37) 10.7s→6.3s.  (Moved detail also in claude-todo-done.md if split later.)
-- **execArithOp double-call waste — ✅ DONE (`63676b720`, ~6% fib):** execArithOp only calls
-  execFloatArithOp for the actual float-arith opcode ranges (BC_FADD..BC_FDIV,
-  BC_F32ADD..BC_F32DIV), so a pass-through CMP no longer pays a wasted execFloatArithOp
-  bail-call; int-arith path untaxed.  Validated + 196 float conformance tests.
-- **Call machinery (pushFrame / frameLocals) — PARTIAL: same-function frame-skip ✅ DONE
-  (`9c7ef5518`, ~12% fib):** frameLocals re-fetched f/code (vm.Funcs.Get + @VMFunc/@[]BCInstr
-  RefInc) on every call/return; now BC_CALL/BC_RETURN skip that when funcIdx is unchanged
-  (all of fib's self-recursion) and refresh only regs/frameBase via a refcount-free frameRegs.
-  Two adversarial reviews (incl. an empirical refcount/IR review that redirected us away from a
-  raw-borrow/GetRef approach — field reads through @VMFunc already don't RefInc, and the
-  raw-borrow had a grow-UAF hazard).  STILL OPEN: the 5 colder frameLocals sites (indirect/iface
-  calls, unwind, refdec) — guarding them needs a vm_exec.bn split (it's at the 500-line cap);
-  and pushFrame's frame-header write + register zeroing.  Also: the @Vec receiver RefInc on
-  vm.Funcs.Get is NOT removed by the skip (only skipped when funcIdx unchanged).
-- **O(1) dispatch: execLoop as a `switch instr.Op`** — LLVM -O2 jump-tables bnc's switch
-  (proven: perf/003 vs 004; LLVM turns both switch AND if-chain into a single indexed
-  lookup at -O2).  NOTE: after the reorder this is now LOWER value — the expensive
-  wasted-CALL dispatch is already gone; the remaining dispatch is cheap inline comparisons,
-  so a jump table saves only a few %.  Still a cleaner structural form; pairs with the
-  IR-level multi-way-branch below (which makes it O(1) on native + bytecode too).
-- **IR-level multi-way-branch lowering (the "B" fix) — TODO:** bnc's `genSwitch`
-  (ir/gen_flow.bn) lowers `switch` to a linear if-else chain at the IR level.  LLVM -O2
-  jump-tables it for the LLVM backend, but the bnc-NATIVE backend and the BYTECODE path
-  (no BC_SWITCH op) stay linear.  Add a first-class dense-integer multi-way-branch IR
-  construct lowered per-backend (LLVM `switch` / native jump table / bytecode `BC_SWITCH`).
-  Baseline microtests landed (perf/003_dispatch_switch vs 004_dispatch_ifchain): native
-  -O0 switch 0.25s ≈ ifchain 0.28s; VM switch 3.9s vs ifchain 5.0s — both linear; the gap
-  after this lands is the win.
-- **BoundsCheck elimination + IR opt-pass infra — TODO — see `plan-ir-opt-passes-bce.md`:**
-  Design settled (bnc `-On` gate distinct from --cflag but implying it for LLVM; mem2reg-lite;
-  IR-level so it helps LLVM + native backends + the interpreter).  Baseline: VM slice_sum ~6.5%;
-  native pays a per-access opaque rt.BoundsCheck call LLVM can't fold.  Phased: (1) pass infra +
-  gating, (2) mem2reg-lite, (3) BCE.  NOTE the VM's own code[pc] check (~6% of VM work) is a
-  SEPARATE tactical unsafe_index case, not IR-BCE-eliminable.  ORIGINAL note below:
-- **BoundsCheck elimination — TODO (broader compiler optimization):** the VM bounds-checks
-  its own internal slice accesses (regs[], code[pc]) via rt.BoundsCheck (~6% of fib, and
-  growing).  TACTICAL: unchecked access (unsafe_index) on the proven-safe VM hot paths
-  (register indices are validated at load time; pc is bounded).  BROADER/BETTER: teach the
-  COMPILER to OMIT a bounds check wherever it can prove the index in range (range/bounds
-  analysis in codegen/IR) — benefits ALL Binate code, not just the VM.  The broader one is
-  the real win; the tactical VM edit is a stopgap if wanted sooner.
