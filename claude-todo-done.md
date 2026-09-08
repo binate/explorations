@@ -7,6 +7,40 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+## Inbound multi-VALUE-return `#[c_export]` C-ABI adaptation — DONE (2026-09-07, 12dde66fe)
+
+A `#[c_export]` function returning a multi-value tuple presented Binate's INTERNAL
+multi-return convention to a C caller, which uses the platform C struct-return ABI
+— diverging, so the caller read garbage / crashed. Root cause: the internal
+multi-return budget (up to 8 GP aa64 / 3 x64 / 4 arm32 + FP registers, clang's
+first-class-aggregate lowering) is WIDER than the C struct-return budget. Fixed
+across BOTH backends × all three arches by adapting the C-visible ENTRY to the C
+ABI (the mangled def + Binate-internal callers keep the internal convention,
+unchanged), via a shared classifier `common.CExportMultiReturnAdaptKind`:
+
+  - SRET: C sret's a register-returned tuple → store the register result into the
+    caller's sret buffer.
+  - COERCE: both register-return but placements differ → present clang's coerced
+    form.  Sub-word packing on all targets; PLUS an aarch64 float-scalar field in
+    a non-HFA tuple (aarch64 returns non-HFA composites WHOLLY in GP, so
+    (int64,float64) / (float64,@Error) diverge).
+  - COERCE_FROM_SRET (x86-64 only): the 3-GP-word internal budget sret's a
+    >3-narrow-field tuple that C packs into ≤2 eightbytes → hand the body a local
+    buffer, reload it packed.
+  - HFA (aarch64 / arm32 hard-float) or word-sized non-float tuples → plain alias.
+
+LLVM adapts in the entry thunk (emit_cexport_thunk.bn); native emits a
+return-adapting trampoline per arch (aarch64 new file; x64/arm32 generalize the
+by-value-param trampoline with dual sret cursors + the return adaptation).
+Runtime-verified aarch64 (host) / x86-64 (Rosetta) / arm32 (Docker arm32v7 + qemu)
+× {LLVM, native}; classifier unit tests per target; e2e/ffi-export.sh gained a
+multi-value-return-by-struct driver.  A minimal adversarial review caught + fixed
+the aarch64 mixed int/float case before landing.
+
+Does NOT cover the separately-tracked, pre-existing arm32 LARGE (both-sret)
+multi-return def bug (partial sret-buffer write, both backends) — that stays in
+the active todo (assigned temp-5), to be investigated next.
+
 ## Perf-todo consolidation — histories archived from claude-todo.md (2026-09-07)
 
 The sprawling perf sections were unified into one `## Performance` umbrella in

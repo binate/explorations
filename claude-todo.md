@@ -56,25 +56,6 @@ synthesized family into `__` (ABI-visible rename) or extend the reserved
 check to the `_pkg` prefix at package scope. Needs a test either way. The ABI
 spec (abi/05 §5.4) carries a Status note flagging this.
 
-### Inbound multi-VALUE-return `#[c_export]` with a >2-register tuple is silently miscompiled at the C boundary — 🟠 IN PROGRESS (temp-5) MAJOR (found 2026-09-04, adversarial review)
-
-A `#[c_export]` function returning a multi-value tuple that exceeds the return
-registers — e.g. `func F(...) (int64, int64, int64)` (24 bytes) — is silently
-miscompiled: a conforming C caller (`struct { long a, b, c; } f(...)`) reads
-garbage. Root cause (per review): `multiRetNeedsSret` /
-`CallConv.FuncReturnsBigMultiReturn` returns FALSE for such a tuple, so the LLVM
-def returns a first-class `<{i64,i64,i64}>` instead of using explicit sret, and
-that lowering does NOT match the C sret struct-return ABI on x86-64. A single
->16-byte AGGREGATE return correctly uses explicit sret and works (`5 10 15`) —
-ONLY the multi-VALUE-return tuple path is wrong. NOT caused by the >16-param entry
-thunk: it reproduces via the plain ALIAS path with ZERO params (`mnp() ->
-garbage`), so the thunk (a byte-for-byte return pass-through) neither introduces
-nor fixes it. Discovered in the adversarial review of the >16-param thunk. Fix:
-route a >N-register multi-return tuple through explicit sret (fix
-FuncReturnsBigMultiReturn's threshold to match the C sret cutoff), or reject
-multi-return c_exports until then. Needs a C-driver test reading a multi-return by
-struct, and the same per-target analysis (aarch64/arm32 cutoffs differ).
-
 ### Native capturing closure passed INTO bytecode: untagged env record → panic or silent misdispatch — 🟡 OPEN, needs an owner decision (found 2026-09-04, ABI-spec recon)
 
 A native capturing closure's data word points at an UNTAGGED environment
