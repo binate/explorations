@@ -296,6 +296,20 @@ forwarder because it is BUILDER-compiled and the pinned BUILDER bundle ships
 
 ## Documentation hygiene
 
+### ABI spec §5.2 — package-path validation now ENFORCED; update the "unvalidated" text — 🟢 minor (2026-09-07)
+
+`docs/abi/05-symbol-naming.md` §5.2 records package paths as "currently
+**unvalidated** (an out-of-set byte, or a `.`, would leak into symbols ...) — a
+recorded enforcement gap". That gap is now closed: `mangle.IsValidPackagePath`
+plus loader enforcement (`loadPackage`) reject any package path that is not a
+`/`-separated sequence of NON-EMPTY `[A-Za-z0-9_]` segments — a hostile path
+(e.g. an aliased `import "ev.il"`) now fails with a clean "invalid package path"
+error instead of an undefined-symbol clang failure (was ABI review #12). Update
+§5.2 to state the rule is enforced (drop the "enforcement gap" framing) and note
+the non-empty-segment requirement, which is slightly stricter than the raw
+length-prefix grammar (whose `Ident` could encode a 0-length segment). Re-check
+§5.5 wording for the now-closed discriminator hazard.
+
 ### ABI spec — first version AUTHORED (docs 2fc2b2e); follow-up decisions open — 🟡 (2026-09-04)
 
 The ABI spec now exists: `docs/abi/` (sibling to `docs/spec/`), 7 chapters +
