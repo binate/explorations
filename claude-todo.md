@@ -338,13 +338,16 @@ liveness pass itself) is 61% memory ops: 1144 vs llvm's 135 (8.5×).
    the safe-by-default ALLOWLIST (`arm32RetentionSafe` — proven-clean 32-bit-integer ops only,
    float/int64 excluded by type), same shape as x64's `retentionSafe`.  native_arm32_linux
    conformance 3020/0; code-reviewed clean.
-   REMAINING (follow-up): unify aarch64 from its DENYLIST (`EmitsReturningBl || OP_RETURN ||
-   OP_RODATA_ARRAY`) to the safe-by-default ALLOWLIST, matching x64 and arm32.  aarch64's denylist
-   is currently CORRECT (verified: its bounds-check / guard fail paths marshal via direct `Mov`,
-   no allocReg-spill-in-skipped-path; 3020/0), but the denylist is the fragile form — a future
-   reset-y / inline-alt-path op would silently gap.  The allowlist costs a little aarch64 retention
-   (it barriers before OP_CONST etc.) and needs a native_aa64 re-validation run.  See
-   `plan-native-dead-store-elim.md`.
+   aarch64 barrier UNIFIED to the allowlist (`501b2d9eb`): all three backends now use the same
+   safe-by-default form (`arm32RetentionSafe` / `aarch64RetentionSafe` / x64 `retentionSafe`) — a
+   missed reset-y / inline-alt-path op can no longer silently gap.  aarch64's version is
+   op-code-only (no type refinement — LP64 + hardware FP means the arithmetic/compare/cast op codes
+   are clean at every width); strictly more conservative than the old denylist (barriers a superset)
+   so it can't regress; native_aa64 conformance 3021/0.  Within-block retention + dead-store
+   elimination are now BOTH landed on all three backends — this line of the gap work is complete;
+   the deeper levers (register promotion #2, inlining #3) are the remaining path.
+   NOTE: the `-O1+` native startup hang (MAJOR bug, above) currently blocks measuring the retention
+   /DSE payoff at its intended optimization level — native is only ever run at `-O0` today.
 2. **Register promotion (keep IR temporaries in registers; mem2reg-equivalent)** — the deep lever
    and bulk of the gap.  Native materializes ~every temp to a stack slot; llvm's mem2reg keeps them
    in registers.  **This is why the Stage-5 refinements above were NEUTRAL** — they tuned the margins
