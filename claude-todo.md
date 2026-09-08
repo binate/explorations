@@ -24,7 +24,7 @@ synthesized family into `__` (ABI-visible rename) or extend the reserved
 check to the `_pkg` prefix at package scope. Needs a test either way. The ABI
 spec (abi/05 §5.4) carries a Status note flagging this.
 
-### Native capturing closure passed INTO bytecode: untagged env record → panic or silent misdispatch — 🟡 OPEN, needs an owner decision (found 2026-09-04, ABI-spec recon)
+### Native capturing closure passed INTO bytecode: untagged env record → panic or silent misdispatch — 🟡 IN PROGRESS (claimed 2026-09-07), needs an owner decision (found 2026-09-04, ABI-spec recon)
 
 A native capturing closure's data word points at an UNTAGGED environment
 struct (gen_func_lit.bn: one field per capture, no kind word), but the VM's
