@@ -7,6 +7,51 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### Aggregate `__c_call` RETURN types (sret / register-coerced) — DONE (2026-09-09, `8d386b029`; spec docs `0cfe24f`)
+
+Fourth item of the "FFI C-representability follow-ons" bundle — the last real
+feature (only the two MINOR review items remain).
+
+`__c_call("sym", RetType, args...)` restricted RetType to scalar/pointer/"void";
+this admits any defined-ABI-layout return, returned per the platform C ABI on BOTH
+backends × all three arches.  Key: Binate's INTERNAL single-aggregate-return
+convention is deliberately pinned to the C ABI (InternalSretBytes == the C sret
+cutoff — 16 on LP64, 4 on ILP32; the same GP `[N x iW]` / x64-SSE / aa64-HFA
+register coercion), so a single aggregate return REUSES the machinery Binate
+already uses for its own aggregate-returning functions — no new ABI code.
+
+- checker: return predicate `isCCompatibleArgType` (scalar/pointer) → `isCArgType`
+  (any defined layout, same as the args); only an opaque-by-value type is rejected.
+  A homogeneous-float AGGREGATE return is rejected under arm32 hard-float (VFP
+  register return the internal arm32 convention doesn't yet match) — gated on
+  `AggInRegCoercedKind` so a BARE float/double scalar (rides S0/D0 fine — sqrtf etc.)
+  is NOT mis-rejected.  `isCCompatibleArgType` removed (both callers now isCArgType).
+- LLVM (emit_ccall.bn / emit_alloca_hoist.bn): emitCCall computes the return shape
+  from the type (no funcRetTypes for a verbatim C symbol) — sret buffer above the
+  cutoff (sret pointer threaded as hasSretPrefix so a following memory-class agg arg's
+  x64 straddle shifts), register-coerced below (reusing aggCallResultCoerced /
+  emitAggCallResultBind; SSE/HFA spelling via writeCCallAggRetType).  Declare + the
+  entry-hoisted sret alloca match.
+- native (common.bn PlanFrame): ONE line — OP_C_CALL joins the aggregate-data-region
+  slot branch, so the generic per-arch return-collect binds the result (the
+  caller-side sret-pointer prepend + ForCBoundary sizing were already in the arg
+  dispatch).  Lights up sret + GP-coerce + x64-SSE + aa64-HFA on all three arches;
+  no per-arch codegen change.
+
+No cleanup registration for the C-returned aggregate (C owns the ownership contract,
+like args) — plain-field structs carry no refcounting; a managed-field struct is the
+C-interop programmer's responsibility.
+
+Adversarially reviewed: found + FIXED a MAJOR (the HFA guard mis-rejected bare
+float/double SCALAR returns, breaking math-libc FFI on arm32-linux — the missing
+AggInRegCoercedKind gate; a new test + end-to-end arm32-linux probe confirm the fix)
+plus a minor test-gap and a stale comment.  Verified: checker 1134 / codegen 345 unit
+tests; e2e (sret 24B / GP 8B / float struct) green on both backends; conformance 1260
+(`div`→`div_t`) on LLVM + native aa64 + native x64; 469-test FFI/aggregate regression
+on native x64 AND aa64 (0 fail); 449-test aggregate-return regression on native arm32
+baremetal (0 fail); VM mode correctly xfails.  Tests: check_c_interop_test.bn,
+emit_ccall_return_test.bn, conformance/1260, e2e/c-call-struct-return.sh.
+
 ### `__c_global` admits any defined-layout type — DONE (2026-09-08, `528c3b28f`; spec docs `d3e57ad`)
 
 Third item of the "FFI C-representability follow-ons" bundle (rest still open in

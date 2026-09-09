@@ -113,16 +113,14 @@ dispatch *work* — only to make the already-working VM-in-VM path faster.  Assi
 `__c_call` argument widening LANDED (`bfb0f5d89`): args admit any defined-ABI-
 layout type (struct by value, raw/managed slice, managed ptr, interface/func
 value) with the ordinary `mem.param` ownership (C does RefInc/RefDec by hand);
-correct on x86_64 / aarch64 / arm32 × LLVM + native.  Three pieces have LANDED (all
+correct on x86_64 / aarch64 / arm32 × LLVM + native.  Four pieces have LANDED (all
 moved to the done log): the `__c_entry` callback signature validation (`3aa0fce1e`),
 the `__c_entry` >16-byte by-value aggregate PARAMETER adaptation thunk
-(`8145fd4ad`), and `__c_global` admitting any defined-layout type (`528c3b28f`;
-spec `pkg.cglobal` updated in docs `d3e57ad`).  Remaining, sharing the same widened
-C-representability idea:
+(`8145fd4ad`), `__c_global` admitting any defined-layout type (`528c3b28f`; spec
+`pkg.cglobal` updated in docs `d3e57ad`), and aggregate `__c_call` RETURN types
+(`8d386b029`; spec `pkg.ccall` updated in docs `0cfe24f`).  Remaining are the two
+MINOR review items only:
 
-- **Aggregate RETURN types (sret) for `__c_call`** — 🟡 IN PROGRESS (claimed
-  2026-09-09, work-3/session). Returns are still restricted to scalar/pointer/"void";
-  struct/aggregate returns unsupported.
 - **MINOR (review):** `writeByvalMemType` hardcodes `align 8` — a 16-aligned /
   vector aggregate would be mis-ABI'd vs clang (no such type exists in Binate
   today; latent).
