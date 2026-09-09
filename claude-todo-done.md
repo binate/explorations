@@ -7,6 +7,48 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### `__c_entry` >16-byte by-value parameter adaptation thunk — DONE (2026-09-08, `8145fd4ad`)
+
+Second item of the "FFI C-representability follow-ons" bundle (rest still open in
+[claude-todo.md](claude-todo.md)).
+
+`__c_entry(f)` hands C a callable pointer to f.  A >16-byte by-value aggregate
+PARAMETER of f is passed differently by the platform C ABI (SysV-AMD64: MEMORY
+class, bytes on the stack; AAPCS32: by value split r0-r3 + stack) than by Binate's
+internal convention (a single pointer).  The `__c_entry` adaptation-thunk decision
+keyed only on narrow-register arguments + return adaptation, MISSING the byval-param
+case, so a C caller passing such a struct by value through the callback pointer was
+silently mis-ABI'd (the mangled entry read a pointer C never passed).  AAPCS64
+passes a >16-byte aggregate indirectly BOTH ways, so it was already correct there.
+
+`#[c_export]` already adapts exactly this; the fix routes the `__c_entry` thunk
+decision through the same machinery:
+- LLVM `cEntryLLVMNeedsThunk` now delegates to `cExportNeedsThunk` (was the
+  return-only `cExportRetNeedsAdapt`); the shared `emitCAbiAdapterThunk` already
+  emits the by-value parameter form.
+- native common: new `funcNeedsCEntryByvalParamThunk`, gated on the internal-vs-C
+  large-aggregate divergence (`cc.IndirectLargeAggregates !=
+  cc.CAbiIndirectLargeAggregates` — true for SysV-AMD64 / AAPCS32, false for
+  AAPCS64), added to `collectCEntryThunkTargets`.
+- native x64 / arm32: `emitCEntryThunks` selects the trampoline via
+  `cExportNeedsTrampoline{X64,Arm32}` (was the return-only kind), so a byval-param
+  target gets the re-marshaling trampoline (gather the by-value struct, hand the
+  mangled entry a pointer) instead of a bare tail jump.
+- aarch64: unchanged (no by-value parameter divergence).
+
+Tests: common decision (byval needs a thunk on x64/arm32, NOT aa64); x64/arm32
+emitter (byval-param target routes to the trampoline — the emitted thunk is strictly
+heavier than the degenerate bare jump, a discriminator verified by reverting the
+selection line); LLVM codegen (byval param emits the `__centry` thunk on x64, none
+on aa64); an end-to-end e2e (`e2e/c-entry-byval-callback.sh`) where C passes a
+24-byte struct by value to a Binate callback and checks all fields arrive — exercises
+the byval thunk on an x86-64 host, a parity check on aarch64.  Adversarially
+reviewed (fix sound; the one test-weakness it flagged is the discriminator now added).
+
+NOT done: the broader "share ONE C-representability predicate across `__c_entry` +
+`__c_global` + `#[c_export]`" unification, and the remaining bundle items (aggregate
+`__c_call` returns, `__c_global` aggregates, the two MINOR review items).
+
 ### Deferred / method-value-wrapper call ops had NO fault pad — DONE (2026-09-08, `2ca58004c`)
 
 Deferred calls (`ir/gen_defer_exit.bn` `emitDeferRun`) and method-value wrapper

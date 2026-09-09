@@ -50,24 +50,11 @@ so on the VM-in-VM path it also relieves the 7-arg-limit item above.  Assigned
 `__c_call` argument widening LANDED (`bfb0f5d89`): args admit any defined-ABI-
 layout type (struct by value, raw/managed slice, managed ptr, interface/func
 value) with the ordinary `mem.param` ownership (C does RefInc/RefDec by hand);
-correct on x86_64 / aarch64 / arm32 × LLVM + native.  The `__c_entry` callback
-signature validation piece LANDED (`3aa0fce1e`, moved to the done log).  Remaining,
-sharing the same widened C-representability idea:
+correct on x86_64 / aarch64 / arm32 × LLVM + native.  Two pieces have LANDED (both
+moved to the done log): the `__c_entry` callback signature validation (`3aa0fce1e`)
+and the `__c_entry` >16-byte by-value aggregate PARAMETER adaptation thunk
+(`8145fd4ad`).  Remaining, sharing the same widened C-representability idea:
 
-- **MINOR (review, pre-existing): `__c_entry` of a target with a >16-byte
-  by-value aggregate PARAMETER gets no adaptation thunk** — 🟡 IN PROGRESS (claimed
-  2026-09-08, work-3/session). `#[c_export]` adapts
-  such a param (x86-64 `ptr byval` / arm32 by-value coerced vs the internal single
-  pointer; `cExportNeedsThunk`/`cExportNeedsTrampoline*` include the byval check),
-  but the `__c_entry` thunk decision keys only on narrow-register args + return
-  adaptation (native `collectCEntryThunkTargets`; LLVM `cEntryLLVMNeedsThunk` =
-  return-only `cExportRetNeedsAdapt`), so a C caller passing such a struct by value
-  through the callback pointer is mis-ABI'd (reads the internal pointer convention).
-  Surfaced by the multi-return `__c_entry` adversarial review; the multi-return fix
-  did not touch it.  Fold the byval-param check into the `__c_entry` thunk decision
-  (reuse the `#[c_export]` param-adaptation path).  This is a codegen fix (native
-  `collectCEntryThunkTargets` on all three arches + LLVM `cEntryLLVMNeedsThunk`),
-  distinct from the now-landed frontend signature validation.
 - **Aggregate RETURN types (sret) for `__c_call`** — returns are still restricted
   to scalar/pointer/"void"; struct/aggregate returns unsupported.
 - **`__c_global` aggregate types** — still scalar/pointer only.
