@@ -108,6 +108,48 @@ program point (naively reusing the whole-function live set risks a double-RefDec
 against the return cleanup). Needs a repro test (cross-mode deferred re-entrant
 fault, or a deferred nil-func-value call) marked xfail until fixed.
 
+### Unregistered fresh-managed return values leak on a fault at the value return — 🔴 OPEN MINOR (found 2026-09-08)
+
+**Severity: MINOR, pre-existing.** Some producers of a fresh managed value do NOT
+`registerTemp` it, relying on "it is always moved to a consumer" — which fails
+when the move never happens because a fault unwinds first.  A directly-RETURNED
+such value is in neither `ctx.Vars` nor `ctx.Temps`, so a fault pad at the value
+return (e.g. a deferred-call fault — see the deferred/method-value pad work) can't
+release it → one leaked block.  Confirmed instances (adversarial review of the
+deferred-call-pad fix):
+- `return cast(@I, t)` — `wrapAsIfaceValue` RefIncs the source (`ir/gen_iface.bn`)
+  but the `cast`/`unsafe_cast` widening arms return the box WITHOUT `registerTemp`
+  (`ir/gen_builtin.bn` ~46/112).  The type-ASSERTION path DOES register its
+  managed-iface result (`ir/gen_assert_iface.bn` ~105) — that asymmetry is the tell.
+- `return <capturing @func literal>` — `genFuncLit` heap-allocs the closure struct
+  and deliberately skips `ctx.Vars` for the `@func` flavour (`ir/gen_func_lit.bn`
+  ~154), relying on a variable's frame-end RefDec; a directly-returned literal has
+  no variable and is not a temp.
+
+NOT introduced by the deferred-call-pad fix (`beab99dc9`) — these leak identically
+with or without it; that fix is a strict improvement (it fixed the tracked-value
+and vmPanic cases).  **Fix direction:** `registerTemp` the cast-widening `@I` box
+(mirror `gen_assert_iface.bn`) and the directly-returned capturing `@func` literal,
+so the fault-pad's `ctx.Temps` snapshot covers them.  Repro: clone
+`TestDeferredCallFaultReturnValueNoLeak` (pkg/binate/vm) returning `cast(@I, t)` /
+a closure literal instead of `make_slice`.
+
+### Frame-push (stack-overflow) fault leaks a moved-in owned arg — 🔴 OPEN MINOR (found 2026-09-08)
+
+**Severity: MINOR, pre-existing, ALL calls.** A moved (ownership-transferred) arg —
+an `@Iface` / managed-field-struct — is `consumeTemp`'d out of the caller's
+`ctx.Temps` BEFORE the call (`ir/gen_call_coerce.bn` ~118), and the call-site pad
+is attached AFTER arg building, so the caller's pad excludes it.  If the callee's
+frame PUSH overflows the stack (a recoverable fault), the callee never starts and
+never runs its exit RefDec, and the caller's pad doesn't release the arg → one
+leaked block.  Affects ordinary calls, deferred calls, and method-value wrappers
+identically (surfaced while reviewing the deferred/method-value pad fix — the
+wrapper's empty pad is correct precisely BECAUSE the method, not the wrapper,
+owns the moved param; this residual is a separate, universal gap).  **Fix
+direction:** unclear without a refcount-model change — the caller would need to
+retain the moved arg across the push and release it only on the push-overflow
+path.  Low priority: the trigger is stack exhaustion.
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
