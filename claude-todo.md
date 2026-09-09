@@ -24,32 +24,6 @@ smallest value that triggers the SEGV, then disassemble the crashing native bnc
 against a working one (per the "Debug Miscompiles by Disassembling" protocol) to
 find the miscompile site.
 
-### LLVM backend emits DUPLICATE local value names for two OP_STOREs sharing (dst,src) — clang rejects; blocks higher inliner thresholds — 🟡 IN PROGRESS (claimed 2026-09-08, work-1)
-
-**Severity: MAJOR (latent; fail-loud).** `codegen/emit_copy_ssa.bn`'s
-`emitStoreSSARec` names each scalarized aggregate-store temp
-`%v<DST>_<SRC>.ssN_v` / `.ssN_dp`, keyed ONLY on the dest+src value IDs (the
-comment at emit_copy_ssa.bn:62-63 explicitly *assumes* `vDST_SRC` is unique
-across OP_STOREs). That assumption is false: when a function contains TWO
-OP_STOREs with the SAME (dst,src) pair, both emit `%v<DST>_<SRC>.ss0_v = …`,
-and clang rejects the `.ll` with `multiple definition of local value named
-'v342_409.ss0_v'`. Discovered by raising `InlineSizeThreshold` 15→200 to pursue
-the inliner perf lever: inlining cloned a refcount-cleanup pad (`rd.NN.skip`)
-that stores a caller value into a caller slot, so two pad-clones referencing the
-SAME caller (dst,src) IDs coexist in `resolveTypeDeclInScope` (pkg/binate/types)
-→ duplicate names → `L build failed` (native N build never ran; the LLVM lane
-died first). LLVM-backend-only (the native backends emit no LLVM value names, so
-they are almost certainly unaffected — not separately confirmed at threshold 200
-because the harness fails at L first). This **blocks the inliner-threshold lever
-on the LLVM lane** — the current -O0 conformance never inlines, so nothing
-caught it. Proposed fix: give the scalarized-copy temp names a per-OP_STORE
-unique component (thread the store instruction's own id, or a per-function
-store counter, into the `vDST_SRC` prefix) so two same-(dst,src) stores get
-distinct names. Add a codegen unit test: a function with two OP_STOREs of the
-same value into the same slot must emit distinct `.ssN_v` names. (May also be
-reachable WITHOUT inlining — any IR with two identical-(dst,src) stores — so it
-is a real LLVM-backend defect, not merely an inliner artifact.)
-
 ### FFI C-representability follow-ons (after `__c_call` arg widening landed) — 🟡 IN PROGRESS (claimed 2026-09-08, work-3/session) follow-ons (2026-09-04)
 
 `__c_call` argument widening LANDED (`bfb0f5d89`): args admit any defined-ABI-

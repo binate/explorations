@@ -7,6 +7,31 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### LLVM backend emitted DUPLICATE local value names for two OP_STOREs sharing (dst,src) — DONE (2026-09-08, `63270d601`)
+
+The LLVM backend (`codegen/emit_copy_ssa.bn`) named each scalarized aggregate-
+store temp `%v<dst>_<src>.ssN_v` / `.ssN_dp`, keyed only on the (dst,src) value-
+ID pair — which is NOT unique across OP_STOREs (an OP_STORE is a void instr,
+ID -1, and two OP_STOREs can share both endpoints when inlining clones a
+refcount-cleanup pad that stores the same caller value into the same caller
+slot). Both then emitted `%v<dst>_<src>.ss0_v` and clang rejected the `.ll`
+(`multiple definition of local value named ...`). `-O0` conformance never
+inlines, so it went unnoticed until raising `InlineSizeThreshold` 15→200 made
+two same-(dst,src) stores coexist in `resolveTypeDeclInScope`.
+
+Fix (`63270d601`): a per-function `aggStoreSeq` counter (declared in `emit.bn`,
+reset alongside `tmpSeq`/`retSeq` in `emit_debug.bn`, bumped once per aggregate
+store) woven into the name via a `writeAggStoreLeafName` helper →
+`%v<dst>_<src>_<seq>.ssN`. Load path unaffected (names by the OP_LOAD's own
+unique result id); byval ptr→ptr copy unaffected (fresh per-param alloca dst).
+Verified: L (llvm `-O2`) builds cleanly at `InlineSizeThreshold=200` where it
+previously failed; codegen unit tests green (regression
+`TestAggStoreSameDstSrcDistinctNames` pins two same-(dst,src) stores to distinct
+names + the per-store bump); hygiene clean; minimal adversarial review found the
+fix sound. (Surfaced while pursuing the inliner-threshold perf lever, which also
+surfaced a SEPARATE native-backend SEGV at aggressive inlining — still open in
+claude-todo.md.)
+
 ### Emit `bn_init` in every artifact; `bn_entry` = `bn_init(); main.main()` — DONE (2026-09-08, `e6abbd234`)
 
 `bn_init` (the reserved well-known init symbol) is now emitted in EVERY compiled
