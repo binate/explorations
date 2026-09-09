@@ -246,7 +246,9 @@ A pre-existing MINOR asymmetry the review surfaced — a `__c_entry` target with
 — is tracked under the FFI follow-ons in claude-todo.md. (Spec abi/04 §4.2 Status
 note update pending — see coverage follow-up below.)
 
-### Native capturing closure passed INTO bytecode: untagged env record → panic or silent misdispatch — DONE (2026-09-08, `41a5aa48c`)
+### Native capturing closure passed INTO bytecode: untagged env record → panic or silent misdispatch — DONE (2026-09-08, `98219ab3e`; superseded the initial `41a5aa48c`)
+
+**REWORKED (2026-09-08, `98219ab3e`):** the initial fix `41a5aa48c` tagged every compiled capturing-closure env with a VM-shaped kind word — a standing, VM-only cost on the clean compiled ABI.  That was the wrong direction: the real defect was the VM interpreting a compiled function value's `data` at all.  `98219ab3e` REVERTS the env kind-tag (compiled closures are back to a raw one-field-per-capture env) and instead makes the VM dispatch EVERY function value through its vtable.call thunk — a native closure via its own shim (reads the raw env), a VM function value via its trampoline (extended with capture marshalling, closureArgv, which also fixes the previously-panicking native->VM capturing-closure direction).  The VM never peeks at compiled `data`.  Known limitation: the thunk/shim ABI caps at 7 user args, so >7-arg VM closures (conformance 523/524) are xfail'd in the VM modes pending the cross-mode 7-arg-limit fix (assigned in claude-todo); a later b2 restores a thunk-identity fast-path for VM-in-VM dispatch.  The original kind-tag writeup below is retained for context but no longer describes the tree.
 
 Fixed (owner chose option b/1: make native capturing closures VM-dispatchable via
 an env kind-tag, after adversarial reviews of the design AND the implementation).

@@ -16,7 +16,7 @@ primitives (`_call_shim_scalar(fn, data, a0..a6)`) and the VM trampolines
 ANY function value dispatched through its vtable.call thunk — a native closure
 called from the VM, or a VM function value called from native — is limited to <=7
 user args.  This surfaced when the native-closure-into-VM fix's b1 step (thunk
-dispatch, commit <B1_HASH>) routed VM-in-VM closure calls through the thunk: it
+dispatch, commit 98219ab3e) routed VM-in-VM closure calls through the thunk: it
 regressed conformance 523_closure_many_user_args (9 args) and
 524_closure_many_caps_reg_to_stack, xfail'd in the VM modes
 (builder-comp{,-comp}-int, builder-comp-int-int).  The compiled lanes pass (the
@@ -30,7 +30,7 @@ directions.  Then REMOVE the 523/524 `.xfail.builder-comp*-int` markers.  Assign
 
 ### b2: discriminate VM func values by thunk-identity (fast-path, drop the thunk round-trip) — 🟡 ASSIGNED (claimed 2026-09-08)
 
-b1 (commit <B1_HASH>) makes the VM dispatch every function value through its
+b1 (commit 98219ab3e) makes the VM dispatch every function value through its
 vtable.call thunk — a native closure via its per-closure shim, a VM function
 value via its trampoline (which re-enters execFunc).  For a VM function value
 called from VM bytecode that is a mode ROUND-TRIP (bytecode -> native trampoline
