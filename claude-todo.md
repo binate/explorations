@@ -7,7 +7,12 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### CROSS-MODE VM func-value dispatch regressed to scalar-only + ≤7 args (b1) — 17 conformance tests xfail'd — 🟡 IN PROGRESS (claimed 2026-09-08) — see plan-crossmode-anyarity-shim.md
+### CROSS-MODE VM func-value dispatch regressed to scalar-only + ≤7 args (b1) — 17 conformance tests xfail'd — 🟡 IN PROGRESS (claimed 2026-09-08, work-4/temp-4) — see plan-crossmode-anyarity-shim.md
+
+**ACTIVE (owner reprioritized 2026-09-08): the any-SHAPE trampoline fix (case B)
+FIRST — it un-reds all 17 xfailed tests; item 1 (case-A packed shim) is deferred
+to after.** The 45 xfail markers landed to green CI (commit on temp-4); this
+entry now tracks building the real callee-side any-shape dispatch.
 
 **b1 (thunk dispatch, commit 98219ab3e) regressed MORE than arity — it dropped
 EVERY non-trivial cross-mode func-value arg/return SHAPE in the VM modes.** b1
