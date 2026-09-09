@@ -7,6 +7,44 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### Cross-mode func-value dispatch caps at 7 user args — 🟡 ASSIGNED (claimed 2026-09-08, blocks 523/524 xfail removal)
+
+The func-value shim/trampoline ABI is a fixed 7-user-arg shape: the rt shim
+primitives (`_call_shim_scalar(fn, data, a0..a6)`) and the VM trampolines
+(`TrampolineScalar`/`64`/`Aggregate` in vm.bn) take `data` + a0..a6, and
+`dispatchCompiledFuncValue` (vm_exec_funcref.bn) fails loud on `>7 arg slots`.  So
+ANY function value dispatched through its vtable.call thunk — a native closure
+called from the VM, or a VM function value called from native — is limited to <=7
+user args.  This surfaced when the native-closure-into-VM fix's b1 step (thunk
+dispatch, commit <B1_HASH>) routed VM-in-VM closure calls through the thunk: it
+regressed conformance 523_closure_many_user_args (9 args) and
+524_closure_many_caps_reg_to_stack, xfail'd in the VM modes
+(builder-comp{,-comp}-int, builder-comp-int-int).  The compiled lanes pass (the
+native/LLVM closure shim spills >7 args to the stack).
+
+Fix: extend the shim/trampoline to an "always-pack" convention — the caller packs
+args into an array and passes the array + count; the shim/trampoline unpacks per
+the callee's arity — removing the 7-arg ceiling for cross-mode dispatch in both
+directions.  Then REMOVE the 523/524 `.xfail.builder-comp*-int` markers.  Assigned
+(next up after b1 lands).
+
+### b2: discriminate VM func values by thunk-identity (fast-path, drop the thunk round-trip) — 🟡 ASSIGNED (claimed 2026-09-08)
+
+b1 (commit <B1_HASH>) makes the VM dispatch every function value through its
+vtable.call thunk — a native closure via its per-closure shim, a VM function
+value via its trampoline (which re-enters execFunc).  For a VM function value
+called from VM bytecode that is a mode ROUND-TRIP (bytecode -> native trampoline
+-> execFunc) where the old short-circuit pushed a VM frame directly.  b2
+recovers the fast-path WITHOUT re-introducing a compiled-data peek: a VM function
+value's vtable.call is always one of the VM's OWN trampolines
+(TrampolineScalar/64/Aggregate — a fixed, VM-known address set), so the VM
+recognizes it by that thunk IDENTITY and short-circuits (push frame, copy
+captures + user args of ANY arity), while everything else goes through the thunk.
+Keeps the clean compiled ABI (no data-kind tag) and never interprets compiled
+`data`.  Bonus: the short-circuit handles >7-arg VM closures with no shim limit,
+so on the VM-in-VM path it also relieves the 7-arg-limit item above.  Assigned
+(after the 7-arg-limit fix lands).
+
 ### FFI C-representability follow-ons (after `__c_call` arg widening landed) — 🟢 follow-ons (2026-09-04)
 
 `__c_call` argument widening LANDED (`bfb0f5d89`): args admit any defined-ABI-
