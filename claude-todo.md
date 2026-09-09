@@ -140,10 +140,17 @@ never runs its exit RefDec, and the caller's pad doesn't release the arg → one
 leaked block.  Affects ordinary calls, deferred calls, and method-value wrappers
 identically (surfaced while reviewing the deferred/method-value pad fix — the
 wrapper's empty pad is correct precisely BECAUSE the method, not the wrapper,
-owns the moved param; this residual is a separate, universal gap).  **Fix
-direction:** unclear without a refcount-model change — the caller would need to
-retain the moved arg across the push and release it only on the push-overflow
-path.  Low priority: the trigger is stack exhaustion.
+owns the moved param; this residual is a separate, universal gap).
+
+**Approach chosen (see `plan-vm-stack-precheck.md`):** approach (A) — fault BEFORE
+the call commits its args, not at `pushFrame`.  A new VM-only `OP_STACK_CHECK`
+(modeled on `OP_NIL_CHECK`; compiled backends no-op it) emitted after
+`buildCallArgs` and before `coerceArgDelivery`, reserving `frameExtent(callee)`,
+with a pad covering the still-owned args.  Load-bearing: `OP_ALLOC` is a frame
+slot and delivery is SP-neutral, so `vm.SP` is stable from post-arg-eval through
+`pushFrame` — the check exactly predicts the push and covers all arg kinds.  Inc 1
+= DIRECT calls; Inc 2 = indirect (callee resolved at dispatch).  `pushFrame`'s
+existing check stays as a backstop.
 
 ## Performance
 
