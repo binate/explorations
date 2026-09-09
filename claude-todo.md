@@ -24,7 +24,7 @@ smallest value that triggers the SEGV, then disassemble the crashing native bnc
 against a working one (per the "Debug Miscompiles by Disassembling" protocol) to
 find the miscompile site.
 
-### FFI C-representability follow-ons (after `__c_call` arg widening landed) — 🟡 IN PROGRESS (claimed 2026-09-08, work-3/session) follow-ons (2026-09-04)
+### FFI C-representability follow-ons (after `__c_call` arg widening landed) — 🟢 follow-ons (2026-09-04)
 
 `__c_call` argument widening LANDED (`bfb0f5d89`): args admit any defined-ABI-
 layout type (struct by value, raw/managed slice, managed ptr, interface/func
@@ -32,10 +32,15 @@ value) with the ordinary `mem.param` ownership (C does RefInc/RefDec by hand);
 correct on x86_64 / aarch64 / arm32 × LLVM + native.  Remaining, sharing the same
 widened C-representability idea:
 
-- **`__c_entry` callback signature validation** — `checkCEntry` only checks the
-  operand is a declared non-generic top-level function; it never validates the
-  callback's param/return types are C-representable.  Share the widened predicate
-  across `__c_entry`, `__c_global`, and `#[c_export]` signature checking.
+- **`__c_entry` callback signature validation** — LANDED `3aa0fce1e` (2026-09-08,
+  work-3).  `checkCEntry` now enforces `pkg.centry.eligible`'s deferral to
+  `pkg.cexport.signature` via `checkCEntrySignature` (reuses `isCArgType`): a
+  target whose param/result is opaque-by-value (no defined ABI layout — reachable
+  as a pure opaque or a cross-package opaque export used by value) is rejected; the
+  full C-ABI-replicable surface stays accepted.  The broader "share ONE predicate
+  across `__c_entry` + `__c_global` + `#[c_export]`" unification was NOT done (each
+  currently validates independently; `#[c_export]` still has no checker-side
+  signature validation) — fold in if/when a later item touches those paths.
 - **MINOR (review, pre-existing): `__c_entry` of a target with a >16-byte
   by-value aggregate PARAMETER gets no adaptation thunk** — `#[c_export]` adapts
   such a param (x86-64 `ptr byval` / arm32 by-value coerced vs the internal single
@@ -46,8 +51,9 @@ widened C-representability idea:
   through the callback pointer is mis-ABI'd (reads the internal pointer convention).
   Surfaced by the multi-return `__c_entry` adversarial review; the multi-return fix
   did not touch it.  Fold the byval-param check into the `__c_entry` thunk decision
-  (reuse the `#[c_export]` param-adaptation path) alongside the signature-validation
-  item above.
+  (reuse the `#[c_export]` param-adaptation path).  This is a codegen fix (native
+  `collectCEntryThunkTargets` on all three arches + LLVM `cEntryLLVMNeedsThunk`),
+  distinct from the now-landed frontend signature validation.
 - **Aggregate RETURN types (sret) for `__c_call`** — returns are still restricted
   to scalar/pointer/"void"; struct/aggregate returns unsupported.
 - **`__c_global` aggregate types** — still scalar/pointer only.
