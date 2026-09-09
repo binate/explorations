@@ -190,11 +190,11 @@ CORRECTION 2026-09-08):
    SROA/regalloc" framing — inlining is DOWNSTREAM of them, not a prerequisite:
    raising the threshold only becomes a win once SROA + register allocation make
    merged bodies cheap on native (as they already are on clang — which is why
-   inlining helps LLVM and WIDENED the native↔LLVM ratio). Default stays 15, but
-   NOT proven optimal: only 15..200 were measured (all ≥15 worse); LOWER (12) and
-   nearby (20/25) were NOT — a quick low-region sweep is worth a look, but
-   thorough tuning should WAIT until the SROA/regalloc work lands (it changes the
-   whole curve). The hot tiny leaves clang inlines away
+   inlining helps LLVM and WIDENED the native↔LLVM ratio). Default stays 15: the low region is FLAT — an interleaved sweep of
+   12/15/20/25 found them within noise (medians 21.0/21.0/21.2/20.7s; sizes
+   ~10.3-10.7MB), so nothing nearby beats 15, and degradation only starts ~30+
+   (30 → 0.95×). So 15 is a reasonable default; thorough re-tuning should WAIT
+   until the SROA/regalloc work lands (it changes the whole curve). The hot tiny leaves clang inlines away
    (charsEqual/streq/FnEq/LiveInterval.Start/symHash — ~600 profile samples) are
    real, but the fix is native's codegen quality, not a blanket threshold.
    Threshold-gated test debt to pay IF/when raising (the -O1-only inline paths
