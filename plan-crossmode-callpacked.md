@@ -208,14 +208,20 @@ scalar/aggregate DIRECT calls in `dispatchCompiledFuncValue`.  Upside: ONE
 invocation shape now covers scalar+aggregate+void.
 
 **C2 — two more cross-mode dispatchers share the scalar-only/≤7 limitation
-(SCOPE OUT as a tracked follow-up):** `dispatchExternBinding`/`execExternCall`
+(IN SCOPE — owner folded in 2026-09-09):** `dispatchExternBinding`/`execExternCall`
 (vm_extern.bn:38,64-71; >7 guard) and `dispatchCompiledIfaceMethod`
 (call_iface_host.bn:78; >6 guard, receiver takes a0).  These are PRE-EXISTING
-limitations (NOT b1 regressions, NOT among the 17), so this work leaves them as-is
-— but their vtables grow the `call_packed` slot too (all via
-`irdata.BuildFuncValue`), so the machinery is present and they can be migrated
-later.  Filed as a follow-up so the asymmetry (func-value cross-mode is any-shape;
-iface-method/extern cross-mode still vmPanics on shape) is tracked, not silent.
+limitations (NOT b1 regressions, NOT among the 17), but their vtables grow the
+`call_packed` slot too (all via `irdata.BuildFuncValue`), so migrate them in the
+SAME work: in step 4, switch these two consumers to invoke `call_packed` via the
+`_call_shim_scalar64` vehicle (build the packed arg window; extern binding: user
+args at a0..; iface method: the receiver is the FIRST packed slot, matching how
+`__shimP`/the impl shim reads it) and drop their `>7`/`>6` vmPanics.  This makes
+ALL cross-mode dispatch any-shape, no asymmetry.  NB: an extern binding's / iface
+method's callee is NATIVE, so its `call_packed` is a per-signature `__shimP`
+(step 3) — no extra producer work, only the consumer switch + arg-window build.
+Add any conformance coverage for the newly-enabled shapes (extern/iface-method
+cross-mode float/aggregate/>7) since none exists today.
 
 **C3 — blast radius re-anchored.** The vtable-DATA change is ONE shared builder:
 `irdata.BuildFuncValue` (irdata/data_funcval.bn:22-46) appends the terms; all four
@@ -274,6 +280,6 @@ the VM caller but REFERENCED by the vtable emitters (so not bnlint-unused).
 ## Status
 
 - 2026-09-09: owner picked (B); adversarial review = SOUND-WITH-FIXES (C1–C3
-  folded in above).  Ready to implement per the corrected sequencing.  17 case-B
-  tests xfail'd on main (aacd1f232) meanwhile.  The extern + iface-method
-  cross-mode any-shape migration (C2) is a tracked follow-up (not these 17).
+  folded in above).  Owner also folded C2 IN SCOPE (extern + iface-method
+  cross-mode migrate to call_packed in step 4).  Implementing step 1.  17 case-B
+  tests xfail'd on main (aacd1f232) meanwhile.
