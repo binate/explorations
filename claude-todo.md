@@ -14,15 +14,32 @@ to pursue the inliner perf lever produces a `--backend native -O2` bnc that SEGV
 when self-compiling cmd/bnc; at the default threshold 15 native is fine, and the
 LLVM (`-O2`) bnc built from the SAME source runs fine — so it is a native-backend
 miscompile exposed specifically by aggressive inlining, DISTINCT from the LLVM
-duplicate-value-name bug (that one is fixed, `663d59500` pending land). Root cause
-UNKNOWN — likely the native backend mishandling an IR shape the higher threshold
-exposes (inliner-cloned refcount-cleanup pads, multi-block/managed/merge-slot
-inline paths), which have NO -O1 conformance lane so nothing exercises them. This
-blocks the inliner-threshold lever on native: the lever can't be measured/landed
-until BOTH backends survive a raised threshold. Next: bisect the threshold to the
-smallest value that triggers the SEGV, then disassemble the crashing native bnc
-against a working one (per the "Debug Miscompiles by Disassembling" protocol) to
-find the miscompile site.
+duplicate-value-name bug (that one is fixed, `663d59500`). This blocks the
+inliner-threshold lever on native: the lever can't be measured/landed until BOTH
+backends survive a raised threshold.
+
+**ROOT CAUSE (found 2026-09-08, disassembly protocol):** the aarch64 indirect/
+handle/iface/func-value call emitters stash the call target in **X17** across
+argument dispatch, but the aarch64 ASSEMBLER uses X17 as its scratch to
+materialize any `ldr/str …, [SP, #>4095]` address (`asm/aarch64/aarch64_ldst.bn`
+:97-110, 175-181). When the frame exceeds 4 KB — which aggressive inlining makes
+common (`loadPackage`'s frame ballooned to ~53 KB) — an arg load/store at a large
+stack offset in the dispatch loop clobbers the stashed target BEFORE the `blr
+x17`, so it branches to a garbage stack address → SIGSEGV. Confirmed by
+disassembling the crash in `loader.Loader.loadPackage`'s call to
+`OsSourceProvider.Stat`: `ldr x17,[x16]; ldr x17,[x17,#8]` (load shim) then `add
+x17,sp,#0xd000; …; ldr x10,[x17]` (arg load — CLOBBERS x17) then `blr x17`. The
+emitters' comments (`aarch64_call_indirect.bn:19-21`, `aarch64_iface.bn:55-58`)
+explicitly but WRONGLY assume "only BL clobbers X16/X17" / "the loop never
+touches X16/X17" — blind to the assembler's implicit large-offset X17 scratch.
+Latent on aarch64 for ANY >4 KB frame + a stack-arg indirect/handle/iface/func-
+value call (not inlining-specific; inlining just makes >4 KB frames common).
+x64/arm32 emitters need the same audit. Fix: materialize the call target into X17
+as the LAST step before `blr`, after all arg dispatch (re-derive from the
+surviving source), in all three aarch64 emitters (emitCallIndirect,
+emitCallFuncValue, emitCallIfaceMethod). Regression: a program with a >4 KB frame
+calling an iface/func-value method with stack-spilled args, exercised on
+`native_aa64`.
 
 ### FFI C-representability follow-ons (after `__c_call` arg widening landed) — 🟢 follow-ons (2026-09-04)
 
