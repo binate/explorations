@@ -1,11 +1,16 @@
 # Plan: IR-level SROA (scalar replacement of aggregates) — the biggest native↔LLVM gap-closer
 
-**Status:** DRAFT v2 (2026-09-08, work-1), REWRITTEN after an adversarial plan
-review found the v1 model was **wrong about the IR** (v1 keyed on
-`OP_GET_FIELD_PTR` field-ptr uses; Binate's IR is register-aggregate SSA, so v1's
-Phase 1 would have captured ~nothing). v2 is grounded on the actual IR model,
-empirically verified via `--emit-llvm`. Not yet started; **v2 itself wants a
-re-review before Phase 0.** Sibling of `plan-mem2reg-phase2a.md` (mem2reg landed,
+**Status:** v3 (2026-09-09, work-1) — REVIEWED and ready for Phase 0. v1 was
+**wrong about the IR** (keyed on `OP_GET_FIELD_PTR`; Binate IR is
+register-aggregate SSA); v2 re-grounded it on whole `OP_LOAD`/`OP_STORE` values +
+`OP_EXTRACT` (empirically verified via `--emit-llvm`); a re-review of v2 found two
+transform holes now folded into v3: (1) the promotability check is **two-level**
+(L1 alloca uses + L2 loaded-value uses), because `box`/`return`/by-value-arg
+consume the loaded VALUE not the alloca; (2) there is **no aggregate-value
+rebuild** primitive (`OP_INSERT` absent, `OP_STRUCT_LIT` unlowered), so slots
+whose loaded value must survive whole are **pinned**, not split-then-rebuilt; plus
+a load-site-placement rule for forwarded field-loads. With these, the re-review
+cleared Phase 0. Sibling of `plan-mem2reg-phase2a.md` (mem2reg landed,
 `ea7687188`).
 
 ## Problem & goal (unchanged; payoff re-confirmed by the review)
@@ -64,39 +69,62 @@ whole load/store and forwarding extracts — NOT over field pointers.
   "mutating passes run before me" constraint — no ordering hazard (reviewer
   verified).
 
-## What gets SROA'd — corrected promotability (v2)
+## What gets SROA'd — promotability (v3, TWO-LEVEL)
 
-An `OP_ALLOC(aggTyp)` is a **splittable slot** iff EVERY use of the alloca value
-is one of:
+Splittability is a **two-level** check (the re-review's key correction: `box`,
+`OP_RETURN`, and by-value call-args consume the LOADED VALUE, not the alloca — so
+a single-level "scan the alloca's uses" would see only load/store and WRONGLY
+declare such a slot splittable, then hit a whole-value use it cannot handle):
 
-1. the ADDRESS (`Args[0]`) of a **whole** `OP_LOAD(alloca)` (field reads are
-   `OP_EXTRACT` on the loaded value — allowed), or
+**L1 — alloca uses.** Every use of the `OP_ALLOC` value must be one of:
+1. the ADDRESS (`Args[0]`) of a **whole** `OP_LOAD(alloca)`, or
 2. the ADDRESS (`Args[0]`) of a **whole** `OP_STORE(alloca, aggValue)`, or
-3. (optional, if present) a CONSTANT-index `OP_GET_FIELD_PTR(alloca, i)` whose
-   only uses are load/store at its `Args[0]`.
+3. (if present) a CONSTANT-index `OP_GET_FIELD_PTR(alloca, i)` used only as
+   load/store `Args[0]`.
+Any other alloca appearance is an L1 escape → un-splittable: `&agg` / address-of
+(`gen_expr.bn:189-193` returns the alloca directly), `bit_cast` of the alloca,
+the alloca stored AS A VALUE (`OP_STORE.Args[1]`), a by-address call arg, a
+`PhiEntry.Val`, or (MANAGED aggregate) ANY `FaultPad` appearance.
 
-ANY other appearance is an **escape** → un-splittable: the alloca address as a
-call arg (by-address ABI), an sret/return of the whole aggregate, `box()`,
-`bit_cast`, `&agg` / address-of, the address stored AS A VALUE
-(`OP_STORE.Args[1]`), a `PhiEntry.Val`, a dynamic-index element, or (for a
-MANAGED aggregate) ANY appearance in a `FaultPad`. Enumerate and test each.
+**L2 — loaded-value uses.** For EVERY whole `OP_LOAD(alloca)`, every use of the
+LOADED VALUE must be an `OP_EXTRACT(load, i)` (constant i). If a loaded value has
+ANY non-extract use — a by-value call arg, an `OP_RETURN`, `box()`, storing the
+value elsewhere — the slot is **pinned un-splittable** (there is no cheap way to
+reconstruct an aggregate value from scalars on the real backends — see the
+transform). These value-level escapes are distinct from L1's alloca-level ones;
+enumerate and test both sets.
 
-## The transform (v2, per the reviewer's corrected shape)
+(Plus the phasing split by managed-ness below.)
 
-For a splittable slot of aggregate type T with fields f0..fn:
+## The transform (v3 — pin, do NOT rebuild)
+
+For a splittable slot (passes L1+L2) of aggregate type T, fields f0..fn:
 
 - Allocate a fresh scalar `OP_ALLOC(fieldTyp_i)` per field.
 - **Whole store** `OP_STORE(alloca, aggVal)` → per-field
-  `OP_STORE(field_alloca_i, OP_EXTRACT(aggVal, i))`.
-- **Whole load** `OP_LOAD(alloca)` feeding `OP_EXTRACT(load, i)` → forward each
-  `OP_EXTRACT(load, i)` to `OP_LOAD(field_alloca_i)`.
-- **Genuine whole-VALUE uses** of `OP_LOAD(alloca)` (a call arg by-value, a
-  return, storing the value elsewhere) → rebuild the aggregate with
-  `OP_INSERT` from the per-field loads. If a whole-value use can't be cleanly
-  rebuilt, **pin the slot un-splittable** (conservative).
+  `OP_STORE(field_alloca_i, OP_EXTRACT(aggVal, i))`. Valid for ANY aggregate
+  value source (load result, call result, `make_slice`, rodata) — `OP_EXTRACT`
+  is a real backend-lowered op (reviewer-confirmed general).
+- **Whole load** `OP_LOAD(alloca)` (all uses are `OP_EXTRACT`, by L2):
+  materialize the per-field loads `OP_LOAD(field_alloca_i)` **at the original
+  whole-load's position** — NOT at each extract site: a per-field store to the
+  same slot intervening between the whole-load and an extract would make
+  mem2reg's reaching-def resolve the wrong (post-store) value, a silent
+  snapshot-aliasing miscompile — and rewrite each `OP_EXTRACT(load, i)` to
+  REFERENCE the field-load SSA value.
 - Delete the original aggregate alloca. mem2reg then promotes the non-managed
-  field allocas; pure copies collapse entirely (reviewer: mem2reg fully collapses
-  the fields for pure copies).
+  field allocas; pure copies collapse entirely.
+
+**No aggregate-value REBUILD.** There is no usable primitive to reconstruct an
+aggregate value from scalars on the real target: `OP_INSERT` does not exist, and
+`OP_STRUCT_LIT` is unlowered on LLVM + all three native backends and a `BC_NOP`
+in the VM (reviewer-verified: opcode enum + codegen/native dispatch +
+`vm/lower_instr.bn:424`; the `gen_assert_commaok.bn:23` comment states aggregate
+values are built via the alloca-merge idiom, not a struct literal). So a slot
+whose loaded value must survive as a WHOLE value is caught by L2 and simply
+**pinned** — never split-then-rebuilt. (Materializing at a genuine ABI escape
+would use the alloca-merge idiom into a fresh, non-splittable slot — an ABI
+boundary, not a collapse — out of scope for v1.)
 
 ## Phasing (corrected)
 
@@ -107,8 +135,9 @@ For a splittable slot of aggregate type T with fields f0..fn:
 - **Phase 1 — NON-MANAGED aggregates** (`*[]T`, POD structs — all fields
   non-managed). No refcount, no fault-pad interaction. This is the hazard-free
   first cut and still the right start — BUT it is a **materially bigger transform
-  than v1 described**: scalarize whole-stores, forward extracts, rebuild via
-  insert at whole-value uses. Captures the non-managed copy share (roughly the
+  than v1 described**: scalarize whole-stores, forward extracts to field loads,
+  and PIN any slot whose loaded value has a non-extract use (L2). Captures the
+  non-managed copy share (roughly the
   ~58% that isn't the 41.6% managed-slice headers, minus the ~6% ABI-mandated
   by-address, minus mixed/escaping cases).
 - **Phase 2 — MANAGED aggregates (the 41.6% payoff; genuinely hard, no shortcut).**
@@ -124,12 +153,12 @@ For a splittable slot of aggregate type T with fields f0..fn:
 
 ## Additional items the review surfaced
 
-- **Companion fold (MINOR).** No `extract(insert(...))` fold exists, and native
-  represents an aggregate SSA value as a memory data-region pointer
-  (`aarch64_emit.bn:141-175`). Pure copies collapse via mem2reg, but MIXED cases
-  that rebuild via `OP_INSERT` then re-`OP_EXTRACT` won't fully collapse on native
-  without an `extract-of-insert` peephole. Add it (IR-level or per-backend) as a
-  payoff-completeness follow-on; not a correctness bug.
+- **No companion fold needed (v2's "extract-of-insert peephole" is moot).** With
+  the pin-don't-rebuild transform there is no `OP_INSERT`/rebuild to fold away.
+  Slots whose loaded value must survive whole are pinned (L2), so no mixed
+  split+rebuild case reaches the backend. (Native does represent an aggregate SSA
+  value as a memory data-region pointer, `aarch64_emit.bn:141-175`, but that only
+  concerns the pinned/escaping aggregates SROA leaves alone.)
 - **Nesting / fixpoint (MINOR).** Splitting a struct whose field is itself a
   slice/struct exposes a new aggregate field alloca (scalar-only mem2reg won't
   promote it). Either recurse / run SROA to a fixpoint, or explicitly pin
@@ -139,9 +168,10 @@ For a splittable slot of aggregate type T with fields f0..fn:
 
 ## Validation (unchanged intent)
 
-Per phase: unit tests (compiled + VM) on hand-built IR (splittable/not; whole
-store→per-field; extract-forwarding; mem2reg promotes the fields; whole-value use
-rebuilds via insert); the three native conformance modes + LLVM + VM; the
+Per phase: unit tests (compiled + VM) on hand-built IR (splittable/not per L1+L2;
+whole store→per-field; extract-forwarding at the load site; mem2reg promotes the
+fields; a slot with a non-extract loaded-value use is PINNED, not split); the
+three native conformance modes + LLVM + VM; the
 `scalar-diff` differential harness; a refcount-balance test for Phase 2. The
 native-vs-llvm gap benchmark + the 308,903 mem→mem-copy-pair count before/after
 is the direct success measure. Each phase independently green + cherry-pickable;
