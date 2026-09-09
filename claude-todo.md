@@ -155,22 +155,30 @@ CORRECTION 2026-09-08):
    refinements (caller-saved homes, copy coalescing) were the wrong knobs;
    spill-cost heuristics / interval splitting / more homes are untried and
    target this ~45% directly.
-3. **Inliner threshold tuning — gates #1 and #2 for the hot tiny functions.** 🟡 IN PROGRESS (claimed 2026-09-08, work-1)
-   Raise `InlineSizeThreshold` (currently 15). The 1.12× overall call ratio
-   UNDERSTATES this: the hot leaves clang inlines away and native keeps
-   standalone — `charsEqual`, `streq`, `std.cmp.FnEq.Equal`, `LiveInterval.Start`,
-   `symHash`, `charEqAA64` (~600 profile samples combined) — pay full frames +
-   boundary aggregate-materialization + (for the `LiveInterval.Start` getter) a
-   receiver RefInc/RefDec churn standalone. Inlining removes those AND is the
-   pass-ordering prerequisite that lets SROA/regalloc help the merged bodies.
-   Growth guards exist (`InlineGrowthFloor`/`InlineGrowthFactor`). Threshold-
-   gated test debt to pay when raising: (i) a non-dtor managed-aggregate result
-   live at a CALLER fault via a multi-block merge-slot callee; (ii) a managed
-   multi-value live across a fault; (iii) `return f()` passthrough. The
-   multi-block/managed/loop inline paths run only at -O1, which has no
-   conformance lane (see the opt-level matrix item below). Possible later
-   extension (not planned): inlining callees containing
-   indirect/iface/c-call/handle dispatch (currently disqualifying).
+3. **Inliner threshold tuning — POSTPONED; revisit AFTER SROA/regalloc.** 🔵 NOT ASSIGNED
+   The `--inline-threshold` flag is landed (`01933d8c8`) so the value is
+   runtime-settable without recompiling the compiler. A drift-controlled
+   interleaved benchmark (build bnc with its OWN code inlined at threshold X;
+   then time it compiling cmd/bnc at a FIXED threshold 15) showed raising the
+   threshold makes native-compiled code MONOTONICALLY SLOWER and bigger — thr 30
+   0.95×, 60 0.89×, 120 0.82×, 200 0.81×; size 1.0×→1.9×. On native, inlining is
+   currently a NET NEGATIVE: native's per-function codegen deficit (aggregate-copy
+   + spill traffic — the SROA/regalloc problem) scales with function size, so
+   bigger inlined bodies cost more. This CORRECTS the earlier "inlining gates
+   SROA/regalloc" framing — inlining is DOWNSTREAM of them, not a prerequisite:
+   raising the threshold only becomes a win once SROA + register allocation make
+   merged bodies cheap on native (as they already are on clang — which is why
+   inlining helps LLVM and WIDENED the native↔LLVM ratio). Default stays 15, but
+   NOT proven optimal: only 15..200 were measured (all ≥15 worse); LOWER (12) and
+   nearby (20/25) were NOT — a quick low-region sweep is worth a look, but
+   thorough tuning should WAIT until the SROA/regalloc work lands (it changes the
+   whole curve). The hot tiny leaves clang inlines away
+   (charsEqual/streq/FnEq/LiveInterval.Start/symHash — ~600 profile samples) are
+   real, but the fix is native's codegen quality, not a blanket threshold.
+   Threshold-gated test debt to pay IF/when raising (the -O1-only inline paths
+   have no conformance lane): (i) a non-dtor managed-aggregate result live at a
+   CALLER fault via a multi-block merge-slot callee; (ii) a managed multi-value
+   live across a fault; (iii) `return f()` passthrough.
 4. **NOT vectorization (corrects the prior "it's clang's vectorization"
    conclusion).** clang emits ZERO compute-vector ops (no `add.4s`/`cmeq`/
    `uminv`); its ~35K q-register instructions are wide aggregate copies /
