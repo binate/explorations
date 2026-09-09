@@ -7,6 +7,26 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### Unregistered fresh-managed return values leaked on a fault at the value return — DONE (2026-09-08, `99ef6cf4a`)
+
+A directly-RETURNED fresh managed value produced by a move-only path was tracked
+in neither ctx.Vars nor ctx.Temps ("always moved to a consumer"), so a fault
+unwinding at the value return before the move (e.g. a deferred-call fault)
+leaked it — one block per faulting call.  Fixed at three producers by registering
+the value as a cleanup temp (new registerIfaceBox helper: noteSPGrowingResult +
+managed-only registerTemp, mirroring recoverInterfaceValue): cast/unsafe_cast
+interface widening (gen_builtin.bn), the implicit @T->@I lift `return t`
+(gen_util.bn genExprOrFuncRef), and a directly-returned capturing @func literal
+(gen_func_lit.bn).  Safe on the normal path (a consumer MOVES via consumeTemp);
+only an un-consumed value is released by statement/scope/fault-pad cleanup.  Also
+fixed latent normal-path leaks (discarded / method-receiver cast box, a
+foo(func(){}) closure arg, the cast box's VM-stack SP slot).  Two adversarial
+review rounds: round 1 caught the implicit-lift site as a completeness gap in the
+first cut; round 2 verified no double-free/UAF/leak.  Tests: vm_return_leak_test.bn
+(3 tests, all failed pre-fix); iface/cast/closure/func/managed conformance green
+in VM and compiled modes.  (The sibling frame-push-overflow moved-arg leak stays
+OPEN in claude-todo.md — a separate, harder refcount-model concern.)
+
 ### `__c_entry` >16-byte by-value parameter adaptation thunk — DONE (2026-09-08, `8145fd4ad`)
 
 Second item of the "FFI C-representability follow-ons" bundle (rest still open in

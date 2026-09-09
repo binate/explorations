@@ -119,32 +119,6 @@ and the `__c_entry` >16-byte by-value aggregate PARAMETER adaptation thunk
 - **MINOR (review):** `isCArgType` conservatively over-rejects `*[]Opaque` /
   `@[]Opaque` (the slice HEADER has a defined layout and could be admitted).
 
-### Unregistered fresh-managed return values leak on a fault at the value return — 🟡 IN PROGRESS (claimed 2026-09-08, work-2/session) MINOR (found 2026-09-08)
-
-**Severity: MINOR, pre-existing.** Some producers of a fresh managed value do NOT
-`registerTemp` it, relying on "it is always moved to a consumer" — which fails
-when the move never happens because a fault unwinds first.  A directly-RETURNED
-such value is in neither `ctx.Vars` nor `ctx.Temps`, so a fault pad at the value
-return (e.g. a deferred-call fault — see the deferred/method-value pad work) can't
-release it → one leaked block.  Confirmed instances (adversarial review of the
-deferred-call-pad fix):
-- `return cast(@I, t)` — `wrapAsIfaceValue` RefIncs the source (`ir/gen_iface.bn`)
-  but the `cast`/`unsafe_cast` widening arms return the box WITHOUT `registerTemp`
-  (`ir/gen_builtin.bn` ~46/112).  The type-ASSERTION path DOES register its
-  managed-iface result (`ir/gen_assert_iface.bn` ~105) — that asymmetry is the tell.
-- `return <capturing @func literal>` — `genFuncLit` heap-allocs the closure struct
-  and deliberately skips `ctx.Vars` for the `@func` flavour (`ir/gen_func_lit.bn`
-  ~154), relying on a variable's frame-end RefDec; a directly-returned literal has
-  no variable and is not a temp.
-
-NOT introduced by the deferred-call-pad fix (`beab99dc9`) — these leak identically
-with or without it; that fix is a strict improvement (it fixed the tracked-value
-and vmPanic cases).  **Fix direction:** `registerTemp` the cast-widening `@I` box
-(mirror `gen_assert_iface.bn`) and the directly-returned capturing `@func` literal,
-so the fault-pad's `ctx.Temps` snapshot covers them.  Repro: clone
-`TestDeferredCallFaultReturnValueNoLeak` (pkg/binate/vm) returning `cast(@I, t)` /
-a closure literal instead of `make_slice`.
-
 ### Frame-push (stack-overflow) fault leaks a moved-in owned arg — 🟡 IN PROGRESS (claimed 2026-09-08, work-2/session) MINOR (found 2026-09-08)
 
 **Severity: MINOR, pre-existing, ALL calls.** A moved (ownership-transferred) arg —
