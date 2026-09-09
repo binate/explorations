@@ -1,159 +1,148 @@
 # Plan: IR-level SROA (scalar replacement of aggregates) — the biggest native↔LLVM gap-closer
 
-**Status:** DRAFT for adversarial review (2026-09-08, work-1). Not yet started.
-Sibling of `plan-mem2reg-phase2a.md` (mem2reg is landed, `ea7687188`). SROA is
-the pass that FEEDS mem2reg: it breaks aggregate `OP_ALLOC`s into per-field
-scalar `OP_ALLOC`s so mem2reg can then promote the non-managed scalar fields to
-SSA — killing the aggregate-copy traffic that dominates the native gap.
+**Status:** DRAFT v2 (2026-09-08, work-1), REWRITTEN after an adversarial plan
+review found the v1 model was **wrong about the IR** (v1 keyed on
+`OP_GET_FIELD_PTR` field-ptr uses; Binate's IR is register-aggregate SSA, so v1's
+Phase 1 would have captured ~nothing). v2 is grounded on the actual IR model,
+empirically verified via `--emit-llvm`. Not yet started; **v2 itself wants a
+re-review before Phase 0.** Sibling of `plan-mem2reg-phase2a.md` (mem2reg landed,
+`ea7687188`).
 
-## Problem & goal
+## Problem & goal (unchanged; payoff re-confirmed by the review)
 
-An adversarial per-hot-function attribution of the native `-O2` self-compile
-(2026-09-08; done-log `34fdc65e0` neighborhood + the "Native codegen quality"
-todo entry) found the native↔LLVM gap is **~53% aggregate-copy traffic**: the
-native backend materializes `@[]T` / `*[]T` / struct locals in stack slots and
-copies them field-by-field slot→slot. Whole-binary, **308,903 mem→mem copy-pairs
-= 25.6% of all native instructions**, 41.6% of them 4-word managed-slice-header
-copies, and **94% internal locals** (NOT ABI-mandated). clang eliminates exactly
-this via SROA + mem2reg + copy-propagation; native has no aggregate-level pass,
-so a trivial leaf like `mangle.charsEqual` gets a 336-byte frame and copies its
-slice headers through the stack 4+ times.
+The native↔LLVM `-O2` gap is **~53% aggregate-copy traffic** (per-hot-function
+attribution, 2026-09-08): the native backend materializes `@[]T`/`*[]T`/struct
+locals in stack slots and copies them field-by-field slot→slot — **308,903
+mem→mem copy-pairs = 25.6% of native instructions**, 41.6% of them 4-word
+managed-slice-header copies, 94% internal locals. The review CONFIRMED these
+copies survive the full `-O2` pipeline (inline + mem2reg + load-forward + BCE).
+mem2reg promotes only non-managed SCALAR allocas, so aggregate locals stay in
+memory. **SROA's job:** scalar-replace SROA-eligible aggregate allocas so mem2reg
+then promotes the non-managed fields and the copies collapse.
 
-mem2reg (`plan-mem2reg-phase2a.md`) promotes only **non-managed scalar** allocas
-(int/bool/raw-ptr); it explicitly EXCLUDES slices, structs, managed, and float,
-to sidestep the refcount- and fault-pad-hazard families. So aggregate locals
-never get promoted and stay in memory. **SROA fills that gap**: split the
-aggregate alloca into its fields, so each non-managed scalar field becomes a
-mem2reg-promotable scalar alloca, and the aggregate copies become per-field
-scalar copies that mem2reg + copy-forwarding then eliminate.
+## THE IR MODEL (v1 got this wrong — this is the crux)
 
-**Goal:** an IR pass that scalar-replaces SROA-eligible aggregate allocas, run
-BEFORE mem2reg in `RunOptPasses`, so the aggregate-copy traffic collapses on the
-native backend (and LLVM/VM benefit too — it's backend-neutral IR). Target: a
-meaningful cut into the ~53% aggregate-copy share of the gap.
+Binate IR is **register-aggregate / first-class-value SSA**. For an aggregate
+local `x` (struct or slice) held in an `OP_ALLOC` slot:
 
-## Established facts (IR recon, `temp-binate-1` tree)
+- **A read of `x` is a WHOLE-aggregate `OP_LOAD(alloca)`** yielding an aggregate
+  SSA VALUE (`gen_expr.bn:106` — every ident read is `EmitLoad(alloca, typ)`).
+- **A write `x = v` is a WHOLE-aggregate `OP_STORE(alloca, aggValue)`**
+  (`gen_store_slot.bn:56-92` `emitStoreManagedSlot` — one `OP_STORE` of the whole
+  value, for non-managed AND managed-scalar-kind slots incl. `@[]T`).
+- **A field read is `OP_EXTRACT(aggValue, i)` on the VALUE**, not a field-ptr on
+  the slot (`ir_ops.bn:11-13`: `EmitSliceLen = EmitExtract(slice, 1)`).
+- Field-by-field GET_FIELD_PTR+STORE exists too, but for SPECIFIC idioms
+  (comma-ok merge slots, the by-address managed **copy-helper** function body —
+  `gen_copy_emit.bn`, which is itself a whole-aggregate-address escape), NOT for
+  an ordinary local `b = a`. **v1's "already lowered field-by-field" premise was
+  false** (it conflated the copy-helper with local assignment).
+- The LLVM backend already handles "an aggregate SSA value stored to a pointer"
+  as the generic `OP_STORE` case (`emit_copy_ssa.bn:12-16,42`, the `.ssN`
+  scalarized store); the native backends lower the same to slot copies. This IS
+  the copy traffic.
 
-- **Aggregate locals are `OP_ALLOC(aggregateTyp)`** (`b.EmitAlloc(structTyp)` /
-  `EmitAlloc(sliceTyp)` — gen_composite.bn, gen_assert*.bn). Same node mem2reg
-  already targets, just an aggregate `TypeArg`.
-- **Field/element access is `OP_GET_FIELD_PTR(alloca, fieldIdx, fieldTyp)` /
-  `OP_GET_ELEM_PTR`**, then a plain `OP_LOAD`/`OP_STORE` on the resulting field
-  pointer (gen_composite.bn:61/299-302, gen_assert.bn:222-224). A slice header's
-  data/len/refptr/backing are fields 0..3.
-- **Whole-aggregate copies** appear two ways: (a) field-by-field via
-  EmitGetFieldPtr + EmitStore (gen_copy_emit.bn:216-221); (b) an aggregate-typed
-  `OP_STORE` of an aggregate SSA value, which the LLVM backend lowers via
-  emit_copy_ssa.bn (the `.ssN` scalarized store) and the native backends lower to
-  field-by-field slot copies. A **managed**-aggregate copy is a save-copy-destroy
-  (RefInc the new managed fields, RefDec the old) — the refcount spine.
-- **mem2reg's promotability model** (reuse its escape scan): an alloca is
-  promotable iff every use is the ADDRESS operand (`Args[0]`) of a plain
-  `OP_LOAD`/`OP_STORE` — ANY other appearance (`OP_STORE.Args[1]` = address stored
-  as a value, `OP_GET_FIELD_PTR`/`GET_ELEM_PTR`/`bit_cast`/call-arg/`PhiEntry.Val`,
-  or ANY appearance in `Func.FaultPads`) pins it unpromotable. SROA's escape scan
-  is the SAME shape but the "legal" uses are `OP_GET_FIELD_PTR`/`GET_ELEM_PTR`
-  with a CONSTANT index (plus the load/store on those field ptrs).
-- Only `@Instr`-typed operand fields are `Args @[]@Instr` and `Phis[].Val` — so
-  "find all uses of alloca V" = scan every instr's `Args` and every `PhiEntry.Val`
-  across `f.Blocks` AND `f.FaultPads` (mem2reg established this).
+So SROA operates over **aggregate SSA values + their alloca slots**, scalarizing
+whole load/store and forwarding extracts — NOT over field pointers.
 
-## What gets SROA'd (promotability — v1, deliberately conservative)
+## Established facts (reviewer-verified)
 
-An `OP_ALLOC` of an aggregate type is a **splittable slot** iff ALL hold:
+- Aggregate locals are `OP_ALLOC(aggregateTyp)`; the only `@Instr`-typed value
+  operands are `Args @[]@Instr` and `Phis[].Val` (`ir.bni:491-590`) — so
+  "find all uses of V" = scan `Args` + `Phis[].Val` across `f.Blocks` AND
+  `f.FaultPads`. (v1's completeness claim here was CORRECT.)
+- mem2reg's `isPromotableAlloca` accepts a raw `TYP_POINTER` (a slice's data
+  field) and a word-width `TYP_INT` (len) — so a split slice's data+len ARE
+  promotable. A managed-slice's refptr is `TYP_MANAGED_PTR` — NOT promotable
+  (Phase 2 keeps it in memory).
+- mem2reg's escape predicate `blockUsesAllocaNonLoadStore` already ALLOWS whole
+  `OP_LOAD`/`OP_STORE` at `Args[0]` and treats `GET_FIELD_PTR` as an escape — so
+  it is NOT directly reusable; SROA needs its own predicate (below), though the
+  use-scan traversal is shared.
+- Pass ordering: inserting SROA between `inlineCalls` and `promoteScalars` in
+  `RunOptPasses` (`opt.bn:33-42`) is correct and lands before `bceBlock`'s
+  "mutating passes run before me" constraint — no ordering hazard (reviewer
+  verified).
 
-1. **Type is a struct or slice/managed-slice** with a statically-known field
-   layout (`types.StructLayout` / the fixed slice field set). Arrays: v1 splits
-   only CONSTANT-indexed, small arrays (or defer arrays entirely — see Q3).
-2. **Every use is a CONSTANT-index `OP_GET_FIELD_PTR` / `OP_GET_ELEM_PTR` on the
-   alloca**, whose only uses in turn are the address (`Args[0]`) of a plain
-   `OP_LOAD` / `OP_STORE`. ANY other use of the alloca — the whole-aggregate
-   address as a call arg (by-address ABI), `bit_cast`, `OP_STORE.Args[1]`,
-   `box()`, a dynamic-index `GET_ELEM_PTR`, a `PhiEntry.Val`, or ANY appearance in
-   a `FaultPad` for a MANAGED aggregate — pins it un-splittable. (This is the
-   escape edge; the by-address-call case is the ABI-mandated 6% the attribution
-   found — correctly left alone.)
-3. **v1 scope split by managed-ness (phasing below).**
+## What gets SROA'd — corrected promotability (v2)
 
-The transform: allocate a fresh scalar `OP_ALLOC(fieldTyp)` per accessed field;
-rewrite each `OP_GET_FIELD_PTR(alloca, i)` to reference field-i's new alloca
-(with a zero offset, or just replace the field-ptr value with the field alloca);
-delete the original aggregate alloca. mem2reg (next pass) then promotes each
-non-managed scalar-field alloca. A whole-aggregate `OP_STORE`/copy of a
-split-eligible alloca is first lowered to per-field stores (it already is, on the
-field-by-field path) so SROA sees only field accesses.
+An `OP_ALLOC(aggTyp)` is a **splittable slot** iff EVERY use of the alloca value
+is one of:
 
-## Phasing (each phase lands green + cherry-pickable; adversarial review per phase)
+1. the ADDRESS (`Args[0]`) of a **whole** `OP_LOAD(alloca)` (field reads are
+   `OP_EXTRACT` on the loaded value — allowed), or
+2. the ADDRESS (`Args[0]`) of a **whole** `OP_STORE(alloca, aggValue)`, or
+3. (optional, if present) a CONSTANT-index `OP_GET_FIELD_PTR(alloca, i)` whose
+   only uses are load/store at its `Args[0]`.
 
-- **Phase 0 — infra + eligibility scan (no rewrite).** The splittable-slot
-  analysis + a validator, unit-tested against hand-built IR (a struct alloca with
-  only const-field access → splittable; one with a call-arg-by-address use → not;
-  a dynamic-index array → not). Mirrors mem2reg Stage 0. No codegen change.
-- **Phase 1 — NON-MANAGED aggregates only.** Split raw slices (`*[]T`) and
-  structs whose fields are ALL non-managed scalars/pointers. No refcount, no
-  fault-pad interaction (a non-managed aggregate never appears in a pad). This is
-  the clean, hazard-free cut — captures the raw-slice + POD-struct portion. Feeds
-  mem2reg directly.
-- **Phase 2 — MANAGED aggregates (the big payoff, the hard part).** Managed-slice
-  headers are 41.6% of the copies. A managed-slice's field 2 (refptr) and a
-  managed struct's managed fields are refcounted; the aggregate's save-copy-
-  destroy and its FaultPad cleanup must be preserved after splitting. Options to
-  evaluate in Phase 2's own design pass: (a) split only the NON-managed fields of
-  a managed aggregate, leaving the managed field(s) in a residual small alloca
-  (partial SROA — captures the data/len/backing scalar traffic, keeps the refptr
-  in memory with its existing pad handling); (b) full split with per-field
-  refcount + pad rewriting. (a) is likely the right v1 of Phase 2.
+ANY other appearance is an **escape** → un-splittable: the alloca address as a
+call arg (by-address ABI), an sret/return of the whole aggregate, `box()`,
+`bit_cast`, `&agg` / address-of, the address stored AS A VALUE
+(`OP_STORE.Args[1]`), a `PhiEntry.Val`, a dynamic-index element, or (for a
+MANAGED aggregate) ANY appearance in a `FaultPad`. Enumerate and test each.
 
-## Sharp edges / risks (call out per phase; the review must probe these)
+## The transform (v2, per the reviewer's corrected shape)
 
-1. **Managed-field refcounting (Phase 2).** Splitting must not drop or double a
-   RefInc/RefDec. The save-copy-destroy of a managed aggregate and the FaultPad
-   that RefDec's it on unwind must stay correct. This is the top risk — it's why
-   mem2reg excludes managed entirely. Partial SROA (2a) sidesteps most of it.
-2. **Fault pads.** A managed aggregate can appear in `Func.FaultPads` (cleanup).
-   v1 treats ANY managed-aggregate pad appearance as un-splittable (belt-and-
-   suspenders), like mem2reg. Phase 2a must define how a split's residual managed
-   alloca inherits the pad entry.
-3. **Escape completeness.** Missing an escape (a bit_cast, a call-arg-by-address,
-   `OP_STORE.Args[1]`, a `&agg` that reuses the alloca id, a dynamic index) →
-   splitting a slot whose whole-aggregate address is needed elsewhere → silent
-   wrong-address. The escape scan must cover `f.Blocks` AND `f.FaultPads` and
-   every `Args`/`PhiEntry.Val`, exactly like mem2reg's (reuse it).
-4. **Whole-aggregate stores/loads.** An aggregate `OP_STORE`/`OP_LOAD` of the
-   whole alloca (not via a field ptr) must either be pre-lowered to per-field
-   accesses before SROA sees it, or pin the slot un-splittable. Decide which.
-5. **Layout/ABI neutrality.** SROA is pure IR-level; it must not change any
-   type's memory layout (that's `pkg/types`, a language contract) — it only
-   changes how a LOCAL is realized. A split aggregate that must still be passed
-   whole (ABI) is exactly case (2)-escape → not split.
-6. **Ordering in RunOptPasses.** SROA runs BEFORE mem2reg (so mem2reg promotes
-   the fields) and BEFORE load-forwarding/BCE. Confirm no pass ordering hazard.
-7. **Backend neutrality.** The pass is `pkg/binate/ir`, BUILDER-compiled — stay
-   in the subset. It emits ordinary OP_ALLOC/LOAD/STORE the LLVM + 3 native
-   backends + VM already handle; no backend change should be needed (verify).
+For a splittable slot of aggregate type T with fields f0..fn:
 
-## Open questions for the adversarial review
+- Allocate a fresh scalar `OP_ALLOC(fieldTyp_i)` per field.
+- **Whole store** `OP_STORE(alloca, aggVal)` → per-field
+  `OP_STORE(field_alloca_i, OP_EXTRACT(aggVal, i))`.
+- **Whole load** `OP_LOAD(alloca)` feeding `OP_EXTRACT(load, i)` → forward each
+  `OP_EXTRACT(load, i)` to `OP_LOAD(field_alloca_i)`.
+- **Genuine whole-VALUE uses** of `OP_LOAD(alloca)` (a call arg by-value, a
+  return, storing the value elsewhere) → rebuild the aggregate with
+  `OP_INSERT` from the per-field loads. If a whole-value use can't be cleanly
+  rebuilt, **pin the slot un-splittable** (conservative).
+- Delete the original aggregate alloca. mem2reg then promotes the non-managed
+  field allocas; pure copies collapse entirely (reviewer: mem2reg fully collapses
+  the fields for pure copies).
 
-- **Q1:** Is partial SROA (split non-managed fields, keep managed fields in a
-  residual alloca) sound and worthwhile as Phase 2's v1, or does the residual
-  alloca's pad/refcount handling make full-split simpler?
-- **Q2:** Are whole-aggregate `OP_STORE`s already lowered to per-field stores
-  before RunOptPasses runs, or does SROA need to lower them (or pin on them)?
-- **Q3:** Arrays — split constant-indexed small arrays in v1, or defer all arrays?
-- **Q4:** Does splitting interact with the aggregate-return / sret path (a struct
-  returned by value) or with `box()` — both are escapes, but confirm the scan
-  catches them.
-- **Q5:** Estimated gap reduction: Phase 1 (non-managed) captures what fraction of
-  the 308K copies vs Phase 2 (managed-slice headers, 41.6%)? A quick IR-level
-  count of splittable non-managed vs managed aggregate allocas in the self-compile
-  would size the phases.
+## Phasing (corrected)
 
-## Validation
+- **Phase 0 — infra + splittable-slot analysis + a validator, no rewrite.**
+  Unit-tested on hand-built IR: a raw-slice alloca used only by whole load/store
+  → splittable; one passed by-address to a call → not; a managed slice appearing
+  in a FaultPad → not; a dynamic-index array → not.
+- **Phase 1 — NON-MANAGED aggregates** (`*[]T`, POD structs — all fields
+  non-managed). No refcount, no fault-pad interaction. This is the hazard-free
+  first cut and still the right start — BUT it is a **materially bigger transform
+  than v1 described**: scalarize whole-stores, forward extracts, rebuild via
+  insert at whole-value uses. Captures the non-managed copy share (roughly the
+  ~58% that isn't the 41.6% managed-slice headers, minus the ~6% ABI-mandated
+  by-address, minus mixed/escaping cases).
+- **Phase 2 — MANAGED aggregates (the 41.6% payoff; genuinely hard, no shortcut).**
+  The reviewer refuted v1's "partial SROA keeps existing pad handling" escape
+  hatch: the managed-slice refcount spine LOADS THE WHOLE 4-word value and
+  `OP_EXTRACT`s field 2 — in normal blocks (`gen_util_refcount.bn:310-313`
+  RefInc, `:359-382` RefDec) AND in every FaultPad (`gen_local_cleanup.bn:31-34`
+  `emitPadCleanup`); the elem-dtor path even re-materializes the whole value and
+  passes its ADDRESS to a dtor (a whole-aggregate-address escape). So ANY managed
+  split must rewrite every whole-value-load+extract-2 including in pads — that IS
+  the pad/refcount rework, not something a residual alloca sidesteps. Phase 2 is
+  a separate design pass; do NOT promise it cheaply.
 
-- Per-phase: unit tests (compiled + VM) on hand-built IR (splittable/not,
-  correct field rewrite, mem2reg promotes the fields after); the three native
-  conformance modes + LLVM + VM (correctness); the `scalar-diff` differential
-  harness; a refcount-balance test for Phase 2 (managed).
-- The native-vs-llvm gap benchmark + the mem→mem-copy-pair count (the 308,903
-  metric) before/after — the direct measure of success.
-- Hygiene; each phase independently green and cherry-pickable.
+## Additional items the review surfaced
+
+- **Companion fold (MINOR).** No `extract(insert(...))` fold exists, and native
+  represents an aggregate SSA value as a memory data-region pointer
+  (`aarch64_emit.bn:141-175`). Pure copies collapse via mem2reg, but MIXED cases
+  that rebuild via `OP_INSERT` then re-`OP_EXTRACT` won't fully collapse on native
+  without an `extract-of-insert` peephole. Add it (IR-level or per-backend) as a
+  payoff-completeness follow-on; not a correctness bug.
+- **Nesting / fixpoint (MINOR).** Splitting a struct whose field is itself a
+  slice/struct exposes a new aggregate field alloca (scalar-only mem2reg won't
+  promote it). Either recurse / run SROA to a fixpoint, or explicitly pin
+  nested-aggregate fields in v1. Decide and document in Phase 0.
+- **Payoff re-estimate (Q5).** Size the phases by counting **whole-aggregate
+  OP_STORE sites** (by managed-ness), NOT field-ptr sites, in the self-compile IR.
+
+## Validation (unchanged intent)
+
+Per phase: unit tests (compiled + VM) on hand-built IR (splittable/not; whole
+store→per-field; extract-forwarding; mem2reg promotes the fields; whole-value use
+rebuilds via insert); the three native conformance modes + LLVM + VM; the
+`scalar-diff` differential harness; a refcount-balance test for Phase 2. The
+native-vs-llvm gap benchmark + the 308,903 mem→mem-copy-pair count before/after
+is the direct success measure. Each phase independently green + cherry-pickable;
+adversarial review per phase.
