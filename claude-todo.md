@@ -57,7 +57,7 @@ and the `__c_entry` >16-byte by-value aggregate PARAMETER adaptation thunk
 
 - **Aggregate RETURN types (sret) for `__c_call`** — returns are still restricted
   to scalar/pointer/"void"; struct/aggregate returns unsupported.
-- **`__c_global` aggregate types** — still scalar/pointer only.
+- **`__c_global` aggregate types** — 🟡 IN PROGRESS (claimed 2026-09-08, work-3/session). Still scalar/pointer only.
 - **MINOR (review):** `writeByvalMemType` hardcodes `align 8` — a 16-aligned /
   vector aggregate would be mis-ABI'd vs clang (no such type exists in Binate
   today; latent).
