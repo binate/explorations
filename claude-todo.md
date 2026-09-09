@@ -77,7 +77,7 @@ sharing the same widened C-representability idea:
 - **MINOR (review):** `isCArgType` conservatively over-rejects `*[]Opaque` /
   `@[]Opaque` (the slice HEADER has a defined layout and could be admitted).
 
-### Unregistered fresh-managed return values leak on a fault at the value return — 🔴 OPEN MINOR (found 2026-09-08)
+### Unregistered fresh-managed return values leak on a fault at the value return — 🟡 IN PROGRESS (claimed 2026-09-08, work-2/session) MINOR (found 2026-09-08)
 
 **Severity: MINOR, pre-existing.** Some producers of a fresh managed value do NOT
 `registerTemp` it, relying on "it is always moved to a consumer" — which fails
@@ -103,7 +103,7 @@ so the fault-pad's `ctx.Temps` snapshot covers them.  Repro: clone
 `TestDeferredCallFaultReturnValueNoLeak` (pkg/binate/vm) returning `cast(@I, t)` /
 a closure literal instead of `make_slice`.
 
-### Frame-push (stack-overflow) fault leaks a moved-in owned arg — 🔴 OPEN MINOR (found 2026-09-08)
+### Frame-push (stack-overflow) fault leaks a moved-in owned arg — 🟡 IN PROGRESS (claimed 2026-09-08, work-2/session) MINOR (found 2026-09-08)
 
 **Severity: MINOR, pre-existing, ALL calls.** A moved (ownership-transferred) arg —
 an `@Iface` / managed-field-struct — is `consumeTemp`'d out of the caller's
