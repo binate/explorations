@@ -156,7 +156,7 @@ CORRECTION 2026-09-08):
    spill-cost heuristics / interval splitting / more homes are untried and
    target this ~45% directly.
 3. **Inliner threshold tuning — POSTPONED; revisit AFTER SROA/regalloc.** 🔵 NOT ASSIGNED
-   The `--inline-threshold` flag is landed (`01933d8c8`) so the value is
+   The `--inline-threshold` flag is landed (`3022706ce`) so the value is
    runtime-settable without recompiling the compiler. A drift-controlled
    interleaved benchmark (build bnc with its OWN code inlined at threshold X;
    then time it compiling cmd/bnc at a FIXED threshold 15) showed raising the
