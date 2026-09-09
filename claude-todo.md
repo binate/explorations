@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### Native backend miscompiles at aggressive inlining (SEGV self-compiling) — blocks the inliner-threshold lever on native — 🟡 OPEN (found 2026-09-08, work-1)
+### Native backend miscompiles at aggressive inlining (SEGV self-compiling) — blocks the inliner-threshold lever on native — 🟡 IN PROGRESS (claimed 2026-09-08, work-1)
 
 **Severity: MAJOR (latent miscompile).** Raising `InlineSizeThreshold` 15→200
 to pursue the inliner perf lever produces a `--backend native -O2` bnc that SEGVs
