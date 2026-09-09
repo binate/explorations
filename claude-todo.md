@@ -65,20 +65,27 @@ only, never the correctness path** (2026-09-08):
   case B >7 (523/524) still fails LOUD (no silent truncation) and stays xfailed.
   Prove with a NEW e2e/xmclosure.sh case (native closure with >7 args into the
   VM).  Item 1 does NOT remove the 523/524 xfails.
-- **Trampoline-fix (separate follow-on): callee-side any-SHAPE (case B) — the
-  real correctness restoration.** This is what un-reds the 17 xfailed tests, and
-  it is any-SHAPE, not merely any-arity: the trampolines (and the caller-side
-  boundary) must carry FP-register floats, natural-size narrow args, by-retbuf
-  aggregates / big multiret, AND >7 spilled words — everything the pre-b1 inline
-  path handled.  A generic per-return-shape trampoline reading native AAPCS
-  registers structurally cannot marshal an arbitrary signature; the plausible
-  clean fix is an **always-packed `vtable.call` ABI** — pass args as packed VM
-  int-slots + count, the callee interprets per its own signature (uniform because
-  the VM already represents every shape as int-slots).  Remove the trampoline
-  `>7` guard and all 17 `*.xfail.builder-comp*-int` markers (523, 524, 718, 888,
-  894, 901, 903, 906, 914, 920, 926, 931, 970, 1097, 1205, 1206, 1207).
-
-See plan-crossmode-anyarity-shim.md for the full design + sequencing.
+- **The any-SHAPE fix (case B) — the real correctness restoration, owner-approved
+  design (B), reviewed SOUND-WITH-FIXES (2026-09-09).** Un-reds all 17 xfailed
+  tests; it is any-SHAPE (FP-register floats, natural-size narrow, by-retbuf
+  aggregates / big multiret, AND >7 spill) — everything the pre-b1 inline path
+  handled.  Design: add a THIRD func-value vtable slot `call_packed(data, args,
+  nSlots, retbuf) int64` (packed VM int-slots); the VM caller uses it
+  unconditionally (no data-peek, no b2); compiled↔compiled keeps the untouched
+  real-ABI `call` slot (no VM tax).  VM func values → a generic
+  `TrampolinePacked`; native/LLVM → per-signature `__shimP` packed shims (this
+  folds in the old "item 1" case-A native-closure→VM shim).  Invoked by reusing
+  `_call_shim_scalar64` as the indirect-call vehicle.  Growing `%BnVtable` is
+  verified SAFE (not shared with iface vtables).  Remove all 17
+  `*.xfail.builder-comp*-int` markers (523, 524, 718, 888, 894, 901, 903, 906,
+  914, 920, 926, 931, 970, 1097, 1205, 1206, 1207).  **Full design + corrected
+  sequencing: plan-crossmode-callpacked.md.**
+- **C2 follow-up (tracked, NOT these 17):** two OTHER cross-mode dispatchers carry
+  the same scalar-only/≤7 limitation — `dispatchExternBinding`/`execExternCall`
+  (vm_extern.bn) and `dispatchCompiledIfaceMethod` (call_iface_host.bn).
+  Pre-existing (not b1 regressions, no failing test); their vtables grow the
+  `call_packed` slot too, so migrate them to `call_packed` in a later pass so
+  extern/iface-method cross-mode dispatch is any-shape too.
 
 ### b2: discriminate VM func values by thunk-identity (fast-path, drop the thunk round-trip) — 🟡 ASSIGNED (claimed 2026-09-08)
 
