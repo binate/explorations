@@ -7,6 +7,40 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### `__c_entry` callback signature validation — DONE (2026-09-08, `3aa0fce1e`)
+
+First item of the "FFI C-representability follow-ons" bundle (rest still open in
+[claude-todo.md](claude-todo.md)).
+
+`__c_entry(f)` yields a C-callable function pointer to a declared function `f`, so
+the spec requires f's signature to be C-ABI-replicable: `pkg.centry.eligible` defers
+to `pkg.cexport.signature` ("f's signature must satisfy `pkg.cexport.signature`").
+`checkCEntry` enforced only the operand-shape rules (declared, non-generic,
+top-level, non-method) and never validated the param/result TYPES, so a target whose
+signature has no defined ABI layout at the C boundary was silently accepted.
+
+The one non-C-representable case is an OPAQUE-by-value parameter or result — no
+layout to map to a C type. `pkg.cexport.signature` says the export direction "rejects
+nothing at the ABI level," so every other shape (scalar, `*T`/`@T`, raw/managed
+slice, interface/function value, struct by value, multi-return, pointer-to-opaque)
+stays accepted. The firing case is reachable and was confirmed to compile clean
+pre-fix: a pure opaque forward-decl, or a cross-package opaque export (concrete in
+its own package, opaque to the consumer that forms the `__c_entry`) used by value —
+e.g. `__c_entry(op.G)` where `op.G(x op.T)` and `op.T` is opaque to the consumer.
+
+Fix: new `checkCEntrySignature` rejects exactly that, reusing `isCArgType` (the
+widened `!embedsOpaqueByValue` predicate already applied to `__c_call` arguments), so
+the check recurses through nested aggregates (`struct{o op.T}`, `[N]op.T`) and stops
+at pointers/handles. Checker-only; no codegen touched. 6 new tests (accept:
+struct-by-value / managed-slice / multi-return / opaque-pointer param; reject: opaque
+param / opaque result via a cross-package opaque `.bni`); pkg/binate/types 1126 pass.
+Adversarially reviewed — no substantive defects.
+
+NOT done: the broader "share ONE C-representability predicate across `__c_entry` +
+`__c_global` + `#[c_export]`" unification the bundle floated (each still validates
+independently; `#[c_export]` has no checker-side signature validation at all). A
+follow-up item touching those paths can fold it in.
+
 ### Audit x64 + arm32 call emitters for the aarch64 X17-clobber shape — DONE (2026-09-08): NEITHER is vulnerable, no fix needed
 
 Follow-up to the aarch64 inlining-SEGV fix (`34fdc65e0`). The adversarial review

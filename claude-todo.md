@@ -12,18 +12,10 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 `__c_call` argument widening LANDED (`bfb0f5d89`): args admit any defined-ABI-
 layout type (struct by value, raw/managed slice, managed ptr, interface/func
 value) with the ordinary `mem.param` ownership (C does RefInc/RefDec by hand);
-correct on x86_64 / aarch64 / arm32 × LLVM + native.  Remaining, sharing the same
-widened C-representability idea:
+correct on x86_64 / aarch64 / arm32 × LLVM + native.  The `__c_entry` callback
+signature validation piece LANDED (`3aa0fce1e`, moved to the done log).  Remaining,
+sharing the same widened C-representability idea:
 
-- **`__c_entry` callback signature validation** — LANDED `3aa0fce1e` (2026-09-08,
-  work-3).  `checkCEntry` now enforces `pkg.centry.eligible`'s deferral to
-  `pkg.cexport.signature` via `checkCEntrySignature` (reuses `isCArgType`): a
-  target whose param/result is opaque-by-value (no defined ABI layout — reachable
-  as a pure opaque or a cross-package opaque export used by value) is rejected; the
-  full C-ABI-replicable surface stays accepted.  The broader "share ONE predicate
-  across `__c_entry` + `__c_global` + `#[c_export]`" unification was NOT done (each
-  currently validates independently; `#[c_export]` still has no checker-side
-  signature validation) — fold in if/when a later item touches those paths.
 - **MINOR (review, pre-existing): `__c_entry` of a target with a >16-byte
   by-value aggregate PARAMETER gets no adaptation thunk** — `#[c_export]` adapts
   such a param (x86-64 `ptr byval` / arm32 by-value coerced vs the internal single
