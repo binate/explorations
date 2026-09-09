@@ -11,7 +11,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 **ACTIVE (owner reprioritized 2026-09-08): the any-SHAPE trampoline fix (case B)
 FIRST — it un-reds all 17 xfailed tests; item 1 (case-A packed shim) is deferred
-to after.** The 45 xfail markers landed to green CI (commit on temp-4); this
+to after.** The 45 xfail markers landed to green CI (commit aacd1f232 on main); this
 entry now tracks building the real callee-side any-shape dispatch.
 
 **b1 (thunk dispatch, commit 98219ab3e) regressed MORE than arity — it dropped
