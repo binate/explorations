@@ -7,6 +7,40 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### `__c_global` admits any defined-layout type — DONE (2026-09-08, `528c3b28f`; spec docs `d3e57ad`)
+
+Third item of the "FFI C-representability follow-ons" bundle (rest still open in
+[claude-todo.md](claude-todo.md)).
+
+`__c_global("sym", T)` yields the ADDRESS of an external C global as a raw *T.  T
+was restricted to a scalar or pointer; the spec (`pkg.cglobal`) itself noted
+aggregate C-global types were "not yet supported — narrower than __c_call's
+arguments, which admit any defined-layout type".  This widens `checkCGlobal`'s
+predicate from `isCCompatibleArgType` (scalar/pointer) to `isCArgType` — the same
+`!embedsOpaqueByValue` widened C-representability __c_call applies to its arguments.
+So a struct/array by value, a raw/managed slice, an interface or function value are
+all admitted; the only rejection is an opaque-by-value type.  A C global CAN be a
+managed type (e.g. an immortal managed pointer) as long as the C side honors the
+ABI; the recovered *T is always raw.
+
+NO codegen change was needed: the native backends materialize only the symbol
+ADDRESS (they never inspect T — verified across x64/aarch64/arm32 dispatch), and the
+LLVM backend already spells `external global <T>` via the same `llvmType` that
+__c_call arg-widening exercises on aggregates (including emitting a struct's `type`
+definition when it appears only via __c_global, so the reference never dangles).
+
+Checker-mostly change (one predicate line + message + doc comment).  Tests: checker
+accept-cases (struct, array, managed slice) + reject (opaque-by-value); LLVM codegen
+(external global for an array and a struct, with the struct's type def emitted); a
+runtime e2e (`e2e/c-global-aggregate.sh`) reading a C global struct whole through *p
+and writing it back through *p = ..., confirming the write via a C re-read — green on
+both backends.  Spec `pkg.cglobal` (docs/spec/16b-build-constraints.md) updated to
+the widened rule.  Adversarially reviewed — sound; the one stale-comment nit it found
+was fixed.
+
+Remaining bundle items: aggregate `__c_call` RETURNS (sret), and the two MINOR review
+items (`writeByvalMemType` align-8 latent, `isCArgType` `*[]Opaque` over-reject).
+
 ### Unregistered fresh-managed return values leaked on a fault at the value return — DONE (2026-09-08, `99ef6cf4a`)
 
 A directly-RETURNED fresh managed value produced by a move-only path was tracked
