@@ -57,44 +57,6 @@ widened C-representability idea:
 - **MINOR (review):** `isCArgType` conservatively over-rejects `*[]Opaque` /
   `@[]Opaque` (the slice HEADER has a defined layout and could be admitted).
 
-### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🟡 IN PROGRESS (claimed 2026-09-08, work-2/session) MAJOR (found 2026-07-18)
-
-**Severity: MAJOR** — a recoverable user-code fault (bounds / divide / shift /
-call-through-nil / stack-overflow — Plan 2) raised inside a **re-entrant** `execFunc`
-(a VM function dispatched from COMPILED code through a trampoline / `_call_shim_*`
-during an outer `execLoop`) is silently swallowed instead of propagating. The nested
-`execFunc` unwinds to *its* entry frame, clears `FaultRaised`, and returns
-`Status = FAULTED` + a garbage `0` to the trampoline; neither `execFunc` (after
-`execLoop`) nor `execExternCall` re-checks `vm.Status` / `FaultRaised`, so the OUTER
-loop continues on the bogus result rather than continuing the unwind (or aborting). A
-faulting VM callback thus returns `0` to its compiled caller instead of the program
-aborting.
-
-**Pre-existing + affects ALL recoverable faults** (not introduced by the stack-overflow
-work — surfaced by its adversarial review, `022a76ac`). Trigger is narrow: a
-cross-mode callback (compiled higher-order fn → VM-side callback) whose callback
-faults. The unwind only reaches the host cleanly when the *outermost* `execLoop` is the
-one that faults.
-
-**Fix direction:** after a nested `execFunc` returns with `Status == VM_STATUS_FAULTED`,
-propagate rather than swallow — the trampoline / `execExternCall` should re-raise
-(re-`setFault` + re-dispatch in the outer frame, or bail the outer `execLoop`). Needs a
-test: a compiled/native higher-order fn calling a VM callback that indexes OOB, asserting
-the program aborts (not returns 0). Tracked against Plan 2
-(`explorations/done/plan-rt-fault-cleanup-pads.md`).
-
-**STATUS (2026-09-08, work-2 `0b0926498`, reviewed, pending landing):** fixed by
-"bail the outer execLoop". New `callFaultPending(vm)` = `FaultRaised || (Status ==
-FAULTED && CleanupDepth == 0)`; the outer `execLoop`'s three call-dispatch arms
-(`execExternCall` — had NO check before — plus `BC_CALL_FUNC_VALUE` /
-`BC_CALL_IFACE_METHOD`) now dispatch the call op's cleanup pad on a swallowed
-re-entrant fault. `CleanupDepth == 0` gate is load-bearing: `Status` stays FAULTED
-through a whole unwind, so an unguarded check re-fires when a pad's RefDec dispatches
-a pad-less `_call_dtor` (→ vmPanic). The trampolines are deliberately NOT made
-fatal (they double as `CallIfaceMethod`'s host-recovery path). Test:
-`TestReentrantExecFuncFaultPropagates` (pkg/binate/vm). Adversarial review surfaced
-the pad-less-synthetic-call gap below.
-
 ### Deferred / method-value-wrapper call ops have NO fault pad — 🔴 OPEN MAJOR (found 2026-09-08)
 
 **Severity: MAJOR (narrow reach).** Deferred calls (`ir/gen_defer_exit.bn`

@@ -7,6 +7,35 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) was swallowed — DONE (2026-09-08, `aa21758a0`)
+
+A recoverable user-code fault (bounds / divide / nil-deref / stack-overflow) raised
+inside a RE-ENTRANT `execFunc` — a VM function re-entered from compiled/native code
+(a trampoline / `_call_shim_*`) while an OUTER `execLoop` is suspended on the host
+stack — was silently swallowed. The nested `execFunc` unwinds to its own entry frame,
+clears the transient `FaultRaised`, and returns `Status = FAULTED` + a garbage `0`;
+the outer `execLoop`'s call-dispatch arms only re-checked `FaultRaised` (already
+consumed by the nested unwind), missed the terminal `Status = FAULTED`, and ran past
+the call on the garbage result (a faulting VM callback returned `0` to its compiled
+caller instead of the program unwinding).
+
+Fixed by "bail the outer execLoop": new `callFaultPending(vm)` = `FaultRaised ||
+(Status == FAULTED && CleanupDepth == 0)`; the three call-dispatch arms
+(`execExternCall` — previously NO check — plus `BC_CALL_FUNC_VALUE` /
+`BC_CALL_IFACE_METHOD`) now dispatch the call op's cleanup pad on a swallowed
+re-entrant fault, continuing the unwind to the host. The `CleanupDepth == 0` gate is
+load-bearing: `Status` stays FAULTED through a whole unwind, so an unguarded check
+re-fires when a cleanup pad's RefDec dispatches a pad-less `_call_dtor` (→ vmPanic);
+the swallow always returns with CleanupDepth balanced to 0, and a fault raised while
+CleanupDepth != 0 is fatal, so the gate is exact. Trampolines deliberately left
+unchanged (they double as `CallIfaceMethod`'s host-recovery path, which inspects
+`vm.Status` to recover). The same commit extracts the cold `BC_REFDEC_INLINE_FAST`
+zero-refcount dtor dispatch into `execRefDecZeroDtor` (`vm_exec_refdec.bn`) to keep
+`vm_exec.bn` under the file-length cap (behavior-preserving). Test:
+`TestReentrantExecFuncFaultPropagates` (pkg/binate/vm); adversarial-reviewed. The
+review surfaced a pad-less deferred / method-value-wrapper call-op gap, tracked
+separately in claude-todo.md.
+
 ### LLVM backend emitted DUPLICATE local value names for two OP_STOREs sharing (dst,src) — DONE (2026-09-08, `63270d601`)
 
 The LLVM backend (`codegen/emit_copy_ssa.bn`) named each scalarized aggregate-
