@@ -45,12 +45,39 @@ does a RUNTIME-arity spread of `args[0..nArgs)` into the callee ABI, then calls
 The callee reads data (reg0) + its NumParams from reg1.. then the stack — matching
 a normal call.  Returns the scalar / i64 / (via retbuf) result.
 
-Open design question to settle while implementing: whether this is a NEW opcode
-(OP_CALL_INDIRECT_PACKED) or a flag on OP_CALL_INDIRECT.  A new op is cleaner for
-the backends to special-case the runtime spread.  Decide when wiring gen_call.
+### KEY DESIGN FINDING (investigated 2026-09-08, before compaction)
 
-Alternative considered + rejected: a bigger FIXED cap (a0..a15).  Band-aid — fails
-at 17 args; the owner wants the general mechanism proven, not a higher wall.
+The existing `_call_shim_scalar(fn, data, a0..a6)` lowers (gen_call.bn ~L276) to
+`EmitCallIndirect(fnPtr, [data, a0..a6], resultTyp)` = `OP_CALL_INDIRECT` with a
+**compile-time-fixed** 8-element arg list.  A backend emits OP_CALL_INDIRECT by
+spreading that FIXED list into regs+stack — so it cannot express a RUNTIME arity.
+The 7-arg cap is thus baked into the shim SIGNATURE (a0..a6) + the fixed
+OP_CALL_INDIRECT list; you can't just "pass more" through OP_CALL_INDIRECT because
+IR-gen builds its arg list at compile time.
+
+The hard part of the packed spread: outgoing STACK args (beyond the ABI reg
+budget) for a runtime nArgs need a runtime-sized outgoing area.  The caller's
+frame reserves a FIXED outgoing-args area, so a runtime count needs a DYNAMIC
+alloca: reserve (nArgs-K)*word bytes at the top of stack (sp = base), store
+args[K..nArgs) there, load args[0..K) into arg regs, then the indirect call — the
+callee then reads its stack args at [sp+0..].  This alloca-then-spread-then-call
+is awkward in IR/Binate and is most naturally a HAND-WRITTEN per-backend asm
+helper (like rt's MemZero/MemCopy asm), one per arch (aa64/x64/arm32), plus the
+LLVM path (codegen) which also can't do a runtime-arity `call` directly (same
+alloca+spread, or inline asm / a musttail trick).
+
+Likely concrete shape: `_call_shim_scalar_packed` etc. become REAL native asm
+symbols (not IR-magic) in impls/core/.../rt (arch-gated `#[build]`), each doing
+the dynamic spread + `blr fn` / `call fn`.  Reconsider whether IR-magic can still
+work via a new OP_CALL_INDIRECT_PACKED(fn, data, argsPtr, nArgs) that the backend
+lowers to the same asm pattern inline — cleaner if the backend can emit a dynamic
+stack sub + a runtime store loop + the reg loads before the indirect call.  DECIDE
+at implementation time by trying the aa64 backend-inline form first; fall back to
+hand-asm rt symbols if the backend can't express the dynamic outgoing area.
+
+Alternative considered + rejected by owner: a bigger FIXED cap (a0..a15).
+Band-aid — fails at 17 args; the owner wants the general mechanism proven, not a
+higher wall.
 
 ## Sites to change
 
