@@ -7,6 +7,39 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### Deferred / method-value-wrapper call ops had NO fault pad — DONE (2026-09-08, `2ca58004c`)
+
+Deferred calls (`ir/gen_defer_exit.bn` `emitDeferRun`) and method-value wrapper
+calls (`ir/gen_method_value.bn`) were emitted WITHOUT `attachFaultPad`, unlike
+every ordinary call.  A recoverable VM fault reaching such a pad-less op —
+a deferred/wrapped callee that faults, a cross-mode compiled callee whose
+re-entrant VM callback faults (surfaced by the re-entrant-fault fix
+`aa21758a0`), or a frame-push overflow — hit `dispatchFaultPad` with no pad and
+`vmPanic`'d ("recoverable fault with no cleanup pad (lowering bug)") instead of
+unwinding.
+
+Deferred calls: attach the standard pad, AND reorder `gen_return` so the pending
+deferred calls run BEFORE the Axiom-3 delivery RefInc (the pad is the sole
+fault-path cleanup and `BC_UNWIND_RETURN` bypasses the whole-function release, so
+the return value must still be pre-delivery when defers run — else its delivery
+ref is orphaned → leak).  No-op for defer-free functions (`emitPendingDefers`
+emits nothing), so non-defer returns are byte-identical.  Method-value wrappers:
+new `GenContext`-free `attachEmptyFaultPad` tags the forwarding call with a BARE
+pad — empty is correct because the wrapper forwards ownership to the method (a
+param-releasing pad would double-free on an internal method fault, whose unwind
+runs the wrapper pad after the method's own pad already released the moved param).
+
+Two adversarial-review rounds: round 1 found a return-value leak (the Axiom-3
+orphan, fixed by the reorder — `TestDeferredCallFaultReturnValueNoLeak` proves it)
+and an empty-pad reasoning error (the empty pad is correct; the comment was
+fixed); round 2 verified both correct with no regression.  Tests:
+`TestDeferredCallFaultRecovers` / `TestDeferredCallFaultReturnValueNoLeak`
+(pkg/binate/vm), `TestAttachEmptyFaultPadCreatesBarePad` (pkg/binate/ir); defer +
+method_value conformance green in VM and compiled modes.  Two PRE-EXISTING minor
+leaks the review surfaced (not introduced by this fix — they leak identically
+before it) are tracked as separate OPEN entries in claude-todo.md:
+unregistered-fresh-managed-return-value, and moved-arg-on-frame-push-overflow.
+
 ### `__c_entry` callback signature validation — DONE (2026-09-08, `3aa0fce1e`)
 
 First item of the "FFI C-representability follow-ons" bundle (rest still open in

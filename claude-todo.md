@@ -39,34 +39,6 @@ sharing the same widened C-representability idea:
 - **MINOR (review):** `isCArgType` conservatively over-rejects `*[]Opaque` /
   `@[]Opaque` (the slice HEADER has a defined layout and could be admitted).
 
-### Deferred / method-value-wrapper call ops have NO fault pad — 🟡 IN PROGRESS (claimed 2026-09-08, work-2/session) MAJOR (found 2026-09-08)
-
-**Severity: MAJOR (narrow reach).** Deferred calls (`ir/gen_defer_exit.bn`
-`emitDeferRun`: `EmitCall` / `EmitCallFuncValue` / `EmitCallIfaceMethod`) and
-method-value wrapper calls (`ir/gen_method_value.bn` ~428/431/449) are emitted
-WITHOUT `attachFaultPad`, unlike every ordinary call (`gen_call.bn` tags each with a
-call-site pad). So the op has no `FaultTable` entry. When a recoverable fault reaches
-such an op, `dispatchFaultPad` finds no pad and `vmPanic`s
-("recoverable fault with no cleanup pad (lowering bug)") instead of unwinding.
-
-**Reach:** only when the pad-less op is one the VM re-dispatches on a fault — i.e. a
-DEFERRED (or method-value-wrapper) call routed through the extern / func-value /
-iface arm whose callee **re-enters a VM callback that faults**, or a **fresh** fault
-at such an op (e.g. a deferred nil-func-value call). A deferred DIRECT call to a
-plain VM function that faults recovers fine (its callee unwinds via
-`BC_UNWIND_RETURN`, which pops a pad-less frame transparently) — verified. Pre-
-existing: the func-value/iface arms already `vmPanic`ed here on a fresh fault; the
-re-entrant-swallow fix (`0b0926498`) extends the same loud (correctly-labelled)
-`vmPanic` to the extern arm and the swallowed-fault path — an improvement over the
-prior SILENT swallow, but the underlying gap remains.
-
-**Fix direction:** attach a cleanup pad to deferred / method-value-wrapper calls too.
-NON-TRIVIAL: deferred calls run interleaved with the return's own managed-local
-cleanup, so the pad's live-managed set must be computed correctly for the defer-exit
-program point (naively reusing the whole-function live set risks a double-RefDec
-against the return cleanup). Needs a repro test (cross-mode deferred re-entrant
-fault, or a deferred nil-func-value call) marked xfail until fixed.
-
 ### Unregistered fresh-managed return values leak on a fault at the value return — 🔴 OPEN MINOR (found 2026-09-08)
 
 **Severity: MINOR, pre-existing.** Some producers of a fresh managed value do NOT
