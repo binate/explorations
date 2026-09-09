@@ -7,6 +7,29 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### Audit x64 + arm32 call emitters for the aarch64 X17-clobber shape — DONE (2026-09-08): NEITHER is vulnerable, no fix needed
+
+Follow-up to the aarch64 inlining-SEGV fix (`34fdc65e0`). The adversarial review
+asked whether x64 / arm32 share the bug (call target held in a register that the
+arg dispatch's large-offset addressing scratch clobbers). Audited all six
+indirect-branch sites (indirect / func-value / iface, both backends): **neither
+is vulnerable.**
+- **x64** (`x64_call_indirect.bn`, `x64_iface.bn`): the target is stashed in R11
+  but SPILLED to a stack slot (`fnPtrSlot`) BEFORE arg dispatch and reloaded right
+  before `CallReg R11` — so a clobber during dispatch is harmless. The emitter's
+  own comment names the hazard ("the arg-loading loop … and CallReg(R11) jumps to
+  garbage"). Also x64 memory operands carry a full disp32, so `[RSP+large]` needs
+  no scratch register at all — the aarch64 precondition (12-bit scaled immediate →
+  X17 scratch) doesn't even exist on x64.
+- **arm32** (`arm32_call_indirect.bn`, `arm32_iface_dispatch.bn`): the target is
+  materialized into IP as the LAST step before `Blx IP`, after all arg dispatch —
+  precisely because IP is the large-offset addressing scratch that emitAggregate-
+  Arg / emitFrameAddr clobber. Its comment explicitly contrasts with "AArch64,
+  which holds the call target in X17 across the whole arg loop."
+So aarch64 was the sole backend that held the target across dispatch (the buggy
+shape); x64/arm32 already used the spill-to-slot / materialize-last shapes the
+aarch64 fix adopted. Nothing to change.
+
 ### Native backend SEGV at aggressive inlining (aarch64 call target in X17 clobbered by large-offset scratch) — DONE (2026-09-08, `34fdc65e0`)
 
 A `--backend native -O2` bnc built with a raised `InlineSizeThreshold` SEGV'd

@@ -7,25 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### x64 (and arm32) call emitters may share the aarch64 X17-clobber shape — audit + fix — 🟡 IN PROGRESS (claimed 2026-09-08, work-1)
-
-**Severity: potential MAJOR (latent miscompile), UNCONFIRMED.** The aarch64
-indirect/func-value/iface call emitters were fixed (`34fdc65e0`, done log): the
-call target is now materialized into X17 AFTER arg dispatch, because the aarch64
-assembler uses X17 to materialize any `ldr/str …, [SP, #>32760]` address, and a
-large-frame spilled-arg reload during dispatch clobbered an early-stashed target
-→ `blr x17` to garbage → SIGSEGV. The adversarial review flagged that **x64
-shares the SHAPE but a DIFFERENT mechanism**: `native/x64/x64_call_indirect.bn`
-stashes the target in R11, then SPILLS R11 to a slot and reloads it — so its
-exposure depends on x64's own large-offset addressing scratch (can the reload or
-the arg dispatch clobber the target register / its spill slot before the indirect
-`call`?). **arm32** likewise needs auditing (its indirect-call target register vs
-its large-offset addressing scratch — IP/R12). Audit both backends: determine
-whether a >large-frame stack-arg indirect/func-value/iface call can clobber the
-target before the indirect branch, and if so fix it (mirror the aarch64
-target-materialized-last shape) + add a regression mirroring
-`conformance/1259_iface_call_large_frame` on `native_x64_darwin` /
-`native_arm32_baremetal`.
 ### FFI C-representability follow-ons (after `__c_call` arg widening landed) — 🟢 follow-ons (2026-09-04)
 
 `__c_call` argument widening LANDED (`bfb0f5d89`): args admit any defined-ABI-
