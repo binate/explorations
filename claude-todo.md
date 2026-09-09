@@ -22,11 +22,30 @@ regressed conformance 523_closure_many_user_args (9 args) and
 (builder-comp{,-comp}-int, builder-comp-int-int).  The compiled lanes pass (the
 native/LLVM closure shim spills >7 args to the stack).
 
-Fix: extend the shim/trampoline to an "always-pack" convention — the caller packs
-args into an array and passes the array + count; the shim/trampoline unpacks per
-the callee's arity — removing the 7-arg ceiling for cross-mode dispatch in both
-directions.  Then REMOVE the 523/524 `.xfail.builder-comp*-int` markers.  Assigned
-(next up after b1 lands).
+There are TWO 7-arg caps, not one (confirmed by reading b1): cap #1 the caller
+shim `_call_shim_scalar(fn, data, a0..a6)`, cap #2 the callee `TrampolineScalar`
+(a fixed 7-param Binate func — cannot read an 8th spread arg).  A NATIVE closure
+into the VM (case A) has no cap #2 (its own shim spills >7); a VM function value
+(case B — what 523/524 are, whole program in the VM) hits cap #2.  So the work
+splits, and the owner directed **item-1-then-trampolines, with b2 an optimization
+only, never the correctness path** (2026-09-08):
+
+- **Item 1 (this entry): the caller-side packed shim (case A).** A new
+  `_call_shim_*_packed(fn, data, args, nArgs)` intrinsic lowered to a
+  backend-emitted INLINE dynamic-arity AAPCS spread (new op
+  OP_CALL_INDIRECT_PACKED — inline, no extra frame, so cross-mode fault-unwind is
+  unaffected).  `dispatchCompiledFuncValue` routes `nArgs > 7` through it (case A
+  native shims handle any arity) and drops its own `>7` vmPanic; the fail-loud
+  guard MOVES into the trampolines (which know the callee's user-param count), so
+  case B >7 (523/524) still fails LOUD (no silent truncation) and stays xfailed.
+  Prove with a NEW e2e/xmclosure.sh case (native closure with >7 args into the
+  VM).  Item 1 does NOT remove the 523/524 xfails.
+- **Trampoline-fix (separate follow-on): callee-side any-arity (case B).** Make
+  the trampolines receive any-arity args (e.g. an always-packed vtable.call ABI
+  the trampoline reads as plain Binate, or per-arch asm gather), remove the
+  trampoline `>7` guard, remove the 6 `523/524.xfail.builder-comp*-int` markers.
+
+See plan-crossmode-anyarity-shim.md for the full design + sequencing.
 
 ### b2: discriminate VM func values by thunk-identity (fast-path, drop the thunk round-trip) — 🟡 ASSIGNED (claimed 2026-09-08)
 
@@ -41,9 +60,12 @@ value's vtable.call is always one of the VM's OWN trampolines
 recognizes it by that thunk IDENTITY and short-circuits (push frame, copy
 captures + user args of ANY arity), while everything else goes through the thunk.
 Keeps the clean compiled ABI (no data-kind tag) and never interprets compiled
-`data`.  Bonus: the short-circuit handles >7-arg VM closures with no shim limit,
-so on the VM-in-VM path it also relieves the 7-arg-limit item above.  Assigned
-(after the 7-arg-limit fix lands).
+`data`.  **b2 is an OPTIMIZATION ONLY — never on the correctness path** (owner,
+2026-09-08).  Correctness for any-arity VM func values comes from the
+trampoline-fix (callee-side any-arity, above), through the real trampoline; b2
+then short-circuits that round-trip for speed.  Do NOT use b2 to make any-arity
+dispatch *work* — only to make the already-working VM-in-VM path faster.  Assigned
+(after the trampoline-fix lands).
 
 ### FFI C-representability follow-ons (after `__c_call` arg widening landed) — 🟢 follow-ons (2026-09-04)
 
