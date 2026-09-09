@@ -57,7 +57,7 @@ widened C-representability idea:
 - **MINOR (review):** `isCArgType` conservatively over-rejects `*[]Opaque` /
   `@[]Opaque` (the slice HEADER has a defined layout and could be admitted).
 
-### Deferred / method-value-wrapper call ops have NO fault pad — 🔴 OPEN MAJOR (found 2026-09-08)
+### Deferred / method-value-wrapper call ops have NO fault pad — 🟡 IN PROGRESS (claimed 2026-09-08, work-2/session) MAJOR (found 2026-09-08)
 
 **Severity: MAJOR (narrow reach).** Deferred calls (`ir/gen_defer_exit.bn`
 `emitDeferRun`: `EmitCall` / `EmitCallFuncValue` / `EmitCallIfaceMethod`) and
