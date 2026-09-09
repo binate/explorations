@@ -112,8 +112,9 @@ the `__c_entry` >16-byte by-value aggregate PARAMETER adaptation thunk
 spec `pkg.cglobal` updated in docs `d3e57ad`).  Remaining, sharing the same widened
 C-representability idea:
 
-- **Aggregate RETURN types (sret) for `__c_call`** — returns are still restricted
-  to scalar/pointer/"void"; struct/aggregate returns unsupported.
+- **Aggregate RETURN types (sret) for `__c_call`** — 🟡 IN PROGRESS (claimed
+  2026-09-09, work-3/session). Returns are still restricted to scalar/pointer/"void";
+  struct/aggregate returns unsupported.
 - **MINOR (review):** `writeByvalMemType` hardcodes `align 8` — a 16-aligned /
   vector aggregate would be mis-ABI'd vs clang (no such type exists in Binate
   today; latent).
