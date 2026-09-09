@@ -1,6 +1,9 @@
 # Plan: IR-level SROA (scalar replacement of aggregates) — the biggest native↔LLVM gap-closer
 
-**Status:** v3 (2026-09-09, work-1) — REVIEWED and ready for Phase 0. v1 was
+**Status:** v3 (2026-09-09, work-1) — REVIEWED; **Phase 0 LANDED `b0e5da664`**
+(`pkg/binate/ir/sroa.bn` — eligibility scan + validator, no rewrite;
+code-reviewed, no unsound-classification holes). Next: Phase 1 (non-managed
+aggregate rewrite). v1 was
 **wrong about the IR** (keyed on `OP_GET_FIELD_PTR`; Binate IR is
 register-aggregate SSA); v2 re-grounded it on whole `OP_LOAD`/`OP_STORE` values +
 `OP_EXTRACT` (empirically verified via `--emit-llvm`); a re-review of v2 found two
@@ -129,9 +132,12 @@ boundary, not a collapse — out of scope for v1.)
 ## Phasing (corrected)
 
 - **Phase 0 — infra + splittable-slot analysis + a validator, no rewrite.**
-  Unit-tested on hand-built IR: a raw-slice alloca used only by whole load/store
-  → splittable; one passed by-address to a call → not; a managed slice appearing
-  in a FaultPad → not; a dynamic-index array → not.
+  ✅ LANDED `b0e5da664`. Unit-tested on hand-built IR: a raw-slice alloca used
+  only by whole load/store → splittable; one passed by-address to a call → not;
+  a managed slice appearing in a FaultPad → not; a dynamic-index array → not;
+  plus field-ptr-escape, alloca-as-store-value, phi-entry, and L2-via-call pins,
+  and the managed/non-managed classifier. Nesting decision documented in
+  `sroa.bn` (analysis is nesting-agnostic; fixpoint is a rewrite concern).
 - **Phase 1 — NON-MANAGED aggregates** (`*[]T`, POD structs — all fields
   non-managed). No refcount, no fault-pad interaction. This is the hazard-free
   first cut and still the right start — BUT it is a **materially bigger transform

@@ -178,17 +178,22 @@ CORRECTION 2026-09-08):
 
 1. **Aggregate scalar-replacement (SROA) + copy-propagation — THE biggest
    lever (~53% of the gap).** 🟡 IN PROGRESS (claimed 2026-09-08, work-1) — design
-   drafted in `plan-ir-sroa.md` (awaiting an adversarial plan review before
-   implementing). Native materializes `@[]T`/struct locals in stack
+   in `plan-ir-sroa.md` (v3, two adversarial plan-review passes). **Phase 0
+   (eligibility scan + validator, no rewrite) LANDED `b0e5da664`** —
+   `pkg/binate/ir/sroa.bn`: `collectSroaCandidates` (two-level L1/L2
+   splittability) + `sroaAggregateContainsManaged` (managed/non-managed axis) +
+   `validateSroaCandidates`; unit-tested on hand-built IR, code-reviewed (no
+   unsound-classification holes). NEXT: Phase 1 (non-managed aggregate rewrite).
+   Native materializes `@[]T`/struct locals in stack
    slots and copies them field-by-field slot→slot: 308,903 mem→mem copy-pairs =
    25.6% of N's instructions, 41.6% of them 4-word managed-slice-header copies,
    94% internal locals (NOT ABI-mandated → SROA-addressable). mem2reg is
    scalar-only so it never touches these; clang breaks the aggregates into
    scalar fields (SROA) and promotes them. Build an IR-level SROA pass feeding
    the existing mem2reg + scalar regalloc. New pass; the main event. Phasing
-   (per plan): Phase 0 eligibility scan → Phase 1 non-managed aggregates (clean)
-   → Phase 2 managed-slice/struct (refcount + fault-pad handling — the hard part
-   + biggest payoff).
+   (per plan): Phase 0 eligibility scan ✅ (landed) → Phase 1 non-managed
+   aggregates (clean) → Phase 2 managed-slice/struct (refcount + fault-pad
+   handling — the hard part + biggest payoff).
 2. **Register-allocation quality (scalar spill/reload) — ~45% of the gap.** The
    landed allocator is whole-interval linear-scan, callee-saved homes only
    (~10 regs), naive newest-interval spill, no splitting/rematerialization, so
