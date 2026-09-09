@@ -265,6 +265,26 @@ func value with a float arg via slot 1 stays a pre-existing dormant limitation
 3. Native (aa64/x64/arm32) + LLVM per-signature `__shimP` generators; point slot 2
    at them for native/LLVM func values.  Unit-test the shims.  Still unused →
    green.  (This is the case-A capability = old "item 1", now folded in.)
+   **DESIGN REFINEMENT (2026-09-09): `__shimP` is a fixed-arity THUNK, not a
+   dynamic spill.**  The existing `__shim` is entered under the "uniform all-int
+   dispatch ABI" (every user-arg WORD — float bits included — positionally in a GP
+   reg after a leading `data`, or `retbuf`+`data`; >reg-budget words on the
+   stack) and re-marshals to the real ABI.  Although the VM passes `nSlots` at
+   runtime, the callee's total dispatch-word count `W` is COMPILE-TIME FIXED (the
+   func value's signature) — and `nSlots == W`.  So `__shimP(data, args, nSlots,
+   retbuf)` just loads the W user-arg words from `args[0..W)`, places them in the
+   all-int dispatch ABI (regs + any >reg-budget words on the stack — a FIXED
+   layout, unrolled, no dynamic sub-sp / runtime loop), sets `data`/`retbuf`, and
+   calls the func value's own `__shim`, returning its result.  Reuses ALL of
+   `__shim`'s marshalling (FP / narrow / aggregate / spill) — `__shimP` only
+   changes the arg SOURCE (memory vs incoming regs).  Because W is fixed, this is
+   a FIXED-ARITY call, so it dodges the LLVM dynamic-arity wrinkle: LLVM `__shimP`
+   is plain IR (`load args[i]; call @__shim(data, a0..a{W-1}[, retbuf])`), and the
+   backends' existing fixed-arity call emission handles >8-arg stack spill for
+   free.  One extra transparent native frame (`__shimP`→`__shim`); fine for the
+   flag-based cross-mode fault unwind.  (This is simpler than the review's
+   "re-marshal from the array directly" framing — reuse `__shim`, don't
+   reimplement its marshalling.)
 4. Switch `dispatchCompiledFuncValue` to invoke slot 2 via
    `_call_shim_scalar64(callPacked, data, &regs[Src2], nSlots, retbuf, 0,0,0)`
    (in-place iface substitution on the reg window first); drop the a0..a6
