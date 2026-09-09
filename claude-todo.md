@@ -7,20 +7,40 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### Cross-mode func-value dispatch caps at 7 user args — 🟡 IN PROGRESS (claimed 2026-09-08), blocks 523/524 xfail removal — see plan-crossmode-anyarity-shim.md
+### CROSS-MODE VM func-value dispatch regressed to scalar-only + ≤7 args (b1) — 17 conformance tests xfail'd — 🟡 IN PROGRESS (claimed 2026-09-08) — see plan-crossmode-anyarity-shim.md
 
-The func-value shim/trampoline ABI is a fixed 7-user-arg shape: the rt shim
-primitives (`_call_shim_scalar(fn, data, a0..a6)`) and the VM trampolines
-(`TrampolineScalar`/`64`/`Aggregate` in vm.bn) take `data` + a0..a6, and
-`dispatchCompiledFuncValue` (vm_exec_funcref.bn) fails loud on `>7 arg slots`.  So
-ANY function value dispatched through its vtable.call thunk — a native closure
-called from the VM, or a VM function value called from native — is limited to <=7
-user args.  This surfaced when the native-closure-into-VM fix's b1 step (thunk
-dispatch, commit 98219ab3e) routed VM-in-VM closure calls through the thunk: it
-regressed conformance 523_closure_many_user_args (9 args) and
-524_closure_many_caps_reg_to_stack, xfail'd in the VM modes
-(builder-comp{,-comp}-int, builder-comp-int-int).  The compiled lanes pass (the
-native/LLVM closure shim spills >7 args to the stack).
+**b1 (thunk dispatch, commit 98219ab3e) regressed MORE than arity — it dropped
+EVERY non-trivial cross-mode func-value arg/return SHAPE in the VM modes.** b1
+made the VM dispatch every function value (including a bytecode->bytecode call in
+a program that runs wholly in the VM) through its `vtable.call` thunk =
+`rt._call_shim_scalar(fn, data, a0..a6)` -> a `TrampolineScalar`/`64`/`Aggregate`.
+That boundary is **scalar-only and capped at 7 user words**, so it cannot carry:
+FP-register floats, natural-size narrow (int8/16/32, float32) args, by-retbuf
+aggregates / big multi-returns, or >7 spilled words.  Pre-b1 a bytecode->bytecode
+func-value call dispatched **inline** (execFunc, uniform int-slots) and handled
+all of these; b1's uniform-thunk routing removed that path, so all those shapes
+now panic (`>7 arg slots`) or drop/mis-marshal args.
+
+b1's smoke test missed this (it did not run the full VM-mode conformance); CI
+caught it.  **17 tests are now xfail'd in the three VM modes** (builder-comp-int /
+builder-comp-int-int / builder-comp-comp-int) pending the callee-side any-shape
+fix below:
+- >7 arity: `523_closure_many_user_args`, `524_closure_many_caps_reg_to_stack`,
+  `718_funcval_spill_over_vm_cap`, `970_hfa_dispatch_wide`.
+- floats: `888_func_value_float_arg_overflow`, `914_closure_float_incoming_overflow`,
+  `926_closure_float_aggregate_fp_overflow`, `931_closure_float_arg_spill`,
+  `1205_funcval_float_sret_overflow`, `1206_closure_float_param_incoming_spill`,
+  `1207_closure_float_param_incoming_spill_pack`.
+- narrow: `894_func_value_narrow_arg_overflow`, `901_func_value_narrow_overflow_shapes`,
+  `903_narrow_byte_shim_paths`.
+- aggregate / multiret: `906_closure_aggregate_overflow`,
+  `920_closure_float_aggregate_incoming_overflow`, `1097_big_multiret_sret_int64`.
+
+(The 8741c5525 "drop 14 stale VM-mode xfails" commit had removed 718's markers on
+the premise that in-module func-value calls "never traverse the fixed-arity
+`_call_shim_*` boundary" — b1 invalidated exactly that premise.  These 15 markers
+[523/524 predate them] restore that coverage for the b1 regression.  The compiled
+native/LLVM lanes still pass — their per-signature shims marshal every shape.)
 
 There are TWO 7-arg caps, not one (confirmed by reading b1): cap #1 the caller
 shim `_call_shim_scalar(fn, data, a0..a6)`, cap #2 the callee `TrampolineScalar`
@@ -40,10 +60,18 @@ only, never the correctness path** (2026-09-08):
   case B >7 (523/524) still fails LOUD (no silent truncation) and stays xfailed.
   Prove with a NEW e2e/xmclosure.sh case (native closure with >7 args into the
   VM).  Item 1 does NOT remove the 523/524 xfails.
-- **Trampoline-fix (separate follow-on): callee-side any-arity (case B).** Make
-  the trampolines receive any-arity args (e.g. an always-packed vtable.call ABI
-  the trampoline reads as plain Binate, or per-arch asm gather), remove the
-  trampoline `>7` guard, remove the 6 `523/524.xfail.builder-comp*-int` markers.
+- **Trampoline-fix (separate follow-on): callee-side any-SHAPE (case B) — the
+  real correctness restoration.** This is what un-reds the 17 xfailed tests, and
+  it is any-SHAPE, not merely any-arity: the trampolines (and the caller-side
+  boundary) must carry FP-register floats, natural-size narrow args, by-retbuf
+  aggregates / big multiret, AND >7 spilled words — everything the pre-b1 inline
+  path handled.  A generic per-return-shape trampoline reading native AAPCS
+  registers structurally cannot marshal an arbitrary signature; the plausible
+  clean fix is an **always-packed `vtable.call` ABI** — pass args as packed VM
+  int-slots + count, the callee interprets per its own signature (uniform because
+  the VM already represents every shape as int-slots).  Remove the trampoline
+  `>7` guard and all 17 `*.xfail.builder-comp*-int` markers (523, 524, 718, 888,
+  894, 901, 903, 906, 914, 920, 926, 931, 970, 1097, 1205, 1206, 1207).
 
 See plan-crossmode-anyarity-shim.md for the full design + sequencing.
 
