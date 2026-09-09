@@ -80,12 +80,13 @@ only, never the correctness path** (2026-09-08):
   `*.xfail.builder-comp*-int` markers (523, 524, 718, 888, 894, 901, 903, 906,
   914, 920, 926, 931, 970, 1097, 1205, 1206, 1207).  **Full design + corrected
   sequencing: plan-crossmode-callpacked.md.**
-- **C2 follow-up (tracked, NOT these 17):** two OTHER cross-mode dispatchers carry
-  the same scalar-only/≤7 limitation — `dispatchExternBinding`/`execExternCall`
-  (vm_extern.bn) and `dispatchCompiledIfaceMethod` (call_iface_host.bn).
-  Pre-existing (not b1 regressions, no failing test); their vtables grow the
-  `call_packed` slot too, so migrate them to `call_packed` in a later pass so
-  extern/iface-method cross-mode dispatch is any-shape too.
+- **C2 (IN SCOPE — owner folded in 2026-09-09):** two OTHER cross-mode dispatchers
+  carry the same scalar-only/≤7 limitation — `dispatchExternBinding`/
+  `execExternCall` (vm_extern.bn) and `dispatchCompiledIfaceMethod`
+  (call_iface_host.bn).  Pre-existing (not b1 regressions, no failing test), but
+  migrated in the SAME work (step 4): switch both consumers to `call_packed`, drop
+  their `>7`/`>6` vmPanics, add conformance coverage for the newly-enabled
+  extern/iface-method cross-mode shapes.  So ALL cross-mode dispatch is any-shape.
 
 ### b2: discriminate VM func values by thunk-identity (fast-path, drop the thunk round-trip) — 🟡 ASSIGNED (claimed 2026-09-08)
 
