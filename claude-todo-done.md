@@ -7,6 +7,31 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### Native backend SEGV at aggressive inlining (aarch64 call target in X17 clobbered by large-offset scratch) — DONE (2026-09-08, `34fdc65e0`)
+
+A `--backend native -O2` bnc built with a raised `InlineSizeThreshold` SEGV'd
+self-compiling cmd/bnc (native-only; the LLVM `-O2` build from the same source
+ran fine). Root cause (disassembly protocol): the aarch64 indirect / func-value /
+interface-method call emitters stashed the call target in **X17** before argument
+dispatch, assuming only a BL clobbers X16/X17. But the assembler materializes any
+`ldr/str …, [SP, #imm]` whose scaled imm exceeds 4095 (8-byte access above 32760
+bytes) through X17 as its address scratch (`asm/aarch64/aarch64_ldst.bn`). Once a
+frame is that large (inlining made `loadPackage`'s ~53 KB) and register pressure
+spills an argument into a high slot, reloading it during the dispatch loop
+clobbered the stashed target — `blr x17` branched to a garbage stack address.
+Confirmed by disassembling `loadPackage`'s call to `OsSourceProvider.Stat`. Fix
+(`34fdc65e0`): materialize the target into X17 as the LAST step before `blr`,
+after all arg dispatch, re-deriving from the surviving source (func-value operand
+/ X16 handle ptr), in emitCallIndirect + emitCallFuncValue
+(`native/aarch64/aarch64_call_indirect.bn`) + emitCallIfaceMethod
+(`native/aarch64/aarch64_iface.bn`). Validated: native aa64 conformance 3023/0;
+native@-O2 self-compile of cmd/bnc succeeds; adversarial review found the fix
+sound. Regression `conformance/1259_iface_call_large_frame` (>32760-byte frame +
+15-arg iface call) SIGSEGVs the pre-fix native aa64 compiler, returns 136 after
+— empirically validated against an unfixed oracle. Latent for ANY large-frame
+stack-arg indirect/func-value/iface call, not inlining-specific. x64/arm32 audit
+tracked separately in claude-todo.md.
+
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) was swallowed — DONE (2026-09-08, `aa21758a0`)
 
 A recoverable user-code fault (bounds / divide / nil-deref / stack-overflow) raised
