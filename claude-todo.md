@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### Cross-mode func-value dispatch caps at 7 user args — 🟡 ASSIGNED (claimed 2026-09-08, blocks 523/524 xfail removal)
+### Cross-mode func-value dispatch caps at 7 user args — 🟡 IN PROGRESS (claimed 2026-09-08), blocks 523/524 xfail removal — see plan-crossmode-anyarity-shim.md
 
 The func-value shim/trampoline ABI is a fixed 7-user-arg shape: the rt shim
 primitives (`_call_shim_scalar(fn, data, a0..a6)`) and the VM trampolines
