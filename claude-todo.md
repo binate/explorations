@@ -17,7 +17,8 @@ signature validation piece LANDED (`3aa0fce1e`, moved to the done log).  Remaini
 sharing the same widened C-representability idea:
 
 - **MINOR (review, pre-existing): `__c_entry` of a target with a >16-byte
-  by-value aggregate PARAMETER gets no adaptation thunk** — `#[c_export]` adapts
+  by-value aggregate PARAMETER gets no adaptation thunk** — 🟡 IN PROGRESS (claimed
+  2026-09-08, work-3/session). `#[c_export]` adapts
   such a param (x86-64 `ptr byval` / arm32 by-value coerced vs the internal single
   pointer; `cExportNeedsThunk`/`cExportNeedsTrampoline*` include the byval check),
   but the `__c_entry` thunk decision keys only on narrow-register args + return
