@@ -493,6 +493,21 @@ byte-counts with EXACTLY LP64-doubled values (24→48, 72→144) — ILP32 `IntS
 not in effect at emit. Root cause UNKNOWN (target-global leak or a real gen1
 emission-nondeterminism bug); guard `3ca73110` pins it, and do NOT widen the tolerance.
 
+### `regressions/iife-capturing-no-leak` intermittent crash (observed 2026-09-12) — suspected REAL bug, PRE-EXISTING, needs investigation
+
+The capturing-IIFE leak test (`(func() int { return src.N })()` then a
+`rt.Refcount` check, expects `1\n7\n1`) intermittently prints only the first
+line and crashes/aborts — ~15% (6/40 runs) on **current main** (`b0e5da664`,
+i.e. BEFORE the SROA-rewrite work), ~7% (3/40) with the SROA rewrite. Compiled
+at **-O0** (so SROA never runs on the test itself) — the nondeterminism is in
+the emitted test binary, pointing at a latent memory-safety bug (UAF /
+double-free / uninitialized read) in the capturing-IIFE closure-record RefDec at
+end-of-statement. NOT introduced by SROA (base is more flaky, not less) —
+surfaced when a `builder-comp-comp` self-compile run hit it under load. Root
+cause UNKNOWN; the flakiness predates Phase 0 (analysis-only) too. Repro: build a
+bnc (`scripts/build-bnc.sh`), `bnc -O0 ... iife-capturing-no-leak.bn`, run the
+binary ~40×.
+
 ## Method values & function values (codegen)
 
 ### cross-mode coerced-agg func-value ABI — residual native-shim follow-ups
