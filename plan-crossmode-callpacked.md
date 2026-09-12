@@ -290,6 +290,14 @@ func value with a float arg via slot 1 stays a pre-existing dormant limitation
    (in-place iface substitution on the reg window first); drop the a0..a6
    scalar/aggregate direct-shim calls + the `>7` vmPanic; remove the 17 xfails.
    Any-shape works end-to-end.
+   REMINDERS (from the steps-1+2 review): (a) add
+   `types.FuncValueVtableCallPackedIndex()` to `types.bni` — step 4 is the first
+   cross-package caller (native codegen / the VM caller); it is intentionally
+   absent through step 3.  (b) Re-check whether `ensureHandle` needs a
+   self-reference override for TrampolinePacked (the other three trampolines have
+   one at vm_funcvalue_handle.bn:37-45); benign through step 3 because
+   `tpVtable[1]` resolves via the compiled `@__vt.TrampolinePacked`, but the
+   override governs a path that may become reachable once the caller flips.
 5. Full VM-mode conformance (the 17 un-xfail'd) + e2e/xmclosure.sh +
    xmfuncvalue.sh + all three native backends' + codegen + vm unit tests; every
    changed package (C3 shared files feed all backends — smoke each).
