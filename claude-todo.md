@@ -189,8 +189,22 @@ CORRECTION 2026-09-08):
    `pkg/binate/ir/sroa.bn`: `collectSroaCandidates` (two-level L1/L2
    splittability) + `sroaAggregateContainsManaged` (managed/non-managed axis) +
    `validateSroaCandidates`; unit-tested on hand-built IR, code-reviewed (no
-   unsound-classification holes). NEXT: Phase 1 (non-managed aggregate rewrite).
-   Native materializes `@[]T`/struct locals in stack
+   unsound-classification holes). **Phase 1 increment 1 (field-ptr-only,
+   all-mem2reg-promotable-field, non-managed structs) implemented on work-1,
+   pending land** — the rewrite (`sroa_transform.bn`, wired into `RunOptPasses`)
+   splits a struct accessed only via const-index `OP_GET_FIELD_PTR` into per-field
+   scalar slots that mem2reg promotes; validated by a -O0/-O2 differential over
+   373 struct conformance programs on LLVM + native (0 mismatch) and
+   builder-comp-comp self-compile. Surfaced + fixed a MAJOR pre-existing dup-SSA-id
+   bug in method-value capture (`genCapturedRecv` aliased an alloca's id — its own
+   commit, prereq). **Near-term follow-ups (do these SOON, NOT deferred):** (i)
+   whole-value struct scalarization — must handle a byval-param-ref value (a
+   `ptr`, not extractable) via fieldwise loads, not `OP_EXTRACT`; (ii) broaden
+   fields beyond all-promotable — float / nested-aggregate / raw-slice fields need
+   explicit per-field zero-init (or backend-zero-fill reasoning) to keep the
+   struct's implicit zero-fill; (iii) raw slices (`*[]T`); then Phase 2 (managed).
+   Consider a general IR-verifier SSA-id-uniqueness check (the dup-id class was
+   invisible to existing checks). Native materializes `@[]T`/struct locals in stack
    slots and copies them field-by-field slot→slot: 308,903 mem→mem copy-pairs =
    25.6% of N's instructions, 41.6% of them 4-word managed-slice-header copies,
    94% internal locals (NOT ABI-mandated → SROA-addressable). mem2reg is
