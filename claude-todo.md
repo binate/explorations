@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### LLVM `__c_entry`: emit the weak `__centry.` forwarding thunk for narrow-register-param targets — 🔴 OPEN MAJOR, DECIDED — awaiting assignment (2026-09-12; closes ABI review #10)
+### LLVM `__c_entry`: emit the weak `__centry.` forwarding thunk for narrow-register-param targets — 🟡 IN PROGRESS (claimed 2026-09-12, temp-5), DECIDED (closes ABI review #10)
 
 **Owner decision (2026-09-12): option (a) — finish the cross-producer
 harmonization.** After `0a4926b14`/`8145fd4ad`, both backends already agree
@@ -32,7 +32,7 @@ common's), plus an e2e identity check (two TUs take `__c_entry(f)` of the
 same narrow-param f; pointers compare equal). Spec: abi/04 §4.5 _Status_
 (docs 3230986) records the decision — clear it on landing.
 
-### `__c_call` checker: reject unpromoted variadic-tail arguments — 🔴 OPEN MAJOR, DECIDED — awaiting assignment (2026-09-12; closes ABI review #11)
+### `__c_call` checker: reject unpromoted variadic-tail arguments — 🟡 IN PROGRESS (claimed 2026-09-12, temp-6/work-6), DECIDED (2026-09-12; closes ABI review #11)
 
 **Owner decision (2026-09-12): option (i), uniform** — compile-time
 rejection, no implicit promotion (Binate has no implicit numeric
