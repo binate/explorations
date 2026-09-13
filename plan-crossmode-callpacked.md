@@ -315,6 +315,14 @@ the VM caller but REFERENCED by the vtable emitters (so not bnlint-unused).
   {dtor,call,call_packed}, placeholder slot), step 2 `3ed5206a5` (TrampolinePacked
   + wire call_packed).  Both behavior-neutral (nothing reads slot 2 yet); reviewed
   (LAND-WITH-FIXES: a stale vtable-text test + bnfmt/line-length + the unused
-  slot-2 accessor were fixed — the accessor deferred to step 4).  NEXT: step 3
-  (native aa64/x64/arm32 + LLVM `__shimP` fixed-arity thunks), landed
-  incrementally with review.
+  slot-2 accessor were fixed — the accessor deferred to step 4).
+- 2026-09-13: **step 3a (aa64 `__shimP`) LANDED** `41553ecc3` — reviewed
+  SAFE-TO-LAND (gather verified clobber-safe, spill offsets match __shim,
+  behavior-neutral).  Refined __shimP to a fixed-arity thunk that gathers the
+  packed words into __shim's incoming all-int dispatch ABI + branches/calls
+  __shim (reuses all of __shim's FP/narrow/aggregate/spill marshalling).  **step
+  3b (x64 `__shimP`)** committed on the worktree (mirror of 3a), green, awaiting
+  review before landing.  NEXT: arm32 + LLVM `__shimP`, then step 4 (flip the VM
+  caller; C2 extern+iface-method; drop guards; remove the 17 xfails).  A
+  golden-encoding `__shimP` test is a noted follow-up (structural tests now; step
+  4's e2e will exercise __shimP for real).
