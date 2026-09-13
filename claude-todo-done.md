@@ -7,6 +7,34 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### LLVM weak `__centry.` thunk lacks a COMDAT group — align with the cross-TU-weak convention — DONE (2026-09-13, `f6ac9f105`)
+
+The LLVM `__c_entry` adaptation thunk (`emitCAbiAdapterThunk`, weak linkage) was
+the lone cross-TU weak definition in codegen emitted WITHOUT a COMDAT group — every
+other one (func-value / closure / dtor shims, `IsLinkOnce` defs) is `weak_odr` +
+explicit COMDAT because GNU ld reports "multiple definition" for duplicate plain-weak
+defs across TUs.  Pre-existing since `0a4926b14`; empirically tolerated by current
+bfd, but off-convention and made common by the narrow-param extension (`d8f4c9829`).
+Surfaced by that landing's adversarial review.
+
+Fix: route the `__centry.` thunk through the existing COMDAT machinery
+(`writeComdatDecl` before the define, `writeComdatAttr` on the define line), gated on
+the weak c_entry linkage (a non-empty `linkage` — the strong `#[c_export]` entry is
+untouched) and `emitUseComdat` (ELF only; no-op on Mach-O, which coalesces weak defs
+natively).  Switched the c_entry linkage `linkonce_odr` → `weak_odr` for full parity
+with the shims.  All three `__centry.` cases (narrow-param, byval-param,
+return-adapt) are now uniform.
+
+Adversarial review: safe to land — clang-verified the emitted IR produces a real ELF
+COMDAT group and the (unquoted `$`-decl / quoted-define) names resolve to one symbol;
+gate is exactly the weak c_entry case; `#[c_export]` strong path byte-unchanged.
+Tests: codegen unit asserts the `$__centry… = comdat any` decl + `comdat` define
+keyword under emitUseComdat and none when off.  Re-verified the cross-producer
+identity e2e on Mach-O aarch64 (host, `weak_odr` coalescing) and ELF x86-64 (Docker:
+the COMDAT-grouped LLVM thunk coalesces with both a native plain-weak copy and a
+second LLVM COMDAT copy → equal pointer).  No spec change (COMDAT grouping is an
+internal object-format detail; `abi/04 §4.5` was already cleared by #10).
+
 ### FFI C-representability follow-ons — BUNDLE COMPLETE (2026-09-13)
 
 The "FFI C-representability follow-ons" bundle (after `__c_call` arg widening,

@@ -7,32 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### LLVM weak `__centry.` thunk lacks a COMDAT group — align with the cross-TU-weak convention — 🟡 IN PROGRESS (claimed 2026-09-13, temp-5), 🟢 minor/robustness (found in #10 review)
-
-`emitCAbiAdapterThunk` emits the weak `__c_entry` adaptation thunk as `define
-linkonce_odr … { … }` with NO COMDAT group (no `writeComdatDecl` /
-`writeComdatAttr`).  Every OTHER cross-TU-merged weak definition in codegen —
-func-value / closure / dtor shims, `f.IsLinkOnce` defs — is deliberately
-`weak_odr` + explicit COMDAT (emit_funcvals_shim.bn, emit_debug.bn) because
-"current GNU ld reports 'multiple definition' for duplicate plain-weak defs"
-across TUs (the emitUseComdat rationale).  The `__centry.` thunk is the lone
-exception, pre-existing since `0a4926b14` and made common by the narrow-param
-extension (#10).  Empirically BENIGN on the CI linker: 2-LLVM-producer and
-mixed LLVM+native links of a duplicate plain-weak `__centry.` both coalesce
-cleanly on ELF/bfd (Docker linux/amd64) and Mach-O aa64 — so this is a
-consistency / cross-linker-robustness gap, NOT a known break (no lld/gold/older-
-bfd failure observed, but none of those was exercised).  The work: route the
-`__centry.` thunk (the `linkonce_odr` c_entry linkage in `emitCAbiAdapterThunk`)
-through the existing COMDAT machinery on ELF — `writeComdatDecl` before the
-define, `writeComdatAttr` on the define line, gated on `emitUseComdat` — matching
-the func-value shims (consider `weak_odr` for full convention parity).  Applies to
-ALL `__centry.` thunks (narrow-param, byval-param, divergent-return), not only the
-narrow case.  The `#[c_export]` thunks (strong, `linkage=""`) are unaffected —
-COMDAT only for the weak c_entry linkage.  Test: extend `e2e/c-entry-identity.sh`
-(the 2-LLVM-producer arm already links duplicate `__centry.` weak defs) and/or a
-codegen unit asserting the COMDAT decl+attr on the emitted thunk under
-emitUseComdat.
-
 ### CROSS-MODE VM func-value dispatch regressed to scalar-only + ≤7 args (b1) — 17 conformance tests xfail'd — 🟡 IN PROGRESS (claimed 2026-09-08, work-4/temp-4) — see plan-crossmode-callpacked.md (design B; anyarity doc is background)
 
 **ACTIVE (owner reprioritized 2026-09-08): the any-SHAPE trampoline fix (case B)
