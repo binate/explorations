@@ -1,8 +1,8 @@
 # Plan: comprehensive VM SP-guard (fault safely on stack overflow; never leak/corrupt)
 
 Status: IN PROGRESS (work-2 / session), started 2026-09-09, comprehensive scope
-2026-09-12. Owner: this session. WIP scaffolding: `OP_STACK_CHECK` enum +
-`EmitStackCheck` (work-2 `09dc98da6`, unused/not landed).
+2026-09-12. Owner: this session. Inc 1 LANDED `7d610fdb6` (2026-09-13); Inc 2
+(temp-growth corruption checks) + Inc 3 (indirect calls) remain.
 
 ## Motivation
 
@@ -57,13 +57,17 @@ overflow fault fires with a clean (fully-covering) live set.
 ## Increments
 
 - **Inc 1 — arg-building eval/deliver split + `OP_STACK_CHECK` for DIRECT calls.**
-  The op (iropcode enum [DONE, scaffolding] + `EmitStackCheck` [DONE]) + VM lower
-  (`BC_STACK_CHECK`) + VM exec (resolve callee, `wouldOverflow`, fault) + LLVM &
-  native ×3 no-ops + `wouldOverflow` helper; restructure `buildCallArgs`
-  eval/deliver; genCall (direct) emits the check between. Tests: (i) direct call
-  with an `@Iface` arg driven to a frame overflow recovers with Status = FAULTED,
-  no leak; (ii) a mid-arg-eval fault after an earlier `@Iface` arg recovers with
-  no leak (the split). Conformance stays green.
+  LANDED `7d610fdb6`.  `OP_STACK_CHECK` (iropcode enum + `EmitStackCheck`) + VM
+  lower (`BC_STACK_CHECK`) + VM exec (resolve callee, `wouldFrameOverflow`, fault)
+  + LLVM & native ×3 no-ops + `wouldFrameOverflow` helper; `buildCallArgs` split
+  into `evalCallArgs`/`deliverCallArgs`; genCall (direct) emits the check between.
+  Tests: `TestStackOverflowPrecheckNoLeak` (direct call, moved `@I` arg, frame
+  overflow recovers FAULTED, stable LiveBlocks) + `TestStackOverflowMidArgEvalNoLeak`
+  (the split) + two inliner-integration tests (orphaned pre-check dropped on inline;
+  kept when the call survives).  Verified: LLVM 3024/0, VM 2994/1 (pre-existing
+  `rt.MemZero` extern gap, unrelated), native-aa64 smoke 98/0, hygiene 20/20.
+  Follow-up: the check's multi-block pre-delivery pad makes box-and-forward wrapper
+  callees non-inlinable (correctness-safe; tracked in `claude-todo.md`).
 - **Inc 2 — temp-growth checks (corruption fix).** `wouldOverflow` at every
   SP-growing op + IR-gen pads for them. Test: a single frame overflowing via temp
   growth (a big statement / loop) recovers cleanly, no corruption.

@@ -134,28 +134,43 @@ then short-circuits that round-trip for speed.  Do NOT use b2 to make any-arity
 dispatch *work* — only to make the already-working VM-in-VM path faster.  Assigned
 (after the trampoline-fix lands).
 
-### Frame-push (stack-overflow) fault leaks a moved-in owned arg — 🟡 IN PROGRESS (claimed 2026-09-08, work-2/session) MINOR (found 2026-09-08)
+### VM SP-guard: temp-growth corruption checks + indirect-call overflow pre-check — 🟡 IN PROGRESS (claimed 2026-09-08, work-2/session)
 
-**Severity: MINOR, pre-existing, ALL calls.** A moved (ownership-transferred) arg —
-an `@Iface` / managed-field-struct — is `consumeTemp`'d out of the caller's
-`ctx.Temps` BEFORE the call (`ir/gen_call_coerce.bn` ~118), and the call-site pad
-is attached AFTER arg building, so the caller's pad excludes it.  If the callee's
-frame PUSH overflows the stack (a recoverable fault), the callee never starts and
-never runs its exit RefDec, and the caller's pad doesn't release the arg → one
-leaked block.  Affects ordinary calls, deferred calls, and method-value wrappers
-identically (surfaced while reviewing the deferred/method-value pad fix — the
-wrapper's empty pad is correct precisely BECAUSE the method, not the wrapper,
-owns the moved param; this residual is a separate, universal gap).
+Comprehensive recoverable-stack-overflow guard (plan `plan-vm-stack-precheck.md`):
+never leak or corrupt on overflow.  **Inc 1 LANDED `7d610fdb6`:** the eval/deliver
+arg-building split (`evalCallArgs`/`deliverCallArgs` — every arg is a live cleanup
+temp until ALL are evaluated, so a fault during a later arg's eval no longer
+orphans an earlier moved arg; fixed on ALL call paths) + a VM-only `OP_STACK_CHECK`
+for DIRECT calls (faults BEFORE the call commits its args, with a pad covering the
+still-owned args, so a moved `@Iface`/managed-struct arg is released instead of
+leaked at `pushFrame`; compiled backends no-op the op).
 
-**Approach chosen (see `plan-vm-stack-precheck.md`):** approach (A) — fault BEFORE
-the call commits its args, not at `pushFrame`.  A new VM-only `OP_STACK_CHECK`
-(modeled on `OP_NIL_CHECK`; compiled backends no-op it) emitted after
-`buildCallArgs` and before `coerceArgDelivery`, reserving `frameExtent(callee)`,
-with a pad covering the still-owned args.  Load-bearing: `OP_ALLOC` is a frame
-slot and delivery is SP-neutral, so `vm.SP` is stable from post-arg-eval through
-`pushFrame` — the check exactly predicts the push and covers all arg kinds.  Inc 1
-= DIRECT calls; Inc 2 = indirect (callee resolved at dispatch).  `pushFrame`'s
-existing check stays as a backstop.
+Remaining:
+- **Inc 2 — temp-growth overflow checks (silent-corruption gap).** ~13 of ~19
+  `vm.SP +=` sites (BC_IFACE_VALUE, BC_MAKE_SLICE, string copies, func-value
+  pushes, aggregate copy-backs) grow `vm.SP` with NO overflow check → on a true
+  overflow they write PAST the stack buffer (heap corruption).  Add a check at
+  each; fault recoverably via the op's pad where a pad covers the live set, else
+  hard-abort.  IR-gen must ensure each SP-growing producer carries a pad.
+- **Inc 3 — indirect/method/func-value/iface-method calls.** These got the
+  eval/deliver split (mid-eval leak fixed) but NOT `OP_STACK_CHECK` (callee frame
+  extent is known only at the runtime dispatch point), so their frame-push
+  moved-arg leak persists.  Emit the check at dispatch, before the moved args are
+  consumed.  `pushFrame`'s existing check stays as the backstop throughout.
+
+### VM SP-guard follow-up: box-and-forward wrappers no longer inline — 🟡 IN PROGRESS (claimed 2026-09-13, work-2/session), MINOR (found in Inc-1 review)
+
+`OP_STACK_CHECK`'s pre-delivery cleanup pad covers the moved managed arg (a
+branching iface/managed refdec → multi-block pad), so `inlinableCallee`'s
+pad-eligibility gate (`ir/inline_eligibility.bn`) now rejects a callee like
+`g(x) = h(cast(@I, make(T)))` that was inlinable before Inc 1 — on ALL backends
+(the op lives in shared IR).  Correctness-safe (not-inlining is always valid; no
+leak, no miscompile) but a real inlining regression vs pre-Inc-1, and a
+native-codegen-gap concern for box-and-forward wrappers.  Simply skipping the gate
+is UNSAFE: the cloner can't clone a multi-block check pad, and a surviving cloned
+call must keep its check or the leak returns.  Fix options: teach the pad-cloner to
+handle the check's multi-block pad, or drop-and-re-emit the check post-inline from
+the caller's live set.  No test yet.
 
 ## Performance
 
