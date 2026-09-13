@@ -330,18 +330,19 @@ the VM caller but REFERENCED by the vtable emitters (so not bnlint-unused).
   SAFE-TO-LAND (x64 stack alignment: bare `sub rsp` + tail-JMP/CALL RSP≡8-mod-16
   verified; register shuffle + spill offsets correct).  NEXT: arm32 + LLVM
   `__shimP`, then step 4.
-  **OPEN ARM32 QUESTION (investigate before writing arm32 `__shimP`):** arm32's
-  native incoming dispatch ABI EVEN-ALIGNS int64/uint64 register pairs (AAPCS §6.5
-  C.3; see arm32_funcvalue_marshal.bn — "even-aligned on BOTH sides").  aa64/x64
-  are 64-bit so an int64 is ONE word — no such issue; it is arm32-only (ILP32,
-  int64 = 2 words).  A positional slot→word copy (as aa64/x64 `__shimP` do) is
-  correct ONLY if the VM's packed arg-slot layout (regs[Src2..], nSlots) ALSO
-  even-aligns int64 to match `__shim`'s incoming layout.  The VM's internal
-  execFunc slots are contiguous (no even-align), so there may be a mismatch on
-  arm32 for an int64 cross-mode func-value arg.  Determine: does lower_call.bn /
-  the func-value-call slot layout even-align int64 on ILP32?  If not, either the
-  step-4 VM caller must even-align when packing for arm32, or arm32 `__shimP` must
-  insert the pad, or it is a pre-existing arm32 limitation to flag.  (This likely
-  also affects the current `_call_shim_scalar` path — a latent int64-arg-on-arm32
-  cross-mode issue independent of `__shimP`.)  Resolve this before arm32 `__shimP`
-  so it is not a guessed positional copy.
+  **ARM32 int64-even-align QUESTION — RESOLVED (no issue):** the concern was
+  whether arm32's even-register int64 pairing forces `__shimP` to even-align.  It
+  does NOT: `__shim`'s INCOMING dispatch seam is FLAT.  The int64 branch in
+  arm32_funcvalue_marshal.bn's register-only marshal bumps only the OUTGOING
+  cursor (`ngrn`, `if NeedsEvenReg && (gpDestBase+ngrn)%2 != 0 { ngrn++ }`); the
+  INCOMING `srcWord` advances contiguously — the code's own comment: "The INCOMING
+  side is the positional seam and is always FLAT: the two value-words ride
+  consecutive slots."  So the VM's contiguous slot layout already matches
+  `__shim`'s flat incoming, and arm32 `__shimP` is a plain positional word copy
+  (cc.WordBytes=4), exactly like aa64/x64 — no even-align handling.  (The earlier
+  "even-aligned on BOTH sides" note referred to the outgoing even-pair-pad + the
+  contiguous 2-word advance, not an incoming even-align.)
+- 2026-09-13: **step 3c (arm32 `__shimP`) committed** `d5da0fc4c` (mirror of
+  3a/3b; flat positional copy per the resolution above; R4=argsPtr + IP shuttle in
+  the spill path).  Green (arm32 unit tests, gen1, hygiene), awaiting review before
+  landing.  NEXT: LLVM `__shimP`, then step 4.
