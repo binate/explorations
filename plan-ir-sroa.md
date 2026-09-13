@@ -182,3 +182,39 @@ three native conformance modes + LLVM + VM; the
 native-vs-llvm gap benchmark + the 308,903 mem→mem-copy-pair count before/after
 is the direct success measure. Each phase independently green + cherry-pickable;
 adversarial review per phase.
+
+## Phase 2 design (managed slices) — grounded reconnaissance 2026-09-13
+
+**Scope of increment 1: managed slices `@[]T` where T needs NO destruction**
+(non-managed elements: int / bool / ptr / raw slice / POD struct). `@[]@T`
+(managed elements) is NATURALLY PINNED by L2 and stays out: its RefDec
+(`emitManagedSliceRefDec`, gen_util_refcount.bn:359) stores the WHOLE slice value
+to a scratch alloca and passes its ADDRESS to the elem dtor — a whole-value
+(non-extract) use, so L2 pins it. Managed structs: later. For the in-scope case
+the RefDec is just `EmitExtract(sliceVal, 2)` (refptr) + `EmitRefDec(refptr)` — a
+whole-load + extract-2, exactly the extract-forwarding pattern Phase 1 already
+scalarizes.
+
+**Field layout** {data:*uint8, len:int, refptr:@ptr, backinglen:int}: data / len
+/ backinglen are mem2reg-promotable; the refptr field slot is `TYP_MANAGED_PTR`
+— NOT promoted, stays in memory as a RAW-copy cell (like the inliner's mergeSlot,
+inline_multiblock.bn:114). Relies on Binate's explicit-refcount model: the
+backend must NOT implicitly RefDec a managed alloca at teardown (VERIFY before
+implementing — a double-free otherwise). SROA never touches a RefInc/RefDec op;
+it only forwards the whole-load+extract-2 those ops consume to the refptr field
+load, so refcount BALANCE is preserved (the whole-store MOVE scalarizes to
+per-field raw stores; the refptr is moved into its slot, no RefInc).
+
+**Changes required:** (a) candidate filter: admit `@[]T` (T non-managed-elem)
+managed slices — a NEW gate distinct from the non-managed exclusion; (b) L1:
+allow the candidate's FaultPad appearances IFF they are only whole-load+extract
+(the refcount spine); pin on any other pad use (belt-and-suspenders vs a
+whole-value-address escape); (c) rewrite: extend rebuild + forwarding to
+`f.FaultPads`; (d) field types: {*uint8, int, @ptr, int}.
+
+**RISK: refcount / memory-safety — the highest of the whole SROA effort.**
+Validation MUST include: the refcount-balance conformance tests at -O2 (052 /
+053 / 075 / 100 / 094) via the differential; a leak/double-free check; the VM
+modes (`builder-comp-int`, `builder-comp-comp-int`) since the FaultPad rewrite is
+VM-relevant (compiled backends ignore pads); and self-compile. Adversarial review
+focused on refcount balance + the managed refptr field's teardown.
