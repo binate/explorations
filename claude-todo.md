@@ -58,27 +58,6 @@ COMDAT only for the weak c_entry linkage.  Test: extend `e2e/c-entry-identity.sh
 codegen unit asserting the COMDAT decl+attr on the emitted thunk under
 emitUseComdat.
 
-### `__c_call` checker: reject unpromoted variadic-tail arguments — 🟡 IN PROGRESS (claimed 2026-09-12, temp-6/work-6), DECIDED (2026-09-12; closes ABI review #11)
-
-**Owner decision (2026-09-12): option (i), uniform** — compile-time
-rejection, no implicit promotion (Binate has no implicit numeric
-conversions; IR-gen promoting silently would be the language's only hidden
-conversion site). Today nothing is checked and nothing promoted: a
-`float32` in a variadic tail crosses as a 4-byte image where C's `va_arg`
-expects a promoted `double` (silent garbage), and sub-int-width integers
-merely happen to work via canonical extension on the little-endian targets.
-
-The work: `checkCCall` (types/check_c_interop.bn) rejects, for arguments at
-or past `CFixedArgs`, any `float32` and any integer/`bool`/`char` narrower
-than `int` width, with a message telling the user the explicit fix (e.g.
-"variadic C argument must have its C-promoted type: use float64(x) /
-int(x)"). Fixed-position args are unaffected. Tests: checker unit tests
-(each rejected shape + accepted float64/int/pointer/aggregate tail args);
-adjust any conformance/e2e that currently passes unpromoted tails. Spec:
-abi/02 §2.8 (docs 3230986) states the rejection with a _Status_ note —
-clear the note on landing. (The language spec's `pkg.ccall` may also want
-one sentence pinning the promoted-tail requirement — flag in the landing.)
-
 ### CROSS-MODE VM func-value dispatch regressed to scalar-only + ≤7 args (b1) — 17 conformance tests xfail'd — 🟡 IN PROGRESS (claimed 2026-09-08, work-4/temp-4) — see plan-crossmode-callpacked.md (design B; anyarity doc is background)
 
 **ACTIVE (owner reprioritized 2026-09-08): the any-SHAPE trampoline fix (case B)

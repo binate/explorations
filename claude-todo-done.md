@@ -7,6 +7,32 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### `__c_call` checker: reject unpromoted variadic-tail arguments — DONE (2026-09-13, `34c4c1fd1`; spec docs `252132f`)
+
+The checker (`checkCVariadicPromoted`, called from `checkCCall` in
+types/check_c_interop.bn) now rejects, for `__c_call` arguments at or past the
+`...` marker (index >= CFixedArgs), any `float32` and any integer/`bool`/`char`
+narrower than C `int` — no C default argument promotion happens at the variadic
+boundary (abi/02 §2.8), so an unpromoted tail arg is mis-read by the callee's
+`va_arg`. The rule is TARGET-UNIFORM: C `int` is 32-bit on every target, so
+`int32`/`uint32` and wider (plus `float64`, pointers, aggregates) are accepted
+even on LP64 (owner decision (i) uniform, 2026-09-12; the C-int-32 threshold
+confirmed over a Binate-int-width reading). Fixed-position args and untyped
+literals (which default to `int`/`float64`) are unaffected.
+
+- Checker tests (check_c_interop_test.bn): each rejected shape (float32 / int8 /
+  int16 / uint8 / uint16 / bool / char / named-narrow) + accepted tail shapes
+  (int32 [the LP64-uniform pin] / uint32 / float64 / int64 / int / pointer /
+  aggregate / untyped literals) + fixed-position and non-variadic unaffected.
+- Removed codegen `TestEmitCCallVariadicTailArgNoExt` (its int8-tail scenario is
+  now a checker error). Repo-wide sweep found no other site with a narrow tail.
+- Spec: abi/02 §2.8 Status note cleared; language spec `pkg.ccall` (16b) gained a
+  sentence pinning the promoted-tail requirement (ratified at landing) — docs
+  `252132f`.
+- Verified: full LLVM conformance 3024/0; types + codegen unit tests; variadic
+  `__c_call` conformance smoke 5/0; HFA e2e 2/0; hygiene 20/20; adversarial
+  review clean.
+
 ### Aggregate `__c_call` RETURN types (sret / register-coerced) — DONE (2026-09-09, `8d386b029`; spec docs `0cfe24f`)
 
 Fourth item of the "FFI C-representability follow-ons" bundle — the last real
