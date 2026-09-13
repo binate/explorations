@@ -326,3 +326,22 @@ the VM caller but REFERENCED by the vtable emitters (so not bnlint-unused).
   caller; C2 extern+iface-method; drop guards; remove the 17 xfails).  A
   golden-encoding `__shimP` test is a noted follow-up (structural tests now; step
   4's e2e will exercise __shimP for real).
+- 2026-09-13: **step 3b (x64 `__shimP`) LANDED** `a30b1e65a` — reviewed
+  SAFE-TO-LAND (x64 stack alignment: bare `sub rsp` + tail-JMP/CALL RSP≡8-mod-16
+  verified; register shuffle + spill offsets correct).  NEXT: arm32 + LLVM
+  `__shimP`, then step 4.
+  **OPEN ARM32 QUESTION (investigate before writing arm32 `__shimP`):** arm32's
+  native incoming dispatch ABI EVEN-ALIGNS int64/uint64 register pairs (AAPCS §6.5
+  C.3; see arm32_funcvalue_marshal.bn — "even-aligned on BOTH sides").  aa64/x64
+  are 64-bit so an int64 is ONE word — no such issue; it is arm32-only (ILP32,
+  int64 = 2 words).  A positional slot→word copy (as aa64/x64 `__shimP` do) is
+  correct ONLY if the VM's packed arg-slot layout (regs[Src2..], nSlots) ALSO
+  even-aligns int64 to match `__shim`'s incoming layout.  The VM's internal
+  execFunc slots are contiguous (no even-align), so there may be a mismatch on
+  arm32 for an int64 cross-mode func-value arg.  Determine: does lower_call.bn /
+  the func-value-call slot layout even-align int64 on ILP32?  If not, either the
+  step-4 VM caller must even-align when packing for arm32, or arm32 `__shimP` must
+  insert the pad, or it is a pre-existing arm32 limitation to flag.  (This likely
+  also affects the current `_call_shim_scalar` path — a latent int64-arg-on-arm32
+  cross-mode issue independent of `__shimP`.)  Resolve this before arm32 `__shimP`
+  so it is not a guessed positional copy.
