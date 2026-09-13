@@ -134,31 +134,6 @@ then short-circuits that round-trip for speed.  Do NOT use b2 to make any-arity
 dispatch *work* — only to make the already-working VM-in-VM path faster.  Assigned
 (after the trampoline-fix lands).
 
-### FFI C-representability follow-ons (after `__c_call` arg widening landed) — 🟢 follow-ons (2026-09-04)
-
-`__c_call` argument widening LANDED (`bfb0f5d89`): args admit any defined-ABI-
-layout type (struct by value, raw/managed slice, managed ptr, interface/func
-value) with the ordinary `mem.param` ownership (C does RefInc/RefDec by hand);
-correct on x86_64 / aarch64 / arm32 × LLVM + native.  Four pieces have LANDED (all
-moved to the done log): the `__c_entry` callback signature validation (`3aa0fce1e`),
-the `__c_entry` >16-byte by-value aggregate PARAMETER adaptation thunk
-(`8145fd4ad`), `__c_global` admitting any defined-layout type (`528c3b28f`; spec
-`pkg.cglobal` updated in docs `d3e57ad`), and aggregate `__c_call` RETURN types
-(`8d386b029`; spec `pkg.ccall` updated in docs `0cfe24f`).  Remaining are the two
-MINOR review items only:
-
-- **MINOR (review):** `writeByvalMemType` hardcodes `align 8` — a 16-aligned /
-  vector aggregate would be mis-ABI'd vs clang (no such type exists in Binate
-  today; latent). — 🟡 IN PROGRESS (claimed 2026-09-12, work-3/session): fix to
-  `align max(8, AlignOf(t))` (clang's SysV MEMORY-class byval rule — verified);
-  item 6 below being resolved won't-fix (moot) in the same pass.
-- **MINOR (review):** `isCArgType` conservatively over-rejects `*[]Opaque` /
-  `@[]Opaque` (the slice HEADER has a defined layout and could be admitted). — 🟡
-  IN PROGRESS (claimed 2026-09-12, work-3/session): MOOT — `*[]Opaque`/`@[]Opaque`
-  is an ill-formed type (requireSizedType rejects a slice of a bare-opaque element
-  at every use — indexing needs the unknown stride), so no legal value exists for
-  isCArgType to over-reject; resolving won't-fix.
-
 ### Frame-push (stack-overflow) fault leaks a moved-in owned arg — 🟡 IN PROGRESS (claimed 2026-09-08, work-2/session) MINOR (found 2026-09-08)
 
 **Severity: MINOR, pre-existing, ALL calls.** A moved (ownership-transferred) arg —

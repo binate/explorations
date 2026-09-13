@@ -7,6 +7,39 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### FFI C-representability follow-ons — BUNDLE COMPLETE (2026-09-13)
+
+The "FFI C-representability follow-ons" bundle (after `__c_call` arg widening,
+`bfb0f5d89`) is fully resolved.  Four features landed (each with its own done entry
+below) + the two MINOR review items resolved here:
+
+Features: `__c_entry` signature validation (`3aa0fce1e`); `__c_entry` >16-byte
+by-value PARAMETER adaptation thunk (`8145fd4ad`); `__c_global` any-defined-layout
+type (`528c3b28f`, spec docs `d3e57ad`); aggregate `__c_call` RETURN types
+(`8d386b029`, spec docs `0cfe24f`).
+
+- **`writeByvalMemType` `align 8` hardcode — DONE (`7c60b0dad`), documented latent
+  gap.** The `ptr byval(<T>) align 8` form is x86-64-only and correct for every
+  Binate type today (all <= 8-aligned; `types.AlignOf` is bounded by
+  `target.MaxAlign == 8`; clang emits `align 8` for every <= 8-aligned MEMORY-class
+  struct — verified).  The half-fix `align max(8, AlignOf)` was rejected on review:
+  it would bump ONLY the annotation to `align 16` for a future 16-aligned type while
+  the caller's `.agA<i>` spill alloca and the native `stackArgFootprint` stay
+  8-aligned — an over-promised `align` that faults on under-aligned storage, arguably
+  worse than the current under-statement.  Since no >8-aligned type is representable,
+  the fix is a comment-only TODO recording that a future 16-aligned type must move
+  the byval annotation + the alloca + the native footprint TOGETHER.  No output
+  change.
+
+- **`isCArgType` "over-rejects" `*[]Opaque` / `@[]Opaque` — WON'T-FIX (moot).** A
+  raw/managed slice of a BARE opaque element is an ill-formed type: `requireSizedType`
+  rejects it at every value-forming site (param / result / field / var / `bit_cast` /
+  `make_slice`) because indexing needs the element stride, unknown for an opaque —
+  `embedsOpaqueByValue` recurses into the slice element.  So no legal
+  `*[]Opaque`/`@[]Opaque` value can exist for `isCArgType` to over-reject; the
+  "over-rejection" is unreachable (empirically confirmed).  To pass a slice-of-opaque
+  HEADER to C, use `*[]uint8` / a pointer (already works).  Nothing to change.
+
 ### LLVM `__c_entry`: emit the weak `__centry.` forwarding thunk for narrow-register-param targets — DONE (2026-09-13, `d8f4c9829`; closes ABI review #10)
 
 Closed the last cross-producer `pkg.centry.identity` gap.  After
