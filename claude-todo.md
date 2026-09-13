@@ -169,9 +169,15 @@ MINOR review items only:
 
 - **MINOR (review):** `writeByvalMemType` hardcodes `align 8` — a 16-aligned /
   vector aggregate would be mis-ABI'd vs clang (no such type exists in Binate
-  today; latent).
+  today; latent). — 🟡 IN PROGRESS (claimed 2026-09-12, work-3/session): fix to
+  `align max(8, AlignOf(t))` (clang's SysV MEMORY-class byval rule — verified);
+  item 6 below being resolved won't-fix (moot) in the same pass.
 - **MINOR (review):** `isCArgType` conservatively over-rejects `*[]Opaque` /
-  `@[]Opaque` (the slice HEADER has a defined layout and could be admitted).
+  `@[]Opaque` (the slice HEADER has a defined layout and could be admitted). — 🟡
+  IN PROGRESS (claimed 2026-09-12, work-3/session): MOOT — `*[]Opaque`/`@[]Opaque`
+  is an ill-formed type (requireSizedType rejects a slice of a bare-opaque element
+  at every use — indexing needs the unknown stride), so no legal value exists for
+  isCArgType to over-reject; resolving won't-fix.
 
 ### Frame-push (stack-overflow) fault leaks a moved-in owned arg — 🟡 IN PROGRESS (claimed 2026-09-08, work-2/session) MINOR (found 2026-09-08)
 
