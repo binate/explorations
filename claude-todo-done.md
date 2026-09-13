@@ -7,6 +7,39 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### LLVM `__c_entry`: emit the weak `__centry.` forwarding thunk for narrow-register-param targets — DONE (2026-09-13, `d8f4c9829`; closes ABI review #10)
+
+Closed the last cross-producer `pkg.centry.identity` gap.  After
+`0a4926b14`/`8145fd4ad` both backends already agreed on `__c_entry(f)`'s pointer
+for return-adapted and by-value-aggregate-param targets (the weak
+`__centry.<mangled>` thunk) and for no-adaptation targets (the mangled entry).  The
+residual: a **narrow-GP-register-parameter-only** target — native yielded the
+`__centry.` thunk (it re-canonicalizes the dirty-upper argument register), LLVM
+yielded the bare mangled address (its calling convention self-extends narrow args),
+so a mixed-producer link had two pointers for one f.
+
+Fix (option (a)): a single shared predicate `common.CallConv.CEntryNeedsThunk(f)`
+(narrow-register param ∪ divergent by-value aggregate param ∪ divergent multi-value
+return); native's `collectCEntryThunkTargets` routes through it (byte-identical set
+to before), and the LLVM `cEntryLLVMNeedsThunk` calls it via `callConvForTarget()` —
+so the `__centry.` thunk-target SET is identical across backends by construction.
+For a narrow-param-only target the LLVM thunk is a pure forwarder (LLVM still
+self-extends), emitted only so the weak copies coalesce to one pointer.
+
+Adversarial review: safe to land — predicate parity confirmed across aa64/x64/arm32,
+narrow-param IR validated through clang, `#[c_export]` untouched, stack-only-narrow
+correctly excluded.  It surfaced that the LLVM `__centry.` thunk is `linkonce_odr`
+WITHOUT a COMDAT group (unlike every other cross-TU weak def) — empirically benign
+on ELF/bfd (2-LLVM-producer and mixed LLVM+native links both coalesce cleanly;
+verified via Docker) and pre-existing since `0a4926b14`, so filed as a separate
+consistency follow-up (see claude-todo.md) rather than blocking.
+
+Tests: codegen unit (narrow→thunk, int32 target-driven parity x64-thunk/arm32-none,
+word-param→no-thunk), and a new cross-producer e2e `e2e/c-entry-identity.sh` (two TUs
+take `__c_entry` of the same narrow-param f; the LLVM+native and LLVM+LLVM getters
+return EQUAL pointers).  Verified end-to-end on Mach-O aa64 (host) and ELF x86-64
+(Docker).  Spec `abi/04 §4.5` Status note cleared on landing.
+
 ### `__c_call` checker: reject unpromoted variadic-tail arguments — DONE (2026-09-13, `34c4c1fd1`; spec docs `252132f`)
 
 The checker (`checkCVariadicPromoted`, called from `checkCCall` in

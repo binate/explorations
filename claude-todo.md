@@ -7,31 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### LLVM `__c_entry`: emit the weak `__centry.` forwarding thunk for narrow-register-param targets — 🟡 IN PROGRESS (claimed 2026-09-12, temp-5), DECIDED (closes ABI review #10)
-
-**Owner decision (2026-09-12): option (a) — finish the cross-producer
-harmonization.** After `0a4926b14`/`8145fd4ad`, both backends already agree
-on `__c_entry(f)`'s pointer value for return/param-adapted targets (the weak
-`__centry.<mangled>` thunk) and for no-adaptation targets (the mangled
-entry). The one residual case violating `pkg.centry.identity` in a
-mixed-producer link: a target with **narrow GP register parameters only** —
-native yields the `__centry.` thunk, LLVM yields the bare mangled address
-(its C-ABI lowering self-extends, so it never functionally needed one).
-
-The work (small, mechanical — the machinery exists): the LLVM backend's
-OP_C_ENTRY lowering emits/references a weak `linkonce_odr
-__centry.<mangled>` **forwarding** thunk for a narrow-register-param-only
-target (reuse `emitCAbiAdapterThunk` + `cEntryThunkSym` naming; the thunk
-just forwards — the define already self-extends), so the thunk-needed
-predicate matches native's `collectCEntryThunkTargets` exactly on all
-targets. Weak coalescing then yields one program-wide pointer whichever
-producer's thunk survives, and either is a correct C entry. Tests: codegen
-unit (thunk emitted + OP_C_ENTRY takes its address for a narrow-param
-target; mangled address for a no-adaptation target — predicate parity with
-common's), plus an e2e identity check (two TUs take `__c_entry(f)` of the
-same narrow-param f; pointers compare equal). Spec: abi/04 §4.5 _Status_
-(docs 3230986) records the decision — clear it on landing.
-
 ### LLVM weak `__centry.` thunk lacks a COMDAT group — align with the cross-TU-weak convention — 🟡 IN PROGRESS (claimed 2026-09-13, temp-5), 🟢 minor/robustness (found in #10 review)
 
 `emitCAbiAdapterThunk` emits the weak `__c_entry` adaptation thunk as `define
