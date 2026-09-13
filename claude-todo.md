@@ -190,8 +190,9 @@ CORRECTION 2026-09-08):
    splittability) + `sroaAggregateContainsManaged` (managed/non-managed axis) +
    `validateSroaCandidates`; unit-tested on hand-built IR, code-reviewed (no
    unsound-classification holes). **Phase 1 increment 1 (field-ptr-only,
-   all-mem2reg-promotable-field, non-managed structs) implemented on work-1,
-   pending land** — the rewrite (`sroa_transform.bn`, wired into `RunOptPasses`)
+   all-mem2reg-promotable-field, non-managed structs) LANDED — SROA rewrite
+   `e5e323795`, dup-SSA-id method-value-capture prereq fix `a66fb0b75`** — the
+   rewrite (`sroa_transform.bn`, wired into `RunOptPasses`)
    splits a struct accessed only via const-index `OP_GET_FIELD_PTR` into per-field
    scalar slots that mem2reg promotes; validated by a -O0/-O2 differential over
    373 struct conformance programs on LLVM + native (0 mismatch) and
