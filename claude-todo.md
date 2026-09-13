@@ -7,6 +7,52 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### LLVM `__c_entry`: emit the weak `__centry.` forwarding thunk for narrow-register-param targets — 🔴 OPEN MAJOR, DECIDED — awaiting assignment (2026-09-12; closes ABI review #10)
+
+**Owner decision (2026-09-12): option (a) — finish the cross-producer
+harmonization.** After `0a4926b14`/`8145fd4ad`, both backends already agree
+on `__c_entry(f)`'s pointer value for return/param-adapted targets (the weak
+`__centry.<mangled>` thunk) and for no-adaptation targets (the mangled
+entry). The one residual case violating `pkg.centry.identity` in a
+mixed-producer link: a target with **narrow GP register parameters only** —
+native yields the `__centry.` thunk, LLVM yields the bare mangled address
+(its C-ABI lowering self-extends, so it never functionally needed one).
+
+The work (small, mechanical — the machinery exists): the LLVM backend's
+OP_C_ENTRY lowering emits/references a weak `linkonce_odr
+__centry.<mangled>` **forwarding** thunk for a narrow-register-param-only
+target (reuse `emitCAbiAdapterThunk` + `cEntryThunkSym` naming; the thunk
+just forwards — the define already self-extends), so the thunk-needed
+predicate matches native's `collectCEntryThunkTargets` exactly on all
+targets. Weak coalescing then yields one program-wide pointer whichever
+producer's thunk survives, and either is a correct C entry. Tests: codegen
+unit (thunk emitted + OP_C_ENTRY takes its address for a narrow-param
+target; mangled address for a no-adaptation target — predicate parity with
+common's), plus an e2e identity check (two TUs take `__c_entry(f)` of the
+same narrow-param f; pointers compare equal). Spec: abi/04 §4.5 _Status_
+(docs 3230986) records the decision — clear it on landing.
+
+### `__c_call` checker: reject unpromoted variadic-tail arguments — 🔴 OPEN MAJOR, DECIDED — awaiting assignment (2026-09-12; closes ABI review #11)
+
+**Owner decision (2026-09-12): option (i), uniform** — compile-time
+rejection, no implicit promotion (Binate has no implicit numeric
+conversions; IR-gen promoting silently would be the language's only hidden
+conversion site). Today nothing is checked and nothing promoted: a
+`float32` in a variadic tail crosses as a 4-byte image where C's `va_arg`
+expects a promoted `double` (silent garbage), and sub-int-width integers
+merely happen to work via canonical extension on the little-endian targets.
+
+The work: `checkCCall` (types/check_c_interop.bn) rejects, for arguments at
+or past `CFixedArgs`, any `float32` and any integer/`bool`/`char` narrower
+than `int` width, with a message telling the user the explicit fix (e.g.
+"variadic C argument must have its C-promoted type: use float64(x) /
+int(x)"). Fixed-position args are unaffected. Tests: checker unit tests
+(each rejected shape + accepted float64/int/pointer/aggregate tail args);
+adjust any conformance/e2e that currently passes unpromoted tails. Spec:
+abi/02 §2.8 (docs 3230986) states the rejection with a _Status_ note —
+clear the note on landing. (The language spec's `pkg.ccall` may also want
+one sentence pinning the promoted-tail requirement — flag in the landing.)
+
 ### CROSS-MODE VM func-value dispatch regressed to scalar-only + ≤7 args (b1) — 17 conformance tests xfail'd — 🟡 IN PROGRESS (claimed 2026-09-08, work-4/temp-4) — see plan-crossmode-callpacked.md (design B; anyarity doc is background)
 
 **ACTIVE (owner reprioritized 2026-09-08): the any-SHAPE trampoline fix (case B)
@@ -428,25 +474,6 @@ coalescing-vs-TU-local symbol split), 16b status staleness fixed (ad91a26).
 Implementation gaps found by the review are raised under MAJOR as the
 "ABI review #1–#7" entries; the review's owner-decision items are the
 "ABI review #8–#12" entries below.
-
-### ABI review #10: `__c_entry` cross-producer pointer identity — harmonize or scope — 🟡 (2026-09-04)
-
-Status note: abi/04 §4.5. For the same narrow-parameter f, the LLVM lowering
-yields the mangled definition address while the native lowering yields the
-weak `__centry.<mangled>` thunk address — a mixed-producer program would
-violate pkg.centry.identity ("same pointer value for the same f").
-Options: harmonize (LLVM also references the weak thunk name for
-narrow-param targets) or scope the language-spec rule to single-producer
-programs.
-
-### ABI review #11: variadic `__c_call` C default promotions — decide reject vs promote — 🟡 (2026-09-04)
-
-Neither checked nor performed today: a float32 (or sub-int) variadic tail
-argument crosses at its own width and the C callee's va_arg mis-reads it
-(va_arg expects the promoted double/int). The ABI spec now documents
-no-promotions + programmer-pre-promotes (abi/02 §2.8). Decide the durable
-contract: checker rejects unpromoted variadic tail types (loud), or IR-gen
-promotes them (convenient, matches C compilers). Then implement + test.
 
 ### Code comments reference only normative docs + TODOs; rehome the implementation "specs" — 🟡 OPEN
 

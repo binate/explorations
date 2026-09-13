@@ -520,6 +520,23 @@ note on the divergence; spec/17 §17.3.2's "implemented" claim qualified).
 The implementation work is a top-level MAJOR entry in the active todo,
 awaiting assignment.
 
+## ABI review #10 + #11: decisions made — 2026-09-12 (docs 3230986)
+
+**#10 (`__c_entry` cross-producer pointer identity): decided (a) —
+harmonize.** `0a4926b14` had already converged both backends on the weak
+`__centry.` thunk for adapted targets; the residual narrow-register-param-only
+case (LLVM bare mangled address vs native thunk) gets a forwarding thunk on
+the LLVM side — filed as a top-level MAJOR, awaiting assignment. The
+bundled >16-byte-param concern turned out already fixed (`8145fd4ad`).
+
+**#11 (variadic `__c_call` C default promotions): decided (i), uniform —
+checker rejection**, no implicit promotion (would be the language's only
+hidden conversion site). float32 and sub-int-width integer/bool/char
+variadic-tail args become compile errors — filed as a top-level MAJOR,
+awaiting assignment. Spec updated either way (abi/02 §2.8 rejection +
+Status; abi/04 §4.5 decision recorded; §4.3/§4.8 refreshed to the landed
+pkg.ccall/pkg.cglobal widenings) in docs 3230986.
+
 ## ABI review #8: `pkg.cexport.signature` multi-return row — DONE (2026-09-08, docs 259ece2)
 
 Resolved by the implementation converging on the row's claim: the inbound
