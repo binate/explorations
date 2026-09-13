@@ -309,5 +309,12 @@ the VM caller but REFERENCED by the vtable emitters (so not bnlint-unused).
 
 - 2026-09-09: owner picked (B); adversarial review = SOUND-WITH-FIXES (C1–C3
   folded in above).  Owner also folded C2 IN SCOPE (extern + iface-method
-  cross-mode migrate to call_packed in step 4).  Implementing step 1.  17 case-B
-  tests xfail'd on main (aacd1f232) meanwhile.
+  cross-mode migrate to call_packed in step 4).  17 case-B tests xfail'd on main
+  (aacd1f232) meanwhile.
+- 2026-09-12: **steps 1+2 LANDED** on main — step 1 `dc4802fac` (grow vtable to
+  {dtor,call,call_packed}, placeholder slot), step 2 `3ed5206a5` (TrampolinePacked
+  + wire call_packed).  Both behavior-neutral (nothing reads slot 2 yet); reviewed
+  (LAND-WITH-FIXES: a stale vtable-text test + bnfmt/line-length + the unused
+  slot-2 accessor were fixed — the accessor deferred to step 4).  NEXT: step 3
+  (native aa64/x64/arm32 + LLVM `__shimP` fixed-arity thunks), landed
+  incrementally with review.
