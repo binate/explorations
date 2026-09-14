@@ -209,8 +209,20 @@ CORRECTION 2026-09-08):
    itself — its aggregate copy traffic is overwhelmingly MANAGED `@[]T` slices
    (the 41.6% below); non-managed struct/raw-slice locals are rare. So the actual
    gap-closing is **Phase 2 (managed slices/structs)**. **Phase 2 increment 1
-   (managed slices `@[]T`, non-managed element) IMPLEMENTED on work-1
-   (`97e3101ba`), pending land** — splits into {data,len,refptr,backinglen};
+   (managed slices `@[]T`, non-managed element) LANDED `bcdc9ba47`** —
+   correctness-verified (refcount balance / teardown / zero-init / pad rewrite,
+   all backends + VM incl. a triggered fault pad; LLVM+native full-corpus 0-
+   mismatch). **BUT the review found a MAJOR EFFECTIVENESS DEFECT (not a
+   miscompile) — DO THIS NEXT: `expandWholeLoad` (`sroa_rewrite.bn`) materializes
+   per-field loads for ALL fields even in a FaultPad, where only the refptr is
+   consumed; those dead data/len/backinglen loads land in the pad, and mem2reg
+   refuses to promote ANY slot appearing in a pad — so the header fields DON'T
+   promote whenever the slice is live across a pad (≈always: every call / index /
+   nil-check attaches a pad). Fix: materialize only the field indices with a
+   surviving OP_EXTRACT consumer of that whole-load (scan uses), so the pad holds
+   only the refptr load. Then re-validate (full-corpus diff + VM) — this is what
+   makes Phase 2 actually collapse the header copies (esp. on native).** Design:
+   splits into {data,len,refptr,backinglen};
    data/len/backinglen promote, refptr stays in a managed slot with explicit nil
    zero-init; the rewrite processes FaultPads so the refcount spine's
    whole-load+extract-2 forwards there. `@[]@T` (managed element) stays pinned by
