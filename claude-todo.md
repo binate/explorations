@@ -208,7 +208,23 @@ CORRECTION 2026-09-08):
    self-compile. **KEY FINDING (measured):** Phase 1 is ~NO-OP on the compiler
    itself — its aggregate copy traffic is overwhelmingly MANAGED `@[]T` slices
    (the 41.6% below); non-managed struct/raw-slice locals are rare. So the actual
-   gap-closing is **Phase 2 (managed slices/structs)** — 🟡 NEXT, the payoff.
+   gap-closing is **Phase 2 (managed slices/structs)**. **Phase 2 increment 1
+   (managed slices `@[]T`, non-managed element) IMPLEMENTED on work-1
+   (`97e3101ba`), pending land** — splits into {data,len,refptr,backinglen};
+   data/len/backinglen promote, refptr stays in a managed slot with explicit nil
+   zero-init; the rewrite processes FaultPads so the refcount spine's
+   whole-load+extract-2 forwards there. `@[]@T` (managed element) stays pinned by
+   L2 (elem-dtor whole-value-address use). Verified no backend implicitly RefDecs
+   an alloca (refcount is explicit OP_REFDEC only). Validated: ir unit tests;
+   managed-slice programs correct -O0==-O2 incl. nil-slice RefDec-of-nil AND a
+   FAULTING slice under the VM (`bni -O 2`, exercising the rewritten pad) ==
+   -O0 == native. LLVM/native full-corpus differential + a refcount-focused
+   adversarial review IN FLIGHT before landing. **HOWEVER — measured ~NO-OP on
+   the compiler too** (its managed slices are by-value-used → L2-pinned; see the
+   native-aggregate-copy-efficiency todo above for the real gap-source).
+   **Continue the SROA line regardless** (per user): next = managed structs, then
+   field-broadening / coerced-call-result stores / SROA-to-a-fixpoint (so `b = a`
+   copies collapse both sides).
    Phase 2 is the hard part: the managed-slice refcount spine LOADS the whole
    4-word value + `OP_EXTRACT`s field 2 in normal blocks AND every FaultPad, and
    the elem-dtor path passes the whole value's ADDRESS to a dtor — so a managed
