@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### emitTempCleanupSince drops a managed-field aggregate literal without its struct dtor (`&&`/`||` operand leak) — 🔴 OPEN, MAJOR (found 2026-09-14 in composite-lit review)
+### emitTempCleanupSince drops a managed-field aggregate literal without its struct dtor (`&&`/`||` operand leak) — 🟡 IN PROGRESS (claimed 2026-09-14, work-2/session), MAJOR (found 2026-09-14 in composite-lit review)
 
 `emitTempRefDecs` (end-of-statement temp cleanup, `gen_temp_cleanup.bn`) has an
 `isStructOrArrayAlloc(tmp) && needsStructCopy(tmp.TypeArg)` arm that runs the
