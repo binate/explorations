@@ -73,22 +73,36 @@ interpreted programs can call it.  Until then, `conformance/123_raw_mem` should 
 `.xfail.builder-comp-int` marker (NOT added yet — awaiting the raise-a-major-bug decision on
 whether to fix now vs xfail-and-track).
 
-### CROSS-MODE VM func-value dispatch regressed to scalar-only + ≤7 args (b1) — 🟡 IN PROGRESS (claimed 2026-09-08, work-4/temp-4) — only C2 remains — see plan-crossmode-callpacked.md
+### CROSS-MODE VM func-value dispatch regressed to scalar-only + ≤7 args (b1) — 🔴 STEP-4a REVERTED — re-do the caller flip with full-suite validation — see plan-crossmode-callpacked.md (claimed 2026-09-08, work-4/temp-4)
 
-**ANY-SHAPE fix (case B) LANDED `1a3bc9260` (2026-09-14).** The VM caller now
-dispatches every func value through the vtable's slot-2 `call_packed` (packed
-int-slots: data, args, nSlots, retbuf), carrying any arg/return shape; all 17
-xfail markers removed and the tests pass in every VM mode.  This also un-redded
-**`builder-comp_arm32_linux_int`**, which had kept main RED since b1: the original
-triage xfail'd the 17 in only the three `builder-comp*-int` modes and MISSED that
-4th VM-exercising mode, so those 17 failed there (`>7 arg slots`) unxfailed the
-whole time.  The landing also fixed a latent `execFunc` bug the any-size relocation
-exposed — the result-relocation window was hardcoded to ≤64 bytes (truncating an
-80-byte `(Big,int)` multiret, `1097`); now it relocates the full `ResultRetbufBytes`
-image, advancing `vm.SP` by the 8-ROUNDED size to preserve the frame-header
-alignment invariant (regression test `TestCallFuncAggregateKeepsSPAligned`).
-Item 1 (case-A caller-side packed shim) was folded into `call_packed` (the native
-`__shimP` handles case A), so it is done too.  **Only C2 remains open.**
+**Step-4a (flip the VM caller to `call_packed`) was landed `1a3bc9260` then
+REVERTED `111f12f73` (2026-09-14): it regressed main.** The `call_packed`
+cross-mode marshalling is WRONG on lanes the pre-land Docker check never
+exercised — it returns an ADDRESS instead of the scalar value on the nested VM
+lane (`builder-comp-int-int`: 153 func-value tests, incl. basic `1018_funcval_int`;
+int-int was fully GREEN before) and crashes on ILP32 cross-package
+aggregate-return func values (`builder-comp_arm32_linux_int`: 876/879/881/882).
+The Docker validation only ran the 17 targeted tests (not the whole func-value
+suite) and int-int was masked locally by an unrelated nested-VM `rt.MemZero`
+"extern not found" that reproduces on macOS + local Docker but NOT on CI — so the
+regression was invisible until CI.  The work is preserved on branch `step4a-wip`
+(commit 1a3bc9260) for root-causing; DO NOT re-land without a FULL Docker
+conformance run of int-int + arm32_linux_int (and a way to reproduce int-int
+locally — resolve the Docker-vs-CI MemZero discrepancy first).
+
+Findings from the attempt that stay valid (fold into the redo):
+- **`builder-comp_arm32_linux_int` is a 4th VM-exercising mode the b1 triage MISSED**
+  — the 17 were xfail'd only in `builder-comp-int` / `-int-int` / `-comp-int`, so
+  they fail `>7 arg slots` unxfailed on arm32_linux_int, keeping main RED there.
+  The redo must un-red that mode too (and add the missing xfails only if the fix is
+  deferred).
+- a latent `execFunc` bug: the result-relocation window was hardcoded to ≤64 bytes
+  (truncates an 80-byte `(Big,int)` multiret, `1097`).  Fix = relocate the full
+  `ResultRetbufBytes`, advancing `vm.SP` by the 8-ROUNDED size (an un-rounded
+  advance breaks the tested frame-header 8-alignment → data-abort on strict-align
+  arm; regression test `TestCallFuncAggregateKeepsSPAligned` on `step4a-wip`).
+- Item 1 (case-A caller-side packed shim) folds into `call_packed` (the native
+  `__shimP` handles case A).
 
 - **C2 (IN SCOPE — owner folded in 2026-09-09):** two OTHER cross-mode dispatchers
   carry the same scalar-only/≤7 limitation — `dispatchExternBinding`/
