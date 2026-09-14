@@ -65,79 +65,23 @@ interpreted programs can call it.  Until then, `conformance/123_raw_mem` should 
 `.xfail.builder-comp-int` marker (NOT added yet — awaiting the raise-a-major-bug decision on
 whether to fix now vs xfail-and-track).
 
-### CROSS-MODE VM func-value dispatch regressed to scalar-only + ≤7 args (b1) — 17 conformance tests xfail'd — 🟡 IN PROGRESS (claimed 2026-09-08, work-4/temp-4) — see plan-crossmode-callpacked.md (design B; anyarity doc is background)
+### CROSS-MODE VM func-value dispatch regressed to scalar-only + ≤7 args (b1) — 🟡 IN PROGRESS (claimed 2026-09-08, work-4/temp-4) — only C2 remains — see plan-crossmode-callpacked.md
 
-**ACTIVE (owner reprioritized 2026-09-08): the any-SHAPE trampoline fix (case B)
-FIRST — it un-reds all 17 xfailed tests; item 1 (case-A packed shim) is deferred
-to after.** The 45 xfail markers landed to green CI (commit aacd1f232 on main); this
-entry now tracks building the real callee-side any-shape dispatch.
+**ANY-SHAPE fix (case B) LANDED `1a3bc9260` (2026-09-14).** The VM caller now
+dispatches every func value through the vtable's slot-2 `call_packed` (packed
+int-slots: data, args, nSlots, retbuf), carrying any arg/return shape; all 17
+xfail markers removed and the tests pass in every VM mode.  This also un-redded
+**`builder-comp_arm32_linux_int`**, which had kept main RED since b1: the original
+triage xfail'd the 17 in only the three `builder-comp*-int` modes and MISSED that
+4th VM-exercising mode, so those 17 failed there (`>7 arg slots`) unxfailed the
+whole time.  The landing also fixed a latent `execFunc` bug the any-size relocation
+exposed — the result-relocation window was hardcoded to ≤64 bytes (truncating an
+80-byte `(Big,int)` multiret, `1097`); now it relocates the full `ResultRetbufBytes`
+image, advancing `vm.SP` by the 8-ROUNDED size to preserve the frame-header
+alignment invariant (regression test `TestCallFuncAggregateKeepsSPAligned`).
+Item 1 (case-A caller-side packed shim) was folded into `call_packed` (the native
+`__shimP` handles case A), so it is done too.  **Only C2 remains open.**
 
-**b1 (thunk dispatch, commit 98219ab3e) regressed MORE than arity — it dropped
-EVERY non-trivial cross-mode func-value arg/return SHAPE in the VM modes.** b1
-made the VM dispatch every function value (including a bytecode->bytecode call in
-a program that runs wholly in the VM) through its `vtable.call` thunk =
-`rt._call_shim_scalar(fn, data, a0..a6)` -> a `TrampolineScalar`/`64`/`Aggregate`.
-That boundary is **scalar-only and capped at 7 user words**, so it cannot carry:
-FP-register floats, natural-size narrow (int8/16/32, float32) args, by-retbuf
-aggregates / big multi-returns, or >7 spilled words.  Pre-b1 a bytecode->bytecode
-func-value call dispatched **inline** (execFunc, uniform int-slots) and handled
-all of these; b1's uniform-thunk routing removed that path, so all those shapes
-now panic (`>7 arg slots`) or drop/mis-marshal args.
-
-b1's smoke test missed this (it did not run the full VM-mode conformance); CI
-caught it.  **17 tests are now xfail'd in the three VM modes** (builder-comp-int /
-builder-comp-int-int / builder-comp-comp-int) pending the callee-side any-shape
-fix below:
-- >7 arity: `523_closure_many_user_args`, `524_closure_many_caps_reg_to_stack`,
-  `718_funcval_spill_over_vm_cap`, `970_hfa_dispatch_wide`.
-- floats: `888_func_value_float_arg_overflow`, `914_closure_float_incoming_overflow`,
-  `926_closure_float_aggregate_fp_overflow`, `931_closure_float_arg_spill`,
-  `1205_funcval_float_sret_overflow`, `1206_closure_float_param_incoming_spill`,
-  `1207_closure_float_param_incoming_spill_pack`.
-- narrow: `894_func_value_narrow_arg_overflow`, `901_func_value_narrow_overflow_shapes`,
-  `903_narrow_byte_shim_paths`.
-- aggregate / multiret: `906_closure_aggregate_overflow`,
-  `920_closure_float_aggregate_incoming_overflow`, `1097_big_multiret_sret_int64`.
-
-(The 8741c5525 "drop 14 stale VM-mode xfails" commit had removed 718's markers on
-the premise that in-module func-value calls "never traverse the fixed-arity
-`_call_shim_*` boundary" — b1 invalidated exactly that premise.  These 15 markers
-[523/524 predate them] restore that coverage for the b1 regression.  The compiled
-native/LLVM lanes still pass — their per-signature shims marshal every shape.)
-
-There are TWO 7-arg caps, not one (confirmed by reading b1): cap #1 the caller
-shim `_call_shim_scalar(fn, data, a0..a6)`, cap #2 the callee `TrampolineScalar`
-(a fixed 7-param Binate func — cannot read an 8th spread arg).  A NATIVE closure
-into the VM (case A) has no cap #2 (its own shim spills >7); a VM function value
-(case B — what 523/524 are, whole program in the VM) hits cap #2.  So the work
-splits, and the owner directed **item-1-then-trampolines, with b2 an optimization
-only, never the correctness path** (2026-09-08):
-
-- **Item 1 (this entry): the caller-side packed shim (case A).** A new
-  `_call_shim_*_packed(fn, data, args, nArgs)` intrinsic lowered to a
-  backend-emitted INLINE dynamic-arity AAPCS spread (new op
-  OP_CALL_INDIRECT_PACKED — inline, no extra frame, so cross-mode fault-unwind is
-  unaffected).  `dispatchCompiledFuncValue` routes `nArgs > 7` through it (case A
-  native shims handle any arity) and drops its own `>7` vmPanic; the fail-loud
-  guard MOVES into the trampolines (which know the callee's user-param count), so
-  case B >7 (523/524) still fails LOUD (no silent truncation) and stays xfailed.
-  Prove with a NEW e2e/xmclosure.sh case (native closure with >7 args into the
-  VM).  Item 1 does NOT remove the 523/524 xfails.
-- **The any-SHAPE fix (case B) — the real correctness restoration, owner-approved
-  design (B), reviewed SOUND-WITH-FIXES (2026-09-09).** Un-reds all 17 xfailed
-  tests; it is any-SHAPE (FP-register floats, natural-size narrow, by-retbuf
-  aggregates / big multiret, AND >7 spill) — everything the pre-b1 inline path
-  handled.  Design: add a THIRD func-value vtable slot `call_packed(data, args,
-  nSlots, retbuf) int64` (packed VM int-slots); the VM caller uses it
-  unconditionally (no data-peek, no b2); compiled↔compiled keeps the untouched
-  real-ABI `call` slot (no VM tax).  VM func values → a generic
-  `TrampolinePacked`; native/LLVM → per-signature `__shimP` packed shims (this
-  folds in the old "item 1" case-A native-closure→VM shim).  Invoked by reusing
-  `_call_shim_scalar64` as the indirect-call vehicle.  Growing `%BnVtable` is
-  verified SAFE (not shared with iface vtables).  Remove all 17
-  `*.xfail.builder-comp*-int` markers (523, 524, 718, 888, 894, 901, 903, 906,
-  914, 920, 926, 931, 970, 1097, 1205, 1206, 1207).  **Full design + corrected
-  sequencing: plan-crossmode-callpacked.md.**
 - **C2 (IN SCOPE — owner folded in 2026-09-09):** two OTHER cross-mode dispatchers
   carry the same scalar-only/≤7 limitation — `dispatchExternBinding`/
   `execExternCall` (vm_extern.bn) and `dispatchCompiledIfaceMethod`

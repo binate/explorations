@@ -7,6 +7,42 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### Cross-mode VM func-value dispatch: any-SHAPE `call_packed` (b1 case-B fix) — DONE (2026-09-14, `1a3bc9260`)
+
+b1 (`98219ab3e`) routed every VM func-value call through the vtable's slot-1
+per-shape trampoline (`_call_shim_scalar` → `TrampolineScalar`/`64`/`Aggregate`),
+a scalar-only, ≤7-user-word boundary that dropped/mis-marshaled FP-register
+floats, natural-size narrow args, by-retbuf aggregates/multi-return, and >7
+spilled words — every non-trivial cross-mode shape.  Fixed by giving the func-value
+vtable a THIRD slot `call_packed(data, args, nSlots, retbuf) int64` (uniform packed
+VM int-slots, args passed by pointer so any arity/shape rides through): the VM
+caller (`dispatchCompiledFuncValue`) now dispatches through it unconditionally
+(no data-peek, no `>7` cap).  Producers: VM func values → generic
+`TrampolinePacked` (re-enters `execFunc`); native/LLVM → per-signature `__shimP`
+packed shims (landed in the slot-2 producer commits before this).  Invoked by
+reusing the fixed-arity `_call_shim_scalar64` intrinsic as the indirect-call
+vehicle.  All 17 b1-regressed tests pass in every VM mode; the 51
+`*.xfail.builder-comp*-int` markers removed.
+
+Two things surfaced during the fix:
+- **main had been RED since b1**, not merely xfail-covered: the triage xfail'd the
+  17 only in `builder-comp-int` / `-int-int` / `-comp-int` and MISSED
+  `builder-comp_arm32_linux_int` (also a bytecode-VM mode), where all 17 failed
+  `>7 arg slots` unxfailed.  This landing makes them pass there (validated 17/17 in
+  a Linux/Docker run of that ILP32 mode), clearing the redness.
+- a latent `execFunc` result-relocation bug: the relocation window was hardcoded to
+  ≤64 bytes, truncating an 80-byte `(Big,int)` multiret (`1097`).  Now relocates the
+  full `ResultRetbufBytes` image, but advances `vm.SP` by the 8-ROUNDED size (an
+  adversarial review caught that the natural un-rounded advance breaks the tested
+  frame-header 8-alignment invariant → data-abort on strict-align arm).  Regression
+  test `TestCallFuncAggregateKeepsSPAligned` (fails on the un-rounded advance).
+
+Also folded in item 1 (case-A caller-side packed shim → the native `__shimP` handles
+it) and split `execStringOp` out to `vm_exec_string.bn` (the added commentary tipped
+`vm_exec_helpers.bn` over the file-length soft limit).  Adversarially reviewed
+(1 MAJOR alignment finding fixed + regression-tested).  **C2 (migrating the extern +
+iface-method dispatchers to `call_packed`) remains open in the active todo.**
+
 ### Recoverable fault mid-composite-literal leaks already-moved managed fields — DONE (2026-09-14, `2b8066844`)
 
 A struct / array / managed-slice literal MOVES each managed member into the aggregate

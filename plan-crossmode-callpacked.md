@@ -358,6 +358,16 @@ the VM caller but REFERENCED by the vtable emitters (so not bnlint-unused).
   test added; everything else confirmed correct.  **ALL FOUR backends' __shimP
   are on main.**  NOW: step 4 (flip the VM caller to call_packed) — the finale +
   first behavior change (un-reds the 17 xfails).
+- 2026-09-14: **step 4a (flip the VM caller to call_packed) LANDED** `1a3bc9260`
+  — `dispatchCompiledFuncValue` now dispatches through slot-2 `call_packed`
+  (args by pointer, no `>7` cap), all 17 xfails removed, tests pass in every VM
+  mode.  Also un-redded `builder-comp_arm32_linux_int` (the triage had never
+  xfail'd the 17 there → main RED since b1; validated 17/17 in Docker) and fixed a
+  latent `execFunc` ≤64-byte relocation cap → full `ResultRetbufBytes` with an
+  8-rounded `vm.SP` advance (review-caught alignment fix; regression test
+  `TestCallFuncAggregateKeepsSPAligned`); split `execStringOp` → `vm_exec_string.bn`
+  for file length.  NEXT: **step 4b = C2** (migrate `dispatchExternBinding`/
+  `execExternCall` + `dispatchCompiledIfaceMethod` to `call_packed`).
 
 ### LLVM `__shimP` design (step 3d) — the intricate one
 
