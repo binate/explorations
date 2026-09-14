@@ -7,6 +7,23 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### VM SP-guard: box-and-forward wrappers no longer inlined (Inc-1 pre-check side effect) — DONE (2026-09-13, `e2edbe999`)
+
+The stack-overflow pre-check's pre-delivery cleanup pad covers the moved @Iface arg
+(a branching iface / func-value refdec → multi-block pad), which made a
+box-and-forward wrapper like `g(x) = h(cast(@I, make(T)))` non-inlinable on ALL
+backends — the inliner's pad-cloner only handled single-block pads.  This was a
+PRE-EXISTING limitation (no callee with an iface/func-value local live across any
+faulting op inlined) that the Inc-1 pre-check merely widened.  Fixed by generalizing
+the pad-cloner to MULTI-block pads (`collectPadBlocks` / `padInlinable` /
+`cloneInlinablePad` in `ir/inline_pads.bn`): the whole pad sub-CFG is cloned in
+topological order, remapping operands + branch targets and rewriting each terminal
+OP_UNWIND_RETURN into an OP_JUMP into the call-site pad.  Correctness-safe
+native-codegen improvement; adversarially reviewed (no double-free / leak / dangling
+operand / miscompile).  Verified: VM conformance 2994 pass / 1 pre-existing-unrelated
+fail, LLVM 3024/0, hygiene 20/20.  Tests: `TestPadInlinable`,
+`TestInlineMultiBlockPadStackCheckNoLeak`.
+
 ### LLVM weak `__centry.` thunk lacks a COMDAT group — align with the cross-TU-weak convention — DONE (2026-09-13, `f6ac9f105`)
 
 The LLVM `__c_entry` adaptation thunk (`emitCAbiAdapterThunk`, weak linkage) was

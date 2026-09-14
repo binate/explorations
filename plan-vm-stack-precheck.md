@@ -66,8 +66,9 @@ overflow fault fires with a clean (fully-covering) live set.
   (the split) + two inliner-integration tests (orphaned pre-check dropped on inline;
   kept when the call survives).  Verified: LLVM 3024/0, VM 2994/1 (pre-existing
   `rt.MemZero` extern gap, unrelated), native-aa64 smoke 98/0, hygiene 20/20.
-  Follow-up: the check's multi-block pre-delivery pad makes box-and-forward wrapper
-  callees non-inlinable (correctness-safe; tracked in `claude-todo.md`).
+  Follow-up (RESOLVED `e2edbe999`): the check's multi-block pre-delivery pad made
+  box-and-forward wrapper callees non-inlinable — fixed by generalizing the
+  inliner's pad-cloner to multi-block pads (also lifted a pre-existing limitation).
 - **Inc 2 — temp-growth checks (corruption fix).** `wouldOverflow` at every
   SP-growing op + IR-gen pads for them. Test: a single frame overflowing via temp
   growth (a big statement / loop) recovers cleanly, no corruption.

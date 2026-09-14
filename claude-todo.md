@@ -132,20 +132,6 @@ Remaining:
   moved-arg leak persists.  Emit the check at dispatch, before the moved args are
   consumed.  `pushFrame`'s existing check stays as the backstop throughout.
 
-### VM SP-guard follow-up: box-and-forward wrappers no longer inline — 🟡 IN PROGRESS (claimed 2026-09-13, work-2/session), MINOR (found in Inc-1 review)
-
-`OP_STACK_CHECK`'s pre-delivery cleanup pad covers the moved managed arg (a
-branching iface/managed refdec → multi-block pad), so `inlinableCallee`'s
-pad-eligibility gate (`ir/inline_eligibility.bn`) now rejects a callee like
-`g(x) = h(cast(@I, make(T)))` that was inlinable before Inc 1 — on ALL backends
-(the op lives in shared IR).  Correctness-safe (not-inlining is always valid; no
-leak, no miscompile) but a real inlining regression vs pre-Inc-1, and a
-native-codegen-gap concern for box-and-forward wrappers.  Simply skipping the gate
-is UNSAFE: the cloner can't clone a multi-block check pad, and a surviving cloned
-call must keep its check or the leak returns.  Fix options: teach the pad-cloner to
-handle the check's multi-block pad, or drop-and-re-emit the check post-inline from
-the caller's live set.  No test yet.
-
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
