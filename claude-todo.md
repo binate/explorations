@@ -7,6 +7,28 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### Recoverable fault mid-composite-literal leaks already-moved managed fields — 🔴 OPEN, MAJOR (found 2026-09-13 in Inc-2 review)
+
+A struct/array literal with managed fields (`S{m: make_slice(...), n: <expr>}`) MOVES
+each managed field into the aggregate as it goes (`emitStoreManagedSlot` isInit →
+`consumeTemp`, so the field leaves `ctx.Temps`), but registers the aggregate alloca
+for end-of-statement cleanup only AFTER the whole field loop (`gen_composite.bn` ~138,
+`registerTemp(structPtr)`).  So DURING construction, a recoverable VM fault while
+evaluating a LATER field — a bounds/div/nil/shift check, a call's frame-push
+overflow, or (new) a temp-growth overflow — dispatches a cleanup pad that covers
+NEITHER the already-moved managed fields NOR the partial aggregate, so those fields
+leak one ref each.  Systemic: affects EVERY recoverable-fault origin, not just the
+new temp-growth one; VM-only (recoverable faults are VM-only; compiled backends
+abort on fault).
+
+Proper fix: register the aggregate alloca as a cleanup temp INCREMENTALLY as each
+managed field is moved in (or otherwise make the mid-loop fault pad cover the partial
+aggregate), so a fault during construction releases the fields moved so far.  Needs a
+test — a composite literal whose later field faults (e.g. an OOB index) recovering
+with stable rt.LiveBlocks (currently uncovered).  Surfaced by the adversarial review
+of the temp-growth-overflow recovery (`9b8fc0e80`); that commit did NOT introduce it
+(it replaced silent corruption with this rare leak at one op).
+
 ### CROSS-MODE VM func-value dispatch regressed to scalar-only + ≤7 args (b1) — 17 conformance tests xfail'd — 🟡 IN PROGRESS (claimed 2026-09-08, work-4/temp-4) — see plan-crossmode-callpacked.md (design B; anyarity doc is background)
 
 **ACTIVE (owner reprioritized 2026-09-08): the any-SHAPE trampoline fix (case B)
