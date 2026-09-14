@@ -27,52 +27,6 @@ green; -O0 always `1\n7\n1`).  No xfail marker added — the test PASSES most ru
 so an xfail would XPASS; it needs a real root-cause (an optimizer -O2 pass, likely
 around closure-record RefDec-at-end-of-statement, corrupting the record/captures).
 
-### Bytecode VM cannot resolve `rt.MemZero` on aarch64 — any interpreted program calling it panics — 🟡 IN PROGRESS (claimed 2026-09-14, work-1/session 01LPZ7) — MAJOR (found 2026-09-13)
-
-**FIX IMPLEMENTED + validated (work-1 commit `5469b05ae`; awaiting review + landing
-approval).** The interface-enumeration approach was unnecessary: `MemZero` IS
-already in `mod.Funcs` — the loader prepends a `.bni` func decl with no matching
-impl (loader_load.bn:212), so the gated-off `MemZero` reaches gen as a bodyless
-(`IsExtern`, `d.Body == nil`) decl. genFunc now flags it `ExternalDef`
-(`f.Exported && !nameIsCompilerInternalFunc(d.Name)`), and every descriptor +
-func-value-triple emitter (LLVM emit_pkg_descriptor/emit_funcvals + native
-x64/aa64/arm32) changed `if f.IsExtern { continue }` → `if f.IsExtern &&
-!f.ExternalDef { continue }` — so an ExternalDef func IS listed (VM can bind it)
-while staying declare-only for body emission + opt-skipped.  GENERAL (no allowlist):
-any publicly-named external impl (asm/C) a package provides works.  Excluded: the
-compiler's own `_`-prefixed inline-lowered intrinsics (rt._call_shim_*, _call_dtor,
-_call_free_fn, debug._stack_frames) which have no linkable symbol.
-`reflect.TypeOf`/`DataOf` are non-`_` intrinsics that are legit funcs usually
-inlined — given REAL fallback bodies (impls/.../reflect/reflect.bn) for the
-non-inlined (func-value / VM) path (covered by conformance/1261).  Validated:
-builder-comp-int 2995/0 (was 2994/1) + 1261; native aa64 3024/0; ir units; reflect
-inlined-vs-func-value differential; hygiene 20/20.
-
-On aarch64 the portable Binate `rt.MemZero` body is `#[build(!is(arch, "aarch64"))]`-gated
-OFF (`impls/core/common/pkg/builtins/rt/rt_memzero.bn:6`) — it is replaced by hand-written
-asm linked via bnc's runtime `.s` seam (`cmd/bnc/rt_mem_asm.bn`, from commit 53a422f5b).
-The native/LLVM backends link that asm, so `rt.MemZero` resolves there.  But the bytecode
-VM (`bni`) binds Binate-bodied rt functions as its externs, and on aarch64 there is no
-Binate `MemZero` body to bind — so an INTERPRETED program that calls `rt.MemZero` dies with
-`panic: vm: extern not found: pkg/builtins/rt.MemZero`.
-
-Symptom: `conformance/123_raw_mem` (which calls `rt.MemZero(p, 32)` directly in source)
-FAILS under `builder-comp-int` on aarch64 (2994 passed, 1 failed).  Almost certainly not
-caught by CI because CI's VM lane runs on x64, where `MemZero` is NOT gated off (has a
-Binate body) and the test passes.  It affects EVERY interpreted program calling `rt.MemZero`
-on aarch64, not just this test.
-
-NOT caused by the SROA fixpoint work — surfaced by its `builder-comp-int` validation run.
-An IR optimization pass cannot alter `#[build]` gating or which rt bodies exist; the failure
-reproduces regardless of the compiler (it is a source/build-config property).  Native aa64
-conformance (which links the asm MemZero) passes 123_raw_mem 3024/0.
-
-Proper fix (needs owner decision): make the VM register/bind a `MemZero` extern on aarch64
-— e.g. bind the hand-asm symbol into the extern registry, or provide a VM-side MemZero — so
-interpreted programs can call it.  Until then, `conformance/123_raw_mem` should carry an
-`.xfail.builder-comp-int` marker (NOT added yet — awaiting the raise-a-major-bug decision on
-whether to fix now vs xfail-and-track).
-
 ### CROSS-MODE VM func-value dispatch regressed to scalar-only + ≤7 args (b1) — 🔴 STEP-4a REVERTED — re-do the caller flip with full-suite validation — see plan-crossmode-callpacked.md (claimed 2026-09-08, work-4/temp-4)
 
 **Step-4a (flip the VM caller to `call_packed`) was landed `1a3bc9260` then

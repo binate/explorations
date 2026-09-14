@@ -6,6 +6,33 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### Bytecode VM could not resolve `rt.MemZero` on aarch64 — FIXED, LANDED `bb3731c01` (2026-09-14, MAJOR)
+
+On aarch64 the portable Binate `rt.MemZero` body is `#[build]`-gated off (asm-provided via
+the runtime `.s` link seam, `cmd/bnc/rt_mem_asm.bn`, from 53a422f5b), so it reached IR-gen as
+a bodyless (`IsExtern`, `d.Body == nil`) `.bni` decl (the loader prepends an unimplemented
+`.bni` func, loader_load.bn:212).  Every reflect-descriptor + func-value-triple emitter did
+`if f.IsExtern { continue }`, so `MemZero` was dropped from `__Package().Functions` → the VM's
+`RegisterPackageFunctions` could not bind it → an interpreted caller died
+`panic: vm: extern not found: pkg/builtins/rt.MemZero` (conformance/123_raw_mem under
+builder-comp-int; x64-CI-invisible since MemZero has a Binate body there).
+
+Fix (GENERAL, no allowlist): `genFunc` flags a bodyless EXPORTED func `ExternalDef`
+(`f.Exported && !nameIsCompilerInternalFunc(d.Name)`); the descriptor + triple emitters (LLVM
+emit_pkg_descriptor/emit_funcvals + native x64/aa64/arm32) changed to
+`if f.IsExtern && !f.ExternalDef { continue }` — an ExternalDef func IS listed (VM binds it),
+while staying `declare`-only for body emission (no `define` colliding with the linked symbol)
+and opt-skipped.  So ANY publicly-named external (asm/C/…) impl a package provides works.
+EXCLUDED: the compiler's own `_`-prefixed inline-lowered intrinsics (rt._call_shim_*,
+_call_dtor, _call_free_fn, debug._stack_frames) — no linkable symbol.  `reflect.TypeOf` /
+`DataOf` are non-`_` intrinsics that are legit funcs usually inlined, so they got REAL fallback
+bodies (`impls/core/common/pkg/builtins/reflect/reflect.bn`, `&x`-into-the-2-word-iface) for
+the non-inlined (func-value / VM) path — covered by conformance/1261_reflect_funcvalue
+(inlined-vs-func-value differential).  Validated: builder-comp-int 2995/0 (was 2994/1) + 1261;
+native aa64 3024/0; builder-comp 3024/1 (the 1 an UNRELATED pre-existing flaky IIFE -O2 SIGTRAP,
+tracked in claude-todo.md); ir unit tests (incl. nameIsCompilerInternalFunc); reflect
+differential; hygiene 20/20; adversarial review found no confirmed defect.
+
 ### Recoverable fault mid-composite-literal leaks already-moved managed fields — DONE (2026-09-14, `2b8066844`)
 
 A struct / array / managed-slice literal MOVES each managed member into the aggregate
