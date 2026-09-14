@@ -212,16 +212,16 @@ CORRECTION 2026-09-08):
    (managed slices `@[]T`, non-managed element) LANDED `bcdc9ba47`** —
    correctness-verified (refcount balance / teardown / zero-init / pad rewrite,
    all backends + VM incl. a triggered fault pad; LLVM+native full-corpus 0-
-   mismatch). **BUT the review found a MAJOR EFFECTIVENESS DEFECT (not a
-   miscompile) — DO THIS NEXT: `expandWholeLoad` (`sroa_rewrite.bn`) materializes
-   per-field loads for ALL fields even in a FaultPad, where only the refptr is
-   consumed; those dead data/len/backinglen loads land in the pad, and mem2reg
-   refuses to promote ANY slot appearing in a pad — so the header fields DON'T
-   promote whenever the slice is live across a pad (≈always: every call / index /
-   nil-check attaches a pad). Fix: materialize only the field indices with a
-   surviving OP_EXTRACT consumer of that whole-load (scan uses), so the pad holds
-   only the refptr load. Then re-validate (full-corpus diff + VM) — this is what
-   makes Phase 2 actually collapse the header copies (esp. on native).** Design:
+   mismatch). **Effectiveness fix (materialize only extract-consumed field loads,
+   so dead header loads don't pin the fields out of mem2reg in pads) done on
+   work-1 (`46377aad8`), reviewed SOUND, pending land** — a managed-slice copy
+   live across a call drops 4 stack slots → 0 at -O2; ir tests pass; full-corpus
+   diff in flight. Minor follow-ups from the review (non-blocking): (i)
+   `wholeLoadExtractsField` is O(fields×instrs) per whole-load — replace with a
+   one-pass tally (single scan building bool[fields]) if it ever matters; (ii)
+   unit tests for a fully-dead whole-load, a real FaultPad extract, and two whole
+   loads of one slice extracting different field subsets (partial-extract is
+   already covered by TestSroaStructWholeLoadForwarded). Original design:
    splits into {data,len,refptr,backinglen};
    data/len/backinglen promote, refptr stays in a managed slot with explicit nil
    zero-init; the rewrite processes FaultPads so the refcount spine's
