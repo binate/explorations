@@ -345,7 +345,11 @@ the VM caller but REFERENCED by the vtable emitters (so not bnlint-unused).
 - 2026-09-13: **step 3c (arm32 `__shimP`) committed** `d5da0fc4c` (mirror of
   3a/3b; flat positional copy per the resolution above; R4=argsPtr + IP shuttle in
   the spill path).  Green (arm32 unit tests, gen1, hygiene), awaiting review before
-  landing.  NEXT: LLVM `__shimP`, then step 4.
+  landing.
+- 2026-09-13: **step 3c (arm32 `__shimP`) LANDED** `39718ff9e` — reviewed
+  SAFE-TO-LAND (int64 flat-seam premise verified in 3 code sites; stale marshal
+  doc comment corrected).  ALL THREE NATIVE backends' `__shimP` now on main.
+  NEXT: LLVM `__shimP` (step 3d, design above), then step 4.
 
 ### LLVM `__shimP` design (step 3d) — the intricate one
 
