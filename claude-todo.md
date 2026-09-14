@@ -34,7 +34,7 @@ interpreted programs can call it.  Until then, `conformance/123_raw_mem` should 
 `.xfail.builder-comp-int` marker (NOT added yet — awaiting the raise-a-major-bug decision on
 whether to fix now vs xfail-and-track).
 
-### Recoverable fault mid-composite-literal leaks already-moved managed fields — 🔴 OPEN, MAJOR (found 2026-09-13 in Inc-2 review)
+### Recoverable fault mid-composite-literal leaks already-moved managed fields — 🟡 IN PROGRESS (claimed 2026-09-13, work-2/session), MAJOR (found 2026-09-13 in Inc-2 review)
 
 A struct/array literal with managed fields (`S{m: make_slice(...), n: <expr>}`) MOVES
 each managed field into the aggregate as it goes (`emitStoreManagedSlot` isInit →
