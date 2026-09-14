@@ -349,7 +349,8 @@ the VM caller but REFERENCED by the vtable emitters (so not bnlint-unused).
 - 2026-09-13: **step 3c (arm32 `__shimP`) LANDED** `39718ff9e` — reviewed
   SAFE-TO-LAND (int64 flat-seam premise verified in 3 code sites; stale marshal
   doc comment corrected).  ALL THREE NATIVE backends' `__shimP` now on main.
-  NEXT: LLVM `__shimP` (step 3d, design above), then step 4.
+  step 3d = LLVM `__shimP`.
+- 2026-09-13: **step 3d (LLVM `__shimP`) committed** `6f9d85ede` — emit_funcvals_packed.bn: reconstructs @__shim's typed args from the packed slot array + calls @__shim; uniform store-to-zeroed-i64-slot + reload for the scalar return; retbuf shape for aggregate; hasPacked flag keeps the dtor triple's slot 2 = @__shim (no dangling __shimP).  Green (codegen unit tests incl. new scalar+aggregate __shimP tests; gen1; hygiene), awaiting review before landing.  ALL FOUR backends' __shimP now exist (3 native landed, LLVM committed).  NEXT: step 4 (flip the VM caller).
 
 ### LLVM `__shimP` design (step 3d) — the intricate one
 
