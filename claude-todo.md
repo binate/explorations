@@ -7,6 +7,33 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### Bytecode VM cannot resolve `rt.MemZero` on aarch64 — any interpreted program calling it panics — 🔴 OPEN, MAJOR (found 2026-09-13)
+
+On aarch64 the portable Binate `rt.MemZero` body is `#[build(!is(arch, "aarch64"))]`-gated
+OFF (`impls/core/common/pkg/builtins/rt/rt_memzero.bn:6`) — it is replaced by hand-written
+asm linked via bnc's runtime `.s` seam (`cmd/bnc/rt_mem_asm.bn`, from commit 53a422f5b).
+The native/LLVM backends link that asm, so `rt.MemZero` resolves there.  But the bytecode
+VM (`bni`) binds Binate-bodied rt functions as its externs, and on aarch64 there is no
+Binate `MemZero` body to bind — so an INTERPRETED program that calls `rt.MemZero` dies with
+`panic: vm: extern not found: pkg/builtins/rt.MemZero`.
+
+Symptom: `conformance/123_raw_mem` (which calls `rt.MemZero(p, 32)` directly in source)
+FAILS under `builder-comp-int` on aarch64 (2994 passed, 1 failed).  Almost certainly not
+caught by CI because CI's VM lane runs on x64, where `MemZero` is NOT gated off (has a
+Binate body) and the test passes.  It affects EVERY interpreted program calling `rt.MemZero`
+on aarch64, not just this test.
+
+NOT caused by the SROA fixpoint work — surfaced by its `builder-comp-int` validation run.
+An IR optimization pass cannot alter `#[build]` gating or which rt bodies exist; the failure
+reproduces regardless of the compiler (it is a source/build-config property).  Native aa64
+conformance (which links the asm MemZero) passes 123_raw_mem 3024/0.
+
+Proper fix (needs owner decision): make the VM register/bind a `MemZero` extern on aarch64
+— e.g. bind the hand-asm symbol into the extern registry, or provide a VM-side MemZero — so
+interpreted programs can call it.  Until then, `conformance/123_raw_mem` should carry an
+`.xfail.builder-comp-int` marker (NOT added yet — awaiting the raise-a-major-bug decision on
+whether to fix now vs xfail-and-track).
+
 ### Recoverable fault mid-composite-literal leaks already-moved managed fields — 🔴 OPEN, MAJOR (found 2026-09-13 in Inc-2 review)
 
 A struct/array literal with managed fields (`S{m: make_slice(...), n: <expr>}`) MOVES
