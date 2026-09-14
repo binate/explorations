@@ -214,9 +214,18 @@ CORRECTION 2026-09-08):
    all backends + VM incl. a triggered fault pad; LLVM+native full-corpus 0-
    mismatch). **Effectiveness fix (materialize only extract-consumed field loads,
    so dead header loads don't pin the fields out of mem2reg in pads) done on
-   work-1 (`46377aad8`), reviewed SOUND, pending land** — a managed-slice copy
-   live across a call drops 4 stack slots → 0 at -O2; ir tests pass; full-corpus
-   diff in flight. Minor follow-ups from the review (non-blocking): (i)
+   LANDED `ebeb6d087`, reviewed SOUND** — a managed-slice copy live across a call
+   drops 4 stack slots → 0 at -O2; ir tests pass; LLVM+native full-corpus 0-
+   mismatch. **NEXT (continue the SROA line): managed structs** (structs with a
+   managed field — split like managed slices: non-managed fields promote, each
+   managed field goes to an unpromoted managed slot with nil zero-init; the
+   struct's field-by-field RefInc/RefDec spine whole-loads+extracts the managed
+   field in blocks AND pads → forwardable, reuse the managed-slice machinery).
+   Reconnoiter first: is the managed-struct cleanup field-by-field extract
+   (forwardable, like the managed-slice refptr) or does any field's dtor take the
+   whole-value ADDRESS (→ L2-pinned)? Then field-broadening (float/nested via
+   explicit zero-init) and SROA-to-a-fixpoint (so `b = a` collapses BOTH sides —
+   currently the pinned copy-source keeps its whole-load). Minor follow-ups from the review (non-blocking): (i)
    `wholeLoadExtractsField` is O(fields×instrs) per whole-load — replace with a
    one-pass tally (single scan building bool[fields]) if it ever matters; (ii)
    unit tests for a fully-dead whole-load, a real FaultPad extract, and two whole
