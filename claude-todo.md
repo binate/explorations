@@ -170,11 +170,22 @@ leaked at `pushFrame`; compiled backends no-op the op).
 
 Remaining:
 - **Inc 2 — temp-growth overflow checks (silent-corruption gap).** ~13 of ~19
-  `vm.SP +=` sites (BC_IFACE_VALUE, BC_MAKE_SLICE, string copies, func-value
-  pushes, aggregate copy-backs) grow `vm.SP` with NO overflow check → on a true
-  overflow they write PAST the stack buffer (heap corruption).  Add a check at
-  each; fault recoverably via the op's pad where a pad covers the live set, else
-  hard-abort.  IR-gen must ensure each SP-growing producer carries a pad.
+  `vm.SP +=` sites grow `vm.SP` with NO overflow check → on a true overflow they
+  write PAST the stack buffer (heap corruption).  Add a check at each; fault
+  recoverably via the op's pad where a pad covers the live set (design (B)), else
+  hard-abort.  **The big-growth op LANDED `1dd3f319f`:** the string→array
+  materialization (`OP_RODATA_ARRAY` / `BC_STRING_COPY_ARR`, which copies the whole
+  `[N]char` onto `vm.SP`) is now recoverable — `attachSPGrowthPad` (via
+  `noteSPGrowingResult`) + a `wouldFrameOverflow` check before the growth +
+  post-`execStringOp` fault dispatch.  Remaining:
+  - **small-growth IR-op producers** (BC_MAKE_SLICE 4-word header, BC_IFACE_VALUE /
+    BC_FUNC_VALUE / BC_STRING_COPY 2-4 words) — recoverable, same pattern; iface /
+    func-value dispatch (execIfaceOp under execFuncRefOp) needs the post-handler
+    fault-dispatch wiring added.
+  - **VM-internal copy-backs** (retbuf on BC_RETURN / extern / iface / funcref
+    dispatch, cross-mode `...*any` scratch, `pushManagedSlice`) — no IR op / no pad,
+    so hard-abort (vmPanic if `wouldFrameOverflow`), matching the existing
+    `vm_iface_native_vt.bn` scratch-bound check.
 - **Inc 3 — indirect/method/func-value/iface-method calls.** These got the
   eval/deliver split (mid-eval leak fixed) but NOT `OP_STACK_CHECK` (callee frame
   extent is known only at the runtime dispatch point), so their frame-push
