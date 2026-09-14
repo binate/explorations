@@ -221,16 +221,24 @@ CORRECTION 2026-09-08):
    managed field goes to an unpromoted managed slot with nil zero-init; the
    struct's field-by-field RefInc/RefDec spine whole-loads+extracts the managed
    field in blocks AND pads → forwardable, reuse the managed-slice machinery).
-   RECONNOITERED (2026-09-13): a managed struct LOCAL is field-ptr-shaped — access
-   AND cleanup are `GET_FIELD_PTR(s,i)` + load/store (the managed field's RefDec is
-   `GET_FIELD_PTR(s,i)` → LOAD → OP_REFDEC, in blocks AND FaultPads); `__dtor_S`
-   is only used behind a `@S` pointer, NOT for a struct local. So no whole-value-
-   address escape → the field-ptr rewrite forwards it. Implementation: add
-   `collectManagedStructCandidates` (mirror collectManagedSliceCandidates:
-   TYP_STRUCT with a managed field, pad-aware managedAllocaUsesOK + L2 + extractable
-   whole-stores) and a validateSroaCandidates managed-struct dispatch; the field
-   types (t.Fields incl. managed), the managed field slots + nil zero-init
-   (makeFieldZeroInits), and the pad-aware field-ptr rewrite all already exist. Then
+   RECONNOITERED (2026-09-13, CORRECTED): managed struct locals are NOT SROA-able
+   under the current cleanup convention — they are BLOCKED, exactly as this plan
+   originally predicted ("Managed structs: later"). An earlier note here claimed
+   they were field-ptr-shaped and forwardable; that was an ERROR (the field-by-field
+   RefDec I saw was the `__dtor_T` FUNCTION BODY, not the cleanup CALL SITE).
+   Verified in codegen: `emitDecForManagedLocals` (gen_local_cleanup.bn:43) cleans
+   up a managed struct local via `emitStructDtor(slot.Ptr)`, which does
+   `EmitCall(__dtor_T, [bitcast(slot.Ptr)])` — passing the struct slot's ADDRESS to
+   the dtor. That address escape (h used as a call arg, via a bitcast) pins the
+   alloca at L1, universally. Confirmed on real LLVM: both `var h S` and
+   `var h S = S{...}` emit `call __dtor_S(&h)` and keep the struct alloca at -O2.
+   (Contrast managed SLICES, which `emitDecForManagedLocals` cleans up INLINE via
+   `emitManagedSliceRefDec(load(slot))` — whole-load + extract, forwardable — which
+   is why Phase 2 slices ARE SROA-able.) To make managed structs SROA-able would
+   require a CODEGEN change: for a scalar-replaced struct, inline the per-field
+   RefDecs at cleanup (blocks + pads) instead of calling the by-address `__dtor_T`
+   — a separate, larger piece touching gen_local_cleanup + emitPadCleanup + the
+   dtor ABI. Not done. NEXT real-code-affecting line items instead:
    field-broadening (float/nested via
    explicit zero-init) and SROA-to-a-fixpoint (so `b = a` collapses BOTH sides —
    currently the pinned copy-source keeps its whole-load). Minor follow-ups from the review (non-blocking): (i)
