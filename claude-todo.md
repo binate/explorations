@@ -165,6 +165,30 @@ quote numbers from this file (they go stale):**
   backends by static instruction/reload counting on a `--target` build, or on
   real hardware/CI.
 
+### Native aggregate-COPY efficiency (by-value 4-word slice/struct copies) — 🔵 OPEN, NEEDS INVESTIGATION (2026-09-13)
+
+**Measured finding that redirects the SROA effort:** SROA (Phases 0–2, all
+landed/ready) is ~NO-OP on the compiler — `pkg/binate/{types,ir,codegen}` +
+`pkg/stdx/slices` emit byte-identical LLVM with SROA on vs off; cmd/bnc differs
+45/94736 lines. Reason: SROA only scalar-replaces an aggregate local with NO
+whole-value use (L2 — there's no aggregate-rebuild primitive), but the compiler's
+managed-slice/aggregate locals are almost always used BY VALUE (passed to a
+function, returned, copied `b = a`, stored into a struct, or `@[]@T` managed
+elements) — every one pins the slot. So the 41.6% managed-slice-header
+copy-pairs are those BY-VALUE copies, NOT SROA-addressable. (Repeated reads of
+one slice are already coalesced by load-forwarding.)
+
+**Hypothesis to verify (someone other than the SROA worker):** the native
+backend lowers a by-value 4-word managed-slice copy (`b = a` / arg-pass /
+return / struct-store) FIELD-BY-FIELD (4 load/store pairs), where LLVM emits one
+efficient copy (wide load/store or a `memcpy`). If so, the actual gap-closer is
+**native aggregate-copy codegen** (emit a wide/vectorized or memcpy-style copy
+for a >=2-word by-value aggregate move), NOT IR-SROA. First step: disassemble a
+managed-slice `b = a` (and a by-value arg pass) on native vs LLVM `-O2` and diff
+the copy sequence; then decide the native-backend change. This is the
+by-value/ABI-copy class SROA explicitly leaves out. — filed by the SROA worker
+(work-1), for a separate investigation.
+
 ### Native codegen quality — closing the native↔LLVM gap — 🔵 OPEN
 
 The lens is **"does it close the gap?"**, not "is it hot?" — most hot buckets
