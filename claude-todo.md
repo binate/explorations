@@ -287,10 +287,19 @@ CORRECTION 2026-09-08):
    require a CODEGEN change: for a scalar-replaced struct, inline the per-field
    RefDecs at cleanup (blocks + pads) instead of calling the by-address `__dtor_T`
    — a separate, larger piece touching gen_local_cleanup + emitPadCleanup + the
-   dtor ABI. Not done. NEXT real-code-affecting line items instead:
-   field-broadening (float/nested via
-   explicit zero-init) and SROA-to-a-fixpoint (so `b = a` collapses BOTH sides —
-   currently the pinned copy-source keeps its whole-load). Minor follow-ups from the review (non-blocking): (i)
+   dtor ABI. Not done. **SROA-to-a-fixpoint DONE — LANDED `0a1098cff`**: runSroa
+   now runs each function's SROA to a fixpoint so `b = a` collapses BOTH sides (the
+   copy source, L2-pinned on pass 1 because its whole-load feeds the whole-store as
+   a non-extract value, becomes eligible once that store is rewritten to per-field
+   extracts). Pass bound = aggregate-alloca-count+1 (exact upper bound — each pass
+   removes ≥1 aggregate alloca and creates none, so never truncates a legit copy
+   chain). Validated: ir unit tests (+ copy-source + 20-deep-chain); LLVM corpus
+   O0-vs-O2 differential 769/0; native aa64 conformance 3024/0; adversarial review
+   clean (its one low-sev cap finding fixed via the count-based bound); hygiene
+   20/20. (VM conformance 2994/1 — the 1 is the UNRELATED pre-existing MemZero-on-
+   aarch64 MAJOR bug above, not this change.) NEXT remaining real-code-affecting
+   item: field-broadening (float / oversized-int / nested via explicit zero-init).
+   Minor follow-ups from the earlier managed-slice review (non-blocking): (i)
    `wholeLoadExtractsField` is O(fields×instrs) per whole-load — replace with a
    one-pass tally (single scan building bool[fields]) if it ever matters; (ii)
    unit tests for a fully-dead whole-load, a real FaultPad extract, and two whole
@@ -308,9 +317,9 @@ CORRECTION 2026-09-08):
    adversarial review IN FLIGHT before landing. **HOWEVER — measured ~NO-OP on
    the compiler too** (its managed slices are by-value-used → L2-pinned; see the
    native-aggregate-copy-efficiency todo above for the real gap-source).
-   **Continue the SROA line regardless** (per user): next = managed structs, then
-   field-broadening / coerced-call-result stores / SROA-to-a-fixpoint (so `b = a`
-   copies collapse both sides).
+   **Continue the SROA line regardless** (per user): managed structs turned out
+   BLOCKED (dtor address escape — see above), SROA-to-a-fixpoint LANDED
+   (`0a1098cff`); remaining = field-broadening / coerced-call-result stores.
    Phase 2 is the hard part: the managed-slice refcount spine LOADS the whole
    4-word value + `OP_EXTRACT`s field 2 in normal blocks AND every FaultPad, and
    the elem-dtor path passes the whole value's ADDRESS to a dtor — so a managed
