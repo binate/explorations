@@ -221,9 +221,17 @@ CORRECTION 2026-09-08):
    managed field goes to an unpromoted managed slot with nil zero-init; the
    struct's field-by-field RefInc/RefDec spine whole-loads+extracts the managed
    field in blocks AND pads → forwardable, reuse the managed-slice machinery).
-   Reconnoiter first: is the managed-struct cleanup field-by-field extract
-   (forwardable, like the managed-slice refptr) or does any field's dtor take the
-   whole-value ADDRESS (→ L2-pinned)? Then field-broadening (float/nested via
+   RECONNOITERED (2026-09-13): a managed struct LOCAL is field-ptr-shaped — access
+   AND cleanup are `GET_FIELD_PTR(s,i)` + load/store (the managed field's RefDec is
+   `GET_FIELD_PTR(s,i)` → LOAD → OP_REFDEC, in blocks AND FaultPads); `__dtor_S`
+   is only used behind a `@S` pointer, NOT for a struct local. So no whole-value-
+   address escape → the field-ptr rewrite forwards it. Implementation: add
+   `collectManagedStructCandidates` (mirror collectManagedSliceCandidates:
+   TYP_STRUCT with a managed field, pad-aware managedAllocaUsesOK + L2 + extractable
+   whole-stores) and a validateSroaCandidates managed-struct dispatch; the field
+   types (t.Fields incl. managed), the managed field slots + nil zero-init
+   (makeFieldZeroInits), and the pad-aware field-ptr rewrite all already exist. Then
+   field-broadening (float/nested via
    explicit zero-init) and SROA-to-a-fixpoint (so `b = a` collapses BOTH sides —
    currently the pinned copy-source keeps its whole-load). Minor follow-ups from the review (non-blocking): (i)
    `wholeLoadExtractsField` is O(fields×instrs) per whole-load — replace with a
