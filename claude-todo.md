@@ -7,21 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### emitTempCleanupSince drops a managed-field aggregate literal without its struct dtor (`&&`/`||` operand leak) — 🟡 IN PROGRESS (claimed 2026-09-14, work-2/session), MAJOR (found 2026-09-14 in composite-lit review)
-
-`emitTempRefDecs` (end-of-statement temp cleanup, `gen_temp_cleanup.bn`) has an
-`isStructOrArrayAlloc(tmp) && needsStructCopy(tmp.TypeArg)` arm that runs the
-struct/array dtor on a composite-literal aggregate temp — which is registered as an
-OP_ALLOC, so `tmp.Typ` is the *pointer* type and the plain `needsStructCopy(tmp.Typ)`
-arm misses it.  `emitTempCleanupSince` — the SHORT-CIRCUIT operand cleanup used by
-`&&` / `||` (`gen_binary.bn`) — LACKS that arm, so a managed-field struct/array
-LITERAL inside a `&&` / `||` operand (e.g. `flag && (S{m: make_slice(...)}.n > 0)`)
-has its alloca dropped WITHOUT running the struct dtor → its managed fields leak per
-occurrence.  Pre-existing (NOT introduced by the mid-init-fault fix `c75fd2783`).
-Fix: give `emitTempCleanupSince` the same `isStructOrArrayAlloc` dtor arm as
-`emitTempRefDecs`.  Needs a test (a managed-field literal in a `&&`/`||` operand,
-stable rt.LiveBlocks).
-
 ### Bytecode VM cannot resolve `rt.MemZero` on aarch64 — any interpreted program calling it panics — 🟡 IN PROGRESS (claimed 2026-09-14, work-1/session 01LPZ7) — MAJOR (found 2026-09-13)
 
 **Fix approach (owner-directed): drive the per-package descriptor table from the

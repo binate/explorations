@@ -43,6 +43,24 @@ it) and split `execStringOp` out to `vm_exec_string.bn` (the added commentary ti
 (1 MAJOR alignment finding fixed + regression-tested).  **C2 (migrating the extern +
 iface-method dispatchers to `call_packed`) remains open in the active todo.**
 
+### emitTempCleanupSince dropped a managed-field aggregate literal without its struct dtor (`&&`/`||` operand leak) — DONE (2026-09-14, `89be1e76c`)
+
+`emitTempRefDecs` (end-of-statement temp cleanup) had an `isStructOrArrayAlloc(tmp)
+&& needsStructCopy(tmp.TypeArg)` arm that runs the struct/array dtor on a registered
+composite-literal ALLOCA temp (tmp.Typ is the *pointer* type, so the plain
+`needsStructCopy(tmp.Typ)` arm misses it).  `emitTempCleanupSince` — the short-circuit
+operand cleanup used by `&&` / `||` (`gen_binary.bn`) — lacked that arm, so a
+managed-field struct/array LITERAL inside a `&&` / `||` operand had its alloca dropped
+WITHOUT running its struct dtor, leaking the literal's managed fields per occurrence.
+Fixed by adding the identical arm to `emitTempCleanupSince` (`gen_temp_cleanup.bn`).
+Can't double-free (a temp still registered at the short-circuit cleanup was never
+dtor'd anywhere before — that was the leak; a moved/consumed one is already out of
+ctx.Temps).  Focused adversarial review: no double-free, no findings, the ctx.Temps
+cleanup family (both loops + the fault pads that reuse emitTempRefDecs) is now
+consistent.  Test `TestShortCircuitAggregateLitNoLeak` (non-vacuity confirmed by
+reverting the arm).  Verified: VM 2994/1-preexisting, LLVM 3024/0, hygiene 20/20.
+Found in the review of the mid-init-fault fix (`2b8066844`).
+
 ### Recoverable fault mid-composite-literal leaks already-moved managed fields — DONE (2026-09-14, `2b8066844`)
 
 A struct / array / managed-slice literal MOVES each managed member into the aggregate
