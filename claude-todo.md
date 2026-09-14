@@ -7,7 +7,23 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### Bytecode VM cannot resolve `rt.MemZero` on aarch64 — any interpreted program calling it panics — 🔴 OPEN, MAJOR (found 2026-09-13)
+### Bytecode VM cannot resolve `rt.MemZero` on aarch64 — any interpreted program calling it panics — 🟡 IN PROGRESS (claimed 2026-09-14, work-1/session 01LPZ7) — MAJOR (found 2026-09-13)
+
+**Fix approach (owner-directed): drive the per-package descriptor table from the
+EXPORTED INTERFACE surface (the `.bni`), not from compiled `mod.Funcs`.** Today
+`collectFuncs_*` (native x64/aa64/arm32 + the LLVM path) iterate `mod.Funcs`, so a
+function gets a `__Package().Functions` descriptor row iff it has a compiled Binate
+body in this module.  `MemZero`'s aarch64 impl is linked asm (outside the module),
+so it never enters `mod.Funcs` → no descriptor → the VM's `RegisterPackageFunctions`
+can't bind it → interpreted callers panic `extern not found: rt.MemZero`.  The row
+itself is derivable from name+signature (funcEntry_* computes retbufSize/paramSlots
+from the func-value type); only the `@__handle` block it points at is body-tied.  So
+the fix = (a) enumerate the exported surface (thread it onto the module / reach the
+checker from the descriptor pass) UNION the unexported descriptor-needing funcs from
+`mod.Funcs` (struct dtors, copies, lang primitive methods), and (b) synthesize a
+handle block for an exported func backed by an external asm symbol (point at the
+linked symbol, layout from the signature).  Fixes the general latent bug (any
+exported func whose arch impl is external), not just MemZero.
 
 On aarch64 the portable Binate `rt.MemZero` body is `#[build(!is(arch, "aarch64"))]`-gated
 OFF (`impls/core/common/pkg/builtins/rt/rt_memzero.bn:6`) — it is replaced by hand-written
