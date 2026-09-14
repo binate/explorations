@@ -346,3 +346,31 @@ the VM caller but REFERENCED by the vtable emitters (so not bnlint-unused).
   3a/3b; flat positional copy per the resolution above; R4=argsPtr + IP shuttle in
   the spill path).  Green (arm32 unit tests, gen1, hygiene), awaiting review before
   landing.  NEXT: LLVM `__shimP`, then step 4.
+
+### LLVM `__shimP` design (step 3d) — the intricate one
+
+Unlike the native backends (a machine-code word gather), the LLVM `__shimP` is
+emitted as LLVM IR, and a DIRECT `call @__shim.<m>` must match `__shim`'s DECLARED
+typed params (i8* per aggregate arg [a by-address slot], i32+i32 per split 64-bit
+scalar on ILP32, shimIntSlotType per scalar — writeShimParamDecl/emitShimArgLoads
+in emit_funcvals_sig/shim.bn).  So `__shimP` reconstructs that typed arg list from
+the packed slot array:
+
+    define weak_odr i64 @__shimP.<m>(i8* %data, i64 %a0,%a1,%a2,%a3,%a4,%a5,%a6) {
+      ; invoked via _call_shim_scalar64: %a0=argsPtr, %a1=nSlots(unused), %a2=retbuf
+      %args = inttoptr i64 %a0 to ptr
+      ; per param, advancing a SLOT cursor by shimInWords(param) (agg=1 by-addr
+      ; slot, scalar=1, split-64=2): load slot(s) from [%args + cursor*wordBytes],
+      ; coerce to the param's shim type (load ptr for i8* agg; two i32 for split;
+      ; the slot for a scalar) -> the %aN the underlying-call arg list expects.
+      ; scalar shape:    %r = call <ret> @__shim.<m>(i8* %data, <typed args>); ret coerced-to-i64 %r
+      ; aggregate shape: call void @__shim.<m>(i8* inttoptr(%a2), i8* %data, <typed args>); ret i64 0
+    }
+
+Reuses the SAME sig helpers as `__shim` (shimParamType, shimIntSlotType,
+is64ScalarShimSplit, shimInMemFlags, funcSignatureLLVM) so the arg list can't
+drift; wordBytes is target-dependent (8 LP64 / 4 ILP32).  Wire: slot 2 of the
+LLVM `@__vt` (emit_funcvals.bn:246 — currently the callSym placeholder) →
+`@__shimP.<m>` for non-universal func values.  Register/spill split is N/A on LLVM
+(the backend's own call lowering spills >Nreg args), so `__shimP` is one straight
+IR body regardless of arity.  This is step 3d; then step 4 flips the caller.
