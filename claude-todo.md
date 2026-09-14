@@ -7,6 +7,26 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### FLAKY non-deterministic SIGTRAP in capturing-IIFE at -O2 (LLVM) — 🔴 OPEN, MAJOR (found 2026-09-14)
+
+`conformance/regressions/iife-capturing-no-leak` intermittently crashes at -O2 on
+the LLVM backend: instead of `1\n7\n1` it prints just `1` then dies with SIGTRAP
+(exit 133, no message) — the trap fires DURING the capturing IIFE
+`(func() int { return src.N })()` (after the first `rt.Refcount` print, before the
+IIFE result).  ~1–2 in 20 runs of the SAME binary, so it is a NON-DETERMINISTIC
+memory/refcount fault (heap corruption / UAF / double-free on the heap-allocated
+closure record or its captured `@Counter`), not a value miscompile.
+
+PRE-EXISTING and NOT caused by the SROA fixpoint (0a1098cff), managed-struct work,
+or the MemZero descriptor fix: bisected across every compiler built this session —
+`bnc-base` (oldest, pre-session) crashes 2/20, the fixpoint compiler 1/20 — same
+rate.  Surfaced by a `builder-comp` run (3024 passed, 1 failed) that happened to
+hit the flake; the MemZero fix's own runs (builder-comp-int 2995/0, native aa64
+3024/0) did not.  Only reproduced at -O2 on LLVM so far (native aa64 full-suite
+green; -O0 always `1\n7\n1`).  No xfail marker added — the test PASSES most runs,
+so an xfail would XPASS; it needs a real root-cause (an optimizer -O2 pass, likely
+around closure-record RefDec-at-end-of-statement, corrupting the record/captures).
+
 ### Bytecode VM cannot resolve `rt.MemZero` on aarch64 — any interpreted program calling it panics — 🟡 IN PROGRESS (claimed 2026-09-14, work-1/session 01LPZ7) — MAJOR (found 2026-09-13)
 
 **FIX IMPLEMENTED + validated (work-1 commit `5469b05ae`; awaiting review + landing
