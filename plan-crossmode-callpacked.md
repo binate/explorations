@@ -350,7 +350,14 @@ the VM caller but REFERENCED by the vtable emitters (so not bnlint-unused).
   SAFE-TO-LAND (int64 flat-seam premise verified in 3 code sites; stale marshal
   doc comment corrected).  ALL THREE NATIVE backends' `__shimP` now on main.
   step 3d = LLVM `__shimP`.
-- 2026-09-13: **step 3d (LLVM `__shimP`) committed** `6f9d85ede` — emit_funcvals_packed.bn: reconstructs @__shim's typed args from the packed slot array + calls @__shim; uniform store-to-zeroed-i64-slot + reload for the scalar return; retbuf shape for aggregate; hasPacked flag keeps the dtor triple's slot 2 = @__shim (no dangling __shimP).  Green (codegen unit tests incl. new scalar+aggregate __shimP tests; gen1; hygiene), awaiting review before landing.  ALL FOUR backends' __shimP now exist (3 native landed, LLVM committed).  NEXT: step 4 (flip the VM caller).
+- 2026-09-13: **step 3d (LLVM `__shimP`) committed** `6f9d85ede` — emit_funcvals_packed.bn: reconstructs @__shim's typed args from the packed slot array + calls @__shim; uniform store-to-zeroed-i64-slot + reload for the scalar return; retbuf shape for aggregate; hasPacked flag keeps the dtor triple's slot 2 = @__shim (no dangling __shimP).  Green (codegen unit tests incl. new scalar+aggregate __shimP tests; gen1; hygiene), awaiting review before landing.  ALL FOUR backends' __shimP now exist (3 native landed, LLVM committed).  step 3d = LLVM `__shimP`.
+- 2026-09-13: **step 3d (LLVM `__shimP`) LANDED** `41f2e7876` — reviewed
+  LAND-WITH-FIXES: an ELF-only comdat blocker (@__shimP re-declared $__shim's
+  comdat + left its own undefined -> invalid IR on ELF, invisible on the Mach-O
+  host) was fixed (writeComdatDecl for $__shimP) + an ELF/comdat-on regression
+  test added; everything else confirmed correct.  **ALL FOUR backends' __shimP
+  are on main.**  NOW: step 4 (flip the VM caller to call_packed) — the finale +
+  first behavior change (un-reds the 17 xfails).
 
 ### LLVM `__shimP` design (step 3d) — the intricate one
 
