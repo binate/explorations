@@ -7,6 +7,27 @@ Some older entries reference design/plan docs that have since been archived (see
 no longer resolve in the tree, though git history retains them.
 
 
+### Recoverable fault mid-composite-literal leaks already-moved managed fields — DONE (2026-09-14, `2b8066844`)
+
+A struct / array / managed-slice literal MOVES each managed member into the aggregate
+as its element loop goes (`emitStoreManagedSlot` isInit → `consumeTemp`, so the member
+leaves `ctx.Temps`), but registered the aggregate alloca/backing for cleanup only
+AFTER the loop — so a recoverable VM fault while evaluating a LATER member (bounds /
+div / nil / shift check, a call's frame-push overflow, or a temp-growth overflow)
+dispatched a cleanup pad covering neither the already-moved members nor the partial
+aggregate, leaking them.  Systemic across every recoverable-fault origin; VM-only.
+Fixed by registering the aggregate for cleanup BEFORE the element loop in all three
+builders (`genCompositeLit` / `genArrayLit` / `genManagedSliceLit`, `gen_composite.bn`):
+a mid-construction fault now releases the partial aggregate — its dtor RefDecs every
+managed member, and not-yet-filled slots are null (pushFrame zero-fills the frame,
+make_slice zero-fills the backing) so RefDec(null) no-ops.  Behavior-identical on the
+normal path (registered exactly once either way).  Adversarially reviewed (no
+double-free / no new leak).  Tests: `TestStructLitPartialInitFaultNoLeak`,
+`TestManagedSliceLitPartialInitFaultNoLeak` (array shares the struct-alloca dtor path).
+Verified: VM conformance 2994/1-preexisting, LLVM 3024/0, hygiene 20/20.  (Review also
+found a separate pre-existing `emitTempCleanupSince` `&&`/`||`-operand aggregate-literal
+leak — tracked in claude-todo.md, not fixed here.)
+
 ### VM SP-guard: box-and-forward wrappers no longer inlined (Inc-1 pre-check side effect) — DONE (2026-09-13, `e2edbe999`)
 
 The stack-overflow pre-check's pre-delivery cleanup pad covers the moved @Iface arg
