@@ -107,6 +107,34 @@ delimited by OP_SP_RESTORE):**
   `work-2-perop-checkpoint`), then implement reservation with the corrected
   inventory above.
 
+## (a) RESERVATION IMPLEMENTATION — increment breakdown (owner-approved 2026-09-14)
+
+R1 → R2 → R3 land first (reservation is a SUPERSET of the per-op protection, so
+adding it on top of the existing checks is safe); then R4 removes the redundant
+per-op check with no regression window; R5 independently. Each is its own small
+commit with tests.
+
+- **R1 — authoritative SP-growth inventory.** Add `spGrowthBytes(instr)` (VM
+  package) matching the VM handlers 1:1: make_slice = 4-word header;
+  iface-value / iface-upcast / func-value = 2 words; rodata-mslice-copy = the
+  BC_STRING_COPY growth (incl. the transient pushManagedSlice); rodata-array =
+  the BC_STRING_COPY_ARR growth (4-word header + 8-byte-aligned arrLen);
+  aggregate-returning call = callee result-image size. Unit-test each amount
+  against the handler's actual `vm.SP +=`.
+- **R2 — per-function `MaxStmtTempGrowth`.** At lower time walk the IR summing
+  `spGrowthBytes` over OP_SP_RESTORE-delimited regions, take the max; store on
+  VMFunc. Unit-test.
+- **R3 — fold into the reservation.** `pushFrame` / `wouldFrameOverflow`
+  reserves `frameExtent + MaxStmtTempGrowth`; the direct-call `OP_STACK_CHECK`
+  pre-check adds the callee's `MaxStmtTempGrowth`. Overflow caught only at frame
+  entry (clean Plan-2 unwind). Test: a big-per-statement function faults cleanly
+  at entry, not mid-statement.
+- **R4 — remove the redundant per-op machinery** = revert the landed
+  `1dd3f319f` (OP_RODATA_ARRAY per-op check/pad) + the `attachSPGrowthPad` path.
+  Lands AFTER R3 (needs its own cherry-pick approval).
+- **R5 — cross-mode `...*any` scratch** (the one runtime-sized growth): make its
+  overflow a graceful terminal fault (setFault + pad), not vmPanic.
+
 ## LANDED on main (all reviewed, VM+LLVM conformance green, hygiene 20/20)
 
 - `7d610fdb6` — Inc 1: direct-call frame pre-check (`OP_STACK_CHECK`) + eval/deliver
