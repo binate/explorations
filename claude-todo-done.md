@@ -6,6 +6,27 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### Native aggregate-COPY efficiency (by-value slice/struct copies) — DONE, LANDED (2026-09-14; aarch64 `a7d49192d`, x64 `800467f7c`, arm32 `f8a532d96`)
+
+The native backends copied a by-value aggregate (managed-slice/struct `b = a`,
+struct-store, aggregate-load materialization, sret return) one word at a time
+through a SINGLE scratch register, fully serialized; LLVM `-O2` emits one wide
+move. Disassembly of a 4-word copy confirmed the gap on all three arches.
+Fix: route both copy sites (`emitStructCopy` + `emitAggLoad`) through one shared
+per-backend helper that uses the widest move each backend already has —
+aarch64 LDP/STP pairs (16→8 mem ops; `emitAggMemcpyAarch64`, guarded on LDP's
+imm7 reach), x64 128-bit MOVUPS through an XMM scratch (16→8; added
+`Movups_load`/`Movups_store` over `emitSSEMem`; XMM scratch safe because float
+SSA values live in GP slots and the copy path is a cache barrier), arm32 LDM/STM
+moving a leading chunk of up-to-the-free-pool-register-count words in one
+instruction pair (8→2 for a 4-word copy; register set drawn from genuinely-free
+pool regs, no writeback, base excluded from the mask). Validated: native
+conformance aarch64 3025/0, x64 3025/0, arm32 baremetal 2979/0; unit tests + a
+clean adversarial review. Known minor limitation: aarch64 aggregates >512 bytes
+fall back to word-at-a-time past offset 512 (LDP imm7 reach). The separate
+redundant-intermediate-buffer finding is tracked as its own todo (load→store
+fusion). — done by temp-5, filed originally by the SROA worker (work-1).
+
 ### Capturing-IIFE non-deterministic SIGTRAP / double-free — FIXED, LANDED `2bbc92130` (2026-09-14, MAJOR)
 
 A capturing immediately-invoked function literal `(func() R { return cap })()`

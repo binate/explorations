@@ -154,47 +154,10 @@ quote numbers from this file (they go stale):**
   backends by static instruction/reload counting on a `--target` build, or on
   real hardware/CI.
 
-### Native aggregate-COPY efficiency (by-value 4-word slice/struct copies) — 🟡 IN PROGRESS (claimed 2026-09-14, temp-5/session) (2026-09-13)
-
-**Measured finding that redirects the SROA effort:** SROA (Phases 0–2, all
-landed/ready) is ~NO-OP on the compiler — `pkg/binate/{types,ir,codegen}` +
-`pkg/stdx/slices` emit byte-identical LLVM with SROA on vs off; cmd/bnc differs
-45/94736 lines. Reason: SROA only scalar-replaces an aggregate local with NO
-whole-value use (L2 — there's no aggregate-rebuild primitive), but the compiler's
-managed-slice/aggregate locals are almost always used BY VALUE (passed to a
-function, returned, copied `b = a`, stored into a struct, or `@[]@T` managed
-elements) — every one pins the slot. So the 41.6% managed-slice-header
-copy-pairs are those BY-VALUE copies, NOT SROA-addressable. (Repeated reads of
-one slice are already coalesced by load-forwarding.)
-
-**Hypothesis to verify (someone other than the SROA worker):** the native
-backend lowers a by-value 4-word managed-slice copy (`b = a` / arg-pass /
-return / struct-store) FIELD-BY-FIELD (4 load/store pairs), where LLVM emits one
-efficient copy (wide load/store or a `memcpy`). If so, the actual gap-closer is
-**native aggregate-copy codegen** (emit a wide/vectorized or memcpy-style copy
-for a >=2-word by-value aggregate move), NOT IR-SROA. First step: disassemble a
-managed-slice `b = a` (and a by-value arg pass) on native vs LLVM `-O2` and diff
-the copy sequence; then decide the native-backend change. This is the
-by-value/ABI-copy class SROA explicitly leaves out. — filed by the SROA worker
-(work-1), for a separate investigation.
-
-**Investigation outcome (2026-09-14, temp-5):** hypothesis CONFIRMED on all three
-arches. `emitStructCopy` (OP_STORE) and `emitAggLoad` (OP_LOAD materialization)
-both copy word-by-word through a SINGLE scratch register (4 LDR/STR pairs for a
-4-word move, fully serialized); LLVM `-O2` emits one wide move (aarch64 `ldp/stp
-q`, x64 `movups`, arm32 `vld1/vst1`). Fix = widen the native copy to the widest
-paired/multi primitive each backend already has: aarch64 LDP/STP (done — shared
-`emitAggMemcpyAarch64` helper, both copy sites, 16→8 mem ops on a 4-word copy;
-193 aa64 unit tests green), x64 MOVUPS (add a 2-line encoder over `emitSSEMem`;
-XMM scratch is safe — float SSA values live in GP stack slots, never cached in
-XMM across instrs, and the copy path is a cache barrier), arm32 LDM/STM (encoders
-exist; widen `emitAggMemcpyArm32`'s word-aligned path). Scope: all three arches,
-one adversarial review, land together. A SEPARATE, bigger finding (redundant
-intermediate buffers) is split out below as its own todo.
-
 ### Native aggregate-copy: eliminate redundant intermediate buffers (load→store fusion) — 🟡 ASSIGNED (temp-5/session, take on next) (2026-09-14)
 
-Split out from the aggregate-COPY-width investigation above. Distinct from copy
+Split out from the aggregate-copy-width work (now landed; see claude-todo-done.md).
+Distinct from copy
 WIDTH: this is about the NUMBER of copies. An aggregate `OP_LOAD` unconditionally
 materializes into its OWN stack region (see `emitAggLoad` — a deliberate
 UAF-safety measure so the loaded value doesn't alias a source the caller's
