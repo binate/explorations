@@ -109,10 +109,18 @@ Remaining:
   frame entry via the existing (leak-free) Plan-2 unwind, which matches the owner's
   actual goal (clean VM termination, no host `vmPanic`, no leak, minimal perf; REPL
   is a host-side keep+reset policy).  The lone runtime-sized growth (cross-mode
-  `...*any` scratch, `vm_iface_native_vt.bn:148`) keeps a runtime check.  NEXT: (1)
-  adversarial review of reservation [IN FLIGHT], (2) if clean, revert the per-op
-  `1dd3f319f` + the work-2 WIP `e7ee47730`, (3) implement reservation.  The landed
-  per-op `1dd3f319f` (OP_RODATA_ARRAY recoverable check) is SUPERSEDED by this.
+  `...*any` scratch, `vm_iface_native_vt.bn:148`) keeps a runtime check (as a
+  graceful terminal fault, not vmPanic).  STATUS: reservation review DONE — sound
+  mechanism but the growth INVENTORY was incomplete (see plan REVIEW OUTCOME
+  section: must also count OP_IFACE_UPCAST, transient pushManagedSlice scratch,
+  callee return-image size, cross-mode variadic scratch; compute over
+  SP_RESTORE-delimited regions).  Owner signed off D1 (recursion-depth /
+  over-reservation tradeoff) and chose "(c) then (a)".  (c) DONE: standalone
+  OP_IFACE_UPCAST reclaim bug fixed + landed `7697db626` (now moved to done).
+  (a) NEXT: revert the landed per-op `1dd3f319f` (OP_RODATA_ARRAY recoverable
+  check — SUPERSEDED; needs a fresh cherry-pick approval) + reset work-2 off the
+  WIP `e7ee47730` (DONE — preserved as branch `work-2-perop-checkpoint`; work-2 is
+  now clean main), then implement reservation with the corrected inventory.
 - **Inc 3 — indirect/method/func-value/iface-method calls.** These got the
   eval/deliver split (mid-eval leak fixed) but NOT `OP_STACK_CHECK` (callee frame
   extent is known only at the runtime dispatch point), so their frame-push
