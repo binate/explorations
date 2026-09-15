@@ -104,7 +104,15 @@ delimited by OP_SP_RESTORE):**
   sooner (fewer frames fit) and a function with one big conditional statement
   over-reserves on every call even when that branch isn't taken. This is a real
   (small) semantic change to how deep recursion can go before clean-abort — needs
-  owner sign-off.
+  owner sign-off. [SIGNED OFF.]  R3-review facet worth recording: the same
+  over-reservation also applies to dtor frames pushed DURING a fault unwind
+  (CleanupDepth>0), where an overflow is a FATAL vmPanic (the §6
+  fatal-in-cleanup guard), not a recoverable fault.  So a dtor whose temp growth
+  lands in the narrow "would have just fit by frameExtent" band near stack
+  exhaustion now hard-aborts instead of luckily completing.  Acceptable — the
+  adjacent band was previously silent stack corruption (unchecked dtor temp
+  growth during unwind), and a clean fatal is strictly better; it only bites at
+  near-exhaustion during unwind.
 - **(D2) Revert-or-keep the per-op work — DECIDED: (c) then (a).** Owner
   signed off on the D1 recursion-depth/over-reservation tradeoff and chose "(c)
   then (a)": (c) fix the standalone OP_IFACE_UPCAST bug first — DONE, landed
