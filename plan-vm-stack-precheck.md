@@ -132,7 +132,7 @@ commit with tests.
   return-image build (AggregateReturnSize(f.Results)) and the cross-mode
   arg-substitution scratch (sum over the call's ArgIfaceLayout slots of
   align8(ByteSize)). R1's doc states this explicitly.
-- **R2 — per-function `MaxStmtTempGrowth`.** At lower time walk the IR summing
+- **R2 — per-function `MaxStmtTempGrowth` (LANDED `70bfdd37a`).** At lower time walk the IR summing
   `spGrowthBytes` over OP_SP_RESTORE-delimited regions, take the max; store on
   VMFunc. Unit-test. Also add, in the appropriate regions, the two deferred
   call-context growths: (i) the callee-side return-image build,
