@@ -256,8 +256,36 @@ CORRECTION 2026-09-08):
    backend incl. float32, disjoint promotable/zero-init sets, nested-aggregate stays
    pinned, fixpoint no double-init).  Tests: 1262 (unwritten float reads 0, direct
    access), 1263 (float/float32/int64 struct copied from a PINNED source —
-   OP_EXTRACT-of-float path on native/VM).  NEXT SROA items: nested-aggregate fields
-   (backend-zero-filled; fixpoint recurses) and coerced-call-result whole-stores.
+   OP_EXTRACT-of-float path on native/VM).
+
+   **REMAINING SROA line items (🟡 claimed 2026-09-15, work-1/session 01LPZ7 — "finish
+   off the SROA line" per owner; compaction taken here):**
+   (A) NESTED-AGGREGATE fields — admit a non-managed struct with a nested struct /
+   array / raw-slice / raw-func-value / raw-iface-value field.  ALL of these are
+   backend-zero-filled (`common.IsAggregateTyp` = struct/array/slice/managed-slice/
+   func-value/managed-func-value/iface-value/managed-iface-value; in the non-managed
+   path only the non-managed variants occur; LLVM emit_helpers.bn:89 + the 3 native
+   emitAllocs zero-fill exactly this set), so NO explicit zero-init is needed.
+   Implementation: add a `fieldIsBackendZeroFilledAggregate(t)` predicate in
+   sroa_transform.bn that MIRRORS common.IsAggregateTyp (ir must NOT import
+   native/common — replicate with a "keep in sync" comment; peelTransparent first);
+   relax aggregateFieldsScalarReplaceable so a field is OK if isScalarPromotableType
+   OR fieldNeedsZeroConstInit OR fieldIsBackendZeroFilledAggregate.  makeFieldZeroInits
+   needs NO change (aggregate slots get nothing — backend fills).  The FIXPOINT then
+   recurses: a nested struct / raw-slice field alloca (isSroaAggregateType) is
+   re-collected + scalarized next pass; array / func-value / iface-value field allocas
+   stay (not in isSroaAggregateType), backend-zero-filled — correct.  Tests: a
+   nested-struct field (unwritten inner field reads 0; fixpoint fully flattens); an
+   array field (stays an array alloca, still zero-filled).  Validate LLVM corpus
+   O0-vs-O2 + native aa64 + VM.  ⚠ build a FRESH bnc via scripts/build-bnc.sh for
+   differentials — the unittest runner's gen1 can be STALE-CACHED and give a false
+   "not scalarizing" (this bit during field-broadening; a fresh build fixed it).
+   (B) COERCED-CALL-RESULT whole-stores — `var s S = someCall()` (S returned by value)
+   pins s: the whole-store's value is an OP_CALL result, ABI-coerced (e.g. [2 x i64]),
+   which isExtractableAggregateValue rejects, so an OP_EXTRACT on it would be invalid.
+   Handling needs per-backend un-coercion of the call result before extract — riskier,
+   ABI-specific, and few programs both struct-init-from-a-by-value-call AND
+   field-access it.  LOWER priority; assess payoff before doing.
    Minor follow-ups from the earlier managed-slice review (non-blocking): (i)
    `wholeLoadExtractsField` is O(fields×instrs) per whole-load — replace with a
    one-pass tally (single scan building bool[fields]) if it ever matters; (ii)
