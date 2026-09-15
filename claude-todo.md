@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### OP_IFACE_UPCAST grows vm.SP but is never reclaimed → unbounded VM stack growth — 🔴 OPEN, MAJOR (found 2026-09-14, work-2/session, via reservation-approach review)
+### OP_IFACE_UPCAST grows vm.SP but is never reclaimed → unbounded VM stack growth — 🟡 IN PROGRESS (claimed 2026-09-14, work-2/session), MAJOR (found 2026-09-14, via reservation-approach review)
 
 The VM handler for `BC_IFACE_UPCAST` grows `vm.SP` by 2 words
 (`pkg/binate/vm/vm_exec_iface.bn:382,415,453`) to build the upcast iface-value on
