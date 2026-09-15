@@ -6,6 +6,37 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### OP_IFACE_UPCAST grew vm.SP but was never reclaimed → unbounded VM stack growth — FIXED, LANDED `7697db626` (2026-09-14, MAJOR)
+
+The VM handler for `BC_IFACE_UPCAST` grows `vm.SP` by 2 words
+(`pkg/binate/vm/vm_exec_iface.bn:382,415,453`) to build the upcast iface value on
+the interpreter stack, but `OP_IFACE_UPCAST` was MISSING from
+`noteSPGrowingResult`'s SP-growing-op set (`pkg/binate/ir/gen_temp_cleanup.bn`),
+so a statement whose only SP-growth was an iface upcast never set
+`ctx.StmtGrewSP` and never emitted `OP_SP_RESTORE` — the 2 words were not
+reclaimed at statement end.  `gen_util.bn:423` (and two other `EmitIfaceUpcast`
+sites) DID call `noteSPGrowingResult` on the upcast result, but with
+OP_IFACE_UPCAST absent from the set the calls were no-ops.
+
+Symptom: a hot loop whose body's only SP-growth is a `@Iface` upcast grew
+`vm.SP` by 2 words per iteration with no reclaim within the loop → unbounded
+growth → VM stack overflow (write past `vm.Stack`).  Latent in straight-line
+code because a LATER SP-growing statement's idempotent absolute `OP_SP_RESTORE`
+incidentally reclaimed the leftover; a pure-upcast loop had no such later reclaim.
+
+Fix: added `OP_IFACE_UPCAST` alongside `OP_IFACE_VALUE` in the SP-growing set
+(exact parallel — both build a 2-word iface value on `vm.SP`).  VM-only:
+compiled backends treat `OP_SP_RESTORE` as a no-op.  Found via the
+reservation-approach adversarial review (see plan-vm-stack-precheck.md).
+Adversarial review of the fix confirmed all three (and only three)
+`EmitIfaceUpcast` sites route through `noteSPGrowingResult`, the return path is
+safe (`emitTempCleanupForReturn` never emits `OP_SP_RESTORE`), and generic +
+by-value upcasts are covered by the same central path.  Tests
+(`pkg/binate/vm/vm_stack_precheck_test.bn`): `TestIfaceUpcastReclaimsVMStack`
+(exactly one `BC_SP_RESTORE`), `TestIfaceUpcastLoopBounded` (20000-iteration
+pure-upcast loop stays inside a 64 KiB VM stack); both verified non-vacuous
+(fail with the fix reverted).
+
 ### Bytecode VM could not resolve `rt.MemZero` on aarch64 — FIXED, LANDED `bb3731c01` (2026-09-14, MAJOR)
 
 On aarch64 the portable Binate `rt.MemZero` body is `#[build]`-gated off (asm-provided via

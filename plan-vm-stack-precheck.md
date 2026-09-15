@@ -71,10 +71,11 @@ NOT being auto-reverted — see decision points below.
 **Corrected growth inventory (what `MaxStmtTempGrowth` MUST count, per region
 delimited by OP_SP_RESTORE):**
 
-1. **OP_IFACE_UPCAST (2 words)** — MISSING from the SP-growing-op set entirely.
-   This is also a live standalone bug (unreclaimed vm.SP → unbounded growth in a
-   pure-upcast loop); tracked as a MAJOR entry in claude-todo.md. Must be counted
-   here AND fixed there.
+1. **OP_IFACE_UPCAST (2 words)** — was MISSING from the SP-growing-op set
+   entirely. Its standalone reclaim bug (unreclaimed vm.SP → unbounded growth in
+   a pure-upcast loop) is now FIXED + LANDED (`7697db626`, added OP_IFACE_UPCAST
+   to noteSPGrowingResult so the statement emits OP_SP_RESTORE); see
+   claude-todo-done.md. The reservation inventory must still COUNT its 2 words.
 2. **Transient pushManagedSlice scratch** — the string-copy path bumps vm.SP by 8
    words (4-word header incl. a transient pushManagedSlice) and the array path by
    4 + arrLen; these transient bumps must be included, not just the durable result
@@ -98,12 +99,13 @@ delimited by OP_SP_RESTORE):**
   over-reserves on every call even when that branch isn't taken. This is a real
   (small) semantic change to how deep recursion can go before clean-abort — needs
   owner sign-off.
-- **(D2) Revert-or-keep the per-op work.** Since the review is not "clean," the
-  conditional auto-revert of `1dd3f319f` (+ resetting work-2 off `e7ee47730`) is on
-  hold. Options: (a) still revert per-op and implement reservation with the
-  corrected inventory; (b) keep `1dd3f319f` as a redundant backstop and layer
-  reservation on top; (c) fix the standalone OP_IFACE_UPCAST bug first
-  (independent), then decide. Owner's call.
+- **(D2) Revert-or-keep the per-op work — DECIDED: (c) then (a).** Owner
+  signed off on the D1 recursion-depth/over-reservation tradeoff and chose "(c)
+  then (a)": (c) fix the standalone OP_IFACE_UPCAST bug first — DONE, landed
+  `7697db626`; (a) NEXT — revert the landed per-op `1dd3f319f` (needs a fresh
+  cherry-pick approval) + reset work-2 off `e7ee47730` (preserved as branch
+  `work-2-perop-checkpoint`), then implement reservation with the corrected
+  inventory above.
 
 ## LANDED on main (all reviewed, VM+LLVM conformance green, hygiene 20/20)
 
