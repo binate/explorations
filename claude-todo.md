@@ -167,7 +167,7 @@ quote numbers from this file (they go stale):**
   backends by static instruction/reload counting on a `--target` build, or on
   real hardware/CI.
 
-### Native aggregate-COPY efficiency (by-value 4-word slice/struct copies) — 🔵 OPEN, NEEDS INVESTIGATION (2026-09-13)
+### Native aggregate-COPY efficiency (by-value 4-word slice/struct copies) — 🟡 IN PROGRESS (claimed 2026-09-14, temp-5/session) (2026-09-13)
 
 **Measured finding that redirects the SROA effort:** SROA (Phases 0–2, all
 landed/ready) is ~NO-OP on the compiler — `pkg/binate/{types,ir,codegen}` +
@@ -265,7 +265,12 @@ CORRECTION 2026-09-08):
    clean (its one low-sev cap finding fixed via the count-based bound); hygiene
    20/20. (VM conformance 2994/1 — the 1 is the UNRELATED pre-existing MemZero-on-
    aarch64 MAJOR bug above, not this change.) NEXT remaining real-code-affecting
-   item: field-broadening (float / oversized-int / nested via explicit zero-init).
+   item: field-broadening (float / oversized-int / nested via explicit zero-init)
+   — 🟡 IN PROGRESS (claimed 2026-09-14, work-1/session 01LPZ7): relax
+   aggregateFieldsAllPromotable so a non-managed struct with a float / oversized-int
+   field (explicit zero-const zero-init in makeFieldZeroInits) or a nested-aggregate
+   field (backend zero-fills the field alloca; the fixpoint then recurses into it)
+   is SROA-eligible.
    Minor follow-ups from the earlier managed-slice review (non-blocking): (i)
    `wholeLoadExtractsField` is O(fields×instrs) per whole-load — replace with a
    one-pass tally (single scan building bool[fields]) if it ever matters; (ii)
