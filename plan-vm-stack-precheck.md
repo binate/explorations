@@ -57,6 +57,54 @@ Why this beats the per-op approach against the goals: same clean-abort/no-leak
 semantics, but the check is per-CALL (already there) instead of per-OP, and nothing
 lands on the hot ops (no inliner perturbation, no bloat).
 
+## REVIEW OUTCOME (2026-09-14) — reservation approach: SOUND but inventory INCOMPLETE
+
+An adversarial review of the reservation approach came back **NOT simply "clean."**
+Verdict: the core mechanism (reserve per-function max-statement temp growth at
+`pushFrame`; overflow only at frame entry; Plan-2 unwind cleans up leak-free) is
+SOUND and implementable, BUT the growth INVENTORY as the plan enumerated it is
+INCOMPLETE, plus the review surfaced one standalone pre-existing bug and one
+semantic tradeoff needing owner sign-off.  Because the owner's condition for
+reverting the per-op work was "if the review comes back clean," the per-op work is
+NOT being auto-reverted — see decision points below.
+
+**Corrected growth inventory (what `MaxStmtTempGrowth` MUST count, per region
+delimited by OP_SP_RESTORE):**
+
+1. **OP_IFACE_UPCAST (2 words)** — MISSING from the SP-growing-op set entirely.
+   This is also a live standalone bug (unreclaimed vm.SP → unbounded growth in a
+   pure-upcast loop); tracked as a MAJOR entry in claude-todo.md. Must be counted
+   here AND fixed there.
+2. **Transient pushManagedSlice scratch** — the string-copy path bumps vm.SP by 8
+   words (4-word header incl. a transient pushManagedSlice) and the array path by
+   4 + arrLen; these transient bumps must be included, not just the durable result
+   header.
+3. **Callee-side return-image size** — an aggregate-returning call grows the
+   caller's vm.SP by the callee result type's size at BC_RETURN copy-back; count it
+   at the call statement.
+4. **Cross-mode arg-substitution scratch** — the `...*any` variadic path
+   (`vm_iface_native_vt.bn:148/156/171`) allocates runtime-sized scratch; this is
+   the one genuinely runtime-sized growth, so it KEEPS a runtime check (which must
+   become a graceful terminal fault via setFault+pad, NOT vmPanic).
+5. Compute `MaxStmtTempGrowth` as the max over OP_SP_RESTORE-delimited regions of
+   the summed growth within each region (not naively per-syntactic-statement), from
+   an authoritative bump inventory that matches the VM handlers 1:1.
+
+**Decision points for the owner (do NOT proceed past these unilaterally):**
+
+- **(D1) Recursion-depth / over-reservation tradeoff.** Reserving
+  `frameExtent + MaxStmtTempGrowth` at every frame push means recursion overflows
+  sooner (fewer frames fit) and a function with one big conditional statement
+  over-reserves on every call even when that branch isn't taken. This is a real
+  (small) semantic change to how deep recursion can go before clean-abort — needs
+  owner sign-off.
+- **(D2) Revert-or-keep the per-op work.** Since the review is not "clean," the
+  conditional auto-revert of `1dd3f319f` (+ resetting work-2 off `e7ee47730`) is on
+  hold. Options: (a) still revert per-op and implement reservation with the
+  corrected inventory; (b) keep `1dd3f319f` as a redundant backstop and layer
+  reservation on top; (c) fix the standalone OP_IFACE_UPCAST bug first
+  (independent), then decide. Owner's call.
+
 ## LANDED on main (all reviewed, VM+LLVM conformance green, hygiene 20/20)
 
 - `7d610fdb6` — Inc 1: direct-call frame pre-check (`OP_STACK_CHECK`) + eval/deliver

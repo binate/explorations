@@ -7,6 +7,35 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### OP_IFACE_UPCAST grows vm.SP but is never reclaimed → unbounded VM stack growth — 🔴 OPEN, MAJOR (found 2026-09-14, work-2/session, via reservation-approach review)
+
+The VM handler for `BC_IFACE_UPCAST` grows `vm.SP` by 2 words
+(`pkg/binate/vm/vm_exec_iface.bn:382,415,453`) to build the upcast iface-value on
+the interpreter stack, but `OP_IFACE_UPCAST` is MISSING from
+`noteSPGrowingResult`'s SP-growing-op set in
+`pkg/binate/ir/gen_temp_cleanup.bn:26-28` (which lists only OP_MAKE_SLICE /
+OP_FUNC_VALUE / OP_IFACE_VALUE / OP_RODATA_MSLICE_COPY / OP_RODATA_ARRAY).  So a
+statement whose ONLY SP-growth is an iface upcast never sets `ctx.StmtGrewSP` and
+never emits `OP_SP_RESTORE` — the 2 words are not reclaimed at statement end.
+`gen_util.bn:423` DOES call `noteSPGrowingResult(ctx, iv)` right after
+`EmitIfaceUpcast`, but with OP_IFACE_UPCAST absent from the set the call is a
+no-op today.
+
+**Symptom:** a hot loop whose body's only SP-growth is a `@Iface` upcast (e.g.
+`for ... { var x @Iface = concreteVal }`) grows `vm.SP` by 2 words per iteration
+with no reclaim within the loop → unbounded growth → eventual VM stack overflow
+(and, pre-SP-guard, silent write past `vm.Stack`).  Latent in most straight-line
+code only because a LATER statement that IS in the set emits an (idempotent,
+absolute) `OP_SP_RESTORE` that happens to reclaim the leftover too; a
+pure-upcast loop has no such later reclaim.
+
+**Root cause:** OP_IFACE_UPCAST omitted from the SP-growing-op set.
+**Proposed fix:** add `OP_IFACE_UPCAST` to the `noteSPGrowingResult` set so the
+statement emits `OP_SP_RESTORE` (reclaims the 2 words like the other iface-value
+ops).  Independent of the SP-guard/overflow work — needed regardless of the
+per-op-vs-reservation decision.  Add a conformance/VM test: a long pure-upcast
+loop that overflows the VM stack without the fix and completes with it.
+
 ### FLAKY non-deterministic SIGTRAP in capturing-IIFE at -O2 (LLVM) — 🔴 OPEN, MAJOR (found 2026-09-14)
 
 `conformance/regressions/iife-capturing-no-leak` intermittently crashes at -O2 on
