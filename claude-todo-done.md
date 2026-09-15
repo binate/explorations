@@ -6,6 +6,47 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### Capturing-IIFE non-deterministic SIGTRAP / double-free — FIXED, LANDED `2bbc92130` (2026-09-14, MAJOR)
+
+A capturing immediately-invoked function literal `(func() R { return cap })()`
+heap-allocates a closure record whose only owner is the fresh `@func` callee
+value.  That callee was registered for end-of-statement RefDec cleanup TWICE:
+`genFuncLit` (`pkg/binate/ir/gen_func_lit.bn`) registers every *capturing*
+managed-func-value literal as a cleanup temp (added `99ef6cf4a`, 2026-09-08, to
+also release directly-returned / discarded literals), and
+`genImmediateFuncLitCall` (`pkg/binate/ir/gen_call.bn`) *also* registered it
+(added `64489b7ac`, 2026-07-01, when it was the sole registration).  `registerTemp`
+does not dedup, so the end-of-statement loop emitted two managed-func-value
+RefDecs of the same value: the first drops the record's refcount to 0 and frees
+it; the second re-reads the freed refcount header and decrements again —
+double-freeing the closure record.  Whether that faults depends on heap layout,
+so it surfaced as a non-deterministic SIGTRAP (exit 133) partway through the
+IIFE — `conformance/regressions/iife-capturing-no-leak` (expects `1\n7\n1`).
+
+Root cause found by emitting the LLVM IR: two back-to-back `fv_refdec` blocks
+RefDec'ing the same `%BnFuncValue` after the call.  The bug is in the shared
+IR-gen layer, so it affected all backends; it merely surfaced first on LLVM at
+-O2 because the system allocator traps the double-free.  Fix: drop the redundant
+registration at the IIFE site (`genFuncLit`'s covers it — an IIFE callee always
+resolves `@func`, and `genFuncLit` registers exactly the capturing ones, which are
+the only ones that heap-allocate; a non-capturing `@func` has null data, so its
+RefDec no-ops and needs no registration).
+
+This entry supersedes two todo items for the same bug (the "-O2 (LLVM), found
+2026-09-14" one and the "observed 2026-09-12, -O0" one).  Note the "-O2 always
+crashes / -O0 always `1\n7\n1`" observation in the first was under-sampled: the
+crash reproduces at BOTH -O0 and -O2 (measured ~8-10% each pre-fix).
+
+Validation: pre-fix ~8-10% crash at -O0 and -O2 (LLVM) → 0 crashes post-fix
+across 120 LLVM -O2 runs, 80 LLVM -O0 runs, 40 native-aa64 runs, 30 bytecode-VM
+runs.  IR: 2 → 1 `fv_refdec` block.  Regression test
+`TestEmitCapturingIIFESingleRefDec` (pkg/binate/codegen/emit_call_funcvalue_test.bn)
+asserts a capturing IIFE emits exactly one managed-func-value RefDec of the callee
+(two double-free the record, zero leaks it); proven to fail against a
+temp-reintroduced double-registration.  The conformance test carries no xfail
+markers (it passed most runs, so an xfail would XPASS) — it now passes
+deterministically.
+
 ### OP_IFACE_UPCAST grew vm.SP but was never reclaimed → unbounded VM stack growth — FIXED, LANDED `7697db626` (2026-09-14, MAJOR)
 
 The VM handler for `BC_IFACE_UPCAST` grows `vm.SP` by 2 words

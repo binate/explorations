@@ -7,26 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### FLAKY non-deterministic SIGTRAP in capturing-IIFE at -O2 (LLVM) — 🟡 IN PROGRESS (claimed 2026-09-14, work-3/session), MAJOR (found 2026-09-14)
-
-`conformance/regressions/iife-capturing-no-leak` intermittently crashes at -O2 on
-the LLVM backend: instead of `1\n7\n1` it prints just `1` then dies with SIGTRAP
-(exit 133, no message) — the trap fires DURING the capturing IIFE
-`(func() int { return src.N })()` (after the first `rt.Refcount` print, before the
-IIFE result).  ~1–2 in 20 runs of the SAME binary, so it is a NON-DETERMINISTIC
-memory/refcount fault (heap corruption / UAF / double-free on the heap-allocated
-closure record or its captured `@Counter`), not a value miscompile.
-
-PRE-EXISTING and NOT caused by the SROA fixpoint (0a1098cff), managed-struct work,
-or the MemZero descriptor fix: bisected across every compiler built this session —
-`bnc-base` (oldest, pre-session) crashes 2/20, the fixpoint compiler 1/20 — same
-rate.  Surfaced by a `builder-comp` run (3024 passed, 1 failed) that happened to
-hit the flake; the MemZero fix's own runs (builder-comp-int 2995/0, native aa64
-3024/0) did not.  Only reproduced at -O2 on LLVM so far (native aa64 full-suite
-green; -O0 always `1\n7\n1`).  No xfail marker added — the test PASSES most runs,
-so an xfail would XPASS; it needs a real root-cause (an optimizer -O2 pass, likely
-around closure-record RefDec-at-end-of-statement, corrupting the record/captures).
-
 ### CROSS-MODE VM func-value dispatch regressed to scalar-only + ≤7 args (b1) — 🔴 STEP-4a REVERTED — re-do the caller flip with full-suite validation — see plan-crossmode-callpacked.md (claimed 2026-09-08, work-4/temp-4)
 
 **Step-4a (flip the VM caller to `call_packed`) was landed `1a3bc9260` then
@@ -582,21 +562,6 @@ OS-level hiccup under load, not a real defect. A recurrence will reveal it.
 byte-counts with EXACTLY LP64-doubled values (24→48, 72→144) — ILP32 `IntSize=4`
 not in effect at emit. Root cause UNKNOWN (target-global leak or a real gen1
 emission-nondeterminism bug); guard `3ca73110` pins it, and do NOT widen the tolerance.
-
-### `regressions/iife-capturing-no-leak` intermittent crash (observed 2026-09-12) — suspected REAL bug, PRE-EXISTING, needs investigation
-
-The capturing-IIFE leak test (`(func() int { return src.N })()` then a
-`rt.Refcount` check, expects `1\n7\n1`) intermittently prints only the first
-line and crashes/aborts — ~15% (6/40 runs) on **current main** (`b0e5da664`,
-i.e. BEFORE the SROA-rewrite work), ~7% (3/40) with the SROA rewrite. Compiled
-at **-O0** (so SROA never runs on the test itself) — the nondeterminism is in
-the emitted test binary, pointing at a latent memory-safety bug (UAF /
-double-free / uninitialized read) in the capturing-IIFE closure-record RefDec at
-end-of-statement. NOT introduced by SROA (base is more flaky, not less) —
-surfaced when a `builder-comp-comp` self-compile run hit it under load. Root
-cause UNKNOWN; the flakiness predates Phase 0 (analysis-only) too. Repro: build a
-bnc (`scripts/build-bnc.sh`), `bnc -O0 ... iife-capturing-no-leak.bn`, run the
-binary ~40×.
 
 ## Method values & function values (codegen)
 
