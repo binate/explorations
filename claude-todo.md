@@ -283,13 +283,18 @@ CORRECTION 2026-09-08):
    O0-vs-O2 differential 769/0; native aa64 conformance 3024/0; adversarial review
    clean (its one low-sev cap finding fixed via the count-based bound); hygiene
    20/20. (VM conformance 2994/1 — the 1 is the UNRELATED pre-existing MemZero-on-
-   aarch64 MAJOR bug above, not this change.) NEXT remaining real-code-affecting
-   item: field-broadening (float / oversized-int / nested via explicit zero-init)
-   — 🟡 IN PROGRESS (claimed 2026-09-14, work-1/session 01LPZ7): relax
-   aggregateFieldsAllPromotable so a non-managed struct with a float / oversized-int
-   field (explicit zero-const zero-init in makeFieldZeroInits) or a nested-aggregate
-   field (backend zero-fills the field alloca; the fixpoint then recurses into it)
-   is SROA-eligible.
+   aarch64 MAJOR bug above, not this change.) **Field-broadening (float /
+   oversized-int) DONE — LANDED `ce0330d8f`**: aggregateFieldsAllPromotable →
+   aggregateFieldsScalarReplaceable admits a non-managed struct with a float /
+   oversized-int field, which gets an explicit zero-const init (makeFieldZeroInits
+   via makeZeroConst, which gained an OP_CONST_FLOAT zero case), so an unwritten
+   such field reads 0.  Validated: LLVM corpus O0-vs-O2 769/0; native aa64 3026/0;
+   VM (1262/1263) 2/0; adversarial review found no defect (traced "0"→+0.0 on every
+   backend incl. float32, disjoint promotable/zero-init sets, nested-aggregate stays
+   pinned, fixpoint no double-init).  Tests: 1262 (unwritten float reads 0, direct
+   access), 1263 (float/float32/int64 struct copied from a PINNED source —
+   OP_EXTRACT-of-float path on native/VM).  NEXT SROA items: nested-aggregate fields
+   (backend-zero-filled; fixpoint recurses) and coerced-call-result whole-stores.
    Minor follow-ups from the earlier managed-slice review (non-blocking): (i)
    `wholeLoadExtractsField` is O(fields×instrs) per whole-load — replace with a
    one-pass tally (single scan building bool[fields]) if it ever matters; (ii)
