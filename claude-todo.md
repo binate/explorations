@@ -7,6 +7,34 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### Cross-mode iface-arg substitution scratch grows vm.SP unchecked / vmPanics — 🔴 OPEN, MAJOR (found 2026-09-14 via reservation R1 review)
+
+A cross-mode call (`OP_C_CALL` / `OP_CALL_IFACE_METHOD` / `OP_CALL_FUNC_VALUE` /
+`OP_CALL_HANDLE`) that marshals a bytecode-impl interface argument to a native
+callee grows the CALLER's `vm.SP` by argument-substitution scratch that persists
+to the next `OP_SP_RESTORE`, in two flavors:
+
+- **`substArgSlotIface` (`vm_iface_crossmode.bn:180`): `vm.SP += align8(e.ByteSize)`
+  per iface-carrying arg slot, with NO overflow check.** Statically sized
+  (`e.ByteSize` is the arg type's SizeOf; the per-call-site `ArgIfaceLayout` is
+  built at lower time — `buildArgIfaceLayout` → `vmf.ArgIfaceLayouts`). A call
+  with large/many iface args near the stack limit can write past `vm.Stack`
+  (silent corruption); backstopped today only by the pushFrame red-zone.
+- **`substituteSliceIfaceArgs` (`vm_iface_native_vt.bn:156,171`, the `...*any`
+  runtime-sized path): `vm.SP += (n*2+2)*REG_SLOT`.** It DOES self-check, but
+  aborts via `vmPanic` — which kills the host process, violating the
+  clean-VM-termination goal (should be a graceful terminal fault).
+
+Proper fix (folds into the reservation work): the STATIC `substArgSlotIface`
+scratch is a per-call reservation term (sum over the call's `ArgIfaceLayout`
+slots of `align8(ByteSize)`), added at lower time alongside the return-image
+term (R2), so frame entry reserves it and it can never overflow — this also FIXES
+the missing-check gap. The RUNTIME `substituteSliceIfaceArgs` path keeps a runtime
+check but becomes a graceful terminal fault, not `vmPanic` (R5). Until R2/R3 land
+this is a pre-existing latent gap. NOTE: this corrects plan-vm-stack-precheck.md's
+earlier premise that the `...*any` variadic was "the ONE genuinely runtime-sized
+growth" — there is also this static arg-substitution scratch.
+
 ### CROSS-MODE VM func-value dispatch regressed to scalar-only + ≤7 args (b1) — 🔴 STEP-4a REVERTED — re-do the caller flip with full-suite validation — see plan-crossmode-callpacked.md (claimed 2026-09-08, work-4/temp-4)
 
 **Step-4a (flip the VM caller to `call_packed`) was landed `1a3bc9260` then

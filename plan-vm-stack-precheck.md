@@ -83,10 +83,16 @@ delimited by OP_SP_RESTORE):**
 3. **Callee-side return-image size** — an aggregate-returning call grows the
    caller's vm.SP by the callee result type's size at BC_RETURN copy-back; count it
    at the call statement.
-4. **Cross-mode arg-substitution scratch** — the `...*any` variadic path
-   (`vm_iface_native_vt.bn:148/156/171`) allocates runtime-sized scratch; this is
-   the one genuinely runtime-sized growth, so it KEEPS a runtime check (which must
-   become a graceful terminal fault via setFault+pad, NOT vmPanic).
+4. **Cross-mode arg-substitution scratch** — a cross-mode call marshalling a
+   bytecode-impl iface arg to a native callee grows the caller's vm.SP in TWO
+   ways (R1 review corrected the earlier "variadic is the ONE runtime growth"
+   premise): (a) `substArgSlotIface` (`vm_iface_crossmode.bn:180`) —
+   `align8(ByteSize)` per iface arg slot, STATICALLY known (the call's
+   `ArgIfaceLayout` is built at lower time, `vmf.ArgIfaceLayouts`), so it is a
+   per-call RESERVATION term (currently unchecked — see the MAJOR todo entry); and
+   (b) `substituteSliceIfaceArgs` (`vm_iface_native_vt.bn:156/171`, the `...*any`
+   path) — RUNTIME-sized, so it KEEPS a runtime check that must become a graceful
+   terminal fault (setFault+pad), NOT vmPanic (R5).
 5. Compute `MaxStmtTempGrowth` as the max over OP_SP_RESTORE-delimited regions of
    the summed growth within each region (not naively per-syntactic-statement), from
    an authoritative bump inventory that matches the VM handlers 1:1.
@@ -114,19 +120,27 @@ adding it on top of the existing checks is safe); then R4 removes the redundant
 per-op check with no regression window; R5 independently. Each is its own small
 commit with tests.
 
-- **R1 — authoritative SP-growth inventory.** Add `spGrowthBytes(instr)` (VM
-  package) matching the VM handlers 1:1: make_slice = 4-word header;
-  iface-value / iface-upcast / func-value = 2 words; rodata-mslice-copy = the
-  BC_STRING_COPY growth (incl. the transient pushManagedSlice); rodata-array =
-  the BC_STRING_COPY_ARR growth (4-word header + 8-byte-aligned arrLen);
-  aggregate-returning call = callee result-image size. Unit-test each amount
-  against the handler's actual `vm.SP +=`.
+- **R1 — authoritative SP-growth inventory (LANDED, be83a55aa on work-2).**
+  `spGrowthBytes(instr)` (VM package) covers the growths that are a pure function
+  of (op, result type): make_slice = 4-word header; iface-value / iface-upcast /
+  func-value = 2 words; rodata-mslice-copy = 8 words (BC_STRING_COPY_MS: transient
+  pushManagedSlice header + result); rodata-array = 4-word header + 8-byte-aligned
+  arrLen; and the CALLER-side return-image copy-back for every call op
+  (align8(SizeOf) for an aggregate result, 0 for scalars). Unit-tested against
+  each handler's actual `vm.SP +=`. Two call-context growths are DEFERRED to R2
+  (they need lowering context, not just the ir.Instr): the callee-side
+  return-image build (AggregateReturnSize(f.Results)) and the cross-mode
+  arg-substitution scratch (sum over the call's ArgIfaceLayout slots of
+  align8(ByteSize)). R1's doc states this explicitly.
 - **R2 — per-function `MaxStmtTempGrowth`.** At lower time walk the IR summing
   `spGrowthBytes` over OP_SP_RESTORE-delimited regions, take the max; store on
-  VMFunc. Unit-test. NOTE: also add the callee-side return-image build —
-  `types.AggregateReturnSize(f.Results)` (BC_RETURN grows the callee's own vm.SP
-  by the packed result image before copy-back; not a per-op growth, so
-  spGrowthBytes deliberately omits it) — to the return statement's region.
+  VMFunc. Unit-test. Also add, in the appropriate regions, the two deferred
+  call-context growths: (i) the callee-side return-image build,
+  `types.AggregateReturnSize(f.Results)`, in the return statement's region (per
+  function); and (ii) the cross-mode arg-substitution scratch, sum over each
+  call's `ArgIfaceLayout` slots of `align8(ByteSize)`, in that call's region (per
+  call site). Folding (ii) into the reservation also FIXES the currently-unchecked
+  substArgSlotIface overflow gap (see the MAJOR todo entry).
 - **R3 — fold into the reservation.** `pushFrame` / `wouldFrameOverflow`
   reserves `frameExtent + MaxStmtTempGrowth`; the direct-call `OP_STACK_CHECK`
   pre-check adds the callee's `MaxStmtTempGrowth`. Overflow caught only at frame
