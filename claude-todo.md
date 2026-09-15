@@ -170,6 +170,38 @@ the copy sequence; then decide the native-backend change. This is the
 by-value/ABI-copy class SROA explicitly leaves out. — filed by the SROA worker
 (work-1), for a separate investigation.
 
+**Investigation outcome (2026-09-14, temp-5):** hypothesis CONFIRMED on all three
+arches. `emitStructCopy` (OP_STORE) and `emitAggLoad` (OP_LOAD materialization)
+both copy word-by-word through a SINGLE scratch register (4 LDR/STR pairs for a
+4-word move, fully serialized); LLVM `-O2` emits one wide move (aarch64 `ldp/stp
+q`, x64 `movups`, arm32 `vld1/vst1`). Fix = widen the native copy to the widest
+paired/multi primitive each backend already has: aarch64 LDP/STP (done — shared
+`emitAggMemcpyAarch64` helper, both copy sites, 16→8 mem ops on a 4-word copy;
+193 aa64 unit tests green), x64 MOVUPS (add a 2-line encoder over `emitSSEMem`;
+XMM scratch is safe — float SSA values live in GP stack slots, never cached in
+XMM across instrs, and the copy path is a cache barrier), arm32 LDM/STM (encoders
+exist; widen `emitAggMemcpyArm32`'s word-aligned path). Scope: all three arches,
+one adversarial review, land together. A SEPARATE, bigger finding (redundant
+intermediate buffers) is split out below as its own todo.
+
+### Native aggregate-copy: eliminate redundant intermediate buffers (load→store fusion) — 🟡 ASSIGNED (temp-5/session, take on next) (2026-09-14)
+
+Split out from the aggregate-COPY-width investigation above. Distinct from copy
+WIDTH: this is about the NUMBER of copies. An aggregate `OP_LOAD` unconditionally
+materializes into its OWN stack region (see `emitAggLoad` — a deliberate
+UAF-safety measure so the loaded value doesn't alias a source the caller's
+cleanup RefDecs before it's consumed). Consequence: `*dst = *src` copies
+src→temp→dst (2 copies, one redundant), and a managed-slice `b.s = a` balloons to
+FIVE 4-word copies (40 mem ops) threaded through temp buffers, versus LLVM's
+single direct move. Gap-closer: fuse an aggregate load that feeds directly into a
+store (or is otherwise immediately consumed) to copy src→dst directly and skip
+the materialization region — but ONLY where the loaded value provably does not
+outlive the source's cleanup (must preserve the UAF-safety the temp buffer gives;
+per the Memory Management rule, don't trade a leak/UAF for speed). Likely an
+IR-level peephole (OP_LOAD→OP_STORE fusion) or a backend materialize-elision
+guarded by a liveness/consumption check. Bigger and subtler than the width fix;
+measure the traffic reduction on the compiler self-compile.
+
 ### Native codegen quality — closing the native↔LLVM gap — 🔵 OPEN
 
 The lens is **"does it close the gap?"**, not "is it hot?" — most hot buckets
