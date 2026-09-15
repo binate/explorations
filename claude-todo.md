@@ -154,7 +154,7 @@ quote numbers from this file (they go stale):**
   backends by static instruction/reload counting on a `--target` build, or on
   real hardware/CI.
 
-### Native aggregate-copy: eliminate redundant intermediate buffers (load→store fusion) — 🟡 ASSIGNED (temp-5/session, take on next) (2026-09-14)
+### Native aggregate-copy: eliminate redundant intermediate buffers (load→store fusion) — 🟡 IN PROGRESS (claimed 2026-09-15, temp-5/session) (2026-09-14)
 
 Split out from the aggregate-copy-width work (now landed; see claude-todo-done.md).
 Distinct from copy
