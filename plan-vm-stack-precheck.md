@@ -123,7 +123,10 @@ commit with tests.
   against the handler's actual `vm.SP +=`.
 - **R2 — per-function `MaxStmtTempGrowth`.** At lower time walk the IR summing
   `spGrowthBytes` over OP_SP_RESTORE-delimited regions, take the max; store on
-  VMFunc. Unit-test.
+  VMFunc. Unit-test. NOTE: also add the callee-side return-image build —
+  `types.AggregateReturnSize(f.Results)` (BC_RETURN grows the callee's own vm.SP
+  by the packed result image before copy-back; not a per-op growth, so
+  spGrowthBytes deliberately omits it) — to the return statement's region.
 - **R3 — fold into the reservation.** `pushFrame` / `wouldFrameOverflow`
   reserves `frameExtent + MaxStmtTempGrowth`; the direct-call `OP_STACK_CHECK`
   pre-check adds the callee's `MaxStmtTempGrowth`. Overflow caught only at frame
