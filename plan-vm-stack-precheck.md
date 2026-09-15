@@ -120,7 +120,7 @@ adding it on top of the existing checks is safe); then R4 removes the redundant
 per-op check with no regression window; R5 independently. Each is its own small
 commit with tests.
 
-- **R1 — authoritative SP-growth inventory (LANDED, be83a55aa on work-2).**
+- **R1 — authoritative SP-growth inventory (LANDED `770b6fbc1`).**
   `spGrowthBytes(instr)` (VM package) covers the growths that are a pure function
   of (op, result type): make_slice = 4-word header; iface-value / iface-upcast /
   func-value = 2 words; rodata-mslice-copy = 8 words (BC_STRING_COPY_MS: transient
