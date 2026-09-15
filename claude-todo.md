@@ -98,23 +98,21 @@ still-owned args, so a moved `@Iface`/managed-struct arg is released instead of
 leaked at `pushFrame`; compiled backends no-op the op).
 
 Remaining:
-- **Inc 2 — temp-growth overflow checks (silent-corruption gap).** ~13 of ~19
-  `vm.SP +=` sites grow `vm.SP` with NO overflow check → on a true overflow they
-  write PAST the stack buffer (heap corruption).  Add a check at each; fault
-  recoverably via the op's pad where a pad covers the live set (design (B)), else
-  hard-abort.  **The big-growth op LANDED `1dd3f319f`:** the string→array
-  materialization (`OP_RODATA_ARRAY` / `BC_STRING_COPY_ARR`, which copies the whole
-  `[N]char` onto `vm.SP`) is now recoverable — `attachSPGrowthPad` (via
-  `noteSPGrowingResult`) + a `wouldFrameOverflow` check before the growth +
-  post-`execStringOp` fault dispatch.  Remaining:
-  - **small-growth IR-op producers** (BC_MAKE_SLICE 4-word header, BC_IFACE_VALUE /
-    BC_FUNC_VALUE / BC_STRING_COPY 2-4 words) — recoverable, same pattern; iface /
-    func-value dispatch (execIfaceOp under execFuncRefOp) needs the post-handler
-    fault-dispatch wiring added.
-  - **VM-internal copy-backs** (retbuf on BC_RETURN / extern / iface / funcref
-    dispatch, cross-mode `...*any` scratch, `pushManagedSlice`) — no IR op / no pad,
-    so hard-abort (vmPanic if `wouldFrameOverflow`), matching the existing
-    `vm_iface_native_vt.bn` scratch-bound check.
+- **Inc 2 — temp-growth safety.** APPROACH CHANGED 2026-09-14 to the RESERVATION
+  model — see `plan-vm-stack-precheck.md` for the full design + compaction handoff.
+  Summary: every temp-growth amount is compile-time known (fixed headers, literal
+  array sizes, call return-copy-back sizes) and statement-scoped, so instead of a
+  per-op check+pad (which perturbs the inliner + costs on hot ops), compute a
+  per-function `MaxStmtTempGrowth` at lower time and reserve `frameExtent +
+  MaxStmtTempGrowth` in the ONE existing `pushFrame` check.  Then temp-growth can't
+  overflow by construction — NO per-op checks/pads — and overflow is caught only at
+  frame entry via the existing (leak-free) Plan-2 unwind, which matches the owner's
+  actual goal (clean VM termination, no host `vmPanic`, no leak, minimal perf; REPL
+  is a host-side keep+reset policy).  The lone runtime-sized growth (cross-mode
+  `...*any` scratch, `vm_iface_native_vt.bn:148`) keeps a runtime check.  NEXT: (1)
+  adversarial review of reservation [IN FLIGHT], (2) if clean, revert the per-op
+  `1dd3f319f` + the work-2 WIP `e7ee47730`, (3) implement reservation.  The landed
+  per-op `1dd3f319f` (OP_RODATA_ARRAY recoverable check) is SUPERSEDED by this.
 - **Inc 3 — indirect/method/func-value/iface-method calls.** These got the
   eval/deliver split (mid-eval leak fixed) but NOT `OP_STACK_CHECK` (callee frame
   extent is known only at the runtime dispatch point), so their frame-push
