@@ -280,6 +280,23 @@ CORRECTION 2026-09-08):
    O0-vs-O2 + native aa64 + VM.  ⚠ build a FRESH bnc via scripts/build-bnc.sh for
    differentials — the unittest runner's gen1 can be STALE-CACHED and give a false
    "not scalarizing" (this bit during field-broadening; a fresh build fixed it).
+
+   **⚠ FINDING (2026-09-15): the gate change ALONE is NEAR-NO-OP — do not land it as
+   "nested-aggregate support".**  Field-by-field nested access (`o.inner.x`) lowers
+   to `GET_FIELD_PTR(Outer, innerIdx)` → `bitcast i8* → Inner*` → `GET_FIELD_PTR(
+   Inner, x)`, so the OUTER field-ptr's result feeds a bitcast (not a load/store) →
+   `fieldPtrUsedOnlyAsLoadStore` returns false → L1 PINS the outer struct regardless
+   of the gate (verified: a nested-struct program keeps 1 Outer alloca at -O2, output
+   still correct 33,0).  The gate relaxation only helps a nested aggregate that is
+   WHOLE-value accessed / unaccessed (rare); the common field-by-field case stays
+   pinned.  The gate WIP is committed on work-1 (NOT landed) but is near-no-op alone.
+   To make nested-aggregate scalarization actually USEFUL, the L1 analysis
+   (fieldPtrUsedOnlyAsLoadStore / blockAllocaUsesAreL1 in sroa.bn) AND the rewrite
+   (fillReplacements) must RECURSE through the `outer-field-ptr → bitcast → inner-
+   field-ptr` chain (redirect the inner chain onto the split inner slot) — a
+   substantially bigger change for the SROA line's already-near-no-op-on-the-compiler
+   payoff.  DECISION NEEDED (surfaced to owner): do the L1-recursion (big) vs call the
+   SROA line done here.  If done: revert or keep-parked the near-no-op gate WIP.
    (B) COERCED-CALL-RESULT whole-stores — `var s S = someCall()` (S returned by value)
    pins s: the whole-store's value is an OP_CALL result, ABI-coerced (e.g. [2 x i64]),
    which isExtractableAggregateValue rejects, so an OP_EXTRACT on it would be invalid.
