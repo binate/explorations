@@ -36,7 +36,7 @@ ops).  Independent of the SP-guard/overflow work — needed regardless of the
 per-op-vs-reservation decision.  Add a conformance/VM test: a long pure-upcast
 loop that overflows the VM stack without the fix and completes with it.
 
-### FLAKY non-deterministic SIGTRAP in capturing-IIFE at -O2 (LLVM) — 🔴 OPEN, MAJOR (found 2026-09-14)
+### FLAKY non-deterministic SIGTRAP in capturing-IIFE at -O2 (LLVM) — 🟡 IN PROGRESS (claimed 2026-09-14, work-3/session), MAJOR (found 2026-09-14)
 
 `conformance/regressions/iife-capturing-no-leak` intermittently crashes at -O2 on
 the LLVM backend: instead of `1\n7\n1` it prints just `1` then dies with SIGTRAP
