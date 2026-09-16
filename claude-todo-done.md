@@ -6,6 +6,26 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### Native aggregate-copy: eliminate redundant intermediate buffer, managed case (S-alloca) — DONE, LANDED `c3345fbac` (2026-09-16)
+
+Finding B split from the aggregate-copy-width work: the native backends gave every
+aggregate `OP_LOAD` its own stack region and copied the source into it, so a by-value
+move ran src→temp→dst (one redundant full-width copy). `AggLoadElidable`
+(`pkg/binate/native/common/common_aggload_elision.bn`, wired into `PlanFrame`) now
+skips the region and aliases the source (emitAggLoad's no-region path) for the
+`b = a` / `b.s = a` shape — a load reading WHOLE from a confined, non-escaping stack
+alloca, all uses same-block read-only consumers, no store-to-source between load and
+uses. Native-only, all three backends. Memory-safety-critical; design-doc-first
+(`plan-native-aggcopy-fusion.md`) + two adversarial reviews: review 1 (design) gave
+the two-part no-free-AND-no-write condition (an aggregate load is a snapshot — the
+`a,b=b,a` swap must materialize); review 2 (impl) found + fixed the aarch64 `__c_call`
+large-by-value-aggregate hole (AAPCS64 passes indirect with no caller copy — the
+materialization region was that copy; `OP_C_CALL` uses now force materialization).
+Validated: native conformance aa64 3030/0, x64 3030/0, arm32 baremetal 2984/0; 6
+predicate unit tests + 3 tripwire regression tests (swap / return-elem / managed-copy);
+hygiene 20/20. The raw-pointer `*dst = *src` (S-adjacent) shape and the
+copy-traffic-reduction measurement remain — see the open entry.
+
 ### Cross-mode iface-arg substitution scratch grew vm.SP unchecked / vmPanic'd — FIXED by the reservation series (2026-09-15, MAJOR)
 
 Found 2026-09-14 via the reservation R1 review.  A cross-mode call marshalling a

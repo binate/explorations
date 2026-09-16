@@ -113,27 +113,20 @@ quote numbers from this file (they go stale):**
   backends by static instruction/reload counting on a `--target` build, or on
   real hardware/CI.
 
-### Native aggregate-copy: eliminate redundant intermediate buffers (load→store fusion) — 🟡 IN PROGRESS (claimed 2026-09-15, temp-5/session) (2026-09-14)
+### Native aggregate-copy: raw-pointer load→store fusion (S-adjacent) + measure — 🔵 OPEN, low priority (2026-09-16)
 
-Design doc: `plan-native-aggcopy-fusion.md` (memory-safety-critical; user asked for
-design-doc-first, review before implementing).
-
-Split out from the aggregate-copy-width work (now landed; see claude-todo-done.md).
-Distinct from copy
-WIDTH: this is about the NUMBER of copies. An aggregate `OP_LOAD` unconditionally
-materializes into its OWN stack region (see `emitAggLoad` — a deliberate
-UAF-safety measure so the loaded value doesn't alias a source the caller's
-cleanup RefDecs before it's consumed). Consequence: `*dst = *src` copies
-src→temp→dst (2 copies, one redundant), and a managed-slice `b.s = a` balloons to
-FIVE 4-word copies (40 mem ops) threaded through temp buffers, versus LLVM's
-single direct move. Gap-closer: fuse an aggregate load that feeds directly into a
-store (or is otherwise immediately consumed) to copy src→dst directly and skip
-the materialization region — but ONLY where the loaded value provably does not
-outlive the source's cleanup (must preserve the UAF-safety the temp buffer gives;
-per the Memory Management rule, don't trade a leak/UAF for speed). Likely an
-IR-level peephole (OP_LOAD→OP_STORE fusion) or a backend materialize-elision
-guarded by a liveness/consumption check. Bigger and subtler than the width fix;
-measure the traffic reduction on the compiler self-compile.
+The managed case (S-alloca: alias a confined non-escaping stack alloca source for
+`b = a` / `b.s = a`) LANDED `c3345fbac` — see claude-todo-done.md; design +
+implemented predicate in `plan-native-aggcopy-fusion.md`. Two pieces remain:
+1. **S-adjacent (raw `*dst = *src`).** The load's source is an unknown pointer (not a
+   stack alloca), but the load and its single consuming store are adjacent with
+   nothing that could write or free the source between them — provably safe by
+   adjacency (plan doc §4.2, deferred there). Smaller, separate shape from the landed
+   S-alloca path; extend `AggLoadElidable` with this case.
+2. **Measure** the actual copy-traffic reduction of the landed S-alloca elision on the
+   cmd/bnc native self-compile (static count of elided aggregate-load materializations
+   / N-vs-L memory-op ratio) — the todo's original "measure the traffic reduction"
+   note, to decide whether S-adjacent (and further fusion) is worth pursuing.
 
 ### Native codegen quality — closing the native↔LLVM gap — 🔵 OPEN
 
