@@ -284,22 +284,29 @@ CORRECTION 2026-09-08):
    differentials — the unittest runner's gen1 can be STALE-CACHED and give a false
    "not scalarizing" (this bit during field-broadening; a fresh build fixed it).
 
-   **⚠ FINDING (2026-09-15): the gate change ALONE is NEAR-NO-OP — do not land it as
-   "nested-aggregate support".**  Field-by-field nested access (`o.inner.x`) lowers
-   to `GET_FIELD_PTR(Outer, innerIdx)` → `bitcast i8* → Inner*` → `GET_FIELD_PTR(
-   Inner, x)`, so the OUTER field-ptr's result feeds a bitcast (not a load/store) →
-   `fieldPtrUsedOnlyAsLoadStore` returns false → L1 PINS the outer struct regardless
-   of the gate (verified: a nested-struct program keeps 1 Outer alloca at -O2, output
-   still correct 33,0).  The gate relaxation only helps a nested aggregate that is
-   WHOLE-value accessed / unaccessed (rare); the common field-by-field case stays
-   pinned.  The gate WIP is committed on work-1 (NOT landed) but is near-no-op alone.
-   To make nested-aggregate scalarization actually USEFUL, the L1 analysis
-   (fieldPtrUsedOnlyAsLoadStore / blockAllocaUsesAreL1 in sroa.bn) AND the rewrite
-   (fillReplacements) must RECURSE through the `outer-field-ptr → bitcast → inner-
-   field-ptr` chain (redirect the inner chain onto the split inner slot) — a
-   substantially bigger change for the SROA line's already-near-no-op-on-the-compiler
-   payoff.  DECISION NEEDED (surfaced to owner): do the L1-recursion (big) vs call the
-   SROA line done here.  If done: revert or keep-parked the near-no-op gate WIP.
+   **✅ DONE (2026-09-15, work-1/session 01LPZ7): L1-recursion implemented.**  The
+   earlier "needs the rewrite to recurse through the bitcast" framing was WRONG about
+   the mechanism: the `bitcast i8*→Inner*` is an LLVM-EMIT artifact, NOT in the IR —
+   at the IR level the inner `OP_GET_FIELD_PTR`'s base (Args[0]) IS the outer
+   field-ptr directly.  So the ONLY change needed was the L1 analysis; the rewrite is
+   UNCHANGED.  `fieldPtrUsedOnlyAsLoadStore` → `fieldPtrChainScalarReplaceable`
+   (sroa.bn) now recurses: a field-ptr's result may feed a plain load/store Args[0]
+   OR the Args[0] base of an inner constant-index OP_GET_FIELD_PTR whose own chain is
+   recursively scalar-replaceable (nested `o.inner.x`).  The rewrite already maps the
+   outer field-ptr → its field slot and `rewriteUsesInBlocks`/`chaseRepl` redirect the
+   inner field-ptr's base onto that slot, so the inner field-ptr becomes a plain
+   field-ptr on the slot and the FIXPOINT scalar-replaces it on a later pass (one
+   nesting level per pass — verified 3-deep).  Gate WIP
+   (`fieldIsBackendZeroFilledAggregate` + broadened `aggregateFieldsScalarReplaceable`,
+   commit ef9aef2ed) KEPT — it is the prerequisite that admits the nested-struct field.
+   SAFETY: managed-containing structs stay PINNED (the unchanged pad / dtor-address-
+   escape check in `sroaAllocaL1OK` still fires — verified: a nested `@Point`-field
+   struct keeps its Outer alloca at -O2 and runs correct / no double-free).  Tests: ir
+   unit `TestSroaNestedFieldAccessRecursesL1` (+ existing gate test) — 822 ir tests
+   pass; conformance `1264_sroa_nested_aggregate` (2-level, 3-level fixpoint depth,
+   unwritten-nested-field-reads-0) PASSES on builder-comp / builder-comp-int /
+   builder-comp_native_aa64-comp_native_aa64.  Full builder-comp corpus + adversarial
+   review + land (per-instance approval) PENDING.
    (B) COERCED-CALL-RESULT whole-stores — `var s S = someCall()` (S returned by value)
    pins s: the whole-store's value is an OP_CALL result, ABI-coerced (e.g. [2 x i64]),
    which isExtractableAggregateValue rejects, so an OP_EXTRACT on it would be invalid.
