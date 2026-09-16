@@ -261,52 +261,8 @@ CORRECTION 2026-09-08):
    access), 1263 (float/float32/int64 struct copied from a PINNED source —
    OP_EXTRACT-of-float path on native/VM).
 
-   **REMAINING SROA line items (🟡 claimed 2026-09-15, work-1/session 01LPZ7 — "finish
-   off the SROA line" per owner; compaction taken here):**
-   (A) NESTED-AGGREGATE fields — admit a non-managed struct with a nested struct /
-   array / raw-slice / raw-func-value / raw-iface-value field.  ALL of these are
-   backend-zero-filled (`common.IsAggregateTyp` = struct/array/slice/managed-slice/
-   func-value/managed-func-value/iface-value/managed-iface-value; in the non-managed
-   path only the non-managed variants occur; LLVM emit_helpers.bn:89 + the 3 native
-   emitAllocs zero-fill exactly this set), so NO explicit zero-init is needed.
-   Implementation: add a `fieldIsBackendZeroFilledAggregate(t)` predicate in
-   sroa_transform.bn that MIRRORS common.IsAggregateTyp (ir must NOT import
-   native/common — replicate with a "keep in sync" comment; peelTransparent first);
-   relax aggregateFieldsScalarReplaceable so a field is OK if isScalarPromotableType
-   OR fieldNeedsZeroConstInit OR fieldIsBackendZeroFilledAggregate.  makeFieldZeroInits
-   needs NO change (aggregate slots get nothing — backend fills).  The FIXPOINT then
-   recurses: a nested struct / raw-slice field alloca (isSroaAggregateType) is
-   re-collected + scalarized next pass; array / func-value / iface-value field allocas
-   stay (not in isSroaAggregateType), backend-zero-filled — correct.  Tests: a
-   nested-struct field (unwritten inner field reads 0; fixpoint fully flattens); an
-   array field (stays an array alloca, still zero-filled).  Validate LLVM corpus
-   O0-vs-O2 + native aa64 + VM.  ⚠ build a FRESH bnc via scripts/build-bnc.sh for
-   differentials — the unittest runner's gen1 can be STALE-CACHED and give a false
-   "not scalarizing" (this bit during field-broadening; a fresh build fixed it).
-
-   **✅ DONE (2026-09-15, work-1/session 01LPZ7): L1-recursion implemented.**  The
-   earlier "needs the rewrite to recurse through the bitcast" framing was WRONG about
-   the mechanism: the `bitcast i8*→Inner*` is an LLVM-EMIT artifact, NOT in the IR —
-   at the IR level the inner `OP_GET_FIELD_PTR`'s base (Args[0]) IS the outer
-   field-ptr directly.  So the ONLY change needed was the L1 analysis; the rewrite is
-   UNCHANGED.  `fieldPtrUsedOnlyAsLoadStore` → `fieldPtrChainScalarReplaceable`
-   (sroa.bn) now recurses: a field-ptr's result may feed a plain load/store Args[0]
-   OR the Args[0] base of an inner constant-index OP_GET_FIELD_PTR whose own chain is
-   recursively scalar-replaceable (nested `o.inner.x`).  The rewrite already maps the
-   outer field-ptr → its field slot and `rewriteUsesInBlocks`/`chaseRepl` redirect the
-   inner field-ptr's base onto that slot, so the inner field-ptr becomes a plain
-   field-ptr on the slot and the FIXPOINT scalar-replaces it on a later pass (one
-   nesting level per pass — verified 3-deep).  Gate WIP
-   (`fieldIsBackendZeroFilledAggregate` + broadened `aggregateFieldsScalarReplaceable`,
-   commit ef9aef2ed) KEPT — it is the prerequisite that admits the nested-struct field.
-   SAFETY: managed-containing structs stay PINNED (the unchanged pad / dtor-address-
-   escape check in `sroaAllocaL1OK` still fires — verified: a nested `@Point`-field
-   struct keeps its Outer alloca at -O2 and runs correct / no double-free).  Tests: ir
-   unit `TestSroaNestedFieldAccessRecursesL1` (+ existing gate test) — 822 ir tests
-   pass; conformance `1264_sroa_nested_aggregate` (2-level, 3-level fixpoint depth,
-   unwritten-nested-field-reads-0) PASSES on builder-comp / builder-comp-int /
-   builder-comp_native_aa64-comp_native_aa64.  Full builder-comp corpus + adversarial
-   review + land (per-instance approval) PENDING.
+   **REMAINING SROA line items** (nested-aggregate fields — the gate + L1-recursion +
+   fixpoint-bound fix — LANDED `a0bfa865b`; see claude-todo-done.md):
    (B) COERCED-CALL-RESULT whole-stores — `var s S = someCall()` (S returned by value)
    pins s: the whole-store's value is an OP_CALL result, ABI-coerced (e.g. [2 x i64]),
    which isExtractableAggregateValue rejects, so an OP_EXTRACT on it would be invalid.

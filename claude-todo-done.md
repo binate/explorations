@@ -6,6 +6,57 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### SROA nested-aggregate struct fields (gate + L1-recursion + fixpoint bound) — DONE, LANDED (2026-09-15; `a0bfa865b`)
+
+IR-level SROA now scalar-replaces a non-managed struct with a nested struct /
+raw-slice / array / func-value / iface-value field, and flattens field-by-field
+nested access (`o.inner.x`) to a fixpoint. Three parts in one commit:
+
+1. **Gate** (`sroa_transform.bn`): `fieldIsBackendZeroFilledAggregate` (mirrors
+   `common.IsAggregateTyp` — struct/array/slice/managed-slice/func-value/
+   managed-func-value/iface-value/managed-iface-value) broadens
+   `aggregateFieldsScalarReplaceable` so a field is admitted if scalar-promotable
+   OR needs a zero-const init OR is a backend-zero-filled aggregate. The nested
+   field slot needs no explicit init — the backend zero-fills it.
+2. **L1-recursion** (`sroa.bn`): `fieldPtrUsedOnlyAsLoadStore` →
+   `fieldPtrChainScalarReplaceable`, which recurses through nested field access.
+   The earlier "recurse through the bitcast in the rewrite" framing was WRONG: the
+   `bitcast i8*→Inner*` is an LLVM-EMIT artifact, not IR — at the IR level the
+   inner `OP_GET_FIELD_PTR`'s base IS the outer field-ptr directly. So ONLY the L1
+   analysis changed; the rewrite is UNCHANGED (`rewriteUsesInBlocks`/`chaseRepl`
+   redirect the inner field-ptr's base onto the split slot; the fixpoint peels one
+   nesting level per pass).
+3. **Fixpoint bound** (`sroa_transform.bn`): nested splitting creates new shallower
+   aggregate slots, so the old top-level `countSroaAggregateAllocas` under-counted
+   (a depth-D nest is one alloca yet needs D passes — depth-3+ nests were left
+   half-flattened). Replaced by `sroaFixpointPassBound` = sum of
+   `aggregateNodeCount` (transitive by-value aggregate nodes), which covers both
+   nesting depth and the pre-existing copy-chain case (k links = k nodes).
+
+Also: the field-slot materialization helpers moved to `sroa_rewrite.bn` (file
+length); two stale comments corrected (the sroa.bn "NESTING" paragraph and a
+contradictory test comment).
+
+**Safety** (adversarial review, clean — no critical/major): managed-containing
+structs never reach L1 — `collectSroaAggregateCandidates` excludes any aggregate
+whose type transitively holds a managed reference (`sroaAggregateContainsManaged`)
+before L1 runs, so refcount cleanup is never dropped. The recursion admits only
+constant-index inner `OP_GET_FIELD_PTR` + load/store (rejects bitcast /
+`OP_GET_ELEM_PTR` / call-arg / `&s.x` / phi / any FaultPad use), so no cross-field
+pointer escape. The bound strictly decreases by 1 per split → terminates, never
+truncates.
+
+**Tests**: ir unit `TestSroaNestedFieldAccessRecursesL1`,
+`TestSroaStructWithNestedAggregateFieldScalarReplaced`,
+`TestSroaDeeplyNestedAggregateFlattensToFixpoint` (3-deep, guards the bound);
+conformance `1264_sroa_nested_aggregate`. Validated: 823 ir unit tests; full
+`builder-comp` conformance 3028/0; 1264 on VM + native-aa64; hygiene 20/20.
+
+**Follow-up flagged** (pre-existing, not from this change): the SROA gate peels
+`ALIAS` via `peelTransparent` while LLVM `emitAlloc` peels only NAMED+READONLY —
+an alias-typed aggregate field could classify differently (see the active todo /
+investigation).
+
 ### Native aggregate-COPY efficiency (by-value slice/struct copies) — DONE, LANDED (2026-09-14; aarch64 `a7d49192d`, x64 `800467f7c`, arm32 `f8a532d96`)
 
 The native backends copied a by-value aggregate (managed-slice/struct `b = a`,
