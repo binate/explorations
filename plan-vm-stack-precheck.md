@@ -256,7 +256,39 @@ CANDIDATE APPROACHES:
   Needs a way to carry two pads per call op (a second PadBlock field or a distinct
   fault-table key) + lowering support.  No duplicated resolution.
 
-RECOMMENDATION: (B).  Open questions to settle at start: (1) how to carry the
+DESIGN REVIEW OUTCOME (2026-09-16): **B is NOT sound — switch to A.**
+- **C1 (CRITICAL):** for FUNC-VALUE calls the dispatch handler does NOT resolve the
+  callee or push the frame — the push happens remotely in a re-entrant `execFunc`
+  via the native trampoline, which CLEARS `FaultRaised` before returning.  So an
+  entry-frame overflow is indistinguishable at the dispatch point from a genuine
+  nested fault (`callFaultPending` sees the same state), and they need OPPOSITE pad
+  handling — B cannot route correctly and risks a double-free.  (B's premise holds
+  only for iface-method, whose push IS in-loop/synchronous.)  The stale
+  `execCallFuncValue` doc comments describe the old push-in-handler model B was
+  written against.
+- **M2:** B's two-pads-on-one-op collides with the PC-keyed FaultTable + inliner
+  (`fixupInlinedPads`) + the `BC_UNWIND_RETURN` relay.  A (two ops → two PCs) needs
+  none of that — reuses the direct-call machinery wholesale.
+- **A's downside is illusory:** the func-value handler resolves nothing (A
+  duplicates nothing there); iface-method re-resolution is ~8 lines.
+
+**ADOPTED: approach A** — a separate pre-delivery pre-check op carrying the runtime
+callee operand (func value / iface receiver); its VM handler resolves the callee
+VMFunc, SKIPS native/compiled callees (they push no VM frame), and on
+`wouldFrameOverflow(frameReserve(callee))` faults into its own args-owning pad,
+BEFORE any dispatch.  Mirrors direct calls' OP_STACK_CHECK.
+
+Additional required work from the review:
+- **M1:** also route the "callee never entered" faults from a NIL func value / NIL
+  iface value (with a moved managed arg) to the args-owning pad — same leak class,
+  currently untested.  Rule: "callee never entered (overflow OR nil-value) →
+  args-owning pad."  Add LiveBlocks tests: nil-func-value+moved-arg,
+  nil-iface+moved-arg, AND an iface-method overflow (repro only covers func-value).
+- **M3:** split the fused `buildCallArgs` (eval+deliver) at both indirect call
+  sites (`genFuncValueCallWithFn` gen_call.bn, `genInterfaceMethodCall`
+  gen_iface_dispatch.bn) to create the pre-delivery seam, as `genCall` already does.
+
+Open questions to settle at start: (1) how to carry the
 second pad (new ir.Instr field `PrePadBlock` vs a parallel fault-table entry);
 (2) which ops need it (func-value, iface-method, and OP_CALL_INDIRECT — but the
 last is only the magic scalar/aggregate shims per gen_call.bn, likely no managed
