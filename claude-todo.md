@@ -156,6 +156,9 @@ quote numbers from this file (they go stale):**
 
 ### Native aggregate-copy: eliminate redundant intermediate buffers (load→store fusion) — 🟡 IN PROGRESS (claimed 2026-09-15, temp-5/session) (2026-09-14)
 
+Design doc: `plan-native-aggcopy-fusion.md` (memory-safety-critical; user asked for
+design-doc-first, review before implementing).
+
 Split out from the aggregate-copy-width work (now landed; see claude-todo-done.md).
 Distinct from copy
 WIDTH: this is about the NUMBER of copies. An aggregate `OP_LOAD` unconditionally
