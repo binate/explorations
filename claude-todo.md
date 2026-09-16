@@ -36,6 +36,55 @@ for a VM func value whose callee re-enters the VM).  Add coverage: a fixture whe
 injected-native func value / iface method internally does `x.(*J)` on a bytecode-impl
 value and dispatches a method on the recovered interface.
 
+### Aggregate-returning VM-dispatched callee CRASHES (SEGV) on entry-push overflow — 🔴 OPEN (found 2026-09-16, work-2; needs user scope decision)
+
+An aggregate-returning callee dispatched through the VM's packed trampoline
+(`TrampolinePacked`, vm_trampoline.bn) — reached by a **func-value** call
+(`dispatchCompiledFuncValue`) OR an **iface-method** call
+(`dispatchCompiledIfaceMethod`) — SEGVs, not recovers, when its entry `pushFrame`
+overflows the VM stack.  Root cause: on an entry-push overflow `execFunc`
+(vm_exec_helpers.bn) sets the fault, CLEARS `FaultRaised`, and returns **0**;
+`TrampolinePacked`'s retbuf path then does
+`rt.MemCopy(retbuf, bit_cast(*uint8, 0), f.ResultRetbufBytes)` — a read from
+address 0 → crash.  (The scalar path just `return execFunc(...)` = 0, no MemCopy, so
+it recovers; the crash is aggregate-return-specific.)  Reachable from ordinary user
+code: a recursive func value / iface method that returns a struct or managed-slice
+and recurses deep enough to overflow.  Pre-existing on main, INDEPENDENT of the Inc
+3a func-value pre-check.
+
+Discovered while implementing Inc 3a (func-value overflow pre-check).  A probe test
+(aggregate-returning recursive func value, `type Pair struct{a int; b int}`,
+`var gFn *func(@I,int) Pair`) crashed the vm test binary; removed from the tree since
+a process-crash test takes down the whole suite.
+
+**Two coupled defects, both need addressing (options for the user):**
+1. **The CRASH itself** — root fix: guard `TrampolinePacked`'s (and
+   `TrampolineAggregate`'s) retbuf MemCopy on a pending fault after `execFunc`
+   (`if vm.Status == VM_STATUS_FAULTED { return 0 }` before the MemCopy).  ~2 lines
+   at the shared choke point; fixes func-value AND iface-method aggregate returns.
+   Converts crash → graceful fault.
+2. **The residual LEAK** — even with (1), the moved managed arg still leaks in the
+   overflow window, because the fault unwinds to the call op's POST-call pad, which
+   does not own the delivered args.  Inc 3a's pre-check (approach A) can't close this
+   for the aggregate case: the func-value dispatch grows `vm.SP` AFTER the pre-check
+   but BEFORE the remote `pushFrame` — by the aggregate retbuf (`AggregateReturnSize`)
+   AND by cross-mode iface-arg substitution scratch (`substArgSlotIface`,
+   `align8(ByteSize)` per VM-index iface arg) — so the pre-check (evaluated at the
+   lower SP) under-predicts the push.  retbuf is statically knowable (callee's rounded
+   `ResultRetbufBytes`), but argSubst depends on the runtime per-arg vtable kind, so a
+   fully-exact pre-check via approach A is not achievable (a static upper bound would
+   cause false-positive "stack overflow" faults on valid calls).
+
+**Design implication for Inc 3 completion:** approach A (a pre-delivery op that
+PREDICTS the push SP) is fragile against the dispatch's own transient SP growth.  A
+robust fix likely needs the recovery to be correct AT the actual push (release the
+delivered args when the remote `pushFrame` overflows) rather than predicting it —
+revisit vs. Inc 3a/3b design.  Inc 3a as committed (`d80e5b927`) is still a strict
+improvement (scalar func-value + nil-func-value moved-arg leaks fixed, no
+regressions) but is PARTIAL: scalar has a latent leak window (argSubst) and aggregate
+has this crash window; the committed scalar/nil repro tests pass only because their
+frame sizes don't land in the window.
+
 ### b2: discriminate VM func values by thunk-identity (fast-path, drop the thunk round-trip) — 🟡 ASSIGNED (claimed 2026-09-08)
 
 b1 (commit 98219ab3e) makes the VM dispatch every function value through its
