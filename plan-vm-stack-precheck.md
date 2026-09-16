@@ -9,6 +9,14 @@ leak) and the R5 end-to-end coverage follow-up.  Started 2026-09-09. **APPROACH
 CHANGED 2026-09-14 to the RESERVATION model (see below) after the per-op approach's
 cost was surfaced.** Owner: this session (work-2).
 
+**Inc 3a (approach A, pre-delivery `OP_STACK_CHECK_FV`) ABANDONED 2026-09-16** — see
+"Inc 3 + b2 REDESIGN" at the bottom.  The committed `d80e5b927` (approach A) is a
+DEAD END: it's fragile (can't predict the dispatch's transient SP growth) and has a
+wild-`@VM`-deref bug (classifies by `data[0]`).  User directed a full redesign doing
+Inc 3 AND b2 together.  The design is at the bottom of this file; the committed
+d80e5b927 stays on work-2 only for its two black-box regression tests, which carry
+over unchanged.
+
 ## Goal (owner-clarified 2026-09-14 — supersedes the original "make overflow
 ## recoverable" framing)
 
@@ -387,3 +395,114 @@ the handler skips the check for them (only vm-func / closure callees push).
   fixed + landed (`2b8066844`, `89be1e76c`) — see claude-todo-done.md.
 - The `rt.MemZero`/`123_raw_mem` VM-extern gap seen as the lone conformance failure
   throughout is UNRELATED and now claimed by another worker.
+
+---
+
+## Inc 3 + b2 REDESIGN (2026-09-16): robust indirect-call overflow recovery via a VM-func-value fast-path
+
+Owner: work-2 (user reassigned b2 here 2026-09-16, to do WITH Inc 3).  Supersedes the
+Inc 3a approach-A pre-check (`d80e5b927`, abandoned).
+
+### The three defects approach A left / exposed
+
+1. **Aggregate-return CRASH (SEGV), pre-existing.** An aggregate-returning callee
+   dispatched through `TrampolinePacked` (func-value via `dispatchCompiledFuncValue`
+   OR iface-method via `dispatchCompiledIfaceMethod`) SEGVs on an entry-`pushFrame`
+   overflow: `execFunc` clears `FaultRaised` and returns 0, then TrampolinePacked's
+   retbuf path does `rt.MemCopy(retbuf, bit_cast(*uint8, 0), ...)` — read from 0.
+2. **Moved-arg LEAK on overflow.** Indirect calls deliver (consume) their moved
+   managed args, then dispatch; on an entry-push overflow the fault unwinds to the
+   call op's POST-call pad, which does not own the delivered args → leak.
+3. **Approach A can't fix (2) reliably** because the dispatch grows `vm.SP` AFTER a
+   pre-delivery check but BEFORE the remote push — by the aggregate retbuf
+   (`AggregateReturnSize`) and by cross-mode iface-arg substitution scratch
+   (`substArgSlotIface`, `align8(ByteSize)`/VM-index-iface-arg, runtime-dependent) —
+   so a pre-check predicting the push SP under-predicts.  And approach A's handler
+   classified VM-vs-native by peeking `data[0]`, which wild-derefs a native
+   closure's untagged env (no `DATA_KIND_NATIVE_CLOSURE`).
+
+### Root cause (single)
+
+Indirect calls to a VM callee route through the NATIVE marshalling thunk
+(`call_packed` → `TrampolinePacked` → `execFunc` → *remote* `pushFrame`).  That
+marshalling is the sole source of (a) the transient SP growth that defeats
+prediction, (b) the `FaultRaised`-cleared-across-the-boundary ambiguity, and (c) the
+crash.  A DIRECT VM call (`BC_CALL`) has none of these: it pushes in the call arm at
+the real SP, so its `OP_STACK_CHECK` pre-check is exact and recovery is trivial.
+
+### Mechanism: VM-func-value FAST-PATH (this is b2) + exact recovery
+
+Discriminate a VM func value by **thunk identity** — its vtable `call_packed` slot
+(`FuncValueVtableCallPackedIndex()`, slot 2) equals the executing vm's registered
+`TrampolinePacked` entry — NOT by peeking `data[0]`.  For a VM func value called from
+VM bytecode, PUSH THE FRAME DIRECTLY in the call arm (resolve callee from the closure
+record, marshal captures + packed user args into the callee's leading regs, push,
+switch context) exactly like `BC_CALL`.  Everything else (native / compiled func
+values) keeps the marshalling thunk.
+
+Why this fixes all three at once:
+- **Overflow detection is EXACT** — the fast-path pushes in the call arm at the real
+  SP with no marshalling growth, so a pre-delivery check (`frameReserve(callee)` at
+  current SP) or the in-arm `pushFrame` sees the true SP.  Recovery reuses the
+  direct-call args-owning-pad path (the moved args are still owned pre-delivery).
+- **No crash** — VM callees no longer reach `TrampolinePacked`'s retbuf MemCopy.
+- **No `data[0]` wild-deref** — thunk identity is unambiguous; only AFTER confirming
+  a VM func value do we read the closure record (`rec[1]=vm`, `rec[2]-1=fnIdx`).
+- Native func values push no recoverable VM frame (OS guard pages) → no leak/crash.
+
+### Honoring "b2 is OPTIMIZATION ONLY — never on the correctness path"
+
+Correctness must NOT depend on the fast-path existing.  So ALSO make the marshalling
+path safe independently:
+- **Crash guard (mandatory, independent):** in `TrampolinePacked` (and
+  `TrampolineAggregate`), after `execFunc` return, if `vm.Status == VM_STATUS_FAULTED`
+  do NOT MemCopy — return 0 / propagate.  This alone converts the crash → graceful
+  fault on the marshalling path.  Landable on its own.
+- With the crash guard, disabling the fast-path degrades VM-func-value overflow to a
+  graceful fault (possibly leaking the moved args in the rare marshalling case), NOT
+  a crash.  So dispatch-correctness (any-arity) and crash-freedom do not depend on
+  b2; only the LEAK-freedom of the (reachable) same-VM func-value-overflow rides the
+  fast-path — acceptable because native-callee overflow isn't recoverable anyway and
+  cross-VM VM-func-values (the only marshalling-path VM callees left) are not a
+  constructible path today (flag if one is found).
+
+### Staged implementation (each stage self-contained, tested, landable)
+
+- **S1 — crash guard.** `TrampolinePacked`/`TrampolineAggregate`: skip retbuf MemCopy
+  on `Status == FAULTED`.  Test: aggregate-returning func-value + iface-method deep
+  recursion overflow → `Status = FAULTED`, no crash (leak not yet asserted).
+  Independent of the fast-path; smallest safe step.
+- **S2 — VM-func-value fast-path (b2 core).** Thunk-identity discrimination in
+  `execCallFuncValue`; direct in-arm frame push for VM func values (captures + packed
+  args of any arity); exact overflow recovery via an args-owning pad (reuse/repair
+  `OP_STACK_CHECK_FV` with thunk-identity classification, now exact).  Tests:
+  scalar + aggregate func-value overflow → `Status = FAULTED` + stable LiveBlocks
+  (leak-free); nil-func-value moved-arg (carries over from d80e5b927).
+- **S3 — iface-method parity.** Same fast-path + recovery for
+  `execCallIfaceMethod`/`dispatchCompiledIfaceMethod` (Inc 3b).  Tests: scalar +
+  aggregate iface-method overflow, nil-iface moved-arg.
+
+### Risks / open questions to settle during S2
+
+- **Thunk identity across NESTED VMs.** The reference address is the EXECUTING vm's
+  `Externs[LookupExtern("pkg/binate/vm.TrampolinePacked")]` call_packed entry (a
+  nested VM re-registers TrampolinePacked), not a bare `_func_handle(TrampolinePacked)`
+  — cache it per-VM at registration.  Verify the nested-VM (VM-in-VM) case.
+- **Capture marshalling for the direct push** must match `closureArgvPacked`
+  (COMPILED_CLOSURE captures at `rec[3]` via CaptureOffsets/CaptureByPtr/CaptureWide).
+- **Does `OP_STACK_CHECK_FV` survive?** Yes, repaired: classify by thunk identity, and
+  it is exact because the fast-path has no marshalling growth.  Its pad is the
+  args-owning pad; its handler faults only for a fast-path (VM) callee whose
+  `frameReserve` overflows or a nil value; native callees skip.
+- **Aggregate result relocation** on the fast-path uses execFunc's existing
+  retbuf-relocation (image at top of callee frame → caller stack top); confirm the
+  in-arm push path returns the result the same way `BC_CALL` does.
+
+### Test carry-over
+
+`pkg/binate/vm/vm_indirect_precheck_test.bn` (from d80e5b927): TestFuncValueOverflow-
+NoLeak + TestNilFuncValueMovedArgNoLeak are black-box (compile Binate source, run,
+assert Status/LiveBlocks) — they carry over unchanged and gate S2.  Add aggregate +
+iface-method + nil-iface variants per stage.  A crashing probe cannot live in the
+suite (it takes down the binary); once S1 lands, the aggregate case is a graceful
+fault and testable.
