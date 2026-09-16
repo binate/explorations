@@ -1,8 +1,13 @@
 # Plan: comprehensive VM SP-guard (fault safely on stack overflow; never leak/corrupt)
 
-Status: IN PROGRESS (work-2 / session). Started 2026-09-09. **APPROACH CHANGED
-2026-09-14 to the RESERVATION model (see below) after the per-op approach's cost was
-surfaced.** Owner: this session (work-2).
+Status: RESERVATION SERIES (R1-R5) COMPLETE — landed 2026-09-15 (R1 770b6fbc1,
+R2 70bfdd37a, R3 4401121a9, R4 70265c12f, R5 6f2576927), plus the standalone
+OP_IFACE_UPCAST reclaim fix (7697db626).  Temp-growth stack overflow is now safe
+by construction (reserved at frame entry; clean Plan-2 unwind; no per-op checks).
+REMAINING: Inc 3 (indirect/method/func-value/iface-method call frame-push moved-arg
+leak) and the R5 end-to-end coverage follow-up.  Started 2026-09-09. **APPROACH
+CHANGED 2026-09-14 to the RESERVATION model (see below) after the per-op approach's
+cost was surfaced.** Owner: this session (work-2).
 
 ## Goal (owner-clarified 2026-09-14 — supersedes the original "make overflow
 ## recoverable" framing)
@@ -157,7 +162,7 @@ commit with tests.
 - **R4 — remove the redundant per-op machinery (LANDED `70265c12f`)** = revert the landed
   `1dd3f319f` (OP_RODATA_ARRAY per-op check/pad) + the `attachSPGrowthPad` path.
   Lands AFTER R3 (needs its own cherry-pick approval).
-- **R5 — cross-mode `...*any` scratch** (the one runtime-sized growth): make its
+- **R5 — cross-mode `...*any` scratch (LANDED `6f2576927`)** (the one runtime-sized growth): make its
   overflow a graceful terminal fault (setFault + pad), not vmPanic.
 
 ## LANDED on main (all reviewed, VM+LLVM conformance green, hygiene 20/20)
