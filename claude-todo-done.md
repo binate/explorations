@@ -6,6 +6,55 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### C2: migrate cross-mode extern + iface-method dispatch to call_packed — DONE (2026-09-16, `9574f14ce`)
+
+The last piece of the b1 cross-mode work.  Three cross-mode dispatchers still packed
+args into the scalar-only, fixed-7-slot always-shim convention (vtable slot-1 `call`)
+and failed loud past their arg cap — the same limitation the b1 func-value caller had
+before the flip (`60159b5c0`).  All three now dispatch through the uniform `call_packed`
+slot (slot 2 — the callee's per-signature `__shimP` for a native callee,
+`TrampolinePacked` for a VM func value), carrying ANY arg/return shape:
+
+- `dispatchExternBinding` / `execExternCall` (`vm_extern.bn`): regs-direct, exactly like
+  `dispatchCompiledFuncValue` — packed user args read zero-copy from the contiguous
+  callArgBase register window (`&regs[Src1]`) with in-place cross-mode iface-arg
+  substitution.  The `>7` vmPanic is gone; the hoisted callArgs copy buffer is no longer
+  used by the extern path.
+- `dispatchCompiledIfaceMethod` (`vm_exec_iface.bn`): the receiver is packed slot 0
+  (the method's first param) with the user args after it; since the receiver (iv data
+  ptr) and the callArgBase window are not contiguous in regs, the packed `[receiver,
+  args...]` array is built in execLoop's hoisted callArgs scratch (off vm.Stack — no
+  reservation growth).  The `>6` vmPanic is gone.
+- `CallIfaceMethod` (`call_iface_host.bn`, host-driven): same receiver-prepend into a
+  per-call packed array.  The `>6` vmPanic is gone; the `scalar64` param no longer steers
+  dispatch (the uniform i64 return covers both one-word and 64-bit).
+
+The two extern-only substitution helpers (`substituteLayoutArgs`,
+`substituteSliceIfaceArgs`) now take a `*int` arg-window base instead of `@[]int`, so the
+extern path substitutes on the reg window and the iface-method path reuses
+`substituteLayoutArgs` over `&callArgs[1]`.  No producer work: method `@__handle` vtables
+already carry slot-2 `__shimP` through the shared `irdata.BuildFuncValue` path.
+
+Coverage: new unit tests pin the removed caps end-to-end — a 9-arg native extern
+(`TestExternManyArgsViaRegistry`, spills past the register budget) and a 7-arg host iface
+method (`TestCallIfaceMethodManyArgs`).  Existing extern float/aggregate + host iface
+scalar/aggregate tests now route through call_packed; `dispatchCompiledIfaceMethod` is
+exercised by `builder-comp-int` (e.g. `1192_errors_native_iface_method`).
+
+Validated: `builder-comp-int` 3020/0, `builder-comp-int-int` 3020/0 (the b1-critical
+double-VM lane), `builder-comp_arm32_linux_int` 3019/1 (the 1 is the pre-existing,
+unrelated `737_build_import_select`), vm unit tests green, hygiene 20/20, independent
+adversarial review clean.  With this, ALL cross-mode dispatch (func value, extern, iface
+method — bytecode and host-driven) is any-shape; the b1 regression work is fully complete.
+
+Observation flagged (pre-existing, NOT a C2 change): `dispatchCompiledIfaceMethod` does
+not set/restore `g_crossModeVmAddr` around the native call, unlike the extern
+(`vm_extern.bn`) and host (`call_iface_host.bn`) paths — symmetric with the landed
+`dispatchCompiledFuncValue`, which also omits it.  A native cross-mode iface method doing
+an internal `x.(*J)` on a bytecode-boxed value could MISS the `rt.SatLookup` fallback.
+Not worsened by C2; worth a later decision on whether both bytecode-driven dispatchers
+should set it.
+
 ### Native aggregate-copy: eliminate redundant intermediate buffer, managed case (S-alloca) — DONE, LANDED `c3345fbac` (2026-09-16)
 
 Finding B split from the aggregate-copy-width work: the native backends gave every
@@ -289,10 +338,10 @@ Regression coverage: the func-value conformance suite in `builder-comp-int-int`
 (fails without the ensureHandle override, passes with it), validated via a full
 Docker Linux conformance run.
 
-Follow-ups still open (in claude-todo.md): Bug A (native cross-package aggregate
-func values via arm32 `__shimP` crash on `builder-comp_arm32_linux_int` — being
-fixed immediately after this landing) and C2 (migrate the extern + iface-method
-cross-mode dispatchers to `call_packed`).
+Follow-ups (both since landed, entries above): Bug A (native cross-package aggregate
+func values via arm32 `__shimP` crash on `builder-comp_arm32_linux_int`, `891b2af93`)
+and C2 (migrate the extern + iface-method cross-mode dispatchers to `call_packed`,
+`9574f14ce`).  With C2 landed, the whole b1 cross-mode effort is complete.
 
 ### Recoverable fault mid-composite-literal leaks already-moved managed fields — DONE (2026-09-14, `2b8066844`)
 

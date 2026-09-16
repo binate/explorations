@@ -7,36 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### CROSS-MODE VM func-value dispatch (b1 regression) — 🟡 caller flip + Bug B + Bug A LANDED; only C2 remains (claimed 2026-09-08, work-4/temp-4) — see plan-crossmode-callpacked.md
-
-**Step-4a (VM caller → `call_packed`) + the nested-VM fix LANDED `60159b5c0` (2026-09-15).**
-The VM caller now dispatches every func value through the vtable slot-2 `call_packed`
-(any arg/return shape).  The critical fix was the missing `ensureHandle`
-TrampolinePacked self-reference override: without it a NESTED VM's
-`Externs[TrampolinePacked]` carried a TrampolineScalar entry, so every func value
-built there got `CallPacked` = TrampolineScalar and the whole `builder-comp-int-int`
-lane returned garbage addresses (153 tests).  Also fixed a latent `execFunc`
-≤64-byte result-relocation cap (→ full `ResultRetbufBytes`, 8-ROUNDED `vm.SP`
-advance; `TestCallFuncAggregateKeepsSPAligned`).  All 17 b1 tests now pass in every
-VM mode, including `builder-comp_arm32_linux_int` (which the original triage left
-red).  Full narrative in claude-todo-done.md.  **Bug A** (arm32 `__shimP`
-aggregate crash) also LANDED `891b2af93` — the LLVM `__shimP` packed-args params
-were hardcoded i64, mismatching the word-sized `_call_shim_scalar64` ABI on ILP32
-(AAPCS32 i64 = even-register pair); now emitted as the target int (intLL).
-
-Remaining:
-- **C2 — 🟡 IN PROGRESS (started 2026-09-16, work-4/temp-4):** three OTHER cross-mode
-  dispatchers carry the same scalar-only/≤7 limitation — `dispatchExternBinding`/
-  `execExternCall` (vm_extern.bn, `>7` guard), `dispatchCompiledIfaceMethod`
-  (vm_exec_iface.bn, `>6` guard) and the host-driven `CallIfaceMethod`
-  (call_iface_host.bn, `>6` guard).  Pre-existing (not b1 regressions, no failing
-  test), but migrated in the SAME work (step 4): switch all three consumers to
-  `call_packed`, drop their `>7`/`>6` vmPanics, add conformance coverage for the
-  newly-enabled extern/iface-method cross-mode shapes.  So ALL cross-mode dispatch
-  is any-shape.  Plan: extern goes regs-direct (mirror `dispatchCompiledFuncValue`,
-  uncapped); the two iface-method paths prepend the receiver as packed slot 0 into a
-  scratch buffer.
-
 ### `737_build_import_select` fails on `builder-comp_arm32_linux_int` — 🔴 OPEN (pre-existing, unrelated to cross-mode work)
 
 On `builder-comp_arm32_linux_int` this build-constraint per-import test prints

@@ -378,6 +378,18 @@ the VM caller but REFERENCED by the vtable emitters (so not bnlint-unused).
   The re-land `60159b5c0` adds that override; validated with a FULL Docker
   conformance run of int-int + arm32_linux_int.  NEXT: **Bug A** (arm32 `__shimP`
   aggregate crash, 876/879/881/882 — active) then **C2**.
+- 2026-09-16: **Bug A LANDED** `891b2af93` (LLVM `__shimP` packed-args params →
+  target int, not hardcoded i64 — the ILP32/AAPCS32 mismatch).
+- 2026-09-16: **C2 LANDED** `9574f14ce` — the three remaining cross-mode dispatchers
+  (`dispatchExternBinding`/`execExternCall`, `dispatchCompiledIfaceMethod`, host
+  `CallIfaceMethod`) migrated to `call_packed`, `>7`/`>6` caps dropped; extern goes
+  regs-direct (mirror `dispatchCompiledFuncValue`), the two iface paths prepend the
+  receiver as packed slot 0.  New cap-removal unit tests (9-arg extern, 7-arg host
+  iface method).  Validated: builder-comp-int 3020/0, builder-comp-int-int 3020/0,
+  arm32_linux_int 3019/1 (only the pre-existing unrelated 737), hygiene 20/20,
+  adversarial review clean.  **The whole b1 cross-mode effort is now complete** — all
+  cross-mode dispatch (func value, extern, iface method; bytecode and host) is
+  any-shape.  Full writeup in claude-todo-done.md.
 
 ### LLVM `__shimP` design (step 3d) — the intricate one
 
