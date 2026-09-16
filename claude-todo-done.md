@@ -104,6 +104,11 @@ conformance `1264_sroa_nested_aggregate`. Validated: 823 ir unit tests; full
   written elements read back, unwritten read 0) + ir unit
   `TestSroaStructWithArrayFieldScalarReplaced`. (Raw-slice field already covered by
   `055_struct_with_slice`.)
+- **Whole-load used-field tally + rewrite tests** (`9def3535f`): `expandWholeLoad`
+  computed used-fields in one scan per field (O(fields×instrs)); replaced with a
+  single-scan `bool[numFields]` tally (`wholeLoadExtractedFields`, behavior-neutral).
+  Adds the flagged `expandWholeLoad` unit tests: a fully dead whole-load, a field
+  extracted only in a FaultPad, and two whole-loads extracting disjoint fields.
 
 ### Native aggregate-COPY efficiency (by-value slice/struct copies) — DONE, LANDED (2026-09-14; aarch64 `a7d49192d`, x64 `800467f7c`, arm32 `f8a532d96`)
 

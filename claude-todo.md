@@ -230,13 +230,9 @@ CORRECTION 2026-09-08):
    Handling needs per-backend un-coercion of the call result before extract — riskier,
    ABI-specific, and few programs both struct-init-from-a-by-value-call AND
    field-access it.  LOWER priority; assess payoff before doing.
-   Minor follow-ups from the earlier managed-slice review (non-blocking) — 🟡 IN
-   PROGRESS (claimed 2026-09-16, work-1/session 01LPZ7): (i)
-   `wholeLoadExtractsField` is O(fields×instrs) per whole-load — replace with a
-   one-pass tally (single scan building bool[fields]) if it ever matters; (ii)
-   unit tests for a fully-dead whole-load, a real FaultPad extract, and two whole
-   loads of one slice extracting different field subsets (partial-extract is
-   already covered by TestSroaStructWholeLoadForwarded). Original design:
+   (The managed-slice-review minor follow-ups — the one-pass used-field tally and
+   the dead-whole-load / FaultPad-extract / disjoint-fields unit tests — LANDED
+   `9def3535f`; see claude-todo-done.md.) Original design:
    splits into {data,len,refptr,backinglen};
    data/len/backinglen promote, refptr stays in a managed slot with explicit nil
    zero-init; the rewrite processes FaultPads so the refcount spine's
