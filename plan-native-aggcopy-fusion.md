@@ -183,20 +183,58 @@ whole aggregates in pads, exactly as `sroa.bn`'s `valueUsesAllExtract` scans bot
   intervening `STORE a` is a barrier). Captures `*dst = *src` and truly-adjacent
   non-managed copies. **Misses** the hot managed case (its store sits after
   RefInc/RefDec).
-- **Increment 2 (the hot managed case).** Relax (A) to "no RefDec of **`%src`'s
-  owning object**" and (B) to "no store/call that may alias `%src`" between load and
-  use, plus "`%v` does not flow to the return value (or any other function-end / out-
-  of-scope use)." Requires source-owner classification (Hole 2: raw `*T` stays
-  *unknown*) and alias reasoning to prove the RefInc `a.backing` / RefDec-old-`b` and
-  the store's own dest do not touch `a`'s header. Captures `b = a` / `b.s = a`.
-  Materially larger analysis and blast radius; both UAF and wrong-value are in play.
+- **Increment 2 (the hot managed case — CHOSEN).** Concrete algorithm below (§4.2),
+  derived from the actual IR of `b = a`, `b.s = a`, `*dst = *src`, and the
+  `return container[i]` UAF case. Captures `b = a` / `b.s = a`; correctly materializes
+  `return container[i]`; subsumes Increment 1's raw-adjacent case.
 
-**Recommended path:** implement Increment 1, **measure** the redundant-copy reduction
-on the cmd/bnc self-compile (static count of aggregate-load materializations elided,
-N-vs-L memory-op ratio). Increment 1 alone may be a small win (the hot case is
-managed); the measurement decides whether Increment 2's alias analysis — now
-understood to be genuinely harder and doubly-unsafe-if-wrong — is worth it. (Matches
-the todo's "measure the traffic reduction" note.)
+### 4.2 Concrete elision predicate (implementation spec)
+
+Observed IR (native, `--emit` dumps): `b = a` and `b.s = a` load the managed-slice
+**header** from a **stack `OP_ALLOC`** (`%h = alloc; store %h, param; %v = load %h`);
+the intervening ops are `extract`/`refinc`/`refdec`/`store-to-other` — none write
+`%h`, and `%h` is a fresh non-escaping frame slot no `refdec`/call can reach.
+`return container[i]` instead loads the element via `%p = get_elem_ptr (extract
+header), i; %v = load %p` — a **heap** source that `refdec container.backing` frees
+before the return. So the discriminator is **source stability**, not "flows to
+return."
+
+`aggLoadElidable(f, load)` = true iff ALL of:
+
+1. **Read-only consumers.** Every use of `%v` (whole-function **including
+   `f.FaultPads`**) is a read-consumer — `OP_STORE` *value* operand, `OP_EXTRACT`,
+   `OP_BOX`, or return/arg marshalling — never a store *destination* and never a
+   pointer base. (Verified structurally true for aggregate-load values, but asserted
+   per-load so a future op that mutates through the value can't silently break it.)
+2. **One of two source shapes:**
+   - **(S-alloca) stable, non-escaping stack root.** `stableAllocaRoot(%src)` follows
+     `%src` back through **only** `OP_GET_FIELD_PTR` links to a root `OP_ALLOC` `A`
+     (any other producer — `OP_LOAD`/deref, `OP_GET_ELEM_PTR`/heap-index,
+     `OP_EXTRACT`, a raw `*T` param, a call result — yields *no root* → not S-alloca).
+     AND `A` **does not escape**: whitelist `A`'s (and its field-ptr derivatives')
+     uses to {store-*dest*, load-*source*, get_field_ptr-*base*}; ANY other use
+     (call arg, store *value*, return operand, bit_cast, get_elem_ptr) ⇒ escapes ⇒
+     reject. For a non-escaping `A`, the ONLY writer of `A`'s bytes is a direct
+     `OP_STORE` whose dest-root is `A`; no call/refdec/refinc can reach it. Barrier
+     set between the load and every use = {`OP_STORE` whose dest-root is `A`}. If none
+     ⇒ elide. (Captures `b = a`, `b.s = a`; `refdec`/`refinc`/stores-to-other-slots
+     are correctly non-barriers.)
+   - **(S-adjacent) unknown source, nothing between.** `%src` is not S-alloca (raw
+     `*T` deref, heap, etc.): elide only if every use is reached with **no** `OP_STORE`
+     / call / `OP_REFDEC` between the load and that use (any of them could write or
+     free an unknown source). (Captures `*dst = *src`; provably safe by adjacency,
+     = old Increment 1.)
+
+Safety rests on two load-bearing facts, each independently checkable: (i) a
+non-escaping stack `OP_ALLOC` is never freed and is written only by a direct store to
+it (so `refdec`/call between load and use are harmless for S-alloca); (ii) for a
+non-S-alloca source we assume nothing (S-adjacent bars every store/call/refdec). The
+escape whitelist is the single most safety-critical piece — it must be a whitelist
+(default-escapes), never a blacklist.
+
+**Measure** after landing: static count of elided aggregate-load materializations and
+N-vs-L memory-op ratio on the cmd/bnc self-compile (todo's "measure the traffic
+reduction").
 
 ## 5. Validation strategy
 
