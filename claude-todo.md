@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### CROSS-MODE VM func-value dispatch (b1 regression) — 🟡 caller flip + Bug B LANDED; Bug A (arm32 __shimP aggregate) ACTIVE, C2 open (claimed 2026-09-08, work-4/temp-4) — see plan-crossmode-callpacked.md
+### CROSS-MODE VM func-value dispatch (b1 regression) — 🟡 caller flip + Bug B + Bug A LANDED; only C2 remains (claimed 2026-09-08, work-4/temp-4) — see plan-crossmode-callpacked.md
 
 **Step-4a (VM caller → `call_packed`) + the nested-VM fix LANDED `60159b5c0` (2026-09-15).**
 The VM caller now dispatches every func value through the vtable slot-2 `call_packed`
@@ -19,18 +19,12 @@ lane returned garbage addresses (153 tests).  Also fixed a latent `execFunc`
 ≤64-byte result-relocation cap (→ full `ResultRetbufBytes`, 8-ROUNDED `vm.SP`
 advance; `TestCallFuncAggregateKeepsSPAligned`).  All 17 b1 tests now pass in every
 VM mode, including `builder-comp_arm32_linux_int` (which the original triage left
-red).  Full narrative in claude-todo-done.md.
+red).  Full narrative in claude-todo-done.md.  **Bug A** (arm32 `__shimP`
+aggregate crash) also LANDED `891b2af93` — the LLVM `__shimP` packed-args params
+were hardcoded i64, mismatching the word-sized `_call_shim_scalar64` ABI on ILP32
+(AAPCS32 i64 = even-register pair); now emitted as the target int (intLL).
 
 Remaining:
-- **Bug A — 🟡 ACTIVE (claimed 2026-09-15, work-4/temp-4):** native cross-package
-  AGGREGATE-return func values dispatched through the arm32 `__shimP`
-  (`876/879/881/882_funcval_xpkg_*`) CRASH on `builder-comp_arm32_linux_int` (ILP32)
-  — an arm32 `__shimP`/`__shim` aggregate-shape ABI defect exposed by routing native
-  aggregate returns through `__shimP` (they used the slot-1 aggregate trampoline
-  before the flip).  The crash is INSIDE the `__shimP`→`__shim`→callee chain (it
-  never returns).  Passes on LP64.  `60159b5c0` deliberately did NOT xfail these
-  (owner's call); main is red on them on that mode until this fix lands.
-
 - **C2 (IN SCOPE — owner folded in 2026-09-09):** two OTHER cross-mode dispatchers
   carry the same scalar-only/≤7 limitation — `dispatchExternBinding`/
   `execExternCall` (vm_extern.bn) and `dispatchCompiledIfaceMethod`
@@ -38,6 +32,17 @@ Remaining:
   migrated in the SAME work (step 4): switch both consumers to `call_packed`, drop
   their `>7`/`>6` vmPanics, add conformance coverage for the newly-enabled
   extern/iface-method cross-mode shapes.  So ALL cross-mode dispatch is any-shape.
+
+### `737_build_import_select` fails on `builder-comp_arm32_linux_int` — 🔴 OPEN (pre-existing, unrelated to cross-mode work)
+
+On `builder-comp_arm32_linux_int` this build-constraint per-import test prints
+`other` (expected `aa`): `pkg/sel` conditionally imports a per-arch helper and
+`sel.Pick()` returns the fallback on arm32.  UNXFAILED, so it reds that mode
+independently of the func-value work (was failing before any of it).  Needs a
+decision: is `other` CORRECT on arm32 (then add an `expected.<arch>` /
+`expected.builder-comp_arm32_linux_int` override) or is the arm32 build-select
+genuinely picking the wrong branch (a real per-import gating bug on arm32)?
+Surfaced 2026-09-16 during the cross-mode Bug A validation; not investigated.
 
 ### b2: discriminate VM func values by thunk-identity (fast-path, drop the thunk round-trip) — 🟡 ASSIGNED (claimed 2026-09-08)
 

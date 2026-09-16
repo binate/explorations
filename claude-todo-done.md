@@ -225,6 +225,26 @@ native aa64 3024/0; builder-comp 3024/1 (the 1 an UNRELATED pre-existing flaky I
 tracked in claude-todo.md); ir unit tests (incl. nameIsCompilerInternalFunc); reflect
 differential; hygiene 20/20; adversarial review found no confirmed defect.
 
+### Bug A: LLVM __shimP packed-args params must be the target int type, not i64 (ILP32 arm32 crash) — DONE (2026-09-16, `891b2af93`)
+
+Once the VM caller began routing native func-value calls through `call_packed` /
+`__shimP` (the b1 caller flip, `60159b5c0`), native cross-package AGGREGATE-return
+func values (`876/879/881/882_funcval_xpkg_*`) CRASHED on `builder-comp_arm32_linux_int`
+(the LLVM arm32 lane, ILP32).  The LLVM `__shimP.<m>` hardcoded its `%pa0..%pa6`
+params (argsPtr, nSlots, retbuf) as `i64`, but the shim is invoked via the
+`_call_shim_scalar64(fn, data, a0..a6)` IR-magic whose a-args are word-sized `int`.
+On ILP32 (AAPCS32) an i64 param is an even-aligned register PAIR, so a hardcoded-i64
+`%pa0` was fetched from R2:R3 while the caller placed the args pointer in R1 →
+garbage pointer → SIGSEGV inside the `__shimP`→`__shim`→callee chain.  Fixed by
+emitting the params + their `inttoptr` as the target int type (`intLL()`: i32 ILP32 /
+i64 LP64); the `i64` RETURN stays (matches `_call_shim_scalar64`'s int64 return, an
+R0:R1 pair on ILP32).  LP64 output is byte-identical (a no-op there).  Validated:
+full `builder-comp_arm32_linux_int` = 3015 passed, 0 func-value failures (only the
+pre-existing, unrelated `737_build_import_select` remains).  Regression tests:
+`TestEmitFuncValuePackedShimILP32Params` (scalar params) +
+`TestEmitFuncValuePackedShimILP32AggregateRetbuf` (the retbuf pa2 path — the exact
+failing shape).  Adversarially reviewed ("correct and complete").
+
 ### Cross-mode VM func-value dispatch via call_packed + nested-VM trampoline fix (b1 caller flip / "Bug B") — DONE (2026-09-15, `60159b5c0`)
 
 b1 (`98219ab3e`) routed every VM func-value call through the vtable slot-1 per-shape
