@@ -72,7 +72,7 @@ then short-circuits that round-trip for speed.  Do NOT use b2 to make any-arity
 dispatch *work* — only to make the already-working VM-in-VM path faster.  Assigned
 (after the trampoline-fix lands).
 
-### VM SP-guard: temp-growth corruption checks + indirect-call overflow pre-check — 🟡 IN PROGRESS (claimed 2026-09-08, work-2/session) — Inc 1 + Inc 2 (reservation R1-R5, + R5 e2e-coverage follow-up) LANDED; only Inc 3 remains
+### VM SP-guard: temp-growth corruption checks + indirect-call overflow pre-check — 🟡 IN PROGRESS (claimed 2026-09-08, work-2/session; Inc 3a claimed 2026-09-16, work-2) — Inc 1 + Inc 2 (reservation R1-R5, + R5 e2e-coverage follow-up) LANDED; Inc 3a (func-value pre-check) IN PROGRESS; Inc 3b (iface-method) remains
 
 Comprehensive recoverable-stack-overflow guard (plan `plan-vm-stack-precheck.md`):
 never leak or corrupt on overflow.  **Inc 1 LANDED `7d610fdb6`:** the eval/deliver
@@ -106,6 +106,14 @@ Remaining:
   extent is known only at the runtime dispatch point), so their frame-push
   moved-arg leak persists.  Emit the check at dispatch, before the moved args are
   consumed.  `pushFrame`'s existing check stays as the backstop throughout.
+  Approach A settled (design review 2026-09-16, plan doc): a pre-delivery
+  `OP_STACK_CHECK_FV`-style op carrying the runtime callee operand, args-owning
+  pad, faults on callee-never-entered (overflow OR nil value).  Split into:
+  - **Inc 3a — func-value calls (`OP_STACK_CHECK_FV`): IN PROGRESS (work-2, claimed
+    2026-09-16).**  Repro `TestFuncValueOverflowNoLeak` (pkg/binate/vm) RED until
+    this lands.  Covers func-value overflow + nil-func-value moved-arg leaks.
+  - **Inc 3b — iface-method calls:** same pre-check on the receiver
+    (`genInterfaceMethodCall`), plus nil-iface + iface-method-overflow tests.
 
 ## Performance
 
