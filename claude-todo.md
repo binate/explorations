@@ -113,7 +113,7 @@ quote numbers from this file (they go stale):**
   backends by static instruction/reload counting on a `--target` build, or on
   real hardware/CI.
 
-### Native aggregate-copy: raw-pointer load→store fusion (S-adjacent) + measure — 🔵 OPEN, low priority (2026-09-16)
+### Native aggregate-copy: raw-pointer load→store fusion (S-adjacent) + measure — 🟡 IN PROGRESS (S-adjacent claimed 2026-09-16, temp-5/session) (2026-09-16)
 
 The managed case (S-alloca: alias a confined non-escaping stack alloca source for
 `b = a` / `b.s = a`) LANDED `c3345fbac` — see claude-todo-done.md; design +
