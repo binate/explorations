@@ -218,6 +218,80 @@ commit with tests.
    reservation. Keep the cross-mode-variadic runtime check (make it a graceful
    terminal fault, not vmPanic). Tests + review + land.
 
+## Inc 3a IMPLEMENTATION CHECKLIST (func-value pre-check, approach A) — post-compaction handoff
+
+State: leak CONFIRMED + repro committed on work-2 as `79fd1d549`
+(`pkg/binate/vm/vm_indirect_precheck_test.bn`, TestFuncValueOverflowNoLeak, RED until
+this lands). Approach A settled + reviewed (see DESIGN REVIEW OUTCOME below). work-2
+is otherwise clean on main (all of R1-R5 + follow-up landed). Do Inc 3a as its own
+landable commit (func-value + nil-func-value); iface-method is Inc 3b.
+
+Mechanism: emit a NEW pre-delivery op `OP_STACK_CHECK_FV` carrying the func-value
+operand, BEFORE deliverCallArgs, with an args-owning cleanup pad (attachFaultPad).
+Its VM handler resolves the callee from the func value and faults into that pad if
+the callee's frame would overflow OR the func value is nil — before any dispatch.
+
+Edits:
+1. `pkg/binate/iropcode/opcodes.bn`: add `OP_STACK_CHECK_FV` as the NEW LAST opcode
+   (after OP_STACK_CHECK; NUM_OPS shifts) + its OpName case ("stack_check_fv").
+   Update `opcodes_test.bn` TestOpcodeEnumTailPinned: OP_STACK_CHECK_FV == NUM_OPS-1,
+   OP_STACK_CHECK == OP_STACK_CHECK_FV-1, OP_PARAM == OP_STACK_CHECK-1.
+2. `pkg/binate/ir/ir_ops.bn`: `EmitStackCheckFV(fnVal @Instr)` — an instr with
+   Args=[fnVal] (via makeArgs1), void result, Op=OP_STACK_CHECK_FV.
+3. Compiled-backend NO-OP (mirror OP_STACK_CHECK exactly) at ALL FOUR sites:
+   codegen/emit_instr.bn:32, native/aarch64/aarch64_dispatch.bn:458 (add to the
+   `case OP_NIL_CHECK, OP_STACK_CHECK:` list), native/arm32/arm32_dispatch.bn:278,
+   native/x64/x64_dispatch.bn:453.
+4. VM BC op: find the BC_* enum const block (grep the `BC_STACK_CHECK =` / iota
+   definition) and add `BC_STACK_CHECK_FV`.
+5. `pkg/binate/vm/lower_call.bn` (near the OP_STACK_CHECK arm ~17): lower
+   OP_STACK_CHECK_FV -> BC_STACK_CHECK_FV; bc.Dst=-1; bc.Src1 = instr.Args[0].ID
+   (the func-value register).
+6. `pkg/binate/vm/lower_slots.bn` remapRegisters (~224): ensure BC_STACK_CHECK_FV's
+   Src1 is remapped (BC_STACK_CHECK has no reg operands, so the new op needs Src1
+   added to the remap set — VERIFY and add).
+7. `pkg/binate/vm/vm_exec.bn` (near BC_STACK_CHECK handler ~428): BC_STACK_CHECK_FV:
+   `var fv *int = bit_cast(*int, regs[instr.Src1])`
+   - if fv==nil OR fv[types.FuncValueVtableIndex()]==0 -> nil func value:
+     setFault(vm, "runtime error: call of nil function value"); pc =
+     consumeFaultToPad(vm, f, pc); continue.
+   - `var data int = fv[types.FuncValueDataIndex()]`; if data==0 -> native
+     non-capturing (no VM frame) -> continue (no check).
+   - `var rec *int = bit_cast(*int, data)`; if !closureRecIsVm(rec[0]) -> compiled
+     closure / native -> continue.
+   - `var fnIdx int = rec[2]-1`; if fnIdx in range AND
+     wouldFrameOverflow(vm, frameReserve(vm.Funcs.Get(fnIdx))) ->
+     setFault(vm, "runtime error: stack overflow"); pc = consumeFaultToPad(vm,f,pc);
+     continue.
+   (Helpers: closureRecIsVm in vm_trampoline.bn:16; FuncValueVtableIndex/DataIndex
+   in types/layout_offsets.bn; frameReserve/wouldFrameOverflow in vm.bn.)
+8. `pkg/binate/ir/gen_call.bn` genFuncValueCallWithFn (~415-447): today it calls
+   buildCallArgs (gen_variadic.bn:124, which fuses evalCallArgs+deliverCallArgs).
+   Split it: evalCallArgs -> `b.EmitStackCheckFV(fnVal)` -> `attachFaultPad(ctx, b)`
+   (args-owning pad) -> deliverCallArgs -> EmitCallFuncValue -> attachFaultPad
+   (post-call pad, existing). Mirror genCall's OP_STACK_CHECK sequence exactly.
+   NOTE: fnVal is the func-value operand already genExpr'd by the caller
+   (genFuncValueCall / genFuncValueCallExpr); it is BORROWED by the call (not
+   consumed), so a fresh-temp fnVal stays a Temp and the args-owning pad RefDecs it
+   once on fault (correct — verified in the design review Q2).
+9. Tests (pkg/binate/vm): TestFuncValueOverflowNoLeak (repro, already present) must
+   PASS. Add TestNilFuncValueMovedArgNoLeak: `gFn` left nil, call `gFn(cast(@I,
+   make(T)))`, assert Status FAULTED + "call of nil function value" + stable
+   LiveBlocks (M1). Verify non-vacuity for both (revert the check -> they fail).
+10. Inliner: func-value calls are NOT inlined (inliner only inlines direct OP_CALL
+    by name), so OP_STACK_CHECK_FV never appears in an inlined body -> no inliner
+    change needed (unlike OP_STACK_CHECK's dropOrphanedStackChecks, which a new op
+    sidesteps). VERIFY no inliner pass keys off it.
+11. Validate: unit tests (ir, vm, codegen, native/{aarch64,arm32,x64} for the skip),
+    hygiene, VM conformance (builder-comp-int). Adversarial review. Land (needs
+    per-instance approval).
+
+Inc 3b (later): the SAME pre-check for iface-method calls (genInterfaceMethodCall
+in gen_iface_dispatch.bn) — there the callee IS resolvable from the receiver
+vtable+slot; the review notes its push is in-loop/synchronous so it could even reuse
+pushFrame's own fault, but the uniform A pre-check (OP_STACK_CHECK_FV-analog on the
+receiver, or a shared op) is cleanest. Plus nil-iface + iface-method-overflow tests.
+
 ## Inc 3 — indirect-call frame-push moved-arg leak (SCOPE, 2026-09-15)
 
 CONFIRMED LEAK (repro `TestFuncValueOverflowNoLeak`, pkg/binate/vm): a func-value
