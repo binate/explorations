@@ -25,13 +25,17 @@ were hardcoded i64, mismatching the word-sized `_call_shim_scalar64` ABI on ILP3
 (AAPCS32 i64 = even-register pair); now emitted as the target int (intLL).
 
 Remaining:
-- **C2 (IN SCOPE — owner folded in 2026-09-09):** two OTHER cross-mode dispatchers
-  carry the same scalar-only/≤7 limitation — `dispatchExternBinding`/
-  `execExternCall` (vm_extern.bn) and `dispatchCompiledIfaceMethod`
-  (call_iface_host.bn).  Pre-existing (not b1 regressions, no failing test), but
-  migrated in the SAME work (step 4): switch both consumers to `call_packed`, drop
-  their `>7`/`>6` vmPanics, add conformance coverage for the newly-enabled
-  extern/iface-method cross-mode shapes.  So ALL cross-mode dispatch is any-shape.
+- **C2 — 🟡 IN PROGRESS (started 2026-09-16, work-4/temp-4):** three OTHER cross-mode
+  dispatchers carry the same scalar-only/≤7 limitation — `dispatchExternBinding`/
+  `execExternCall` (vm_extern.bn, `>7` guard), `dispatchCompiledIfaceMethod`
+  (vm_exec_iface.bn, `>6` guard) and the host-driven `CallIfaceMethod`
+  (call_iface_host.bn, `>6` guard).  Pre-existing (not b1 regressions, no failing
+  test), but migrated in the SAME work (step 4): switch all three consumers to
+  `call_packed`, drop their `>7`/`>6` vmPanics, add conformance coverage for the
+  newly-enabled extern/iface-method cross-mode shapes.  So ALL cross-mode dispatch
+  is any-shape.  Plan: extern goes regs-direct (mirror `dispatchCompiledFuncValue`,
+  uncapped); the two iface-method paths prepend the receiver as packed slot 0 into a
+  scratch buffer.
 
 ### `737_build_import_select` fails on `builder-comp_arm32_linux_int` — 🔴 OPEN (pre-existing, unrelated to cross-mode work)
 
