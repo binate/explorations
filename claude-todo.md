@@ -7,34 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### Cross-mode iface-arg substitution scratch grows vm.SP unchecked / vmPanics — 🔴 OPEN, MAJOR (found 2026-09-14 via reservation R1 review)
-
-A cross-mode call (`OP_C_CALL` / `OP_CALL_IFACE_METHOD` / `OP_CALL_FUNC_VALUE` /
-`OP_CALL_HANDLE`) that marshals a bytecode-impl interface argument to a native
-callee grows the CALLER's `vm.SP` by argument-substitution scratch that persists
-to the next `OP_SP_RESTORE`, in two flavors:
-
-- **`substArgSlotIface` (`vm_iface_crossmode.bn:180`): `vm.SP += align8(e.ByteSize)`
-  per iface-carrying arg slot, with NO overflow check.** Statically sized
-  (`e.ByteSize` is the arg type's SizeOf; the per-call-site `ArgIfaceLayout` is
-  built at lower time — `buildArgIfaceLayout` → `vmf.ArgIfaceLayouts`). A call
-  with large/many iface args near the stack limit can write past `vm.Stack`
-  (silent corruption); backstopped today only by the pushFrame red-zone.
-- **`substituteSliceIfaceArgs` (`vm_iface_native_vt.bn:156,171`, the `...*any`
-  runtime-sized path): `vm.SP += (n*2+2)*REG_SLOT`.** It DOES self-check, but
-  aborts via `vmPanic` — which kills the host process, violating the
-  clean-VM-termination goal (should be a graceful terminal fault).
-
-Proper fix (folds into the reservation work): the STATIC `substArgSlotIface`
-scratch is a per-call reservation term (sum over the call's `ArgIfaceLayout`
-slots of `align8(ByteSize)`), added at lower time alongside the return-image
-term (R2), so frame entry reserves it and it can never overflow — this also FIXES
-the missing-check gap. The RUNTIME `substituteSliceIfaceArgs` path keeps a runtime
-check but becomes a graceful terminal fault, not `vmPanic` (R5). Until R2/R3 land
-this is a pre-existing latent gap. NOTE: this corrects plan-vm-stack-precheck.md's
-earlier premise that the `...*any` variadic was "the ONE genuinely runtime-sized
-growth" — there is also this static arg-substitution scratch.
-
 ### CROSS-MODE VM func-value dispatch regressed to scalar-only + ≤7 args (b1) — 🔴 STEP-4a REVERTED — re-do the caller flip with full-suite validation — see plan-crossmode-callpacked.md (claimed 2026-09-08, work-4/temp-4)
 
 **Step-4a (flip the VM caller to `call_packed`) was landed `1a3bc9260` then
@@ -94,7 +66,7 @@ then short-circuits that round-trip for speed.  Do NOT use b2 to make any-arity
 dispatch *work* — only to make the already-working VM-in-VM path faster.  Assigned
 (after the trampoline-fix lands).
 
-### VM SP-guard: temp-growth corruption checks + indirect-call overflow pre-check — 🟡 IN PROGRESS (claimed 2026-09-08, work-2/session)
+### VM SP-guard: temp-growth corruption checks + indirect-call overflow pre-check — 🟡 IN PROGRESS (claimed 2026-09-08, work-2/session) — Inc 1 + Inc 2 (reservation R1-R5) LANDED; Inc 3 + R5 e2e-coverage follow-up remain
 
 Comprehensive recoverable-stack-overflow guard (plan `plan-vm-stack-precheck.md`):
 never leak or corrupt on overflow.  **Inc 1 LANDED `7d610fdb6`:** the eval/deliver
@@ -106,29 +78,21 @@ still-owned args, so a moved `@Iface`/managed-struct arg is released instead of
 leaked at `pushFrame`; compiled backends no-op the op).
 
 Remaining:
-- **Inc 2 — temp-growth safety.** APPROACH CHANGED 2026-09-14 to the RESERVATION
-  model — see `plan-vm-stack-precheck.md` for the full design + compaction handoff.
-  Summary: every temp-growth amount is compile-time known (fixed headers, literal
-  array sizes, call return-copy-back sizes) and statement-scoped, so instead of a
-  per-op check+pad (which perturbs the inliner + costs on hot ops), compute a
-  per-function `MaxStmtTempGrowth` at lower time and reserve `frameExtent +
-  MaxStmtTempGrowth` in the ONE existing `pushFrame` check.  Then temp-growth can't
-  overflow by construction — NO per-op checks/pads — and overflow is caught only at
-  frame entry via the existing (leak-free) Plan-2 unwind, which matches the owner's
-  actual goal (clean VM termination, no host `vmPanic`, no leak, minimal perf; REPL
-  is a host-side keep+reset policy).  The lone runtime-sized growth (cross-mode
-  `...*any` scratch, `vm_iface_native_vt.bn:148`) keeps a runtime check (as a
-  graceful terminal fault, not vmPanic).  STATUS: reservation review DONE — sound
-  mechanism but the growth INVENTORY was incomplete (see plan REVIEW OUTCOME
-  section: must also count OP_IFACE_UPCAST, transient pushManagedSlice scratch,
-  callee return-image size, cross-mode variadic scratch; compute over
-  SP_RESTORE-delimited regions).  Owner signed off D1 (recursion-depth /
-  over-reservation tradeoff) and chose "(c) then (a)".  (c) DONE: standalone
-  OP_IFACE_UPCAST reclaim bug fixed + landed `7697db626` (now moved to done).
-  (a) NEXT: revert the landed per-op `1dd3f319f` (OP_RODATA_ARRAY recoverable
-  check — SUPERSEDED; needs a fresh cherry-pick approval) + reset work-2 off the
-  WIP `e7ee47730` (DONE — preserved as branch `work-2-perop-checkpoint`; work-2 is
-  now clean main), then implement reservation with the corrected inventory.
+- **Inc 2 — temp-growth safety: DONE (RESERVATION model, R1-R5 landed 2026-09-15).**
+  Every per-statement temp growth is reserved at frame entry via
+  `frameReserve = frameExtent + MaxStmtTempGrowth`, so temp growth can't overrun
+  vm.Stack by construction (no per-op checks; overflow caught at frame entry via
+  the leak-free Plan-2 unwind).  Landed: R1 spGrowthBytes inventory `770b6fbc1`,
+  R2 MaxStmtTempGrowth dataflow `70bfdd37a`, R3 reserve-at-pushFrame `4401121a9`,
+  R4 drop redundant per-op OP_RODATA_ARRAY check `70265c12f`, R5 cross-mode
+  `...*any` graceful-fault-not-vmPanic `6f2576927`; plus the standalone
+  OP_IFACE_UPCAST reclaim fix `7697db626`.  See plan-vm-stack-precheck.md.
+  FOLLOW-UP (R5 coverage, MINOR): the `dispatchExternBinding` abort-before-shim
+  guard + the end-to-end cross-mode `...*any` overflow→unwind path have no DIRECT
+  test (the setFault decision is unit-tested; the unwind is covered indirectly).
+  Add an end-to-end test (register a variadic `...*any` native extern + a bytecode
+  caller spreading a huge bytecode-impl-iface slice; assert clean fault + no leak).
+
 - **Inc 3 — indirect/method/func-value/iface-method calls.** These got the
   eval/deliver split (mid-eval leak fixed) but NOT `OP_STACK_CHECK` (callee frame
   extent is known only at the runtime dispatch point), so their frame-push

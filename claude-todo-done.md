@@ -6,6 +6,23 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### Cross-mode iface-arg substitution scratch grew vm.SP unchecked / vmPanic'd — FIXED by the reservation series (2026-09-15, MAJOR)
+
+Found 2026-09-14 via the reservation R1 review.  A cross-mode call marshalling a
+bytecode-impl interface arg to a native callee grew the caller's vm.SP two ways,
+now both handled:
+
+- **`substArgSlotIface` (static, per iface arg slot, `align8(SizeOf)`)** — was
+  UNCHECKED (could write past vm.Stack; backstopped only by the red zone).  Now
+  RESERVED at frame entry: `argSubstBytes` counts it into the caller's
+  `MaxStmtTempGrowth` (R2, `70bfdd37a`), which `pushFrame`/`BC_STACK_CHECK` reserve
+  (R3, `4401121a9`).  It can no longer overflow.
+- **`substituteSliceIfaceArgs` (the `...*any` runtime-sized slice scratch)** — was
+  a process-fatal `vmPanic` on overflow.  Now a graceful recoverable terminal
+  fault (R5, `6f2576927`): `setFault` + `wouldFrameOverflow` (red-zone-safe),
+  `dispatchExternBinding` aborts before the shim, and execLoop's callFaultPending
+  path unwinds the extern call op's pad.  No host abort, no leak.
+
 ### SROA nested-aggregate struct fields (gate + L1-recursion + fixpoint bound) — DONE, LANDED (2026-09-15; `a0bfa865b`)
 
 IR-level SROA now scalar-replaces a non-managed struct with a nested struct /
