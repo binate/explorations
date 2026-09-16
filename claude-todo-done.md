@@ -89,10 +89,21 @@ truncates.
 conformance `1264_sroa_nested_aggregate`. Validated: 823 ir unit tests; full
 `builder-comp` conformance 3028/0; 1264 on VM + native-aa64; hygiene 20/20.
 
-**Follow-up flagged** (pre-existing, not from this change): the SROA gate peels
-`ALIAS` via `peelTransparent` while LLVM `emitAlloc` peels only NAMED+READONLY —
-an alias-typed aggregate field could classify differently (see the active todo /
-investigation).
+**Follow-ups (investigated + resolved after landing):**
+- **Alias peeling in `emitAlloc`** (`bdcfdba1d`): LLVM `emitAlloc`'s zero-fill gate
+  peeled only NAMED+READONLY, not `TYP_ALIAS`, unlike `peelTransparent` (SROA) /
+  `peelReprType` (same file) / native `IsAggregateTyp`. Investigated: NOT a live
+  bug — an alias over an aggregate is resolved to its target before it becomes an
+  alloca element type (confirmed empirically: a `var x AliasStruct` alloca and a
+  struct field of alias type both carry the resolved type; `emitZeroRec` also
+  resolves aliases via `ResolveAlias`), so `TYP_ALIAS` never reaches the gate.
+  Replaced the hand-rolled loop with `peelReprType` for consistency and drift
+  safety (behavior-neutral). Full-corpus + zero-fill-focused conformance clean.
+- **Array-field coverage** (`79d033d9c`): conformance `1265_sroa_array_field` (a
+  `[N]T` struct field stays a zero-filled array slot — not split element-wise —
+  written elements read back, unwritten read 0) + ir unit
+  `TestSroaStructWithArrayFieldScalarReplaced`. (Raw-slice field already covered by
+  `055_struct_with_slice`.)
 
 ### Native aggregate-COPY efficiency (by-value slice/struct copies) — DONE, LANDED (2026-09-14; aarch64 `a7d49192d`, x64 `800467f7c`, arm32 `f8a532d96`)
 
