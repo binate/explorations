@@ -218,6 +218,51 @@ commit with tests.
    reservation. Keep the cross-mode-variadic runtime check (make it a graceful
    terminal fault, not vmPanic). Tests + review + land.
 
+## Inc 3 — indirect-call frame-push moved-arg leak (SCOPE, 2026-09-15)
+
+CONFIRMED LEAK (repro `TestFuncValueOverflowNoLeak`, pkg/binate/vm): a func-value
+call recursing with a moved `@I` box leaks that box when the callee frame-push
+overflows.  Root cause: direct calls emit a PRE-DELIVERY `OP_STACK_CHECK`
+(gen_call.bn) whose cleanup pad still OWNS the args, so a pushFrame overflow
+faults there and RefDecs them.  Indirect calls (func-value / iface-method /
+OP_CALL_INDIRECT) have only a POST-call pad — attached AFTER `deliverCallArgs`
+consumeTemp'd the moved args, so that pad does NOT own them; on pushFrame overflow
+the moved arg is orphaned.  (This is exactly the leak Inc 1's OP_STACK_CHECK fixed
+for direct calls; indirect calls couldn't use it because the callee is a runtime
+value, not a static name.)
+
+Why not just make the indirect CALL op's pad own the args: the SAME op also faults
+on a NESTED (in-callee) fault, where the callee already owns the args — RefDec'ing
+them there would double-free.  Direct calls avoid this with TWO ops/pads:
+OP_STACK_CHECK (pre-delivery, owns args, fires on pushFrame overflow) + OP_CALL
+(post-delivery, does NOT own args, fires on nested faults).  Inc 3 must give
+indirect calls the same two-pad split.
+
+CANDIDATE APPROACHES:
+- **(A) Separate pre-check op that resolves the callee at runtime.** Mirror direct
+  calls: emit a pre-delivery check op (before deliver, args-owning pad) carrying
+  the func-value / receiver operand; a VM handler resolves the callee VMFunc from
+  that runtime value and checks frameReserve, faulting into the pad on overflow.
+  Uniform with direct calls, but DUPLICATES the dispatch handler's callee
+  resolution (func-value vs closure vs iface-method vs native — native func values
+  push no VM frame, so skip).
+- **(B) Dispatch-handler check + second (args-owning) pad — RECOMMENDED.** The
+  BC_CALL_FUNC_VALUE / BC_CALL_IFACE_METHOD handler ALREADY resolves the callee to
+  push its frame, so it can check frameReserve itself with no re-resolution.
+  IR-gen attaches a pre-delivery args-owning pad (before deliver) in ADDITION to
+  the post-call pad; the handler dispatches to the args-owning pad SPECIFICALLY on
+  the pushFrame-overflow path (it knows it's an overflow — pushFrame returned -1),
+  and to the post-call pad on nested faults (callFaultPending after the call).
+  Needs a way to carry two pads per call op (a second PadBlock field or a distinct
+  fault-table key) + lowering support.  No duplicated resolution.
+
+RECOMMENDATION: (B).  Open questions to settle at start: (1) how to carry the
+second pad (new ir.Instr field `PrePadBlock` vs a parallel fault-table entry);
+(2) which ops need it (func-value, iface-method, and OP_CALL_INDIRECT — but the
+last is only the magic scalar/aggregate shims per gen_call.bn, likely no managed
+moved args → verify); (3) native/compiled func-value callees push no VM frame, so
+the handler skips the check for them (only vm-func / closure callees push).
+
 ## Increments (original framing — retained for context; Inc 2 now = reservation)
 
 - **Inc 1 — LANDED `7d610fdb6`** (see above). STAYS.
