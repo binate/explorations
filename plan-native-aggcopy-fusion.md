@@ -1,11 +1,21 @@
 # Plan: native aggregate-copy load→store fusion (eliminate redundant intermediate buffers)
 
-Status: DESIGN (revised after an adversarial safety review; for a second review /
-sign-off before implementation). Owner: temp-5 (2026-09-15). The review found a
-CRITICAL error in the first draft — the safety condition was framed as lifetime-only,
-but an aggregate load is a *snapshot*, so a source *written* between load and use
-(the `a, b = b, a` swap idiom) corrupts silently too. §2.1/§3/§4/§5/§6 now carry the
-two-part (no-free AND no-write) condition.
+Status: IMPLEMENTED (S-alloca path), on the temp-5 branch, pending landing approval.
+Owner: temp-5 (2026-09-15). Two adversarial reviews shaped it:
+- Review 1 (design) found a CRITICAL first-draft error — the condition was framed as
+  lifetime-only, but an aggregate load is a *snapshot*, so a source *written* between
+  load and use (the `a, b = b, a` swap idiom) corrupts too. The predicate now carries
+  the two-part (no-free AND no-write) condition.
+- Review 2 (implementation) found ONE real hole: a load feeding a `__c_call` argument
+  is not read-only for a large by-value aggregate on aarch64 (AAPCS64 passes it
+  indirectly with NO caller copy; the load's materialization region was silently
+  serving as that copy, and a C callee may write through it). Fixed by excluding
+  `OP_C_CALL` argument uses from elision. Everything else verified sound.
+
+Implemented: `AggLoadElidable` in `pkg/binate/native/common/common_aggload_elision.bn`,
+wired into `PlanFrame`. Only the S-alloca shape (confined non-escaping stack alloca
+source) is implemented; the raw-pointer S-adjacent case (`*dst = *src`) is deferred as
+a smaller follow-up.
 Tracked by the `claude-todo.md` entry "Native aggregate-copy: eliminate redundant
 intermediate buffers (load→store fusion)". Follows the landed aggregate-copy-*width*
 work (aarch64 `a7d49192d`, x64 `800467f7c`, arm32 `f8a532d96`), which widened each
@@ -204,8 +214,13 @@ return."
 1. **Read-only consumers.** Every use of `%v` (whole-function **including
    `f.FaultPads`**) is a read-consumer — `OP_STORE` *value* operand, `OP_EXTRACT`,
    `OP_BOX`, or return/arg marshalling — never a store *destination* and never a
-   pointer base. (Verified structurally true for aggregate-load values, but asserted
-   per-load so a future op that mutates through the value can't silently break it.)
+   pointer base. **Exception (review 2): a `__c_call` argument is NOT read-only** —
+   for a large by-value aggregate the C ABI passes it indirectly with no caller copy
+   (AAPCS64), so the materialization region is the required caller copy and a C callee
+   may write through it; an `OP_C_CALL` value use forces materialization. (Internal
+   `OP_CALL` is fine — the callee re-copies an indirect-large param into its own
+   frame.) *As implemented, the same-block use scan excludes any use outside `%v`'s
+   block or in a fault pad and rejects the load there — a stricter form of this.*
 2. **One of two source shapes:**
    - **(S-alloca) stable, non-escaping stack root.** `stableAllocaRoot(%src)` follows
      `%src` back through **only** `OP_GET_FIELD_PTR` links to a root `OP_ALLOC` `A`
