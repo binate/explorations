@@ -368,6 +368,16 @@ the VM caller but REFERENCED by the vtable emitters (so not bnlint-unused).
   `TestCallFuncAggregateKeepsSPAligned`); split `execStringOp` → `vm_exec_string.bn`
   for file length.  NEXT: **step 4b = C2** (migrate `dispatchExternBinding`/
   `execExternCall` + `dispatchCompiledIfaceMethod` to `call_packed`).
+- 2026-09-14/15: **`1a3bc9260` was REVERTED (`111f12f73`) then RE-LANDED as
+  `60159b5c0`.** The first landing regressed main — `call_packed` returned garbage
+  addresses on the nested `builder-comp-int-int` lane (153 tests) and crashed on
+  arm32 native aggregate func values.  Root cause of the int-int regression: a
+  MISSING `ensureHandle` TrampolinePacked self-reference override (the other three
+  trampolines had one) — a nested VM's `Externs[TrampolinePacked]` carried a
+  TrampolineScalar entry, so every nested func value's `CallPacked` mis-resolved.
+  The re-land `60159b5c0` adds that override; validated with a FULL Docker
+  conformance run of int-int + arm32_linux_int.  NEXT: **Bug A** (arm32 `__shimP`
+  aggregate crash, 876/879/881/882 — active) then **C2**.
 
 ### LLVM `__shimP` design (step 3d) — the intricate one
 

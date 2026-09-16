@@ -194,6 +194,50 @@ native aa64 3024/0; builder-comp 3024/1 (the 1 an UNRELATED pre-existing flaky I
 tracked in claude-todo.md); ir unit tests (incl. nameIsCompilerInternalFunc); reflect
 differential; hygiene 20/20; adversarial review found no confirmed defect.
 
+### Cross-mode VM func-value dispatch via call_packed + nested-VM trampoline fix (b1 caller flip / "Bug B") — DONE (2026-09-15, `60159b5c0`)
+
+b1 (`98219ab3e`) routed every VM func-value call through the vtable slot-1 per-shape
+trampoline (scalar-only, ≤7 user words), dropping FP floats, narrow args, by-retbuf
+aggregates/multi-return, and >7 spilled words. Fixed by flipping the VM caller
+(`dispatchCompiledFuncValue`) to the vtable slot-2 `call_packed` entry — a uniform
+packed-int-slot ABI (data, args pointer, nSlots, retbuf) that carries ANY shape:
+VM func values → `TrampolinePacked`, native → per-signature `__shimP`.
+
+The bite that reverted the first attempt (`1a3bc9260` → revert `111f12f73`) and the
+fix that made the re-land work: `ensureHandle` was missing the TrampolinePacked
+self-reference override the other three trampolines had. When a host registers
+TrampolinePacked (`var tp = TrampolinePacked`), building its own func value picked
+the default-selected scalar trampoline, so a NESTED VM's `Externs[TrampolinePacked]`
+carried a TrampolineScalar entry; every func value built in that nested VM then got
+`CallPacked` = TrampolineScalar, and the VM caller invoked call_packed's
+`(data, args, nSlots, retbuf)` ABI through TrampolineScalar's `(data, a0..a6)` ABI —
+feeding the args pointer in as the first user arg (garbage/address results across the
+whole `builder-comp-int-int` lane, 153 tests). Adding the fourth override fixed it.
+
+Also fixed a latent `execFunc` result-relocation bug the any-size path exposed: the
+relocation window was hardcoded to ≤64 bytes (truncated an 80-byte `(Big,int)`
+multiret, `1097`); now it relocates the full `ResultRetbufBytes` image, advancing
+`vm.SP` by the 8-ROUNDED size to keep the frame-header 8-alignment invariant (an
+un-rounded advance data-aborts on strict-align arm). Regression test
+`TestCallFuncAggregateKeepsSPAligned`. Removed the obsolete `>64` guards in
+TrampolineAggregate/TrampolinePacked. Split `execStringOp` to `vm_exec_string.bn`
+for file length.
+
+Removed the 51 xfail markers (17 cross-mode func-value tests × 3 VM modes). The b1
+triage had ALSO missed `builder-comp_arm32_linux_int` (a 4th VM-exercising mode) —
+those 17 failed `>7 arg slots` unxfailed there, which is what had kept main RED since
+b1; this fix greens them there too. Reviewed twice adversarially (the 64-byte fix's
+8-alignment MAJOR finding, then the ensureHandle override — verdict "correct,
+complete, minimal"). Item 1 (case-A caller-side packed shim) folded into `__shimP`.
+Regression coverage: the func-value conformance suite in `builder-comp-int-int`
+(fails without the ensureHandle override, passes with it), validated via a full
+Docker Linux conformance run.
+
+Follow-ups still open (in claude-todo.md): Bug A (native cross-package aggregate
+func values via arm32 `__shimP` crash on `builder-comp_arm32_linux_int` — being
+fixed immediately after this landing) and C2 (migrate the extern + iface-method
+cross-mode dispatchers to `call_packed`).
+
 ### Recoverable fault mid-composite-literal leaks already-moved managed fields — DONE (2026-09-14, `2b8066844`)
 
 A struct / array / managed-slice literal MOVES each managed member into the aggregate
