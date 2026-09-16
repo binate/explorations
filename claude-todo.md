@@ -221,7 +221,8 @@ CORRECTION 2026-09-08):
    Handling needs per-backend un-coercion of the call result before extract — riskier,
    ABI-specific, and few programs both struct-init-from-a-by-value-call AND
    field-access it.  LOWER priority; assess payoff before doing.
-   Minor follow-ups from the earlier managed-slice review (non-blocking): (i)
+   Minor follow-ups from the earlier managed-slice review (non-blocking) — 🟡 IN
+   PROGRESS (claimed 2026-09-16, work-1/session 01LPZ7): (i)
    `wholeLoadExtractsField` is O(fields×instrs) per whole-load — replace with a
    one-pass tally (single scan building bool[fields]) if it ever matters; (ii)
    unit tests for a fully-dead whole-load, a real FaultPad extract, and two whole
