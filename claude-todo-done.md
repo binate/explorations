@@ -6,6 +6,30 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### Cross-mode `g_crossModeVmAddr` published by the func-value + iface-method dispatchers — DONE (2026-09-16, `eee95ee8e`)
+
+Surfaced by the C2 adversarial review: `dispatchCompiledFuncValue` (vm_exec_funcref.bn)
+and `dispatchCompiledIfaceMethod` (vm_exec_iface.bn) — the two execLoop cross-mode
+dispatchers — did NOT set/restore `g_crossModeVmAddr` around the native call, unlike
+`dispatchExternBinding` (vm_extern.bn) and the host `CallIfaceMethod`
+(call_iface_host.bn).  `g_crossModeVmAddr` is read by `satFallbackFn` (the fallback on
+`rt.SatLookup`): a native cross-mode callee running an internal `x.(*J)` on a
+bytecode-boxed value whose (T, J) fact lives only VM-side needs it to point at THIS vm
+to recover through the VM satentry registry; left unset (0, or stale from an enclosing
+extern dispatch) the assertion misresolved.  Pre-existing and latent (no test drove a
+native cross-mode func value / iface method type-asserting a bytecode arg).
+
+Fix: mirror the established save/set/restore in both dispatchers (set to
+`bit_cast(int, vm)` around the native dispatch, restore at each of the three return
+paths — re-entrant; harmless for a VM func value whose TrampolinePacked re-enters the
+vm, since VM bytecode assertions use the direct BC_SAT_LOOKUP path).  Coverage
+(vm_crossmode_satvm_test.bn): each dispatcher is driven directly with a native probe
+that returns the observed `g_crossModeVmAddr`, asserting it equals the dispatching vm
+and is restored after.  Revert-confirmed: neutering the publish fails exactly those
+two tests (402 others pass).  Validated: vm unit tests green, `builder-comp-int`
+3020/0, hygiene 20/20, independent adversarial review clean.  Both bytecode-driven
+cross-mode dispatchers now publish the vm, symmetric with the extern/host paths.
+
 ### `737_build_import_select` on `builder-comp_arm32_linux_int` — DONE (2026-09-16, `ef319f567`)
 
 Not a build-select bug — a missing per-mode expected override.  `pkg/sel` gates

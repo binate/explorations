@@ -7,35 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### Cross-mode `g_crossModeVmAddr` unset by the two bytecode-driven dispatchers — 🟡 ASSIGNED (claimed 2026-09-16, work-4/temp-4)
-
-`dispatchCompiledFuncValue` (vm_exec_funcref.bn) and `dispatchCompiledIfaceMethod`
-(vm_exec_iface.bn) — the two execLoop cross-mode dispatchers — do NOT set/restore
-`g_crossModeVmAddr` around the native call, whereas `dispatchExternBinding`
-(vm_extern.bn) and the host `CallIfaceMethod` (call_iface_host.bn) DO.
-
-`g_crossModeVmAddr` is the VM currently dispatching an injected-native callee; it is
-read by `satFallbackFn` (vm_iface_native_vt.bn), the fallback installed on
-`rt.SatLookup`.  When a native cross-mode callee runs an internal `x.(*J)` on a
-bytecode-boxed value whose `(T, J)` fact lives only VM-side, the native SatLookup
-MISSes and the fallback must consult THIS vm's satentry registry — but only if
-`g_crossModeVmAddr` points at it.  Because the func-value / iface-method dispatchers
-leave it 0 (or STALE from an enclosing extern dispatch), such an assertion inside a
-native func value / native iface method misresolves (declines → nil/wrong sub-vtable)
-instead of recovering through the VM registry.
-
-Pre-existing and latent — no current test drives a native cross-mode func value /
-iface method that internally type-asserts a bytecode-boxed arg (why it is green
-today).  Trigger is narrow but real, and the asymmetry with the extern/host paths is
-a genuine bug.  Surfaced by the C2 adversarial review (2026-09-16).
-
-**Fix:** mirror `dispatchExternBinding`'s save/set/restore of `g_crossModeVmAddr` in
-BOTH `dispatchCompiledFuncValue` and `dispatchCompiledIfaceMethod` (set to
-`bit_cast(int, vm)` around the native dispatch, restore after — re-entrant, harmless
-for a VM func value whose callee re-enters the VM).  Add coverage: a fixture where an
-injected-native func value / iface method internally does `x.(*J)` on a bytecode-impl
-value and dispatches a method on the recovered interface.
-
 ### Aggregate-returning VM-dispatched callee CRASHES (SEGV) on entry-push overflow — 🔴 OPEN (found 2026-09-16, work-2; needs user scope decision)
 
 An aggregate-returning callee dispatched through the VM's packed trampoline
