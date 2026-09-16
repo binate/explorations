@@ -269,21 +269,10 @@ CORRECTION 2026-09-08):
 
    **REMAINING SROA line items** (nested-aggregate fields — the gate + L1-recursion +
    fixpoint-bound fix — LANDED `a0bfa865b`; see claude-todo-done.md):
-   (B) CALL-RESULT whole-stores — `var s S = someCall()` (S returned by value) —
-   🟡 IN PROGRESS (claimed 2026-09-16, work-1/session 01LPZ7; committed `1ba364b9a`,
-   validating before land).  FINDING: the old "needs per-backend un-coercion, riskier,
-   ABI-specific" framing was WRONG.  An experiment (temporarily whitelisting OP_CALL in
-   isExtractableAggregateValue) showed every backend ALREADY lowers OP_EXTRACT of a
-   call result — sret works on LLVM/native/VM, coerced-register works on native/VM —
-   and the ONLY defect was LLVM's `emitExtract` spelling the extractvalue aggregate
-   type from the coerced `funcRetTypes` entry (`[2 x i64]`) for a SINGLE coerced
-   aggregate return whose `%v<callID>` was reconstituted as the struct (invalid-IR
-   type mismatch).  Fix = whitelist OP_CALL + a `singleCoercedAgg` guard in emitExtract
-   using `llvmType` for that case (multi-return unchanged).  Managed returns excluded
-   before the check (sroaAggregateContainsManaged).  Only OP_CALL (direct) whitelisted;
-   the indirect / handle / func-value / iface-method call ops stay pinned (safe scoping,
-   possible follow-up).  Tests: ir unit TestSroaCallResultWholeStoreScalarized +
-   updated TestSroaExtractableValuePredicate; conformance 1266_sroa_call_result_field.
+   (B) CALL-RESULT whole-stores — `var s S = someCall()` — LANDED `8e9fdaab6`; see
+   claude-todo-done.md.  Possible follow-up: only OP_CALL (direct) is whitelisted;
+   the indirect / handle / func-value / iface-method call ops stay pinned (safe, just
+   unoptimized) — extend if a workload wants it.
    (The managed-slice-review minor follow-ups — the one-pass used-field tally and
    the dead-whole-load / FaultPad-extract / disjoint-fields unit tests — LANDED
    `9def3535f`; see claude-todo-done.md.) Original design:

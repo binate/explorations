@@ -173,6 +173,23 @@ conformance `1264_sroa_nested_aggregate`. Validated: 823 ir unit tests; full
   single-scan `bool[numFields]` tally (`wholeLoadExtractedFields`, behavior-neutral).
   Adds the flagged `expandWholeLoad` unit tests: a fully dead whole-load, a field
   extracted only in a FaultPad, and two whole-loads extracting disjoint fields.
+- **Call-result whole-stores — SROA-line item (B)** (`8e9fdaab6`): `var s S = f()`
+  now scalar-replaces (per-field `extract(call, i)`) instead of pinning s.  The
+  todo's "needs per-backend un-coercion, riskier, ABI-specific" framing was WRONG:
+  an experiment (temporarily whitelisting OP_CALL) showed every backend ALREADY
+  lowers OP_EXTRACT of a call result — sret works on LLVM/native/VM, coerced-register
+  on native/VM — and the ONLY defect was LLVM's `emitExtract` spelling the aggregate
+  type from the coerced `funcRetTypes` entry (`[2 x i64]`) for a SINGLE coerced
+  aggregate return whose `%v<callID>` was reconstituted as the struct (invalid IR).
+  Fix = whitelist OP_CALL (`isExtractableAggregateValue`) + a `singleCoercedAgg` guard
+  in emitExtract using `llvmType` (multi-return unchanged).  Managed STRUCT returns
+  stay excluded (sroaAggregateContainsManaged); a managed-SLICE return IS admitted via
+  the phase-2 path, refcount-safe (adversarial review verified no leak over 2M iters).
+  Only OP_CALL (direct) whitelisted; indirect/handle/func-value/iface-method stay
+  pinned (possible follow-up).  Tests: ir unit TestSroaCallResultWholeStoreScalarized
+  + updated predicate test; conformance 1266 (coerced+sret) and 1267 (managed-slice,
+  RefInc/RefDec exercise).  Validated: full builder-comp 3033/0; 1266/1267 on VM +
+  native aa64/x64/arm32; adversarial review clean.
 
 ### Native aggregate-COPY efficiency (by-value slice/struct copies) — DONE, LANDED (2026-09-14; aarch64 `a7d49192d`, x64 `800467f7c`, arm32 `f8a532d96`)
 
