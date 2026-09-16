@@ -83,7 +83,39 @@ revisit vs. Inc 3a/3b design.  Inc 3a as committed (`d80e5b927`) is still a stri
 improvement (scalar func-value + nil-func-value moved-arg leaks fixed, no
 regressions) but is PARTIAL: scalar has a latent leak window (argSubst) and aggregate
 has this crash window; the committed scalar/nil repro tests pass only because their
-frame sizes don't land in the window.
+frame sizes don't land in the window.  **DECISION 2026-09-16: do NOT land Inc 3a
+as-is; redesign indirect-call overflow recovery robustly (correct at the real push,
+func-value + iface-method, scalar + aggregate) then land.**  The committed
+`d80e5b927` stays on work-2 as reference; it is superseded, not landed.
+
+**Third defect — the committed pre-check itself has a WILD @VM DEREF (found by the
+Inc 3a adversarial review 2026-09-16).**  `stackCheckFuncValue` (the committed
+`d80e5b927`) classifies VM-vs-native by peeking `rec[0] = data[0]` via
+`closureRecIsVm`.  But a NATIVE capturing closure's `data` is an UNTAGGED env struct
+(there is no `DATA_KIND_NATIVE_CLOSURE`; the dispatch deliberately never peeks
+`data[0]`, routing through `vtable.call_packed` instead).  If a native closure's first
+env word happens to equal 1 (`DATA_KIND_VM_CLOSURE_REC`) or 2
+(`DATA_KIND_COMPILED_CLOSURE`), the pre-check misclassifies it as a VM record, reads
+`rec[1]` (a captured user value) as a `@VM` handle and does
+`bit_cast(@VM, <user value>).Funcs.Len()` → wild deref / crash or spurious "stack
+overflow" on a valid native-closure call.  CI-gated path (`e2e/xmclosure.sh`) — green
+today only because its fixtures' env first-words aren't 1/2.  This is contained
+(d80e5b927 is NOT landed), but the redesign MUST discriminate VM func values by THUNK
+IDENTITY (compare `vtable[FuncValueVtableCallPackedIndex()]` against the registered
+`TrampolinePacked` address), never by `data[0]`.
+
+**Redesign direction (converges with `b2` above — coordinate).**  The clean fix is a
+VM-func-value FAST-PATH: discriminate VM func values by thunk identity (vtable
+call_packed == TrampolinePacked) and push their frame DIRECTLY in the call arm (like
+a direct `BC_CALL`), bypassing the native marshalling thunk.  That eliminates the
+whole problem class at once — overflow is detected EXACTLY at the in-arm `pushFrame`
+(no retbuf/argSubst transient growth for VM callees), recovery reuses the direct-call
+args-owning-pad path, the aggregate `MemCopy`-from-0 crash disappears (VM callees no
+longer use TrampolinePacked), and the `data[0]` classification bug is gone (thunk
+identity is unambiguous).  Native func values keep the marshalling thunk but push no
+recoverable VM frame (OS guard pages).  This IS the `b2` mechanism (claimed by
+work-4/temp-4) plus the overflow-recovery correctness — so Inc 3 completion and `b2`
+should be coordinated / possibly merged rather than done twice.
 
 ### b2: discriminate VM func values by thunk-identity (fast-path, drop the thunk round-trip) — 🟡 ASSIGNED (claimed 2026-09-08)
 
