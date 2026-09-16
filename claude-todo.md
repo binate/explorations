@@ -66,7 +66,7 @@ then short-circuits that round-trip for speed.  Do NOT use b2 to make any-arity
 dispatch *work* — only to make the already-working VM-in-VM path faster.  Assigned
 (after the trampoline-fix lands).
 
-### VM SP-guard: temp-growth corruption checks + indirect-call overflow pre-check — 🟡 IN PROGRESS (claimed 2026-09-08, work-2/session) — Inc 1 + Inc 2 (reservation R1-R5) LANDED; Inc 3 + R5 e2e-coverage follow-up remain
+### VM SP-guard: temp-growth corruption checks + indirect-call overflow pre-check — 🟡 IN PROGRESS (claimed 2026-09-08, work-2/session) — Inc 1 + Inc 2 (reservation R1-R5, + R5 e2e-coverage follow-up) LANDED; only Inc 3 remains
 
 Comprehensive recoverable-stack-overflow guard (plan `plan-vm-stack-precheck.md`):
 never leak or corrupt on overflow.  **Inc 1 LANDED `7d610fdb6`:** the eval/deliver
@@ -87,11 +87,13 @@ Remaining:
   R4 drop redundant per-op OP_RODATA_ARRAY check `70265c12f`, R5 cross-mode
   `...*any` graceful-fault-not-vmPanic `6f2576927`; plus the standalone
   OP_IFACE_UPCAST reclaim fix `7697db626`.  See plan-vm-stack-precheck.md.
-  FOLLOW-UP (R5 coverage, MINOR): the `dispatchExternBinding` abort-before-shim
-  guard + the end-to-end cross-mode `...*any` overflow→unwind path have no DIRECT
-  test (the setFault decision is unit-tested; the unwind is covered indirectly).
-  Add an end-to-end test (register a variadic `...*any` native extern + a bytecode
-  caller spreading a huge bytecode-impl-iface slice; assert clean fault + no leak).
+  R5 coverage follow-up: DONE (`f450d1615`) — TestR5CrossModeSliceOverflowAborts-
+  BeforeShim drives the real dispatchExternBinding path with an oversized `...*any`
+  arg and asserts it returns the 0 sentinel before the shim (verified non-vacuous:
+  deleting the abort guard makes it return the callee's 42).  The execLoop unwind
+  for this origin stays covered indirectly (re-entrant / pushFrame-overflow tests +
+  the pad-exists invariant); a fully bytecode-driven version was judged
+  disproportionate.
 
 - **Inc 3 — indirect/method/func-value/iface-method calls.** These got the
   eval/deliver split (mid-eval leak fixed) but NOT `OP_STACK_CHECK` (callee frame
