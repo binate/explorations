@@ -7,22 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### `737_build_import_select` fails on `builder-comp_arm32_linux_int` — 🔴 OPEN (test gap: missing `expected` override; the build-select is CORRECT)
-
-On `builder-comp_arm32_linux_int` this per-import build-constraint test prints
-`other` but is compared against the generic `expected` = `aa`.  INVESTIGATED
-2026-09-16: `other` is CORRECT — `pkg/sel` gates `#[build(is(arch, "aarch64"))]`
-import `sel_aa` (Pick → `aa`) vs `!is(...)` import `sel_other` (Pick → `other`), so
-arm32 (arch ≠ aarch64) correctly picks `other`.  The test carries `expected.<mode>`
-overrides for every cross-arch mode (`expected.x64`, `expected.builder-comp_arm32_linux`,
-`expected.builder-comp_arm32_baremetal`, native aa64/x64) EXCEPT
-`builder-comp_arm32_linux_int`; the generic `aa` is the aarch64-HOST default (why the
-plain `builder-comp-int` run on this aarch64 Mac passes 737 — the host compile is
-aarch64).  So it is a missing-expected-file gap, NOT a build-select bug.
-**Fix:** add `conformance/737_build_import_select/expected.builder-comp_arm32_linux_int`
-containing `other` (mirroring `expected.builder-comp_arm32_linux`).  Trivial; needs
-landing approval (conformance change).
-
 ### Cross-mode `g_crossModeVmAddr` unset by the two bytecode-driven dispatchers — 🟡 ASSIGNED (claimed 2026-09-16, work-4/temp-4)
 
 `dispatchCompiledFuncValue` (vm_exec_funcref.bn) and `dispatchCompiledIfaceMethod`

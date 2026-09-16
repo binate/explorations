@@ -6,6 +6,21 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### `737_build_import_select` on `builder-comp_arm32_linux_int` — DONE (2026-09-16, `ef319f567`)
+
+Not a build-select bug — a missing per-mode expected override.  `pkg/sel` gates
+`#[build(is(arch, "aarch64"))]` import `sel_aa` (Pick → `aa`) vs `!is(...)` import
+`sel_other` (Pick → `other`); arm32 (arch ≠ aarch64) correctly picks `other`.  The
+test carried `expected.<mode>` overrides for every cross-arch mode (`expected.x64`,
+`expected.builder-comp_arm32_linux`, `expected.builder-comp_arm32_baremetal`, native
+aa64/x64) EXCEPT `builder-comp_arm32_linux_int`, so its correct `other` output was
+compared against the generic aarch64-host default `aa` and reddened that one mode.
+(The plain `builder-comp-int` run passes 737 on an aarch64 host because the host
+compile IS aarch64.)  Fix: added `expected.builder-comp_arm32_linux_int` = `other`
+(byte-identical to `expected.builder-comp_arm32_linux` — same arch, same compile-time
+build-select).  Validated in Docker: `builder-comp_arm32_linux_int 737…` → 1 passed,
+0 failed.
+
 ### C2: migrate cross-mode extern + iface-method dispatch to call_packed — DONE (2026-09-16, `9574f14ce`)
 
 The last piece of the b1 cross-mode work.  Three cross-mode dispatchers still packed
