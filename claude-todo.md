@@ -88,7 +88,7 @@ recoverable VM frame (OS guard pages).  This IS the `b2` mechanism (claimed by
 work-4/temp-4) plus the overflow-recovery correctness — so Inc 3 completion and `b2`
 should be coordinated / possibly merged rather than done twice.
 
-### b2: discriminate VM func values by thunk-identity (fast-path, drop the thunk round-trip) — 🟡 ASSIGNED (claimed 2026-09-08)
+### b2: discriminate VM func values by thunk-identity (fast-path, drop the thunk round-trip) — 🟡 IN PROGRESS (REASSIGNED to work-2 by user 2026-09-16; do together with Inc 3 overflow-recovery redesign)
 
 b1 (commit 98219ab3e) makes the VM dispatch every function value through its
 vtable.call thunk — a native closure via its per-closure shim, a VM function
@@ -107,6 +107,16 @@ trampoline-fix (callee-side any-arity, above), through the real trampoline; b2
 then short-circuits that round-trip for speed.  Do NOT use b2 to make any-arity
 dispatch *work* — only to make the already-working VM-in-VM path faster.  Assigned
 (after the trampoline-fix lands).
+
+**2026-09-16: reassigned to work-2, merged with Inc 3.**  The Inc 3 overflow-recovery
+redesign converges on this exact fast-path (see the SP-guard entry below): the clean
+way to make VM-func-value overflow recovery EXACT + crash-free is to discriminate VM
+func values by thunk identity and push their frame DIRECTLY in the call arm (no
+marshalling thunk → no retbuf/argSubst transient SP growth → exact overflow check →
+direct-call recovery).  Constraint still honored: correctness must not DEPEND on b2 —
+the marshalling path is made crash-free independently (guard TrampolinePacked's retbuf
+MemCopy on a pending fault), so disabling the fast-path degrades to graceful-fault, not
+crash.  See design in `plan-vm-stack-precheck.md`.
 
 ### VM SP-guard: temp-growth corruption checks + indirect-call overflow pre-check — 🟡 IN PROGRESS (claimed 2026-09-08, work-2/session; Inc 3a claimed 2026-09-16, work-2) — Inc 1 + Inc 2 (reservation R1-R5, + R5 e2e-coverage follow-up) LANDED; Inc 3a (func-value pre-check) IN PROGRESS; Inc 3b (iface-method) remains
 
