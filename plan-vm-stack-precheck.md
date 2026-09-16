@@ -154,7 +154,7 @@ commit with tests.
   pre-check adds the callee's `MaxStmtTempGrowth`. Overflow caught only at frame
   entry (clean Plan-2 unwind). Test: a big-per-statement function faults cleanly
   at entry, not mid-statement.
-- **R4 — remove the redundant per-op machinery** = revert the landed
+- **R4 — remove the redundant per-op machinery (LANDED `70265c12f`)** = revert the landed
   `1dd3f319f` (OP_RODATA_ARRAY per-op check/pad) + the `attachSPGrowthPad` path.
   Lands AFTER R3 (needs its own cherry-pick approval).
 - **R5 — cross-mode `...*any` scratch** (the one runtime-sized growth): make its
