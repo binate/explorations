@@ -149,7 +149,7 @@ commit with tests.
   call's `ArgIfaceLayout` slots of `align8(ByteSize)`, in that call's region (per
   call site). Folding (ii) into the reservation also FIXES the currently-unchecked
   substArgSlotIface overflow gap (see the MAJOR todo entry).
-- **R3 — fold into the reservation.** `pushFrame` / `wouldFrameOverflow`
+- **R3 — fold into the reservation (LANDED `4401121a9`).** `pushFrame` / `wouldFrameOverflow`
   reserves `frameExtent + MaxStmtTempGrowth`; the direct-call `OP_STACK_CHECK`
   pre-check adds the callee's `MaxStmtTempGrowth`. Overflow caught only at frame
   entry (clean Plan-2 unwind). Test: a big-per-statement function faults cleanly
