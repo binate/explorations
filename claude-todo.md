@@ -180,7 +180,7 @@ quote numbers from this file (they go stale):**
   backends by static instruction/reload counting on a `--target` build, or on
   real hardware/CI.
 
-### Native aggregate-copy: measure the load→store fusion traffic reduction — 🔵 OPEN (2026-09-16)
+### Native aggregate-copy: measure the load→store fusion traffic reduction — 🟡 IN PROGRESS (claimed 2026-09-16, temp-5/session) (2026-09-16)
 
 Both elision shapes have LANDED — S-alloca (`c3345fbac`) and S-adjacent raw `*dst = *src`
 (`6a1b5b6a7`); see claude-todo-done.md, design + implemented predicate in
