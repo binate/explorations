@@ -118,7 +118,7 @@ the marshalling path is made crash-free independently (guard TrampolinePacked's 
 MemCopy on a pending fault), so disabling the fast-path degrades to graceful-fault, not
 crash.  See design in `plan-vm-stack-precheck.md`.
 
-### VM SP-guard: temp-growth corruption checks + indirect-call overflow pre-check — 🟡 IN PROGRESS (claimed 2026-09-08, work-2/session) — Inc 1 + Inc 2 (reservation R1-R5 + follow-up) LANDED; Inc 3 crash guard (S1 `d2e21a89c`) + Inc 3a func-value fast-path/pre-check (S2 `43b0acc37`) LANDED; only Inc 3b (iface-method) remains
+### VM SP-guard: temp-growth corruption checks + indirect-call overflow pre-check — 🟡 IN PROGRESS (claimed 2026-09-08, work-2/session) — Inc 1 + Inc 2 (reservation R1-R5 + follow-up) LANDED; Inc 3 crash guard (S1 `d2e21a89c`) + Inc 3a func-value fast-path/pre-check (S2 `43b0acc37`) LANDED; only Inc 3b (iface-method) remains — 🟡 Inc 3b IN PROGRESS (work-2, claimed 2026-09-16)
 
 Comprehensive recoverable-stack-overflow guard (plan `plan-vm-stack-precheck.md`):
 never leak or corrupt on overflow.  **Inc 1 LANDED `7d610fdb6`:** the eval/deliver
@@ -188,15 +188,6 @@ quote numbers from this file (they go stale):**
   x64/arm32 codegen changes (a revert looks "neutral"). Measure non-host
   backends by static instruction/reload counting on a `--target` build, or on
   real hardware/CI.
-
-### Native aggregate-copy: measure the load→store fusion traffic reduction — 🟡 IN PROGRESS (claimed 2026-09-16, temp-5/session) (2026-09-16)
-
-Both elision shapes have LANDED — S-alloca (`c3345fbac`) and S-adjacent raw `*dst = *src`
-(`6a1b5b6a7`); see claude-todo-done.md, design + implemented predicate in
-`plan-native-aggcopy-fusion.md`. Remaining: **measure** the actual copy-traffic
-reduction on the cmd/bnc native self-compile (static count of elided aggregate-load
-materializations / N-vs-L memory-op ratio), to quantify the effect and decide whether
-further fusion shapes are worth pursuing.
 
 ### Native codegen quality — closing the native↔LLVM gap — 🔵 OPEN
 
