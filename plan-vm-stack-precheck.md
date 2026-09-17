@@ -468,10 +468,13 @@ path safe independently:
 
 ### Staged implementation (each stage self-contained, tested, landable)
 
-- **S1 — crash guard.** `TrampolinePacked`/`TrampolineAggregate`: skip retbuf MemCopy
-  on `Status == FAULTED`.  Test: aggregate-returning func-value + iface-method deep
-  recursion overflow → `Status = FAULTED`, no crash (leak not yet asserted).
-  Independent of the fast-path; smallest safe step.
+- **S1 — crash guard. LANDED `d2e21a89c` (2026-09-16).** `TrampolinePacked`/
+  `TrampolineAggregate` skip the retbuf MemCopy on `Status == FAULTED` after
+  execFunc.  Test `TestAggFuncValueOverflowNoCrash` (aggregate-returning func value,
+  deep-recursion overflow → `Status = FAULTED`, no crash).  Adversarial review clean
+  (matches the pre-existing `CallFuncAggregate` guard; both func-value and
+  iface-method aggregate returns route through TrampolinePacked, so the one guard
+  covers both).  Leak not yet asserted — S2.
 - **S2 — VM-func-value fast-path (b2 core).** Thunk-identity discrimination in
   `execCallFuncValue`; direct in-arm frame push for VM func values (captures + packed
   args of any arity); exact overflow recovery via an args-owning pad (reuse/repair

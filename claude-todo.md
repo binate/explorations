@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### Aggregate-returning VM-dispatched callee CRASHES (SEGV) on entry-push overflow — 🔴 OPEN (found 2026-09-16, work-2; needs user scope decision)
+### Aggregate-returning VM-dispatched callee CRASHES (SEGV) on entry-push overflow — 🟢 CRASH FIXED (S1 landed `d2e21a89c` 2026-09-16); leak-freedom pending S2 (work-2)
 
 An aggregate-returning callee dispatched through the VM's packed trampoline
 (`TrampolinePacked`, vm_trampoline.bn) — reached by a **func-value** call
