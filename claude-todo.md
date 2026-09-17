@@ -282,10 +282,11 @@ CORRECTION 2026-09-08):
 
    **REMAINING SROA line items** (nested-aggregate fields — the gate + L1-recursion +
    fixpoint-bound fix — LANDED `a0bfa865b`; see claude-todo-done.md):
-   (B) CALL-RESULT whole-stores — `var s S = someCall()` — LANDED `8e9fdaab6`; see
-   claude-todo-done.md.  Possible follow-up: only OP_CALL (direct) is whitelisted;
-   the indirect / handle / func-value / iface-method call ops stay pinned (safe, just
-   unoptimized) — extend if a workload wants it.
+   (B) CALL-RESULT whole-stores — `var s S = someCall()` — LANDED `8e9fdaab6`
+   (direct call) + `7a4bcfb37` (func-value + iface-method calls); faulting-slice
+   coverage `b599b9e5e`.  See claude-todo-done.md.  Fully done: the remaining
+   OP_CALL_INDIRECT / OP_CALL_HANDLE are internal shim/dtor magics with scalar-only
+   results, so they carry no aggregate to scalar-replace — nothing left to extend.
    (The managed-slice-review minor follow-ups — the one-pass used-field tally and
    the dead-whole-load / FaultPad-extract / disjoint-fields unit tests — LANDED
    `9def3535f`; see claude-todo-done.md.) Original design:

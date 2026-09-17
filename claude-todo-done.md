@@ -209,11 +209,25 @@ conformance `1264_sroa_nested_aggregate`. Validated: 823 ir unit tests; full
   in emitExtract using `llvmType` (multi-return unchanged).  Managed STRUCT returns
   stay excluded (sroaAggregateContainsManaged); a managed-SLICE return IS admitted via
   the phase-2 path, refcount-safe (adversarial review verified no leak over 2M iters).
-  Only OP_CALL (direct) whitelisted; indirect/handle/func-value/iface-method stay
-  pinned (possible follow-up).  Tests: ir unit TestSroaCallResultWholeStoreScalarized
-  + updated predicate test; conformance 1266 (coerced+sret) and 1267 (managed-slice,
-  RefInc/RefDec exercise).  Validated: full builder-comp 3033/0; 1266/1267 on VM +
-  native aa64/x64/arm32; adversarial review clean.
+  Tests: ir unit TestSroaCallResultWholeStoreScalarized + updated predicate test;
+  conformance 1266 (coerced+sret) and 1267 (managed-slice, RefInc/RefDec exercise).
+  Validated: full builder-comp 3033/0; 1266/1267 on VM + native aa64/x64/arm32;
+  adversarial review clean.
+  - **Follow-up (2b) faulting managed-slice-from-call** (`b599b9e5e`): conformance
+    1268 — a scalar-replaced managed-slice-from-call is LIVE when a bounds fault
+    unwinds mid-scope; the clean `index out of bounds` panic proves the fault pad
+    RefDec's the SPLIT slice's refptr (no double-free). Passes VM + native-aa64.
+  - **Follow-up (2a) extend to func-value + iface-method calls** (`7a4bcfb37`):
+    `isExtractableAggregateValue` now also admits OP_CALL_FUNC_VALUE and
+    OP_CALL_IFACE_METHOD.  An experiment (whitelisting ALL call ops) revealed
+    OP_CALL_INDIRECT / OP_CALL_HANDLE are the compiler-internal shim/dtor magics with
+    asserted scalar-or-void results — so the correct scope is exactly func-value +
+    iface-method.  Both are retbuf-style and load the result back as the struct type
+    (even coerced — emit_call_funcvalue.bn:124), so emitExtract's `llvmType`
+    fallthrough is always right; NO emitExtract change (B's singleCoercedAgg fix was
+    unique to direct OP_CALL).  Tests: predicate test covers all 3 call ops;
+    conformance 1269.  Validated: full builder-comp 3036/0; 1269 on VM + native
+    aa64/x64/arm32.  (INDIRECT/HANDLE stay pinned — correct, they carry no aggregate.)
 
 ### Native aggregate-COPY efficiency (by-value slice/struct copies) — DONE, LANDED (2026-09-14; aarch64 `a7d49192d`, x64 `800467f7c`, arm32 `f8a532d96`)
 
