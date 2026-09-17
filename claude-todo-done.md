@@ -94,6 +94,49 @@ an internal `x.(*J)` on a bytecode-boxed value could MISS the `rt.SatLookup` fal
 Not worsened by C2; worth a later decision on whether both bytecode-driven dispatchers
 should set it.
 
+### Native aggregate-copy: measured the load→store fusion traffic reduction — DONE (measurement only, no code) (2026-09-16)
+
+Measured the landed aggregate-load elision (both shapes, S-alloca `c3345fbac` + S-adjacent
+`6a1b5b6a7`) on the cmd/bnc native self-compile. Method: throwaway env-gated instrumentation
+of `AggLoadElidable` (per-call outcome log + a disable toggle), one gen1, native-compiled
+cmd/bnc three ways (elision on+logged / on / off) plus an LLVM-backend build with the same
+gen1; static instruction counts via `otool -tvV`. Instrumentation reverted after (not landed).
+
+**Part 1 — elision counts.** 41,009 aggregate `OP_LOAD`s considered; 5,863 elided (14.3%) —
+S-alloca 5,312, S-adjacent 551. Elided sizes dominated by 16 B (raw `[]T` slices, 2 words),
+then 32/40 B and an 88 B struct cluster. ~256 KB of src→temp copy traffic removed
+(2 × Σ SizeOf).
+
+**Part 2 — static effect on the native binary (elision on vs off, only the toggle differs).**
+Native cmd/bnc is ~48% load/store instructions (959,000 of 1,989,057). Elision removes
+10,892 mem-ops (1.12%), 17,803 total instructions (0.89%), and 66 KB of binary. (Instructions
+removed > mem-ops removed because each dropped materialization also drops its region-pointer
+address setup.)
+
+**N-vs-L caveat.** Static whole-binary LLVM cmd/bnc has MORE mem-ops (1,366,812; 64.4% of
+insns) than native — clang inlines/unrolls far more. This static count is NOT comparable to
+the "native/LLVM memory ops 3.23×" in the closing-the-gap entry, which is a DYNAMIC hot-path
+figure (native's poor regalloc shows up as spills EXECUTED in hot loops, not as more static
+instructions). This measurement quantifies the fusion's static effect only.
+
+**Rejection breakdown of the 85.7% non-elided** (env-tagged each reject path; reconciles to
+41,009): alloca whose address is NOT confined 21,638 (52.8%); unknown source >16 B 12,477
+(30.4%); cross-block/pad use 668 (1.6%); dead load 295 (0.7%); sub-word-aligned 50 (0.1%);
+barrier between load and use 18 (0.04%). Zero for reassigned-between, `__c_call`-arg,
+store-dest, field-ptr-base, phi. The alloca bucket is cleanly attributed: purely
+address-taken (confinement conservatism), NOT reassignment or size.
+
+**Conclusion — where remaining fusion value is (and is not).** Extending the *native elision
+predicate* further has low value: the raw-pointer S-adjacent shape is exhausted (barrier 18 +
+subword 50 are all a smarter same-shape predicate could add). The two big non-elided buckets:
+(1) alloca-address-taken (52.8%) is **SROA territory** — SROA (the closing-the-gap #1 lever,
+in progress) scalar-replaces the local and removes the aggregate round-trip entirely, strictly
+better than aliasing the copy; do NOT re-chase this bucket at the backend. (2) unknown-source
+>16 B (30.4%, managed-slices / larger structs) is the one backend-side lever with real mass
+left — needs a larger overlap-safe copy strategy (or a non-overlap proof) to raise the 16 B
+cap. Both buckets are UPPER BOUNDS on headroom, not achievable elisions — many address-taken
+allocas are genuinely aliased/written, so the confinement conservatism is largely justified.
+
 ### Native aggregate-copy: raw-pointer load→store fusion (S-adjacent) — DONE, LANDED `6a1b5b6a7` (2026-09-16)
 
 Extends the aggregate-load elision (S-alloca, `c3345fbac`) to the S-adjacent shape:
