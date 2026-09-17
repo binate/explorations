@@ -85,17 +85,22 @@ managed-slice refptr slot behaves. The backend must NOT implicitly RefDec a
 managed alloca at teardown — VERIFIED already for managed slices (refcount is
 explicit OP_REFDEC only); re-verify holds for a managed-field struct slot.
 
-### Cost / tradeoff to flag
+### Cost / tradeoff — DECIDED: gate to -O1+ (option b)
 
-At -O0 (SROA off), inlining the per-field RefDecs at every struct-local cleanup
-site emits N field-RefDecs inline instead of one shared `__dtor_T` call — more
--O0 code for a struct with many managed fields used across many functions. The
-shared `__dtor_T` is still emitted and used for NON-local drops (a `box`'d struct
-on the heap, a nested managed-struct field, an element dtor), so it does not
-disappear. If the -O0 bloat matters, an alternative is to gate the inline-cleanup
-shape to -O1+ — but gen currently has no opt-level threaded through; that would be
-extra plumbing. **Recommend: emit the inline shape unconditionally** (simpler; -O0
-code size is not perf-critical) unless you prefer the gating.
+Inlining the per-field RefDecs at every struct-local cleanup site emits N
+field-RefDecs inline instead of one shared `__dtor_T` call. To avoid that at -O0,
+the inline shape is **gated to -O1+**; -O0 keeps the current by-address
+`emitStructDtor` call. The user chose this (option b) over emitting the inline
+shape unconditionally, since the opt-level needs threading into gen eventually
+anyway. Plumbing: add `OptLevel int` to `GenCtx` (mirrors the existing gen-time
+flag `EmitNilChecks`), set it at the cmd/bnc compiled-path gen sites from the
+`optLevel` global, read it in `emitDecForManagedLocals` (`ctx.Gc.OptLevel >= 1`).
+Default 0 is safe: a site that doesn't set it emits by-address cleanup (correct,
+just un-SROA-able) — a wrong/missing OptLevel only costs optimization, never
+correctness (SROA won't split a by-address-cleaned struct; an inline-cleaned
+struct that isn't split is still correct). The shared `__dtor_T` is still emitted
+for NON-local drops (a `box`'d struct on the heap, a nested managed-struct field,
+an element dtor), so it does not disappear.
 
 ## Alternatives considered (and why not)
 
@@ -167,5 +172,6 @@ field-ptrs; then the fixpoint splits it like a nested non-managed aggregate.
 2. **The cleanup-shape change is a semantic change to EVERY managed struct local**
    (not just SROA candidates) — it must be byte-behavior-identical at -O0. Guarded
    by the differential O0 runs.
-3. **-O0 code size** from inline per-field RefDecs — flagged above; gate to -O1+
-   if the user prefers (needs opt-level plumbing into gen).
+3. **-O0 code size** from inline per-field RefDecs — RESOLVED: gated to -O1+ via
+   `GenCtx.OptLevel` (option b). The opt-level plumbing is a small standalone piece
+   landable first.
