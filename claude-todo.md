@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### Aggregate-returning VM-dispatched callee CRASHES (SEGV) on entry-push overflow — 🟢 CRASH FIXED (S1 landed `d2e21a89c` 2026-09-16); leak-freedom pending S2 (work-2)
+### Aggregate-returning VM-dispatched callee CRASHES (SEGV) on entry-push overflow — 🟢 CRASH FIXED (S1 `d2e21a89c`); FUNC-VALUE leak-freedom FIXED (S2 `43b0acc37`); iface-method aggregate leak pending Inc 3b (2026-09-16)
 
 An aggregate-returning callee dispatched through the VM's packed trampoline
 (`TrampolinePacked`, vm_trampoline.bn) — reached by a **func-value** call
@@ -88,7 +88,7 @@ recoverable VM frame (OS guard pages).  This IS the `b2` mechanism (claimed by
 work-4/temp-4) plus the overflow-recovery correctness — so Inc 3 completion and `b2`
 should be coordinated / possibly merged rather than done twice.
 
-### b2: discriminate VM func values by thunk-identity (fast-path, drop the thunk round-trip) — 🟡 IN PROGRESS (REASSIGNED to work-2 by user 2026-09-16; do together with Inc 3 overflow-recovery redesign)
+### b2: discriminate VM func values by thunk-identity (fast-path, drop the thunk round-trip) — 🟢 DONE for FUNC VALUES (S2 `43b0acc37`, 2026-09-16); iface-method fast-path pending Inc 3b
 
 b1 (commit 98219ab3e) makes the VM dispatch every function value through its
 vtable.call thunk — a native closure via its per-closure shim, a VM function
@@ -118,7 +118,7 @@ the marshalling path is made crash-free independently (guard TrampolinePacked's 
 MemCopy on a pending fault), so disabling the fast-path degrades to graceful-fault, not
 crash.  See design in `plan-vm-stack-precheck.md`.
 
-### VM SP-guard: temp-growth corruption checks + indirect-call overflow pre-check — 🟡 IN PROGRESS (claimed 2026-09-08, work-2/session; Inc 3a claimed 2026-09-16, work-2) — Inc 1 + Inc 2 (reservation R1-R5, + R5 e2e-coverage follow-up) LANDED; Inc 3a (func-value pre-check) IN PROGRESS; Inc 3b (iface-method) remains
+### VM SP-guard: temp-growth corruption checks + indirect-call overflow pre-check — 🟡 IN PROGRESS (claimed 2026-09-08, work-2/session) — Inc 1 + Inc 2 (reservation R1-R5 + follow-up) LANDED; Inc 3 crash guard (S1 `d2e21a89c`) + Inc 3a func-value fast-path/pre-check (S2 `43b0acc37`) LANDED; only Inc 3b (iface-method) remains
 
 Comprehensive recoverable-stack-overflow guard (plan `plan-vm-stack-precheck.md`):
 never leak or corrupt on overflow.  **Inc 1 LANDED `7d610fdb6`:** the eval/deliver
@@ -155,11 +155,20 @@ Remaining:
   Approach A settled (design review 2026-09-16, plan doc): a pre-delivery
   `OP_STACK_CHECK_FV`-style op carrying the runtime callee operand, args-owning
   pad, faults on callee-never-entered (overflow OR nil value).  Split into:
-  - **Inc 3a — func-value calls (`OP_STACK_CHECK_FV`): IN PROGRESS (work-2, claimed
-    2026-09-16).**  Repro `TestFuncValueOverflowNoLeak` (pkg/binate/vm) RED until
-    this lands.  Covers func-value overflow + nil-func-value moved-arg leaks.
-  - **Inc 3b — iface-method calls:** same pre-check on the receiver
-    (`genInterfaceMethodCall`), plus nil-iface + iface-method-overflow tests.
+  - **Inc 3a — func-value calls: DONE, LANDED `43b0acc37` (2026-09-16).**  The
+    approach-A pre-check was ABANDONED (fragile vs. the marshalling path's transient
+    SP growth; a `data[0]` wild-deref).  Delivered instead as the VM-func-value
+    FAST PATH (b2) + an exact `OP_STACK_CHECK_FV` pre-check on it — a same-vm VM func
+    value pushes directly in the call arm (no marshalling growth → the pre-check is
+    exact), thunk-identity classification (no wild-deref).  Covers func-value
+    overflow + nil-func-value moved-arg leaks (scalar + aggregate).  See the S2 entry
+    in plan-vm-stack-precheck.md.
+  - **Inc 3b — iface-method calls: REMAINS.** Same treatment for
+    `dispatchCompiledIfaceMethod` / `genInterfaceMethodCall`: a VM-iface-method
+    fast path (thunk identity on the resolved method vtable) + `OP_STACK_CHECK_FV`
+    on the receiver, plus nil-iface + iface-method-overflow tests.  (The S1 crash
+    guard already keeps iface-method aggregate overflow from crashing; this closes
+    the moved-arg leak.)
 
 ## Performance
 

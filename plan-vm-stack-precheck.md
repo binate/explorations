@@ -475,12 +475,26 @@ path safe independently:
   (matches the pre-existing `CallFuncAggregate` guard; both func-value and
   iface-method aggregate returns route through TrampolinePacked, so the one guard
   covers both).  Leak not yet asserted — S2.
-- **S2 — VM-func-value fast-path (b2 core).** Thunk-identity discrimination in
-  `execCallFuncValue`; direct in-arm frame push for VM func values (captures + packed
-  args of any arity); exact overflow recovery via an args-owning pad (reuse/repair
-  `OP_STACK_CHECK_FV` with thunk-identity classification, now exact).  Tests:
-  scalar + aggregate func-value overflow → `Status = FAULTED` + stable LiveBlocks
-  (leak-free); nil-func-value moved-arg (carries over from d80e5b927).
+- **S2 — VM-func-value fast-path (b2 core) + exact pre-check. LANDED `43b0acc37`
+  (2026-09-16).** Thunk-identity discrimination (`vmFuncValueFnIdx`, cached
+  `VM.TrampolinePackedCall`) in `execCallFuncValue`; direct in-arm frame push for
+  same-vm VM func values (`fastPushVmFuncValue`: captures + packed args via
+  `closureArgvPacked`, no retbuf, no iface-arg substitution); `OP_STACK_CHECK_FV`
+  pre-check (args-owning pad), exact because the fast path has no marshalling growth.
+  Split the fast-path/pre-check helpers into `vm/vm_funcvalue_fastpath.bn`
+  (file-length).  Tests (`vm_funcvalue_fastpath_test.bn`): scalar + aggregate
+  func-value overflow + nil-func-value moved-arg → `Status = FAULTED` + stable
+  LiveBlocks (all non-vacuous).  Verified: vm units 408/0; `builder-comp-int`
+  3022/0; adversarial review clean (skip-substitution is *more* correct — matches
+  direct calls).  `builder-comp-int-int` couldn't COMPLETE in the env (time limit)
+  but ran a large fraction at 0 failures; review verified nested-VM classifier
+  soundness.  Honors "b2 optimization only" at the crash level (S1 guard); same-vm
+  leak-freedom rides the fast path (user-approved).
+  KNOWN GAP (pre-existing, not widened): DEFERRED func-value calls
+  (`gen_defer_exit.bn`) emit no `OP_STACK_CHECK_FV`, uniform with deferred direct
+  calls (no `OP_STACK_CHECK`) — a moved arg can still leak on a deferred call's
+  callee overflow.  Minor perf: `vmFuncValueFnIdx` runs twice per fast-path call
+  (pre-check + dispatch) — correctness-neutral.
 - **S3 — iface-method parity.** Same fast-path + recovery for
   `execCallIfaceMethod`/`dispatchCompiledIfaceMethod` (Inc 3b).  Tests: scalar +
   aggregate iface-method overflow, nil-iface moved-arg.
