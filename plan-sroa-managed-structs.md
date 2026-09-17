@@ -206,3 +206,29 @@ Managed structs' field-ptr access + whole-store zero-init + deref gen shapes eac
 handling the slice path never exercised. Increment 1 is a larger piece than one commit.
 DECISION PENDING (surfaced to owner): continue (investigate/fix the two blockers, depth
 unknown), re-scope, or park the WIP.
+
+## UPDATE (2026-09-17, work-1): both blockers pushed through — core WORKING
+
+Per owner "push through the blockers", both real-gen blockers are fixed and
+leaf-managed struct locals now scalar-replace across the common patterns:
+- **Zero-init blocker**: `var h S` lowers to `store(h, OP_CONST_NIL)` (not
+  extractable). FIX: drop the redundant nil whole-store in the rewrite
+  (expandWholeStore) — the split slots already get per-field zeros from
+  makeFieldZeroInits (managed→nil) + mem2reg (promotable).
+- **Literal-init blocker**: `S{...}` registers a composite-literal cleanup temp
+  whose partial-aggregate fault pad used a by-address dtor (bitcast → pins the
+  alloca). FIX: apply the SAME cleanup reshape to the temp-cleanup path
+  (emitTempRefDecs / emitTempCleanupSince), factored with the var path into a
+  shared `emitManagedStructPtrDtor`.
+
+Verified: all three patterns split (field-assign+zero-init, literal-init,
+refcount alias+overwrite) — whole struct → just the managed field slots,
+non-managed fields promote; O0==O2 correct incl. refcount (no double-free).
+832 ir unit tests (4 new managed-struct tests in sroa_managed_test.bn).
+Self-compile 3036/0 (LLVM gen1→gen2 -O2) + 3024/0 (VM). Native-aa64 self-compile
++ adversarial review IN FLIGHT. sroa_transform.bn split → sroa_managed.bn (length).
+
+REMAINING before landing: native self-compile + review results; commit-structure
+the WIP (5455a340e) into landable pieces; per-instance land approval. Follow-ups
+(separate): the dead zero-temp (native DCE); nested-managed-struct + @[]@T fields
+(deferred increment 2).
