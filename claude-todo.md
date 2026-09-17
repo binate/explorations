@@ -230,7 +230,9 @@ CORRECTION 2026-09-08):
    so dead header loads don't pin the fields out of mem2reg in pads) done on
    LANDED `ebeb6d087`, reviewed SOUND** — a managed-slice copy live across a call
    drops 4 stack slots → 0 at -O2; ir tests pass; LLVM+native full-corpus 0-
-   mismatch. **NEXT (continue the SROA line): managed structs** (structs with a
+   mismatch. **NEXT (continue the SROA line): managed structs** — 🟡 IN PROGRESS
+   (claimed 2026-09-16, work-1/session 01LPZ7; design-first, doc in
+   plan-sroa-managed-structs.md). (structs with a
    managed field — split like managed slices: non-managed fields promote, each
    managed field goes to an unpromoted managed slot with nil zero-init; the
    struct's field-by-field RefInc/RefDec spine whole-loads+extracts the managed
