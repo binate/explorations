@@ -1,6 +1,7 @@
 # Plan: native aggregate-copy load→store fusion (eliminate redundant intermediate buffers)
 
-Status: IMPLEMENTED (S-alloca path), on the temp-5 branch, pending landing approval.
+Status: LANDED — both shapes on `main`: S-alloca `c3345fbac`, S-adjacent `6a1b5b6a7`.
+Remaining open item: measure the copy-traffic reduction (see `claude-todo.md`).
 Owner: temp-5 (2026-09-15). Two adversarial reviews shaped it:
 - Review 1 (design) found a CRITICAL first-draft error — the condition was framed as
   lifetime-only, but an aggregate load is a *snapshot*, so a source *written* between
@@ -13,9 +14,10 @@ Owner: temp-5 (2026-09-15). Two adversarial reviews shaped it:
   `OP_C_CALL` argument uses from elision. Everything else verified sound.
 
 Implemented: `AggLoadElidable` in `pkg/binate/native/common/common_aggload_elision.bn`,
-wired into `PlanFrame`. Only the S-alloca shape (confined non-escaping stack alloca
-source) is implemented; the raw-pointer S-adjacent case (`*dst = *src`) is deferred as
-a smaller follow-up.
+wired into `PlanFrame`. Both shapes are implemented: the S-alloca shape (confined
+non-escaping stack alloca source) and the raw-pointer S-adjacent case (`*dst = *src`,
+unknown source; only-pure-ops-between gate, `AlignOf >= 4` and `SizeOf <= 16`, with the
+elided copy made overlap-safe — load-all-then-store — on all three backends).
 Tracked by the `claude-todo.md` entry "Native aggregate-copy: eliminate redundant
 intermediate buffers (load→store fusion)". Follows the landed aggregate-copy-*width*
 work (aarch64 `a7d49192d`, x64 `800467f7c`, arm32 `f8a532d96`), which widened each

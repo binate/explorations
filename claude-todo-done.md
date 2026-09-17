@@ -94,6 +94,32 @@ an internal `x.(*J)` on a bytecode-boxed value could MISS the `rt.SatLookup` fal
 Not worsened by C2; worth a later decision on whether both bytecode-driven dispatchers
 should set it.
 
+### Native aggregate-copy: raw-pointer load→store fusion (S-adjacent) — DONE, LANDED `6a1b5b6a7` (2026-09-16)
+
+Extends the aggregate-load elision (S-alloca, `c3345fbac`) to the S-adjacent shape:
+the load's source is an UNKNOWN pointer (raw `*T` deref, heap element — `*dst = *src`),
+not a confined stack alloca. `AggLoadElidable`
+(`pkg/binate/native/common/common_aggload_elision.bn`) now also elides when the load's
+only same-block consumers between it and its last use are PURE ops (`onlyPureOpsStrictlyBetween`
+/ `opIsPureBetween` whitelist — loads/extracts/ptr-arith/consts/checks/ALU; anything
+that could write or free the source is a barrier), gated `AlignOf() >= 4` (a sub-word
+aggregate faults word-wise on strict-align arm32 — `1148_arm32_unaligned_aggregate`)
+and `SizeOf() <= 16` (overlap budget). Because an aliased `*dst = *src` can overlap
+(type-punned UB aside, only observable there), the elided copy is made OVERLAP-SAFE —
+load-all-then-store within the register budget — on all three backends: aa64
+`emitAggMemcpySafeAarch64` (LDP-pairs), x64 `emitAggMemcpySafeX64` (MOVUPS + GP tail),
+arm32 `emitAggMemcpySafeArm32` (single LDM/STM via scratch-register EVICTION so it
+covers every word even under register pressure — the plain `emitAggMemcpyArm32`'s
+best-effort free-scan chunk would SKIP retained values and interleave a word tail,
+corrupting an overlapping copy). Memory-safety-critical; two adversarial reviews:
+review 1 gave the `AlignOf>=4` gate (unaligned sub-word source faults on arm32);
+review 2 found + fixed the arm32 overlap-safety hole (emitStructCopy still on the
+non-overlap-safe path). Validated on the rebased code: native conformance aa64 3035/0,
+x64 3035/0, arm32 baremetal 2989/0; predicate unit tests (S-adjacent-elidable,
+sub-word-rejected, >16-byte-rejected, `__c_call`-arg-rejected) + `aggcopy-fusion-rawptr`
+tripwire regression + aa64/arm32 load-before-store order tests; hygiene 20/20. The
+copy-traffic-reduction measurement remains — see the open entry.
+
 ### Native aggregate-copy: eliminate redundant intermediate buffer, managed case (S-alloca) — DONE, LANDED `c3345fbac` (2026-09-16)
 
 Finding B split from the aggregate-copy-width work: the native backends gave every

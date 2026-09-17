@@ -180,20 +180,14 @@ quote numbers from this file (they go stale):**
   backends by static instruction/reload counting on a `--target` build, or on
   real hardware/CI.
 
-### Native aggregate-copy: raw-pointer load→store fusion (S-adjacent) + measure — 🟡 IN PROGRESS (S-adjacent claimed 2026-09-16, temp-5/session) (2026-09-16)
+### Native aggregate-copy: measure the load→store fusion traffic reduction — 🔵 OPEN (2026-09-16)
 
-The managed case (S-alloca: alias a confined non-escaping stack alloca source for
-`b = a` / `b.s = a`) LANDED `c3345fbac` — see claude-todo-done.md; design +
-implemented predicate in `plan-native-aggcopy-fusion.md`. Two pieces remain:
-1. **S-adjacent (raw `*dst = *src`).** The load's source is an unknown pointer (not a
-   stack alloca), but the load and its single consuming store are adjacent with
-   nothing that could write or free the source between them — provably safe by
-   adjacency (plan doc §4.2, deferred there). Smaller, separate shape from the landed
-   S-alloca path; extend `AggLoadElidable` with this case.
-2. **Measure** the actual copy-traffic reduction of the landed S-alloca elision on the
-   cmd/bnc native self-compile (static count of elided aggregate-load materializations
-   / N-vs-L memory-op ratio) — the todo's original "measure the traffic reduction"
-   note, to decide whether S-adjacent (and further fusion) is worth pursuing.
+Both elision shapes have LANDED — S-alloca (`c3345fbac`) and S-adjacent raw `*dst = *src`
+(`6a1b5b6a7`); see claude-todo-done.md, design + implemented predicate in
+`plan-native-aggcopy-fusion.md`. Remaining: **measure** the actual copy-traffic
+reduction on the cmd/bnc native self-compile (static count of elided aggregate-load
+materializations / N-vs-L memory-op ratio), to quantify the effect and decide whether
+further fusion shapes are worth pursuing.
 
 ### Native codegen quality — closing the native↔LLVM gap — 🔵 OPEN
 
