@@ -175,3 +175,34 @@ field-ptrs; then the fixpoint splits it like a nested non-managed aggregate.
 3. **-O0 code size** from inline per-field RefDecs — RESOLVED: gated to -O1+ via
    `GenCtx.OptLevel` (option b). The opt-level plumbing is a small standalone piece
    landable first.
+
+## IMPLEMENTATION FINDINGS (2026-09-16, work-1) — increment 1 is bigger than estimated
+
+WIP checkpoint committed on work-1 (`7b1dd1dba`, not landable). What was built and
+VERIFIED WORKING (hand-built ir unit tests + simple synthetic shapes split correctly,
+O0==O2): the OptLevel plumbing, the cleanup reshape (inline per-field RefDecs at
+-O1+), managedStructLeafEligible, collectManagedStructCandidates, and — a fix the
+design did NOT anticipate — **padAware L1**: the design assumed the managed-slice
+machinery would carry over, but slices use whole-load+extract in pads while a struct's
+inline cleanup uses FIELD-PTRs in pads, and `fieldPtrChainScalarReplaceable` PINS on
+any pad appearance of a field-ptr. Threading a `padAware` flag through the field-ptr
+L1 chain (blockAllocaUsesAreL1 / fieldPtrChainScalarReplaceable / blockFieldPtrChainOK)
++ routing managed structs through validateSroaCandidates' pad-aware branch fixed that.
+
+**Two real-gen blockers remain (the machinery does NOT yet split a real `var h S`
+managed struct):**
+1. **Whole-store zero-init.** `var h S` (managed, no initializer) zero-inits via a
+   whole-store of h whose value is NOT extractable (not OP_LOAD/EXTRACT/CALL), so
+   `aggregateWholeStoresExtractable` rejects h. The split slots already get their nil
+   zero-init from makeFieldZeroInits, so the original whole-store is REDUNDANT — the
+   fix is likely to recognize+drop a redundant zero-const whole-store (or make it
+   extractable), but that is new rewrite machinery.
+2. **Managed-field deref.** `h.ref.v` (dereferencing a `@T` field) adds a use of h
+   that fails the L1 field-ptr check (a bit_cast surfaced in probing — origin not
+   fully traced; needs confirming whether it is h or a legitimately-pinned temp).
+
+**Assessment:** the design's "reuse the managed-slice machinery" was optimistic.
+Managed structs' field-ptr access + whole-store zero-init + deref gen shapes each need
+handling the slice path never exercised. Increment 1 is a larger piece than one commit.
+DECISION PENDING (surfaced to owner): continue (investigate/fix the two blockers, depth
+unknown), re-scope, or park the WIP.
