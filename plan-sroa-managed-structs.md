@@ -283,6 +283,66 @@ did non-managed-element).  Recommend: do 2a first; 2b likely needs the managed-s
 of-managed-element SROA generalized first (a separate, bigger piece — assess before
 committing).
 
+### 2b FEASIBILITY ASSESSMENT (2026-09-18, work-1) — VALUE HIGH, TRACTABLE
+
+**Value is HIGH, not a minor edge case.** `@[]@T` (managed slice of a managed
+element) is the DOMINANT slice type in the compiler — a repo grep of the type
+spelling: `@[]@types.Type` ×907, `@[]@types.Field` ×291, `@[]@Instr` ×291,
+`@[]@ir.Instr` ×256, `@[]@ir.Param` ×197, … (the core AST / IR / type containers).
+Increment 1 handled only `@[]T` with a NON-managed element, so the compiler's
+managed-slice-header copy traffic (the measured 41.6%) is dominated by exactly the
+`@[]@T` case 2b unlocks.  Measured concretely: a one-line `var local @[]@Node = src`
+function pins SIX 4-word `%BnManagedSlice` allocas at -O2 (zero split); the `@[]int`
+counterpart splits (data → a promoted `i8*`).  So 2b is plausibly the biggest
+remaining managed-slice gap-closer, not a deferral.
+
+**Precise blocker.** `emitManagedSliceRefDec` (gen_util_refcount.bn) — the slice-local
+cleanup — for a managed element does `msSlot = alloc(sliceTyp); store(msSlot,
+sliceVal); call ms-dtor(bitcast(msSlot))`: the `store(msSlot, sliceVal)` is a
+WHOLE-VALUE use of the loaded slice (not an OP_EXTRACT), so L2
+(`managedLoadedValuesAllExtract`) rejects it → the slice pins.  The non-managed path
+is `refptr = extract(sliceVal, 2); RefDec(refptr)` — extract-only, forwardable, which
+is why `@[]T` splits.  Same shape in `emitStructFieldRefDecs`' TYP_MANAGED_SLICE arm
+for a `@[]@T` FIELD.
+
+**Approach (tractable, low code-bloat).** Make the element cleanup FORWARDABLE by
+having it read only slots 2 (refptr) and 3 (backinglen) via extracts and delegate the
+loop to a SHARED, scalar-arg helper — not by materializing the whole 4-word image:
+  1. Add a per-type `__dtor_ms_elems_<T>(refptr *uint8, backingLen int)` — the body of
+     the existing `genManagedSliceDtor` MINUS the initial 4-word load (the refcount==1
+     check + element-iteration loop + backing RefDec, given refptr + backingLen).  The
+     existing by-address `__dtor_ms_<T>(ptr)` stays UNCHANGED for its registered /
+     vtable / element-dtor / `box(@[]@T)` uses (it can optionally become a thin wrapper
+     that loads refptr/backinglen and calls the elems helper — but leaving it untouched
+     is zero-risk).
+  2. Reshape the -O1+ inline cleanup (both `emitManagedSliceRefDec` and the
+     `emitStructFieldRefDecs` TYP_MANAGED_SLICE-with-element arm) to emit
+     `refptr = extract(sliceVal, 2); backingLen = extract(sliceVal, 3);
+     call __dtor_ms_elems_<T>(refptr, backingLen)` — extract-only → forwardable → the
+     slice splits; data/len (slots 0/1) are untouched by the cleanup so they promote
+     freely.  Gate on OptLevel>=1, exactly like the 2a reshape.
+  3. Relax `managedSliceElemScalarReplaceable` (sroa_managed.bn) and
+     `isLeafManagedField`'s TYP_MANAGED_SLICE arm (sroa.bn) to admit a managed element
+     now that its cleanup is forwardable.  This ALSO composes with 2a: a struct with a
+     `@[]@T` field becomes leaf-eligible.
+
+**Why not inline the loop (rejected alt).** Inlining the whole element loop at every
+cleanup site (function exit + each fault pad) bloats code (~loop + refcount-check +
+block splits × sites).  The scalar-helper call keeps the loop shared (one helper) and
+the per-site cost to ~3 instrs (2 extracts + call), while staying forwardable.
+
+**Correctness.** The elems helper is the existing ms-dtor body re-parameterized, so it
+emits the IDENTICAL refcount work (per-element RefDec under the refcount==1 guard +
+backing RefDec) — provably-equivalent, the same argument that made 2a safe.  The big
+risk is still refcount balance on the element walk; validate as 2a did (ir unit tests;
+O0-vs-O2 differential with a sentinel-refcount check over many create/destroy cycles;
+self-compile builder-comp-comp + native-aa64 3037/0; refcount-critical adversarial
+review).
+
+**Scope: medium** — one new per-type helper generator + two reshape sites + the
+eligibility relax + gate + validation.  Comparable to 2a, plus the helper generator.
+Recommend doing it as its own increment (high value, well-scoped).
+
 Validation (both): ir unit tests in sroa_managed_test.bn (a nested-managed-struct-field
 struct splits; refcount balance); an O0==O2 refcount exercise; self-compile
 (builder-comp-comp + native-aa64, -O2); adversarial review (refcount-critical).  Note
