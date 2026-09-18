@@ -224,5 +224,11 @@ work** (Tier-2 D, active on main). Recommend pursuing Tier 3 (extend `bceLoop`
 for the dual-induction reversal loop) or coordinating with the regalloc effort,
 not a standalone load cache.
 
-Tier 3 not started; Tier-2 D partly underway on main via the concurrent regalloc
-effort.
+**Tier-3 single-unsigned-compare bounds check — 🟡 IN PROGRESS (claimed
+2026-09-18, work-6/session).** Replace the two-signed-compare/two-branch element
+bounds check with one unsigned compare (`cmp idx,len; b.lo ok`), sound because a
+length is ≥ 0 — gated on the length operand being provably non-negative (the
+`bceLoop` *elimination* for the dual-induction flip loop was found UNSOUND: the
+reversal bound `k = perm[0]` is not provably `< len`, so eliminating the check
+would be a memory-safety hole; this cheapens the check instead of removing it).
+Tier-2 D partly underway on main via the concurrent regalloc effort.
