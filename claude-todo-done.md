@@ -6,6 +6,47 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### SROA line COMPLETE — IR-level aggregate scalar-replacement (the #1 native↔LLVM gap lever) — DONE (2026-09-18)
+
+The IR-level SROA pass (`pkg/binate/ir/sroa*.bn`, wired into `RunOptPasses`) — the
+biggest native↔LLVM `-O2` codegen lever (~53% of the active gap: aggregate-copy
+traffic) — is complete across all phases.  It splits an eligible aggregate stack
+local into per-field scalar slots that mem2reg promotes, collapsing the field-by-field
+header copies the native backend otherwise emits.  Design: `plan-ir-sroa.md`,
+`plan-sroa-managed-structs.md`.  Landed arc (each piece has its own entry in this file
+and/or was validated by LLVM+native full-corpus O0-vs-O2 differential + self-compile +
+an adversarial review):
+
+- **Phase 0** eligibility scan + validator `b0e5da664`.
+- **Phase 1 (non-managed)**: field-ptr-only structs `e5e323795` (+ dup-SSA-id
+  method-value-capture prereq `a66fb0b75`); whole-value copy stores/loads `ba5b2207a`;
+  raw slices `*[]T` `be59ad48c`.  KEY FINDING: ~no-op on the compiler itself (its copy
+  traffic is overwhelmingly MANAGED slices) — the managed work below is the real
+  gap-source.
+- **Phase 2 (managed)**: managed slices `@[]T` non-managed-element `bcdc9ba47` +
+  effectiveness fix `ebeb6d087`; leaf-managed struct locals `0c9998917` + block-scope /
+  defer reshape `72a0db78c` + dead-zero-temp drop `0ebb17126`.
+- **Increment 2**: 2a nested-managed-struct field `0e862dca8`; 2b `@[]@T`
+  managed-element slices — piece 1 locals `52e612619`, piece 2 struct fields
+  `48edaff94` (a shared scalar-arg `__dtor_ms_elems_<T>` helper makes the `@[]@T`
+  cleanup extract-only/forwardable; `@[]@T` is the compiler's DOMINANT slice type).
+- **Cross-cutting**: nested-aggregate fields + fixpoint-bound `a0bfa865b`; call-result
+  whole-stores `8e9fdaab6` + `7a4bcfb37` + `b599b9e5e`; SROA-to-a-fixpoint `0a1098cff`;
+  field-broadening (float / oversized-int) `ce0330d8f`; managed-slice-review follow-ups
+  `9def3535f`.
+
+Outcome: the compiler's dominant slice type `@[]@T` now scalar-replaces as both locals
+and struct fields, and nested managed structs / structs-with-`@[]@T`-fields compose.
+All self-compiles green (builder-comp-comp + native-aa64 3037/0).  **Caveat — not
+re-measured:** the early non-managed phases were ~no-op on the compiler; the aggregate
+net effect of the managed `@[]@T` work on the native/LLVM self-compile ratio was NOT
+separately re-measured after 2b (a natural follow-up if the gap ranking needs
+refreshing — it does not block the SROA line being complete).  **One optional
+consider-item was NOT pursued** (never a firm task): a general IR-verifier
+SSA-id-uniqueness check (the dup-id class fixed by `a66fb0b75` was invisible to
+existing checks) — file a fresh todo if wanted.  The broader "closing the native↔LLVM
+gap" effort remains OPEN in claude-todo.md (regalloc + other levers).
+
 ### Method-value wrapper: forward stack-overflow pre-check + value-struct-receiver double-free — DONE, LANDED `8ff97d2ab` (2026-09-18)
 
 Two coupled fixes to `synthMethodValueWrapper` (`ir/gen_method_value_wrapper.bn`,
@@ -198,10 +239,11 @@ drop, nested-managed-struct-field pinned).  **Validated**: 832 ir unit tests;
 self-compile 3036/0 (LLVM gen1→gen2 -O2) + 3024/0 (VM) + 3036/0 (native-aa64 -O2);
 refcount alias+overwrite O0==O2 no double-free; hygiene 20/20.
 
-**Follow-ups (open, separate)**: block-scoped managed locals + defer-exit cleanup are
-not reshaped yet (only function-level locals + literal temps split — an optimization
-ceiling, not a bug); the dead zero-temp is a native-DCE opportunity (clang DCEs it);
-increment 2 = nested-managed-struct + `@[]@T` fields.
+**Follow-ups — ALL DONE (2026-09-18):** block-scoped managed locals + defer-exit
+cleanup reshape `72a0db78c`; dead zero-temp drop `0ebb17126`; increment 2 = 2a
+nested-managed-struct field `0e862dca8`, 2b `@[]@T` managed-element slices (piece 1
+locals `52e612619`, piece 2 struct fields `48edaff94`).  See the "SROA line COMPLETE"
+capstone near the top of this file.
 
 ### Cross-mode `g_crossModeVmAddr` published by the func-value + iface-method dispatchers — DONE (2026-09-16, `eee95ee8e`)
 

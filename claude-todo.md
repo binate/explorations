@@ -59,132 +59,16 @@ levers (this REPLACES the earlier ranking; see the plan-native-regalloc META
 CORRECTION 2026-09-08):
 
 1. **Aggregate scalar-replacement (SROA) + copy-propagation — THE biggest
-   lever (~53% of the gap).** 🟡 IN PROGRESS (claimed 2026-09-08, work-1) — design
-   in `plan-ir-sroa.md` (v3, two adversarial plan-review passes). **Phase 0
-   (eligibility scan + validator, no rewrite) LANDED `b0e5da664`** —
-   `pkg/binate/ir/sroa.bn`: `collectSroaCandidates` (two-level L1/L2
-   splittability) + `sroaAggregateContainsManaged` (managed/non-managed axis) +
-   `validateSroaCandidates`; unit-tested on hand-built IR, code-reviewed (no
-   unsound-classification holes). **PHASE 1 (non-managed aggregates) COMPLETE —
-   LANDED:** field-ptr-only structs `e5e323795` (+ dup-SSA-id method-value-capture
-   prereq fix `a66fb0b75`); whole-value (copy) struct stores/loads `ba5b2207a`;
-   raw slices `*[]T` `be59ad48c`. The rewrite (`sroa_transform.bn` +
-   `sroa_rewrite.bn`, wired into `RunOptPasses`) splits a non-managed, all-
-   promotable-field struct OR a raw slice ({data:*uint8, len:int}) into per-field
-   scalar slots mem2reg promotes; whole stores scalarize via `OP_EXTRACT` when the
-   value is coercion-free (`OP_LOAD`/`OP_EXTRACT`/`OP_MANAGED_TO_RAW`; ABI-coerced
-   call results and byval-param-refs pin). Validated by -O0/-O2 differentials over
-   the full 770-test conformance corpus on LLVM + native (0 mismatch) and
-   self-compile. **KEY FINDING (measured):** Phase 1 is ~NO-OP on the compiler
-   itself — its aggregate copy traffic is overwhelmingly MANAGED `@[]T` slices
-   (the 41.6% below); non-managed struct/raw-slice locals are rare. So the actual
-   gap-closing is **Phase 2 (managed slices/structs)**. **Phase 2 increment 1
-   (managed slices `@[]T`, non-managed element) LANDED `bcdc9ba47`** —
-   correctness-verified (refcount balance / teardown / zero-init / pad rewrite,
-   all backends + VM incl. a triggered fault pad; LLVM+native full-corpus 0-
-   mismatch). **Effectiveness fix (materialize only extract-consumed field loads,
-   so dead header loads don't pin the fields out of mem2reg in pads) done on
-   LANDED `ebeb6d087`, reviewed SOUND** — a managed-slice copy live across a call
-   drops 4 stack slots → 0 at -O2; ir tests pass; LLVM+native full-corpus 0-
-   mismatch. **Managed structs (leaf-managed) SROA — DONE, LANDED `0c9998917`**
-   (see claude-todo-done.md + plan-sroa-managed-structs.md).  The 2026-09-13
-   "BLOCKED, needs a big codegen change" reconnaissance was right that the by-address
-   `__dtor_T` cleanup pinned the struct — the fix WAS that codegen change (reshape
-   the cleanup to inline per-field RefDecs at -O1+), but it turned out tractable
-   (the reshape + a padAware L1 + dropping the redundant nil zero-init).  Follow-ups:
-   block-scope + defer managed-struct cleanup reshape — DONE, LANDED `72a0db78c`
-   (emitDecForScopeVars + gen_defer_exit route through emitManagedStructPtrDtor, so
-   block-scoped `var h S` and deferred managed struct values now split too; verified
-   with a pinned→split differential + self-compile 3037/0).  Dead zero-temp — DONE,
-   LANDED `0ebb17126`: dropping a `store(h, OP_CONST_NIL)` zero-init left the dead
-   OP_CONST_NIL, which the backends materialize as a zero-fill stack temp; the rewrite
-   now deletes it (use-scan guarded), so mstruct drops from 1 residual struct alloca
-   to 0 at -O2.  Still open: increment 2 = nested-managed-struct + @[]@T
-   fields — **2a (nested managed-struct field) DONE — LANDED `0e862dca8`
-   (2026-09-18); 2b (@[]@T managed-element slices) DONE — piece 1 (slice LOCALS)
-   LANDED `52e612619`, piece 2 (@[]@T struct FIELDS, composing with 2a) LANDED
-   `48edaff94` (2026-09-18).  `@[]@T` is the compiler's DOMINANT slice type
-   (`@[]@types.Type` ×907, `@[]@Instr` ×291, …) and pinned at -O2 (a 1-line
-   `@[]@Node` local pinned 6 four-word headers), while increment 1 only handled
-   non-managed-element `@[]T` — so 2b was the biggest remaining managed-slice
-   gap-closer.  Approach: a scalar-arg `__dtor_ms_elems_<T>(backingPtr, backingLen)`
-   helper (the ms-dtor element loop re-parameterized; by-address dtor delegates to
-   it), the -O1+ inline cleanup (slice locals via emitManagedSliceRefDec, `@[]@T`
-   struct fields via emitStructFieldRefDecs' inlineNested arm) reshaped to `extract
-   refptr/backinglen + call` it (forwardable) gated via new Module.OptLevel, and
-   `managedSliceElemScalarReplaceable` / `isLeafManagedField`'s slice arm relaxed to
-   admit any element.  A `struct { items @[]@Node }` local fully scalar-replaces at
-   -O2.  Validated (both pieces): ir 835/0, refcount balance (compiled+VM O0/O2),
-   self-compile builder-comp-comp + native-aa64 3037/0, adversarial reviews clean.
-   **With 2a + 2b done, the whole of SROA increment 2 is complete; this SROA entry
-   has no open sub-work left — move to done on the next todo sweep.**
-   **SROA-to-a-fixpoint DONE — LANDED `0a1098cff`**: runSroa
-   now runs each function's SROA to a fixpoint so `b = a` collapses BOTH sides (the
-   copy source, L2-pinned on pass 1 because its whole-load feeds the whole-store as
-   a non-extract value, becomes eligible once that store is rewritten to per-field
-   extracts). Pass bound = aggregate-alloca-count+1 (exact upper bound — each pass
-   removes ≥1 aggregate alloca and creates none, so never truncates a legit copy
-   chain). Validated: ir unit tests (+ copy-source + 20-deep-chain); LLVM corpus
-   O0-vs-O2 differential 769/0; native aa64 conformance 3024/0; adversarial review
-   clean (its one low-sev cap finding fixed via the count-based bound); hygiene
-   20/20. (VM conformance 2994/1 — the 1 is the UNRELATED pre-existing MemZero-on-
-   aarch64 MAJOR bug above, not this change.) **Field-broadening (float /
-   oversized-int) DONE — LANDED `ce0330d8f`**: aggregateFieldsAllPromotable →
-   aggregateFieldsScalarReplaceable admits a non-managed struct with a float /
-   oversized-int field, which gets an explicit zero-const init (makeFieldZeroInits
-   via makeZeroConst, which gained an OP_CONST_FLOAT zero case), so an unwritten
-   such field reads 0.  Validated: LLVM corpus O0-vs-O2 769/0; native aa64 3026/0;
-   VM (1262/1263) 2/0; adversarial review found no defect (traced "0"→+0.0 on every
-   backend incl. float32, disjoint promotable/zero-init sets, nested-aggregate stays
-   pinned, fixpoint no double-init).  Tests: 1262 (unwritten float reads 0, direct
-   access), 1263 (float/float32/int64 struct copied from a PINNED source —
-   OP_EXTRACT-of-float path on native/VM).
-
-   **REMAINING SROA line items** (nested-aggregate fields — the gate + L1-recursion +
-   fixpoint-bound fix — LANDED `a0bfa865b`; see claude-todo-done.md):
-   (B) CALL-RESULT whole-stores — `var s S = someCall()` — LANDED `8e9fdaab6`
-   (direct call) + `7a4bcfb37` (func-value + iface-method calls); faulting-slice
-   coverage `b599b9e5e`.  See claude-todo-done.md.  Fully done: the remaining
-   OP_CALL_INDIRECT / OP_CALL_HANDLE are internal shim/dtor magics with scalar-only
-   results, so they carry no aggregate to scalar-replace — nothing left to extend.
-   (The managed-slice-review minor follow-ups — the one-pass used-field tally and
-   the dead-whole-load / FaultPad-extract / disjoint-fields unit tests — LANDED
-   `9def3535f`; see claude-todo-done.md.) Original design:
-   splits into {data,len,refptr,backinglen};
-   data/len/backinglen promote, refptr stays in a managed slot with explicit nil
-   zero-init; the rewrite processes FaultPads so the refcount spine's
-   whole-load+extract-2 forwards there. `@[]@T` (managed element) stays pinned by
-   L2 (elem-dtor whole-value-address use). Verified no backend implicitly RefDecs
-   an alloca (refcount is explicit OP_REFDEC only). Validated: ir unit tests;
-   managed-slice programs correct -O0==-O2 incl. nil-slice RefDec-of-nil AND a
-   FAULTING slice under the VM (`bni -O 2`, exercising the rewritten pad) ==
-   -O0 == native. LLVM/native full-corpus differential + a refcount-focused
-   adversarial review IN FLIGHT before landing. **HOWEVER — measured ~NO-OP on
-   the compiler too** (its managed slices are by-value-used → L2-pinned; see the
-   native-aggregate-copy-efficiency todo above for the real gap-source).
-   **Continue the SROA line regardless** (per user): managed structs turned out
-   BLOCKED (dtor address escape — see above), SROA-to-a-fixpoint LANDED
-   (`0a1098cff`); remaining = field-broadening / coerced-call-result stores.
-   Phase 2 is the hard part: the managed-slice refcount spine LOADS the whole
-   4-word value + `OP_EXTRACT`s field 2 in normal blocks AND every FaultPad, and
-   the elem-dtor path passes the whole value's ADDRESS to a dtor — so a managed
-   split must rewrite every whole-value-load+extract INCLUDING in pads (that IS
-   the pad/refcount rework, not something a residual alloca sidesteps; see
-   `plan-ir-sroa.md` Phase 2). **Deferred non-managed follow-ups (lower priority,
-   after Phase 2 or as fill):** broaden struct fields beyond all-promotable (float
-   / nested-aggregate need explicit per-field zero-init); scalarize ABI-coerced
-   call-result stores via the un-coercion path; consider a general IR-verifier
-   SSA-id-uniqueness check (the dup-id class was invisible to existing checks).
-   Native materializes `@[]T`/struct locals in stack
-   slots and copies them field-by-field slot→slot: 308,903 mem→mem copy-pairs =
-   25.6% of N's instructions, 41.6% of them 4-word managed-slice-header copies,
-   94% internal locals (NOT ABI-mandated → SROA-addressable). mem2reg is
-   scalar-only so it never touches these; clang breaks the aggregates into
-   scalar fields (SROA) and promotes them. Build an IR-level SROA pass feeding
-   the existing mem2reg + scalar regalloc. New pass; the main event. Phasing
-   (per plan): Phase 0 eligibility scan ✅ (landed) → Phase 1 non-managed
-   aggregates (clean) → Phase 2 managed-slice/struct (refcount + fault-pad
-   handling — the hard part + biggest payoff).
+   lever (~53% of the gap) — ✅ DONE (2026-09-18).** The full SROA line landed and
+   is validated (Phase 0 eligibility, Phase 1 non-managed, Phase 2 managed
+   slices/structs, increments 1 & 2, SROA-to-a-fixpoint, field-broadening,
+   call-result stores, nested-aggregate fields).  The compiler's DOMINANT slice type
+   `@[]@T` now scalar-replaces as both locals and struct fields, and nested managed
+   structs compose.  Full arc + commits + validation: see the **"SROA line COMPLETE"**
+   capstone in claude-todo-done.md.  **Caveat:** the aggregate effect on the
+   native/LLVM self-compile RATIO was NOT re-measured after the managed `@[]@T` work
+   (the early non-managed phases were ~no-op on the compiler) — a natural follow-up if
+   the gap ranking below needs refreshing; it does not block the SROA line as complete.
 2. **Register-allocation quality (scalar spill/reload) — ~45% of the gap.**
    🟢 spill-cost eviction (increment 1) LANDED `fb215bf79` (2026-09-17,
    work-4/temp-4); further regalloc levers open.  The landed allocator is
@@ -1332,6 +1216,35 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
   which unblocks the primary spec writeup.
 
 ## Codegen & backend (non-func-value)
+
+### Dtor/copy name-mangling is not injective against adversarial struct names — 🟡 OPEN (filed 2026-09-18, assigned work-1)
+
+The `__dtor_<kind>_<name>` / `__copy_<kind>_<name>` scheme (`dtorTypeSuffix` in
+`ir/gen_dtor.bn`) writes a struct's leaf name VERBATIM in its `TYP_STRUCT` arm, and the
+kind-tokens (`mp_`, `ms_`, `ms_elems_`, `arr<N>_`, …) are ordinary identifier prefixes a
+struct can legally be named.  So one type's helper name can collide with an unrelated
+type's whose struct is adversarially named to spoof the tokens — e.g.
+`__dtor_ms_elems_ms_mp_Node` names BOTH the elems helper of `@[]@Node` AND the by-address
+dtor of `@[]S` where `S` is `struct { … } elems_ms_mp_Node`.  Both helpers are
+`IsLinkOnce` (weak_odr); if both are emitted in one module the linker keeps one body and
+the other call runs the WRONG body (wrong element size/kind) → silent corruption.
+
+- **Severity:** contrived to trigger (needs a struct literally named to spoof a
+  kind-token) but it is silent wrong-code, and CLAUDE.md treats mangler collisions
+  seriously.  **Pre-existing and scheme-wide** — `mp_`/`ms_`/`arr` were already spoofable;
+  the 2b `__dtor_ms_elems_` helper (`48edaff94`) follows the scheme, adding one more
+  colliding name but NOT a new class.  Surfaced by both 2b adversarial reviews.  The only
+  tokens the scheme currently reserves safely are `interface`/`func` (Binate keywords, so
+  no struct can be named them).
+- **Fix direction:** make every kind marker un-spoofable — delimit it with a character
+  that cannot appear in a Binate identifier, or encode the kind with a keyword-based /
+  length-prefixed token.  Touches the whole `dtorTypeSuffix` (+ copy-name) suffix encoding
+  and every consumer that reconstructs these names (`dtorNameForType`, `msElemsDtorName`,
+  `elemDtorName`, `elemCopyName`, …); it changes every weak_odr dtor/copy symbol, so it
+  needs a mangle-scheme review + full self-compile (LLVM + all native backends + VM).
+- **Test to add:** a struct named to spoof a kind-token used alongside the spoofed
+  aggregate — a unit test asserting `dtorNameForType` / `msElemsDtorName` produce distinct
+  symbols, and a conformance program that would double-free / mis-size under the collision.
 
 ### Big-endian CODEGEN — deferred (no BE target exists yet) — 🟡 DEFERRED
 The Ch.7.13 layout follow-ups (`type.layout.funcval-order-hardening` + the
