@@ -195,8 +195,34 @@ it should be re-measured after that effort settles rather than done as a risky
 parallel change. Fold correct-A into / coordinate with the register-allocator
 work (Tier-2 D territory) instead of a standalone terminator hack.
 
-**Tier-2 C (machine-level redundant-load cache: slice base/len CSE) — 🟡 IN
-PROGRESS (claimed 2026-09-18, work-6/session).** Independent of the allocator
-spill-cost work (different concern: a load cache in the emit loop, not spill
-decisions). Tier-2 D is partly underway on main via the concurrent regalloc
-effort; Tier 3 not started.
+**Tier-2 C — ⛔ attempted (cache-survival-across-bounds-checks), reviewed SOUND,
+implemented, measured a WASH, reverted.** Approach: make OP_BOUNDS_CHECK
+retention-safe + exempt from the post-op branch cache-drop so the reload cache
+survives across bounds checks (the checks fragment the loop into blocks and the
+cache drops at each). An adversarial design review said SOUND-WITH-CONDITIONS
+(aarch64-only; noreturn cold path; three unpinned emitter invariants). It was
+correct (self-compile, fannkuch/binary-trees byte-exact, a new straight-line
+multi-access regression test all passed), but a same-window flip-loop census
+showed **no net instruction change (96 → 96)**:
+- it dedup'd the header-**address** materialisation (`add x,sp,#off` 5 → 2), but
+- keeping that address resident across the checks raised register pressure →
+  +2 `mov`, and — the real miss — it did **not** eliminate the base/len **field
+  loads** (`ldr [hdr]`, `ldr [hdr+8]`): those are *separate OP_LOAD SSA values*
+  per access, so the SSA-id-keyed retention cache cannot merge them.
+
+Reverted (a correct but zero-benefit change is not worth the added correctness
+dependency on the three invariants).
+
+**Finding — C is the wrong lever for this loop.** Eliminating the redundant
+base/len *field loads* needs either (a) a memory-**address**-keyed load cache
+(the plan's literal C — bigger, and still adds the same register pressure on a
+7-pool-register loop) or (b) IR-level loop-invariant load hoisting (LICM). Both
+fight the same register pressure. The higher-value levers are **Tier 3
+(bounds-check elimination)** — which removes the loads AND the bounds branches
+AND the fragmentation/pressure at once — and the **ongoing register-allocator
+work** (Tier-2 D, active on main). Recommend pursuing Tier 3 (extend `bceLoop`
+for the dual-induction reversal loop) or coordinating with the regalloc effort,
+not a standalone load cache.
+
+Tier 3 not started; Tier-2 D partly underway on main via the concurrent regalloc
+effort.
