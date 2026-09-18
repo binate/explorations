@@ -6,6 +6,34 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### `__c_call` `...` with ZERO trailing varargs miscompiled as non-variadic — DONE, LANDED (2026-09-17, `cdd850228`)
+
+A `__c_call("f", ret, cast(float64, x), ...)` written with the `...` marker but
+NO args after it was byte-identical in IR to the non-variadic
+`__c_call("f", ret, cast(float64, x))`, because the whole toolchain inferred
+"is variadic" from `CFixedArgs < len(Args)` — false when the marker sits at the
+end.  On arm32 hard-float (AAPCS-VFP) that silently miscompiled: the fixed float
+`x` was classified NON-variadic and rode VFP d0, but the C callee `f(double, ...)`
+reads it from the core pair r0:r1.  (SysV-x64 / DarwinPCS mis-set-up too — AL
+count, all-varargs-on-stack — with different observable damage.)  Same class as
+the fixed-float-rides-VFP fix `05037fe18` closed for the varargs-present case.
+
+Fix: an explicit authoritative `CVariadic bool` (set whenever `...` appears in
+source, regardless of trailing arg count) threaded ast → ir → all four backends +
+the formatter, replacing the `CFixedArgs < len` inference everywhere; `CFixedArgs`
+stays the per-arg fixed/variadic split point.  The 3 arm32 vfp*V walkers and the 3
+V-walkers that dispatch to them gained a `callIsVariadic` param (non-V entry points
+pass false); the V-walker call sites pass `ins.Op == OP_C_CALL && ins.CVariadic`.
+The formatter reinserts `...` after the last arg for the zero-trailing form so the
+source round-trips.
+
+Verified: LLVM `builder-comp` 3037/0; native float conformance on all three
+backends (aa64 205/0, arm32-baremetal 201/0 — where the bug lived, x64-darwin
+205/0); all 12 changed packages' unit tests; new
+`TestZeroTrailingVariadicFixedFloatEmitsGpPair` (non-vacuous — isolates exactly
+this fix) + a zero-trailing case in e2e/arm32-ccall-variadic-fixedfloat.sh;
+adversarial review clean; hygiene green.
+
 ### SROA of leaf-managed struct locals — DONE, LANDED (2026-09-17, `0c9998917`)
 
 A struct local with a non-managed field plus leaf managed fields (`@T` / `@[]T`
