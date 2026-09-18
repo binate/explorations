@@ -363,6 +363,40 @@ fall back to word-at-a-time past offset 512 (LDP imm7 reach). The separate
 redundant-intermediate-buffer finding is tracked as its own todo (load→store
 fusion). — done by temp-5, filed originally by the SROA worker (work-1).
 
+### `native/arm32` bare-metal unit lane: MISDIAGNOSED as a leak — actually 2 filesystem tests — FIXED, LANDED `7cdc667a4` (2026-09-18)
+
+The `pkg-binate-native-arm32.xfail.builder-comp_arm32_baremetal` marker blamed a
+test-fixture memory LEAK ("assemblers + reference buffers allocated and never
+freed", arena exhausted).  Wrong diagnosis.  The marker was written in
+`42db7011c` against the old SFL allocator; the TagCoalesce allocator
+(`66075f0b6`, split + boundary-tag coalescing — written to fix SFL's
+fragmentation-to-exhaustion) landed AFTER and this lane was never re-evaluated.
+
+Verified by compiling the package's tests for arm32-baremetal (`bnc --test
+--target arm32-baremetal`) and running the ELF under `qemu-system-arm`: a
+deterministic **exit 1** — the `--test` runner's `os.Exit(1)` = TEST FAILURES —
+NOT arena exhaustion (which aborts exit 134) and NOT a hang (124).  Confirmed
+across 3 runs + both 2-shards.  Instrumenting the shared `fail()` with
+`testing.Println` (fmt is silent on baremetal — below) isolated EXACTLY 2
+failures, both `"EmitObject should succeed"`: `TestEmitObjectWritesElf` and
+`TestEmitObjectSymbolsAreBare`.  Both call `EmitObject(..., "/tmp/*.o")`, which
+writes an ELF object to disk and reads it back — impossible under bare-metal
+semihosting, where `os.Create` / `File.Write` always fail (no filesystem).  Same
+"filesystem, not memory" class as link / bnld.  With those two skipped the other
+375 tests pass (`--skip TestEmitObject` → rc=0; `run.sh` full lane → 1 pkg passed,
+0 failed, 0 xfail).
+
+Fix: removed the wrong whole-package xfail; added
+`pkg-binate-native-arm32.skip.builder-comp_arm32_baremetal` = `TestEmitObject`.
+The native-arm32 backend's own target went from 0 coverage (whole package
+xfail'd) to 375 tests run-and-passing on baremetal.
+
+Secondary discovery (tracked as an OPEN todo): `fmt.Println` is silent on
+arm32-baremetal because `os.Stdout` is an empty `@File` (baremetal `File.Write`
+always fails) — which hid the true failure and drove the misdiagnosis.  The
+follow-up is a pluggable baremetal console sink so `os.Stdout` (hence `fmt`)
+reaches semihosting / a UART / etc.
+
 ### code-red Class 7 — captured-`@func` native↔VM refcount balance — TEST ADDED, LANDED `f8119c53a` (2026-09-17)
 
 The last lifecycle-matrix item: a refcount-balance test of a NATIVE call to a

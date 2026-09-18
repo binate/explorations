@@ -538,37 +538,39 @@ unwind; nil-deref N1–N3 last, `de9a7c05`); see claude-todo-done.md and
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
-### `native/arm32` bare-metal unit lane leaks raw test fixtures — 🟡 IN PROGRESS (claimed 2026-09-17, work-3/session), MAJOR
+### Baremetal console output is unwired — `os.Stdout` is an empty `@File`, so `fmt` is silent; make it PLUGGABLE — 🟡 OPEN (found 2026-09-18)
 
-The VM static-data leak this entry once bundled — the execution stack plus the 3 shared raw blocks
-(package descriptors / TypeInfo / IfaceId, native interface vtables, and global-variable
-storage/managed content) — is **FIXED**. See [claude-todo-done.md](claude-todo-done.md) "VM
-static-data refcount" and [done/plan-vm-static-data-refcount.md](done/plan-vm-static-data-refcount.md)
-for the landed commits and the owning-slice-list (`ownedBlocks`/`vmOwn`) + `VM.Shutdown` design.
+On bare metal, `impls/stdlib/pkg/std/os/os_baremetal.bn` defines `os.Stdout` /
+`os.Stderr` as EMPTY `@File` handles ("a bare-metal target has no standard
+output"), and baremetal `File.Write` unconditionally fails (no filesystem).  So
+anything writing through `os.Stdout` — notably `fmt.Print*`, which the generated
+`bnc --test` runner uses for its RUN / PASS / FAIL / summary lines — is silently
+dropped.  A baremetal unit-test run therefore emits NO diagnostic output; only the
+process exit code is observable.  This actively bit: a plain filesystem-test
+failure in `pkg/binate/native/arm32` looked like a mysterious "memory leak"
+because the failing test's message was invisible (see
+[claude-todo-done.md](claude-todo-done.md), landed `7cdc667a4`).
 
-Still open: `pkg/binate/native/arm32` is a SEPARATE package xfail'd on `builder-comp_arm32_baremetal`
-(`scripts/unittest/pkg-binate-native-arm32.xfail.builder-comp_arm32_baremetal`) — presumed analogous
-raw TEST FIXTURES that `RawAlloc` and never free, exhausting the bare-metal arena under a
-refcount-heavy run. Confirm with the same per-class RawAlloc/RawFree leak dump used for the VM work,
-and fix in kind (own the fixtures via managed slices, or free them). MAJOR per the
-raise-don't-workaround rule; the xfail is a tracked hold, not a silent workaround. NOTE (2026-09-02): the vm baremetal exhaustion this was assumed analogous to turned out to be FRAGMENTATION (oversized test VM stacks + a never-reset wrapper interner), NOT raw fixture leaks (see claude-todo-done.md `4d97a55f0`) — re-examine native/arm32 with that lens (its test VM/allocation sizes + interner use) before assuming the fixture-leak model. (The vm HANG that surfaced alongside the exhaustion was a SEPARATE VM `pushFrame` frame-alignment bug, `a546e5da3` — if native/arm32 HANGS rather than exhausts on baremetal, weigh that class too.)
+By contrast `testing.Println` works on baremetal: it goes through
+`testing/sys.WriteStdout`, whose baremetal impl (`sys_baremetal.bn`) calls
+`semihost.SemihostWriteChar` (SYS_WRITEC) directly, bypassing `os.Stdout`.
 
-**`pkg/binate/vm` bare-metal: RESOLVED (2026-09-02) — green, unsharded.**  Two independent
-bugs kept it red, both now fixed: (1) arena FRAGMENTATION from oversized test VM stacks + a
-never-reset wrapper interner (`4d97a55f0`); (2) a VM frame-alignment bug — `pushFrame` left
-`vm.SP` unaligned for a sub-word-odd `FrameSize` (a lone `bool` local ⇒ 9), so the NEXT frame's
-`*int` header store data-aborts on strict-align arm and the bare-metal image spins with no
-recovery (`a546e5da3`).  It was NOT a codegen miscompile — a direct `(int,bool)` compile runs
-fine; the VM's own frame push was the culprit, and it only LOOKED like "multi-return-bool"
-because the `bool` local made the frame odd (multi-return of ints stayed even).  The whole suite
-now runs on `builder-comp_arm32_baremetal` in ~4s, unsharded, `arena=0`.  Write-ups in
-claude-todo-done.md.
+Goal (owner-directed): wire baremetal `os.Stdout`/`os.Stderr` to a console in a
+PLUGGABLE way — there are many baremetal configurations and the console sink
+differs: semihosting SYS_WRITEC (what `qemu -semihosting` exposes), a
+memory-mapped UART / serial console (e.g. PL011 on `qemu -M virt`), or genuinely
+nothing.  The board/target should select the sink; `os.Stdout` routes to it
+rather than being hardcoded empty.  `testing/sys` (target-gated WriteStdout) is a
+partial precedent but is testing-specific and bypasses `os.Stdout`; the general
+fix is an os-level console abstraction that `fmt` (via `os.Stdout`) also flows
+through.
 
-Distinct from the leak: `pkg/binate/link` and `cmd/bnld` also fail on baremetal but for
-FILESYSTEM reasons (readFile / os.Create — no filesystem under semihosting), not memory. Those
-are handled by the sharding infra's `--skip` (link: skip the FS tests, run the pure ones) and a
-whole-package xfail (cmd/bnld: entirely FS) — see plan-baremetal-test-sharding.md steps 4-6
-(runner/run.sh wiring + markers), still to land.
+Decisions to settle: is `os.Stdout` a console-writer type rather than a `@File`?
+How is the sink selected per board — a `#[build]`-gated `os_baremetal_<board>` (as
+existing target gating does), or a runtime-registered writer the crt0 / board
+init installs?  Support both semihosting and a real UART.  Once wired, the
+`--test` runner's fmt output becomes visible on baremetal (exit-code-only runs
+become name+message diagnostics).
 
 ### `data_pkg_descriptor.bn` header/slice-width conflation — 🟢 LOW (non-urgent cleanup)
 The `GetTarget().IntSize` "footgun" was a MISDIAGNOSIS and the native-accessor header reads
