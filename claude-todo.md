@@ -538,7 +538,7 @@ unwind; nil-deref N1–N3 last, `de9a7c05`); see claude-todo-done.md and
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
-### `native/arm32` bare-metal unit lane leaks raw test fixtures — 🟡 OPEN (MAJOR)
+### `native/arm32` bare-metal unit lane leaks raw test fixtures — 🟡 IN PROGRESS (claimed 2026-09-17, work-3/session), MAJOR
 
 The VM static-data leak this entry once bundled — the execution stack plus the 3 shared raw blocks
 (package descriptors / TypeInfo / IfaceId, native interface vtables, and global-variable
