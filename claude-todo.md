@@ -11,7 +11,7 @@ Both are regressions introduced in the 0.0.16 candidate range (since `bnc-0.0.15
 2026-09-02); each reddens a CI gate that must be green before the release can cut
 (`version-history.md` records the ladder; 0.0.16 is `bnc-0.0.16-pre1`).
 
-### MAJOR: vm unit-test binary crashes — a nil-data (non-closure) func value reaches `TrampolinePacked` via `dispatchCompiledFuncValue` — 🔴 OPEN (2026-09-18)
+### MAJOR: vm unit-test binary crashes — a nil-data (non-closure) func value reaches `TrampolinePacked` via `dispatchCompiledFuncValue` — 🟡 IN PROGRESS (claimed 2026-09-18, work-3/session) (2026-09-18)
 
 **Symptom:** `pkg/binate/vm` unit tests panic `vm: TrampolinePacked called with nil
 data`, which crashes the whole vm test binary — the other ~69 vm tests are masked
@@ -39,7 +39,7 @@ the ongoing func-value work.
 **Fix direction:** dispatch a `data==0` compiled func value as a bare native call
 rather than through `TrampolinePacked`, keeping `TestDispatchCompiledFuncValuePublishesCrossModeVm`'s
 intent intact (it verifies `g_crossModeVmAddr` is published during and restored after
-the native call). **Unassigned — for assignment.**
+the native call). **Claimed 2026-09-18 (work-3/session).**
 
 ### MAJOR: `bnc -c` on aarch64 emits objects referencing `rt.MemZero` without defining it — `bnld-real-program` e2e red — 🟡 IN PROGRESS (part 1 claimed 2026-09-18, temp-5/session) (2026-09-18)
 
