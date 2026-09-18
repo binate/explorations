@@ -14,7 +14,7 @@ Regressions introduced in the 0.0.16 candidate range (since `bnc-0.0.15`,
 link error (e2e) are resolved; the E2E cluster below is what a triage of the last
 completed E2E run (`7989641b1`) found still red.
 
-### E2E `xmhfa` + `xmiface` proofs assert the removed `>6 user arg slots` guard — 🔵 OPEN (2026-09-18)
+### E2E `xmhfa` + `xmiface` proofs assert the removed `>6 user arg slots` guard — 🟡 IN PROGRESS (claimed 2026-09-18, temp-5/session) (2026-09-18)
 
 The call_packed migration (`9574f14ce`, "vm: migrate cross-mode extern + iface-method
 dispatch to call_packed") deliberately removed the `>6 user arg slots` cross-mode
@@ -39,7 +39,7 @@ but not this mixed split, losing the XMM half. The LLVM side already got the fix
 trampoline lags. ubuntu-only (SysV); macOS is arm64/AAPCS64 (no split → alias path,
 passes). A native-lags-LLVM ABI gap in the `#[c_export]`/`__c_entry` struct-return work.
 
-### aarch64 `rt.MemZero` `.s` seam still reddens E2E `separate-compilation` — part-1 stopgap was incomplete — 🟡 OPEN (2026-09-18)
+### aarch64 `rt.MemZero` `.s` seam still reddens E2E `separate-compilation` — part-1 stopgap was incomplete — 🟡 IN PROGRESS (claimed 2026-09-18, temp-5/session) (2026-09-18)
 
 Same root cause as the landed `bnld-real-program` fix (`7989641b1`): aarch64's
 `rt.MemZero` is a `#[build]`-gated-off hand-asm `.s` seam that only cmd/bnc's link
