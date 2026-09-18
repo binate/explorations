@@ -476,6 +476,39 @@ fall back to word-at-a-time past offset 512 (LDP imm7 reach). The separate
 redundant-intermediate-buffer finding is tracked as its own todo (load→store
 fusion). — done by temp-5, filed originally by the SROA worker (work-1).
 
+### native x64 `#[c_export]` trampoline dropped the SSE-split half of a mixed 16-byte aggregate — FIXED, LANDED `a9fbb3e5b` (2026-09-18)
+
+The x86-64 `#[c_export]` entry trampoline (emitted for a function with a >16-byte
+by-value aggregate param) routed a <=16-byte SysV-SSE (float-containing) aggregate
+param through its plain all-GP path, reading each eightbyte from a GP scratch slot.
+But SysV passes an SSE aggregate SPLIT across the register files — each SSE
+eightbyte in an XMM reg, each INTEGER eightbyte in a GP reg — and phase 1 stashed
+only the GP arg regs, so the SSE eightbytes were read from GP slots the C caller
+never wrote: the XMM half was dropped.  Observed as e2e/ffi-export's `ffi_bigmix`
+returning 32 instead of 39.  Native counterpart of the LLVM-side fix (`b2b2d272f`);
+LLVM forwards SSA values so its backend allocates registers, while the native
+trampoline places physical registers itself.
+
+Fix: a phase-2 case marshals a <=16-byte SSE aggregate by eightbyte class, with
+two XMM cursors (C / internal) because a mixed aggregate can be register-class in C
+but memory-class internally (a preceding >16-byte aggregate rides an internal GP
+pointer but no C GP).  Phase 1 also stashes the incoming XMM arg registers, and
+phase 2 reads EVERY SSE value from that stash, never a live XMM register.
+
+Two adversarial-review rounds: the FIRST caught a silent miscompile in the initial
+fix — it read/wrote live incoming XMM registers, so a memory-in-C/register-internal
+aggregate (the reverse straddle) clobbered a later param's incoming XMM before
+reading it (dropping a trailing f64: a Clobber shape returned 7269 vs 5278).  The
+XMM-stash-and-read-from-scratch approach fixes that (making phase 2
+order-independent); the second round confirmed it.
+
+Verified end-to-end (x86_64 cross-compile + Rosetta): bigstruct/bigvec/bigmix =
+123/69/39 (was …/…/32), reverse-straddle clobber = 5278, a mix→float→2-SSE stress
+case = 197.  294 x64 unit tests pass (new `TestEmitCExportMixedSseStraddleTrampolineX64`
+fails on the buggy emitter, passes with the fix).  e2e/ffi-export.sh adds
+`ffi_bigclobber` (the reverse-straddle guard, run on x64 CI); the whole suite is
+13/13 on aarch64 (alias) + LLVM giving 123/69/39/54.
+
 ### vm unit-test crash `TrampolinePacked called with nil data`: an ARTIFICIAL test, not a dispatch bug — FIXED, LANDED `092c604dd` (2026-09-18)
 
 `pkg/binate/vm` unit tests crashed the whole test binary in the VM (interpreted)

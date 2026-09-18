@@ -14,18 +14,6 @@ Regressions introduced in the 0.0.16 candidate range (since `bnc-0.0.15`,
 link error (e2e) are resolved; the E2E cluster below is what a triage of the last
 completed E2E run (`7989641b1`) found still red.
 
-### native x64 `#[c_export]` entry trampoline drops the SSE-split half of a mixed 16-byte aggregate — 🟡 IN PROGRESS (claimed 2026-09-18, work-3/session)
-
-E2E `ffi-export` `bigagg-native` fails on ubuntu (SysV x86-64): `ffi_bigmix(FfiBig,
-×5 int64, FfiMix{i64,f64})` returns `32` instead of `39` — off by 7 = the dropped
-`f64` field. Once a preceding >16-byte aggregate + 5 int64s exhaust the GP file, SysV
-passes the 16-byte `{i64,f64}` SSE-split (i64 in a GP reg, f64 in XMM); the native x64
-`#[c_export]` entry trampoline (`cebfc6695`) reconstructs a >16-byte MEMORY aggregate
-but not this mixed split, losing the XMM half. The LLVM side already got the fix
-(`b2b2d272f`, `sysvWriteThunkSseSpill`, whose done-log names `ffi_bigmix`); the native
-trampoline lags. ubuntu-only (SysV); macOS is arm64/AAPCS64 (no split → alias path,
-passes). A native-lags-LLVM ABI gap in the `#[c_export]`/`__c_entry` struct-return work.
-
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
