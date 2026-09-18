@@ -95,9 +95,17 @@ CORRECTION 2026-09-08):
    disassemble to confirm the allocation changed.)  **Open next levers:** share the
    `ComputeDom`/CFG build between liveness and loop-depth (perf, not correctness —
    currently two CFG traversals per AllocateRegisters); interval splitting; more
-   homes; and closing the COMPILER's own remaining spill gap (loop-weighting is
-   neutral there, so a different regalloc lever is needed for control-flow-heavy
-   code).  See plan-native-regalloc.md Stage 5c.
+   homes; and closing the COMPILER's own remaining spill gap.  **Compiler-gap
+   diagnosis (2026-09-18, disassembly of livenessFixpoint native vs LLVM):** native
+   stores scalars to the stack ~30× more (153 vs 5) — it homes only 10 values
+   (callee-saved; `CallerSaved` EMPTY) vs LLVM's ~27-register file; plus a large
+   aggregate/slice-header-copy component (SROA, work-1).  🟡 IN PROGRESS
+   (caller-saved-homes re-test, claimed 2026-09-18, work-4/temp-4): the scalar-spill
+   gap contradicts Stage 5a's "10 homes suffice" shelving justification, which — given
+   the increment-2 -O0 mismeasurement — is suspect; re-test the shelved Stage 5a impl
+   (`shelved-stage5a-caller-saved-homes`, `69d650f41`) at -O2 with disassembly, then
+   the proper form (non-arg pool + call-operand exclusion) and interval splitting.
+   See plan-native-regalloc.md "Compiler-gap disassembly diagnosis" + Stage 5c.
 3. **Inliner threshold tuning — POSTPONED; revisit AFTER SROA/regalloc.** 🔵 NOT ASSIGNED
    The `--inline-threshold` flag is landed (`3022706ce`) so the value is
    runtime-settable without recompiling the compiler. A drift-controlled

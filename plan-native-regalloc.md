@@ -400,6 +400,40 @@ The landed `LinearScan` never evicted before increment 1: when the eligible pool
     native_arm32_baremetal — a wrong assignment is a silent miscompile) + a native self-compile
     benchmark (does it actually narrow the ~45% spill half?) + adversarial review.
 
+## Compiler-gap disassembly diagnosis (2026-09-18, work-4/temp-4)
+
+Disassembled `livenessFixpoint` (a top-hot compiler function) native `-O2` vs LLVM `-O2`
+(both `--linker clang` so symbols survive), to characterize the gap that remains on the
+COMPILER's own (control-flow-heavy) code — where loop-depth weighting is neutral.
+
+    metric (livenessFixpoint)      native   LLVM
+    instructions                     652     381
+    scalar stores -> stack           153       5      <-- ~30x
+    scalar loads  <- stack            82     ~29
+    aggregate copies (ldp/stp)       118      40
+    aggregate-source copies (ldp)     58       7      <-- LLVM SROA'd them away
+    total stack accesses             237      47
+
+Two large, distinct gaps: (1) **scalar spilling — the register allocator's domain** —
+native stores 153 scalars to the stack vs LLVM's 5; native homes only 10 values
+(callee-saved X19–X28; `CallerSaved` is EMPTY) and runs close to the store-every-def
+baseline, while LLVM uses the full ~27-register file.  (2) **aggregate/slice-header copies
+— SROA's domain (work-1)** — native copies 4-word headers through stack scratch 58x vs
+LLVM's 7; register allocation cannot touch these (aggregates are non-allocatable).
+
+**The scalar-spill gap (153 vs 5) directly contradicts Stage 5a's shelving justification
+("10 callee-saved homes already cover most functions' pressure").**  Given the increment-2
+`-O0` mismeasurement caught the same day, the Stage 5a "neutral" verdict is SUSPECT — likely
+a mismeasurement and/or an artifact of its pool choice (it homed in the call-churned arg
+bank X0–X7, only 8 registers, few of which survive across 18 calls).  Next lever (owner
+picked option 1, 2026-09-18): re-open caller-saved homes — re-test the shelved Stage 5a impl
+(`shelved-stage5a-caller-saved-homes`, `69d650f41`) at `-O2` WITH disassembly (does the
+153-store count drop? does the self-compile improve?), then, if warranted, the proper form
+(a non-arg caller-saved pool + barring call/return operands from a caller-saved home at
+allocation) and eventually interval splitting (the real LLVM technique — caller-saved regs
+for the non-call portions of long call-spanning intervals).  The aggregate-copy half stays
+work-1's SROA.
+
 ## Correctness & validation (miscompile is the top risk)
 
 A wrong assignment is a **silent** wrong-register read. Front-load validation:
