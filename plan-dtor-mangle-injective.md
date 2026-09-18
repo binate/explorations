@@ -127,3 +127,31 @@ digit-initial length-prefixed name) — no need to keyword-ize them.
   against `elemDtorName` / `qualifiedDtorNameForType` / `isElemDtorModuleLocal`.
 - Tests: `gen_dtor*_test.bn` / `gen_copy*_test.bn`; a new `conformance/NNN_*`.
 - `docs/spec/annex-b-implementation-model-and-idb-index.md` — update the flagged line.
+
+## F3 + anon-hash (full unification) — chosen 2026-09-18, work-1
+
+Close the residual: make the TOP-LEVEL struct dtor/copy leaf injective too, so a
+struct source-named like a wrapper helper can't shadow it.  The PACKAGE stays in the
+`pkg.` symbol qualifier (cross-package resolution), so only the LEAF needs encoding —
+length-prefix it (`<declen><leaf>`, digit-initial, can't reconstruct a letter-initial
+`mp_`/`ms_`/`arr` token).  Applied via ONE shared helper (`writeStructLeafToken`) at
+EVERY struct-leaf dtor/copy naming site so definition and reference stay in agreement
+(a missed site = undefined symbol, caught by self-compile).
+
+Sites (repo-wide grep for `dotSuffix` / `.__dtor_` / `.__copy_` / raw-name writes into
+`__dtor_`/`__copy_`):
+- gen_dtor.bn: dtorTypeSuffixRec top-level struct arm (:113); qualifiedDtorNameForType
+  struct arm (:245/248); dtorName (:325); qualifiedDtorName (:344).
+- gen_copy.bn: the copy twins (copyNameForType shares dtorTypeSuffix; qualifiedCopy-
+  NameForType struct arm; copyName; qualifiedCopyName).
+- gen_dtor_emit.bn (:22,:68) + gen_copy_emit.bn (:49): base = dotSuffix(...) for
+  extern-decl / definition names.
+- gen_impl.bn (:452): `.__dtor_` write.
+- codegen/emit_funcvals.bn (:305): the backend closure-struct dtor name — must match.
+
+Then the anon-struct >128-char `anon_h<fnv32>` fallback (anonStructSuffix): FNV-32 is
+non-injective; replace the truncating hash with the full field-sequence encoding (no
+truncation — symbols may be long but the backend length-prefixes them) OR a wider,
+collision-resistant digest.  Validate: ir unit tests (all struct dtor/copy name
+assertions change — update them); a spoof-named TOP-LEVEL struct program; self-compile
+LLVM + all native + VM (every struct symbol changes → the real def/ref check); review.
