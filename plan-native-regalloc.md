@@ -337,8 +337,15 @@ and `clobbers(ins)`.
   reclaim x64
   RCX/RDX, arm32 int64-in-registers.
 
-- **Stage 5c — spill-cost eviction (increment 1: static use-count). 🟡 IN PROGRESS
-  (2026-09-17, work-4/temp-4).** The landed `LinearScan` never evicts: when the eligible pool
+- **Stage 5c — spill-cost eviction (increment 1: static use-count). ✅ LANDED `fb215bf79`
+  (2026-09-17, work-4/temp-4).** Effect (native aa64 self-compile of cmd/bnc, interleaved
+  5-round, host idle): native-backend median 18.45s → 16.03s, narrowing the native/LLVM
+  code-quality ratio from **3.86× to 3.34×** (~13% faster; best-case ~18%; LLVM build
+  unchanged at 4.78s, so the gain is entirely the native regalloc change — a real dent in
+  the ~45% scalar-spill half of the gap, unlike the neutral 5a/5b).  Validated: native
+  aa64 3037/0, arm32-linux 3037/0, x64_darwin 3256/0 (4 shards); native/common unit tests
+  (+3 eviction tests); adversarial review clean (inductive no-overlap proof).  Increment 2
+  (loop-depth weighting: use-density × loop-depth) remains open.  The landed `LinearScan` never evicted before this: when the eligible pool
   is exhausted it spills the *current* interval (`reg = -1`), regardless of how hot it is. So a
   hot value that needs a callee-saved register but arrives after the callee-saved pool is full of
   colder long-lived spanning values gets spilled — the `livenessFixpoint`-receiver case (a

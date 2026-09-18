@@ -94,8 +94,17 @@ CORRECTION 2026-09-08):
    now deletes it (use-scan guarded), so mstruct drops from 1 residual struct alloca
    to 0 at -O2.  Still open: increment 2 = nested-managed-struct + @[]@T
    fields — **2a (nested managed-struct field) DONE — LANDED `0e862dca8`
-   (2026-09-18); 2b (@[]@T field) 🟡 feasibility investigation IN PROGRESS (work-1,
-   2026-09-18) — see plan-sroa-managed-structs.md**.  **SROA-to-a-fixpoint DONE — LANDED `0a1098cff`**: runSroa
+   (2026-09-18); 2b (@[]@T managed-element slices) FEASIBILITY DONE — HIGH VALUE,
+   TRACTABLE, unclaimed/ready to implement**.  2b is likely the biggest remaining
+   managed-slice gap-closer: `@[]@T` is the compiler's DOMINANT slice type
+   (`@[]@types.Type` ×907, `@[]@Instr` ×291, …) and pins at -O2 today (a 1-line
+   `@[]@Node` local pins 6 four-word headers), while increment 1 only handled
+   non-managed-element `@[]T`.  Approach (see plan-sroa-managed-structs.md 2b section):
+   add a scalar-arg `__dtor_ms_elems_<T>(refptr, backingLen)` helper (the ms-dtor body
+   minus the load), reshape the -O1+ inline cleanup (slice locals + `@[]@T` struct
+   fields) to `extract refptr/backinglen + call` it (forwardable), and relax
+   `managedSliceElemScalarReplaceable` / `isLeafManagedField`'s slice arm.  Scope
+   ~2a-sized.  **SROA-to-a-fixpoint DONE — LANDED `0a1098cff`**: runSroa
    now runs each function's SROA to a fixpoint so `b = a` collapses BOTH sides (the
    copy source, L2-pinned on pass 1 because its whole-load feeds the whole-store as
    a non-extract value, becomes eligible once that store is rewritten to per-field
@@ -163,19 +172,22 @@ CORRECTION 2026-09-08):
    aggregates (clean) → Phase 2 managed-slice/struct (refcount + fault-pad
    handling — the hard part + biggest payoff).
 2. **Register-allocation quality (scalar spill/reload) — ~45% of the gap.**
-   🟡 IN PROGRESS (spill-cost heuristics claimed 2026-09-17, work-4/temp-4). The
-   landed allocator is whole-interval linear-scan, callee-saved homes only
-   (~10 regs), naive newest-interval spill, no splitting/rematerialization, so
-   values round-trip the stack under pressure where clang keeps them in
-   registers (e.g. `livenessFixpoint` reloads its receiver from `[sp]` on every
-   field access; clang holds it in a register). The two SHELVED Stage-5
-   refinements (caller-saved homes, copy coalescing) were the wrong knobs;
-   spill-cost heuristics / interval splitting / more homes are untried and
-   target this ~45% directly.  **First lever being taken: spill-cost heuristics**
-   — replace the naive "spill the newest interval" eviction with "spill the
-   cheapest" (use-density × loop-depth), so a hot frequently-used value (the
-   livenessFixpoint receiver) stops being evicted in favor of a colder one.  See
-   plan-native-regalloc.md.
+   🟢 spill-cost eviction (increment 1) LANDED `fb215bf79` (2026-09-17,
+   work-4/temp-4); further regalloc levers open.  The landed allocator is
+   whole-interval linear-scan, callee-saved homes only (~10 regs); it used to
+   spill the NEWCOMER when the pool was exhausted, so a hot value round-tripped
+   the stack under pressure where clang keeps it in registers (e.g.
+   `livenessFixpoint` reloaded its receiver from `[sp]` on every field access).
+   The two SHELVED Stage-5 refinements (caller-saved homes, copy coalescing) were
+   the wrong knobs.  **Spill-cost eviction (LANDED):** when the pool is exhausted
+   the scan now evicts the cheapest active (by static def+use count) if it is
+   cheaper than the newcomer, keeping hot values in registers.  Measured: native
+   aa64 self-compile median 18.45s → 16.03s, native/LLVM ratio 3.86× → 3.34×
+   (~13% faster; LLVM unchanged).  Validated on all three native backends
+   (aa64/arm32-linux/x64_darwin) + unit tests + clean adversarial review.  **Open
+   next levers:** loop-depth weighting (use-density × loop-depth — increment 2,
+   a colder value in a hot loop should cost more than its static count), interval
+   splitting, more homes.  See plan-native-regalloc.md Stage 5c.
 3. **Inliner threshold tuning — POSTPONED; revisit AFTER SROA/regalloc.** 🔵 NOT ASSIGNED
    The `--inline-threshold` flag is landed (`3022706ce`) so the value is
    runtime-settable without recompiling the compiler. A drift-controlled
