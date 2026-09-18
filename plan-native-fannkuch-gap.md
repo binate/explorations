@@ -167,4 +167,33 @@ Investigation complete. Tier 1 taken on 2026-09-18 (work-6/session):
   ordering, not a one-line allowlist add. This is more involved than the plan
   assumed (Tier-2-scale), deferred pending a decision.
 
-Tiers 2–3 not started.
+### Post-landing re-benchmark (current main, 2026-09-18)
+
+Re-measured on current main (which also gained a concurrent native-regalloc
+commit, `c82f31b6d` "loop-depth spill weighting increment 2"). Fannkuch N=11
+native, best-of-5:
+
+- current main **without** B: ~3.5s   (vs ~6.9s on old main → the regalloc commit
+  alone gave ~49%)
+- current main **with** B (landed): ~3.0s   (B still worth ~14% on top)
+- llvm: ~1.5s
+
+So the native↔llvm gap on fannkuch is now **~2.0×**, down from ~3.6× at the start
+— the concurrent regalloc work did most of it, B added a bit. (Dev-box numbers are
+noisy; run the suite for current figures.)
+
+### A reassessment
+
+**Recommendation: do NOT take on "correct A" as an independent change now.**
+Correct-A is a restructuring of the terminator spill/reset ordering — the same
+reload/spill machinery a concurrent worker is *actively* rewriting (the
+loop-depth spill-weighting increments). Reasons to hold: (1) collision risk with
+that effort, and they are better placed (already in that code); (2) it is
+correctness-critical and subtle — the naive version silently miscompiled; (3) the
+landing regalloc improvements may already shrink the store-then-reload waste, so
+it should be re-measured after that effort settles rather than done as a risky
+parallel change. Fold correct-A into / coordinate with the register-allocator
+work (Tier-2 D territory) instead of a standalone terminator hack.
+
+Tiers 2–3 not started (and Tier-2 D is partly underway on main via the concurrent
+regalloc effort).
