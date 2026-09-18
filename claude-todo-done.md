@@ -446,6 +446,42 @@ fall back to word-at-a-time past offset 512 (LDP imm7 reach). The separate
 redundant-intermediate-buffer finding is tracked as its own todo (load→store
 fusion). — done by temp-5, filed originally by the SROA worker (work-1).
 
+### vm unit-test crash `TrampolinePacked called with nil data`: an ARTIFICIAL test, not a dispatch bug — FIXED, LANDED `092c604dd` (2026-09-18)
+
+`pkg/binate/vm` unit tests crashed the whole test binary in the VM (interpreted)
+modes with `panic: vm: TrampolinePacked called with nil data`, masking ~69 other
+tests — every int unit-test mode red for 2+ days.  Trigger:
+`TestDispatchCompiledFuncValuePublishesCrossModeVm`
+(`vm_crossmode_satvm_test.bn`).
+
+The todo's suggested fix direction — "dispatch a data==0 compiled func value as a
+bare native call rather than through TrampolinePacked" — does NOT hold up.  It
+assumes the func value's vtable is native (call_packed == a per-signature
+`__shimP`).  That is true only when the vm package runs NATIVELY (builder-comp),
+where the test passes.  Under the bytecode VM, `crossModeVmProbe` is a VM
+function: `ensureHandle` (vm_funcvalue_handle.bn) sets its vtable
+`call_packed == TrampolinePacked` and gives it a LIVE closure record; the test
+zeroes `data`, so `dispatchCompiledFuncValue` calls `TrampolinePacked(data=0)` →
+the nil-data panic.  **There is no dispatch bug:** in real execution a live VM
+func value always carries its record (data != 0), and a `data==0` value reaching
+`dispatchCompiledFuncValue` is always a native `__shimP` value (which already
+works); the `{TrampolinePacked-vtable, data==0}` shape is produced ONLY by this
+synthetic test.  And the fix direction is infeasible — a data==0 VM func value
+has no callee index to dispatch (the record it discarded was the only handle).
+(Adversarially verified: all three VM func-value construction sites pair the TP
+vtable with a non-zero record; the real caller `execCallFuncValue` routes a live
+same-vm value to the fast path, never here.)
+
+Fix (owner chose the test-guard over a `.skip` marker, for mode-robustness): the
+test no-ops (`return ""`) when the probe compiled to a VM handle — detected by the
+same thunk-identity check `vmFuncValueFnIdx` uses,
+`vtable[call_packed] == vmTrampolinePackedCall(vm)` — since the compiled/native
+dispatch it verifies is unreachable there.  Native modes still run the full
+assertions (proven with a fail-loud experiment: the guard fires ONLY under the
+VM).  Verified: builder-comp still passes; builder-comp-int and
+builder-comp-comp-int go from panic to pass (builder-comp-int-int batch-skips the
+vm package).  Minimal adversarial review could not refute it.
+
 ### `native/arm32` bare-metal unit lane: MISDIAGNOSED as a leak — actually 2 filesystem tests — FIXED, LANDED `7cdc667a4` (2026-09-18)
 
 The `pkg-binate-native-arm32.xfail.builder-comp_arm32_baremetal` marker blamed a

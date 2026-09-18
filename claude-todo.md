@@ -11,36 +11,6 @@ Both are regressions introduced in the 0.0.16 candidate range (since `bnc-0.0.15
 2026-09-02); each reddens a CI gate that must be green before the release can cut
 (`version-history.md` records the ladder; 0.0.16 is `bnc-0.0.16-pre1`).
 
-### MAJOR: vm unit-test binary crashes — a nil-data (non-closure) func value reaches `TrampolinePacked` via `dispatchCompiledFuncValue` — 🟡 IN PROGRESS (claimed 2026-09-18, work-3/session) (2026-09-18)
-
-**Symptom:** `pkg/binate/vm` unit tests panic `vm: TrampolinePacked called with nil
-data`, which crashes the whole vm test binary — the other ~69 vm tests are masked
-(reported skipped), so EVERY unit-test mode is red (has been for 2+ days / 15+
-commits). Reproduce on HEAD: `./scripts/unittest/run.sh builder-comp-int
-pkg/binate/vm`.
-
-**Triggering test:** `TestDispatchCompiledFuncValuePublishesCrossModeVm`
-(`pkg/binate/vm/vm_crossmode_satvm_test.bn`) — it builds a compiled func value with
-`data==0` (a bare function, no closure record) and calls `dispatchCompiledFuncValue`.
-
-**Root cause:** `dispatchCompiledFuncValue`, given a `data==0` compiled func value,
-routes it through `TrampolinePacked` (the VM-*closure* bridge), whose first act is
-`if data==nil { panic }` (`pkg/binate/vm/vm_trampoline.bn:258`). A bare (non-closure)
-compiled func value must be dispatched directly, not via the closure trampoline.
-
-**Area / provenance:** new-in-0.0.16 func-value packed-dispatch machinery
-(`TrampolinePacked` added `3ed5206a5`; cross-mode publish `eee95ee8e`; fast-path +
-overflow pre-check `43b0acc37`; a dispatch-through-`call_packed` revert/re-land
-`111f12f73`/`1a3bc9260`). Sibling: `aacd1f232` xfailed 15 cross-mode func-value
-*conformance* tests ("regressed in the VM modes") — this vm *unit* test was not in
-that batch, likely an oversight in the same in-flight effort. Probably belongs with
-the ongoing func-value work.
-
-**Fix direction:** dispatch a `data==0` compiled func value as a bare native call
-rather than through `TrampolinePacked`, keeping `TestDispatchCompiledFuncValuePublishesCrossModeVm`'s
-intent intact (it verifies `g_crossModeVmAddr` is published during and restored after
-the native call). **Claimed 2026-09-18 (work-3/session).**
-
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
