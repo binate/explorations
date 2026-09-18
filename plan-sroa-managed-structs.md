@@ -283,6 +283,22 @@ did non-managed-element).  Recommend: do 2a first; 2b likely needs the managed-s
 of-managed-element SROA generalized first (a separate, bigger piece — assess before
 committing).
 
+### 2b STATUS — DONE: piece 1 (slice LOCALS) `52e612619`, piece 2 (struct FIELDS) `48edaff94` (2026-09-18)
+
+Piece 2 reshaped `emitStructFieldRefDecs`' TYP_MANAGED_SLICE-with-element arm to the
+same forwardable extract-refptr/backinglen + call `__dtor_ms_elems` form (gated on
+the existing `inlineNested` flag; the shared `__dtor_T` keeps the by-address call),
+and relaxed `isLeafManagedField`'s slice arm — so a struct with a `@[]@T` field is
+leaf-eligible and composes with 2a (a `struct { items @[]@Node }` local fully
+scalar-replaces at -O2, 0 struct allocas).  It also split the managed-slice/pointer
+dtor GENERATORS out of gen_dtor_emit_bodies.bn into gen_dtor_emit_ms.bn (a pure move,
+verified byte-identical) since piece 1 had brought the file to the length cap.
+Validated: ir 835/0; refcount balance (sentinel-refcount over 120 element cleanups)
+compiled+VM O0/O2; self-compile builder-comp-comp + native-aa64 3037/0; adversarial
+review clean.  **With 2a + 2b done, SROA increment 2 is complete.**
+
+Original piece-1 status note below.
+
 ### 2b STATUS — piece 1 (slice LOCALS) LANDED `52e612619` (2026-09-18)
 
 Piece 1 landed exactly the scalar-helper approach below: `__dtor_ms_elems_<T>(backingPtr
