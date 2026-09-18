@@ -9,13 +9,13 @@ leak) and the R5 end-to-end coverage follow-up.  Started 2026-09-09. **APPROACH
 CHANGED 2026-09-14 to the RESERVATION model (see below) after the per-op approach's
 cost was surfaced.** Owner: this session (work-2).
 
-**Inc 3a (approach A, pre-delivery `OP_STACK_CHECK_FV`) ABANDONED 2026-09-16** — see
-"Inc 3 + b2 REDESIGN" at the bottom.  The committed `d80e5b927` (approach A) is a
-DEAD END: it's fragile (can't predict the dispatch's transient SP growth) and has a
-wild-`@VM`-deref bug (classifies by `data[0]`).  User directed a full redesign doing
-Inc 3 AND b2 together.  The design is at the bottom of this file; the committed
-d80e5b927 stays on work-2 only for its two black-box regression tests, which carry
-over unchanged.
+**COMPLETE 2026-09-17.** Inc 1, Inc 2 (reservation R1-R5), and Inc 3 (crash guard
+`d2e21a89c` + func-value fast-path/pre-check `43b0acc37` + iface-method pre-check
+`c990def66`) are all landed.  See "Inc 3 + b2 REDESIGN" at the bottom for the S1/S2/S3
+breakdown.  (Historical: the original Inc 3a "approach A" pre-delivery
+`OP_STACK_CHECK_FV` was ABANDONED as a dead end — fragile against the dispatch's
+transient SP growth, and a wild-`@VM`-deref from classifying by `data[0]`; the user
+directed the full redesign doing Inc 3 AND b2 together, which is what landed.)
 
 ## Goal (owner-clarified 2026-09-14 — supersedes the original "make overflow
 ## recoverable" framing)
@@ -495,9 +495,24 @@ path safe independently:
   calls (no `OP_STACK_CHECK`) — a moved arg can still leak on a deferred call's
   callee overflow.  Minor perf: `vmFuncValueFnIdx` runs twice per fast-path call
   (pre-check + dispatch) — correctness-neutral.
-- **S3 — iface-method parity.** Same fast-path + recovery for
-  `execCallIfaceMethod`/`dispatchCompiledIfaceMethod` (Inc 3b).  Tests: scalar +
-  aggregate iface-method overflow, nil-iface moved-arg.
+- **S3 — iface-method parity (Inc 3b). LANDED `c990def66` (2026-09-17).** No
+  fast-path was needed: the VM iface-method dispatch (`execCallIfaceMethod`) already
+  pushes a VM iface value's callee frame directly (only a native iface value uses the
+  marshalling `dispatchCompiledIfaceMethod`).  So S3 is purely the pre-check:
+  `OP_STACK_CHECK_IM` (receiver in Args[0], method slot in IntVal) with an args-owning
+  pad; `stackCheckIfaceMethod` resolves the callee from the receiver vtable + slot
+  (mirroring `execCallIfaceMethod` 1:1) and faults on nil-iface or callee overflow,
+  exact (no marshalling growth).  Tests (`vm_exec_ifacecall_test.bn`):
+  TestIfaceMethodOverflowNoLeak + TestNilIfaceMethodMovedArgNoLeak (both non-vacuous).
+  Verified: vm units 410/0; `builder-comp-int` 3025/0; adversarial review clean.
+
+**WHOLE PLAN COMPLETE (2026-09-17).** Inc 1 (direct-call eval/deliver split +
+OP_STACK_CHECK), Inc 2 (reservation R1-R5), and Inc 3 (crash guard S1 + func-value
+S2/b2 + iface-method S3) are all landed.  A VM stack overflow now faults cleanly and
+leak-free on every call path (direct, func-value, iface-method), and the
+aggregate-return dispatch no longer crashes.  KNOWN GAP (pre-existing, out of scope,
+not widened): DEFERRED indirect calls emit no pre-check (uniform with deferred direct
+calls) — a moved arg can still leak on a deferred call's callee overflow.
 
 ### Risks / open questions to settle during S2
 

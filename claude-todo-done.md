@@ -21700,3 +21700,53 @@ e2e workflow; the `arm32` name prefix gates in the existing qemu +
 gcc-arm-linux-gnueabihf install on the Linux runner; self-SKIPs without the
 toolchain and on macOS.  Validated end-to-end in a CI-like container (all cases
 pass; pre-fix it SIGILLs / garbles).
+
+## VM SP-guard (stack-overflow safety) + func-value fast-path (b2) — DONE (2026-09-17)
+
+Comprehensive recoverable-stack-overflow guard for the bytecode VM (plan
+`plan-vm-stack-precheck.md`): a VM stack overflow now faults cleanly and LEAK-FREE on
+every call path, and never corrupts or crashes the host.  All increments landed:
+
+- **Inc 1** (`7d610fdb6`): eval/deliver arg-build split (every arg stays a live cleanup
+  temp until all are evaluated) + VM-only `OP_STACK_CHECK` for DIRECT calls (faults
+  before the call commits its args, args-owning pad).
+- **Inc 2 — reservation model** (R1 `770b6fbc1`, R2 `70bfdd37a`, R3 `4401121a9`,
+  R4 `70265c12f`, R5 `6f2576927`, + e2e follow-up `f450d1615`, + OP_IFACE_UPCAST
+  reclaim `7697db626`): per-function `MaxStmtTempGrowth` reserved at frame entry
+  (`frameReserve = frameExtent + MaxStmtTempGrowth`), so per-statement temp growth
+  can't overrun vm.Stack by construction; overflow caught at frame entry, no per-op
+  checks.  Fixed the pre-existing cross-mode arg-substitution unchecked-growth MAJOR
+  bug in passing.
+- **Inc 3 — indirect calls** (the func-value / iface-method moved-arg leak):
+  - **S1 crash guard** (`d2e21a89c`): `TrampolinePacked`/`TrampolineAggregate` skip
+    the retbuf `MemCopy` when `execFunc` left `Status = FAULTED` — fixes the
+    aggregate-return overflow SEGV (`MemCopy` from a fault-0 result), for both
+    func-value and iface-method aggregate returns.
+  - **S2 func-value fast-path + pre-check (this IS b2)** (`43b0acc37`): VM func values
+    recognized by THUNK IDENTITY (`vmFuncValueFnIdx`, cached `VM.TrampolinePackedCall`;
+    never a `data[0]` peek) and pushed DIRECTLY in the call arm (`fastPushVmFuncValue`,
+    no native trampoline round-trip, no retbuf, no cross-mode arg-substitution) +
+    exact `OP_STACK_CHECK_FV` pre-check (args-owning pad).  Split into
+    `vm/vm_funcvalue_fastpath.bn`.  The original "approach A" (a pre-delivery op
+    PREDICTING the marshalling-path push SP) was abandoned as a dead end — fragile vs.
+    the dispatch's transient SP growth (retbuf + runtime arg-substitution) and a
+    wild-`@VM`-deref from `data[0]` classification; the fast path removes the growth
+    (making the check exact) and thunk identity removes the wild-deref.
+  - **S3 iface-method pre-check (Inc 3b)** (`c990def66`): no fast-path needed (the VM
+    iface-method dispatch already pushes VM iface callees directly); `OP_STACK_CHECK_IM`
+    (receiver + method slot) + `stackCheckIfaceMethod` resolving the callee from the
+    receiver vtable + slot exactly as the dispatch does, args-owning pad, exact.
+
+Each increment: adversarial-reviewed, non-vacuous leak-free tests (func-value +
+iface-method: scalar, aggregate, nil-value — all assert Status=FAULTED + stable
+LiveBlocks), `builder-comp-int` conformance green throughout.  Honors the "b2 is
+optimization only, never on the correctness path" constraint at the crash level (S1's
+guard is independent); same-vm func-value leak-freedom rides the fast path (user
+approved, b2 reassigned to this effort).
+
+**KNOWN GAP (pre-existing, out of scope, NOT widened):** DEFERRED indirect calls
+(`gen_defer_exit.bn`) emit no pre-check — uniform with deferred DIRECT calls (no
+`OP_STACK_CHECK` either) — so a moved managed arg can still leak on a deferred call's
+callee-overflow.  Documented in `attachEmptyFaultPad`'s KNOWN GAP comment.  Minor perf
+note: the func-value fast path runs `vmFuncValueFnIdx` twice per call (pre-check +
+dispatch) — correctness-neutral.
