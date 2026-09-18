@@ -143,7 +143,8 @@ CORRECTION 2026-09-08):
    (per plan): Phase 0 eligibility scan ✅ (landed) → Phase 1 non-managed
    aggregates (clean) → Phase 2 managed-slice/struct (refcount + fault-pad
    handling — the hard part + biggest payoff).
-2. **Register-allocation quality (scalar spill/reload) — ~45% of the gap.** The
+2. **Register-allocation quality (scalar spill/reload) — ~45% of the gap.**
+   🟡 IN PROGRESS (spill-cost heuristics claimed 2026-09-17, work-4/temp-4). The
    landed allocator is whole-interval linear-scan, callee-saved homes only
    (~10 regs), naive newest-interval spill, no splitting/rematerialization, so
    values round-trip the stack under pressure where clang keeps them in
@@ -151,7 +152,11 @@ CORRECTION 2026-09-08):
    field access; clang holds it in a register). The two SHELVED Stage-5
    refinements (caller-saved homes, copy coalescing) were the wrong knobs;
    spill-cost heuristics / interval splitting / more homes are untried and
-   target this ~45% directly.
+   target this ~45% directly.  **First lever being taken: spill-cost heuristics**
+   — replace the naive "spill the newest interval" eviction with "spill the
+   cheapest" (use-density × loop-depth), so a hot frequently-used value (the
+   livenessFixpoint receiver) stops being evicted in favor of a colder one.  See
+   plan-native-regalloc.md.
 3. **Inliner threshold tuning — POSTPONED; revisit AFTER SROA/regalloc.** 🔵 NOT ASSIGNED
    The `--inline-threshold` flag is landed (`3022706ce`) so the value is
    runtime-settable without recompiling the compiler. A drift-controlled
