@@ -567,7 +567,7 @@ unwind; nil-deref N1–N3 last, `de9a7c05`); see claude-todo-done.md and
   real behavior change for anything scraping them off stdout.
 - (Separately filed under MAJOR: the re-entrant-`execFunc` fault-swallow.)
 
-### Method-value wrapper's forwarding call has no stack-overflow pre-check — last frame-push-overflow moved-arg leak — 🟡 OPEN (found 2026-09-18)
+### Method-value wrapper's forwarding call has no stack-overflow pre-check — last frame-push-overflow moved-arg leak — 🟡 IN PROGRESS (claimed 2026-09-18, work-2)
 
 Ordinary direct / func-value / iface-method calls (VM SP-guard effort, done log
 2026-09-17) and DEFERRED calls (`233de0049`, done log) now emit a recoverable
