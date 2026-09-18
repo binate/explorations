@@ -458,38 +458,6 @@ emission-nondeterminism bug); guard `3ca73110` pins it, and do NOT widen the tol
 
 ## Method values & function values (codegen)
 
-### MAJOR: method-value wrapper double-frees a value-struct receiver with managed fields — 🟡 IN PROGRESS (claimed 2026-09-18, work-2)
-
-`synthMethodValueWrapper` (`ir/gen_method_value.bn`) forwards a VALUE-struct
-receiver to the wrapped method with a bare `EmitLoad` + `EmitCall`, OMITTING the
-`emitStructCopy` (managed-field RefInc) that the normal method-call path performs
-(`ir/gen_method.bn` ~243-254, whose comment warns: "Without this, the callee's
-scope-cleanup RefDec imbalances against the caller's, freeing the backing
-prematurely").  A value-struct receiver uses the MOVE model (method consumes it,
-dtors at exit — `gen_func.bn` entry-RefIncs only `@T`/`@[]T`/`@func` params, not
-structs), so each method-value call over-releases the receiver's managed fields by
-one ref → premature free → USE-AFTER-FREE on a later call, DOUBLE-FREE at scope
-exit (heap corruption).  IR-gen bug → ALL backends (LLVM + native + VM).
-
-Repro (confirmed): `type Cell struct { p @int }`, `func (c Cell) get() int { return *c.p }`,
-`var mv *func() int = c.get`; call `mv()` 4× summing → want 28, then `*c.p` → want 7.
-LLVM produced `14` then `0` (c.p freed after ~2 calls); VM also wrong.  Coverage
-hole: conformance 505 uses a value receiver with NO managed fields; 948/952 use
-pointer receivers (borrowed via the capture bridge, unaffected).
-
-Fix: in `synthMethodValueWrapper`, when `needsStructCopy(methodRecvTyp)` (a value-
-struct receiver on a value method — mutually exclusive with the value→pointer
-capture bridge, which handles the pointer-method case as a borrow), `emitStructCopy`
-the receiver before the forward, mirroring `gen_method.bn`.  Emit it BEFORE the
-wrapper's `OP_STACK_CHECK` forward pre-check so the wrapper owns the copy at the
-check point — and COUPLED: `attachMethodValueForwardPad` (`gen_local_cleanup.bn`,
-landed with the wrapper moved-arg pre-check) must then release idx 0 when
-`needsStructCopy(peelTransparent(params[0].Typ))`, else the owned receiver copy
-leaks on a forward overflow (it currently skips idx 0, correct ONLY while this bug
-leaves the receiver un-owned).  Tests: a conformance double-free repro (all modes)
-+ a VM receiver-overflow leak-free case.  Found by the wrapper-pre-check adversarial
-review (2026-09-18).
-
 ### cross-mode coerced-agg func-value ABI — residual native-shim follow-ups
 The cross-mode coerced-aggregate-ARG residuals — the iface/func-value by-address
 fix, the >7-arg extern guard, and the sub-word/bool RETURN — LANDED via the by-address
@@ -637,31 +605,35 @@ unwind; nil-deref N1–N3 last, `de9a7c05`); see claude-todo-done.md and
   real behavior change for anything scraping them off stdout.
 - (Separately filed under MAJOR: the re-entrant-`execFunc` fault-swallow.)
 
-### Method-value wrapper's forwarding call has no stack-overflow pre-check — last frame-push-overflow moved-arg leak — 🟡 IN PROGRESS (claimed 2026-09-18, work-2)
+### Method-value CLOSURE RECORD leaks on a recoverable overflow fault — 🟡 IN PROGRESS (claimed 2026-09-18, work-2)
 
-Ordinary direct / func-value / iface-method calls (VM SP-guard effort, done log
-2026-09-17) and DEFERRED calls (`233de0049`, done log) now emit a recoverable
-stack-overflow pre-check (`OP_STACK_CHECK{,_FV,_IM}`) that faults BEFORE delivering
-a moved managed arg, so an overflow releases the still-owned args instead of
-orphaning them.  The one call site left WITHOUT a pre-check is the synthesized
-method-value WRAPPER's forwarding call (`ir/gen_method_value.bn`
-`synthMethodValueWrapper`, tagged with `attachEmptyFaultPad`): if that forward's
-frame push overflows, the wrapped method never starts to release a moved-in owned
-param (@Iface / managed-field struct), so it leaks.  Documented as the KNOWN GAP in
-`attachEmptyFaultPad`'s comment (`ir/gen_local_cleanup.bn`).
+A bound method value (`var mv *func(...) = obj.M`) allocates a closure record
+(capturing the receiver).  When a call THROUGH the method value overflows the VM
+stack (the wrapper's forward frame-push faults recoverably), the caller's fault
+unwind does not release that closure record — it leaks one block per overflowing
+call.  Distinct from, and NOT fixed by, the wrapper moved-arg / receiver fixes
+(`8ff97d2ab`): it leaks with AND without them (isolated with a value receiver + no
+managed params, where the closure record is the only heap block, and confirmed as
+the residual delta in vm_methodvalue_overflow_test.bn's difference test).  VM-only
+(recoverable overflow is VM-only); the block is held live by the closure record's
+own ref, so it is a genuine leak, not a refcount-only over-retain.
 
-Fix direction: emit a pre-check before the wrapper's forwarding call, faulting
-while the params are STILL the wrapper's to release (so the fault pad — NOT an empty
-pad — releases them).  It must NOT double-free on an INTERNAL method fault, whose
-unwind runs the wrapper's call-site pad AFTER the method's own pad already released
-the moved params: the pre-check pad releases the wrapper's params only on the
-before-the-forward path (overflow), while the call-site pad stays empty for the
-after-the-forward path (method started). The wrapper currently forwards loaded
-params directly (no coerceArgDelivery step), so this likely needs a load →
-pre-check(+params-owning pad) → forward restructure, mirroring emitDeferRun.  Test:
-a method-value wrapper whose forwarding call overflows a small VM stack while a
-moved @Iface / managed-field-struct param is live — assert Status=FAULTED + stable
-LiveBlocks (mirroring vm_defer_overflow_test.bn).
+Root cause (to confirm): the `*func` method value's closure record is kept alive by
+some caller-scope managed temp/local that the caller's overflow-fault pad does not
+RefDec (mv is a raw `*func`, so it does not itself own the record).  Fix direction:
+ensure the closure record is released on the caller's recoverable-fault unwind
+(register it so the fault pad covers it).  Test: a method-value call that overflows,
+asserting stable rt.LiveBlocks() (currently blocked as a runtime assertion by this
+very leak — it becomes assertable once fixed).
+
+FOLD IN (FINDING 2 from the `8ff97d2ab` wrapper-pre-check review): the wrapper's
+value-struct-receiver `emitStructCopy` (`gen_method_value_wrapper.bn`) emits a
+`__copy` CALL just BEFORE the forward's `OP_STACK_CHECK`, with no fault pad of its
+own.  If that `__copy` frame push overflows (a narrow window — the stack within a
+`__copy`-frame of the limit but not a forward-frame), the fault hits an unpadded op:
+the wrapper's already-owned moved-in user params leak (or, if a padless recoverable
+fault vmPanics, crash).  Same family as the closure-record leak, VM-only.  Fix
+together: either move/extend the pre-check to cover the copy, or pad the copy call.
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 

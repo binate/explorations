@@ -6,6 +6,46 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### Method-value wrapper: forward stack-overflow pre-check + value-struct-receiver double-free — DONE, LANDED `8ff97d2ab` (2026-09-18)
+
+Two coupled fixes to `synthMethodValueWrapper` (`ir/gen_method_value_wrapper.bn`,
+split out of gen_method_value.bn for file-length).
+
+(1) The last frame-push-overflow MOVED-ARG leak: the wrapper forwarded its params to
+the method BY MOVE with no recoverable-stack-overflow pre-check, so a method whose
+frame push overflowed never released a moved-in owned param (@Iface / managed-field
+struct).  The wrapper now emits OP_STACK_CHECK on the wrapped method before the
+forward + attachMethodValueForwardPad (`gen_local_cleanup.bn`), releasing the owned
+moved values on overflow.  Closes the last case (ordinary direct / func-value /
+iface-method + deferred calls already pre-checked).
+
+(2) MAJOR pre-existing double-free / UAF (found by the pre-check adversarial review):
+the wrapper forwarded a VALUE-struct receiver with managed fields with a bare load,
+omitting the emitStructCopy (field-RefInc) the normal method-call path does
+(gen_method.bn).  The value method CONSUMES its receiver (dtor at exit), so each call
+over-released the closure's captured receiver → premature free (UAF / double-free,
+all backends; reproduced 28/7 vs the buggy 14/0).  The wrapper now emitStructCopy's
+the receiver when the method consumes a value struct — GATE on
+needsStructCopy(methodRecvTyp) (excludes a value receiver on a POINTER method,
+handled by the capture bridge as a borrow), COPY with recvTyp (the IR-gen-remapped
+type = params[0].Typ, NOT the checker's raw `Box[int]` — invalid for a generic
+receiver; a second review round caught that + a 949/952 bridge regression from
+gating on recvTyp).  The pre-check pad releases the owned copy on overflow.
+
+Tests: conformance 1270 (value-struct receiver double-free) + 1271 (generic
+sub-case, would fail to compile without the remap), both all-modes;
+vm_methodvalue_overflow_test.bn (moved-@I-param overflow leak isolated as the delta
+between with-param and no-param method values, non-vacuous);
+gen_method_value_wrapper_test.bn (IR-structural: OP_STACK_CHECK emitted + the extra
+emitStructCopy for a managed-field value receiver).  Verified: method-value
+conformance 28/0 on LLVM, VM, and native aa64; pkg/binate/{ir,vm} unit tests;
+hygiene 20/20.  Two adversarial-review rounds.
+
+Residual (tracked OPEN in claude-todo.md, claimed work-2): the method-value
+CLOSURE-RECORD leak on overflow (separate, present with and without this change) +
+FINDING 2 (the receiver __copy call sits before the pre-check with no pad — a narrow
+VM-only window).
+
 ### E2E `xmhfa` + `xmiface` cross-mode proofs updated for the 64-slot dispatch buffer — DONE, LANDED `a06fe263a` (2026-09-18)
 
 The call_packed migration (`9574f14ce`) removed the `>6 user arg slots` cross-mode
