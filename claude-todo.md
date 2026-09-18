@@ -464,6 +464,38 @@ emission-nondeterminism bug); guard `3ca73110` pins it, and do NOT widen the tol
 
 ## Method values & function values (codegen)
 
+### MAJOR: method-value wrapper double-frees a value-struct receiver with managed fields — 🟡 IN PROGRESS (claimed 2026-09-18, work-2)
+
+`synthMethodValueWrapper` (`ir/gen_method_value.bn`) forwards a VALUE-struct
+receiver to the wrapped method with a bare `EmitLoad` + `EmitCall`, OMITTING the
+`emitStructCopy` (managed-field RefInc) that the normal method-call path performs
+(`ir/gen_method.bn` ~243-254, whose comment warns: "Without this, the callee's
+scope-cleanup RefDec imbalances against the caller's, freeing the backing
+prematurely").  A value-struct receiver uses the MOVE model (method consumes it,
+dtors at exit — `gen_func.bn` entry-RefIncs only `@T`/`@[]T`/`@func` params, not
+structs), so each method-value call over-releases the receiver's managed fields by
+one ref → premature free → USE-AFTER-FREE on a later call, DOUBLE-FREE at scope
+exit (heap corruption).  IR-gen bug → ALL backends (LLVM + native + VM).
+
+Repro (confirmed): `type Cell struct { p @int }`, `func (c Cell) get() int { return *c.p }`,
+`var mv *func() int = c.get`; call `mv()` 4× summing → want 28, then `*c.p` → want 7.
+LLVM produced `14` then `0` (c.p freed after ~2 calls); VM also wrong.  Coverage
+hole: conformance 505 uses a value receiver with NO managed fields; 948/952 use
+pointer receivers (borrowed via the capture bridge, unaffected).
+
+Fix: in `synthMethodValueWrapper`, when `needsStructCopy(methodRecvTyp)` (a value-
+struct receiver on a value method — mutually exclusive with the value→pointer
+capture bridge, which handles the pointer-method case as a borrow), `emitStructCopy`
+the receiver before the forward, mirroring `gen_method.bn`.  Emit it BEFORE the
+wrapper's `OP_STACK_CHECK` forward pre-check so the wrapper owns the copy at the
+check point — and COUPLED: `attachMethodValueForwardPad` (`gen_local_cleanup.bn`,
+landed with the wrapper moved-arg pre-check) must then release idx 0 when
+`needsStructCopy(peelTransparent(params[0].Typ))`, else the owned receiver copy
+leaks on a forward overflow (it currently skips idx 0, correct ONLY while this bug
+leaves the receiver un-owned).  Tests: a conformance double-free repro (all modes)
++ a VM receiver-overflow leak-free case.  Found by the wrapper-pre-check adversarial
+review (2026-09-18).
+
 ### cross-mode coerced-agg func-value ABI — residual native-shim follow-ups
 The cross-mode coerced-aggregate-ARG residuals — the iface/func-value by-address
 fix, the >7-arg extern guard, and the sub-word/bool RETURN — LANDED via the by-address
