@@ -72,7 +72,10 @@ CORRECTION 2026-09-08):
    the cleanup to inline per-field RefDecs at -O1+), but it turned out tractable
    (the reshape + a padAware L1 + dropping the redundant nil zero-init).  Follow-ups
    (open): block-scoped managed locals + defer-exit cleanup are not reshaped yet, so
-   only function-level locals + literal temps split (optimization ceiling); the dead
+   only function-level locals + literal temps split (optimization ceiling) — 🟡 IN
+   PROGRESS (claimed 2026-09-17, work-1/session 01LPZ7): reshape emitDecForScopeVars
+   (gen_util_refcount.bn) + gen_defer_exit.bn to route a managed struct local's
+   cleanup through emitManagedStructPtrDtor; the dead
    zero-temp is a native-DCE opportunity; increment 2 = nested-managed-struct + @[]@T
    fields.  **SROA-to-a-fixpoint DONE — LANDED `0a1098cff`**: runSroa
    now runs each function's SROA to a fixpoint so `b = a` collapses BOTH sides (the
