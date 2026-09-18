@@ -230,31 +230,16 @@ CORRECTION 2026-09-08):
    so dead header loads don't pin the fields out of mem2reg in pads) done on
    LANDED `ebeb6d087`, reviewed SOUND** — a managed-slice copy live across a call
    drops 4 stack slots → 0 at -O2; ir tests pass; LLVM+native full-corpus 0-
-   mismatch. **NEXT (continue the SROA line): managed structs** — 🟡 IN PROGRESS
-   (claimed 2026-09-16, work-1/session 01LPZ7; design-first, doc in
-   plan-sroa-managed-structs.md). (structs with a
-   managed field — split like managed slices: non-managed fields promote, each
-   managed field goes to an unpromoted managed slot with nil zero-init; the
-   struct's field-by-field RefInc/RefDec spine whole-loads+extracts the managed
-   field in blocks AND pads → forwardable, reuse the managed-slice machinery).
-   RECONNOITERED (2026-09-13, CORRECTED): managed struct locals are NOT SROA-able
-   under the current cleanup convention — they are BLOCKED, exactly as this plan
-   originally predicted ("Managed structs: later"). An earlier note here claimed
-   they were field-ptr-shaped and forwardable; that was an ERROR (the field-by-field
-   RefDec I saw was the `__dtor_T` FUNCTION BODY, not the cleanup CALL SITE).
-   Verified in codegen: `emitDecForManagedLocals` (gen_local_cleanup.bn:43) cleans
-   up a managed struct local via `emitStructDtor(slot.Ptr)`, which does
-   `EmitCall(__dtor_T, [bitcast(slot.Ptr)])` — passing the struct slot's ADDRESS to
-   the dtor. That address escape (h used as a call arg, via a bitcast) pins the
-   alloca at L1, universally. Confirmed on real LLVM: both `var h S` and
-   `var h S = S{...}` emit `call __dtor_S(&h)` and keep the struct alloca at -O2.
-   (Contrast managed SLICES, which `emitDecForManagedLocals` cleans up INLINE via
-   `emitManagedSliceRefDec(load(slot))` — whole-load + extract, forwardable — which
-   is why Phase 2 slices ARE SROA-able.) To make managed structs SROA-able would
-   require a CODEGEN change: for a scalar-replaced struct, inline the per-field
-   RefDecs at cleanup (blocks + pads) instead of calling the by-address `__dtor_T`
-   — a separate, larger piece touching gen_local_cleanup + emitPadCleanup + the
-   dtor ABI. Not done. **SROA-to-a-fixpoint DONE — LANDED `0a1098cff`**: runSroa
+   mismatch. **Managed structs (leaf-managed) SROA — DONE, LANDED `0c9998917`**
+   (see claude-todo-done.md + plan-sroa-managed-structs.md).  The 2026-09-13
+   "BLOCKED, needs a big codegen change" reconnaissance was right that the by-address
+   `__dtor_T` cleanup pinned the struct — the fix WAS that codegen change (reshape
+   the cleanup to inline per-field RefDecs at -O1+), but it turned out tractable
+   (the reshape + a padAware L1 + dropping the redundant nil zero-init).  Follow-ups
+   (open): block-scoped managed locals + defer-exit cleanup are not reshaped yet, so
+   only function-level locals + literal temps split (optimization ceiling); the dead
+   zero-temp is a native-DCE opportunity; increment 2 = nested-managed-struct + @[]@T
+   fields.  **SROA-to-a-fixpoint DONE — LANDED `0a1098cff`**: runSroa
    now runs each function's SROA to a fixpoint so `b = a` collapses BOTH sides (the
    copy source, L2-pinned on pass 1 because its whole-load feeds the whole-store as
    a non-extract value, becomes eligible once that store is rewritten to per-field

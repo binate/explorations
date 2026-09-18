@@ -6,6 +6,50 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### SROA of leaf-managed struct locals — DONE, LANDED (2026-09-17, `0c9998917`)
+
+A struct local with a non-managed field plus leaf managed fields (`@T` / `@[]T`
+non-managed-element / `@func` / `@Iface`) now scalar-replaces — previously any
+managed struct was pinned.  The whole struct alloca splits into per-field slots:
+non-managed fields promote via mem2reg; each managed field becomes an unpromoted
+managed slot with a nil zero-init; the refcount cleanup forwards onto the split
+slots.  See plan-sroa-managed-structs.md.
+
+The 2026-09-13 recon correctly identified the blocker (managed struct-local cleanup
+is a by-address `__dtor_T(&h)` call — an address escape via bitcast that pins the
+alloca at L1) but overestimated the fix.  It WAS a codegen change, but tractable:
+- **Cleanup reshape** (`emitManagedStructPtrDtor` in gen_local_cleanup.bn +
+  `emitStructFieldRefDecs` factored from genStructDtorWithName + gen_temp_cleanup.bn):
+  at -O1+ a leaf-managed struct's cleanup is inline per-field RefDecs on the alloca's
+  own field-ptrs (the L1-forwardable shape), applied to BOTH the struct-local and the
+  composite-literal-temp cleanup (so a literal's partial-aggregate fault pad no
+  longer bitcasts the alloca).  -O0 keeps the by-address call.  Gated by the new
+  `GenCtx.OptLevel` (set at cmd/bnc gen sites).
+- **managedStructLeafEligible** (sroa.bn) gates both the cleanup shape and the SROA
+  candidate; **collectManagedStructCandidates** (sroa_managed.bn) reuses the
+  managed-slice pad-aware L1/L2.
+- **padAware** threaded through the field-ptr L1 chain: the inline cleanup's
+  field-ptrs in FaultPads don't pin the struct (managed path); the non-managed path
+  still pins on any pad field-ptr appearance (preserves nested-aggregate SROA).
+- **Nil-zero-init drop**: `store(h, OP_CONST_NIL)` (the `var h S` zero-init) is
+  dropped in the rewrite — the split slots get per-field zeros from makeFieldZeroInits
+  (managed→nil) + mem2reg (promotable).  Also lets a non-managed struct with a nil
+  zero-init split (sound improvement).
+
+**Safety** (adversarial review, clean — no critical/major): any by-address cleanup
+site bitcasts slot.Ptr, which L1 treats as an escape → an un-reshaped struct simply
+stays pinned; a missed reshape can only cost an optimization, never miscompile.
+
+**Tests**: sroa_managed_test.bn (leaf-managed split, fault-pad cleanup, nil-zero-init
+drop, nested-managed-struct-field pinned).  **Validated**: 832 ir unit tests;
+self-compile 3036/0 (LLVM gen1→gen2 -O2) + 3024/0 (VM) + 3036/0 (native-aa64 -O2);
+refcount alias+overwrite O0==O2 no double-free; hygiene 20/20.
+
+**Follow-ups (open, separate)**: block-scoped managed locals + defer-exit cleanup are
+not reshaped yet (only function-level locals + literal temps split — an optimization
+ceiling, not a bug); the dead zero-temp is a native-DCE opportunity (clang DCEs it);
+increment 2 = nested-managed-struct + `@[]@T` fields.
+
 ### Cross-mode `g_crossModeVmAddr` published by the func-value + iface-method dispatchers — DONE (2026-09-16, `eee95ee8e`)
 
 Surfaced by the C2 adversarial review: `dispatchCompiledFuncValue` (vm_exec_funcref.bn)
