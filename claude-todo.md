@@ -599,6 +599,25 @@ unwind; nil-deref N1–N3 last, `de9a7c05`); see claude-todo-done.md and
   real behavior change for anything scraping them off stdout.
 - (Separately filed under MAJOR: the re-entrant-`execFunc` fault-swallow.)
 
+
+### Inc 3 gap: DEFERRED calls emit no stack-overflow pre-check — moved managed arg leaks on a deferred call's callee-overflow — 🟡 IN PROGRESS (claimed 2026-09-18, work-2)
+
+The VM SP-guard effort (done log, 2026-09-17) gave ordinary calls an exact
+stack-overflow pre-check that faults BEFORE the call commits its moved managed
+args (DIRECT: `OP_STACK_CHECK`, Inc 1; func-value: `OP_STACK_CHECK_FV`, S2;
+iface-method: `OP_STACK_CHECK_IM`, S3), releasing the args via an args-owning pad.
+DEFERRED calls (`ir/gen_defer_exit.bn` `emitDeferRun` / `emitPendingDefers`, both
+direct and indirect) emit NO pre-check, so a deferred call whose callee overflows
+the VM stack leaks its moved managed args.  Documented as the KNOWN GAP in the
+SP-guard done entry and `attachEmptyFaultPad`'s comment.
+
+Fix direction (to refine against the code): emit the matching
+`OP_STACK_CHECK{,_FV,_IM}` before each deferred call's frame push with an
+args-owning pad, so a callee-overflow releases the moved args (mirroring the
+ordinary-call path).  Must not double-free — the deferred-call pad interacts with
+`gen_return`'s "run pending defers BEFORE the Axiom-3 delivery RefInc" reorder.
+Test: a deferred call (direct + indirect) that overflows, asserting Status=FAULTED
++ stable LiveBlocks (mirroring the S2/S3 leak-free tests).
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
 ### Baremetal console output is unwired — `os.Stdout` is an empty `@File`, so `fmt` is silent; make it PLUGGABLE — 🟡 OPEN (found 2026-09-18)
