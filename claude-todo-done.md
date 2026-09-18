@@ -6,6 +6,36 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### E2E `xmhfa` + `xmiface` cross-mode proofs updated for the 64-slot dispatch buffer — DONE, LANDED `a06fe263a` (2026-09-18)
+
+The call_packed migration (`9574f14ce`) removed the `>6 user arg slots` cross-mode
+overflow guard (→ 64-slot dispatch buffer), so the xmhfa/xmiface "proof" sub-tests —
+which passed a 7-arg cross-mode call EXPECTING that panic (to prove the fixture is
+genuinely native-injected, not silently bytecode-lowered) — failed on both OSes.
+Rather than retire the proof (weakening the test), repurposed each script's dedicated
+proof fixture into a shell-generated wide method with 64 user args (receiver + 64 = 65
+slots > 64) that trips the NEW guard (`arg slots exceed the dispatch buffer`),
+preserving the native-vs-bytecode discrimination and tracking the ceiling. Adversarial
+review confirmed the boundary is exact on x86-64/aarch64/ILP32 (`int` = 1 slot
+everywhere), no false-pass path, portable shell gen. Validated: xmhfa 2/2, xmiface 3/3.
+Follow-on: the review surfaced a latent `slot < 7` iface-arg vtable-substitution cap
+the same migration left behind — filed MAJOR (latent) in claude-todo.md.
+
+### E2E `separate-compilation` supplies aarch64 `rt.MemZero` to the separate clang link — DONE, LANDED `e49090a12` (2026-09-18)
+
+Second site of the aarch64 MemZero `.s`-seam gap (the first, `bnld-real-program`, was
+`7989641b1`): `separate-compilation` clang-links `bnc --pkg`/`-c` objects, which on
+aarch64 reference but don't define `rt.MemZero` (`#[build]`-gated off → hand-asm `.s`
+seam only cmd/bnc's link paths include). Unlike bnld-real-program's link-only step,
+this test RUNS `bnas_sep`, so a `ret` stub would corrupt it — it needs the real object.
+Produce it via a trivial `--linker bnld --keep-objs` probe (bnld keeps the rt-mem
+object; the clang path deletes it; the object is target-independent) and add it to the
+clang link; empty (no-op) on x86-64. Plus a probe-failure diagnostic (per review).
+Adversarial review: no x86-64 duplicate-symbol regression, probe object clang-linkable,
+land-as-is. Validated on macOS arm64 (byte-identical). Stopgap; the proper fix (a
+general `#[build]`-gated package-asm mechanism → self-contained `bnc -c` output)
+remains OPEN in claude-todo.md (Build constraints).
+
 ### Inc 3 gap: DEFERRED calls now stack-overflow pre-check — no moved-arg leak — DONE, LANDED `233de0049` (2026-09-18)
 
 The VM SP-guard effort gave ordinary direct / func-value / iface-method calls an

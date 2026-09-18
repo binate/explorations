@@ -14,19 +14,6 @@ Regressions introduced in the 0.0.16 candidate range (since `bnc-0.0.15`,
 link error (e2e) are resolved; the E2E cluster below is what a triage of the last
 completed E2E run (`7989641b1`) found still red.
 
-### E2E `xmhfa` + `xmiface` proofs assert the removed `>6 user arg slots` guard — 🟡 IN PROGRESS (claimed 2026-09-18, temp-5/session) (2026-09-18)
-
-The call_packed migration (`9574f14ce`, "vm: migrate cross-mode extern + iface-method
-dispatch to call_packed") deliberately removed the `>6 user arg slots` cross-mode
-overflow guard, replacing it with a 64-slot ceiling (`pkg/binate/vm/vm_exec_iface.bn`
-holds 64 callArgs). Its unit tests were updated, but `e2e/xmhfa.sh` and
-`e2e/xmiface.sh` still have "proof" sub-tests (`cross-mode-hfa-proof`,
-`cross-mode-iface-overflow-guard`) that pass a 7-arg cross-mode call and EXPECT a
-vmPanic containing `>6 user arg slots`; the call now succeeds (returns 28), so they
-fail on both OSes. NOT a compiler bug — stale e2e proofs from the func-value churn.
-Fix: update `xmhfa.sh`/`xmiface.sh` to assert the new behavior (e.g. a >64-slot
-overflow). Belongs with the func-value / call_packed work.
-
 ### native x64 `#[c_export]` entry trampoline drops the SSE-split half of a mixed 16-byte aggregate — 🟡 IN PROGRESS (claimed 2026-09-18, work-3/session)
 
 E2E `ffi-export` `bigagg-native` fails on ubuntu (SysV x86-64): `ffi_bigmix(FfiBig,
@@ -38,21 +25,6 @@ but not this mixed split, losing the XMM half. The LLVM side already got the fix
 (`b2b2d272f`, `sysvWriteThunkSseSpill`, whose done-log names `ffi_bigmix`); the native
 trampoline lags. ubuntu-only (SysV); macOS is arm64/AAPCS64 (no split → alias path,
 passes). A native-lags-LLVM ABI gap in the `#[c_export]`/`__c_entry` struct-return work.
-
-### aarch64 `rt.MemZero` `.s` seam still reddens E2E `separate-compilation` — part-1 stopgap was incomplete — 🟡 IN PROGRESS (claimed 2026-09-18, temp-5/session) (2026-09-18)
-
-Same root cause as the landed `bnld-real-program` fix (`7989641b1`): aarch64's
-`rt.MemZero` is a `#[build]`-gated-off hand-asm `.s` seam that only cmd/bnc's link
-paths include, so `bnc -c`/`--pkg` aarch64 output references but doesn't define it.
-The part-1 stopgap patched only `bnld-real-program.sh` and MISSED
-`e2e/separate-compilation.sh`, which still fails on macOS (arm64) with `Undefined
-symbols: _bn_…MemZero` (from `rt.o`'s Alloc). Unlike bnld-real-program's LINK-ONLY
-aarch64 step, `separate-compilation` BUILDS AND RUNS `bnas_sep` (it assembles a
-fixture), so a `ret` stub would corrupt it — it needs the REAL MemZero object, which
-the raw `bnc --pkg` + clang link can't easily obtain. Best resolved by the part-2
-design (self-contained `bnc -c` output — see "Include a `#[build]`-gated assembly file
-as part of a package" under Build constraints); a targeted stopgap would have to
-extract/assemble the real rt-mem object into the link.
 
 ## Performance
 
