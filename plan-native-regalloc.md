@@ -448,8 +448,27 @@ INTERVAL SPLITTING** — split a call-spanning interval so it holds a caller-sav
 callee-saved) register for its non-call use-clusters and spills/reloads only across the
 calls, as LLVM does.  The landed range-list `LiveInterval` is the intended foundation
 (its header: "the range-list is the durable representation interval splitting later
-refines").  This is a substantial Stage-5 project; the bigger single compiler-gap lever
-is still the aggregate-copy half (SROA, work-1), which register allocation cannot touch.
+refines").  This is a substantial Stage-5 project.
+
+**RE-VERIFIED against a current-main compiler (2026-09-18, after the full SROA line landed
+DONE the same day) — corrects the "aggregate is the bigger lever" framing.**  Rebuilt
+`livenessFixpoint` native `-O2` with a current-main `bnc` (full SROA + inc1/inc2) and
+re-disassembled:
+
+    livenessFixpoint       inc2-base   current(full SROA)   LLVM
+    instructions              652            555             381
+    aggregate-src copies       58             24               7
+    scalar stores -> stack    153            123               5   <-- still ~25x
+
+SROA IS done and DID help (652→555 instrs, 58→24 aggregate copies), but the native/LLVM
+self-compile RATIO is UNCHANGED — 3.38× median now vs inc1's 3.34× (within noise).  So the
+aggregate-copy half is largely addressed and is NOT the remaining lever; the **dominant
+remaining compiler gap is SCALAR SPILL (123 stores-to-stack vs LLVM's 5, ~25×)** — native
+homes only 10 values and stores the rest to their slots, and the spilled values are
+call-spanning loop-invariants.  **Interval splitting is therefore THE lever for the
+compiler's remaining native gap, not a secondary one.**  (The ratio being flat while a hot
+function shrank shows the ratio is a blunt aggregate; the per-function store counts are the
+sharper signal.)
 
 ## Correctness & validation (miscompile is the top risk)
 

@@ -113,8 +113,13 @@ CORRECTION 2026-09-08):
    a call-spanning value's interval so it uses caller-saved regs for its non-call
    use-clusters and only spills/callee-saves ACROSS the calls — exactly what LLVM does.
    The landed range-list interval representation is the foundation for it.  Substantial
-   project.  (The bigger single compiler-gap lever remains the aggregate-copy half — SROA,
-   work-1.)  See plan-native-regalloc.md "Compiler-gap disassembly diagnosis" + Stage 5c.
+   project.  **RE-VERIFIED 2026-09-18 against a current-main (full-SROA) compiler:** SROA
+   is DONE and helped livenessFixpoint (652→555 instrs, 58→24 aggregate copies) but the
+   native/LLVM self-compile RATIO is UNCHANGED (3.38× vs inc1's 3.34×); the DOMINANT
+   remaining compiler gap is scalar spill (123 stores-to-stack vs LLVM's 5, ~25×), NOT
+   aggregate copies.  So interval splitting is THE remaining regalloc lever for the
+   compiler, not secondary.  See plan-native-regalloc.md "Compiler-gap disassembly
+   diagnosis" + Stage 5c.
 3. **Inliner threshold tuning — POSTPONED; revisit AFTER SROA/regalloc.** 🔵 NOT ASSIGNED
    The `--inline-threshold` flag is landed (`3022706ce`) so the value is
    runtime-settable without recompiling the compiler. A drift-controlled
