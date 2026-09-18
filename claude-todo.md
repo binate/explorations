@@ -185,8 +185,11 @@ CORRECTION 2026-09-08):
    aa64 self-compile median 18.45s → 16.03s, native/LLVM ratio 3.86× → 3.34×
    (~13% faster; LLVM unchanged).  Validated on all three native backends
    (aa64/arm32-linux/x64_darwin) + unit tests + clean adversarial review.  **Open
-   next levers:** loop-depth weighting (use-density × loop-depth — increment 2,
-   a colder value in a hot loop should cost more than its static count), interval
+   next levers:** loop-depth weighting — 🟡 IN PROGRESS (increment 2, claimed
+   2026-09-17, work-4/temp-4): weight each def/use in the spill cost by its loop
+   depth (a use in a hot loop executes far more often than a static count
+   suggests), so a colder-by-static-count value inside a loop is preferred over a
+   hot-by-static-count value used only in straight-line code; then interval
    splitting, more homes.  See plan-native-regalloc.md Stage 5c.
 3. **Inliner threshold tuning — POSTPONED; revisit AFTER SROA/regalloc.** 🔵 NOT ASSIGNED
    The `--inline-threshold` flag is landed (`3022706ce`) so the value is
