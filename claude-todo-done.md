@@ -6,6 +6,38 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### Inc 3 gap: DEFERRED calls now stack-overflow pre-check — no moved-arg leak — DONE, LANDED `233de0049` (2026-09-18)
+
+The VM SP-guard effort gave ordinary direct / func-value / iface-method calls an
+exact recoverable-stack-overflow pre-check (`OP_STACK_CHECK{,_FV,_IM}`) that faults
+BEFORE the call commits a moved managed arg.  DEFERRED calls (`ir/gen_defer_exit.bn`)
+emitted no such pre-check, so a deferred call whose callee's frame push overflowed
+the VM stack orphaned its moved managed args (the callee never starts to release
+them; the call-site pad does not cover a moved-out arg).
+
+Fix: `emitDeferRun` now builds the exit-time call in genCall's eval/deliver
+two-phase shape — LOAD the callee + every operand from its slot, then the pre-check
++ an args-owning pad, then the SP-neutral delivery, then the call.  Faulting at the
+pre-check (before delivery RefInc's / moves any arg) releases the still-slot-owned
+operands (all ctx.Vars, incl. every live defer slot) instead of orphaning a moved
+arg.  `buildDeferCallArgs`/`exitDeliverOp` became a deliver-only helper
+`deliverLoadedOp`.  VM-only: the compiled backends no-op the check ops.  Delivery is
+SP-neutral and the defer-exit loads are SP-neutral (pre-reserved frame regions), so
+vm.SP is constant from check to push and the check predicts the push exactly.
+
+Tests (`pkg/binate/vm/vm_defer_overflow_test.bn`): deferred DIRECT (@I moved arg),
+FUNC-VALUE, and IFACE-METHOD (managed-field-struct moved arg) calls whose callee's
+frame push overflows the small test stack — each asserts Status=FAULTED + stable
+rt.LiveBlocks() across repeated overflows.  Non-vacuous: all three fail (leak) when
+the pre-check is neutered.  Verified: defer conformance 20/0 in LLVM + VM,
+pkg/binate/{ir,vm} unit tests, hygiene 20/20.  Adversarial review: no real defects
+(SP-exactness, double-free, ownership, block-splitting, all shapes verified against
+the bytecode).
+
+The last remaining frame-push-overflow moved-arg leak — the method-value wrapper's
+forwarding call (`attachEmptyFaultPad`) — stays OPEN in claude-todo.md; its KNOWN
+GAP comment was updated to note ordinary + deferred calls now pre-check.
+
 ### `bnld-real-program` e2e: aarch64 undefined `rt.MemZero` (part 1 of the MemZero blocker) — DONE, LANDED `7989641b1` (2026-09-18)
 
 The E2E `bnld-real-program` aarch64 sub-step (link `bnc -c` aarch64 LLVM objects with

@@ -585,25 +585,32 @@ unwind; nil-deref N1–N3 last, `de9a7c05`); see claude-todo-done.md and
   real behavior change for anything scraping them off stdout.
 - (Separately filed under MAJOR: the re-entrant-`execFunc` fault-swallow.)
 
+### Method-value wrapper's forwarding call has no stack-overflow pre-check — last frame-push-overflow moved-arg leak — 🟡 OPEN (found 2026-09-18)
 
-### Inc 3 gap: DEFERRED calls emit no stack-overflow pre-check — moved managed arg leaks on a deferred call's callee-overflow — 🟡 IN PROGRESS (claimed 2026-09-18, work-2)
+Ordinary direct / func-value / iface-method calls (VM SP-guard effort, done log
+2026-09-17) and DEFERRED calls (`233de0049`, done log) now emit a recoverable
+stack-overflow pre-check (`OP_STACK_CHECK{,_FV,_IM}`) that faults BEFORE delivering
+a moved managed arg, so an overflow releases the still-owned args instead of
+orphaning them.  The one call site left WITHOUT a pre-check is the synthesized
+method-value WRAPPER's forwarding call (`ir/gen_method_value.bn`
+`synthMethodValueWrapper`, tagged with `attachEmptyFaultPad`): if that forward's
+frame push overflows, the wrapped method never starts to release a moved-in owned
+param (@Iface / managed-field struct), so it leaks.  Documented as the KNOWN GAP in
+`attachEmptyFaultPad`'s comment (`ir/gen_local_cleanup.bn`).
 
-The VM SP-guard effort (done log, 2026-09-17) gave ordinary calls an exact
-stack-overflow pre-check that faults BEFORE the call commits its moved managed
-args (DIRECT: `OP_STACK_CHECK`, Inc 1; func-value: `OP_STACK_CHECK_FV`, S2;
-iface-method: `OP_STACK_CHECK_IM`, S3), releasing the args via an args-owning pad.
-DEFERRED calls (`ir/gen_defer_exit.bn` `emitDeferRun` / `emitPendingDefers`, both
-direct and indirect) emit NO pre-check, so a deferred call whose callee overflows
-the VM stack leaks its moved managed args.  Documented as the KNOWN GAP in the
-SP-guard done entry and `attachEmptyFaultPad`'s comment.
+Fix direction: emit a pre-check before the wrapper's forwarding call, faulting
+while the params are STILL the wrapper's to release (so the fault pad — NOT an empty
+pad — releases them).  It must NOT double-free on an INTERNAL method fault, whose
+unwind runs the wrapper's call-site pad AFTER the method's own pad already released
+the moved params: the pre-check pad releases the wrapper's params only on the
+before-the-forward path (overflow), while the call-site pad stays empty for the
+after-the-forward path (method started). The wrapper currently forwards loaded
+params directly (no coerceArgDelivery step), so this likely needs a load →
+pre-check(+params-owning pad) → forward restructure, mirroring emitDeferRun.  Test:
+a method-value wrapper whose forwarding call overflows a small VM stack while a
+moved @Iface / managed-field-struct param is live — assert Status=FAULTED + stable
+LiveBlocks (mirroring vm_defer_overflow_test.bn).
 
-Fix direction (to refine against the code): emit the matching
-`OP_STACK_CHECK{,_FV,_IM}` before each deferred call's frame push with an
-args-owning pad, so a callee-overflow releases the moved args (mirroring the
-ordinary-call path).  Must not double-free — the deferred-call pad interacts with
-`gen_return`'s "run pending defers BEFORE the Axiom-3 delivery RefInc" reorder.
-Test: a deferred call (direct + indirect) that overflows, asserting Status=FAULTED
-+ stable LiveBlocks (mirroring the S2/S3 leak-free tests).
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
 ### Baremetal console output is unwired — `os.Stdout` is an empty `@File`, so `fmt` is silent; make it PLUGGABLE — 🟡 OPEN (found 2026-09-18)
