@@ -141,5 +141,6 @@ them too.)
 
 ## Status
 
-Investigation complete (read-only; no backend code changed). No step implemented
-yet — awaiting a decision on which to start.
+Investigation complete. **Tier 1 (A store-then-reload elimination, B scaled
+addressing + power-of-two index strength reduction) — 🟡 IN PROGRESS (claimed
+2026-09-18, work-6/session).** Tiers 2–3 not started.
