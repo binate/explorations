@@ -10,7 +10,9 @@ native` vs `--backend llvm` — are the point; the peers are the external
 yardstick. Feeds the native↔LLVM gap work (see the Performance section of
 `claude-todo.md`).
 
-**Direction:** add benchmarks a couple at a time.
+**Status:** all 7 planned benchmarks landed (spectral-norm, n-body, mandelbrot,
+binary-trees, fannkuch-redux, fasta, richards). Further benchmarks can be added
+a couple at a time.
 
 ## Benchmarks
 
@@ -22,9 +24,9 @@ yardstick. Feeds the native↔LLVM gap work (see the Performance section of
 - [x] **mandelbrot** — complex FP, vectorizable inner loop; pinned N=1000, byte-exact P4 output
 - [x] **binary-trees** — allocation / refcount path; pinned N=16, exact compare
 - [x] **fannkuch-redux** — integer, array indexing; pinned N=11, exact compare
-- [ ] **fasta** — deterministic RNG + buffered output
-- [ ] **(dispatch)** Richards or similar — interface/vtable dispatch axis (not
-      covered by the CLBG-derived kernels)
+- [x] **fasta** — deterministic RNG + buffered output; pinned N=1000 (== CLBG reference), exact compare
+- [x] **richards** — interface/vtable dispatch axis (Richards OS scheduler);
+      pinned N=10000 iterations, exact compare (canonical counts queue 2322 hold 928)
 
 ## Notes
 
