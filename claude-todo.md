@@ -1219,7 +1219,7 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
 
 ## Codegen & backend (non-func-value)
 
-### Dtor/copy name-mangling is not injective against adversarial struct names — 🟡 OPEN (filed 2026-09-18, assigned work-1)
+### Dtor/copy name-mangling is not injective against adversarial struct names — 🟡 IN PROGRESS (claimed 2026-09-18, work-1; plan-dtor-mangle-injective.md)
 
 The `__dtor_<kind>_<name>` / `__copy_<kind>_<name>` scheme (`dtorTypeSuffix` in
 `ir/gen_dtor.bn`) writes a struct's leaf name VERBATIM in its `TYP_STRUCT` arm, and the
