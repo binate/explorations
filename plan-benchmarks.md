@@ -20,8 +20,8 @@ yardstick. Feeds the native↔LLVM gap work (see the Performance section of
       go stale).
 - [x] **n-body** — scalar FP, loop-carried dependencies; pinned N=5000000
 - [x] **mandelbrot** — complex FP, vectorizable inner loop; pinned N=1000, byte-exact P4 output
-- [ ] **binary-trees** — allocation / refcount path
-- [ ] **fannkuch-redux** — integer, array indexing
+- [x] **binary-trees** — allocation / refcount path; pinned N=16, exact compare
+- [x] **fannkuch-redux** — integer, array indexing; pinned N=11, exact compare
 - [ ] **fasta** — deterministic RNG + buffered output
 - [ ] **(dispatch)** Richards or similar — interface/vtable dispatch axis (not
       covered by the CLBG-derived kernels)
