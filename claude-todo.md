@@ -70,12 +70,11 @@ CORRECTION 2026-09-08):
    "BLOCKED, needs a big codegen change" reconnaissance was right that the by-address
    `__dtor_T` cleanup pinned the struct — the fix WAS that codegen change (reshape
    the cleanup to inline per-field RefDecs at -O1+), but it turned out tractable
-   (the reshape + a padAware L1 + dropping the redundant nil zero-init).  Follow-ups
-   (open): block-scoped managed locals + defer-exit cleanup are not reshaped yet, so
-   only function-level locals + literal temps split (optimization ceiling) — 🟡 IN
-   PROGRESS (claimed 2026-09-17, work-1/session 01LPZ7): reshape emitDecForScopeVars
-   (gen_util_refcount.bn) + gen_defer_exit.bn to route a managed struct local's
-   cleanup through emitManagedStructPtrDtor; the dead
+   (the reshape + a padAware L1 + dropping the redundant nil zero-init).  Follow-ups:
+   block-scope + defer managed-struct cleanup reshape — DONE, LANDED `72a0db78c`
+   (emitDecForScopeVars + gen_defer_exit route through emitManagedStructPtrDtor, so
+   block-scoped `var h S` and deferred managed struct values now split too; verified
+   with a pinned→split differential + self-compile 3037/0).  Still open: the dead
    zero-temp is a native-DCE opportunity; increment 2 = nested-managed-struct + @[]@T
    fields.  **SROA-to-a-fixpoint DONE — LANDED `0a1098cff`**: runSroa
    now runs each function's SROA to a fixpoint so `b = a` collapses BOTH sides (the
@@ -1397,7 +1396,7 @@ urgency (no current miscompile; the writable placement is safe, just unhardened)
   for the spec `e2e/split-paths.sh` validates and
   [`done/plan-repl.md`](done/plan-repl.md) for what `e2e/repl.sh` covers.
 
-### (b2 residual) code-red Class 7 — captured-`@func` over-release, native↔VM balance test — 🟡 (Class 6 done, in done log)
+### (b2 residual) code-red Class 7 — captured-`@func` over-release, native↔VM balance test — 🟡 IN PROGRESS (claimed 2026-09-17, work-3/session) (Class 6 done, in done log)
 The one remaining lifecycle-matrix item: a single-program refcount-balance test of a native call to a
 captured `@func` through the VM trampoline. UNBLOCKED — the "needs a cross-mode harness" blocker is
 cleared (`e2e/xmiface.sh` / `e2e/xmhfa.sh` exist); add a captured-`@func` refcount-balance case there.
