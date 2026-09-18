@@ -94,8 +94,8 @@ CORRECTION 2026-09-08):
    now deletes it (use-scan guarded), so mstruct drops from 1 residual struct alloca
    to 0 at -O2.  Still open: increment 2 = nested-managed-struct + @[]@T
    fields — **2a (nested managed-struct field) DONE — LANDED `0e862dca8`
-   (2026-09-18); 2b (@[]@T managed-element slices) FEASIBILITY DONE — HIGH VALUE,
-   TRACTABLE, unclaimed/ready to implement**.  2b is likely the biggest remaining
+   (2026-09-18); 2b (@[]@T managed-element slices) 🟡 IMPLEMENTATION IN PROGRESS
+   (claimed 2026-09-18, work-1) — FEASIBILITY DONE, HIGH VALUE**.  2b is likely the biggest remaining
    managed-slice gap-closer: `@[]@T` is the compiler's DOMINANT slice type
    (`@[]@types.Type` ×907, `@[]@Instr` ×291, …) and pins at -O2 today (a 1-line
    `@[]@Node` local pins 6 four-word headers), while increment 1 only handled
