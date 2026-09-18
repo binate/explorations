@@ -1241,7 +1241,7 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
 
 ## Codegen & backend (non-func-value)
 
-### Dtor/copy name-mangling non-injectivity — F1 (kind-token spoof) + F2 (cross-package same-leaf) FIXED (2026-09-18, work-1); residual F3 open
+### Dtor/copy name-mangling: F1+F2 FIXED (LANDED `94777c23c`); residual F3 + anon-hash — 🟡 IN PROGRESS (work-1)
 
 `dtorTypeSuffix` (`ir/gen_dtor.bn`) encoded a NESTED struct by bare leaf name, making the
 weak_odr `__dtor_`/`__copy_` element-walk helpers non-injective: a struct named to spoof a
@@ -1255,8 +1255,7 @@ dtorName/qualifiedDtorNameForType, package carried in the `pkg.` qualifier).  Na
 is impl-defined (§21) → NO normative spec change; Annex B's informative flag updated.
 Validated: ir 837/0 (new F1/F2 injectivity tests, dtor+copy), a refcount-balanced spoof
 program compiled+VM at -O0/-O2, self-compile builder-comp-comp + native-aa64 3037/0,
-mangler-critical adversarial review clean.  Plan: plan-dtor-mangle-injective.md.  [fix on
-work-1, pending cherry-pick to main]
+mangler-critical adversarial review clean.  Plan: plan-dtor-mangle-injective.md.  LANDED binate `94777c23c` + docs Annex B `fe627d8` (2026-09-18).
 
 - **Residual F3 (open; harder; pre-existing in kind):** a TOP-LEVEL user struct
   source-named to embed a wrapper's EXACT new encoding (e.g. `struct mp_N1_1_M4_Node` in
