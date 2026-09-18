@@ -610,6 +610,41 @@ called with zero varargs), but a real latent miscompile.  Test: extend
 e2e/arm32-ccall-variadic-fixedfloat.sh with a zero-trailing-vararg call once the
 IR bit exists.
 
+IMPLEMENTATION PLAN (site list, from the 2026-09-17 investigation):
+- Add `CVariadic bool` to `ast.bni` Expr (near CFixedArgs) + `ir.bni` Instr.
+- `parser/parse_builtin.bn` parseCCall: it already tracks `sawMarker` — set
+  `e.CVariadic = sawMarker`.
+- Thread ast→ir: `ir/gen_builtin_ffi.bn` (`EmitCCall(..., e.CFixedArgs)` → pass
+  e.CVariadic), `ir/ir_ops_flow.bn` (EmitCCall sets `instr.CVariadic`),
+  `ir/inline_calls.bn` (clone `c.CVariadic = src.CVariadic`).
+- Replace the "is variadic" inference (`CFixedArgs < len(Args)`) — NOT the per-arg
+  split, which stays `CFixedArgs`:
+  - LLVM: `codegen/emit_ccall.bn` (2 `isVariadic = CFixedArgs < len` sites → CVariadic).
+  - x64 AL count: `native/x64/x64_call.bn:328` (`CFixedArgs < len` → CVariadic).
+  - arm32 VFP (THE core bug): `native/common/common_callconv_vfp.bn` lines ~110/149/207
+    `callIsVariadic = fixedCount < len(argTypes)`.  These 3 vfp*V walkers have no
+    `ins`; thread a `callIsVariadic bool` param into the 3 vfp*V walkers + the 3
+    V-walkers that dispatch to them (`common_callconv_variadic.bn` CallArgRegStartV /
+    CallArgStackOffV / CallStackBytesV, lines ~70/92/122) + the 3 NON-V walkers that
+    call vfp*V with fixedCount=len (`common_callconv_vfp.bn` ~89/131/191, pass false).
+    Then pass `callIsVariadic = (ins.Op == OP_C_CALL && ins.CVariadic)` at the V-walker
+    call sites: `native/arm32/arm32_call.bn:159-160`, `native/common/common.bn:74`
+    (CallStackBytesV), `native/aarch64/aarch64_call.bn` (5 sites — aa64 is
+    VariadicStackOnly not VfpBackfill, so its value is unused, but pass it for
+    uniformity).
+- Formatter round-trip: `format/print_builtin.bn` prints `...` only when
+  `CFixedArgs < len` — also print it when `CVariadic` (else `f(x, ...)` reprints as
+  `f(x)`).  Add a bnfmt/format round-trip test for the zero-trailing form.
+- Checker `types/check_c_interop.bn`: per-arg promotion is `i < CFixedArgs` (per-arg,
+  unaffected by zero-trailing) — verify no separate "is variadic" decision needs the
+  flag.
+- The per-arg split site `codegen/emit_util.bn:458` (`i < instr.CFixedArgs`) is
+  per-arg — leave as CFixedArgs.
+- VERIFY: gen1 BUILDER build; unit tests for parser/ir/codegen/native{x64,aa64,arm32}/
+  types/format; native conformance — CRITICALLY `builder-comp_native_arm32_baremetal`
+  (where the bug lives) + `builder-comp_native_aa64_aa64` + `builder-comp_native_x64_darwin`
+  (regression) + the extended e2e.  Adversarial review (all-arch call-conv change).
+
 ### Eliminate the last C runtime shim + native syscall allocator (libc-free) — 🟡 OPEN (future)
 
 `runtime/binate_runtime.c` + the native-test stub `native_test_stubs.c` are
