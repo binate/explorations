@@ -232,3 +232,44 @@ REMAINING before landing: native self-compile + review results; commit-structure
 the WIP (5455a340e) into landable pieces; per-instance land approval. Follow-ups
 (separate): the dead zero-temp (native DCE); nested-managed-struct + @[]@T fields
 (deferred increment 2).
+
+## INCREMENT 2 — starting notes (2026-09-18, all follow-ups landed)
+
+LANDED so far: leaf-managed struct SROA (`0c9998917`); block-scope + defer cleanup
+reshape (`72a0db78c`); dead-nil-const cleanup (`0ebb17126`).  Base = current main.
+Machinery to build on (all landed): `emitManagedStructPtrDtor` (gen_local_cleanup.bn),
+`emitStructFieldRefDecs` (gen_dtor_emit_bodies.bn), `managedStructLeafEligible` /
+`isLeafManagedField` (sroa.bn), `collectManagedStructCandidates` (sroa_managed.bn),
+padAware L1 chain (sroa.bn), the nil-const drop (sroa_rewrite.bn).
+
+Increment 2 = the two field kinds `managedStructLeafEligible` currently EXCLUDES:
+
+**2a — NESTED managed-struct field** (a field that is itself a managed-containing
+struct).  Today `isLeafManagedField` returns false for it, so the outer struct is
+ineligible.  Root pin: `emitStructFieldRefDecs`'s `default` arm (gen_dtor_emit_bodies.bn)
+cleans a nested struct/array field via `emitDtorOrCopyCall(elemDtorName, bitcast(fieldPtr))`
+— a by-address elem-dtor call that bitcasts the field-ptr → pins the field's slot after
+the outer splits.  FIX shape: for a nested LEAF-managed struct field, recurse —
+emit inline per-field RefDecs on the field-ptr (a recursive `emitStructFieldRefDecs`
+call) instead of the by-address call; and make `managedStructLeafEligible` recurse
+(a nested struct field is OK iff it is itself leaf-eligible).  Then the outer splits
+(field-ptr-only cleanup), the nested struct field becomes its own slot, and the
+FIXPOINT + the landed nested-aggregate L1-recursion split it further.  Watch: array
+fields with managed elements stay by-address (arrays aren't SROA'd — keep pinned);
+refcount balance on the recursive RefDec.
+
+**2b — `@[]@T` field** (managed slice whose ELEMENT needs destruction).  Harder:
+the ms-dtor-with-element path (`emitStructFieldRefDecs` TYP_MANAGED_SLICE arm,
+`Elem.NeedsDestruction()` true) calls the managed-slice dtor by ADDRESS
+(`bitcast(fieldPtr)` → ms-dtor), and that ms-dtor stores the whole slice value's
+address to a scratch + passes it to the elem dtor — a whole-value-address escape.
+This is the SAME blocker that keeps `@[]@T` slice LOCALS pinned (Phase-2 slices only
+did non-managed-element).  Recommend: do 2a first; 2b likely needs the managed-slice-
+of-managed-element SROA generalized first (a separate, bigger piece — assess before
+committing).
+
+Validation (both): ir unit tests in sroa_managed_test.bn (a nested-managed-struct-field
+struct splits; refcount balance); an O0==O2 refcount exercise; self-compile
+(builder-comp-comp + native-aa64, -O2); adversarial review (refcount-critical).  Note
+conformance is -O0 by default, so SROA is validated via self-compile + O0==O2, not a
+plain conformance test.  Land per-increment with per-instance approval.
