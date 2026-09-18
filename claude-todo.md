@@ -87,6 +87,14 @@ quote numbers from this file (they go stale):**
   backends by static instruction/reload counting on a `--target` build, or on
   real hardware/CI.
 
+### Cross-language benchmark suite (github.com/binate/benchmarks) — 🟢 in-flight
+
+Repo scaffolded; harness + first benchmark (spectral-norm) landed. Measures
+Binate — both the native and LLVM backends of the same source — against
+C/C++/Rust/Go/Java/Python on shared problems, so it feeds the native↔LLVM gap
+work below. Added as the workspace's `benchmarks/` submodule. Plan and benchmark
+list: `plan-benchmarks.md`. Direction: add benchmarks a couple at a time.
+
 ### Native codegen quality — closing the native↔LLVM gap — 🔵 OPEN
 
 The lens is **"does it close the gap?"**, not "is it hot?" — most hot buckets
