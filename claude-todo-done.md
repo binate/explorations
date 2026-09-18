@@ -363,6 +363,26 @@ fall back to word-at-a-time past offset 512 (LDP imm7 reach). The separate
 redundant-intermediate-buffer finding is tracked as its own todo (load→store
 fusion). — done by temp-5, filed originally by the SROA worker (work-1).
 
+### code-red Class 7 — captured-`@func` native↔VM refcount balance — TEST ADDED, LANDED `f8119c53a` (2026-09-17)
+
+The last lifecycle-matrix item: a refcount-balance test of a NATIVE call to a
+captured bytecode `@func` through the VM trampoline (the "captured-`@func`
+over-release" class).  Added to `e2e/xmfuncvalue.sh` (the native-caller →
+bytecode-callee harness): a bytecode capturing closure over a managed `@Box` is
+handed to a new native fixture fn `CallN(f, n)`, which calls it 5× through the
+compiled→VM `TrampolineScalar`.  The bytecode program brackets the cross-mode
+calls with `rt.Refcount` samples — the captured Box reads 1 (local only), 2
+(closure captured it), then STILL 2 after the calls: the trampoline round-trip
+neither over-releases (< 2, premature free) nor leaks (> 2) the captured value.
+`CallN`'s repeated calls make any per-call imbalance accumulate into an
+observable count.  The path is balanced today (2 passed / 0 failed); the test
+pins it.  Non-vacuity: the sibling `cross-mode-funcvalue-dispatch` check (same
+host) only passes when `pkg/xmfv` is native-injected, so `CallN` genuinely runs
+native and `f()` genuinely dispatches through the trampoline; the 1→2 refcount
+transition proves `rt.Refcount` tracks the capture.  Auto-discovered by CI's
+`ls e2e/*.sh`.  (`conformance/matrix/dispatch-refcount/funcval` is single-mode,
+not this cross-mode case.)
+
 ### Capturing-IIFE non-deterministic SIGTRAP / double-free — FIXED, LANDED `2bbc92130` (2026-09-14, MAJOR)
 
 A capturing immediately-invoked function literal `(func() R { return cap })()`

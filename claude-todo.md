@@ -1401,12 +1401,6 @@ urgency (no current miscompile; the writable placement is safe, just unhardened)
   for the spec `e2e/split-paths.sh` validates and
   [`done/plan-repl.md`](done/plan-repl.md) for what `e2e/repl.sh` covers.
 
-### (b2 residual) code-red Class 7 — captured-`@func` over-release, native↔VM balance test — 🟡 IN PROGRESS (claimed 2026-09-17, work-3/session) (Class 6 done, in done log)
-The one remaining lifecycle-matrix item: a single-program refcount-balance test of a native call to a
-captured `@func` through the VM trampoline. UNBLOCKED — the "needs a cross-mode harness" blocker is
-cleared (`e2e/xmiface.sh` / `e2e/xmhfa.sh` exist); add a captured-`@func` refcount-balance case there.
-(`conformance/matrix/dispatch-refcount/funcval` is single-mode multi-return balance, not this.)
-
 ### (b4) Differential harness v3 — port `gen-diff-scalar.py` to Binate (dogfood) + flavor B — NOT STARTED
 - **Context**: the property-based differential value-correctness harness
   (`conformance/matrix/scalar-diff`, oracle = spec) is realized through v2 —
