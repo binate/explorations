@@ -344,8 +344,31 @@ and `clobbers(ins)`.
   unchanged at 4.78s, so the gain is entirely the native regalloc change — a real dent in
   the ~45% scalar-spill half of the gap, unlike the neutral 5a/5b).  Validated: native
   aa64 3037/0, arm32-linux 3037/0, x64_darwin 3256/0 (4 shards); native/common unit tests
-  (+3 eviction tests); adversarial review clean (inductive no-overlap proof).  Increment 2
-  (loop-depth weighting: use-density × loop-depth) remains open.  The landed `LinearScan` never evicted before this: when the eligible pool
+  (+3 eviction tests); adversarial review clean (inductive no-overlap proof).
+
+- **Stage 5c — increment 2 (loop-depth weighting). ✅ LANDED `c82f31b6d` (2026-09-18,
+  work-4/temp-4).** The flat static count under-values a value used FEW times statically but
+  inside a hot loop.  `computeSpillCosts` now weights each def/use by ~10^(block loop depth,
+  capped at 4) via the new `ir.ComputeLoopDepths` (natural loops of the CFG back-edges, on the
+  existing dom.bn dominance data).  Effect (native aa64 -O2, a high-register-pressure loop:
+  14 straight-line values live across a loop whose accumulator+counter are used once/iteration):
+  **~3.7× (0.63s → 0.17s)**.  DISASSEMBLY-confirmed — under the flat count the loop spills the
+  accumulator+counter and reloads them ~10×/iteration; under loop-weighting they stay in
+  registers (x25/x24) with ZERO loop stack-traffic, spilling the straight-line values (read once,
+  post-loop) instead.  **Neutral on the compiler's own self-compile** (it is not a
+  high-pressure-loop workload) — so it helps loop-heavy code at no cost elsewhere.  Validated:
+  native aa64 3037/0, arm32-linux 3037/0, x64_darwin 3256/0 (4 shards); ir + native/common unit
+  tests (incl. 3 loop-depth CFG tests); adversarial review clean (termination/bounds/nesting +
+  index-space alignment verified).  **METHODOLOGY LESSON (cost me a wrong "shelve" call, corrected
+  after the owner pushed):** the initial benchmark timed kernels compiled WITHOUT `-O2`, so the
+  regalloc never ran — two identical -O0 binaries measured "neutral."  The regalloc only engages
+  at -O2; always benchmark at -O2 and DISASSEMBLE to confirm the allocation actually changed before
+  concluding a lever is neutral.  **Perf follow-up (open):** `ComputeLoopDepths` calls
+  `ComputeDom(f)`, rebuilding succs/preds/RPO that the liveness pass already builds for the same
+  `f` — two CFG traversals per `AllocateRegisters`.  Harmless (self-compile neutral) but shareable;
+  a future increment could thread one CFG/dominance build through both.
+
+The landed `LinearScan` never evicted before increment 1: when the eligible pool
   is exhausted it spills the *current* interval (`reg = -1`), regardless of how hot it is. So a
   hot value that needs a callee-saved register but arrives after the callee-saved pool is full of
   colder long-lived spanning values gets spilled — the `livenessFixpoint`-receiver case (a

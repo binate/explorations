@@ -198,13 +198,22 @@ CORRECTION 2026-09-08):
    cheaper than the newcomer, keeping hot values in registers.  Measured: native
    aa64 self-compile median 18.45s → 16.03s, native/LLVM ratio 3.86× → 3.34×
    (~13% faster; LLVM unchanged).  Validated on all three native backends
-   (aa64/arm32-linux/x64_darwin) + unit tests + clean adversarial review.  **Open
-   next levers:** loop-depth weighting — 🟡 IN PROGRESS (increment 2, claimed
-   2026-09-17, work-4/temp-4): weight each def/use in the spill cost by its loop
-   depth (a use in a hot loop executes far more often than a static count
-   suggests), so a colder-by-static-count value inside a loop is preferred over a
-   hot-by-static-count value used only in straight-line code; then interval
-   splitting, more homes.  See plan-native-regalloc.md Stage 5c.
+   (aa64/arm32-linux/x64_darwin) + unit tests + clean adversarial review.
+   **Increment 2 — loop-depth weighting — 🟢 LANDED `c82f31b6d` (2026-09-18):** each
+   def/use in the spill cost is weighted by ~10^(block loop depth) via the new
+   `ir.ComputeLoopDepths`, so a value used once inside a hot loop beats a
+   straight-line value with a higher raw count.  DISASSEMBLY-confirmed ~3.7×
+   (0.63s→0.17s) on a high-register-pressure loop (the loop's accumulator+counter
+   stay in registers instead of reloading ~10×/iteration); neutral on the compiler
+   self-compile (not a loop-heavy workload).  Validated 3 native modes 3037/3037/3256,
+   0 fail.  (Note: an initial benchmark wrongly read "neutral" because it timed
+   -O0 binaries where the regalloc never runs — always benchmark at -O2 and
+   disassemble to confirm the allocation changed.)  **Open next levers:** share the
+   `ComputeDom`/CFG build between liveness and loop-depth (perf, not correctness —
+   currently two CFG traversals per AllocateRegisters); interval splitting; more
+   homes; and closing the COMPILER's own remaining spill gap (loop-weighting is
+   neutral there, so a different regalloc lever is needed for control-flow-heavy
+   code).  See plan-native-regalloc.md Stage 5c.
 3. **Inliner threshold tuning — POSTPONED; revisit AFTER SROA/regalloc.** 🔵 NOT ASSIGNED
    The `--inline-threshold` flag is landed (`3022706ce`) so the value is
    runtime-settable without recompiling the compiler. A drift-controlled
