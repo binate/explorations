@@ -143,16 +143,15 @@ them too.)
 
 Investigation complete. Tier 1 taken on 2026-09-18 (work-6/session):
 
-- **B (power-of-two index strength reduction) — ✅ implemented, correct.**
+- **B (power-of-two index strength reduction) — ✅ LANDED `c77bdae4a`.**
   `emitGetElemPtr` now scales the index with a single `lsl` (or uses the index
   directly for elemSize 1) instead of `movz #elemSize; mul`. **~23% faster on
   fannkuch native** (best-of-3 N=11: 6.9s → 5.3s; gap 3.6× → 2.8×). Verified
-  correct by self-compile plus byte-exact output on fannkuch (elemSize 8),
-  spectral-norm (float64), binary-trees (structs), and mandelbrot (elemSize-1
-  path). Native-aarch64 conformance running. Not yet landed (awaiting conformance
-  + review + approval). NB: this is the strength-reduction half of B; fusing into
-  scaled load/store addressing modes (`ldr [base,idx,lsl#n]`) is a further step,
-  left for later.
+  correct by self-compile, native-aarch64 conformance (3037 passed / 0 failed),
+  and byte-exact output on fannkuch (elemSize 8), spectral-norm (float64),
+  binary-trees (structs), and mandelbrot (elemSize-1 path); hygiene 20/20. NB:
+  this is the strength-reduction half of B; fusing into scaled load/store
+  addressing modes (`ldr [base,idx,lsl#n]`) is a further step, left for later.
 
 - **A (store-then-reload elimination) — reverted; the naive approach is a
   MISCOMPILE.** Adding the block terminators (OP_BRANCH/OP_JUMP) to
