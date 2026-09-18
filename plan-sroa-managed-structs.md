@@ -1,6 +1,6 @@
 # Plan: SROA of managed structs (structs with a managed field)
 
-Status: DESIGN — awaiting sign-off. Claimed work-1/session 01LPZ7, 2026-09-16.
+Status: DONE — LANDED `0c9998917` (2026-09-17). See claude-todo-done.md. Claimed work-1/session 01LPZ7, 2026-09-16.
 Continues the SROA line (see `plan-ir-sroa.md`, `claude-todo.md`). Managed-slice
 Phase 2 already landed (`bcdc9ba47` + `ebeb6d087`); this is the next frontier.
 
