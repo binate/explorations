@@ -337,6 +337,39 @@ and `clobbers(ins)`.
   reclaim x64
   RCX/RDX, arm32 int64-in-registers.
 
+- **Stage 5c — spill-cost eviction (increment 1: static use-count). 🟡 IN PROGRESS
+  (2026-09-17, work-4/temp-4).** The landed `LinearScan` never evicts: when the eligible pool
+  is exhausted it spills the *current* interval (`reg = -1`), regardless of how hot it is. So a
+  hot value that needs a callee-saved register but arrives after the callee-saved pool is full of
+  colder long-lived spanning values gets spilled — the `livenessFixpoint`-receiver case (a
+  clobber-spanning param, live+used across the whole function, evicted by colder spanning values).
+  Add eviction with a static spill-cost:
+  - **Cost proxy:** `useCounts[id]` = number of instructions that def-or-use `id` (one IR pass in
+    `AllocateRegisters`). A direct proxy for spill cost (each use → a reload, each def → a store);
+    higher = keep in a register. Loop-depth weighting (`use-density × loop-depth`) is increment 2
+    (needs back-edge/loop detection) — increment 1 is the flat static count, which already fixes the
+    livenessFixpoint case (its receiver has many static uses).
+  - **Decision:** when no register is free for the current interval C, find the eligible active
+    interval A with the MINIMUM cost; if `cost(A) < cost(C)`, evict A — set A's result to spilled
+    (`Reg = -1`), give C the register A held, and replace A's active-set entry with C's extent.
+    Else spill C (unchanged). **Equal costs ⇒ no eviction ⇒ byte-identical to today** (so the
+    existing scan tests, which carry no per-id cost, stay green under a uniform count).
+  - **Register-class eligibility (the correctness core):** a clobber-spanning C needs a
+    callee-saved register, so it may only evict actives *holding a callee-saved register*
+    (evicting a caller-saved holder would hand C a register the call it spans destroys). A
+    non-spanning C may evict any active (it takes whatever class the freed register is; landing a
+    non-spanning value in a callee-saved reg just costs one prologue save, already tracked). The
+    evicted value goes to memory, so ITS class no longer matters — a spilled clobber-spanning value
+    still survives the call in its stack slot.
+  - **No-overlap invariant preserved:** C takes a register freed by spilling A; any other interval
+    D overlapping C coexisted with A and thus already holds a different register, so C (= A's old
+    reg) never collides with D. Assignment is computed whole-interval before emission, so eviction
+    only rewrites A's and C's final decisions — no other interval is perturbed.
+  - **Validation:** unit tests (eviction fires hot-over-cold; respects the callee-saved constraint;
+    equal-cost ⇒ spill-newcomer unchanged) + three native conformance modes (aa64 / x64_darwin /
+    native_arm32_baremetal — a wrong assignment is a silent miscompile) + a native self-compile
+    benchmark (does it actually narrow the ~45% spill half?) + adversarial review.
+
 ## Correctness & validation (miscompile is the top risk)
 
 A wrong assignment is a **silent** wrong-register read. Front-load validation:
