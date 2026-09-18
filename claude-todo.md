@@ -587,7 +587,7 @@ built, together with a test that exercises `ptr≠int` (the only thing that vali
 
 ## Slimming `pkg/bootstrap`; C interop (`__c_call`)
 
-### `__c_call` with a `...` but ZERO trailing varargs is indistinguishable from non-variadic — 🔴 OPEN, latent (narrow) miscompile (found 2026-09-07, ABI review #6 fixed-float follow-up review)
+### `__c_call` with a `...` but ZERO trailing varargs is indistinguishable from non-variadic — 🟡 IN PROGRESS (claimed 2026-09-17, work-2), latent (narrow) miscompile (found 2026-09-07, ABI review #6 fixed-float follow-up review)
 
 `parseCCall` records only `CFixedArgs` at the `...` marker and drops the "a `...`
 was written" bit, and the whole toolchain defines "variadic" as `CFixedArgs <
