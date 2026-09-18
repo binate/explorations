@@ -19,7 +19,7 @@ yardstick. Feeds the native↔LLVM gap work (see the Performance section of
       loop; run the suite for current figures — do not record numbers here, they
       go stale).
 - [x] **n-body** — scalar FP, loop-carried dependencies; pinned N=5000000
-- [ ] **mandelbrot** — complex FP, vectorizable inner loop
+- [x] **mandelbrot** — complex FP, vectorizable inner loop; pinned N=1000, byte-exact P4 output
 - [ ] **binary-trees** — allocation / refcount path
 - [ ] **fannkuch-redux** — integer, array indexing
 - [ ] **fasta** — deterministic RNG + buffered output
