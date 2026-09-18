@@ -99,3 +99,45 @@ Fix together: move/extend the pre-check to cover the copy, or pad the copy call.
   the value-struct-receiver 1270/1271).
 - Adversarial review (refcount ownership: no double-free of captured fields, no UAF
   of a borrowed `*func` copy, cross-mode dtor resolution).
+
+## REVIEW UPDATE (2026-09-18): approach (a) is UNSOUND — rejected
+
+An adversarial design review found approach (a) (and (b)) would introduce memory
+corruption on EVERY backend, and would regress the native backend to fix a VM-only
+leak.  Do NOT implement (a)/(b).  Key findings:
+
+- The leak is **VM-only**.  On native/LLVM a method value's data slot IS the stack
+  closure struct (the shim reads captures straight from it) — there is NO heap rec
+  and NO leak, at zero cost.  The heap rec that leaks exists only in the VM's
+  `BC_FUNC_VALUE` capturing branch.
+- Method-value closure struct is a **stack** `EmitAlloc` (`gen_method_value.bn:233`);
+  the `@func` closure-literal path uses a **heap** `EmitMake` (`gen_func_lit.bn:138`)
+  and sets `IsManagedFuncValue` + `ClosureStructDtorName` (the wrapper sets neither).
+  So `emitManagedFuncValueRefDec` — which assumes a heap-managed data record — would
+  RefDec a **stack address**: VM's `compiledClosureDtorMark` path would `rt.Free()`
+  `rec[3]` (a stack addr) and never RefDec the captured fields; native/LLVM would
+  emit a null dtor and RefDec/free the stack struct pointer.  Corruption either way.
+- (a) vs (b) is moot — both route through `emitManagedFuncValueRefDec`, unsafe on a
+  stack-backed struct.
+
+Two SOUND directions (a native-perf vs VM-only-leak tradeoff — user's call):
+
+- **Variant V (VM-targeted; native untouched) — reviewer's preference, aligns with
+  "native is THE backend, don't regress it for a VM artifact":** leave native/LLVM
+  exactly as-is (no rec, no leak, no cost); fix only the VM rec.  Either
+  frame-allocate the rec so it survives `OP_SP_RESTORE` (nothing to free — reclaimed
+  with the frame, like the closure struct itself), or free JUST the rec (never
+  `rec[3]`) tied to the existing stack-struct scope cleanup — NOT via the
+  `compiledClosureDtorMark` path (which wrongly frees `rec[3]`).  More VM-specific.
+
+- **Variant H (heap-align method values with `@func`):** make method-value
+  construction identical to `genFuncLit`'s managed path — `EmitMake` the struct, set
+  `IsManagedFuncValue` + `ClosureStructDtorName`, drive release via the `@func` slot,
+  replace `registerMethodValueLocalForCleanup`.  Sound on all backends, reuses proven
+  machinery — BUT turns the common no-managed-field method value from a zero-cost
+  native STACK alloca into a per-construction heap alloc + refcount + free: a
+  native/LLVM regression to fix a VM-only leak.
+
+Either variant must ALSO cover `*func` capturing CLOSURE LITERALS (same VM rec leak),
+and fold in FINDING 2 (wrapper `__copy`-before-pre-check pad).  Test must run under
+VM AND native AND aarch64 (the corruption (a) would add is native-visible).
