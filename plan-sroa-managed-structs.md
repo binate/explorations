@@ -233,7 +233,7 @@ the WIP (5455a340e) into landable pieces; per-instance land approval. Follow-ups
 (separate): the dead zero-temp (native DCE); nested-managed-struct + @[]@T fields
 (deferred increment 2).
 
-## INCREMENT 2 — starting notes (2026-09-18, all follow-ups landed)
+## INCREMENT 2 (2026-09-18) — 2a LANDED (`0e862dca8`), 2b still open
 
 LANDED so far: leaf-managed struct SROA (`0c9998917`); block-scope + defer cleanup
 reshape (`72a0db78c`); dead-nil-const cleanup (`0ebb17126`).  Base = current main.
@@ -244,8 +244,23 @@ padAware L1 chain (sroa.bn), the nil-const drop (sroa_rewrite.bn).
 
 Increment 2 = the two field kinds `managedStructLeafEligible` currently EXCLUDES:
 
-**2a — NESTED managed-struct field** (a field that is itself a managed-containing
-struct).  Today `isLeafManagedField` returns false for it, so the outer struct is
+**2a — NESTED managed-struct field — DONE, LANDED `0e862dca8` (2026-09-18).**
+`isLeafManagedField` recurses (nested struct field OK iff itself leaf-eligible) and
+`emitStructFieldRefDecs` gained an `inlineNested` flag: the -O1+ local cleanup recurses
+to inline per-field RefDecs on the field-ptr (identical RefDec set to inlining the
+nested `__dtor`) instead of the by-address call; the shared `__dtor_T` passes
+`inlineNested=false` (unchanged).  Validated: ir unit tests (split + non-leaf-pinned);
+O0-vs-O2 differentials (`use()` 4 allocas → 1; refcount balanced over 100
+create/destroy cycles w/ a sentinel-refcount check); self-compile builder-comp-comp
+3037/0 and native-aa64 3037/0.  Adversarial review raised one MAJOR claim (a VM-only
+double-free at -O1+ for a pinned nested slot supposedly not re-zeroed per iteration) —
+investigated by RUNNING 6 reproducers (incl. the exact scenario + a genuinely-pinned
+multi-word variant to 100 iterations); REFUTED: the VM re-zeros pinned aggregate
+allocas each iteration (directly proven with a non-managed field of a pinned struct),
+so the managed field is nil at release-old time — no double-free.  Original design
+notes for 2a follow.
+
+Today (pre-2a) `isLeafManagedField` returns false for it, so the outer struct is
 ineligible.  Root pin: `emitStructFieldRefDecs`'s `default` arm (gen_dtor_emit_bodies.bn)
 cleans a nested struct/array field via `emitDtorOrCopyCall(elemDtorName, bitcast(fieldPtr))`
 — a by-address elem-dtor call that bitcasts the field-ptr → pins the field's slot after

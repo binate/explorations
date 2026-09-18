@@ -123,8 +123,8 @@ CORRECTION 2026-09-08):
    OP_CONST_NIL, which the backends materialize as a zero-fill stack temp; the rewrite
    now deletes it (use-scan guarded), so mstruct drops from 1 residual struct alloca
    to 0 at -O2.  Still open: increment 2 = nested-managed-struct + @[]@T
-   fields — **2a (nested managed-struct field) 🟡 IN PROGRESS (claimed 2026-09-18,
-   work-1/session); 2b (@[]@T field) still deferred**.  **SROA-to-a-fixpoint DONE — LANDED `0a1098cff`**: runSroa
+   fields — **2a (nested managed-struct field) DONE — LANDED `0e862dca8`
+   (2026-09-18); 2b (@[]@T field) still open (deferred — see plan-sroa-managed-structs.md)**.  **SROA-to-a-fixpoint DONE — LANDED `0a1098cff`**: runSroa
    now runs each function's SROA to a fixpoint so `b = a` collapses BOTH sides (the
    copy source, L2-pinned on pass 1 because its whole-load feeds the whole-store as
    a non-extract value, becomes eligible once that store is rewritten to per-field
