@@ -43,6 +43,10 @@ list: `plan-benchmarks.md`. Direction: add benchmarks a couple at a time.
 
 ### Native codegen quality — closing the native↔LLVM gap — 🔵 OPEN
 
+Worked example with prioritized backend steps: `plan-native-fannkuch-gap.md`
+(fannkuch-redux ~3.2× native/llvm; root cause is machine-level codegen — spill-
+everything lowering, no CSE/peephole/scaled-addressing/BCE — not the IR passes).
+
 The lens is **"does it close the gap?"**, not "is it hot?" — most hot buckets
 run in BOTH builds and leave the ratio unchanged. **Verified attribution
 (2026-09-08, native `-O2` self-compile of cmd/bnc, host aarch64, main
