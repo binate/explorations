@@ -485,7 +485,7 @@ See explorations/done/plan-funcvalue-byaddr-abi.md.
 
 ## Cross-mode interface dispatch & compiler/interpreter interop
 
-### MAJOR (latent): cross-mode iface-arg vtable substitution still capped at `slot < 7` after the call_packed migration removed the a0..a6 limit — 🔵 OPEN (2026-09-18)
+### MAJOR: cross-mode iface-arg vtable substitution still capped at `slot < 7` after the call_packed migration removed the a0..a6 limit — 🟡 IN PROGRESS (claimed 2026-09-18, temp-5/session) (2026-09-18)
 
 `buildArgIfaceLayout` (`pkg/binate/vm/lower_slots.bn:119`) records the per-slot
 interface-vtable layout for a cross-mode call's args only for `slot < 7` — its
