@@ -137,17 +137,22 @@ CORRECTION 2026-09-08):
    now deletes it (use-scan guarded), so mstruct drops from 1 residual struct alloca
    to 0 at -O2.  Still open: increment 2 = nested-managed-struct + @[]@T
    fields — **2a (nested managed-struct field) DONE — LANDED `0e862dca8`
-   (2026-09-18); 2b (@[]@T managed-element slices) 🟡 IMPLEMENTATION IN PROGRESS
-   (claimed 2026-09-18, work-1) — FEASIBILITY DONE, HIGH VALUE**.  2b is likely the biggest remaining
-   managed-slice gap-closer: `@[]@T` is the compiler's DOMINANT slice type
-   (`@[]@types.Type` ×907, `@[]@Instr` ×291, …) and pins at -O2 today (a 1-line
-   `@[]@Node` local pins 6 four-word headers), while increment 1 only handled
-   non-managed-element `@[]T`.  Approach (see plan-sroa-managed-structs.md 2b section):
-   add a scalar-arg `__dtor_ms_elems_<T>(refptr, backingLen)` helper (the ms-dtor body
-   minus the load), reshape the -O1+ inline cleanup (slice locals + `@[]@T` struct
-   fields) to `extract refptr/backinglen + call` it (forwardable), and relax
-   `managedSliceElemScalarReplaceable` / `isLeafManagedField`'s slice arm.  Scope
-   ~2a-sized.  **SROA-to-a-fixpoint DONE — LANDED `0a1098cff`**: runSroa
+   (2026-09-18); 2b (@[]@T managed-element slices) piece 1 (slice LOCALS) DONE —
+   LANDED `52e612619` (2026-09-18); piece 2 (@[]@T struct FIELDS, composing with 2a)
+   🟡 IN PROGRESS (work-1)**.  2b is the biggest remaining managed-slice gap-closer:
+   `@[]@T` is the compiler's DOMINANT slice type (`@[]@types.Type` ×907, `@[]@Instr`
+   ×291, …) and pinned at -O2 (a 1-line `@[]@Node` local pinned 6 four-word headers),
+   while increment 1 only handled non-managed-element `@[]T`.  Piece 1 added the
+   scalar-arg `__dtor_ms_elems_<T>(backingPtr, backingLen)` helper (the ms-dtor body
+   minus the 4-word load; by-address dtor delegates to it), reshaped the -O1+ inline
+   cleanup (emitManagedSliceRefDec) to `extract refptr/backinglen + call` it
+   (forwardable) gated via new Module.OptLevel, and relaxed
+   `managedSliceElemScalarReplaceable`.  Validated: ir 833/0, refcount balance
+   (compiled+VM O0/O2), self-compile builder-comp-comp + native-aa64 3037/0,
+   adversarial review clean (1 minor pre-existing mangling non-injectivity noted).
+   Piece 2 remaining: reshape `emitStructFieldRefDecs`' TYP_MANAGED_SLICE-with-element
+   arm to the same extract+call form (gated inlineNested), and relax
+   `isLeafManagedField`'s slice arm, so a struct with a `@[]@T` field is leaf-eligible.  **SROA-to-a-fixpoint DONE — LANDED `0a1098cff`**: runSroa
    now runs each function's SROA to a fixpoint so `b = a` collapses BOTH sides (the
    copy source, L2-pinned on pass 1 because its whole-load feeds the whole-store as
    a non-extract value, becomes eligible once that store is rewritten to per-field

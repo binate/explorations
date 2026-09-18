@@ -283,6 +283,21 @@ did non-managed-element).  Recommend: do 2a first; 2b likely needs the managed-s
 of-managed-element SROA generalized first (a separate, bigger piece — assess before
 committing).
 
+### 2b STATUS — piece 1 (slice LOCALS) LANDED `52e612619` (2026-09-18)
+
+Piece 1 landed exactly the scalar-helper approach below: `__dtor_ms_elems_<T>(backingPtr
+*uint8, backingLen int)` (ms-dtor loop factored into `emitMsElemsCleanup`), by-address
+dtor delegates to it, `emitManagedSliceRefDec`'s -O1+ path extracts refptr/backinglen +
+calls it (forwardable) gated via new `Module.OptLevel`, `managedSliceElemScalarReplaceable`
+relaxed to admit any element.  Validated: ir 833/0; refcount balance (sentinel-refcount over
+150 element cleanups, + nested `@[]@[]int`) compiled+VM O0/O2; self-compile builder-comp-comp
+and native-aa64 3037/0; adversarial review clean (one MINOR pre-existing note: the
+`__dtor_ms_elems_` name follows the existing non-injective `__dtor_<kind>_` scheme — not a
+new collision class; comment corrected).  **Piece 2 (struct FIELDS) still open**: reshape
+`emitStructFieldRefDecs`' TYP_MANAGED_SLICE-with-element arm to the same extract+call form
+(gated on the existing `inlineNested` flag) and relax `isLeafManagedField`'s slice arm, so a
+struct with a `@[]@T` field is leaf-eligible and composes with 2a.
+
 ### 2b FEASIBILITY ASSESSMENT (2026-09-18, work-1) — VALUE HIGH, TRACTABLE
 
 **Value is HIGH, not a minor edge case.** `@[]@T` (managed slice of a managed
