@@ -499,9 +499,11 @@ bytecode-impl vtable word it can't dereference → **silent miscompile** for the
 (uncommon) shape "cross-mode iface method/func-value call with ≥7 arg slots ahead of
 an interface-value arg." `pkg/binate/vm/lower_max_temp_growth.bn:59` carries the same
 `slot < 7` cap (temp-growth accounting) and its stale comment. Found by the
-adversarial review of the Bug-A e2e fix. Not currently exercised by any test (so not
-a CI blocker) — needs a targeted cross-mode test (iface-value arg past slot 7) that
-reproduces the wrong dispatch, then bump/remove the cap to match the 64-slot buffer.
+adversarial review of the Bug-A e2e fix. No existing test exercises this shape — that
+absence is itself a coverage gap to close, NOT a reason to downgrade the silent
+miscompile. Fix = add a targeted cross-mode test (an interface-value arg past slot 7
+whose vtable word must be substituted) that reproduces the wrong dispatch, then
+bump/remove the cap to match the 64-slot buffer.
 Belongs with the func-value / call_packed migration work (same `9574f14ce` origin).
 
 ### `__init` dispatcher (+ other main-enumerated structures) assume whole-program enumeration — remaining blockers for opaque binary distribution — 🟡 OPEN
