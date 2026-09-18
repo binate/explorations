@@ -141,3 +141,44 @@ Two SOUND directions (a native-perf vs VM-only-leak tradeoff — user's call):
 Either variant must ALSO cover `*func` capturing CLOSURE LITERALS (same VM rec leak),
 and fold in FINDING 2 (wrapper `__copy`-before-pre-check pad).  Test must run under
 VM AND native AND aarch64 (the corruption (a) would add is native-visible).
+
+## DECISION (2026-09-18): Variant V, sub-shape V1 (frame-allocate the rec)
+
+User chose Variant V (VM-only; native untouched).  Between the two V sub-shapes,
+**V1 (frame-allocate the rec) is cleanest** and chosen:
+
+Why V1 over V2 (free-the-rec op): the rec's `rec[3]` (the closure struct) is a stack
+FRAME alloca that is already reclaimed with the frame, and whose captured managed
+fields are already cleaned by the existing `registerMethodValueLocalForCleanup`
+(unchanged).  The ONLY thing that leaks is the separate `rt.Alloc`'d rec block.  If
+that rec is instead placed in the caller's FRAME (like `closurePtr` itself), it is
+reclaimed with the frame on EVERY exit — normal AND recoverable-fault — with:
+- NO free op, NO refcount, NO cleanup-list / fault-pad integration (V2 would need
+  the free covered by both scope exit and `emitPadCleanup`; V1 needs neither).
+- NO double-free risk.
+- `@func` closure literals UNCHANGED (they escape → keep the heap rec + RefDec).
+- native/LLVM UNCHANGED (they have no rec — data IS the stack struct; they ignore
+  the rec entirely).
+
+Shape:
+- IR-gen (`genMethodValue`): reserve a 4-word rec-slot FRAME alloca and thread it to
+  the func-value construction (a rec-slot operand on `OP_FUNC_VALUE`, VM-only
+  metadata).  Only for the `*func` method-value path; `@func` literals + non-capturing
+  keep today's behavior.
+- VM (`BC_FUNC_VALUE` capturing branch): when a rec-slot is provided, write the
+  `{kind, vm, fnIdx+1, captured}` rec into THAT frame slot instead of `rt.Alloc` — so
+  it is frame-reclaimed, never freed.  Guard so this NEVER routes through the
+  `compiledClosureDtorMark` free path (the rec is frame memory, not heap).
+- Compiled backends (LLVM/native/aarch64/arm32): ignore the rec-slot operand (they
+  build no rec) — zero change, zero cost.
+
+Soundness: a `*func` method value is a borrow that does not escape (coding-guide;
+confirmed no conformance test returns/stores/re-captures one), so its rec living
+exactly as long as the constructing frame is correct.  A returned `*func` method
+value already dangles today (frame-allocated `closurePtr`), so V1 changes nothing
+there.
+
+Scope still includes `*func` capturing CLOSURE LITERALS if any exist (same VM rec);
+audit whether closure literals are ever `*func` (vs always `@func`) — if always
+`@func`, only method values need V1.  Fold in FINDING 2.  Test under VM + native +
+aarch64.
