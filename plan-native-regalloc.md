@@ -470,6 +470,69 @@ compiler's remaining native gap, not a secondary one.**  (The ratio being flat w
 function shrank shows the ratio is a blunt aggregate; the per-function store counts are the
 sharper signal.)
 
+## Stage 5d — caller-saved homes (X9–X15) — IN PROGRESS (2026-09-18, work-4/temp-4)
+
+**The "spilled values are call-spanning → interval splitting is THE lever" conclusion just
+above is WRONG.**  It overgeneralized from ~30 loop-invariants in one function.  Instrumented
+`AllocateRegisters` to dump, per function, every spilled value split by spans-a-clobber vs
+not, weighted by loop depth (the dynamic-reload proxy), over the whole self-compile:
+
+    whole self-compile (6114 funcs, 371154 allocatable values)
+                          count            loop-weighted cost
+    homed              327810 (88%)          —
+    spilled  SPANNING    7393 (17% of sp)    313075   (25%)
+    spilled  NON-span   35951 (83% of sp)    951837   (75%)   <-- the bulk
+
+    livenessFixpoint:  homed=99  spilled=156 (ss=19, sns=137)  cs=15134  cns=127087 (89% non-span)
+
+So **75% of the loop-weighted spill cost is NON-call-spanning** — values that spill only
+because the 10 callee-saved homes (`CallerSaved` is EMPTY) are exhausted, NOT because they
+cross a call.  Every top-15 hottest function is non-spanning-dominated.  A non-spanning value
+can live in a caller-saved register safely (dead before / born after any call it reaches), so
+this is exactly the population caller-saved homes serve.  Reconciled against the disassembly
+(livenessFixpoint homes 99/255 yet emits 123 real stores) — the emission within-block cache is
+NOT hiding this; the spills genuinely hit memory.
+
+**Why Stage 5a still measured neutral (it was not proof the lever is dead):** 5a (`69d650f41`)
+homed non-spanning values in the **X0–X7 arg bank** and had to **un-home every call operand and
+OP_RETURN operand** (they marshal into X0–X7).  In call-heavy functions most non-spanning
+values ARE call operands, so they reverted to spilling → neutral.  Wrong pool.
+
+**This stage: home non-spanning values in X9–X15** (the 7 caller-saved registers that are
+never used for argument passing).  Strictly better than 5a's arg bank:
+- X9–X15 survive a call's argument setup (args go in X0–X7), so **call operands can be homed
+  there with NO un-homing** — the whole `excludeCallerIDs`/`UnhomeID` complication 5a needed is
+  gone.
+- Disjoint from the arg bank, so **param landing is a plain arg-reg→home move** — no
+  permutation hazard, no spill-then-reload.
+- `LinearScan` already prefers `CallerSaved` for non-spanning intervals and bars spanning ones,
+  and records only callee-saved homes in `SavedRegs` — so populating `desc.CallerSaved` with
+  X9–X15 needs no scan change for correctness.
+
+**The one real cost — partition X9–X15 between homes and the transient scratch/reload pool**
+(`aarch64_regmap.bn` `regPool`/`allocReg`, today X9–X15 primary + X16 fallback + X17 reserved).
+A homed register must be disjoint from the scratch pool or scratch clobbers the home.  Reserve
+N of X9–X15 as homes and keep 7−N (+X16 fallback) as scratch.  N is picked from the **measured
+scratch high-water** across the self-compile: too-few scratch panics loudly at compile time
+(never a miscompile, since home/scratch stay statically disjoint), so the risk of a bad N is a
+build failure, not corruption.  Correctness holds for any disjoint split; N only trades home
+budget against scratch headroom.
+
+**Increments:**
+1. Measure the true per-op scratch high-water (instrument `allocReg`) → pick a safe N.
+2. Populate `desc.CallerSaved` = {X9..X(9+N-1)}; shrink `regPool`/`allocReg` scratch to the
+   remaining X-regs + X16; confirm home∩scratch = ∅.
+3. Param landing: move a homed param from its arg register into its X9–X15 home at entry.
+4. Validate: native unit tests (pin a non-spanning value → caller-saved home; a call operand
+   homed in X9–X15 not un-homed); three native conformance modes; **disassemble
+   livenessFixpoint to confirm the 137 non-spanning spills convert to register homes** (the
+   store count drops); interleaved self-compile benchmark (does the ratio move?).
+5. Then x64 / arm32 (their caller-saved pools differ; arm32 already has a caller-saved-home
+   model — reconcile).
+
+**Interval splitting is the FOLLOW-UP** for the remaining ~25% (genuinely call-spanning
+values), on the same range-list interval foundation.
+
 ## Correctness & validation (miscompile is the top risk)
 
 A wrong assignment is a **silent** wrong-register read. Front-load validation:

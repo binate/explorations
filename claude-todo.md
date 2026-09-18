@@ -99,27 +99,31 @@ CORRECTION 2026-09-08):
    diagnosis (2026-09-18, disassembly of livenessFixpoint native vs LLVM):** native
    stores scalars to the stack ~30× more (153 vs 5) — it homes only 10 values
    (callee-saved; `CallerSaved` EMPTY) vs LLVM's ~27-register file; plus a large
-   aggregate/slice-header-copy component (SROA, work-1).  🟡 IN PROGRESS
-   (caller-saved-homes re-test, claimed 2026-09-18, work-4/temp-4): the scalar-spill
-   gap contradicts Stage 5a's "10 homes suffice" shelving justification.  **RESULT
-   (2026-09-18): caller-saved homes is the WRONG lever for the compiler — Stage 5a's
-   neutral verdict was CORRECT.**  Recovered Stage 5a (`69d650f41`) onto inc1/inc2 and
-   disassembled the baseline: `livenessFixpoint`'s ~30 spilled scalars are loop-invariant
-   values computed pre-loop and used ACROSS the loop's 18 calls — i.e. CALL-SPANNING, so
-   they need callee-saved registers (only 10) and caller-saved homes CANNOT hold them
-   (clobbered across the call).  (The recovered Stage 5a also didn't cleanly compose with
-   the modern eviction — its native self-compile OOM'd/crashed, though a 72-test subset
-   passed 0-fail.)  **The real lever is INTERVAL SPLITTING** (🔵 OPEN, not started): split
-   a call-spanning value's interval so it uses caller-saved regs for its non-call
-   use-clusters and only spills/callee-saves ACROSS the calls — exactly what LLVM does.
-   The landed range-list interval representation is the foundation for it.  Substantial
-   project.  **RE-VERIFIED 2026-09-18 against a current-main (full-SROA) compiler:** SROA
-   is DONE and helped livenessFixpoint (652→555 instrs, 58→24 aggregate copies) but the
-   native/LLVM self-compile RATIO is UNCHANGED (3.38× vs inc1's 3.34×); the DOMINANT
-   remaining compiler gap is scalar spill (123 stores-to-stack vs LLVM's 5, ~25×), NOT
-   aggregate copies.  So interval splitting is THE remaining regalloc lever for the
-   compiler, not secondary.  See plan-native-regalloc.md "Compiler-gap disassembly
-   diagnosis" + Stage 5c.
+   aggregate/slice-header-copy component (SROA, work-1).
+   🟡 IN PROGRESS — **caller-saved homes in X9–X15 (Stage 5d)**, claimed 2026-09-18,
+   work-4/temp-4.  **The earlier "caller-saved homes is the WRONG lever / spilled values
+   are call-spanning" RESULT (2026-09-18) was WRONG — it overgeneralized from ~30
+   loop-invariants in ONE function.**  Instrumented the allocator to dump, per function,
+   every spilled value split by spans-a-call vs not, loop-weighted, over the whole
+   self-compile (6114 funcs, 371K values): **83% of spilled values and 75% of the
+   loop-weighted spill cost are NON-call-spanning** (spilled only because the 10
+   callee-saved homes are exhausted).  livenessFixpoint itself is 89% non-spanning spill
+   cost (cns=127087 vs cs=15134; 137 of 156 spills non-spanning); every top-15 hot
+   function is cns-dominated.  Reconciled vs disassembly (homes 99/255 yet 123 real
+   stores) — the within-block cache is NOT hiding it.  **Why Stage 5a (`69d650f41`) still
+   measured neutral: it homed in the X0–X7 ARG BANK and had to un-home every call operand
+   (they marshal into X0–X7) → in call-heavy code most non-spanning values reverted to
+   spilling.  Wrong pool.**  X9–X15 (7 regs, never used for arg passing) survive arg setup
+   and need NO operand un-homing and NO param-permutation fix — strictly better than 5a.
+   The one cost is partitioning X9–X15 between homes and the transient scratch/reload pool;
+   the home count N is being picked from the measured scratch high-water (safe: too-few
+   scratch loudly panics at compile time, never miscompiles, since home/scratch stay
+   disjoint).  Targets ~75% of the spill cost and builds the caller-saved-pool + scratch
+   partition that interval splitting needs anyway.  **INTERVAL SPLITTING is deferred to the
+   FOLLOW-UP** (🔵 the remaining ~25%, genuinely call-spanning values; the landed
+   range-list interval is its foundation).  SROA is DONE (652→555 instrs, 58→24 aggregate
+   copies on livenessFixpoint) and did NOT move the self-compile ratio (3.38× vs inc1's
+   3.34×).  See plan-native-regalloc.md "Stage 5d — caller-saved homes (X9–X15)".
 3. **Inliner threshold tuning — POSTPONED; revisit AFTER SROA/regalloc.** 🔵 NOT ASSIGNED
    The `--inline-threshold` flag is landed (`3022706ce`) so the value is
    runtime-settable without recompiling the compiler. A drift-controlled
