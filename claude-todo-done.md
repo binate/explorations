@@ -6,6 +6,25 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### `bnld-real-program` e2e: aarch64 undefined `rt.MemZero` (part 1 of the MemZero blocker) — DONE, LANDED `7989641b1` (2026-09-18)
+
+The E2E `bnld-real-program` aarch64 sub-step (link `bnc -c` aarch64 LLVM objects with
+bnld, exercising GOT relaxation; linked-not-run on the x86-64 host) hit `undefined
+symbol: bn_F3_3_pkg8_builtins2_rt1_7_MemZero` — red 2+ days, a 0.0.16 CI blocker. Root
+cause: aarch64's Binate `rt.MemZero` body is `#[build(!is(arch, "aarch64"))]`-gated off
+in favour of a hand-asm `.s` seam that only cmd/bnc's four link paths assemble + include
+(`assembleRtMemObj`, `cmd/bnc/rt_mem_asm.bn`), so `bnc -c` (compile-to-objects, no link)
+emits objects that reference `MemZero` without defining it. Regression from `53a422f5b`
+(2026-09-04, after 0.0.15), which didn't update the e2e.
+
+Part 1 (stopgap): the aarch64 shim already defines link-only `ret` stubs for
+`_start`/libc (the program isn't run); added a `ret` stub for the sole aarch64-gated-off
+rt symbol (`bn_F3_3_pkg8_builtins2_rt1_7_MemZero`) alongside them. Verified the shim
+assembles via bnas and the object defines the symbol; the end-to-end aarch64 link runs
+only in x86-64-Linux CI. Part 2 — a general `#[build]`-gated package-asm inclusion so
+`bnc -c` output is self-contained (retiring the `assembleRtMemObj` special-casing) —
+stays open in `claude-todo.md` (Build constraints), likely post-0.0.16.
+
 ### `__c_call` `...` with ZERO trailing varargs miscompiled as non-variadic — DONE, LANDED (2026-09-17, `cdd850228`)
 
 A `__c_call("f", ret, cast(float64, x), ...)` written with the `...` marker but

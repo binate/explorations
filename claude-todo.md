@@ -41,33 +41,6 @@ rather than through `TrampolinePacked`, keeping `TestDispatchCompiledFuncValuePu
 intent intact (it verifies `g_crossModeVmAddr` is published during and restored after
 the native call). **Claimed 2026-09-18 (work-3/session).**
 
-### MAJOR: `bnc -c` on aarch64 emits objects referencing `rt.MemZero` without defining it — `bnld-real-program` e2e red — 🟡 IN PROGRESS (part 1 claimed 2026-09-18, temp-5/session) (2026-09-18)
-
-**Symptom:** E2E `bnld-real-program` fails linking the aarch64 LLVM-backend objects
-with `error: undefined symbol: bn_…rt…MemZero`; red 2+ days.
-
-**Root cause:** aarch64's Binate `rt.MemZero` body is `#[build(!is(arch, "aarch64"))]`-gated
-off; aarch64 gets a hand-asm `.s` MemZero, generated + linked via `assembleRtMemObj`
-ONLY inside cmd/bnc's four *link* paths (bnld ELF/Macho, `--library`, clang, test
-runner). So `bnc --target aarch64-linux -c` (compile-to-objects, no link) emits
-objects that reference `MemZero` but never generate its definition — any consumer
-that links `bnc -c` aarch64 output itself (the e2e; any external linker) hits
-undefined `MemZero`. Regression from `53a422f5b` (2026-09-04, after 0.0.15), which
-did not update the e2e.
-
-Two parts:
-
-1. **NOW (part 1, claimed):** update `e2e/bnld-real-program.sh` to assemble + include
-   the aarch64 rt-mem `.s` object in its bnld link (as it already supplies the
-   `_start`/libc shim), un-reddening the e2e. Stopgap that mirrors what cmd/bnc's link
-   path does.
-2. **Design, likely next release (part 2):** a general way to naturally include a
-   `#[build]`-gated assembly file as part of a package, so the `.s` ships with the
-   package and is linked wherever the package is linked — INCLUDING `bnc -c` object
-   sets — *without* special MemZero-link knowledge baked into the compiler. This fixes
-   the underlying "`bnc -c` output isn't self-contained on aarch64" gap properly and
-   retires the `assembleRtMemObj` special-casing. Needs design.
-
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
@@ -840,6 +813,23 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
 - `bnlint --target`; main-module gating; migrating the `impls/` duplicate trees onto constraints.
 - The separate inline-asm (`#[asm]`) doc that composes with this substrate.
 
+
+### Include a `#[build]`-gated assembly file as part of a package (so `bnc -c` output is self-contained) — 🔵 OPEN (2026-09-18)
+
+Today an arch whose runtime primitive is hand-written asm (aarch64's `rt.MemZero`, a
+`#[build(!is(arch, "aarch64"))]`-gated-off Binate body replaced by a `.s` seam) has
+that `.s` assembled + linked ONLY inside cmd/bnc's four link paths (via
+`assembleRtMemObj` in `cmd/bnc/rt_mem_asm.bn`). So `bnc -c` (compile-to-objects, no
+link) emits objects that REFERENCE the symbol but never define it, and anything that
+links `bnc -c` aarch64 output itself (an external linker; the `bnld-real-program` e2e)
+hits `undefined symbol: …MemZero`. The e2e was stopgapped by defining the symbol in
+its link-only shim (`7989641b1`, see done log); this is the proper fix.
+
+Design a way to attach a `#[build]`-gated `.s` to a package so it ships with the
+package and is assembled + included wherever the package is linked — INCLUDING plain
+`bnc -c` object sets — with NO special per-symbol knowledge (`assembleRtMemObj`) baked
+into the compiler's link paths. Retires the special-casing and makes `bnc -c` output
+self-contained on every arch. Likely a post-0.0.16 release.
 ## Standard library — pkg/stdx/fmt
 
 ### fmt Printf — residual verb/flag gaps + two inert latent edges — 🟡 OPEN
