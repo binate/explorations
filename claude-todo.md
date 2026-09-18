@@ -5,6 +5,69 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ---
 
+## Release blockers (0.0.16)
+
+Both are regressions introduced in the 0.0.16 candidate range (since `bnc-0.0.15`,
+2026-09-02); each reddens a CI gate that must be green before the release can cut
+(`version-history.md` records the ladder; 0.0.16 is `bnc-0.0.16-pre1`).
+
+### MAJOR: vm unit-test binary crashes — a nil-data (non-closure) func value reaches `TrampolinePacked` via `dispatchCompiledFuncValue` — 🔴 OPEN (2026-09-18)
+
+**Symptom:** `pkg/binate/vm` unit tests panic `vm: TrampolinePacked called with nil
+data`, which crashes the whole vm test binary — the other ~69 vm tests are masked
+(reported skipped), so EVERY unit-test mode is red (has been for 2+ days / 15+
+commits). Reproduce on HEAD: `./scripts/unittest/run.sh builder-comp-int
+pkg/binate/vm`.
+
+**Triggering test:** `TestDispatchCompiledFuncValuePublishesCrossModeVm`
+(`pkg/binate/vm/vm_crossmode_satvm_test.bn`) — it builds a compiled func value with
+`data==0` (a bare function, no closure record) and calls `dispatchCompiledFuncValue`.
+
+**Root cause:** `dispatchCompiledFuncValue`, given a `data==0` compiled func value,
+routes it through `TrampolinePacked` (the VM-*closure* bridge), whose first act is
+`if data==nil { panic }` (`pkg/binate/vm/vm_trampoline.bn:258`). A bare (non-closure)
+compiled func value must be dispatched directly, not via the closure trampoline.
+
+**Area / provenance:** new-in-0.0.16 func-value packed-dispatch machinery
+(`TrampolinePacked` added `3ed5206a5`; cross-mode publish `eee95ee8e`; fast-path +
+overflow pre-check `43b0acc37`; a dispatch-through-`call_packed` revert/re-land
+`111f12f73`/`1a3bc9260`). Sibling: `aacd1f232` xfailed 15 cross-mode func-value
+*conformance* tests ("regressed in the VM modes") — this vm *unit* test was not in
+that batch, likely an oversight in the same in-flight effort. Probably belongs with
+the ongoing func-value work.
+
+**Fix direction:** dispatch a `data==0` compiled func value as a bare native call
+rather than through `TrampolinePacked`, keeping `TestDispatchCompiledFuncValuePublishesCrossModeVm`'s
+intent intact (it verifies `g_crossModeVmAddr` is published during and restored after
+the native call). **Unassigned — for assignment.**
+
+### MAJOR: `bnc -c` on aarch64 emits objects referencing `rt.MemZero` without defining it — `bnld-real-program` e2e red — 🟡 IN PROGRESS (part 1 claimed 2026-09-18, temp-5/session) (2026-09-18)
+
+**Symptom:** E2E `bnld-real-program` fails linking the aarch64 LLVM-backend objects
+with `error: undefined symbol: bn_…rt…MemZero`; red 2+ days.
+
+**Root cause:** aarch64's Binate `rt.MemZero` body is `#[build(!is(arch, "aarch64"))]`-gated
+off; aarch64 gets a hand-asm `.s` MemZero, generated + linked via `assembleRtMemObj`
+ONLY inside cmd/bnc's four *link* paths (bnld ELF/Macho, `--library`, clang, test
+runner). So `bnc --target aarch64-linux -c` (compile-to-objects, no link) emits
+objects that reference `MemZero` but never generate its definition — any consumer
+that links `bnc -c` aarch64 output itself (the e2e; any external linker) hits
+undefined `MemZero`. Regression from `53a422f5b` (2026-09-04, after 0.0.15), which
+did not update the e2e.
+
+Two parts:
+
+1. **NOW (part 1, claimed):** update `e2e/bnld-real-program.sh` to assemble + include
+   the aarch64 rt-mem `.s` object in its bnld link (as it already supplies the
+   `_start`/libc shim), un-reddening the e2e. Stopgap that mirrors what cmd/bnc's link
+   path does.
+2. **Design, likely next release (part 2):** a general way to naturally include a
+   `#[build]`-gated assembly file as part of a package, so the `.s` ships with the
+   package and is linked wherever the package is linked — INCLUDING `bnc -c` object
+   sets — *without* special MemZero-link knowledge baked into the compiler. This fixes
+   the underlying "`bnc -c` output isn't self-contained on aarch64" gap properly and
+   retires the `assembleRtMemObj` special-casing. Needs design.
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
