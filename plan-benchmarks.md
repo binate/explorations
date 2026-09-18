@@ -18,7 +18,7 @@ yardstick. Feeds the native↔LLVM gap work (see the Performance section of
       point captured (native markedly slower than llvm on this division-heavy
       loop; run the suite for current figures — do not record numbers here, they
       go stale).
-- [ ] **n-body** — scalar FP, loop-carried dependencies
+- [x] **n-body** — scalar FP, loop-carried dependencies; pinned N=5000000
 - [ ] **mandelbrot** — complex FP, vectorizable inner loop
 - [ ] **binary-trees** — allocation / refcount path
 - [ ] **fannkuch-redux** — integer, array indexing
