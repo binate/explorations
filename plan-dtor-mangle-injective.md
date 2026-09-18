@@ -1,8 +1,9 @@
 # Plan: injective dtor/copy name mangling
 
-Status: PLAN — investigation done; awaiting a scope decision (A vs B) before
-implementing. Claimed work-1, 2026-09-18. Todo: `claude-todo.md` "Dtor/copy
-name-mangling is not injective against adversarial struct names".
+Status: IN PROGRESS — **Scope B chosen** (user, 2026-09-18): fix both F1 (kind-token
+spoofing) + F2 (cross-package same-leaf), resolve the whole Annex B mangler flag.
+Claimed work-1. Todo: `claude-todo.md` "Dtor/copy name-mangling is not injective
+against adversarial struct names".
 
 ## The defect
 
