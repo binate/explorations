@@ -124,7 +124,8 @@ CORRECTION 2026-09-08):
    now deletes it (use-scan guarded), so mstruct drops from 1 residual struct alloca
    to 0 at -O2.  Still open: increment 2 = nested-managed-struct + @[]@T
    fields — **2a (nested managed-struct field) DONE — LANDED `0e862dca8`
-   (2026-09-18); 2b (@[]@T field) still open (deferred — see plan-sroa-managed-structs.md)**.  **SROA-to-a-fixpoint DONE — LANDED `0a1098cff`**: runSroa
+   (2026-09-18); 2b (@[]@T field) 🟡 feasibility investigation IN PROGRESS (work-1,
+   2026-09-18) — see plan-sroa-managed-structs.md**.  **SROA-to-a-fixpoint DONE — LANDED `0a1098cff`**: runSroa
    now runs each function's SROA to a fixpoint so `b = a` collapses BOTH sides (the
    copy source, L2-pinned on pass 1 because its whole-load feeds the whole-store as
    a non-extract value, becomes eligible once that store is rewritten to per-field
