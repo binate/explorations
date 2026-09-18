@@ -498,35 +498,37 @@ unwind; nil-deref N1–N3 last, `de9a7c05`); see claude-todo-done.md and
   real behavior change for anything scraping them off stdout.
 - (Separately filed under MAJOR: the re-entrant-`execFunc` fault-swallow.)
 
-### Method-value CLOSURE RECORD leaks on a recoverable overflow fault — 🟡 IN PROGRESS (claimed 2026-09-18, work-2)
+### VM leaks the per-CAPTURING-func-value closure record — `rt.Alloc`'d, never freed (documented B.2→B.3 deferral) — 🟡 IN PROGRESS (claimed 2026-09-18, work-2)
 
-A bound method value (`var mv *func(...) = obj.M`) allocates a closure record
-(capturing the receiver).  When a call THROUGH the method value overflows the VM
-stack (the wrapper's forward frame-push faults recoverably), the caller's fault
-unwind does not release that closure record — it leaks one block per overflowing
-call.  Distinct from, and NOT fixed by, the wrapper moved-arg / receiver fixes
-(`8ff97d2ab`): it leaks with AND without them (isolated with a value receiver + no
-managed params, where the closure record is the only heap block, and confirmed as
-the residual delta in vm_methodvalue_overflow_test.bn's difference test).  VM-only
-(recoverable overflow is VM-only); the block is held live by the closure record's
-own ref, so it is a genuine leak, not a refcount-only over-retain.
+The VM's `BC_FUNC_VALUE` capturing branch (`vm/vm_exec_funcref.bn`) `rt.Alloc`s a
+4-word `{kind, vm, fnIdx+1, captured}` COMPILED_CLOSURE record for every capturing
+func value and NEVER frees it — an explicit, in-code-documented deferral:
+"the rec is never freed (small leak, acceptable for B.2 *func — B.3 @func will hook
+this into the closure's refcount lifecycle)."
 
-Root cause (to confirm): the `*func` method value's closure record is kept alive by
-some caller-scope managed temp/local that the caller's overflow-fault pad does not
-RefDec (mv is a raw `*func`, so it does not itself own the record).  Fix direction:
-ensure the closure record is released on the caller's recoverable-fault unwind
-(register it so the fault pad covers it).  Test: a method-value call that overflows,
-asserting stable rt.LiveBlocks() (currently blocked as a runtime assertion by this
-very leak — it becomes assertable once fixed).
+Scope is BROADER than first filed (it was surfaced via a method-value overflow, but
+that was a red herring): it leaks one heap block per CONSTRUCTION of ANY capturing
+func value — method values AND capturing closure literals — on the NORMAL path, not
+just on overflow, and independent of whether the captured fields are managed.
+Confirmed empirically: a control (plain func, no method value) leaks 0 blocks over N
+calls; a value-receiver-no-managed method value leaks exactly N (one rec per creation).
+Latent because conformance checks output, not `rt.LiveBlocks()`.
+
+Proper fix = the deferred B.3 work: make the VM closure record a refcounted managed
+block and free it via the func value's refcount lifecycle (RefDec at the func
+value's scope end / when its refcount hits 0), for both `*func` and `@func`.
+Substantial — touches the func-value refcount model and every capturing-func-value
+path (construction, copy, cross-mode marshalling), not a small patch.  Test: a
+method-value / capturing-closure construction called N times asserting stable
+`rt.LiveBlocks()` (as in the control experiment above).
 
 FOLD IN (FINDING 2 from the `8ff97d2ab` wrapper-pre-check review): the wrapper's
 value-struct-receiver `emitStructCopy` (`gen_method_value_wrapper.bn`) emits a
 `__copy` CALL just BEFORE the forward's `OP_STACK_CHECK`, with no fault pad of its
-own.  If that `__copy` frame push overflows (a narrow window — the stack within a
-`__copy`-frame of the limit but not a forward-frame), the fault hits an unpadded op:
-the wrapper's already-owned moved-in user params leak (or, if a padless recoverable
-fault vmPanics, crash).  Same family as the closure-record leak, VM-only.  Fix
-together: either move/extend the pre-check to cover the copy, or pad the copy call.
+own; a `__copy`-frame overflow (a narrow VM-only window) hits an unpadded op → the
+wrapper's already-owned moved-in user params leak (or, if a padless recoverable
+fault vmPanics, crash).  Fix together: move/extend the pre-check to cover the copy,
+or pad the copy call.
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
