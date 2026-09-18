@@ -27,7 +27,7 @@ fail on both OSes. NOT a compiler bug — stale e2e proofs from the func-value c
 Fix: update `xmhfa.sh`/`xmiface.sh` to assert the new behavior (e.g. a >64-slot
 overflow). Belongs with the func-value / call_packed work.
 
-### native x64 `#[c_export]` entry trampoline drops the SSE-split half of a mixed 16-byte aggregate — 🔵 OPEN (2026-09-18)
+### native x64 `#[c_export]` entry trampoline drops the SSE-split half of a mixed 16-byte aggregate — 🟡 IN PROGRESS (claimed 2026-09-18, work-3/session)
 
 E2E `ffi-export` `bigagg-native` fails on ubuntu (SysV x86-64): `ffi_bigmix(FfiBig,
 ×5 int64, FfiMix{i64,f64})` returns `32` instead of `39` — off by 7 = the dropped
