@@ -434,6 +434,23 @@ allocation) and eventually interval splitting (the real LLVM technique — calle
 for the non-call portions of long call-spanning intervals).  The aggregate-copy half stays
 work-1's SROA.
 
+**RESOLUTION (2026-09-18): caller-saved homes is the WRONG lever for the compiler; Stage
+5a's neutral was CORRECT.**  Recovered Stage 5a (`69d650f41`) onto inc1/inc2 (clean
+cherry-pick) and examined the baseline `livenessFixpoint` spill sites: the ~30 spilled
+scalars are loop-invariant values computed in the prologue and used ACROSS the loop body's
+18 calls — CALL-SPANNING.  A caller-saved home is clobbered across a call, so
+`spansClobber` (correctly) never gives one to these values; caller-saved homes only help
+the FEW non-call-spanning temporaries, which is why Stage 5a measured neutral — and would
+again.  (Aside: the recovered Stage 5a did not cleanly compose with the inc1/inc2 eviction
+— its native self-compile OOM'd/crashed while a 72-test aa64 subset passed 0-fail; a naive
+recovery is not viable regardless.)  **So the scalar-spill half of the compiler gap needs
+INTERVAL SPLITTING** — split a call-spanning interval so it holds a caller-saved (or
+callee-saved) register for its non-call use-clusters and spills/reloads only across the
+calls, as LLVM does.  The landed range-list `LiveInterval` is the intended foundation
+(its header: "the range-list is the durable representation interval splitting later
+refines").  This is a substantial Stage-5 project; the bigger single compiler-gap lever
+is still the aggregate-copy half (SROA, work-1), which register allocation cannot touch.
+
 ## Correctness & validation (miscompile is the top risk)
 
 A wrong assignment is a **silent** wrong-register read. Front-load validation:

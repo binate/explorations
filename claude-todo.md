@@ -101,11 +101,20 @@ CORRECTION 2026-09-08):
    (callee-saved; `CallerSaved` EMPTY) vs LLVM's ~27-register file; plus a large
    aggregate/slice-header-copy component (SROA, work-1).  🟡 IN PROGRESS
    (caller-saved-homes re-test, claimed 2026-09-18, work-4/temp-4): the scalar-spill
-   gap contradicts Stage 5a's "10 homes suffice" shelving justification, which — given
-   the increment-2 -O0 mismeasurement — is suspect; re-test the shelved Stage 5a impl
-   (`shelved-stage5a-caller-saved-homes`, `69d650f41`) at -O2 with disassembly, then
-   the proper form (non-arg pool + call-operand exclusion) and interval splitting.
-   See plan-native-regalloc.md "Compiler-gap disassembly diagnosis" + Stage 5c.
+   gap contradicts Stage 5a's "10 homes suffice" shelving justification.  **RESULT
+   (2026-09-18): caller-saved homes is the WRONG lever for the compiler — Stage 5a's
+   neutral verdict was CORRECT.**  Recovered Stage 5a (`69d650f41`) onto inc1/inc2 and
+   disassembled the baseline: `livenessFixpoint`'s ~30 spilled scalars are loop-invariant
+   values computed pre-loop and used ACROSS the loop's 18 calls — i.e. CALL-SPANNING, so
+   they need callee-saved registers (only 10) and caller-saved homes CANNOT hold them
+   (clobbered across the call).  (The recovered Stage 5a also didn't cleanly compose with
+   the modern eviction — its native self-compile OOM'd/crashed, though a 72-test subset
+   passed 0-fail.)  **The real lever is INTERVAL SPLITTING** (🔵 OPEN, not started): split
+   a call-spanning value's interval so it uses caller-saved regs for its non-call
+   use-clusters and only spills/callee-saves ACROSS the calls — exactly what LLVM does.
+   The landed range-list interval representation is the foundation for it.  Substantial
+   project.  (The bigger single compiler-gap lever remains the aggregate-copy half — SROA,
+   work-1.)  See plan-native-regalloc.md "Compiler-gap disassembly diagnosis" + Stage 5c.
 3. **Inliner threshold tuning — POSTPONED; revisit AFTER SROA/regalloc.** 🔵 NOT ASSIGNED
    The `--inline-threshold` flag is landed (`3022706ce`) so the value is
    runtime-settable without recompiling the compiler. A drift-controlled
