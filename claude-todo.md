@@ -145,8 +145,11 @@ CORRECTION 2026-09-08):
    block-scope + defer managed-struct cleanup reshape — DONE, LANDED `72a0db78c`
    (emitDecForScopeVars + gen_defer_exit route through emitManagedStructPtrDtor, so
    block-scoped `var h S` and deferred managed struct values now split too; verified
-   with a pinned→split differential + self-compile 3037/0).  Still open: the dead
-   zero-temp is a native-DCE opportunity; increment 2 = nested-managed-struct + @[]@T
+   with a pinned→split differential + self-compile 3037/0).  Dead zero-temp — DONE,
+   LANDED `0ebb17126`: dropping a `store(h, OP_CONST_NIL)` zero-init left the dead
+   OP_CONST_NIL, which the backends materialize as a zero-fill stack temp; the rewrite
+   now deletes it (use-scan guarded), so mstruct drops from 1 residual struct alloca
+   to 0 at -O2.  Still open: increment 2 = nested-managed-struct + @[]@T
    fields.  **SROA-to-a-fixpoint DONE — LANDED `0a1098cff`**: runSroa
    now runs each function's SROA to a fixpoint so `b = a` collapses BOTH sides (the
    copy source, L2-pinned on pass 1 because its whole-load feeds the whole-store as
