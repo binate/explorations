@@ -195,5 +195,8 @@ it should be re-measured after that effort settles rather than done as a risky
 parallel change. Fold correct-A into / coordinate with the register-allocator
 work (Tier-2 D territory) instead of a standalone terminator hack.
 
-Tiers 2–3 not started (and Tier-2 D is partly underway on main via the concurrent
-regalloc effort).
+**Tier-2 C (machine-level redundant-load cache: slice base/len CSE) — 🟡 IN
+PROGRESS (claimed 2026-09-18, work-6/session).** Independent of the allocator
+spill-cost work (different concern: a load cache in the emit loop, not spill
+decisions). Tier-2 D is partly underway on main via the concurrent regalloc
+effort; Tier 3 not started.
