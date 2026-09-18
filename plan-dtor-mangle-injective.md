@@ -1,9 +1,16 @@
 # Plan: injective dtor/copy name mangling
 
-Status: IN PROGRESS — **Scope B chosen** (user, 2026-09-18): fix both F1 (kind-token
-spoofing) + F2 (cross-package same-leaf), resolve the whole Annex B mangler flag.
-Claimed work-1. Todo: `claude-todo.md` "Dtor/copy name-mangling is not injective
-against adversarial struct names".
+Status: F1 + F2 FIXED (2026-09-18, work-1; fix pending cherry-pick to main) — the
+nested struct/named encoding now uses `mangle.LpTypeArgNamedRaw` (length-prefixed,
+identifier-only, full path), closing kind-token spoofing AND cross-package same-leaf.
+No normative spec change (mangling is impl-defined §21); Annex B's informative flag
+updated in the docs repo.  A residual **F3** (a TOP-LEVEL struct source-named to embed
+a wrapper's exact encoding) and the anon-struct >128-char hash fallback are left open —
+see the todo.  Validated: ir 837/0, refcount-balanced spoof compiled+VM, self-compile
+builder-comp-comp + native-aa64 3037/0, mangler-critical review clean.  Scope B was
+chosen by the user; implementation turned out contained (only the nested arm changed,
+via the existing `LpTypeArgNamedRaw` — no top-level naming-layer rework needed for
+F1/F2).  Todo: `claude-todo.md` "Dtor/copy name-mangling non-injectivity".
 
 ## The defect
 

@@ -1241,34 +1241,32 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
 
 ## Codegen & backend (non-func-value)
 
-### Dtor/copy name-mangling is not injective against adversarial struct names — 🟡 IN PROGRESS (claimed 2026-09-18, work-1; plan-dtor-mangle-injective.md)
+### Dtor/copy name-mangling non-injectivity — F1 (kind-token spoof) + F2 (cross-package same-leaf) FIXED (2026-09-18, work-1); residual F3 open
 
-The `__dtor_<kind>_<name>` / `__copy_<kind>_<name>` scheme (`dtorTypeSuffix` in
-`ir/gen_dtor.bn`) writes a struct's leaf name VERBATIM in its `TYP_STRUCT` arm, and the
-kind-tokens (`mp_`, `ms_`, `ms_elems_`, `arr<N>_`, …) are ordinary identifier prefixes a
-struct can legally be named.  So one type's helper name can collide with an unrelated
-type's whose struct is adversarially named to spoof the tokens — e.g.
-`__dtor_ms_elems_ms_mp_Node` names BOTH the elems helper of `@[]@Node` AND the by-address
-dtor of `@[]S` where `S` is `struct { … } elems_ms_mp_Node`.  Both helpers are
-`IsLinkOnce` (weak_odr); if both are emitted in one module the linker keeps one body and
-the other call runs the WRONG body (wrong element size/kind) → silent corruption.
+`dtorTypeSuffix` (`ir/gen_dtor.bn`) encoded a NESTED struct by bare leaf name, making the
+weak_odr `__dtor_`/`__copy_` element-walk helpers non-injective: a struct named to spoof a
+kind token (F1, e.g. `mp_Node` / `elems_ms_mp_Node`) collided with the wrapped type it
+shadowed, and same-leaf structs across packages (F2) shared a symbol — silent wrong-body
+cleanup.  FIXED by encoding a nested struct/named type with `mangle.LpTypeArgNamedRaw`
+(length-prefixed, identifier-only, full-qualified-path — begins `N`+digit, so it can't
+reconstruct a kind token, and the full path distinguishes packages, aligning with §16.6
+pkg.identity); the top-level bare-struct dtor is unchanged (named via
+dtorName/qualifiedDtorNameForType, package carried in the `pkg.` qualifier).  Name mangling
+is impl-defined (§21) → NO normative spec change; Annex B's informative flag updated.
+Validated: ir 837/0 (new F1/F2 injectivity tests, dtor+copy), a refcount-balanced spoof
+program compiled+VM at -O0/-O2, self-compile builder-comp-comp + native-aa64 3037/0,
+mangler-critical adversarial review clean.  Plan: plan-dtor-mangle-injective.md.  [fix on
+work-1, pending cherry-pick to main]
 
-- **Severity:** contrived to trigger (needs a struct literally named to spoof a
-  kind-token) but it is silent wrong-code, and CLAUDE.md treats mangler collisions
-  seriously.  **Pre-existing and scheme-wide** — `mp_`/`ms_`/`arr` were already spoofable;
-  the 2b `__dtor_ms_elems_` helper (`48edaff94`) follows the scheme, adding one more
-  colliding name but NOT a new class.  Surfaced by both 2b adversarial reviews.  The only
-  tokens the scheme currently reserves safely are `interface`/`func` (Binate keywords, so
-  no struct can be named them).
-- **Fix direction:** make every kind marker un-spoofable — delimit it with a character
-  that cannot appear in a Binate identifier, or encode the kind with a keyword-based /
-  length-prefixed token.  Touches the whole `dtorTypeSuffix` (+ copy-name) suffix encoding
-  and every consumer that reconstructs these names (`dtorNameForType`, `msElemsDtorName`,
-  `elemDtorName`, `elemCopyName`, …); it changes every weak_odr dtor/copy symbol, so it
-  needs a mangle-scheme review + full self-compile (LLVM + all native backends + VM).
-- **Test to add:** a struct named to spoof a kind-token used alongside the spoofed
-  aggregate — a unit test asserting `dtorNameForType` / `msElemsDtorName` produce distinct
-  symbols, and a conformance program that would double-free / mis-size under the collision.
+- **Residual F3 (open; harder; pre-existing in kind):** a TOP-LEVEL user struct
+  source-named to embed a wrapper's EXACT new encoding (e.g. `struct mp_N1_1_M4_Node` in
+  package M) still collides with `@Node`'s mp-helper — the top-level struct arm keeps the
+  bare leaf.  Closing it needs the top-level dtorName / qualifiedDtorNameForType naming to
+  change too (bigger — touches the by-address struct-dtor def/ref).  Far harder to trigger
+  than F1 (must reproduce the exact `N<segs>_<pkg>_<leaf>` form).  Also unchanged: the
+  anon-struct >128-char `anon_h<fnv>` hash fallback is non-injective by construction (now
+  marginally more exposed, since nested encodings are longer).  Decide: close these or
+  accept them.
 
 ### Big-endian CODEGEN — deferred (no BE target exists yet) — 🟡 DEFERRED
 The Ch.7.13 layout follow-ups (`type.layout.funcval-order-hardening` + the
