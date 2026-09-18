@@ -34,6 +34,10 @@ backends (aa64 205/0, arm32-baremetal 201/0 — where the bug lived, x64-darwin
 this fix) + a zero-trailing case in e2e/arm32-ccall-variadic-fixedfloat.sh;
 adversarial review clean; hygiene green.
 
+Follow-up `95bf24e18` adds a formatter round-trip test for the zero-trailing
+form (`__c_call("f", int, x, ...)` reprints unchanged) — non-vacuous, the format
+package fails without the marker reinsertion.
+
 ### SROA of leaf-managed struct locals — DONE, LANDED (2026-09-17, `0c9998917`)
 
 A struct local with a non-managed field plus leaf managed fields (`@T` / `@[]T`
