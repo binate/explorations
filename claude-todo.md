@@ -123,12 +123,12 @@ CORRECTION 2026-09-08):
    range Start == the clobber position, so the birth guard `p <= Start` misclassified it as
    non-spanning and homed it in caller-saved X7, which the call destroyed (confirmed in
    `irdata.DataZero`: `n` in X7 across `rt.Alloc`, garbage `t.Width` → multi-GB
-   `Assembler.Fill`).  Fix keys the birth test on `DefPos` not `Start` (`temp-4` `9b9edd930`,
-   independent of the arg-bank commit, inert on main).  Verified: native self-compile
+   `Assembler.Fill`).  Fix keys the birth test on `DefPos` not `Start` — **LANDED on main `348cb15aa`**
+   (independent of the arg-bank commit, inert on main; adversarial review confirmed correct).  Verified: native self-compile
    completes ~10s + gen3→gen4 fixpoint; native aa64 conformance 3040/0; allocator unit tests
    + new regression pass; `DataZero` `n` now callee-saved (X28), disasm-confirmed.  REMAINING:
-   adversarial review (in flight) → land `9b9edd930` then `6bf481432` (per-instance approval)
-   → measure the ratio.  (Measured floors killed the
+   land the arg-bank commit (`temp-4` `e5b705bf4`, hygiene-clean, rebased onto current main;
+   per-instance approval), then measure the ratio.  (Measured floors killed the
    X9–X15-static-partition idea: it caps at ~2–3 homes / ~15% because X9–X15 is also the
    scratch pool.  The lever is the idle arg bank X0–X7 as caller-saved homes → ~18 homes,
    ~40% of the spill cost — "Stage 5a done right": keep the X0–X7 homes 5a had, but marshal
