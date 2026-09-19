@@ -581,7 +581,20 @@ real — and why the fix is a safe no-op to land ahead of the arg-bank commit.
   Mach-O ad-hoc code-signature identifier (derived from the output filename) — a true
   self-compilation fixpoint on the actual code/data.
 - `pkg/binate/native/common` unit tests pass (incl. the new regression test).
-- (Native aa64 conformance run in progress at time of writing — record result on completion.)
+- Native aa64 conformance **3040 passed / 0 failed / 9 skipped** on the final reconstructed
+  branch (fix + arg-bank, hygiene 20/20).
+- Independent adversarial review of the spansClobber fix: **confirmed correct** — no unsafe or
+  over-conservative case (the birth-skip `p == DefPos` is safe because a clobber-defined value is
+  single-def with Start == DefPos, and the only multi-def ids are phi OP_COPYs, never clobbers).
+
+Branch layout (not landed): `spansClobber` fix (independent, inert on main) atop the Stage 5d
+arg-bank commit atop current main.  The arg-bank commit's own pre-land hygiene was also fixed:
+`aarch64_call.bn` (427→520 over the 500 cap from the new marshalling helpers) split into
+`aarch64_call_return.bn` (return-value collection, whitelisted per the length-split precedent);
+`argReg` / `emitReturn` doc comments (accidentally dropped when the arg-bank funcs were inserted
+above them) restored; two bnfmt-dirty files reformatted.  Also caught + fixed: main's refactored
+`emitDivCheck` / `emitBoundsCheck` used naive `Mov X0,a; Mov X1,b` marshalling that the arg-bank
+homes miscompile on a crossing — ported to the parallel move in `aarch64_guards.bn`.
 
 ## Correctness & validation (miscompile is the top risk)
 
