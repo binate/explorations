@@ -1008,7 +1008,7 @@ and owning the backing is the trivial fix.
 ### Lower the file-length `.bni` cap toward 1000 (ratchet) — 🟡 IN PROGRESS (claimed 2026-09-18, work-3/session)
 - **Goal**: get the `.bni` file-length cap down to 1000. A `.bni` holds a package's whole API in one file and can't be split within its package (the loader loads a single `<pkg>.bni`), so the cap can't be lowered by an in-place file split the way the `.bn` cap can — the large `.bni`s must be restructured into sub-packages (re-exported via `expose`).
 - **Approach — ratchet**: set the cap to the current largest `.bni`, split that file to shrink it, reset the cap to the new max, repeat until the cap can be 1000. Each step is independently landable and the tree can never regress.
-- **Step 1 (landing now)**: cap set to the current max, **1454** (`ir.bni`), as a single hard limit (the warn zone was removed earlier in the file-length rework). A live `TODO` in `scripts/hygiene/file-length.sh` also tracks the target.
+- **Step 1 (done, `c748ad51b`)**: cap set to the current max, **1454** (`ir.bni`), as a single hard limit (the warn zone was removed earlier in the file-length rework). A live `TODO` in `scripts/hygiene/file-length.sh` also tracks the target.
 - **Next**: split the largest, `pkg/binate/ir.bni` (1454), below the next-largest so the cap can drop; then reset the cap to the new max and continue. Remaining over-1000 `.bni`s: `vm.bni` (1265), `types.bni` (1109).
 - (Full resolved diagnosis of the ifaces/impls hygiene-scan extension archived in claude-todo-done.md.)
 
