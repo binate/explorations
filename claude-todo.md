@@ -1218,7 +1218,7 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
 
 ## Codegen & backend (non-func-value)
 
-### Dtor/copy name-mangling: F1+F2 FIXED (LANDED `94777c23c`); residual F3 + anon-hash — 🟡 IN PROGRESS (work-1)
+### Dtor/copy name-mangling: FULLY INJECTIVE — DONE (F1+F2 `94777c23c`, F3+anon `3978b9bd1`, 2026-09-18)
 
 `dtorTypeSuffix` (`ir/gen_dtor.bn`) encoded a NESTED struct by bare leaf name, making the
 weak_odr `__dtor_`/`__copy_` element-walk helpers non-injective: a struct named to spoof a
@@ -1234,7 +1234,7 @@ Validated: ir 837/0 (new F1/F2 injectivity tests, dtor+copy), a refcount-balance
 program compiled+VM at -O0/-O2, self-compile builder-comp-comp + native-aa64 3037/0,
 mangler-critical adversarial review clean.  Plan: plan-dtor-mangle-injective.md.  LANDED binate `94777c23c` + docs Annex B `fe627d8` (2026-09-18).
 
-- **Residual F3 (open; harder; pre-existing in kind):** a TOP-LEVEL user struct
+- **Residual F3 + anon-hash — FIXED, LANDED `3978b9bd1` (2026-09-18):** the top-level struct dtor/copy leaf is now length-prefixed (writeStructLeafToken; `__`-prefixed synthesized names stay verbatim, byte-identical to the backend closure naming) and the anon-struct suffix is per-field length-prefixed (dropping the FNV-32 hash fallback), so EVERY `__dtor_`/`__copy_` symbol is now injective.  Validated: ir 837/0, spoof-struct runtime compiled+VM, self-compile builder-comp-comp + native-aa64 3039/0, mangler review clean.  ORIGINAL note:  a TOP-LEVEL user struct
   source-named to embed a wrapper's EXACT new encoding (e.g. `struct mp_N1_1_M4_Node` in
   package M) still collides with `@Node`'s mp-helper — the top-level struct arm keeps the
   bare leaf.  Closing it needs the top-level dtorName / qualifiedDtorNameForType naming to

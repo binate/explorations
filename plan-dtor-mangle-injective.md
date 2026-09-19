@@ -1,6 +1,12 @@
 # Plan: injective dtor/copy name mangling
 
-Status: F1 + F2 FIXED (2026-09-18, work-1; fix pending cherry-pick to main) — the
+Status: DONE — FULLY INJECTIVE.  F1 + F2 LANDED `94777c23c` (nested encoding); F3
+(top-level struct leaf) + anon-struct-suffix LANDED `3978b9bd1` (2026-09-18); Annex B
+updated in docs.  Every `__dtor_`/`__copy_` symbol is now injective w.r.t. type
+identity.  All backends + VM self-compile 3039/0; two mangler-critical reviews clean.
+(Historical status note below.)
+
+OLD status: F1 + F2 FIXED (2026-09-18, work-1; fix pending cherry-pick to main) — the
 nested struct/named encoding now uses `mangle.LpTypeArgNamedRaw` (length-prefixed,
 identifier-only, full path), closing kind-token spoofing AND cross-package same-leaf.
 No normative spec change (mangling is impl-defined §21); Annex B's informative flag
