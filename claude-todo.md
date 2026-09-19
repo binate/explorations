@@ -403,19 +403,6 @@ See explorations/done/plan-funcvalue-byaddr-abi.md.
 
 ## Cross-mode interface dispatch & compiler/interpreter interop
 
-### Cross-mode `...*any`-at-slot-≥7 e2e coverage (follow-up to the slice-of-iface fix) — 🟡 IN PROGRESS (claimed 2026-09-18, temp-5/session) (2026-09-18)
-
-The slice-of-iface `slots < 7` fix (`b39f580e4`, see done log) has unit coverage
-(lowering records the slot; R5 drives dispatch) but NO end-to-end test that reproduces
-the actual runtime symptom: a bytecode caller spreading a `...*any` of bytecode-boxed
-interface values, at slot ≥ 7, into an injected-native callee, whose ELEMENTS must be
-translated to the impl's native handle-vtable (a SIGSEGV / silent miscompile without
-the fix). Add an xmiface-style e2e (a native fixture method taking `(≥7 leading arg
-slots, rest ...*any)` + a bytecode caller) asserting the correct result — runnable
-across modes INCLUDING arm32/ILP32, the only place the "slice after a 64-bit-scalar arg
-shifts the recorded slot" case is exercised (a host unit test can't: int64 is 1 slot on
-a 64-bit host). Flagged by the adversarial review of `b39f580e4`.
-
 ### `__init` dispatcher (+ other main-enumerated structures) assume whole-program enumeration — remaining blockers for opaque binary distribution — 🟡 OPEN
 
 The **satentry-registry** whole-program-enumeration defect is **fixed** — decentralized into

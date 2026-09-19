@@ -6,6 +6,17 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### Cross-mode `...*any`-spread-at-slot-≥7 end-to-end coverage — DONE, LANDED `4787dfdab` (2026-09-18)
+
+The review-flagged coverage gap for the slice-of-iface list fix (`b39f580e4`): `e2e/xmiface.sh`
+gains a native fixture function `SumAreas(7 ints, rest ...*Areaer)` called cross-mode from a
+bytecode program that spreads two BYTECODE-impl `Areaer` values (the 7 int args push the
+`*[]*Areaer` slice to slot 7). The native callee dispatches `Area()` on each element — only
+correct if the slice elements' vtable words were substituted. TDD-confirmed: fails on pre-fix
+vm source (native deref of an unsubstituted VM-index vtable → crash → empty output), returns
+58 with the fix. Runs across modes incl. arm32/ILP32 (the only place the "slice after a
+64-bit-scalar arg" slot-shift differs). Hygiene 20/20.
+
 ### Cross-mode `...*any` slice-of-iface arg slots carried as a list, not a slots<7 bitmap — DONE, LANDED `b39f580e4` (2026-09-18)
 
 Sibling of the arg-iface slot<7 fix (`014ae93fd`): the `...*any` slice-of-raw-iface
