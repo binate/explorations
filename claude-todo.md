@@ -540,21 +540,29 @@ Confirmed empirically: a control (plain func, no method value) leaks 0 blocks ov
 calls; a value-receiver-no-managed method value leaks exactly N (one rec per creation).
 Latent because conformance checks output, not `rt.LiveBlocks()`.
 
-Proper fix = the deferred B.3 work: make the VM closure record a refcounted managed
-block and free it via the func value's refcount lifecycle (RefDec at the func
-value's scope end / when its refcount hits 0), for both `*func` and `@func`.
-Substantial — touches the func-value refcount model and every capturing-func-value
-path (construction, copy, cross-mode marshalling), not a small patch.  Test: a
-method-value / capturing-closure construction called N times asserting stable
-`rt.LiveBlocks()` (as in the control experiment above).
+FIX IMPLEMENTED (not yet landed) — chose the VM-only "frame-home the record"
+approach over the B.3 refcount rework (design + rejected-alternatives rationale in
+`plan-vm-methodvalue-rec-refcount.md`).  The leak is VM-only, and the fix is too:
+for a raw `*func` capturing value (a method value / `*func` closure literal — a
+borrow with no RefInc/RefDec lifecycle), the record lives in the constructing
+FRAME instead of the heap, so it is reclaimed on frame pop, never freed — no free
+op, no refcount, no fault-pad integration.  A managed `@func` keeps its heap record
+(may escape the frame; freed by scope-end RefDec).  The IR `OP_FUNC_VALUE` is
+UNCHANGED (the frame slot is reserved VM-side in `lower_func.bn`, its offset carried
+to `BC_FUNC_VALUE` via `Imm`), so the compiled backends are byte-for-byte untouched
+("native untouched") — better than the plan's original Args-operand shape, which
+would have added a dead frame alloca to native.  Tests: `vm_funcvalue_rec_leak_test.bn`
+(rt.LiveBlocks()-stable over a method-value / `*func`-closure loop, non-vacuous;
+`@func` negative control still frees).  Method-value + closure conformance green on
+LLVM, VM, and native aa64.
 
-FOLD IN (FINDING 2 from the `8ff97d2ab` wrapper-pre-check review): the wrapper's
-value-struct-receiver `emitStructCopy` (`gen_method_value_wrapper.bn`) emits a
-`__copy` CALL just BEFORE the forward's `OP_STACK_CHECK`, with no fault pad of its
-own; a `__copy`-frame overflow (a narrow VM-only window) hits an unpadded op → the
-wrapper's already-owned moved-in user params leak (or, if a padless recoverable
-fault vmPanics, crash).  Fix together: move/extend the pre-check to cover the copy,
-or pad the copy call.
+FINDING 2 (from the `8ff97d2ab` wrapper-pre-check review) FOLDED IN: the wrapper's
+value-struct-receiver `emitStructCopy` (`gen_method_value_wrapper.bn`) emitted a
+`__copy` CALL just BEFORE the forward's `OP_STACK_CHECK` with no fault pad; a
+`__copy`-frame overflow (a narrow VM-only window) hit an unpadded op → the wrapper's
+already-owned moved-in user params leaked.  Now the copy call carries its own pad
+(releasing the owned params, but NOT the copy target — its fields are not yet
+RefInc'd there), verified structurally (`gen_method_value_wrapper_test.bn`).
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 

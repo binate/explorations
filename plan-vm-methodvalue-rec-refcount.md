@@ -182,3 +182,49 @@ Scope still includes `*func` capturing CLOSURE LITERALS if any exist (same VM re
 audit whether closure literals are ever `*func` (vs always `@func`) — if always
 `@func`, only method values need V1.  Fold in FINDING 2.  Test under VM + native +
 aarch64.
+
+## IMPLEMENTED (not yet landed): VM-only, no OP_FUNC_VALUE operand change
+
+Landed the V1 idea but with a cleaner mechanism than the shape sketched above.
+The sketch proposed threading the rec-slot as an `OP_FUNC_VALUE` `Args[1]` operand;
+that would have added a shared-IR `OP_ALLOC` the COMPILED backends also see, so
+native's frame planner would reserve a dead 4-word slot per site — a (tiny) native
+regression, contradicting "native untouched."  Instead the reservation is entirely
+VM-side, so the IR `OP_FUNC_VALUE` is byte-for-byte unchanged and native/LLVM emit
+identically:
+
+- `funcValueNeedsFrameRec(instr)` (`lower_call.bn`): a CAPTURING (`len(Args) > 0`)
+  func value whose result type is a raw `*func` (`TYP_FUNC_VALUE`).  This one
+  predicate covers BOTH raw method values AND raw `*func` closure literals (both
+  leak; audit confirmed closure literals CAN be `*func`, via `gen_func_lit.bn`'s
+  `isManagedFV == false` branch), and excludes managed `@func`
+  (`TYP_MANAGED_FUNC_VALUE`).  Fail-safe: a false negative (e.g. a wrapped type)
+  falls back to the pre-existing heap record (leak, no corruption); a false positive
+  is impossible (a managed value never has kind `TYP_FUNC_VALUE`).
+- `lower_func.bn` frame-layout pass reserves a 4-word slot keyed by the
+  OP_FUNC_VALUE's own `instr.ID` in `allocaOffsets` (distinct from its result
+  register), counted in `FrameSize` → covered by `frameReserve`/the pushFrame
+  pre-check like any alloca.
+- `lower_call.bn` OP_FUNC_VALUE arm carries the offset to the handler as
+  `bc.Imm = offset + 1` (+1 bias: `Imm == 0` unambiguously means "heap record").
+- `vm_exec_funcref.bn` capturing branch: `Imm > 0` → write the record at
+  `frameBase + (Imm - 1)` (`frameBase = regs + f.NumRegs*REG_SLOT`, matching
+  BC_STACK_ALLOC's alloca addressing); else `rt.Alloc` (managed `@func`).
+
+No path frees/refcounts the frame record: a raw `*func` never gets an
+`emitManagedFuncValueRefDec`, so BC_REFDEC (and the `compiledClosureDtorMark` free
+path) never touch it.  Escape (a returned/stored `*func` outliving its frame) already
+dangled pre-fix (the closure struct at Args[0] is itself a frame alloca), so V1
+changes nothing there — a raw `*func` is a borrow.
+
+FINDING 2 folded in: the wrapper's receiver `__copy` call is padded
+(`attachMethodValueForwardPad(..., recvCopySlot = nil)` — copy target not yet
+RefInc'd), so a copy-frame overflow releases the owned moved params.  The two pads
+(copy call, forward pre-check) sit on different ops; exactly one faults per
+execution, so no double-release.
+
+Commit message subject: "vm: frame-home the raw *func closure record (fix VM-only
+rec leak)".  Tests: `pkg/binate/vm/vm_funcvalue_rec_leak_test.bn` (3, non-vacuous)
++ `pkg/binate/ir/gen_method_value_wrapper_test.bn` (copy-call-has-pad).
+Conformance: method_value + closure green on builder-comp / builder-comp-int /
+builder-comp_native_aa64-comp_native_aa64 (98 each).  Hygiene: 20 checks pass.
