@@ -566,13 +566,37 @@ at all sites + `emitStringToArray` X0→X16 fix + `common.PlanParallelMove` + un
 `fix.bin` = clean gen3-native; `bnc_fix3` = LLVM bnc.  (Rebuild gen3: `scripts/build-bnc.sh -o L`
 then `L --backend native --linker bnld -o fix.bin <IP/LP> cmd/bnc`.)
 
-**NEXT STEP:** build a *symbol-bearing* gen3-native (`--linker clang`), then diff the disassembly
-of the DataGlobal / DataTerm-BUILDING functions (irdata `Build*`, string builders in
-`pkg/binate/irdata/data_strings*`, `BuildGlobalVar`, descriptor builders) between the buggy
-gen2-native and the clean gen3-native to find the ONE function whose compiled code differs in a
-way that yields a garbage `DT_ZERO` `Width`; then identify the UB (uninitialised local, marginal
-slice op) and fix it.  Always run gen2-native compiling cmd/bnc **capped** (kill at ~3.5 GB RSS)
-to avoid a system OOM; `sample <pid> 4` on the hung proc confirms the `Fill` hang.
+**REFINED ROOT-CAUSE DIRECTION (2026-09-19, via lldb on the buggy binary):**  It is a runtime
+**memory bug (use-after-free / premature RefDec), NOT a codegen-constant bug.**
+- Hang site is `emitDataTerm+1080` = the **DT_ZERO `a.Zero(t.Width)`** path (confirmed by return-
+  address offset; the OTHER Zero call at +648 is the symref-null `Zero(a.WordSize)` path — not it).
+- `t.Width` is garbage ≈ 0xb0000000-scale (→ the ~2.9 GB `Fill`), and it **varies per run**
+  (ASLR-dependent) — the signature of reading freed/uninitialised memory, not a wrong constant.
+- Every function that BUILDS or EMITS this term disassembles as CORRECT in the buggy binary:
+  `GetTarget` copies all 6 words incl IntSize@+8; `BuildSatFragFallback` does `x28=IntSize`,
+  `mul #3`, `DataZero(3*w)` → 24; `EmitDataGlobal`/`emitDataTerm` read dg/t from callee-saved regs.
+  So the DataTerm's `Width` field is **corrupted at runtime after construction** — the managed
+  DataTerm (or a temporary aliasing it, or `fb.Init`) is freed early and its memory reused.
+- Tellingly, `emitDataTerm+1084` (the instruction right after the hung `bl Zero`) is a
+  `__handle.__dtor_Assembler` RefDec (`cbz`+dtor-handle) — this DT_ZERO branch does refcount
+  cleanup, so the sat-emit path is refcount-active.
+- This fits: the arg-bank flip changed codegen so a **RefDec fires on a wrong/clobbered managed
+  pointer** (freeing random memory that happens to back a live DataTerm), or a cleanup RefDec
+  fires early.  The precise per-instruction BADHOME check found no caller-saved home *spanning* a
+  clobber — but a RefDec that reads a *dead-but-arg-bank-homed* managed pointer whose home was
+  reused, or `emitRefDec`'s new parallel-move for {ptr,dtor}, is a *different* failure not covered
+  by that check.  (`emitRefDec` was changed in this branch — prime suspect to re-audit.)
+
+**NEXT STEPS:**
+1. Re-audit `emitRefDec` (aarch64_refcount.bn) and the OP_REFDEC clobber/liveness handling under
+   arg-bank homes — a RefDec on a garbage ptr frees random memory → exactly this corruption.
+2. lldb the hung buggy binary: at frame #2 read `t=[sp2+0x28]` then `[t+0]` (Kind) and `[t+0x28]`
+   (Width) — if the WHOLE DataTerm is garbage (Kind too) it's a full-object UAF; if only Width,
+   it's field-adjacent corruption.  (Note: values are per-run/ASLR — capture in one attach.)
+3. Consider a compiler-side "NEVER leak / no RefDec on a non-owned or clobbered managed value"
+   invariant check.  Always run gen2-native compiling cmd/bnc **capped** (kill at ~3.5 GB RSS);
+   `sample <pid>`/`lldb -p <pid>` on the hung proc.
+Preserved buggy binary: scratchpad `gen2_buggy_nvl_lmWYIW` (== `_nvl_kEZTSA`, identical, 5072 syms).
 
 ## Correctness & validation (miscompile is the top risk)
 
