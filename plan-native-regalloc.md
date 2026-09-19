@@ -527,6 +527,53 @@ miscompile — plus native/common unit tests):**
 **Composes with a later X9–X13 arg-bank-SCRATCH pass** (frees ~3 more homes → ~21 total, ~55%)
 and with **interval splitting** for the ≥27-pressure third (~33%) that no home count can cover.
 
+### Stage 5d debugging state (2026-09-19, work-4/temp-4) — residual gen2-native miscompile, NOT landable
+
+Committed on branch `temp-4` at `d86744330` (arg-bank homes X0–X7 + parallel-move marshalling
+at all sites + `emitStringToArray` X0→X16 fix + `common.PlanParallelMove` + unit tests).
+
+**Verified GOOD:**
+- Native aa64 conformance **3039/0**.
+- **Allocation is SOUND.** A precise per-instruction-liveness check (a throwaway probe in
+  `AllocateRegisters`: for each caller-saved home, flag it if the value is live BOTH
+  immediately-before AND immediately-after a clobber via `ComputeLiveBeforeAll`) found **ZERO**
+  caller-saved homes spanning a clobber across all of cmd/bnc.  So the bug is NOT a
+  spansClobber/interval misclassification.
+- **Spill win real:** `livenessFixpoint` scalar stores-to-stack 123→9 (LLVM 5), disasm-confirmed.
+- **gen3-native is CLEAN + gen-stable:** a native bnc built as (build-bnc.sh LLVM final) then
+  `--backend native --linker bnld` self-compiles cmd/bnc in ~11 s / 510 MB peak, repeatedly, and
+  reproduces itself.  Codegen is deterministic (two builds of cmd/bnc differ by ONE benign
+  path byte).
+
+**RESIDUAL BUG (blocks landing):**
+- **gen2-native** — `BUILDER → gen1 (LLVM) → --backend native` — the generation the perf harness
+  AND the `builder-comp_native_aa64-comp_native_aa64` conformance mode use — **reliably hangs**
+  self-compiling cmd/bnc: peaks ~2.9–3.4 GB inside `Assembler.Fill` (a huge byte count), confirmed
+  on a quiet 57%-free machine (NOT memory pressure).  Sample stack:
+  `main → … → native.EmitObject → EmitPkgSatFrag → EmitDataGlobal → emitDataTerm → Zero → Fill`
+  i.e. `Zero(t.Width)` with a garbage `t.Width`.
+- **Deterministic per generation:** clean gen2-native hangs (two independent builds identical &
+  both hang); gen3-native is clean; an *instrumented* gen2 did NOT hang (instrumentation perturbs
+  it).  So it is **undefined behavior in the source** that BUILDER's front-end lowers into a
+  harmful gen2-native but gen1's front-end lowers benignly into gen3-native — exposed by the
+  arg-bank flip.  Note: `EmitDataGlobal` / `emitDataTerm` / `BuildSatFragFallback` all disassemble
+  as CORRECTLY compiled in the buggy binary (t/dg/i/w in callee-saved regs, width=24), so the
+  garbage `Width` is *built wrong* by some other data-builder whose compiled code is the
+  miscompile — not the emit path.
+
+**Preserved artifacts (scratchpad, may be needed post-compaction):**
+`gen2_buggy_nvl_lmWYIW` / `gen2_buggy_nvl_kEZTSA` = the buggy gen2-native WITH symbols (5072 T);
+`fix.bin` = clean gen3-native; `bnc_fix3` = LLVM bnc.  (Rebuild gen3: `scripts/build-bnc.sh -o L`
+then `L --backend native --linker bnld -o fix.bin <IP/LP> cmd/bnc`.)
+
+**NEXT STEP:** build a *symbol-bearing* gen3-native (`--linker clang`), then diff the disassembly
+of the DataGlobal / DataTerm-BUILDING functions (irdata `Build*`, string builders in
+`pkg/binate/irdata/data_strings*`, `BuildGlobalVar`, descriptor builders) between the buggy
+gen2-native and the clean gen3-native to find the ONE function whose compiled code differs in a
+way that yields a garbage `DT_ZERO` `Width`; then identify the UB (uninitialised local, marginal
+slice op) and fix it.  Always run gen2-native compiling cmd/bnc **capped** (kill at ~3.5 GB RSS)
+to avoid a system OOM; `sample <pid> 4` on the hung proc confirms the `Fill` hang.
+
 ## Correctness & validation (miscompile is the top risk)
 
 A wrong assignment is a **silent** wrong-register read. Front-load validation:
