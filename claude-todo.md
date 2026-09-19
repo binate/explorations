@@ -9,10 +9,29 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 Regressions introduced in the 0.0.16 candidate range (since `bnc-0.0.15`,
 2026-09-02); each reddens a CI gate that must be green before the release can cut
-(`version-history.md` records the ladder; 0.0.16 is `bnc-0.0.16-pre1`). The `vm`
-`TrampolinePacked` nil-data panic (unit tests) and the `bnld-real-program` MemZero
-link error (e2e) are resolved; the E2E cluster below is what a triage of the last
-completed E2E run (`7989641b1`) found still red.
+(`version-history.md` records the ladder; 0.0.16 is `bnc-0.0.16-pre1`). The earlier
+E2E cluster from the 2026-09-18 triage — `vm` `TrampolinePacked` panic, both MemZero
+sites, xmhfa/xmiface stale proofs, the arg-iface + slice-of-iface `slot<7` caps, and
+native x64 `#[c_export]` SSE-split (Bug B, `a9fbb3e5b`) — is all RESOLVED (see done
+log). The one below is what remains.
+
+### E2E `ffi-export` (ubuntu): all 6 LLVM-backend sub-tests fail — clang rejects the `--pkg ffiexp` facade `.ll` — 🔵 OPEN (2026-09-19)
+
+On the latest completed E2E run (`be396ad76`, which INCLUDES the Bug-B native fix
+`a9fbb3e5b`), `test (ffi-export, ubuntu-latest)` is **7 passed / 6 failed**: every
+NATIVE sub-test passes (incl. `bigagg-native` — Bug B is fixed), but all 6
+LLVM-backend sub-tests (`llvm`, `narrow-llvm`, `bigagg-llvm`, `multiret-llvm`,
+`centry-llvm`, `library`) fail identically — `compile of facade (--pkg ffiexp)
+produced no object` / `error: clang failed compiling ffiexp` (the `.ll` is preserved
+under `/tmp/binate_e2e_ffi.*/…/ffiexp.ll`). So bnc's `--pkg ffiexp` LLVM facade emits
+IR clang-18 rejects. **ubuntu/x86-64 only** — `ffi-export` on macos + `arm32-ffi-export`
+(both OSes) pass, so it's SysV/x86-64-LLVM-facade specific. **Regressed SINCE the
+2026-09-18 triage** (which observed `bigagg-llvm` PASSING on `7989641b1`); the culprit
+is one of the ~intervening commits (no obvious `--pkg`/facade/LLVM-c_export commit in
+the last 25, so needs a bisect). Distinct from Bug B (that was the native trampoline).
+Root cause OPEN: the exact clang diagnostic is swallowed by the CI log and it does not
+reproduce on a macOS host — needs the preserved `.ll` or an x86-64 environment.
+Blocks the `ffi-export` E2E gate for 0.0.16.
 
 ## Performance
 
