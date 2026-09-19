@@ -20,7 +20,7 @@ dtorName/qualifiedDtorNameForType, package carried in the `pkg.` qualifier).  Na
 is impl-defined (§21) → NO normative spec change; Annex B's informative flag updated.
 Validated: ir 837/0 (new F1/F2 injectivity tests, dtor+copy), a refcount-balanced spoof
 program compiled+VM at -O0/-O2, self-compile builder-comp-comp + native-aa64 3037/0,
-mangler-critical adversarial review clean.  Plan: plan-dtor-mangle-injective.md.  LANDED binate `94777c23c` + docs Annex B `fe627d8` (2026-09-18).
+mangler-critical adversarial review clean.  Plan: done/plan-dtor-mangle-injective.md.  LANDED binate `94777c23c` + docs Annex B `fe627d8` (2026-09-18).
 
 - **Residual F3 + anon-hash — FIXED, LANDED `3978b9bd1` (2026-09-18):** the top-level struct dtor/copy leaf is now length-prefixed (writeStructLeafToken; `__`-prefixed synthesized names stay verbatim, byte-identical to the backend closure naming) and the anon-struct suffix is per-field length-prefixed (dropping the FNV-32 hash fallback), so EVERY `__dtor_`/`__copy_` symbol is now injective.  Validated: ir 837/0, spoof-struct runtime compiled+VM, self-compile builder-comp-comp + native-aa64 3039/0, mangler review clean.  ORIGINAL note:  a TOP-LEVEL user struct
   source-named to embed a wrapper's EXACT new encoding (e.g. `struct mp_N1_1_M4_Node` in
@@ -39,7 +39,7 @@ biggest native↔LLVM `-O2` codegen lever (~53% of the active gap: aggregate-cop
 traffic) — is complete across all phases.  It splits an eligible aggregate stack
 local into per-field scalar slots that mem2reg promotes, collapsing the field-by-field
 header copies the native backend otherwise emits.  Design: `plan-ir-sroa.md`,
-`plan-sroa-managed-structs.md`.  Landed arc (each piece has its own entry in this file
+`done/plan-sroa-managed-structs.md`.  Landed arc (each piece has its own entry in this file
 and/or was validated by LLVM+native full-corpus O0-vs-O2 differential + self-compile +
 an adversarial review):
 
@@ -233,7 +233,7 @@ non-managed-element / `@func` / `@Iface`) now scalar-replaces — previously any
 managed struct was pinned.  The whole struct alloca splits into per-field slots:
 non-managed fields promote via mem2reg; each managed field becomes an unpromoted
 managed slot with a nil zero-init; the refcount cleanup forwards onto the split
-slots.  See plan-sroa-managed-structs.md.
+slots.  See done/plan-sroa-managed-structs.md.
 
 The 2026-09-13 recon correctly identified the blocker (managed struct-local cleanup
 is a by-address `__dtor_T(&h)` call — an address escape via bitcast that pins the
