@@ -15,17 +15,20 @@
   low-level libc-syscall layer is boundary-private — the
   `os-sys-consumers` hygiene check forbids importers outside the `os`
   family). A new `os.Getenv` (built on the safe `os.Env()` snapshot,
-  not a mutable libc `getenv`) is added; bni and bnlint call it.
-  cmd/bnc, compiled by the frozen BUILDER whose bundled `os.bni`
-  predates `os.Getenv`, reads `os.Env()` directly for now (TODO in
-  `claude-todo.md`: switch to `os.Getenv` after the next
-  `BUILDER_VERSION` bump). Covered by unit tests + `e2e/env-paths.sh`.
-  Semantics detailed in "Stage 7" below.
+  not a mutable libc `getenv`) is added; bni, bnlint, AND cmd/bnc all
+  call it. (cmd/bnc originally used a temporary `envLookup` duplicate
+  because the then-frozen BUILDER predated `os.Getenv`; once the BUILDER
+  shipped it — bnc-0.0.14+ — `envPaths` switched to `os.Getenv` and the
+  duplicate was deleted, `4d0b6047d`.) The unsafe low-level
+  `pkg/std/os/sys.Getenv` has been removed, its one consumer
+  (`os/process/lookpath`) rerouted through `os.Getenv`. Covered by unit
+  tests + `e2e/env-paths.sh`. Semantics detailed in "Stage 7" below.
 
-**Outstanding (deferred):**
-- **Stage 8** (Phase 2): binary `.o`/`.a`/`.so` artifacts on
-  IMPL_PATH. Tied to having a stable per-package ABI/linker
-  contract. Still genuinely deferred.
+**Outstanding — Stage 8 (Phase 2), a KEY v1 feature (why this plan stays active):**
+- **Stage 8**: binary `.o`/`.a`/`.so` artifacts on IMPL_PATH —
+  **binary distribution of packages, a core v1 capability, NOT post-1.0.**
+  Not yet built; it needs a stable per-package ABI/linker contract first.
+  The sole remaining piece of the plan (Phase 1 + Stage 7 landed).
 
 ## Motivation
 
@@ -233,15 +236,13 @@ interface path satisfies it).
 Env reads go through the public `os` package. `os.Getenv(name)` is
 added, implemented over the `os.Env()` snapshot (safe — an immutable
 shared list seeded from envp at startup — rather than a mutable libc
-`getenv`). bni and bnlint call `os.Getenv`. cmd/bnc is compiled by
-the frozen BUILDER, whose bundled `os.bni` predates `os.Getenv`, so it
-cannot call the new symbol yet; it scans `os.Env()` directly via a
-local `envLookup` helper (a temporary duplicate of `os.Getenv`, with a
-TODO to collapse it after the next `BUILDER_VERSION` bump). Two
-follow-up TODOs are tracked in `claude-todo.md`: switch cmd/bnc to
-`os.Getenv`, and remove the unsafe `pkg/std/os/sys.Getenv`, routing
-its one remaining consumer (`os/process/lookpath`) through `os.Env()`
-too.
+`getenv`). bni, bnlint, and cmd/bnc all call `os.Getenv`. (cmd/bnc first
+used a temporary local `envLookup` duplicate because the then-frozen
+BUILDER predated `os.Getenv`; once the BUILDER shipped it — bnc-0.0.14+ —
+`envPaths` switched to `os.Getenv` and `envLookup` was deleted,
+`4d0b6047d`.) The unsafe `pkg/std/os/sys.Getenv` has been removed and its
+one consumer (`os/process/lookpath`) rerouted through `os.Getenv`. Both
+follow-up TODOs are resolved.
 
 End-to-end coverage is `e2e/env-paths.sh`: it builds all three tools
 from source (the frozen BUILDER predates the feature) and asserts a
