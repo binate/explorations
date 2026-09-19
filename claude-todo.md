@@ -403,32 +403,18 @@ See explorations/done/plan-funcvalue-byaddr-abi.md.
 
 ## Cross-mode interface dispatch & compiler/interpreter interop
 
-### MAJOR (latent): the `...*any` slice-of-raw-iface cross-mode substitution has the SAME `slots < 7` cap — needs a per-slot list, not a widened bitmap — 🟡 IN PROGRESS (claimed 2026-09-18, temp-5/session) (2026-09-18)
+### Cross-mode `...*any`-at-slot-≥7 e2e coverage (follow-up to the slice-of-iface fix) — 🟡 IN PROGRESS (claimed 2026-09-18, temp-5/session) (2026-09-18)
 
-Sibling of the arg-iface `slot < 7` cap (fixed, `7fb3dd8b5`): the `...*any`
-slice-of-raw-iface cross-mode substitution carries the identical stale cap, same
-`9574f14ce` origin, same failure mode.
-- `pkg/binate/vm/lower_call.bn:221`: `if slots < 7 && argIsSliceOfRawIface(...)` builds
-  the `sliceIfaceBits` bitmap only for slots 0..6.
-- `pkg/binate/vm/vm_iface_native_vt.bn:130`: `substituteSliceIfaceArgs` reads only bits
-  0..6 (`for k := 0; k < 7`).
-- **Impact:** a `*[]*any` (what a `...*any` variadic packs) passed at slot **≥ 7** to a
-  cross-mode injected-native callee is never flagged → its raw-interface ELEMENTS keep
-  VM-index vtable words → native code dereferences a small index as a native `@__ivt`
-  → SIGSEGV / silent cross-mode miscompile. Reachable, e.g. `func f(a..g int, rest
-  ...*any)` dispatched cross-mode (7 int slots push `rest` to slot 7).
-- **NOT a trivial cap removal** (why it's separate from `7fb3dd8b5`): `sliceIfaceBits`
-  rides `bc.Src2`, a host `int` — 32-bit on the primary ILP32 target (`Src2 int`,
-  vm.bni) — so the bitmap can represent at most 32 slots there, and `1 << slots` is UB
-  past the word width, while the dispatch buffer holds 64. It needs the same per-slot-
-  LIST treatment the arg-iface path just got (an `ArgIfaceLayout`-style structure), not
-  a widened bitmap.
-- Not currently exercised by any test — that absence is a coverage gap, NOT a reason to
-  downgrade the silent miscompile. `vm_reservation_test.bn` covers only the slot-0
-  overflow-fault path. Fix = add a repro test (a `...*any` arg at slot ≥ 7 dispatched
-  cross-mode, whose element vtable words must be substituted) that reproduces the wrong
-  dispatch, then replace the bitmap with a per-slot list. Found by the adversarial
-  review of `7fb3dd8b5`.
+The slice-of-iface `slots < 7` fix (`b39f580e4`, see done log) has unit coverage
+(lowering records the slot; R5 drives dispatch) but NO end-to-end test that reproduces
+the actual runtime symptom: a bytecode caller spreading a `...*any` of bytecode-boxed
+interface values, at slot ≥ 7, into an injected-native callee, whose ELEMENTS must be
+translated to the impl's native handle-vtable (a SIGSEGV / silent miscompile without
+the fix). Add an xmiface-style e2e (a native fixture method taking `(≥7 leading arg
+slots, rest ...*any)` + a bytecode caller) asserting the correct result — runnable
+across modes INCLUDING arm32/ILP32, the only place the "slice after a 64-bit-scalar arg
+shifts the recorded slot" case is exercised (a host unit test can't: int64 is 1 slot on
+a 64-bit host). Flagged by the adversarial review of `b39f580e4`.
 
 ### `__init` dispatcher (+ other main-enumerated structures) assume whole-program enumeration — remaining blockers for opaque binary distribution — 🟡 OPEN
 

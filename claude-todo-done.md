@@ -6,6 +6,26 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### Cross-mode `...*any` slice-of-iface arg slots carried as a list, not a slots<7 bitmap — DONE, LANDED `b39f580e4` (2026-09-18)
+
+Sibling of the arg-iface slot<7 fix (`014ae93fd`): the `...*any` slice-of-raw-iface
+cross-mode substitution recorded which arg slots hold a `*[]*any` in a per-slot BITMAP
+in bc.Src2 (a host int, 32-bit on ILP32) built with a `slots < 7` cap — the a0..a6
+limit the call_packed migration (`9574f14ce`) removed. A `*[]*any` at slot ≥ 7 was
+dropped → its raw-iface ELEMENTS reached the injected-native callee with VM-index
+vtable words → SIGSEGV / silent miscompile. A bitmap can't widen to 64 on ILP32
+(`1 << slots` is UB past the word), so moved the slots to a per-slot LIST on the
+ArgIfaceLayout (SliceIfaceSlots), resolved from the same layout as the arg-iface
+substitution — no new accumulator/index; frees bc.Src2. Regression test
+`TestSliceIfaceLayoutRecordsSliceArgPastSlot7` + the R5 overflow tests re-driven through
+the list. Adversarial review: land-as-is — verified no out-of-bounds (the extern path
+writes the register file directly; a recorded slot is always < nSlots via the shared
+argSlots accounting), no regression from populating SliceIfaceSlots for all call shapes
+(iface-method/func-value run substituteLayoutArgs as a no-op on empty Slots and never
+consume SliceIfaceSlots). Validated: vm units, conformance builder-comp-int 3028/0,
+hygiene 20/20. Follow-up OPEN (claude-todo.md): an end-to-end cross-mode
+`...*any`-at-slot-≥7 test — the review-flagged coverage gap.
+
 ### Cross-mode iface-arg vtable substitution un-capped from `slot < 7` — DONE, LANDED `014ae93fd` (2026-09-18)
 
 `buildArgIfaceLayout` (`pkg/binate/vm/lower_slots.bn`) + the `argSubstBytes` temp-growth
