@@ -529,46 +529,6 @@ unwind; nil-deref N1–N3 last, `de9a7c05`); see claude-todo-done.md and
   real behavior change for anything scraping them off stdout.
 - (Separately filed under MAJOR: the re-entrant-`execFunc` fault-swallow.)
 
-### VM leaks the per-CAPTURING-func-value closure record — `rt.Alloc`'d, never freed (documented B.2→B.3 deferral) — 🟡 IN PROGRESS (claimed 2026-09-18, work-2)
-
-The VM's `BC_FUNC_VALUE` capturing branch (`vm/vm_exec_funcref.bn`) `rt.Alloc`s a
-4-word `{kind, vm, fnIdx+1, captured}` COMPILED_CLOSURE record for every capturing
-func value and NEVER frees it — an explicit, in-code-documented deferral:
-"the rec is never freed (small leak, acceptable for B.2 *func — B.3 @func will hook
-this into the closure's refcount lifecycle)."
-
-Scope is BROADER than first filed (it was surfaced via a method-value overflow, but
-that was a red herring): it leaks one heap block per CONSTRUCTION of ANY capturing
-func value — method values AND capturing closure literals — on the NORMAL path, not
-just on overflow, and independent of whether the captured fields are managed.
-Confirmed empirically: a control (plain func, no method value) leaks 0 blocks over N
-calls; a value-receiver-no-managed method value leaks exactly N (one rec per creation).
-Latent because conformance checks output, not `rt.LiveBlocks()`.
-
-FIX IMPLEMENTED (not yet landed) — chose the VM-only "frame-home the record"
-approach over the B.3 refcount rework (design + rejected-alternatives rationale in
-`plan-vm-methodvalue-rec-refcount.md`).  The leak is VM-only, and the fix is too:
-for a raw `*func` capturing value (a method value / `*func` closure literal — a
-borrow with no RefInc/RefDec lifecycle), the record lives in the constructing
-FRAME instead of the heap, so it is reclaimed on frame pop, never freed — no free
-op, no refcount, no fault-pad integration.  A managed `@func` keeps its heap record
-(may escape the frame; freed by scope-end RefDec).  The IR `OP_FUNC_VALUE` is
-UNCHANGED (the frame slot is reserved VM-side in `lower_func.bn`, its offset carried
-to `BC_FUNC_VALUE` via `Imm`), so the compiled backends are byte-for-byte untouched
-("native untouched") — better than the plan's original Args-operand shape, which
-would have added a dead frame alloca to native.  Tests: `vm_funcvalue_rec_leak_test.bn`
-(rt.LiveBlocks()-stable over a method-value / `*func`-closure loop, non-vacuous;
-`@func` negative control still frees).  Method-value + closure conformance green on
-LLVM, VM, and native aa64.
-
-FINDING 2 (from the `8ff97d2ab` wrapper-pre-check review) FOLDED IN: the wrapper's
-value-struct-receiver `emitStructCopy` (`gen_method_value_wrapper.bn`) emitted a
-`__copy` CALL just BEFORE the forward's `OP_STACK_CHECK` with no fault pad; a
-`__copy`-frame overflow (a narrow VM-only window) hit an unpadded op → the wrapper's
-already-owned moved-in user params leaked.  Now the copy call carries its own pad
-(releasing the owned params, but NOT the copy target — its fields are not yet
-RefInc'd there), verified structurally (`gen_method_value_wrapper_test.bn`).
-
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
 ### Baremetal console output is unwired — `os.Stdout` is an empty `@File`, so `fmt` is silent; make it PLUGGABLE — 🟡 OPEN (found 2026-09-18)
