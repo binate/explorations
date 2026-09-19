@@ -6,6 +6,43 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### E2E `ffi-export` (ubuntu) LLVM sub-tests + the pure-GP sibling — `#[c_export]` thunk C-memory/internal-register quadrant — DONE, LANDED `4579568c8` (2026-09-19)
+
+The ffi-export ubuntu E2E gate was 7 passed / 6 failed: every LLVM-backend sub-test
+(`llvm`, `narrow-llvm`, `bigagg-llvm`, `multiret-llvm`, `centry-llvm`, `library`) failed
+because bnc's `--pkg ffiexp` facade emitted IR clang-18 rejects (`'%ca13' defined with
+type 'ptr' but expected '[2 x i64]'`). Root cause: an x86-64 SysV `#[c_export]` entry
+thunk had no case for a ≤16-byte aggregate the C ABI passes MEMORY-class (arrives
+`ptr byval %ca<i>`, its arg-register file exhausted) while the internal define takes it
+REGISTER-class — the "C-memory / internal-register" quadrant. The forward fell to the
+generic `else` and emitted the register form on a byval `ptr`, failing the whole module.
+(The 2026-09-18 triage mis-identified the culprit param as `FfiMix`; it is actually
+`ff FfiVec2d{x,y float64}`, a 2×double SSE aggregate whose XMM file is exhausted.)
+
+Both rows of the quadrant fixed, by LOADING from the byval pointer and forwarding the
+internal register form:
+  - SSE row: `cExportThunkParamCMemInternalSse` + `sysvWriteThunkCMemSseLoad`/`Args`
+    (load each eightbyte, forward SSE-split).
+  - GP row (the pre-existing, untracked MAJOR sibling the SSE fix's adversarial review
+    surfaced): `cExportThunkParamCMemInternalGp` + `sysvWriteThunkCMemGpLoad`/`Arg`
+    (load via a coerced-sized alloca so a non-word-multiple struct never over-reads,
+    forward the coerced `[N x i64]` by value).
+
+Reachability (proven, not spot-checked): the C-vs-internal GP overshoot is capped at one
+word, so only a 1-eightbyte GP aggregate reaches the GP row; a 2-eightbyte aggregate
+(16-byte struct, slice, iface-/func-value) lands both-memory and rides the existing byval
+branch — so the review's "first-class 2-word" concern is not actually reachable (the
+helper handles it defensively regardless).
+
+The six SysV thunk-parameter helpers moved to a new `emit_sysv_thunk.bn` (the growing
+`emit_sysv_coerce.bn` went over the 500-line cap), whitelisted as covered by
+`emit_cexport_thunk_test.bn`. Tests: `TestEmitCExportThunkCMemInternalSseX64` and
+`...GpX64` (the GP test uses a non-word-multiple `{i32}` struct to exercise the over-read
+guard); each fails against a stubbed classifier (revert-check confirmed). Both fixes
+adversarially reviewed clean. Docker linux/amd64 `ffi-export` = 13 passed / 0 failed
+(was 7/6). The `tail -5`→`tail -40` harness fix (`65c3adbd3`) surfaced the clang
+diagnostic in CI.
+
 ### Cross-mode `...*any`-spread-at-slot-≥7 end-to-end coverage — DONE, LANDED `4787dfdab` (2026-09-18)
 
 The review-flagged coverage gap for the slice-of-iface list fix (`b39f580e4`): `e2e/xmiface.sh`
