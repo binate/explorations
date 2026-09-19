@@ -1,13 +1,14 @@
 # Plan: comprehensive VM SP-guard (fault safely on stack overflow; never leak/corrupt)
 
-Status: RESERVATION SERIES (R1-R5) COMPLETE — landed 2026-09-15 (R1 770b6fbc1,
-R2 70bfdd37a, R3 4401121a9, R4 70265c12f, R5 6f2576927), plus the standalone
-OP_IFACE_UPCAST reclaim fix (7697db626).  Temp-growth stack overflow is now safe
-by construction (reserved at frame entry; clean Plan-2 unwind; no per-op checks).
-REMAINING: Inc 3 (indirect/method/func-value/iface-method call frame-push moved-arg
-leak) and the R5 end-to-end coverage follow-up.  Started 2026-09-09. **APPROACH
-CHANGED 2026-09-14 to the RESERVATION model (see below) after the per-op approach's
-cost was surfaced.** Owner: this session (work-2).
+Status: DONE — the whole SP-guard effort landed (see the "COMPLETE 2026-09-17" note
+below; done-log entry in claude-todo-done.md).  Reservation series R1-R5 landed
+2026-09-15 (R1 770b6fbc1, R2 70bfdd37a, R3 4401121a9, R4 70265c12f, R5 6f2576927),
+plus the standalone OP_IFACE_UPCAST reclaim fix (7697db626); temp-growth stack
+overflow is safe by construction (reserved at frame entry; clean Plan-2 unwind; no
+per-op checks).  Inc 3 (indirect/method/func-value/iface-method call frame-push
+moved-arg leak) and the R5 end-to-end coverage follow-up landed too.  Started
+2026-09-09.  **APPROACH CHANGED 2026-09-14 to the RESERVATION model (see below)
+after the per-op approach's cost was surfaced.**
 
 **COMPLETE 2026-09-17.** Inc 1, Inc 2 (reservation R1-R5), and Inc 3 (crash guard
 `d2e21a89c` + func-value fast-path/pre-check `43b0acc37` + iface-method pre-check

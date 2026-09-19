@@ -1,5 +1,14 @@
 # Plan: cross-mode func-value dispatch for ANY arity (remove the 7-arg cap)
 
+> **Status: SUPERSEDED by `plan-crossmode-callpacked.md` (see `done/`).**  The
+> 7-arg cap was removed not by this plan's separate packed-shim-intrinsics
+> approach but by the broader `call_packed` vtable slot: cross-mode func-value
+> dispatch now carries any arity (`vm/vm_exec_funcref.bn` `dispatchCompiledFuncValue`
+> — "with call_packed there is NO 7-slot cap"), with call_packed's own cap-removal
+> tests (9-arg extern, 7-arg host iface).  The whole b1 cross-mode effort is complete
+> (done-log in claude-todo-done.md).  This plan's design is retained below for
+> historical context.
+
 Owner-assigned follow-up to the native-closure-into-VM rework (b1, commit
 `98219ab3e`).  This is item (1) in claude-todo.md ("Cross-mode func-value dispatch
 caps at 7 user args").  Do this BEFORE b2 (item 2).  Goal: cross-mode dispatch of

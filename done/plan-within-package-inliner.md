@@ -1,8 +1,13 @@
 # Plan: (2b) Within-package function inliner
 
-Status: REVISED after adversarial review (2026-08-31). Awaiting user go-ahead.
-Grounded in an IR structure recon; file:line citations below trace to it.
-Todo: `claude-todo.md` → "(2b) Within-package function inliner — 🟡 OPEN".
+Status: DONE — LANDED and wired.  The inliner runs at -O1+ (`ir/opt.bn`'s
+`inlineCalls(m)`), implemented across
+`ir/inline_{calls,eligibility,multiblock,pads,recursion}.bn` (+ tests); landed
+incrementally from `149da0a14` (Inc 1) through non-leaf/transitive inlining
+(`ef292f152`), the `--inline-threshold` flag (`3022706ce`), and multi-block
+cleanup-pad cloning (`e2edbe999`).  Done-log entry: claude-todo-done.md
+"Within-package function inliner (2b)".  Grounded in an IR structure recon;
+file:line citations below trace to it.
 
 ## Adversarial review — incorporated
 
