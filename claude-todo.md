@@ -15,7 +15,7 @@ sites, xmhfa/xmiface stale proofs, the arg-iface + slice-of-iface `slot<7` caps,
 native x64 `#[c_export]` SSE-split (Bug B, `a9fbb3e5b`) — is all RESOLVED (see done
 log). The one below is what remains.
 
-### E2E `ffi-export` (ubuntu): all 6 LLVM-backend sub-tests fail — clang rejects the `--pkg ffiexp` facade `.ll` — 🔵 OPEN (2026-09-19)
+### E2E `ffi-export` (ubuntu): all 6 LLVM-backend sub-tests fail — clang rejects the `--pkg ffiexp` facade `.ll` — 🟡 IN PROGRESS (claimed 2026-09-19, temp-5/session) (2026-09-19)
 
 On the latest completed E2E run (`be396ad76`, which INCLUDES the Bug-B native fix
 `a9fbb3e5b`), `test (ffi-export, ubuntu-latest)` is **7 passed / 6 failed**: every
