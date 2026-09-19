@@ -32,6 +32,15 @@ mangler-critical adversarial review clean.  Plan: done/plan-dtor-mangle-injectiv
   marginally more exposed, since nested encodings are longer).  Decide: close these or
   accept them.
 
+- **Follow-up — aarch64 unit test left stale by `3978b9bd1`, FIXED `682a2162f` (2026-09-18):**
+  the injective-leaf rename changed struct `T`'s dtor symbol `__dtor_T` → `__dtor_1T` (full
+  linker symbol `bn_F1_4_main1_8___dtor_T` → `bn_F1_4_main1_9___dtor_1T`), but
+  `TestEmitImplVtableSlot0IsHandleNotRawFn` (`aarch64_iface_vtable_test.bn`) pins that symbol
+  by exact string and wasn't updated — the aarch64 unit tests went 193/1 red on main.  It
+  slipped through because `3978b9bd1` ran conformance (which doesn't execute unit tests), not
+  the aarch64 unit suite.  Fix updated the seven hardcoded occurrences to the new mangling
+  (test-only, assertion shape unchanged).
+
 ### SROA line COMPLETE — IR-level aggregate scalar-replacement (the #1 native↔LLVM gap lever) — DONE (2026-09-18)
 
 The IR-level SROA pass (`pkg/binate/ir/sroa*.bn`, wired into `RunOptPasses`) — the

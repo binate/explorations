@@ -14,18 +14,6 @@ Regressions introduced in the 0.0.16 candidate range (since `bnc-0.0.15`,
 link error (e2e) are resolved; the E2E cluster below is what a triage of the last
 completed E2E run (`7989641b1`) found still red.
 
-### native/aarch64 unit test `TestEmitImplVtableSlot0IsHandleNotRawFn` red on main — stale dtor symbol after injective-leaf mangling — 🟡 IN PROGRESS (claimed 2026-09-18, work-6/session)
-
-`3978b9bd1` ("injective top-level struct dtor/copy leaf") changed every struct
-dtor/copy symbol (leaf now length-prefixed: `__dtor_T` → `__dtor_1T`) and updated
-the `ir/gen_dtor` tests, but left `aarch64_iface_vtable_test.bn`'s two hardcoded
-symbol strings (`bn_F1_4_main1_8___dtor_T`) stale, so the slot-0 handle assertion
-can't find the handle symbol → 193 passed, **1 failed** in
-`pkg/binate/native/aarch64`. Slipped through because that commit ran conformance
-(`3039/0`) but not the aarch64 unit tests (conformance doesn't run unit tests).
-Fix: update the hardcoded strings to the new mangling
-(`bn_F1_4_main1_9___dtor_1T`). Test-only change.
-
 **Same regression, two MORE unclaimed red unit tests (broader than the aarch64
 slice above) — 🟡 IN PROGRESS (claimed 2026-09-18, work-1/session).** The identical
 stale symbol `bn_F1_4_main1_8___dtor_T` (derived struct dtor of `type T`) is also
