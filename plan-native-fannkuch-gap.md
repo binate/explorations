@@ -224,11 +224,20 @@ work** (Tier-2 D, active on main). Recommend pursuing Tier 3 (extend `bceLoop`
 for the dual-induction reversal loop) or coordinating with the regalloc effort,
 not a standalone load cache.
 
-**Tier-3 single-unsigned-compare bounds check — 🟡 IN PROGRESS (claimed
-2026-09-18, work-6/session).** Replace the two-signed-compare/two-branch element
-bounds check with one unsigned compare (`cmp idx,len; b.lo ok`), sound because a
-length is ≥ 0 — gated on the length operand being provably non-negative (the
-`bceLoop` *elimination* for the dual-induction flip loop was found UNSOUND: the
-reversal bound `k = perm[0]` is not provably `< len`, so eliminating the check
-would be a memory-safety hole; this cheapens the check instead of removing it).
-Tier-2 D partly underway on main via the concurrent regalloc effort.
+**Tier-3 single-unsigned-compare bounds check — ✅ LANDED `a6a5aa6f1`
+(guard-emitter extraction) + `b18c5b7b0` (the single-compare).** Replaced the
+two-signed-compare/two-branch element bounds check with one unsigned compare
+(`cmp idx,len; b.lo ok`), sound because every `OP_BOUNDS_CHECK` length operand is
+provably ≥ 0: element/array length is ≥ 0; a slice `s[lo:hi]` passes len+1 (≥ 1)
+for the hi check and hi+1 (≥ 1) for the lo check, relying on gen_slice's
+hi-before-lo ordering. AArch64 only — x64/arm32 keep the two-compare form. The
+change tipped `aarch64_dispatch.bn` over the file-length cap, so the guard
+emitters (`emitBoundsCheck`/`emitDivCheck`/`emitShiftCheck`) were extracted to a
+new `aarch64_guards.bn` (mirroring the x64 split), with the guard unit tests moved
+to `aarch64_guards_test.bn`; conformance 1272 covers element + slice-range checks.
+Measured ~5% on the fannkuch flip loop (cmp 11→4, conditional branches 8→3 in the
+hot window); native/LLVM ratio ~2.0x→~1.87x. The `bceLoop` *elimination* for the
+dual-induction flip loop was found UNSOUND — the reversal bound `k = perm[0]` is
+not provably `< len`, so eliminating the check would be a memory-safety hole; this
+cheapens the check instead of removing it. Tier-2 D partly underway on main via
+the concurrent regalloc effort.
