@@ -6,6 +6,32 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### Dtor/copy name-mangling: FULLY INJECTIVE — DONE (F1+F2 `94777c23c`, F3+anon `3978b9bd1`, 2026-09-18)
+
+`dtorTypeSuffix` (`ir/gen_dtor.bn`) encoded a NESTED struct by bare leaf name, making the
+weak_odr `__dtor_`/`__copy_` element-walk helpers non-injective: a struct named to spoof a
+kind token (F1, e.g. `mp_Node` / `elems_ms_mp_Node`) collided with the wrapped type it
+shadowed, and same-leaf structs across packages (F2) shared a symbol — silent wrong-body
+cleanup.  FIXED by encoding a nested struct/named type with `mangle.LpTypeArgNamedRaw`
+(length-prefixed, identifier-only, full-qualified-path — begins `N`+digit, so it can't
+reconstruct a kind token, and the full path distinguishes packages, aligning with §16.6
+pkg.identity); the top-level bare-struct dtor is unchanged (named via
+dtorName/qualifiedDtorNameForType, package carried in the `pkg.` qualifier).  Name mangling
+is impl-defined (§21) → NO normative spec change; Annex B's informative flag updated.
+Validated: ir 837/0 (new F1/F2 injectivity tests, dtor+copy), a refcount-balanced spoof
+program compiled+VM at -O0/-O2, self-compile builder-comp-comp + native-aa64 3037/0,
+mangler-critical adversarial review clean.  Plan: plan-dtor-mangle-injective.md.  LANDED binate `94777c23c` + docs Annex B `fe627d8` (2026-09-18).
+
+- **Residual F3 + anon-hash — FIXED, LANDED `3978b9bd1` (2026-09-18):** the top-level struct dtor/copy leaf is now length-prefixed (writeStructLeafToken; `__`-prefixed synthesized names stay verbatim, byte-identical to the backend closure naming) and the anon-struct suffix is per-field length-prefixed (dropping the FNV-32 hash fallback), so EVERY `__dtor_`/`__copy_` symbol is now injective.  Validated: ir 837/0, spoof-struct runtime compiled+VM, self-compile builder-comp-comp + native-aa64 3039/0, mangler review clean.  ORIGINAL note:  a TOP-LEVEL user struct
+  source-named to embed a wrapper's EXACT new encoding (e.g. `struct mp_N1_1_M4_Node` in
+  package M) still collides with `@Node`'s mp-helper — the top-level struct arm keeps the
+  bare leaf.  Closing it needs the top-level dtorName / qualifiedDtorNameForType naming to
+  change too (bigger — touches the by-address struct-dtor def/ref).  Far harder to trigger
+  than F1 (must reproduce the exact `N<segs>_<pkg>_<leaf>` form).  Also unchanged: the
+  anon-struct >128-char `anon_h<fnv>` hash fallback is non-injective by construction (now
+  marginally more exposed, since nested encodings are longer).  Decide: close these or
+  accept them.
+
 ### SROA line COMPLETE — IR-level aggregate scalar-replacement (the #1 native↔LLVM gap lever) — DONE (2026-09-18)
 
 The IR-level SROA pass (`pkg/binate/ir/sroa*.bn`, wired into `RunOptPasses`) — the
