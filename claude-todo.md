@@ -100,8 +100,13 @@ CORRECTION 2026-09-08):
    stores scalars to the stack ~30× more (153 vs 5) — it homes only 10 values
    (callee-saved; `CallerSaved` EMPTY) vs LLVM's ~27-register file; plus a large
    aggregate/slice-header-copy component (SROA, work-1).
-   🟡 IN PROGRESS — **caller-saved homes in X9–X15 (Stage 5d)**, claimed 2026-09-18,
-   work-4/temp-4.  **The earlier "caller-saved homes is the WRONG lever / spilled values
+   🟡 IN PROGRESS — **caller-saved homes in the ARG BANK X0–X7 via parallel-move
+   (Stage 5d)**, claimed 2026-09-18, work-4/temp-4.  (Measured floors killed the
+   X9–X15-static-partition idea: it caps at ~2–3 homes / ~15% because X9–X15 is also the
+   scratch pool.  The lever is the idle arg bank X0–X7 as caller-saved homes → ~18 homes,
+   ~40% of the spill cost — "Stage 5a done right": keep the X0–X7 homes 5a had, but marshal
+   correctly via spill-then-reload param landing + a parallel-move at call sites, instead of
+   un-homing every call operand the way 5a did.)  **The earlier "caller-saved homes is the WRONG lever / spilled values
    are call-spanning" RESULT (2026-09-18) was WRONG — it overgeneralized from ~30
    loop-invariants in ONE function.**  Instrumented the allocator to dump, per function,
    every spilled value split by spans-a-call vs not, loop-weighted, over the whole
