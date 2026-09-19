@@ -403,7 +403,7 @@ See explorations/done/plan-funcvalue-byaddr-abi.md.
 
 ## Cross-mode interface dispatch & compiler/interpreter interop
 
-### MAJOR (latent): the `...*any` slice-of-raw-iface cross-mode substitution has the SAME `slots < 7` cap — needs a per-slot list, not a widened bitmap — 🔵 OPEN (2026-09-18)
+### MAJOR (latent): the `...*any` slice-of-raw-iface cross-mode substitution has the SAME `slots < 7` cap — needs a per-slot list, not a widened bitmap — 🟡 IN PROGRESS (claimed 2026-09-18, temp-5/session) (2026-09-18)
 
 Sibling of the arg-iface `slot < 7` cap (fixed, `7fb3dd8b5`): the `...*any`
 slice-of-raw-iface cross-mode substitution carries the identical stale cap, same
@@ -429,27 +429,6 @@ slice-of-raw-iface cross-mode substitution carries the identical stale cap, same
   cross-mode, whose element vtable words must be substituted) that reproduces the wrong
   dispatch, then replace the bitmap with a per-slot list. Found by the adversarial
   review of `7fb3dd8b5`.
-
-### MAJOR: cross-mode iface-arg vtable substitution still capped at `slot < 7` after the call_packed migration removed the a0..a6 limit — 🟡 IN PROGRESS (claimed 2026-09-18, temp-5/session) (2026-09-18)
-
-`buildArgIfaceLayout` (`pkg/binate/vm/lower_slots.bn:119`) records the per-slot
-interface-vtable layout for a cross-mode call's args only for `slot < 7` — its
-comment names this "the a0..a6 shim limit the cross-mode dispatch packs." But
-`9574f14ce` (the call_packed migration) removed that a0..a6 limit and moved to a
-64-slot dispatch buffer. So an interface-value argument — top-level, OR nested in a
-by-value struct/array (`ifaceVtOffsetsFor` non-empty) — landing in slot **≥ 7** no
-longer gets a layout entry, so `substituteLayoutArgs` skips its vtable-word
-substitution. A native callee receiving that iface value would then see a
-bytecode-impl vtable word it can't dereference → **silent miscompile** for the
-(uncommon) shape "cross-mode iface method/func-value call with ≥7 arg slots ahead of
-an interface-value arg." `pkg/binate/vm/lower_max_temp_growth.bn:59` carries the same
-`slot < 7` cap (temp-growth accounting) and its stale comment. Found by the
-adversarial review of the Bug-A e2e fix. No existing test exercises this shape — that
-absence is itself a coverage gap to close, NOT a reason to downgrade the silent
-miscompile. Fix = add a targeted cross-mode test (an interface-value arg past slot 7
-whose vtable word must be substituted) that reproduces the wrong dispatch, then
-bump/remove the cap to match the 64-slot buffer.
-Belongs with the func-value / call_packed migration work (same `9574f14ce` origin).
 
 ### `__init` dispatcher (+ other main-enumerated structures) assume whole-program enumeration — remaining blockers for opaque binary distribution — 🟡 OPEN
 

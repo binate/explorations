@@ -6,6 +6,25 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### Cross-mode iface-arg vtable substitution un-capped from `slot < 7` — DONE, LANDED `014ae93fd` (2026-09-18)
+
+`buildArgIfaceLayout` (`pkg/binate/vm/lower_slots.bn`) + the `argSubstBytes` temp-growth
+accounting (`lower_max_temp_growth.bn`) capped interface-arg vtable-substitution recording
+at `slot < 7` — the a0..a6 shim limit the call_packed migration (`9574f14ce`) removed,
+widening the cross-mode dispatch buffer to 64 slots. So a bytecode-impl interface value
+passed as an arg at slot ≥ 7 to an injected-native callee kept its raw VM-index vtable word
+(unsubstituted) → the callee dispatched/RefDec'd through an index it can't dereference — a
+silent cross-mode miscompile. Fix removes both caps (records/counts every slot; the
+`n + 1 > len(callArgs)` dispatch guard is the sole bound, enforced at dispatch time) + the
+now-dead slot counter. Regression test `TestArgIfaceLayoutRecordsIfaceArgPastSlot7` (fails
+capped, passes fixed). Adversarial review: land-as-is — verified no out-of-bounds (only the
+iface-method path uses the 64-slot buffer, guarded before substitution; func-value/extern
+paths write the register file), over-count is a reservation size (safe), test non-vacuous;
+applied its one stale-comment MINOR. Validated: vm units, conformance builder-comp-int
+3025/0, hygiene 20/20. The review also found the SIBLING `...*any` slice-of-raw-iface
+`slots < 7` cap (same failure mode, needs a per-slot list not a widened bitmap) — filed
+MAJOR + claimed separately (claude-todo.md, cross-mode section).
+
 ### Dtor/copy name-mangling: FULLY INJECTIVE — DONE (F1+F2 `94777c23c`, F3+anon `3978b9bd1`, 2026-09-18)
 
 `dtorTypeSuffix` (`ir/gen_dtor.bn`) encoded a NESTED struct by bare leaf name, making the
