@@ -5,6 +5,28 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ---
 
+## Release blockers (0.0.16)
+
+### arm32 native/common Unit failures — `TestAggLoadNotElidableSAdjacentTooLarge` + `TestCEntryNarrowStackArgNoThunk` — 🟡 IN PROGRESS (claimed 2026-09-19, temp-5/session) (2026-09-19)
+
+`builder-comp_arm32_linux` Unit is RED: `pkg/binate/native/common` fails
+`TestAggLoadNotElidableSAdjacentTooLarge` and `TestCEntryNarrowStackArgNoThunk`.
+PRE-EXISTING (already red before the irgen extraction `ff5f6ef2f`; observed on the
+`vm: carry cross-mode` commit too) and previously UNTRACKED. This is the NATIVE arm32
+backend's shared descriptor/emit layer — a real codegen/emit defect, NOT an infra
+flake nor an xfail'd can't-run-in-this-config case. Per the updated release-process
+policy (a real native-backend failure on ANY of aa64/x64/arm32 is release-blocking,
+Unit included), this **blocks the 0.0.16 release**. The LLVM ffi-export fix
+(`4579568c8`) is unrelated. `TestCEntryNarrowStackArgNoThunk` is a c_export `__c_entry`
+narrow-stack-arg / no-thunk case on the NATIVE side — thematically adjacent to the LLVM
+c_export narrow-arg ABI work but a separate (native) code path. Needs root-cause + fix.
+
+Also to confirm-or-classify while here (per the updated policy, every red must be a
+proven flake or a tracked accepted limitation): `builder-comp_native_x64` Unit timed
+out (SIGTERM/143 — likely slow qemu, confirm it's infra); `builder-comp_arm32_baremetal`
+Unit shows expected XFAILs plus a `pkg/binate/repl` fail (matches the known transient
+native-codegen repl flake — confirm it clears on a clean base).
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never

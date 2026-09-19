@@ -318,16 +318,41 @@ Don't forget.
 
 ## Pre-existing failures vs release-blockers
 
-CI shows some persistent pre-existing failures (e.g. `-int` /
-`-int-int` modes, native-aa64 capture tests).  These are tracked
-in `claude-todo.md` and predate the release work.  They do **not**
-block cutting a release — the release CI checks that the bundle
-*builds*, not that every conformance mode passes against it.
+CI shows some persistent pre-existing failures.  Only a NARROW set is
+genuinely non-blocking, and each must be positively identified as such
+before you rely on it:
 
-What WOULD block: failures in `Code hygiene`, `E2E tests`, or
-`Conformance tests` on modes where bnc-0.0.<prev> was green.  If a
-release-prep commit introduces a NEW failure (especially on a `-comp*`
-mode), fix that before tagging.
+- **Transient infrastructure flakes** — a `fetch-builder` download that
+  `Connection reset`s / 404s, a runner timeout (job killed, SIGTERM /
+  exit 143).  Re-run and confirm it clears; do not accept a persistent
+  red as "flaky."
+- **Explicitly-tracked, accepted limitations** — tests that genuinely
+  cannot run in a given configuration and are marked `.xfail.<mode>`
+  (e.g. host-filesystem/subprocess tests under bare-metal QEMU
+  semihosting, or the VM legs `-int` / `-int-int`), tracked in
+  `claude-todo.md`.
+
+These do not block a release — the release CI checks that the bundle
+*builds*, not that every mode passes.  **Everything else blocks.**  In
+particular:
+
+- **A real (non-flake) native-backend failure on ANY of the three
+  architectures — aa64, x64, or arm32 — is a RELEASE BLOCKER, INCLUDING a
+  Unit-test failure.**  The three arches are equally important and the
+  native backends are the goal (the clang/LLVM path is a stopgap), so a red
+  on a `native_*` / `-comp_native_*` mode — Unit, conformance, or e2e —
+  must be root-caused and fixed before tagging.  Do NOT wave one off on the
+  technicality that "Unit isn't a release gate": that carve-out is for the
+  narrow set above, not for a genuine native-codegen defect.  (This rule
+  exists because real arm32 `pkg/binate/native/common` Unit failures were
+  once about to be classified non-blocking on exactly that technicality.)
+- Failures in `Code hygiene`, `E2E tests`, or `Conformance tests` on any
+  mode that bnc-0.0.<prev> passed.
+
+Before tagging, confirm each remaining red is EITHER a proven infra flake
+OR an explicitly-tracked accepted limitation — never a real native-backend
+defect.  If a release-prep commit introduces a NEW failure (especially on a
+`-comp*` / `native_*` mode), fix that first.
 
 ## BUILDER-skew traps
 
