@@ -1,7 +1,9 @@
 # Plan: free the method-value closure record (VM `*func` rec leak)
 
-Status: PLAN (claimed work-2, 2026-09-18). Tracks the "VM leaks the
-per-CAPTURING-func-value closure record" item in claude-todo.md.
+Status: DONE — LANDED `6e6796138` (2026-09-18).  The VM-only "frame-home the
+record" approach (see "IMPLEMENTED" below) fixed the raw `*func` rec leak and
+folded in FINDING 2 (the wrapper `__copy`-call pad); the compiled backends are
+byte-for-byte untouched.  The tracked item has moved to claude-todo-done.md.
 
 ## Root cause (confirmed empirically)
 
