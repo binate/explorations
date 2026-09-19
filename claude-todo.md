@@ -55,7 +55,7 @@ confirms the new test catches the bug; Docker linux/amd64 e2e `ffi-export` = **1
 / 0 failed** (was 7/6). Hygiene 20/20. Adversarial-reviewed clean w.r.t. the SSE fix
 itself (it surfaced the separate pure-GP sibling below).
 
-### MAJOR: `#[c_export]` thunk mis-forwards a PURE-GP aggregate in the C-memory / internal-register quadrant — invalid LLVM IR (clang-rejected) — 🔴 OPEN (2026-09-19)
+### MAJOR: `#[c_export]` thunk mis-forwards a PURE-GP aggregate in the C-memory / internal-register quadrant — invalid LLVM IR (clang-rejected) — 🟡 IN PROGRESS (claimed 2026-09-19, temp-5/session) (2026-09-19)
 
 Sibling of the ffi-export SSE bug above — same failure class, the DIFFERENT (pure-GP)
 row of the same quadrant. Found by adversarial review of the SSE fix. x86-64/SysV LLVM
