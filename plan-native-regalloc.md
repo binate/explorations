@@ -527,76 +527,61 @@ miscompile — plus native/common unit tests):**
 **Composes with a later X9–X13 arg-bank-SCRATCH pass** (frees ~3 more homes → ~21 total, ~55%)
 and with **interval splitting** for the ≥27-pressure third (~33%) that no home count can cover.
 
-### Stage 5d debugging state (2026-09-19, work-4/temp-4) — residual gen2-native miscompile, NOT landable
+### Stage 5d residual miscompile — ROOT-CAUSED AND FIXED (2026-09-19, work-4/temp-4)
 
-Committed on branch `temp-4` at `d86744330` (arg-bank homes X0–X7 + parallel-move marshalling
-at all sites + `emitStringToArray` X0→X16 fix + `common.PlanParallelMove` + unit tests).
+The native self-compile hang (below) was a **register-allocator bug in `spansClobber`**, fixed
+on branch `temp-4` at `9b9edd930` (a standalone allocator commit, no file overlap with the
+arg-bank commit `6bf481432`, so it can land first / independently).
 
-**Verified GOOD:**
-- Native aa64 conformance **3039/0**.
-- **Allocation is SOUND.** A precise per-instruction-liveness check (a throwaway probe in
-  `AllocateRegisters`: for each caller-saved home, flag it if the value is live BOTH
-  immediately-before AND immediately-after a clobber via `ComputeLiveBeforeAll`) found **ZERO**
-  caller-saved homes spanning a clobber across all of cmd/bnc.  So the bug is NOT a
-  spansClobber/interval misclassification.
-- **Spill win real:** `livenessFixpoint` scalar stores-to-stack 123→9 (LLVM 5), disasm-confirmed.
-- **gen3-native is CLEAN + gen-stable:** a native bnc built as (build-bnc.sh LLVM final) then
-  `--backend native --linker bnld` self-compiles cmd/bnc in ~11 s / 510 MB peak, repeatedly, and
-  reproduces itself.  Codegen is deterministic (two builds of cmd/bnc differ by ONE benign
-  path byte).
+**Root cause (disassembly-confirmed).**  A value LIVE-IN to a block has its live-range `Start`
+clamped to the block-entry position (`BlockFrom[b]`), which is the same linear position as the
+block's FIRST instruction.  When that first instruction is a clobber (a call), `spansClobber`'s
+guard `if p <= Start { continue }` treated the value as *born at the clobber* (Start == clobber
+position) and cleared it to NOT span — even though a parameter (or any live-through value) is born
+EARLIER and genuinely spans the call.  The allocator then handed it a **caller-saved register**,
+which the call destroys.  Silent miscompile.
 
-**RESIDUAL BUG (blocks landing):**
-- **gen2-native** — `BUILDER → gen1 (LLVM) → --backend native` — the generation the perf harness
-  AND the `builder-comp_native_aa64-comp_native_aa64` conformance mode use — **reliably hangs**
-  self-compiling cmd/bnc: peaks ~2.9–3.4 GB inside `Assembler.Fill` (a huge byte count), confirmed
-  on a quiet 57%-free machine (NOT memory pressure).  Sample stack:
-  `main → … → native.EmitObject → EmitPkgSatFrag → EmitDataGlobal → emitDataTerm → Zero → Fill`
-  i.e. `Zero(t.Width)` with a garbage `t.Width`.
-- **Deterministic per generation:** clean gen2-native hangs (two independent builds identical &
-  both hang); gen3-native is clean; an *instrumented* gen2 did NOT hang (instrumentation perturbs
-  it).  So it is **undefined behavior in the source** that BUILDER's front-end lowers into a
-  harmful gen2-native but gen1's front-end lowers benignly into gen3-native — exposed by the
-  arg-bank flip.  Note: `EmitDataGlobal` / `emitDataTerm` / `BuildSatFragFallback` all disassemble
-  as CORRECTLY compiled in the buggy binary (t/dg/i/w in callee-saved regs, width=24), so the
-  garbage `Width` is *built wrong* by some other data-builder whose compiled code is the
-  miscompile — not the emit path.
+Confirmed in `irdata.DataZero(n)` (`var t = make(DataTerm); t.Kind = DT_ZERO; t.Width = n`): `n`
+was homed in **X7** (arg bank), the opening `make()`→`rt.Alloc` (OP_MAKE, position == n's range
+Start) clobbered X7, and the stale X7 (Alloc left the new object's header pointer `t-0x10` in it)
+was stored as `t.Width`.  lldb dump of the corrupted DataTerm: `Kind=3` (DT_ZERO, correct),
+`Bytes`/`IntVal`/`Sym`/`Addend` all null (correct), **`Width = t-0x10`** (a pointer) — a
+single-field corruption, not whole-object UAF.  The garbage width drove the multi-GB `Assembler.Fill`.
 
-**Preserved artifacts (scratchpad, may be needed post-compaction):**
-`gen2_buggy_nvl_lmWYIW` / `gen2_buggy_nvl_kEZTSA` = the buggy gen2-native WITH symbols (5072 T);
-`fix.bin` = clean gen3-native; `bnc_fix3` = LLVM bnc.  (Rebuild gen3: `scripts/build-bnc.sh -o L`
-then `L --backend native --linker bnld -o fix.bin <IP/LP> cmd/bnc`.)
+**Why the earlier notes were wrong.**  This section previously claimed "Allocation is SOUND — a
+precise per-instruction BADHOME check found ZERO caller-saved homes spanning a clobber" and "the
+bug is NOT a spansClobber/interval misclassification."  Both were **false** — the BADHOME probe
+shared `spansClobber`'s blind spot (a live-in value whose block opens with the clobber has
+`Start == clobber pos`, so a birth-vs-live-in test keyed on `Start` misses it), a textbook case of
+an assertion and the allocation sharing one buggy predicate (the exact failure the "drive the
+bring-up assertion INDEPENDENTLY" note warns about).  The "runtime UAF / premature `emitRefDec`"
+and "source UB that BUILDER lowers differently than gen1" hypotheses were also wrong: the value in
+`Width` was `t-0x10` because a clobber-spanning caller-saved home was read back after the call, not
+because anything was freed.  (gen2-native hung and gen3-native did not simply because they were
+built from different source trees at different points, not because of a generation-specific
+front-end difference.)
 
-**REFINED ROOT-CAUSE DIRECTION (2026-09-19, via lldb on the buggy binary):**  It is a runtime
-**memory bug (use-after-free / premature RefDec), NOT a codegen-constant bug.**
-- Hang site is `emitDataTerm+1080` = the **DT_ZERO `a.Zero(t.Width)`** path (confirmed by return-
-  address offset; the OTHER Zero call at +648 is the symref-null `Zero(a.WordSize)` path — not it).
-- `t.Width` is garbage ≈ 0xb0000000-scale (→ the ~2.9 GB `Fill`), and it **varies per run**
-  (ASLR-dependent) — the signature of reading freed/uninitialised memory, not a wrong constant.
-- Every function that BUILDS or EMITS this term disassembles as CORRECT in the buggy binary:
-  `GetTarget` copies all 6 words incl IntSize@+8; `BuildSatFragFallback` does `x28=IntSize`,
-  `mul #3`, `DataZero(3*w)` → 24; `EmitDataGlobal`/`emitDataTerm` read dg/t from callee-saved regs.
-  So the DataTerm's `Width` field is **corrupted at runtime after construction** — the managed
-  DataTerm (or a temporary aliasing it, or `fb.Init`) is freed early and its memory reused.
-- Tellingly, `emitDataTerm+1084` (the instruction right after the hung `bl Zero`) is a
-  `__handle.__dtor_Assembler` RefDec (`cbz`+dtor-handle) — this DT_ZERO branch does refcount
-  cleanup, so the sat-emit path is refcount-active.
-- This fits: the arg-bank flip changed codegen so a **RefDec fires on a wrong/clobbered managed
-  pointer** (freeing random memory that happens to back a live DataTerm), or a cleanup RefDec
-  fires early.  The precise per-instruction BADHOME check found no caller-saved home *spanning* a
-  clobber — but a RefDec that reads a *dead-but-arg-bank-homed* managed pointer whose home was
-  reused, or `emitRefDec`'s new parallel-move for {ptr,dtor}, is a *different* failure not covered
-  by that check.  (`emitRefDec` was changed in this branch — prime suspect to re-audit.)
+**The fix.**  Key the birth test on the value's true DEFINITION position (`DefPos`), not its range
+`Start`.  `DefPos` is the defining instruction's position, or `-1` for a parameter (no in-function
+def).  A clobber `P` is a birth only when `P == DefPos`; a parameter's `DefPos` is never a clobber
+position, so it correctly spans.  Only the clobber sitting exactly at `Start` is reclassified —
+every other clobber keeps the prior `Covers(P+1)` test, so holed / loop-carried intervals are
+untouched.  `LiveInterval` gains a `DefPos` field (populated in `BuildIntervals`); a regression
+test (`TestScanSpansClobberLiveInAtBlockStart`) covers the live-in-at-block-start case.
 
-**NEXT STEPS:**
-1. Re-audit `emitRefDec` (aarch64_refcount.bn) and the OP_REFDEC clobber/liveness handling under
-   arg-bank homes — a RefDec on a garbage ptr frees random memory → exactly this corruption.
-2. lldb the hung buggy binary: at frame #2 read `t=[sp2+0x28]` then `[t+0]` (Kind) and `[t+0x28]`
-   (Width) — if the WHOLE DataTerm is garbage (Kind too) it's a full-object UAF; if only Width,
-   it's field-adjacent corruption.  (Note: values are per-run/ASLR — capture in one attach.)
-3. Consider a compiler-side "NEVER leak / no RefDec on a non-owned or clobbered managed value"
-   invariant check.  Always run gen2-native compiling cmd/bnc **capped** (kill at ~3.5 GB RSS);
-   `sample <pid>`/`lldb -p <pid>` on the hung proc.
-Preserved buggy binary: scratchpad `gen2_buggy_nvl_lmWYIW` (== `_nvl_kEZTSA`, identical, 5072 syms).
+The misclassification was **inert on main** (empty `CallerSaved` ⇒ span-vs-not both reduce to
+callee-saved), which is why it never bit before the arg-bank home pool made caller-saved homes
+real — and why the fix is a safe no-op to land ahead of the arg-bank commit.
+
+**Verified GOOD after the fix:**
+- `DataZero`'s `n` now homed in **X28** (callee-saved, prologue-saved) and survives `rt.Alloc` —
+  disassembly-confirmed.
+- Native aa64 self-compile of cmd/bnc: gen2-native → gen3 completes in ~10 s (was: 3.6 GB balloon,
+  killed at 48 s).  gen3 → gen4 completes in ~14 s; gen3 and gen4 are byte-identical except the
+  Mach-O ad-hoc code-signature identifier (derived from the output filename) — a true
+  self-compilation fixpoint on the actual code/data.
+- `pkg/binate/native/common` unit tests pass (incl. the new regression test).
+- (Native aa64 conformance run in progress at time of writing — record result on completion.)
 
 ## Correctness & validation (miscompile is the top risk)
 
