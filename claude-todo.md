@@ -29,9 +29,17 @@ IR clang-18 rejects. **ubuntu/x86-64 only** — `ffi-export` on macos + `arm32-f
 2026-09-18 triage** (which observed `bigagg-llvm` PASSING on `7989641b1`); the culprit
 is one of the ~intervening commits (no obvious `--pkg`/facade/LLVM-c_export commit in
 the last 25, so needs a bisect). Distinct from Bug B (that was the native trampoline).
-Root cause OPEN: the exact clang diagnostic is swallowed by the CI log and it does not
-reproduce on a macOS host — needs the preserved `.ll` or an x86-64 environment.
-Blocks the `ffi-export` E2E gate for 0.0.16.
+**Root cause (Docker-reproduced, linux/amd64 + clang 18.1.3):** bnc emits INVALID LLVM
+IR — `ffiexp.ll: error: '%ca13' defined with type 'ptr' but expected '[2 x i64]'` in the
+`@bn_…BigClobber(…)` call: the mixed `FfiMix{i64,f64}` aggregate arg (`%ca13`) is DEFINED
+as `ptr` but the call site declares it `[2 x i64]`, so clang rejects the module. The LLVM
+counterpart of Bug B (same `ffi_bigmix` SysV SSE-split signature; the native side was
+`a9fbb3e5b`) — the c_export facade's mixed-aggregate arg coercion emits a ptr value into a
+`[2 x i64]`-typed call param. x86-64/SysV only. Repro: `docker run --platform linux/amd64
+-v <worktree>:/repo:ro ubuntu:24.04` → apt install clang → `./e2e/ffi-export.sh` (gen1
+builds emulated, slow). The `tail -5`→`tail -40` harness fix (`72dd73645`) is what makes
+the diagnostic visible in CI. Blocks the `ffi-export` E2E gate for 0.0.16; likely belongs
+with the c_export SSE-split LLVM work (`b2b2d272f`).
 
 ## Performance
 
