@@ -41,6 +41,65 @@ builds emulated, slow). The `tail -5`→`tail -40` harness fix (`72dd73645`) is 
 the diagnostic visible in CI. Blocks the `ffi-export` E2E gate for 0.0.16; likely belongs
 with the c_export SSE-split LLVM work (`b2b2d272f`).
 
+**SSE fix VALIDATED (pending land), temp-5/session (2026-09-19).** Corrected root
+cause: the clang-rejected `%ca13` is NOT `FfiMix` — it is `ff FfiVec2d{x,y float64}`, a
+2×double SSE-class aggregate the SysV C ABI spills to MEMORY (`ptr byval %ca13`, its XMM
+file exhausted) while the internal define takes it SSE-SPLIT (`double, double`). The
+c_export thunk's forward pass had no case for this "C-memory / internal-register"
+quadrant, so it fell to the generic `else` and emitted `[2 x i64] %ca13` on a `ptr`.
+Fix (3 files, +136): `cExportThunkParamCMemInternalSse` classifier + `sysvWriteThunkCMem
+SseLoad`/`Args` (load each eightbyte from the byval ptr, forward SSE-split) +
+`TestEmitCExportThunkCMemInternalSseX64`. Validated: fixed IR byte-matches the internal
+define; macOS+linux clang-18.1.3 both accept it; codegen units green; revert-check
+confirms the new test catches the bug; Docker linux/amd64 e2e `ffi-export` = **13 passed
+/ 0 failed** (was 7/6). Hygiene 20/20. Adversarial-reviewed clean w.r.t. the SSE fix
+itself (it surfaced the separate pure-GP sibling below).
+
+### MAJOR: `#[c_export]` thunk mis-forwards a PURE-GP aggregate in the C-memory / internal-register quadrant — invalid LLVM IR (clang-rejected) — 🔴 OPEN (2026-09-19)
+
+Sibling of the ffi-export SSE bug above — same failure class, the DIFFERENT (pure-GP)
+row of the same quadrant. Found by adversarial review of the SSE fix. x86-64/SysV LLVM
+facade only; **PRE-EXISTING** (the buggy forward `else` is byte-identical on HEAD, predates
+the SSE work) and untracked until now. **NOT currently CI-reddening** — no existing test
+(incl. the ffiexp facade) drives a pure-GP aggregate into this quadrant, so it is LATENT;
+per the user's "not being CI-exercised is not a reason for something to not be a blocker
+— that just indicates a test gap," it needs a test (below). Still a valid `#[c_export]`
+program that fails to compile (hard module break) → MAJOR.
+
+Root cause: an x86-64 ≤16-byte PURE-GP (integer-only) aggregate param can be C-ABI
+MEMORY-class (arrives `ptr byval %ca<i>`) while the internal define takes it REGISTER-class
+(`[N x i64]`). The forward pass has no case for this and falls to the final `else`
+(`emit_cexport_thunk.bn` forward loop), emitting `[N x i64] %ca<i>` on a `ptr` value →
+`error: '%ca<i>' defined with type 'ptr' but expected '[N x i64]'`, failing the whole
+module. The SSE fix (`cExportThunkParamCMemInternalSse`, gated on `SysVInSse`) covers only
+the SSE row; the GP row is unfixed. The same `else` also mis-forwards first-class 2-word
+aggregates (slice / iface-value / func-value) if positioned into this quadrant
+(`%BnSlice %ca<i>` on a byval ptr).
+
+Why reachable for pure-GP (the "internal-GP ≥ C-GP" intuition is NOT airtight): a >16-byte
+agg makes internal-GP lead C-GP by 1 (internal by pointer, C in memory); then a
+2-GP-eightbyte agg that is C-register / internal-memory makes C-GP OVERSHOOT internal-GP
+(C spends 2 GP, internal spilled → 0); then a following 1-eightbyte GP agg lands C-memory
+/ internal-register.
+
+Repro (clang-confirmed, `--target x86_64-linux`):
+
+    type Big struct { a int64; b int64; c int64 }   // >16
+    type GG  struct { a int64; b int64 }            // C-reg / internal-mem
+    type H   struct { a int64 }                     // index 6: C-mem / internal-reg
+    #[c_export("t_gp")]
+    func TGP(big Big, a int64, b int64, c int64, d int64, gg GG, h H, z int64) int64 { return h.a }
+
+  → thunk `ptr byval(%H) %ca6`; internal `[1 x i64] %v6.ag`; forward `[1 x i64] %ca6`
+  → clang: `'%ca6' defined with type 'ptr' but expected '[1 x i64]'`.
+
+Proposed fix: mirror the SSE fix — a `cExportThunkParamCMemInternalGp` classifier +
+`sysvWriteThunkCMemGpLoad`/`Args` that load each `[1 x i64]` eightbyte from the byval ptr
+and forward the coerced value; cover the 2-word first-class-aggregate case too. Bug-
+Discovery-Protocol test: a codegen unit test asserting the correct GP forward (xfail'd
+until fixed) + an e2e facade that drives a pure-GP aggregate into the quadrant (the current
+ffiexp facade does not). Test addition deferred pending the fix-now-vs-track decision.
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
