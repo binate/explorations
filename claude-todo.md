@@ -92,7 +92,21 @@ CORRECTION 2026-09-08):
    (callee-saved; `CallerSaved` EMPTY) vs LLVM's ~27-register file; plus a large
    aggregate/slice-header-copy component (SROA, work-1).
    🟡 IN PROGRESS — **caller-saved homes in the ARG BANK X0–X7 via parallel-move
-   (Stage 5d)**, claimed 2026-09-18, work-4/temp-4.  (Measured floors killed the
+   (Stage 5d)**, claimed 2026-09-18, work-4/temp-4.
+   **UPDATE 2026-09-19:** arg-bank homes committed (`temp-4` `6bf481432`, rebased onto
+   current main incl. the guards refactor + the DivCheck/BoundsCheck parallel-move port).
+   The native self-compile hang that blocked it was **root-caused + FIXED** — it was a
+   register-allocator bug in `spansClobber`, NOT a runtime UAF / emitRefDec issue (the
+   earlier hypothesis was wrong): a live-in parameter whose block OPENS with a call had its
+   range Start == the clobber position, so the birth guard `p <= Start` misclassified it as
+   non-spanning and homed it in caller-saved X7, which the call destroyed (confirmed in
+   `irdata.DataZero`: `n` in X7 across `rt.Alloc`, garbage `t.Width` → multi-GB
+   `Assembler.Fill`).  Fix keys the birth test on `DefPos` not `Start` (`temp-4` `9b9edd930`,
+   independent of the arg-bank commit, inert on main).  Verified: native self-compile
+   completes ~10s + gen3→gen4 fixpoint; native aa64 conformance 3040/0; allocator unit tests
+   + new regression pass; `DataZero` `n` now callee-saved (X28), disasm-confirmed.  REMAINING:
+   adversarial review (in flight) → land `9b9edd930` then `6bf481432` (per-instance approval)
+   → measure the ratio.  (Measured floors killed the
    X9–X15-static-partition idea: it caps at ~2–3 homes / ~15% because X9–X15 is also the
    scratch pool.  The lever is the idle arg bank X0–X7 as caller-saved homes → ~18 homes,
    ~40% of the spill cost — "Stage 5a done right": keep the X0–X7 homes 5a had, but marshal
