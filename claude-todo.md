@@ -26,6 +26,19 @@ can't find the handle symbol → 193 passed, **1 failed** in
 Fix: update the hardcoded strings to the new mangling
 (`bn_F1_4_main1_9___dtor_1T`). Test-only change.
 
+**Same regression, two MORE unclaimed red unit tests (broader than the aarch64
+slice above) — 🟡 IN PROGRESS (claimed 2026-09-18, work-1/session).** The identical
+stale symbol `bn_F1_4_main1_8___dtor_T` (derived struct dtor of `type T`) is also
+hardcoded in `pkg/binate/native/arm32/arm32_iface_test.bn`
+(`TestEmitImplVtableSlot0IsHandleNotRawFn`, 2 assertions + 2 comment refs) and
+`pkg/binate/codegen/emit_impls_test.bn`
+(`TestEmitImplVtableDtorSlotForManagedReceiver`, 5 assertions), so both packages
+are red the same way (`3978b9bd1` ran conformance, not codegen/native unit tests).
+work-1 (the author of `3978b9bd1`) takes these two; work-6 keeps aarch64. Same
+mechanical fix (leaf byte `8`→`9`, `T`→`1T`). Root cause of the miss: the
+sweep-site enumeration for the mangling rename dismissed the native/codegen iface
+tests as "literal `__dtor_T`" when they compile a real `struct T` (derived symbol).
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
