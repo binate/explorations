@@ -41,6 +41,17 @@ mangler-critical adversarial review clean.  Plan: done/plan-dtor-mangle-injectiv
   the aarch64 unit suite.  Fix updated the seven hardcoded occurrences to the new mangling
   (test-only, assertion shape unchanged).
 
+- **Follow-up (companion) — the SAME `3978b9bd1` staleness also reddened `native/arm32` and
+  `codegen` unit tests, FIXED `01edcd04d` (2026-09-18):** the identical derived-`T` dtor
+  symbol is hardcoded in `arm32_iface_test.bn` (`TestEmitImplVtableSlot0IsHandleNotRawFn`, 6
+  occurrences incl. 2 doc comments) and `emit_impls_test.bn`
+  (`TestEmitImplVtableDtorSlotForManagedReceiver`, 5 occurrences), so both packages were red
+  the same way as aarch64.  Updated to `bn_F1_4_main1_9___dtor_1T` (test-only, assertion shape
+  unchanged); both packages verified green (builder-comp).  Root cause of the miss: the
+  mangling-rename sweep dismissed the native/codegen iface tests as literal `__dtor_T` when
+  they compile a real `struct T` (derived symbol) — the repo-wide grep should have keyed on the
+  derived symbol, not the source spelling.
+
 ### SROA line COMPLETE — IR-level aggregate scalar-replacement (the #1 native↔LLVM gap lever) — DONE (2026-09-18)
 
 The IR-level SROA pass (`pkg/binate/ir/sroa*.bn`, wired into `RunOptPasses`) — the

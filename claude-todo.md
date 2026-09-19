@@ -14,19 +14,6 @@ Regressions introduced in the 0.0.16 candidate range (since `bnc-0.0.15`,
 link error (e2e) are resolved; the E2E cluster below is what a triage of the last
 completed E2E run (`7989641b1`) found still red.
 
-**Same regression, two MORE unclaimed red unit tests (broader than the aarch64
-slice above) — 🟡 IN PROGRESS (claimed 2026-09-18, work-1/session).** The identical
-stale symbol `bn_F1_4_main1_8___dtor_T` (derived struct dtor of `type T`) is also
-hardcoded in `pkg/binate/native/arm32/arm32_iface_test.bn`
-(`TestEmitImplVtableSlot0IsHandleNotRawFn`, 2 assertions + 2 comment refs) and
-`pkg/binate/codegen/emit_impls_test.bn`
-(`TestEmitImplVtableDtorSlotForManagedReceiver`, 5 assertions), so both packages
-are red the same way (`3978b9bd1` ran conformance, not codegen/native unit tests).
-work-1 (the author of `3978b9bd1`) takes these two; work-6 keeps aarch64. Same
-mechanical fix (leaf byte `8`→`9`, `T`→`1T`). Root cause of the miss: the
-sweep-site enumeration for the mangling rename dismissed the native/codegen iface
-tests as "literal `__dtor_T`" when they compile a real `struct T` (derived symbol).
-
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
@@ -742,7 +729,6 @@ follow-ups above (blocked on the shim relocation, not `main`).
 
 ## Build constraints (`#[build(EXPR)]`)
 
-
 ### Build constraints (`#[build(EXPR)]`) — deferred follow-ups (arch/os MVP landed) — 🟡 OPEN
 The `#[build(EXPR)]` arch/os MVP is landed at all four granularities (file / decl / import / `.bni`),
 host-default config overridable per `--target`, through `c7249552` (conformance 731/733/735/736/737/746/747);
@@ -752,7 +738,6 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
   (The **`version`** slice is now designed + planned — see the dedicated entry below.)
 - `bnlint --target`; main-module gating; migrating the `impls/` duplicate trees onto constraints.
 - The separate inline-asm (`#[asm]`) doc that composes with this substrate.
-
 
 ### Include a `#[build]`-gated assembly file as part of a package (so `bnc -c` output is self-contained) — 🔵 OPEN (2026-09-18)
 
@@ -1767,7 +1752,6 @@ them (the ABI spec was authored from the code, not these):
   branch) appears unreachable — all callers are behind isAggregateReturn,
   which is true for every AggRetCoerced result; comment contradicts
   abi_return.bn. Verify + delete or fix.
-
 
 ### Use interfaces more (where an interface is the best/natural design)
 - **Framing (2026-07-16)**: the bar is NOT "opportunistic / cheap
