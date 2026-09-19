@@ -1,8 +1,10 @@
 # Plan: native aggregate-copy load→store fusion (eliminate redundant intermediate buffers)
 
-Status: LANDED — both shapes on `main`: S-alloca `c3345fbac`, S-adjacent `6a1b5b6a7`.
-Remaining open item: measure the copy-traffic reduction (see `claude-todo.md`).
-Owner: temp-5 (2026-09-15). Two adversarial reviews shaped it:
+Status: DONE — both shapes landed on `main` (S-alloca `c3345fbac`, S-adjacent
+`6a1b5b6a7`) and the copy-traffic reduction is now measured (see §4 "Measure").
+On the cmd/bnc native (aa64) self-compile the fusion elides 5,839 of 41,254
+aggregate-load materializations (14.2%), removing ~131.5 KB of redundant src→temp
+copy traffic (8.7% of aggregate-copy bytes).  Two adversarial reviews shaped it:
 - Review 1 (design) found a CRITICAL first-draft error — the condition was framed as
   lifetime-only, but an aggregate load is a *snapshot*, so a source *written* between
   load and use (the `a, b = b, a` swap idiom) corrupts too. The predicate now carries
@@ -249,9 +251,25 @@ non-S-alloca source we assume nothing (S-adjacent bars every store/call/refdec).
 escape whitelist is the single most safety-critical piece — it must be a whitelist
 (default-escapes), never a blacklist.
 
-**Measure** after landing: static count of elided aggregate-load materializations and
-N-vs-L memory-op ratio on the cmd/bnc self-compile (todo's "measure the traffic
-reduction").
+**Measure** (done 2026-09-18) — cmd/bnc native aa64 self-compile
+(`gen1 --backend native … cmd/bnc`), aggregate `OP_LOAD` sites tallied at the
+`AggLoadElidable` decision in `PlanFrame`:
+
+- **Elided materializations:** 5,839 of 41,254 aggregate loads (**14.2%**) skip
+  their private region and alias the source — each removes one full-width src→temp
+  copy (the `src->temp` half of `src->temp->dst`).
+- **Copy-traffic bytes:** of 1,503,368 aggregate-copy bytes considered, **131,536
+  (8.7%)** of src→temp copy is removed.
+- The count fraction (14.2%) exceeds the byte fraction (8.7%): elided loads skew
+  toward SMALLER aggregates — the confined-stack-alloca `b = a` / `b.s = a` copy
+  shapes (S-alloca) are typically small structs, while large aggregates more often
+  fall to a barrier (a store/call/refdec between load and use) and keep
+  materializing.
+
+Method: a throwaway per-decision stderr tally in `AggLoadElidable` (reverted after
+measuring); deterministic across two runs.  The elision is native-only, so the
+figures are the redundant-copy traffic this pass removes from native codegen; the
+LLVM backend never emitted it.
 
 ## 5. Validation strategy
 
