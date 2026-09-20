@@ -651,3 +651,84 @@ A wrong assignment is a **silent** wrong-register read. Front-load validation:
 
 Float register allocation, interval splitting, copy coalescing, graph-coloring, arm32
 int64-in-registers, reclaiming x64 RCX/RDX — all Stage 5, additive on this foundation.
+
+## Stage 6 — interval splitting (call-spanning values): DESIGN (2026-09-19, work-4/temp-4)
+
+Claimed as claude-todo item 2b.  Design first; discuss the approach + expected payoff before
+implementing (this section is that design).
+
+### Where the cost is, and what "splitting" would capture
+
+Stage 5d homed the NON-call-spanning values in the arg bank (X0–X7) — measured ~75% of the
+loop-weighted spill cost — and moved the self-compile ratio 3.10×→2.89× (median).  The remaining
+~25% of spill cost is values LIVE ACROSS a call.  Those either (a) win one of the ≤10 callee-saved
+homes (X19–X28) — best case, one prologue/epilogue save + free reads everywhere — or (b), when that
+pool is exhausted, fully SPILL: they live in a stack slot and `getOperand` reloads them on use.
+
+Crucial nuance about (b): a spilled value is NOT reloaded on *every* textual use.  The within-block
+retention cache (aarch64_regmap.bn `allocReg`/`getOperand`/`LookupReg`) reloads it into a scratch
+pool reg (X9–X15) on first use in a block and reuses that reg for subsequent uses in the SAME block,
+dropping the cache at (i) any clobber op (call) and (ii) every block boundary.  So the reload
+frequency a spilled call-spanning value actually pays is roughly "once per (block ∩ call-free)
+region," not once per use.  **Interval splitting's incremental win over what already exists is
+therefore only: (1) carry the value in a register ACROSS block boundaries within a call-free region
+(the cache drops at every block end today), and (2) give it a DEDICATED register so it isn't evicted
+by op-scratch pressure — reloading only across actual calls.**  That is a fraction of the 25%.
+
+### The architectural constraint
+
+The emitter resolves an operand to a location in exactly two modes (aarch64_regmap.bn):
+- HOME: `LookupHome(id)` → ONE stable physical reg for the value's WHOLE interval (callee-saved or,
+  since 5d, arg bank).  No reload, no per-point variation.
+- SPILL: slot + reload-on-use + within-block cache.
+`AllocateRegisters` maps each LinearScan assignment to a single (id→reg) home or leaves it spilled.
+There is no per-program-point location.  Real interval splitting breaks the "one location per value"
+assumption, which is baked into `LookupHome` and every `getOperand`/`nextReg` caller.
+
+### Options
+
+**A. Full per-point splitting (Wimmer/LLVM style).**  Split each interval's range-list at clobbers
+into sub-intervals; allocate each independently; the emitter resolves a use to the sub-interval
+covering the current position; insert resolution moves (spill/reload) at split points AND reconcile
+locations at block boundaries (a value may be in a reg on one CFG edge and a slot on another).
+Highest fidelity, captures the full 25%.  Cost: a large change to BOTH the allocator (range-list
+splitting, per-range location, boundary reconciliation) and the emitter (position-aware location
+lookup replacing `LookupHome`; a resolution-move pass).  Block-boundary reconciliation is the hard
+part and is genuinely new machinery.
+
+**B. Caller-saved home + per-call-site save/restore ("caller-saved homing").**  Let a spanning value
+take a caller-saved / arg-bank reg for its WHOLE interval (fits the one-reg `LookupHome` model
+unchanged), and have the CALLER save/restore it around each call it spans: `STR R,[slot]` before the
+call's marshalling, `LDR R,[slot]` after.  vs full-spill this reloads only after each CALL (not each
+call-free region boundary) and needs no scratch-cache eviction; vs a callee-saved home it pays a
+save+restore at EACH spanned call instead of once in the prologue.  So B wins when a value spans FEW
+calls but is read MANY times between/around them, and LOSES (vs full-spill or callee-saved) when it
+spans many calls.  The allocator must choose B vs full-spill per value from the spill-cost model
+(uses-between-calls vs number-of-spanned-calls).  Emitter change is moderate: at each clobber site,
+save/restore the caller-saved-homed values live across it (a localized version of the callee-saved
+prologue save).  Captures only the "few spanned calls, dense between-call use" slice of the 25%.
+
+**C. Cross-call-free-region retention.**  Extend the within-block cache to survive block boundaries
+WITHIN a call-free region, with the allocator pinning a dedicated caller-saved reg per hot spilled
+value.  This needs block-boundary location agreement (a value must be in the same reg on all CFG
+edges into a block, or get a reconciliation move) — i.e. it reduces to the hard part of A.  Not
+meaningfully simpler than A once done correctly.
+
+### Recommendation + honest payoff
+
+The measured reality argues for caution: the 75%-of-spill-cost lever (arg-bank homes) moved the
+ratio only 3.10×→2.89×, so **spill is a minor contributor to the 2.89× total** — the bulk is
+instruction selection, aggregate/slice-header copies, and the optimizations LLVM does that the
+native backend does not.  Interval splitting targets the remaining 25% of *spill* cost, of which the
+existing within-block cache already captures the within-block-reuse part — so its realistic ceiling
+is a SMALL ratio move (order 0.05–0.1×, i.e. ~2.89×→~2.8×), for a large (option A) or cost-model-
+delicate (option B) change.
+
+Two honest paths to put to the user:
+1. **Proceed with interval splitting**, starting with **option B** (tractable, fits the home model,
+   directly targets the dense-use / few-spanned-calls slice), measured behind `native-vs-llvm.sh`;
+   escalate to A only if B's measured gain justifies the boundary-reconciliation machinery.
+2. **Redirect** to a higher-value gap component (instruction selection, the aggregate/slice-header
+   copy path) that the 2.89× breakdown suggests dominates — interval splitting stays a lower-priority
+   follow-up.  This is NOT a unilateral deferral: it is a scope question for the user, given the
+   measured evidence that spill is no longer the dominant gap term.
