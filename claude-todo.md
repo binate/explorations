@@ -216,7 +216,7 @@ disassembly analysis (2026-09-19). Full evidence + coordination notes:
 benchmark before/after** — a change that doesn't move it doesn't count. Claim a track by
 flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
 
-- **Track 1 — const int div/mod → magic-number multiply (+ `madd` fusion, `mul ×1` elim) — 🔵 OPEN.**
+- **Track 1 — const int div/mod → magic-number multiply (+ `madd` fusion, `mul ×1` elim) — 🟡 IN PROGRESS (claimed 2026-09-20, work-1/session; checking x64/arm32 equivalents too).**
   `native/aarch64/aarch64_ops.bn` (`OP_REM`/`OP_DIV`/`OP_MUL`) + tests. Self-contained, aarch64.
   Directly on "the gap lives in instruction selection." Bench: fasta (and the compiler). Flagship /
   best starter. Absorbs the known defect "`mul rd,i,#1` not strength-reduced."
