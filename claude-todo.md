@@ -352,7 +352,18 @@ flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
     regression). Full Track 4 same-base: 296.7M (no Track 4) → 277.5M (Piece 1, **−6.5%**) → 268.5M
     (Piece 2) = **−9.5% total, richards ratio 1.84×→1.67×**. 132 iropt tests, hygiene 20/20. Tests in
     `iropt/field_forward_test.bn`.
-- **Track 5 — array-loop BCE + induction/pointer strength reduction — 🟡 IN PROGRESS (claimed 2026-09-20, work-5/session).**
+  - **Piece 3 — deeper access chains (arbitrary-depth field-load paths) — 🟡 IN PROGRESS (claimed
+    2026-09-20, work-4/session).** Generalize `field_forward.bn` from a single field off a managed-ptr
+    PARAM (path length 1) to an arbitrary-depth ACCESS PATH rooted at a managed-ptr param: `s.current.state`
+    = path (s, [current, state]). Key a load by its full path; coalesce reloads with the same path.
+    Soundness: each intermediate field is a managed-ptr that holds a ref to the next object, and the
+    param roots the chain, so the whole path is live as long as no PREFIX is overwritten — barrier is
+    prefix-kill (a store whose target path is a prefix-or-equal of a cached path kills it; same-param
+    divergent paths are disjoint; different-param/unknown/alloca-escaping → conservative), plus calls
+    kill all. RefDec stays a non-barrier (s.current's own field ref keeps *s.current live ≥1 even if
+    another object referencing it is freed). Strict generalization of Piece 2 (length-1 paths =
+    current behavior). Bench: richards (s.current.state read 2× in the loop-cond `||`, etc.). MEASURE
+    controlled same-base A/B before landing.
   (a) dominated/redundant-check elimination — ✅ LANDED `47b423050` (`iropt/bce_redundant.bn`;
   the `seed[0]` read/write/read case; see done log). A correct GENERAL improvement but does NOT
   move the fasta ratio (root-caused: genRandom is latency-bound on the constant div/mod = Track 1,
