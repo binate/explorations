@@ -223,7 +223,7 @@ flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
 - **Track 2 — IR: elide `OP_DIV_CHECK`/`OP_SHIFT_CHECK` for statically-safe operands — 🟡 IN PROGRESS (claimed 2026-09-20, work-2/session).**
   `pkg/binate/ir/gen_binary.bn` (`emitDivCheckGuard`) or a small `iropt` pass. Backend-neutral;
   drops a runtime CALL from fasta's hot loop. Bench: fasta.
-- **Track 4 — IR load-forwarding / promotion of managed-pointer field loads (STRUCTURAL, UNTRIED) — 🔵 OPEN.**
+- **Track 4 — IR load-forwarding / promotion of managed-pointer field loads (STRUCTURAL, UNTRIED) — 🟡 IN PROGRESS (claimed 2026-09-20, work-4/session).**
   `iropt/load_forward.bn`, `iropt/mem2reg.bn` (`iropt/sroa_managed.bn` = refcount-safe prior art).
   The richards reload-storm lever — a "memory ops" gap DISTINCT from SROA (done) and from the
   allocator/spill work (done + interval-splitting refuted ~3.5% — do NOT redo that). Hard part:
