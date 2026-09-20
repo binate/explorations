@@ -382,6 +382,25 @@ NOT tracks (contraindicated by the prior measurement in the section above): rais
 threshold (measured net-negative on native); further "home more values" allocator work / interval
 splitting (done + refuted).
 
+### x64 inline RefInc/RefDec fast path (retire the `rt.RefInc`/`rt.RefDec` runtime calls) — 🟡 IN PROGRESS (claimed 2026-09-20, work-3/session)
+
+The refcount-inlining project (`done/plan-refcount-inlining.md`) inlined the hot
+`RefInc`/`RefDec` paths on LLVM codegen, aarch64, arm32, and the bytecode VM
+(header nil-check + inline load/add/store; RefDec's zero-test falls to a
+`rt.ZeroRefDestroy` slow-path call).  The **x64 native backend is the one
+holdout** — `emitRefInc`/`emitRefDec` in `pkg/binate/native/x64/x64_managed.bn`
+still `call rt.RefInc` / `call rt.RefDec` for every op.
+
+Plan: give x64 an inline fast path mirroring `aarch64_refcount.bn`
+(`emitRefIncInline` / `emitRefDecInline`), respecting SysV/x64 register
+conventions and the target-parameterized header width (`ManagedHeaderSize()` /
+sign-bit immortal sentinel — ILP32-vs-LP64 correct, not hardcoded).  RefDec's
+free path keeps calling `rt.ZeroRefDestroy` (dtor in the folded slow path — the
+Track-3 dtor-handle sink applies here too once there IS an inline zero-test).
+Follow-on (separate commit): once x64 inlines, `rt.RefInc`/`rt.RefDec` have no
+caller and can be deleted with their `.bni` decls (`rt.ZeroRefDestroy` stays).
+Bench: any refcount-dense native x64 program.
+
 ### IR optimization passes (help LLVM + native backends + the VM) — 🟡 OPEN
 
 - **Pass infra + mem2reg + BCE** — design settled
