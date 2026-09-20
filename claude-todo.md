@@ -216,7 +216,7 @@ disassembly analysis (2026-09-19). Full evidence + coordination notes:
 benchmark before/after** — a change that doesn't move it doesn't count. Claim a track by
 flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
 
-- **Track 1 — const int div/mod → magic-number multiply (+ `madd` fusion, `mul ×1` elim) — 🟡 IN PROGRESS (claimed 2026-09-20, work-1/session; checking x64/arm32 equivalents too).**
+- **Track 1 — const int div/mod → magic-number multiply (+ `madd` fusion, `mul ×1` elim) — 🟡 IN PROGRESS (work-1/session).** aarch64 landed `838ffd40e` (magic SMULH/UMULH + pow2 + ×0/1/-1; shared `common.ComputeMagic*`; conformance `1273` cross-checks magic-vs-hardware incl. sub-word). Measured: does NOT move fasta on aarch64 (~noise) — fasta's `% im` is a local var so magic doesn't fire, M isn't hoisted, and the per-iter `DivCheck` call + FP dominate (see `plan-track1-const-div-magic.md`). NEXT: port x64 + arm32 (reuse the shared helper), then the "B" expansion (const-propagation so magic fires on named constants + constant-hoisting). `madd` fusion still deferred.
   `native/aarch64/aarch64_ops.bn` (`OP_REM`/`OP_DIV`/`OP_MUL`) + tests. Self-contained, aarch64.
   Directly on "the gap lives in instruction selection." Bench: fasta (and the compiler). Flagship /
   best starter. Absorbs the known defect "`mul rd,i,#1` not strength-reduced."
