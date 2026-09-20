@@ -732,3 +732,29 @@ Two honest paths to put to the user:
    copy path) that the 2.89× breakdown suggests dominates — interval splitting stays a lower-priority
    follow-up.  This is NOT a unilateral deferral: it is a scope question for the user, given the
    measured evidence that spill is no longer the dominant gap term.
+
+### Stage 6 — option B RESULT: net REGRESSION, not landed (2026-09-19, work-4/temp-4)
+
+Implemented option B (caller-saved home + per-call save/restore for spanning values) and measured
+it against its own baseline, controlled (`perf/native-vs-llvm.sh`, cmd/bnc self-compile, 7 rounds
+each, back-to-back same machine, LLVM side stable — base L median 3.464s vs option-B L median
+3.493s, ~1% apart, so the comparison is trustworthy):
+
+- WITHOUT option B (`d3018f084`): native median 9.674s → ratio **2.79×**.
+- WITH option B (`f1efe2b35`): native median 10.410s → ratio **2.98×**.
+
+**Option B REGRESSED the ratio 2.79×→2.98× (native ~7.6% slower); NOT landed.**  It IS correct
+(native aa64 conformance 3040/0, self-compiles + gen3 fixpoint) — just slower.  Root cause: Binate
+is refcount-heavy, so nearly every spanning value spans `OP_REFDEC` clobbers, and the emitter
+save/restores a caller-saved home around EVERY spanned clobber — but a RefDec's call
+(rt.ZeroRefDestroy) is CONDITIONAL (fires only when the refcount hits 0, the rare case), so on the
+common fast path those save/restore pairs are pure overhead the reload savings don't recover
+(+17 KB of save/restore code).  The cost model `2*SpanWeight < spillCost` counts RefDec spans at
+full weight but the emission can't be made conditional without pushing the save/restore into the
+RefDec slow path (a bigger change), and excluding conditional-call clobbers would disable option B
+for almost all spanning values in refcount-heavy code anyway.
+
+**This confirms the pre-implementation analysis: spill is no longer the dominant gap term, and
+this form of interval splitting is a poor fit for a refcounted language.**  The option-B commit is
+kept on the work branch as a record but is NOT for landing.  Higher-value next levers (per the
+2.79× breakdown): instruction selection and the aggregate/slice-header copy path.
