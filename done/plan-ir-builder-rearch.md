@@ -1,6 +1,6 @@
 # Plan: IR-builder re-architecture (split `ir` → `ir` + `irbuild` + `iropt`)
 
-**Status:** IN PROGRESS (claimed 2026-09-19, work-3/session). User-greenlit 2026-09-19.
+**Status:** ✅ COMPLETE (2026-09-19). Phase 1 `1acae8ad6` (iropt), Phase 2 `b590efa7c` (irbuild). `ir.bni` 1206 → 902; cap now 1109 (bounded by types.bni). Both phases: conformance builder-comp 3040/0/9, adversarial review clean.
 
 ## Goal
 
