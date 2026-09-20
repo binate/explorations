@@ -113,7 +113,7 @@ CORRECTION 2026-09-08):
    green.  **Ratio MEASURED** (controlled before/after, `perf/native-vs-llvm.sh` cmd/bnc
    self-compile): arg-bank homes narrow native↔LLVM **3.10×→2.89× median** (native 9.52s→8.84s;
    LLVM unchanged 3.07→3.05s) — a real but modest narrowing (spill is only part of the gap).
-   **Cleanups DONE** (committed `d3018f084`, pending land): removed the dead arg-bank spill/reload
+   **Cleanups LANDED** (`9099f9c0a`): removed the dead arg-bank spill/reload
    in `emitCallFuncValue`/`emitCallIfaceMethod` (func-values/iface-values are aggregates → never
    homed), added the two-disjoint-cycles `parallel_move_test.bn` case.  REMAINING: **interval
    splitting** — see the dedicated claimed item below.  (Measured floors killed the
