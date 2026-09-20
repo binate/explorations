@@ -223,7 +223,7 @@ flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
 - **Track 2 — IR: elide `OP_DIV_CHECK`/`OP_SHIFT_CHECK` for statically-safe operands — 🟡 IN PROGRESS (claimed 2026-09-20, work-2/session).**
   `pkg/binate/ir/gen_binary.bn` (`emitDivCheckGuard`) or a small `iropt` pass. Backend-neutral;
   drops a runtime CALL from fasta's hot loop. Bench: fasta.
-- **Track 3 — native aarch64 RefDec: sink dtor-handle operand past the zero-test + LICM-hoist — 🔵 OPEN.**
+- **Track 3 — native aarch64 RefDec: sink dtor-handle operand past the zero-test + LICM-hoist — 🟡 IN PROGRESS (claimed 2026-09-20, work-3/session; checking x64/arm32 RefDec equivalents too).**
   `native/aarch64/aarch64_emit.bn` RefDec lowering. Small peephole. Bench: richards. Confirm the
   pattern still reproduces on current main first.
 - **Track 4 — IR load-forwarding / promotion of managed-pointer field loads (STRUCTURAL, UNTRIED) — 🔵 OPEN.**
