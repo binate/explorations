@@ -6,6 +6,22 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### arm32_baremetal Unit — repl / interp / os/sys xfail'd (no OS/syscalls to link) — DONE, LANDED `f1ab41058` (2026-09-19)
+
+`builder-comp_arm32_baremetal` Unit was red (53 passed, 3 failed): `pkg/std/os/sys`,
+`pkg/binate/repl`, and `pkg/binate/interp` failed to LINK — `pkg/std/os/sys`'s POSIX
+syscall wrappers (Open/Read/Write/Close/Lseek/Fork/Waitpid/Mkdir/FailErrno/...) are
+undefined on baremetal (there is no OS; those cannot be stubbed), and repl/interp
+transitively link os/sys (interp/externs.bn imports it). A fundamental environment
+limitation, not a codegen bug (all three compile + pass on the hosted modes; repl is
+73/73 on native_x64) — the same reason `pkg/std/os` is already xfail'd on this mode.
+Per the owner's decision (XFAIL, after confirming each is env-limited), added
+`scripts/unittest/{pkg-std-os-sys,pkg-binate-repl,pkg-binate-interp}.xfail.builder-comp_arm32_baremetal`,
+so the mode's Unit gate reflects only real failures. The broader baremetal os-support
+gap stays tracked ("Baremetal console output is unwired" + the pkg/std/os/sys notes).
+With this, all three 0.0.16 Unit-gate blockers are cleared (ffi-export `4579568c8`,
+arm32_linux `9699bb18e`, arm32_baremetal xfails `f1ab41058`).
+
 ### arm32_linux native/common Unit failures (LP64-assuming tests) — DONE, LANDED `9699bb18e` (2026-09-19)
 
 `builder-comp_arm32_linux` Unit was red: `pkg/binate/native/common`'s

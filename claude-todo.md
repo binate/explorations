@@ -5,27 +5,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ---
 
-## Release blockers (0.0.16)
-
-### arm32_baremetal Unit — `pkg/binate/repl`, `pkg/binate/interp`, `pkg/std/os/sys` fail under QEMU semihosting — 🟡 NEEDS DECISION (2026-09-19)
-
-`builder-comp_arm32_baremetal` Unit is RED: `53 passed, 3 failed, 15 xfail` — the failing
-packages are `pkg/binate/repl`, `pkg/binate/interp`, and `pkg/std/os/sys` (the last:
-`ld.lld: undefined symbol bn_..._FailErrno` -> link failed). These are BAREMETAL-ENVIRONMENT
-limitations (no filesystem / QEMU semihosting / missing baremetal os stubs — the baremetal-os
-situation is already tracked: see the "Baremetal console output is unwired" entry and the
-`pkg/std/os/sys` notes below), NOT native-codegen bugs. That mode already XFAILs many
-can't-run-under-semihosting packages (asm/*, cmd/bnc, cmd/bnld, pkg/std/os, ...); these three
-just aren't XFAIL'd yet. PRE-EXISTING: the Unit gate has been red on main for many commits
-(well before the 0.0.16 range), driven largely by these.
-
-DECISION NEEDED (arm32 is now blocking per the updated release-process policy): either
-(a) XFAIL repl / interp / os/sys on `arm32_baremetal` as can't-run-under-semihosting, with
-tracked reasons — aligns with the existing xfails in that mode and unblocks the Unit gate
-quickly; or (b) fix the baremetal stubs (`os/sys` FailErrno etc.) and make repl/interp
-runnable under semihosting — bigger. `builder-comp_native_x64` Unit's red on `4579568c8` was
-a RUNNER SHUTDOWN (exit 143; `pkg/binate/repl` actually passed) — an infra flake, non-blocking.
-
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
