@@ -91,3 +91,37 @@ landing; will be assessed and raised separately rather than bundled.
 
 1. aarch64 (flagship, measured). 2. x64. 3. arm32. Each independent and cherry-picked
    on its own.
+
+## Measurement findings (2026-09-20, aarch64 / Apple Silicon)
+
+The aarch64 magic division is implemented, correct, and validated (self-compiles
+clean through the new codegen; conformance `1273` cross-checks magic vs the
+hardware divide across ~44k (n,d) cases incl. INT64 edges; unit tests; encoders
+assembler-verified).  **But it does not move fasta on aarch64** — measured
+native/llvm user-CPU ratio 2.161 (baseline) → 2.098, and a direct same-conditions
+`% im` (sdiv) vs `% 139968` (magic) comparison is ~1.6% (noise).  Three
+compounding reasons, from disassembling `genRandom`:
+
+1. **It doesn't fire on unmodified fasta.** fasta's divisor is a local
+   `var im = 139968`; the IR does not constant-propagate that local to the
+   divisor operand, so the backend sees a value, not an `OP_CONST_INT`.  Magic
+   only fires on a *literal* divisor (confirmed: `% 139968` emits `smulh`, `% im`
+   stays `sdiv`).
+2. **The magic constant M is re-materialized every iteration** — 4 instructions
+   (`mov`+3×`movk`) inside the loop, not hoisted — offsetting the removed `sdiv`.
+   LLVM hoists it once.  (This is the "constant hoisting" sub-item.)
+3. **The division isn't the hot-loop bottleneck on this CPU.** Every iteration
+   also does an unconditional `bl DivCheck` call (dead for a provably-nonzero
+   constant divisor — that is a *different* track's target) plus `scvtf`/`fmul`/
+   `fdiv`.  On Apple Silicon's fast divider, `sdiv`-vs-magic is a rounding error.
+
+**Where it IS valuable:** correct, matches LLVM, and helps literal-divisor code
+broadly (the stdlib integer-formatting `/10`,`%10` now lower to magic), with more
+benefit expected on x64/arm32 (slower dividers) — whose *ratio* is not measurable
+on this host (emulated).
+
+**Direction (user decision, 2026-09-20):** land Track 1 across all arches
+(aarch64 done; x64 + arm32 to port, reusing the shared helper), then do the "B"
+expansion here — const-propagation so magic fires on named constants, plus
+constant-hoisting so M is materialized once per loop.  The `DivCheck`-elision and
+other fasta levers are owned by other workers on the sibling tracks.
