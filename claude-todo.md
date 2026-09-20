@@ -329,8 +329,10 @@ flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
     **1.96×→1.82×**. binary-trees −0.7%, fasta flat (no regressions). Split the shared apply/rewrite
     layer to `mem2reg_apply.bn` and the managed load-forward tests to `load_forward_managed_test.bn`
     (file length). Unit tests: `TestForwardManagedPtrPadLoadForwarded` + 121 iropt tests pass.
-  - **Piece 2 — redundant FIELD-load elimination — 🟡 committed on work-4 (`e5d79c988`), pending
-    conformance + adversarial review, MEASURED WIN.** New pass `iropt/field_forward.bn`
+  - **Piece 2 — redundant FIELD-load elimination — LANDED `e88737398`, MEASURED WIN.**
+    (Conformance -O2 native 3042/0; adversarial review SOUND, one LOW latent entry-block-⊥ fragility
+    fixed defensively + regression-tested; 150 iropt tests, hygiene 20/20.)  Follow-up: investigate
+    the fasta +0.35% (stdlib register pressure from field-load coalescing, NOT fasta's hot loop). New pass `iropt/field_forward.bn`
     (`forwardFieldLoads`, after `forwardLoads` in RunOptPasses): an available-loads forward dataflow
     keyed on (managed-ptr-param OP_PARAM id, field idx), coalescing `LOAD(GET_FIELD_PTR(OP_PARAM,idx))`
     reloads onto one dominating repr per barrier-free region, then dropping dead GET_FIELD_PTRs.
