@@ -125,3 +125,41 @@ on this host (emulated).
 expansion here — const-propagation so magic fires on named constants, plus
 constant-hoisting so M is materialized once per loop.  The `DivCheck`-elision and
 other fasta levers are owned by other workers on the sibling tracks.
+
+## B expansion — design (2026-09-20, work-1)
+
+Magic division is landed on all three arches (aa64 `838ffd40e`, x64 `225755b19`,
+arm32 `1e34fc581`). The "B" expansion the user directed:
+
+### Part 1 — IR identity/copy-simplification + DCE (the const-prop lever)
+
+Root cause (traced via `--emit-llvm`): `var d=139968; x%d` lowers to
+`%v2 = add 139968,0` (constant literal materialized for the var-init store) →
+`%v5 = add %v2,0` (mem2reg's load-replacement copy) → `srem x,%v5`. The divisor
+reaches the backend as an `OP_ADD`, not an `OP_CONST_INT`, so the magic check
+misses it — and the copies are dead weight the native backends emit literally
+(LLVM already removes them, so this is a gap-closer, not just throughput).
+
+New `iropt` pass (`iropt/simplify.bn`, wired into `RunOptPasses` after
+`forwardLoads`):
+- **Identity simplification**: `add X,0`→X, `sub X,0`→X, `or X,0`→X,
+  `xor X,0`→X, `shl/shr X,0`→X, `mul X,1`→X (and `X,0`/`0,X` symmetric forms).
+  Resolve chains (path-compress identity→target), rewrite ALL uses across all
+  blocks to the resolved target, then delete the identity instrs.  After this the
+  `srem`/`sdiv` divisor operand IS the `OP_CONST_INT` → magic fires on named
+  constants (fasta's `% im`).
+- **Conservative DCE**: remove zero-use PURE instrs (`OP_CONST_*`, arithmetic,
+  bitwise, shift, neg, cast, compare — NOT div/rem/load/store/call/check/branch/
+  alloc/refcount/phi). Cleans up the now-dead `0`/`1` constants AND the existing
+  "OP_DIV-by-const leaves a dead divisor materialization" residual.
+
+Validate: `--emit-llvm`/disasm that `var d=7; x%d` now emits smulh (magic) with
+no dead copies; full conformance in all native modes + VM/LLVM (backend-neutral
+pass — must not regress any mode); measure fasta (may stay ~flat until Track 2's
+DivCheck-elision lands, per the earlier finding — B is still a gap-closer).
+
+### Part 2 — constant-hoisting (LICM-like) for the magic multiplier M
+
+The magic constant M is re-materialized every loop iteration (4 movs on aa64).
+Hoist loop-invariant constant materialization out of loops so M is materialized
+once. Separate, harder (needs loop analysis); after Part 1.
