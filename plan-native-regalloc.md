@@ -788,3 +788,32 @@ easy reload wins — leaving interval splitting a small, cost-model-delicate lev
 on branch `optB-regression` / the `temp-4` commit; NOT landed.  Decision pending: refine the gate
 to a reload-aware benefit estimate (bounded upside), or shelve and profile the dominant gap terms
 (instruction selection, aggregate/slice-header copies).
+
+### Stage 6 — option B, DEFINITIVE verdict via instruction count: ~3.5% REGRESSION, do not land (2026-09-19)
+
+Wall-clock and even user-CPU-seconds were unusable on this loaded shared box (thermal throttling
+scales user-CPU-seconds; cross-session comparisons of near-identical binaries swung +0.40s to
+-0.87s — pure noise).  The noise-IMMUNE metric is INSTRUCTIONS RETIRED (`/usr/bin/time -l` on Apple
+Silicon), independent of load/clock/preemption:
+
+  base (no option B):        187.3 / 188.3 billion instructions to compile cmd/bnc
+  option B (a+b+reload-gate): 194.1 / 194.5 billion   →  **+3.3% to +3.6%, reproducible**
+
+So option B — even with the RefDec-slow-path fix (a), RefDec-weight-0 (b), the SplitSpanningHomes
+flag, AND the reload-aware benefit gate (ReloadBenefit vs spillCost) — is a ~3.5% instruction-count
+REGRESSION.  Root cause, now conclusive:
+  - The reload-aware gate barely changed the allocation (+112 bytes of binary): the homed values are
+    ~single-use-per-segment, so ReloadBenefit ≈ spillCost and the stricter gate rarely fires
+    differently.  The within-block retention cache already captured the easy reload wins.
+  - The save/restore overhead — especially the RefDec SLOW path, which executes OFTEN in a
+    refcount-heavy language (every refcount that hits zero) — exceeds the reloads a home avoids.
+  - A stricter gate can only approach base (home nothing) — NEVER a net win.
+
+**Conclusion: interval splitting of this form does not pay off for Binate.**  This is the THIRD
+independent confirmation that register spill is not the remaining native↔LLVM gap term (arg-bank
+homes: small win; interval splitting: regression).  The gap now lives in instruction selection and
+the aggregate/slice-header copy path.  Option B is correct + arm32-safe (it found+gated a real
+cross-arch bug), kept on branch `optB-regression` / the work commit, but is NOT for landing.
+
+Methodology note for future perf work on this shared machine: use INSTRUCTIONS RETIRED
+(`/usr/bin/time -l`), not wall-clock or user-CPU-seconds — the box throttles under multi-user load.
