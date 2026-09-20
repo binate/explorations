@@ -1,3 +1,35 @@
+### Track 3 (fasta/richards tracks): native aa64/arm32 RefDec dtor-handle sink — ✅ DONE (2026-09-20)
+
+Landed `d0c8b9d01` (work-3). The native inline `RefDec` (`OP_REFDEC`) fast path
+materialized its static destructor handle (`&___handle.<dtor>`, carried as an
+`OP_FUNC_HANDLE` operand in `Args[1]`) BEFORE the refcount zero-test, so the
+`adrp+add` (aa64) / `movw+movt` (arm32) ran on every decrement even when nothing
+frees (confirmed on main: `schedule` emitted 9 dtor-handle `adrp` before the
+`cbz`/`cbnz`). Fix: `native/common` `FoldedDtorHandles` flags each
+`OP_FUNC_HANDLE` used only as an `OP_REFDEC` dtor operand; `AllocateRegisters`
+(new `foldRefDecDtorHandles` param, true for aa64/arm32) records the set and
+excludes those handles from homing; the aa64/arm32 `OP_FUNC_HANDLE` dispatch
+skips their standalone emission; and `emitRefDecInline` materializes the handle
+in its slow path (past the zero-test). The `OP_FUNC_HANDLE` stays in the IR, so
+backing-symbol emission (incl. cross-package dtors) is unchanged.
+
+- **x64 is NOT a Track-3 target**: its `RefDec` has no inline fast path (always
+  calls `rt.RefDec` with the handle in RSI), so there is no zero-test to sink
+  past. It passes `false`; its codegen stays byte-identical. (The real x64 gap is
+  the *missing* inline fast path — separate, larger work.)
+- **LICM-hoist subsumed**: sinking into the rarely-taken slow path means the
+  handle is not computed per-iteration at all — strictly better than hoisting it
+  into a loop-live register — so no separate hoist was needed.
+
+Measured richards (native aarch64): best **2.00s → 1.50s (25% faster)**, median
+2.17 → 1.58; **native/llvm ratio 2.32× → 1.77×** (LLVM unchanged, ~0.85s).
+Disassembly confirms every dtor `adrp` now sits in the slow path just before its
+`bl ZeroRefDestroy`. Conformance: native aa64 3040/0/9, native arm32 2994/0/55,
+native x64 3040/0/9. Adversarial review clean (6 axes, incl. cross-package
+backing preserved). Tests: `common_dtor_handle_fold_test.bn` (analysis + fold
+flag + homing exclusion), aa64/arm32 `*_refcount_test.bn` (slow-path
+materialization).
+
 
 ### Lower the file-length `.bni` cap toward 1000 (ratchet) — ✅ DONE (2026-09-19)
 
