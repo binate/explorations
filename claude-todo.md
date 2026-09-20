@@ -144,16 +144,18 @@ CORRECTION 2026-09-08):
    range-list interval is its foundation).  SROA is DONE (652→555 instrs, 58→24 aggregate
    copies on livenessFixpoint) and did NOT move the self-compile ratio (3.38× vs inc1's
    3.34×).  See plan-native-regalloc.md "Stage 5d — caller-saved homes (X9–X15)".
-2b. **Interval splitting — the genuinely call-spanning ~25% of spill cost.**
-   🟡 IN PROGRESS (claimed 2026-09-19, work-4/temp-4).  Stage 5d homed the NON-call-spanning
-   values (arg bank X0–X7); the remaining spill cost is values LIVE ACROSS a call, which today
-   take a whole-interval callee-saved reg or spill for their entire lifetime even though they are
-   only "hot" in the straight-line stretches BETWEEN calls.  Interval splitting lets such a value
-   live in a (cheap, caller-saved / arg-bank) register in a between-calls region and spill only
-   across the call itself — instead of paying a callee-save or a full-lifetime spill.  The landed
-   range-list `LiveInterval` (regalloc_interval.bn) + the caller-saved home pool + the
-   scratch/home partition are its foundation.  DESIGN FIRST (write to plan-native-regalloc.md,
-   discuss before implementing); measure the ratio delta after.  See plan-native-regalloc.md.
+2b. **Interval splitting (option B) — TRIED, net REGRESSION, NOT landed (2026-09-19, work-4).**
+   Implemented caller-saved home + per-call save/restore for spanning values (allocator gate
+   `2*SpanWeight < spillCost`; emitter `emitCallerSavedHomeSaveRestore`).  Correct (native aa64
+   conformance 3040/0, self-compiles + gen3 fixpoint) but a controlled before/after (7 rounds
+   each, LLVM side stable) showed it REGRESSED the ratio **2.79×→2.98×** (native ~7.6% slower):
+   Binate is refcount-heavy, so spanning values span `OP_REFDEC` clobbers whose call is
+   CONDITIONAL (rare), and the unconditional per-clobber save/restore is pure fast-path overhead.
+   Kept on branch `optB-regression` (NOT for landing); result in plan-native-regalloc.md.
+   Confirms **spill is no longer the dominant gap term** — a poor lever for a refcounted language.
+   Possible salvage (unclaimed, uncertain payoff): push the save/restore into the RefDec SLOW path
+   so the fast path pays nothing.  Higher-value levers per the 2.79× breakdown: **instruction
+   selection** and the **aggregate/slice-header copy path** — the components the gap now lives in.
 3. **Inliner threshold tuning — POSTPONED; revisit AFTER SROA/regalloc.** 🔵 NOT ASSIGNED
    The `--inline-threshold` flag is landed (`3022706ce`) so the value is
    runtime-settable without recompiling the compiler. A drift-controlled
