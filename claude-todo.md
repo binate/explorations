@@ -331,8 +331,9 @@ flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
     (file length). Unit tests: `TestForwardManagedPtrPadLoadForwarded` + 121 iropt tests pass.
   - **Piece 2 — redundant FIELD-load elimination — LANDED `e88737398`, MEASURED WIN.**
     (Conformance -O2 native 3042/0; adversarial review SOUND, one LOW latent entry-block-⊥ fragility
-    fixed defensively + regression-tested; 150 iropt tests, hygiene 20/20.)  Follow-up: investigate
-    the fasta +0.35% (stdlib register pressure from field-load coalescing, NOT fasta's hot loop). New pass `iropt/field_forward.bn`
+    fixed defensively + regression-tested; 150 iropt tests, hygiene 20/20.)  fasta follow-up
+    RESOLVED: a controlled same-base A/B shows fasta FLAT — the earlier +0.35% was base-drift, not a
+    Piece 2 regression. New pass `iropt/field_forward.bn`
     (`forwardFieldLoads`, after `forwardLoads` in RunOptPasses): an available-loads forward dataflow
     keyed on (managed-ptr-param OP_PARAM id, field idx), coalescing `LOAD(GET_FIELD_PTR(OP_PARAM,idx))`
     reloads onto one dominating repr per barrier-free region, then dropping dead GET_FIELD_PTRs.
@@ -344,11 +345,13 @@ flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
     level OP_STORE (incl. aggregate — backend memcpy is OP_STORE lowering) + calls are the only
     field-writers; OP_COPY is a post-pass phi move; RefInc/Dec touch only the -16 header. The meet
     keeps a repr only when all preds agree on the SAME SSA value (preserves the dominance SSA reuse
-    needs). Measured (richards native, instructions): 295.7M→268.4M (−9.2% on Piece 1; −14.8% vs
-    clean), LLVM flat → ratio **1.82×→1.67×** (1.94×→1.67× both pieces); schedule s.current loads
-    15→6, refcount ops unchanged; binary-trees −3.6%; fasta +0.35% (fasta has no @T params — the
-    regression is stdlib register pressure fasta links, not its hot loop; outputs byte-identical).
-    132 iropt tests pass, hygiene 20/20. Tests in `iropt/field_forward_test.bn`.
+    needs). Measured (CONTROLLED same-base A/B, Piece 2 toggled on base 94d12bd26 — the earlier
+    clean-vs-p2 figures were base-drift-contaminated by Tracks 1/2/5 and are corrected here): richards
+    native Piece2-off 277.5M → on 268.5M (**−3.2%**), LLVM flat (161.2M) → ratio **1.72×→1.67×**;
+    schedule s.current loads 15→6, refcount ops unchanged. binary-trees ~flat (−0.2%); fasta FLAT (no
+    regression). Full Track 4 same-base: 296.7M (no Track 4) → 277.5M (Piece 1, **−6.5%**) → 268.5M
+    (Piece 2) = **−9.5% total, richards ratio 1.84×→1.67×**. 132 iropt tests, hygiene 20/20. Tests in
+    `iropt/field_forward_test.bn`.
 - **Track 5 — array-loop BCE + induction/pointer strength reduction — 🟡 IN PROGRESS (claimed 2026-09-20, work-5/session).**
   (a) dominated/redundant-check elimination — ✅ LANDED `47b423050` (`iropt/bce_redundant.bn`;
   the `seed[0]` read/write/read case; see done log). A correct GENERAL improvement but does NOT
