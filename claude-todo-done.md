@@ -6,6 +6,25 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### flags: promoted to pkg/std + adopted in cmd/bnc — DONE (`8658c1dd3` + `cd38d9e5b` + `1a7bf7c11`, 2026-09-19)
+
+The `flags` command-line parser graduated from tier-1x `stdx` to the stable `pkg/std`
+layer, and every tool — cmd/bnc last — now imports `pkg/std/flags` directly.
+
+1. **`8658c1dd3`:** moved flags → `pkg/std/flags`, added the `pkg/stdx/flags` compat
+   forwarder, migrated the 5 gen2-built tools (cmd/{bnas,bnfmt,bni,bnld,bnlint}) to
+   `pkg/std/flags`, and injected `pkg/std/flags` into the VM (stdPkgs()).
+2. **`cd38d9e5b`:** cmd/bnc parses args with the `pkg/stdx/flags` forwarder (cmd/bnc is
+   BUILDER-compiled and the then-pinned BUILDER shipped only `pkg/stdx/flags`) —
+   parseArgs on flags.FlagSet (-I/-L via StringListSepVar, -O0..-O3 bool flags + a value
+   form `--optimize-level`, strict missing-value/unknown-flag errors, `--version` a
+   normal flag → CLIArgs.ShowVersion); `is_builder_tree` hygiene exemption re-added.
+3. **`1a7bf7c11` (2026-09-19):** BUILDER is now `bnc-0.0.16` (ships `pkg/std/flags`), so
+   cmd/bnc imports `pkg/std/flags` directly; deleted the `pkg/stdx/flags` forwarder (no
+   consumers left) and dropped the `is_builder_tree` exemption (reverting what
+   `cd38d9e5b` re-added — the auto-discovering forwarder check re-arms for a future
+   promotion). Validated: gen1+gen2 build clean, cmd/bnc unit tests pass, hygiene 20/20.
+
 ### arm32_baremetal Unit — repl / interp / os/sys xfail'd (no OS/syscalls to link) — DONE, LANDED `f1ab41058` (2026-09-19)
 
 `builder-comp_arm32_baremetal` Unit was red (53 passed, 3 failed): `pkg/std/os/sys`,

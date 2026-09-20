@@ -285,29 +285,6 @@ covered by the single-VM and native lanes). Open:
 
 ## Standard library — pkg/std namespace migration
 
-### flags: promote to pkg/std + adopt in cmd/bnc — 🟡 IN PROGRESS
-
-`flags` (the command-line flag parser) graduated from tier-1x `stdx` to the stable
-`pkg/std` layer.  cmd/bnc is the last tool still hand-rolling its parser
-(plan-flags-package.md step 5); it adopts `flags` via the `pkg/stdx/flags`
-forwarder because it is BUILDER-compiled and the pinned BUILDER bundle ships
-`pkg/stdx/flags` but not `pkg/std/flags`.
-
-1. **DONE (`8658c1dd3`):** moved flags → `pkg/std/flags`, added the `pkg/stdx/flags`
-   compat forwarder, migrated the 5 gen2-built tools (cmd/{bnas,bnfmt,bni,bnld,
-   bnlint}) to `pkg/std/flags`, and injected `pkg/std/flags` into the VM
-   (stdPkgs()).  The forwarder is intentionally consumer-less until step 2.
-2. **DONE (`cd38d9e5b`):** cmd/bnc parses args with `pkg/stdx/flags` — parseArgs
-   on flags.FlagSet (-I/-L via StringListSepVar, -O0..-O3 as bool flags + a value
-   form `--optimize-level`, strict missing-value/unknown-flag errors, `--version`
-   a normal flag -> CLIArgs.ShowVersion), args_test.bn reworked, and the
-   `is_builder_tree` exemption re-added.  gen1+gen2 build + 144 cmd/bnc tests +
-   hygiene 20/20 + CLI smoke all green.
-3. **🟡 IN PROGRESS (claimed 2026-09-19, work-6/session)** — BUILDER is now
-   `bnc-0.0.16` (ships `pkg/std/flags`), so: `pkg/stdx/flags` → `pkg/std/flags` in
-   cmd/bnc + remove the `pkg/stdx/flags` forwarder + drop the is_builder_tree
-   exemption (mirrors `66b3e7bde`).
-
 ## Documentation hygiene
 
 ### ABI spec §5.2 — package-path validation now ENFORCED; update the "unvalidated" text — 🟢 minor (2026-09-07)
