@@ -758,3 +758,33 @@ for almost all spanning values in refcount-heavy code anyway.
 this form of interval splitting is a poor fit for a refcounted language.**  The option-B commit is
 kept on the work branch as a record but is NOT for landing.  Higher-value next levers (per the
 2.79× breakdown): instruction selection and the aggregate/slice-header copy path.
+
+### Stage 6 — option B, after the (a)+(b) fix: STILL a ~4% regression (2026-09-19, work-4/temp-4)
+
+Fixed the earlier regression's worst cause: RefDec's save/restore moved to its slow path (fast path
+pays nothing), RefDec excluded from SpanWeight, and the whole caller-saved-spanning-home path gated
+on a new `RegClassDesc.SplitSpanningHomes` flag that ONLY aarch64 sets.  (That flag also fixed a
+real cross-arch bug the first cut introduced: the shared LinearScan change would have given arm32 —
+caller-saved R0..R3, NO save/restore machinery — a caller-saved spanning home, a miscompile; now
+x64/arm32 are provably unchanged.  Correct: native aa64 self-compiles + gen3 fixpoint; allocator
+unit tests + gate test pass.)
+
+But a CLEAN measurement — noise-immune user-CPU, ALTERNATING order (cancels ordering bias), PAIRED
+per round (controls the loaded shared machine's thermal throttling), 12 rounds — shows option B
+is STILL a net regression: mean(optB - base) = **+0.40 s on ~11 s user-CPU (~3.6%), 10 of 12 rounds
+slower**.  (Wall-clock was too noise-dominated on this machine to read; user-CPU paired is the
+trustworthy metric — the user directed using it.)
+
+Root cause: the gate `2*SpanWeight < spillCost` OVERVALUES the benefit.  `spillCost` is the
+loop-weighted def+use COUNT, but the within-block retention cache already eliminates within-block
+reloads, so a spilled value's REAL reload cost is much smaller — only its cross-(call-free-region)
+reloads.  The gate therefore homes values whose per-call save/restore cost exceeds their true
+reload savings.  A correct gate would compare 2*SpanWeight against a reload-aware benefit (the
+number of call-free regions in which the value is used), not raw spillCost.
+
+Bottom line: this is the SECOND independent confirmation (after the arg-bank result) that spill is
+no longer the dominant native↔LLVM gap term, and that the retention cache already captures the
+easy reload wins — leaving interval splitting a small, cost-model-delicate lever.  Option B stays
+on branch `optB-regression` / the `temp-4` commit; NOT landed.  Decision pending: refine the gate
+to a reload-aware benefit estimate (bounded upside), or shelve and profile the dominant gap terms
+(instruction selection, aggregate/slice-header copies).
