@@ -302,9 +302,14 @@ flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
   `native/aarch64/aarch64_ops.bn` (`OP_REM`/`OP_DIV`/`OP_MUL`) + tests. Self-contained, aarch64.
   Directly on "the gap lives in instruction selection." Bench: fasta (and the compiler). Flagship /
   best starter. Absorbs the known defect "`mul rd,i,#1` not strength-reduced."
-- **Track 2 — IR: elide `OP_DIV_CHECK`/`OP_SHIFT_CHECK` for statically-safe operands — 🟡 IN PROGRESS (claimed 2026-09-20, work-2/session).**
-  `pkg/binate/ir/gen_binary.bn` (`emitDivCheckGuard`) or a small `iropt` pass. Backend-neutral;
-  drops a runtime CALL from fasta's hot loop. Bench: fasta.
+- **Track 2 — IR: elide `OP_DIV_CHECK`/`OP_SHIFT_CHECK` for statically-safe operands — ✅ DONE, LANDED `94d12bd26` (2026-09-20, work-2). See done log.**
+  `iropt` pass `elideSafeDivChecks` (after mem2reg/load-forwarding/simplifyIdentities) drops the
+  `rt.DivCheck` CALL for a provably-safe constant divisor (fasta's `% im`); the shift half
+  (`OP_SHIFT_CHECK` for a constant in-range count) was already elided by `isSafeConstShiftCount`.
+  Bench result: **ratio-neutral on aarch64** (the wide OoO core hides the removed call under the
+  serial sdiv/msub latency — a clean modulo micro measured 0.0%), but shrinks code (hot fn 47→33
+  insns, no callee-saved spill) and helps in-order targets (arm32). Surfaced a separate MAJOR bug
+  (sub-word `MIN / <negative literal>` skips the overflow trap — see MAJOR bugs section).
 - **Track 4 — IR load-forwarding / promotion of managed-pointer field loads (STRUCTURAL) — 🟡 IN PROGRESS (claimed 2026-09-20, work-4/session).**
   `iropt/load_forward.bn`, `iropt/mem2reg.bn` (`iropt/sroa_managed.bn` = refcount-safe prior art).
   The richards reload-storm lever — a "memory ops" gap DISTINCT from SROA (done) and from the

@@ -1,3 +1,42 @@
+### Track 2 (fasta/richards tracks): elide OP_DIV_CHECK on a safe constant divisor — ✅ DONE (2026-09-20)
+
+Landed `94d12bd26` (work-2). New `-O1+` IR pass `elideSafeDivChecks` in
+`pkg/binate/iropt/opt.bn` (wired after mem2reg + load-forwarding +
+simplifyIdentities, before `bceConstIndex`): removes an `OP_DIV_CHECK` whose
+divisor (after peeling one value-preserving widening cast) is an `OP_CONST_INT`
+that cannot fault — nonzero, and not -1 for a signed divide. Backend-neutral, so
+native, LLVM, and the VM all shed the `rt.DivCheck` CALL. Mirrors `bceConstIndex`
+(removal in `blk.Instrs` only; the removed check's fault pad is left orphaned in
+`Func.FaultPads` as dead VM bytecode — safe, same argument as BCE).
+
+Running after mem2reg is what reaches fasta's `genRandom` divisor
+(`var im int = 139968; ... % im`): the load is forwarded to the constant (a
+value-preserving untyped→int retype cast, which the single-level peel sees
+through), invisible to a check emitted at IR-gen time. The shift half of the
+track was already done — `isSafeConstShiftCount` (`gen_shift.bn`) already elides
+`OP_SHIFT_CHECK` for a constant in-range count.
+
+Adversarially reviewed (no correctness holes: never removes a check that must
+fire; single-level peel is value-safe because no value-changing cast can be the
+OUTER cast on `Args[1]`). Tests: `pkg/binate/iropt/div_check_elim_test.bn`
+(9 cases incl. zero/-1/unsigned/cast-peel/narrowing-under-widening/float-cast
+robustness + -O0 gating). Divide-fault conformance (608/609/615/644/681/427/613
++ 002/426) green on native-aa64, LLVM, VM.
+
+**Bench result (the track's pass/fail criterion):** ratio-neutral on aarch64.
+An isolated modulo micro (1e9 iters of `(s*3877+29573) % im`) measured base ==
+opt == 3.78s — the wide OoO core hides the removed call under the serial
+sdiv/msub latency chain, so the call was effectively free on aarch64. It DOES
+shrink code (the hot fn went 47→33 instructions, no callee-saved spill) and
+should help in-order / narrow cores (arm32 bare-metal) where the call is not
+overlapped — not wall-clockable on the aarch64 dev host. Landed as a correct,
+code-size-reducing, in-order-helping optimization with that caveat explicit
+(approved by the user knowing it's not an aarch64 gap-closer).
+
+Discovered (via the adversarial review) a separate pre-existing MAJOR bug —
+sub-word signed `MIN / <negative literal -1>` skips the overflow trap on all
+backends — raised in `claude-todo.md` (MAJOR bugs); NOT caused by this pass.
+
 ### Track 5 (fasta/richards tracks), part (a): redundant bounds-check elimination — ✅ DONE (2026-09-20)
 
 Landed `47b423050` (work-5). New `-O1+` IR pass `iropt/bce_redundant.bn`
