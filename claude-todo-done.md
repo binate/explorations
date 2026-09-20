@@ -1,3 +1,25 @@
+
+### Lower the file-length `.bni` cap toward 1000 (ratchet) — ✅ DONE (2026-09-19)
+
+Reduced the `.bni` file-length cap from **1500 → 1000**; every package interface
+is now under 1000. Approach: reduce the cap to the current max, decompose the
+largest `.bni` (over-export trims + peel a cohesive concern into an acyclic
+sub-package), reset the cap, repeat.
+
+Landed steps (each conformance-validated, adversarially reviewed):
+- **ir** 1454 → 902: over-export trim; `iropt` (optimizer) split out (`1acae8ad6`);
+  `irbuild` (emit/construction + verifier) split out (`b590efa7c`). Plan:
+  `done/plan-ir-builder-rearch.md`.
+- **types** 1109 → 944: over-export trim (`7014ccaab`); `check` (the type checker)
+  split out (`e12248d7a`). Plan: `done/plan-checker-split.md`.
+- **vm** 1103 → 632: bytecode opcode enum moved to a package-private file + 2 dead
+  opcodes dropped (`342701b29`).
+- Interim cap steps: 1500→1454→1377→1274→1231→1214→1206→1109→1103→1033→**1000**.
+
+Cap set to 1000 in `scripts/hygiene/file-length.sh`; ratchet TODO removed from
+that file. `ir`/`types`/`vm` are now cohesive data-model packages with their
+big consumers (optimizer, checker, opcode enum) peeled into sub-packages.
+
 # Binate TODO — Done
 
 Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active work lives there.

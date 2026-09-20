@@ -1,6 +1,8 @@
 # Plan: split the type checker out of `pkg/binate/types` (→ `types` + `check`)
 
-**Status:** IN PROGRESS (claimed 2026-09-19, work-3/session). `types.bni` over-export trim + the `vm.bni` reduction, per user sequencing. Needs
+**Status:** ✅ COMPLETE (landed `e12248d7a`, 2026-09-19). types.bni 1033 -> 944; new check package. Cap set to 1000 — every .bni now under it (ratchet goal reached). Conformance builder-comp 3040/0/9; adversarial review clean.
+
+**(historical)** IN PROGRESS. `types.bni` over-export trim + the `vm.bni` reduction, per user sequencing. Needs
 explicit user go before starting (it is ~3× the `ir → iropt` re-arch).
 
 ## Goal
