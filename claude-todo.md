@@ -220,7 +220,7 @@ flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
   `native/aarch64/aarch64_ops.bn` (`OP_REM`/`OP_DIV`/`OP_MUL`) + tests. Self-contained, aarch64.
   Directly on "the gap lives in instruction selection." Bench: fasta (and the compiler). Flagship /
   best starter. Absorbs the known defect "`mul rd,i,#1` not strength-reduced."
-- **Track 2 — IR: elide `OP_DIV_CHECK`/`OP_SHIFT_CHECK` for statically-safe operands — 🔵 OPEN.**
+- **Track 2 — IR: elide `OP_DIV_CHECK`/`OP_SHIFT_CHECK` for statically-safe operands — 🟡 IN PROGRESS (claimed 2026-09-20, work-2/session).**
   `pkg/binate/ir/gen_binary.bn` (`emitDivCheckGuard`) or a small `iropt` pass. Backend-neutral;
   drops a runtime CALL from fasta's hot loop. Bench: fasta.
 - **Track 3 — native aarch64 RefDec: sink dtor-handle operand past the zero-test + LICM-hoist — 🔵 OPEN.**
