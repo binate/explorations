@@ -347,7 +347,8 @@ flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
   the `seed[0]` read/write/read case; see done log). A correct GENERAL improvement but does NOT
   move the fasta ratio (root-caused: genRandom is latency-bound on the constant div/mod = Track 1,
   and selectRandom's gap is slice non-promotion + strength reduction = Track 4 + (b) below).
-  Remaining, both NATIVE-BACKEND (per the fannkuch finding, IR passes barely move native):
+  Now on (b) — 🟡 scaled-addressing IN PROGRESS (2026-09-20, work-5). Both remaining pieces are
+  NATIVE-BACKEND (per the fannkuch finding, IR passes barely move native):
   (b) strength-reduce to scaled/post-increment addressing — the index-scaling half already landed
   (`c77bdae4a`, mul→lsl); the open lever is fusing into scaled `[base,idx,lsl#n]` load/store
   addressing (needs a NEW asm-encoder addressing mode — the asm layer's `MemReg` is unscaled — plus
