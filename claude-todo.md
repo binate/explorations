@@ -131,12 +131,13 @@ CORRECTION 2026-09-08):
    (parallel moves at all call/return/refdec/guard sites, spill-then-reload param landing,
    X16/X17 cycle-temp freedom, PlanParallelMove) — **confirmed correct, no miscompiles**; native
    aa64 conformance 3040/0 on the final tree; native/aarch64 + native/common unit-test smoke
-   green.  REMAINING (open): (1) **measure the native↔LLVM ratio** with arg-bank homes active
-   (the actual goal — did it close the gap?); (2) interval splitting for the ~25% genuinely
-   call-spanning values (🔵 follow-up, below).  Two benign review notes to fold in as cleanup:
-   unreachable arg-bank spill/reload defensive code in `emitCallFuncValue`/`emitCallIfaceMethod`
-   (func-values/iface-values are aggregates → never arg-bank-homed), and a missing
-   two-disjoint-cycles case in `parallel_move_test.bn` (hand-verified correct).  (Measured floors killed the
+   green.  **Ratio MEASURED** (controlled before/after, `perf/native-vs-llvm.sh` cmd/bnc
+   self-compile): arg-bank homes narrow native↔LLVM **3.10×→2.89× median** (native 9.52s→8.84s;
+   LLVM unchanged 3.07→3.05s) — a real but modest narrowing (spill is only part of the gap).
+   **Cleanups DONE** (committed `d3018f084`, pending land): removed the dead arg-bank spill/reload
+   in `emitCallFuncValue`/`emitCallIfaceMethod` (func-values/iface-values are aggregates → never
+   homed), added the two-disjoint-cycles `parallel_move_test.bn` case.  REMAINING: **interval
+   splitting** — see the dedicated claimed item below.  (Measured floors killed the
    X9–X15-static-partition idea: it caps at ~2–3 homes / ~15% because X9–X15 is also the
    scratch pool.  The lever is the idle arg bank X0–X7 as caller-saved homes → ~18 homes,
    ~40% of the spill cost — "Stage 5a done right": keep the X0–X7 homes 5a had, but marshal
@@ -164,6 +165,16 @@ CORRECTION 2026-09-08):
    range-list interval is its foundation).  SROA is DONE (652→555 instrs, 58→24 aggregate
    copies on livenessFixpoint) and did NOT move the self-compile ratio (3.38× vs inc1's
    3.34×).  See plan-native-regalloc.md "Stage 5d — caller-saved homes (X9–X15)".
+2b. **Interval splitting — the genuinely call-spanning ~25% of spill cost.**
+   🟡 IN PROGRESS (claimed 2026-09-19, work-4/temp-4).  Stage 5d homed the NON-call-spanning
+   values (arg bank X0–X7); the remaining spill cost is values LIVE ACROSS a call, which today
+   take a whole-interval callee-saved reg or spill for their entire lifetime even though they are
+   only "hot" in the straight-line stretches BETWEEN calls.  Interval splitting lets such a value
+   live in a (cheap, caller-saved / arg-bank) register in a between-calls region and spill only
+   across the call itself — instead of paying a callee-save or a full-lifetime spill.  The landed
+   range-list `LiveInterval` (regalloc_interval.bn) + the caller-saved home pool + the
+   scratch/home partition are its foundation.  DESIGN FIRST (write to plan-native-regalloc.md,
+   discuss before implementing); measure the ratio delta after.  See plan-native-regalloc.md.
 3. **Inliner threshold tuning — POSTPONED; revisit AFTER SROA/regalloc.** 🔵 NOT ASSIGNED
    The `--inline-threshold` flag is landed (`3022706ce`) so the value is
    runtime-settable without recompiling the compiler. A drift-controlled
