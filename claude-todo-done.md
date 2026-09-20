@@ -6,6 +6,23 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### arm32_linux native/common Unit failures (LP64-assuming tests) — DONE, LANDED `9699bb18e` (2026-09-19)
+
+`builder-comp_arm32_linux` Unit was red: `pkg/binate/native/common`'s
+`TestAggLoadNotElidableSAdjacentTooLarge` and `TestCEntryNarrowStackArgNoThunk` failed on the
+32-bit arm32 runner. Root cause: both are LP64-specific tests (per `common_test.bn`'s
+`setTarget64` note — every native-backend test in that package assumes a 64-bit ABI) that
+forgot to pin the target, so on arm32 they computed ILP32 sizes:
+  - "Quad" (4*int) is 32B on LP64 but 16B on ILP32, <= the 16-byte S-adjacent elision cap,
+    so `AggLoadElidable` correctly returned true and the "must not be elided" assertion failed;
+  - the SysV_AMD64 6-GP-register fill walked with ILP32 pointer sizes, placing the tail stack
+    int32 in a register, so `CEntryNeedsThunk` wrongly returned true.
+Both are TEST-PORTABILITY bugs (the codegen is correct); the fix pins `setTarget64()` at each
+test's start. Test-only change. Verified: forcing ILP32 reproduces both failures; the
+`setTarget64` override then makes both pass. (Pre-existing + previously untracked; the Unit
+gate had been red for many commits partly due to these. Note: `builder-comp_arm32_linux` is
+the LLVM arm32 cross-compile, not the native arm32 backend — earlier triage mislabeled it.)
+
 ### E2E `ffi-export` (ubuntu) LLVM sub-tests + the pure-GP sibling — `#[c_export]` thunk C-memory/internal-register quadrant — DONE, LANDED `4579568c8` (2026-09-19)
 
 The ffi-export ubuntu E2E gate was 7 passed / 6 failed: every LLVM-backend sub-test
