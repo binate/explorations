@@ -229,10 +229,13 @@ flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
   allocator/spill work (done + interval-splitting refuted ~3.5% — do NOT redo that). Hard part:
   alias + refcount safety. Bench: richards (validate HERE — the compiler-workload "spill isn't the
   gap" finding did not cover this IR lever). Largest / most speculative.
-- **Track 5 — array-loop BCE + induction/pointer strength reduction — 🔵 OPEN.**
+- **Track 5 — array-loop BCE + induction/pointer strength reduction — 🟡 IN PROGRESS (claimed 2026-09-20, work-5/session).**
   `iropt/bce_loop.bn`, `iropt/loops.bn` + the native bounds-check emitter. Hoist loop-invariant
   slice length/base, drop redundant/provably-in-range checks, strength-reduce to a post-increment
   pointer. Bench: fasta. Builds on the landed single-unsigned-compare bounds check.
+  Starting with (a) dominated/redundant-check elimination (the `seed[0]` checked 3× case: same
+  SSA index+length checked repeatedly — neither bceConstIndex nor bceLoop catches it), then
+  assessing (b) pointer strength reduction / (c) length-base hoist scope.
 
 NOT tracks (contraindicated by the prior measurement in the section above): raising the inline
 threshold (measured net-negative on native); further "home more values" allocator work / interval
