@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR bugs
 
-### Sub-word signed `MIN / <negative literal>` skips the overflow trap (all backends) — 🔴 OPEN (found 2026-09-20)
+### Sub-word signed `MIN / <negative literal>` skips the overflow trap (all backends) — 🟡 IN PROGRESS (claimed 2026-09-20, work-2)
 
 **Symptom.** A sub-word signed integer divide/remainder by a *negative literal*
 `-1` does NOT panic on the INT_MIN/-1 overflow the spec mandates; it silently
