@@ -69,6 +69,43 @@ quote numbers from this file (they go stale):**
   backends by static instruction/reload counting on a `--target` build, or on
   real hardware/CI.
 
+### `-O1`+ mem2reg emits a malformed phi (void-instr operand, `%v-1`) for a raw multi-return pointer promoted in a loop — 🔴 OPEN (found 2026-09-20)
+
+**Symptom.** At `-O1`/`-O2`, a loop that assigns raw `*T` locals from a
+multi-return call —
+
+    for i := 0; i < N; i++ {
+        var p *int; var q *int
+        p, q = rawPair(&gx, &gy)   // rawPair returns (*int, *int)
+        sink(*p + *q)
+    }
+
+produces a loop-header phi whose latch-edge operand is a VOID instruction
+(SSA id -1). The LLVM backend prints that as `%v-1` — invalid IR clang rejects
+(`use of undefined value '%v-1'`), a hard COMPILE_ERROR. The native and VM
+backends do NOT error and print the expected `42` — but **only because this
+test discards p/q** (`sink(*p+*q)`); the promoted pointer value is never
+observed, so a wrong/garbage value is invisible. A program that actually USED
+the promoted pointer past the loop back-edge could **silently miscompile on
+native/VM**. Reproduces at `-O1` and `-O2`, clean at `-O0`.
+
+**Root cause (needs investigation).** Phis are produced by mem2reg
+(`iropt/mem2reg.bn` / `promoteScalars`), not load-forwarding (phi-free), so
+mem2reg promotes the raw pointer locals `p`/`q` into loop phis but wires a VOID
+instr (id -1) as the latch-edge reaching definition instead of the real value —
+likely the multi-return extract / assignment (`p, q = rawPair(...)`) yields a
+void placeholder that the SSA-rename walk then feeds into the phi. A phi operand
+must be a value; a void instr is not.
+
+**Test.** `conformance/matrix/loop-leak/raw-multiret-ptr` — passes at `-O0`
+(default conformance level) but is a COMPILE_ERROR under `builder-comp` (LLVM)
+at `-O2`. Repro: `bnc --emit-llvm -O1 -I <ifaces> -L <impls>
+conformance/matrix/loop-leak/raw-multiret-ptr.bn` → 6 `%v-1` phi operands.
+
+**Discovered** by the Track-5 redundant-BCE `-O2` conformance run
+(`BINATE_FLAGS=-O2 ./conformance/run.sh builder-comp`); confirmed pre-existing
+(byte-identical `%v-1` on the pre-Track-5 base) and unrelated to that work.
+
 ### Cross-language benchmark suite (github.com/binate/benchmarks) — 🟢 in-flight
 
 Repo scaffolded; harness + first benchmark (spectral-norm) landed. Measures
