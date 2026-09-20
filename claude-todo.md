@@ -208,6 +208,39 @@ backends — aarch64's barrier unified to the safe-by-default allowlist in
 `501b2d9eb`; done log. The native -O1/-O2 startup hang that blocked -O1+
 measurement is fixed, `181ff6807`.)
 
+### fasta / richards native↔LLVM tracks (see plan-native-codegen-gaps.md) — 🔵 OPEN
+
+Five orthogonal, individually-landable tracks from the fasta (~2.1×) / richards (~2.0×)
+disassembly analysis (2026-09-19). Full evidence + coordination notes:
+`plan-native-codegen-gaps.md`. Each track: **measure the native/llvm ratio on the named
+benchmark before/after** — a change that doesn't move it doesn't count. Claim a track by
+flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
+
+- **Track 1 — const int div/mod → magic-number multiply (+ `madd` fusion, `mul ×1` elim) — 🔵 OPEN.**
+  `native/aarch64/aarch64_ops.bn` (`OP_REM`/`OP_DIV`/`OP_MUL`) + tests. Self-contained, aarch64.
+  Directly on "the gap lives in instruction selection." Bench: fasta (and the compiler). Flagship /
+  best starter. Absorbs the known defect "`mul rd,i,#1` not strength-reduced."
+- **Track 2 — IR: elide `OP_DIV_CHECK`/`OP_SHIFT_CHECK` for statically-safe operands — 🔵 OPEN.**
+  `pkg/binate/ir/gen_binary.bn` (`emitDivCheckGuard`) or a small `iropt` pass. Backend-neutral;
+  drops a runtime CALL from fasta's hot loop. Bench: fasta.
+- **Track 3 — native aarch64 RefDec: sink dtor-handle operand past the zero-test + LICM-hoist — 🔵 OPEN.**
+  `native/aarch64/aarch64_emit.bn` RefDec lowering. Small peephole. Bench: richards. Confirm the
+  pattern still reproduces on current main first.
+- **Track 4 — IR load-forwarding / promotion of managed-pointer field loads (STRUCTURAL, UNTRIED) — 🔵 OPEN.**
+  `iropt/load_forward.bn`, `iropt/mem2reg.bn` (`iropt/sroa_managed.bn` = refcount-safe prior art).
+  The richards reload-storm lever — a "memory ops" gap DISTINCT from SROA (done) and from the
+  allocator/spill work (done + interval-splitting refuted ~3.5% — do NOT redo that). Hard part:
+  alias + refcount safety. Bench: richards (validate HERE — the compiler-workload "spill isn't the
+  gap" finding did not cover this IR lever). Largest / most speculative.
+- **Track 5 — array-loop BCE + induction/pointer strength reduction — 🔵 OPEN.**
+  `iropt/bce_loop.bn`, `iropt/loops.bn` + the native bounds-check emitter. Hoist loop-invariant
+  slice length/base, drop redundant/provably-in-range checks, strength-reduce to a post-increment
+  pointer. Bench: fasta. Builds on the landed single-unsigned-compare bounds check.
+
+NOT tracks (contraindicated by the prior measurement in the section above): raising the inline
+threshold (measured net-negative on native); further "home more values" allocator work / interval
+splitting (done + refuted).
+
 ### IR optimization passes (help LLVM + native backends + the VM) — 🟡 OPEN
 
 - **Pass infra + mem2reg + BCE** — design settled
