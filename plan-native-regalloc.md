@@ -587,14 +587,29 @@ real — and why the fix is a safe no-op to land ahead of the arg-bank commit.
   over-conservative case (the birth-skip `p == DefPos` is safe because a clobber-defined value is
   single-def with Start == DefPos, and the only multi-def ids are phi OP_COPYs, never clobbers).
 
-Branch layout (not landed): `spansClobber` fix (independent, inert on main) atop the Stage 5d
-arg-bank commit atop current main.  The arg-bank commit's own pre-land hygiene was also fixed:
+Both Stage 5d commits LANDED on main: the spansClobber fix (`348cb15aa`) and the arg-bank homes
+(`4eed9523a`).  The arg-bank commit's own pre-land hygiene was also fixed:
 `aarch64_call.bn` (427→520 over the 500 cap from the new marshalling helpers) split into
 `aarch64_call_return.bn` (return-value collection, whitelisted per the length-split precedent);
 `argReg` / `emitReturn` doc comments (accidentally dropped when the arg-bank funcs were inserted
 above them) restored; two bnfmt-dirty files reformatted.  Also caught + fixed: main's refactored
 `emitDivCheck` / `emitBoundsCheck` used naive `Mov X0,a; Mov X1,b` marshalling that the arg-bank
-homes miscompile on a crossing — ported to the parallel move in `aarch64_guards.bn`.
+homes miscompile on a crossing — ported to the parallel move in `aarch64_guards.bn`.  The arg-bank
+marshalling got its own independent adversarial review (parallel moves at every call/return/
+refdec/guard site, spill-then-reload param landing, X16/X17 cycle-temp freedom, PlanParallelMove)
+— confirmed correct, no miscompiles.
+
+**Gap impact (controlled before/after, `perf/native-vs-llvm.sh`, cmd/bnc self-compile, 5 rounds,
+same machine, arg-bank commit is the ONLY difference):**
+- WITHOUT arg-bank homes (parent `9699bb18e`): native median 9.515s, LLVM median 3.069s →
+  ratio **3.10×** (best 3.08×).
+- WITH arg-bank homes (main `4eed9523a`): native median 8.837s, LLVM median 3.053s →
+  ratio **2.89×** (best 2.79×).
+- LLVM side unchanged (3.069→3.053s), so the delta is entirely native codegen: the native
+  self-compile is ~7% faster (9.52s→8.84s median) and the native↔LLVM ratio narrowed 3.10×→2.89×
+  (~10% of the excess-over-1× closed).  A real but modest narrowing — arg-bank homes attack the
+  SPILL cost (~75% of it non-call-spanning); the remaining ~1.89× excess is the genuinely
+  call-spanning values (interval-splitting follow-up), instruction selection, and aggregate copies.
 
 ## Correctness & validation (miscompile is the top risk)
 
