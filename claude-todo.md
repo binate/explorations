@@ -310,8 +310,7 @@ flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
   The richards reload-storm lever — a "memory ops" gap DISTINCT from SROA (done) and from the
   allocator/spill work (done + interval-splitting refuted ~3.5% — do NOT redo that). Hard part:
   alias + refcount safety. Bench: richards. Split into two composable pieces:
-  - **Piece 1 — store-forward single-store managed-pointer slots — DONE on work-4 (commit pending
-    conformance), MEASURED WIN.** Root cause found by dumping richards `-O1` LLVM IR: the `@Scheduler`
+  - **Piece 1 — store-forward single-store managed-pointer slots — LANDED `efdee444f`, MEASURED WIN.** Root cause found by dumping richards `-O1` LLVM IR: the `@Scheduler`
     param `s` (and the `@TCB` local `cur`) sat in a single-store alloca reloaded ~18×, because
     load-forwarding declined managed pointers — `forwardEscapes`' strict "any fault-pad appearance ⇒
     escape" barred them (their cleanup RefDec reads the slot via a plain pad load). A managed pointer
