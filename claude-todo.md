@@ -5,6 +5,51 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ---
 
+## MAJOR bugs
+
+### Sub-word signed `MIN / <negative literal>` skips the overflow trap (all backends) — 🔴 OPEN (found 2026-09-20)
+
+**Symptom.** A sub-word signed integer divide/remainder by a *negative literal*
+`-1` does NOT panic on the INT_MIN/-1 overflow the spec mandates; it silently
+produces a wrong value. E.g. with `var a int32 = i32min()`:
+
+    var c int32 = a / -1     // spec: must panic; actual: no trap, c = -2147483648
+    _ = a % -1               // same width bug
+
+Reproduces on native-aa64 AND LLVM, at `-O0` and `-O2`. `int8` too. `int64`
+constant `-1` traps correctly, and the *runtime* `-1` case (conformance 608,
+`i32min() / negOne()`) traps correctly — so the trigger is specifically a
+**negative LITERAL divisor at sub-word width**.
+
+**Root cause.** The unary-minus literal `-1` is typed as host `int` (64-bit), not
+untyped-int (IR-gen forces a signed `TypInt` for a negated literal to preserve
+its sign). `widenType(int32, int)` then promotes the whole divide to 64-bit, so:
+(a) the divide is emitted as a 64-bit `sdiv` (where INT32_MIN/-1 does not
+overflow — result 2147483648 fits int64), and (b) `EmitDivCheck` is given
+width 64, so the guard checks `dividend == INT64_MIN` and never matches
+INT32_MIN. The 64-bit result is then truncated back to int32 on store
+(→ INT32_MIN), a wrong value where the spec requires a trap. Confirmed by
+disasm: `mov x2, #-0x8000000000000000` (INT64_MIN signedMin) + a 64-bit `sdiv`
+in `main`, with the `DivCheck` call still present but ineffective.
+
+**NOT caused by** the Track-2 div-check elision (`elideSafeDivChecks`), which
+correctly KEEPS every `-1`-divisor check; discovered by that track's adversarial
+review. Independent of Track 1's magic-divide work (`838ffd40e` not in base).
+
+**Proposed fix (needs a decision).** The divide should be computed at the
+value-operand's (sub-word) width, not widened to host int by a negative literal
+divisor — i.e. a literal divisor should adopt the dividend's type like a positive
+untyped literal does, rather than a negated literal forcing `TypInt`. Likely in
+IR-gen's negated-literal typing (`gen_binary.bn`) and/or `widenType`. This is
+shared typing code, so the fix must not regress the sign-preservation the
+`TypInt`-for-negated-literal rule exists for (e.g. `x >> -shift`, signed
+comparisons). Add conformance tests: `int32`/`int8`/`int16` `MIN / -1` and
+`MIN % -1` with a literal `-1`, expecting a panic (sibling to 608/615 which use a
+runtime `-1`). Consider whether a positive sub-word divide by a literal is also
+silently 64-bit (benign for value, but same typing quirk).
+
+---
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
