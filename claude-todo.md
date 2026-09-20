@@ -223,9 +223,19 @@ flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
 - **Track 2 — IR: elide `OP_DIV_CHECK`/`OP_SHIFT_CHECK` for statically-safe operands — 🟡 IN PROGRESS (claimed 2026-09-20, work-2/session).**
   `pkg/binate/ir/gen_binary.bn` (`emitDivCheckGuard`) or a small `iropt` pass. Backend-neutral;
   drops a runtime CALL from fasta's hot loop. Bench: fasta.
-- **Track 3 — native aarch64 RefDec: sink dtor-handle operand past the zero-test + LICM-hoist — 🟡 IN PROGRESS (claimed 2026-09-20, work-3/session; checking x64/arm32 RefDec equivalents too).**
-  `native/aarch64/aarch64_emit.bn` RefDec lowering. Small peephole. Bench: richards. Confirm the
-  pattern still reproduces on current main first.
+- **Track 3 — native aa64/arm32 RefDec: sink dtor-handle operand past the zero-test — 🟢 DONE pending land (work-3, commit `e25793c0e`; awaiting cherry-pick approval).**
+  Confirmed the pattern reproduced on current main (schedule emitted 9 dtor-handle `adrp`
+  before the `cbz`/`cbnz` zero-test).  The static dtor handle rides an OP_FUNC_HANDLE operand;
+  `native/common` `FoldedDtorHandles` flags handles used only as an OP_REFDEC dtor, the
+  aa64/arm32 dispatch skips their standalone emission, and `emitRefDecInline` materializes the
+  handle in the slow path (past the zero-test).  **x64 has NO inline RefDec fast path** (its
+  RefDec always calls `rt.RefDec` with the handle in RSI), so there is no zero-test to sink past
+  — not a Track-3 target; x64 codegen stays byte-identical.  arm32 mirrors aa64.  Measured
+  richards (native aa64): 2.00s → 1.50s best (25% faster), native/llvm ratio 2.32× → 1.77×.
+  Conformance: native aa64 3040/0/9, native arm32 2994/0/55; adversarial review clean.  The
+  LICM-hoist half of the original title is subsumed — sinking into the rarely-taken slow path
+  means the handle is not computed per-iteration at all (better than hoisting it into a
+  loop-live register), so no separate hoist was needed.
 - **Track 4 — IR load-forwarding / promotion of managed-pointer field loads (STRUCTURAL, UNTRIED) — 🔵 OPEN.**
   `iropt/load_forward.bn`, `iropt/mem2reg.bn` (`iropt/sroa_managed.bn` = refcount-safe prior art).
   The richards reload-storm lever — a "memory ops" gap DISTINCT from SROA (done) and from the
