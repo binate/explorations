@@ -57,12 +57,17 @@ calls any `Emit*` or build helper.
 
 ## Decisions (settled; flag any you'd change)
 
-1. **`verify.bn` stays in `ir`.** It is read-only. Keeping it in `ir` means
-   `irgen` (which calls `VerifyFuncOrAbort`) does NOT have to import `iropt`.
+1. **`verify.bn` → `irbuild`** (in Phase 2, with emit; stays in `ir` through
+   Phase 1). `verify_test` builds fixtures via emit AND calls the private
+   `addInstr`/`newVoidInstr`, so it must live in whichever package owns those —
+   `irbuild`. `irgen` imports `irbuild` anyway (for emit), so `VerifyFuncOrAbort`
+   coming from `irbuild` adds NO new edge (and avoids `irgen → iropt`).
 2. **`dom.bn` → `iropt`** (its only consumers are opt passes; co-locate). Its
    exports (`DomInfo`/`ComputeDom`/`Dominates`/`IteratedDF`) leave `ir.bni`.
-3. **`loops.bn` stays in `ir`** (`ComputeLoopDepths` is consumed by
-   `native/common`; keeping it in `ir` avoids a backend → `iropt` edge).
+3. **`loops.bn` → `iropt`.** Its test builds fixtures via emit (so it cannot
+   stay in package `ir` once emit → `irbuild`), and `native/common` — the only
+   external consumer of `ComputeLoopDepths` — ALREADY imports `iropt` for
+   `EliminatePhis`, so moving `loops` adds no new cross-package edge.
 4. **`NewParamRef` stays in `ir`** — a trivial operand constructor (no ID alloc,
    no block append), fits the data model.
 5. **Rename on export:** `nextID` → `AllocValueID(f)` (avoids confusion with the
