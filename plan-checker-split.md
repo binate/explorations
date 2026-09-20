@@ -1,7 +1,6 @@
 # Plan: split the type checker out of `pkg/binate/types` (→ `types` + `check`)
 
-**Status:** ANALYZED, NOT STARTED (2026-09-19, work-3/session). Deferred behind the
-`types.bni` over-export trim + the `vm.bni` reduction, per user sequencing. Needs
+**Status:** IN PROGRESS (claimed 2026-09-19, work-3/session). `types.bni` over-export trim + the `vm.bni` reduction, per user sequencing. Needs
 explicit user go before starting (it is ~3× the `ir → iropt` re-arch).
 
 ## Goal
