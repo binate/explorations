@@ -352,8 +352,12 @@ flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
     regression). Full Track 4 same-base: 296.7M (no Track 4) → 277.5M (Piece 1, **−6.5%**) → 268.5M
     (Piece 2) = **−9.5% total, richards ratio 1.84×→1.67×**. 132 iropt tests, hygiene 20/20. Tests in
     `iropt/field_forward_test.bn`.
-  - **Piece 3 — deeper access chains (arbitrary-depth field-load paths) — 🟡 IN PROGRESS (claimed
-    2026-09-20, work-4/session).** Generalize `field_forward.bn` from a single field off a managed-ptr
+  - **Piece 3 — deeper access chains (arbitrary-depth field-load paths) — 🟡 committed on work-4
+    (`56593ae2a`), pending conformance + adversarial review, MEASURED WIN.** (157 iropt tests incl.
+    depth-2 coalesce/prefix-kill/divergent + analysis-primitive units; hygiene 20/20. Controlled
+    same-base A/B: richards native 268.1M→262.8M **−2.0%**, LLVM flat → ratio ~1.67×→~1.63×;
+    binary-trees + fasta flat. Track 4 total from no-Track-4 296.7M: **−11.4%**, ratio 1.84×→~1.63×.
+    Split path/barrier analysis to `field_forward_analysis.bn` for file length.) Generalize `field_forward.bn` from a single field off a managed-ptr
     PARAM (path length 1) to an arbitrary-depth ACCESS PATH rooted at a managed-ptr param: `s.current.state`
     = path (s, [current, state]). Key a load by its full path; coalesce reloads with the same path.
     Soundness: each intermediate field is a managed-ptr that holds a ref to the next object, and the
