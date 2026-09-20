@@ -144,18 +144,25 @@ CORRECTION 2026-09-08):
    range-list interval is its foundation).  SROA is DONE (652→555 instrs, 58→24 aggregate
    copies on livenessFixpoint) and did NOT move the self-compile ratio (3.38× vs inc1's
    3.34×).  See plan-native-regalloc.md "Stage 5d — caller-saved homes (X9–X15)".
-2b. **Interval splitting (option B) — TRIED, net REGRESSION, NOT landed (2026-09-19, work-4).**
-   Implemented caller-saved home + per-call save/restore for spanning values (allocator gate
-   `2*SpanWeight < spillCost`; emitter `emitCallerSavedHomeSaveRestore`).  Correct (native aa64
-   conformance 3040/0, self-compiles + gen3 fixpoint) but a controlled before/after (7 rounds
-   each, LLVM side stable) showed it REGRESSED the ratio **2.79×→2.98×** (native ~7.6% slower):
-   Binate is refcount-heavy, so spanning values span `OP_REFDEC` clobbers whose call is
-   CONDITIONAL (rare), and the unconditional per-clobber save/restore is pure fast-path overhead.
-   Kept on branch `optB-regression` (NOT for landing); result in plan-native-regalloc.md.
-   Confirms **spill is no longer the dominant gap term** — a poor lever for a refcounted language.
-   Possible salvage (unclaimed, uncertain payoff): push the save/restore into the RefDec SLOW path
-   so the fast path pays nothing.  Higher-value levers per the 2.79× breakdown: **instruction
-   selection** and the **aggregate/slice-header copy path** — the components the gap now lives in.
+2b. **Interval splitting (option B) — TRIED THOROUGHLY, ~3.5% REGRESSION, DO NOT LAND (2026-09-19, work-4).**
+   Implemented caller-saved home + per-call save/restore for spanning values, then fixed every
+   issue digging surfaced: (a) RefDec save/restore moved to its SLOW path (fast path pays nothing);
+   (b) RefDec weight-0 in the cost model; the `SplitSpanningHomes` flag (which also caught + gated a
+   real arm32 cross-arch MISCOMPILE the shared allocator change would have caused — arm32 has
+   caller-saved R0..R3 and no save/restore machinery); and a reload-aware cost gate (compare
+   2*SpanWeight against `ReloadBenefit` = cache-modeled reloads avoided, NOT the def+use spillCost).
+   Correct throughout (native aa64 self-compiles + gen3 fixpoint; allocator unit tests + gate test).
+   VERDICT via the noise-immune metric — INSTRUCTIONS RETIRED (`/usr/bin/time -l`; wall-clock and
+   user-CPU-seconds were unusable on the loaded shared box): option B executes **+3.3–3.6% MORE
+   instructions** to compile cmd/bnc (194.1B vs 187.3B, reproducible).  Root cause: the reload-aware
+   gate barely moved the allocation (homed values are ~single-use-per-segment, ReloadBenefit ≈
+   spillCost — the retention cache already had the easy reloads), and the save/restore overhead
+   (esp. the RefDec slow path, executed OFTEN in a refcounting language) exceeds the reloads a home
+   avoids.  A stricter gate can only approach neutral, never a win.  **Interval splitting of this
+   form does not pay off for Binate — THIRD confirmation that register spill is not the remaining
+   gap term.**  Kept on branch `optB-regression` (NOT landed).  The gap now lives in **instruction
+   selection** and the **aggregate/slice-header copy path**; those are the levers, if the gap is
+   pursued further.  (Perf-methodology note: on this shared box use instructions-retired, not time.)
 3. **Inliner threshold tuning — POSTPONED; revisit AFTER SROA/regalloc.** 🔵 NOT ASSIGNED
    The `--inline-threshold` flag is landed (`3022706ce`) so the value is
    runtime-settable without recompiling the compiler. A drift-controlled
