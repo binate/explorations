@@ -268,12 +268,34 @@ flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
 - **Track 2 — IR: elide `OP_DIV_CHECK`/`OP_SHIFT_CHECK` for statically-safe operands — 🟡 IN PROGRESS (claimed 2026-09-20, work-2/session).**
   `pkg/binate/ir/gen_binary.bn` (`emitDivCheckGuard`) or a small `iropt` pass. Backend-neutral;
   drops a runtime CALL from fasta's hot loop. Bench: fasta.
-- **Track 4 — IR load-forwarding / promotion of managed-pointer field loads (STRUCTURAL, UNTRIED) — 🟡 IN PROGRESS (claimed 2026-09-20, work-4/session).**
+- **Track 4 — IR load-forwarding / promotion of managed-pointer field loads (STRUCTURAL) — 🟡 IN PROGRESS (claimed 2026-09-20, work-4/session).**
   `iropt/load_forward.bn`, `iropt/mem2reg.bn` (`iropt/sroa_managed.bn` = refcount-safe prior art).
   The richards reload-storm lever — a "memory ops" gap DISTINCT from SROA (done) and from the
   allocator/spill work (done + interval-splitting refuted ~3.5% — do NOT redo that). Hard part:
-  alias + refcount safety. Bench: richards (validate HERE — the compiler-workload "spill isn't the
-  gap" finding did not cover this IR lever). Largest / most speculative.
+  alias + refcount safety. Bench: richards. Split into two composable pieces:
+  - **Piece 1 — store-forward single-store managed-pointer slots — DONE on work-4 (commit pending
+    conformance), MEASURED WIN.** Root cause found by dumping richards `-O1` LLVM IR: the `@Scheduler`
+    param `s` (and the `@TCB` local `cur`) sat in a single-store alloca reloaded ~18×, because
+    load-forwarding declined managed pointers — `forwardEscapes`' strict "any fault-pad appearance ⇒
+    escape" barred them (their cleanup RefDec reads the slot via a plain pad load). A managed pointer
+    is a single-word by-value scalar, so it store-forwards like any scalar; extended the existing
+    managed-slice pad relaxation to managed pointers (collect + rewrite their pad loads to the stored
+    value; `applyPromotion` now rebuilds `f.FaultPads` too — it only rebuilt `f.Blocks`, so the pad
+    loads survived referencing the deleted alloca and tripped `assertNoSurvivingUses`). Refcount-neutral
+    (schedule RefInc/RefDec/ZeroRefDestroy counts unchanged; loads 73→51). Measured (native vs LLVM
+    richards, instructions retired, interleaved): native **318.0M→296.7M (−6.7%)**, LLVM flat
+    (162.6M — clang -O2 already promotes via its own mem2reg), so the richards ratio moves
+    **1.96×→1.82×**. binary-trees −0.7%, fasta flat (no regressions). Split the shared apply/rewrite
+    layer to `mem2reg_apply.bn` and the managed load-forward tests to `load_forward_managed_test.bn`
+    (file length). Unit tests: `TestForwardManagedPtrPadLoadForwarded` + 121 iropt tests pass.
+  - **Piece 2 — redundant FIELD-load elimination (the literal track title) — NOT STARTED.** After
+    Piece 1, `s.current` (Scheduler field 3) is still loaded 15× in schedule. Coalesce
+    `LOAD(GET_FIELD_PTR(B,idx))` to a dominating identical load. Sound barrier model (design in
+    work-4 scratchpad): CALL* and may-aliasing STORE (same idx, or opaque addr) are barriers;
+    **OP_REFDEC is NOT** — spec confirms Binate has no user destructors (dtors only decrement child
+    refcounts + free, never write data fields), so a RefDec can't change a data field's value. v1
+    anchors base B to a managed-pointer PARAMETER (callee holds a live ref for the whole body ⇒
+    `*param` never freed under it), deferring deeper access chains. New file `iropt/field_forward.bn`.
 - **Track 5 — array-loop BCE + induction/pointer strength reduction — 🟡 IN PROGRESS (claimed 2026-09-20, work-5/session).**
   `iropt/bce_loop.bn`, `iropt/loops.bn` + the native bounds-check emitter. Hoist loop-invariant
   slice length/base, drop redundant/provably-in-range checks, strength-reduce to a post-increment
