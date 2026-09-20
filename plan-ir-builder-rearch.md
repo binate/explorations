@@ -91,7 +91,11 @@ calls any `Emit*` or build helper.
 
 ## Phasing (each phase independently landable + green)
 
-**Phase 1 — extract `iropt`.** Move the opt passes + their tests + the 4
+**Phase 1 — extract `iropt`. ✅ DONE (landed `1acae8ad6`, 2026-09-19).** Full
+builder-comp conformance 3040/0/9; adversarial review confirmed zero logic
+changes. `ir.bni` 1214 → 1206.
+
+**Phase 1 (original) —** Move the opt passes + their tests + the 4
 module-init emitters + `emitBuildSatRegistryCall` + `dom.bn` out of `ir` into
 `iropt`, splitting the mixed files above. In this phase `iropt` calls `ir`'s
 **public `Emit*` methods** and `ir.NewInstr`/etc. (still methods/primitives in
