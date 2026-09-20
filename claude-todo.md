@@ -125,9 +125,18 @@ CORRECTION 2026-09-08):
    `Assembler.Fill`).  Fix keys the birth test on `DefPos` not `Start` — **LANDED on main `348cb15aa`**
    (independent of the arg-bank commit, inert on main; adversarial review confirmed correct).  Verified: native self-compile
    completes ~10s + gen3→gen4 fixpoint; native aa64 conformance 3040/0; allocator unit tests
-   + new regression pass; `DataZero` `n` now callee-saved (X28), disasm-confirmed.  REMAINING:
-   land the arg-bank commit (`temp-4` `e5b705bf4`, hygiene-clean, rebased onto current main;
-   per-instance approval), then measure the ratio.  (Measured floors killed the
+   + new regression pass; `DataZero` `n` now callee-saved (X28), disasm-confirmed.
+   **BOTH Stage 5d commits LANDED on main:** the spansClobber fix (`348cb15aa`) and the arg-bank
+   homes (`4eed9523a`).  The arg-bank marshalling got its own independent adversarial review
+   (parallel moves at all call/return/refdec/guard sites, spill-then-reload param landing,
+   X16/X17 cycle-temp freedom, PlanParallelMove) — **confirmed correct, no miscompiles**; native
+   aa64 conformance 3040/0 on the final tree; native/aarch64 + native/common unit-test smoke
+   green.  REMAINING (open): (1) **measure the native↔LLVM ratio** with arg-bank homes active
+   (the actual goal — did it close the gap?); (2) interval splitting for the ~25% genuinely
+   call-spanning values (🔵 follow-up, below).  Two benign review notes to fold in as cleanup:
+   unreachable arg-bank spill/reload defensive code in `emitCallFuncValue`/`emitCallIfaceMethod`
+   (func-values/iface-values are aggregates → never arg-bank-homed), and a missing
+   two-disjoint-cycles case in `parallel_move_test.bn` (hand-verified correct).  (Measured floors killed the
    X9–X15-static-partition idea: it caps at ~2–3 homes / ~15% because X9–X15 is also the
    scratch pool.  The lever is the idle arg bank X0–X7 as caller-saved homes → ~18 homes,
    ~40% of the spill cost — "Stage 5a done right": keep the X0–X7 homes 5a had, but marshal
