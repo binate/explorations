@@ -303,9 +303,10 @@ forwarder because it is BUILDER-compiled and the pinned BUILDER bundle ships
    a normal flag -> CLIArgs.ShowVersion), args_test.bn reworked, and the
    `is_builder_tree` exemption re-added.  gen1+gen2 build + 144 cmd/bnc tests +
    hygiene 20/20 + CLI smoke all green.
-3. **NEXT BUILDER BUMP:** straightforward `pkg/stdx/flags` → `pkg/std/flags` in
-   cmd/bnc + remove the `pkg/stdx/flags` forwarder + drop the exemption.  Do NOT cut
-   a BUILDER just for this.
+3. **🟡 IN PROGRESS (claimed 2026-09-19, work-6/session)** — BUILDER is now
+   `bnc-0.0.16` (ships `pkg/std/flags`), so: `pkg/stdx/flags` → `pkg/std/flags` in
+   cmd/bnc + remove the `pkg/stdx/flags` forwarder + drop the is_builder_tree
+   exemption (mirrors `66b3e7bde`).
 
 ## Documentation hygiene
 
