@@ -1,3 +1,40 @@
+### Track 5 (fasta/richards tracks), part (a): redundant bounds-check elimination — ✅ DONE (2026-09-20)
+
+Landed `47b423050` (work-5). New `-O1+` IR pass `iropt/bce_redundant.bn`
+(`bceRedundant`, wired after `bceLoop`): drops an `OP_BOUNDS_CHECK(idx, len)`
+when a DOMINATING check with the same `(idx, len)` VALUES already proved it, so a
+slot indexed repeatedly is checked once. Motivating shape is fasta `genRandom`'s
+`seed[0]` read/write/read — three `OP_BOUNDS_CHECK(const 0, EXTRACT(seed, 1))`
+that neither `bceConstIndex` (runtime slice length, not a constant) nor
+`bceLoop` (constant index, not an induction phi) removes.
+
+Operand equality is value-based (`bceSameValue`): SSA identity, OR two
+`OP_CONST_INT` with equal `IntVal`, OR two `OP_EXTRACT` with equal field index +
+pointer-identical aggregate (a slice's `len` = `EXTRACT(s, 1)`) — the distinct
+per-access const-index and length-extract instrs that load-forwarding leaves
+behind (it coalesces the slice VALUE, not the extracts). Sound: a dominating
+check with equal SSA operands passing proves the same `0<=idx<len`; in the
+faulting case the dominator aborts first, so dropping the dominated check changes
+no path's behavior. Same drop discipline as `bceConstIndex`/`bceLoop` (repoint
+`blk.Instrs`, `InstrsVec` keeps ownership; orphaned VM fault pad never branched
+to). Adversarial review: SOUND (no holes; every removal path checked).
+
+Validation: native aa64 `-O2` conformance 3040/0, LLVM `-O2` clean, VM `-O2`
+3028/0, 134 iropt unit tests (8 new), hygiene 20/20; `genRandom` 142→130 native
+aarch64 instrs (bounds calls / cmp / cond-branch each 3→1); all fasta variants
+byte-identical output.
+
+**A correct GENERAL improvement, but NOT a fasta-ratio closer** (measured
+~2.11x both before/after, within noise) — root-caused, not hand-waved:
+`genRandom` is latency-bound on the constant div/mod (`sdiv`/`msub` — Track 1's
+domain), so removing cheap well-predicted compares/branches barely moves
+wall-time; and `selectRandom`'s hot loop is a slice-non-promotion + strength-
+reduction gap (Track 4 + Track 5 (b)), which this pass correctly leaves
+untouched. The fasta ratio is being closed by Track 1 (magic div + simplify,
+2.16->1.96) and Track 4 (load-forwarding); this pass helps any repeated-index
+code generally. Track 5 (b) strength reduction + (c) length/base hoist remain
+open (native-backend levers).
+
 ### Track 3 (fasta/richards tracks): native aa64/arm32 RefDec dtor-handle sink — ✅ DONE (2026-09-20)
 
 Landed `d0c8b9d01` (work-3). The native inline `RefDec` (`OP_REFDEC`) fast path

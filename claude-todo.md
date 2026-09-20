@@ -343,12 +343,18 @@ flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
     regression is stdlib register pressure fasta links, not its hot loop; outputs byte-identical).
     132 iropt tests pass, hygiene 20/20. Tests in `iropt/field_forward_test.bn`.
 - **Track 5 — array-loop BCE + induction/pointer strength reduction — 🟡 IN PROGRESS (claimed 2026-09-20, work-5/session).**
-  `iropt/bce_loop.bn`, `iropt/loops.bn` + the native bounds-check emitter. Hoist loop-invariant
-  slice length/base, drop redundant/provably-in-range checks, strength-reduce to a post-increment
-  pointer. Bench: fasta. Builds on the landed single-unsigned-compare bounds check.
-  Starting with (a) dominated/redundant-check elimination (the `seed[0]` checked 3× case: same
-  SSA index+length checked repeatedly — neither bceConstIndex nor bceLoop catches it), then
-  assessing (b) pointer strength reduction / (c) length-base hoist scope.
+  (a) dominated/redundant-check elimination — ✅ LANDED `47b423050` (`iropt/bce_redundant.bn`;
+  the `seed[0]` read/write/read case; see done log). A correct GENERAL improvement but does NOT
+  move the fasta ratio (root-caused: genRandom is latency-bound on the constant div/mod = Track 1,
+  and selectRandom's gap is slice non-promotion + strength reduction = Track 4 + (b) below).
+  Remaining, both NATIVE-BACKEND (per the fannkuch finding, IR passes barely move native):
+  (b) strength-reduce to scaled/post-increment addressing — the index-scaling half already landed
+  (`c77bdae4a`, mul→lsl); the open lever is fusing into scaled `[base,idx,lsl#n]` load/store
+  addressing (needs a NEW asm-encoder addressing mode — the asm layer's `MemReg` is unscaled — plus
+  deferred-GEP/single-use analysis in `native/aarch64/aarch64_emit.bn`); overlaps the fannkuch
+  effort's "fuse into scaled addressing" step (`plan-native-fannkuch-gap.md` Tier 1B, left for
+  later). (c) hoist loop-invariant slice length/base (fannkuch Tier 2C, base/len register
+  residency). Bench: fasta / any array-indexing loop.
 
 NOT tracks (contraindicated by the prior measurement in the section above): raising the inline
 threshold (measured net-negative on native); further "home more values" allocator work / interval
