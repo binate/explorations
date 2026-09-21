@@ -346,7 +346,7 @@ any other single item. Files: `native/aarch64/aarch64_float.bn`, `native/common/
 x64 XMM / arm32 VFP have the same pattern. Bench: fasta native/llvm ratio (primary), the 3 FP
 benchmarks (secondary). Full scope + approach: `plan-native-fp-register-homes.md`.
 
-### benchmark suite: microbenchmark(s) reflecting the compiler's ~2.7× aggregate-copy gap — 🔵 OPEN
+### benchmark suite: microbenchmark(s) reflecting the compiler's ~2.7× aggregate-copy gap — 🟡 IN PROGRESS (claimed 2026-09-20, work-6/session)
 
 The bnc self-compile is ~2.7× native/llvm (non-FP), but the suite's non-FP benchmarks top out
 ~1.6× — none reproduce the compiler's dominant cost (managed aggregate / slice-header COPYING
