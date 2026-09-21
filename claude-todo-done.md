@@ -1,3 +1,40 @@
+### Track 5 (fasta/richards tracks), part (b): native aa64 scaled register-offset element addressing — ✅ DONE (2026-09-20)
+
+Landed `0289c25f2` (asm) + `79302f412` (backend, work-5). An 8-byte GP array/slice
+element access `a[i]` off a register base lowered to `lsl off,i,#3; add p,base,off;
+ldr/str v,[p]`; now it folds into one `ldr/str v,[base,i,lsl#3]` (the scaled
+register-offset form, S=1 scales the element index by the access size), eliminating
+the index shift and the address add — native now emits LLVM's exact addressing.
+
+- **asm** (`0289c25f2`): `MemRegScaled` / `OP_MEM_REG_SCALED` = `[Rn,Rm,lsl#log2(size)]`,
+  plus a **latent pre-existing bug fix** — `ldrStrRegEnc` omitted the fixed bits
+  11-10=10 of the LDR/STR register form, so `MemReg(Rn,Rm)` misencoded (e.g. `LDR
+  X0,[X1,X2]` emitted 0xF8626020 not 0xF8626820, verified vs llvm-mc). Latent (only
+  the asm-text parser produces OP_MEM_REG and no aa64 `.s` uses register-offset).
+- **backend** (`79302f412`): `common.FusableElemGeps` flags each OP_GET_ELEM_PTR used
+  EXACTLY ONCE as a load/store address, 8-byte GP scalar (not FP/aggregate), register
+  base (not alloca/global). emitGetElemPtr skips a flagged GEP; emitFusedElemLoad/Store
+  rederive base+index. **Required a register-allocator liveness fix**: suppressing the
+  GEP moves its base+index uses to the consuming load/store, so ComputeLiveness/
+  BuildIntervals/ComputeLiveBeforeAll are made fusion-aware (LivenessInfo.Fusable; a
+  folded GEP defs nothing via defIdOf; a fused load/store's operand liveness redirects
+  from the GEP result to base+index at every use-scan site — regalloc_fuse_liveness.bn).
+  Without it the allocator reused base's register for the store value (`str x4,[x4,...]`
+  SIGSEGV, conformance 1103, parallel/multi-return nested-array stores).
+
+Validated: native aa64 conformance **3042/0 at BOTH -O0 and -O2** (self-compile), TWO
+adversarial reviews SOUND (the fusion; the liveness fix — incl. cross-block, shared-base,
+spill, aliasing), hygiene 20/20, 293 native/common + 201 aa64 + 121 asm unit tests, 1103
++ fannkuch/slice-sum byte-identical, hot loop emits `ldr/str v,[base,i,lsl#3]` with
+distinct value/base regs (fannkuch: 63 scaled uses).
+
+**Standalone runtime win is small** — it removes the CHEAP lsl+add (the expensive mul was
+already handled by `c77bdae4a`), while the slice base/len reload storm (Tier 2C, a separate
+lever) dominates the per-access cost. Its value is completing the addressing lever + the
+latent encoder-bug fix; it compounds once the reload-cache work lands. Follow-ups: 4-byte
+elements (needs the signed-narrow LDRSW register form); x64 (SIB) / arm32 could adopt the
+same FusableElemGeps analysis.
+
 ### Track 2 (fasta/richards tracks): elide OP_DIV_CHECK on a safe constant divisor — ✅ DONE (2026-09-20)
 
 Landed `94d12bd26` (work-2). New `-O1+` IR pass `elideSafeDivChecks` in
