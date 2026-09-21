@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR bugs
 
-### Unsigned `/` or `%` by a negative literal accepted — should be a type error — 🔴 OPEN (found 2026-09-20)
+### Unsigned `/` or `%` by a negative literal accepted — should be a type error — 🟡 IN PROGRESS (claimed 2026-09-20, work-2)
 
 **Symptom.** `uint8(200) / -1` (an unsigned operand over a negative untyped
 literal) COMPILES and computes at signed `int`, printing `-200`, instead of being
