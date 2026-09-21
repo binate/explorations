@@ -361,6 +361,39 @@ iropt win, ✅ LANDED `2fa428d8b` (2026-09-21) — but a NO-OP on richards/fannk
 
 Order: T1 → T2 → T3 → T4 → T5 → T6.
 
+### native↔LLVM gap round 3 — record-churn aggregate-copy probe (see plan-native-codegen-gaps-round3.md) — 🔵 OPEN
+
+From profiling record-churn (~8× native/llvm, the largest non-FP gap) on current main. The 32-byte
+copy WIDTH is already fine (both backends use paired `ldp/stp`); the gap is everything AROUND it —
+`mix` stays an out-of-line by-value call while LLVM inlines+SROAs+SLP-vectorizes it. All non-FP; do
+NOT propose the refuted levers (inline-threshold raise, home-more/interval-split). Claim by flipping
+to 🟡 IN PROGRESS (`work-N/session`); measure the record-churn ratio before/after. Full evidence:
+`plan-native-codegen-gaps-round3.md`.
+
+- **T1 — fold constant field offsets on alloca/FP-relative bases into the load/store — 🔵 OPEN.**
+  Highest value, safe, GENERAL. Extends the landed round-2 field-GEP fold (register bases) to
+  alloca/global bases — emit `[sp/x29,#off]` instead of a standalone `add` (the fuse pass wrongly
+  excludes alloca bases). Removes ~24 instrs in `mix` + every struct-field access.
+  `native/common/common_field_gep_fuse.bn`, `common_elem_gep_fuse.bn`, `native/aarch64/aarch64_emit.bn`; x64 analog.
+- **T2 — 32-bit integer arithmetic in `w`-registers; drop the `ubfx` re-narrow — 🔵 OPEN.**
+  Safe, GENERAL. `emitBinop` hardcodes the 64-bit form + appends a mask; the `w`-form self-clears
+  bits [32,64). 9 dead `ubfx` in `mix`; helps all 32-bit int code.
+  `native/aarch64/aarch64_ops.bn` (`emitBinop`/`emitSubWordNarrow`); x64/arm32 analogs.
+- **T3 — extend aggregate-load elision to OP_EXTRACT-only consumers — 🔵 OPEN.**
+  Medium; the open item deferred by `done/plan-native-aggcopy-fusion.md`. Alias an agg-load whose only
+  uses are field extracts back to its stable source (param/alloca). Removes 2 per-input copies
+  (~16 instrs in `mix`). `native/common/common_aggload_elision.bn` (`AggLoadElidable`).
+- **T4 — inline SROA-thin shapes like `mix` WITHOUT a blanket threshold raise — 🔵 OPEN, POLICY-SENSITIVE (user decision).**
+  Largest single-benchmark impact but ADJACENT to the refuted inline-threshold + home-more levers.
+  Cost-model change discounting SROA-eliminable aggregate plumbing when scoring a callee (distinct
+  from the blanket raise, but must be measured tree-wide for net effect). Full parity also needs SROA
+  to keep `mix`'s fields register-resident (borders home-more). SURFACE for a decision, don't land
+  unilaterally. `iropt/inline_eligibility.bn`/`inline_calls.bn`; SROA.
+
+NOT a round-3 track: integer SIMD (LLVM's `add.4s`/`eor.16b` SLP-vectorization of the 8-field combine
+is the post-scalar ceiling) — a large separate lever in the deferred-FP-vectorization family
+(`plan-native-vectorization.md`). Order: T1 + T2 first (safe/general), then T3, then T4 as a decision.
+
 ### IR optimization passes (help LLVM + native backends + the VM) — 🟡 OPEN
 
 - **Pass infra + mem2reg + BCE** — design settled
