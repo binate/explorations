@@ -1,5 +1,22 @@
 ### Track 5 (b-follow-up): native aa64 scaled addressing for 4-byte (int32) elements — ✅ DONE (2026-09-20)
 
+### -O2 conformance CI job (all arches) — ✅ DONE (2026-09-20, work-1), LANDED `49e454303`
+
+Added `.github/workflows/conformance-o2.yml`: runs the conformance suite at -O2
+(`BINATE_FLAGS`) so the -O1+ IR opt passes (fuse-mul-add, LICM, SROA, mem2reg,
+simplify-identities, BCE, named-const magic-div) — and the lowering of the opcodes
+they feed — are exercised end-to-end, which the default -O0 workflow never does (a
+lowering regression there ships green; this bit the OP_MADD LLVM lowering).  Covers
+LLVM (`builder-comp`), the VM (`builder-comp-int`), and all three native arches
+(`native_aa64`, `native_x64`, `native_arm32_baremetal`), with per-mode runners,
+the arm32 cross-toolchain install, and sharding for the 30-min cap.  All modes
+BLOCKING — they are the same configs the default workflow runs green at -O0, so an
+-O2 failure is a real optimizer/lowering defect.  aa64 was pre-verified locally
+(full suite 3043/0 at -O2); the emulated modes (x64 via Rosetta, arm32 via qemu)
+are verified by CI itself.  If the first CI run reds a mode, that is a genuine -O2
+defect to root-cause (file it then).
+
+
 Landed `642321f0c` (work-5). Extends the scaled register-offset element load/store
 fold (Track 5 (b), `common_elem_gep_fuse.bn` / `aarch64_emit_elem.bn`) from 8-byte
 to also 4-byte GP elements: FusableElemGeps accepts elemSize 4 (FP still excluded,

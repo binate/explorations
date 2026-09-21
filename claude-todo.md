@@ -222,14 +222,6 @@ disassembly analysis (2026-09-19). Full evidence + coordination notes:
 benchmark before/after** — a change that doesn't move it doesn't count. Claim a track by
 flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
 
-- **-O2 conformance CI job (all arches) — 🟡 IN PROGRESS (claimed 2026-09-20, work-1).**
-  Conformance/CI run at -O0 by default, so no -O1+ IR opt pass (fuse-mul-add, LICM, SROA,
-  simplify-identities, the named-const-magic path exercised by `1274`) is covered end-to-end in
-  CI — a lowering regression ships green (this bit the madd LLVM lowering, caught only by a manual
-  -O1 run).  Add a CI job running the conformance suite at -O2 across ALL arches
-  (`BINATE_FLAGS=-O2 conformance/run.sh <mode>` — no harness change needed).  Viability confirmed:
-  full aa64 suite at -O2 is 3043/0.  Covers the native lowerings end-to-end (which the lowering
-  unit tests don't reach) plus every other -O1+ pass.
 
 - **Track 2 — IR: elide `OP_DIV_CHECK`/`OP_SHIFT_CHECK` for statically-safe operands — ✅ DONE, LANDED `94d12bd26` (2026-09-20, work-2). See done log.**
   `iropt` pass `elideSafeDivChecks` (after mem2reg/load-forwarding/simplifyIdentities) drops the
