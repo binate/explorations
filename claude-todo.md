@@ -301,7 +301,7 @@ threshold (measured net-negative on native); further "home more values" allocato
 splitting (done + refuted).
 
 
-### native FP-register homes — stop round-tripping float scalars through GP slots — 🔵 OPEN (see plan-native-fp-register-homes.md)
+### native FP-register homes — stop round-tripping float scalars through GP slots — 🟡 IN PROGRESS (claimed 2026-09-21, work-5) (see plan-native-fp-register-homes.md)
 
 The top remaining native↔LLVM lever surfaced by the fasta/richards analysis. `aarch64_float.bn`
 homes every float in a GP slot and FMOVs in/out per op; give FP values real V/D-register homes (a
