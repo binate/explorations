@@ -295,32 +295,6 @@ flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
     another object referencing it is freed). Strict generalization of Piece 2 (length-1 paths =
     current behavior). Bench: richards (s.current.state read 2× in the loop-cond `||`, etc.). MEASURE
     controlled same-base A/B before landing.
-  (a) dominated/redundant-check elimination — ✅ LANDED `47b423050` (`iropt/bce_redundant.bn`;
-  the `seed[0]` read/write/read case; see done log). A correct GENERAL improvement but does NOT
-  move the fasta ratio (root-caused: genRandom is latency-bound on the constant div/mod = Track 1,
-  and selectRandom's gap is slice non-promotion + strength reduction = Track 4 + (b) below).
-  (b) strength-reduce to scaled register-offset addressing — ✅ LANDED `0289c25f2` (asm:
-  MemRegScaled + a latent register-offset encoder-bug fix) + `79302f412` (fold single-use 8-byte
-  GP element GEP off a register base into `[base,idx,lsl#3]` load/store, with the regalloc
-  liveness fix that keeps a folded GEP's base+index live to the consumer; see done log). Native
-  aa64 conformance 3042/0 at -O0 AND -O2, two SOUND reviews. Completes the addressing lever
-  (native now matches LLVM's `[base,idx,lsl#n]`); standalone win small (reload storm dominates,
-  compounds with (c)/Tier 2C).
-  (b-follow-up) 4-byte elements — ✅ LANDED `642321f0c` (LDRSW/LDR-W/STR-W scaled for signed/unsigned/store int32; see done log).
-  (c) slice base/len residency — 🟡 IN PROGRESS (claimed 2026-09-20, work-5): extend load-forwarding
-  so a materialized slice value's base+len EXTRACTs are coalesced/hoisted to before the loop (homed
-  scalars), killing the per-access field-load reload storm the scaled-addressing fold rides on. The
-  reverted Tier 2C SSA-cache did NOT touch the field loads; this does. Bench: fasta/fannkuch, watch
-  register pressure.
-  Both remaining pieces are
-  NATIVE-BACKEND (per the fannkuch finding, IR passes barely move native):
-  (b) strength-reduce to scaled/post-increment addressing — the index-scaling half already landed
-  (`c77bdae4a`, mul→lsl); the open lever is fusing into scaled `[base,idx,lsl#n]` load/store
-  addressing (needs a NEW asm-encoder addressing mode — the asm layer's `MemReg` is unscaled — plus
-  deferred-GEP/single-use analysis in `native/aarch64/aarch64_emit.bn`); overlaps the fannkuch
-  effort's "fuse into scaled addressing" step (`plan-native-fannkuch-gap.md` Tier 1B, left for
-  later). (c) hoist loop-invariant slice length/base (fannkuch Tier 2C, base/len register
-  residency). Bench: fasta / any array-indexing loop.
 
 NOT tracks (contraindicated by the prior measurement in the section above): raising the inline
 threshold (measured net-negative on native); further "home more values" allocator work / interval

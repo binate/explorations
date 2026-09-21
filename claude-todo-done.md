@@ -1,3 +1,40 @@
+### Track 5 (c): slice base/len residency — coalesce a materialized slice's field extracts — ✅ DONE (2026-09-21)
+
+Landed `913bccead` (work-5). New pass `iropt/slice_extract_coalesce.bn`, run inside
+load-forwarding right after RLE materializes a slice slot as one OP_LOAD `l0`.
+
+Problem: each `a[i]` re-extracted the slice base (field 0) and length (field 1); on the
+native backends those EXTRACTs lower to a field load off the SPILLED slice header EVERY
+iteration, with the header address recomputed each time — the reload storm the scaled
+element-addressing fold (Track 5 (b)) otherwise rides on. LLVM's GVN/LICM hoists these on
+the clang path; native did not. So this is an IR-level native↔LLVM gap closer.
+
+Fix: coalesce the per-field EXTRACTs of `l0` to one canonical each, placed right after
+`l0`. `l0` dominates every extract of it, so the canonical placed right after `l0`
+dominates every use by transitivity (needs no assumption about where `l0` sits); when `l0`
+materializes a param/loop-invariant slice before a loop the canonical is loop-invariant, so
+the backend homes base/len as scalars reused across the loop. OP_EXTRACT is a pure value
+read (verified: native `emitExtract` = LDR/ADD only, VM `execExtractOp` = pure byte read),
+so the refcount trajectory is byte-identical.
+
+Disassembly (native aa64 slice-sum inner loop): before, per iteration,
+`add x9,sp,#off; ldr len,[x9,#8]; …; add x9,sp,#off; ldr base,[x9]; ldr [base,j,lsl#3]`;
+after, `cmp j,len; ldr [base,j,lsl#3]` — 4 instrs/iter removed, base+len homed. Runtime
+~4% sustained / ~15–20% cold on the slice-sum micro; capped by the `sum` accumulator still
+being stack-spilled (a SEPARATE regalloc opportunity — homing loop-carried accumulators —
+present identically before and after, so no register-pressure regression here).
+
+Validation: native aa64 conformance 3047/0; VM 3035/0; iropt unit tests 169/169 (4 new
+coalesce tests in `slice_extract_coalesce_test.bn`); adversarial review SOUND across all six
+correctness axes (dominance-by-transitivity, ID/oldCap sizing, multi-l0 rebuild, refcount
+neutrality, no orphaned canonical, pointer-identity match), adopted its two recommendations
+(added the `assertNoSurvivingUses` tripwire to match applyRLE/applyPromotion/field-forward;
+tightened the dominance comment); gen1 build BUILDER-clean; hygiene 20/20.
+
+With (a) `47b423050`, (b) `0289c25f2`+`79302f412`, (b-follow-up) `642321f0c`, and (c)
+`913bccead`, all of Track 5 (array-loop BCE + induction/pointer strength reduction) is
+landed.
+
 ### Track 5 (b-follow-up): native aa64 scaled addressing for 4-byte (int32) elements — ✅ DONE (2026-09-20)
 
 ### -O2 conformance CI job (all arches) — ✅ DONE (2026-09-20, work-1), LANDED `49e454303`

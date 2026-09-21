@@ -127,12 +127,15 @@ move the ratio doesn't close the gap.**
   Largest / most speculative track; must show a ratio move on richards to be worth
   landing.
 - **Track 5 — Array-loop bounds-check elimination + induction/pointer strength
-  reduction.** Hoist loop-invariant slice length/base, drop redundant /
-  provably-in-range checks (`seed[0]` checked 3×), strength-reduce the induction
-  variable to a post-increment pointer. Files: `iropt/bce_loop.bn`, `iropt/loops.bn`
-  + the native bounds-check emitter. Benchmarks: `fasta` (and array-loop code
-  generally). Builds on the single-unsigned-compare bounds check already landed and
-  `plan-native-fannkuch-gap.md`.
+  reduction. ✅ DONE.** All pieces landed (details in `claude-todo-done.md`):
+  (a) dominated/redundant bounds-check elimination `47b423050`; (b) scaled
+  register-offset addressing `0289c25f2`+`79302f412`, extended to 4-byte elements
+  `642321f0c`; (c) slice base/len residency `913bccead` — coalesce a materialized
+  slice's per-field EXTRACTs to homed scalars, killing the per-access header reload
+  the scaled fold rides on. Native now matches LLVM's `[base,idx,lsl#n]` addressing
+  and hoists base/len like clang's GVN/LICM. Remaining separate lever: homing
+  loop-carried accumulators (e.g. `sum`) across a loop (a regalloc opportunity that
+  would compound with (c)).
 
 Coordination summary:
 - `iropt/opt.bn` (`RunOptPasses`) is shared by Tracks 2, 4, 5 if they add/reorder
