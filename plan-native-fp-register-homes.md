@@ -111,3 +111,49 @@ under that: even scalar FP code needs values to stay in FP registers. Landing th
 first is what makes the later FP-arithmetic work measurable — and it is the piece
 that is clearly in scope as "codegen quality," independent of the vectorization
 decision.
+
+## Concrete implementation plan (recon-validated 2026-09-21)
+
+The linear-scan ENGINE is class-agnostic: `LinearScan`, `spansClobber`,
+`ClobberPositions`, `computeSpillCosts`, `BuildIntervals`, and the liveness fixpoint
+(`native/common/regalloc_scan.bn`, `regalloc_interval.bn`, `regalloc_liveness.bn`) use
+only opaque register numbers from a per-arch `RegClassDesc` — no hardcoded counts /
+numbers / 8-byte assumptions. The only structural blocker is the value-classification
+predicate `isAllocatableType` (`regalloc_liveness.bn:92`), which EXCLUDES floats
+(`if IsFloatScalarTyp(t) { return false }`); everything keys on that one flat
+`Allocatable[]` set. So the shape is a **parallel FP scan** reusing the engine
+unchanged, with the float exclusion turned into a classification.
+
+Enabling fact: aarch64 D-registers occupy a DISJOINT integer namespace, +32 from X
+(D0=32, D8=40, D16=48; encoders mask `&0x1f`) — so a D-number flows through the
+existing home-map machinery unambiguously (range `>=32` encodes class).
+
+DECISION (2026-09-21): **shared home map** — FP homes go in the existing
+`HomeIDs`/`HomeRegs`; `LookupHome(id)` returns the D-number for an FP-homed value; the
+emitter classifies by `home >= aarch64.D0`. (The alternative parallel `HomeFpIDs`/
+`HomeFpRegs` was declined: the disjoint namespace makes the shared map safe, and the
+few `HomeRegs` consumers — emitter, returns, save area — are FP-touched anyway. FP
+callee-saved are still tracked SEPARATELY in `SavedFpRegs`, since the GP save loop /
+`len(SavedRegs)*8` assume GP `Str`.)
+
+Increments (each keeps the tree green):
+- **Step 0** — asm: `str d`/`ldr d` FP load/store in `asm/aarch64/aarch64_fp.bn` (+ tests).
+  New/dead until wired; today `Str`/`Ldr` mask `rt&0x1f` so D8 silently encodes as X8.
+- **Step 1** — parameterize the allocatable universe: classify FP vs GP instead of
+  excluding FP (`regalloc_liveness.bn:88-95` + `seedAllocatable`/`defIdOf`/`useIdOf`).
+  GP scan output byte-identical (nothing consumes the FP set yet).
+- **Step 2** — FP `RegClassDesc` (`CalleeSaved={D8..D15}`, `CallerSaved={D0..D7,D18..D31}`,
+  keep D16/D17 scratch) built in `aarch64_emit_func.bn`; second scan in
+  `AllocateRegisters`; FP homes into shared `HomeRegs`, FP callee-saved into a new
+  `SavedFpRegs`. (Watch file length — `regalloc_scan.bn` is 443/500; FP wiring likely a
+  new `regalloc_scan_fp.bn`.)
+- **Step 3** — FP save area: `PlanFrame` reserves `SavedFpRegsBytes`/`Off`; prologue/
+  epilogue FP save/restore loop over `SavedFpRegs` (Step-0 encoders).
+- **Step 4** — `aarch64_float.bn`: FP-aware operand/result lookup — FP-homed ⇒ op
+  directly on the D-home (round-trip dies); spilled-FP ⇒ `ldr d` into D16/D17; GP-
+  resident (bit_cast) ⇒ current FMOV path.
+- **Step 5** — calls/returns/params interop (`aarch64_call_return.bn`; ABI already uses
+  V0–V7 / D0–D1). Call-spanning FP values land in D8–D15 via the scan's `spansClobber`.
+
+Measurement gate: `fasta` native/llvm user-CPU ratio (`~/binate/benchmarks/bench/fasta/
+binate/cmd/fasta/main.bn`); the 3 FP benchmarks secondary. Then port x64 (XMM) / arm32 (VFP).
