@@ -253,8 +253,14 @@ native/llvm ratio on the named benchmark before/after. Full evidence: `plan-nati
       x7,#0xa; b.lt` — no dead mov). Controlled A/B (const-fold on top of fusion): richards −0.8%,
       fannkuch −1.6%, byte-identical. Adversarial review clean (7 vectors); sampled -O2 native aa64
       conformance 570/0. (Split `aarch64RetentionSafe` → `aarch64_retention.bn` for the 500-line cap.)
+    - **Inc 2 x64/arm32 const-fold port — LANDED `5a47de6ed`.** Reused the parameterized
+      `ImmFoldableConsts`: x64 folds 0..2^31-1 / -2^31..-1 into `cmp r64, imm32` (sign-extended); arm32
+      folds 0..255 / -255..-1 into `cmp/cmn #imm` (rotation-0 modified immediate, conservative subset).
+      Adversarial review clean (incl. the arm32 int64 no-fold-path confirmed harmless — emitInstr64
+      intercepts int64 consts); x64 (Rosetta) 321/0, arm32 baremetal (QEMU) 316/0.
     - **Inc 3 — `tst` (fold `and`-with-imm compare-0) + `ccmp` for short-circuit `&&`/`||`** (needs a Ccmp
-      encoder in asm/aarch64; `&&`/`||` are branch-form, so this is a cross-block pattern).
+      encoder in asm/aarch64; `&&`/`||` are branch-form, so this is a cross-block pattern). NOT YET DONE —
+      deprioritized (ccmp is high-effort/low-gain; the big levers are landed). Reassess vs T6.
     - **x64 port — LANDED `3b83fafc5`.** Reused `BranchFusedCmps`; fused `Setcc`+`Movzx`+`Test`/`Jcc` →
       `Jcc` on the CMP flags (x64 `condForOp` already existed). Adversarial review clean; sampled -O2 x64
       native conformance 321/0 (under Rosetta); unit test pins "no SETcc when fused". (64-bit: int64 =
