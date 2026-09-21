@@ -122,6 +122,36 @@ lever). CRITICAL soundness rule: a wrong disjointness claim is a silent miscompi
 "X can't alias Y" must be argued from the type system / allocation identity, never from
 "the benchmark doesn't happen to alias."
 
+**OUTCOME (work-2, 2026-09-21): the iropt approach is a ROOT-CAUSED NEGATIVE.** Investigation
+(disassembly + `-O1 --emit-llvm` on fannkuch + a minimal local-slice copy-loop repro) overturned
+the framing above:
+- There is NO alias/RLE gap. At `-O1` the descriptor is already a clean loop-invariant SSA
+  aggregate (load-forwarding RLE + slice_extract_coalesce did their job); the loop body uses pure
+  `extractvalue %agg, k`, not a per-iteration memory load. Load-forwarding has nothing to forward.
+- LICM as written never hoists loads (its `isHoistable` excludes them), so the plan's "LICM hoists
+  the descriptor load" was never going to fire either.
+- The per-iteration reload is the NATIVE backend re-lowering `OP_EXTRACT` of a memory-homed
+  aggregate: under register pressure it evicts the extracted `.ptr`/`.len` and re-reads from the
+  aggregate's stack home each iteration. A low-pressure repro keeps them in registers; LLVM keeps
+  them in callee-saved x27/x24. So the gap is register allocation under pressure, not iropt.
+- A tried, SAFE iropt lever — extend LICM to hoist a loop-invariant `OP_EXTRACT` (pure: reads only
+  compiler-managed aggregate storage, never a user pointer; gated to exclude an `OP_CONST_NIL`
+  operand) — measures **richards −2% but fannkuch +1.5%** (both > the 0.5% noise floor, reproducible;
+  static instrs in fannkuch `main` 878→832). The split is register pressure: hoisting extends the
+  extracted scalar's live range across the loop, which helps where there are free registers
+  (richards) and hurts where the loop is already pressure-saturated (fannkuch) by forcing spills —
+  the SAME mechanism as the refuted "home-more-values / interval-splitting" lever.
+- No pre-regalloc gate separates the two: fannkuch's descriptors have 6–7 same-field extracts each
+  (equal redundancy to richards), so a "≥2 uses" / redundancy proxy still hoists them and still
+  regresses fannkuch. Loop-size / param-vs-local proxies are curve-fitting to two programs.
+
+Conclusion: a correct pressure-aware version must live in the native register allocator (keep a
+loop-invariant extracted scalar in a callee-saved reg only when it pays), which is refuted-adjacent
+and needs a pressure model + all-benchmark A/B — a separate decision. The SAFE LICM-of-`OP_EXTRACT`
+commit (richards-positive, fannkuch-negative) is preserved locally, NOT landed. A genuine remaining
+iropt sub-lever, unrelated to this pressure trade-off, is the richards distinct-pointee-type
+field-alias piece (gap (b): `field_forward_analysis.bn` `storeKillsPath`).
+
 ### T5 — Loop-aware BCE via monotonic-induction range facts. fannkuch. Would beat LLVM; synergizes with T4.
 Both backends keep two `cmp;b.lo;BoundsFail` per flip-loop iteration. The guard
 `i < j` with `j` starting at `k = perm[0] < len` and decreasing while `i` rises from

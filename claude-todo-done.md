@@ -1,3 +1,35 @@
+### T4 (native↔LLVM gap round 2): iropt LICM-of-extract is a register-pressure trade-off — ⏹️ ROOT-CAUSED NEGATIVE (2026-09-21)
+
+work-2 investigation. The round-2 T4 plan framed fannkuch's per-iteration slice-descriptor reload
+as an alias-precision / load-forwarding / LICM gap in iropt. Disassembly + `-O1 --emit-llvm` (on
+fannkuch and a minimal local-slice copy-loop repro) showed that framing is wrong:
+
+- At -O1 the descriptor is ALREADY a clean loop-invariant SSA aggregate (load-forwarding RLE +
+  slice_extract_coalesce). The loop body uses pure `extractvalue %agg, k`, not a per-iteration
+  memory load — nothing for alias analysis / RLE to do. LICM also never hoists loads.
+- The per-iteration reload comes from the NATIVE backend re-lowering `OP_EXTRACT` of a memory-homed
+  aggregate under register pressure (evict `.ptr`/`.len`, re-read from the aggregate's stack home).
+  A low-pressure repro keeps them in registers; LLVM keeps them in callee-saved x27/x24. The gap is
+  register allocation under pressure, not iropt.
+
+A safe iropt lever was tried and measured: extend LICM to hoist a loop-invariant `OP_EXTRACT`
+(pure — reads only compiler-managed aggregate storage, never a user pointer; user field access
+through a pointer lowers to GET_FIELD_PTR+LOAD, not OP_EXTRACT; gated to exclude an OP_CONST_NIL
+operand, which the VM mis-lowers). Measured (user CPU, interleaved+order-alternating, noise floor
+~0.5%): **richards native −2% (1.86→1.82s), fannkuch native +1.5% (regression)**; fannkuch `main`
+static instrs 878→832. Both effects reproducible and above noise. The split is register pressure:
+hoisting extends the extracted scalar's live range across the loop — good with free registers
+(richards), bad when the loop is pressure-saturated (fannkuch, forcing spills). This is the SAME
+mechanism as the refuted "home-more-values / interval-splitting" regression (~3.5%).
+
+No pre-regalloc gate separates the two cases: fannkuch's descriptors have 6–7 same-field extracts
+each (equal redundancy to richards), so a "≥2 uses"/redundancy proxy still hoists + still regresses;
+loop-size / param-vs-local proxies are curve-fitting. A correct pressure-aware version belongs in
+the native register allocator (keep a loop-invariant extracted scalar in a callee-saved reg only
+when it pays) — refuted-adjacent, a separate decision. The safe LICM-of-OP_EXTRACT commit
+(richards-positive, fannkuch-negative) is preserved locally, NOT landed. T4 stays OPEN reduced to
+the regalloc lever + the unrelated richards distinct-pointee-type field-alias piece (gap (b)).
+
 ### native↔LLVM gap round 2 — T2: fold constant field-offset GEPs into the load/store memory operand — ✅ DONE (2026-09-21)
 
 Landed on all three native backends (work-3): **aarch64 `3b24d24a4`, x64 `412a47a7d`, arm32

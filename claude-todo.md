@@ -266,12 +266,20 @@ native/llvm ratio on the named benchmark before/after. Full evidence: `plan-nati
       out to `arm32_retention.bn` (emit_func was at the 500-line cap). Adversarial review clean (6
       vectors); native arm32 baremetal (QEMU) conformance 316/0; unit tests pin the fused CMP-only emit
       and the int64 exclusion.
-- **T4 — alias-precise load-forwarding/LICM: hoist loop-invariant slice descriptors (`.ptr`/`.len`) +
-  cross-type fields — 🟡 IN PROGRESS (claimed 2026-09-21, work-2/session). SHARED (fannkuch DOMINANT + richards), backend-neutral.** Teach the
-  mod/alias predicate that a store through `slice.ptr[i]` can't touch the descriptor slot, and a
-  `@A` store can't clobber a live `@B` field; then LICM/load-forward hoist. Continues the landed
-  field-forward line — COORDINATE with its owner. `iropt/field_forward_analysis.bn`, `load_forward.bn`,
-  `field_forward.bn`, `licm.bn`.
+- **T4 — hoist loop-invariant slice descriptors / fields out of loops — 🔵 OPEN (reduced to a native
+  regalloc lever). SHARED (fannkuch DOMINANT + richards), backend-neutral part refuted.** The
+  plan's original framing (alias-precise load-forwarding / LICM in iropt) was investigated and is a
+  **root-caused negative** — see done log ("T4: iropt LICM-of-extract is a register-pressure trade-off").
+  Summary: at `-O1` the descriptor is already a clean loop-invariant SSA aggregate (nothing for
+  alias/RLE to do); the per-iteration reload is the NATIVE backend re-lowering `OP_EXTRACT` of a
+  memory-homed aggregate under register pressure. A pure-iropt LICM-of-`OP_EXTRACT` helps richards
+  (~2%) but regresses fannkuch (~1.5%) by extending live ranges → more spilling, and the two cases
+  are NOT separable pre-regalloc (equal redundancy; only pressure differs). The commit is preserved
+  (not landed). Remaining real levers: (a) native regalloc keeping a loop-invariant extracted scalar
+  in a callee-saved reg **only when it pays** — this IS the refuted "home-more-values / interval-
+  splitting" neighborhood, so needs a pressure model + all-benchmark A/B; (b) the richards-only
+  distinct-pointee-type field-alias piece (`field_forward_analysis.bn` `storeKillsPath`) — a genuine
+  iropt win, still unclaimed.
 - **T5 — loop-aware BCE via monotonic-induction range facts — 🟡 IN PROGRESS (claimed 2026-09-21,
   work-3/session).** fannkuch; would beat LLVM,
   synergizes with T4 (removes block fragmentation). `iropt/bce_loop.bn`. COORDINATE with the in-flight
