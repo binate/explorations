@@ -378,20 +378,13 @@ flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
   the `seed[0]` read/write/read case; see done log). A correct GENERAL improvement but does NOT
   move the fasta ratio (root-caused: genRandom is latency-bound on the constant div/mod = Track 1,
   and selectRandom's gap is slice non-promotion + strength reduction = Track 4 + (b) below).
-  On (b) — 🟡 scaled-addressing DONE ON BRANCH, awaiting land approval (2026-09-20, work-5).
-  Two branch commits: asm (scaled `MemRegScaled` + a latent register-offset encoder-bug fix;
-  BUILDER-clean, 121 asm tests) and the backend fusion (fold single-use 8-byte GP element GEP off
-  a register base into `[base,idx,lsl#3]` load/store). The fusion suppresses the GEP and moves its
-  base+index uses to the consuming load/store, so it required a REGISTER-ALLOCATOR LIVENESS fix:
-  ComputeLiveness/BuildIntervals/ComputeLiveBeforeAll are now fusion-aware (LivenessInfo.Fusable;
-  a folded GEP defs nothing; a fused load/store's operand liveness redirects from the GEP result to
-  its base+index) — without it the allocator reused base's register for the store value (`str x4,
-  [x4,...]` SIGSEGV, conformance 1103). Validated: native aa64 conformance 3042/0 (self-compile),
-  adversarial review SOUND (both the fusion and the liveness fix), hygiene 20/20, 293 native/common
-  + 201 aa64 unit tests, 1103 + fannkuch/slice-sum byte-identical. STANDALONE runtime win is small
-  (removed lsl+add are cheap; the reload storm = Tier 2C dominates) — it completes the addressing
-  lever (native now matches LLVM's `[base,idx,lsl#n]`) and compounds once Tier 2C lands. 4-byte
-  elements (LDRSW register form) still a follow-up.
+  (b) strength-reduce to scaled register-offset addressing — ✅ LANDED `0289c25f2` (asm:
+  MemRegScaled + a latent register-offset encoder-bug fix) + `79302f412` (fold single-use 8-byte
+  GP element GEP off a register base into `[base,idx,lsl#3]` load/store, with the regalloc
+  liveness fix that keeps a folded GEP's base+index live to the consumer; see done log). Native
+  aa64 conformance 3042/0 at -O0 AND -O2, two SOUND reviews. Completes the addressing lever
+  (native now matches LLVM's `[base,idx,lsl#n]`); standalone win small (reload storm dominates,
+  compounds with (c)/Tier 2C). 4-byte elements (LDRSW register form) a follow-up.
   Both remaining pieces are
   NATIVE-BACKEND (per the fannkuch finding, IR passes barely move native):
   (b) strength-reduce to scaled/post-increment addressing — the index-scaling half already landed
