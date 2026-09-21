@@ -368,7 +368,8 @@ native/llvm ratio on the named benchmark before/after. Full evidence: `plan-nati
 - **T1 — refcount header via `LDUR`/`STUR [ptr,#-16]` (drop the `SUB #16`) — 🔵 OPEN.** richards; highest
   value, smallest change (refcount is the most frequent op; the unscaled non-writeback form was
   overlooked). `native/aarch64/aarch64_refcount.bn` (+ Ldur/Stur asm encoder); x64 parity.
-- **T2 — fold constant field-offset GEPs into the load/store memory operand — 🔵 OPEN.** richards (every
+- **T2 — fold constant field-offset GEPs into the load/store memory operand — 🟡 IN PROGRESS (claimed
+  2026-09-20, work-3/session).** richards (every
   field access). Model on the landed scaled-element fuse (`common_elem_gep_fuse.bn`) → new
   `native/common/common_field_gep_fuse.bn`, `aarch64_emit.bn`, `regalloc_*`.
 - **T3 — condition/compare-branch lowering: `cmp/tst #imm`, flag-branch fusion (no `cset`), `ccmp` for
