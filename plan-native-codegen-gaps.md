@@ -115,17 +115,19 @@ move the ratio doesn't close the gap.**
   (refcount-dense). Coordinate with any deep aarch64-emitter work; keep it small and
   localized. (Confirm the pattern still reproduces on current main first.)
 - **Track 4 — IR load-forwarding / promotion of managed-pointer field loads
-  (STRUCTURAL, UNTRIED).** The richards lever: forward/eliminate redundant loads of
-  the same field through a managed pointer while preserving refcount semantics, so a
-  hot pointer/field is loaded once and reused instead of reloaded per use. This is
-  the "memory ops" component (attribution had memory-ops N/L 3.23×), **distinct from
-  SROA (values, done) and from the allocator/spill work (done, refuted-further).**
-  The hard part is alias + refcount safety — `iropt/sroa_managed.bn` is the nearest
-  prior art. Files: `iropt/load_forward.bn`, `iropt/mem2reg.bn`, possibly
-  `iropt/sroa_managed.bn`. Benchmarks: `richards` (validate here specifically — the
-  compiler-workload "spill isn't the gap" conclusion did NOT cover this IR lever).
-  Largest / most speculative track; must show a ratio move on richards to be worth
-  landing.
+  (STRUCTURAL). ✅ DONE.** Landed in three pieces (details in `claude-todo-done.md`):
+  (1) store-forward single-store managed-pointer slots `efdee444f`; (2) redundant
+  field-load elimination via an available-loads dataflow keyed on (managed-ptr-param,
+  field) `e88737398`; (3) generalized to arbitrary-depth access paths
+  (`s.current.state`) with a prefix-kill store barrier `7002a29f4`. The hard part was
+  alias + refcount safety: OP_REFDEC is not a barrier (no user destructors — dtors
+  only dec child refcounts + free), and the managed-ptr param roots the access chain
+  so a live field keeps the pointee alive. Controlled same-base A/B (richards,
+  instructions retired): native 296.7M → 264.7M = **−10.8%**, native↔LLVM ratio
+  ~1.84× → ~1.64× (LLVM flat — clang -O2 already promotes via its own mem2reg);
+  binary-trees / fasta flat, outputs byte-identical. Files: `iropt/load_forward.bn`,
+  `iropt/mem2reg.bn` (+ `mem2reg_apply.bn`), `iropt/field_forward.bn` (+
+  `field_forward_analysis.bn`).
 - **Track 5 — Array-loop bounds-check elimination + induction/pointer strength
   reduction. ✅ DONE.** All pieces landed (details in `claude-todo-done.md`):
   (a) dominated/redundant bounds-check elimination `47b423050`; (b) scaled
