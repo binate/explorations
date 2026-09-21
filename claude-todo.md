@@ -373,8 +373,8 @@ native/llvm ratio on the named benchmark before/after. Full evidence: `plan-nati
   field access). Model on the landed scaled-element fuse (`common_elem_gep_fuse.bn`) → new
   `native/common/common_field_gep_fuse.bn`, `aarch64_emit.bn`, `regalloc_*`.
 - **T3 — condition/compare-branch lowering: `cmp/tst #imm`, flag-branch fusion (no `cset`), `ccmp` for
-  `&&`/`||` — 🔵 OPEN. SHARED (richards+fannkuch).** Also removes the STATE_* constant stack-spills.
-  `native/aarch64/aarch64_ops.bn`, `aarch64_dispatch.bn`.
+  `&&`/`||` — 🟡 IN PROGRESS (claimed 2026-09-20, work-4/session). SHARED (richards+fannkuch).** Also removes the STATE_* constant stack-spills.
+  `native/aarch64/aarch64_ops.bn`, `aarch64_dispatch.bn`. Also apply x64/arm32 where applicable.
 - **T4 — alias-precise load-forwarding/LICM: hoist loop-invariant slice descriptors (`.ptr`/`.len`) +
   cross-type fields — 🔵 OPEN. SHARED (fannkuch DOMINANT + richards), backend-neutral.** Teach the
   mod/alias predicate that a store through `slice.ptr[i]` can't touch the descriptor slot, and a
