@@ -3,6 +3,45 @@
 Tracks open work items, grouped by the subsystem / root cause they touch.
 Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
+## SPEC QUESTION — T4 gap (b): managed-pointer strict-aliasing (TBAA) soundness — spec ruling needed — 🟠 AWAITING SPEC AUTHOR (2026-09-21)
+
+**Reference title (cite this):** "T4 gap (b): managed-pointer strict-aliasing (TBAA) soundness".
+**Landed optimization it gates:** `<MAIN-COMMIT-HASH-TBD>` (iropt/field_forward distinct-pointee-type
+disjointness; work-2 `cb5074ac8`).
+
+**The question.** Does Binate guarantee **type-based non-aliasing** for managed pointers — i.e., in a
+DEFINED program, can a store through a `@A` ever change the object a `@B` points to (for distinct
+concrete named struct types `A` != `B`)? Equivalently: is creating such cross-type aliasing (e.g.
+`var a @A = bit_cast(@A, someBValue)`, then mutating through one and observing through the other)
+**undefined behavior** (programmer's responsibility, C-strict-aliasing style), or **defined**?
+
+**Why it matters.** The `field_forward` IR optimization (redundant managed-ptr-param field-load
+elimination) now treats a store through a different-typed managed pointer as **disjoint** from a
+live field load — so `a.x` reloaded across a `b.p = ...` store (a @A, b @B) is forwarded to the
+first load. This is sound **iff** the answer is "TBAA holds / cross-type aliasing is UB." If
+cross-type managed aliasing is DEFINED, the optimization is a **silent miscompile** for such
+programs and must be reverted.
+
+**Assumed answer used to land (needs confirmation).** *TBAA holds:* distinct concrete named
+managed-pointer types never alias in a defined program; a `@T` names a T-typed allocation (own -16
+header), and `bit_cast`/`unsafe_cast` creating cross-type managed aliasing is an unsafe escape whose
+misuse is UB (consistent with §3.50 "unsafe facilities", §8.6 `bit_cast`/`unsafe_cast` "bare
+pointer-word reinterpret … programmer responsible", §21.6 "raw-pointer/`bit_cast`/refcount-aliasing
+escape hatch" as the narrow UB class). What the spec does NOT currently state explicitly: a
+strict-aliasing rule that *accessing an object through a managed pointer of a type other than the
+object's actual type is UB*. That explicit rule (or its rejection) is the ruling needed.
+
+**Spec sections consulted:** §8.6 `conv.bit-cast` (esp. the `unsafe_cast(@T,p)`/`bit_cast(@T,p)`
+"operationally identical … bare pointer-word reinterpret" note), §21.2/§21.6 (the narrow UB class),
+§18.7 (`mem.raw-uaf`, `mem.cycles`, `mem.determinism`). None found to state managed-pointer strict
+aliasing explicitly.
+
+**If the ruling is "not TBAA / defined":** revert the landed commit above (the analysis change is
+isolated to `iropt/field_forward.bn` + `iropt/field_forward_analysis.bn`; the unit tests
+`TestFFDistinctStructObjects` / `TestFFStoreKillsPathDistinctType` pin the behavior) and record a
+root-caused negative — the field-alias win is unavailable without a TBAA language rule.
+
+
 ---
 
 ## Performance
