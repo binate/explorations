@@ -236,17 +236,6 @@ values / interval splitting). Claim by flipping to 🟡 IN PROGRESS (`work-N/ses
 native/llvm ratio on the named benchmark before/after. Full evidence: `plan-native-codegen-gaps-round2.md`.
 
 - **T1 — refcount header via `LDUR`/`STUR [ptr,#-16]` — ✅ DONE (611a34f1d), see done log.**
-- **T2 — fold constant field-offset GEPs into the load/store memory operand — 🟡 IN PROGRESS (claimed
-  2026-09-20, work-3/session; aarch64 LANDED `3b24d24a4`, x64 + arm32 next).** richards (every
-  field access). Shared analysis `common.FusableFieldGeps` + `common.FieldByteOffset` (single-use-
-  as-address, non-FP/non-aggregate GP scalar, register base, resolvable offset; on 32-bit also
-  excludes int64 register-pairs + offsets past arm32's 255 imm range) — flags folded field GEPs;
-  regalloc leaves them unhomed; liveness `Fusable` set is the union of the element- and field-GEP
-  folds (opcode-dispatched hooks: element GEP → base+index, field GEP → base). **aarch64 done**
-  (`emitFusedFieldLoad`/`Store` in `aarch64_emit_elem.bn`): richards native/llvm **1.769×→1.651×**,
-  **−6.7% instructions retired** (best-of-9, instructions-retired). x64 + arm32 have the same
-  constant-displacement memory form (x64 `[base+disp]`, arm32 `[base,#off]`) and the shared analysis
-  already handles their constraints — each is a follow-up commit adding the emit consumer + wiring.
 - **T3 — condition/compare-branch lowering: `cmp/tst #imm`, flag-branch fusion (no `cset`), `ccmp` for
   `&&`/`||` — 🟡 IN PROGRESS (claimed 2026-09-20, work-4/session). SHARED (richards+fannkuch).** Also removes the STATE_* constant stack-spills.
   `native/aarch64/aarch64_ops.bn`, `aarch64_dispatch.bn`. Also apply x64/arm32 where applicable.
@@ -283,7 +272,8 @@ native/llvm ratio on the named benchmark before/after. Full evidence: `plan-nati
   `@A` store can't clobber a live `@B` field; then LICM/load-forward hoist. Continues the landed
   field-forward line — COORDINATE with its owner. `iropt/field_forward_analysis.bn`, `load_forward.bn`,
   `field_forward.bn`, `licm.bn`.
-- **T5 — loop-aware BCE via monotonic-induction range facts — 🔵 OPEN.** fannkuch; would beat LLVM,
+- **T5 — loop-aware BCE via monotonic-induction range facts — 🟡 IN PROGRESS (claimed 2026-09-21,
+  work-3/session).** fannkuch; would beat LLVM,
   synergizes with T4 (removes block fragmentation). `iropt/bce_loop.bn`. COORDINATE with the in-flight
   BCE follow-up.
 - **T6 — native peephole + regalloc polish — 🔵 OPEN.** dead-load elim, drop branch-to-fallthrough,

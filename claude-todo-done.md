@@ -1,3 +1,31 @@
+### native↔LLVM gap round 2 — T2: fold constant field-offset GEPs into the load/store memory operand — ✅ DONE (2026-09-21)
+
+Landed on all three native backends (work-3): **aarch64 `3b24d24a4`, x64 `412a47a7d`, arm32
+`ad79b97fc`**. A field access lowered `add rN, base, #off` then a load/store off `[rN]` — two
+instructions where the addressing mode already carries a constant displacement. When an
+OP_GET_FIELD_PTR is used exactly once, as the address of an OP_LOAD/OP_STORE of a GP scalar off a
+register base, its FieldByteOffset now folds into the consuming access (`ldr rd, [base, #off]` /
+x64 `mov rd, [base+off]`) and the GEP is elided — mirroring the landed element-GEP fuse.
+
+- **Shared analysis** `common.FusableFieldGeps(f, wordBytes)` + `common.FieldByteOffset` (new
+  `common_field_gep_fuse.bn`): flags a single-use-as-address, non-FP/non-aggregate GP-scalar field
+  GEP off a register base with a resolvable offset; on a 32-bit target also excludes int64
+  register-pairs (SizeOf > wordBytes) and offsets past arm32's 255 immediate range (arm32's
+  assembler rejects an over-range LDR/STR offset — aa64 materializes a scratch, x64's disp is
+  32-bit). The regalloc homing loop leaves a folded GEP unhomed; the liveness `Fusable` set is the
+  UNION of the element- and field-GEP folds, with the fusion hooks (`fusedGepBaseIdx` /
+  `isFusedGepDef`) opcode-dispatched — an element GEP contributes base+index, a field GEP base only
+  — so the base stays live to the consuming load/store rather than the elided GEP. `UnionFusable`
+  helper; all three backends feed it to `ComputeLiveBeforeAllFused`.
+- **Emitters** `emitFusedFieldLoad`/`emitFusedFieldStore` per backend (aa64 in `aarch64_emit_elem.bn`;
+  x64/arm32 in new `*_fused_mem.bn`); `emitLoad`/`emitStore` branch to them; `emitGetFieldPtr` skips
+  a folded GEP.
+- **Result:** richards (aarch64, instructions retired, best-of-9): native 22.883B → 21.353B
+  (**−6.7%**), native/llvm **1.769× → 1.651×**. Validated: aa64 conformance 3047/0, native x64
+  3047/0, native arm32 (`builder-comp_native_arm32_baremetal`) 3001/0; emit-level unit tests each
+  backend (byte-identical to a direct scalar load/store at the field offset); two clean adversarial
+  reviews (shared analysis + aa64 emitter; then x64/arm32 increments); hygiene 20/20.
+
 ### native↔LLVM gap round 2 — T1: refcount header via LDUR/STUR at [ptr, #-16] — ✅ DONE (2026-09-21)
 
 Landed `611a34f1d` (work-2). The inline RefInc/RefDec fast path (the most frequent op in
