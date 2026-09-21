@@ -279,7 +279,7 @@ native/llvm ratio on the named benchmark before/after. Full evidence: `plan-nati
   in a callee-saved reg **only when it pays** — this IS the refuted "home-more-values / interval-
   splitting" neighborhood, so needs a pressure model + all-benchmark A/B; (b) the richards-only
   distinct-pointee-type field-alias piece (`field_forward_analysis.bn` `storeKillsPath`) — a genuine
-  iropt win, still unclaimed.
+  iropt win, 🟡 IN PROGRESS (claimed 2026-09-21, work-2/session).
 - **T5 — loop-aware BCE via monotonic-induction range facts — 🟡 IN PROGRESS (claimed 2026-09-21,
   work-3/session).** fannkuch; would beat LLVM,
   synergizes with T4 (removes block fragmentation). `iropt/bce_loop.bn`. COORDINATE with the in-flight
