@@ -322,9 +322,7 @@ homes are a separate item). Do NOT propose the refuted levers (raise inline thre
 values / interval splitting). Claim by flipping to 🟡 IN PROGRESS (`work-N/session`). Measure the
 native/llvm ratio on the named benchmark before/after. Full evidence: `plan-native-codegen-gaps-round2.md`.
 
-- **T1 — refcount header via `LDUR`/`STUR [ptr,#-16]` (drop the `SUB #16`) — 🟡 IN PROGRESS (claimed 2026-09-20, work-2/session).** richards; highest
-  value, smallest change (refcount is the most frequent op; the unscaled non-writeback form was
-  overlooked). `native/aarch64/aarch64_refcount.bn` (+ Ldur/Stur asm encoder); x64 parity.
+- **T1 — refcount header via `LDUR`/`STUR [ptr,#-16]` — ✅ DONE (611a34f1d), see done log.**
 - **T2 — fold constant field-offset GEPs into the load/store memory operand — 🟡 IN PROGRESS (claimed
   2026-09-20, work-3/session).** richards (every
   field access). Model on the landed scaled-element fuse (`common_elem_gep_fuse.bn`) → new

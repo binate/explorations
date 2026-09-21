@@ -1,3 +1,33 @@
+### native↔LLVM gap round 2 — T1: refcount header via LDUR/STUR at [ptr, #-16] — ✅ DONE (2026-09-21)
+
+Landed `611a34f1d` (work-2). The inline RefInc/RefDec fast path (the most frequent op in
+refcount-heavy programs) computed the managed header address with a `SUB hdrReg, ptr, #hdrBytes`
+into a scratch register, then loaded/stored the refcount at `[hdr, #0]`. The header sits at a
+fixed negative offset from the object pointer, so the load/store can address it directly:
+
+- **aarch64**: new UNSCALED, NON-writeback `LDUR/STUR [ptr, #-hdrBytes]` — reads/writes the header
+  while leaving `ptr` intact (a pre-index writeback `[ptr,#-16]!` would corrupt `ptr`, which the
+  regalloc may keep live and which RefDec's slow path needs for the X0 mov). Drops one instruction
+  and one scratch register per op. Added the encoder: `OP_MEM_UNSCALED` operand + `MemUnscaled` +
+  `ldurSturEnc` + `LdurSturImmFits` in `pkg/binate/asm/aarch64/`.
+- **arm32**: the immediate `LDR/STR` already encodes a negative offset (P=1, U=0, no writeback), so
+  `[ptr, #-hdrBytes]` folds the header offset in directly — likewise dropping the SUB + scratch
+  while preserving `ptr` for the slow-path R0 mov.
+- **x64**: already addressed the header directly as a memory-dest RMW at `[ptr - hdrBytes]` — full
+  T1 parity, no change needed.
+
+Correct on LP64 (16-byte header, -16) and ILP32 (8-byte header, -8); offset from
+`types.ManagedHeaderSize()`.
+
+Verification: asm-encoder tests vs the system assembler; native aarch64 + arm32 refcount emitter
+tests (byte counts, LDUR decode with U=0/negative offset); native-aa64 conformance 3047/0;
+native-arm32 baremetal conformance 3001/0; independent adversarial review found no correctness bugs.
+
+Perf (richards, the track's named benchmark; user CPU, interleaved + order-alternating, best-of-N,
+noise floor ~0.4%): native/llvm ratio 1.49 → 1.46; T1 native ~1.5% faster than baseline native,
+reproducible across two 15-round runs (-1.49% / -1.52%). A genuine gap-closer — it moves the ratio,
+so it counts by the track's criterion (unlike Track 2, which was ratio-neutral on aarch64).
+
 ### Track 5 (c): slice base/len residency — coalesce a materialized slice's field extracts — ✅ DONE (2026-09-21)
 
 Landed `913bccead` (work-5). New pass `iropt/slice_extract_coalesce.bn`, run inside
