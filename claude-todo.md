@@ -378,17 +378,20 @@ flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
   the `seed[0]` read/write/read case; see done log). A correct GENERAL improvement but does NOT
   move the fasta ratio (root-caused: genRandom is latency-bound on the constant div/mod = Track 1,
   and selectRandom's gap is slice non-promotion + strength reduction = Track 4 + (b) below).
-  On (b) — 🟡 scaled-addressing IN PROGRESS (2026-09-20, work-5). Asm layer DONE (scaled
-  `MemRegScaled` + a latent register-offset encoder-bug fix, branch commit; BUILDER-clean, 121
-  asm tests). Backend fusion (fold single-use 8-byte GP element GEP into `[base,idx,lsl#3]`)
-  WORKS + is correct for loads, but has a REGISTER-ALLOCATOR LIVENESS BUG on stores /
-  short-lived bases (conformance 1103 SIGSEGV): suppressing the GEP moves base+index uses to the
-  consuming load/store, but ComputeLiveness/BuildIntervals compute on the pre-fusion IR (base's
-  last use = the GEP), so the allocator reuses base's register for the store value → `str x4,
-  [x4,...]`. Correct fix = make the allocator fusion-aware (thread the fusable set into liveness /
-  intervals; redirect a fused load/store's operand use from the GEP result to its base+index at
-  the ~3 scan sites). Standalone runtime win is small (the removed lsl+add are cheap; the reload
-  storm = Tier 2C dominates), so the allocator surgery vs benefit is a live decision.
+  On (b) — 🟡 scaled-addressing DONE ON BRANCH, awaiting land approval (2026-09-20, work-5).
+  Two branch commits: asm (scaled `MemRegScaled` + a latent register-offset encoder-bug fix;
+  BUILDER-clean, 121 asm tests) and the backend fusion (fold single-use 8-byte GP element GEP off
+  a register base into `[base,idx,lsl#3]` load/store). The fusion suppresses the GEP and moves its
+  base+index uses to the consuming load/store, so it required a REGISTER-ALLOCATOR LIVENESS fix:
+  ComputeLiveness/BuildIntervals/ComputeLiveBeforeAll are now fusion-aware (LivenessInfo.Fusable;
+  a folded GEP defs nothing; a fused load/store's operand liveness redirects from the GEP result to
+  its base+index) — without it the allocator reused base's register for the store value (`str x4,
+  [x4,...]` SIGSEGV, conformance 1103). Validated: native aa64 conformance 3042/0 (self-compile),
+  adversarial review SOUND (both the fusion and the liveness fix), hygiene 20/20, 293 native/common
+  + 201 aa64 unit tests, 1103 + fannkuch/slice-sum byte-identical. STANDALONE runtime win is small
+  (removed lsl+add are cheap; the reload storm = Tier 2C dominates) — it completes the addressing
+  lever (native now matches LLVM's `[base,idx,lsl#n]`) and compounds once Tier 2C lands. 4-byte
+  elements (LDRSW register form) still a follow-up.
   Both remaining pieces are
   NATIVE-BACKEND (per the fannkuch finding, IR passes barely move native):
   (b) strength-reduce to scaled/post-increment addressing — the index-scaling half already landed
