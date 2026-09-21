@@ -399,7 +399,7 @@ NOT tracks (contraindicated by the prior measurement in the section above): rais
 threshold (measured net-negative on native); further "home more values" allocator work / interval
 splitting (done + refuted).
 
-### x64 inline RefInc/RefDec fast path (retire the `rt.RefInc`/`rt.RefDec` runtime calls) — 🟡 IN PROGRESS (claimed 2026-09-20, work-3/session)
+### x64 inline RefInc/RefDec fast path — 🟢 DONE pending land (work-3, commit `d6f7381ff`; awaiting cherry-pick approval)
 
 The refcount-inlining project (`done/plan-refcount-inlining.md`) inlined the hot
 `RefInc`/`RefDec` paths on LLVM codegen, aarch64, arm32, and the bytecode VM
@@ -414,9 +414,12 @@ conventions and the target-parameterized header width (`ManagedHeaderSize()` /
 sign-bit immortal sentinel — ILP32-vs-LP64 correct, not hardcoded).  RefDec's
 free path keeps calling `rt.ZeroRefDestroy` (dtor in the folded slow path — the
 Track-3 dtor-handle sink applies here too once there IS an inline zero-test).
-Follow-on (separate commit): once x64 inlines, `rt.RefInc`/`rt.RefDec` have no
-caller and can be deleted with their `.bni` decls (`rt.ZeroRefDestroy` stays).
-Bench: any refcount-dense native x64 program.
+Done: x64 now inlines both (in-place header RMW at `[ptr-16]`, no scratch reg).
+Verified — native-x64 build no longer links `rt.RefInc`/`rt.RefDec` (30 inline
+RefInc + 26 RefDec sites, free path → `rt.ZeroRefDestroy`); native x64
+conformance 3040/0/9; adversarial review clean.  `rt.RefInc`/`rt.RefDec` are
+KEPT as a public API for MANUAL refcounting (raw `*T` to managed objects) — NOT
+retired, even though the compiler no longer emits calls to them.
 
 ### IR optimization passes (help LLVM + native backends + the VM) — 🟡 OPEN
 
