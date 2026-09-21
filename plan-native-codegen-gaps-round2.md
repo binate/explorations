@@ -93,6 +93,35 @@ collapse pre-hoist. Removes ~11 of fannkuch's ~29 flip-loop instrs/iter. Files:
 `iropt/field_forward_analysis.bn`, `iropt/load_forward.bn`, `iropt/field_forward.bn`,
 `iropt/licm.bn`.
 
+**Implementation notes (work-2, claimed 2026-09-21; Track 4 STRUCTURAL is complete, so
+this is unblocked).** Reconnaissance mapped the two gaps onto the current code:
+
+- *Gap (a) — slice-backing store vs descriptor.* fannkuch's flip loop
+  (`for i<j { t=perm[i]; perm[i]=perm[j]; perm[j]=t; i++; j-- }`) has `perm` a
+  single-store LOCAL `@[]int`. load_forward already RLEs the descriptor slot and
+  `slice_extract_coalesce` collapses the `.ptr`/`.len` extracts — so the descriptor is
+  ALREADY one materialized load per function. The remaining reload/hoist block is that a
+  store through `GET_ELEM_PTR(perm.ptr, idx)` (the backing buffer) is treated as a
+  possible write to the descriptor's own slot, so LICM won't hoist the coalesced
+  `.ptr`/`.len` extracts out of the flip loop. The disjointness fact: a slice's backing
+  buffer (reached via `GET_ELEM_PTR` off `.ptr`) is a distinct heap object from the slot
+  holding the descriptor value. Piece (a) = teach LICM's (and cross-block RLE's) store
+  barrier that a `GET_ELEM_PTR`-rooted store does not clobber a slice DESCRIPTOR load.
+- *Gap (b) — `@A` store vs live `@B` field.* Extends work-4's access-path predicate in
+  `field_forward_analysis.bn` (`storeKillsPath`/`pathsMayAlias`), which today
+  conservatively kills on a DIFFERENT-param-root store. Soundness for "distinct" comes
+  from distinct POINTEE TYPE (a `@Scheduler` and a `@TCB` name distinct heap objects — no
+  reinterpretation in Binate), not merely a different root (two params of the SAME type
+  may be the same pointer). Piece (b) = admit disjointness when the two roots have
+  distinct pointee types.
+
+Do the pieces as separate commits, each with its own alias-soundness argument + tests +
+FULL conformance across ALL backends (backend-neutral IR ⇒ every mode; miscompile risk is
+real) + the fannkuch/richards ratio measurement. Piece (a) first (fannkuch's dominant
+lever). CRITICAL soundness rule: a wrong disjointness claim is a silent miscompile — every
+"X can't alias Y" must be argued from the type system / allocation identity, never from
+"the benchmark doesn't happen to alias."
+
 ### T5 — Loop-aware BCE via monotonic-induction range facts. fannkuch. Would beat LLVM; synergizes with T4.
 Both backends keep two `cmp;b.lo;BoundsFail` per flip-loop iteration. The guard
 `i < j` with `j` starting at `k = perm[0] < len` and decreasing while `i` rises from
