@@ -280,10 +280,21 @@ native/llvm ratio on the named benchmark before/after. Full evidence: `plan-nati
   splitting" neighborhood, so needs a pressure model + all-benchmark A/B; (b) the richards-only
   distinct-pointee-type field-alias piece (`field_forward_analysis.bn` `storeKillsPath`) — a genuine
   iropt win, 🟡 IN PROGRESS (claimed 2026-09-21, work-2/session).
-- **T5 — loop-aware BCE via monotonic-induction range facts — 🟡 IN PROGRESS (claimed 2026-09-21,
-  work-3/session).** fannkuch; would beat LLVM,
-  synergizes with T4 (removes block fragmentation). `iropt/bce_loop.bn`. COORDINATE with the in-flight
-  BCE follow-up.
+- **T5 — loop-aware BCE via monotonic-induction range facts — 🔴 fannkuch target RETIRED as UNSOUND
+  (investigated 2026-09-21, work-3); see below.** The plan's premise — the flip-loop guard `i < j`
+  with `j` starting at `k = perm[0]` "provably `< len`" — is FALSE: `k = perm[0]` is an arbitrary int
+  loaded from the slice, with NO compiler-provable upper bound (fannkuch is safe only by the
+  permutation invariant `perm ∈ [0,n)`, which dataflow can't see). Monotonic-induction facts prove
+  `0 ≤ i < j ≤ k`, `j ≥ 1` — but CANNOT bound `i`/`j` above by `len`, so eliminating either
+  `perm[i]`/`perm[j]` check would drop a load-bearing bounds check (silent OOB if `perm[0] ≥ n`).
+  Both backends correctly KEEP these — there is no *sound* native↔LLVM gap here (the phase-3 doc
+  deferred "descending loops" as "needs more proof"; for this loop it's an *impossible* proof).
+  **Option for later (if the perf is wanted):** a sound *hoist* — check `k < len` ONCE before the
+  flip loop (faulting there), then drop the per-iteration checks; removes 4 instrs/iter but moves
+  the fault point earlier (a fault-location semantics call the user owns). The general
+  descending-induction `i < j` BCE (for loops where `j`'s start genuinely IS `< len`) is sound and
+  buildable but doesn't help fannkuch, and on managed slices is blocked behind the in-flight
+  managed-slice length-coalescing. `iropt/bce_loop.bn`.
 - **T6 — native peephole + regalloc polish — 🔵 OPEN.** dead-load elim, drop branch-to-fallthrough,
   phi-copy coalescing, small-const immediates, don't-home register-resident params, right-size leaf
   frames. `aarch64_emit.bn`, `native/common/regalloc_*.bn`, `common.bn`. NOTE: coalescing / home-fewer
