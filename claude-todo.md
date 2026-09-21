@@ -253,18 +253,27 @@ backends — aarch64's barrier unified to the safe-by-default allowlist in
 `501b2d9eb`; done log. The native -O1/-O2 startup hang that blocked -O1+
 measurement is fixed, `181ff6807`.)
 
-### native FP-register homes — stop round-tripping float scalars through GP slots — 🟡 IN PROGRESS (claimed 2026-09-21, work-5) (see plan-native-fp-register-homes.md)
+### native FP-register homes — port to x64/arm32 + aarch64 follow-ups — 🟡 OPEN (aarch64 DONE; see plan-native-fp-register-homes.md)
 
-The top remaining native↔LLVM lever surfaced by the fasta/richards analysis. `aarch64_float.bn`
-homes every float in a GP slot and FMOVs in/out per op; give FP values real V/D-register homes (a
-second register class in the linear scan). This is FP-value ALLOCATION (codegen mechanics), **NOT**
-vectorization/FMA — separable from the deferred FP-arithmetic work, and the enabler under it.
-Touches fasta (~2.0×, its remaining bottleneck once the integer tracks fired) AND all three FP
-benchmarks (mandelbrot ~13×, spectral ~6.8×, n-body ~4.6×) — more of the suite's remaining gap than
-any other single item. Files: `native/aarch64/aarch64_float.bn`, `native/common/regalloc_*.bn`,
-`native/aarch64/aarch64_regmap.bn`, `aarch64_call_return.bn` (ABI already uses V0–V7). Start aarch64;
-x64 XMM / arm32 VFP have the same pattern. Bench: fasta native/llvm ratio (primary), the 3 FP
-benchmarks (secondary). Full scope + approach: `plan-native-fp-register-homes.md`.
+**aarch64 LANDED** (2026-09-21, work-5; `d7eb2cbd5` `2c865f627` `d5bffa3ca` `86468170a` `a0afe37ec`
+— full write-up + measurements in `claude-todo-done.md`): float SSA values now home in D8..D15 /
+D18..D31 instead of round-tripping through GP slots.  Measured native user-CPU: fasta 2.04×→1.88×
+(~8% faster), mandelbrot ~11.7×→~5.1× (2.3× faster, FP-arith-dominated).  Native aa64 conformance
+3047/0; adversarial review SOUND.
+
+Remaining:
+- **Port x64 (XMM) and arm32 (VFP / aeabi soft-float)** — same GP-round-trip pattern; the
+  class-agnostic linear-scan engine + REGCLASS_FP parameterization are already in place (shared
+  `pkg/binate/native/common`), so each port is: an arch FP `RegClassDesc` + FP save area in
+  prologue/epilogue + the emitter made FP-home-aware (mirror `aarch64_float.bn` / the getOperand
+  bridge in `aarch64_regmap.bn`).  x64 XMM has no callee-saved FP regs in SysV, so ALL XMM homes are
+  caller-saved (call-spanning floats spill).  arm32 hard-float VFP has D8..D15 callee-saved; the
+  aeabi soft-float path has no FP regs at all (leave floats GP-slotted there).
+- **aarch64 follow-ups to close more of fasta's residual gap**: fold float array-element addressing
+  (`elemAccessFusable`/`fieldAccessFusable` exclude floats today, so a float `a[i]` still
+  materializes the address separately); home loop-invariant float constants (a const float
+  currently materializes in a GP reg + FMOV per use — see the `fmov d,x9` per const in the poly()
+  disassembly).
 
 ### native↔LLVM gap round 2 — richards/fannkuch next levers (see plan-native-codegen-gaps-round2.md) — 🔵 OPEN
 

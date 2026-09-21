@@ -1,5 +1,12 @@
 # Plan: native FP-register homes (stop round-tripping float scalars through GP slots)
 
+**STATUS (2026-09-21): aarch64 LANDED** (`d7eb2cbd5` `2c865f627` `d5bffa3ca` `86468170a`
+`a0afe37ec`; write-up in `claude-todo-done.md`).  Measured: fasta 2.04×→1.88×, mandelbrot
+~11.7×→~5.1× (2.3× faster).  The class-agnostic linear-scan engine + REGCLASS_FP parameterization
+are shared, so the x64 (XMM) / arm32 (VFP) ports reuse them — remaining work tracked in
+`claude-todo.md`.  The concrete recon-validated increments below (Steps 0–5) describe the aarch64
+implementation as landed.
+
 The single highest-leverage remaining native↔LLVM lever surfaced by the
 fasta/richards analysis (`done/plan-native-codegen-gaps.md`, now largely landed). It is
 **codegen mechanics for float VALUES, not FP arithmetic** — distinct from

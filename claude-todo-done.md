@@ -1,3 +1,40 @@
+### native FP-register homes (aarch64) — stop round-tripping float scalars through GP slots — ✅ aarch64 DONE (2026-09-21, work-5)
+
+The top native↔LLVM lever from the fasta/richards analysis (`plan-native-fp-register-homes.md`).
+The aarch64 backend now homes float SSA values in D-registers instead of round-tripping every
+float op through a GP spill slot (fmov→gpr→str→ldr→gpr→fmov per op).  Landed in five commits:
+
+- **Step 0** `d7eb2cbd5` — asm D-register load/store (Fstr_d/Fldr_d) for FP spill/reload.
+- **Step 1** `2c865f627` — parameterize the linear-scan allocatable universe by register class
+  (REGCLASS_GP/FP; isAllocatableFpType); the scan engine was already class-agnostic.
+- **Step 2** `d5bffa3ca` — FP linear-scan pass (AllocateFpRegisters): run the class-agnostic pipeline a
+  second time over the FP class, homes into the shared HomeIDs/HomeRegs (a D-number >= D0 is
+  disjoint from every X number), callee-saved FP regs tracked in a separate SavedFpRegs.
+- **Step 3** `86468170a` — FP callee-saved save area (PlanFrame + prologue Fstr_d / epilogue Fldr_d).
+- **Step 4** `a0afe37ec` — the emitter change that activates it: FP-arith emitters compute into the
+  D-home; a single getOperand bridge (FMOV D-home→GP scratch) makes every generic GP consumer
+  correct with no per-site change; float loads/extracts (Fldr_d/Fldr_s), stores (Fstr_d/Fstr_s),
+  const/bit_cast/phi, call-returns and params all land in D-homes.  The D0..D7 arg/return
+  registers are excluded from homes, so call-arg/return marshalling needs no parallel move (it
+  round-trips through the bridge) and param landing is a plain D->D move.  FP desc: callee-saved
+  D8..D15, caller-saved D18..D31, D16/D17 scratch.
+
+Architecture: shared home map (D-numbers ride the existing GP home machinery via the disjoint
++32 namespace), per the user's decision.  Validation: native aa64 conformance 3047 passed /
+0 failed; hygiene 20/20; adversarial review SOUND across 8 attack surfaces (isFpReg exactness,
+disjoint classes, float32/S-view universality, operand↔result aliasing via LinearScan expiry,
+full producer-op enumeration); native output byte-identical to LLVM on arith chains, float32,
+negation, array load/store, compare+phi, casts, args, returns.
+
+Measured native user-CPU (before = Steps 0-1 only, no homes; after = Step 4):
+- **fasta** 2.39s → 2.20s (~8% faster); native/LLVM ratio 2.04× → 1.88×.
+- **mandelbrot** 3.05s → 1.32s (2.3× faster); native/LLVM ratio ~11.7× → ~5.1× — FP-arithmetic-
+  dominated, more than halved.
+
+REMAINING (todo stays open): (1) port to x64 (XMM) and arm32 (VFP / aeabi soft-float) — the same
+GP round-trip pattern; (2) aarch64 follow-ups that would close more of fasta's residual gap —
+fold float array-element addressing (elemAccessFusable excludes floats today) and home
+loop-invariant float constants (consts currently materialize in a GP reg + FMOV per use).
 ### T4 (native↔LLVM gap round 2): iropt LICM-of-extract is a register-pressure trade-off — ⏹️ ROOT-CAUSED NEGATIVE (2026-09-21)
 
 work-2 investigation. The round-2 T4 plan framed fannkuch's per-iteration slice-descriptor reload
