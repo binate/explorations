@@ -1,3 +1,31 @@
+### Track 5 (b-follow-up): native aa64 scaled addressing for 4-byte (int32) elements — ✅ DONE (2026-09-20)
+
+Landed `642321f0c` (work-5). Extends the scaled register-offset element load/store
+fold (Track 5 (b), `common_elem_gep_fuse.bn` / `aarch64_emit_elem.bn`) from 8-byte
+to also 4-byte GP elements: FusableElemGeps accepts elemSize 4 (FP still excluded,
+so float32 stays out); emitFusedElemLoad/Store dispatch by size —
+  - signed int32 load  -> LDRSW scaled `[base,idx,lsl#2]` (sign-extend to 64),
+  - unsigned uint32 load -> LDR-W scaled (zero-extend),
+  - 4-byte store       -> STR-W scaled,
+matching the non-fused emitScalarLoad/Store convention so the value's 64-bit
+representation is identical whether or not the address folded. Signed 4-byte
+needs a new asm encoder LdrswRegScaled (register-offset LDRSW, base 0xB8A00000 —
+distinct from the unsigned-offset LDRSW form; ground-truthed to llvm-mc 0xB8A27820);
+LDR-W/STR-W scaled reuse the existing sf=false ldrStrRegEnc.
+
+Validated: native aa64 conformance 3046/0 at BOTH -O0 and -O2 (self-compile),
+adversarial review SOUND (encodings llvm-mc-confirmed, sign/zero-extension matches
+emitScalarLoad exactly, gating clean, split pure), an @[]int32 with negatives sums
+correctly (LDRSW sign-extends — a wrong LDR-W would corrupt the negatives) and an
+@[]uint32 too, all fused forms firing; 8-byte fannkuch still fires (63 scaled uses)
+post-split; encoder + FusableElemGeps unit tests (4-byte-fuses / float32-not /
+int16-not). Split the element/field-pointer lowering out of aarch64_emit.bn (over
+the 500-line cap) into aarch64_emit_elem.bn.
+
+Remaining Track 5 lever: (c) reload-cache / Tier 2C (keep slice base+len in
+registers across the loop) — the dominant per-access cost the scaled-addressing
+fold compounds with.
+
 ### Unsigned / signed binop by an out-of-range untyped literal wrongly accepted — ✅ FIXED (2026-09-20)
 
 ### madd/msub fusion (Track 1 tail) — ✅ DONE (2026-09-20, work-1), LANDED `1f3899a41`
