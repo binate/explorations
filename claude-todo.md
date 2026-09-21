@@ -378,7 +378,18 @@ flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
   the `seed[0]` read/write/read case; see done log). A correct GENERAL improvement but does NOT
   move the fasta ratio (root-caused: genRandom is latency-bound on the constant div/mod = Track 1,
   and selectRandom's gap is slice non-promotion + strength reduction = Track 4 + (b) below).
-  Now on (b) — 🟡 scaled-addressing IN PROGRESS (2026-09-20, work-5). Both remaining pieces are
+  On (b) — 🟡 scaled-addressing IN PROGRESS (2026-09-20, work-5). Asm layer DONE (scaled
+  `MemRegScaled` + a latent register-offset encoder-bug fix, branch commit; BUILDER-clean, 121
+  asm tests). Backend fusion (fold single-use 8-byte GP element GEP into `[base,idx,lsl#3]`)
+  WORKS + is correct for loads, but has a REGISTER-ALLOCATOR LIVENESS BUG on stores /
+  short-lived bases (conformance 1103 SIGSEGV): suppressing the GEP moves base+index uses to the
+  consuming load/store, but ComputeLiveness/BuildIntervals compute on the pre-fusion IR (base's
+  last use = the GEP), so the allocator reuses base's register for the store value → `str x4,
+  [x4,...]`. Correct fix = make the allocator fusion-aware (thread the fusable set into liveness /
+  intervals; redirect a fused load/store's operand use from the GEP result to its base+index at
+  the ~3 scan sites). Standalone runtime win is small (the removed lsl+add are cheap; the reload
+  storm = Tier 2C dominates), so the allocator surgery vs benefit is a live decision.
+  Both remaining pieces are
   NATIVE-BACKEND (per the fannkuch finding, IR passes barely move native):
   (b) strength-reduce to scaled/post-increment addressing — the index-scaling half already landed
   (`c77bdae4a`, mul→lsl); the open lever is fusing into scaled `[base,idx,lsl#n]` load/store
