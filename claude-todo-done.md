@@ -1,3 +1,27 @@
+### T4 gap (b): field_forward distinct-pointee-type disjointness — ✅ LANDED 2fa428d8b (2026-09-21), TBAA-dependent
+
+work-2. `field_forward` (redundant managed-ptr-param field-load elimination) conservatively killed a
+tracked field load whenever a store rooted at a DIFFERENT param — so `a.x` reloaded across `b.p=...`
+(a @A, b @B) even though distinct managed types can't alias. storeKillsPath now returns disjoint for
+a different-param store when the store's object and the load's object are distinct concrete named
+struct types (`distinctStructObjects`); the load's object type (pointee struct of its base pointer)
+is captured into `ffKey.objTyp`. Same-param (pathsMayAlias) + local-alloca disjointness unchanged.
+
+Verified: iropt unit tests incl. `TestFFDistinctStructObjects` / `TestFFStoreKillsPathDistinctType`;
+conformance LLVM 3047/0, native-aa64 3047/0, VM 3035/0; independent adversarial review found no
+soundness bugs (given the TBAA premise) — mis-classification fails safe (conservative kill) in every
+ambiguous case (@any/iface/type-param/non-struct/wrappers → nil → kill), embedding can't create a
+@B→@A upcast, deep-path granularity compares the right objects, RefDec-free interaction safe.
+
+Measured payoff: NONE on the named benchmarks — richards and fannkuch native output is byte-identical
+(the pattern doesn't occur; the plan's richards `s.current` example is same-param, already handled).
+It is a correct GENERAL alias-precision improvement, not a benchmark gap-closer. Landed on that basis
+(zero-risk, sound, general precision) with the user's explicit go-ahead.
+
+TWO open dependencies (tracked in claude-todo.md):
+- SOUNDNESS is TBAA-dependent: it assumes a store through @A can't alias a @B object (cross-type
+  managed aliasing via bit_cast is UB). Awaiting a spec-author ruling — see the "SPEC QUESTION — T4
+  gap (b): managed-pointer strict-aliasing (TBAA) soundness" entry. Revert if ruled not-TBAA.
 ### native FP-register homes (aarch64) — stop round-tripping float scalars through GP slots — ✅ aarch64 DONE (2026-09-21, work-5)
 
 The top native↔LLVM lever from the fasta/richards analysis (`plan-native-fp-register-homes.md`).

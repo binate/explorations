@@ -6,7 +6,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 ## SPEC QUESTION — T4 gap (b): managed-pointer strict-aliasing (TBAA) soundness — spec ruling needed — 🟠 AWAITING SPEC AUTHOR (2026-09-21)
 
 **Reference title (cite this):** "T4 gap (b): managed-pointer strict-aliasing (TBAA) soundness".
-**Landed optimization it gates:** `<MAIN-COMMIT-HASH-TBD>` (iropt/field_forward distinct-pointee-type
+**Landed optimization it gates:** `2fa428d8b` (iropt/field_forward distinct-pointee-type
 disjointness; work-2 `cb5074ac8`).
 
 **The question.** Does Binate guarantee **type-based non-aliasing** for managed pointers — i.e., in a
@@ -333,7 +333,12 @@ native/llvm ratio on the named benchmark before/after. Full evidence: `plan-nati
   in a callee-saved reg **only when it pays** — this IS the refuted "home-more-values / interval-
   splitting" neighborhood, so needs a pressure model + all-benchmark A/B; (b) the richards-only
   distinct-pointee-type field-alias piece (`field_forward_analysis.bn` `storeKillsPath`) — a genuine
-  iropt win, 🟡 IN PROGRESS (claimed 2026-09-21, work-2/session).
+iropt win, ✅ LANDED `2fa428d8b` (2026-09-21) — but a NO-OP on richards/fannkuch
+  (byte-identical output; the plan's `s.current` example is same-param, already handled). It is a
+  correct general alias-precision improvement, all-backend conformance green + adversarial-review
+  clean, that fires only on the "distinct-typed managed-ptr params, store through one between loads
+  of another's field" pattern the benchmarks lack. SOUNDNESS is TBAA-dependent — see the SPEC
+  QUESTION entry above; revert if the spec author rules not-TBAA.
 - **T5 — loop-aware BCE via monotonic-induction range facts — 🔴 fannkuch target RETIRED as UNSOUND
   (investigated 2026-09-21, work-3); see below.** The plan's premise — the flip-loop guard `i < j`
   with `j` starting at `k = perm[0]` "provably `< len`" — is FALSE: `k = perm[0]` is an arbitrary int
