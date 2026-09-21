@@ -259,9 +259,13 @@ native/llvm ratio on the named benchmark before/after. Full evidence: `plan-nati
       `Jcc` on the CMP flags (x64 `condForOp` already existed). Adversarial review clean; sampled -O2 x64
       native conformance 321/0 (under Rosetta); unit test pins "no SETcc when fused". (64-bit: int64 =
       single CMP, safe.)
-    - **arm32 port** — same, BUT int64 compares on 32-bit arm32 are MULTI-word (not a single flag-setting
-      CMP), so `BranchFusedCmps` must gain a word-size exclusion (skip operands wider than the target
-      word) before arm32 consumes it; otherwise a fused int64 branch miscompiles.
+    - **arm32 port — LANDED `f4e919464`.** Same fusion, plus a `wordBytes` parameter on `BranchFusedCmps`
+      excluding operands wider than the target word: on ILP32 an int64 compare is a multi-word
+      `emitCompare64` sequence (no single flag state) that would miscompile if fused, so wordBytes=4
+      excludes it (aa64/x64 pass 8 → int64 still fuses, no behavior change). Split `arm32RetentionSafe`
+      out to `arm32_retention.bn` (emit_func was at the 500-line cap). Adversarial review clean (6
+      vectors); native arm32 baremetal (QEMU) conformance 316/0; unit tests pin the fused CMP-only emit
+      and the int64 exclusion.
 - **T4 — alias-precise load-forwarding/LICM: hoist loop-invariant slice descriptors (`.ptr`/`.len`) +
   cross-type fields — 🟡 IN PROGRESS (claimed 2026-09-21, work-2/session). SHARED (fannkuch DOMINANT + richards), backend-neutral.** Teach the
   mod/alias predicate that a store through `slice.ptr[i]` can't touch the descriptor slot, and a
