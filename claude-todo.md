@@ -357,6 +357,39 @@ POINTERS but little aggregate COPYING, so it under-represents the gap. Goal: a b
 native/llvm ratio tracks the compiler's, so the gap is visible in the suite (add "a couple at a
 time" per the suite's cadence).
 
+### native↔LLVM gap round 2 — richards/fannkuch next levers (see plan-native-codegen-gaps-round2.md) — 🔵 OPEN
+
+Six tracks from re-profiling richards (1.57×) + fannkuch (1.68×) on current main after round 1
+landed. Several are SHARED (help both + array/refcount code broadly). All non-FP (FP-scalar
+homes are a separate item). Do NOT propose the refuted levers (raise inline threshold; home more
+values / interval splitting). Claim by flipping to 🟡 IN PROGRESS (`work-N/session`). Measure the
+native/llvm ratio on the named benchmark before/after. Full evidence: `plan-native-codegen-gaps-round2.md`.
+
+- **T1 — refcount header via `LDUR`/`STUR [ptr,#-16]` (drop the `SUB #16`) — 🔵 OPEN.** richards; highest
+  value, smallest change (refcount is the most frequent op; the unscaled non-writeback form was
+  overlooked). `native/aarch64/aarch64_refcount.bn` (+ Ldur/Stur asm encoder); x64 parity.
+- **T2 — fold constant field-offset GEPs into the load/store memory operand — 🔵 OPEN.** richards (every
+  field access). Model on the landed scaled-element fuse (`common_elem_gep_fuse.bn`) → new
+  `native/common/common_field_gep_fuse.bn`, `aarch64_emit.bn`, `regalloc_*`.
+- **T3 — condition/compare-branch lowering: `cmp/tst #imm`, flag-branch fusion (no `cset`), `ccmp` for
+  `&&`/`||` — 🔵 OPEN. SHARED (richards+fannkuch).** Also removes the STATE_* constant stack-spills.
+  `native/aarch64/aarch64_ops.bn`, `aarch64_dispatch.bn`.
+- **T4 — alias-precise load-forwarding/LICM: hoist loop-invariant slice descriptors (`.ptr`/`.len`) +
+  cross-type fields — 🔵 OPEN. SHARED (fannkuch DOMINANT + richards), backend-neutral.** Teach the
+  mod/alias predicate that a store through `slice.ptr[i]` can't touch the descriptor slot, and a
+  `@A` store can't clobber a live `@B` field; then LICM/load-forward hoist. Continues the landed
+  field-forward line — COORDINATE with its owner. `iropt/field_forward_analysis.bn`, `load_forward.bn`,
+  `field_forward.bn`, `licm.bn`.
+- **T5 — loop-aware BCE via monotonic-induction range facts — 🔵 OPEN.** fannkuch; would beat LLVM,
+  synergizes with T4 (removes block fragmentation). `iropt/bce_loop.bn`. COORDINATE with the in-flight
+  BCE follow-up.
+- **T6 — native peephole + regalloc polish — 🔵 OPEN.** dead-load elim, drop branch-to-fallthrough,
+  phi-copy coalescing, small-const immediates, don't-home register-resident params, right-size leaf
+  frames. `aarch64_emit.bn`, `native/common/regalloc_*.bn`, `common.bn`. NOTE: coalescing / home-fewer
+  is the OPPOSITE of the refuted home-more — validate against the interval-splitting regression.
+
+Order: T1 → T2 → T3 → T4 → T5 → T6.
+
 ### IR optimization passes (help LLVM + native backends + the VM) — 🟡 OPEN
 
 - **Pass infra + mem2reg + BCE** — design settled
