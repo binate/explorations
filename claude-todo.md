@@ -69,7 +69,7 @@ quote numbers from this file (they go stale):**
   backends by static instruction/reload counting on a `--target` build, or on
   real hardware/CI.
 
-### `-O1`+ mem2reg emits a malformed phi (void-instr operand, `%v-1`) for a raw multi-return pointer promoted in a loop — 🔴 OPEN (found 2026-09-20)
+### `-O1`+ mem2reg emits a malformed phi (void-instr operand, `%v-1`) for a raw multi-return pointer promoted in a loop — 🟡 IN PROGRESS (claimed 2026-09-20, work-5; found 2026-09-20)
 
 **Symptom.** At `-O1`/`-O2`, a loop that assigns raw `*T` locals from a
 multi-return call —
