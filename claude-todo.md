@@ -214,28 +214,6 @@ backends — aarch64's barrier unified to the safe-by-default allowlist in
 `501b2d9eb`; done log. The native -O1/-O2 startup hang that blocked -O1+
 measurement is fixed, `181ff6807`.)
 
-### fasta / richards native↔LLVM tracks (see plan-native-codegen-gaps.md) — 🔵 OPEN
-
-Five orthogonal, individually-landable tracks from the fasta (~2.1×) / richards (~2.0×)
-disassembly analysis (2026-09-19). Full evidence + coordination notes:
-`plan-native-codegen-gaps.md`. Each track: **measure the native/llvm ratio on the named
-benchmark before/after** — a change that doesn't move it doesn't count. Claim a track by
-flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
-
-
-- **Track 2 — IR: elide `OP_DIV_CHECK`/`OP_SHIFT_CHECK` for statically-safe operands — ✅ DONE, LANDED `94d12bd26` (2026-09-20, work-2). See done log.**
-  `iropt` pass `elideSafeDivChecks` (after mem2reg/load-forwarding/simplifyIdentities) drops the
-  `rt.DivCheck` CALL for a provably-safe constant divisor (fasta's `% im`); the shift half
-  (`OP_SHIFT_CHECK` for a constant in-range count) was already elided by `isSafeConstShiftCount`.
-  Bench result: **ratio-neutral on aarch64** (the wide OoO core hides the removed call under the
-  serial sdiv/msub latency — a clean modulo micro measured 0.0%), but shrinks code (hot fn 47→33
-  insns, no callee-saved spill) and helps in-order targets (arm32). Surfaced a separate MAJOR bug
-  (sub-word `MIN / <negative literal>` skips the overflow trap — see MAJOR bugs section).
-NOT tracks (contraindicated by the prior measurement in the section above): raising the inline
-threshold (measured net-negative on native); further "home more values" allocator work / interval
-splitting (done + refuted).
-
-
 ### native FP-register homes — stop round-tripping float scalars through GP slots — 🟡 IN PROGRESS (claimed 2026-09-21, work-5) (see plan-native-fp-register-homes.md)
 
 The top remaining native↔LLVM lever surfaced by the fasta/richards analysis. `aarch64_float.bn`

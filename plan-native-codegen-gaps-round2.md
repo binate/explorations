@@ -1,6 +1,6 @@
 # Plan: native↔LLVM codegen gap — round 2 (richards / fannkuch, post-track-1 profiling)
 
-Round 1 (`plan-native-codegen-gaps.md`) landed the fasta/richards tracks and moved
+Round 1 (`done/plan-native-codegen-gaps.md`) landed the fasta/richards tracks and moved
 richards ~2.0×→1.57× and fannkuch ~1.8×→1.59×. This round re-profiled BOTH on
 current main (disassembly + `sample`) to find the *now*-hot residual and propose the
 next levers. Several are **shared** (help both benchmarks and array/refcount code

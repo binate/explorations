@@ -1,7 +1,7 @@
 # Plan: native FP-register homes (stop round-tripping float scalars through GP slots)
 
 The single highest-leverage remaining native↔LLVM lever surfaced by the
-fasta/richards analysis (`plan-native-codegen-gaps.md`, now largely landed). It is
+fasta/richards analysis (`done/plan-native-codegen-gaps.md`, now largely landed). It is
 **codegen mechanics for float VALUES, not FP arithmetic** — distinct from
 vectorization/FMA (`plan-native-vectorization.md`), and separable from the "FP
 work" that is otherwise deferred. It unblocks fasta AND all three FP benchmarks at

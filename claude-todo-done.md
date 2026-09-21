@@ -539,6 +539,14 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### native↔LLVM gap ROUND 1 (fasta/richards) — COMPLETE; umbrella plan archived `done/plan-native-codegen-gaps.md` (2026-09-21)
+
+All five tracks landed (per-track entries below): T1 const div/mod magic-multiply + `madd`/`msub`
+fusion, T2 DivCheck/ShiftCheck elision, T3 RefDec dtor-handle sink, T4 managed-pointer
+load-forwarding (richards native/llvm ~1.96×→~1.64×), T5 array-loop BCE + induction/pointer
+strength reduction. The stale active-todo section (a duplicate T2 + `🔵 OPEN` header) is removed.
+Round 2 (richards/fannkuch next levers) continues in `plan-native-codegen-gaps-round2.md`.
+
 ### benchmark suite: record-churn aggregate-copy microbenchmark — DONE (benchmarks `2fbb392`, 2026-09-20)
 
 Added `record-churn` to the suite (github.com/binate/benchmarks): a synthetic probe that repeatedly
