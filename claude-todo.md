@@ -7,47 +7,28 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR bugs
 
-### Sub-word signed `MIN / <negative literal>` skips the overflow trap (all backends) — 🟡 IN PROGRESS (claimed 2026-09-20, work-2)
+### Unsigned `/` or `%` by a negative literal accepted — should be a type error — 🔴 OPEN (found 2026-09-20)
 
-**Symptom.** A sub-word signed integer divide/remainder by a *negative literal*
-`-1` does NOT panic on the INT_MIN/-1 overflow the spec mandates; it silently
-produces a wrong value. E.g. with `var a int32 = i32min()`:
+**Symptom.** `uint8(200) / -1` (an unsigned operand over a negative untyped
+literal) COMPILES and computes at signed `int`, printing `-200`, instead of being
+rejected. Any unsigned operand + negative literal in an arithmetic binop is
+affected (`uint32 % -3`, etc.).
 
-    var c int32 = a / -1     // spec: must panic; actual: no trap, c = -2147483648
-    _ = a % -1               // same width bug
+**Spec — must be a compile-time type error.** `expr.arith.defined` (§13.3): `/`
+`%` "operate on two operands of the **same** numeric type." `const.untyped`
+(§6.1): an untyped integer literal takes the other operand's type and is
+assignable only to a type "whose range includes its value (the fit **is**
+enforced)." A negative literal is not representable in an unsigned type, so the
+untyped `-1` cannot adopt the `uint8` peer. (`expr.arith.minover` also: "Unsigned
+types have no such case.")
 
-Reproduces on native-aa64 AND LLVM, at `-O0` and `-O2`. `int8` too. `int64`
-constant `-1` traps correctly, and the *runtime* `-1` case (conformance 608,
-`i32min() / negOne()`) traps correctly — so the trigger is specifically a
-**negative LITERAL divisor at sub-word width**.
+**Root cause (suspected).** The checker fails to enforce §13.3 + §6.1 for a
+negative untyped constant against an unsigned peer — instead of rejecting, it
+widens the op to signed `int`. Fix in the checker (reject the mixed
+negative-literal / unsigned-operand binop) + add a negative conformance test.
 
-**Root cause.** The unary-minus literal `-1` is typed as host `int` (64-bit), not
-untyped-int (IR-gen forces a signed `TypInt` for a negated literal to preserve
-its sign). `widenType(int32, int)` then promotes the whole divide to 64-bit, so:
-(a) the divide is emitted as a 64-bit `sdiv` (where INT32_MIN/-1 does not
-overflow — result 2147483648 fits int64), and (b) `EmitDivCheck` is given
-width 64, so the guard checks `dividend == INT64_MIN` and never matches
-INT32_MIN. The 64-bit result is then truncated back to int32 on store
-(→ INT32_MIN), a wrong value where the spec requires a trap. Confirmed by
-disasm: `mov x2, #-0x8000000000000000` (INT64_MIN signedMin) + a 64-bit `sdiv`
-in `main`, with the `DivCheck` call still present but ineffective.
-
-**NOT caused by** the Track-2 div-check elision (`elideSafeDivChecks`), which
-correctly KEEPS every `-1`-divisor check; discovered by that track's adversarial
-review. Independent of Track 1's magic-divide work (`838ffd40e` not in base).
-
-**Proposed fix (needs a decision).** The divide should be computed at the
-value-operand's (sub-word) width, not widened to host int by a negative literal
-divisor — i.e. a literal divisor should adopt the dividend's type like a positive
-untyped literal does, rather than a negated literal forcing `TypInt`. Likely in
-IR-gen's negated-literal typing (`gen_binary.bn`) and/or `widenType`. This is
-shared typing code, so the fix must not regress the sign-preservation the
-`TypInt`-for-negated-literal rule exists for (e.g. `x >> -shift`, signed
-comparisons). Add conformance tests: `int32`/`int8`/`int16` `MIN / -1` and
-`MIN % -1` with a literal `-1`, expecting a panic (sibling to 608/615 which use a
-runtime `-1`). Consider whether a positive sub-word divide by a literal is also
-silently 64-bit (benign for value, but same typing quirk).
-
+**Provenance.** Surfaced by the adversarial review of the sub-word MIN/-1 trap
+fix (landed `3ff9b6180`); byte-identical before and after that fix (independent).
 ---
 
 ## Performance

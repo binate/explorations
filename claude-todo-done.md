@@ -1,3 +1,36 @@
+### Sub-word signed `MIN / <negative literal -1>` skipped the overflow trap — ✅ FIXED (2026-09-20, MAJOR)
+
+Landed `3ff9b6180` (work-2). `int8`/`int16`/`int32` (and named sub-word) signed
+`MIN / -1` and `MIN % -1` with a LITERAL `-1` divisor did not panic — it printed
+a wrong value — on all backends, at -O0+. The runtime `-1` case (conformance 608)
+was unaffected.
+
+Root cause: a negated integer literal (`-1`) lowered through genUnary's OP_NEG at
+host `int` (its untyped operand hit the negTyp fallback), so `int32 a / -1`
+widened to a 64-bit divide; EmitDivCheck was then given width 64 and guarded
+INT64_MIN/-1, letting the int32 overflow escape (the 64-bit result truncated back
+to INT32_MIN on store). Both operands stay int32 for a runtime `-1`, which is why
+608 trapped.
+
+Fix (`pkg/binate/irgen/gen_util_literals.bn`): extend `genIntLitWithHint` to also
+accept a negated integer literal (`EXPR_UNARY(MINUS, INT_LIT)`) — the checker
+folds it to an untyped-int with HasLitVal (checkUnaryExpr), so it adopts the typed
+binop peer's (sub-word) type just like a positive literal, keeping the op at the
+value's width. `intFitsInType` keeps a negative value off an unsigned/too-narrow
+peer (returns nil -> default lowering unchanged). Only observable effect is the
+intended trap; `+ - * & | ^` and comparisons are value-identical (two's-complement
+wrap is width-invariant), shifts reject negative constant counts upstream.
+
+Independently adversarially reviewed (no correctness holes; native == LLVM across
+all widths, unsigned peers, named types, INT64_MIN literal, whole-binop fold,
+boundary divisors). Tests: `TestNegLiteralDivisorKeepsOperandWidth` (asserts the
+guard width stays 32); conformance `1275`/`1276` (int32 + int8 `MIN / -1` literal
+must trap) — green on native-aa64 + VM.
+
+The review also surfaced a SEPARATE pre-existing checker bug (unsigned `/` `%` by
+a negative literal is wrongly accepted) — raised under MAJOR bugs in
+`claude-todo.md`; independent of this fix.
+
 ### x64 inline RefInc/RefDec fast path — ✅ DONE (2026-09-20)
 
 Landed `2391d064a` (work-3).  x64 was the last backend lowering OP_REFINC/OP_REFDEC
