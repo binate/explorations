@@ -1,5 +1,32 @@
 ### Unsigned / signed binop by an out-of-range untyped literal wrongly accepted — ✅ FIXED (2026-09-20)
 
+### madd/msub fusion (Track 1 tail) — ✅ DONE (2026-09-20, work-1), LANDED `1f3899a41`
+
+`(a*b)+c` → a single fused multiply-add.  A codegen-time peephole breaks register liveness (the
+allocator frees the mul's operands at the mul), so this is an IR-level fusion: new `OP_MADD`
+(a*b+c) / `OP_MSUB` (c-a*b) opcodes, created pre-regalloc by an `iropt` pass when a single-use
+`OP_MUL` feeds an `OP_ADD`/`OP_SUB`.  Lowered to aa64 `madd`/`msub`, arm32 `mla`/`mls` (new `Mls`
+encoder), an x64 `imul`+add/sub expansion, a VM `BC_MADD`/`BC_MSUB`, and an LLVM `mul`+add/sub.
+Runs after LICM (a loop-invariant multiply is hoisted first, so the same-block rule then declines
+to fuse it — fusing there would drag the product back into the loop) and after
+`groundGlobalRefPhiOperands`.  Fuses only full-GP-width integers (`SizeOf()==IntSize`), so arm32
+never gets a 64-bit madd and the VM's one spare BC field (`Aux`) carries the third operand with no
+narrow field.  Also switched arm32 `OP_REM` to the new `Mls` (one fewer instruction).
+
+Verified on all five backends at -O1 (conformance `1279_mul_add_fuse`); full aa64 conformance at
+-O2 is 3043/0; full arm32 at -O0 is 2997/0 (covers the OP_REM refactor).  Adversarial review found
+no miscompiles but flagged the -O0 coverage gap (→ the `-O2 conformance CI job` todo); empirical
+-O1 testing then caught a real LLVM bug the review missed — `llvmType`'s managed `@[]char` result
+held in a `*[]readonly char` raw local dangled after the first write, emitting null bytes for the
+type; fixed by owning it as `@[]char`.
+
+Tests: `iropt/fuse_muladd_test` (full-width target guard), `irgen/ir_fuse_muladd_test` (transform:
+fuses add/sub, not a multi-use mul or `a*b-c`), `codegen/emit_muladd_test` + `vm/lower_muladd_test`
+(LLVM / VM lowering at -O1).  Not fused (deliberate): sub-word integers (int32-on-64bit) — the
+common `int`/`int64` arithmetic is full width and does fuse.  Closes the Track 1 tail (Track 1
+proper — magic div + B — landed earlier; see its done entry).
+
+
 Landed `a83232177` (work-2).  Arithmetic (+ - * / %) and bitwise (& | ^) binops
 did not fit-check an untyped-integer-literal operand against its typed peer:
 `commonType` returned the peer without checking representability, so `uint8 / -1`,
