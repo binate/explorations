@@ -56,10 +56,16 @@ CORRECTION 2026-09-08):
    call-result stores, nested-aggregate fields).  The compiler's DOMINANT slice type
    `@[]@T` now scalar-replaces as both locals and struct fields, and nested managed
    structs compose.  Full arc + commits + validation: see the **"SROA line COMPLETE"**
-   capstone in claude-todo-done.md.  **Caveat:** the aggregate effect on the
-   native/LLVM self-compile RATIO was NOT re-measured after the managed `@[]@T` work
-   (the early non-managed phases were ~no-op on the compiler) — a natural follow-up if
-   the gap ranking below needs refreshing; it does not block the SROA line as complete.
+   capstone in claude-todo-done.md.  **Post-SROA re-measurement (2026-09-20, work-3
+   @ `903349e51`, `perf/native-vs-llvm.sh` cmd/bnc self-compile, host aarch64):
+   native/LLVM ≈ 2.65× median / 2.73× best (N median 15.51s, L 5.85s; 7 rounds,
+   within-arm spread ~±10% on a loaded box, but best- and median-ratios agree to
+   3%).**  NOT a clean delta vs the pre-SROA 2.89× — that figure was WALL CLOCK,
+   whereas the driver now measures USER CPU (`903349e51`), so the metric changed
+   underneath it; treat 2.65× as the first user-CPU baseline, not a "2.89→2.65"
+   move.  Same ballpark, consistent with the narrowing from the landed
+   regalloc/SROA/refcount work.  The native backend still does ~2.6× the CPU work
+   of clang `-O2` on this workload — the gap left to close.
 2. **Register-allocation quality (scalar spill/reload) — ~45% of the gap.**
    🟢 spill-cost eviction (increment 1) LANDED `fb215bf79` (2026-09-17,
    work-4/temp-4); further regalloc levers open.  The landed allocator is

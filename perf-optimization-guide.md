@@ -129,10 +129,8 @@ over the same interval. Report best and median across rounds.
 Wall clock includes everything else happening on the box. User CPU time
 (`/usr/bin/time -p`, the `user` line) is much more robust to a loaded machine.
 Use it as the default metric; do not draw conclusions from wall clock.
-
-Note that `perf/native-vs-llvm.sh` currently times **wall clock**
-(`Time::HiRes`), so its numbers on a loaded box are noisier than a user-CPU
-driver's.
+`perf/native-vs-llvm.sh` times user CPU this way (it extracts the `user` line
+from `/usr/bin/time -p`).
 
 ### Thermal throttling: vary the A/B order
 
@@ -145,8 +143,8 @@ result.
 
 So **alternate the order across rounds**: A,B then B,A then A,B … Then a
 monotonic thermal drift affects both arms equally and cancels in the average.
-(`perf/native-vs-llvm.sh` interleaves but does not currently alternate the
-order.)
+(`perf/native-vs-llvm.sh` interleaves and alternates the order this way, and
+prints the per-round order in a column.)
 
 ### On Apple Silicon, prefer instructions retired
 
@@ -178,7 +176,7 @@ wrong binary. Check, every time:
 - **Are you measuring the target you changed?** `--backend native` on an arm64
   box builds *aarch64*, so an x64 or arm32 codegen change looks falsely neutral.
   Use `--arch KEY` for a cross target, which reports static code-quality metrics
-  (`__text` size, reload / address-recompute counts) instead of wall clock —
+  (`__text` size, reload / address-recompute counts) instead of a timed run —
   running a cross target under Rosetta or qemu is an unreliable proxy that hides
   the very gap you are measuring. The same "the `native` in the name is
   load-bearing" trap that CLAUDE.md documents for conformance modes applies
