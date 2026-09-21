@@ -358,6 +358,22 @@ native/llvm ratio on the named benchmark before/after. Full evidence: `plan-nati
 - **T3 — condition/compare-branch lowering: `cmp/tst #imm`, flag-branch fusion (no `cset`), `ccmp` for
   `&&`/`||` — 🟡 IN PROGRESS (claimed 2026-09-20, work-4/session). SHARED (richards+fannkuch).** Also removes the STATE_* constant stack-spills.
   `native/aarch64/aarch64_ops.bn`, `aarch64_dispatch.bn`. Also apply x64/arm32 where applicable.
+  Executing in increments:
+    - **Inc 1 — aa64 flag-branch fusion (drop `cset`+`cbnz` → `b.cond`).** Committed on worktree
+      (pending adversarial review + land). `BranchFusedCmps` (backend-neutral, native/common) flags a
+      single-use integer compare whose sole use is the immediately-following branch; aa64 emits CMP-only
+      + `b.cond`, leaves it unhomed. Controlled same-base A/B (instructions retired, byte-identical
+      outputs): richards −2.8%, fannkuch −4.7%, binary-trees −1.0%, fasta flat.
+    - **Inc 2 — aa64 immediate `cmp #imm`/`cmn` + eliminate the folded constant** (skip-emit + unhome the
+      const whose only uses are compare-immediates). This is what actually removes the STATE_* const
+      materialization/spill; immediate-cmp alone is neutral (leaves a dead `mov`).
+    - **Inc 3 — `tst` (fold `and`-with-imm compare-0) + `ccmp` for short-circuit `&&`/`||`** (needs a Ccmp
+      encoder in asm/aarch64; `&&`/`||` are branch-form, so this is a cross-block pattern).
+    - **x64 port** — reuse `BranchFusedCmps`; x64 already has `condForOp`; fuse `Setcc`+`Movzx`+`Test`/`Jcc`
+      → `Jcc` on the CMP flags. (64-bit: int64 = single CMP, safe.)
+    - **arm32 port** — same, BUT int64 compares on 32-bit arm32 are MULTI-word (not a single flag-setting
+      CMP), so `BranchFusedCmps` must gain a word-size exclusion (skip operands wider than the target
+      word) before arm32 consumes it; otherwise a fused int64 branch miscompiles.
 - **T4 — alias-precise load-forwarding/LICM: hoist loop-invariant slice descriptors (`.ptr`/`.len`) +
   cross-type fields — 🔵 OPEN. SHARED (fannkuch DOMINANT + richards), backend-neutral.** Teach the
   mod/alias predicate that a store through `slice.ptr[i]` can't touch the descriptor slot, and a
