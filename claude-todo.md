@@ -305,7 +305,11 @@ flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
   liveness fix that keeps a folded GEP's base+index live to the consumer; see done log). Native
   aa64 conformance 3042/0 at -O0 AND -O2, two SOUND reviews. Completes the addressing lever
   (native now matches LLVM's `[base,idx,lsl#n]`); standalone win small (reload storm dominates,
-  compounds with (c)/Tier 2C). 4-byte elements (LDRSW register form) a follow-up.
+  compounds with (c)/Tier 2C).
+  (b-follow-up) 4-byte elements — 🟡 IN PROGRESS (claimed 2026-09-20, work-5): extend FusableElemGeps to
+  elemSize 4 (non-FP; float32 excluded) + emitFusedElemLoad/Store dispatch — signed int32 needs a NEW
+  LDRSW register-offset (scaled) asm encoder (matching emitScalarLoad's sign-extend-to-64 convention);
+  unsigned/store use the existing sf=false scaled LDR-W/STR-W.
   Both remaining pieces are
   NATIVE-BACKEND (per the fannkuch finding, IR passes barely move native):
   (b) strength-reduce to scaled/post-increment addressing — the index-scaling half already landed
