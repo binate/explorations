@@ -342,8 +342,10 @@ native/llvm ratio on the named benchmark before/after. Full evidence: `plan-nati
       materialization/spill; immediate-cmp alone is neutral (leaves a dead `mov`).
     - **Inc 3 — `tst` (fold `and`-with-imm compare-0) + `ccmp` for short-circuit `&&`/`||`** (needs a Ccmp
       encoder in asm/aarch64; `&&`/`||` are branch-form, so this is a cross-block pattern).
-    - **x64 port** — reuse `BranchFusedCmps`; x64 already has `condForOp`; fuse `Setcc`+`Movzx`+`Test`/`Jcc`
-      → `Jcc` on the CMP flags. (64-bit: int64 = single CMP, safe.)
+    - **x64 port — LANDED `3b83fafc5`.** Reused `BranchFusedCmps`; fused `Setcc`+`Movzx`+`Test`/`Jcc` →
+      `Jcc` on the CMP flags (x64 `condForOp` already existed). Adversarial review clean; sampled -O2 x64
+      native conformance 321/0 (under Rosetta); unit test pins "no SETcc when fused". (64-bit: int64 =
+      single CMP, safe.)
     - **arm32 port** — same, BUT int64 compares on 32-bit arm32 are MULTI-word (not a single flag-setting
       CMP), so `BranchFusedCmps` must gain a word-size exclusion (skip operands wider than the target
       word) before arm32 consumes it; otherwise a fused int64 branch miscompiles.
