@@ -5,32 +5,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ---
 
-## MAJOR bugs
-
-### Unsigned `/` or `%` by a negative literal accepted — should be a type error — 🟡 IN PROGRESS (claimed 2026-09-20, work-2)
-
-**Symptom.** `uint8(200) / -1` (an unsigned operand over a negative untyped
-literal) COMPILES and computes at signed `int`, printing `-200`, instead of being
-rejected. Any unsigned operand + negative literal in an arithmetic binop is
-affected (`uint32 % -3`, etc.).
-
-**Spec — must be a compile-time type error.** `expr.arith.defined` (§13.3): `/`
-`%` "operate on two operands of the **same** numeric type." `const.untyped`
-(§6.1): an untyped integer literal takes the other operand's type and is
-assignable only to a type "whose range includes its value (the fit **is**
-enforced)." A negative literal is not representable in an unsigned type, so the
-untyped `-1` cannot adopt the `uint8` peer. (`expr.arith.minover` also: "Unsigned
-types have no such case.")
-
-**Root cause (suspected).** The checker fails to enforce §13.3 + §6.1 for a
-negative untyped constant against an unsigned peer — instead of rejecting, it
-widens the op to signed `int`. Fix in the checker (reject the mixed
-negative-literal / unsigned-operand binop) + add a negative conformance test.
-
-**Provenance.** Surfaced by the adversarial review of the sub-word MIN/-1 trap
-fix (landed `3ff9b6180`); byte-identical before and after that fix (independent).
----
-
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never

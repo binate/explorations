@@ -1,3 +1,33 @@
+### Unsigned / signed binop by an out-of-range untyped literal wrongly accepted — ✅ FIXED (2026-09-20)
+
+Landed `a83232177` (work-2).  Arithmetic (+ - * / %) and bitwise (& | ^) binops
+did not fit-check an untyped-integer-literal operand against its typed peer:
+`commonType` returned the peer without checking representability, so `uint8 / -1`,
+`int8 + 200`, `uint8 / 300`, `int8 / -200` (and their compound-assign forms) were
+accepted and silently computed at `int` instead of being rejected.  Spec requires
+rejection: §13.3 `expr.arith.defined` (operands share a type) + §6.1
+`const.untyped` (the fit IS enforced).  The comparison operators already enforced
+it via AssignableTo; arithmetic/bitwise did not.
+
+Fix (`pkg/binate/check/checker_util.bn` + `check_expr_binop.bn`):
+`checkUntypedLitFits` applies the same AssignableTo fit-check, called from the
+arithmetic and bitwise-binary arms of `checkBinaryOp` (covering compound assigns
+via `compoundToBase`).  Gated to a concrete INTEGER peer with a known literal
+value, so: shifts are exempt (a shift count is type-independent — `x << 1000` is a
+defined overshift, §13.5); a float peer keeps `checkArithOp`'s "cannot mix int
+and float" message; a bare type parameter keeps "requires numeric operands";
+both-untyped constant folds are unchanged.
+
+Independently adversarially reviewed (no false positives — boundary values, named
+sub-word, fitting masks, const-names, iota, generics all accepted; no false
+negatives — folded const-exprs, const-names, compound-assign, literal-on-left all
+rejected).  bnc self-compiles clean; full conformance 3046 passed / 0 failed;
+`check` 1070 unit tests (5 new).  Conformance 1277/1278 pin the uint8 and int8
+compile-error cases.
+
+Discovered while fixing the sub-word `MIN / <negative literal>` trap (found via
+its adversarial review); this is the broader checker hole behind that family.
+
 ### `-O1`+ mem2reg/forwarding carried a global-address pseudo into a phi operand (`%v-1`) — ✅ DONE (2026-09-20)
 
 Landed `f02c62959` (work-5). A global's address `&G` is an OP_ALLOC pseudo with
