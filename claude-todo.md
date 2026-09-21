@@ -348,17 +348,6 @@ any other single item. Files: `native/aarch64/aarch64_float.bn`, `native/common/
 x64 XMM / arm32 VFP have the same pattern. Bench: fasta native/llvm ratio (primary), the 3 FP
 benchmarks (secondary). Full scope + approach: `plan-native-fp-register-homes.md`.
 
-### benchmark suite: microbenchmark(s) reflecting the compiler's ~2.7× aggregate-copy gap — 🟡 IN PROGRESS (claimed 2026-09-20, work-6/session)
-
-The bnc self-compile is ~2.7× native/llvm (non-FP), but the suite's non-FP benchmarks top out
-~1.6× — none reproduce the compiler's dominant cost (managed aggregate / slice-header COPYING
-~53% + scalar spill ~45%; see the native-codegen section). Add microbenchmark(s) that stress that
-pattern C-free-legally: heavy `@[]@T` slice-header passing/copying + multi-field managed-struct
-field read/write + refcount churn (mimic IR-node manipulation), no FP. richards exercises managed
-POINTERS but little aggregate COPYING, so it under-represents the gap. Goal: a benchmark whose
-native/llvm ratio tracks the compiler's, so the gap is visible in the suite (add "a couple at a
-time" per the suite's cadence).
-
 ### native↔LLVM gap round 2 — richards/fannkuch next levers (see plan-native-codegen-gaps-round2.md) — 🔵 OPEN
 
 Six tracks from re-profiling richards (1.57×) + fannkuch (1.68×) on current main after round 1

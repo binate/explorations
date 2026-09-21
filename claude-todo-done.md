@@ -387,6 +387,20 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### benchmark suite: record-churn aggregate-copy microbenchmark — DONE (benchmarks `2fbb392`, 2026-09-20)
+
+Added `record-churn` to the suite (github.com/binate/benchmarks): a synthetic probe that repeatedly
+loads/combines/stores 8-field uint32 value records through managed slices over N serial passes (a
+carry dependency defeats vectorization), isolating the multi-word aggregate copy the compiler's hot
+path is dominated by and that SROA cannot eliminate. Measured native/llvm **~9×** at DEFAULT_N=8000
+(native ~1.9s vs llvm ~0.2s vs C ~0.17s). Deliberately kept a CLEAN probe (undiluted — the
+compiler's mixed 2.7× is that same lever blended with spill/other work; the user chose "keep it
+clean" over diluting to ~2.7×). All 7 languages agree byte-for-byte (COMPARE=exact; uint32 wrapping
+via +/^/<<; value structs for C/C++/Rust/Go, flat int arrays for Java/Python as arithmetic
+yardsticks); pin matches expected.txt; CI auto-discovers `bench/*/` so it is exercised. A
+SPILL-focused microbench (the compiler's other ~45% component) remains a natural future addition per
+the suite's "a couple at a time" cadence.
+
 ### flags: promoted to pkg/std + adopted in cmd/bnc — DONE (`8658c1dd3` + `cd38d9e5b` + `1a7bf7c11`, 2026-09-19)
 
 The `flags` command-line parser graduated from tier-1x `stdx` to the stable `pkg/std`
