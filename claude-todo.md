@@ -237,9 +237,16 @@ native/llvm ratio on the named benchmark before/after. Full evidence: `plan-nati
 
 - **T1 — refcount header via `LDUR`/`STUR [ptr,#-16]` — ✅ DONE (611a34f1d), see done log.**
 - **T2 — fold constant field-offset GEPs into the load/store memory operand — 🟡 IN PROGRESS (claimed
-  2026-09-20, work-3/session).** richards (every
-  field access). Model on the landed scaled-element fuse (`common_elem_gep_fuse.bn`) → new
-  `native/common/common_field_gep_fuse.bn`, `aarch64_emit.bn`, `regalloc_*`.
+  2026-09-20, work-3/session; aarch64 LANDED `3b24d24a4`, x64 + arm32 next).** richards (every
+  field access). Shared analysis `common.FusableFieldGeps` + `common.FieldByteOffset` (single-use-
+  as-address, non-FP/non-aggregate GP scalar, register base, resolvable offset; on 32-bit also
+  excludes int64 register-pairs + offsets past arm32's 255 imm range) — flags folded field GEPs;
+  regalloc leaves them unhomed; liveness `Fusable` set is the union of the element- and field-GEP
+  folds (opcode-dispatched hooks: element GEP → base+index, field GEP → base). **aarch64 done**
+  (`emitFusedFieldLoad`/`Store` in `aarch64_emit_elem.bn`): richards native/llvm **1.769×→1.651×**,
+  **−6.7% instructions retired** (best-of-9, instructions-retired). x64 + arm32 have the same
+  constant-displacement memory form (x64 `[base+disp]`, arm32 `[base,#off]`) and the shared analysis
+  already handles their constraints — each is a follow-up commit adding the emit consumer + wiring.
 - **T3 — condition/compare-branch lowering: `cmp/tst #imm`, flag-branch fusion (no `cset`), `ccmp` for
   `&&`/`||` — 🟡 IN PROGRESS (claimed 2026-09-20, work-4/session). SHARED (richards+fannkuch).** Also removes the STATE_* constant stack-spills.
   `native/aarch64/aarch64_ops.bn`, `aarch64_dispatch.bn`. Also apply x64/arm32 where applicable.
