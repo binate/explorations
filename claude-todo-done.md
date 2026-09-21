@@ -1,3 +1,39 @@
+### `-O1`+ mem2reg/forwarding carried a global-address pseudo into a phi operand (`%v-1`) — ✅ DONE (2026-09-20)
+
+Landed `f02c62959` (work-5). A global's address `&G` is an OP_ALLOC pseudo with
+IsGlobalRef and SSA id -1 — the backend materializes it (ADRP+ADD / equivalent)
+at each use, so it holds no SSA register. Valid as a direct-use operand but
+INVALID as an OP_PHI operand (a phi operand must be a real SSA value; id -1
+emits `%v-1`). At `-O1+` the forwarding passes (mem2reg / load-forwarding) carry
+such a pseudo into a loop-header phi when a global address is stored into a
+promotable pointer local inside a loop — e.g. an inlined multi-return
+`p, q = f(&gx, &gy)` whose tuple slot SROA splits into per-field pointer slots.
+
+Result: the LLVM backend rejected the whole module (`use of undefined value
+'%v-1'`, a hard COMPILE_ERROR); the native backends and the VM **silently
+miscompiled** — the VM's per-use global-ref materialization scans `Args`, not
+`Phis[].Val`, so the phi operand fell to a null-address fallback; native read
+garbage. Unobserved only because the triggering phis are dead (the value is
+re-stored before use each iteration), but a live such phi would have been a
+silent wrong value.
+
+Fix: a final RunOptPasses cleanup (`iropt/ground_globalref_phi.bn`,
+`groundGlobalRefPhiOperands`) that GROUNDS every such operand — it materializes
+the address once as a real SSA value (an identity OP_BIT_CAST of the pseudo,
+TypeArg set so codegen emits `bitcast ptr..ptr`, not `ptrtoint`) in the entry
+block (loop-invariant → one materialization dominates every use, no per-iteration
+cost) and repoints the phi operands. Runs LAST (after every phi-producing /
+forwarding pass incl. LICM); it only repoints phi operands and rebuilds the entry
+block's Instrs directly (no addInstr), so it neither resurrects a pre-hoist layout
+nor is disturbed by any later pass. Strictly correctness-preserving-or-improving:
+a live phi now gets the correct address where it previously got garbage.
+
+Validated: native aa64 `-O2` conformance 3042/0 (self-compile), VM `-O2` 3030/0,
+`raw-multiret-ptr` now compiles + runs on the LLVM backend (was COMPILE_ERROR)
+and stays correct on native/VM, adversarial review SOUND (all three backends),
+163 iropt unit tests (3 new: grounding / dedup / real-value no-op), hygiene 20/20.
+Discovered by the Track-5 redundant-BCE `-O2` conformance run.
+
 ### Sub-word signed `MIN / <negative literal -1>` skipped the overflow trap — ✅ FIXED (2026-09-20, MAJOR)
 
 Landed `3ff9b6180` (work-2). `int8`/`int16`/`int32` (and named sub-word) signed
