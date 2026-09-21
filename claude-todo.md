@@ -298,6 +298,13 @@ disassembly analysis (2026-09-19). Full evidence + coordination notes:
 benchmark before/after** — a change that doesn't move it doesn't count. Claim a track by
 flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
 
+- **`madd`/`msub` fusion (Track 1 tail) — 🟡 IN PROGRESS (claimed 2026-09-20, work-1).** `(a*b)+c`
+  → single fused multiply-add.  A codegen-time peephole breaks register liveness (the allocator
+  frees the mul's operands at the mul, so they're gone by the add), so this is an IR-level fusion:
+  new `OP_MADD`(a,b,c=a*b+c)/`OP_MSUB`(a,b,c=c-a*b) created pre-regalloc by an `iropt` pass when a
+  single-use `OP_MUL` feeds an `OP_ADD`/`OP_SUB`; lowered to aa64 `madd`/`msub`, arm32 `mla`/`mls`
+  (needs a new `Mls` encoder), and a `mul`+`add`/`sub` fallback on x64/VM/LLVM.
+
 - **Track 2 — IR: elide `OP_DIV_CHECK`/`OP_SHIFT_CHECK` for statically-safe operands — ✅ DONE, LANDED `94d12bd26` (2026-09-20, work-2). See done log.**
   `iropt` pass `elideSafeDivChecks` (after mem2reg/load-forwarding/simplifyIdentities) drops the
   `rt.DivCheck` CALL for a provably-safe constant divisor (fasta's `% im`); the shift half
