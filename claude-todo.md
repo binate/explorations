@@ -352,8 +352,8 @@ flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
     regression). Full Track 4 same-base: 296.7M (no Track 4) → 277.5M (Piece 1, **−6.5%**) → 268.5M
     (Piece 2) = **−9.5% total, richards ratio 1.84×→1.67×**. 132 iropt tests, hygiene 20/20. Tests in
     `iropt/field_forward_test.bn`.
-  - **Piece 3 — deeper access chains (arbitrary-depth field-load paths) — 🟡 committed on work-4
-    (`ed1db327d`), pending conformance re-run (fixed code), MEASURED WIN.** Adversarial review caught
+  - **Piece 3 — deeper access chains (arbitrary-depth field-load paths) — LANDED `7002a29f4`,
+    MEASURED WIN.** (Conformance -O2 native 3042/0 on the fixed code.) Adversarial review caught
     a CRITICAL wrong-code bug in the first cut (`56593ae2a`) and it was fixed pre-land (never on
     main): the store barrier treated ANY same-param divergent path as disjoint, but that only holds
     for LEAF divergence (distinct fields of the same object); INTERIOR divergence (`s.f0.x` vs
