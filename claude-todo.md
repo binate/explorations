@@ -353,11 +353,17 @@ flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
     (Piece 2) = **−9.5% total, richards ratio 1.84×→1.67×**. 132 iropt tests, hygiene 20/20. Tests in
     `iropt/field_forward_test.bn`.
   - **Piece 3 — deeper access chains (arbitrary-depth field-load paths) — 🟡 committed on work-4
-    (`56593ae2a`), pending conformance + adversarial review, MEASURED WIN.** (157 iropt tests incl.
-    depth-2 coalesce/prefix-kill/divergent + analysis-primitive units; hygiene 20/20. Controlled
-    same-base A/B: richards native 268.1M→262.8M **−2.0%**, LLVM flat → ratio ~1.67×→~1.63×;
-    binary-trees + fasta flat. Track 4 total from no-Track-4 296.7M: **−11.4%**, ratio 1.84×→~1.63×.
-    Split path/barrier analysis to `field_forward_analysis.bn` for file length.) Generalize `field_forward.bn` from a single field off a managed-ptr
+    (`ed1db327d`), pending conformance re-run (fixed code), MEASURED WIN.** Adversarial review caught
+    a CRITICAL wrong-code bug in the first cut (`56593ae2a`) and it was fixed pre-land (never on
+    main): the store barrier treated ANY same-param divergent path as disjoint, but that only holds
+    for LEAF divergence (distinct fields of the same object); INTERIOR divergence (`s.f0.x` vs
+    `s.f1.x`) can alias when f0/f1 hold the same pointee → stale-value miscompile. Fixed in
+    `pathsMayAlias`: divergence is disjoint only when terminal on both sides; interior divergence
+    kills. Regression test added (`TestFieldForwardDepth2InteriorDivergenceKills`). 158 iropt tests,
+    hygiene 20/20. Corrected controlled same-base A/B (SOUND/fixed): richards native 268.8M→264.7M
+    **−1.5%** (buggy over-coalescing was −2.0%), LLVM flat → ratio ~1.67×→~1.64×; binary-trees +
+    fasta flat (outputs byte-identical). Track 4 total from no-Track-4 296.7M: **−10.8%**, ratio
+    1.84×→~1.64×. Split path/barrier analysis to `field_forward_analysis.bn` for file length. Generalize `field_forward.bn` from a single field off a managed-ptr
     PARAM (path length 1) to an arbitrary-depth ACCESS PATH rooted at a managed-ptr param: `s.current.state`
     = path (s, [current, state]). Key a load by its full path; coalesce reloads with the same path.
     Soundness: each intermediate field is a managed-ptr that holds a ref to the next object, and the
