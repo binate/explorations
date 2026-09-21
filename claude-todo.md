@@ -350,7 +350,7 @@ native/llvm ratio on the named benchmark before/after. Full evidence: `plan-nati
       CMP), so `BranchFusedCmps` must gain a word-size exclusion (skip operands wider than the target
       word) before arm32 consumes it; otherwise a fused int64 branch miscompiles.
 - **T4 — alias-precise load-forwarding/LICM: hoist loop-invariant slice descriptors (`.ptr`/`.len`) +
-  cross-type fields — 🔵 OPEN. SHARED (fannkuch DOMINANT + richards), backend-neutral.** Teach the
+  cross-type fields — 🟡 IN PROGRESS (claimed 2026-09-21, work-2/session). SHARED (fannkuch DOMINANT + richards), backend-neutral.** Teach the
   mod/alias predicate that a store through `slice.ptr[i]` can't touch the descriptor slot, and a
   `@A` store can't clobber a live `@B` field; then LICM/load-forward hoist. Continues the landed
   field-forward line — COORDINATE with its owner. `iropt/field_forward_analysis.bn`, `load_forward.bn`,
