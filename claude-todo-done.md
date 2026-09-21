@@ -1,5 +1,38 @@
 ### Track 5 (fasta/richards tracks), part (b): native aa64 scaled register-offset element addressing — ✅ DONE (2026-09-20)
 
+### Track 1 (fasta/richards) — const int div/mod → magic-number multiply, + B (const-fold + LICM) — ✅ DONE (2026-09-20, work-1)
+
+Constant-divisor strength reduction on all three native backends, plus the two-part
+"B" expansion (const-fold enabler + general LICM).  All adversarially reviewed
+(no correctness bugs) and validated across modes.
+
+- **Magic division** (Granlund-Montgomery), shared target-neutral `common.ComputeMagic*`
+  helper (brute-force-verified signed/unsigned, W32/W64):
+  - aarch64 `838ffd40e` — SMULH/UMULH (new asm encoders) + pow2 + ×0/1/-1.
+  - x64 `225755b19` — one-operand IMUL/MUL (new asm encoders) → RDX high word.
+  - arm32 `1e34fc581` — SMULL/UMULL high word (32-bit path; int64 stays `__aeabi` libcall).
+  conformance `1273` cross-checks magic-vs-hardware over many (n,d) incl. sub-word + INT64
+  edges; full native conformance green (x64 3042/0, arm32 2996/0).
+- **B Part 1 — const-fold + identity-simplify + DCE** `f42bf7131` (`iropt/simplify.bn`):
+  `foldCastConst` folds `OP_CAST(OP_CONST_INT)`→`OP_CONST_INT` — mem2reg grounds a promoted
+  var-load into an identity cast of the stored constant, which HID the constant from the
+  magic check; folding it makes magic fire on NAMED constants (fasta's `% im`).  Plus
+  algebraic identities (`add X,0`, `mul X,1`, …) + dead-leaf-const DCE (native↔LLVM
+  gap-closer).  6-mode conformance green.  **Measured: fasta native user-CPU 0.67s→0.55s,
+  ratio 2.16→1.96.**  Tests: `simplify_test` + conformance `1274`.
+- **B Part 2 — general LICM** `f506878c9` (`iropt/licm.bn`, user-chosen): hoists pure,
+  non-trapping loop-invariant instrs (const materialization, invariant arithmetic) into the
+  loop preheader; excludes div/rem (trap), loads/stores/calls/guards/phi.  Review proved the
+  dominance + defBlock-staleness soundness.  fasta ratio 1.96→1.93.  Tests: `isHoistable`
+  (iropt) + hoisting / REM-not-hoisted (irgen).  MUST stay last in RunOptPasses (leaves
+  `InstrsVec` stale, like bceBlock).
+
+Not done (deliberately): `madd` fusion (a cross-instruction peephole — to be surfaced
+separately).  Measurement note: magic division ALONE is ~ratio-neutral on the aarch64 OoO
+core (sdiv latency hides the win — Track 2's DivCheck-elision found the same); the fasta win
+came from B Part 1's general copy/const cleanup.  Plan: `done/plan-track1-const-div-magic.md`.
+
+
 Landed `0289c25f2` (asm) + `79302f412` (backend, work-5). An 8-byte GP array/slice
 element access `a[i]` off a register base lowered to `lsl off,i,#3; add p,base,off;
 ldr/str v,[p]`; now it folds into one `ldr/str v,[base,i,lsl#3]` (the scaled
