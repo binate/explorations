@@ -253,7 +253,7 @@ backends — aarch64's barrier unified to the safe-by-default allowlist in
 `501b2d9eb`; done log. The native -O1/-O2 startup hang that blocked -O1+
 measurement is fixed, `181ff6807`.)
 
-### native FP-register homes — port to x64/arm32 + aarch64 follow-ups — 🟡 OPEN (aarch64 DONE; see plan-native-fp-register-homes.md)
+### native FP-register homes — port to x64/arm32 + aarch64 follow-ups — 🟡 IN PROGRESS (aarch64 DONE; x64/arm32 port claimed 2026-09-21 work-5; see plan-native-fp-register-homes.md)
 
 **aarch64 LANDED** (2026-09-21, work-5; `d7eb2cbd5` `2c865f627` `d5bffa3ca` `86468170a` `a0afe37ec`
 — full write-up + measurements in `claude-todo-done.md`): float SSA values now home in D8..D15 /
