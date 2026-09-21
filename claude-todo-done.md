@@ -1,3 +1,30 @@
+### x64 inline RefInc/RefDec fast path — ✅ DONE (2026-09-20)
+
+Landed `2391d064a` (work-3).  x64 was the last backend lowering OP_REFINC/OP_REFDEC
+to a runtime `call rt.RefInc` / `call rt.RefDec` (LLVM codegen, aarch64, arm32, and
+the VM already inline them).  Gave x64 the same inline fast path
+(`pkg/binate/native/x64/x64_managed.bn`): nil-check, immortal sign-bit check, and
+an in-place header read-modify-write at `[ptr-16]` (x64 addresses the refcount word
+directly and mutates it in memory, so no scratch register is needed).  RefDec's
+zero-count path still calls `rt.ZeroRefDestroy`.  Header size / word width from
+`ManagedHeaderSize()` (ILP32-correct).
+
+Because x64 now has an inline zero-test, the Track-3 dtor-handle sink applies to it
+too: x64 passes `foldRefDecDtorHandles=true`, its OP_FUNC_HANDLE dispatch skips a
+folded handle, and the RefDec slow path materializes a static dtor handle into RSI
+(RIP-relative LEA) past the zero-test.
+
+Verified on a native-x64 build: `rt.RefInc`/`rt.RefDec` no longer linked (30 inline
+RefInc + 26 RefDec sites; free path → `rt.ZeroRefDestroy`).  Native x64 conformance
+3040/0/9; adversarial review clean (8 axes — negative-disp encoding across every
+register class, flag preservation, immortal check, register conventions, the fold);
+hygiene 20/20.  Tests: `x64_managed_test.bn` pins no-call RefInc, the `[ptr-16]`
+memory-RMW encoding, the no-dtor `MOV RSI,0` guard, and the func-handle dtor sink.
+
+**`rt.RefInc`/`rt.RefDec` are KEPT** as a public API for MANUAL refcounting (e.g. of
+raw `*T` pointers to managed objects) — NOT retired, even though the compiler no
+longer emits calls to them (per user, 2026-09-20).
+
 ### Track 5 (fasta/richards tracks), part (b): native aa64 scaled register-offset element addressing — ✅ DONE (2026-09-20)
 
 ### Track 1 (fasta/richards) — const int div/mod → magic-number multiply, + B (const-fold + LICM) — ✅ DONE (2026-09-20, work-1)
