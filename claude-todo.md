@@ -331,6 +331,30 @@ threshold (measured net-negative on native); further "home more values" allocato
 splitting (done + refuted).
 
 
+### native FP-register homes — stop round-tripping float scalars through GP slots — 🔵 OPEN (see plan-native-fp-register-homes.md)
+
+The top remaining native↔LLVM lever surfaced by the fasta/richards analysis. `aarch64_float.bn`
+homes every float in a GP slot and FMOVs in/out per op; give FP values real V/D-register homes (a
+second register class in the linear scan). This is FP-value ALLOCATION (codegen mechanics), **NOT**
+vectorization/FMA — separable from the deferred FP-arithmetic work, and the enabler under it.
+Touches fasta (~2.0×, its remaining bottleneck once the integer tracks fired) AND all three FP
+benchmarks (mandelbrot ~13×, spectral ~6.8×, n-body ~4.6×) — more of the suite's remaining gap than
+any other single item. Files: `native/aarch64/aarch64_float.bn`, `native/common/regalloc_*.bn`,
+`native/aarch64/aarch64_regmap.bn`, `aarch64_call_return.bn` (ABI already uses V0–V7). Start aarch64;
+x64 XMM / arm32 VFP have the same pattern. Bench: fasta native/llvm ratio (primary), the 3 FP
+benchmarks (secondary). Full scope + approach: `plan-native-fp-register-homes.md`.
+
+### benchmark suite: microbenchmark(s) reflecting the compiler's ~2.7× aggregate-copy gap — 🔵 OPEN
+
+The bnc self-compile is ~2.7× native/llvm (non-FP), but the suite's non-FP benchmarks top out
+~1.6× — none reproduce the compiler's dominant cost (managed aggregate / slice-header COPYING
+~53% + scalar spill ~45%; see the native-codegen section). Add microbenchmark(s) that stress that
+pattern C-free-legally: heavy `@[]@T` slice-header passing/copying + multi-field managed-struct
+field read/write + refcount churn (mimic IR-node manipulation), no FP. richards exercises managed
+POINTERS but little aggregate COPYING, so it under-represents the gap. Goal: a benchmark whose
+native/llvm ratio tracks the compiler's, so the gap is visible in the suite (add "a couple at a
+time" per the suite's cadence).
+
 ### IR optimization passes (help LLVM + native backends + the VM) — 🟡 OPEN
 
 - **Pass infra + mem2reg + BCE** — design settled
