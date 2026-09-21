@@ -257,9 +257,13 @@ native/llvm ratio on the named benchmark before/after. Full evidence: `plan-nati
       Controlled same-base A/B (instructions retired, byte-identical outputs): richards −2.8%, fannkuch
       −4.7%, binary-trees −1.0%, fasta flat. Adversarial review clean; sampled -O2 native aa64
       conformance 568/0.
-    - **Inc 2 — aa64 immediate `cmp #imm`/`cmn` + eliminate the folded constant** (skip-emit + unhome the
-      const whose only uses are compare-immediates). This is what actually removes the STATE_* const
-      materialization/spill; immediate-cmp alone is neutral (leaves a dead `mov`).
+    - **Inc 2 — aa64 immediate `cmp #imm`/`cmn` + eliminate the folded constant — LANDED `c899204fb`.**
+      `ImmFoldableConsts` (backend-neutral, native/common, parameterized by immediate range) flags a
+      const used only as compare-RHS in range; aa64 skip-emits + unhomes it and rides it in the CMP/CMN
+      immediate. Removes the STATE_* const materialization/spill (`classify`'s guard is now `ldr; cmp
+      x7,#0xa; b.lt` — no dead mov). Controlled A/B (const-fold on top of fusion): richards −0.8%,
+      fannkuch −1.6%, byte-identical. Adversarial review clean (7 vectors); sampled -O2 native aa64
+      conformance 570/0. (Split `aarch64RetentionSafe` → `aarch64_retention.bn` for the 500-line cap.)
     - **Inc 3 — `tst` (fold `and`-with-imm compare-0) + `ccmp` for short-circuit `&&`/`||`** (needs a Ccmp
       encoder in asm/aarch64; `&&`/`||` are branch-form, so this is a cross-block pattern).
     - **x64 port — LANDED `3b83fafc5`.** Reused `BranchFusedCmps`; fused `Setcc`+`Movzx`+`Test`/`Jcc` →
