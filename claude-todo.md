@@ -315,6 +315,11 @@ flipping its status to 🟡 IN PROGRESS with a claim marker (`work-N/session`).
   (native now matches LLVM's `[base,idx,lsl#n]`); standalone win small (reload storm dominates,
   compounds with (c)/Tier 2C).
   (b-follow-up) 4-byte elements — ✅ LANDED `642321f0c` (LDRSW/LDR-W/STR-W scaled for signed/unsigned/store int32; see done log).
+  (c) slice base/len residency — 🟡 IN PROGRESS (claimed 2026-09-20, work-5): extend load-forwarding
+  so a materialized slice value's base+len EXTRACTs are coalesced/hoisted to before the loop (homed
+  scalars), killing the per-access field-load reload storm the scaled-addressing fold rides on. The
+  reverted Tier 2C SSA-cache did NOT touch the field loads; this does. Bench: fasta/fannkuch, watch
+  register pressure.
   Both remaining pieces are
   NATIVE-BACKEND (per the fannkuch finding, IR passes barely move native):
   (b) strength-reduce to scaled/post-increment addressing — the index-scaling half already landed
