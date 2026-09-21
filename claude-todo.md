@@ -359,11 +359,12 @@ native/llvm ratio on the named benchmark before/after. Full evidence: `plan-nati
   `&&`/`||` — 🟡 IN PROGRESS (claimed 2026-09-20, work-4/session). SHARED (richards+fannkuch).** Also removes the STATE_* constant stack-spills.
   `native/aarch64/aarch64_ops.bn`, `aarch64_dispatch.bn`. Also apply x64/arm32 where applicable.
   Executing in increments:
-    - **Inc 1 — aa64 flag-branch fusion (drop `cset`+`cbnz` → `b.cond`).** Committed on worktree
-      (pending adversarial review + land). `BranchFusedCmps` (backend-neutral, native/common) flags a
-      single-use integer compare whose sole use is the immediately-following branch; aa64 emits CMP-only
-      + `b.cond`, leaves it unhomed. Controlled same-base A/B (instructions retired, byte-identical
-      outputs): richards −2.8%, fannkuch −4.7%, binary-trees −1.0%, fasta flat.
+    - **Inc 1 — aa64 flag-branch fusion (drop `cset`+`cbnz` → `b.cond`). LANDED `b621dfc8d`.**
+      `BranchFusedCmps` (backend-neutral, native/common) flags a single-use integer compare whose sole
+      use is the immediately-following branch; aa64 emits CMP-only + `b.cond`, leaves it unhomed.
+      Controlled same-base A/B (instructions retired, byte-identical outputs): richards −2.8%, fannkuch
+      −4.7%, binary-trees −1.0%, fasta flat. Adversarial review clean; sampled -O2 native aa64
+      conformance 568/0.
     - **Inc 2 — aa64 immediate `cmp #imm`/`cmn` + eliminate the folded constant** (skip-emit + unhome the
       const whose only uses are compare-immediates). This is what actually removes the STATE_* const
       materialization/spill; immediate-cmp alone is neutral (leaves a dead `mov`).
