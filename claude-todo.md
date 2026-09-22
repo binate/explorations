@@ -375,7 +375,7 @@ to 🟡 IN PROGRESS (`work-N/session`); measure the record-churn ratio before/af
   alloca/global bases — emit `[sp/x29,#off]` instead of a standalone `add` (the fuse pass wrongly
   excludes alloca bases). Removes ~24 instrs in `mix` + every struct-field access.
   `native/common/common_field_gep_fuse.bn`, `common_elem_gep_fuse.bn`, `native/aarch64/aarch64_emit.bn`; x64 analog.
-- **T2 — 32-bit integer arithmetic in `w`-registers; drop the `ubfx` re-narrow — 🔵 OPEN.**
+- **T2 — 32-bit integer arithmetic in `w`-registers; drop the `ubfx` re-narrow — 🟡 IN PROGRESS (claimed 2026-09-21, work-2/session).**
   Safe, GENERAL. `emitBinop` hardcodes the 64-bit form + appends a mask; the `w`-form self-clears
   bits [32,64). 9 dead `ubfx` in `mix`; helps all 32-bit int code.
   `native/aarch64/aarch64_ops.bn` (`emitBinop`/`emitSubWordNarrow`); x64/arm32 analogs.
