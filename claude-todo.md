@@ -375,6 +375,23 @@ iropt win, ✅ LANDED `2fa428d8b` (2026-09-21) — but a NO-OP on richards/fannk
   phi-copy coalescing, small-const immediates, don't-home register-resident params, right-size leaf
   frames. `aarch64_emit.bn`, `native/common/regalloc_*.bn`, `common.bn`. NOTE: coalescing / home-fewer
   is the OPPOSITE of the refuted home-more — validate against the interval-splitting regression.
+  - **Measurement infra landed `ddc1c091a`**: `perf/007_bucket_count` (loop + inner if-chain,
+    phi/spill-heavy) and `perf/008_reg_pressure` (8 reductions + min/max, pressure canary). Both
+    deterministic (native == LLVM), suite-friendly iteration counts; scale up locally (×~100 iters)
+    for A/B timing.
+  - **Finding (disasm + A/B at -O2, the gap-defining level).** The literal "adjacent
+    store-then-reload local" dead-load is an -O0 artifact — `mem2reg` promotes those locals at -O2 and
+    it vanishes; a store-then-reload peephole would not move the -O2 gap. At -O2: **008's gap is
+    CLOSED** (native 0.08s == LLVM 0.08s; was 2.25× at -O0). **007's gap PERSISTS** (native ~1.23s vs
+    LLVM ~0.70s, ~1.75×), dominated by (1) **phi-copy explosion** — 37 reg-to-reg movs/iter vs ~13
+    work-instrs — and (2) **spilled-constant reloads**: the increment `1` is materialized + spilled to
+    7 slots and reloaded per-iter (`ldr; add`) instead of `add …, #1`; loop-invariant thresholds are
+    likewise spilled + reloaded.
+  - **Direction chosen: small-const ALU immediate-folding** (extends the landed T3 `native/fold` pkg;
+    fold small ints into add/sub/and/or immediates + don't spill/rematerialize constants). Safe,
+    reduces pressure (no interval-splitting regression), kills the spilled-const dead-loads. Phi-copy
+    coalescing is the bigger 007 lever but touches regalloc core (regression risk) — deferred behind
+    the safe immediate-folding.
 
 Order: T1 → T2 → T3 → T4 → T5 → T6.
 
