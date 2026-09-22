@@ -244,8 +244,11 @@ native/llvm ratio on the named benchmark before/after. Full evidence: `plan-nati
 
 - **T1 — refcount header via `LDUR`/`STUR [ptr,#-16]` — ✅ DONE (611a34f1d), see done log.**
 - **T3 — condition/compare-branch lowering: `cmp/tst #imm`, flag-branch fusion (no `cset`), `ccmp` for
-  `&&`/`||` — 🟡 IN PROGRESS (claimed 2026-09-20, work-4/session). SHARED (richards+fannkuch).** Also removes the STATE_* constant stack-spills.
-  `native/aarch64/aarch64_ops.bn`, `aarch64_dispatch.bn`. Also apply x64/arm32 where applicable.
+  `&&`/`||` — ✅ DONE (work-4), ccmp DECLINED. SHARED (richards+fannkuch).** Flag-branch fusion +
+  immediate-cmp/const-fold landed on ALL THREE backends; aa64 `tst`-fold landed; fold analyses extracted
+  to `pkg/binate/native/fold`. `ccmp` (Inc 3b) declined as high-effort/low-gain (cross-block CFG merge,
+  ~≤0.3% pattern — see Inc 3b recon below). aa64 measured: fusion richards −2.8% / fannkuch −4.7% /
+  binary-trees −1.0%; const-fold +richards −0.8% / fannkuch −1.6%; tst-fold +richards −0.61%.
   Executing in increments:
     - **Inc 1 — aa64 flag-branch fusion (drop `cset`+`cbnz` → `b.cond`). LANDED `b621dfc8d`.**
       `BranchFusedCmps` (backend-neutral, native/common) flags a single-use integer compare whose sole
@@ -275,7 +278,7 @@ native/llvm ratio on the named benchmark before/after. Full evidence: `plan-nati
       sampled -O2 native aa64 conformance 570/0. Controlled A/B: richards −0.61%, fannkuch flat.
       (Necessitated splitting aa64 compare lowering to `aarch64_compare.bn`; a concurrent worker did the
       identical split, so the landing rebase collided and was re-applied onto their structure.)
-    - **Inc 3b — `ccmp` for short-circuit `&&`/`||` — NOT DONE.** Recon (2026-09-21): NOT a peephole —
+    - **Inc 3b — `ccmp` for short-circuit `&&`/`||` — DECLINED (2026-09-21, user call).** Recon: NOT a peephole —
       `&&`/`||` lower to SEPARATE blocks (block0 fuses `cmp; b.cond then` then falls through to block1
       which computes the 2nd cond as a boolean + branches in a 3rd block). ccmp requires a CROSS-BLOCK
       CFG merge (collapse 2-3 blocks → `cmp; ccmp; b.cond`) + a new Ccmp encoder + nzcv-immediate
