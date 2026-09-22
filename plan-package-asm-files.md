@@ -170,10 +170,16 @@ language feature; the `.s`-gate parsing reuses the existing annotation parser.
    objFmt) @[]@[]char`) that assembles each of a package's kept `AsmFiles` into a
    `.o` (via `asm/assemble.AssembleFile`, object name namespaced like the existing
    `bnrt_*` objects to avoid `--build-dir` collisions) and returns the object paths.
-2. Call it in each per-package compile loop — `main.bn`, `library.bn`, `test.bn` —
-   appending the results to `oFiles` right after `compileModuleVia`. Because
-   `bnc -c` prints `oFiles` as deliverables and both bnld paths receive `oFiles`, the
-   objects flow everywhere with no path-specific code.
+2. Call it in **every** per-package compile path — `main.bn`, `library.bn`,
+   `test.bn`, AND `compile.bn`'s `compileSinglePkg` (the `--pkg` single-package
+   path) — appending the results right after `compileModuleVia`. The first three
+   append to `oFiles` (which `bnc -c` prints as deliverables and both bnld paths
+   receive); `--pkg` prints each assembled object alongside the module object as
+   its own deliverable. Passing the same `outPrefix` the compiled object uses puts
+   the asm object beside it (build-dir, or cwd) in every mode. **Do not miss
+   `--pkg`**: its output must be as self-contained as a whole-program dependency
+   object, else a separately-compiled aarch64 package silently lacks `MemZero`
+   (this bit — the `e2e/separate-compilation.sh` link fails on Apple-Silicon CI).
 3. **Delete** `cmd/bnc/rt_mem_asm.bn` and all 5 `assembleRtMemObj` call sites (the
    two `bnld_link.bn` sites' separate rt-object injection included — the rt object now
    rides in via `oFiles`).
