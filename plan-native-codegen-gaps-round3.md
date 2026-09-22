@@ -72,7 +72,11 @@ Select the 32-bit `w`-form for 32-bit-typed results and skip `emitSubWordNarrow`
 in `mix`; benefits all 32-bit integer code. File: `native/aarch64/aarch64_ops.bn`
 (`emitBinop`, `emitSubWordNarrow`); x64/arm32 analogs.
 
-### T3 — Extend aggregate-load elision to OP_EXTRACT-only consumers. Medium; explicitly deferred by the prior plan.
+### T3 — Extend aggregate-load elision to OP_EXTRACT-only consumers. Medium; explicitly deferred by the prior plan. ✅ LANDED dd7562825.
+CORRECTION (from the landed IR probe): the "`mix`'s param agg-loads" premise below is WRONG — `mix` has
+NO whole param-loads (`a.f1` lowers to `GET_FIELD_PTR`+scalar-load, no copy). T3's real targets are
+`main`'s heap-element field-read chains (e.g. the checksum `r := arr[i]; use r.f0..f7`). Result: −1.8%
+instr on record-churn native (5.55×→5.45×). See `claude-todo-done.md`.
 `done/plan-native-aggcopy-fusion.md` left "a load consumed purely by `OP_EXTRACT`" as
 an open item — exactly `mix`'s param agg-loads whose only uses are field extracts.
 Aliasing to the stable source (param/alloca) lets the extracts read it directly,

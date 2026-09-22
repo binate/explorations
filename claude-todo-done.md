@@ -1,3 +1,42 @@
+### native↔LLVM gap round 3 T3 — extend aggregate-load elision to OP_EXTRACT-only consumers — ✅ LANDED dd7562825 (2026-09-21), work-3
+
+Added an **S-extract** shape to `AggLoadElidable` (`pkg/binate/native/common/common_aggload_elision.bn`):
+an aggregate `OP_LOAD` whose EVERY use is a field-precise SCALAR `OP_EXTRACT` may alias its source
+(skip the private materialization region) instead of copying, DROPPING the pre-existing S-adjacent
+`SizeOf ≤ 16` cap. Rationale: that cap existed for the overlap-safety of a full-width `*dst = *src`
+copy; extracts read individual fields and never do an overlapping copy, so the cap does not apply.
+Safety rests on the same `onlyPureOpsStrictlyBetween` guard (nothing writes or frees memory between
+the load and its last extract) + `AlignOf ≥ 4` (strict-align arm32). Pure ANALYSIS extension shared by
+all three native backends — no emit/regalloc change: `emitAggLoad`'s no-region path already does
+`Mov rd, srcPtr` and `emitExtract` resolves the aliased pointer via `SpillHoldsAggregatePointer →
+getOperand`, and materialization does ZERO internal refcounting (a managed field's +1 is a separate
+`OP_REFINC`, impure → blocked if in-interval), so eliding a copy cannot skip a refcount op.
+
+**The plan's headline `mix` premise was factually WRONG** (recorded so the round-3 plan isn't trusted
+blindly): the plan claimed `mix` has "param agg-loads whose only uses are field extracts" (~16 removable
+instrs). A temporary IR probe showed `mix` has NO whole param-loads at all — `a.f1` lowers to
+`GET_FIELD_PTR`+scalar-load (no whole-aggregate load, no copy). So T3 does nothing for `mix`; its actual
+targets are `main`'s heap-element field-read chains (e.g. the checksum loop `var r = arr[i]; h ^= r.f0
+… r.f7`, an 8-extract load of a 32-byte record — `get_elem_ptr` source, size > 16, previously blocked by
+the ≤16 cap).
+
+Adversarial review found and we FIXED one latent hole (MINOR now — not reachable by today's front-end —
+would be CRITICAL if reached): `allSameBlockUsesAreExtracts` accepted AGGREGATE-typed extracts, which
+emit an address-of-sub-object aliasing the source whose read is DEFERRED to a consumer of that pointer
+(a copy/sret/call-arg using the extract, not `ld`) — outside the guarded `(li, lastUse]` window, so the
+source could be freed first. Guard now requires each extract to be scalar; the reviewer confirmed the
+rest of the argument sound (pure-ops whitelist genuinely write/free-free incl. `OP_MANAGED_TO_RAW`;
+refcount-neutral; arm32 offsets fine). The fix is codegen-neutral (record-churn disassembly
+byte-identical pre/post-fix) — pure defense-in-depth.
+
+Measurement (record-churn native, gen1 before/after): **−1.8% instructions retired** (890M→875M at
+N=2000; native/llvm **5.55× → 5.45×**), **−2.0% user CPU** (8 interleaved order-alternated rounds);
+checksum unchanged. Modest but real and above the noise floor — record-churn's hot path is the O(N²)
+churn loop (mix calls + stores) that T3 doesn't touch; the wins are its O(N) extract-only field-read
+loops. Conformance all green on the LANDED code: aa64 3047/0 (post-fix authoritative), x64-native
+3047/0, arm32-native 3001/0; 5 new native/common unit tests. Deferred: `perf/native-vs-llvm.sh` (bnc
+self-compile) re-check — to be measured after landing (will then show cumulative T1+T2+T3).
+
 ### native↔LLVM gap round 3 T2 — 32-bit w-form uint32 arithmetic; drop the re-narrow — ✅ LANDED 669cbabb9 (2026-09-21), work-2
 
 Both native backends (aa64 + x64) now select the 32-bit register form (aa64 `w`-form / x86-64
