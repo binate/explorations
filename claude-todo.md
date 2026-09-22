@@ -267,11 +267,19 @@ Remaining (follow-ups):
   / XMM0 return / param reg carries dirty upper).  Non-observable (every consumer reads ≤32 bits,
   matching aarch64), but the comment overstates — tighten it.  Also: x64 `emitFusedFieldStore`
   stores a homed float via the GP bridge instead of a direct `movss`/`movlps` (missed opt).
-- **aarch64 follow-ups to close more of fasta's residual gap**: fold float array-element addressing
-  (`elemAccessFusable`/`fieldAccessFusable` exclude floats today, so a float `a[i]` still
-  materializes the address separately); home loop-invariant float constants (a const float
-  currently materializes in a GP reg + FMOV per use — see the `fmov d,x9` per const in the poly()
-  disassembly).
+- **aarch64 follow-ups to close more of fasta's residual gap**:
+  - fold float array-element addressing — ✅ **DONE (`1ca914edc`)**.  A float `a[i]` load/store now
+    folds its address into a scaled register-offset FP load/store straight into the D-home
+    (`ldr d31,[x23,x5,lsl #3]`); new asm FldrRegScaled_d/_s + FstrRegScaled_d/_s, the shared
+    element-fold analysis gained an `allowFloat` gate (aarch64-only; x64/arm32 unaffected — they
+    don't fold element GEPs), the emitter dispatches on the FP-home class.  Measured fasta N=25M
+    (instructions retired, byte-identical output): 1.06% fewer.  Native aa64 conformance 3047/0;
+    adversarial review clean.  (Only the ELEMENT fold; the field fold for floats — via
+    FusableFieldGeps — is a separate smaller item, left untouched.)
+  - home loop-invariant float constants — 🔵 OPEN.  A const float currently materializes in a GP
+    reg + FMOV per use (`fmov d,x9` per const in the poly() disassembly).  Likely IR-level: whether
+    a loop-invariant float const is CSE'd into one homeable SSA value the FP allocator can home once,
+    vs. re-materialized per use.  Investigate the IR const handling before assuming a backend fix.
 
 ### native↔LLVM gap round 2 — richards/fannkuch next levers (see plan-native-codegen-gaps-round2.md) — 🔵 OPEN
 
