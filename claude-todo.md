@@ -212,22 +212,43 @@ backends — aarch64's barrier unified to the safe-by-default allowlist in
 `501b2d9eb`; done log. The native -O1/-O2 startup hang that blocked -O1+
 measurement is fixed, `181ff6807`.)
 
-### native FP-register homes — port to x64/arm32 + aarch64 follow-ups — 🟡 IN PROGRESS (aarch64 DONE; x64/arm32 port claimed 2026-09-21 work-5; see plan-native-fp-register-homes.md)
+### native FP-register homes — follow-ups (all 3 arch ports LANDED) — 🟡 IN PROGRESS (aarch64+x64+arm32 DONE; follow-ups open; see plan-native-fp-register-homes.md)
 
-**aarch64 LANDED** (2026-09-21, work-5; `d7eb2cbd5` `2c865f627` `d5bffa3ca` `86468170a` `a0afe37ec`
-— full write-up + measurements in `claude-todo-done.md`): float SSA values now home in D8..D15 /
-D18..D31 instead of round-tripping through GP slots.  Measured native user-CPU: fasta 2.04×→1.88×
-(~8% faster), mandelbrot ~11.7×→~5.1× (2.3× faster, FP-arith-dominated).  Native aa64 conformance
-3047/0; adversarial review SOUND.
+**ALL THREE ARCHES LANDED** — float SSA values home in FP registers instead of round-tripping
+through GP slots:
+- **aarch64** (2026-09-21, work-5; `d7eb2cbd5` `2c865f627` `d5bffa3ca` `86468170a` `a0afe37ec`):
+  D8..D15 / D18..D31.  Measured native user-CPU: fasta 2.04×→1.88× (~8% faster), mandelbrot
+  ~11.7×→~5.1× (2.3× faster).  Full write-up in `claude-todo-done.md`.
+- **x64** (2026-09-21, work-5; `945129d67`): XMM8..13 (SysV has NO callee-saved XMM, so all XMM homes
+  are caller-saved; call-spanning floats spill).  f32 IS homed.  Native x64 conformance 3047/0.
+- **arm32** (2026-09-21, work-5; `6daae4f1a`): callee-saved VFP D8..D15, hard-float (AAPCS-VFP) only;
+  soft-float unchanged (empty FP descriptor).  f64-only (f32 deliberately un-homed — see follow-up).
+  builder-comp_native_arm32_linux conformance 3047/0, arm32 unit 395/0.  arm32 speed not directly
+  measurable on the dev box (qemu not cycle-accurate); compute-path win verified structurally
+  (per-access VMOV round-trip gone from the disassembly).  Both x64+arm32 got clean adversarial
+  reviews (no correctness bug).
 
-Remaining:
-- **Port x64 (XMM) and arm32 (VFP / aeabi soft-float)** — same GP-round-trip pattern; the
-  class-agnostic linear-scan engine + REGCLASS_FP parameterization are already in place (shared
-  `pkg/binate/native/common`), so each port is: an arch FP `RegClassDesc` + FP save area in
-  prologue/epilogue + the emitter made FP-home-aware (mirror `aarch64_float.bn` / the getOperand
-  bridge in `aarch64_regmap.bn`).  x64 XMM has no callee-saved FP regs in SysV, so ALL XMM homes are
-  caller-saved (call-spanning floats spill).  arm32 hard-float VFP has D8..D15 callee-saved; the
-  aeabi soft-float path has no FP regs at all (leave floats GP-slotted there).
+Remaining (follow-ups):
+- **arm32 f32-homing** — arm32 currently homes f64 only (`unhomeF32Values` drops every homed f32,
+  because the single-word producer sites — const/load/extract/bit_cast/phi/param/return — are not
+  yet FP-home-aware).  Making them home-aware (f32 rides the low S-view of its D-home, `lowSingleOf`)
+  closes this.  MUST also close two latent gaps the adversarial review flagged, which this work
+  touches anyway: (1) `nextReg` (arm32_regmap.bn) lacks the `isFpReg` guard `getOperand` has — an
+  f32 producer's `nextReg`→GP-encoder path would mis-encode a D-home number as `r(n&0xf)` (PC for
+  D15); add the guard / make it FP-aware.  (2) `getOperand`'s FP-home branch reads only the low
+  single (correct for its future f32 user, wrong for f64 — safe today since f64 never reaches it).
+  aarch64's `nextReg` shares the unguarded gap — close it there too for consistency.
+- **hard-float unit coverage** — the arm32 unit tests exercise only soft-float / un-homed param
+  spill (`TestEmitSpillParamFloat64Spills` runs with `Arm32HardFloat()` false); the new hard-float
+  D-home marshalling (emitSpillParamFloatHard home branch, emitCallReturnFloatHard home branch,
+  emitFloatBinopHard D-home) is validated by conformance only.  Add hard-float unit tests, incl. an
+  FP-overflow-homed param (>8 float64 params) conformance test — that path may lack any direct
+  coverage (structurally identical to the proven unhomed-overflow path, but untested).
+- **x64 f32 upper-bits comment** — three comments (x64_float.bn:90,151, x64_regmap.bn:189) claim
+  "clean f32 upper bits", but the invariant isn't strictly maintained (Movapd from a Cvtsd2ss result
+  / XMM0 return / param reg carries dirty upper).  Non-observable (every consumer reads ≤32 bits,
+  matching aarch64), but the comment overstates — tighten it.  Also: x64 `emitFusedFieldStore`
+  stores a homed float via the GP bridge instead of a direct `movss`/`movlps` (missed opt).
 - **aarch64 follow-ups to close more of fasta's residual gap**: fold float array-element addressing
   (`elemAccessFusable`/`fieldAccessFusable` exclude floats today, so a float `a[i]` still
   materializes the address separately); home loop-invariant float constants (a const float
