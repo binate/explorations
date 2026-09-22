@@ -370,7 +370,7 @@ NOT propose the refuted levers (inline-threshold raise, home-more/interval-split
 to 🟡 IN PROGRESS (`work-N/session`); measure the record-churn ratio before/after. Full evidence:
 `plan-native-codegen-gaps-round3.md`.
 
-- **T1 — fold constant field offsets on alloca/FP-relative bases into the load/store — 🔵 OPEN.**
+- **T1 — fold constant field offsets on alloca/FP-relative bases into the load/store — 🟡 IN PROGRESS (claimed 2026-09-21, work-1/session).**
   Highest value, safe, GENERAL. Extends the landed round-2 field-GEP fold (register bases) to
   alloca/global bases — emit `[sp/x29,#off]` instead of a standalone `add` (the fuse pass wrongly
   excludes alloca bases). Removes ~24 instrs in `mix` + every struct-field access.
