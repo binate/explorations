@@ -395,7 +395,11 @@ FP-arithmetic work. Full plan + sequencing: `plan-native-vectorization.md`.
     lane ops, packed FP, the FULL MOVI/MVNI/FMOV modified-immediate matrix, and multi-register LD1/ST1
     (1–4 regs).  The latent Add/Sub negative-immediate footgun was fixed as part of this.  Golden tests
     vs clang throughout.
-  - **x64 SSE2/AVX** (`asm/x64/x64_sse.bn`): `MOVDQU/MOVDQA`, `PADDD/PSUBD/PAND/PXOR`, packed FP, `rep stosb`.
+  - **x64 SSE2** (`asm/x64/x64_sse*.bn`): ✅ COMPLETE (landed `7a01b88ae..0fe9ac7ac`; see done log) —
+    packed int/bitwise (Padd*/Psub*/Pmullw/Pmulld/Pand/Por/Pxor/Pandn), packed FP (Add/Sub/Mul/Div/Min/
+    Max/Sqrt ps/pd, Cmpps/pd + CMPP_*, FP-bitwise), packed moves (Movdqu/Movdqa/Movaps + load/store),
+    Rep_stosb/q, and shuffles/interleave (Pshufd, Shufps/pd, Movddup, Punpck*, Unpck*, Pshufb).  Golden
+    tests vs clang; adversarial-reviewed (no bugs).
   - **arm32**: NEON where present, else scalar fallback (baremetal has none) — not a blocker for aa64/x64.
 - **(A) SIMD memory primitives — COMMITTED (everyone has them).** Off V1, FIXED vector regs (no vector
   regalloc): `rt.MemZero` → `DC ZVA`/`rep stosb`/wide-SSE; `rt.MemCopy` → wide `ldp/stp q`/`MOVDQU`;

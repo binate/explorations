@@ -1,3 +1,27 @@
+### native vectorization V1 — x64 SSE2 asm encoders — ✅ LANDED `7a01b88ae..0fe9ac7ac` (2026-09-22), work-2
+
+Three commits, the x64 half of the V1 SIMD-encoder foundation
+(`plan-native-vectorization.md`), comprehensive per the "no-consumer ≠ omit"
+directive.  Built on the existing emitSSEReg/emitSSEMem helpers (XMM register
+model + REX/ModR/M already existed for scalar SSE).  No perf alone.
+
+- `7a01b88ae` — packed integer + bitwise (`x64_sse.bn`): Paddb/w/d/q, Psubb/w/d/q,
+  Pmullw, Pmulld (three-byte 0F 38 40), Pand/Por/Pxor/Pandn.
+- `863caedb5` — packed FP (`x64_sse_fp.bn`): Add/Sub/Mul/Div/Min/Max/Sqrt ps/pd,
+  Cmpps/pd (imm8 predicate; CMPP_EQ..CMPP_ORD), and FP-domain bitwise
+  Andps/pd/Andnps/pd/Orps/pd/Xorps/pd.
+- `0fe9ac7ac` — packed moves (`x64_sse_mem.bn`): Movdqu/Movdqa/Movaps reg-reg,
+  Movdqu/Movdqa load+store, Rep_stosb/Rep_stosq (string MemZero fill); plus
+  shuffles/interleave (`x64_sse_shuf.bn`): Pshufd, Shufps/pd, Movddup,
+  Punpck{l,h}{dq,qdq}, Unpck{l,h}p{s,d}, Pshufb.
+
+Every encoding is a golden test asserted against clang machine code (otool),
+covering high-register REX, memory addressing (disp32/SIB/RBP/R12/R13/high-base),
+imm8 forms, and REP STOS.  Adversarial review (independent clang-oracle model)
+found no bugs; the coverage gaps it flagged (SSE-mem addressing, high-reg FP,
+extra CMPP predicates) were added.  Verified: asm/x64 unit tests, hygiene 20/20,
+BUILDER-compiles.  Remaining V1: arm32 (NEON-where-present / scalar fallback).
+
 ### `--library` facade package's own `.s` objects are never archived — ✅ LANDED 325b33bf7 (2026-09-22), work-1
 
 Follow-on from the package-`.s` work (`f660064df`). `compileLibrary`'s per-package
