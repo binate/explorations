@@ -390,7 +390,7 @@ FP-arithmetic work. Full plan + sequencing: `plan-native-vectorization.md`.
 
 Order: V1 (aa64 first) → (A) → idiom recognition → B1 → B2 → B3. Each independently landable/measurable.
 
-### aarch64 asm: `Add`/`Sub` silently mis-encode a NEGATIVE immediate — 🔵 OPEN (MINOR, latent)
+### aarch64 asm: `Add`/`Sub` silently mis-encode a NEGATIVE immediate — 🟡 IN PROGRESS (claimed 2026-09-21, work-2/session)
 
 `emitDPOp` (`pkg/binate/asm/aarch64/aarch64_arith.bn`) splits an `Imm` as `lo =
 imm & 0xfff`, `hi = (imm>>12) & 0xfff` with no sign handling, so `Add(a, sf, rd,
