@@ -879,7 +879,7 @@ All four tracks landed (per-track entries below): T1 fold constant field offsets
 bases (`0c8549858`) and T2 32-bit `w`-form arithmetic dropping the `ubfx` re-narrow (`669cbabb9`) — both
 GENERAL wins (every struct-field access + all 32-bit int code, so they help the compiler self-compile
 too); T3 extract-only aggregate-load elision (`dd7562825`); T4 SROA-aware inline cost model
-(`7029598cb`, user-approved — the policy-sensitive one). The stale active-todo section is removed. The
+(`7029598cb`, user-approved — the policy-sensitive one). The stale active-todo section is removed. Cumulative measured effect (record-churn, user CPU best-of-5 interleaved, N=8000): native/llvm **~8× → 4.75×** (native 0.97s→0.57s; LLVM flat at 0.12s; C 0.09s, so llvm/c is only 1.33×) — round 3's scalar tracks nearly halved native's time. Still the LARGEST non-FP gap (richards/fannkuch are ~1.37×); the residual is now essentially the integer-SIMD ceiling below. The
 post-scalar ceiling — matching LLVM's integer SIMD (`add.4s`) SLP-vectorization of the 8-field combine —
 was left out deliberately (vectorization family, `plan-native-vectorization.md`).
 
