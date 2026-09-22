@@ -265,9 +265,22 @@ native/llvm ratio on the named benchmark before/after. Full evidence: `plan-nati
       folds 0..255 / -255..-1 into `cmp/cmn #imm` (rotation-0 modified immediate, conservative subset).
       Adversarial review clean (incl. the arm32 int64 no-fold-path confirmed harmless — emitInstr64
       intercepts int64 consts); x64 (Rosetta) 321/0, arm32 baremetal (QEMU) 316/0.
-    - **Inc 3 — `tst` (fold `and`-with-imm compare-0) + `ccmp` for short-circuit `&&`/`||`** (needs a Ccmp
-      encoder in asm/aarch64; `&&`/`||` are branch-form, so this is a cross-block pattern). NOT YET DONE —
-      deprioritized (ccmp is high-effort/low-gain; the big levers are landed). Reassess vs T6.
+    - **fold-package extraction — LANDED `fbeee9123`.** native/common.bni hit the 1000-line .bni cap (a
+      .bni is single-file-per-package, can't be split like .bn), so the branch/compare fold analyses
+      moved to a new `pkg/binate/native/fold` package (pure refactor; common.bni 992→977, headroom for
+      the fold flags). The GEP-fuse analyses stayed in common (concurrent T2 owner).
+    - **Inc 3a — `tst` fold (`(a & b) == 0`/`!= 0` → single `TST`, aa64) — LANDED `5239f0b9a`.**
+      `TstFoldableAnds` (native/fold); emitBinop emits TST in place of the AND, emitCompare reads Z,
+      AND left unhomed. Adversarial review clean (6 vectors, incl. sub-word 64-bit-TST correctness);
+      sampled -O2 native aa64 conformance 570/0. Controlled A/B: richards −0.61%, fannkuch flat.
+      (Necessitated splitting aa64 compare lowering to `aarch64_compare.bn`; a concurrent worker did the
+      identical split, so the landing rebase collided and was re-applied onto their structure.)
+    - **Inc 3b — `ccmp` for short-circuit `&&`/`||` — NOT DONE.** Recon (2026-09-21): NOT a peephole —
+      `&&`/`||` lower to SEPARATE blocks (block0 fuses `cmp; b.cond then` then falls through to block1
+      which computes the 2nd cond as a boolean + branches in a 3rd block). ccmp requires a CROSS-BLOCK
+      CFG merge (collapse 2-3 blocks → `cmp; ccmp; b.cond`) + a new Ccmp encoder + nzcv-immediate
+      computation, and interacts with tst/const-fold (the 2nd cond may be a tst ccmp can't express).
+      High effort, rare pattern (richards had ~1), likely ≤0.3% — the plan's smallest-gain lever.
     - **x64 port — LANDED `3b83fafc5`.** Reused `BranchFusedCmps`; fused `Setcc`+`Movzx`+`Test`/`Jcc` →
       `Jcc` on the CMP flags (x64 `condForOp` already existed). Adversarial review clean; sampled -O2 x64
       native conformance 321/0 (under Rosetta); unit test pins "no SETcc when fused". (64-bit: int64 =
