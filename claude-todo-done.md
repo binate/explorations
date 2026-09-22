@@ -1,3 +1,48 @@
+### native↔LLVM gap round 3 T4 — inline SROA-thin aggregate shapes (SROA-aware inline cost) — ✅ LANDED 7029598cb (2026-09-21), work-1
+
+The within-package IR inliner scored a callee on its RAW instruction count, but inlining runs BEFORE
+SROA + mem2reg in the pipeline (opt.bn), so record-churn's `mix` — 9 field-arithmetic ops wrapped in
+by-value struct plumbing (param-slot field-loads, result-slot field-stores, field-ptrs) — scored 65
+ops and never inlined, though it collapses to ~11 ops once inlined and SROA'd. LLVM inlines+SROAs it;
+native left it an out-of-line by-value call (70% of samples). Fix: gate on `sroaAdjustedSize(callee)`
+(new `iropt/inline_sroa_cost.bn`) — funcInstrCount minus the eliminable plumbing of every non-managed
+field-addressable aggregate alloca (the alloca, its const-index field-ptr chains, the loads/stores
+through them, extracts on whole-loads) — instead of the raw count. This inlines SROA-thin shapes
+WITHOUT the refuted blanket threshold raise: a genuinely-large body keeps a large non-plumbing
+remainder, so the discount can never pull it under the threshold. `mix`'s adjusted size is 11 → it
+inlines at the default threshold (15).
+
+Design subtlety (tightened after adversarial review): the estimate relaxes the standalone-SROA L2 pin
+("whole-loaded value's uses are all OP_EXTRACT") in exactly ONE controlled way — it also admits an
+OP_RETURN use, the returned-by-value result slot (`return m`) that dissolves on inlining. A whole-load
+that ESCAPES to any other use (a by-value call arg, box, a store-elsewhere, a phi) is STILL pinned
+(sroaCostLoadedValuesOK), so its plumbing is counted — the discount never over-credits a value that
+would not collapse post-inline. A by-value PARAM slot needs no relaxation (it is field-READ, not
+whole-loaded). Void-instruction subtlety: OP_STORE has ID<0 so it can't sit in the id-indexed elim
+set; the count loop catches void stores by their Args[0] address operand.
+
+Correctness (adversarial review verdict: cannot miscompile): sroaAdjustedSize is a pure read-only
+estimator feeding ONLY the boolean size gate — it cannot alter emitted code except by enabling/
+disabling an inline, the inline is the same faithful clone the mechanism already performs, and the
+new gate inlines a STRICT SUBSET of "inline everything" (sroaAdjustedSize <= funcInstrCount). Verified:
+native aa64 -O2 conformance 3047/0, VM -O2 conformance 3035/0, all 8 suite benchmark checksums match
+base, iropt unit tests 175 (+4: returned-aggregate discounted, scalar inert, managed not discounted,
+escaping-whole-load not discounted). The post-review tightening is strictly-less-inlining than the
+conformance-verified version, so it is correct a fortiori (not inlining is always safe).
+
+Perf (base vs t4, -O2, best-of-N user CPU): record-churn N=12000 2.16s→1.38s = **0.64 (−36%)**; the
+other 7 benchmarks NEUTRAL (binary-trees 1.01, fannkuch 0.99, mandelbrot 1.00, n-body 1.00, richards
+0.99, spectral-norm 1.00; fasta too small to time). No size bloat — every -O2 benchmark binary is ≤
+base. The targeted discount delivers the record-churn win with ZERO tree regression — exactly the
+"SROA-thin inlining WITHOUT the blanket raise's monotonic slowdown" the plan wanted.
+
+Residual (out of round-3 scope): record-churn native is still ~5× LLVM (0.12s) — the rest is LLVM's
+add.4s/eor.16b SLP-vectorization of the 8-field combine (integer NEON SIMD), a separate lever in the
+deferred-FP-vectorization family (plan-native-vectorization.md). The inliner runs only at -O1+, so the
+default -O0 CI does not exercise T4; the -O2 conformance workflow does. A minor compile-time note: the
+cost model recomputes per call site per fixpoint round (no memoization) — bounded, flagged if aggregate-
+dense modules regress in compile time.
+
 ### native↔LLVM gap round 3 T3 — extend aggregate-load elision to OP_EXTRACT-only consumers — ✅ LANDED dd7562825 (2026-09-21), work-3
 
 Added an **S-extract** shape to `AggLoadElidable` (`pkg/binate/native/common/common_aggload_elision.bn`):

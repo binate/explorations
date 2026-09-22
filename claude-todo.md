@@ -394,12 +394,15 @@ to 🟡 IN PROGRESS (`work-N/session`); measure the record-churn ratio before/af
   −1.8% instr / −2.0% user CPU, ratio 5.55×→5.45× (modest — its hot path is the O(N²) churn loop T3
   doesn't touch). Adversarial review caught + fixed a latent aggregate-extract UAF (guard now requires
   scalar extracts; codegen-neutral). Details in `claude-todo-done.md`.
-- **T4 — inline SROA-thin shapes like `mix` WITHOUT a blanket threshold raise — 🟡 IN PROGRESS (claimed 2026-09-21, work-1/session).**
-  Largest single-benchmark impact but ADJACENT to the refuted inline-threshold + home-more levers.
-  Cost-model change discounting SROA-eliminable aggregate plumbing when scoring a callee (distinct
-  from the blanket raise, but must be measured tree-wide for net effect). Full parity also needs SROA
-  to keep `mix`'s fields register-resident (borders home-more). SURFACE for a decision, don't land
-  unilaterally. `iropt/inline_eligibility.bn`/`inline_calls.bn`; SROA.
+- **T4 — inline SROA-thin shapes like `mix` WITHOUT a blanket threshold raise — ✅ LANDED `7029598cb` (user-approved).**
+  Gate the inliner on `sroaAdjustedSize` (post-inline-SROA op-count estimate = raw minus the plumbing
+  of non-managed field-addressable aggregate allocas) instead of the raw count, so `mix` inlines at
+  the default threshold WITHOUT the refuted blanket raise. record-churn native -O2 **−36%**
+  (2.16s→1.38s); the other 7 suite benchmarks NEUTRAL (0.99–1.01), no bloat. Correct (adversarial
+  review: pure estimator → boolean gate, strict subset of inlines → cannot miscompile; native aa64
+  -O2 3047/0, VM -O2 3035/0, all 8 benchmark checksums match). Details + the residual note in
+  `claude-todo-done.md`. Round-3 tracks all landed (T1/T2/T3/T4); the remaining record-churn gap to
+  LLVM (~5×→ still gap) is integer SIMD, out of round-3 scope.
 
 NOT a round-3 track: integer SIMD (LLVM's `add.4s`/`eor.16b` SLP-vectorization of the 8-field combine
 is the post-scalar ceiling) — a large separate lever in the deferred-FP-vectorization family
