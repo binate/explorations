@@ -370,22 +370,12 @@ NOT propose the refuted levers (inline-threshold raise, home-more/interval-split
 to 🟡 IN PROGRESS (`work-N/session`); measure the record-churn ratio before/after. Full evidence:
 `plan-native-codegen-gaps-round3.md`.
 
-- **T1 — fold constant field offsets on alloca bases into the load/store — 🟡 DONE, awaiting land approval (work-1/session, commit ab399a82a on work-1).**
-  Extends the round-2 field-GEP fold (register bases) to genuine stack alloca bases across all
-  three native backends — emit `[sp,#off]`/`[rsp+off]` instead of a standalone `add`/`lea`.
-  (Globals stay excluded — a package-global var presents as an OP_ALLOC *with IsGlobalRef*;
-  `gepBaseIsAlloca` requires `OP_ALLOC && !IsGlobalRef`. First cut without the IsGlobalRef guard
-  MISCOMPILED every compile — `types.intSize` read the global `target.IntSize` as uninitialized
-  garbage; caught pre-land by disassembly, regression-tested.) arm32 handles the unbounded
-  combined offset at emit time (direct `[sp,#off]` when ≤255, else IP-scratch). Verified:
-  aa64 3047/0, x64 3047/0, arm32 3001/0 conformance; adversarial review clean; unit tests all green.
-  Perf (root-caused, honest): the fold FIRES strongly (mix / field-bound loop ~15% fewer
-  instructions, ~40 address-`add`s folded away), but wall-clock is only ~1% on field-access-bound
-  code (the cheap `add`s are hidden by OoO execution; loops are store→load-dependency/memory bound)
-  and NIL on record-churn itself, which is call-bound — `mix` stays an out-of-line by-value call, so
-  record-churn's 8× gap needs T4 (inline mix) + integer SIMD, not T1. T1 is a correct, general
-  codegen-quality gap-closer (native now folds field offsets like LLVM) worth landing on its own
-  merits; it does not close record-churn alone.
+- **T1 — fold constant field offsets on alloca bases into the load/store — ✅ LANDED `0c8549858`.**
+  Done — details (incl. the global-var IsGlobalRef miscompile caught pre-land, and the honest perf
+  result: fold fires but ~1% wall-clock, nil on record-churn which is call-bound) in
+  `claude-todo-done.md`. Key takeaway for the rest of round 3: T1 does NOT close record-churn — its
+  8× gap is dominated by `mix` staying an out-of-line by-value call, so it needs **T4 (inline mix)**
+  + integer SIMD, not the scalar folds.
   `native/common/common_field_gep_fuse.bn`, `common_elem_gep_fuse.bn`, `native/aarch64/aarch64_emit.bn`; x64 analog.
 - **T2 — 32-bit integer arithmetic in `w`-registers; drop the `ubfx` re-narrow — 🟡 IN PROGRESS (claimed 2026-09-21, work-2/session).**
   Safe, GENERAL. `emitBinop` hardcodes the 64-bit form + appends a mask; the `w`-form self-clears

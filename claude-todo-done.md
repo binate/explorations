@@ -1,3 +1,39 @@
+### native↔LLVM gap round 3 T1 — fold field offsets on alloca bases into the load/store — ✅ LANDED 0c8549858 (2026-09-21), work-1
+
+Extends the round-2 field-GEP constant-offset fold (register bases only) to genuine stack alloca
+bases across all three native backends: a single-use scalar field access off a stack `OP_ALLOC` now
+folds allocaOffset+fieldOffset into the load/store's memory operand (`ldr [sp,#off]` aa64 /
+`mov [rsp+off]` x64 / `ldr [sp,#off]` arm32) instead of materializing the field address with a
+standalone `add`/`lea`. Analysis in `common_field_gep_fuse.bn` (`fieldGepBaseFusable` =
+register OR genuine stack alloca); aa64/x64 fold unconditionally; arm32 handles the frame-layout-
+unknown combined offset at emit time (direct `[sp,#off]` when ≤255, else IP-scratch via
+emitFrameAddr).
+
+CRITICAL bug caught pre-land (by disassembly, per the debug-miscompiles-early guide): a package-
+global var reference ALSO presents as an `OP_ALLOC` but with `IsGlobalRef=true` (data-section
+storage via ADRP/ADD, no frame slot → LookupAlloc == -1). The first cut's `gepBaseIsAlloca` matched
+it on `Op==OP_ALLOC` alone, folded it, and the fused load found no base register → emitted nothing →
+returned uninitialized garbage. `types.intSize` read the global `target.IntSize` as garbage, so the
+native-compiled bnc mis-typed EVERY compile (`lang.bn:283: mismatched types int and untyped int`,
+0/3047). Fix: `gepBaseIsAlloca` requires `OP_ALLOC && !IsGlobalRef` (the register-base path already
+excluded it via its own `Op != OP_ALLOC` check). Regression-tested (TestFusableFieldGlobalAllocaNotFused).
+
+Verified: aa64 3047/0, x64 3047/0 (Rosetta), arm32 baremetal 3001/0 conformance; independent
+adversarial review — correct, no wrong-code defect (confirmed PlanFrame slots every non-global
+OP_ALLOC, arm32 IP never aliases valReg, 255 is the tight all-sizes bound, liveness no-op for
+non-allocatable alloca bases); native unit tests green all three backends (byte-equality emit tests
+incl. arm32 large-offset load+store IP-scratch and a signed sub-word LDRSH alloca load).
+
+Perf (root-caused, honest): the fold FIRES strongly — a field-access-bound inlined loop went
+272→230 instructions with 38 address-`add`s folded away (~15%); `mix` 101→89. But wall-clock is only
+~1% on field-access-bound code (base 1.39s vs head 1.38s, consistent 8/9 rounds, noise floor ~0.02 —
+the cheap `add`s are hidden by out-of-order execution; the loops are store→load-dependency/memory
+bound) and NIL on record-churn itself (base==head==0.97s). record-churn is call-bound: `mix` stays an
+out-of-line by-value call (70% of samples), so its 8× gap to LLVM (0.12s) needs T4 (inline mix) +
+integer SIMD, NOT T1's scalar folding. Landed as a correct, general codegen-quality gap-closer
+(native now folds field offsets into loads/stores exactly like LLVM), with the user's explicit
+go-ahead and eyes open that it does not close record-churn alone.
+
 ### T4 gap (b): field_forward distinct-pointee-type disjointness — ✅ LANDED 2fa428d8b (2026-09-21), TBAA-dependent
 
 work-2. `field_forward` (redundant managed-ptr-param field-load elimination) conservatively killed a
