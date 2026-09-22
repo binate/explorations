@@ -377,10 +377,13 @@ to 🟡 IN PROGRESS (`work-N/session`); measure the record-churn ratio before/af
   8× gap is dominated by `mix` staying an out-of-line by-value call, so it needs **T4 (inline mix)**
   + integer SIMD, not the scalar folds.
   `native/common/common_field_gep_fuse.bn`, `common_elem_gep_fuse.bn`, `native/aarch64/aarch64_emit.bn`; x64 analog.
-- **T2 — 32-bit integer arithmetic in `w`-registers; drop the `ubfx` re-narrow — 🟡 IN PROGRESS (claimed 2026-09-21, work-2/session).**
-  Safe, GENERAL. `emitBinop` hardcodes the 64-bit form + appends a mask; the `w`-form self-clears
-  bits [32,64). 9 dead `ubfx` in `mix`; helps all 32-bit int code.
-  `native/aarch64/aarch64_ops.bn` (`emitBinop`/`emitSubWordNarrow`); x64/arm32 analogs.
+- **T2 — 32-bit integer arithmetic in `w`-registers; drop the `ubfx` re-narrow — ✅ LANDED `669cbabb9`.**
+  Done — aa64 + x64 now emit the 32-bit register form for uint32 results and skip the redundant
+  re-narrow (native matches LLVM's uint32 codegen). Like T1, **nil on record-churn** (its ratio is
+  unmoved — root-caused: record-churn is memory/call-bound, so the ALU narrows aren't on its
+  critical path), BUT ~3.2× on an ALU-bound uint32 dependent chain where the narrow was serializing
+  each op — the real payoff, matching "benefits all 32-bit int code." arm32 N/A. Details (perf
+  numbers, the correctness argument, the aarch64_compare.bn split) in `claude-todo-done.md`.
 - **T3 — extend aggregate-load elision to OP_EXTRACT-only consumers — 🟡 IN PROGRESS (claimed 2026-09-21, work-3/session).**
   Medium; the open item deferred by `done/plan-native-aggcopy-fusion.md`. Alias an agg-load whose only
   uses are field extracts back to its stable source (param/alloca). Removes 2 per-input copies

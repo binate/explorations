@@ -1,3 +1,43 @@
+### native↔LLVM gap round 3 T2 — 32-bit w-form uint32 arithmetic; drop the re-narrow — ✅ LANDED 669cbabb9 (2026-09-21), work-2
+
+Both native backends (aa64 + x64) now select the 32-bit register form (aa64 `w`-form / x86-64
+32-bit-form) for results whose type is a 32-bit UNSIGNED integer, and SKIP the follow-up
+`emitSubWordNarrow`. Rationale: a 32-bit-dest op computes the low 32 bits and self-clears bits
+[32,64), which IS the zero-extended canonical form for a uint32 — so it produces bit-identical
+register state to the old (64-bit op + `uxtw`/`ubfx` aa64, + `mov r32,r32` x64), and the narrow was
+pure dead weight. Native now emits what LLVM already emits for uint32 arithmetic (a gap-closer by
+the round-3 definition). Signed 32-bit keeps the 64-bit op + sign-extending narrow (its canonical
+form is sign-extended, which the zero-clear would NOT produce); 8/16-bit keep uxtb/uxth (movzx); the
+const-multiply strength-reduction path stays 64-bit and keeps its narrow. Files:
+`native/aarch64/aarch64_ops.bn` (emitBinop/emitUnop), `native/x64/x64_ops.bn` (emitBinop/emitUnop).
+**arm32 N/A**: its registers are natively 32-bit, so `SubWordNarrow(t,32)` returns "no narrow" for a
+32-bit type already — nothing to remove.
+
+Perf (measured, user-CPU, interleaved + order-alternating + same-binary noise-floor control):
+- **record-churn: NIL** — its native/llvm ratio is unmoved (base min 1.08s == t2 min 1.08s at
+  N=8000; the byte-identical-copy control spread, 1.08 vs 1.15, is wider than any base-vs-t2 delta).
+  Root cause: record-churn is memory/call-bound, so the 9 removed `ubfx` sit in memory-latency shadow
+  — its gap is T1's address-adds + T4's out-of-line `mix` call, not the ALU narrows. So by the plan's
+  "must move the record-churn ratio" criterion T2 alone doesn't count *there* (user landed it anyway,
+  with eyes open, as the safe/general foundation).
+- **ALU-bound uint32 dependent chain: ~3.2×** (base min 1.02s → t2 min 0.32s, N=100M, clean of
+  noise). The narrow was serializing each op (op→ubfx→op→ubfx), so removing it roughly triples
+  throughput. This is the real payoff and the reason it's a general win ("benefits all 32-bit int
+  code").
+
+Correctness: adversarial review found no bugs. The one real risk — w-form shift count-mod-32 vs old
+count-mod-64 diverging on overshift — is unreachable: Binate DEFINES overshift (spec §13.5
+expr.shift.overshift) and IR-gen's `emitGuardedShift` masks the count to `rhs & (W-1)` before the
+backend, so the raw shift only ever sees counts in [0,31] for uint32, where w-form ≡ 64-bit. The
+`use32` gate (`SubWordNarrow(t,64) → (32,false)`) cannot false-positive on signed/wider/target-`uint`
+types. Verified: aa64 native conformance 3047/0/9, x64 native conformance (gen2, Rosetta) 3047/0/9,
+record-churn + ALU output bit-identical, new unit tests on both backends (w-form-no-narrow for
+uint32, still-narrows for int32/uint8/host-word), hygiene 20/20.
+
+Also split the integer-compare/branch cluster (emitCompare/emitCmpAgainst/condForOp/emitCondBranch/
+invertCondForOp) out of aarch64_ops.bn into `aarch64_compare.bn` (+ `aarch64_compare_test.bn`): the
+added correctness comments pushed aarch64_ops.bn over the 500-line cap.
+
 ### native↔LLVM gap round 3 T1 — fold field offsets on alloca bases into the load/store — ✅ LANDED 0c8549858 (2026-09-21), work-1
 
 Extends the round-2 field-GEP constant-offset fold (register bases only) to genuine stack alloca
