@@ -34,8 +34,22 @@ N=2000; native/llvm **5.55× → 5.45×**), **−2.0% user CPU** (8 interleaved 
 checksum unchanged. Modest but real and above the noise floor — record-churn's hot path is the O(N²)
 churn loop (mix calls + stores) that T3 doesn't touch; the wins are its O(N) extract-only field-read
 loops. Conformance all green on the LANDED code: aa64 3047/0 (post-fix authoritative), x64-native
-3047/0, arm32-native 3001/0; 5 new native/common unit tests. Deferred: `perf/native-vs-llvm.sh` (bnc
-self-compile) re-check — to be measured after landing (will then show cumulative T1+T2+T3).
+3047/0, arm32-native 3001/0; 5 new native/common unit tests.
+
+**Self-compile re-check (`perf/native-vs-llvm.sh`, instructions retired — the noise-immune metric; the
+box was too loaded for user CPU, whose L time swung ~20% between identical-codegen states).** T3 is
+FAR bigger on the compiler's own code than on record-churn — bnc is saturated with the extract-only
+field-read shape (IR/type/AST node fields read via whole-load+extract after SROA). At three tree points
+(pre-T1 `fbeee9123`, T1+T2 `669cbabb9`, T1+T2+T3 `dd7562825`), native bnc compiling cmd/bnc:
+- native/llvm ratio **2.658× → 2.433×** (T1+T2 → T1+T2+T3) = **8.5% of the self-compile gap closed by
+  T3**. (L=llvm denominator ~constant, 67.4B→67.3B, so the confound from T3 also shrinking the target's
+  output is <0.2% — the reduction is genuine code quality.)
+- native self-compile instructions **−8.6%** from T3 (179.2B→163.7B); **−3.5% __TEXT** (T3 shrinks
+  bnc's own code — the runtime −8.6% exceeds the static −3.5% because the elided copies sit in hot
+  traversal loops).
+- **T1+T2 were ~nil on the self-compile** (−0.12% combined) — they help ALU-bound / field-access
+  micro-patterns, but the self-compile instruction count didn't move; T3 is the round-3 scalar-track
+  win for the compiler itself.
 
 ### native↔LLVM gap round 3 T2 — 32-bit w-form uint32 arithmetic; drop the re-narrow — ✅ LANDED 669cbabb9 (2026-09-21), work-2
 
