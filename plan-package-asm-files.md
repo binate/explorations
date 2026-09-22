@@ -1,10 +1,10 @@
 # Package Assembly Files — Design Proposal
 
-**Status: PROPOSAL (design + implementation plan).** Concrete follow-up to the
-`claude-todo.md` entry "Include a `#[build]`-gated assembly file as part of a
-package (so `bnc -c` output is self-contained)". Written for a spec author to fold
-the language/tooling surface into the spec, and as the implementation plan for the
-work itself. Anchors verified against the tree (binate `main`, 2026-09).
+**Status: IMPLEMENTED — landed on `main` (`f660064df`, 2026-09-21); the SPEC
+surface (§2) is not yet folded into the spec.** The implementation plan (§3) is
+done (see `claude-todo-done.md`); this doc remains here for the spec author to fold
+§2's language/tooling surface into `docs/spec/`, and moves to `done/` once that
+integration lands. Anchors verified against the tree (binate `main`, 2026-09).
 
 This is a **separate concern** from inline assembly (`#[asm]` on a Binate function,
 tracked elsewhere): this doc is about shipping a **whole `.s` file** alongside a
