@@ -905,7 +905,7 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
 - `bnlint --target`; main-module gating; migrating the `impls/` duplicate trees onto constraints.
 - The separate inline-asm (`#[asm]`) doc that composes with this substrate.
 
-### Include a `#[build]`-gated assembly file as part of a package (so `bnc -c` output is self-contained) — 🔵 OPEN (2026-09-18)
+### Include a `#[build]`-gated assembly file as part of a package (so `bnc -c` output is self-contained) — 🟡 IN PROGRESS (claimed 2026-09-21, work-1)
 
 Today an arch whose runtime primitive is hand-written asm (aarch64's `rt.MemZero`, a
 `#[build(!is(arch, "aarch64"))]`-gated-off Binate body replaced by a `.s` seam) has
