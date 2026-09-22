@@ -385,6 +385,24 @@ FP-arithmetic work. Full plan + sequencing: `plan-native-vectorization.md`.
 
 Order: V1 (aa64 first) → (A) → idiom recognition → B1 → B2 → B3. Each independently landable/measurable.
 
+### aarch64 asm: `Add`/`Sub` silently mis-encode a NEGATIVE immediate — 🔵 OPEN (MINOR, latent)
+
+`emitDPOp` (`pkg/binate/asm/aarch64/aarch64_arith.bn`) splits an `Imm` as `lo =
+imm & 0xfff`, `hi = (imm>>12) & 0xfff` with no sign handling, so `Add(a, sf, rd,
+rn, Imm(-16))` emits `add rd, rn, #0xfff, lsl #12; add rd, rn, #0xff0` = rn +
+0xFFFFF0 (base + ~16 MB), NOT rn - 16 — a silent wrong-address, since the AArch64
+ADD/SUB-immediate field is unsigned. Found during native-vectorization V1: the new
+`Vldr_q`/`Vstr_q` overflow path originally fed a negative offset to `Add` and
+miscompiled; fixed there by using LDUR/STUR q for the signed-9-bit range and `Sub`
+(not `Add`) to form a large negative address. LATENT elsewhere: every current
+aarch64 `Add`/`Sub` caller passes a non-negative frame offset, and the scalar
+`emitFpLdrStrD`/`emitFpLdrStrS` overflow paths (same `Add`-based pattern) only see
+non-negative frame offsets (the refcount header at `[ptr,#-16]` uses
+`MemUnscaled`→LDUR). Proper fix: make `emitDPOp` lower a negative `Imm` to the
+opposite op with the negated magnitude (so `Add(Imm(-N))` ≡ `Sub(Imm(N))` and vice
+versa), hardening the shared primitive for all callers. No live trigger today, so
+not blocking.
+
 ### IR optimization passes (help LLVM + native backends + the VM) — 🟡 OPEN
 
 - **Pass infra + mem2reg + BCE** — design settled
