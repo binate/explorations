@@ -1,3 +1,42 @@
+### T4 gap (b): managed-pointer strict-aliasing (TBAA) — ✅ RULED: TBAA HOLDS; spec now states it (2026-09-21, docs `31add0a`)
+
+The question was whether a store through a `@A` can change the object a `@B` designates (distinct
+concrete named structs) in a DEFINED program — i.e. whether `iropt/field_forward`'s
+distinct-pointee-type disjointness (binate `2fa428d8b`, work-2 `cb5074ac8`) is sound or a silent
+miscompile. **Ruling: sound. The optimization stands; nothing to revert.**
+
+The property already held — but only as an EMERGENT consequence of the conversion rules, provable by
+enumeration rather than stated anywhere:
+- `&x` yields a RAW pointer (§13.8 `expr.unary.addr`), so no managed pointer to a subobject can be
+  formed at all; a `@T` only comes from `make`/`box` or a copy of one.
+- `@A → @B` is not implicitly assignable: §8.1's case list is closed, and `conv.named` needs one side
+  to BE a named type (`@A`/`@B` are unnamed composites, whatever their pointees).
+- `cast(@B, a)` is outside `cast`'s safe set → compile-time error, diagnostic pointing at `bit_cast`.
+- So the only routes are `bit_cast` / `unsafe_cast` / raw reconstruction — all already §21.6 UB.
+
+The ask was also stronger than the entry stated: `types.Type.Identical` compares named structs by
+PACKAGE-QUALIFIED name, so the pass relies on NOMINAL cross-package TBAA — `red.Node` and `blue.Node`
+with byte-identical layouts assumed never to alias.
+
+What the spec now says (docs `31add0a`):
+- **§18.7 `mem.managed-provenance`** — provenance (a `@T` designates the BASE of an allocation created
+  as a T) with disjointness as its corollary, the implementation's explicit permission to optimize on
+  it, and UB for fabricating the aliasing. Scoped to managed POINTERS: a managed-slice makes no such
+  claim, since a sub-slice addresses the interior of its backing.
+- **§21.6** — matching UB catalogue row.
+- **§8.5** — the same-layout named↔underlying retype is now marked VALUE-only and explicitly does not
+  reach `@A → @B`, with a Note on why. This is the guard that matters: the clause's own "same layout
+  ⇒ always safe" justification invites exactly the generalization that would silently withdraw the
+  guarantee and miscompile everything the pass touched.
+- **§7.4** — the open embedding question is bound: no managed pointer to an embedded field. Promotion
+  is the usual way subobject aliasing enters a language.
+
+Had the ruling gone the other way, the fallback was not the entry's binary revert: requiring the two
+pointee structs to be LAYOUT-INCOMPATIBLE (not merely distinctly named) keeps most of the benefit and
+survives any "same-layout retype is defined" reading.
+
+Follow-up raised: the vendored `scripts/spec-coverage/rule-ids.txt` re-sync (see the todo file).
+
 ### native↔LLVM gap round 3 T4 — inline SROA-thin aggregate shapes (SROA-aware inline cost) — ✅ LANDED 7029598cb (2026-09-21), work-1
 
 The within-package IR inliner scored a callee on its RAW instruction count, but inlining runs BEFORE

@@ -3,47 +3,6 @@
 Tracks open work items, grouped by the subsystem / root cause they touch.
 Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
-## SPEC QUESTION — T4 gap (b): managed-pointer strict-aliasing (TBAA) soundness — spec ruling needed — 🟠 AWAITING SPEC AUTHOR (2026-09-21)
-
-**Reference title (cite this):** "T4 gap (b): managed-pointer strict-aliasing (TBAA) soundness".
-**Landed optimization it gates:** `2fa428d8b` (iropt/field_forward distinct-pointee-type
-disjointness; work-2 `cb5074ac8`).
-
-**The question.** Does Binate guarantee **type-based non-aliasing** for managed pointers — i.e., in a
-DEFINED program, can a store through a `@A` ever change the object a `@B` points to (for distinct
-concrete named struct types `A` != `B`)? Equivalently: is creating such cross-type aliasing (e.g.
-`var a @A = bit_cast(@A, someBValue)`, then mutating through one and observing through the other)
-**undefined behavior** (programmer's responsibility, C-strict-aliasing style), or **defined**?
-
-**Why it matters.** The `field_forward` IR optimization (redundant managed-ptr-param field-load
-elimination) now treats a store through a different-typed managed pointer as **disjoint** from a
-live field load — so `a.x` reloaded across a `b.p = ...` store (a @A, b @B) is forwarded to the
-first load. This is sound **iff** the answer is "TBAA holds / cross-type aliasing is UB." If
-cross-type managed aliasing is DEFINED, the optimization is a **silent miscompile** for such
-programs and must be reverted.
-
-**Assumed answer used to land (needs confirmation).** *TBAA holds:* distinct concrete named
-managed-pointer types never alias in a defined program; a `@T` names a T-typed allocation (own -16
-header), and `bit_cast`/`unsafe_cast` creating cross-type managed aliasing is an unsafe escape whose
-misuse is UB (consistent with §3.50 "unsafe facilities", §8.6 `bit_cast`/`unsafe_cast` "bare
-pointer-word reinterpret … programmer responsible", §21.6 "raw-pointer/`bit_cast`/refcount-aliasing
-escape hatch" as the narrow UB class). What the spec does NOT currently state explicitly: a
-strict-aliasing rule that *accessing an object through a managed pointer of a type other than the
-object's actual type is UB*. That explicit rule (or its rejection) is the ruling needed.
-
-**Spec sections consulted:** §8.6 `conv.bit-cast` (esp. the `unsafe_cast(@T,p)`/`bit_cast(@T,p)`
-"operationally identical … bare pointer-word reinterpret" note), §21.2/§21.6 (the narrow UB class),
-§18.7 (`mem.raw-uaf`, `mem.cycles`, `mem.determinism`). None found to state managed-pointer strict
-aliasing explicitly.
-
-**If the ruling is "not TBAA / defined":** revert the landed commit above (the analysis change is
-isolated to `iropt/field_forward.bn` + `iropt/field_forward_analysis.bn`; the unit tests
-`TestFFDistinctStructObjects` / `TestFFStoreKillsPathDistinctType` pin the behavior) and record a
-root-caused negative — the field-alias win is unavailable without a TBAA language rule.
-
-
----
-
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
@@ -1300,6 +1259,25 @@ language extension, not a bug fix.
 - **Labeled break**: Binate currently has no labels. If/when we add them, termination analysis needs to track labels — a `break L` inside a nested for doesn't break the inner for (contrary to the current "any break disqualifies enclosing for/switch" rule). Revisit when labels are on the table.
 
 ## Spec authoring & language-decision residuals
+
+### Re-vendor `scripts/spec-coverage/rule-ids.txt` from docs — 🔵 OPEN (2026-09-21)
+The coverage tool reads a VENDORED copy of the spec's rule-ID inventory
+(`binate/scripts/spec-coverage/rule-ids.txt`) so it needs no docs checkout. That copy was last
+synced 2026-08-18 and is now 11 rule-IDs behind `docs/spec/rule-ids.txt`: the whole `stmt.defer*`
+family (6, from §14.13), `pkg.centry` / `pkg.centry.eligible` / `pkg.centry.identity`,
+`pkg.cexport.semantics`, and `mem.managed-provenance`. Three others changed bucket
+(`pkg.ccall` and `func.method.receiver-kinds` → constraint-candidate, `pkg0.lang.force-load` →
+positive).
+
+Why it bites: `scripts/hygiene/spec-coverage.sh` fails on DANGLING — "a `.rules` sidecar cites a
+rule-ID the spec does not declare". So the FIRST spec test written against any of those 11 reds
+hygiene for a reason that has nothing to do with the test, and the failure message points at the
+test rather than the stale inventory. (Coverage % and the gap list are progress, not pass/fail, so
+nothing is red today.)
+
+Fix: regenerate (`python3 docs/scripts/extract-rule-ids.py`), copy `docs/spec/rule-ids.txt` over the
+vendored file, confirm `scripts/hygiene/spec-coverage.sh` is still green, land. Worth doing before
+the next batch of spec tests rather than after one trips it.
 
 ### Relational-comparison chain (`a < b < c`) diagnostic reach — nicety
 The `expr.compare.relational` rule: `a < b < c` is correctly rejected in every context, but the
