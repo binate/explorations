@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### `--library` facade package's own `.s` objects are never archived — 🔴 OPEN (latent; found 2026-09-21, §16.10 spec adversarial review)
+### `--library` facade package's own `.s` objects are never archived — 🟡 IN PROGRESS (claimed 2026-09-22, work-1; latent, found 2026-09-21, §16.10 spec adversarial review)
 
 In cmd/bnc/library.bn the per-package loop `continue`s for the facade
 (~:105-108) BEFORE the assemblePkgAsmObjs call (~:115), and the facade
