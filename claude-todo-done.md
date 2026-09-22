@@ -1,3 +1,16 @@
+### Re-vendor `scripts/spec-coverage/rule-ids.txt` from docs — ✅ LANDED 69fb08695 (2026-09-21), work-3
+
+The coverage tool reads a VENDORED copy of the spec's rule-ID inventory
+(`binate/scripts/spec-coverage/rule-ids.txt`) so it needs no docs checkout; it had drifted 11
+rule-IDs behind `docs/spec/rule-ids.txt`. Canonical was already current vs the `.md` sources
+(`extract-rule-ids.py --check` clean), so no docs regeneration was needed — just re-copied it over the
+vendored file. Added: the `stmt.defer*` family (`.defer/.call/.exit/.no-abort/.no-loop/.return`),
+`pkg.centry/.eligible/.identity`, `pkg.cexport.semantics`, `mem.managed-provenance`. Reclassified:
+`func.method.receiver-kinds` + `pkg.ccall` → constraint-candidate, `pkg0.lang.force-load` → positive.
+`scripts/hygiene/spec-coverage.sh` green (full hygiene 20/20). Prevents the first spec test written
+against any of those 11 from redding hygiene on DANGLING with a message pointing at the test rather
+than the stale inventory.
+
 ### T4 gap (b): managed-pointer strict-aliasing (TBAA) — ✅ RULED: TBAA HOLDS; spec now states it (2026-09-21, docs `31add0a`)
 
 The question was whether a store through a `@A` can change the object a `@B` designates (distinct

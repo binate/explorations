@@ -1278,27 +1278,6 @@ language extension, not a bug fix.
 - Missing-return check (test 245) uses Go-style termination analysis simplified: RETURN terminates; `panic(...)` terminates; BLOCK terminates if last stmt does; IF terminates if both branches do; FOR with no condition and no `break` in body terminates; SWITCH with default and all cases terminating (no break) terminates.
 - **Labeled break**: Binate currently has no labels. If/when we add them, termination analysis needs to track labels — a `break L` inside a nested for doesn't break the inner for (contrary to the current "any break disqualifies enclosing for/switch" rule). Revisit when labels are on the table.
 
-## Spec authoring & language-decision residuals
-
-### Re-vendor `scripts/spec-coverage/rule-ids.txt` from docs — 🟡 IN PROGRESS (claimed 2026-09-21, work-3/session)
-The coverage tool reads a VENDORED copy of the spec's rule-ID inventory
-(`binate/scripts/spec-coverage/rule-ids.txt`) so it needs no docs checkout. That copy was last
-synced 2026-08-18 and is now 11 rule-IDs behind `docs/spec/rule-ids.txt`: the whole `stmt.defer*`
-family (6, from §14.13), `pkg.centry` / `pkg.centry.eligible` / `pkg.centry.identity`,
-`pkg.cexport.semantics`, and `mem.managed-provenance`. Three others changed bucket
-(`pkg.ccall` and `func.method.receiver-kinds` → constraint-candidate, `pkg0.lang.force-load` →
-positive).
-
-Why it bites: `scripts/hygiene/spec-coverage.sh` fails on DANGLING — "a `.rules` sidecar cites a
-rule-ID the spec does not declare". So the FIRST spec test written against any of those 11 reds
-hygiene for a reason that has nothing to do with the test, and the failure message points at the
-test rather than the stale inventory. (Coverage % and the gap list are progress, not pass/fail, so
-nothing is red today.)
-
-Fix: regenerate (`python3 docs/scripts/extract-rule-ids.py`), copy `docs/spec/rule-ids.txt` over the
-vendored file, confirm `scripts/hygiene/spec-coverage.sh` is still green, land. Worth doing before
-the next batch of spec tests rather than after one trips it.
-
 ### Relational-comparison chain (`a < b < c`) diagnostic reach — nicety
 The `expr.compare.relational` rule: `a < b < c` is correctly rejected in every context, but the
 dedicated "comparison operators do not chain" message fires only for the identifier-leading
