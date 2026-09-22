@@ -925,24 +925,6 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
 - `bnlint --target`; main-module gating; migrating the `impls/` duplicate trees onto constraints.
 - The separate inline-asm (`#[asm]`) doc that composes with this substrate.
 
-### Include a `#[build]`-gated assembly file as part of a package (so `bnc -c` output is self-contained) — 🟡 IN PROGRESS (claimed 2026-09-21, work-1)
-
-Today an arch whose runtime primitive is hand-written asm (aarch64's `rt.MemZero`, a
-`#[build(!is(arch, "aarch64"))]`-gated-off Binate body replaced by a `.s` seam) has
-that `.s` assembled + linked ONLY inside cmd/bnc's four link paths (via
-`assembleRtMemObj` in `cmd/bnc/rt_mem_asm.bn`). So `bnc -c` (compile-to-objects, no
-link) emits objects that REFERENCE the symbol but never define it, and anything that
-links `bnc -c` aarch64 output itself (an external linker; the `bnld-real-program` e2e)
-hits `undefined symbol: …MemZero`. The e2e was stopgapped by defining the symbol in
-its link-only shim (`7989641b1`, see done log); this is the proper fix.
-
-Design a way to attach a `#[build]`-gated `.s` to a package so it ships with the
-package and is assembled + included wherever the package is linked — INCLUDING plain
-`bnc -c` object sets — with NO special per-symbol knowledge (`assembleRtMemObj`) baked
-into the compiler's link paths. Retires the special-casing and makes `bnc -c` output
-self-contained on every arch. Likely a post-0.0.16 release.
-
-Design + implementation plan: [`plan-package-asm-files.md`](plan-package-asm-files.md).
 ## Standard library — pkg/stdx/fmt
 
 ### fmt Printf — residual verb/flag gaps + two inert latent edges — 🟡 OPEN

@@ -1,3 +1,43 @@
+### Include a `#[build]`-gated assembly file as part of a package (so `bnc -c`/`bnc --pkg` output is self-contained) — ✅ LANDED f660064df (2026-09-21), work-1
+
+Three commits: `8606e70dc` (asm `.global_c` directive), `9332b1ca7` (loader picks up
+`.s` onto `Package.AsmFiles`), `f660064df` (bnc assembles package `.s`; rt.MemZero
+moved). Design doc: [`plan-package-asm-files.md`](plan-package-asm-files.md).
+
+A package impl directory may now contain `.s` files, each gated at the FILE level by a
+leading `// #[build(...)]` comment (same grammar/evaluator as a `.bn`/`.bni` package
+clause — the assembler ignores `//`, so the loader reads the `#[...]` and evaluates it
+with `buildcfg.DeclIncluded`). The loader collects survivors onto `Package.AsmFiles`;
+`assemblePkgAsmObjs` assembles each into a `.o` beside that package's compiled object,
+in EVERY per-package compile path (main/library/test AND `--pkg` `compileSinglePkg`),
+so the `.s`-defined symbols ship wherever the package is compiled — including a plain
+`bnc -c` / `bnc --pkg` object set. Retired the per-symbol special case
+(`assembleRtMemObj` / `rt_mem_asm.bn` + its 5 link-site injections, all deleted).
+
+The ELF-vs-Mach-O prefix problem (a Binate function symbol is `_bn_…` on Mach-O,
+`bn_…` on ELF) is handled by a new OPT-IN assembler directive `.global_c` (Symbol
+`CPrefix`), which emits the platform C-symbol prefix at object-write time — so ONE
+`.s` (`impls/core/common/pkg/builtins/rt/memzero_aarch64.s`, gated
+`#[build(is(arch, "aarch64"))]`) resolves the symbol under both formats. rt.MemZero's
+aarch64 hand-asm moved out of the embedded string into that file. (Rejected: a global
+always-prepend on Mach-O — backwards-incompatible; two os-gated near-duplicate files —
+the zero-assembler-change fallback, not needed.)
+
+Two e2e stopgaps that hand-supplied MemZero to a raw link were removed now that the
+output is self-contained: `bnld-real-program`'s aarch64 shim (would now be a duplicate
+def) and `separate-compilation`'s rt.MemZero probe (the `--pkg` output carries the
+object, collected into `sep_objs`). The `--pkg` wiring gap was caught by adversarial
+review — I had wired only main/library/test and missed `compileSinglePkg`, which would
+have failed `separate-compilation.sh` on Apple-Silicon CI.
+
+Validated on aarch64-darwin: native+clang / LLVM+clang / native+bnld all build+run a
+managed-alloc program (exit 42, MemZero linked AND executed); `bnc -c` and `bnc --pkg`
+define `_bn_…MemZero` (Mach-O) / `bn_…MemZero` (ELF, cross), resolving the rt object's
+reference; `separate-compilation.sh` passes (32 packages, byte-identical assembly); x64
+neutral (Binate body defines the symbol, no asm object). hygiene 20/20; unit tests
+green (`.global_c` parse + Mach-O/ELF byte-scan, loader gate extraction/inclusion +
+CRLF, ParseFile, `dropDotS`/`lastPathSegment`).
+
 ### Re-vendor `scripts/spec-coverage/rule-ids.txt` from docs — ✅ LANDED 69fb08695 (2026-09-21), work-3
 
 The coverage tool reads a VENDORED copy of the spec's rule-ID inventory
