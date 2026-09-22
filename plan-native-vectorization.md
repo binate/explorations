@@ -1,272 +1,142 @@
-# Plan: native vectorization (closing the memory-loop half of the native↔clang gap)
+# Plan: native vectorization (SIMD) — closing the vector half of the native↔LLVM gap
 
-Status: PLAN / not started (2026-09-03).  Corrected after an adversarial review
-(findings folded in below).
+Status: **RESURRECTED / planning (2026-09-21).** Supersedes the 2026-09-03 draft,
+which was framed around the then-dominant memory-primitive gap; the scalar-codegen
+rounds (SROA, regalloc, the fasta/richards/fannkuch/record-churn rounds 1–3) and the
+just-landed **FP-register homes** (`a0afe37ec`/`945129d67`/`6daae4f1a`) have since
+moved the landscape. This refresh commits the work rather than gating it on profiling.
 
 ## The goal (non-negotiable)
 
 **The native backend is THE backend; LLVM/clang is a stopgap slated for deletion.**
-The objective of this work is to **NARROW the native↔LLVM codegen performance gap** —
-to make native-generated code as fast as LLVM-generated code for the same program.
-Where LLVM emits faster code than native, that is a native-backend defect to fix.
-This is not negotiable and not up for reframing as "maybe just make native faster in
-absolute terms" — general-throughput wins that speed up BOTH backends do NOT close the
-gap and are a separate, lower-priority concern.  (See CLAUDE.md "The Native Backend Is
-the Goal.")
+The objective is that there be **no native↔LLVM codegen gap** — native emits code as
+fast as LLVM for the same program. That endpoint is not realistic short-term, but it
+is the target, and it is not up for reframing as "make native faster in absolute
+terms." Where LLVM vectorizes and native emits a scalar loop, that is a native defect
+to close. (CLAUDE.md "The Native Backend Is the Goal.")
 
-## Why vectorization
+## Why we plan this now, not after more profiling
 
-The register allocator (v1 + the MemZero/MemCopy word-widening) took the native↔LLVM
-`-O2` self-compile gap from **~9–12×** to **~2.5×**.  Two Stage-5 register refinements
-since (caller-saved homes, copy coalescing) were **neutral** — v1 already captured what
-register allocation can reach.  The remaining gap is where **LLVM vectorizes / calls an
-optimized memory primitive and native emits a scalar loop**.  That is the lever.
+The remaining large gaps are all vector-shaped and all things a serious backend must
+have — so the question is HOW/ORDER, not WHETHER, and profiling to decide *whether* a
+lever is worth it has low value against a full-parity endpoint:
 
-**The clang baseline, verified by disassembly (do NOT restate the pre-widening
-guesses):**
-- **`rt.MemZero`:** LLVM's LoopIdiomRecognize lowers the fill loop to a **libc `bzero`
-  call** (aa64: `bl _bzero`, which uses `DC ZVA` — zeroes a whole cache line per
-  instruction; x64: `call ___bzero`).  It is NOT inline NEON.  To close this gap,
-  native must emit an **equally-fast zero-fill in our own asm** — `DC ZVA` on aa64, a
-  `rep stosb` / wide-SSE fill on x64.  That is C-free-legal (asm ≠ C) and IS the work;
-  it is not a reason to call the gap unclosable.  ("We can't call libc `bzero`" is a
-  constraint on the implementation, not permission to leave native slow.)
-- **`rt.MemCopy`:** LLVM inline-vectorizes it (aa64: `ldp/stp q0–q3`, 64 B/iter).
-  Native must match with a SIMD/wide copy.
-- **String loops** (`charsEqual`/`streq`/`symHash`): LLVM may vectorize; native is
-  scalar.  Close per the current profile.
+- **record-churn ~4.75× native/llvm** (round 3 halved it; the residual is LLVM's
+  `add.4s`/`eor.16b` SLP-vectorization of the 8-field integer combine — pure integer
+  SIMD, no FP).
+- **The FP benchmarks** (mandelbrot/spectral-norm/n-body) — now that scalar FP is
+  register-homed, their residual is FP-arithmetic vectorization.
+- **Memory primitives** (`rt.MemZero`/`rt.MemCopy`) — LLVM lowers these to
+  `bzero`/`DC ZVA` and inline wide `ldp/stp q`; **every serious toolchain has fast
+  SIMD/`DC ZVA` memory primitives**, so we will want them regardless of any profile.
 
-**Premise correction (from the review — must be honored):** the "~50% memory
-management / MemZero ~42%" figures in `claude-todo.md` are **pre-widening** (they
-justified the widening, which then did ~8× fewer stores).  They are STALE.  The
-addressable slice is also narrower than "50%" — that bucket includes libc `malloc`/
-`free` (identical on both backends → NOT a gap contributor, not vectorizable) and
-refcount dtors (pointer-chasing, not fill/copy loops).  **Therefore step 0 of this
-whole plan is a RE-PROFILE of the current (widened) native bnc, framed as "where is
-native slower than LLVM," to size each gap source before building anything.**
+So we **plan V1 immediately** (it's the shared prerequisite for all of the above) and
+commit the memory-primitive track (A). Profiling still has a role — it ORDERS the work
+and sizes each lever's payoff — but it does not gate whether these get built.
 
-## The landscape (what exists, what's missing)
+Note: much of this is **integer** SIMD (record-churn, memory primitives), so the
+infrastructure is NOT gated on lifting the deferred FP-*arithmetic* work — it serves
+the non-FP side too. FP kernels are one consumer of the same machinery.
 
-- **The asm layer has NO SIMD/vector instructions.**  `asm/aarch64` has scalar FP
-  only (`Fadd`/`Fmul`/`Fcmp`/`Fcvt` on single D/S registers — `aarch64_fp.bn`); no
-  NEON (no `LD1`/`ST1`/`MOVI`/vector arithmetic on V registers).  `asm/x64` has SSE2
-  **scalar** float only (XMM used as a scalar-float scratch, MOVQ through it —
-  `x64_fp.bn`); no packed ops (no `MOVDQU`/`PXOR`/`PADD`).  So **any codegen that
-  emits SIMD needs new instruction encoders first.**
-- **Float scalars are not even register-allocated** — they are non-allocatable and
-  spill (`regalloc_liveness.bn:82`); FP values shuttle through a scratch D/XMM.  So
-  there is minimal vector-register plumbing to build on; SIMD register management
-  would be largely new.
-- **The runtime is pure Binate** (`rt.MemZero`/`MemCopy` in `rt_managed.bn`, now
-  word-at-a-time).  There are **no persistent `.s` runtime files**, but the
-  self-hosted assembler CAN assemble `.s` (bnld synthesises + assembles `_start.s`
-  via `asm/assemble`), so hand-written arch asm is an available mechanism.
-- **C-free constraint**: SIMD written in our own asm is fine (it's not C).  We must
-  NOT reach for libc `memset`/`memcpy`; bare-metal has no libc.
+## Landscape (what exists now)
 
-## Approaches, cheapest-first
+- **The asm layer has NO SIMD/vector instructions** (confirmed 2026-09-21).
+  `asm/aarch64` is scalar-FP-only (`aarch64_fp.bn`: `Fadd`/`Fmul`/`Fcvt` on single
+  D/S regs); no NEON (`LD1`/`ST1`/`MOVI`/`DUP`/`ADD.4S`), no `DC ZVA`. `asm/x64` is
+  scalar-SSE2-only; no packed ops (`MOVDQU`/`PADDD`/`PXOR`). `asm/arm32` scalar. **⇒ V1
+  (encoders + a vector-register model) is the foundation; nothing vector can be emitted
+  until it exists.**
+- **FP-register homes just landed** (all three backends): a *float register class* now
+  exists in the allocator (a parallel scan over the D/XMM file, disjoint from the GP
+  class). **Vector register allocation is the natural extension of this** — the V/XMM
+  registers are the same file, wider — so (B1) below is not greenfield.
+- **The runtime is pure Binate** (`rt.MemZero`/`MemCopy` in `rt_managed.bn`, word-at-a-
+  time). The self-hosted assembler can assemble `.s` (bnld synthesises + assembles
+  `_start.s` via `asm/assemble`), so hand-written arch asm is an available mechanism.
+- **C-free constraint:** SIMD in our own asm is fine (asm ≠ C); we must NOT reach for
+  libc `memset`/`memcpy` (bare-metal has none).
 
-### Step 0 — RE-PROFILE the current native bnc — DONE (2026-09-03)
+## V1 — SIMD asm encoders + vector-register model (PLAN NOW; the foundation)
 
-Re-profiled the current (widened) native bnc self-compiling cmd/bnc.  Current
-"where is native slower than LLVM" breakdown (of 10880 leaf samples):
-- **`rt.MemZero` — 12.2%** — the #1 gap.  LLVM lowers its fill loop to a libc
-  `bzero` call (aa64 `DC ZVA`; verified by disassembly); native runs a scalar word
-  loop.
-- **byte string-compares (`charsEqual`/`streq`/`symHash`) — 6.8%** — LLVM vectorizes;
-  native scalar.  **TRIED word-widening these (shared `buf.CharsEqual`, word bulk +
-  byte tail) — REGRESSED ~10% (best 11.76s vs 10.64s), reverted.**  The compared
-  strings are mostly SHORT (section names `"text"`/`"data"`, identifiers), so the
-  word-compare's setup (align check + two bit_casts + lead-in) PLUS the added function
-  call cost more than the 3-byte loop it replaced.  LLVM closes this gap with INLINE
-  BRANCHLESS SIMD (no call, no setup); a call-based word-compare helper fundamentally
-  can't match that.  Closing this gap needs inline SIMD (auto-vectorization or a lean
-  inline compare), NOT a helper — parked behind the MemZero wide-store work.
-  (Side note: `rt` is a builtins package baked into the pinned BUILDER, so a new
-  `rt.MemEqual` does NOT resolve in the BUILDER-compiled tree — a shared helper for
-  BUILDER-compiled callers must live in a REGULAR tree package like `buf`.)
-- sha256 (code-signer rotate/loop) — 2.6%; MemCopy — ~0% on this workload.
-So the memory-fill loop is confirmed the top gap even post-widening; the string
-compares are second.
+The immediate, committed prerequisite. Produces no perf win alone (nothing emits the
+new instructions yet) but unblocks (A) and (B), and is fully testable in isolation
+(assemble an instruction → assert the encoded bytes, per the existing `asm/*_test.bn`
+pattern). Per-arch:
 
-### V0 — 4-word UNROLL of the runtime memory loops — DONE & LANDED (`4fd5789e5`, 2026-09-03)
+- **aarch64 NEON** (`asm/aarch64/aarch64_neon.bn` + tests): vector loads/stores
+  (`LDR/STR q`, `LD1`/`ST1`), packed integer arith (`ADD`/`SUB`/`MUL`/`AND`/`ORR`/`EOR`
+  on `.8b/.16b/.4h/.8h/.2s/.4s/.2d`), lane moves (`MOVI`/`DUP`/`INS`/`UMOV`/`FMOV`),
+  packed FP (`FADD`/`FMUL`/`FDIV`/`FCMP` `.2s/.4s/.2d`), and **`DC ZVA`** (cache-line
+  zero) for MemZero. The V-register arrangement model (V0–V31 × arrangement specifier).
+- **x64 SSE2/AVX** (`asm/x64/x64_sse.bn` + tests): `MOVDQU`/`MOVDQA`, `PADDD`/`PSUBD`/
+  `PAND`/`PXOR`/`POR`, packed FP (`ADDPS`/`MULPS`/`ADDPD`), broadcasts; plus `rep stosb`
+  / wide-SSE fill for MemZero. XMM (and optionally YMM) model.
+- **arm32**: NEON where the target has it, else the scalar path is the fallback (many
+  arm32/baremetal configs have no NEON). Budget arm32 as "scalar fallback first, NEON
+  optional," not a blocker for aa64/x64.
 
-Unrolled the `MemZero`/`MemCopy` bulk word loops 4× (pure Binate, every target).
-**Measured: MemZero 12.2% → 8.1% of self-time; native cmd/bnc self-compile 12.42s →
-12.08s best-of-5, winning EVERY interleaved round (~2.8%) — a real, consistent
-gap-closer** (contrast the two neutral register refinements).  Adversarial review
-clean; LP64 conformance 3000/0, native arm32 2955/0; rt tests extended to exercise the
-unroll to 95-byte fills.  This confirms a meaningful chunk of MemZero was loop
-overhead, NOT store bandwidth.  The **residual 8.1% is the store side** — a scalar loop
-moving 8 B/store cannot reach `DC ZVA` (64 B/instr); closing that needs the wide-store
-work (V1/V2) below.  (Original note, retained:) a scalar unroll alone does not close the
-MemZero gap; it moves the native side only (LLVM re-idiom-recognizes the unrolled loop
-back to `bzero`), and it is the permanent fallback for arm32 / no-SIMD arches.
+The object writers (elf/macho) don't change — vector instructions are just more opcode
+bytes. Each arch's encoders land + are unit-tested independently.
 
-### V0 details / original framing — scalar unroll bound
+## (A) SIMD memory primitives (COMMITTED — everyone has them)
 
-A quick check of how much is just loop overhead: store **4–8 words per iteration** from
-a run of GP registers (manual unroll + word-remainder tail on the existing byte tail),
-`MemZero` and `MemCopy`.  Pure Binate, every target, no asm changes.
+Off V1, using **fixed** vector registers (no vector regalloc needed): rewrite the hot
+runtime primitives to match the LLVM/libc bar.
+- `rt.MemZero` → `DC ZVA` (aa64), `rep stosb` / wide-SSE (x64), scalar (arm32).
+- `rt.MemCopy` → wide `ldp/stp q` (aa64), `MOVDQU` (x64), scalar (arm32).
+- (`rt.MemCompare` only if a later profile shows the compare loops are a real gap —
+  compiler identifiers are short and early-exit, so this one IS profile-gated.)
 
-- **Bounded upside — do not oversell it.** LLVM's MemZero is a `bzero` call
-  (`DC ZVA`); a scalar word-unroll leaves the store COUNT unchanged and only trims
-  loop overhead (cmp/add/branch per word) — it CANNOT approach `DC ZVA`, so it does not
-  close the MemZero gap.  (The ~25% the byte→word widening bought was ~8× fewer STORES,
-  a different regime; word→N-word does not extrapolate from it.)  It helps MemCopy more
-  (that gap is inline-NEON, which an unroll partly narrows).
-- **It only moves the native side** (still Binate → LLVM re-idiom-recognizes the
-  unrolled loop back into `bzero`, so the LLVM baseline is unchanged) — which is the
-  correct way to close a gap: make native faster, not drag LLVM down.
-- **Real value:** (a) a cheap data point on the loop-overhead fraction; (b) it is the
-  permanent fallback for arm32 / any target without SIMD.  It does NOT make the SIMD
-  work below unnecessary — closing the MemZero/MemCopy gap REQUIRES the wide asm.
+Mechanism: hand-`.s` per arch (`#[build]`-gated), assembled in-process by the existing
+`asm/assemble` path. Success metric is native's ABSOLUTE time reaching the
+`bzero`/inline-NEON bar (since `rt` is shared, a hand-`.s` primitive is also what the
+LLVM build runs — so make the asm genuinely fast, and measure absolute, not just ratio).
 
-### V1/V2a STP wide-store MemZero — LANDED (2026-09-04)
+## (B) Arithmetic SIMD — the parity work (large)
 
-Landed on main: `97ea35125` (DC-ZVA/MRS encoders), `f9fe6e3dd` (sub-word
-LDR/STR post/pre-index fix + load/store file split), `53a422f5b` (the hand-asm
-MemZero `.s` seam + the `--library` archive fix + its e2e).  Validation: hygiene
-20/20, native + LLVM aa64 conformance 3000/0 each, e2e ffi-export 7/0 (incl. a
-new allocating-`--library` regression check), all four aa64 backend×linker
-combos.  A minimal adversarial review found one MAJOR defect — `--library`
-archives on aa64 were missing the gated-off MemZero (only 3 of the 4 link/
-archive paths were wired) — fixed before landing.
+The record-churn `add.4s` frontier + FP kernels. Three layers, sequenced:
 
-Built the aarch64 hand-asm `rt.MemZero` via a new runtime `.s` link seam (V2a),
-using STP-of-XZR wide stores (NOT DC ZVA yet).  Result and consequences:
+- **B1 — vector register allocation.** Extend the just-landed float register class to
+  the full V/XMM width (vector values as a register class the linear scan allocates).
+  The FP-homes work is the template + groundwork; this is its width-generalization.
+- **B2 — SLP vectorization.** Pack adjacent independent scalar ops on a struct/tuple
+  into one vector op (record-churn's 8 `uint32` field combines → 2× `add.4s`/`eor.16b`).
+  An IR or backend pass; the highest-value integer-SIMD lever, and the one record-churn
+  probes directly.
+- **B3 — loop auto-vectorization.** Dependence analysis + vectorizable-loop detection +
+  vector instruction selection + remainder/peeling, for numeric loops (FP kernels;
+  integer reductions). The largest piece; sequence last.
 
-- **Rigorous A/B (native bnc self-compiling cmd/bnc, `--backend native
-  --linker bnld`, 5 interleaved rounds, same machine):** baseline (scalar word
-  MemZero) best 7.69s vs STP wide-store best 6.82s — **~12% faster**, winning
-  every round.  MemZero fell from the #1 leaf (the ~8% pre-change) to ~1.7% of
-  self-time.  A bigger gap-closer than the 4-word unroll (~2.8%).
-- **The rt `.s` seam works and the BUILDER "wall" was a non-issue.** gen1 is
-  built by the frozen BUILDER against its *bundled* rt (`--base $blib`), not the
-  tree's — only `pkg/binate/*` comes from source (`--prepend $BINATE_DIR`).  So
-  #[build]-gating the tree's Binate MemZero off for aarch64 cannot break the
-  gen1 self-link; gen2+ (built by the tree's cmd/bnc, which carries the new `.s`
-  wiring) picks up the gated tree rt + the `.s`.  The `.s` defines the mangled
-  `rt.MemZero` symbol (`_`-prefixed on Mach-O); same-package callers (Alloc)
-  resolve it through rt.bni exactly as the semihost `.s` functions do.  Wired
-  into all three aarch64 link paths (clang: main + test; bnld: ELF + Mach-O).
-  Validated across all four backend×linker combos + rt's exhaustive MemZero
-  alignment×size suite.
-- **Assembler bug found + fixed on the way:** `ldrStrSubWordEmit` silently
-  emitted NOTHING for any addressing mode other than the unsigned offset, so a
-  hand-written `strb wzr, [x0], #1` (post-index) assembled to an empty slot —
-  silent wrong-code.  Latent (codegen only emits offset-form sub-word stores).
-  Fixed: added the pre/post-index encoding and made the fallthrough SetError.
-- **DC ZVA is now diminishing returns for this workload.** MemZero at ~1.7% is
-  dominated by SMALL fills (managed objects are tens of bytes), where DC ZVA
-  (whole-cache-line, needs alignment + size ≥ a line) does not even apply — the
-  STP head/tail already handles them.  DC ZVA would still matter for a workload
-  with large zero-fills (matching libc `bzero`'s absolute bar there), so the
-  DC-ZVA/MRS encoders (already landed as the V1 foundation) are kept, but the
-  DC-ZVA MemZero upgrade is deferred behind bigger gaps.
-- **The dominant remaining gap is now the string-compares** (`charsEqual` /
-  `streq` / `link.charsEqual` / `symHash` ≈ 10% of self-time), which the
-  call-based word-widen already showed regresses — they need INLINE SIMD.
+## Idiom recognition (fits between A and B)
 
-### V1 — SIMD instruction encoders in the asm layer (the shared prerequisite for everything below)
+Recognise `memset`/`memcpy`/`memcmp` **loop idioms** in COMPILED code (not just `rt`
+calls) and lower them to the (A) primitives — the analogue of LLVM's
+LoopIdiomRecognize. Medium effort; helps bnc's own hand-written fill/copy loops.
 
-Add the minimum vector instruction set to `asm/aarch64` (NEON) and `asm/x64`
-(SSE2), plus the assembler's parser/encoder tables:
-- aa64: `LDR/STR (128-bit Q)`, `LD1/ST1` (vector load/store), `MOVI` (broadcast
-  immediate, for zero-fill), `DUP`, and the packed integer compares/ops needed by the
-  chosen targets.
-- x64: `MOVDQU/MOVDQA` (128-bit load/store), `PXOR` (zero), `PCMPEQB` (byte compare),
-  `PMOVMSKB` (compare→mask) — the memcmp/memset/memcpy set.
-- Scope: comparable to the existing FP encoder files, but a distinct instruction
-  class (128-bit V/XMM operands, vector addressing modes).  Unit-tested against known
-  encodings (the asm layer already has this test pattern).
-- arm32: NEON is optional on the ISA and **absent on some bare-metal configs** — so
-  arm32 keeps the scalar (unrolled) path; SIMD is aa64 + x64 only.  (Consistent with
-  soft-float on arm32-baremetal.)
+## Sequencing
 
-### V2 — hand-vectorized runtime memory primitives (the biggest single gap-closer)
+1. **V1** — SIMD asm encoders + vector-register model (aa64 NEON + `DC ZVA` first, then
+   x64 SSE2, arm32 scalar-fallback). **Start here now.** Independently testable.
+2. **(A)** memory primitives (`MemZero`/`MemCopy`) — fixed-register hand-`.s`, off V1.
+3. **Idiom recognition** — memset/memcpy loops → (A) primitives.
+4. **(B1) vector regalloc → (B2) SLP → (B3) loop auto-vec** — the arithmetic frontier
+   (record-churn integer SIMD, then FP kernels).
 
-With V1's encoders, provide `MemZero`/`MemCopy` (and a NEW `MemCompare`) as
-**hand-written per-arch asm** that MATCHES what LLVM emits: aa64 `DC ZVA` + NEON
-zero-fill for MemZero (the libc-`bzero` bar), `ldp/stp q` for MemCopy; x64 wide-SSE /
-`rep stosb`/`rep movsb`; the V0 scalar-unroll fallback on arm32/no-SIMD.  This is where
-the MemZero gap actually closes — a scalar loop cannot reach `DC ZVA`, so matching
-LLVM here REQUIRES the wide asm.  Two ways to wire it:
-- **V2a — hand `.s`, assembled + linked into rt.**  Most direct: bypasses bnc's
-  codegen for these 3 functions.  Needs a NEW rt build seam — the runtime is currently
-  pure Binate with no persistent `.s`, so this must assemble a per-arch `#[build]`-gated
-  `.s` AND suppress the Binate definition for the SIMD arches without symbol collision.
-  The assembler exists (bnld assembles `_start.s`), but "assembler exists" ≠ "rt build
-  links conditional per-arch asm" — budget this seam, it is not free.
-- **V2b — SIMD builtins in the language**, rt written with them.  More general (any
-  Binate code could hand-vectorize) but a much bigger surface (new builtins, type
-  system, backend lowering, real vector register allocation).  Deferred unless V4.
-- Recommendation: **V2a** — least new surface for the memory gap.
-- **`MemCompare` is gated on the re-profile:** it only helps LONG equal-prefix
-  compares; compiler identifiers are short and `charsEqual` early-exits on the first
-  mismatch, so the string-loop bucket may not pay for a SIMD memcmp.  Build it only if
-  the current profile shows those loops are a real gap source.
-- **Note on the LLVM baseline (a hand-asm subtlety, NOT a reason to hesitate):** since
-  `rt` is shared, a hand-`.s` primitive is also what the LLVM-built bnc runs (LLVM
-  can't idiom-recognize hand asm, so it stops calling `bzero` and runs our asm too).
-  If our asm equals libc `bzero`, the gap closes with both builds fast; if it's slower,
-  the gap "closes" partly by the LLVM build slowing — so the success metric is native's
-  ABSOLUTE time reaching the libc-`bzero` bar, not just the ratio.  This is fine given
-  LLVM is the stopgap; just measure native absolute, and make the asm genuinely fast.
-
-### V3 — idiom recognition (optional, larger)
-
-Teach the native backend (or an IR pass) to recognise memset/memcpy/memcmp **loop
-idioms** in COMPILED code and lower them to the V2 primitives — the analogue of LLVM's
-LoopIdiomRecognize.  This helps user code (and bnc's own hand-written fill/copy/compare
-loops that aren't rt calls) without a general vectorizer.  Medium effort; do only if
-profiling after V2 still shows scalar idiom loops dominating.
-
-### V4 — general auto-vectorization (very large; likely out of scope)
-
-A real loop vectorizer — dependence analysis, vectorizable-loop detection, SIMD
-instruction selection, vector register allocation, remainder/peeling — for arbitrary
-loops (`charsEqual`'s compare, numeric kernels).  This is a multi-month compiler
-subproject with uncertain ROI against a ~2.5× gap that V0–V2 may already shrink
-substantially.  **Recommend NOT committing to V4 now**; revisit only if a post-V2
-profile shows a large, broad, non-idiom vectorizable surface.
-
-## Sequencing (the question is HOW, not WHETHER — the gap gets closed)
-
-1. **Step 0 — re-profile** the current native bnc vs LLVM (minutes).  Sizes each gap
-   source; everything below is ordered from it.
-2. **V0 (scalar unroll)** — days.  Cheap loop-overhead probe + the arm32/no-SIMD
-   fallback.  Not the memory gap-closer on its own.
-3. **V1 (SIMD/DC-ZVA asm encoders) → V2a (hand-asm rt MemZero/MemCopy[/MemCompare])** —
-   the core: this is what actually makes native's memory primitives match LLVM's
-   `bzero`/inline-NEON.  Re-profile after.
-4. **V3 (idiom recognition)** — recognise memset/memcpy/memcmp loops in compiled code
-   (not just rt calls) and lower to the V2 primitives.  Do it if the post-V2 profile
-   still shows scalar idiom loops as a gap source.
-5. **V4 (general auto-vectorizer)** — the remaining vectorizable surface (`charsEqual`
-   compares, numeric kernels) that isn't a memory idiom.  Large; sequence LAST, but it
-   is on the path to full parity, not "out of scope" — LLVM vectorizes these and native
-   must eventually too.
-
-Each stage is independently measurable and landable.  The gate at each stage is "how
-much of the native↔LLVM gap did this close," and the answer drives ORDER and effort —
-it does not reopen the question of whether to close the gap.
+Each stage is independently landable + measurable; the per-stage gate is "how much of
+the native↔LLVM gap did it close," which orders effort — it does not reopen WHETHER.
 
 ## Risks
 
-1. **Sizing before building** — the pre-widening profile was stale; Step 0 re-profile
-   is mandatory so V0–V4 are ordered by the CURRENT gap, not a retired number.  (This is
-   about targeting the biggest gap source first, NOT about whether the gap is worth
-   closing — it is.)
-2. **SIMD correctness** (alignment, tails, overlap) is trickier than the scalar
-   word-widening; each primitive needs the same exhaustive alignment×size test matrix
-   per arch, plus the strict-alignment discipline.
-3. **Matching the LLVM bar, not just "using SIMD"** — MemZero's bar is libc `bzero`
-   (`DC ZVA`); a naive NEON store loop that's slower than `bzero` has NOT closed the
-   gap.  Measure native absolute time against the LLVM lowering's speed, per primitive.
-4. **Vector register management** — V2a (hand asm) sidesteps it (fixed V registers);
-   V2b/V3/V4 need real vector register allocation, a large addition to the allocator.
-5. **Per-arch divergence** — aa64 NEON/DC-ZVA, x64 SSE2/`rep`, arm32 scalar; three code
-   paths, `#[build]`-gated, each validated on its `native_*` conformance mode.
-6. **bare-metal / no-SIMD arch** — the scalar (V0) path is the universal fallback where
-   the wide asm isn't available; it is a fallback, not the target.
+1. **SIMD correctness** — alignment, tails, overlap; each primitive/op needs an
+   exhaustive alignment×size test matrix per arch, plus strict-alignment discipline.
+2. **Matching the LLVM bar, not just "using SIMD"** — MemZero's bar is `DC ZVA`; a naive
+   NEON store loop slower than `bzero` has NOT closed the gap. Measure native absolute.
+3. **Vector register management** — (A) sidesteps it (fixed regs); (B1)+ need real
+   vector regalloc — sized down by the landed FP-register-class groundwork, but still a
+   real addition.
+4. **Per-arch divergence** — aa64 NEON/`DC ZVA`, x64 SSE2/`rep`, arm32 scalar; three
+   `#[build]`-gated paths, each validated on its `native_*` conformance mode.
+5. **Bare-metal / no-SIMD arch** — the scalar path is the universal fallback (arm32
+   baremetal); it is a fallback, not the target.
+6. **B is multi-month** — B2 (SLP) is the tractable high-value integer piece; B3 (full
+   loop auto-vec) is the open-ended one — land B1/B2, then size B3 against what's left.

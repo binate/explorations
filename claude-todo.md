@@ -357,6 +357,32 @@ iropt win, ✅ LANDED `2fa428d8b` (2026-09-21) — but a NO-OP on richards/fannk
 
 Order: T1 → T2 → T3 → T4 → T5 → T6.
 
+### native vectorization (SIMD) — V1 asm encoders FIRST (see plan-native-vectorization.md) — 🔵 OPEN
+
+Resurrected + re-scoped 2026-09-21 (FP-register homes just landed → a float register class exists;
+the visible vector frontier is record-churn ~4.75× integer `add.4s` SLP + the FP kernels + the
+always-wanted memory primitives). Endpoint is full native↔LLVM parity, so these are planned, not
+profile-gated. Much is INTEGER SIMD (record-churn, memory primitives) → not gated on the deferred
+FP-arithmetic work. Full plan + sequencing: `plan-native-vectorization.md`.
+
+- **V1 — SIMD asm encoders + vector-register model — 🔵 OPEN (the foundation; start here).** No perf
+  win alone, unblocks everything, fully unit-testable (assemble → assert bytes). Per arch, independently
+  landable:
+  - **aa64 NEON** (`asm/aarch64/aarch64_neon.bn`): `LDR/STR q`, `LD1`/`ST1`, packed int/FP arith
+    (`ADD/SUB/MUL/AND/ORR/EOR/FADD/FMUL` on `.4s/.2d/…`), `MOVI/DUP/INS/UMOV`, **`DC ZVA`**. Priority.
+  - **x64 SSE2/AVX** (`asm/x64/x64_sse.bn`): `MOVDQU/MOVDQA`, `PADDD/PSUBD/PAND/PXOR`, packed FP, `rep stosb`.
+  - **arm32**: NEON where present, else scalar fallback (baremetal has none) — not a blocker for aa64/x64.
+- **(A) SIMD memory primitives — COMMITTED (everyone has them).** Off V1, FIXED vector regs (no vector
+  regalloc): `rt.MemZero` → `DC ZVA`/`rep stosb`/wide-SSE; `rt.MemCopy` → wide `ldp/stp q`/`MOVDQU`;
+  hand-`.s`, `#[build]`-gated. (`MemCompare` profile-gated.) Metric: native ABSOLUTE time hits the
+  `bzero`/inline-NEON bar.
+- **(B) arithmetic SIMD — the parity work (large), roadmap:** B1 vector register allocation (width-
+  generalize the landed FP-register class) → B2 SLP vectorization (pack struct-field/adjacent scalar ops
+  — record-churn's `add.4s`) → B3 loop auto-vectorization (FP kernels; sequence last).
+- **Idiom recognition** (between A and B): recognise memset/memcpy loops in compiled code → lower to (A).
+
+Order: V1 (aa64 first) → (A) → idiom recognition → B1 → B2 → B3. Each independently landable/measurable.
+
 ### IR optimization passes (help LLVM + native backends + the VM) — 🟡 OPEN
 
 - **Pass infra + mem2reg + BCE** — design settled
