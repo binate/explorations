@@ -379,7 +379,7 @@ to 🟡 IN PROGRESS (`work-N/session`); measure the record-churn ratio before/af
   Safe, GENERAL. `emitBinop` hardcodes the 64-bit form + appends a mask; the `w`-form self-clears
   bits [32,64). 9 dead `ubfx` in `mix`; helps all 32-bit int code.
   `native/aarch64/aarch64_ops.bn` (`emitBinop`/`emitSubWordNarrow`); x64/arm32 analogs.
-- **T3 — extend aggregate-load elision to OP_EXTRACT-only consumers — 🔵 OPEN.**
+- **T3 — extend aggregate-load elision to OP_EXTRACT-only consumers — 🟡 IN PROGRESS (claimed 2026-09-21, work-3/session).**
   Medium; the open item deferred by `done/plan-native-aggcopy-fusion.md`. Alias an agg-load whose only
   uses are field extracts back to its stable source (param/alloca). Removes 2 per-input copies
   (~16 instrs in `mix`). `native/common/common_aggload_elision.bn` (`AggLoadElidable`).
