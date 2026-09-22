@@ -329,7 +329,7 @@ iropt win, ✅ LANDED `2fa428d8b` (2026-09-21) — but a NO-OP on richards/fannk
   descending-induction `i < j` BCE (for loops where `j`'s start genuinely IS `< len`) is sound and
   buildable but doesn't help fannkuch, and on managed slices is blocked behind the in-flight
   managed-slice length-coalescing. `iropt/bce_loop.bn`.
-- **T6 — native peephole + regalloc polish — 🔵 OPEN.** dead-load elim, drop branch-to-fallthrough,
+- **T6 — native peephole + regalloc polish — 🟡 IN PROGRESS (claimed 2026-09-21, work-4/session).** dead-load elim, drop branch-to-fallthrough,
   phi-copy coalescing, small-const immediates, don't-home register-resident params, right-size leaf
   frames. `aarch64_emit.bn`, `native/common/regalloc_*.bn`, `common.bn`. NOTE: coalescing / home-fewer
   is the OPPOSITE of the refuted home-more — validate against the interval-splitting regression.
