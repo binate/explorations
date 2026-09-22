@@ -370,6 +370,8 @@ FP-arithmetic work. Full plan + sequencing: `plan-native-vectorization.md`.
   landable:
   - **aa64 NEON** (`asm/aarch64/aarch64_neon.bn`): `LDR/STR q`, `LD1`/`ST1`, packed int/FP arith
     (`ADD/SUB/MUL/AND/ORR/EOR/FADD/FMUL` on `.4s/.2d/…`), `MOVI/DUP/INS/UMOV`, **`DC ZVA`**. Priority.
+    🟡 IN PROGRESS (claimed 2026-09-21, work-2/session) — V-register model + arrangement specifier
+    + NEON encoders, unit-tested per the `asm/*_test.bn` byte-assert pattern.
   - **x64 SSE2/AVX** (`asm/x64/x64_sse.bn`): `MOVDQU/MOVDQA`, `PADDD/PSUBD/PAND/PXOR`, packed FP, `rep stosb`.
   - **arm32**: NEON where present, else scalar fallback (baremetal has none) — not a blocker for aa64/x64.
 - **(A) SIMD memory primitives — COMMITTED (everyone has them).** Off V1, FIXED vector regs (no vector
