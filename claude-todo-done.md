@@ -1,3 +1,24 @@
+### `--library` facade package's own `.s` objects are never archived — ✅ LANDED 325b33bf7 (2026-09-22), work-1
+
+Follow-on from the package-`.s` work (`f660064df`). `compileLibrary`'s per-package
+loop DEFERS the facade (it `continue`s so the facade's `bn_init` dispatcher can see
+the whole closure, then compiles it after the loop), and that deferral skipped the
+facade's `assemblePkgAsmObjs` call — so a facade package shipping hand-written asm
+archived its compiled object WITHOUT the `.s`-defined symbols. Dependency packages
+were unaffected (the loop assembles theirs). Latent (no facade carries assembly
+today — rt is always a dependency), but it violated the spec contract that every
+artifact a package participates in carries its `.s` symbols.
+
+Fix: assemble the facade's `AsmFiles` (`ldr.GetPackage(facadePath)`) into `oFiles`
+right after its module object, before the `ar` — the same helper call the loop
+makes for every other package. Added `e2e/library-facade-asm.sh`: a facade carrying
+a data-only `.s` (`.global_c libasm_answer = .uint64 42`, arch-neutral so it
+assembles anywhere), and a C driver reading that symbol out of the linked archive.
+Validated both ways on aarch64-darwin — pre-fix bnc leaves the object absent and the
+link fails undefined `libasm_answer`; the fix archives it and llvm+native both read
+42. Cleared the two "known gap" Status notes in `docs` (`spec/16b` §16.10 pkg.asmfile
++ `abi/06` §6.8 linkage) that pointed here (docs pushed alongside).
+
 ### native vectorization V1 — aa64 NEON follow-ups + latent Add/Sub fix — ✅ LANDED `a722230e4..e325a88b1` (2026-09-22), work-2
 
 Three commits completing the aa64 assembler per the "comprehensive assembler; no

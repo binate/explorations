@@ -5,22 +5,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### `--library` facade package's own `.s` objects are never archived — 🟡 IN PROGRESS (claimed 2026-09-22, work-1; latent, found 2026-09-21, §16.10 spec adversarial review)
-
-In cmd/bnc/library.bn the per-package loop `continue`s for the facade
-(~:105-108) BEFORE the assemblePkgAsmObjs call (~:115), and the facade
-module's own compile after the loop (~:135) never calls it — so a facade
-package carrying `.s` files would produce an archive missing their symbols.
-Every other path is covered (main/test/--pkg + non-facade library closure
-members). LATENT: no facade package carries assembly today (rt is always a
-dependency), so nothing currently breaks — but the spec's contract
-(§16.10 `pkg.asmfile`: "every compiled artifact the package participates
-in") is violated for exactly this case, and both §16.10 and abi §6.8 carry
-Status notes pointing here (docs e5483a0). Fix: assemble the facade's
-AsmFiles into oFiles before the `ar` (same helper call as the loop); add a
-library e2e whose facade carries a gated `.s`; clear the two spec Status
-notes on landing.
-
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
