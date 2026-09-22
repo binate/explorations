@@ -3,6 +3,24 @@
 Tracks open work items, grouped by the subsystem / root cause they touch.
 Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
+## MAJOR
+
+### `--library` facade package's own `.s` objects are never archived — 🔴 OPEN (latent; found 2026-09-21, §16.10 spec adversarial review)
+
+In cmd/bnc/library.bn the per-package loop `continue`s for the facade
+(~:105-108) BEFORE the assemblePkgAsmObjs call (~:115), and the facade
+module's own compile after the loop (~:135) never calls it — so a facade
+package carrying `.s` files would produce an archive missing their symbols.
+Every other path is covered (main/test/--pkg + non-facade library closure
+members). LATENT: no facade package carries assembly today (rt is always a
+dependency), so nothing currently breaks — but the spec's contract
+(§16.10 `pkg.asmfile`: "every compiled artifact the package participates
+in") is violated for exactly this case, and both §16.10 and abi §6.8 carry
+Status notes pointing here (docs e5483a0). Fix: assemble the facade's
+AsmFiles into oFiles before the `ar` (same helper call as the loop); add a
+library e2e whose facade carries a gated `.s`; clear the two spec Status
+notes on landing.
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
@@ -1891,6 +1909,21 @@ unblock them:
   note elsewhere in this file — the same key-ergonomics gap.
 
 ## Opportunistic code cleanups
+
+### Migrate `pkg/semihost`'s assembly to the package-`.s` mechanism — 🟢 candidate (2026-09-21)
+
+pkg/semihost is a `.bni`-only package whose mangled definitions
+(SemihostWriteChar/SemihostExit/SemihostGetCmdline) live in
+runtime/baremetal_arm32/semihost.s, injected per-target via cmd/bnc's
+targetRuntimeFiles — the pre-§16.10 arrangement the package-`.s` mechanism
+was built to retire. Note the current mechanism requires an impl dir with
+build-included `.bn` files (§16.10: a `.s`-only dir is not an impl dir), so
+the migration needs either a stub `.bn` or relaxing that rule — surface the
+design choice before doing it. crt0.s (startup glue, pre-package) and the
+`__aeabi_*` set (unmangled helper surface) stay link-time runtime files.
+abi/07 §7.4 documents the two-arrangement split (docs e5483a0); update it
+if this lands.
+
 
 ### Stale comments contradicting live ABI behavior (found 2026-09-04, ABI-spec recon) — 🟢 sweep
 

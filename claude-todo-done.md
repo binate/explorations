@@ -28,7 +28,7 @@ vector-imm FMOV, multi-register LD1/ST1, and the latent Add/Sub negative-imm fix
 
 Three commits: `8606e70dc` (asm `.global_c` directive), `9332b1ca7` (loader picks up
 `.s` onto `Package.AsmFiles`), `f660064df` (bnc assembles package `.s`; rt.MemZero
-moved). Design doc: [`plan-package-asm-files.md`](plan-package-asm-files.md).
+moved). Design doc: [`done/plan-package-asm-files.md`](done/plan-package-asm-files.md).
 
 A package impl directory may now contain `.s` files, each gated at the FILE level by a
 leading `// #[build(...)]` comment (same grammar/evaluator as a `.bn`/`.bni` package

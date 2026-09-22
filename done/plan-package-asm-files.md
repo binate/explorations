@@ -1,10 +1,11 @@
 # Package Assembly Files — Design Proposal
 
-**Status: IMPLEMENTED — landed on `main` (`f660064df`, 2026-09-21); the SPEC
-surface (§2) is not yet folded into the spec.** The implementation plan (§3) is
-done (see `claude-todo-done.md`); this doc remains here for the spec author to fold
-§2's language/tooling surface into `docs/spec/`, and moves to `done/` once that
-integration lands. Anchors verified against the tree (binate `main`, 2026-09).
+**Status: IMPLEMENTED + SPEC'D — archived (2026-09-21).** Implementation landed
+on `main` (`f660064df`; see `claude-todo-done.md`), and the spec surface is folded
+in — language spec §16.10 (`pkg.asmfile*`) + ABI spec §6.8 (`abi.obj.asm-symbols`),
+landed docs `e5483a0` after adversarial review. §8's open questions resolved:
+`.global_c` spelling kept; gate anywhere in the leading comment block; dialect
+pinned as the implementation's own (bnas dialect); other file kinds out of scope.
 
 This is a **separate concern** from inline assembly (`#[asm]` on a Binate function,
 tracked elsewhere): this doc is about shipping a **whole `.s` file** alongside a
