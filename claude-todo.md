@@ -385,7 +385,7 @@ to 🟡 IN PROGRESS (`work-N/session`); measure the record-churn ratio before/af
   Medium; the open item deferred by `done/plan-native-aggcopy-fusion.md`. Alias an agg-load whose only
   uses are field extracts back to its stable source (param/alloca). Removes 2 per-input copies
   (~16 instrs in `mix`). `native/common/common_aggload_elision.bn` (`AggLoadElidable`).
-- **T4 — inline SROA-thin shapes like `mix` WITHOUT a blanket threshold raise — 🔵 OPEN, POLICY-SENSITIVE (user decision).**
+- **T4 — inline SROA-thin shapes like `mix` WITHOUT a blanket threshold raise — 🟡 IN PROGRESS (claimed 2026-09-21, work-1/session).**
   Largest single-benchmark impact but ADJACENT to the refuted inline-threshold + home-more levers.
   Cost-model change discounting SROA-eliminable aggregate plumbing when scoring a callee (distinct
   from the blanket raise, but must be measured tree-wide for net effect). Full parity also needs SROA
