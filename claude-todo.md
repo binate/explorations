@@ -923,6 +923,8 @@ package and is assembled + included wherever the package is linked — INCLUDING
 `bnc -c` object sets — with NO special per-symbol knowledge (`assembleRtMemObj`) baked
 into the compiler's link paths. Retires the special-casing and makes `bnc -c` output
 self-contained on every arch. Likely a post-0.0.16 release.
+
+Design + implementation plan: [`plan-package-asm-files.md`](plan-package-asm-files.md).
 ## Standard library — pkg/stdx/fmt
 
 ### fmt Printf — residual verb/flag gaps + two inert latent edges — 🟡 OPEN
