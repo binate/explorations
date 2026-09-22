@@ -333,53 +333,6 @@ iropt win, ✅ LANDED `2fa428d8b` (2026-09-21) — but a NO-OP on richards/fannk
 
 Order: T1 → T2 → T3 → T4 → T5 → T6.
 
-### native↔LLVM gap round 3 — record-churn aggregate-copy probe (see plan-native-codegen-gaps-round3.md) — 🔵 OPEN
-
-From profiling record-churn (~8× native/llvm, the largest non-FP gap) on current main. The 32-byte
-copy WIDTH is already fine (both backends use paired `ldp/stp`); the gap is everything AROUND it —
-`mix` stays an out-of-line by-value call while LLVM inlines+SROAs+SLP-vectorizes it. All non-FP; do
-NOT propose the refuted levers (inline-threshold raise, home-more/interval-split). Claim by flipping
-to 🟡 IN PROGRESS (`work-N/session`); measure the record-churn ratio before/after. Full evidence:
-`plan-native-codegen-gaps-round3.md`.
-
-- **T1 — fold constant field offsets on alloca bases into the load/store — ✅ LANDED `0c8549858`.**
-  Done — details (incl. the global-var IsGlobalRef miscompile caught pre-land, and the honest perf
-  result: fold fires but ~1% wall-clock, nil on record-churn which is call-bound) in
-  `claude-todo-done.md`. Key takeaway for the rest of round 3: T1 does NOT close record-churn — its
-  8× gap is dominated by `mix` staying an out-of-line by-value call, so it needs **T4 (inline mix)**
-  + integer SIMD, not the scalar folds.
-  `native/common/common_field_gep_fuse.bn`, `common_elem_gep_fuse.bn`, `native/aarch64/aarch64_emit.bn`; x64 analog.
-- **T2 — 32-bit integer arithmetic in `w`-registers; drop the `ubfx` re-narrow — ✅ LANDED `669cbabb9`.**
-  Done — aa64 + x64 now emit the 32-bit register form for uint32 results and skip the redundant
-  re-narrow (native matches LLVM's uint32 codegen). Like T1, **nil on record-churn** (its ratio is
-  unmoved — root-caused: record-churn is memory/call-bound, so the ALU narrows aren't on its
-  critical path), BUT ~3.2× on an ALU-bound uint32 dependent chain where the narrow was serializing
-  each op — the real payoff, matching "benefits all 32-bit int code." arm32 N/A. Details (perf
-  numbers, the correctness argument, the aarch64_compare.bn split) in `claude-todo-done.md`.
-- **T3 — extend aggregate-load elision to OP_EXTRACT-only consumers — ✅ LANDED `dd7562825`.**
-  Added an "S-extract" shape to `AggLoadElidable`: an agg-load whose every use is a field-precise
-  SCALAR `OP_EXTRACT` aliases its source, dropping the S-adjacent ≤16B cap (extracts don't
-  overlap-copy). Pure analysis extension, all three native backends. **The plan's `mix` premise was
-  WRONG**: an IR probe showed `mix` has NO whole param-loads at all — `a.f1` lowers to
-  `GET_FIELD_PTR`+scalar-load, no copy — so T3 does nothing for `mix`; its wins are `main`'s
-  heap-element field-read loops (e.g. the checksum `r := arr[i]; use r.f0..f7`). record-churn native:
-  −1.8% instr / −2.0% user CPU, ratio 5.55×→5.45× (modest — its hot path is the O(N²) churn loop T3
-  doesn't touch). Adversarial review caught + fixed a latent aggregate-extract UAF (guard now requires
-  scalar extracts; codegen-neutral). Details in `claude-todo-done.md`.
-- **T4 — inline SROA-thin shapes like `mix` WITHOUT a blanket threshold raise — ✅ LANDED `7029598cb` (user-approved).**
-  Gate the inliner on `sroaAdjustedSize` (post-inline-SROA op-count estimate = raw minus the plumbing
-  of non-managed field-addressable aggregate allocas) instead of the raw count, so `mix` inlines at
-  the default threshold WITHOUT the refuted blanket raise. record-churn native -O2 **−36%**
-  (2.16s→1.38s); the other 7 suite benchmarks NEUTRAL (0.99–1.01), no bloat. Correct (adversarial
-  review: pure estimator → boolean gate, strict subset of inlines → cannot miscompile; native aa64
-  -O2 3047/0, VM -O2 3035/0, all 8 benchmark checksums match). Details + the residual note in
-  `claude-todo-done.md`. Round-3 tracks all landed (T1/T2/T3/T4); the remaining record-churn gap to
-  LLVM (~5×→ still gap) is integer SIMD, out of round-3 scope.
-
-NOT a round-3 track: integer SIMD (LLVM's `add.4s`/`eor.16b` SLP-vectorization of the 8-field combine
-is the post-scalar ceiling) — a large separate lever in the deferred-FP-vectorization family
-(`plan-native-vectorization.md`). Order: T1 + T2 first (safe/general), then T3, then T4 as a decision.
-
 ### IR optimization passes (help LLVM + native backends + the VM) — 🟡 OPEN
 
 - **Pass infra + mem2reg + BCE** — design settled

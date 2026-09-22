@@ -873,6 +873,16 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+### native↔LLVM gap ROUND 3 (record-churn / aggregate-copy) — COMPLETE; plan archived `done/plan-native-codegen-gaps-round3.md` (2026-09-21)
+
+All four tracks landed (per-track entries below): T1 fold constant field offsets on alloca/FP-relative
+bases (`0c8549858`) and T2 32-bit `w`-form arithmetic dropping the `ubfx` re-narrow (`669cbabb9`) — both
+GENERAL wins (every struct-field access + all 32-bit int code, so they help the compiler self-compile
+too); T3 extract-only aggregate-load elision (`dd7562825`); T4 SROA-aware inline cost model
+(`7029598cb`, user-approved — the policy-sensitive one). The stale active-todo section is removed. The
+post-scalar ceiling — matching LLVM's integer SIMD (`add.4s`) SLP-vectorization of the 8-field combine —
+was left out deliberately (vectorization family, `plan-native-vectorization.md`).
+
 ### native↔LLVM gap ROUND 1 (fasta/richards) — COMPLETE; umbrella plan archived `done/plan-native-codegen-gaps.md` (2026-09-21)
 
 All five tracks landed (per-track entries below): T1 const div/mod magic-multiply + `madd`/`msub`
