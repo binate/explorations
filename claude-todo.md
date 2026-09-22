@@ -1278,7 +1278,7 @@ language extension, not a bug fix.
 
 ## Spec authoring & language-decision residuals
 
-### Re-vendor `scripts/spec-coverage/rule-ids.txt` from docs — 🔵 OPEN (2026-09-21)
+### Re-vendor `scripts/spec-coverage/rule-ids.txt` from docs — 🟡 IN PROGRESS (claimed 2026-09-21, work-3/session)
 The coverage tool reads a VENDORED copy of the spec's rule-ID inventory
 (`binate/scripts/spec-coverage/rule-ids.txt`) so it needs no docs checkout. That copy was last
 synced 2026-08-18 and is now 11 rule-IDs behind `docs/spec/rule-ids.txt`: the whole `stmt.defer*`
