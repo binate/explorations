@@ -1,3 +1,29 @@
+### native vectorization V1 — aa64 NEON asm encoders (core) — ✅ LANDED `03141db1e..be6f4ecd4` (2026-09-21), work-2
+
+Four commits, the aa64 half of the V1 SIMD-encoder foundation
+(`plan-native-vectorization.md`): the assembler can now emit NEON, unblocking the
+memory-primitive and arithmetic-SIMD tracks.  No perf alone (nothing emits these yet).
+
+- `03141db1e` — vector-register model (V0–V31, aliasing D0–D31 — one physical SIMD/FP
+  file) + arrangement specifiers (ARR_8B..ARR_2D, ordered (size,Q)) + packed integer
+  Vadd/Vsub/Vmul and bitwise Vand/Vorr/Veor (three-same).
+- `647979f20` — vector load/store: Vldr_q/Vstr_q, Vldp_q/Vstp_q, Vld1/Vst1 (offset +
+  post-index).  Vldr_q/Vstr_q pick scaled LDR/STR q, unscaled LDUR/STUR q (small
+  negative / non-16-aligned), or an X17-scratch address (Add for +, **Sub** for −).
+- `e83ca8988` — lane ops: Vdup_gp/Vdup_elem, Vins_gp, Vumov (+ ELEM_B..ELEM_D), and
+  Vmovi_byte (byte-replicate; #0 zeroes a register).
+- `be6f4ecd4` — packed FP: Vfadd/Vfsub/Vfmul/Vfdiv + Vfcmeq/Vfcmgt/Vfcmge over
+  ARR_2S/ARR_4S/ARR_2D.
+
+`DcZva`/`Mrs` already existed (the plan's "no DC ZVA" note was stale).  Every encoding
+is pinned by a golden test asserted against clang-emitted machine code (otool -s), with
+distinct Vd/Vn/Vm per case.  Adversarial review (independent clang oracle) found one
+MAJOR silent-miscompile — Vldr_q/Vstr_q feeding a negative offset to Add, which has an
+unsigned immediate field → base+16 MB — fixed via the LDUR/STUR + Sub path above, plus
+coverage gaps closed.  Verified: aarch64 asm unit tests (builder-comp), hygiene 20/20,
+BUILDER-compiles (gen1).  Follow-ups still open in the active todo: exhaustive MOVI +
+vector-imm FMOV, multi-register LD1/ST1, and the latent Add/Sub negative-imm fix.
+
 ### Include a `#[build]`-gated assembly file as part of a package (so `bnc -c`/`bnc --pkg` output is self-contained) — ✅ LANDED f660064df (2026-09-21), work-1
 
 Three commits: `8606e70dc` (asm `.global_c` directive), `9332b1ca7` (loader picks up

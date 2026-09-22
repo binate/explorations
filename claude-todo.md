@@ -368,10 +368,15 @@ FP-arithmetic work. Full plan + sequencing: `plan-native-vectorization.md`.
 - **V1 — SIMD asm encoders + vector-register model — 🔵 OPEN (the foundation; start here).** No perf
   win alone, unblocks everything, fully unit-testable (assemble → assert bytes). Per arch, independently
   landable:
-  - **aa64 NEON** (`asm/aarch64/aarch64_neon.bn`): `LDR/STR q`, `LD1`/`ST1`, packed int/FP arith
-    (`ADD/SUB/MUL/AND/ORR/EOR/FADD/FMUL` on `.4s/.2d/…`), `MOVI/DUP/INS/UMOV`, **`DC ZVA`**. Priority.
-    🟡 IN PROGRESS (claimed 2026-09-21, work-2/session) — V-register model + arrangement specifier
-    + NEON encoders, unit-tested per the `asm/*_test.bn` byte-assert pattern.
+  - **aa64 NEON** (`asm/aarch64/aarch64_neon*.bn`): ✅ CORE LANDED `03141db1e..be6f4ecd4` (4 commits;
+    see done log) — V-register model (V0–V31) + arrangements (ARR_8B..ARR_2D) + packed int/bitwise
+    (Vadd/Vsub/Vmul/Vand/Vorr/Veor) + vector load/store (Vldr_q/Vstr_q/Vldp_q/Vstp_q/Vld1/Vst1 +post
+    +LDUR/STUR for signed offsets) + lane ops (Vdup_gp/Vdup_elem/Vins_gp/Vumov/Vmovi_byte) + packed FP
+    (Vfadd/Vfsub/Vfmul/Vfdiv/Vfcmeq/Vfcmgt/Vfcmge). `DC ZVA`/`Mrs` already existed. Golden tests vs clang.
+    🔵 EXHAUSTIVENESS FOLLOW-UPS OPEN (user: assembler must be comprehensive — no-consumer ≠ omit):
+    (i) full MOVI immediate matrix (32-bit-element shift/MSL, .2d special) + vector-immediate FMOV;
+    (ii) multi-register LD1/ST1 list forms (LD1 {v0-v3}).  Also fix the latent Add/Sub negative-imm
+    footgun (its own entry above) — comes first.
   - **x64 SSE2/AVX** (`asm/x64/x64_sse.bn`): `MOVDQU/MOVDQA`, `PADDD/PSUBD/PAND/PXOR`, packed FP, `rep stosb`.
   - **arm32**: NEON where present, else scalar fallback (baremetal has none) — not a blocker for aa64/x64.
 - **(A) SIMD memory primitives — COMMITTED (everyone has them).** Off V1, FIXED vector regs (no vector
