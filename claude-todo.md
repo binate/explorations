@@ -386,15 +386,12 @@ FP-arithmetic work. Full plan + sequencing: `plan-native-vectorization.md`.
 - **V1 — SIMD asm encoders + vector-register model — 🔵 OPEN (the foundation; start here).** No perf
   win alone, unblocks everything, fully unit-testable (assemble → assert bytes). Per arch, independently
   landable:
-  - **aa64 NEON** (`asm/aarch64/aarch64_neon*.bn`): ✅ CORE LANDED `03141db1e..be6f4ecd4` (4 commits;
-    see done log) — V-register model (V0–V31) + arrangements (ARR_8B..ARR_2D) + packed int/bitwise
-    (Vadd/Vsub/Vmul/Vand/Vorr/Veor) + vector load/store (Vldr_q/Vstr_q/Vldp_q/Vstp_q/Vld1/Vst1 +post
-    +LDUR/STUR for signed offsets) + lane ops (Vdup_gp/Vdup_elem/Vins_gp/Vumov/Vmovi_byte) + packed FP
-    (Vfadd/Vfsub/Vfmul/Vfdiv/Vfcmeq/Vfcmgt/Vfcmge). `DC ZVA`/`Mrs` already existed. Golden tests vs clang.
-    🔵 EXHAUSTIVENESS FOLLOW-UPS OPEN (user: assembler must be comprehensive — no-consumer ≠ omit):
-    (i) full MOVI immediate matrix (32-bit-element shift/MSL, .2d special) + vector-immediate FMOV;
-    (ii) multi-register LD1/ST1 list forms (LD1 {v0-v3}).  Also fix the latent Add/Sub negative-imm
-    footgun (its own entry above) — comes first.
+  - **aa64 NEON** (`asm/aarch64/aarch64_neon*.bn`): ✅ COMPLETE (core `03141db1e..be6f4ecd4` +
+    follow-ups `a722230e4..e325a88b1`; see done log).  Comprehensive per the user directive: V-register
+    model + arrangements, packed int/bitwise, vector load/store (+post, +LDUR/STUR for signed offsets),
+    lane ops, packed FP, the FULL MOVI/MVNI/FMOV modified-immediate matrix, and multi-register LD1/ST1
+    (1–4 regs).  The latent Add/Sub negative-immediate footgun was fixed as part of this.  Golden tests
+    vs clang throughout.
   - **x64 SSE2/AVX** (`asm/x64/x64_sse.bn`): `MOVDQU/MOVDQA`, `PADDD/PSUBD/PAND/PXOR`, packed FP, `rep stosb`.
   - **arm32**: NEON where present, else scalar fallback (baremetal has none) — not a blocker for aa64/x64.
 - **(A) SIMD memory primitives — COMMITTED (everyone has them).** Off V1, FIXED vector regs (no vector
@@ -407,24 +404,6 @@ FP-arithmetic work. Full plan + sequencing: `plan-native-vectorization.md`.
 - **Idiom recognition** (between A and B): recognise memset/memcpy loops in compiled code → lower to (A).
 
 Order: V1 (aa64 first) → (A) → idiom recognition → B1 → B2 → B3. Each independently landable/measurable.
-
-### aarch64 asm: `Add`/`Sub` silently mis-encode a NEGATIVE immediate — 🟡 IN PROGRESS (claimed 2026-09-21, work-2/session)
-
-`emitDPOp` (`pkg/binate/asm/aarch64/aarch64_arith.bn`) splits an `Imm` as `lo =
-imm & 0xfff`, `hi = (imm>>12) & 0xfff` with no sign handling, so `Add(a, sf, rd,
-rn, Imm(-16))` emits `add rd, rn, #0xfff, lsl #12; add rd, rn, #0xff0` = rn +
-0xFFFFF0 (base + ~16 MB), NOT rn - 16 — a silent wrong-address, since the AArch64
-ADD/SUB-immediate field is unsigned. Found during native-vectorization V1: the new
-`Vldr_q`/`Vstr_q` overflow path originally fed a negative offset to `Add` and
-miscompiled; fixed there by using LDUR/STUR q for the signed-9-bit range and `Sub`
-(not `Add`) to form a large negative address. LATENT elsewhere: every current
-aarch64 `Add`/`Sub` caller passes a non-negative frame offset, and the scalar
-`emitFpLdrStrD`/`emitFpLdrStrS` overflow paths (same `Add`-based pattern) only see
-non-negative frame offsets (the refcount header at `[ptr,#-16]` uses
-`MemUnscaled`→LDUR). Proper fix: make `emitDPOp` lower a negative `Imm` to the
-opposite op with the negated magnitude (so `Add(Imm(-N))` ≡ `Sub(Imm(N))` and vice
-versa), hardening the shared primitive for all callers. No live trigger today, so
-not blocking.
 
 ### IR optimization passes (help LLVM + native backends + the VM) — 🟡 OPEN
 

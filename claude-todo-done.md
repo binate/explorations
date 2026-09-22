@@ -1,3 +1,29 @@
+### native vectorization V1 — aa64 NEON follow-ups + latent Add/Sub fix — ✅ LANDED `a722230e4..e325a88b1` (2026-09-22), work-2
+
+Three commits completing the aa64 assembler per the "comprehensive assembler; no
+latent footguns" directive (`plan-native-vectorization.md`).  No perf alone.
+
+- `a722230e4` — `Add`/`Sub` lower a NEGATIVE immediate to the opposite op
+  (`Add(#-n)`→`SUB #n`); `emitDPOp` fails loud on an immediate outside
+  0..0xFFFFFF, with an INT_MIN negation-overflow guard so the Add↔Sub swap can't
+  recurse forever.  Was a latent silent-miscompile in the shared primitive
+  (AArch64 ADD/SUB-immediate is unsigned) — every live caller passed a
+  non-negative in-range frame offset, so behavior is unchanged; surfaced by the
+  V1 review, verified behavior-preserving by a native-aarch64 conformance smoke.
+- `2acfdefe5` — the full MOVI/MVNI/FMOV modified-immediate matrix
+  (`aarch64_neon_imm.bn`): Vmovi (byte/half/word shifted), Vmovi_msl, Vmovi_2d
+  (byte-mask), Vmvni/Vmvni_msl, Vfmov_imm; invalid element/shift/imm combos fail
+  loud.  Subsumes the byte-only Vmovi_byte from the core.
+- `e325a88b1` — multi-register LD1/ST1 (1–4 consecutive regs, base + post):
+  Vld1_multi/Vst1_multi (+post), count validated 1..4.
+
+Adversarial review (independent clang-oracle model) found no encoding bugs across
+50 MOVI/MVNI + 130 LD1/ST1 + all Add/Sub cases; its one finding (the INT_MIN
+recursion) is the guard above, and all six flagged coverage gaps were tested.
+`aarch64_arith_test.bn` was split (→ `aarch64_arith_imm_test.bn`) to stay under
+the file-length cap.  Verified: aarch64 asm unit tests, hygiene 20/20,
+BUILDER-compiles.  Remaining V1: x64 SSE2, then arm32.
+
 ### native vectorization V1 — aa64 NEON asm encoders (core) — ✅ LANDED `03141db1e..be6f4ecd4` (2026-09-21), work-2
 
 Four commits, the aa64 half of the V1 SIMD-encoder foundation
