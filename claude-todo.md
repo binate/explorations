@@ -276,10 +276,21 @@ Remaining (follow-ups):
     (instructions retired, byte-identical output): 1.06% fewer.  Native aa64 conformance 3047/0;
     adversarial review clean.  (Only the ELEMENT fold; the field fold for floats — via
     FusableFieldGeps — is a separate smaller item, left untouched.)
-  - home loop-invariant float constants — 🔵 OPEN.  A const float currently materializes in a GP
-    reg + FMOV per use (`fmov d,x9` per const in the poly() disassembly).  Likely IR-level: whether
-    a loop-invariant float const is CSE'd into one homeable SSA value the FP allocator can home once,
-    vs. re-materialized per use.  Investigate the IR const handling before assuming a backend fix.
+  - home loop-invariant float constants — ✅ SUBSUMED by the FP-homes work (the pre-FP-homes premise
+    is obsolete).  Investigated on mandelbrot post-FP-homes: loop-invariant consts (2.0, 4.0) now
+    materialize ONCE at function entry (`mov x9,#0x4000000000000000; fmov d11,x9`) and are HOMED in
+    callee-saved D8..D15 — the inner loop reads `fmul d29,d15,d28` from the const home, no per-use
+    re-materialization.  The residual FP gap is a DIFFERENT, harder problem → new item below.
+  - **FP register pressure / spill-cost priority** — 🔵 OPEN (the real residual, found investigating
+    the above).  mandelbrot's inner loop spills the loop-CARRIED variables (Zr/Zi/Tr/Ti) to slots
+    (17 `ldr/str d,[sp,#0x7..]` round-trips/iteration) while the 8-register D8..D15 pool is full of
+    consts + other homes.  Two levers: (1) **CSE float constants** — the same const `2.0` is homed in
+    THREE separate D-regs (d9,d11,d15) because each literal is a distinct OP_CONST_FLOAT; CSE'ing them
+    frees FP homes.  (2) **spill-cost priority** — a loop-carried variable (reload AND store each
+    iteration) should out-prioritize a reload-only const for a home; check whether computeSpillCosts
+    accounts for store cost.  Also possible: use caller-saved D0..D7 for short-lived homes to enlarge
+    the effective pool.  Needs measurement (mandelbrot/spectral-norm/n-body) before committing to a
+    lever.
 
 ### native↔LLVM gap round 2 — richards/fannkuch next levers (see plan-native-codegen-gaps-round2.md) — 🔵 OPEN
 
