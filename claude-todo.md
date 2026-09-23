@@ -393,6 +393,18 @@ iropt win, ✅ LANDED `2fa428d8b` (2026-09-21) — but a NO-OP on richards/fannk
     reduces pressure (no interval-splitting regression), kills the spilled-const dead-loads. Phi-copy
     coalescing is the bigger 007 lever but touches regalloc core (regression risk) — deferred behind
     the safe immediate-folding.
+  - **aa64 ADD/SUB immediate fold LANDED `f1989126b`.** `fold.AddImmFoldableConsts` marks an
+    OP_CONST_INT used only as an ADD/SUB operand (ADD either operand w/ a register sibling; SUB
+    subtrahend only; result ≤ word; value in [0,4095] or, sign-swapped, [-4095,-1]); it rides the
+    `add/sub #imm` immediate instead of being materialized + (under pressure) spilled/reloaded.
+    Controlled same-tree A/B (-O2): 007_bucket_count ~1.28s → ~1.07s (~15% faster; the increment `1`
+    was spilled to 7 slots + reloaded per iter — folding it also freed the reg file, cutting phi-copy
+    movs: main 451→423); 008_reg_pressure unchanged (no regression). Adversarial review clean; native
+    aa64 conformance 3047/0; hygiene 20/20.  Also split RegMap flag accessors → `regalloc_flags.bn`.
+    **Remaining: (a) port the add/sub-imm fold to x64 (imm range 0..2^31-1 via sign-extended imm32) and
+    arm32 (rotation-0 modified-immediate subset, wordBytes=4 excludes int64 pair-add) — like the T3
+    const-fold port; (b) AND/OR/EOR logical-immediate folding (needs an is-encodable-bitmask check);
+    (c) phi-copy coalescing (the bigger 007 lever, deferred — regalloc-core, regression risk).**
 
 Order: T1 → T2 → T3 → T4 → T5 → T6.
 
