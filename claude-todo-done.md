@@ -1,3 +1,23 @@
+### native vectorization (A) — aa64 rt.MemZero → DC ZVA — ✅ LANDED `d962b76e4` (2026-09-22), work-2
+
+First (A) memory primitive off the V1 encoders.  The aarch64 rt.MemZero hand-`.s`
+now uses `DC ZVA` for large fills (size >= 256 on a standard 64-byte-block CPU:
+DCZID_EL0 low-5 == 4, i.e. DZP=0 & BS=4): byte+STP head to 64-byte alignment,
+one DC ZVA per cache line for the block-aligned middle, STP/byte tail.  Small
+fills and any non-standard/DC-ZVA-prohibited CPU keep the prior STP-of-XZR path,
+so it is a strict improvement.  Never overruns (a block is zeroed only while
+>= 64 bytes remain within [ptr, ptr+size)).
+
+Perf (new perf/009_memzero, 1 MiB fills, native aarch64, user CPU, interleaved +
+order-alternated, noise floor ~0.01s, 30000 iters): STP ~0.51s → DC ZVA ~0.20s,
+~2.5×.  Correctness: rt's MemZero alignment×size matrix tests + native-aarch64
+conformance green; adversarial review fuzzed all 128 alignments × sizes 0-600
+(no under/overrun) and the forced DZP/non-64-byte fallback — no defects.
+
+Remaining (A) in the active todo: aa64 rt.MemCopy (wide ldp/stp q — needs the
+text assembler taught vector-q ldp/stp), and the x64 primitives (rep stos /
+MOVDQU).
+
 ### native vectorization V1 — x64 SSE2 asm encoders — ✅ LANDED `7a01b88ae..0fe9ac7ac` (2026-09-22), work-2
 
 Three commits, the x64 half of the V1 SIMD-encoder foundation

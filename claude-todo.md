@@ -435,10 +435,14 @@ FP-arithmetic work. Full plan + sequencing: `plan-native-vectorization.md`.
     D/Q-register encoding scheme, distinct from aa64); NEON is optional/absent on many arm32 targets
     (baremetal), where the existing scalar path is the universal fallback.  Pick up when arm32 SIMD
     is actually wanted — not a blocker for the (A)/(B) tracks, which start on aa64/x64.
-- **(A) SIMD memory primitives — COMMITTED (everyone has them).** Off V1, FIXED vector regs (no vector
-  regalloc): `rt.MemZero` → `DC ZVA`/`rep stosb`/wide-SSE; `rt.MemCopy` → wide `ldp/stp q`/`MOVDQU`;
-  hand-`.s`, `#[build]`-gated. (`MemCompare` profile-gated.) Metric: native ABSOLUTE time hits the
-  `bzero`/inline-NEON bar.
+- **(A) SIMD memory primitives — IN PROGRESS (claimed work-2).** Off V1, FIXED vector regs (no vector
+  regalloc); hand-`.s`, `#[build]`-gated. Metric: native ABSOLUTE time hits the `bzero`/inline-NEON bar.
+  - **aa64 `rt.MemZero` → DC ZVA — ✅ LANDED `d962b76e4`** (~2.5× on 1 MiB fills; perf/009_memzero).
+  - aa64 `rt.MemCopy` → wide `ldp/stp q` — 🔵 OPEN (needs the text assembler taught vector-`q` ldp/stp,
+    dispatching to V1 `Vldp_q`/`Vstp_q`; then a memcopy_aarch64.s).
+  - x64 `rt.MemZero`/`rt.MemCopy` → `rep stosb`/wide-SSE / `MOVDQU` — 🔵 OPEN (needs the x64 text
+    assembler taught `rep stos` + `movdqu`).
+  - (`MemCompare` profile-gated.)
 - **(B) arithmetic SIMD — the parity work (large), roadmap:** B1 vector register allocation (width-
   generalize the landed FP-register class) → B2 SLP vectorization (pack struct-field/adjacent scalar ops
   — record-churn's `add.4s`) → B3 loop auto-vectorization (FP kernels; sequence last).
