@@ -231,7 +231,7 @@ through GP slots:
   reviews (no correctness bug).
 
 Remaining (follow-ups):
-- **arm32 f32-homing** — arm32 currently homes f64 only (`unhomeF32Values` drops every homed f32,
+- **arm32 f32-homing** — 🟡 IN PROGRESS (claimed 2026-09-22, work-5/session).  arm32 currently homes f64 only (`unhomeF32Values` drops every homed f32,
   because the single-word producer sites — const/load/extract/bit_cast/phi/param/return — are not
   yet FP-home-aware).  Making them home-aware (f32 rides the low S-view of its D-home, `lowSingleOf`)
   closes this.  MUST also close two latent gaps the adversarial review flagged, which this work
