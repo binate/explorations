@@ -403,9 +403,9 @@ always-wanted memory primitives). Endpoint is full native↔LLVM parity, so thes
 profile-gated. Much is INTEGER SIMD (record-churn, memory primitives) → not gated on the deferred
 FP-arithmetic work. Full plan + sequencing: `plan-native-vectorization.md`.
 
-- **V1 — SIMD asm encoders + vector-register model — 🔵 OPEN (the foundation; start here).** No perf
-  win alone, unblocks everything, fully unit-testable (assemble → assert bytes). Per arch, independently
-  landable:
+- **V1 — SIMD asm encoders + vector-register model — 🟢 aa64 + x64 COMPLETE; arm32 NEON deferred.** The
+  foundation for the two priority arches is landed (unblocks the (A)/(B) tracks below); fully
+  unit-tested (assemble → assert bytes vs clang). Per arch, independently landable:
   - **aa64 NEON** (`asm/aarch64/aarch64_neon*.bn`): ✅ COMPLETE (core `03141db1e..be6f4ecd4` +
     follow-ups `a722230e4..e325a88b1`; see done log).  Comprehensive per the user directive: V-register
     model + arrangements, packed int/bitwise, vector load/store (+post, +LDUR/STUR for signed offsets),
@@ -417,7 +417,11 @@ FP-arithmetic work. Full plan + sequencing: `plan-native-vectorization.md`.
     Max/Sqrt ps/pd, Cmpps/pd + CMPP_*, FP-bitwise), packed moves (Movdqu/Movdqa/Movaps + load/store),
     Rep_stosb/q, and shuffles/interleave (Pshufd, Shufps/pd, Movddup, Punpck*, Unpck*, Pshufb).  Golden
     tests vs clang; adversarial-reviewed (no bugs).
-  - **arm32**: NEON where present, else scalar fallback (baremetal has none) — not a blocker for aa64/x64.
+  - **arm32 NEON — 🔵 DEFERRED (2026-09-22, user: "defer it, for now").** `asm/arm32` has scalar VFP
+    but no Advanced-SIMD (NEON) layer.  Building it is a substantial A32 NEON encoder layer (its own
+    D/Q-register encoding scheme, distinct from aa64); NEON is optional/absent on many arm32 targets
+    (baremetal), where the existing scalar path is the universal fallback.  Pick up when arm32 SIMD
+    is actually wanted — not a blocker for the (A)/(B) tracks, which start on aa64/x64.
 - **(A) SIMD memory primitives — COMMITTED (everyone has them).** Off V1, FIXED vector regs (no vector
   regalloc): `rt.MemZero` → `DC ZVA`/`rep stosb`/wide-SSE; `rt.MemCopy` → wide `ldp/stp q`/`MOVDQU`;
   hand-`.s`, `#[build]`-gated. (`MemCompare` profile-gated.) Metric: native ABSOLUTE time hits the
