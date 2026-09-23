@@ -405,10 +405,13 @@ iropt win, ✅ LANDED `2fa428d8b` (2026-09-21) — but a NO-OP on richards/fannk
     was spilled to 7 slots + reloaded per iter — folding it also freed the reg file, cutting phi-copy
     movs: main 451→423); 008_reg_pressure unchanged (no regression). Adversarial review clean; native
     aa64 conformance 3047/0; hygiene 20/20.  Also split RegMap flag accessors → `regalloc_flags.bn`.
-    **Remaining: (a) [🟡 IN PROGRESS, claimed 2026-09-22 work-4] port the add/sub-imm fold to x64 (imm range 0..2^31-1 via sign-extended imm32) and
-    arm32 (rotation-0 modified-immediate subset, wordBytes=4 excludes int64 pair-add) — like the T3
-    const-fold port; (b) AND/OR/EOR logical-immediate folding (needs an is-encodable-bitmask check);
-    (c) phi-copy coalescing (the bigger 007 lever, deferred — regalloc-core, regression risk).**
+    **Remaining: (a) ✅ DONE `abb168186` — add/sub-imm fold ported to x64 (signed imm8/imm32,
+    no operation swap) and arm32 (rotation-0 modified-immediate, sign-swap negatives, wordBytes=4
+    excludes int64 pair-add).  Shared analysis reused; per-backend helpers in x64_fold.bn /
+    arm32_fold.bn.  Native conformance x64 3048/0, arm32 3002/0; unit x64 316 / arm32 405; x64 disasm
+    confirms `addq $0x1` fires.  (b) AND/OR/EOR logical-immediate folding (needs an is-encodable-bitmask
+    check) — 🔵 OPEN; (c) phi-copy coalescing (the bigger 007 lever, deferred — regalloc-core,
+    regression risk) — 🔵 OPEN.**
 
 Order: T1 → T2 → T3 → T4 → T5 → T6.
 
