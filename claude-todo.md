@@ -442,8 +442,16 @@ FP-arithmetic work. Full plan + sequencing: `plan-native-vectorization.md`.
 - **(A) SIMD memory primitives — IN PROGRESS (claimed work-2).** Off V1, FIXED vector regs (no vector
   regalloc); hand-`.s`, `#[build]`-gated. Metric: native ABSOLUTE time hits the `bzero`/inline-NEON bar.
   - **aa64 `rt.MemZero` → DC ZVA — ✅ LANDED `d962b76e4`** (~2.5× on 1 MiB fills; perf/009_memzero).
-  - aa64 `rt.MemCopy` → wide `ldp/stp q` — 🔵 OPEN (needs the text assembler taught vector-`q` ldp/stp,
-    dispatching to V1 `Vldp_q`/`Vstp_q`; then a memcopy_aarch64.s).
+  - aa64 `rt.MemCopy` → wide `ldp/stp q` — 🟡 IN PROGRESS. Parser bridge ✅ LANDED `2329b187c` (text
+    assembler now parses vector-`q` ldr/str/ldp/stp → V1 Vldr_q/Vstr_q/Vldp_q/Vstp_q). REMAINING:
+    (i) split `MemCopy` out of rt_managed.bn into a `#[build(!is(arch,"aarch64"))]`-gated rt_memcopy.bn
+    (mirror rt_memzero.bn); (ii) write memcopy_aarch64.s (wide ldp/stp q + tail); (iii) measure
+    (perf/010_memcopy) + adversarial review + land.
+  - Follow-ups from the bridge review (not blockers): (a) the text assembler + V1 ldr/str/ldp/stp
+    encoders SILENTLY mis-encode out-of-range/misaligned offsets (imm9 `&0x1ff`, imm7 `/16 &0x7f`,
+    scaled `/16`) — pre-existing, affects the GP path too; harden with encoder-level `a.SetError`
+    (like the GP unscaled path). (b) add parser tests: GP ldp/stp fall-through, and rejection of
+    pre-index/reg-offset/label/mismatched-reg vector-q forms (behavior verified correct, untested).
   - x64 `rt.MemZero`/`rt.MemCopy` → `rep stosb`/wide-SSE / `MOVDQU` — 🔵 OPEN (needs the x64 text
     assembler taught `rep stos` + `movdqu`).
   - (`MemCompare` profile-gated.)
