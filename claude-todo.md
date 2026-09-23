@@ -240,17 +240,18 @@ Remaining (follow-ups):
   D15); add the guard / make it FP-aware.  (2) `getOperand`'s FP-home branch reads only the low
   single (correct for its future f32 user, wrong for f64 — safe today since f64 never reaches it).
   aarch64's `nextReg` shares the unguarded gap — close it there too for consistency.
-- **hard-float unit coverage** — the arm32 unit tests exercise only soft-float / un-homed param
-  spill (`TestEmitSpillParamFloat64Spills` runs with `Arm32HardFloat()` false); the new hard-float
-  D-home marshalling (emitSpillParamFloatHard home branch, emitCallReturnFloatHard home branch,
-  emitFloatBinopHard D-home) is validated by conformance only.  Add hard-float unit tests, incl. an
-  FP-overflow-homed param (>8 float64 params) conformance test — that path may lack any direct
-  coverage (structurally identical to the proven unhomed-overflow path, but untested).
-- **x64 f32 upper-bits comment** — three comments (x64_float.bn:90,151, x64_regmap.bn:189) claim
-  "clean f32 upper bits", but the invariant isn't strictly maintained (Movapd from a Cvtsd2ss result
-  / XMM0 return / param reg carries dirty upper).  Non-observable (every consumer reads ≤32 bits,
-  matching aarch64), but the comment overstates — tighten it.  Also: x64 `emitFusedFieldStore`
-  stores a homed float via the GP bridge instead of a direct `movss`/`movlps` (missed opt).
+- **hard-float unit coverage** — ✅ **DONE (`bcb4e21eb`)**.  Added two arm32 hard-float unit tests
+  exercising the D-home marshalling directly (homed float64 call-return VMOVs D0→home;
+  homed float64 param VMOVs its CPRC reg→home), plus conformance 1280 (>8 float64 params read in a
+  loop).  NOTE found while writing 1280: the overflow-HOMED param branch is nearly UNREACHABLE — the
+  8-register D8..D15 pool fills with the first 8 params, so overflowed params stay slot-resident.
+  The branch stays as correct defensive code (structurally identical to the proven slot path); no
+  dedicated test forces it.  (This same pool-exhaustion is the FP-register-pressure item above.)
+- **x64 f32 upper-bits comment** — ✅ **DONE (`bcb4e21eb`)**.  Reworded x64_float.bn's two Movapd
+  comments to state the f32 upper bits may be dirty but no consumer reads them (rather than claim a
+  clean-upper invariant that isn't maintained).  Left x64_regmap.bn:189 (its `Movd` genuinely
+  upper-zeroes — accurate).  STILL OPEN (deferred, perf not correctness): x64 `emitFusedFieldStore`
+  stores a homed float via the GP bridge instead of a direct `movss`/`movlps` — a missed opt.
 - **aarch64 follow-ups to close more of fasta's residual gap**:
   - fold float array-element addressing — ✅ **DONE (`1ca914edc`)**.  A float `a[i]` load/store now
     folds its address into a scaled register-offset FP load/store straight into the D-home
