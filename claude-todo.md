@@ -231,15 +231,19 @@ through GP slots:
   reviews (no correctness bug).
 
 Remaining (follow-ups):
-- **arm32 f32-homing** — 🟡 IN PROGRESS (claimed 2026-09-22, work-5/session).  arm32 currently homes f64 only (`unhomeF32Values` drops every homed f32,
-  because the single-word producer sites — const/load/extract/bit_cast/phi/param/return — are not
-  yet FP-home-aware).  Making them home-aware (f32 rides the low S-view of its D-home, `lowSingleOf`)
-  closes this.  MUST also close two latent gaps the adversarial review flagged, which this work
-  touches anyway: (1) `nextReg` (arm32_regmap.bn) lacks the `isFpReg` guard `getOperand` has — an
-  f32 producer's `nextReg`→GP-encoder path would mis-encode a D-home number as `r(n&0xf)` (PC for
-  D15); add the guard / make it FP-aware.  (2) `getOperand`'s FP-home branch reads only the low
-  single (correct for its future f32 user, wrong for f64 — safe today since f64 never reaches it).
-  aarch64's `nextReg` shares the unguarded gap — close it there too for consistency.
+- **arm32 f32-homing** — ✅ **DONE (`f72d23dbd`)**.  arm32 now homes f32 in the low S-view of its
+  callee-saved D-register home (D8..D15), reaching full f32+f64 FP-home parity.  `nextReg` hands out
+  a GP scratch for an FP home (NOT the D-home number, which a GP encoder mis-encodes to r15/PC) and
+  `handleResult` VMOVs it into the S-view; `getFloatOperandF32` + the arith/cast/compare emitters
+  compute straight into the S-home (the f32 analogue of the f64 Stage-3 — `635_float32_arith`'s main
+  dropped 49→15 VMOVs); `unhomeF32Values` deleted.  Full native_arm32_linux conformance 3048/0;
+  adversarial review clean (all 8 vectors, incl. the f64→f32 Sd⊂Dm narrow aliasing).
+  RESOLVED the two "latent gaps": (1) arm32 `nextReg` fixed as above; `getOperand`'s FP-home branch
+  (low-single read) is now correctly the live f32-consumer path.  (2) aarch64's `nextReg` needs NO
+  change — it returns the D-home for an FP home, which is correct THERE because aarch64 producers
+  dispatch on `isFpReg(rd)` and use FP instructions (Fldr_s / Fmov / the arith's `if isFpReg` path);
+  arm32's bug was specific to its GP-compute model (the review conflated the two).  Confirmed by the
+  green aarch64 f32-homing conformance and the adversarial reviewer.
 - **hard-float unit coverage** — ✅ **DONE (`bcb4e21eb`)**.  Added two arm32 hard-float unit tests
   exercising the D-home marshalling directly (homed float64 call-return VMOVs D0→home;
   homed float64 param VMOVs its CPRC reg→home), plus conformance 1280 (>8 float64 params read in a
