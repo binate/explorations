@@ -401,7 +401,7 @@ iropt win, ✅ LANDED `2fa428d8b` (2026-09-21) — but a NO-OP on richards/fannk
     was spilled to 7 slots + reloaded per iter — folding it also freed the reg file, cutting phi-copy
     movs: main 451→423); 008_reg_pressure unchanged (no regression). Adversarial review clean; native
     aa64 conformance 3047/0; hygiene 20/20.  Also split RegMap flag accessors → `regalloc_flags.bn`.
-    **Remaining: (a) port the add/sub-imm fold to x64 (imm range 0..2^31-1 via sign-extended imm32) and
+    **Remaining: (a) [🟡 IN PROGRESS, claimed 2026-09-22 work-4] port the add/sub-imm fold to x64 (imm range 0..2^31-1 via sign-extended imm32) and
     arm32 (rotation-0 modified-immediate subset, wordBytes=4 excludes int64 pair-add) — like the T3
     const-fold port; (b) AND/OR/EOR logical-immediate folding (needs an is-encodable-bitmask check);
     (c) phi-copy coalescing (the bigger 007 lever, deferred — regalloc-core, regression risk).**
