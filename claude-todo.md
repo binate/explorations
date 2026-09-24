@@ -5,6 +5,24 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### VM: a struct local declared in a loop body is not re-zeroed per iteration — silent wrong results — 🔴 OPEN (found 2026-09-24)
+
+**Symptom:** in the bytecode VM (every `*-int` mode), `var s T` with no initializer, where T is a
+struct, keeps the previous iteration's value when the declaration re-executes inside a loop; a
+scalar `var n int` in the same position is correctly re-zeroed. Compiled code (LLVM and native,
+-O0 and -O2) is correct. Pre-existing on main `abb168186` (reproduced there before any of this
+session's changes).
+**Repro:** `conformance/1282_loop_struct_var_zeroed` (prints `10 0`, `20 1` on iterations 2–3
+instead of `0 0`); also trips `1281_sroa_struct_copy_out` (a `var carry P` in a pass loop).
+Both xfail'd in builder-comp-int / -int-int / -comp-int / arm32_linux_int (the arm32_linux_int
+marker is by inference — qemu not available where it was found).
+**Discovered:** writing the conformance test for the SROA copy-out split.
+**Root cause:** unknown — needs investigation. Likely the VM zero-fills an aggregate local's slot
+once (frame setup / first alloca) and the per-declaration zero-init of a struct lowers to nothing
+the VM re-executes (compiled backends zero at the declaration point).
+**Proposed fix:** make the VM zero the aggregate slot at each execution of the declaration (match
+whatever the backends key their per-declaration zero-fill on), then drop the xfails.
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
