@@ -14,6 +14,11 @@ quote numbers from this file (they go stale):**
   ratio (same tree, same work: native-built vs llvm-built bnc self-compiling
   cmd/bnc). Figures quoted in pre-2026-09-04 notes were a different,
   throughput-contaminated metric — not comparable.
+- **Native↔LLVM gap on the benchmark suite:** `scripts/native-vs-llvm.sh` in
+  github.com/binate/benchmarks (`e47d9dd`) — builds each benchmark with both
+  backends, cross-checks output, times USER CPU in interleaved, order-alternating
+  rounds; `--self native|llvm` gives the A/A noise floor. Use
+  `BINATE_BUNDLE=<dir>` to measure a toolchain built from `main`.
 - **VM execution:** `perf/001_fib.bn` (builder-comp-int) and `perf/self.sh`
   `bni_runs_hello` / `bni_runs_bni_hello`.
 - **Compile speed:** `perf/self.sh bnc_compiles_bnc`; always compare **USER
@@ -33,6 +38,33 @@ work below. Added as the workspace's `benchmarks/` submodule. Plan and benchmark
 list: `plan-benchmarks.md`. Direction: add benchmarks a couple at a time.
 
 ### Native codegen quality — closing the native↔LLVM gap — 🔵 OPEN
+
+**x64 suite baseline (2026-09-24, host x86-64 Linux — a 4-vCPU Firecracker VM, Xeon @ 2.1GHz,
+no PMU so no instruction counts).** bnc built from binate `main` `abb168186`; benchmarks `e47d9dd`
+`scripts/native-vs-llvm.sh`, 21 interleaved order-alternating rounds, USER CPU, native `-O2` vs
+llvm `-O2 --cflag -O2` (clang 18.1.3). fasta/mandelbrot run at raised N (canonical is ~1ms/60ms;
+mandelbrot at canonical N=1000 gives 4.05×, fasta has no usable ratio). A/A noise = worst
+|A/A best ratio − 1| over `--self native` and `--self llvm` (11 rounds each): host contention swings
+same-binary user time up to ~27% run to run, so best-of-N matters.
+
+| benchmark | N | llvm best | native best | native/llvm best | median | A/A noise |
+|---|---|---|---|---|---|---|
+| binary-trees | 16 | 0.786 | 1.240 | 1.58 | 1.48 | ±2% |
+| fannkuch-redux | 11 | 2.215 | 5.696 | 2.57 | 2.47 | ±8% |
+| fasta | 2500000 | 0.468 | 1.233 | 2.63 | 2.49 | ±3% |
+| mandelbrot | 4000 | 0.857 | 3.641 | 4.25 | 4.04 | ±4% |
+| n-body | 5000000 | 5.098 | 17.435 | 3.42 | 3.26 | ±1% |
+| record-churn | 8000 | 0.106 | 1.287 | 12.11 | 11.27 | ±7% |
+| richards | 10000 | 0.921 | 1.611 | 1.75 | 1.68 | ±6% |
+| spectral-norm | 5500 | 1.348 | 9.455 | 7.01 | 6.84 | ±5% |
+| geomean | | | | 3.51 | 3.34 | |
+
+Paired per-round ratios agree (e.g. n-body median 3.26, IQR 3.24–3.34); user+sys best-ratio geomean
+3.44. Note the x64 numbers are NOT comparable with the aa64 figures recorded elsewhere in this
+section (different arch and box): record-churn is 12× on x64 vs 4.75× last recorded on aa64, and
+fannkuch 2.57× vs ~1.37× — a hint that some aa64-first scalar work has not reached x64 (to be
+confirmed by disassembly, not assumed).
+
 
 Worked example with prioritized backend steps: `plan-native-fannkuch-gap.md`
 (fannkuch-redux ~3.2× native/llvm; root cause is machine-level codegen — spill-
