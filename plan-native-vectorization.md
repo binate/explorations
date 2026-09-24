@@ -24,6 +24,9 @@ lever is worth it has low value against a full-parity endpoint:
 - **record-churn ~4.75× native/llvm** (round 3 halved it; the residual is LLVM's
   `add.4s`/`eor.16b` SLP-vectorization of the 8-field integer combine — pure integer
   SIMD, no FP).
+  CORRECTION (2026-09-24, claude-todo "record-churn residual is SROA-pinned aggregate
+  copies"): the SLP part is only ~4 of LLVM's 25 loop instructions; the dominant residual
+  is scalar — two SROA-pinned `Record` allocas copied/zeroed per iteration.
 - **The FP benchmarks** (mandelbrot/spectral-norm/n-body) — now that scalar FP is
   register-homed, their residual is FP-arithmetic vectorization.
 - **Memory primitives** (`rt.MemZero`/`rt.MemCopy`) — LLVM lowers these to

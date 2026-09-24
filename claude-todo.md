@@ -447,6 +447,52 @@ iropt win, ✅ LANDED `2fa428d8b` (2026-09-21) — but a NO-OP on richards/fannk
 
 Order: T1 → T2 → T3 → T4 → T5 → T6.
 
+### record-churn residual is SROA-pinned aggregate copies, NOT the SIMD ceiling — findings 2026-09-24 — 🔵 OPEN (SROA item 🟡 IN PROGRESS)
+
+Profiled on x64 (callgrind instruction counts; no PMU in the VM) + static aa64 disassembly of a
+cross-built object, bnc from main `abb168186`, `--emit-llvm` for the shared IR. x64 record-churn is
+12.1× native/llvm user CPU (see the x64 suite baseline above). Per inner-loop element: **x64 native
+217 instrs (137 mem ops, 105 of them stack), aa64 native ~150 (static), LLVM 25 (0 stack ops)**;
+whole program N=4000: native 3.86G vs LLVM 0.92G instructions. LLVM's SLP (fields 4–7 in `xmm`)
+accounts for only ~4 of its 25 instrs.
+
+**CORRECTION** to the round-3 conclusion (claude-todo-done "residual is now essentially the
+integer-SIMD ceiling") and `plan-native-vectorization.md`'s "record-churn residual is `add.4s` SLP":
+the dominant residual is scalar — after `mix` is inlined, TWO `Record` allocas stay in memory in the
+loop (the inlined callee's `m` and the caller's `var m`), on BOTH native backends: each iteration
+zero-inits both (8 field stores each), stores fields, whole-reloads, does three 32-byte copies
+(callee m → caller m → `out[i]`), and reloads 8 fields back into the carry. On x64 the 4-byte field
+stores feeding 16-byte `movups` reloads are also a likely store-forwarding stall (fits time ratio
+12× > instruction ratio 8.5×). The latch's ~60-instr phi-copy shuffle on x64 is register pressure
+that mostly follows from the same live aggregate state.
+
+- **SROA: split whole-value aggregate copies so L2 stops pinning — 🟡 IN PROGRESS (claimed
+  2026-09-24, cloud session on the workspace).** Both allocas fail SROA's L2 rule
+  (`sroaLoadedValuesAllExtract`, iropt/sroa.bn): each whole-loaded value is consumed by a whole
+  `OP_STORE` elsewhere (callee m's load → store into caller m; caller m's load → store into
+  `out[i]`'s element pointer). Proposed: treat `OP_STORE(P, load(A))` (a whole store of a loaded
+  aggregate) as an extract-only consumer by rewriting it to per-field stores of `OP_EXTRACT`s through
+  const-index field pointers of P — no aggregate rebuild needed, so it fits the pin-don't-rebuild
+  design. Then both slots pass L1/L2, mem2reg promotes them, and the loop collapses toward LLVM's
+  shape. Plan: `plan-sroa-whole-copy-split.md`.
+- **Constant shift amount not folded (both backends).** `c.f2 << 1` reaches the backends as
+  `shl %x, %v403` with `%v403 = add i32 1, 0` hoisted out of the loop; native then reloads it from a
+  stack slot every iteration (x64 `mov rcx,[rsp+..]; shl edx,cl`; aa64 `ldr x9,[sp,..]; lsl w,w,x9`).
+  Needs: the const materialization not to hide the constant from shift-by-immediate selection
+  (fold `add C,0`/propagate before LICM, or rematerialize constants instead of spilling). 🔵 OPEN
+- **x64 bounds check is two signed compares** (`cmp i,0; jl` + `cmp i,len; jl`); aa64 already emits
+  one unsigned compare (`b.lo`). Port the unsigned single-compare form to x64. 🔵 OPEN
+- **x64 element-address scaling uses `imul r,r,0x20`**; aa64 uses `lsl #5`. Use `shl`/scaled
+  addressing for power-of-two element sizes on x64. 🔵 OPEN
+- **Managed-slice header reloaded through its stack slot every iteration** (both backends, ~10
+  instrs per slice per iteration for `arr`/`out`): the `@[]Record` locals stay in memory and the loop
+  re-reads data/len; LLVM hoists them (no aliasing store). Investigate why these managed-slice
+  allocas are not SROA'd / why the loads are not loop-invariant-hoisted. 🔵 OPEN
+- **x64 `rt.MemZero`** (zeroing each `make_slice`) is a 4×-unrolled 8-byte store loop reloading its
+  zero constants from 4 stack slots — 11.6% of native instructions; LLVM uses glibc `rep stosb`.
+  Covered by the x64 MemZero/MemCopy item under native vectorization (A) (being worked on
+  separately) — not duplicated here.
+
 ### native vectorization (SIMD) — V1 asm encoders FIRST (see plan-native-vectorization.md) — 🔵 OPEN
 
 Resurrected + re-scoped 2026-09-21 (FP-register homes just landed → a float register class exists;
