@@ -475,6 +475,15 @@ that mostly follows from the same live aggregate state.
   const-index field pointers of P — no aggregate rebuild needed, so it fits the pin-don't-rebuild
   design. Then both slots pass L1/L2, mem2reg promotes them, and the loop collapses toward LLVM's
   shape. Plan: `plan-sroa-whole-copy-split.md`.
+- **Dead mem2reg phis are never removed — 🟡 IN PROGRESS (claimed 2026-09-24, same cloud session;
+  companion to the SROA item above).** mem2reg places minimal (unpruned) SSA phis — one per
+  iterated-dominance-frontier block of each promoted slot, live or not — and no pass deletes dead
+  ones. The native backends then allocate + copy every phi at each loop latch. record-churn with the
+  SROA copy-out split: the inner loop header has 41 phis, 32 of them used only by other phis; the
+  copy-out split removed the aggregate traffic from the body but the latch grew to ~120 phi-copy
+  instrs, so native instructions/element did not drop (217 → 221). Affects every loop in native
+  code. Fix: a dead-phi elimination pass after promoteScalars (phi live iff reached from a non-phi
+  use or a FaultPad use through phi operands; delete the rest).
 - **Constant shift amount not folded (both backends).** `c.f2 << 1` reaches the backends as
   `shl %x, %v403` with `%v403 = add i32 1, 0` hoisted out of the loop; native then reloads it from a
   stack slot every iteration (x64 `mov rcx,[rsp+..]; shl edx,cl`; aa64 `ldr x9,[sp,..]; lsl w,w,x9`).
