@@ -7,6 +7,30 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+## Performance
+
+One umbrella for all perf work. **How to measure — run the benchmarks; never
+quote numbers from this file (they go stale):**
+
+- **Native↔LLVM code-quality gap:** `perf/native-vs-llvm.sh` — the canonical
+  ratio (same tree, same work: native-built vs llvm-built bnc self-compiling
+  cmd/bnc). Figures quoted in pre-2026-09-04 notes were a different,
+  throughput-contaminated metric — not comparable.
+- **Native↔LLVM gap on the benchmark suite:** `scripts/native-vs-llvm.sh` in
+  github.com/binate/benchmarks (`e47d9dd`) — builds each benchmark with both
+  backends, cross-checks output, times USER CPU in interleaved, order-alternating
+  rounds; `--self native|llvm` gives the A/A noise floor. Use
+  `BINATE_BUNDLE=<dir>` to measure a toolchain built from `main`.
+- **VM execution:** `perf/001_fib.bn` (builder-comp-int) and `perf/self.sh`
+  `bni_runs_hello` / `bni_runs_bni_hello`.
+- **Compile speed:** `perf/self.sh bnc_compiles_bnc`; always compare **USER
+  CPU time**, not wall-clock (concurrent-worker noise has hidden real wins).
+- **GOTCHA (has wasted time):** `perf/native-vs-llvm.sh` builds
+  `--backend native` = the **host** backend — on an arm64 box it cannot see
+  x64/arm32 codegen changes (a revert looks "neutral"). Measure non-host
+  backends by static instruction/reload counting on a `--target` build, or on
+  real hardware/CI.
+
 ### Cross-language benchmark suite (github.com/binate/benchmarks) — 🟢 in-flight
 
 Repo scaffolded; harness + first benchmark (spectral-norm) landed. Measures
