@@ -5,6 +5,30 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
+### -O1+: SROA drops a whole-store of OP_CONST_NIL that is NOT the declaration's zero-init — silent miscompile, ALL compiled backends — 🔴 OPEN (found 2026-09-25)
+
+**Symptom:** a raw-slice local reassigned to an empty literal keeps its old contents at -O1+:
+```
+var r *[]readonly int = f()   // f returns a 3-element view
+r = *[]readonly int{}         // lowers to store(r, CONST_NIL)
+testing.Println(len(r))       // must print 0; prints 3 at -O2
+```
+LLVM and native -O0 → 0, -O2 → 3 (x64). Reproduces with main `abb168186` (pre-session) — long-standing.
+**Root cause:** `expandWholeStore` (iropt/sroa_rewrite.bn) DROPS every whole-store whose value is
+OP_CONST_NIL, and `aggregateWholeStoresExtractable` (sroa_transform.bn) skips such stores when
+gating a candidate — both on the premise that such a store is always the `var h S` declaration
+zero-init right after the alloca (made redundant by the field zero-inits). But `genRawSliceLit`
+(irgen/gen_composite.bn) lowers an empty raw-slice literal to OP_CONST_NIL, and an assignment of it
+emits `store(slot, CONST_NIL)` anywhere. Also reachable via a nested field of a split struct local
+(`s.r = *[]readonly int{}` becomes a whole nil-store into the nested slot, dropped on the next
+fixpoint pass). Found by the adversarial review of the loop-body zeroing fix (the CRITICAL below).
+**Proposed fix:** expand a CONST_NIL whole-store into per-field zero stores (same per-type rules as
+makeFieldZeroInits; aggregate fields get an explicit `store(fa, CONST_NIL(fieldTy))`, since the
+backend zero-fill only runs at the alloca) instead of dropping it; for the declaration case the
+stores are dead and mem2reg removes them. Fix both comments; add an iropt unit test and a
+conformance test (empty-literal reassignment, plus the nested-field form).
+
+
 ### -O1+: a struct local declared in a loop body carries the previous iteration's field values — silent miscompile, ALL compiled backends — 🟡 IN PROGRESS (claimed 2026-09-25, cloud session on the workspace; found 2026-09-25)
 
 **Symptom:** at -O1 and -O2 (LLVM and native; x64 verified), a no-initializer struct local declared
