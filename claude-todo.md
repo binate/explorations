@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### -O1+: a struct local declared in a loop body carries the previous iteration's field values — silent miscompile, ALL compiled backends — 🔴 OPEN (found 2026-09-25)
+### -O1+: a struct local declared in a loop body carries the previous iteration's field values — silent miscompile, ALL compiled backends — 🟡 IN PROGRESS (claimed 2026-09-25, cloud session on the workspace; found 2026-09-25)
 
 **Symptom:** at -O1 and -O2 (LLVM and native; x64 verified), a no-initializer struct local declared
 inside a loop body reads the previous iteration's field values instead of zero. Repro:
