@@ -70,8 +70,8 @@ user-selectable -On of the compiler's IR passes".
 
 ## Step 1 — per-pass switches in iropt
 
-**Implemented, not yet landed** (lands right after the change that builds the toolchain at
-bnc -O2). As built: `iropt.OptConfig{Passes uint, InlineThreshold int}`,
+**✅ LANDED** binate `c11f3a99` + `2936905e` (2026-09-25; the toolchain-at-bnc-O2 build change
+landed with it, `aa8c2bac`). As built: `iropt.OptConfig{Passes uint, InlineThreshold int}`,
 `LevelOptConfig` / `WithOptPass` / `OptPassEnabled` / `OptPassName` / `OptPassByName`,
 `RunOptConfig`; `GenCtx`/`Module.SroaCleanupShape` replaces `OptLevel`; `vm.Opt` replaces
 `vm.OptLevel`; `pkg/binate/optflags` shared by bnc and bni. bni's `-f` flags (like `-O`) apply to
@@ -127,7 +127,8 @@ compile with no passes). iropt has ~190 other `slices.Append` call sites; the ap
 ones (block rebuilds `kept = Append(kept, ins)`, worklists) are all quadratic too and are next
 (`vec.Vec`, or presizing).
 
-Progress (same compile, user time, output byte-identical at every step; not yet landed):
+**✅ LANDED** binate `ff62917d`..`d7b9f7a6` (2026-09-25). Progress (same compile, user time,
+output byte-identical at every step):
 2m13s → 1m07s (NextID tables via make_slice) → 44s (append loops → vec.Vec / make_slice across
 iropt) → 38s (the loops that sweep missed: simplify, dom, multi-line-signature funcs) → 25.5s
 (SROA's L1/L2 legality checks and the inliner's cost model answered from a per-function use

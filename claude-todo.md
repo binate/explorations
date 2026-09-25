@@ -21,8 +21,9 @@ chosen for the interpreter's tradeoff (passes run on every load, no ahead-of-tim
 inherited from bnc's levels: some passes make no sense for the VM, and increasingly-marginal
 compiler passes (worse compile-time : speedup ratio) won't pay for themselves there. Plan:
 [plan-vm-pass-set.md](plan-vm-pass-set.md) — measure per-pass load cost vs run-time benefit under
-bni, pick the set, give iropt a VM entry point, drop `bni -O`, and make CI test exactly that set
-(which the default VM modes then do, fixing the -O2 workflow's false claim).
+bni, pick the set, give iropt a VM entry point, drop `bni -O`, and make CI test exactly that set.
+Steps 1-2 (per-pass switches; the passes' compile-time cost) and the toolchain-at-bnc-O2 build
+change are landed (see the done log); step 3 (measurement, `perf/vm-pass-costs.py`) is in progress.
 
 ## Performance
 

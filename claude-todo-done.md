@@ -1,3 +1,21 @@
+### Toolchain built at bnc -O2; per-pass optimization switches; IR passes' compile-time cost — DONE (binate `aa8c2bac`..`d7b9f7a6`, 2026-09-25)
+
+Steps 1-2 of [plan-vm-pass-set.md](plan-vm-pass-set.md) (the VM-pass-set todo stays open for steps 3-5).
+- `aa8c2bac`: release scripts and CI build gen2 / gen3 / bni (host + arm32) / the native bnc at
+  `bnc -O2` (IR passes + clang -O2) instead of clang-only `--cflag -O2`; gen1 (BUILDER-built)
+  stays `--cflag -O2`. conformance-o2.yml's VM shards dropped (they duplicated the default lane).
+- `c11f3a99` + `2936905e`: iropt pass table + `OptConfig` / `RunOptConfig`; `-f<pass>` /
+  `-fno-<pass>` on bnc and bni (`pkg/binate/optflags`), bnc `--list-opt-passes`; inline threshold
+  in the config, SROA discount gated on SROA+mem2reg; `SroaCleanupShape` replaces the OptLevel
+  shape gate (set at every IR-gen site from the config); `vm.Opt` replaces `vm.OptLevel`.
+- `ff62917d`..`d7b9f7a6`: pass compile time. Root cause: `slices.Append` is O(n) per call, and
+  iropt filled NextID-sized tables and rebuilt blocks one Append at a time; SROA / load-forwarding
+  legality scanned the whole function per candidate; the inliner recomputed callee facts and
+  linearly looked callees up per call site. Fixes: make_slice / vec.Vec, a per-function use
+  index, a per-callee facts cache, an indexed callee lookup. `bnc -O2` compiling cmd/bnc 2m13s ->
+  ~20.5s (no-pass compile ~12s); `bni -O 2` loading cmd/bnc 50.5s -> ~9.6s (-O 0 ~4.3s); output
+  byte-identical throughout.
+
 ### native vectorization (A) — aa64 rt.MemZero → DC ZVA — ✅ LANDED `d962b76e4` (2026-09-22), work-2
 
 First (A) memory primitive off the V1 encoders.  The aarch64 rt.MemZero hand-`.s`
