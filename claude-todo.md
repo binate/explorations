@@ -512,6 +512,22 @@ that mostly follows from the same live aggregate state.
   each field access, so only an IR producer that forgets that trips it; the SROA copy-out split
   now declines named-pointer destinations instead. Fix: peel `Typ` before taking `.Elem` in all
   three places (plus a unit test per backend).
+- **Native code layout: functions (and loop headers) are not aligned — 🔵 OPEN (found 2026-09-24).**
+  Native x64 function symbols land at unaligned addresses (e.g. `math.Sqrt` at `…83e`, `…903`);
+  LLVM aligns functions to 16. Measured layout sensitivity: shifting a copy of `math.Sqrt`'s code
+  by padding (same compiler, identical instructions) moves a Sqrt-bound loop's user time by up to
+  16% (0.875s–1.019s, x64, 8 paddings). This showed up as a spurious +11% n-body "regression"
+  between two builds whose Sqrt loop differed by one removed copy (callgrind: new build executed
+  1.9% FEWER instructions). Besides being a real performance gap, it makes single-build A/B
+  comparisons of branchy hot loops unreliable. Fix: align function entries (and probably loop
+  headers of hot/innermost loops) in the native backends, as LLVM does.
+- **n-body is ~90% software `math.Sqrt` on BOTH backends — 🔵 OPEN (found 2026-09-24).** callgrind:
+  native 88%, LLVM 90% of instructions in `math.Sqrt`'s bit-by-bit loop (neither emits `sqrtsd` /
+  `fsqrt`); the source notes "a hardware sqrt intrinsic may replace this as a fast path later". So
+  n-body's native/LLVM ratio is essentially the codegen gap on that one integer loop, and both
+  backends are far from C (which uses `sqrtsd`). A hardware sqrt (per-arch asm or an intrinsic the
+  backends lower) is the large lever for n-body; the loop's native codegen (spilled loop-carried
+  values, shift counts reloaded into `cl` from stack slots) is the gap lever.
 - **Constant shift amount not folded (both backends).** `c.f2 << 1` reaches the backends as
   `shl %x, %v403` with `%v403 = add i32 1, 0` hoisted out of the loop; native then reloads it from a
   stack slot every iteration (x64 `mov rcx,[rsp+..]; shl edx,cl`; aa64 `ldr x9,[sp,..]; lsl w,w,x9`).
