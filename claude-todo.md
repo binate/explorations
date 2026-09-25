@@ -7,16 +7,22 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### VM conformance runners ignore BINATE_FLAGS, so the "-O2" CI workflow runs the VM at -O0 — 🔵 OPEN (found 2026-09-25)
+### VM runs a user-selectable -On of the compiler's IR passes, and CI never tests it — 🟡 IN PROGRESS (claimed 2026-09-25, session claude/exciting-davinci-wahyt2)
 
-`conformance-o2.yml` sets `BINATE_FLAGS=-O2` and claims to cover "the LLVM and VM backends" at -O2,
-but all four VM runners (`builder-comp-int`, `builder-comp-comp-int`, `builder-comp-int-int`,
-`builder-comp_arm32_linux_int`) never pass `BINATE_FLAGS` to `bni`, whose `OptLevel` defaults to 0 —
-so its two builder-comp-int shards test the VM at -O0 only (the optimizer's VM-lowering interaction
-is uncovered end-to-end). Compounding it, `bni` accepts `-O 2` but rejects `-O2` (bnc accepts
-`-O2`), so naively forwarding `BINATE_FLAGS` would fail every VM test. Fix: make bni's flag parser
-accept `-O2` like bnc (or translate in the runners), forward `BINATE_FLAGS` in the four runners,
-then run the VM modes at -O2 once locally and triage any fallout before relying on CI.
+`vm.LowerModule` runs `iropt.RunOptPasses(m, vm.OptLevel)` before bytecode lowering (`bni -O <n>`,
+default 0; `--test` and the REPL fixed at 0). `conformance-o2.yml` sets `BINATE_FLAGS=-O2` and claims
+to cover the VM at -O2, but the four VM runners (`builder-comp-int`, `builder-comp-comp-int`,
+`builder-comp-int-int`, `builder-comp_arm32_linux_int`) never forward it, so the VM is only ever
+tested at -O0 (and `bni` accepts `-O 2` but not `-O2`).
+
+**Decision (user, 2026-09-25): option 2 — the VM gets a fixed, interpreter-appropriate pass set,
+always on, with no user-facing -On.** Code under bni should still run fast, but the pass set is
+chosen for the interpreter's tradeoff (passes run on every load, no ahead-of-time step), not
+inherited from bnc's levels: some passes make no sense for the VM, and increasingly-marginal
+compiler passes (worse compile-time : speedup ratio) won't pay for themselves there. Plan:
+[plan-vm-pass-set.md](plan-vm-pass-set.md) — measure per-pass load cost vs run-time benefit under
+bni, pick the set, give iropt a VM entry point, drop `bni -O`, and make CI test exactly that set
+(which the default VM modes then do, fixing the -O2 workflow's false claim).
 
 ## Performance
 
