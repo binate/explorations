@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### VM: a struct local declared in a loop body is not re-zeroed per iteration — silent wrong results — 🔴 OPEN (found 2026-09-24)
+### VM: a struct local declared in a loop body is not re-zeroed per iteration — silent wrong results — 🟡 IN PROGRESS (claimed 2026-09-25, cloud session on the workspace; found 2026-09-24)
 
 **Symptom:** in the bytecode VM (every `*-int` mode), `var s T` with no initializer, where T is a
 struct, keeps the previous iteration's value when the declaration re-executes inside a loop; a
