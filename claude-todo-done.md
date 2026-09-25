@@ -34,8 +34,8 @@ other nil whole-store into per-field zero stores via the shared appendFieldZeroS
 aggregate fields via their own nil store. Keeping the declaration drop avoids duplicate zero stores
 (review P1: managed slots aren't promoted; an array field would get a second zero-filled copy).
 Tests: iropt TestSroaNilWholeStoreAfterValueZeroesFields / ...IntoNestedFieldZeroes /
-TestSroaManagedSliceNilReassignStoresNilRefptr + a no-duplicate assertion; conformance 1283 (-O0 in
-the harness; checked by hand at -O2 on LLVM + native). Adversarial review: no soundness defects.
+TestSroaManagedSliceNilReassignStoresNilRefptr + a no-duplicate assertion; conformance 1283 (runs at -O2 in the conformance-o2 CI
+workflow for LLVM + native; checked by hand at -O2 too). Adversarial review: no soundness defects.
 
 ### -O1+ loop-body struct local carried the previous iteration's fields, ALL compiled backends (CRITICAL) — FIXED (binate `fa49ba46`, 2026-09-25)
 
@@ -49,7 +49,10 @@ every scalar field slot at the split alloca's position; mem2reg folds it (record
 count unchanged). Tests: iropt TestSroaLoopBodyStructFieldReadsZeroEachIteration, vm
 TestExecLoopStructLocalRezeroedOpt (both fail without the fix); 1281/1282 verified at -O2 on both
 backends. Adversarial review: sound; it surfaced the dropped-CONST_NIL-whole-store CRITICAL (open).
-Coverage gap noted: conformance runs every mode at -O0, so the optimizer has no end-to-end tests.
+Why CI missed it: the -O2 conformance workflow (conformance-o2.yml, BINATE_FLAGS=-O2) covers
+LLVM + native aa64/x64/arm32, but no conformance test had this shape before 1281/1282 (now it
+does). The VM modes of that workflow silently run at -O0 — see the todo on VM runners ignoring
+BINATE_FLAGS.
 
 ### VM: struct local declared in a loop body not re-zeroed per iteration (MAJOR) — FIXED (binate `5b56c2fc`, 2026-09-25)
 

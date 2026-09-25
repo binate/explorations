@@ -7,6 +7,17 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### VM conformance runners ignore BINATE_FLAGS, so the "-O2" CI workflow runs the VM at -O0 — 🔵 OPEN (found 2026-09-25)
+
+`conformance-o2.yml` sets `BINATE_FLAGS=-O2` and claims to cover "the LLVM and VM backends" at -O2,
+but all four VM runners (`builder-comp-int`, `builder-comp-comp-int`, `builder-comp-int-int`,
+`builder-comp_arm32_linux_int`) never pass `BINATE_FLAGS` to `bni`, whose `OptLevel` defaults to 0 —
+so its two builder-comp-int shards test the VM at -O0 only (the optimizer's VM-lowering interaction
+is uncovered end-to-end). Compounding it, `bni` accepts `-O 2` but rejects `-O2` (bnc accepts
+`-O2`), so naively forwarding `BINATE_FLAGS` would fail every VM test. Fix: make bni's flag parser
+accept `-O2` like bnc (or translate in the runners), forward `BINATE_FLAGS` in the four runners,
+then run the VM modes at -O2 once locally and triage any fallout before relying on CI.
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
