@@ -19,6 +19,21 @@ text assembler taught vector-q ldp/stp), and the x64 primitives (rep stos /
 MOVDQU).
 
 
+
+### VM: struct local declared in a loop body not re-zeroed per iteration (MAJOR) — FIXED (binate `5b56c2fc`, 2026-09-25)
+
+In every VM mode a no-initializer aggregate local declared in a loop body kept the previous
+iteration's value: IR-gen emits no zero store for it, the compiled backends zero-fill at each
+OP_ALLOC execution, but the VM's OP_ALLOC (BC_STACK_ALLOC) only computed the slot address and the
+frame is zeroed once at entry. Fix: `lowerAlloc` (vm/lower_memory.bn) sets BC_STACK_ALLOC's Aux to an
+aggregate slot's size (isAggregateLoadTyp, the VM mirror of IsAggregateTyp); BC_STACK_ALLOC zeroes
+Aux bytes on execution. Tests: vm `TestLowerAllocZeroesAggregate`, `TestExecLoopStructLocalRezeroed`
+(verified to fail with the zeroing disabled); conformance 1281/1282 VM xfails removed. Review: no
+soundness issues (placement matches the backends; frame-planner size matches); noted a perf nit —
+entry-block aggregates are now zeroed twice per call (pushFrame + OP_ALLOC). The review also
+surfaced the -O1+ SROA variant of the same wrong behavior in ALL compiled backends — the CRITICAL
+in claude-todo.md.
+
 ### SROA copy-out split + dead mem2reg phi elimination (record-churn) — DONE (binate `9da1662f`, `9c934585`; tests `50e414ca`, `20cb3604`; 2026-09-25)
 
 - **`9da1662f` iropt/sroa copy-out split** (`sroa_copyout.bn`): a non-managed struct alloca whose

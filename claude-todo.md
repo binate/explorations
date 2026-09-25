@@ -43,48 +43,6 @@ this shape (VM unit test via runVMAtLevel(src, 1), and/or a way for conformance 
 
 ## MAJOR
 
-### VM: a struct local declared in a loop body is not re-zeroed per iteration — silent wrong results — 🟡 IN PROGRESS (claimed 2026-09-25, cloud session on the workspace; found 2026-09-24)
-
-**Symptom:** in the bytecode VM (every `*-int` mode), `var s T` with no initializer, where T is a
-struct, keeps the previous iteration's value when the declaration re-executes inside a loop; a
-scalar `var n int` in the same position is correctly re-zeroed. Compiled code at -O0 is correct
-(at -O1+ the same shape miscompiles in every backend via SROA — see the CRITICAL above). Pre-existing on main `abb168186` (reproduced there before any of this
-session's changes).
-**Repro:** `conformance/1282_loop_struct_var_zeroed` (prints `10 0`, `20 1` on iterations 2–3
-instead of `0 0`); also trips `1281_sroa_struct_copy_out` (a `var carry P` in a pass loop).
-Both xfail'd in builder-comp-int / -int-int / -comp-int / arm32_linux_int (the arm32_linux_int
-marker is by inference — qemu not available where it was found).
-**Discovered:** writing the conformance test for the SROA copy-out split.
-**Root cause:** unknown — needs investigation. Likely the VM zero-fills an aggregate local's slot
-once (frame setup / first alloca) and the per-declaration zero-init of a struct lowers to nothing
-the VM re-executes (compiled backends zero at the declaration point).
-**Proposed fix:** make the VM zero the aggregate slot at each execution of the declaration (match
-whatever the backends key their per-declaration zero-fill on), then drop the xfails.
-
-## Performance
-
-One umbrella for all perf work. **How to measure — run the benchmarks; never
-quote numbers from this file (they go stale):**
-
-- **Native↔LLVM code-quality gap:** `perf/native-vs-llvm.sh` — the canonical
-  ratio (same tree, same work: native-built vs llvm-built bnc self-compiling
-  cmd/bnc). Figures quoted in pre-2026-09-04 notes were a different,
-  throughput-contaminated metric — not comparable.
-- **Native↔LLVM gap on the benchmark suite:** `scripts/native-vs-llvm.sh` in
-  github.com/binate/benchmarks (`e47d9dd`) — builds each benchmark with both
-  backends, cross-checks output, times USER CPU in interleaved, order-alternating
-  rounds; `--self native|llvm` gives the A/A noise floor. Use
-  `BINATE_BUNDLE=<dir>` to measure a toolchain built from `main`.
-- **VM execution:** `perf/001_fib.bn` (builder-comp-int) and `perf/self.sh`
-  `bni_runs_hello` / `bni_runs_bni_hello`.
-- **Compile speed:** `perf/self.sh bnc_compiles_bnc`; always compare **USER
-  CPU time**, not wall-clock (concurrent-worker noise has hidden real wins).
-- **GOTCHA (has wasted time):** `perf/native-vs-llvm.sh` builds
-  `--backend native` = the **host** backend — on an arm64 box it cannot see
-  x64/arm32 codegen changes (a revert looks "neutral"). Measure non-host
-  backends by static instruction/reload counting on a `--target` build, or on
-  real hardware/CI.
-
 ### Cross-language benchmark suite (github.com/binate/benchmarks) — 🟢 in-flight
 
 Repo scaffolded; harness + first benchmark (spectral-norm) landed. Measures
