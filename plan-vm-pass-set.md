@@ -131,7 +131,10 @@ Progress (same compile, user time, output byte-identical at every step; not yet 
 2m13s → 1m07s (NextID tables via make_slice) → 44s (append loops → vec.Vec / make_slice across
 iropt) → 38s (the loops that sweep missed: simplify, dom, multi-line-signature funcs) → 25.5s
 (SROA's L1/L2 legality checks and the inliner's cost model answered from a per-function use
-index instead of a whole-function scan per candidate). Open: `slices.Append` is O(n) per call
+index instead of a whole-function scan per candidate) → 23.1s (per-callee inlining facts cached)
+→ ~20.5s (callee lookup via the name index instead of a linear scan per call site; flat use
+index; load-forwarding's per-alloca analysis via the index). Whole compile with no passes: ~12s.
+bni -O 2 loading cmd/bnc: 50.5s (before) → ~9.6s; -O 0 is ~4.3s. Open: `slices.Append` is O(n) per call
 and has ~840 call sites across pkg/binate (parser, irgen, ...), not just iropt — whether to fix
 per site or make Append amortized (managed-slices carry a backing length; aliasing semantics)
 is a library decision put to the user.
