@@ -15,6 +15,9 @@ user-selectable -On of the compiler's IR passes".
    pass should be correct by itself, and toggling isolates a miscompile to one pass), and it is
    the tool for measuring which passes are worth it for the interpreter. A pass known not to work
    in some context (e.g. on the VM) can be excluded ("blacklisted").
+3. Flag spelling `-f<pass>` / `-fno-<pass>` is fine. The REPL runs the VM pass set too. No CI
+   sweep running conformance with each pass disabled in turn: its cost is prohibitive and grows
+   with every pass added.
 
 ## Current state
 
@@ -76,8 +79,7 @@ pay; `fuse-madd` depends on whether the VM has a fused op (it lowers OP_MADD) or
 - `iropt` gets an interpreter entry point (e.g. `iropt.VMPassSet()`), defined in iropt next to the
   pass table so a new pass must decide there whether the VM runs it. Default for a new pass: off
   for the VM until measured.
-- `vm.LowerModule` always runs that set (run path, `--test`, REPL alike, unless the REPL's
-  debuggability needs argue for fewer — raise with the user when we get there). IR-gen for
+- `vm.LowerModule` always runs that set (run path, `--test`, and the REPL alike). IR-gen for
   interpreted code uses the matching shape (set GenCtx/Module OptLevel consistently with the
   passes, or better, gate those shapes on the pass that needs them, `sroa`, rather than a level).
 - `bni -O` is removed. `bni -f<pass>`/`-fno-<pass>` stay, for testing and bisecting.
@@ -90,6 +92,3 @@ pay; `fuse-madd` depends on whether the VM has a fused op (it lowers OP_MADD) or
   so the VM's optimizer interaction is covered on every CI run, not only in the -O2 workflow.
 - Fix `conformance-o2.yml`'s claim to cover the VM at -O2 (drop the VM shards, or keep them as a
   "VM with every pass forced on" run if that is still wanted — user's call).
-- Separately worth considering for the compiler (user's call): a CI sweep that runs conformance
-  with each pass disabled in turn, to check every pass's independence claim. That is N× the
-  cost, so maybe a periodic job rather than per-push.
