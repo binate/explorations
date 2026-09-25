@@ -21,6 +21,22 @@ MOVDQU).
 
 
 
+
+### -O1+ SROA dropped non-declaration whole-stores of OP_CONST_NIL, ALL compiled backends (CRITICAL) — FIXED (binate `2ac1d516`, 2026-09-25)
+
+`expandWholeStore` dropped every whole-store of OP_CONST_NIL, assuming it is always the `var h S`
+declaration zero-init. An empty raw-slice literal lowers to OP_CONST_NIL, so `r = f(); r =
+*[]readonly int{}` kept f()'s length at -O1+ (long-standing; reproduced pre-session). The same drop
+left a managed slice's released refptr in its slot after `s = nil` (a likely double RefDec at scope
+exit). Fix: drop only the provable declaration zero-init (isDeclarationZeroInit: same block, nothing
+between the alloca and the store but the nil value — the split reproduces it there); expand every
+other nil whole-store into per-field zero stores via the shared appendFieldZeroStore (sroa_fields.bn),
+aggregate fields via their own nil store. Keeping the declaration drop avoids duplicate zero stores
+(review P1: managed slots aren't promoted; an array field would get a second zero-filled copy).
+Tests: iropt TestSroaNilWholeStoreAfterValueZeroesFields / ...IntoNestedFieldZeroes /
+TestSroaManagedSliceNilReassignStoresNilRefptr + a no-duplicate assertion; conformance 1283 (-O0 in
+the harness; checked by hand at -O2 on LLVM + native). Adversarial review: no soundness defects.
+
 ### -O1+ loop-body struct local carried the previous iteration's fields, ALL compiled backends (CRITICAL) — FIXED (binate `fa49ba46`, 2026-09-25)
 
 At -O1+ a no-initializer struct declared in a loop body read the previous iteration's field values
