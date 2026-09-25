@@ -18,6 +18,11 @@ user-selectable -On of the compiler's IR passes".
 3. Flag spelling `-f<pass>` / `-fno-<pass>` is fine. The REPL runs the VM pass set too. No CI
    sweep running conformance with each pass disabled in turn: its cost is prohibitive and grows
    with every pass added.
+4. (2026-09-25, after the adversarial review) The REPL's config leaves out inlining (re-lowering
+   inlining callers on redefinition is too complex/costly). Release builds and the default CI
+   lanes build bnc/bni at `-O2` (IR passes; `-O2` also implies clang `-O2` on the LLVM backend).
+   The all-passes-off bni gets one cheap CI lane. Self-drive: land each commit once reviewed
+   clean; bugs a review finds in existing code are handled separately.
 
 ## Current state
 
@@ -128,8 +133,8 @@ pass will look too expensive for the VM. Before choosing the VM set:
 - **REPL:** prompt-entered functions need a per-function entry point (the passes minus inlining,
   which is inter-procedural) called from the per-function lowering. Inlining vs redefinition: a
   same-signature redefinition replaces the function in place so old callers see the new body; a
-  caller that inlined the old body would keep running it. **Needs a decision:** leave inlining out
-  of the REPL's config, or re-lower inlining callers on redefinition. Also verify that no IR-gen
+  caller that inlined the old body would keep running it. Decided: inlining is left out of the
+  REPL's config. Also verify that no IR-gen
   appends to an already-optimized function afterwards (stale `InstrsVec`).
 - **First `--test`-with-passes run is a bug hunt** (nil checks + fault pads + passes has never
   run on unit tests). Policy for what it finds: each failure gets root-caused; a pass that is
@@ -144,8 +149,8 @@ pass will look too expensive for the VM. Before choosing the VM set:
 - **`conformance-o2.yml`'s VM shards test bni *built* with `bnc -O2`** (IR passes + clang), as an
   integration test of -O2 on a large program: `build_interp` (and gen1/gen2 builds where
   relevant) apply `BINATE_FLAGS`. This is independent of the VM pass set and doesn't have to wait
-  for steps 1-4. Related, **needs a decision:** should the release builds (`build-bni.sh`,
+  for steps 1-4. Decided: the release builds (`build-bni.sh`,
   `build-bnc.sh`) and the default CI lanes build the toolchain at `-O2` (IR passes) rather than
-  `--cflag -O2`? Today no shipped binary goes through the IR optimizer.
-- **Needs a decision:** after step 4, bni with all passes off (the reference executor for
-  bisecting a pass) has no CI coverage. One cheap lane, VM unit tests only, or nothing?
+  `--cflag -O2`; today no shipped binary goes through the IR optimizer.
+- Decided: one cheap CI lane runs bni with all passes off (the reference executor for bisecting
+  a pass), so it doesn't rot after step 4.
