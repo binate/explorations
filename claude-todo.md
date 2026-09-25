@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### load-forwarding store-forwards to a value its own RLE / slice-extract coalescing deleted (dangling operand) — 🔵 OPEN (found 2026-09-25)
+### load-forwarding store-forwards to a value its own RLE / slice-extract coalescing deleted (dangling operand) — 🟡 IN PROGRESS (found 2026-09-25; claimed 2026-09-25, session claude/exciting-davinci-wahyt2)
 
 **Symptom.** With load-forwarding running but mem2reg not (`-fload-fwd`, or `-O2 -fno-mem2reg`), a
 scalar local initialized from a slice's length or data and read in a loop gets a dangling operand:
