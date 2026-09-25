@@ -465,7 +465,7 @@ iropt win, ✅ LANDED `2fa428d8b` (2026-09-21) — but a NO-OP on richards/fannk
 
 Order: T1 → T2 → T3 → T4 → T5 → T6.
 
-### record-churn residual is SROA-pinned aggregate copies, NOT the SIMD ceiling — findings 2026-09-24 — 🔵 OPEN (SROA item 🟡 IN PROGRESS)
+### record-churn residual is SROA-pinned aggregate copies, NOT the SIMD ceiling — findings 2026-09-24 — 🔵 OPEN (SROA copy-out split + dead-phi elimination ✅ LANDED `9da1662f`/`9c934585`, see done log)
 
 Profiled on x64 (callgrind instruction counts; no PMU in the VM) + static aa64 disassembly of a
 cross-built object, bnc from main `abb168186`, `--emit-llvm` for the shared IR. x64 record-churn is
@@ -484,24 +484,6 @@ stores feeding 16-byte `movups` reloads are also a likely store-forwarding stall
 12× > instruction ratio 8.5×). The latch's ~60-instr phi-copy shuffle on x64 is register pressure
 that mostly follows from the same live aggregate state.
 
-- **SROA: split whole-value aggregate copies so L2 stops pinning — 🟡 IN PROGRESS (claimed
-  2026-09-24, cloud session on the workspace).** Both allocas fail SROA's L2 rule
-  (`sroaLoadedValuesAllExtract`, iropt/sroa.bn): each whole-loaded value is consumed by a whole
-  `OP_STORE` elsewhere (callee m's load → store into caller m; caller m's load → store into
-  `out[i]`'s element pointer). Proposed: treat `OP_STORE(P, load(A))` (a whole store of a loaded
-  aggregate) as an extract-only consumer by rewriting it to per-field stores of `OP_EXTRACT`s through
-  const-index field pointers of P — no aggregate rebuild needed, so it fits the pin-don't-rebuild
-  design. Then both slots pass L1/L2, mem2reg promotes them, and the loop collapses toward LLVM's
-  shape. Plan: `plan-sroa-whole-copy-split.md`.
-- **Dead mem2reg phis are never removed — 🟡 IN PROGRESS (claimed 2026-09-24, same cloud session;
-  companion to the SROA item above).** mem2reg places minimal (unpruned) SSA phis — one per
-  iterated-dominance-frontier block of each promoted slot, live or not — and no pass deletes dead
-  ones. The native backends then allocate + copy every phi at each loop latch. record-churn with the
-  SROA copy-out split: the inner loop header has 41 phis, 32 of them used only by other phis; the
-  copy-out split removed the aggregate traffic from the body but the latch grew to ~120 phi-copy
-  instrs, so native instructions/element did not drop (217 → 221). Affects every loop in native
-  code. Fix: a dead-phi elimination pass after promoteScalars (phi live iff reached from a non-phi
-  use or a FaultPad use through phi operands; delete the rest).
 - **Backends resolve an OP_GET_FIELD_PTR base's struct from the UNPEELED `Typ.Elem` — 🔵 OPEN
   (latent; found 2026-09-24 by the adversarial review of the SROA copy-out split).** LLVM
   `codegen/emit_helpers.bn` `emitGetFieldPtr`, native `native/common/common.bn` `StructTypeOf`,

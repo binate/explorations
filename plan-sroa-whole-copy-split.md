@@ -1,6 +1,6 @@
 # Plan: SROA — split whole-value aggregate copies so L2 stops pinning
 
-**Status:** 🟡 IN PROGRESS (claimed 2026-09-24, cloud session on the workspace). Tracked in
+**Status:** ✅ LANDED binate `9da1662f` (with dead-phi elimination `9c934585`), 2026-09-25 — see claude-todo-done.md. Tracked in
 `claude-todo.md` under "record-churn residual is SROA-pinned aggregate copies". Builds on
 `plan-ir-sroa.md` (Phase 0–2 landed) — read its L1/L2 contract first.
 

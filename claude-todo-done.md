@@ -18,6 +18,32 @@ Remaining (A) in the active todo: aa64 rt.MemCopy (wide ldp/stp q — needs the
 text assembler taught vector-q ldp/stp), and the x64 primitives (rep stos /
 MOVDQU).
 
+
+### SROA copy-out split + dead mem2reg phi elimination (record-churn) — DONE (binate `9da1662f`, `9c934585`; tests `50e414ca`, `20cb3604`; 2026-09-25)
+
+- **`9da1662f` iropt/sroa copy-out split** (`sroa_copyout.bn`): a non-managed struct alloca whose
+  whole loads are used only by extracts and whole stores to identically-typed plain raw pointers
+  gets each `store(p, load(a))` rewritten to per-field `store(gfp(p,i), extract(v,i))`, so SROA's L2
+  stops pinning it (and every alloca copied into it). Plan: `plan-sroa-whole-copy-split.md`.
+  Adversarial review found a BLOCKER, fixed before landing: a named/alias pointer destination
+  (`type PS *S`) has no `Typ.Elem`, which the backends use to type the field-ptr base (LLVM invalid
+  GEP / native undefined register / VM all fields at offset 0) — the gate now requires an unwrapped
+  TYP_POINTER with a matching TypeArg; the backend fragility is filed separately (todo).
+- **`9c934585` iropt dead-phi elimination** (`dead_phi.bn`, after promoteScalars): mem2reg's minimal
+  (unpruned) SSA left loop-body temporaries with header phis nothing reads, which the native
+  backends/VM copy on every back-edge; record-churn's loop header had 41 phis, 32 dead. Without this
+  the SROA change did not move the native loop (217 → 221 instrs/element). Review: no soundness issues.
+- **Effect (x64, native):** record-churn inner loop 217 → 134 instrs/element (callgrind; whole program
+  3.86G → 2.50G at N=4000); interleaved old/new native user CPU 0.50× (1.89s → 0.94s); native/llvm
+  ~12× → 5.6×. Other benchmarks within noise except an n-body +11% root-caused to code LAYOUT
+  (new build 1.9% fewer instructions; padding alone swings the Sqrt loop up to 16% — see the
+  native alignment todo). Suite native/llvm geomean 3.51× → 3.15× (separate runs, noisier host).
+- Validation: iropt 188 tests; unit 75/75; conformance 0 failures in builder-comp, native x64,
+  builder-comp-int, builder-comp-comp; hygiene 20/20. aa64/arm32 native not runnable in the
+  environment used (no qemu) — covered by CI.
+- Tests: `1281_sroa_struct_copy_out` (copy-out shapes incl. named pointer), `1282_loop_struct_var_zeroed`
+  (the separate VM bug found along the way — MAJOR in the todo); both xfail'd in the VM modes.
+
 ### native vectorization V1 — x64 SSE2 asm encoders — ✅ LANDED `7a01b88ae..0fe9ac7ac` (2026-09-22), work-2
 
 Three commits, the x64 half of the V1 SIMD-encoder foundation
