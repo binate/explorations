@@ -21,74 +21,131 @@ user-selectable -On of the compiler's IR passes".
 
 ## Current state
 
-- `iropt.RunOptPasses(m, level)` (`iropt/opt.bn`) is a plain ordered call list; every pass is gated
-  `level >= 1`, so -O1, -O2 and -O3 run the identical IR pipeline today (-O2/-O3 differ only in
-  the clang -O they imply on the LLVM backend). Order: inlineCalls, runSroa, promoteScalars
-  (mem2reg), eliminateDeadPhis, forwardLoads, forwardFieldLoads, simplifyIdentities,
-  elideSafeDivChecks, bceConstIndex, bceLoop, bceRedundant, hoistLoopInvariants,
-  groundGlobalRefPhiOperands, fuseMulAdds.
+- `iropt.RunOptPasses(m, level)` (`iropt/opt.bn`) is a plain ordered call list with one
+  `level < 1` early return, so -O1, -O2 and -O3 run the identical IR pipeline (-O2/-O3 differ only
+  in the clang -O they imply on the LLVM backend; on native not at all). Order: inlineCalls,
+  runSroa, promoteScalars (mem2reg), eliminateDeadPhis, forwardLoads, forwardFieldLoads,
+  simplifyIdentities, elideSafeDivChecks, bceConstIndex, bceLoop, bceRedundant,
+  hoistLoopInvariants, groundGlobalRefPhiOperands, fuseMulAdds. Callers: `cmd/bnc/compile.bn`
+  (two), `cmd/bnc/main.bn`, `cmd/bnc/test.bn`, `vm/lower.bn`.
+- Other optimizer knob: `--inline-threshold` sets the package global `iropt.InlineSizeThreshold`.
 - `vm.LowerModule` calls `RunOptPasses(m, vm.OptLevel)`; `bni -O <n>` sets it (default 0, accepts
-  `-O 2` but not `-O2`); `--test` and the REPL are fixed at 0.
-- **IR-gen shape is also level-gated, and the interpreter doesn't pass the level to it:** irgen
-  (`gen_local_cleanup.bn` `emitManagedStructPtrDtor`, via `GenCtx.OptLevel`) and irbuild
-  (`emit_refdec.bn`, via `Module.OptLevel`) emit an SROA-friendly managed-struct cleanup shape at
-  OptLevel >= 1. The interp builds its GenCtx with `irgen.NewGenCtx` and never sets `OptLevel`,
-  so `bni -O 2` runs the passes on -O0-shaped IR, a combination bnc never produces. (Correct as far
-  as known, but untested and not what "-O2" means anywhere else.)
-- CI: the VM is only exercised at pass level 0 (the four VM runners ignore `BINATE_FLAGS`).
+  `-O 2` but not `-O2`); `--test` (its own VM, `cmd/bni/main.bn` `runTests`) and the REPL never set
+  it. The REPL lowers prompt-entered code per function (`LowerOneFunc` / `LowerOneFuncShadow`),
+  which never runs passes; only session start and mid-session imports go through `LowerModule`.
+- **IR-gen shape is level-gated:** irgen (`gen_local_cleanup.bn` `emitManagedStructPtrDtor`, via
+  `GenCtx.OptLevel`) and irbuild (`emit_refdec.bn`, via `Module.OptLevel`) emit an SROA-friendly
+  managed-struct cleanup shape at OptLevel >= 1. The interpreter never sets `GenCtx.OptLevel`, so
+  `bni -O 2` runs the passes on -O0-shaped IR. That combination is correct (VM unit tests use it,
+  and a full conformance sweep at `bni -O 2` matched -O0), but it means SROA declines most managed
+  structs under bni. Nothing else (backends, VM lowering, linker) reads the level.
+- **CI never tests the optimizer on the VM, nor any optimized build of a toolchain binary:**
+  - the four VM runners ignore `BINATE_FLAGS`, so the VM runs at level 0 everywhere;
+  - `build_interp` / `build_gen1` / `build_gen2` (`scripts/lib/build-compilers.sh`) and the release
+    scripts (`scripts/build-bni.sh`, `build-bnc.sh`) build with `--cflag -O2` — clang -O2 only, IR
+    level 0 — and `BINATE_FLAGS` is not applied to those builds. So `conformance-o2.yml`'s VM shards
+    are exact duplicates of the default -O0 VM run, and no CI job runs a bni or bnc whose own code
+    went through the IR passes.
+- **Load cost today (adversarial review measurement, bni built a few hours before `2ac1d516`):**
+  interpreting cmd/bnc (`bni -main-dir cmd/bnc -- --version`) takes 4.2s user at `-O 0` vs 50.5s
+  at `-O 2` (12×). Run time does improve: `perf/001_fib` 0.72s → 0.46s, `perf/005_slice_sum` 2.37s
+  → 1.10s. Stack samples spread the load time over sroa (`instrListTable`, `splitSroaCopyOuts` /
+  `boolTable`, candidate collection), forwardLoads / `coalesceSliceExtracts`, inlineCalls (incl.
+  `sroaAdjustedSize` inside `inlinableCallee`), dead-phi, field-forward and simplify — mostly
+  allocation, `slices.Append`, and per-function tables sized to `f.NextID`, built per candidate.
+  That looks algorithmic, not inherent, and it is bnc's -O1+ compile time too.
+- Nil checks: `--test` and the REPL always emit `OP_NIL_CHECK` (bnc never does), and fault pads
+  are only ever executed by the VM, so pad rewriting in mem2reg/sroa/forwarding/inlining is only
+  observable on the VM. A conformance sweep at `bni -O 2` with and without `--check-nil` matched
+  -O0 (apart from the since-fixed 1283 SROA bug), but `--test` has never run with passes.
+- No pass was found to be *incorrect* when an earlier one is skipped (bceLoop, forwardFieldLoads,
+  elideSafeDivChecks just find less). The -O1+ managed cleanup shape is correct without SROA. One
+  policy dependency: the inliner's cost model (`inline_sroa_cost.bn`) discounts callee size by what
+  SROA + mem2reg would remove, so without SROA it over-inlines.
 
 ## Step 1 — per-pass switches in iropt
 
 - A pass table in `iropt`: each entry has a stable name (e.g. `inline`, `sroa`, `mem2reg`,
   `dead-phi`, `load-fwd`, `field-load-fwd`, `simplify`, `div-check-elide`, `bce-const`,
   `bce-loop`, `bce-redundant`, `licm`, `fuse-madd`) and the minimum level it runs at. An
-  `iropt.PassSet` (enabled bits per pass) is derived from a level, then adjusted by explicit
+  `iropt.PassConfig` holds the enabled bit per pass plus the inline threshold (replacing the
+  `InlineSizeThreshold` global); it is derived from a level, then adjusted by explicit
   enables/disables. `RunOptPasses(m, level)` stays as the level-derived convenience entry.
-- **Required fixups are not switchable.** `groundGlobalRefPhiOperands` is a correctness step for
-  whatever the forwarding passes produced, not an optimization: it runs whenever any pass that can
-  produce a global-ref phi operand ran. Likewise the ordering constraints stay fixed (fuseMulAdds
-  last; the "no addInstr pass after LICM/BCE/fuse" rule). Switches only remove passes from the
-  fixed order, never reorder.
-- **Dependencies:** a pass that is merely less effective without an earlier one (bceLoop without
-  mem2reg finds no induction phis) is still allowed; that is exactly the "each pass correct by
-  itself" property the switches test. If some pass is found to be *incorrect* without another,
-  that is a bug to fix (or, while open, an explicit, commented dependency in the table), not
-  something to hide.
-- **bnc flags:** `-fno-<pass>` / `-f<pass>` (GCC style), applied after the -O level, repeatable;
-  unknown names are an error. Also `--list-opt-passes` to print the table. `bni` gets the same
-  spelling, for testing (see step 3 for its default).
-- Unit tests in `iropt` for the table/PassSet derivation; `cmd/bnc/args_test.bn` for parsing.
+- The early return becomes "no pass enabled", so `-O0 -fsroa` runs just SROA.
+- **Fixups are not switchable.** `groundGlobalRefPhiOperands` runs whenever any pass runs (only
+  iropt creates phis, so it's a no-op otherwise). Ordering constraints stay fixed (fuseMulAdds last;
+  no addInstr pass after LICM/BCE/fuse). Switches only remove passes from the fixed order.
+- **Dependencies:** a pass that is merely less effective without an earlier one is allowed; that
+  is the "each pass correct by itself" property the switches test. A pass found *incorrect*
+  without another is a bug to fix (while open: an explicit, commented dependency in the table).
+  The inliner's cost model reads the config: it only applies the SROA/mem2reg discount when those
+  passes are enabled.
+- **IR-gen shape gate follows the config, not the level:** `GenCtx` / `Module` carry the pass
+  config (or just the sroa bit) instead of `OptLevel`, so `-O0 -fsroa` and `-O2 -fno-sroa` get the
+  shape that matches. Every `GenCtx` construction site gets it (`interp.bn` ×4, `cmd/bni/main.bn`,
+  `repl/session.bn` ×2, `mid_session_import.bn`, bnc's), and `irgen.GenModule` keeps shape 0.
+- **Flags:** `-f<pass>` / `-fno-<pass>` on bnc and bni. `pkg/std/flags` is dash-insensitive with
+  no prefix matching and no order preservation, so each pass registers two bool flags (as bnc does
+  for `O0`..`O3`); giving both `-fX` and `-fno-X` is an error; unknown names already error. Plus
+  `--list-opt-passes`. (Extending `pkg/std/flags` instead is possible but it is in the
+  BUILDER-compiled surface.) `-On` keeps implying clang `-On` on the LLVM backend; `-f` flags
+  don't affect clang.
+- Unit tests: `iropt` for config derivation and the no-pass / single-pass cases;
+  `cmd/bnc/args_test.bn` and bni's args tests for parsing.
 
-## Step 2 — measure each pass under the VM
+## Step 2 — make the passes cheap enough to run on every load
 
-With the switches, measure per pass (and cumulative, in pipeline order) under `bni`:
+The 12× load cost is a problem for bnc -O1+ as much as for the VM, and until it's fixed every
+pass will look too expensive for the VM. Before choosing the VM set:
 
-- **Cost:** time spent in the pass at load, over the benchmark programs, the conformance corpus,
-  and a large program (cmd/bnc itself interpreted, the realistic worst case for load time).
-- **Benefit:** run time (user CPU, interleaved, order-alternating, per
-  `perf-optimization-guide.md`), on the benchmarks suite under bni and a few conformance-heavy
-  programs; bytecode instructions executed if the VM can count them cheaply.
+- Profile bnc -O2 compiling cmd/bnc (compiled bnc: callgrind), and bni loading cmd/bnc, per pass.
+- Fix the per-candidate O(NextID) table construction and similar algorithmic costs pass by pass,
+  measuring each (user CPU, noise floor first, per `perf-optimization-guide.md`).
+
+## Step 3 — measure each pass under the VM
+
+- **Cost:** per-pass load time (switches make leave-one-out and single-pass runs possible) on the
+  benchmark programs, the conformance corpus, and cmd/bnc interpreted; peak RSS; REPL per-prompt
+  latency.
+- **Benefit:** run time (user CPU, interleaved, order-alternating) on the benchmarks suite under
+  bni and some conformance-heavy programs.
+- Both **cumulative in pipeline order and leave-one-out** from the candidate set (passes interact:
+  bceLoop needs mem2reg's phis, the inliner's cost model assumes SROA).
+- On the bni that ships (see step 5: built with the IR passes too) and a native-backend-built bni.
+- **Decision rule stated before measuring:** the workload mix and the run length at which a pass's
+  load cost is repaid; also CI wall time on the `-int-int` lanes (which interpret cmd/bni for every
+  test, already sharded 6-12 ways) must stay within their caps.
 - Commit the measurement script.
 
-Expected shape (to verify, not assume): mem2reg + dead-phi, forwarding, simplify, and the BCE
-passes remove executed bytecode ops cheaply; inlining and SROA are costlier and may or may not
-pay; `fuse-madd` depends on whether the VM has a fused op (it lowers OP_MADD) or just expands it.
+## Step 4 — the VM pass set
 
-## Step 3 — the VM pass set
+- `iropt.VMPassConfig()`, defined next to the pass table so each new pass decides there whether
+  the VM runs it; a new pass starts off for the VM until measured.
+- The VM holds a `PassConfig` (replacing `vm.OptLevel`), defaulting to the VM set. Unit tests
+  that deliberately compare configs set it explicitly; `Interp.SetOptLevel` is replaced by a
+  config setter. `LowerModule` runs it on every path: run, `--test`, REPL session start, and
+  mid-session imports.
+- **REPL:** prompt-entered functions need a per-function entry point (the passes minus inlining,
+  which is inter-procedural) called from the per-function lowering. Inlining vs redefinition: a
+  same-signature redefinition replaces the function in place so old callers see the new body; a
+  caller that inlined the old body would keep running it. **Needs a decision:** leave inlining out
+  of the REPL's config, or re-lower inlining callers on redefinition. Also verify that no IR-gen
+  appends to an already-optimized function afterwards (stale `InstrsVec`).
+- **First `--test`-with-passes run is a bug hunt** (nil checks + fault pads + passes has never
+  run on unit tests). Policy for what it finds: each failure gets root-caused; a pass that is
+  wrong on the VM is fixed, or with the user's decision excluded from the VM set with a comment
+  and a todo entry — never silently.
+- `bni -O` is removed; bni keeps `-f<pass>` / `-fno-<pass>`.
 
-- `iropt` gets an interpreter entry point (e.g. `iropt.VMPassSet()`), defined in iropt next to the
-  pass table so a new pass must decide there whether the VM runs it. Default for a new pass: off
-  for the VM until measured.
-- `vm.LowerModule` always runs that set (run path, `--test`, and the REPL alike). IR-gen for
-  interpreted code uses the matching shape (set GenCtx/Module OptLevel consistently with the
-  passes, or better, gate those shapes on the pass that needs them, `sroa`, rather than a level).
-- `bni -O` is removed. `bni -f<pass>`/`-fno-<pass>` stay, for testing and bisecting.
-- Passes known broken on the VM are excluded from the VM set with a comment naming the bug and a
-  todo entry (never silently).
+## Step 5 — CI
 
-## Step 4 — CI
-
-- The default VM conformance modes then test exactly the shipped VM set (they run bni as users do),
-  so the VM's optimizer interaction is covered on every CI run, not only in the -O2 workflow.
-- Fix `conformance-o2.yml`'s claim to cover the VM at -O2 (drop the VM shards, or keep them as a
-  "VM with every pass forced on" run if that is still wanted — user's call).
+- The default VM conformance and unit-test lanes then test exactly the shipped VM set, on every
+  CI run, including for the first time on a 32-bit host (`builder-comp_arm32_linux_int`).
+- **`conformance-o2.yml`'s VM shards test bni *built* with `bnc -O2`** (IR passes + clang), as an
+  integration test of -O2 on a large program: `build_interp` (and gen1/gen2 builds where
+  relevant) apply `BINATE_FLAGS`. This is independent of the VM pass set and doesn't have to wait
+  for steps 1-4. Related, **needs a decision:** should the release builds (`build-bni.sh`,
+  `build-bnc.sh`) and the default CI lanes build the toolchain at `-O2` (IR passes) rather than
+  `--cflag -O2`? Today no shipped binary goes through the IR optimizer.
+- **Needs a decision:** after step 4, bni with all passes off (the reference executor for
+  bisecting a pass) has no CI coverage. One cheap lane, VM unit tests only, or nothing?
