@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### -O1+: SROA drops a whole-store of OP_CONST_NIL that is NOT the declaration's zero-init — silent miscompile, ALL compiled backends — 🔴 OPEN (found 2026-09-25)
+### -O1+: SROA drops a whole-store of OP_CONST_NIL that is NOT the declaration's zero-init — silent miscompile, ALL compiled backends — 🟡 IN PROGRESS (claimed 2026-09-25, cloud session on the workspace; found 2026-09-25)
 
 **Symptom:** a raw-slice local reassigned to an empty literal keeps its old contents at -O1+:
 ```
@@ -28,42 +28,6 @@ backend zero-fill only runs at the alloca) instead of dropping it; for the decla
 stores are dead and mem2reg removes them. Fix both comments; add an iropt unit test and a
 conformance test (empty-literal reassignment, plus the nested-field form).
 
-
-### -O1+: a struct local declared in a loop body carries the previous iteration's field values — silent miscompile, ALL compiled backends — 🟡 IN PROGRESS (claimed 2026-09-25, cloud session on the workspace; found 2026-09-25)
-
-**Symptom:** at -O1 and -O2 (LLVM and native; x64 verified), a no-initializer struct local declared
-inside a loop body reads the previous iteration's field values instead of zero. Repro:
-
-```
-type P struct { a int; b int }
-func main() {
-	var sum int = 0
-	for i := 0; i < 3; i++ {
-		var s P
-		sum = sum + s.a + s.b
-		s.a = s.a + 10
-		s.b = i
-	}
-	testing.Println(sum)   // must print 0; prints 31 at -O1/-O2
-}
-```
-`bnc --backend llvm|native -O0` → 0 (correct); `-O1`/`-O2` → 31. Reproduces with main `abb168186`
-(before this session's SROA/dead-phi commits) and with the released bnc-0.0.16 BUILDER, so it is
-long-standing. Release builds and bnc's own gen1/gen2 builds are -O2.
-**Root cause (from reading, consistent with the repro):** SROA splits the struct into per-field
-slots and deletes the aggregate OP_ALLOC — whose backend zero-fill was the per-declaration zero —
-emitting NO zero store for mem2reg-promotable fields (`makeFieldZeroInits`, sroa_rewrite.bn: "mem2reg
-zero-forwards their undef loads"). mem2reg only substitutes zero when a load has NO reaching
-definition; in a loop the previous iteration's field store reaches the next iteration's read through
-the loop-header phi, so the stale value flows in. (The same wrong behavior existed at -O0 in the VM
-via a different mechanism — fixed separately, see the MAJOR below.)
-**Why tests missed it:** conformance runs every mode at -O0 (the runners pass no `-O`), so the
-optimizer is only covered by iropt unit tests on hand-built IR and by the compiler self-build.
-**Proposed fix:** SROA emits an explicit zero store at the split alloca's position for EVERY field
-slot (mem2reg then sees a real definition each time the declaration executes and folds it), or
-mem2reg treats a (split) OP_ALLOC position as a definition of zero. Plus: an -O2 execution test for
-this shape (VM unit test via runVMAtLevel(src, 1), and/or a way for conformance to run at -O2).
-**Also consider:** running (a subset of) conformance at -O2 so the optimizer gets end-to-end coverage.
 
 ## MAJOR
 

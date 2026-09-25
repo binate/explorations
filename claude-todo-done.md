@@ -20,6 +20,21 @@ MOVDQU).
 
 
 
+
+### -O1+ loop-body struct local carried the previous iteration's fields, ALL compiled backends (CRITICAL) — FIXED (binate `fa49ba46`, 2026-09-25)
+
+At -O1+ a no-initializer struct declared in a loop body read the previous iteration's field values
+(LLVM + native; long-standing — reproduced on bnc-0.0.16). SROA deleted the aggregate OP_ALLOC (whose
+backend zero-fill re-zeroed it at each execution) and gave promotable scalar fields no zero store,
+relying on mem2reg to substitute zero only where NO store reaches a load; in a loop the previous
+iteration's store reaches through the header phi. Fix: makeFieldZeroInits (now in the new
+iropt/sroa_fields.bn, split from sroa_rewrite.bn for the file-length cap) stores a typed zero into
+every scalar field slot at the split alloca's position; mem2reg folds it (record-churn instruction
+count unchanged). Tests: iropt TestSroaLoopBodyStructFieldReadsZeroEachIteration, vm
+TestExecLoopStructLocalRezeroedOpt (both fail without the fix); 1281/1282 verified at -O2 on both
+backends. Adversarial review: sound; it surfaced the dropped-CONST_NIL-whole-store CRITICAL (open).
+Coverage gap noted: conformance runs every mode at -O0, so the optimizer has no end-to-end tests.
+
 ### VM: struct local declared in a loop body not re-zeroed per iteration (MAJOR) — FIXED (binate `5b56c2fc`, 2026-09-25)
 
 In every VM mode a no-initializer aggregate local declared in a loop body kept the previous
