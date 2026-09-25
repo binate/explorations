@@ -70,8 +70,8 @@ user-selectable -On of the compiler's IR passes".
 
 ## Step 1 — per-pass switches in iropt
 
-**Implemented** (binate `eb09c8bc` on the session branch, landing after the -O2 toolchain build
-change `aa8c2bac`). As built: `iropt.OptConfig{Passes uint, InlineThreshold int}`,
+**Implemented, not yet landed** (lands right after the change that builds the toolchain at
+bnc -O2). As built: `iropt.OptConfig{Passes uint, InlineThreshold int}`,
 `LevelOptConfig` / `WithOptPass` / `OptPassEnabled` / `OptPassName` / `OptPassByName`,
 `RunOptConfig`; `GenCtx`/`Module.SroaCleanupShape` replaces `OptLevel`; `vm.Opt` replaces
 `vm.OptLevel`; `pkg/binate/optflags` shared by bnc and bni. bni's `-f` flags (like `-O`) apply to
