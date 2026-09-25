@@ -502,6 +502,16 @@ that mostly follows from the same live aggregate state.
   instrs, so native instructions/element did not drop (217 → 221). Affects every loop in native
   code. Fix: a dead-phi elimination pass after promoteScalars (phi live iff reached from a non-phi
   use or a FaultPad use through phi operands; delete the rest).
+- **Backends resolve an OP_GET_FIELD_PTR base's struct from the UNPEELED `Typ.Elem` — 🔵 OPEN
+  (latent; found 2026-09-24 by the adversarial review of the SROA copy-out split).** LLVM
+  `codegen/emit_helpers.bn` `emitGetFieldPtr`, native `native/common/common.bn` `StructTypeOf`,
+  and VM `vm/lower_memory.bn` `lowerGetFieldPtr` take the base's struct from `Args[0].TypeArg`,
+  else `Args[0].Typ.Elem` WITHOUT peeling `Typ` — a named / alias pointer type (`type PS *S`) has no
+  `Elem`, so the struct resolves to nil (LLVM: invalid GEP; native: result register never defined;
+  VM: every field at offset 0). irgen avoids it by setting `ptrVal.TypeArg = structTyp` before
+  each field access, so only an IR producer that forgets that trips it; the SROA copy-out split
+  now declines named-pointer destinations instead. Fix: peel `Typ` before taking `.Elem` in all
+  three places (plus a unit test per backend).
 - **Constant shift amount not folded (both backends).** `c.f2 << 1` reaches the backends as
   `shl %x, %v403` with `%v403 = add i32 1, 0` hoisted out of the loop; native then reloads it from a
   stack slot every iteration (x64 `mov rcx,[rsp+..]; shl edx,cl`; aa64 `ldr x9,[sp,..]; lsl w,w,x9`).
