@@ -70,9 +70,17 @@ user-selectable -On of the compiler's IR passes".
 
 ## Step 1 — per-pass switches in iropt
 
-- A pass table in `iropt`: each entry has a stable name (e.g. `inline`, `sroa`, `mem2reg`,
-  `dead-phi`, `load-fwd`, `field-load-fwd`, `simplify`, `div-check-elide`, `bce-const`,
-  `bce-loop`, `bce-redundant`, `licm`, `fuse-madd`) and the minimum level it runs at. An
+**Implemented** (binate `eb09c8bc` on the session branch, landing after the -O2 toolchain build
+change `aa8c2bac`). As built: `iropt.OptConfig{Passes uint, InlineThreshold int}`,
+`LevelOptConfig` / `WithOptPass` / `OptPassEnabled` / `OptPassName` / `OptPassByName`,
+`RunOptConfig`; `GenCtx`/`Module.SroaCleanupShape` replaces `OptLevel`; `vm.Opt` replaces
+`vm.OptLevel`; `pkg/binate/optflags` shared by bnc and bni. bni's `-f` flags (like `-O`) apply to
+a plain run only until step 4.
+
+- A pass table in `iropt`: each entry has a stable name (`inline`, `sroa`, `mem2reg`,
+  `dead-phi`, `load-fwd`, `field-load-fwd`, `simplify`, `div-check-elim`, `bce-const`,
+  `bce-loop`, `bce-redundant`, `licm`, `fuse-madd`). No per-pass minimum level: every level
+  >= 1 runs every pass (`LevelOptConfig`). An
   `iropt.PassConfig` holds the enabled bit per pass plus the inline threshold (replacing the
   `InlineSizeThreshold` global); it is derived from a level, then adjusted by explicit
   enables/disables. `RunOptPasses(m, level)` stays as the level-derived convenience entry.
