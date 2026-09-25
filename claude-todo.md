@@ -7,6 +7,34 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### load-forwarding store-forwards to a value its own RLE / slice-extract coalescing deleted (dangling operand) — 🔵 OPEN (found 2026-09-25)
+
+**Symptom.** With load-forwarding running but mem2reg not (`-fload-fwd`, or `-O2 -fno-mem2reg`), a
+scalar local initialized from a slice's length or data and read in a loop gets a dangling operand:
+
+    func sum(b @[]float64) float64 { var e float64 = 0.0; var n int = len(b)
+        for i := 0; i < n; i++ { e = e + b[i] }; return e }
+
+LLVM backend: `error: use of undefined value '%v7'` (the loop condition `%v11 < %v7`). VM: silently
+wrong — the undefined register reads 0, the loop never runs (`sum` = 0; n-body / fasta /
+spectral-norm print wrong output). Native x64: correct output, by luck (reads a never-written
+value). Default -O1+ is unaffected as far as found: mem2reg promotes `n` before load-forwarding
+sees it. Found by `perf/vm-pass-costs.py`'s leave-one-out run (`loo:mem2reg` BAD on 3 benchmarks).
+
+**Root cause.** `forwardLoadsFunc` (iropt/load_forward.bn) analyzes every alloca first, recording
+each store-forwarded slot's replacement value (`gReplVal`: here `v7 = extract(load b, 1)`), then
+runs `applyRLE` + `coalesceSliceExtracts` (which replace the load of `b` and delete the extracts
+of it, rewriting the uses they find in f's blocks) and only then `applyPromotion` with the
+recorded values.  A recorded value that RLE / coalescing deleted is not in any block's operands at
+that point, so it is never rewritten: the forwarded loads are replaced by a deleted instruction.
+
+**Fix (proposed).** Have `applyRLE` / `coalesceSliceExtracts` return (or accumulate) their
+replacement map and chase `gReplVal` through it before `applyPromotion` (the same transitive
+`chaseRepl` the other rewrites use), or run store-forwarding before RLE.  Test: an iropt unit test
+running only load-fwd on this shape (no operand may reference an instruction absent from f), and a
+VM exec test (`-fload-fwd` config) checking `sum` = 3.5.  Each pass must be correct whichever others
+run (iropt.bni); `perf/vm-pass-costs.py`'s leave-one-out column should come back clean.
+
 ### VM runs a user-selectable -On of the compiler's IR passes, and CI never tests it — 🟡 IN PROGRESS (claimed 2026-09-25, session claude/exciting-davinci-wahyt2)
 
 `vm.LowerModule` runs `iropt.RunOptPasses(m, vm.OptLevel)` before bytecode lowering (`bni -O <n>`,
