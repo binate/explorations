@@ -115,6 +115,18 @@ pass will look too expensive for the VM. Before choosing the VM set:
 - Fix the per-candidate O(NextID) table construction and similar algorithmic costs pass by pass,
   measuring each (user CPU, noise floor first, per `perf-optimization-guide.md`).
 
+**Findings (2026-09-25).** callgrind of `bnc -O2 --backend native` compiling cmd/bnc: the IR
+passes were 92% of the whole compile (native codegen 6%); forwardLoads 37.5%, runSroa 37.4%,
+promoteScalars 5.9%, simplify 5.5%, inline 2.5%. Root cause of the two big ones:
+`slices.Append` is documented O(n) per call (fresh len+1 backing + copy), and iropt's
+NextID-sized tables (`boolTable` / `instrTable` / `instrListTable`, and copies of the same loop in
+`coalesceOneSliceExtracts`) were filled one Append per element — O(n^2) per function, rebuilt on
+every SROA fixpoint pass and every coalesced slice load (29% + 26%). Replacing them with
+`make_slice`: 2m13s -> 1m07s user for that compile, output byte-identical (vs ~12s for the
+compile with no passes). iropt has ~190 other `slices.Append` call sites; the append-in-a-loop
+ones (block rebuilds `kept = Append(kept, ins)`, worklists) are all quadratic too and are next
+(`vec.Vec`, or presizing).
+
 ## Step 3 — measure each pass under the VM
 
 - **Cost:** per-pass load time (switches make leave-one-out and single-pass runs possible) on the
