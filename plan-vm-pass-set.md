@@ -142,6 +142,9 @@ is a library decision put to the user.
 
 ## Step 3 — measure each pass under the VM
 
+**Done (2026-09-25):** results and the accepted tentative set are in the living document
+[vm-pass-set.md](vm-pass-set.md).
+
 - **Cost:** per-pass load time (switches make leave-one-out and single-pass runs possible) on the
   benchmark programs, the conformance corpus, and cmd/bnc interpreted; peak RSS; REPL per-prompt
   latency.

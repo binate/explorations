@@ -51,7 +51,9 @@ compiler passes (worse compile-time : speedup ratio) won't pay for themselves th
 [plan-vm-pass-set.md](plan-vm-pass-set.md) — measure per-pass load cost vs run-time benefit under
 bni, pick the set, give iropt a VM entry point, drop `bni -O`, and make CI test exactly that set.
 Steps 1-2 (per-pass switches; the passes' compile-time cost) and the toolchain-at-bnc-O2 build
-change are landed (see the done log); step 3 (measurement, `perf/vm-pass-costs.py`) is in progress.
+change are landed (see the done log). Step 3 measured: results, the accepted (tentative) VM set,
+and how to evaluate each new pass live in [vm-pass-set.md](vm-pass-set.md) — keep it current as
+passes are added.  Next: step 4 (implement the set in bni).
 
 ## Performance
 
