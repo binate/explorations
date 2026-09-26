@@ -174,6 +174,36 @@ sizing). **NOTE on (c)/(e):** these are the *opposite* of the refuted "home MORE
 values" — coalescing and homing FEWER values — but they are regalloc-adjacent, so
 validate against the earlier interval-splitting regression before landing.
 
+#### T6 immediate-operand folding — design (decided 2026-09-25)
+
+(d) landed as a separate ADD/SUB fold (aa64 `f1989126b`, x64+arm32 `abb168186`) beside the T3
+compare-immediate fold.  Extending it to AND/OR/XOR ("(b)" in the todo) is done by UNIFYING them:
+- **b1 — encoders fail loud.**  The encoders the folds route immediates through must reject what
+  they cannot encode: aa64 `emitLogOp`/`Ands`/`Tst` (today silently emit nothing; W-form accepts
+  values clang rejects), arm32 `encodeOperand2` (today silently `#0` / `r0`), x64 `emitALU`/`Test`/
+  `Mov r/m,imm`/`Push`/`Imul3` (today truncate / sign-flip; SZ16 emits imm32).  aa64 exports
+  `LogicalImmFits(sf, imm)`.
+- **b2 — one analysis, one flag.**  `fold.ImmOperandConsts(f, fits)` marks an OP_CONST_INT iff it
+  has ≥1 use and EVERY use is an instruction operand `(user, argIdx)` for which the backend's
+  predicate `fits` holds (a phi use never fits).  One RegMap flag `FoldedImm` replaces
+  `FoldedImmConst` + `FoldedAddImmConst`.  Structural position rules (compare RHS only; ADD either
+  operand with a non-constant sibling; SUB subtrahend with a non-constant minuend; operand no wider
+  than the target word) are shared helpers in `fold`; the value range / encodability is the
+  backend's, and each backend's predicate and its emitters call the SAME per-kind helper so they
+  cannot disagree.  Behavior-preserving except: a constant whose uses span kinds (compare + add)
+  now folds (+289 in `bnc`), and the compare fold gains the width guard (arm32 int64 compares no
+  longer set a flag that `emitConst64` ignores).  `getOperand` fails loud on any fold-flagged id
+  (`FoldedImm`, `FusedCmp`, `TstFoldedAnd`, `FusableGep`/`FusableFieldGep`, `FoldedDtor`) instead of
+  reloading a never-written slot.
+- **b3 — AND/OR/XOR.**  The predicate gains the logical kinds (either operand, non-constant
+  sibling, width): aa64 bitmask immediate at the emit width (W for a 32-bit-unsigned result, else
+  X; `LogicalImmFits`), XOR with all-ones → `mvn`; x64 imm8/imm32 per the op-width rule (SZ32:
+  low 32 bits; SZ64: value in [-2^31, 2^31-1]); arm32 rotated imm8, AND with an encodable
+  complement → `bic`, XOR with all-ones → `mvn`.  The aa64 tst-fold emits `tst a, #k` when the
+  AND's constant operand is folded (same width rule as the AND).
+- Then folded values leave LinearScan/PlanFrame (they currently hold registers they never use),
+  then the assembler hardening sweep, then (c).
+
 ## Suggested order
 T1 (refcount — highest frequency, smallest, an overlooked form) → T2 (every field
 access) → T3 (shared, removes the constant-spill pathology) → T4 (fannkuch's dominant
