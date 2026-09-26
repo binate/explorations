@@ -32,7 +32,7 @@ return; add a unit test driving the overflow-homed branch with a float64 (the ex
 cover only in-register params); and consider adding native arm32-linux to the -O2 CI lane (a CI
 scope decision for the user).
 
-### IR functions with a loop or a phi are never freed: CFG edges and phi predecessors are managed `@Block` references that form cycles (toolchain memory leak) — 🟡 IN PROGRESS (found 2026-09-26; step 1 claimed 2026-09-26, session claude/exciting-davinci-wahyt2)
+### IR functions with a loop or a phi are never freed: CFG edges and phi predecessors are managed `@Block` references that form cycles (toolchain memory leak) — 🟡 IN PROGRESS (found 2026-09-26; step 1 LANDED `a8243397`; step 2 claimed 2026-09-26, session claude/exciting-davinci-wahyt2)
 
 **Symptom:** in a `rt.LiveBlocks()` window, building a module (`genModule` in pkg/binate/vm tests)
 and dropping it leaks nothing for loop-free code, but ~52 blocks for a one-loop function even with no

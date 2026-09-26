@@ -1,6 +1,6 @@
 # Plan: IR functions with a loop or a phi are never freed (reference cycles)
 
-**Status:** 📝 DRAFT, revised after adversarial review (2026-09-26); awaiting go-ahead. Tracked in `claude-todo.md` MAJOR "IR functions with a
+**Status:** 🟡 IN PROGRESS — step 1 LANDED (binate `a8243397`, 2026-09-26); step 2 in progress (claimed 2026-09-26). Tracked in `claude-todo.md` MAJOR "IR functions with a
 loop or a phi are never freed …".
 
 ## Problem
@@ -45,7 +45,7 @@ Non-phi `Args` are acyclic (SSA: an operand is defined before its use, except th
 
 ## Fix
 
-1. **CFG edges non-owning: `Block1`, `Block2`, `PhiEntry.Block` become `*Block`.** Every block a
+1. **[LANDED `a8243397`: bnc -O2 output byte-identical; bnc peak RSS on the cmd/bnc self-compile 544 → 446 MB; valgrind clean (bnc -O2 LLVM + native, bni); poisoning-mode check replaced by valgrind, no rt poison mode exists.] CFG edges non-owning: `Block1`, `Block2`, `PhiEntry.Block` become `*Block`.** Every block a
    branch or phi names is owned by its function's `Blocks` / `FaultPads`, so this is sound as long
    as a block is never removed from those while something still names it. Verify that invariant:
    audit every pass that removes or replaces blocks (dead-block removal, critical-edge splitting,
