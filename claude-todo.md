@@ -39,6 +39,19 @@ All on main today; each is being fixed (with a test) in the aa64 text-assembler 
 
 ## MAJOR
 
+### e2e: a native compile failure is reported as SKIP in five FFI / library e2e scripts — 🔴 OPEN (found 2026-09-26, work-2/session)
+
+`e2e/ffi-export.sh` (`check_backend` / `check_narrow` / `check_bigagg` / `check_multiret` / `check_centry`),
+`ffi-ccall-narrow.sh`, `library-facade-asm.sh`, `library-iface-assert.sh` and `program-bn-init.sh` run
+their native variants with `required=0`: when `bnc --backend native --pkg` produces no object the variant
+prints `SKIP: native --pkg unavailable for this host` and the script still exits 0.  On every host with a
+native backend (aarch64 / x64 / arm32 all have one) that turns a native codegen failure into a green run.
+Found by a mutation check: restoring the pre-fix C-export trampoline (whose FP/LR STP offset is now
+rejected by the fail-loud assembler) made all six native variants of ffi-export SKIP — `Summary: 7 passed,
+0 failed, 6 skipped`, exit 0.  **Fix:** decide "native available" from the host, not from whether this
+facade happened to compile (e.g. native is required when the host arch has a native backend, or probe with
+a trivial package once), so a facade that fails to compile natively FAILs; audit each script's skip.
+
 ### Conformance `.error` tests never check that the program failed — 🟡 IN PROGRESS (found 2026-09-26, work-2/session, by the review of the rt.MemZero negative-size test; claimed 2026-09-26, claude/exciting-davinci-wahyt2 session)
 
 `run_error_test` (`conformance/run.sh` ~365-405) captures the exit status (`rc=$?`) but never uses it: a
