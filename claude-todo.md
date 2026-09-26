@@ -122,7 +122,7 @@ change are landed (see the done log). Step 3 measured: results, the accepted (te
 and how to evaluate each new pass live in [vm-pass-set.md](vm-pass-set.md) — keep it current as
 passes are added.  Step 4 landed (binate `4ff351ea`: the VM runs `iropt.VMOptConfig()`, `bni -O` removed, REPL per-function passes).  Next: step 5 (CI: the all-passes-off lane; the VM lanes now test the set by default).
 
-### Assembler silently drops / mis-encodes unencodable immediates on the ALU/logical paths the native immediate folds use (aa64, arm32, x64) — 🔴 OPEN (found 2026-09-25, work-4, T6(b) survey)
+### Assembler silently drops / mis-encodes unencodable immediates on the ALU/logical paths the native immediate folds use (aa64, arm32, x64) — 🟡 IN PROGRESS (found 2026-09-25; claimed 2026-09-25, work-4/session — T6(b) step b1)
 
 All confirmed by probe + clang oracle; none is triggered by any live caller today (every native caller passes
 registers or pre-checked immediates; every in-tree `.s` immediate is encodable), but each is reachable from
@@ -150,7 +150,7 @@ with sign-extension) and fix the SZ16 imm16 form.  Tests: HasError + no bytes fo
 widths, bnas rejection tests.  **Proposed to be fixed as part of T6(b)** (the logical-immediate fold routes
 immediates through exactly these encoders).
 
-### aa64 assembler: non-load/store encoders silently truncate or drop out-of-range fields — 🔴 OPEN (found 2026-09-25, work-4, T6(b) survey)
+### aa64 assembler: non-load/store encoders silently truncate or drop out-of-range fields — 🟡 CLAIMED, queued (found 2026-09-25; claimed 2026-09-25, work-4/session — assembler sweep after T6(b), before (c))
 
 Encoder-level complement to the load/store entry above (all confirmed by probe + clang):
 `Mov` with OP_IMM always emits MOVZ masked to 16 bits (`Mov(Imm(-1))` → `mov x0,#0xffff`); `Movz`/`Movk`/`Movn`
@@ -163,7 +163,7 @@ immediates discard the high 32 bits (clang only accepts all-zero/all-one high ha
 `and w0,w1,#0x100000001` assembles as `#1`); stale docs on `LdrStrImmFitsUnsigned` claim the encoder
 masks.  **Fix:** fail loud (`a.SetError`) on every out-of-range field; tests per encoder + bnas rejections.
 
-### x64 assembler / text parser: REX.X/REX.B dropped on some memory forms, `[base+idx*scale+disp]` misparsed, unhandled operand combos emit garbage — 🔴 OPEN (found 2026-09-25, work-4, T6(b) survey)
+### x64 assembler / text parser: REX.X/REX.B dropped on some memory forms, `[base+idx*scale+disp]` misparsed, unhandled operand combos emit garbage — 🟡 CLAIMED, queued (found 2026-09-25; claimed 2026-09-25, work-4/session — assembler sweep after T6(b), before (c))
 
 `emitALU`'s immediate branch passes x=0 to `emitRexF` (and `Test` with a memory operand drops REX.B/REX.X),
 so an index/base register ≥ r8 silently becomes the low register; the text parser's `ParseExpr` after `*`
@@ -174,7 +174,7 @@ destination; label source) and report success.  (Minor: for SZ32 the imm8/imm32 
 so `and ecx,0xFFFFFFF0` gets the 6-byte form.)  **Fix:** carry REX.X/REX.B in every memory form; parse
 `scale` as a single term; range-check disp32; `SetError` on unhandled combos; golden bnas-vs-clang tests.
 
-### Text assemblers truncate 64-bit immediates on a 32-bit host; the assemble path hides encoder errors — 🔴 OPEN (found 2026-09-25, work-4, T6(b) survey)
+### Text assemblers truncate 64-bit immediates on a 32-bit host; the assemble path hides encoder errors — 🟡 CLAIMED, queued (found 2026-09-25; claimed 2026-09-25, work-4/session — assembler sweep after T6(b), before (c))
 
 `asm/parse/aarch64.bn` ~125 and `asm/parse/x64.bn` ~258 / `x64_instr.bn` ~39, ~137 build immediates with
 `Imm(cast(int, result.Val))`, truncating the int64 value on a 32-bit host (arm32 hosts are first-class).
@@ -183,7 +183,7 @@ so `and ecx,0xFFFFFFF0` gets the 6-byte form.)  **Fix:** carry REX.X/REX.B in ev
 so the fail-loud fixes above would surface without context.  **Fix:** keep immediates 64-bit to the encoder
 (`ImmU64`-style), propagate the assembler's error message with the source line, stop at the first error.
 
-### native: `getOperand` on a folded (skip-emitted) value silently reloads a never-written spill slot; several dispatcher cases silently drop an instruction on an unresolved operand — 🔴 OPEN (found 2026-09-25, work-4, T6(b) survey)
+### native: `getOperand` on a folded (skip-emitted) value silently reloads a never-written spill slot; several dispatcher cases silently drop an instruction on an unresolved operand — 🟡 PARTLY CLAIMED (found 2026-09-25; the `getOperand` fail-loud part claimed 2026-09-25, work-4/session — T6(b) step b2; the PlanFrame-slot part rides the LinearScan step; the dispatcher silent-return part stays 🔴 OPEN)
 
 `PlanFrame` reserves a slot for every value, folded constants included (`native/common/common.bn` ~162,
 ~222), so `getOperand` on a FoldedImmConst / FoldedAddImmConst id reloads that slot — which was never
@@ -658,6 +658,12 @@ iropt win, ✅ LANDED `2fa428d8b` (2026-09-21) — but a NO-OP on richards/fannk
     confirms `addq $0x1` fires.  (b) AND/OR/EOR logical-immediate folding (needs an is-encodable-bitmask
     check) — 🟡 IN PROGRESS (claimed 2026-09-25, work-4/session); (c) phi-copy coalescing (the bigger
     007 lever — regalloc-core, regression risk) — 🔵 OPEN, queued after (b) by the same session.**
+  - **Plan (decided 2026-09-25):** (b1) fail-loud fixes for the encoders on the fold's path; (b2) replace the
+    per-kind compare/add folds with ONE `fold.ImmOperandConsts(f, fits)` analysis + one `FoldedImm` flag
+    (per-backend predicate + shared encoding helpers; uniform width guards) and make `getOperand` fail loud on
+    fold-flagged ids; (b3) the AND/OR/XOR immediate fold on all 3 backends (+ aa64 `tst a,#k`, XOR-all-ones →
+    MVN/NOT, arm32 BIC); then folded values out of LinearScan/PlanFrame; then the assembler hardening sweep;
+    then (c).  Each step lands separately.
   - **Survey findings (2026-09-25, T6(b) understand pass; aa64 -O2; counts from disassembly cross-checked
     against the -O2 IR):**
     - **Logical-immediate opportunity:** 295 AND/ORR/EOR/TST sites with a constant source across perf
@@ -667,7 +673,8 @@ iropt win, ✅ LANDED `2fa428d8b` (2026-09-21) — but a NO-OP on richards/fannk
       logical ops, so an exclusive-use rule suffices for (b).  The aa64 tst-fold's AND operand is a constant
       in 55 of 71 cases (53 bitmask-encodable) — the tst path must emit `tst a, #k` once those constants
       fold.  Biggest non-encodable group: XOR with all-ones (→ MVN / NOT).
-    - **Folded values still take part in LinearScan** (`native/common/regalloc_scan.bn` ~321-355; intervals
+    - **Folded values still take part in LinearScan** — 🟡 CLAIMED, queued after (b), before (c) (work-4)
+      (`native/common/regalloc_scan.bn` ~321-355; intervals
       built for every id, fold flags only consulted after assignment): a folded constant can hold a pool
       register it never uses for its whole interval — shown on aa64: one shared add-folded constant (10 uses
       in a loop) left x6 idle while 4 accumulators spilled every iteration; the 10-separate-constants
