@@ -39,7 +39,7 @@ All on main today; each is being fixed (with a test) in the aa64 text-assembler 
 
 ## MAJOR
 
-### Conformance `.error` tests never check that the program failed — 🔴 OPEN (found 2026-09-26, work-2/session, by the review of the rt.MemZero negative-size test)
+### Conformance `.error` tests never check that the program failed — 🟡 IN PROGRESS (found 2026-09-26, work-2/session, by the review of the rt.MemZero negative-size test; claimed 2026-09-26, claude/exciting-davinci-wahyt2 session)
 
 `run_error_test` (`conformance/run.sh` ~365-405) captures the exit status (`rc=$?`) but never uses it: a
 `.error` test passes whenever each pattern appears somewhere in the output, even if the program exited 0.
