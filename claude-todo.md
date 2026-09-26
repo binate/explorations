@@ -198,6 +198,11 @@ bnas-vs-clang tests.
 `SetError`, and `parse_file.bn` ~40 keeps parsing after an encoder error (checks only the parser's own flag),
 so the fail-loud fixes above would surface without context.  **Fix:** keep immediates 64-bit to the encoder
 (`ImmU64`-style), propagate the assembler's error message with the source line, stop at the first error.
+Also (T6 b1 parse-stage finding): on all three arches the text parser silently ignores anything after a
+complete instruction — `add x0, x1, x2 junk`, `add rax, rcx junk`, `add r0, r1, r2 junk`, `add r0, r1,
+r2, rrx #3` all assemble (a mistyped extra operand is dropped); the arm32 `, rrx` operand path returns the
+`rrx` token itself as the next token instead of advancing past it (harmless only because trailing tokens
+are ignored).  Fix together: an end-of-line check after every instruction.
 
 ### native: `getOperand` on a folded (skip-emitted) value silently reloads a never-written spill slot; several dispatcher cases silently drop an instruction on an unresolved operand — 🟡 PARTLY CLAIMED (found 2026-09-25; the `getOperand` fail-loud part claimed 2026-09-25, work-4/session — T6(b) step b2; the PlanFrame-slot part rides the LinearScan step; the dispatcher silent-return part stays 🔴 OPEN)
 
