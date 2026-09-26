@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### native arm32 hard-float: an FP-homed OVERFLOWED float64 param is loaded with VLDR.32 — silent wrong result at -O1/-O2 — 🔴 OPEN (found 2026-09-25)
+### native arm32 hard-float: an FP-homed OVERFLOWED float64 param is loaded with VLDR.32 — silent wrong result at -O1/-O2 — 🟡 IN PROGRESS (found 2026-09-25; claimed 2026-09-26, work-5/session — fix + add native arm32-linux hard-float to the -O2 CI lane, per user)
 
 **Symptom:** conformance `1280_float_param_overflow_loop` prints `46` instead of `131` under
 `BINATE_FLAGS=-O2` (and `-O1`) in `builder-comp_native_arm32_linux` (hard-float); green at -O0.
@@ -541,6 +541,17 @@ Remaining (follow-ups):
   upper-zeroes — accurate).  The follow-on note "x64 `emitFusedFieldStore` stores a homed float via
   the GP bridge" turned out MOOT as stated — `fieldAccessFusable` excludes floats on every backend, so
   no float ever reaches the fused field store.  The real item is the float field fold below.
+- **arm32: plain (non-folded) float loads/stores straight to/from the FP home** — 🟡 IN PROGRESS
+  (claimed 2026-09-26, work-5/session; user-approved follow-up of the field fold).  arm32's plain
+  emitLoad/emitStore (and emitLoad64/emitStore64 for float64) move an FP-homed float through GP
+  registers (LDR + VMOV / VMOV + STR), unlike x64/aarch64 which load/store the FP home directly.
+  Make them VLDR/VSTR the D home (float32 via the low S-view) for every address kind (alloca,
+  global, pointer in a register).
+- **arm32: fold int64/uint64 struct-field addressing** — 🟡 IN PROGRESS (claimed 2026-09-26,
+  work-5/session; user: "I guess int64 should fold? (are there any downsides? get a minimal
+  adversarial review)").  The 64-bit fused field path (emitFusedFieldLoad64/Store64) is
+  type-agnostic; the analysis still excludes int64 on a 32-bit target.  Pending a minimal
+  adversarial review of the downsides before implementing.
 - **float struct-field fold (all three native backends)** — 🟡 IN PROGRESS (claimed 2026-09-25,
   work-5/session).  The field analogue of the aarch64 float element fold: `p.x` for a float field
   still materializes the field address separately because `fieldAccessFusable` excludes floats.
