@@ -30,6 +30,33 @@ repro above as an e2e (macOS `--linker bnld` LLVM `-O2`), plus link-unit tests p
 
 ## MAJOR
 
+### aa64 text assembler silently mis-assembles many load/store forms (latent — no live .s triggers them today) — 🔴 OPEN (found 2026-09-25, survey during MemCopy step 2)
+
+Found by a clang-oracle survey of every load/store form `pkg/binate/asm/parse` accepts (each line assembled
+by bnas and by `clang -c -target arm64-apple-macos11`, `otool -tvV` compared).  clang never
+synthesizes: it picks the LDUR/STUR alias for a negative/misaligned-but-imm9 offset and ERRORS on
+anything unencodable.  Ours silently does something else.  Worst first:
+- **Wrong instruction:** `ldr xN, label` encodes LDRSW literal (sfBit sets bit 31, not opc bit 30);
+  `str xN|wN, label` assembles to a LOAD; `ldp w0, x1, [..]` / `ldp x0, w1, [..]` silently unify widths.
+- **Operand tokens dropped** (root: `parseMemOperand` + no end-of-line check): `[x1, x2, lsl #3]`,
+  `uxtw`/`sxtw`/`sxtx` extends → plain `[x1, x2]` (wrong address); post-index without `#`
+  (`ldp x0,x1,[x2], 16`, `ldr q0,[x1], 16`) or with a register drops the writeback; label `+addend`
+  dropped; missing `]` accepted; `[x1, w2]` encodes `[x1, x2]`.
+- **Silently emits nothing:** `ldp/stp` with a reg-offset/label/imm operand; `ldr/str x0, #8` / `x0, x1`.
+- **Silent wrap/truncate:** pre/post-index imm9 masked mod 512; `ldp/stp` (X/W/Q) imm7 truncates a
+  misaligned offset and wraps an out-of-range one (`stp x29,x30,[sp,#-528]!` stores ABOVE sp).
+- **Silent multi-instruction synthesis clobbering x17:** `ldr/str` (and b/h/sb/sh/sw) `[Xn, #imm]`
+  not fitting the scaled uimm12 → `add/sub x17` + access, even where LDUR fits (the encoder's
+  documented backend fallback, leaking into the text assembler); same for `ldr/str q` beyond imm9.
+- **Operand-class validation:** `ldrsw w0`, `ldrb x0`, base `w1`/`xzr`, index `sp`, `ldr sp` all
+  silently re-interpreted; Rt==Rn writeback forms emitted as CONSTRAINED-UNPREDICTABLE words.
+Raw survey outputs: session scratchpad (not durable) — the table above is the record.
+**Fix:** the text parser must be faithful — one mnemonic → one instruction, clang's alias selection
+(LDUR/STUR), and a hard parse error for anything unencodable or malformed (including trailing
+tokens); encoders called from the text path must never synthesize.  Scope the backend-facing
+encoder fallbacks (x17 synthesis) to explicitly-named backend helpers.  Tests: a golden
+bnas-vs-clang table per form + rejection tests.  Supersedes the (A)-entry follow-ups (a)/(b).
+
 ### IR-gen overwrites a field base's `TypeArg` with the struct type — a field access directly on `bit_cast(@S, p)` miscompiles on LLVM (clang rejects it) — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-26, session claude/exciting-davinci-wahyt2)
 
 `return bit_cast(@S, p).b` fails to compile with the LLVM backend at -O0 and -O2 (`invalid cast
