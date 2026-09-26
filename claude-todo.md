@@ -49,7 +49,7 @@ normally still passes (`767_panic_message.bn` already notes the harness only ass
 run every mode's `.error` tests once to find the ones that pass only because the status is ignored — each
 of those is a real bug (or a wrongly-classified test) to triage, not to xfail silently.
 
-### LLVM backend at -O1+: `cast` of a `readonly float` value emits ill-typed IR — clang rejects valid code — 🔴 OPEN (found 2026-09-26)
+### LLVM backend at -O1+: `cast` of a `readonly float` value emits ill-typed IR — clang rejects valid code — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-26, work-5/session — user: "let's fix that MAJOR before" the int64 fold)
 
 **Symptom:** `func conv(j readonly float32) float64 { return cast(float64, j) * 3.0 }` (and
 `func toInt(j readonly float64) int { return cast(int, j) }`) compile and run at -O0 but fail at
@@ -530,9 +530,6 @@ Remaining (follow-ups):
   (today each word re-materializes it — also affects soft-float float64 and plain int64 locals); flip
   TestFusableFieldInt64Arm32NotFused; add int64 emitter unit tests + a conformance test (int64 struct
   fields are thin in conformance).
-- **CI: make native arm32-linux (hard-float) blocking in the default conformance lane** — 🟡 IN
-  PROGRESS (claimed 2026-09-26, work-5/session; user: "Yes").  conformance-tests.yml still marks it
-  experimental with a stale comment (printf-variadic-float, which now passes); full -O0 run 3057/0.
 - **x64 + arm32: fold element-GEP addressing** — 🔵 OPEN.  Only aarch64 folds an element GEP into a
   scaled register-offset load/store (FusableElemGeps); x64 and arm32 materialize every element
   address — e.g. arm32 n-body's `bodies[i].x` recomputes it each access (`mov r5,#56; mul; add`).

@@ -1,3 +1,9 @@
+### CI: native arm32-linux (hard-float) blocking in the default conformance lane — DONE (binate `23ae1b7fb`, 2026-09-26)
+
+conformance-tests.yml ran it as experimental with a stale comment naming printf-variadic-float as the
+last failure; that test passes and the suite is 3057/0 at -O0 (the -O2 lane already runs it
+blocking, `92facc02d`).
+
 ### float struct-field fold on all three native backends; arm32 plain float loads/stores straight to/from the FP home — DONE (binate `b12a748df`..`8c6cf921f`, 2026-09-26)
 
 - **float struct-field fold** (`fddef33e5` aarch64, `9c326e72d` x64, `3157e2ec5` arm32, `9fe0c2512`
