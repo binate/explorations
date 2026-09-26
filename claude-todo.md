@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### bnld silently mislinks Mach-O PAGEOFF12 on any non-64-bit load/store — wrong addresses in LLVM `-O2` + `--linker bnld` programs — 🔴 OPEN (found 2026-09-25, work-2/MemCopy A/B)
+### bnld silently mislinks Mach-O PAGEOFF12 on any non-64-bit load/store — wrong addresses in LLVM `-O2` + `--linker bnld` programs — 🟡 IN PROGRESS (found + claimed 2026-09-25, work-2 session)
 
 **Symptom.** A plain byte fill + sum prints garbage when the LLVM backend's objects are linked by
 bnld on macOS: `var s @[]uint8 = make_slice(uint8, 256); for k … { s[k] = cast(uint8, k) }; sum`
@@ -51,7 +51,7 @@ references non-owning (raw `*Block`, as `Block.Func` is; `Func.Blocks` / `Func.F
 block), or break the cycles in a function teardown — the raw-pointer route is the structural one but
 touches every `Block1` / `Block2` / `PhiEntry.Block` user across ir, irgen, iropt and the backends.
 
-### aa64 text assembler silently mis-assembles many load/store forms (latent — no live .s triggers them today) — 🔴 OPEN (found 2026-09-25, survey during MemCopy step 2)
+### aa64 text assembler silently mis-assembles many load/store forms (latent — no live .s triggers them today) — 🟡 IN PROGRESS (found + claimed 2026-09-25, work-2 session; user: "Go ahead and fix the assembler")
 
 Found by a clang-oracle survey of every load/store form `pkg/binate/asm/parse` accepts (each line assembled
 by bnas and by `clang -c -target arm64-apple-macos11`, `otool -tvV` compared).  clang never
@@ -791,6 +791,10 @@ FP-arithmetic work. Full plan + sequencing: `plan-native-vectorization.md`.
     scaled `/16`) — pre-existing, affects the GP path too; harden with encoder-level `a.SetError`
     (like the GP unscaled path). (b) add parser tests: GP ldp/stp fall-through, and rejection of
     pre-index/reg-offset/label/mismatched-reg vector-q forms (behavior verified correct, untested).
+  - aa64 `rt.MemZero` hardening — 🟡 IN PROGRESS (claimed 2026-09-25, work-2): memzero_aarch64.s
+    returns silently on size < 0 instead of aborting (rt.bni contract) → tail-branch to rt.Panic like
+    memcopy_aarch64.s; the MemZero test caps at size 95, never reaching the DC ZVA path (>= 256) →
+    add a wide-size test.
   - x64 `rt.MemZero`/`rt.MemCopy` → `rep stosb`/wide-SSE / `MOVDQU` — 🔵 OPEN (needs the x64 text
     assembler taught `rep stos` + `movdqu`).
   - (`MemCompare` profile-gated.)
