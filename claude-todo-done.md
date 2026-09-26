@@ -1,3 +1,28 @@
+### IR functions with a loop or a phi were never freed: CFG edges and phi references formed cycles (MAJOR, toolchain memory leak) — FIXED (binate `a8243397` + `7102e88c`, 2026-09-26)
+
+**Symptom:** in a `rt.LiveBlocks()` window, building a module (`genModule` in pkg/binate/vm tests)
+and dropping it leaks nothing for loop-free code, but ~52 blocks for a one-loop function even with no
+optimization pass, and ~139 for a loop-free function once mem2reg has placed a phi (numbers from a
+probe in the vm test package). **Root cause:** `ir.Instr.Block1` / `Block2` (terminator targets) and
+`ir.PhiEntry.Block` (a phi's predecessor) are `@Block`, so a loop back edge (header → … → header), or
+a phi (merge block → phi → predecessor block → its branch → merge block), is a managed-reference
+cycle, and no code breaks it when a function or module is dropped (`Block.Func` is already a raw
+`*Func` for exactly this reason). **Impact:** every function with a loop or phi leaks its whole IR when
+its module is dropped: bnc too (it compiles and drops each dependency package's module in one
+process, so peak memory grows with the package set), and bni / the REPL / anything embedding
+the toolchain retains it per load, per mid-session import and per prompt entry; the IR passes
+(mem2reg, and the others adding instructions to such functions) enlarge it. **Found by:** a leak test
+for the VM pass set (plan-vm-pass-set.md step 4 review follow-up): build + optimize + drop a module
+vs build + drop it unoptimized, compare `rt.LiveBlocks()` growth after a warm-up build. That test
+(for `iropt.VMOptConfig()` and `LevelOptConfig(2)`) is the regression test to land with the fix; it
+cannot pass before it (mem2reg places phis). **Proposed fix:** make the CFG-edge and phi-predecessor
+references non-owning (raw `*Block`, as `Block.Func` is; `Func.Blocks` / `Func.FaultPads` own every
+block), or break the cycles in a function teardown — the raw-pointer route is the structural one but
+touches every `Block1` / `Block2` / `PhiEntry.Block` user across ir, irgen, iropt and the backends.
+Plan (reviewed): [plan-ir-cfg-cycle-leak.md](plan-ir-cfg-cycle-leak.md).
+
+**Resolution:** branch targets and phi predecessors are raw `*Block` (`a8243397`); phi operands are raw `*Instr`, with parameter refs owned by `Func.ParamRefs` and global-address pseudos by `Module.GlobalRefs`, checked by the verifier (`7102e88c`). bnc peak RSS on the cmd/bnc self-compile 544 → 440 MB; -O2 output byte-identical. Tests: `vm/ir_cycle_leak_test.bn`. Plan: [plan-ir-cfg-cycle-leak.md](plan-ir-cfg-cycle-leak.md).
+
 ### Assembler immediate paths on the native folds' route fail loud (aa64 / arm32 / x64) — DONE (binate `96b39fd89`, `54592d56d`, `d35da4a89`, 2026-09-26)
 
 Found by the T6(b) logical-immediate-fold survey (probe + clang oracle); these encoders are the ones the

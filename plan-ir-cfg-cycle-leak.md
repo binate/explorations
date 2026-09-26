@@ -1,6 +1,6 @@
 # Plan: IR functions with a loop or a phi are never freed (reference cycles)
 
-**Status:** 🟡 IN PROGRESS — step 1 LANDED (binate `a8243397`, 2026-09-26); step 2 in progress (claimed 2026-09-26). Tracked in `claude-todo.md` MAJOR "IR functions with a
+**Status:** ✅ DONE (2026-09-26) — step 1 binate `a8243397`, step 2 `7102e88c`. Tracked in `claude-todo-done.md`.
 loop or a phi are never freed …".
 
 ## Problem
@@ -54,7 +54,7 @@ Non-phi `Args` are acyclic (SSA: an operand is defined before its use, except th
    Mechanical otherwise: ~46 `Block1` + ~25 `Block2` + ~7 `PhiEntry.Block` uses in ~20 files across
    ir, irbuild, irgen, iropt, vm, codegen and the three native backends; comparisons (`==`) and field
    reads don't change, only the declared types and any `@Block` locals/params they flow into.
-2. **Phi operands: break the value cycle without dangling operands.** `PhiEntry.Val` cannot simply
+2. **[LANDED `7102e88c`, option (a): Func.ParamRefs, Module.GlobalRefs, ir.PhiVal, verifier VERR_PHI_VAL_UNOWNED. Exposed and fixed two use-after-frees: passes that dropped instructions before rewriting their phi uses (mem2reg apply, RLE, extract coalescing — now hold dropped instructions), and EliminatePhis freeing a phi a later phi still named (now holds every phi). bnc peak RSS 446 → 440 MB; -O2 output byte-identical.] Phi operands: break the value cycle without dangling operands.** `PhiEntry.Val` cannot simply
    become `*Instr`: a param ref or global pseudo operand is owned only by the phi. Options:
    - **(a)** `PhiEntry.Val` raw, plus a real owner for every value that has no block, filled by every
      creator: `Func.ParamRefs` (one shared `OP_PARAM` instr per param, also removing the per-use

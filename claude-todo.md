@@ -53,29 +53,6 @@ return; add a unit test driving the overflow-homed branch with a float64 (the ex
 cover only in-register params); and consider adding native arm32-linux to the -O2 CI lane (a CI
 scope decision for the user).
 
-### IR functions with a loop or a phi are never freed: CFG edges and phi predecessors are managed `@Block` references that form cycles (toolchain memory leak) — 🟡 IN PROGRESS (found 2026-09-26; step 1 LANDED `a8243397`; step 2 claimed 2026-09-26, session claude/exciting-davinci-wahyt2)
-
-**Symptom:** in a `rt.LiveBlocks()` window, building a module (`genModule` in pkg/binate/vm tests)
-and dropping it leaks nothing for loop-free code, but ~52 blocks for a one-loop function even with no
-optimization pass, and ~139 for a loop-free function once mem2reg has placed a phi (numbers from a
-probe in the vm test package). **Root cause:** `ir.Instr.Block1` / `Block2` (terminator targets) and
-`ir.PhiEntry.Block` (a phi's predecessor) are `@Block`, so a loop back edge (header → … → header), or
-a phi (merge block → phi → predecessor block → its branch → merge block), is a managed-reference
-cycle, and no code breaks it when a function or module is dropped (`Block.Func` is already a raw
-`*Func` for exactly this reason). **Impact:** every function with a loop or phi leaks its whole IR when
-its module is dropped: bnc too (it compiles and drops each dependency package's module in one
-process, so peak memory grows with the package set), and bni / the REPL / anything embedding
-the toolchain retains it per load, per mid-session import and per prompt entry; the IR passes
-(mem2reg, and the others adding instructions to such functions) enlarge it. **Found by:** a leak test
-for the VM pass set (plan-vm-pass-set.md step 4 review follow-up): build + optimize + drop a module
-vs build + drop it unoptimized, compare `rt.LiveBlocks()` growth after a warm-up build. That test
-(for `iropt.VMOptConfig()` and `LevelOptConfig(2)`) is the regression test to land with the fix; it
-cannot pass before it (mem2reg places phis). **Proposed fix:** make the CFG-edge and phi-predecessor
-references non-owning (raw `*Block`, as `Block.Func` is; `Func.Blocks` / `Func.FaultPads` own every
-block), or break the cycles in a function teardown — the raw-pointer route is the structural one but
-touches every `Block1` / `Block2` / `PhiEntry.Block` user across ir, irgen, iropt and the backends.
-Plan (reviewed): [plan-ir-cfg-cycle-leak.md](plan-ir-cfg-cycle-leak.md).
-
 ### aa64 text assembler silently mis-assembles many load/store forms (latent — no live .s triggers them today) — 🟡 IN PROGRESS (found + claimed 2026-09-25, work-2 session; user: "Go ahead and fix the assembler")
 **Progress (2026-09-25, work-2/session — done, under adversarial review, not yet landed):** (1) new package
 `pkg/binate/asm/aarch64/isa`: exact single-instruction encoders for every load/store addressing mode,
