@@ -71,7 +71,24 @@ anything unencodable.  Ours silently does something else.  Worst first:
   documented backend fallback, leaking into the text assembler); same for `ldr/str q` beyond imm9.
 - **Operand-class validation:** `ldrsw w0`, `ldrb x0`, base `w1`/`xzr`, index `sp`, `ldr sp` all
   silently re-interpreted; Rt==Rn writeback forms emitted as CONSTRAINED-UNPREDICTABLE words.
-Raw survey outputs: session scratchpad (not durable) — the table above is the record.
+**Scope widened (2026-09-25, second survey — data-processing + branch/system, ~420 forms):** the
+same systemic causes make ~260 data-processing and ~120 branch/system forms silently differ from
+clang.  Worst: SP vs XZR conflated (`sub sp, sp, x1` → `neg xzr, x1`; `mov x0, xzr` → `mov x0,
+sp`); extended-register operands and `#imm, lsl #12` dropped; `mov Rd, #imm` always MOVZ of the low
+16 bits (`mov x0, #-1` → 0xffff); unencodable logical immediates and `ror #imm` emit NOTHING;
+`cmp x0, #4097` splits into `cmp #1, lsl #12; cmp sp, #1` (garbage flags); no W/X width checks;
+label addends and `@PAGEOFF`/`@GOTPAGE` specifiers dropped (`add x0, x0, sym@PAGEOFF` emits
+nothing); `ret x31`/`ret xzr` → `ret`; shift/movz/tbz/svc fields masked instead of range-checked.
+Encoder-level (backend-reachable) ones — Mov's SP-for-31, MOVZ/MOVK/MOVN masking, emitDPOp's
+rd=XZR split, emitLogOp's silent no-emit, shift masking — are latent in native codegen today
+(checked: the backend passes registers to logical ops, SP to Mov only when meant, and folds
+compare immediates only up to 4095).  Rejects-valid gaps (unsupported mnemonics: bic/orn/cset/
+ubfx/clz/…, hints/barriers, msr, brk/hlt, `.L` labels, numeric labels) are completeness work.
+**Plan:** per family, exact architectural encoders (one instruction or a hard error) + a strict
+parser with register classes and an end-of-line check; load/store done first (all 360 survey +
+extra cases now MATCH or BOTH-ERR vs clang), then data-processing, then branch/system, then the
+backend-facing encoder footguns.
+Raw survey outputs: session scratchpad (not durable) — the tables above are the record.
 **Fix:** the text parser must be faithful — one mnemonic → one instruction, clang's alias selection
 (LDUR/STUR), and a hard parse error for anything unencodable or malformed (including trailing
 tokens); encoders called from the text path must never synthesize.  Scope the backend-facing
