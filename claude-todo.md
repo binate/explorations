@@ -376,8 +376,16 @@ Remaining (follow-ups):
 - **x64 f32 upper-bits comment** — ✅ **DONE (`bcb4e21eb`)**.  Reworded x64_float.bn's two Movapd
   comments to state the f32 upper bits may be dirty but no consumer reads them (rather than claim a
   clean-upper invariant that isn't maintained).  Left x64_regmap.bn:189 (its `Movd` genuinely
-  upper-zeroes — accurate).  STILL OPEN (deferred, perf not correctness): x64 `emitFusedFieldStore`
-  stores a homed float via the GP bridge instead of a direct `movss`/`movlps` — a missed opt.
+  upper-zeroes — accurate).  The follow-on note "x64 `emitFusedFieldStore` stores a homed float via
+  the GP bridge" turned out MOOT as stated — `fieldAccessFusable` excludes floats on every backend, so
+  no float ever reaches the fused field store.  The real item is the float field fold below.
+- **float struct-field fold (all three native backends)** — 🟡 IN PROGRESS (claimed 2026-09-25,
+  work-5/session).  The field analogue of the aarch64 float element fold: `p.x` for a float field
+  still materializes the field address separately because `fieldAccessFusable` excludes floats.
+  Parameterize `FusableFieldGeps` with `allowFloat` and make each backend's fused field load/store
+  FP-home-aware (load/store the value straight from/into its FP home at `[base, #off]`).  aarch64's
+  fused field emitters already route through the `isFpReg`-dispatching emitScalarLoad/Store; x64 and
+  arm32 need the direct FP path.  Measure on n-body / spectral-norm (aa64 instructions retired).
 - **aarch64 follow-ups to close more of fasta's residual gap**:
   - fold float array-element addressing — ✅ **DONE (`1ca914edc`)**.  A float `a[i]` load/store now
     folds its address into a scaled register-offset FP load/store straight into the D-home
