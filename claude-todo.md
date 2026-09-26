@@ -39,6 +39,16 @@ All on main today; each is being fixed (with a test) in the aa64 text-assembler 
 
 ## MAJOR
 
+### Conformance `.error` tests never check that the program failed — 🔴 OPEN (found 2026-09-26, work-2/session, by the review of the rt.MemZero negative-size test)
+
+`run_error_test` (`conformance/run.sh` ~365-405) captures the exit status (`rc=$?`) but never uses it: a
+`.error` test passes whenever each pattern appears somewhere in the output, even if the program exited 0.
+So "negative: must fail" is not enforced — a panic test whose program prints the message and then returns
+normally still passes (`767_panic_message.bn` already notes the harness only asserts presence).
+**Fix:** require `rc != 0` (compile errors already exit non-zero) and report "exited 0" as the failure;
+run every mode's `.error` tests once to find the ones that pass only because the status is ignored — each
+of those is a real bug (or a wrongly-classified test) to triage, not to xfail silently.
+
 ### LLVM backend at -O1+: `cast` of a `readonly float` value emits ill-typed IR — clang rejects valid code — 🔴 OPEN (found 2026-09-26)
 
 **Symptom:** `func conv(j readonly float32) float64 { return cast(float64, j) * 3.0 }` (and
@@ -170,6 +180,11 @@ a range check (check every public entry guards them).  `aarch64_test.bn`: the `I
 `TestAllOnes64Value` and misattributes the all-ones check to `emitLogOp` (it is `encodeBitmaskImm`).
 
 ### x64 assembler / text parser: `emitModRM` addresses the wrong location for some memory shapes, operand sizes unchecked, `[base+idx*scale+disp]` misparsed — 🟡 CLAIMED, queued (found 2026-09-25; claimed 2026-09-25, work-4/session — assembler sweep after T6(b), before (c))
+**Also (2026-09-26, found by the aa64 batch review, work-2/session):** the displacement parse after a `-`
+negates the whole rest of the expression — `mov eax, [rbp - 8 + 4]` encodes disp -12 (`8b 45 f4`), clang
+-4; same greedy-`ParseExpr` root as the scale case (`[rcx*2 + 8]` → scale 10, encoded `(%rdi,%rcx,8)`).
+The shared `expr.bn` is being made clang-faithful in the aa64 batch (ambiguous precedence mixes
+rejected, logical `>>`), which changes what these greedy calls see.
 
 (REX.X/REX.B, RIP-label operand size, operand-kind validation, per-width immediate ranges incl. the imm8-only
 paths, and SZ16 imm16 landed in `d35da4a89`, see done log.)  Still open, all silent: (i) `emitModRM` wrong
