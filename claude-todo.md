@@ -30,6 +30,31 @@ repro above as an e2e (macOS `--linker bnld` LLVM `-O2`), plus link-unit tests p
 
 ## MAJOR
 
+### native arm32 hard-float: an FP-homed OVERFLOWED float64 param is loaded with VLDR.32 — silent wrong result at -O1/-O2 — 🔴 OPEN (found 2026-09-25)
+
+**Symptom:** conformance `1280_float_param_overflow_loop` prints `46` instead of `131` under
+`BINATE_FLAGS=-O2` (and `-O1`) in `builder-comp_native_arm32_linux` (hard-float); green at -O0.
+A float64 param past the D0..D7 CPRC bank (it arrives on the incoming stack) that still gets a
+D8..D15 home is loaded with a single-precision `vldr s30, [sp, #344]` into the home's low S-view, so
+only the low word of the double lands; the high half is whatever the D register held.
+**Root cause:** `emitSpillParamFloatHard` (arm32_call_hard.bn) takes `isDouble` from
+`rm.CC.CallArgFpReg(...)`, which returns `(-1, false)` for ANY overflowed arg
+(common_callconv_vfp.bn: `if sSlot < 0 { return -1, false }`), so the overflow-homed branch always
+takes the `vfpLoadBaseHard(a, false, lowSingleOf(home), ...)` arm.  At -O0 the first 8 params fill
+the 8-register home pool, so overflowed params stay slot-resident and the branch doesn't run —
+which is why the earlier "nearly unreachable, correct defensive code" note (hard-float unit coverage,
+below) was wrong on both counts.
+**Why CI doesn't see it:** the -O2 lane (conformance-o2.yml) runs native arm32 only as soft-float
+baremetal (no FP homes); native arm32-linux hard-float runs only at -O0.  No xfail is possible (the
+-O0 run of the same mode passes; xfail markers aren't opt-level-specific) — 1280 at -O2 is the
+reproducer.  **Found by:** the completeness critic of the float struct-field fold review (the
+field-fold commits neither introduce nor change it: base 9afc2e3a7 fails identically).
+**Proposed fix:** take the width from the param's own type (`isFloat64Typ(p.Typ)`, or have the
+placement helper report isDouble for an overflowed float) instead of CallArgFpReg's overflow
+return; add a unit test driving the overflow-homed branch with a float64 (the existing unit tests
+cover only in-register params); and consider adding native arm32-linux to the -O2 CI lane (a CI
+scope decision for the user).
+
 ### IR functions with a loop or a phi are never freed: CFG edges and phi predecessors are managed `@Block` references that form cycles (toolchain memory leak) — 🟡 IN PROGRESS (found 2026-09-26; step 1 claimed 2026-09-26, session claude/exciting-davinci-wahyt2)
 
 **Symptom:** in a `rt.LiveBlocks()` window, building a module (`genModule` in pkg/binate/vm tests)
@@ -455,10 +480,10 @@ Remaining (follow-ups):
 - **hard-float unit coverage** — ✅ **DONE (`bcb4e21eb`)**.  Added two arm32 hard-float unit tests
   exercising the D-home marshalling directly (homed float64 call-return VMOVs D0→home;
   homed float64 param VMOVs its CPRC reg→home), plus conformance 1280 (>8 float64 params read in a
-  loop).  NOTE found while writing 1280: the overflow-HOMED param branch is nearly UNREACHABLE — the
-  8-register D8..D15 pool fills with the first 8 params, so overflowed params stay slot-resident.
-  The branch stays as correct defensive code (structurally identical to the proven slot path); no
-  dedicated test forces it.  (This same pool-exhaustion is the FP-register-pressure item above.)
+  loop).  CORRECTION: the note written here claimed the overflow-HOMED param branch was "nearly
+  unreachable … correct defensive code".  Both parts were wrong: it is reachable at -O1/-O2 (1280
+  fails there) and it loads a float64 with VLDR.32 — see the MAJOR entry "native arm32 hard-float:
+  an FP-homed OVERFLOWED float64 param is loaded with VLDR.32".
 - **x64 f32 upper-bits comment** — ✅ **DONE (`bcb4e21eb`)**.  Reworded x64_float.bn's two Movapd
   comments to state the f32 upper bits may be dirty but no consumer reads them (rather than claim a
   clean-upper invariant that isn't maintained).  Left x64_regmap.bn:189 (its `Movd` genuinely
