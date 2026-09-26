@@ -841,6 +841,22 @@ FP-arithmetic work. Full plan + sequencing: `plan-native-vectorization.md`.
 
 Order: V1 (aa64 first) → (A) → idiom recognition → B1 → B2 → B3. Each independently landable/measurable.
 
+### IR-gen emits an untyped LEFT-operand constant twice — a dead `int`-typed copy (non-canonical when the value doesn't fit `int`) — 🔴 OPEN (found 2026-09-25, work-4, T6 b1)
+
+For `K | x` (untyped constant on the LEFT of a binary op whose right operand is typed), IR-gen emits the
+constant first with the default type `int` — unused — and then again with the operand's type; with the
+constant on the RIGHT (`x | K`) only the correctly typed constant is emitted.  Minimal repro (arm32 target,
+`--emit-llvm`): `func f(x uint64) uint64 { return 0x7FF0000000000000 | x }` →
+`%v2 = add i32 9218868437227405312, 0` (dead) then `%v4 = add i64 9218868437227405312, 0`; `5 | x` gives
+the same dead `add i32 5, 0`.  Effects: dead constants in every such expression (materialized by the native
+backends at -O0); where `int` is narrower than the value (arm32), the dead copy is a NON-CANONICAL constant
+— an `OP_CONST_INT` whose `IntVal` does not fit its type — which the LLVM path truncates silently and which
+tripped the native arm32 backend once its encoder stopped truncating (fixed on the backend side: 
+`emitConstInt32` now reduces to the low 32 bits explicitly).  Seen in `softfloat.F64Mul`'s
+`return 0x7FF0000000000000 | productSign`.  **Fix:** in IR-gen's binary-operator lowering, type an untyped
+left-operand constant from the other operand before emitting it (as already happens for the right
+operand); add an IR verifier check that every `OP_CONST_INT`'s value fits its type.
+
 ### IR optimization passes (help LLVM + native backends + the VM) — 🟡 OPEN
 
 - **Pass infra + mem2reg + BCE** — design settled
