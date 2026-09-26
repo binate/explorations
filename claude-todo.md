@@ -489,6 +489,19 @@ Remaining (follow-ups):
   FP-home-aware (load/store the value straight from/into its FP home at `[base, #off]`).  aarch64's
   fused field emitters already route through the `isFpReg`-dispatching emitScalarLoad/Store; x64 and
   arm32 need the direct FP path.  Measure on n-body / spectral-norm (aa64 instructions retired).
+  Status (not yet landed): all three backends done on the work branch, pending review + arm32
+  conformance.  aarch64: n-body N=1e6 instructions retired 16.00G → 15.72G median (−1.78%, A/A noise
+  +0.02%; `perf/ab-binaries.sh`, 7 rounds), user CPU −1.52%, output identical; native aa64 conformance
+  3051/0.  x64: n-body `advance()` 422 → 367 static instructions (29 fewer LEAs; float stores go
+  straight from the XMM home instead of MOVQ+MOV); native x64-darwin conformance 3051/0.  arm32:
+  n-body `advance()` 439 → 325 static instructions — each float64 field access was ADD + 2×LDR + VMOV
+  (the 64-bit path round-trips through GP), now one VLDR.64/VSTR.64; output identical under qemu-arm.
+  (x64/arm32 runtime can't be measured on this host — no native x64/arm32 hardware.)
+  Observed while verifying arm32 (separate items, not this one): n-body's `bodies[i].x` recomputes
+  the element address every access (`mov r5,#56; mul; add` — arm32 doesn't fold element GEPs), and
+  the loop indices are spilled (arm32 homes are caller-saved R0..R3, so values live across the
+  `Sqrt` call can't be homed).  Also: arm32's PLAIN (non-folded) float loads/stores still round-trip
+  through GP registers (LDR + VMOV), unlike x64/aarch64.
 - **aarch64 follow-ups to close more of fasta's residual gap**:
   - fold float array-element addressing — ✅ **DONE (`1ca914edc`)**.  A float `a[i]` load/store now
     folds its address into a scaled register-offset FP load/store straight into the D-home
