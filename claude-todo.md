@@ -532,8 +532,8 @@ iropt win, ✅ LANDED `2fa428d8b` (2026-09-21) — but a NO-OP on richards/fannk
     excludes int64 pair-add).  Shared analysis reused; per-backend helpers in x64_fold.bn /
     arm32_fold.bn.  Native conformance x64 3048/0, arm32 3002/0; unit x64 316 / arm32 405; x64 disasm
     confirms `addq $0x1` fires.  (b) AND/OR/EOR logical-immediate folding (needs an is-encodable-bitmask
-    check) — 🔵 OPEN; (c) phi-copy coalescing (the bigger 007 lever, deferred — regalloc-core,
-    regression risk) — 🔵 OPEN.**
+    check) — 🟡 IN PROGRESS (claimed 2026-09-25, work-4/session); (c) phi-copy coalescing (the bigger
+    007 lever — regalloc-core, regression risk) — 🔵 OPEN, queued after (b) by the same session.**
 
 Order: T1 → T2 → T3 → T4 → T5 → T6.
 
