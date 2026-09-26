@@ -120,7 +120,7 @@ bni, pick the set, give iropt a VM entry point, drop `bni -O`, and make CI test 
 Steps 1-2 (per-pass switches; the passes' compile-time cost) and the toolchain-at-bnc-O2 build
 change are landed (see the done log). Step 3 measured: results, the accepted (tentative) VM set,
 and how to evaluate each new pass live in [vm-pass-set.md](vm-pass-set.md) — keep it current as
-passes are added.  Next: step 4 (implement the set in bni).
+passes are added.  Step 4 landed (binate `4ff351ea`: the VM runs `iropt.VMOptConfig()`, `bni -O` removed, REPL per-function passes).  Next: step 5 (CI: the all-passes-off lane; the VM lanes now test the set by default).
 
 ### Assembler silently drops / mis-encodes unencodable immediates on the ALU/logical paths the native immediate folds use (aa64, arm32, x64) — 🔴 OPEN (found 2026-09-25, work-4, T6(b) survey)
 

@@ -21,7 +21,7 @@ div-check-elim, bce-const, bce-loop, bce-redundant.
 in small-by-value-struct code — record-churn), licm, fuse-madd (no measurable VM benefit).
 The REPL excludes inline regardless (redefinition semantics; plan-vm-pass-set.md).
 
-Not yet implemented in bni (plan step 4).
+Implemented: `iropt.VMOptConfig()` (binate `4ff351ea`); bni applies `-f` / `-fno` on top of it.
 
 ## Method
 

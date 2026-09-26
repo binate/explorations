@@ -160,6 +160,12 @@ is a library decision put to the user.
 
 ## Step 4 — the VM pass set
 
+**LANDED (2026-09-26, binate `4ff351ea`):** `iropt.VMOptConfig`, `vm.NewVM` default, `bni -O` removed,
+REPL = VM set minus inline via per-function `iropt.RunOptConfigFunc`, `ir.Func.Optimized`.  The first
+`--test`-with-passes run found the VM `get_field_ptr` bug (fixed, `759ec68b`) and, via it, the IR-gen
+field-base TypeArg tagging bug (fix in review) and a VM named-pointer field-offset bug (same fix).  Its
+review also exposed the IR CFG/phi `@Block` cycle leak (MAJOR in claude-todo.md, open).
+
 - `iropt.VMPassConfig()`, defined next to the pass table so each new pass decides there whether
   the VM runs it; a new pass starts off for the VM until measured.
 - The VM holds a `PassConfig` (replacing `vm.OptLevel`), defaulting to the VM set. Unit tests
