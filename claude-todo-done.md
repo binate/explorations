@@ -1,3 +1,28 @@
+### Assembler immediate paths on the native folds' route fail loud (aa64 / arm32 / x64) — DONE (binate `96b39fd89`, `54592d56d`, `d35da4a89`, 2026-09-26)
+
+Found by the T6(b) logical-immediate-fold survey (probe + clang oracle); these encoders are the ones the
+native immediate folds route constants through, so a fold/encoder mismatch would have been silent wrong code.
+- **aa64 (`96b39fd89`):** AND/ORR/EOR/ANDS/TST with an unencodable bitmask immediate emitted NOTHING (no
+  error) — now `SetError`; an unsupported operand kind too; ANDS goes through `emitLogOp`; a W-form
+  immediate needs bits [63:32] all-zero or all-one (clang's rule; `and w0,w1,#0x100000001` was `#1`);
+  `LogicalImmFits(sf, imm)` exported.  Exhaustive clang cross-check (218,840 cases) bit-identical.
+- **arm32 (`54592d56d`):** `encodeOperand2` encoded an unencodable immediate as `#0` and a memory/label
+  operand as `r0`, across all 16 data-processing encoders — now `SetError` (also: immediates outside the
+  32-bit range, invalid registers, out-of-range shift amounts).  Shift-by-0 = plain register and RRX as its
+  own kind, as clang; the parser's `, rrx` used to be spelled ROR #0.  Native `emitConstInt32` reduces to the
+  low 32 bits explicitly (it had relied on the encoder truncating an IR-gen dead constant that doesn't fit
+  i32 — the new range check broke every native arm32 program until this; IR-gen issue filed separately).
+- **x64 (`d35da4a89`):** immediates range-checked per operand width in ALU/TEST/MOV r/m/PUSH/IMUL3/shifts/
+  INT/shuffles/CMPPS (were truncated or sign-flipped); SZ16 imm16 (was imm32 → instruction-stream desync);
+  imm8 choice at operation width; operand-kind validation (was nothing / stray prefix / `[rip+0]` with no
+  fixup); REX.X/REX.B for r8-r15 index/base in the immediate and TEST memory forms (addressed the low
+  register); RIP-label forms honor operand size — a 32-bit `mov eax, [rip+sym]` was an 8-byte REX.W access
+  (latent mis-assembly, e.g. `e2e/bnld-dynamic-linux.sh`'s 32-bit data).  clang harness 58,863 encodings.
+Validation: native conformance aa64 3053/0, x64 3053/0, arm32 3006/0; text-assembler + AssembleFile
+rejection/golden tests; every in-tree `.s` assembles byte-identically.  Remaining assembler footguns are in
+the sweep entries (aa64 non-logical encoders, x64 `emitModRM`/sizes/parser, arm32 register-offset/cond/
+register fields, text-parser trailing tokens + error propagation).
+
 ### bnld silently mislinked Mach-O PAGEOFF12 on non-64-bit load/stores (CRITICAL) — FIXED (binate `2da8f242`, 2026-09-25)
 
 **Symptom.** A plain byte fill + sum prints garbage when the LLVM backend's objects are linked by
