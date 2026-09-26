@@ -1,3 +1,25 @@
+### VM ran a user-selectable -On of the compiler's IR passes, and CI never tested it — DONE (binate `aa8c2bac`..`fc72e6b1`, 2026-09-25/26)
+
+`vm.LowerModule` runs `iropt.RunOptPasses(m, vm.OptLevel)` before bytecode lowering (`bni -O <n>`,
+default 0; `--test` and the REPL fixed at 0). `conformance-o2.yml` sets `BINATE_FLAGS=-O2` and claims
+to cover the VM at -O2, but the four VM runners (`builder-comp-int`, `builder-comp-comp-int`,
+`builder-comp-int-int`, `builder-comp_arm32_linux_int`) never forward it, so the VM is only ever
+tested at -O0 (and `bni` accepts `-O 2` but not `-O2`).
+
+**Decision (user, 2026-09-25): option 2 — the VM gets a fixed, interpreter-appropriate pass set,
+always on, with no user-facing -On.** Code under bni should still run fast, but the pass set is
+chosen for the interpreter's tradeoff (passes run on every load, no ahead-of-time step), not
+inherited from bnc's levels: some passes make no sense for the VM, and increasingly-marginal
+compiler passes (worse compile-time : speedup ratio) won't pay for themselves there. Plan:
+[plan-vm-pass-set.md](plan-vm-pass-set.md) — measure per-pass load cost vs run-time benefit under
+bni, pick the set, give iropt a VM entry point, drop `bni -O`, and make CI test exactly that set.
+Steps 1-2 (per-pass switches; the passes' compile-time cost) and the toolchain-at-bnc-O2 build
+change are landed (see the done log). Step 3 measured: results, the accepted (tentative) VM set,
+and how to evaluate each new pass live in [vm-pass-set.md](vm-pass-set.md) — keep it current as
+passes are added.  Step 4 landed (binate `4ff351ea`: the VM runs `iropt.VMOptConfig()`, `bni -O` removed, REPL per-function passes).  Next: step 5 (CI: the all-passes-off lane; the VM lanes now test the set by default).
+
+**Resolution:** the VM runs `iropt.VMOptConfig()` on every load (`4ff351ea`), `bni -O` removed, the REPL runs it per function without inlining; the toolchain is built at bnc -O2; CI tests the set in every VM lane plus a `vm-no-passes` lane (`fc72e6b1`). Living doc: [vm-pass-set.md](vm-pass-set.md). Plan: [plan-vm-pass-set.md](plan-vm-pass-set.md).
+
 ### IR-gen overwrote a field base's `TypeArg` with the struct type — `bit_cast(@S, p).b` rejected by clang on LLVM (MAJOR) — FIXED (binate `ab2e981a`, 2026-09-26)
 
 `return bit_cast(@S, p).b` fails to compile with the LLVM backend at -O0 and -O2 (`invalid cast

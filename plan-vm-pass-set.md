@@ -1,6 +1,6 @@
 # Plan: per-pass optimization switches, and a fixed pass set for the VM
 
-**Status:** 🟡 IN PROGRESS (claimed 2026-09-25). Tracked in `claude-todo.md` under "VM runs a
+**Status:** ✅ DONE (2026-09-26; steps 1-5 landed). Tracked in `claude-todo.md` under "VM runs a
 user-selectable -On of the compiler's IR passes".
 
 ## Decisions so far (user, 2026-09-25)
@@ -185,6 +185,10 @@ review also exposed the IR CFG/phi `@Block` cycle leak (MAJOR in claude-todo.md,
 - `bni -O` is removed; bni keeps `-f<pass>` / `-fno-<pass>`.
 
 ## Step 5 — CI
+
+**LANDED (2026-09-26, binate `fc72e6b1`):** `BNI_NO_PASSES=1` makes the builder-comp-int runner pass
+`-fno-<pass>` for every pass `bnc --list-opt-passes` names; the `vm-no-passes` job in
+conformance-tests.yml runs it.  The matrix's VM lanes test bni's default (the VM set).
 
 - The default VM conformance and unit-test lanes then test exactly the shipped VM set, on every
   CI run, including for the first time on a 32-bit host (`builder-comp_arm32_linux_int`).
