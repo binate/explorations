@@ -499,7 +499,10 @@ Remaining (follow-ups):
   the GP bridge" turned out MOOT as stated — `fieldAccessFusable` excludes floats on every backend, so
   no float ever reaches the fused field store.  The real item is the float field fold below.
 - **arm32: plain (non-folded) float loads/stores straight to/from the FP home** — 🟡 IN PROGRESS
-  (claimed 2026-09-26, work-5/session; user-approved follow-up of the field fold).  arm32's plain
+  (claimed 2026-09-26, work-5/session; user-approved follow-up of the field fold).  Implemented on
+  the work branch (not yet landed): native arm32 linux -O0/-O2 3057/0, baremetal 3011/0;
+  spectral-norm `mulAv`/`mulAtv` 208 → 196 static instructions each (VMOVs 8 → 2), `main` 640 → 613,
+  output identical; n-body unchanged (all its float accesses are fused fields).  arm32's plain
   emitLoad/emitStore (and emitLoad64/emitStore64 for float64) move an FP-homed float through GP
   registers (LDR + VMOV / VMOV + STR), unlike x64/aarch64 which load/store the FP home directly.
   Make them VLDR/VSTR the D home (float32 via the low S-view) for every address kind (alloca,
@@ -521,8 +524,9 @@ Remaining (follow-ups):
   +0.02%; `perf/ab-binaries.sh`, 7 rounds), user CPU −1.52%, output identical; native aa64 conformance
   3051/0.  x64: n-body `advance()` 422 → 367 static instructions (29 fewer LEAs; float stores go
   straight from the XMM home instead of MOVQ+MOV); native x64-darwin conformance 3051/0.  arm32:
-  n-body `advance()` 439 → 325 static instructions — each float64 field access was ADD + 2×LDR + VMOV
-  (the 64-bit path round-trips through GP), now one VLDR.64/VSTR.64; output identical under qemu-arm.
+  n-body `advance()` 439 → 340 static instructions (−23%; an earlier "325" came from a truncated
+  disassembly extraction) — each float64 field access was ADD + 2×LDR + VMOV (the 64-bit path
+  round-trips through GP), now one VLDR.64/VSTR.64; output identical under qemu-arm.
   (x64/arm32 runtime can't be measured on this host — no native x64/arm32 hardware.)
   Observed while verifying arm32 (separate items, not this one): n-body's `bodies[i].x` recomputes
   the element address every access (`mov r5,#56; mul; add` — arm32 doesn't fold element GEPs), and
