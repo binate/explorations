@@ -7,6 +7,33 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### VM `get_field_ptr` takes a managed-pointer `TypeArg` for the struct type — wrong field offsets (silent wrong code) — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-26, session claude/exciting-davinci-wahyt2)
+
+**Symptom:** `var s @S = bit_cast(@S, p); return s.b` returns field 0 (`s.a`) under bni whenever
+load-forwarding forwards `s` (the VM pass set does). Found by the first `bni --test` run with the VM
+pass set (plan-vm-pass-set.md step 4): `pkg/binate/check` segfaulted in
+`TestCheckGenericInstMethodCall` — `substituteTypeParams`' `var d @ast.Decl = bit_cast(@ast.Decl,
+t.InstDecl)` then `d.Pos` read `Decl` field 0 as a `Pos`, and `token.__copy_3Pos` RefInc'd the
+integer 7. **Root cause:** `vm/lower_memory.bn` `lowerGetFieldPtr` resolves the struct from the
+base's `TypeArg` first and peels only `TYP_POINTER`. `TypeArg` is the pointee only for an
+`OP_ALLOC` (and `OP_MAKE`); for a `bit_cast` / `cast` it is the target type — here `@S`, which is not
+peeled, so `FieldOffset` runs on a managed-pointer type. Before forwarding the base was a load of the
+slot (no `TypeArg`), which fell through to `Typ.Elem`. The native backends (`common.StructTypeOf`:
+`TypeArg` only if it is a struct, else `Typ.Elem`) and LLVM (peels both pointer kinds) get it right.
+**Fix:** resolve like `StructTypeOf` / `IsSliceFieldBase` (`TypeArg` only when it is the struct /
+slice itself, else the base's pointee `Typ.Elem`), plus a VM test.
+
+### LLVM backend: a field access directly on `bit_cast(@S, p)` emits `ptrtoint i8* to %S` (clang rejects it) — 🔴 OPEN (found 2026-09-26)
+
+`return bit_cast(@S, p).b` (p `*uint8`, S a struct) fails to compile with the LLVM backend at -O0
+and -O2 (`invalid cast opcode for cast from 'ptr' to '%S'`); the native backend and bni run it
+correctly (42). The emitted `%v3 = ptrtoint i8* %v2 to %S` means the bit_cast instr reaching codegen
+is typed `S` (the struct), not `@S` — so either IR-gen types a bit_cast used as a selector base by
+its pointee, or codegen's bit_cast lowering picks the wrong type. Root cause not yet investigated.
+Found while reducing the VM `get_field_ptr` bug above (the `via a local` form compiles fine).
+Needs a conformance test (xfail on the LLVM modes) and a fix.
+
+
 ### load-forwarding store-forwards to a value its own RLE / slice-extract coalescing deleted (dangling operand) — 🟡 IN PROGRESS (found 2026-09-25; claimed 2026-09-25, session claude/exciting-davinci-wahyt2)
 
 **Symptom.** With load-forwarding running but mem2reg not (`-fload-fwd`, or `-O2 -fno-mem2reg`), a
