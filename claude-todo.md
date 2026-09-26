@@ -945,6 +945,23 @@ covered by the single-VM and native lanes). Open:
 
 ## Standard library — pkg/std namespace migration
 
+### Move the containers under `pkg/std/containers/` — 🟡 IN PROGRESS (claimed 2026-09-26, work-1)
+
+The 2026-08-25 promotion (`904c0a31b`, `557fad1ad`, `a6cb15f87`) put the seven
+container packages at `pkg/std/{vec,iter,table,mapfn,set,setfn,hashmap}` — dropping
+the `containers/` level that `pkg-layout-spec.md` and `done/plan-stdx-containers.md`
+both specified (`pkg/std/containers/…`).  Nobody decided the flattening; it is wrong
+and is being undone:
+
+1. Move the seven packages to `pkg/std/containers/*`; leave `expose` forwarders at the
+   flat `pkg/std/*` paths.
+2. Switch every non-BUILDER-tree consumer to the `pkg/std/containers/*` paths.
+3. (After the next independently-justified BUILDER release + `BUILDER_VERSION` bump —
+   bnc-0.0.15/0.0.16 bundle only the flat paths, and the BUILDER-compiled tree
+   resolves the stdlib from the BUILDER's bundle): switch the BUILDER-tree consumers,
+   then delete the flat forwarders.  A separate open entry will track this step once
+   1–2 land.
+
 ## Documentation hygiene
 
 ### ABI spec §5.2 — package-path validation now ENFORCED; update the "unvalidated" text — 🟢 minor (2026-09-07)
