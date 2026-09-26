@@ -7,23 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### VM `get_field_ptr` takes a managed-pointer `TypeArg` for the struct type — wrong field offsets (silent wrong code) — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-26, session claude/exciting-davinci-wahyt2)
-
-**Symptom:** `var s @S = bit_cast(@S, p); return s.b` returns field 0 (`s.a`) under bni whenever
-load-forwarding forwards `s` (the VM pass set does). Found by the first `bni --test` run with the VM
-pass set (plan-vm-pass-set.md step 4): `pkg/binate/check` segfaulted in
-`TestCheckGenericInstMethodCall` — `substituteTypeParams`' `var d @ast.Decl = bit_cast(@ast.Decl,
-t.InstDecl)` then `d.Pos` read `Decl` field 0 as a `Pos`, and `token.__copy_3Pos` RefInc'd the
-integer 7. **Root cause:** `vm/lower_memory.bn` `lowerGetFieldPtr` resolves the struct from the
-base's `TypeArg` first and peels only `TYP_POINTER`. `TypeArg` is the pointee only for an
-`OP_ALLOC` (and `OP_MAKE`); for a `bit_cast` / `cast` it is the target type — here `@S`, which is not
-peeled, so `FieldOffset` runs on a managed-pointer type. Before forwarding the base was a load of the
-slot (no `TypeArg`), which fell through to `Typ.Elem`. The native backends (`common.StructTypeOf`:
-`TypeArg` only if it is a struct, else `Typ.Elem`) and LLVM (peels both pointer kinds) get it right.
-**Fix:** resolve like `StructTypeOf` / `IsSliceFieldBase` (`TypeArg` only when it is the struct /
-slice itself, else the base's pointee `Typ.Elem`), plus a VM test.
-
-### IR-gen overwrites a field base's `TypeArg` with the struct type — a field access directly on `bit_cast(@S, p)` miscompiles on LLVM (clang rejects it) — 🔴 OPEN (found 2026-09-26)
+### IR-gen overwrites a field base's `TypeArg` with the struct type — a field access directly on `bit_cast(@S, p)` miscompiles on LLVM (clang rejects it) — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-26, session claude/exciting-davinci-wahyt2)
 
 `return bit_cast(@S, p).b` fails to compile with the LLVM backend at -O0 and -O2 (`invalid cast
 opcode for cast from 'ptr' to '%S'`, from `%v3 = ptrtoint i8* %v2 to %S`); native and bni run it
@@ -47,34 +31,6 @@ bug class as the VM `get_field_ptr` one. conformance 1124 covers only `ps.a` (of
 through `ps.b`. Needs a repro (e.g. `func f(p P) int { return p.b }` under the VM pass set and on
 native) and, if confirmed, peeling names before `.Elem` in both; the IR-gen fix above (struct type on
 the field pointer) would remove the inference altogether.
-### load-forwarding store-forwards to a value its own RLE / slice-extract coalescing deleted (dangling operand) — 🟡 IN PROGRESS (found 2026-09-25; claimed 2026-09-25, session claude/exciting-davinci-wahyt2)
-
-**Symptom.** With load-forwarding running but mem2reg not (`-fload-fwd`, or `-O2 -fno-mem2reg`), a
-scalar local initialized from a slice's length or data and read in a loop gets a dangling operand:
-
-    func sum(b @[]float64) float64 { var e float64 = 0.0; var n int = len(b)
-        for i := 0; i < n; i++ { e = e + b[i] }; return e }
-
-LLVM backend: `error: use of undefined value '%v7'` (the loop condition `%v11 < %v7`). VM: silently
-wrong — the undefined register reads 0, the loop never runs (`sum` = 0; n-body / fasta /
-spectral-norm print wrong output). Native x64: correct output, by luck (reads a never-written
-value). Default -O1+ is unaffected as far as found: mem2reg promotes `n` before load-forwarding
-sees it. Found by `perf/vm-pass-costs.py`'s leave-one-out run (`loo:mem2reg` BAD on 3 benchmarks).
-
-**Root cause.** `forwardLoadsFunc` (iropt/load_forward.bn) analyzes every alloca first, recording
-each store-forwarded slot's replacement value (`gReplVal`: here `v7 = extract(load b, 1)`), then
-runs `applyRLE` + `coalesceSliceExtracts` (which replace the load of `b` and delete the extracts
-of it, rewriting the uses they find in f's blocks) and only then `applyPromotion` with the
-recorded values.  A recorded value that RLE / coalescing deleted is not in any block's operands at
-that point, so it is never rewritten: the forwarded loads are replaced by a deleted instruction.
-
-**Fix (proposed).** Have `applyRLE` / `coalesceSliceExtracts` return (or accumulate) their
-replacement map and chase `gReplVal` through it before `applyPromotion` (the same transitive
-`chaseRepl` the other rewrites use), or run store-forwarding before RLE.  Test: an iropt unit test
-running only load-fwd on this shape (no operand may reference an instruction absent from f), and a
-VM exec test (`-fload-fwd` config) checking `sum` = 3.5.  Each pass must be correct whichever others
-run (iropt.bni); `perf/vm-pass-costs.py`'s leave-one-out column should come back clean.
-
 ### VM runs a user-selectable -On of the compiler's IR passes, and CI never tests it — 🟡 IN PROGRESS (claimed 2026-09-25, session claude/exciting-davinci-wahyt2)
 
 `vm.LowerModule` runs `iropt.RunOptPasses(m, vm.OptLevel)` before bytecode lowering (`bni -O <n>`,

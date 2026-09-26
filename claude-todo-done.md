@@ -1,3 +1,51 @@
+### VM `get_field_ptr` took a managed-pointer `TypeArg` for the struct type — wrong field offsets (MAJOR) — FIXED (binate `759ec68b`, 2026-09-26)
+
+**Symptom:** `var s @S = bit_cast(@S, p); return s.b` returns field 0 (`s.a`) under bni whenever
+load-forwarding forwards `s` (the VM pass set does). Found by the first `bni --test` run with the VM
+pass set (plan-vm-pass-set.md step 4): `pkg/binate/check` segfaulted in
+`TestCheckGenericInstMethodCall` — `substituteTypeParams`' `var d @ast.Decl = bit_cast(@ast.Decl,
+t.InstDecl)` then `d.Pos` read `Decl` field 0 as a `Pos`, and `token.__copy_3Pos` RefInc'd the
+integer 7. **Root cause:** `vm/lower_memory.bn` `lowerGetFieldPtr` resolves the struct from the
+base's `TypeArg` first and peels only `TYP_POINTER`. `TypeArg` is the pointee only for an
+`OP_ALLOC` (and `OP_MAKE`); for a `bit_cast` / `cast` it is the target type — here `@S`, which is not
+peeled, so `FieldOffset` runs on a managed-pointer type. Before forwarding the base was a load of the
+slot (no `TypeArg`), which fell through to `Typ.Elem`. The native backends (`common.StructTypeOf`:
+`TypeArg` only if it is a struct, else `Typ.Elem`) and LLVM (peels both pointer kinds) get it right.
+**Fix:** resolve like `StructTypeOf` / `IsSliceFieldBase` (`TypeArg` only when it is the struct /
+slice itself, else the base's pointee `Typ.Elem`), plus a VM test.
+
+**Resolution:** `fieldPtrBaseType` (vm/lower_memory.bn) takes `TypeArg` only when it resolves to the struct / slice, else `Typ.Elem` (as native `StructTypeOf`). Tests: vm `lower_field_ptr_base_test.bn`, conformance 1284 (1285 covers the separate IR-gen bug, still open).
+
+### load-forwarding store-forwarded to a value its own RLE / slice-extract coalescing deleted (MAJOR) — FIXED (binate `171df689`, 2026-09-26)
+
+**Symptom.** With load-forwarding running but mem2reg not (`-fload-fwd`, or `-O2 -fno-mem2reg`), a
+scalar local initialized from a slice's length or data and read in a loop gets a dangling operand:
+
+    func sum(b @[]float64) float64 { var e float64 = 0.0; var n int = len(b)
+        for i := 0; i < n; i++ { e = e + b[i] }; return e }
+
+LLVM backend: `error: use of undefined value '%v7'` (the loop condition `%v11 < %v7`). VM: silently
+wrong — the undefined register reads 0, the loop never runs (`sum` = 0; n-body / fasta /
+spectral-norm print wrong output). Native x64: correct output, by luck (reads a never-written
+value). Default -O1+ is unaffected as far as found: mem2reg promotes `n` before load-forwarding
+sees it. Found by `perf/vm-pass-costs.py`'s leave-one-out run (`loo:mem2reg` BAD on 3 benchmarks).
+
+**Root cause.** `forwardLoadsFunc` (iropt/load_forward.bn) analyzes every alloca first, recording
+each store-forwarded slot's replacement value (`gReplVal`: here `v7 = extract(load b, 1)`), then
+runs `applyRLE` + `coalesceSliceExtracts` (which replace the load of `b` and delete the extracts
+of it, rewriting the uses they find in f's blocks) and only then `applyPromotion` with the
+recorded values.  A recorded value that RLE / coalescing deleted is not in any block's operands at
+that point, so it is never rewritten: the forwarded loads are replaced by a deleted instruction.
+
+**Fix (proposed).** Have `applyRLE` / `coalesceSliceExtracts` return (or accumulate) their
+replacement map and chase `gReplVal` through it before `applyPromotion` (the same transitive
+`chaseRepl` the other rewrites use), or run store-forwarding before RLE.  Test: an iropt unit test
+running only load-fwd on this shape (no operand may reference an instruction absent from f), and a
+VM exec test (`-fload-fwd` config) checking `sum` = 3.5.  Each pass must be correct whichever others
+run (iropt.bni); `perf/vm-pass-costs.py`'s leave-one-out column should come back clean.
+
+**Resolution:** store-forwarding records each slot's store and reads `store.Args[1]` when applying (RLE and coalescing rewrite that operand in place); `forwardLoadsFunc` ends with `assertOperandsInScope` (now also checking phi values). Tests: iropt `TestForwardScalarFromCoalescedSliceLen`, vm `TestVMLoadFwdWithoutMem2reg`. bnc -O2 output for cmd/bnc byte-identical.
+
 ### Toolchain built at bnc -O2; per-pass optimization switches; IR passes' compile-time cost — DONE (binate `aa8c2bac`..`d7b9f7a6`, 2026-09-25)
 
 Steps 1-2 of [plan-vm-pass-set.md](plan-vm-pass-set.md) (the VM-pass-set todo stays open for steps 3-5).
