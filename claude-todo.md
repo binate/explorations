@@ -645,6 +645,33 @@ iropt win, ✅ LANDED `2fa428d8b` (2026-09-21) — but a NO-OP on richards/fannk
     confirms `addq $0x1` fires.  (b) AND/OR/EOR logical-immediate folding (needs an is-encodable-bitmask
     check) — 🟡 IN PROGRESS (claimed 2026-09-25, work-4/session); (c) phi-copy coalescing (the bigger
     007 lever — regalloc-core, regression risk) — 🔵 OPEN, queued after (b) by the same session.**
+  - **Survey findings (2026-09-25, T6(b) understand pass; aa64 -O2; counts from disassembly cross-checked
+    against the -O2 IR):**
+    - **Logical-immediate opportunity:** 295 AND/ORR/EOR/TST sites with a constant source across perf
+      001-008 + the 8 macro benchmarks + 32 bit-twiddling conformance programs (222 encodable, 95 in loops);
+      1178 in `bnc` itself (1067 encodable, 666 in loops).  Constants are never interned (IR-gen emits one
+      per literal; 94% have a single use): of 1485 constants with a logical use, 1439 are used only by
+      logical ops, so an exclusive-use rule suffices for (b).  The aa64 tst-fold's AND operand is a constant
+      in 55 of 71 cases (53 bitmask-encodable) — the tst path must emit `tst a, #k` once those constants
+      fold.  Biggest non-encodable group: XOR with all-ones (→ MVN / NOT).
+    - **Folded values still take part in LinearScan** (`native/common/regalloc_scan.bn` ~321-355; intervals
+      built for every id, fold flags only consulted after assignment): a folded constant can hold a pool
+      register it never uses for its whole interval — shown on aa64: one shared add-folded constant (10 uses
+      in a loop) left x6 idle while 4 accumulators spilled every iteration; the 10-separate-constants
+      version used x6 and spilled 3.  Fix: drop fold-flagged ids from the intervals / spill costs before
+      LinearScan and from PlanFrame.  Affects every existing fold; directly relevant to (c).
+    - **Nil compares are not folded** (the compare fold only accepts OP_CONST_INT): 5762 unfolded
+      compare-only zero constants in `bnc`'s disassembly (4632 in loops) — a larger opportunity in `bnc`
+      than the logical fold.  Fix: treat OP_CONST_NIL as immediate 0; better, fuse compare-with-zero +
+      branch into `cbz`/`cbnz`.
+    - **Strength-reduced MUL/DIV/REM constants are still materialized and homed** (aa64
+      `aarch64_muldiv.bn` consumes them via `constDivisor` but never marks them folded): 648 in `bnc` (566
+      mul, 82 div/urem); some are stored to slots never read.
+    - **Cross-kind constants:** folding a constant whose uses span kinds (compare + add) would catch 289
+      more in `bnc` (all the value 1 in managed-slice destructor loops).
+    - **iropt does no integer constant folding** of all-constant binary ops / compares, nor identities
+      (x&0, x&-1, x|-1, 0-x), nor NEG/BITNOT of a constant — so `x & -16` / `x & ~15` reach the AND as a
+      unop-of-constant and miss any immediate fold; 79-102 both-constant logical ops survive to codegen.
 
 Order: T1 → T2 → T3 → T4 → T5 → T6.
 
