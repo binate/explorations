@@ -139,6 +139,13 @@ OP_IMM emits nothing; several encoders have no default case for unsupported oper
 immediates discard the high 32 bits (clang only accepts all-zero/all-one high halves:
 `and w0,w1,#0x100000001` assembles as `#1`); stale docs on `LdrStrImmFitsUnsigned` claim the encoder
 masks.  **Fix:** fail loud (`a.SetError`) on every out-of-range field; tests per encoder + bnas rejections.
+Also (T6 b1 review): `Mov(X0, Imm(-1))` emits `movz x0,#0xffff` (clang: `movn x0,#0` = 0x92800000) and
+`Mov(X0, Imm(0x10000))` emits `movz x0,#0` (clang 0xD2A00020) — `Mov` should pick MOVZ/MOVN/shifted
+MOVZ/the bitmask-immediate ORR alias like clang, or fail loud; `Mov` silently drops operand kinds other than
+register/immediate.  **Comprehensiveness gap:** no encoders for BIC, ORN, EON, BICS, or the MOV
+(bitmask immediate) alias; `ldrStrUnsignedEnc` (`aarch64_ldst.bn` ~29) and `ldpStpEnc` (~340) mask without
+a range check (check every public entry guards them).  `aarch64_test.bn`: the `ImmU64` doc sits above
+`TestAllOnes64Value` and misattributes the all-ones check to `emitLogOp` (it is `encodeBitmaskImm`).
 
 ### x64 assembler / text parser: REX.X/REX.B dropped on some memory forms, `[base+idx*scale+disp]` misparsed, unhandled operand combos emit garbage — 🟡 CLAIMED, queued (found 2026-09-25; claimed 2026-09-25, work-4/session — assembler sweep after T6(b), before (c))
 
@@ -150,6 +157,38 @@ without a range check (offsets > 2 GiB truncate — same unbounded callers as th
 destination; label source) and report success.  (Minor: for SZ32 the imm8/imm32 choice uses the int64 view,
 so `and ecx,0xFFFFFFF0` gets the 6-byte form.)  **Fix:** carry REX.X/REX.B in every memory form; parse
 `scale` as a single term; range-check disp32; `SetError` on unhandled combos; golden bnas-vs-clang tests.
+**Being addressed in T6 b1 (in flight, not landed):** REX.X/REX.B on the immediate and TEST memory forms;
+`MovRipLabel`/`MovRipLabelStore` ignoring operand size (always REX.W); operand-KIND validation across the
+ALU/TEST/MOV/IMUL/INC/shift/push/pop/movzx/setcc/SSE/x87 encoders (reject instead of dropping / `[rip+0]`
+with no fixup); the SZ16 imm16 form and the SZ32 imm8 choice.  **Still open after b1:** (i) `emitModRM`
+wrong addresses, all silent: a memory operand with no base but an index (`MemIdx(-1, RCX, 8, 16)`, which the
+parser builds from `[rcx*8 + 16]`) encodes `[rdi + rcx*8 + 0x10]` (clang `48 8b 04 cd 10000000`); index=RSP
+is dropped (`[rax+rsp]` → `[rax+riz]`); scale 3 encodes as 8; a displacement beyond int32 truncates.
+(ii) Operand SIZES are not validated: mixed register/memory or register/register sizes encode at one
+operand's width (`Mov(Mem SZ64, Reg SZ32)` → `48 89 08`, a 64-bit store; clang rejects `mov qword ptr
+[rax], ecx`), non-SZ sizes encode as 32-bit ops, and the parser defaults an unsized `[rax]` to SZ64 so
+`mov [rax], ecx` is an 8-byte store — fix by requiring matching SZ sizes in emitALU/Test/Mov/emitUnaryRM/
+emitShift (every native call site already passes matching sizes) and inferring an unsized memory
+operand's size from the register in the parser.  (iii) imm8-only paths still truncate: `emitShift` (`shl
+rcx, 256` → `48 c1 e1 00`), `Int(vec)`, `Pshufd`/`Shufps`/`Shufpd` (`imm8 & 0xff`), `Cmpps`/`Cmppd`
+(`pred & 0xff`).  (iv) `[rip + label]` is supported only by Mov/Lea (everything else now rejects it);
+RIP-label forms followed by an immediate need a relocation that accounts for the trailing immediate.
+(v) `x64_data_test.bn` ~61 has a "Pre-fix this" comment (not stand-alone).
+
+### arm32 assembler: register-offset shifts, condition codes and register fields are silently masked — 🟡 CLAIMED, queued (found 2026-09-25 by the T6 b1 review; claimed 2026-09-25, work-4/session — assembler sweep after T6(b), before (c))
+
+(The data-processing Operand2 path — immediates, shifted registers, shift kinds/amounts — is being made to
+fail loud and clang-faithful in T6 b1.)  Still silent, all confirmed by probe vs clang: (a) `MemSReg`
+(`arm32_mem.bn` ~84-93, LDR/STR register offset) masks `ShAmt & 0x1f` and `Shift & 3`: RRX becomes LSL
+(`ldr r0,[r1,r2,rrx]` → `e7910002`, clang `e7910062`), `lsl #32` becomes `lsl #0`, `lsr #0` becomes
+`lsr #32` (clang: plain register); the text parser also only accepts `[Rn, Rm, shift #n]`, not `, rrx`.
+(b) `condBits` masks `cond & 0xf` for every encoder: cond 16 silently becomes EQ, cond 15 lands in the
+unconditional space (a different instruction).  (c) Register numbers are masked `& 0xf` in the memory,
+multiply/branch, MOVW/MOVT and VFP core-transfer encoders.  (d) Text parser alias selection differs from
+clang: `add r0, r1, #-4` (clang: `sub r0, r1, #4`), `cmp r1, #-1` (clang: `cmn r1, #1`) are rejected
+rather than substituted.  **Fix:** reuse the Operand2 path's `isCoreReg` / shift-amount validation in every
+encoder; validate `cond` in `condBits`; add the clang alias substitutions in the parser; golden
+bnas-vs-clang tests.
 
 ### Text assemblers truncate 64-bit immediates on a 32-bit host; the assemble path hides encoder errors — 🟡 CLAIMED, queued (found 2026-09-25; claimed 2026-09-25, work-4/session — assembler sweep after T6(b), before (c))
 
