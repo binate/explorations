@@ -56,6 +56,19 @@ touches every `Block1` / `Block2` / `PhiEntry.Block` user across ir, irgen, irop
 Plan (reviewed): [plan-ir-cfg-cycle-leak.md](plan-ir-cfg-cycle-leak.md).
 
 ### aa64 text assembler silently mis-assembles many load/store forms (latent — no live .s triggers them today) — 🟡 IN PROGRESS (found + claimed 2026-09-25, work-2 session; user: "Go ahead and fix the assembler")
+**Progress (2026-09-25, work-2/session — done, under adversarial review, not yet landed):** (1) new package
+`pkg/binate/asm/aarch64/isa`: exact single-instruction encoders for every load/store addressing mode,
+add/sub/logical/move-wide/bitfield/extr/mul/div/csel/ccmp, branches, ADR/ADRP, exception/hint/barrier/
+MRS/MSR/SYS — one instruction or `SetError`, never synthesis/masking; the backend-facing `aarch64.*`
+encoders route through it and fail loud (Mov/Movz/Movk/Movn, shifts, Tbz/Svc/Mrs, emitLogOp/Ands/Mvn,
+ADDS/SUBS no split, NEON arrangement/lane validation, pre/post/pair ranges); resolver rejects misaligned
+targets and keeps B.cond/CBZ/TBZ/ADR to atom-start symbols as relocations; Mach-O emits
+ARM64_RELOC_ADDEND pairs (addends used to be dropped), ELF emits CALL26 for BL; sections record and
+honour `.align`.  (2) `asm/parse`: typed-item operand scanner + per-family matchers (end-of-line check,
+register classes, clang alias selection, int64 immediates), strict lexer (GNU octal, overflow, escapes)
+and directives (trailing-token and range checks).  ~1400 golden lines = clang's exact word or rejected.
+Native aa64 conformance 3055/0.  Remaining after landing: TLBI/AT, `.L`/numeric labels, literal pools,
+FP/NEON arithmetic in the text parser (completeness, not silent-miscompile).
 
 Found by a clang-oracle survey of every load/store form `pkg/binate/asm/parse` accepts (each line assembled
 by bnas and by `clang -c -target arm64-apple-macos11`, `otool -tvV` compared).  clang never
@@ -100,6 +113,11 @@ encoder fallbacks (x17 synthesis) to explicitly-named backend helpers.  Tests: a
 bnas-vs-clang table per form + rejection tests.  Supersedes the (A)-entry follow-ups (a)/(b).
 
 ### Assembler silently drops / mis-encodes unencodable immediates on the ALU/logical paths the native immediate folds use (aa64, arm32, x64) — 🟡 IN PROGRESS (found 2026-09-25; claimed 2026-09-25, work-4/session — T6(b) step b1)
+**Overlap note (2026-09-25, work-2/session):** the aa64 text-assembler fix above (done, not yet landed)
+already makes the **aa64** half of this fail loud — `emitLogOp`/`Ands`/`Mvn` route through
+`asm/aarch64/isa.LogicalImm` (error on a non-bitmask immediate, incl. W-form high bits) and it rewrites
+`aarch64_arith.bn`; the arm32/x64 halves are untouched.  Coordinate before landing the aa64 part here
+(conflicts in `aarch64_arith.bn`).
 
 All confirmed by probe + clang oracle; none is triggered by any live caller today (every native caller passes
 registers or pre-checked immediates; every in-tree `.s` immediate is encodable), but each is reachable from
@@ -128,6 +146,12 @@ widths, bnas rejection tests.  **Proposed to be fixed as part of T6(b)** (the lo
 immediates through exactly these encoders).
 
 ### aa64 assembler: non-load/store encoders silently truncate or drop out-of-range fields — 🟡 CLAIMED, queued (found 2026-09-25; claimed 2026-09-25, work-4/session — assembler sweep after T6(b), before (c))
+**Overlap note (2026-09-25, work-2/session):** the aa64 text-assembler fix above (done, not yet landed)
+covers this entry: Mov (MOVZ/MOVN/shifted MOVZ/bitmask ORR like clang, or error), Movz/Movk/Movn
+range/shift checks, shift amounts, NEON lane/arrangement validation, Tbz/Tbnz/Svc/Mrs range checks,
+Mvn and default operand-kind errors, W-form bitmask high halves, BIC/ORN/EON/BICS + MOV-bitmask
+encoders, and the unchecked `ldrStrUnsignedEnc`/`ldpStpEnc` (deleted; all paths go through checked
+`isa` encoders).  Please don't start this one without checking with that session / the user.
 
 Encoder-level complement to the load/store entry above (all confirmed by probe + clang):
 `Mov` with OP_IMM always emits MOVZ masked to 16 bits (`Mov(Imm(-1))` → `mov x0,#0xffff`); `Movz`/`Movk`/`Movn`
@@ -191,6 +215,12 @@ encoder; validate `cond` in `condBits`; add the clang alias substitutions in the
 bnas-vs-clang tests.
 
 ### Text assemblers truncate 64-bit immediates on a 32-bit host; the assemble path hides encoder errors — 🟡 CLAIMED, queued (found 2026-09-25; claimed 2026-09-25, work-4/session — assembler sweep after T6(b), before (c))
+**Overlap note (2026-09-25, work-2/session):** the aa64 text-assembler fix (done, not yet landed)
+deletes `asm/parse/aarch64.bn`; the new aa64 parser carries operand immediates as int64 (a value narrowed to the host `int`, e.g. an address offset,
+is range-checked, never truncated) and checks
+end-of-line after every aa64 instruction, and the shared `parse.bn` `ParseLine` now reports an
+encoder's `ErrorMsg` with file:line (the `parse_file.bn` stop-at-first-error and the x64/arm32 parts are
+untouched).
 
 `asm/parse/aarch64.bn` ~125 and `asm/parse/x64.bn` ~258 / `x64_instr.bn` ~39, ~137 build immediates with
 `Imm(cast(int, result.Val))`, truncating the int64 value on a 32-bit host (arm32 hosts are first-class).
