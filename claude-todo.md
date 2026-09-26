@@ -78,30 +78,6 @@ tokens); encoders called from the text path must never synthesize.  Scope the ba
 encoder fallbacks (x17 synthesis) to explicitly-named backend helpers.  Tests: a golden
 bnas-vs-clang table per form + rejection tests.  Supersedes the (A)-entry follow-ups (a)/(b).
 
-### IR-gen overwrites a field base's `TypeArg` with the struct type — a field access directly on `bit_cast(@S, p)` miscompiles on LLVM (clang rejects it) — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-26, session claude/exciting-davinci-wahyt2)
-
-`return bit_cast(@S, p).b` fails to compile with the LLVM backend at -O0 and -O2 (`invalid cast
-opcode for cast from 'ptr' to '%S'`, from `%v3 = ptrtoint i8* %v2 to %S`); native and bni run it
-(42). **Root cause (from reading the code, via review):** the selector paths in
-`irgen/gen_selector.bn` (~152/165/257/269/323/335/370/382) and `irgen/gen_selector_ptr.bn`
-(~124/135/223/256/291) tag the field-access base value with the struct type by assigning its
-`TypeArg`, whatever op that value is. For an `OP_BIT_CAST` / `OP_CAST` base that overwrites its
-target type, and `codegen/emit_cast.bn` `emitBitCast` (and the VM's `lower_cast.bn` / bit_cast
-lowering) read `TypeArg` as the destination. **Proposed fix:** carry the struct type on the
-`OP_GET_FIELD_PTR` itself and stop mutating the base, so no backend infers the layout from the
-base's `TypeArg` (the VM's `fieldPtrBaseType`, native `StructTypeOf`, LLVM `emitGetFieldPtr` all do
-today). Test: conformance `1285_bit_cast_field_access_direct` (xfail on the 5 LLVM modes; the
-native-arm32 modes inherit the arm32 markers via OVERRIDE_MODE, so they skip it too until fixed).
-
-### A field access through a value of a named pointer type (`type P *S`) whose base is not a load may get offset 0 (VM and native) — 🔴 OPEN (found 2026-09-26, by review; unverified)
-
-VM `fieldPtrBaseType` and native `common.StructTypeOf` take the pointee from `base.Typ.Elem`, but a
-named pointer type has no `Elem` (it is on `Underlying`), so when the base is e.g. a mem2reg cast or
-a forwarded `OP_PARAM` of type `P` (no struct `TypeArg`), both find no struct and use offset 0. Same
-bug class as the VM `get_field_ptr` one. conformance 1124 covers only `ps.a` (offset 0) and a write
-through `ps.b`. Needs a repro (e.g. `func f(p P) int { return p.b }` under the VM pass set and on
-native) and, if confirmed, peeling names before `.Elem` in both; the IR-gen fix above (struct type on
-the field pointer) would remove the inference altogether.
 ### VM runs a user-selectable -On of the compiler's IR passes, and CI never tests it — 🟡 IN PROGRESS (claimed 2026-09-25, session claude/exciting-davinci-wahyt2)
 
 `vm.LowerModule` runs `iropt.RunOptPasses(m, vm.OptLevel)` before bytecode lowering (`bni -O <n>`,

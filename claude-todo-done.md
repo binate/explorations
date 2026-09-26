@@ -1,3 +1,31 @@
+### IR-gen overwrote a field base's `TypeArg` with the struct type — `bit_cast(@S, p).b` rejected by clang on LLVM (MAJOR) — FIXED (binate `ab2e981a`, 2026-09-26)
+
+`return bit_cast(@S, p).b` fails to compile with the LLVM backend at -O0 and -O2 (`invalid cast
+opcode for cast from 'ptr' to '%S'`, from `%v3 = ptrtoint i8* %v2 to %S`); native and bni run it
+(42). **Root cause (from reading the code, via review):** the selector paths in
+`irgen/gen_selector.bn` (~152/165/257/269/323/335/370/382) and `irgen/gen_selector_ptr.bn`
+(~124/135/223/256/291) tag the field-access base value with the struct type by assigning its
+`TypeArg`, whatever op that value is. For an `OP_BIT_CAST` / `OP_CAST` base that overwrites its
+target type, and `codegen/emit_cast.bn` `emitBitCast` (and the VM's `lower_cast.bn` / bit_cast
+lowering) read `TypeArg` as the destination. **Proposed fix:** carry the struct type on the
+`OP_GET_FIELD_PTR` itself and stop mutating the base, so no backend infers the layout from the
+base's `TypeArg` (the VM's `fieldPtrBaseType`, native `StructTypeOf`, LLVM `emitGetFieldPtr` all do
+today). Test: conformance `1285_bit_cast_field_access_direct` (xfail on the 5 LLVM modes; the
+native-arm32 modes inherit the arm32 markers via OVERRIDE_MODE, so they skip it too until fixed).
+
+**Resolution:** IR-gen no longer tags bases; `ir.FieldPtrBaseType` (a slot's aggregate TypeArg, else the peeled pointee of the base's static pointer type) is the one rule for the VM, LLVM, native and SROA copy-out. Tests: `ir/field_ptr_base_test.bn`, conformance 1285 (xfails removed), 1286, 1287.
+
+### Field access through a value of a named pointer type (`type P *S`) read the wrong field under bni (MAJOR, confirmed) — FIXED (binate `ab2e981a`, 2026-09-26)
+
+VM `fieldPtrBaseType` and native `common.StructTypeOf` take the pointee from `base.Typ.Elem`, but a
+named pointer type has no `Elem` (it is on `Underlying`), so when the base is e.g. a mem2reg cast or
+a forwarded `OP_PARAM` of type `P` (no struct `TypeArg`), both find no struct and use offset 0. Same
+bug class as the VM `get_field_ptr` one. conformance 1124 covers only `ps.a` (offset 0) and a write
+through `ps.b`. Needs a repro (e.g. `func f(p P) int { return p.b }` under the VM pass set and on
+native) and, if confirmed, peeling names before `.Elem` in both; the IR-gen fix above (struct type on
+the field pointer) would remove the inference altogether.
+**Resolution:** IR-gen no longer tags bases; `ir.FieldPtrBaseType` (a slot's aggregate TypeArg, else the peeled pointee of the base's static pointer type) is the one rule for the VM, LLVM, native and SROA copy-out. Tests: `ir/field_ptr_base_test.bn`, conformance 1285 (xfails removed), 1286, 1287.
+
 ### VM `get_field_ptr` took a managed-pointer `TypeArg` for the struct type — wrong field offsets (MAJOR) — FIXED (binate `759ec68b`, 2026-09-26)
 
 **Symptom:** `var s @S = bit_cast(@S, p); return s.b` returns field 0 (`s.a`) under bni whenever
