@@ -7,6 +7,27 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### LLVM backend at -O1+: `cast` of a `readonly float` value emits ill-typed IR — clang rejects valid code — 🔴 OPEN (found 2026-09-26)
+
+**Symptom:** `func conv(j readonly float32) float64 { return cast(float64, j) * 3.0 }` (and
+`func toInt(j readonly float64) int { return cast(int, j) }`) compile and run at -O0 but fail at
+-O1/-O2 on the LLVM backend, any target: `main.ll: error: '%v0' defined with type 'float' but
+expected 'i32'  %v3 = uitofp i32 %v0 to double` (resp. `... 'double' but expected 'i64'  %v3 = add
+i64 %v0, 0`).  At -O0 the value goes through an alloca load and the cast sees the unwrapped type;
+at -O1+ mem2reg feeds the `readonly float` param straight into OP_CAST.
+**Root cause:** `emitCast` (pkg/binate/codegen/emit_cast.bn) resolves src/dst types with
+`unwrapNamed` (emit_types.bn), which peels only TYP_NAMED, so `srcIsFloat` is false for a
+TYP_READONLY float and the cast takes the int→float / int→int path (`isUnsigned` DOES peel readonly,
+hence `uitofp`).  The bit_cast classifier was already fixed to peel readonly/alias; emitCast wasn't.
+The native backends are fine (their float predicates use types.StripWrappers).
+**Found by:** the review of the arm32 overflowed-float-param fix (building >8-float test programs at
+-O2); confirmed by two independent reproductions (host darwin-aarch64 and arm32-linux).
+**Why CI doesn't see it:** no conformance test casts a readonly float; a test that does would fail
+the -O2 lane's builder-comp shards (and can't be xfailed per opt level), so land it with the fix.
+**Proposed fix:** resolve emitCast's types with types.StripWrappers (peel readonly + alias + named);
+add a conformance test casting readonly float32/float64 params (to float, int, and the other float
+width) that runs at -O2 in CI.
+
 ### native arm32 hard-float: an FP-homed OVERFLOWED float64 param is loaded with VLDR.32 — silent wrong result at -O1/-O2 — 🟡 IN PROGRESS (found 2026-09-25; claimed 2026-09-26, work-5/session — fix + add native arm32-linux hard-float to the -O2 CI lane, per user)
 
 **Symptom:** conformance `1280_float_param_overflow_loop` prints `46` instead of `131` under
