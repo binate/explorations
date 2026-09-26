@@ -30,6 +30,27 @@ repro above as an e2e (macOS `--linker bnld` LLVM `-O2`), plus link-unit tests p
 
 ## MAJOR
 
+### IR functions with a loop or a phi are never freed: CFG edges and phi predecessors are managed `@Block` references that form cycles (toolchain memory leak) — 🔴 OPEN (found 2026-09-26)
+
+**Symptom:** in a `rt.LiveBlocks()` window, building a module (`genModule` in pkg/binate/vm tests)
+and dropping it leaks nothing for loop-free code, but ~52 blocks for a one-loop function even with no
+optimization pass, and ~139 for a loop-free function once mem2reg has placed a phi (numbers from a
+probe in the vm test package). **Root cause:** `ir.Instr.Block1` / `Block2` (terminator targets) and
+`ir.PhiEntry.Block` (a phi's predecessor) are `@Block`, so a loop back edge (header → … → header), or
+a phi (merge block → phi → predecessor block → its branch → merge block), is a managed-reference
+cycle, and no code breaks it when a function or module is dropped (`Block.Func` is already a raw
+`*Func` for exactly this reason). **Impact:** every function with a loop or phi leaks its whole IR when
+its module is dropped: nothing for a bnc run (process exits), but bni / the REPL / anything embedding
+the toolchain retains it per load, per mid-session import and per prompt entry; the IR passes
+(mem2reg, and the others adding instructions to such functions) enlarge it. **Found by:** a leak test
+for the VM pass set (plan-vm-pass-set.md step 4 review follow-up): build + optimize + drop a module
+vs build + drop it unoptimized, compare `rt.LiveBlocks()` growth after a warm-up build. That test
+(for `iropt.VMOptConfig()` and `LevelOptConfig(2)`) is the regression test to land with the fix; it
+cannot pass before it (mem2reg places phis). **Proposed fix:** make the CFG-edge and phi-predecessor
+references non-owning (raw `*Block`, as `Block.Func` is; `Func.Blocks` / `Func.FaultPads` own every
+block), or break the cycles in a function teardown — the raw-pointer route is the structural one but
+touches every `Block1` / `Block2` / `PhiEntry.Block` user across ir, irgen, iropt and the backends.
+
 ### aa64 text assembler silently mis-assembles many load/store forms (latent — no live .s triggers them today) — 🔴 OPEN (found 2026-09-25, survey during MemCopy step 2)
 
 Found by a clang-oracle survey of every load/store form `pkg/binate/asm/parse` accepts (each line assembled
