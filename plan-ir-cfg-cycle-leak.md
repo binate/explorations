@@ -1,7 +1,6 @@
 # Plan: IR functions with a loop or a phi are never freed (reference cycles)
 
 **Status:** ✅ DONE (2026-09-26) — step 1 binate `a8243397`, step 2 `7102e88c`. Tracked in `claude-todo-done.md`.
-loop or a phi are never freed …".
 
 ## Problem
 
