@@ -5,6 +5,38 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
+### Pre-existing silent wrong code found by the adversarial review of the aa64 assembler batch — 🟡 IN PROGRESS (found + claimed 2026-09-26, work-2/session; fixed within the aa64 text-assembler batch, user: "fix the assembler")
+
+All on main today; each is being fixed (with a test) in the aa64 text-assembler batch (not yet landed):
+- **Native aa64 `GET_ELEM_PTR` with a non-power-of-two element size > 0xFFFF miscompiles.**
+  `aarch64_emit_elem.bn` materializes the size with one `Movz`, which masked it to 16 bits:
+  `type Big struct{ a [70001]uint8 }; var g [3]Big` addresses `g[1]` as `g[0]+4465` (70001 & 0xFFFF),
+  so writes to `g[1]` land inside `g[0]`.  The fail-loud `Movz` turns it into a compile error; the fix is
+  `emitConstInt64`.  arm32 (`emitConstInt32`) and x64 (`imul imm32`) are fine.  Test: a conformance
+  program indexing a 70001-byte element.
+- **ELF: an AArch64 LDR-literal (`ldr x0, sym`, `ldrsw`, `ldr s/d/q`, `prfm`) is relocated as
+  `R_AARCH64_CONDBR19`** instead of `R_AARCH64_LD_PREL_LO19`; lld treats CONDBR19 as a branch (PLT-able),
+  so a literal load of a preemptible / DSO data symbol loads from its PLT stub.  Fix: a distinct fixup kind
+  → LD_PREL_LO19 (Mach-O has none and rejects it, as clang does), plus bnld support.
+- **The shared text-assembler expression evaluator (`asm/parse/expr.bn`, all three arches) disagrees with
+  clang:** C precedence (clang uses a Darwin table for Mach-O and a GNU table for ELF — `#1+2<<3` is 24 here,
+  17 on ELF; `#4|1&2` is 4 here, 0 on Mach-O), arithmetic `>>` (clang's is logical: `#-16>>60` is -1 here,
+  15 in clang), and negative shift counts / `MIN/-1` / deep nesting crash bnas.  Fix (user decision):
+  evaluate where both clang tables agree, reject an unparenthesized mix they disagree on, logical `>>`,
+  shift counts limited to [0, 63], depth-bounded recursion.
+- **Non-zero data or instructions in `.section bss` are silently dropped** (NOBITS / zerofill), all
+  arches; clang rejects.  Fix: reject non-zero emission into a zero-fill section.
+- **Multi-line `/* ... */` comments assemble the commented-out lines on x64 and arm32** (the lexer is
+  per-line and those parsers ignore the error token the unterminated `/*` becomes).  Fix: carry an open
+  block comment across lines in the file parser; make a lexer error fatal for the line on every arch.
+- **Native aa64 C-export return trampoline** (`aarch64_cexport_retadapt.bn`) saves/restores FP/LR with
+  `STP/LDP [SP, #outBytes+16]`, whose imm7 wrapped silently for outBytes > 488 (≈61+ stack-passed argument
+  words with a multi-value return) — FP/LR saved to the wrong slot.  Fix: address the slot through a
+  scratch base when out of the pair range.
+- **Mach-O writer: an empty section overflows the load commands** (`nsects` counts only non-empty
+  sections but a header is written for each) → `ld: malformed load command`.  No native path found; `bnas`
+  reaches it.
+
 ## MAJOR
 
 ### LLVM backend at -O1+: `cast` of a `readonly float` value emits ill-typed IR — clang rejects valid code — 🔴 OPEN (found 2026-09-26)
