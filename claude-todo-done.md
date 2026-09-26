@@ -1,3 +1,32 @@
+### bnld silently mislinked Mach-O PAGEOFF12 on non-64-bit load/stores (CRITICAL) — FIXED (binate `2da8f242`, 2026-09-25)
+
+**Symptom.** A plain byte fill + sum prints garbage when the LLVM backend's objects are linked by
+bnld on macOS: `var s @[]uint8 = make_slice(uint8, 256); for k … { s[k] = cast(uint8, k) }; sum`
+prints `392374745328` instead of `32640` at `-O2 --linker bnld`; correct with the default/clang
+linker and at `-O0`.  Deterministic; the wrong value moves with layout.  Also hit
+perf/011_memcopy_small (LLVM `-O2` + bnld gives the wrong checksum with either MemCopy body).
+
+**Root cause.** `pkg/binate/link/parse_macho.bn` `machoReloc`: every `ARM64_RELOC_PAGEOFF12` on a
+load/store is mapped to `R_AARCH64_LDST64_ABS_LO12_NC` (imm12 scaled by 8) — a standing
+`TODO(macho)` "Map the rest to LDST64 for now".  clang's vectorized fill loads its constant with
+`adrp` + `ldr q0, [x9, #:lo12:]`, whose imm12 is scaled by **16**; LDRB/LDRH/32-bit forms are
+scaled by 1/2/4.  So every non-64-bit PAGEOFF12 patch writes a wrongly-scaled offset → the
+access hits the wrong bytes, silently.  (`relocate.bn` also doesn't check `(S+A)` alignment for
+LDST64.)  The ELF input path is NOT affected the same way: explicit `R_AARCH64_LDST{8,16,32,128}`
+kinds fall to "unsupported relocation" (loud), which is itself a gap for LLVM ELF objects.
+
+**Fix (landed `2da8f242`).** As proposed: In `machoReloc`, decode the load/store size (and the V bit / opc for 128-bit
+SIMD q) from the patched instruction and map to `R_AARCH64_LDST{8,16,32,64,128}_ABS_LO12_NC`;
+add those kinds to `relocate.bn`'s patcher with the right shift AND an alignment check (fail
+loud on a misaligned `S+A`, never mask).  Add the ELF-side kinds at the same time.  Test: the
+repro above as an e2e (macOS `--linker bnld` LLVM `-O2`), plus link-unit tests per size.
+Review follow-ups folded in: unallocated V=0 opc=11 encodings and a shifted (`lsl #12`) ADD are
+rejected; the e2e writes the globals through their ADD-computed addresses and reads them in a
+non-inlined function with sized `:lo12:` loads (validated: bnld variants mis-scaling 8-bit, 8/16/32-bit
+or 128-bit each make it fail).  Found during the MemCopy A/B; also landed alongside:
+`e2e/dispatch-seam-narrow` dead `synth_memzero` stub removed (binate `5ce0d1e3`; it duplicated the
+package-.s MemZero and failed on arm64 hosts incl. macOS CI).
+
 ### VM ran a user-selectable -On of the compiler's IR passes, and CI never tested it — DONE (binate `aa8c2bac`..`fc72e6b1`, 2026-09-25/26)
 
 `vm.LowerModule` runs `iropt.RunOptPasses(m, vm.OptLevel)` before bytecode lowering (`bni -O <n>`,

@@ -5,29 +5,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### bnld silently mislinks Mach-O PAGEOFF12 on any non-64-bit load/store — wrong addresses in LLVM `-O2` + `--linker bnld` programs — 🟡 IN PROGRESS (found + claimed 2026-09-25, work-2 session)
-
-**Symptom.** A plain byte fill + sum prints garbage when the LLVM backend's objects are linked by
-bnld on macOS: `var s @[]uint8 = make_slice(uint8, 256); for k … { s[k] = cast(uint8, k) }; sum`
-prints `392374745328` instead of `32640` at `-O2 --linker bnld`; correct with the default/clang
-linker and at `-O0`.  Deterministic; the wrong value moves with layout.  Also hit
-perf/011_memcopy_small (LLVM `-O2` + bnld gives the wrong checksum with either MemCopy body).
-
-**Root cause.** `pkg/binate/link/parse_macho.bn` `machoReloc`: every `ARM64_RELOC_PAGEOFF12` on a
-load/store is mapped to `R_AARCH64_LDST64_ABS_LO12_NC` (imm12 scaled by 8) — a standing
-`TODO(macho)` "Map the rest to LDST64 for now".  clang's vectorized fill loads its constant with
-`adrp` + `ldr q0, [x9, #:lo12:]`, whose imm12 is scaled by **16**; LDRB/LDRH/32-bit forms are
-scaled by 1/2/4.  So every non-64-bit PAGEOFF12 patch writes a wrongly-scaled offset → the
-access hits the wrong bytes, silently.  (`relocate.bn` also doesn't check `(S+A)` alignment for
-LDST64.)  The ELF input path is NOT affected the same way: explicit `R_AARCH64_LDST{8,16,32,128}`
-kinds fall to "unsupported relocation" (loud), which is itself a gap for LLVM ELF objects.
-
-**Proposed fix.** In `machoReloc`, decode the load/store size (and the V bit / opc for 128-bit
-SIMD q) from the patched instruction and map to `R_AARCH64_LDST{8,16,32,64,128}_ABS_LO12_NC`;
-add those kinds to `relocate.bn`'s patcher with the right shift AND an alignment check (fail
-loud on a misaligned `S+A`, never mask).  Add the ELF-side kinds at the same time.  Test: the
-repro above as an e2e (macOS `--linker bnld` LLVM `-O2`), plus link-unit tests per size.
-
 ## MAJOR
 
 ### native arm32 hard-float: an FP-homed OVERFLOWED float64 param is loaded with VLDR.32 — silent wrong result at -O1/-O2 — 🔴 OPEN (found 2026-09-25)
