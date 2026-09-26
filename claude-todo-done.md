@@ -1,3 +1,55 @@
+### float struct-field fold on all three native backends; arm32 plain float loads/stores straight to/from the FP home — DONE (binate `b12a748df`..`8c6cf921f`, 2026-09-26)
+
+- **float struct-field fold** (`fddef33e5` aarch64, `9c326e72d` x64, `3157e2ec5` arm32, `9fe0c2512`
+  opt-in pins + conformance 1288, `200150b71` review follow-ups + conformance 1289; perf script
+  `b12a748df` `perf/ab-binaries.sh`).  `FusableFieldGeps` gained `allowFloat`; a float field access off
+  a register or alloca base rides the FP load/store's offset.  aarch64/x64 fused stores store an
+  FP-homed float straight from its FP register; arm32 uses VLDR/VSTR (float32 via the low S-view) and
+  folds float64 fields inside its 64-bit load/store path.  Each backend's opt-in is a named
+  `fieldFoldSet(f)` pinned by a unit test.  Measured: aarch64 n-body N=1e6 instructions retired
+  16.00G → 15.72G median (−1.78%, A/A noise +0.02%), user CPU −1.52%; x64 n-body `advance()` 422 →
+  367 static instructions; arm32 `advance()` 439 → 340.  Full native conformance clean on aa64 / x64 /
+  arm32-linux / arm32-baremetal at -O0 and -O2 (arm32-linux -O2 after the overflowed-param fix).
+  Three adversarial review workflows; no defects in the fold (gaps they raised were addressed).
+- **arm32 plain float loads/stores** (`8c6cf921f`): an FP-homed float's plain (unfused) load/store is
+  VLDR/VSTR straight to/from the D home for alloca / global / pointer addresses (arm32_float_mem.bn),
+  instead of LDR + VMOV / VMOV + STR.  spectral-norm `mulAv`/`mulAtv` 208 → 196 static instructions
+  each, `main` 640 → 613, output identical.  Review: no findings.
+
+### native arm32 hard-float: an FP-homed OVERFLOWED float64 param is loaded with VLDR.32 — silent wrong result at -O1/-O2 — FIXED (binate `e0863ecbf` + CI `92facc02d`, 2026-09-26)
+
+**Symptom:** conformance `1280_float_param_overflow_loop` prints `46` instead of `131` under
+`BINATE_FLAGS=-O2` (and `-O1`) in `builder-comp_native_arm32_linux` (hard-float); green at -O0.
+A float64 param past the D0..D7 CPRC bank (it arrives on the incoming stack) that still gets a
+D8..D15 home is loaded with a single-precision `vldr s30, [sp, #344]` into the home's low S-view, so
+only the low word of the double lands; the high half is whatever the D register held.
+**Root cause:** `emitSpillParamFloatHard` (arm32_call_hard.bn) takes `isDouble` from
+`rm.CC.CallArgFpReg(...)`, which returns `(-1, false)` for ANY overflowed arg
+(common_callconv_vfp.bn: `if sSlot < 0 { return -1, false }`), so the overflow-homed branch always
+takes the `vfpLoadBaseHard(a, false, lowSingleOf(home), ...)` arm.  At -O0 the first 8 params fill
+the 8-register home pool, so overflowed params stay slot-resident and the branch doesn't run —
+which is why the earlier "nearly unreachable, correct defensive code" note (hard-float unit coverage,
+below) was wrong on both counts.
+**Why CI doesn't see it:** the -O2 lane (conformance-o2.yml) runs native arm32 only as soft-float
+baremetal (no FP homes); native arm32-linux hard-float runs only at -O0.  No xfail is possible (the
+-O0 run of the same mode passes; xfail markers aren't opt-level-specific) — 1280 at -O2 is the
+reproducer.  **Found by:** the completeness critic of the float struct-field fold review (the
+field-fold commits neither introduce nor change it: base 9afc2e3a7 fails identically).
+**Proposed fix:** take the width from the param's own type (`isFloat64Typ(p.Typ)`, or have the
+placement helper report isDouble for an overflowed float) instead of CallArgFpReg's overflow
+return; add a unit test driving the overflow-homed branch with a float64 (the existing unit tests
+cover only in-register params); and consider adding native arm32-linux to the -O2 CI lane (a CI
+scope decision for the user).
+
+**Resolution:** `emitSpillParamFloatHard` takes an overflowed FP-homed param's load width from the
+param's own type (`isFloat64Typ(p.Typ)`), not from CallArgFpReg's overflow return (`e0863ecbf`);
+unit tests drive the overflow-homed branch for float64 (VLDR.64) and float32 (VLDR.32 into the
+S-view); conformance 1280's comment now says it covers that branch at -O1+.  Native arm32-linux
+hard-float added to the -O2 CI lane (`92facc02d`) so -O2-only hard-float paths are exercised.  Full
+native arm32-linux -O2: 3057/0.
+
+
+
 ### IR functions with a loop or a phi were never freed: CFG edges and phi references formed cycles (MAJOR, toolchain memory leak) — FIXED (binate `a8243397` + `7102e88c`, 2026-09-26)
 
 **Symptom:** in a `rt.LiveBlocks()` window, building a module (`genModule` in pkg/binate/vm tests)

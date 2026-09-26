@@ -70,31 +70,6 @@ the -O2 lane's builder-comp shards (and can't be xfailed per opt level), so land
 add a conformance test casting readonly float32/float64 params (to float, int, and the other float
 width) that runs at -O2 in CI.
 
-### native arm32 hard-float: an FP-homed OVERFLOWED float64 param is loaded with VLDR.32 — silent wrong result at -O1/-O2 — 🟡 IN PROGRESS (found 2026-09-25; claimed 2026-09-26, work-5/session — fix + add native arm32-linux hard-float to the -O2 CI lane, per user)
-
-**Symptom:** conformance `1280_float_param_overflow_loop` prints `46` instead of `131` under
-`BINATE_FLAGS=-O2` (and `-O1`) in `builder-comp_native_arm32_linux` (hard-float); green at -O0.
-A float64 param past the D0..D7 CPRC bank (it arrives on the incoming stack) that still gets a
-D8..D15 home is loaded with a single-precision `vldr s30, [sp, #344]` into the home's low S-view, so
-only the low word of the double lands; the high half is whatever the D register held.
-**Root cause:** `emitSpillParamFloatHard` (arm32_call_hard.bn) takes `isDouble` from
-`rm.CC.CallArgFpReg(...)`, which returns `(-1, false)` for ANY overflowed arg
-(common_callconv_vfp.bn: `if sSlot < 0 { return -1, false }`), so the overflow-homed branch always
-takes the `vfpLoadBaseHard(a, false, lowSingleOf(home), ...)` arm.  At -O0 the first 8 params fill
-the 8-register home pool, so overflowed params stay slot-resident and the branch doesn't run —
-which is why the earlier "nearly unreachable, correct defensive code" note (hard-float unit coverage,
-below) was wrong on both counts.
-**Why CI doesn't see it:** the -O2 lane (conformance-o2.yml) runs native arm32 only as soft-float
-baremetal (no FP homes); native arm32-linux hard-float runs only at -O0.  No xfail is possible (the
--O0 run of the same mode passes; xfail markers aren't opt-level-specific) — 1280 at -O2 is the
-reproducer.  **Found by:** the completeness critic of the float struct-field fold review (the
-field-fold commits neither introduce nor change it: base 9afc2e3a7 fails identically).
-**Proposed fix:** take the width from the param's own type (`isFloat64Typ(p.Typ)`, or have the
-placement helper report isDouble for an overflowed float) instead of CallArgFpReg's overflow
-return; add a unit test driving the overflow-homed branch with a float64 (the existing unit tests
-cover only in-register params); and consider adding native arm32-linux to the -O2 CI lane (a CI
-scope decision for the user).
-
 ### aa64 text assembler silently mis-assembles many load/store forms (latent — no live .s triggers them today) — 🟡 IN PROGRESS (found + claimed 2026-09-25, work-2 session; user: "Go ahead and fix the assembler")
 **Progress (2026-09-25, work-2/session — done, under adversarial review, not yet landed):** (1) new package
 `pkg/binate/asm/aarch64/isa`: exact single-instruction encoders for every load/store addressing mode,
@@ -543,41 +518,26 @@ Remaining (follow-ups):
   upper-zeroes — accurate).  The follow-on note "x64 `emitFusedFieldStore` stores a homed float via
   the GP bridge" turned out MOOT as stated — `fieldAccessFusable` excludes floats on every backend, so
   no float ever reaches the fused field store.  The real item is the float field fold below.
-- **arm32: plain (non-folded) float loads/stores straight to/from the FP home** — 🟡 IN PROGRESS
-  (claimed 2026-09-26, work-5/session; user-approved follow-up of the field fold).  Implemented on
-  the work branch (not yet landed): native arm32 linux -O0/-O2 3057/0, baremetal 3011/0;
-  spectral-norm `mulAv`/`mulAtv` 208 → 196 static instructions each (VMOVs 8 → 2), `main` 640 → 613,
-  output identical; n-body unchanged (all its float accesses are fused fields).  arm32's plain
-  emitLoad/emitStore (and emitLoad64/emitStore64 for float64) move an FP-homed float through GP
-  registers (LDR + VMOV / VMOV + STR), unlike x64/aarch64 which load/store the FP home directly.
-  Make them VLDR/VSTR the D home (float32 via the low S-view) for every address kind (alloca,
-  global, pointer in a register).
 - **arm32: fold int64/uint64 struct-field addressing** — 🟡 IN PROGRESS (claimed 2026-09-26,
-  work-5/session; user: "I guess int64 should fold? (are there any downsides? get a minimal
-  adversarial review)").  The 64-bit fused field path (emitFusedFieldLoad64/Store64) is
-  type-agnostic; the analysis still excludes int64 on a 32-bit target.  Pending a minimal
-  adversarial review of the downsides before implementing.
-- **float struct-field fold (all three native backends)** — 🟡 IN PROGRESS (claimed 2026-09-25,
-  work-5/session).  The field analogue of the aarch64 float element fold: `p.x` for a float field
-  still materializes the field address separately because `fieldAccessFusable` excludes floats.
-  Parameterize `FusableFieldGeps` with `allowFloat` and make each backend's fused field load/store
-  FP-home-aware (load/store the value straight from/into its FP home at `[base, #off]`).  aarch64's
-  fused field emitters already route through the `isFpReg`-dispatching emitScalarLoad/Store; x64 and
-  arm32 need the direct FP path.  Measure on n-body / spectral-norm (aa64 instructions retired).
-  Status (not yet landed): all three backends done on the work branch, pending review + arm32
-  conformance.  aarch64: n-body N=1e6 instructions retired 16.00G → 15.72G median (−1.78%, A/A noise
-  +0.02%; `perf/ab-binaries.sh`, 7 rounds), user CPU −1.52%, output identical; native aa64 conformance
-  3051/0.  x64: n-body `advance()` 422 → 367 static instructions (29 fewer LEAs; float stores go
-  straight from the XMM home instead of MOVQ+MOV); native x64-darwin conformance 3051/0.  arm32:
-  n-body `advance()` 439 → 340 static instructions (−23%; an earlier "325" came from a truncated
-  disassembly extraction) — each float64 field access was ADD + 2×LDR + VMOV (the 64-bit path
-  round-trips through GP), now one VLDR.64/VSTR.64; output identical under qemu-arm.
-  (x64/arm32 runtime can't be measured on this host — no native x64/arm32 hardware.)
-  Observed while verifying arm32 (separate items, not this one): n-body's `bodies[i].x` recomputes
-  the element address every access (`mov r5,#56; mul; add` — arm32 doesn't fold element GEPs), and
-  the loop indices are spilled (arm32 homes are caller-saved R0..R3, so values live across the
-  `Sqrt` call can't be homed).  Also: arm32's PLAIN (non-folded) float loads/stores still round-trip
-  through GP registers (LDR + VMOV), unlike x64/aarch64.
+  work-5/session).  The 64-bit fused field path (emitFusedFieldLoad64/Store64) is type-agnostic;
+  the analysis still excludes int64 on a 32-bit target.  Minimal adversarial review (2 lenses):
+  fold, no miscompile found (prototype: full native arm32 suites green at -O0/-O2); ~500 fewer
+  instructions at -O2 across 16 packages; one function +1 (an int64 load is a retention barrier, so a
+  dirty unhomed base can get a store+reload — a retention tweak is a separate tuning item).  User
+  chose API (b): a separate default-off `allowPair` parameter to FusableFieldGeps plus ONE shared
+  two-word-scalar classifier in common that arm32's isPair64Typ routing also uses (also bounds wide
+  scalars on 64-bit targets).  Also: compute an alloca 64-bit field's IP address once past 4095
+  (today each word re-materializes it — also affects soft-float float64 and plain int64 locals); flip
+  TestFusableFieldInt64Arm32NotFused; add int64 emitter unit tests + a conformance test (int64 struct
+  fields are thin in conformance).
+- **CI: make native arm32-linux (hard-float) blocking in the default conformance lane** — 🟡 IN
+  PROGRESS (claimed 2026-09-26, work-5/session; user: "Yes").  conformance-tests.yml still marks it
+  experimental with a stale comment (printf-variadic-float, which now passes); full -O0 run 3057/0.
+- **x64 + arm32: fold element-GEP addressing** — 🔵 OPEN.  Only aarch64 folds an element GEP into a
+  scaled register-offset load/store (FusableElemGeps); x64 and arm32 materialize every element
+  address — e.g. arm32 n-body's `bodies[i].x` recomputes it each access (`mov r5,#56; mul; add`).
+- **arm32: callee-saved GP homes** — 🔵 OPEN.  arm32 homes are caller-saved R0..R3 only, so a value
+  live across a call (e.g. n-body's loop indices across `Sqrt`) can't be homed and is spilled.
 - **aarch64 follow-ups to close more of fasta's residual gap**:
   - fold float array-element addressing — ✅ **DONE (`1ca914edc`)**.  A float `a[i]` load/store now
     folds its address into a scaled register-offset FP load/store straight into the D-home
