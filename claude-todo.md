@@ -122,6 +122,82 @@ change are landed (see the done log). Step 3 measured: results, the accepted (te
 and how to evaluate each new pass live in [vm-pass-set.md](vm-pass-set.md) — keep it current as
 passes are added.  Next: step 4 (implement the set in bni).
 
+### Assembler silently drops / mis-encodes unencodable immediates on the ALU/logical paths the native immediate folds use (aa64, arm32, x64) — 🔴 OPEN (found 2026-09-25, work-4, T6(b) survey)
+
+All confirmed by probe + clang oracle; none is triggered by any live caller today (every native caller passes
+registers or pre-checked immediates; every in-tree `.s` immediate is encodable), but each is reachable from
+the text assembler (`bnas`, and bnc's in-process `.s` assembly) and each is on the path of the native
+immediate folds (T6), so a fold/encoder mismatch would be silent wrong code:
+- **aa64:** `emitLogOp` (`And`/`Orr`/`Eor`) and `Ands` (hence `Tst`) emit **nothing** and set no error when the
+  immediate is not a bitmask immediate (`asm/aarch64/aarch64_arith.bn` ~150-199, `// silent failure for
+  now. TODO: report error`); no default case for unsupported operand kinds.  `bnas` exits 0 on
+  `and x0,x1,#5` and leaves the instruction out.  `encodeBitmaskImm` itself is correct (exhaustively
+  bit-identical to clang: all 5334 64-bit / 1302 32-bit patterns; all 1816 rejections match).
+- **arm32:** `encodeOperand2` (`asm/arm32/arm32.bn` ~198-232) encodes any non-encodable modified immediate
+  as `#0` — all 16 data-processing encoders (Add/Sub/Rsb/Adc/Sbc/Rsc/And/Orr/Eor/Bic/Mov/Mvn/Cmp/Cmn/Tst/Teq)
+  — and turns a memory/label operand into register r0.  `bnas`: `and r0,r1,#0x102` → `and r0,r1,#0`,
+  `add r0,r1,#-4` → `#0`, exit 0.  `EncodeRotImm` itself is correct (13,795 values vs clang).
+- **x64:** `emitALU` (Add/Sub/And/Or/Xor/Cmp), `Test`, `Mov r/m,imm`, `Push imm`, `Imul3` never range-check:
+  a 64-bit op given a value in [2^31,2^32) is sign-extended to a different value (`and rcx,0x80000000` →
+  `and rcx,-0x80000000`; Rosetta confirms the wrong result), values ≥ 2^32 truncate (`and rcx,0x100000000` →
+  `and rcx,0`); on a 32-bit host `cast(int, Imm)` truncates first.  SZ16 immediates that don't fit imm8 are
+  emitted as imm32 where the 0x66 form takes imm16 — the two extra bytes decode as the next instruction.
+  The package has zero `SetError` calls.
+**Fix:** fail loud (`a.SetError("<arch>: ...")`, the package convention elsewhere) in each path; for aa64
+fold `Ands` into `emitLogOp` so the check exists once and export `LogicalImmFits(sf, imm)`; for arm32 add a
+default `SetError` for non-Operand2 kinds; for x64 check the value against the op width (imm8/imm16/imm32
+with sign-extension) and fix the SZ16 imm16 form.  Tests: HasError + no bytes for each encoder at both
+widths, bnas rejection tests.  **Proposed to be fixed as part of T6(b)** (the logical-immediate fold routes
+immediates through exactly these encoders).
+
+### aa64 assembler: non-load/store encoders silently truncate or drop out-of-range fields — 🔴 OPEN (found 2026-09-25, work-4, T6(b) survey)
+
+Encoder-level complement to the load/store entry above (all confirmed by probe + clang):
+`Mov` with OP_IMM always emits MOVZ masked to 16 bits (`Mov(Imm(-1))` → `mov x0,#0xffff`); `Movz`/`Movk`/`Movn`
+mask imm16 and silently drop a shift that isn't a multiple of 16 (`Movz(1, lsl 8)` → `mov x0,#1`); immediate
+`Lsl`/`Lsr`/`Asr` accept out-of-range amounts (`lsl #64` → identity, `lsr w,#40` → a reserved encoding);
+NEON lane index (`laneImm5`, `aarch64_neon_lane.bn` ~19) overflows into opcode bits (`Vins_gp(B,16,…)` →
+`and.16b v0,v1,v1`); `Tbz`/`Tbnz` mask the bit number, `Svc` masks imm16, `Mrs` masks its fields, `Mvn` with
+OP_IMM emits nothing; several encoders have no default case for unsupported operand kinds; W-form bitmask
+immediates discard the high 32 bits (clang only accepts all-zero/all-one high halves:
+`and w0,w1,#0x100000001` assembles as `#1`); stale docs on `LdrStrImmFitsUnsigned` claim the encoder
+masks.  **Fix:** fail loud (`a.SetError`) on every out-of-range field; tests per encoder + bnas rejections.
+
+### x64 assembler / text parser: REX.X/REX.B dropped on some memory forms, `[base+idx*scale+disp]` misparsed, unhandled operand combos emit garbage — 🔴 OPEN (found 2026-09-25, work-4, T6(b) survey)
+
+`emitALU`'s immediate branch passes x=0 to `emitRexF` (and `Test` with a memory operand drops REX.B/REX.X),
+so an index/base register ≥ r8 silently becomes the low register; the text parser's `ParseExpr` after `*`
+consumes a trailing `+ disp` into the scale (`[rax+r9*2+2]` → `[rax+4*r9]`); `emitModRM` emits disp32
+without a range check (offsets > 2 GiB truncate — same unbounded callers as the frame-size immediates);
+`emitALU`/`Test`/`Mov` emit nothing, a stray 0x66, or garbage for unhandled combinations (mem,mem; imm
+destination; label source) and report success.  (Minor: for SZ32 the imm8/imm32 choice uses the int64 view,
+so `and ecx,0xFFFFFFF0` gets the 6-byte form.)  **Fix:** carry REX.X/REX.B in every memory form; parse
+`scale` as a single term; range-check disp32; `SetError` on unhandled combos; golden bnas-vs-clang tests.
+
+### Text assemblers truncate 64-bit immediates on a 32-bit host; the assemble path hides encoder errors — 🔴 OPEN (found 2026-09-25, work-4, T6(b) survey)
+
+`asm/parse/aarch64.bn` ~125 and `asm/parse/x64.bn` ~258 / `x64_instr.bn` ~39, ~137 build immediates with
+`Imm(cast(int, result.Val))`, truncating the int64 value on a 32-bit host (arm32 hosts are first-class).
+`asm/assemble/assemble.bn` ~53 reports only a generic "assembly failed" (no message, no line) for an encoder
+`SetError`, and `parse_file.bn` ~40 keeps parsing after an encoder error (checks only the parser's own flag),
+so the fail-loud fixes above would surface without context.  **Fix:** keep immediates 64-bit to the encoder
+(`ImmU64`-style), propagate the assembler's error message with the source line, stop at the first error.
+
+### native: `getOperand` on a folded (skip-emitted) value silently reloads a never-written spill slot; several dispatcher cases silently drop an instruction on an unresolved operand — 🔴 OPEN (found 2026-09-25, work-4, T6(b) survey)
+
+`PlanFrame` reserves a slot for every value, folded constants included (`native/common/common.bn` ~162,
+~222), so `getOperand` on a FoldedImmConst / FoldedAddImmConst id reloads that slot — which was never
+written, because the constant's emission was skipped — instead of returning -1 as the consumer comments
+claim (`aarch64_ops.bn` isFoldedAddConst doc, `x64_fold.bn`, `arm32_fold.bn`).  Any mismatch between a fold
+analysis and an emitter is therefore a silent garbage read, not a compile error.  (No live mismatch known:
+arm32 int64 constants are always materialized by `emitConst64` ahead of the generic flag check — safe by
+dispatch order, though the compare fold's flag is inaccurate for them since `ImmFoldableConsts` has no width
+guard.)  Separately, per-op dispatcher cases (`OP_COPY`, `OP_MANAGED_TO_RAW`, `OP_BIT_CAST`, `OP_CAST`, ~15
+more `if … < 0 { return }` sites across the three backends) silently emit nothing on an unresolved operand
+instead of failing loud like the dispatch tail — a dropped `OP_COPY` leaves a phi stale.  **Fix:**
+`getOperand` fails loud for fold-flagged ids and `PlanFrame` stops reserving their slots; replace the silent
+returns with `a.SetError("<op>: unresolved operand")`; fix the comments.
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
