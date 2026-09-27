@@ -55,6 +55,15 @@ All on main today; each is being fixed (with a test) in the aa64 text-assembler 
   `STP/LDP [SP, #outBytes+16]`, whose imm7 wrapped silently for outBytes > 488 (≈61+ stack-passed argument
   words with a multi-value return) — FP/LR saved to the wrong slot.  Fix: address the slot through a
   scratch base when out of the pair range.
+- **Mach-O: `L` labels are emitted into the symtab (when a surviving relocation references one, or when
+  declared global), and ld-prime — bnc links with `-dead_strip` — makes every emitted symbol an atom**, so
+  a function whose in-place branch targets such a label can be split or stripped (reviewer reproduced a
+  SIGILL with `-dead_strip`, and a misplaced block with `-order_file`); an unreferenced global `L`-named
+  symbol is dropped from the symtab altogether.  Latent (native never relocates to a code `L` label from
+  another atom).  Fix (user: "Fix in this batch"), as clang does: never emit `L` labels; a relocation to
+  one targets the containing atom's symbol with the offset as addend; every emitted symbol is an atom
+  start for the resolver.  Also the Mach-O zero-fill layout (bss offset 0, after regular sections, not in
+  filesize — ld -ld_classic rejects today's).
 - **Mach-O writer: an empty section overflows the load commands** (`nsects` counts only non-empty
   sections but a header is written for each) → `ld: malformed load command`.  No native path found; `bnas`
   reaches it.
