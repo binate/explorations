@@ -5,6 +5,28 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
+### IR-gen's named-only type peels (`typeWidth`, `peelNamed`/`typeIsSigned`) mis-size and mis-sign readonly-wrapped values — silent wrong values, a stack out-of-bounds store — 🔴 OPEN (found 2026-09-26)
+
+**Symptom (all backends, -O0 and -O2):** an untyped literal flowing into a `readonly` narrow slot is
+never narrowed: `func ro(x readonly float32) float64 { return cast(float64, x) }; ro(2.5)` passes a
+double where a float is expected (`call double @ro(double ..)` vs `define double @ro(float ..)`) and
+reads back 0; `var v readonly float32 = 2.5` emits `alloca float` + `store double` — an 8-byte store
+into a 4-byte stack slot; `S{f: 2.5}` / `[2]readonly float32{1.5, 2.5}` give garbage; `func r()
+readonly float32 { return 2.5 }` is a clang error.  Integer literals into `readonly int8` params are
+passed as i64 (`call @f(i64 ..)` vs `define @f(i8 ..)`).  Named-over-readonly (`type R readonly
+int8`): `x / y` skips the MIN/-1 overflow guard on native aa64 and the VM (returns -128 for
+`-128 / -1` instead of panicking) and is a clang error on LLVM.
+**Root cause:** `typeWidth` (pkg/binate/irgen/gen_binary_width.bn) and `peelNamed` → `typeIsSigned`
+(gen_typedecl.bn) peel only TYP_NAMED; a TYP_READONLY wrapper has Width 0 / Signed false, so the
+width falls to the 64-bit default (no fptrunc/trunc emitted) and signedness reads false.  The
+IR-gen twin of the codegen named-only peel fixed in `8a9638ede` (not yet landed at filing).
+**Found by:** the adversarial review of that codegen fix (two lenses + skeptics; a prototype
+readonly/alias arm in typeWidth made every repro correct on LLVM and native at -O0/-O2).
+**Proposed fix:** peel all transparent wrappers (named / alias / readonly — e.g. the shared
+irutil/types peel) in typeWidth, peelNamed/typeIsSigned, and any other IR-gen Kind / Width / Signed
+decision (sweep IR-gen repo-wide); conformance covering untyped literals into readonly narrow params,
+var inits, returns, struct/array literal fields, and named-over-readonly div/shift.
+
 ### Pre-existing silent wrong code found by the adversarial review of the aa64 assembler batch — 🟡 IN PROGRESS (found + claimed 2026-09-26, work-2/session; fixed within the aa64 text-assembler batch, user: "fix the assembler")
 
 All on main today; each is being fixed (with a test) in the aa64 text-assembler batch (not yet landed):
@@ -75,6 +97,27 @@ method value on a forwarder-spelled generic call.  Repros: `t4`/`t8`/`t1` progra
 scratch (reconstructible from the three bullets above).
 
 ## MAJOR
+
+### LLVM `cast` of an array (aggregate retype, spec §8.5 `[4]int8 → [4]uint8`) emits `add [4 x i8] %v, 0` — clang rejects valid code — 🔴 OPEN (found 2026-09-26)
+
+`var a [4]int8; var u [4]uint8 = cast([4]uint8, a)` fails on the LLVM backend at -O0/-O2 ("integer
+constant must have integer type"); native aa64 and the VM are correct.  Root cause: emitCast's
+`srcIsAggregate` (pkg/binate/codegen/emit_cast.bn) lists SLICE / MANAGED_SLICE / STRUCT but not
+TYP_ARRAY, and typeBits has no array case (srcBits == dstBits), so the same-bits arm takes the scalar
+`add X, 0` identity.  No conformance test covers an array retype.  Fix: treat TYP_ARRAY as an
+aggregate (identity via `select i1 true` / reinterpret) + a conformance test.  Found by the review of
+the codegen readonly-peel fix (pre-existing).
+
+### Negated untyped int literal on the LEFT of a binop isn't re-typed to the other operand's width — native -O2 returns an un-narrowed value; LLVM rejects the IR — 🔴 OPEN (found 2026-09-26)
+
+`func b(x int16) int16 { return -30000 - x }; b(10000)` returns -40000 on native aa64 -O2 (silent
+wrong value for an int16 result; -O0 and the VM give 25536) and is a clang error on LLVM ("ret i64 ..
+doesn't match function result type 'i16'").  Same for `-100 / x`, `-100 + x`, `-100 % x` with
+int8/int16/int32 x.  Root cause: gen_binary.bn re-emits the LHS with the RHS type as hint only when
+`e.X.Kind == ast.EXPR_INT_LIT`; a unary-negated literal stays an untyped-int `sub i64 0, N`, so the
+binop runs at int width and the result is never narrowed (genIntLitWithHint already accepts negated
+literals via isIntConstLit — the gate excludes them).  Distinct from the dead-duplicate-constant
+entry.  Fix: widen the gate to negated int literals + conformance.  Found by the same review.
 
 ### e2e: a native compile failure is reported as SKIP in five FFI / library e2e scripts — 🔴 OPEN (found 2026-09-26, work-2/session)
 
@@ -1902,6 +1945,18 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
   which unblocks the primary spec writeup.
 
 ## Codegen & backend (non-func-value)
+
+- **Checker rejects valid alias uses in const / untyped-literal contexts** — 🔵 OPEN (found
+  2026-09-26).  Spec type.alias.transparency: an alias is its target in every context.  But with
+  `type I8 = int8`: `type N I8; fn(-5)` / `var n N = 3` → "cannot assign untyped int to N" (while
+  `type M int8; fm(-5)` compiles), and `const C I8 = -5` → "const `C` requires a scalar type".  Same
+  for float32/float64 aliases.  Not root-caused (checker's untyped-constant assignability and
+  const-type checks don't resolve the alias under a named type).
+- **LLVM arm32-baremetal at -O1+ can't link any program: undefined `__aeabi_memclr`** — 🔵 OPEN
+  (found 2026-09-26).  At -O2 clang lowers a zeroing in `rt.rtFormatInt` to `__aeabi_memclr`, which
+  runtime/baremetal_arm32/aeabi_*.s doesn't provide; -O0 links and runs.  CI's -O2 lane has no LLVM
+  arm32-baremetal shard, so it's unseen.  Fix: provide `__aeabi_memclr` (+ `memclr4/8`, `memset*`,
+  `memcpy*` family as needed) in our arm32 runtime asm.
 
 ### Big-endian CODEGEN — deferred (no BE target exists yet) — 🟡 DEFERRED
 The Ch.7.13 layout follow-ups (`type.layout.funcval-order-hardening` + the
