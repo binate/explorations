@@ -24,14 +24,8 @@ literal-hint helpers `isTypedInt` / `needsHintNarrowing` / `intFitsInType` peel 
 **Landed (`fdd2da320`; VM half `89a56168c` — captureNeedsPtrPass peels wrappers, which 1297 needed on the VM):** emitCaptureRefInc delegates to
 emitManagedValueCopyRefInc (full peel, +@Iface) — fixes the over-released readonly / named @T / @[]T
 / @func captures; conformance 1297.
-**Still broken on the VM (found 2026-09-27, claude/exciting-davinci-wahyt2 session, by the new exit-status
-check for normal conformance tests):** 1297 prints the expected output under bni but is a use-after-free:
-valgrind shows a read of a block already freed by `execRefDecZeroDtor` (`execManagedMemoryOp` reading
-freed 24 bytes); under valgrind it segfaults right after the `42 42` line, i.e. in the `readonly @[]int`
-capture loop; outside valgrind it exits 139 after the full output. Same with every VM pass off (not an
-optimizer bug). Compiled binaries are clean under valgrind (LLVM and native, -O0 and -O2), so the VM
-lowering / VM closure path still under-retains (or over-releases) a wrapped capture that IR-gen now
-RefIncs. It passed CI only because the harness ignored the exit status.
+**VM side landed (`89a56168`):** 1297 was still a use-after-free under bni after `fdd2da32` (caught by
+the normal-test exit-status check: exit 139 after correct output); with `89a56168` it exits 0.
 **FIXED (`19772cd6b`) — the two items below: the lifted closure body now does the caller's acquire
 for @Iface / managed-aggregate capture params on each call, and closure creation copies an aggregate
 capture in (conformance 1299).**
