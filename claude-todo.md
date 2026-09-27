@@ -316,6 +316,30 @@ split into small driver functions compiled in ~3 s.  Base compiler equally affec
 un-homes once); and audit every `AppendInt` loop in the RegMap/allocator (`SpillIDs`, `HomeIDs`, …)
 for the same quadratic build — an amortized-growth append (or `vec.Vec`) fixes the class.
 
+### Compile time is superlinear in function size — iropt mem2reg, the native allocator/liveness passes, and the compiler-wide copy-per-append `slices.Append` — 🔴 OPEN (found 2026-09-27)
+
+**Severity: major (a single large function compiles in tens of seconds; the cost roughly quadruples per
+doubling).** Found while fixing the arm32 `UnhomeID` blowup, with a generated `main` holding N copies of
+`h = seed; for i := 0; i < len(xs); i++ { h = mix(h, f(xs[i], K)) }; testing.Println("bN", h)`.  With
+the `UnhomeID` fix in, compile time still grows ~×3.5–5 per doubling of N on all three native targets:
+-O0, N=800: arm32 5.8 s, aa64 ~7 s; -O2, N=800: aa64 21.8 s, x64 24.4 s, arm32 25.8 s (N=400: ~3.5 s).
+Profiles (`sample`, top of stack):
+- **-O2:** iropt mem2reg's alloca analysis (`analyzeAlloca`, `allocaDefBlocks`, `blockReferencesAlloca`,
+  `blockUsesAllocaNonLoadStore`) plus `slices.Append[@ir.Instr]` — together most of the samples, and the
+  same on every target (so the LLVM path pays it too).
+- **-O0 native:** `DomInfo.Dominates` called from `AllocateRegisters` (~28%), liveness
+  (`blockLiveBefore` + `livenessFixpoint`, ~23%), `blockReferencesValue` (~14%), `AggLoadElidable` →
+  `blockAllocaOnlyLoadStore` (~7%), `sortIntervalsByStart` (~5%).
+- **Pervasive:** `pkg/stdx/slices.Append` allocates len+1 and copies on every call (documented O(n));
+  it has 779 non-test call sites in the compiler tree (irgen 41 files, check 25, iropt 20, codegen 13,
+  parser 12, native …) plus 63 per-type `appendXxx` helpers, so every loop that builds a list sized by
+  the function (instructions, values, uses, blocks) is quadratic.
+**Fix:** per hot spot, replace the per-query rescans with a precomputed index (e.g. per-alloca use/def
+block sets computed once; dominance by DFS pre/post numbering so `Dominates` is O(1); per-value
+block-reference sets), sort intervals with an O(n log n) sort, and move function-sized list builds to
+`vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
+`slices.Append` sites.  Needs a decision on scope/order.
+
 ### e2e: a native compile failure is reported as SKIP in five FFI / library e2e scripts — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-26, work-2/session; user: "yes let's fix that MAJOR e2e bug")
 
 `e2e/ffi-export.sh` (`check_backend` / `check_narrow` / `check_bigagg` / `check_multiret` / `check_centry`),
