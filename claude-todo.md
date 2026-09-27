@@ -162,7 +162,34 @@ SIGSEGV / VM "call of nil interface value".  Fix: gate the peel on the qualified
 (`buildQualNameHomed` for a qualified receiver; the `CurrentImportAlias`-qualified name for an
 unqualified one in an imported package) and add conformance cases for both.
 
+### A generic body's bare type name binds to the IMPORTER's same-named type first — silent wrong code — 🔴 OPEN (found 2026-09-27, work-1, review of the identity refactor; reproduced by the reviewer, pre-existing)
+
+In a monomorphized generic body from another package, an unqualified type name is looked up in the
+consuming module FIRST: `gen_type_resolve.bn` ~:130-139 checks `lookupStructIdx(gc, te.Name)` before
+the `CurrentImportPkg` fallback, and `gen_iface.bn` ~:79/154 checks `gc.PkgPath` before
+`CurrentImportPkg`.  Repro: pkg/g has `type T struct{X int}` and `func Get[X any](x X, t T) int {
+return t.X }`; main defines its own `T{Q, R, X}`; `g.Get[int](0, g.T{X: 3})` → 0 in the VM, SIGSEGV on
+LLVM.  Same for interfaces (VM "target vtable not found"; bnc ICE "negative vtable slot offset").
+Fix: inside a body with `CurrentImportPkg` set, resolve a bare name in THAT package first (only fall
+back to the module when the defining package has no such name).
+
 ## MAJOR
+
+### Bugs found reviewing the identity refactor (pre-existing) — 🔴 OPEN (found 2026-09-27, work-1; reproduced by the reviewer)
+
+- **`defer` of a method on an interface keys on the checker's SHORT package name:** the checker builds
+  interface types with the package's short name (`check_interface.bn:79`, `bni_scope.bn:93`:
+  `curPkgShort`), and `buildDeferIface` (`gen_defer_build.bn`) resolves it through the file's aliases —
+  so a deferred call through an explicitly aliased import (`import L "pkg/other/lib"`), on a generic
+  interface (`@gen.Holder[int]`), or on a non-main package's own interface still misses ("defer of an
+  unresolved interface method").  Fix: carry the full path (the checker's interface types, or compute the
+  identity from the receiver's IR type as `genInterfaceMethodCall` does).
+- **A struct literal omitting a struct-typed field fails to compile:** `gen_composite.bn` ~:105-108
+  emits `EmitConstInt(0, structType)`, so `Plain{V: 1}` with an unset field `O T` → LLVM "integer
+  constant must have integer type", VM SIGSEGV.  (The entry on unset pointer/slice fields does not cover
+  struct-typed ones.)
+- **An imported generic FUNCTION can't be called at the REPL prompt:** "extern not found:
+  <pkg>.F__bn_inst__…", whether the fixture imports the package or it is imported mid-session.
 
 ### aa64 backend encoders: SP and XZR share register number 31, and register classes are unchecked — 🔴 OPEN (found 2026-09-25/26, work-2/session; user decision: "Distinct XZR number")
 
@@ -219,18 +246,18 @@ spelling; VM "extern not found: main..Area"), and one reaching another package's
 a pointer (`var g1 = geom.NewPoint(1, 2)` returning `@geom.Point` — methods resolved in this package:
 undefined `main.Point.Sum`).  Explicitly typed forms work.
 
-### REPL mid-session import stashes generic interfaces under the SHORT alias; impl collection looks them up by full path — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1, review of the forwarder fix; reproduced)
+### REPL mid-session import doesn't register generic interfaces of the packages it loads INDIRECTLY — 🟡 IN PROGRESS (claimed 2026-09-26, work-1; found 2026-09-26, work-1; the short-alias stash-key half fixed by the identity refactor)
 
-`repl/mid_session_import.bn:147` → `irgen.RegisterImportFuncSigs` on `s.MainGc` with short aliases;
-`collectInterfaceFromDecl` stashes a generic interface under the raw alias (`gen_iface_registry.bn`
-~:50, `buf.CopyStr(pkgShort)`), but `collectImportedImplsFromDecl` looks it up under the full path
-(`ir.ResolveImportPkg(m, pkgShort)` / `homedQualifier`), and `RegisterAllInterfaces` /
-`RegisterGenericDecls` never run for packages loaded mid-session (a transitively-referenced generic
-interface, e.g. `pkg/std/hash.Hasher` from `import "pkg/binate/irdata"`, is never stashed at all).  So
-importing any package with `impl *T : GI[...]` at the prompt silently skips that impl (the consumer
-would get a nil vtable).  Fix: register the newly loaded packages' interfaces + generic decls into
-`s.MainGc` under full paths before `RegisterImportFuncSigs` (and/or stash under the full path); add an
-`e2e/repl.sh` case importing such a package mid-session.
+A package imported at the prompt now has its generic interfaces stashed under its path (the REPL's
+short-alias stash key was the other half of this entry, fixed when package identity became the path),
+so `import "pkg/gen"` + an impl of `gen.GI[int]` works.  Remaining: `RegisterAllInterfaces` /
+`RegisterGenericDecls` never run for the packages a prompt import pulls in TRANSITIVELY — e.g.
+`import "pkg/lib3"` (whose impls name pkg/other/lib's generic interface) then `lib3.AsBox(w).Get()` →
+"call of nil interface value"; it works when pkg/other/lib was imported first (and a transitively
+referenced `pkg/std/hash.Hasher` from `import "pkg/binate/irdata"` is never stashed).  Fix: register the
+newly loaded packages' interfaces + generic decls into `s.MainGc` before `RegisterImportFuncSigs`; then
+the generic-interface impl misses in `collectImplsFromDecl` / `collectImportedImplsFromDecl` (TODOs
+naming this entry) can become internal errors.  Add an `e2e/repl.sh` case.
 
 ### Loud miscompiles / wrong rejections found by the forwarder audit (not forwarder-specific) — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1; agents' repros, not yet independently re-verified)
 
