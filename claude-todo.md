@@ -293,28 +293,6 @@ TYP_ARRAY, and typeBits has no array case (srcBits == dstBits), so the same-bits
 aggregate (identity via `select i1 true` / reinterpret) + a conformance test.  Found by the review of
 the codegen readonly-peel fix (pre-existing).
 
-### Negated untyped int literal on the LEFT of a binop isn't re-typed to the other operand's width — native -O2 returns an un-narrowed value; LLVM rejects the IR — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-27, work-4/session)
-
-`func b(x int16) int16 { return -30000 - x }; b(10000)` returns -40000 on native aa64 -O2 (silent
-wrong value for an int16 result; -O0 and the VM give 25536) and is a clang error on LLVM ("ret i64 ..
-doesn't match function result type 'i16'").  Same for `-100 / x`, `-100 + x`, `-100 % x` with
-int8/int16/int32 x.  Root cause: gen_binary.bn re-emits the LHS with the RHS type as hint only when
-`e.X.Kind == ast.EXPR_INT_LIT`; a unary-negated literal stays an untyped-int `sub i64 0, N`, so the
-binop runs at int width and the result is never narrowed (genIntLitWithHint already accepts negated
-literals via isIntConstLit — the gate excludes them).  Distinct from the dead-duplicate-constant
-entry.  Fix: widen the gate to negated int literals + conformance.  Found by the same review.
-
-**Same class on the RIGHT operand (found 2026-09-26 by the T6 b3 arm32 review, reproduced with the
-b3 compiler):** `func f(x int16) int16 { return x & (0 - 32768) }` — a *parenthesized* untyped
-constant expression as the RHS of a bitwise op is not re-typed either: the AND runs at int width and
-clang rejects the IR (`ret i64 %v5 … doesn't match function result type 'i16'`); `x & -32768` is
-fine, and `x + (0 + 1)` is fine (wraps correctly on both backends), so the gap is the bitwise ops'
-RHS path.  Native happens to produce canonical values here (a bitwise op of sign-extended inputs is
-sign-extended), so the visible failure is LLVM rejecting valid code, but the IR is ill-typed.  The
-durable fix is probably one rule for both sides: re-type an untyped constant operand of a binop from
-the checker's constant type, not from a syntactic literal-kind gate.  No conformance test yet — add
-one (LEFT negated literal, RIGHT parenthesized constant, each op kind) with the fix.
-
 ### Compile time is superlinear in function size — iropt mem2reg, the native allocator/liveness passes, and the compiler-wide copy-per-append `slices.Append` — 🔴 OPEN (found 2026-09-27)
 
 **Severity: major (a single large function compiles in tens of seconds; the cost roughly quadruples per
@@ -1032,6 +1010,12 @@ Order: V1 (aa64 first) → (A) → idiom recognition → B1 → B2 → B3. Each 
 
 ### IR-gen emits an untyped LEFT-operand constant twice — a dead `int`-typed copy (non-canonical when the value doesn't fit `int`) — 🔴 OPEN (found 2026-09-25, work-4, T6 b1)
 
+**Partly fixed (binate `6131c0e20`, 2026-09-27):** for every non-shift binary op the left constant is now
+emitted once, directly at its peer's type (the untyped-constant re-typing fix).  **Still open:** (1) a
+shift's untyped-literal VALUE operand is still emitted twice (`genBinary` keeps the literal-only re-emit
+for shifts — see the shift-typing entry below); (2) the IR verifier check that every `OP_CONST_INT`'s
+value fits its type.
+
 For `K | x` (untyped constant on the LEFT of a binary op whose right operand is typed), IR-gen emits the
 constant first with the default type `int` — unused — and then again with the operand's type; with the
 constant on the RIGHT (`x | K`) only the correctly typed constant is emitted.  Minimal repro (arm32 target,
@@ -1045,6 +1029,18 @@ tripped the native arm32 backend once its encoder stopped truncating (fixed on t
 `return 0x7FF0000000000000 | productSign`.  **Fix:** in IR-gen's binary-operator lowering, type an untyped
 left-operand constant from the other operand before emitting it (as already happens for the right
 operand); add an IR verifier check that every `OP_CONST_INT`'s value fits its type.
+
+### An untyped constant shift VALUE is typed two ways — `1 << n` at the count's type, `(0 + 1) << n` at `int` — 🔴 OPEN, needs a language decision (found 2026-09-27)
+
+With `n uint8` = 9, `cast(int64, 1 << n)` is 0 but `cast(int64, (0 + 1) << n)` is 512, on LLVM and native
+alike.  The checker types both shifts as `uint8`: an untyped operand of a shift goes through
+`foldIntBitwise` → `commonType`, which gives the untyped value the COUNT's type.  IR-gen follows that only
+for a plain literal value (its literal-only re-emit at the count's type); a constant expression or const
+name value is computed at `int`.  The spec (§13.5 `expr.shift`) says the result type is the value's type and
+the count's type is independent, but is silent on an UNTYPED value in a non-constant shift.  **Decide** the
+rule (the count's type, as the checker does now; `int` / the default type; or the context's type), write it
+into §13.5, then make the checker and IR-gen agree (and drop the double emission).  Conformance coverage with
+the fix.
 
 ### IR optimization passes (help LLVM + native backends + the VM) — 🟡 OPEN
 

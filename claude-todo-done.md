@@ -1,3 +1,16 @@
+### An untyped integer constant binop operand was typed only when spelled as a literal — LLVM rejected valid code; native -O2 returned un-narrowed values — FIXED (binate `6131c0e20`, 2026-09-27)
+
+`genBinary` gave an untyped constant operand its typed peer's type only for a literal (either side) or a
+negated literal (right side).  A negated literal on the LEFT, a parenthesized constant expression on either
+side, an untyped const name, or a constant above the int32 range was emitted at `int`/`int64`, so the op ran
+wide and its result was never narrowed: `func b(x int16) int16 { return -30000 - x }` — clang rejected the
+IR, native -O2 `cast(int32, b(10000))` gave -40000 (not 25536); `x & (0 - 32768)` likewise.  Now "untyped
+integer constant" comes from the checker (TYP_UNTYPED_INT + HasLitVal, per spec `const.untyped.coercion`),
+and a constant LEFT operand of a non-shift op is emitted after its peer, once, at the peer's type (also
+removes the dead duplicate for those ops).  Tests: irgen `gen_binary_untyped_const_test.bn`, conformance
+1305 (fails on LLVM and native -O2 without the fix); a 218-test constant/width/shift subset on builder-comp,
+native arm32 and native aa64 two-stage.  Shifts unchanged — see the open shift-typing question.
+
 ### Import-alias map conflated source aliases with package identity (first-wins overlay) — DONE (binate `d2a44fc90`, 2026-09-27)
 
 One map held both a file's source-level aliases and package identity (registration keyed each package
