@@ -1,3 +1,23 @@
+### irgen resolved names reached through an `expose` forwarder under the FORWARDER path — DONE (binate `d6747d898`, `a7331ce01`, 2026-09-26)
+
+A member reached as `A.X` through a pure forwarder IS the home's entity (`pkg.expose.identity`) and is
+registered only under the home, but several IR-gen sites resolved an alias-qualified member with plain
+`ir.ResolveImportPkg` (the forwarder path).  Fixed by routing them through `homedQualifier`: impl
+interface refs (non-generic + generic) and receivers, local and imported-`.bni`; interface parents
+(non-generic + generic) and alias targets; the method-value generic-call head.  Symptoms fixed: builds
+then SIGSEGV / nil interface call (dropped impl), duplicate forwarder TypeInfo (assertions false) + null
+dtor slot (leak), ICE "negative vtable slot offset", undefined `__ifaceid`, invalid LLVM.  Also:
+`registerGenericBodyExternDeps` (bnc + interp) walks the expose closure of the packages it collects;
+`RegisterImportedImpls` resolves each transitive package's impls under that package's own imports
+(`overlayFileImports`) and `CurrentImportAlias` (a bare same-package type arg fell back to int);
+`interp.RunFuncTyped` remaps a forwarder path to the home.  `d6747d898` is the pure split of the
+imported-impl half of `gen_impl.bn` (476/500 lines) into `gen_impl_imported.bn`.  Tests: conformance
+1291-1294 (each fails pre-fix on LLVM, native aa64 and the VM), irgen unit tests,
+`e2e/runfunc-typed-forwarder.sh`.  **Not done (deliberately):** the silent generic-interface misses in
+impl collection were NOT made internal errors — the review showed a miss is still reachable via the
+REPL's mid-session import and first-wins alias overlays (both filed), so a panic would break working
+programs; TODOs name those entries.
+
 ### Conformance `.error` tests never checked that the program failed — ✅ DONE (2026-09-27, binate `7bb0d9f0`)
 
 Every runner discarded the test program's exit status (`|| true`) and `run_error_test` ignored `rc`, so an

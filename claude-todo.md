@@ -133,44 +133,7 @@ All on main today; each is being fixed (with a test) in the aa64 text-assembler 
   sections but a header is written for each) → `ld: malformed load command`.  No native path found; `bnas`
   reaches it.
 
-### irgen resolves names reached through an `expose` forwarder under the FORWARDER path — silent miscompile / ICE — 🟡 IN PROGRESS (found + claimed 2026-09-26, work-1; user: "fix the bug next")
-
-Spec `pkg.expose.identity`: a member reached as `A.X` through a forwarder IS the home's entity.  The
-checker honors this (it remaps forwarder→home), and some irgen sites do (`homedQualifier`,
-`gen_util_literals.bn:75`, used by gen_call/gen_generic/gen_defer/gen_type_resolve/gen_iface:40), but
-many irgen sites resolve an alias-qualified name with plain `ir.ResolveImportPkg`, which yields the
-FORWARDER path.  Generic decls are stashed only under the HOME path, so the lookup misses and the site
-silently skips (`if gd == nil { continue }`).  Reproduced (with `pkg/std/iter` / `pkg/std/vec` as
-`expose` forwarders to `pkg/std/containers/*` — the flat compat forwarders the containers move adds):
-- **Silent wrong code (CRITICAL):** `import "pkg/std/iter"` + `impl *Count : iter.Iterator[int]`, upcast
-  `&c` to `*iter.Iterator[int]`, call `Next()` → builds rc=0, **segfaults** (rc=139): the impl is
-  dropped, no vtable, the upcast passes a raw pointer.  `gen_impl.bn:145` (local impl) and `:359`
-  (impl in an imported package's `.bni`).  Same source via `pkg/std/containers/iter` prints 10.
-- **ICE:** `interface Peeker : iter.Iterator[int] {...}` through the forwarder → `panic: emitIfaceUpcast:
-  negative vtable slot offset` (`gen_iface_registry.bn:177`; parent silently dropped).
-- **Invalid LLVM:** `vec.New[int]().Len` (method value on a forwarder-spelled generic call) → the raw
-  checker name `...vec1_8_Vec[int]` leaks into the `.ll` (`gen_method_value_recv.bn:232`).
-
-Pre-existing (any `expose` forwarder of a package with generic interfaces/functions hits it; conformance
-1028/1045/1048 only cover impls declared in the home or non-generic uses).  The containers move makes it
-reachable through the stdlib: no in-tree code triggers it (hygiene forbids non-BUILDER-tree forwarder
-imports; the BUILDER tree uses none of these patterns — builder-comp unit suite green), but the
-forwarders will ship in the next release, where an out-of-tree importer of the flat paths (e.g. the
-examples repo once it bumps) would hit it.  **Must be fixed before a release that carries the
-forwarders.**
-
-**Fix:** audit EVERY `ir.ResolveImportPkg(…, alias)` in `pkg/binate/irgen` that resolves an
-alias-qualified member name (~15 sites: `gen_impl.bn:74,131,145,331,334,345,347,359,361`;
-`gen_iface_registry.bn:61,75,164,177`; `gen_iface.bn:139,169`; `gen_method_value_recv.bn:232`;
-`gen_import.bn:303,315,453` probably fine — the alias is the declaring package there) and route the
-member-name ones through `homedQualifier`; turn the silent `gd == nil { continue }` misses into internal
-errors (the checker already resolved the ref, so a miss is a compiler bug, never a skip).  Tests:
-conformance programs through a `.bni`-only forwarder for a local and a library-`.bni` `impl R :
-fwd.GenIface[int]`, a non-generic `impl R : fwd.Iface`, `interface Sub : fwd.GenIface[int]`, and a
-method value on a forwarder-spelled generic call.  Repros: `t4`/`t8`/`t1` programs in the review's
-scratch (reconstructible from the three bullets above).
-
-### `var q = T{...}` (type inferred from a same-package struct literal) binds `q` to the literal's temp ADDRESS — silent wrong code — 🔴 OPEN (found 2026-09-26, work-1, forwarder-audit probe; reproduced)
+### `var q = T{...}` (type inferred from a same-package struct literal) binds `q` to the literal's temp ADDRESS — silent wrong code — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1, forwarder-audit probe; reproduced)
 
 `VarSpec = identifier "=" Expression` (type inferred) is valid, but for a struct literal of a type
 declared in the SAME package the IR stores a pointer to the literal's temp into the variable's slot
@@ -189,7 +152,7 @@ has almost no coverage of this form.  Root cause not yet investigated (irgen's i
 init for a same-package named struct — likely the literal's value/address kind).  Needs a
 conformance test + fix.
 
-### More silent wrong code found by the forwarder audit (not forwarder-specific) — 🔴 OPEN (found 2026-09-26, work-1; agents' repros, not yet independently re-verified)
+### More silent wrong code found by the forwarder audit (not forwarder-specific) — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1; agents' repros, not yet independently re-verified)
 
 - **Type assertion / type switch to a generic interface is false when the parameterized impl is
   declared in the home `.bni`:** `&Box[int]` asserted to `*home.GJ[int]` / `*home.GI[int]` (impl
@@ -205,7 +168,7 @@ conformance test + fix.
   (`gen_iface_registry.bn` ~:72 handles only `TEXPR_NAMED`) → `g.get()` prints 0 in the VM, compiled
   ICEs.  The EBNF allows `interface X = TypeName[..]`; implement the `TEXPR_INSTANTIATE` case.
 
-### First-wins import-alias overlays let one package's alias shadow another's — wrong-package resolution (silent where types are involved) — 🔴 OPEN (found 2026-09-26, work-1, review of the forwarder fix; reproduced by the reviewers)
+### First-wins import-alias overlays let one package's alias shadow another's — wrong-package resolution (silent where types are involved) — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1, review of the forwarder fix; reproduced by the reviewers)
 
 `RecordImportPath` is first-wins, so `pushFileImports` only ADDS a file's aliases that are not
 already bound — it cannot rebind one.  Two paths use it where an earlier entry can shadow the
@@ -223,7 +186,7 @@ in both places, as `RegisterImportedImpls` now does.  Once fixed (with the REPL 
 silent generic-interface misses in `collectImplsFromDecl` / `collectImportedImplsFromDecl` should
 become internal errors (their TODOs name this entry).
 
-### Impl receivers spelled through a type alias key on the alias, not its target — nil vtable at dispatch — 🔴 OPEN (found 2026-09-26, work-1, review of the forwarder fix; reproduced, pre-existing)
+### Impl receivers spelled through a type alias key on the alias, not its target — nil vtable at dispatch — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1, review of the forwarder fix; reproduced, pre-existing)
 
 `recvBaseNameAndPkg` (`gen_impl_recvname.bn:41`) peels an alias receiver only when
 `lookupTypeAlias` matches the BARE name — the current module's own aliases — but imported aliases are
@@ -236,7 +199,7 @@ unqualified one in an imported package) and add conformance cases for both.
 
 ## MAJOR
 
-### REPL mid-session import stashes generic interfaces under the SHORT alias; impl collection looks them up by full path — 🔴 OPEN (found 2026-09-26, work-1, review of the forwarder fix; reproduced)
+### REPL mid-session import stashes generic interfaces under the SHORT alias; impl collection looks them up by full path — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1, review of the forwarder fix; reproduced)
 
 `repl/mid_session_import.bn:147` → `irgen.RegisterImportFuncSigs` on `s.MainGc` with short aliases;
 `collectInterfaceFromDecl` stashes a generic interface under the raw alias (`gen_iface_registry.bn`
@@ -249,7 +212,7 @@ would get a nil vtable).  Fix: register the newly loaded packages' interfaces + 
 `s.MainGc` under full paths before `RegisterImportFuncSigs` (and/or stash under the full path); add an
 `e2e/repl.sh` case importing such a package mid-session.
 
-### Loud miscompiles / wrong rejections found by the forwarder audit (not forwarder-specific) — 🔴 OPEN (found 2026-09-26, work-1; agents' repros, not yet independently re-verified)
+### Loud miscompiles / wrong rejections found by the forwarder audit (not forwarder-specific) — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1; agents' repros, not yet independently re-verified)
 
 Each needs a test (xfail'd) + triage; grouped here so none is lost.
 - **Generic body referencing a const/var of a package the consumer doesn't import directly** builds,
@@ -1223,9 +1186,8 @@ resolving.  Every non-BUILDER-tree consumer already imports the new paths.  Rema
    READMEs; move them once examples bumps to a release that has `pkg/std/containers`.
 3. **Delete the seven forwarders** (`ifaces/stdlib/pkg/std/<name>.bni`) once nothing
    imports them.  The hygiene checks need no edit (they auto-discover forwarders).
-- **Before any release ships the forwarders**, the CRITICAL irgen forwarder-resolution bug
-  (top of this file) must be fixed: an out-of-tree importer of the flat paths can otherwise
-  hit a silent miscompile.
+- The irgen forwarder-resolution bug that made the forwarders unsafe for out-of-tree importers
+  is fixed (binate `a7331ce01`).
 
 ## Documentation hygiene
 
