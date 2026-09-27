@@ -211,6 +211,17 @@ unqualified one in an imported package) and add conformance cases for both.
 
 ## MAJOR
 
+### Assigning `nil` to an `@func` holding a capturing closure clears only the fn word — double free (compiled backends) — 🔴 OPEN (found 2026-09-26)
+
+`var fb @func() int = func() int { return b.v }` (any capture, e.g. a plain `@Box`), then `fb = nil`:
+LLVM and native aa64 print correctly then segfault at exit (rc 139); the VM is fine.  The LLVM IR for
+`fb = nil` is `store i8* null, i8** %slot` — it zeroes only the FIRST word (fn / vtable) of the
+two-word `%BnFuncValue`; the data word still points at the closure record the assignment just
+RefDec'd (and freed), and the frame-end RefDec of `fb` releases it again.  Suspected fix: a nil
+assignment to an @func (and any 2-word value — check @Iface too) must store the full two-word zero
+value.  Found by the review of the closure capture-param fix (pre-existing; not related to it).
+Repro: a function with a captured `@Box`, `var fb @func() int = func...; println(fb()); fb = nil`.
+
 ### Package-level var inferred from a generic-instantiated non-literal initializer (also: interface-typed, pointer-to-foreign-type) — builds broken — 🔴 OPEN (found 2026-09-26, work-1, fixing the inferred-var miscompile; pre-existing)
 
 `var gv = vec.New[int]()` / `var gb = mkBox[int](6)` / `var gp = &gb` at package level (the type is
