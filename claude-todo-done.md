@@ -1,3 +1,16 @@
+### native: arm32 un-homed call operands one at a time through a copy-per-append rebuild — O(args·H²) compile time — FIXED (binate `279896355`, 2026-09-27)
+
+arm32 `emitFunc` un-homed every call/return operand with `RegMap.UnhomeID`, which rebuilt the whole home
+map through `AppendInt` (copy on every append) once per operand.  A single `main` with a few hundred
+loop-plus-`Println` blocks took minutes to compile natively for arm32 (-O0: 200 blocks 7.0 s, 400 blocks
+59.6 s; a ~2000-call probe ran >10 minutes).  Now `UnhomeIDs(drop)` applies an id-indexed flag set in one
+O(H) pass and arm32 collects the operands first: 0.40 s / 1.24 s (800 blocks 5.8 s).  PlanFrame's
+spill/alloca tables and the GP/FP home lists are built with `vec.Vec`'s amortized `Push` instead of
+`AppendInt` (no measurable effect at these sizes; removes their O(n²) build); `AppendInt` stays for
+register-pool-bounded lists.  cmd/bnc objects byte-identical on aa64/x64/arm32.  The remaining
+superlinear compile-time passes this profiling found are tracked in the todo ("Compile time is
+superlinear in function size").
+
 ### Conformance normal tests didn't check the exit status — ✅ DONE (2026-09-27, binate `c6c3b430`)
 
 `run_test` compared output only, so a program that printed the expected output and then crashed passed

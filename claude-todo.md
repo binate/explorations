@@ -280,7 +280,7 @@ TYP_ARRAY, and typeBits has no array case (srcBits == dstBits), so the same-bits
 aggregate (identity via `select i1 true` / reinterpret) + a conformance test.  Found by the review of
 the codegen readonly-peel fix (pre-existing).
 
-### Negated untyped int literal on the LEFT of a binop isn't re-typed to the other operand's width — native -O2 returns an un-narrowed value; LLVM rejects the IR — 🟡 CLAIMED, queued (found 2026-09-26; claimed 2026-09-27, work-4/session — after the UnhomeID fix)
+### Negated untyped int literal on the LEFT of a binop isn't re-typed to the other operand's width — native -O2 returns an un-narrowed value; LLVM rejects the IR — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-27, work-4/session)
 
 `func b(x int16) int16 { return -30000 - x }; b(10000)` returns -40000 on native aa64 -O2 (silent
 wrong value for an int16 result; -O0 and the VM give 25536) and is a clang error on LLVM ("ret i64 ..
@@ -301,20 +301,6 @@ sign-extended), so the visible failure is LLVM rejecting valid code, but the IR 
 durable fix is probably one rule for both sides: re-type an untyped constant operand of a binop from
 the checker's constant type, not from a syntactic literal-kind gate.  No conformance test yet — add
 one (LEFT negated literal, RIGHT parenthesized constant, each op kind) with the fix.
-
-### native: `RegMap.UnhomeID` rebuilds the home map with a copy-per-append `AppendInt` — the arm32 call/return un-home loop is O(args·H²); a ~2000-call function compiles for >10 minutes — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-27, work-4/session)
-
-**Severity: major (compile-time blowup on ordinary large functions).** arm32 `emitFunc` un-homes every
-call/return argument (`arm32_emit_func.bn`, the `common.EmitsReturningBl` loop) through
-`RegMap.UnhomeID` (`common/regalloc_scan.bn`), which rebuilds `HomeIDs`/`HomeRegs` with
-`common.AppendInt` — and `AppendInt` (`common/regmap_accessors.bn`) allocates a new slice and copies
-the whole old one on every append.  So one `UnhomeID` is O(H²) in the number of homes, and a function
-costs O(A·H²) over its call/return arguments.  The T6 b3 arm32 review's probe (one `main` with ~2000
-calls) kept gen1 compiling for more than 10 minutes, samples almost all in `UnhomeID`; the same code
-split into small driver functions compiled in ~3 s.  Base compiler equally affected.  **Fix:**
-`UnhomeID` compacts in place in one O(H) pass (or the loop collects the ids into a flag set and
-un-homes once); and audit every `AppendInt` loop in the RegMap/allocator (`SpillIDs`, `HomeIDs`, …)
-for the same quadratic build — an amortized-growth append (or `vec.Vec`) fixes the class.
 
 ### Compile time is superlinear in function size — iropt mem2reg, the native allocator/liveness passes, and the compiler-wide copy-per-append `slices.Append` — 🔴 OPEN (found 2026-09-27)
 
