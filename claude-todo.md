@@ -20,7 +20,20 @@ slot; named-over-readonly `MIN / -1` skips the overflow trap on native/VM).
 **Landed (`5fe4cc11b`):** IR-gen `typeWidth`, `typeIsSigned`, `typeIsUnsignedInt` and the
 literal-hint helpers `isTypedInt` / `needsHintNarrowing` / `intFitsInType` peel every wrapper
 (PeelTransparent); conformance 1295 (untyped literals into readonly-narrow args / var inits / returns
-/ fields / elements) + 1296 (named-over-readonly int8 MIN / -1 traps).  Next: emitCaptureRefInc.
+/ fields / elements) + 1296 (named-over-readonly int8 MIN / -1 traps).
+**Committed on work-5, not yet landed (`74a543a39`):** emitCaptureRefInc delegates to
+emitManagedValueCopyRefInc (full peel, +@Iface) — fixes the over-released readonly / named @T / @[]T
+/ @func captures; conformance 1297.
+**New, found while fixing that (not a wrapper issue): an @Iface closure capture is over-released on
+EVERY CALL.**  `@Iface` params follow a caller-owned convention (the caller RefIncs each @Iface arg;
+the callee only RefDecs at exit — e.g. `take(g @Getter)`: callee RefInc 0 / RefDec 1, caller RefIncs
+per call), unlike `@T` params (callee RefIncs on entry + RefDecs at exit).  A closure's lifted body
+takes its captures as prepended params, and the per-backend `__shim` loads them from the closure
+struct and tail-calls the body WITHOUT a caller-side RefInc — fine for @T, but an @Iface capture param
+is RefDec'd once per call.  Repro: capture `var gi @Getter = ms` in a `*func` called in a 2-iteration
+loop, then `other := make(S)`: `ms.v` / `gi.Get()` read the reused memory (prints 1 1, expected 7 7).
+Fix options: have the lifted body's prologue RefInc prepended @Iface capture params (one IR-gen fix
+for all backends), or make each backend's shim RefInc them.
 
 **Sweep (2026-09-26):** auditors over check+lint, IR-gen (first two thirds of the files), and the VM
 lowering reported the confirmed defects below (each with a repro, run on LLVM / native aa64 / VM).
