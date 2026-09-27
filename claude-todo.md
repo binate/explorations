@@ -161,6 +161,15 @@ back to the module when the defining package has no such name).
 
 ## MAJOR
 
+### `defer ps.m()` on a method of a NAMED POINTER type panics the compiler ("defer of an unresolved method call") — 🔴 OPEN (found 2026-09-27)
+
+`type S struct { v int }; type PS *S; func (p PS) get() int { ... }; ... defer ps.get()` → IR-gen
+panics "defer of an unresolved method call" (valid code, every backend).  No wrapper involved — a
+plain `func (p PS) get()` hits it; a direct `ps.get()` call works.  Found by the review of the
+method-receiver wrapper fix (pre-existing).  Likely the defer method-resolution path
+(gen_defer_build.bn deferMethodRecvType / buildDeferMethod — also named in the wrapper-peel cluster
+for named-distinct receivers) doesn't resolve a method declared on a named pointer type.
+
 ### An imported package's alias of a THIRD package's generic instantiation resolves to `int` in IR-gen — 🔴 OPEN (found 2026-09-27, work-1, review of the alias-receiver fix; reproduced by the reviewer, pre-existing)
 
 pkg/home has `type VI = bx.Box[int]` (bx another package's generic): `RegisterStructTypes`
