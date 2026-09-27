@@ -26,6 +26,10 @@ emitManagedValueCopyRefInc (full peel, +@Iface) — fixes the over-released read
 / @func captures; conformance 1297.
 **VM side landed (`89a56168`):** 1297 was still a use-after-free under bni after `fdd2da32` (caught by
 the normal-test exit-status check: exit 139 after correct output); with `89a56168` it exits 0.
+**FIXED (`d676ebc80`): managed→raw slice decay at every store position** (decl / assign / parallel /
+composite field + array/slice literal elements / array & slice elements / pointer targets / multi-assign
+/ cast, through named / readonly wrappers), plus the raw `*T` multi-assign leak found by its review;
+conformance 1302.
 **FIXED (`19772cd6b`) — the two items below: the lifted closure body now does the caller's acquire
 for @Iface / managed-aggregate capture params on each call, and closure creation copies an aggregate
 capture in (conformance 1299).**
