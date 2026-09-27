@@ -41,7 +41,7 @@ Implemented: `iropt.VMOptConfig()` (binate `4ff351ea`); bni applies `-f` / `-fno
   passes before it. Resolves the cheap passes that the timed load cannot (±0.3 s noise).
 - `--log F --resume` continues an interrupted measurement (a container restart kills it otherwise).
 
-## Results — 2026-09-27 (binate `c6c3b430` + `--instructions`/`--resume`; bni built at bnc -O2; x86-64 VM)
+## Results — 2026-09-27 (binate `c6c3b430`, perf script `2f336df5`; bni built at bnc -O2; x86-64 VM)
 
 The first measurement's `loo:mem2reg` rows were a miscompile (load-forwarding without mem2reg, since
 fixed, binate `171df689`); passes now also run one function at a time and phi operands / field
