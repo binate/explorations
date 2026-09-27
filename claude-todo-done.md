@@ -168,7 +168,9 @@ type (incl. generic `Box[int]{...}`), any other initializer takes the checker's 
 whose checker type differs from IR-gen's (generic instantiation, interface, pointer-to-foreign-type:
 `checkerTypeUnmappable`), still broken as before and tracked as an open MAJOR entry.  Test: conformance
 1298 (fails to build pre-fix; LLVM, native aa64, VM, gen2).  Review caught the `&p` regression before
-landing.
+landing.  Follow-up `681e0b4fa`: the REPL now accepts a non-literal inferred `var` too, and
+`e2e/repl.sh`'s tier2-var-untyped case (which asserted the old rejection, so went red with
+`2df02e928` — the REPL e2e wasn't run before landing) now asserts the working behavior.
 
 ### AND/OR/XOR constant operands fold into logical immediates on all three native backends — DONE (binate `b2aa6d919`, arm32 file split `fa9647492`, 2026-09-27)
 
