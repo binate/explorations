@@ -122,6 +122,13 @@ All on main today; each is being fixed (with a test) in the aa64 text-assembler 
   one targets the containing atom's symbol with the offset as addend; every emitted symbol is an atom
   start for the resolver.  Also the Mach-O zero-fill layout (bss offset 0, after regular sections, not in
   filesize — ld -ld_classic rejects today's).
+  Same root, found by the follow-up review: under Apple's **classic linker** (ld64 before ld-prime —
+  `-ld_classic`, and the default linker on older Xcode) an arm64 relocation against a listed atom-less
+  `L` label resolves to the start of the section's anonymous atom, dropping the label's offset — so
+  **every native string literal after the first in a section reads the wrong bytes** (native
+  `testing.Println` of three literals printed `first firstsecond s firstseco`).  Fix (in the batch): no
+  temporary is ever listed; an atom-less one is reached through a synthesized section-start anchor
+  (`ltmp<N>`, LLVM's scheme) plus addend.
 - **Mach-O writer: an empty section overflows the load commands** (`nsects` counts only non-empty
   sections but a header is written for each) → `ld: malformed load command`.  No native path found; `bnas`
   reaches it.
