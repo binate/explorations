@@ -59,7 +59,7 @@ All on main today; each is being fixed (with a test) in the aa64 text-assembler 
   sections but a header is written for each) → `ld: malformed load command`.  No native path found; `bnas`
   reaches it.
 
-### irgen resolves names reached through an `expose` forwarder under the FORWARDER path — silent miscompile / ICE — 🔴 OPEN (found 2026-09-26, work-1, adversarial review of the containers move)
+### irgen resolves names reached through an `expose` forwarder under the FORWARDER path — silent miscompile / ICE — 🟡 IN PROGRESS (found + claimed 2026-09-26, work-1; user: "fix the bug next")
 
 Spec `pkg.expose.identity`: a member reached as `A.X` through a forwarder IS the home's entity.  The
 checker honors this (it remaps forwarder→home), and some irgen sites do (`homedQualifier`,
