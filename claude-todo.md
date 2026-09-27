@@ -21,7 +21,7 @@ slot; named-over-readonly `MIN / -1` skips the overflow trap on native/VM).
 literal-hint helpers `isTypedInt` / `needsHintNarrowing` / `intFitsInType` peel every wrapper
 (PeelTransparent); conformance 1295 (untyped literals into readonly-narrow args / var inits / returns
 / fields / elements) + 1296 (named-over-readonly int8 MIN / -1 traps).
-**Committed on work-5, not yet landed (`375da0159`):** emitCaptureRefInc delegates to
+**Landed (`fdd2da320`):** emitCaptureRefInc delegates to
 emitManagedValueCopyRefInc (full peel, +@Iface) — fixes the over-released readonly / named @T / @[]T
 / @func captures; conformance 1297.
 **New, found while fixing that (not a wrapper issue): an @Iface closure capture is over-released on
