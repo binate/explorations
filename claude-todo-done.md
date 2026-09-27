@@ -1,3 +1,135 @@
+### Pre-existing silent wrong code found by the adversarial review of the aa64 assembler batch — ✅ DONE (binate `e864bdbed` (encoders / isa / writers / resolver / Mach-O atoms), `0df814a41` (text assembler, expressions, directives), `6107f3af8` (rt.MemZero), `501bd196f` (native aa64 element size / C-export trampoline), 2026-09-26)
+
+Silent wrong code that was on main; each was fixed (with a test) in the aa64 assembler batch:
+- **Native aa64 `GET_ELEM_PTR` with a non-power-of-two element size > 0xFFFF miscompiles.**
+  `aarch64_emit_elem.bn` materializes the size with one `Movz`, which masked it to 16 bits:
+  `type Big struct{ a [70001]uint8 }; var g [3]Big` addresses `g[1]` as `g[0]+4465` (70001 & 0xFFFF),
+  so writes to `g[1]` land inside `g[0]`.  The fail-loud `Movz` turns it into a compile error; the fix is
+  `emitConstInt64`.  arm32 (`emitConstInt32`) and x64 (`imul imm32`) are fine.  Test: a conformance
+  program indexing a 70001-byte element.
+- **ELF: an AArch64 LDR-literal (`ldr x0, sym`, `ldrsw`, `ldr s/d/q`, `prfm`) is relocated as
+  `R_AARCH64_CONDBR19`** instead of `R_AARCH64_LD_PREL_LO19`; lld treats CONDBR19 as a branch (PLT-able),
+  so a literal load of a preemptible / DSO data symbol loads from its PLT stub.  Fix: a distinct fixup kind
+  → LD_PREL_LO19 (Mach-O has none and rejects it, as clang does), plus bnld support.
+- **The shared text-assembler expression evaluator (`asm/parse/expr.bn`, all three arches) disagrees with
+  clang:** C precedence (clang uses a Darwin table for Mach-O and a GNU table for ELF — `#1+2<<3` is 24 here,
+  17 on ELF; `#4|1&2` is 4 here, 0 on Mach-O), arithmetic `>>` (clang's is logical: `#-16>>60` is -1 here,
+  15 in clang), and negative shift counts / `MIN/-1` / deep nesting crash bnas.  Fix (user decision):
+  evaluate where both clang tables agree, reject an unparenthesized mix they disagree on, logical `>>`,
+  shift counts limited to [0, 63], depth-bounded recursion.
+- **Non-zero data or instructions in `.section bss` are silently dropped** (NOBITS / zerofill), all
+  arches; clang rejects.  Fix: reject non-zero emission into a zero-fill section.
+- **Multi-line `/* ... */` comments assemble the commented-out lines on x64 and arm32** (the lexer is
+  per-line and those parsers ignore the error token the unterminated `/*` becomes).  Fix: carry an open
+  block comment across lines in the file parser; make a lexer error fatal for the line on every arch.
+- **Native aa64 C-export return trampoline** (`aarch64_cexport_retadapt.bn`) saves/restores FP/LR with
+  `STP/LDP [SP, #outBytes+16]`, whose imm7 wrapped silently for outBytes > 488 (≈61+ stack-passed argument
+  words with a multi-value return) — FP/LR saved to the wrong slot.  Fix: address the slot through a
+  scratch base when out of the pair range.
+- **Mach-O: `L` labels are emitted into the symtab (when a surviving relocation references one, or when
+  declared global), and ld-prime — bnc links with `-dead_strip` — makes every emitted symbol an atom**, so
+  a function whose in-place branch targets such a label can be split or stripped (reviewer reproduced a
+  SIGILL with `-dead_strip`, and a misplaced block with `-order_file`); an unreferenced global `L`-named
+  symbol is dropped from the symtab altogether.  Latent (native never relocates to a code `L` label from
+  another atom).  Fix (user: "Fix in this batch"), as clang does: never emit `L` labels; a relocation to
+  one targets the containing atom's symbol with the offset as addend; every emitted symbol is an atom
+  start for the resolver.  Also the Mach-O zero-fill layout (bss offset 0, after regular sections, not in
+  filesize — ld -ld_classic rejects today's).
+  Same root, found by the follow-up review: under Apple's **classic linker** (ld64 before ld-prime —
+  `-ld_classic`, and the default linker on older Xcode) an arm64 relocation against a listed atom-less
+  `L` label resolves to the start of the section's anonymous atom, dropping the label's offset — so
+  **every native string literal after the first in a section reads the wrong bytes** (native
+  `testing.Println` of three literals printed `first firstsecond s firstseco`).  Fix (in the batch): no
+  temporary is ever listed; an atom-less one is reached through a synthesized section-start anchor
+  (`ltmp<N>`, LLVM's scheme) plus addend.
+- **Mach-O writer: an empty section overflows the load commands** (`nsects` counts only non-empty
+  sections but a header is written for each) → `ld: malformed load command`.  No native path found; `bnas`
+  reaches it.
+
+### aa64 text assembler silently mis-assembled many load/store, data-processing and branch/system forms — ✅ DONE (binate `e864bdbed` (encoders / isa / writers / resolver / Mach-O atoms), `0df814a41` (text assembler, expressions, directives), `6107f3af8` (rt.MemZero), `501bd196f` (native aa64 element size / C-export trampoline), 2026-09-26)
+**Resolution (landed 2026-09-26, after four adversarial-review rounds):** (1) new package
+`pkg/binate/asm/aarch64/isa`: exact single-instruction encoders for every load/store addressing mode,
+add/sub/logical/move-wide/bitfield/extr/mul/div/csel/ccmp, branches, ADR/ADRP, exception/hint/barrier/
+MRS/MSR/SYS — one instruction or `SetError`, never synthesis/masking; the backend-facing `aarch64.*`
+encoders route through it and fail loud (Mov/Movz/Movk/Movn, shifts, Tbz/Svc/Mrs, emitLogOp/Ands/Mvn,
+ADDS/SUBS no split, NEON arrangement/lane validation, pre/post/pair ranges); resolver rejects misaligned
+targets and keeps B.cond/CBZ/TBZ/ADR to atom-start symbols as relocations; Mach-O emits
+ARM64_RELOC_ADDEND pairs (addends used to be dropped), ELF emits CALL26 for BL; sections record and
+honour `.align`.  (2) `asm/parse`: typed-item operand scanner + per-family matchers (end-of-line check,
+register classes, clang alias selection, int64 immediates), strict lexer (GNU octal, overflow, escapes)
+and directives (trailing-token and range checks).  ~1400 golden lines = clang's exact word or rejected.
+Native aa64 conformance 3055/0.  Remaining after landing: TLBI/AT, `.L`/numeric labels, literal pools,
+FP/NEON arithmetic in the text parser (completeness, not silent-miscompile).
+
+Found by a clang-oracle survey of every load/store form `pkg/binate/asm/parse` accepts (each line assembled
+by bnas and by `clang -c -target arm64-apple-macos11`, `otool -tvV` compared).  clang never
+synthesizes: it picks the LDUR/STUR alias for a negative/misaligned-but-imm9 offset and ERRORS on
+anything unencodable.  Ours silently does something else.  Worst first:
+- **Wrong instruction:** `ldr xN, label` encodes LDRSW literal (sfBit sets bit 31, not opc bit 30);
+  `str xN|wN, label` assembles to a LOAD; `ldp w0, x1, [..]` / `ldp x0, w1, [..]` silently unify widths.
+- **Operand tokens dropped** (root: `parseMemOperand` + no end-of-line check): `[x1, x2, lsl #3]`,
+  `uxtw`/`sxtw`/`sxtx` extends → plain `[x1, x2]` (wrong address); post-index without `#`
+  (`ldp x0,x1,[x2], 16`, `ldr q0,[x1], 16`) or with a register drops the writeback; label `+addend`
+  dropped; missing `]` accepted; `[x1, w2]` encodes `[x1, x2]`.
+- **Silently emits nothing:** `ldp/stp` with a reg-offset/label/imm operand; `ldr/str x0, #8` / `x0, x1`.
+- **Silent wrap/truncate:** pre/post-index imm9 masked mod 512; `ldp/stp` (X/W/Q) imm7 truncates a
+  misaligned offset and wraps an out-of-range one (`stp x29,x30,[sp,#-528]!` stores ABOVE sp).
+- **Silent multi-instruction synthesis clobbering x17:** `ldr/str` (and b/h/sb/sh/sw) `[Xn, #imm]`
+  not fitting the scaled uimm12 → `add/sub x17` + access, even where LDUR fits (the encoder's
+  documented backend fallback, leaking into the text assembler); same for `ldr/str q` beyond imm9.
+- **Operand-class validation:** `ldrsw w0`, `ldrb x0`, base `w1`/`xzr`, index `sp`, `ldr sp` all
+  silently re-interpreted; Rt==Rn writeback forms emitted as CONSTRAINED-UNPREDICTABLE words.
+**Scope widened (2026-09-25, second survey — data-processing + branch/system, ~420 forms):** the
+same systemic causes make ~260 data-processing and ~120 branch/system forms silently differ from
+clang.  Worst: SP vs XZR conflated (`sub sp, sp, x1` → `neg xzr, x1`; `mov x0, xzr` → `mov x0,
+sp`); extended-register operands and `#imm, lsl #12` dropped; `mov Rd, #imm` always MOVZ of the low
+16 bits (`mov x0, #-1` → 0xffff); unencodable logical immediates and `ror #imm` emit NOTHING;
+`cmp x0, #4097` splits into `cmp #1, lsl #12; cmp sp, #1` (garbage flags); no W/X width checks;
+label addends and `@PAGEOFF`/`@GOTPAGE` specifiers dropped (`add x0, x0, sym@PAGEOFF` emits
+nothing); `ret x31`/`ret xzr` → `ret`; shift/movz/tbz/svc fields masked instead of range-checked.
+Encoder-level (backend-reachable) ones — Mov's SP-for-31, MOVZ/MOVK/MOVN masking, emitDPOp's
+rd=XZR split, emitLogOp's silent no-emit, shift masking — are latent in native codegen today
+(checked: the backend passes registers to logical ops, SP to Mov only when meant, and folds
+compare immediates only up to 4095).  Rejects-valid gaps (unsupported mnemonics: bic/orn/cset/
+ubfx/clz/…, hints/barriers, msr, brk/hlt, `.L` labels, numeric labels) are completeness work.
+**Plan:** per family, exact architectural encoders (one instruction or a hard error) + a strict
+parser with register classes and an end-of-line check; load/store done first (all 360 survey +
+extra cases now MATCH or BOTH-ERR vs clang), then data-processing, then branch/system, then the
+backend-facing encoder footguns.
+Raw survey outputs: session scratchpad (not durable) — the tables above are the record.
+**Fix:** the text parser must be faithful — one mnemonic → one instruction, clang's alias selection
+(LDUR/STUR), and a hard parse error for anything unencodable or malformed (including trailing
+tokens); encoders called from the text path must never synthesize.  Scope the backend-facing
+encoder fallbacks (x17 synthesis) to explicitly-named backend helpers.  Tests: a golden
+bnas-vs-clang table per form + rejection tests.  Supersedes the (A)-entry follow-ups (a)/(b).
+
+### aa64 assembler: non-load/store encoders silently truncate or drop out-of-range fields — ✅ DONE (covered by the aa64 assembler batch: binate `e864bdbed`, 2026-09-26)
+**Overlap note (2026-09-25, work-2/session):** the aa64 text-assembler fix above (landed `e864bdbed`)
+covers this entry: Mov (MOVZ/MOVN/shifted MOVZ/bitmask ORR like clang, or error), Movz/Movk/Movn
+range/shift checks, shift amounts, NEON lane/arrangement validation, Tbz/Tbnz/Svc/Mrs range checks,
+Mvn and default operand-kind errors, W-form bitmask high halves, BIC/ORN/EON/BICS + MOV-bitmask
+encoders, and the unchecked `ldrStrUnsignedEnc`/`ldpStpEnc` (deleted; all paths go through checked
+`isa` encoders).  Please don't start this one without checking with that session / the user.
+
+Encoder-level complement to the load/store entry above (all confirmed by probe + clang; the logical-immediate
+encoders AND/ORR/EOR/ANDS/TST fail loud since `96b39fd89`):
+`Mov` with OP_IMM always emits MOVZ masked to 16 bits (`Mov(Imm(-1))` → `mov x0,#0xffff`); `Movz`/`Movk`/`Movn`
+mask imm16 and silently drop a shift that isn't a multiple of 16 (`Movz(1, lsl 8)` → `mov x0,#1`); immediate
+`Lsl`/`Lsr`/`Asr` accept out-of-range amounts (`lsl #64` → identity, `lsr w,#40` → a reserved encoding);
+NEON lane index (`laneImm5`, `aarch64_neon_lane.bn` ~19) overflows into opcode bits (`Vins_gp(B,16,…)` →
+`and.16b v0,v1,v1`); `Tbz`/`Tbnz` mask the bit number, `Svc` masks imm16, `Mrs` masks its fields, `Mvn` with
+OP_IMM emits nothing; several encoders have no default case for unsupported operand kinds; W-form bitmask
+immediates discard the high 32 bits (clang only accepts all-zero/all-one high halves:
+`and w0,w1,#0x100000001` assembles as `#1`); stale docs on `LdrStrImmFitsUnsigned` claim the encoder
+masks.  **Fix:** fail loud (`a.SetError`) on every out-of-range field; tests per encoder + bnas rejections.
+Also (T6 b1 review): `Mov(X0, Imm(-1))` emits `movz x0,#0xffff` (clang: `movn x0,#0` = 0x92800000) and
+`Mov(X0, Imm(0x10000))` emits `movz x0,#0` (clang 0xD2A00020) — `Mov` should pick MOVZ/MOVN/shifted
+MOVZ/the bitmask-immediate ORR alias like clang, or fail loud; `Mov` silently drops operand kinds other than
+register/immediate.  **Comprehensiveness gap:** no encoders for BIC, ORN, EON, BICS, or the MOV
+(bitmask immediate) alias; `ldrStrUnsignedEnc` (`aarch64_ldst.bn` ~29) and `ldpStpEnc` (~340) mask without
+a range check (check every public entry guards them).  `aarch64_test.bn`: the `ImmU64` doc sits above
+`TestAllOnes64Value` and misattributes the all-ones check to `emitLogOp` (it is `encodeBitmaskImm`).
+
 ### `var q = T{...}` (inferred type) bound q to the literal temp's address — DONE (binate `2df02e928`, 2026-09-26)
 
 Locals (`genDecl`): the inferred type was the composite literal's alloca POINTER type, so q aliased the
