@@ -105,7 +105,84 @@ fwd.GenIface[int]`, a non-generic `impl R : fwd.Iface`, `interface Sub : fwd.Gen
 method value on a forwarder-spelled generic call.  Repros: `t4`/`t8`/`t1` programs in the review's
 scratch (reconstructible from the three bullets above).
 
+### `var q = T{...}` (type inferred from a same-package struct literal) binds `q` to the literal's temp ADDRESS — silent wrong code — 🔴 OPEN (found 2026-09-26, work-1, forwarder-audit probe; reproduced)
+
+`VarSpec = identifier "=" Expression` (type inferred) is valid, but for a struct literal of a type
+declared in the SAME package the IR stores a pointer to the literal's temp into the variable's slot
+(`store i8* %v0, i8** %v3`).  Repro (reproduced with a tree gen1; also on the pinned BUILDER
+bnc-0.0.16):
+```
+type P struct { X int; Y int }
+func (p *P) Inc() { p.X = p.X + 1 }
+func inc(p *P) { p.X = p.X + 1 }
+func main() { var q = P{X: 1, Y: 2}; inc(&q); testing.Println(q.X); q.Inc(); testing.Println(q.X) }
+```
+prints `144115188075855872`, `144115188075855873` (want 2, 3); `var q P = P{...}` and `q := P{...}`
+are correct, as is a cross-package `var s = home.S{...}`.  Passing `q` by value passes the address
+on LLVM (the VM is right there); `&q` / method calls corrupt `q` in LLVM and the VM.  Conformance
+has almost no coverage of this form.  Root cause not yet investigated (irgen's inferred-type var
+init for a same-package named struct — likely the literal's value/address kind).  Needs a
+conformance test + fix.
+
+### More silent wrong code found by the forwarder audit (not forwarder-specific) — 🔴 OPEN (found 2026-09-26, work-1; agents' repros, not yet independently re-verified)
+
+- **Type assertion / type switch to a generic interface is false when the parameterized impl is
+  declared in the home `.bni`:** `&Box[int]` asserted to `*home.GJ[int]` / `*home.GI[int]` (impl
+  `impl *Box[T] : GJ[T]` in home's `.bni`) returns ok=false in every mode; the all-local program
+  returns true.
+- **A forward-declared generic parent in a `.bni` is silently dropped:** `interface Sub : Base[int]`
+  declared before `interface Base[T]` passes the checker, but `Base` is not yet stashed when `Sub` is
+  collected (`gen_iface_registry.bn` ~:182 `if gd == nil { continue }`; first registration wins the
+  dedup, `gen_module_register.bn:52`) → the VM prints 0 instead of 7, compiled ICEs.  Fix: stash every
+  generic interface decl in a file before collecting its interfaces (`RegisterAllInterfaces`,
+  `gen_module.bn:181`, `gen_module_single.bn:86`, `gen_import.bn:213`), then make the miss an ICE.
+- **`interface X = home.Getter[int]` (instantiated alias target) registers an EMPTY interface**
+  (`gen_iface_registry.bn` ~:72 handles only `TEXPR_NAMED`) → `g.get()` prints 0 in the VM, compiled
+  ICEs.  The EBNF allows `interface X = TypeName[..]`; implement the `TEXPR_INSTANTIATE` case.
+
 ## MAJOR
+
+### Loud miscompiles / wrong rejections found by the forwarder audit (not forwarder-specific) — 🔴 OPEN (found 2026-09-26, work-1; agents' repros, not yet independently re-verified)
+
+Each needs a test (xfail'd) + triage; grouped here so none is lost.
+- **Generic body referencing a const/var of a package the consumer doesn't import directly** builds,
+  then panics at run time "internal error: unresolved selector in IR-gen" in every mode:
+  `RegisterFuncExterns` (`irgen/gen_register_import.bn:221-292`) registers only funcs; nothing
+  registers a non-direct package's consts/vars.
+- **Method value bound to a pointer-receiver method of a generic struct local** (`var mg = b.Get`,
+  `func (b *Box[T]) Get()`) → SIGSEGV in LLVM, native and VM (non-generic works).
+- **ICE `defer of an unresolved method call`** (`gen_defer_build.bn:168`) for `defer x.M()` with x a
+  generic instance (local or cross-package), and for `var p = &home.S; defer p.Inc()`.
+- **Cross-package non-generic method expression drops the receiver in the checker:**
+  `home.S.Sum(s)` → "wrong number of arguments"; `*func(home.S) int = home.S.Sum` → "cannot assign
+  *func()int to *func(S)int" (local `S.Add(s, x)` works).
+- **Generic method expression as a value** (`var f = Box[int].Peek`) → invalid LLVM (`extractvalue
+  operand must be aggregate type`), native link failure, VM SIGSEGV (local) / ICE `unresolved selector
+  in IR-gen` (cross-package).
+- **Bare universe `any` in an impl list or extension clause** (`impl T : any`, `interface X : any`) is
+  keyed to the declaring package (`main.any`) → undefined `@__ifaceid…main…any`, VM out-of-bounds
+  (`gen_impl.bn:133,347`, `gen_iface_registry.bn:166`; check the universe first like
+  `isInterfaceTypeExpr`, `gen_iface.bn:73-80`) — or should the checker reject it?  Spec is silent:
+  user's call.
+- **An aggregator's own `.bn` sees its exposed names bare** (`check/checker.bn:199-212` copies the
+  injected symbols into the implementation scope), violating `pkg.expose.surface`: `MakePoint(4, 5)`
+  inside the aggregator's `.bn` checks, then IR-gen mangles it as the aggregator's → undefined.
+- **The `.bn` checker rejects a forward-referenced interface parent** (`interface LSub : LBase` before
+  `LBase` → "undefined: LBase"), violating `decl.order.forward` (the `.bni` scope builder accepts it).
+- **`impl *home.Box[T] : Peeker[T]` in a third package is rejected** ("cannot define methods or impls
+  on types from other packages"), though `iface.crosspkg.no-orphan` allows impls in any package and
+  the non-generic `impl *home.S : Summer` is accepted.
+- **Explicit type argument `*Iface` rejected:** `glib.Id[*Loc](s)` → "cannot assign *Loc to *Loc"
+  (`@Loc` works); likely `check/check_generic.bn:212-214` building `MakePointerType(TYP_INTERFACE)`
+  instead of an interface-value type.
+- **A `.bni` `var V int` with no `.bn` definition** builds; a write or `&` panics at run time
+  ("unresolved selector") even with a direct import.  Spec position unchecked.
+- **After the native backend fails to emit a package's object, bnc still links** and reports an
+  unrelated undefined symbol instead of the emission failure.
+- **Spec mismatch:** `pkg.expose.dep` says a pure forwarder emits no code/storage, but its object
+  defines `__Package`, `__pkg_info`, `__pkg_funcs`, `__pkg_satfrag` and `__ifaceid` copies.
+- **Unverified:** the REPL (`repl/ir_imports.bn`) has no equivalent of `registerGenericBodyExternDeps`.
+- **Hazard:** `gen_type_resolve.bn:113,153,193` silently fall back to `TypInt()` on a registry miss.
 
 ### LLVM `cast` of an array (aggregate retype, spec §8.5 `[4]int8 → [4]uint8`) emits `add [4 x i8] %v, 0` — clang rejects valid code — 🔴 OPEN (found 2026-09-26)
 
