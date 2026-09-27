@@ -37,6 +37,43 @@ All on main today; each is being fixed (with a test) in the aa64 text-assembler 
   sections but a header is written for each) → `ld: malformed load command`.  No native path found; `bnas`
   reaches it.
 
+### irgen resolves names reached through an `expose` forwarder under the FORWARDER path — silent miscompile / ICE — 🔴 OPEN (found 2026-09-26, work-1, adversarial review of the containers move)
+
+Spec `pkg.expose.identity`: a member reached as `A.X` through a forwarder IS the home's entity.  The
+checker honors this (it remaps forwarder→home), and some irgen sites do (`homedQualifier`,
+`gen_util_literals.bn:75`, used by gen_call/gen_generic/gen_defer/gen_type_resolve/gen_iface:40), but
+many irgen sites resolve an alias-qualified name with plain `ir.ResolveImportPkg`, which yields the
+FORWARDER path.  Generic decls are stashed only under the HOME path, so the lookup misses and the site
+silently skips (`if gd == nil { continue }`).  Reproduced (with `pkg/std/iter` / `pkg/std/vec` as
+`expose` forwarders to `pkg/std/containers/*` — the flat compat forwarders the containers move adds):
+- **Silent wrong code (CRITICAL):** `import "pkg/std/iter"` + `impl *Count : iter.Iterator[int]`, upcast
+  `&c` to `*iter.Iterator[int]`, call `Next()` → builds rc=0, **segfaults** (rc=139): the impl is
+  dropped, no vtable, the upcast passes a raw pointer.  `gen_impl.bn:145` (local impl) and `:359`
+  (impl in an imported package's `.bni`).  Same source via `pkg/std/containers/iter` prints 10.
+- **ICE:** `interface Peeker : iter.Iterator[int] {...}` through the forwarder → `panic: emitIfaceUpcast:
+  negative vtable slot offset` (`gen_iface_registry.bn:177`; parent silently dropped).
+- **Invalid LLVM:** `vec.New[int]().Len` (method value on a forwarder-spelled generic call) → the raw
+  checker name `...vec1_8_Vec[int]` leaks into the `.ll` (`gen_method_value_recv.bn:232`).
+
+Pre-existing (any `expose` forwarder of a package with generic interfaces/functions hits it; conformance
+1028/1045/1048 only cover impls declared in the home or non-generic uses).  The containers move makes it
+reachable through the stdlib: no in-tree code triggers it (hygiene forbids non-BUILDER-tree forwarder
+imports; the BUILDER tree uses none of these patterns — builder-comp unit suite green), but the
+forwarders will ship in the next release, where an out-of-tree importer of the flat paths (e.g. the
+examples repo once it bumps) would hit it.  **Must be fixed before a release that carries the
+forwarders.**
+
+**Fix:** audit EVERY `ir.ResolveImportPkg(…, alias)` in `pkg/binate/irgen` that resolves an
+alias-qualified member name (~15 sites: `gen_impl.bn:74,131,145,331,334,345,347,359,361`;
+`gen_iface_registry.bn:61,75,164,177`; `gen_iface.bn:139,169`; `gen_method_value_recv.bn:232`;
+`gen_import.bn:303,315,453` probably fine — the alias is the declaring package there) and route the
+member-name ones through `homedQualifier`; turn the silent `gd == nil { continue }` misses into internal
+errors (the checker already resolved the ref, so a miss is a compiler bug, never a skip).  Tests:
+conformance programs through a `.bni`-only forwarder for a local and a library-`.bni` `impl R :
+fwd.GenIface[int]`, a non-generic `impl R : fwd.Iface`, `interface Sub : fwd.GenIface[int]`, and a
+method value on a forwarder-spelled generic call.  Repros: `t4`/`t8`/`t1` programs in the review's
+scratch (reconstructible from the three bullets above).
+
 ## MAJOR
 
 ### e2e: a native compile failure is reported as SKIP in five FFI / library e2e scripts — 🔴 OPEN (found 2026-09-26, work-2/session)
