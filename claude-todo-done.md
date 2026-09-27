@@ -56,6 +56,9 @@ Silent wrong code that was on main; each was fixed (with a test) in the aa64 ass
   reaches it.
 
 ### aa64 text assembler silently mis-assembled many load/store, data-processing and branch/system forms — ✅ DONE (binate `e864bdbed` (encoders / isa / writers / resolver / Mach-O atoms), `0df814a41` (text assembler, expressions, directives), `6107f3af8` (rt.MemZero), `501bd196f` (native aa64 element size / C-export trampoline), 2026-09-26)
+
+Test-coverage follow-up (rel32 range error, expression nesting limit, x64/arm32 operand-expression
+failures, Mach-O anchor naming): binate `14da1c5c7`, 2026-09-27.
 **Resolution (landed 2026-09-26, after four adversarial-review rounds):** (1) new package
 `pkg/binate/asm/aarch64/isa`: exact single-instruction encoders for every load/store addressing mode,
 add/sub/logical/move-wide/bitfield/extr/mul/div/csel/ccmp, branches, ADR/ADRP, exception/hint/barrier/
