@@ -353,13 +353,6 @@ rejected by the fail-loud assembler) made all six native variants of ffi-export 
 facade happened to compile (e.g. native is required when the host arch has a native backend, or probe with
 a trivial package once), so a facade that fails to compile natively FAILs; audit each script's skip.
 
-### Conformance normal tests don't check the exit status — 🟡 IN PROGRESS (claimed 2026-09-27, claude/exciting-davinci-wahyt2 session; user: "I guess we can convert those tests")
-
-`run_test` compares output only, so a program that prints the expected output and then crashes passes
-(the harness strips signal-death messages). Only three tests currently exit non-zero, all deliberate
-nil-dispatch crashes (385_iface_nil_dispatch, spec/11-interfaces/081, spec/19-execution/010; 139 on LLVM
-and native x64). Convert them to assert the crash, then make `run_test` require exit 0.
-
 ### x64 assembler / text parser: `emitModRM` addresses the wrong location for some memory shapes, operand sizes unchecked, `[base+idx*scale+disp]` misparsed — 🟡 CLAIMED, queued (found 2026-09-25; claimed 2026-09-25, work-4/session — assembler sweep after T6(b), before (c))
 **Also (2026-09-26, found by the aa64 batch review, work-2/session):** the displacement parse after a `-`
 negates the whole rest of the expression — `mov eax, [rbp - 8 + 4]` encodes disp -12 (`8b 45 f4`), clang

@@ -1,3 +1,12 @@
+### Conformance normal tests didn't check the exit status — ✅ DONE (2026-09-27, binate `c6c3b430`)
+
+`run_test` compared output only, so a program that printed the expected output and then crashed passed
+(signal-death messages are stripped). It now requires exit 0. `NNN.aborts` marks a test pinning a defined
+abort: exact `.expected` output plus a non-zero, non-timeout exit (unlike `.error`, it pins that nothing
+follows the abort). Markers on 385_iface_nil_dispatch, spec/11-interfaces/081, spec/19-execution/010. On
+its first run the check caught 1297 (wrapped closure capture) as a use-after-free on the VM (exit 139 after
+correct output); `89a56168` fixed that before this landed.
+
 ### Pre-existing silent wrong code found by the adversarial review of the aa64 assembler batch — ✅ DONE (binate `e864bdbed` (encoders / isa / writers / resolver / Mach-O atoms), `0df814a41` (text assembler, expressions, directives), `6107f3af8` (rt.MemZero), `501bd196f` (native aa64 element size / C-export trampoline), 2026-09-26)
 
 Silent wrong code that was on main; each was fixed (with a test) in the aa64 assembler batch:
