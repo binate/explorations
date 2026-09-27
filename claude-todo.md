@@ -17,10 +17,10 @@ named-only.  First instance found: IR-gen `typeWidth` / `typeIsSigned` (untyped 
 `readonly float32` param reads back 0; `var v readonly float32 = 2.5` stores 8 bytes into a 4-byte
 slot; named-over-readonly `MIN / -1` skips the overflow trap on native/VM).
 
-**In progress (work-5, not yet landed):** IR-gen `typeWidth`, `typeIsSigned`, `typeIsUnsignedInt`
-and the literal-hint helpers `isTypedInt` / `needsHintNarrowing` / `intFitsInType` peel every
-wrapper (PeelTransparent); conformance 1291 (untyped literals into readonly-narrow args / var inits /
-returns / fields / elements) + 1292 (named-over-readonly int8 MIN / -1 traps).
+**Landed (`5fe4cc11b`):** IR-gen `typeWidth`, `typeIsSigned`, `typeIsUnsignedInt` and the
+literal-hint helpers `isTypedInt` / `needsHintNarrowing` / `intFitsInType` peel every wrapper
+(PeelTransparent); conformance 1295 (untyped literals into readonly-narrow args / var inits / returns
+/ fields / elements) + 1296 (named-over-readonly int8 MIN / -1 traps).  Next: emitCaptureRefInc.
 
 **Sweep (2026-09-26):** auditors over check+lint, IR-gen (first two thirds of the files), and the VM
 lowering reported the confirmed defects below (each with a repro, run on LLVM / native aa64 / VM).
