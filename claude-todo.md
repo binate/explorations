@@ -222,7 +222,7 @@ unqualified one in an imported package) and add conformance cases for both.
 
 ## MAJOR
 
-### Package-level var inferred from a generic-instantiated non-literal initializer — builds broken — 🔴 OPEN (found 2026-09-26, work-1, fixing the inferred-var miscompile; pre-existing)
+### Package-level var inferred from a generic-instantiated non-literal initializer (also: interface-typed, pointer-to-foreign-type) — builds broken — 🔴 OPEN (found 2026-09-26, work-1, fixing the inferred-var miscompile; pre-existing)
 
 `var gv = vec.New[int]()` / `var gb = mkBox[int](6)` / `var gp = &gb` at package level (the type is
 inferred and involves a generic instantiation, and the initializer is not a composite literal) fail to
@@ -232,8 +232,13 @@ checker's inferred type because the checker names an instantiation by its source
 untyped (a pointer-sized scalar slot).  A composite-literal initializer (`var g = Box[int]{...}`)
 works (resolved through `resolveTypeExpr`), as do locals.  Fix: map a checker instantiation type to
 IR-gen's (instantiate via the generic decl in `InstDecl` + `InstArgs`, recursively through
-pointer/slice/array/iface wrappers), then drop the `involvesGenericInstantiation` skip (its TODO names
-this entry).
+pointer/slice/array/iface wrappers), then drop the `checkerTypeUnmappable` skip (its TODO names this
+entry).  The same skip also covers two other shapes whose checker type differs from IR-gen's (both
+broken before too, found reviewing the inferred-var fix): an interface-typed inferred global
+(`var gi2 = gi` with `gi *Shape` — the checker's interface carries the quoted `"main"` package
+spelling; VM "extern not found: main..Area"), and one reaching another package's named type through
+a pointer (`var g1 = geom.NewPoint(1, 2)` returning `@geom.Point` — methods resolved in this package:
+undefined `main.Point.Sum`).  Explicitly typed forms work.
 
 ### REPL mid-session import stashes generic interfaces under the SHORT alias; impl collection looks them up by full path — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1, review of the forwarder fix; reproduced)
 
