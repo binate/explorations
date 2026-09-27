@@ -1,3 +1,21 @@
+### Import-alias map conflated source aliases with package identity (first-wins overlay) — DONE (binate `d2a44fc90`, 2026-09-27)
+
+One map held both a file's source-level aliases and package identity (registration keyed each package
+by its path used as an "alias"; the REPL by a short alias), so a package whose path is spelled like
+another file's alias collided: a library's `import "pkg/other/lib"` lost to an importer's local
+`import "lib"` (wrong-package layout — VM read 1 for 321 — link failures, dropped impls), and the
+reverse.  Fixed by separating them: `pushFileImports` is authoritative (`overlayFileImports`);
+`CurrentImportAlias` → `CurrentImportPkg`, always the full path, never resolved through the map
+(`qualNameInPkg`); registration qualifies/stashes under `paths[k]` (the REPL's short-alias generic stash
+key too); `ir.LookupModuleInterfaceIndex` matches its pkg as given; `buildQualName` removed.  Review
+follow-ups in the same commit: `defer` of an imported interface's method (the checker's short pkg name,
+resolved explicitly — it had started crashing), and the REPL session map mirrors the checker (a prompt
+import rebinds its name via `RebindImportPath`; a fixture's explicit alias is recorded).  Tests:
+conformance 1303 (both directions), 1304; `e2e/repl.sh` rebind + explicit-alias cases; irgen unit test.
+Pre-existing bugs the reviews found are filed separately (CRITICAL generic-body bare-name binding;
+MAJOR defer short-name identity, struct-typed omitted field, REPL generic function; REPL indirect
+generic-iface registration).
+
 ### e2e: a native build failure was reported as SKIP in sixteen e2e scripts — ✅ DONE (binate `5f547d6ce`, 2026-09-27)
 
 `e2e/ffi-export.sh` (`check_backend` / `check_narrow` / `check_bigagg` / `check_multiret` / `check_centry`),

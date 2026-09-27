@@ -133,24 +133,6 @@ emitManagedValueCopyRefInc, which peels fully and handles @Iface).
   (`gen_iface_registry.bn` ~:72 handles only `TEXPR_NAMED`) → `g.get()` prints 0 in the VM, compiled
   ICEs.  The EBNF allows `interface X = TypeName[..]`; implement the `TEXPR_INSTANTIATE` case.
 
-### First-wins import-alias overlays let one package's alias shadow another's — wrong-package resolution (silent where types are involved) — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1, review of the forwarder fix; reproduced by the reviewers)
-
-`RecordImportPath` is first-wins, so `pushFileImports` only ADDS a file's aliases that are not
-already bound — it cannot rebind one.  Two paths use it where an earlier entry can shadow the
-file's own import: `registerImportsImpl` pass 2 (each DIRECT import's `.bni` is overlaid on the
-consumer's pass-0 entries) and `GeneratePackage`'s single-file branch (`gen_module.bn:112`, used for
-`main` by `cmd/bnc/main.bn:363` and `interp.bn:221/317`).  Repro (bnc + bni): main imports `"lib"` (a
-local single-segment package, legal per `pkg.resolve.public`) and `"pkg/a"`; `pkg/a.bni` does
-`import "pkg/other/lib"` + `impl *A : lib.Box[int]` → `lib` resolves to main's `lib`, not
-`pkg/other/lib`.  Also `import L "lib"` + `import "pkg/other/lib"` inside main itself.  Today the
-generic-interface impl lookup then misses and the impl is silently skipped (harmless when the upcast
-is in the declaring TU, a nil vtable when the consumer upcasts); a qualified TYPE resolved the same
-way binds to the wrong package's layout (the hazard `overlayFileImports`' doc describes).  Fix: use
-the authoritative `overlayFileImports` (SaveAliasMapState / overlayFileImports / RestoreAliasMapState)
-in both places, as `RegisterImportedImpls` now does.  Once fixed (with the REPL entry below), the
-silent generic-interface misses in `collectImplsFromDecl` / `collectImportedImplsFromDecl` should
-become internal errors (their TODOs name this entry).
-
 ### Impl receivers spelled through a type alias key on the alias, not its target — nil vtable at dispatch — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1, review of the forwarder fix; reproduced, pre-existing)
 
 `recvBaseNameAndPkg` (`gen_impl_recvname.bn:41`) peels an alias receiver only when
