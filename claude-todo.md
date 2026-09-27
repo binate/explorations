@@ -24,6 +24,14 @@ literal-hint helpers `isTypedInt` / `needsHintNarrowing` / `intFitsInType` peel 
 **Landed (`fdd2da320`):** emitCaptureRefInc delegates to
 emitManagedValueCopyRefInc (full peel, +@Iface) — fixes the over-released readonly / named @T / @[]T
 / @func captures; conformance 1297.
+**Still broken on the VM (found 2026-09-27, claude/exciting-davinci-wahyt2 session, by the new exit-status
+check for normal conformance tests):** 1297 prints the expected output under bni but is a use-after-free:
+valgrind shows a read of a block already freed by `execRefDecZeroDtor` (`execManagedMemoryOp` reading
+freed 24 bytes); under valgrind it segfaults right after the `42 42` line, i.e. in the `readonly @[]int`
+capture loop; outside valgrind it exits 139 after the full output. Same with every VM pass off (not an
+optimizer bug). Compiled binaries are clean under valgrind (LLVM and native, -O0 and -O2), so the VM
+lowering / VM closure path still under-retains (or over-releases) a wrapped capture that IR-gen now
+RefIncs. It passed CI only because the harness ignored the exit status.
 **New, found while fixing that (not a wrapper issue): an @Iface closure capture is over-released on
 EVERY CALL.**  `@Iface` params follow a caller-owned convention (the caller RefIncs each @Iface arg;
 the callee only RefDecs at exit — e.g. `take(g @Getter)`: callee RefInc 0 / RefDec 1, caller RefIncs
