@@ -305,7 +305,7 @@ TYP_ARRAY, and typeBits has no array case (srcBits == dstBits), so the same-bits
 aggregate (identity via `select i1 true` / reinterpret) + a conformance test.  Found by the review of
 the codegen readonly-peel fix (pre-existing).
 
-### Negated untyped int literal on the LEFT of a binop isn't re-typed to the other operand's width — native -O2 returns an un-narrowed value; LLVM rejects the IR — 🔴 OPEN (found 2026-09-26)
+### Negated untyped int literal on the LEFT of a binop isn't re-typed to the other operand's width — native -O2 returns an un-narrowed value; LLVM rejects the IR — 🟡 CLAIMED, queued (found 2026-09-26; claimed 2026-09-27, work-4/session — after the UnhomeID fix)
 
 `func b(x int16) int16 { return -30000 - x }; b(10000)` returns -40000 on native aa64 -O2 (silent
 wrong value for an int16 result; -O0 and the VM give 25536) and is a clang error on LLVM ("ret i64 ..
@@ -327,7 +327,7 @@ durable fix is probably one rule for both sides: re-type an untyped constant ope
 the checker's constant type, not from a syntactic literal-kind gate.  No conformance test yet — add
 one (LEFT negated literal, RIGHT parenthesized constant, each op kind) with the fix.
 
-### native: `RegMap.UnhomeID` rebuilds the home map with a copy-per-append `AppendInt` — the arm32 call/return un-home loop is O(args·H²); a ~2000-call function compiles for >10 minutes — 🔴 OPEN (found 2026-09-26)
+### native: `RegMap.UnhomeID` rebuilds the home map with a copy-per-append `AppendInt` — the arm32 call/return un-home loop is O(args·H²); a ~2000-call function compiles for >10 minutes — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-27, work-4/session)
 
 **Severity: major (compile-time blowup on ordinary large functions).** arm32 `emitFunc` un-homes every
 call/return argument (`arm32_emit_func.bn`, the `common.EmitsReturningBl` loop) through
