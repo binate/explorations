@@ -161,6 +161,17 @@ back to the module when the defining package has no such name).
 
 ## MAJOR
 
+### An imported package's alias of a THIRD package's generic instantiation resolves to `int` in IR-gen — 🔴 OPEN (found 2026-09-27, work-1, review of the alias-receiver fix; reproduced by the reviewer, pre-existing)
+
+pkg/home has `type VI = bx.Box[int]` (bx another package's generic): `RegisterStructTypes`
+(`gen_module_register.bn` ~:117-123) resolves the alias before the generic decl is stashed (later, in
+`registerImportsImpl` pass 1, `gen_import.bn` ~:152), so the entry is the `TypInt()` fallback; the correct
+entry appended later (`registerImportFieldsAndFuncs`) is shadowed because `lookupTypeAlias` returns the
+first match.  Effects: `var v home.VI; v.Get()` → undefined `…lang.int.Get` (LLVM/native) / VM
+"unresolved selector in IR-gen"; `impl *home.VI : I` keys on (pkg/home, VI) (native link failure).  A
+local `type LV = bx.Box[int]` works.  Fix: stash generic type decls before aliases are resolved, and/or
+replace a stale entry instead of appending a second one.
+
 ### Bugs found reviewing the identity refactor (pre-existing) — 🔴 OPEN (found 2026-09-27, work-1; reproduced by the reviewer)
 
 - **`defer` of a method on an interface keys on the checker's SHORT package name:** the checker builds
@@ -240,7 +251,9 @@ so `import "pkg/gen"` + an impl of `gen.GI[int]` works.  Remaining: `RegisterAll
 `RegisterGenericDecls` never run for the packages a prompt import pulls in TRANSITIVELY — e.g.
 `import "pkg/lib3"` (whose impls name pkg/other/lib's generic interface) then `lib3.AsBox(w).Get()` →
 "call of nil interface value"; it works when pkg/other/lib was imported first (and a transitively
-referenced `pkg/std/hash.Hasher` from `import "pkg/binate/irdata"` is never stashed).  Fix: register the
+referenced `pkg/std/hash.Hasher` from `import "pkg/binate/irdata"` is never stashed).  The same gap
+covers TYPE ALIASES of the indirectly loaded packages: pkg/lib's `impl *home.SA : Loc` (SA an alias in
+pkg/home) keys on the alias when pkg/home was not imported at the prompt first.  Fix: register the
 newly loaded packages' interfaces + generic decls into `s.MainGc` before `RegisterImportFuncSigs`; then
 the generic-interface impl misses in `collectImplsFromDecl` / `collectImportedImplsFromDecl` (TODOs
 naming this entry) can become internal errors.  Add an `e2e/repl.sh` case.
