@@ -311,6 +311,31 @@ binop runs at int width and the result is never narrowed (genIntLitWithHint alre
 literals via isIntConstLit — the gate excludes them).  Distinct from the dead-duplicate-constant
 entry.  Fix: widen the gate to negated int literals + conformance.  Found by the same review.
 
+**Same class on the RIGHT operand (found 2026-09-26 by the T6 b3 arm32 review, reproduced with the
+b3 compiler):** `func f(x int16) int16 { return x & (0 - 32768) }` — a *parenthesized* untyped
+constant expression as the RHS of a bitwise op is not re-typed either: the AND runs at int width and
+clang rejects the IR (`ret i64 %v5 … doesn't match function result type 'i16'`); `x & -32768` is
+fine, and `x + (0 + 1)` is fine (wraps correctly on both backends), so the gap is the bitwise ops'
+RHS path.  Native happens to produce canonical values here (a bitwise op of sign-extended inputs is
+sign-extended), so the visible failure is LLVM rejecting valid code, but the IR is ill-typed.  The
+durable fix is probably one rule for both sides: re-type an untyped constant operand of a binop from
+the checker's constant type, not from a syntactic literal-kind gate.  No conformance test yet — add
+one (LEFT negated literal, RIGHT parenthesized constant, each op kind) with the fix.
+
+### native: `RegMap.UnhomeID` rebuilds the home map with a copy-per-append `AppendInt` — the arm32 call/return un-home loop is O(args·H²); a ~2000-call function compiles for >10 minutes — 🔴 OPEN (found 2026-09-26)
+
+**Severity: major (compile-time blowup on ordinary large functions).** arm32 `emitFunc` un-homes every
+call/return argument (`arm32_emit_func.bn`, the `common.EmitsReturningBl` loop) through
+`RegMap.UnhomeID` (`common/regalloc_scan.bn`), which rebuilds `HomeIDs`/`HomeRegs` with
+`common.AppendInt` — and `AppendInt` (`common/regmap_accessors.bn`) allocates a new slice and copies
+the whole old one on every append.  So one `UnhomeID` is O(H²) in the number of homes, and a function
+costs O(A·H²) over its call/return arguments.  The T6 b3 arm32 review's probe (one `main` with ~2000
+calls) kept gen1 compiling for more than 10 minutes, samples almost all in `UnhomeID`; the same code
+split into small driver functions compiled in ~3 s.  Base compiler equally affected.  **Fix:**
+`UnhomeID` compacts in place in one O(H) pass (or the loop collects the ids into a flag set and
+un-homes once); and audit every `AppendInt` loop in the RegMap/allocator (`SpillIDs`, `HomeIDs`, …)
+for the same quadratic build — an amortized-growth append (or `vec.Vec`) fixes the class.
+
 ### e2e: a native compile failure is reported as SKIP in five FFI / library e2e scripts — 🔴 OPEN (found 2026-09-26, work-2/session)
 
 `e2e/ffi-export.sh` (`check_backend` / `check_narrow` / `check_bigagg` / `check_multiret` / `check_centry`),
@@ -980,6 +1005,9 @@ iropt win, ✅ LANDED `2fa428d8b` (2026-09-21) — but a NO-OP on richards/fannk
       mul, 82 div/urem); some are stored to slots never read.
     - **Cross-kind constants** (✅ folded since `f0a7f78fe`): folding a constant whose uses span kinds (compare + add) would catch 289
       more in `bnc` (all the value 1 in managed-slice destructor loops).
+    - **(-O0) a constant LHS operand is materialized and then overwritten** (x64, e.g. `0x0F & x`: a
+      dead `mov r13, 0xf` immediately overwritten by the reload of x; gone at -O2) — an IR/regalloc
+      artifact, not the fold; found by the b3 x64 review.
     - **iropt does no integer constant folding** of all-constant binary ops / compares, nor identities
       (x&0, x&-1, x|-1, 0-x), nor NEG/BITNOT of a constant — so `x & -16` / `x & ~15` reach the AND as a
       unop-of-constant and miss any immediate fold; 79-102 both-constant logical ops survive to codegen.
@@ -1913,6 +1941,13 @@ and owning the backing is the trivial fix.
 
 ## Hygiene checks: tier dependencies & file length
 
+### native dispatch files near the 500-line cap — split `emitInstr` by op family — 🔴 OPEN (noted 2026-09-26)
+
+`x64/x64_dispatch.bn` (481), `aarch64/aarch64_dispatch.bn` (464) and `arm32/arm32_dispatch.bn` (462) are
+each one big `emitInstr` switch that grows with every new op or fold.  Split along op families (e.g.
+memory / call / control / arithmetic sub-dispatchers in their own files) before the next case lands,
+rather than when a landing trips the cap.
+
 ### `Self`-parameter method is uncallable through a generic constraint (Self binds to the type param, not its base) — 🟠 OPEN (2026-07-03)
 
 **Severity: minor (obscure `Self` corner; the fix is a semantics decision, not a
@@ -2179,6 +2214,15 @@ page is remapped read-only).  This is a new object-writer feature
 urgency (no current miscompile; the writable placement is safe, just unhardened).
 
 ## Testing: harness, runners & conformance coverage
+
+### `TestArm64FormatSelectsWriterAndPrefix` writes fixed `/tmp` paths — races with a concurrent aarch64 test run — 🔴 OPEN (found 2026-09-26)
+
+`pkg/binate/native/aarch64/aarch64_test.bn` (~93) writes `/tmp/binate_aa64_fmt_macho.o` and
+`/tmp/binate_aa64_fmt_elf.o`; two aarch64 test binaries running at once (concurrent sessions, CI
+shards, parallel mutation runs) overwrite each other's file — it failed once ("format=elf should emit
+an ELF object") during the T6 b3 review's parallel runs and passes alone.  **Fix:** a per-run unique
+path (mktemp-style, or under the test's build dir), and grep the other test packages for fixed `/tmp`
+outputs.
 
 ### Conformance harness: `pkg0.testing` `--test`-only rules are not conformance-testable
 
