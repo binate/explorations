@@ -198,7 +198,49 @@ conformance test + fix.
   (`gen_iface_registry.bn` ~:72 handles only `TEXPR_NAMED`) → `g.get()` prints 0 in the VM, compiled
   ICEs.  The EBNF allows `interface X = TypeName[..]`; implement the `TEXPR_INSTANTIATE` case.
 
+### First-wins import-alias overlays let one package's alias shadow another's — wrong-package resolution (silent where types are involved) — 🔴 OPEN (found 2026-09-26, work-1, review of the forwarder fix; reproduced by the reviewers)
+
+`RecordImportPath` is first-wins, so `pushFileImports` only ADDS a file's aliases that are not
+already bound — it cannot rebind one.  Two paths use it where an earlier entry can shadow the
+file's own import: `registerImportsImpl` pass 2 (each DIRECT import's `.bni` is overlaid on the
+consumer's pass-0 entries) and `GeneratePackage`'s single-file branch (`gen_module.bn:112`, used for
+`main` by `cmd/bnc/main.bn:363` and `interp.bn:221/317`).  Repro (bnc + bni): main imports `"lib"` (a
+local single-segment package, legal per `pkg.resolve.public`) and `"pkg/a"`; `pkg/a.bni` does
+`import "pkg/other/lib"` + `impl *A : lib.Box[int]` → `lib` resolves to main's `lib`, not
+`pkg/other/lib`.  Also `import L "lib"` + `import "pkg/other/lib"` inside main itself.  Today the
+generic-interface impl lookup then misses and the impl is silently skipped (harmless when the upcast
+is in the declaring TU, a nil vtable when the consumer upcasts); a qualified TYPE resolved the same
+way binds to the wrong package's layout (the hazard `overlayFileImports`' doc describes).  Fix: use
+the authoritative `overlayFileImports` (SaveAliasMapState / overlayFileImports / RestoreAliasMapState)
+in both places, as `RegisterImportedImpls` now does.  Once fixed (with the REPL entry below), the
+silent generic-interface misses in `collectImplsFromDecl` / `collectImportedImplsFromDecl` should
+become internal errors (their TODOs name this entry).
+
+### Impl receivers spelled through a type alias key on the alias, not its target — nil vtable at dispatch — 🔴 OPEN (found 2026-09-26, work-1, review of the forwarder fix; reproduced, pre-existing)
+
+`recvBaseNameAndPkg` (`gen_impl_recvname.bn:41`) peels an alias receiver only when
+`lookupTypeAlias` matches the BARE name — the current module's own aliases — but imported aliases are
+registered qualified (`pkg/home.SA`).  So `impl *home.SA : Local` (home has `type SA = S`; also via a
+forwarder) and an imported `.bni`'s `type LS = home.S; impl *LS : I` key the vtable row on the alias
+(`SA` / `pkg/lib.LS`) while the boxing site looks up the target (`pkg/home.S`) → builds, then
+SIGSEGV / VM "call of nil interface value".  Fix: gate the peel on the qualified alias names
+(`buildQualNameHomed` for a qualified receiver; the `CurrentImportAlias`-qualified name for an
+unqualified one in an imported package) and add conformance cases for both.
+
 ## MAJOR
+
+### REPL mid-session import stashes generic interfaces under the SHORT alias; impl collection looks them up by full path — 🔴 OPEN (found 2026-09-26, work-1, review of the forwarder fix; reproduced)
+
+`repl/mid_session_import.bn:147` → `irgen.RegisterImportFuncSigs` on `s.MainGc` with short aliases;
+`collectInterfaceFromDecl` stashes a generic interface under the raw alias (`gen_iface_registry.bn`
+~:50, `buf.CopyStr(pkgShort)`), but `collectImportedImplsFromDecl` looks it up under the full path
+(`ir.ResolveImportPkg(m, pkgShort)` / `homedQualifier`), and `RegisterAllInterfaces` /
+`RegisterGenericDecls` never run for packages loaded mid-session (a transitively-referenced generic
+interface, e.g. `pkg/std/hash.Hasher` from `import "pkg/binate/irdata"`, is never stashed at all).  So
+importing any package with `impl *T : GI[...]` at the prompt silently skips that impl (the consumer
+would get a nil vtable).  Fix: register the newly loaded packages' interfaces + generic decls into
+`s.MainGc` under full paths before `RegisterImportFuncSigs` (and/or stash under the full path); add an
+`e2e/repl.sh` case importing such a package mid-session.
 
 ### Loud miscompiles / wrong rejections found by the forwarder audit (not forwarder-specific) — 🔴 OPEN (found 2026-09-26, work-1; agents' repros, not yet independently re-verified)
 
