@@ -439,10 +439,9 @@ quote numbers from this file (they go stale):**
 
 The bytecode VM runs a fixed pass set (`iropt.VMOptConfig`, pass_config.bn); a new pass is off for
 the VM until measured. When adding or materially changing a pass, run `perf/vm-pass-costs.py`, add
-its row to the living doc [vm-pass-set.md](vm-pass-set.md), and record the decision there. Pending:
-rerun the full measurement now that the load-fwd MAJOR is fixed (the `loo:mem2reg` rows were BAD),
-and add deterministic per-pass load costs (callgrind) for the cheap passes. 🟡 IN PROGRESS (claimed
-2026-09-27, claude/exciting-davinci-wahyt2 session).
+its row to the living doc [vm-pass-set.md](vm-pass-set.md), and record the decision there. Open
+(2026-09-27 remeasurement): simplify shows no resolved run benefit for ~3.5% of the O0 load — keep or
+drop is the user's call.
 
 ### Cross-language benchmark suite (github.com/binate/benchmarks) — 🟢 in-flight
 
