@@ -1039,22 +1039,28 @@ covered by the single-VM and native lanes). Open:
 
 ## Standard library — pkg/std namespace migration
 
-### Move the containers under `pkg/std/containers/` — 🟡 IN PROGRESS (claimed 2026-09-26, work-1)
+### Finish the containers move: BUILDER-tree imports, the examples repo, then delete the flat forwarders — 🔴 OPEN (gated on the next BUILDER release + `BUILDER_VERSION` bump)
 
-The 2026-08-25 promotion (`904c0a31b`, `557fad1ad`, `a6cb15f87`) put the seven
-container packages at `pkg/std/{vec,iter,table,mapfn,set,setfn,hashmap}` — dropping
-the `containers/` level that `pkg-layout-spec.md` and `done/plan-stdx-containers.md`
-both specified (`pkg/std/containers/…`).  Nobody decided the flattening; it is wrong
-and is being undone:
+The seven containers live at `pkg/std/containers/{vec,iter,table,mapfn,set,setfn,hashmap}`
+(binate `083146cf1`); `expose` forwarders at the old flat `pkg/std/<name>` paths keep the rest
+resolving.  Every non-BUILDER-tree consumer already imports the new paths.  Remaining, in order:
 
-1. Move the seven packages to `pkg/std/containers/*`; leave `expose` forwarders at the
-   flat `pkg/std/*` paths.
-2. Switch every non-BUILDER-tree consumer to the `pkg/std/containers/*` paths.
-3. (After the next independently-justified BUILDER release + `BUILDER_VERSION` bump —
-   bnc-0.0.15/0.0.16 bundle only the flat paths, and the BUILDER-compiled tree
-   resolves the stdlib from the BUILDER's bundle): switch the BUILDER-tree consumers,
-   then delete the flat forwarders.  A separate open entry will track this step once
-   1–2 land.
+1. **After the next BUILDER release is pinned** (cut only when independently justified —
+   never for this): bnc-0.0.15/0.0.16 bundle only the flat paths, and gen1 resolves the
+   stdlib from the BUILDER's bundle, so the BUILDER-compiled tree must keep the flat paths
+   until a BUILDER carrying `pkg/std/containers` is pinned.  Then switch its 41 import lines
+   (`vec`/`iter`/`table`/`mapfn` in pkg/binate/{asm,check,ir,irbuild,irdata,iropt,link,
+   token,types} — `git grep -nP 'pkg/std/(vec|iter|table|mapfn|set|setfn|hashmap)\b'`
+   lists them; `stdlib-forwarder-imports.sh` exempts exactly these via the computed
+   BUILDER tree).
+2. **The examples repo** (pinned to a released bnc) imports the flat paths in
+   `containers/{cmd/wordcount,pkg/tally*}`, `files/cmd/tour`, `fmt/pkg/table*` and two
+   READMEs; move them once examples bumps to a release that has `pkg/std/containers`.
+3. **Delete the seven forwarders** (`ifaces/stdlib/pkg/std/<name>.bni`) once nothing
+   imports them.  The hygiene checks need no edit (they auto-discover forwarders).
+- **Before any release ships the forwarders**, the CRITICAL irgen forwarder-resolution bug
+  (top of this file) must be fixed: an out-of-tree importer of the flat paths can otherwise
+  hit a silent miscompile.
 
 ## Documentation hygiene
 

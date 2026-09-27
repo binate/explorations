@@ -1,3 +1,24 @@
+### Containers moved under `pkg/std/containers/` (flat compat forwarders left behind) — DONE (binate `438e3ae19`, `083146cf1`, 2026-09-26)
+
+The 2026-08-25 stdx→std promotion (`904c0a31b`, `557fad1ad`, `a6cb15f87`) had put the seven
+containers at `pkg/std/{vec,iter,table,mapfn,set,setfn,hashmap}`, dropping the `containers/`
+level that `pkg-layout-spec.md` and `done/plan-stdx-containers.md` both specified — nobody decided
+that.  Undone:
+- **`438e3ae19`** (hygiene): `stdx-forwarder-imports.sh` → `stdlib-forwarder-imports.sh`,
+  discovering pure forwarders anywhere under `ifaces/stdlib` (it only searched `pkg/stdx`, so a
+  `pkg/std` forwarder would have made it enforce nothing) with the BUILDER-tree exemption now
+  COMPUTED from cmd/bnc's import closure (`scripts/lib/builder-tree.sh`; the hand-kept list had gone
+  stale twice); `stdlib-injected.sh` skips pure forwarders (`scripts/lib/stdlib-forwarders.sh`,
+  mirroring the loader/spec definition: expose-only `.bni`, no impl dir holding `.bn` files).
+- **`083146cf1`** (the move): packages at `pkg/std/containers/*`; `expose` forwarders at the flat
+  paths; the 49 non-BUILDER import lines (cmd/bni, cmd/bnlint, pkg/binate/{format,interp,lint,repl,
+  vm}) + conformance 1222 on the new paths; `stdPkgs()` names the new homes.
+Validated: hygiene 20/20; gen1 + gen2 build (gen2 compiles the BUILDER tree through the forwarders);
+unit builder-comp 76/0; bni/bnlint/bnfmt/bnas/bnld + conformance 1222 compile (1222 matches).  The
+adversarial review found a pre-existing irgen defect the forwarders make reachable (CRITICAL entry in
+the todo).  Remaining steps (BUILDER-tree imports after the next BUILDER bump, examples, forwarder
+deletion) are an open todo entry.
+
 ### CI: native arm32-linux (hard-float) blocking in the default conformance lane — DONE (binate `23ae1b7fb`, 2026-09-26)
 
 conformance-tests.yml ran it as experimental with a stale comment naming printf-variadic-float as the
