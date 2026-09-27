@@ -1,3 +1,24 @@
+### Conformance `.error` tests never checked that the program failed — ✅ DONE (2026-09-27, binate `7bb0d9f0`)
+
+Every runner discarded the test program's exit status (`|| true`) and `run_error_test` ignored `rc`, so an
+`.error` test passed whenever its patterns appeared, even if the program exited 0. Runners now return the
+program's status (1 on compile failure); `run_error_test` fails on exit 0 and on the runner timeout (124).
+Triage: no existing `.error` test relied on the gap — every `.error` test passes on builder-comp, -int,
+-int-int, -comp-comp, -comp-comp-int, -comp-comp-comp and native x64 (aa64/darwin/arm32 via CI); a probe
+that prints its message and exits 0 now fails. Survey of normal (`.expected`) tests exiting non-zero: only
+the three deliberate nil-dispatch crash tests (385, spec/11-interfaces/081, spec/19-execution/010; status
+139 on LLVM and native x64). Original entry:
+
+> ### Conformance `.error` tests never check that the program failed — 🟡 IN PROGRESS (found 2026-09-26, work-2/session, by the review of the rt.MemZero negative-size test; claimed 2026-09-26, claude/exciting-davinci-wahyt2 session)
+>
+> `run_error_test` (`conformance/run.sh` ~365-405) captures the exit status (`rc=$?`) but never uses it: a
+> `.error` test passes whenever each pattern appears somewhere in the output, even if the program exited 0.
+> So "negative: must fail" is not enforced — a panic test whose program prints the message and then returns
+> normally still passes (`767_panic_message.bn` already notes the harness only asserts presence).
+> **Fix:** require `rc != 0` (compile errors already exit non-zero) and report "exited 0" as the failure;
+> run every mode's `.error` tests once to find the ones that pass only because the status is ignored — each
+> of those is a real bug (or a wrongly-classified test) to triage, not to xfail silently.
+
 ### LLVM backend at -O1+: `cast` of a `readonly float` value emits ill-typed IR — clang rejects valid code — FIXED (binate `15f6536d5`, 2026-09-26)
 
 **Symptom:** `func conv(j readonly float32) float64 { return cast(float64, j) * 3.0 }` (and

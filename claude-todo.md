@@ -218,16 +218,6 @@ rejected by the fail-loud assembler) made all six native variants of ffi-export 
 facade happened to compile (e.g. native is required when the host arch has a native backend, or probe with
 a trivial package once), so a facade that fails to compile natively FAILs; audit each script's skip.
 
-### Conformance `.error` tests never check that the program failed — 🟡 IN PROGRESS (found 2026-09-26, work-2/session, by the review of the rt.MemZero negative-size test; claimed 2026-09-26, claude/exciting-davinci-wahyt2 session)
-
-`run_error_test` (`conformance/run.sh` ~365-405) captures the exit status (`rc=$?`) but never uses it: a
-`.error` test passes whenever each pattern appears somewhere in the output, even if the program exited 0.
-So "negative: must fail" is not enforced — a panic test whose program prints the message and then returns
-normally still passes (`767_panic_message.bn` already notes the harness only asserts presence).
-**Fix:** require `rc != 0` (compile errors already exit non-zero) and report "exited 0" as the failure;
-run every mode's `.error` tests once to find the ones that pass only because the status is ignored — each
-of those is a real bug (or a wrongly-classified test) to triage, not to xfail silently.
-
 ### aa64 text assembler silently mis-assembles many load/store forms (latent — no live .s triggers them today) — 🟡 IN PROGRESS (found + claimed 2026-09-25, work-2 session; user: "Go ahead and fix the assembler")
 **Progress (2026-09-25, work-2/session — done, under adversarial review, not yet landed):** (1) new package
 `pkg/binate/asm/aarch64/isa`: exact single-instruction encoders for every load/store addressing mode,
