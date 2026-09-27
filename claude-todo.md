@@ -137,17 +137,6 @@ emitManagedValueCopyRefInc, which peels fully and handles @Iface).
   (`gen_iface_registry.bn` ~:72 handles only `TEXPR_NAMED`) → `g.get()` prints 0 in the VM, compiled
   ICEs.  The EBNF allows `interface X = TypeName[..]`; implement the `TEXPR_INSTANTIATE` case.
 
-### Impl receivers spelled through a type alias key on the alias, not its target — nil vtable at dispatch — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1, review of the forwarder fix; reproduced, pre-existing)
-
-`recvBaseNameAndPkg` (`gen_impl_recvname.bn:41`) peels an alias receiver only when
-`lookupTypeAlias` matches the BARE name — the current module's own aliases — but imported aliases are
-registered qualified (`pkg/home.SA`).  So `impl *home.SA : Local` (home has `type SA = S`; also via a
-forwarder) and an imported `.bni`'s `type LS = home.S; impl *LS : I` key the vtable row on the alias
-(`SA` / `pkg/lib.LS`) while the boxing site looks up the target (`pkg/home.S`) → builds, then
-SIGSEGV / VM "call of nil interface value".  Fix: gate the peel on the qualified alias names
-(`buildQualNameHomed` for a qualified receiver; the `CurrentImportAlias`-qualified name for an
-unqualified one in an imported package) and add conformance cases for both.
-
 ### A generic body's bare type name binds to the IMPORTER's same-named type first — silent wrong code — 🔴 OPEN (found 2026-09-27, work-1, review of the identity refactor; reproduced by the reviewer, pre-existing)
 
 In a monomorphized generic body from another package, an unqualified type name is looked up in the

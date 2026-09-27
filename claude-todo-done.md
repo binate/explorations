@@ -1,3 +1,16 @@
+### Impl receivers spelled through an imported type alias keyed on the alias — DONE (binate `13033f11d`, 2026-09-27)
+
+`recvBaseNameAndPkg`'s alias gate matched only the BARE receiver name (the current module's aliases), so
+`impl *home.SA : I` (also via an `expose` forwarder) and an imported package's own `type LS = home.S;
+impl *LS : I` keyed the vtable on the alias while boxing looked up the target — built, then crashed.
+`recvAliasEntry` looks the receiver up under its registered name (home path via `buildQualNameHomed`,
+`CurrentImportPkg` inside an imported package, else bare), and the target is peeled from that entry (not
+re-resolved, which a same-named REPL type could shadow); `registerImportFieldsAndFuncs` registers a
+package's aliases before its impls (the REPL mid-session path).  Tests: conformance 1307, an
+`e2e/repl.sh` mid-session case, irgen unit test.  Review found no regressions; filed separately: an
+alias of a third package's generic instantiation resolving to `int`, and the REPL's indirect packages'
+aliases (folded into the REPL indirect-registration entry).
+
 ### An untyped integer constant binop operand was typed only when spelled as a literal — LLVM rejected valid code; native -O2 returned un-narrowed values — FIXED (binate `6131c0e20`, 2026-09-27)
 
 `genBinary` gave an untyped constant operand its typed peer's type only for a literal (either side) or a
