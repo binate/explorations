@@ -32,6 +32,9 @@ capture loop; outside valgrind it exits 139 after the full output. Same with eve
 optimizer bug). Compiled binaries are clean under valgrind (LLVM and native, -O0 and -O2), so the VM
 lowering / VM closure path still under-retains (or over-releases) a wrapped capture that IR-gen now
 RefIncs. It passed CI only because the harness ignored the exit status.
+**FIXED (`19772cd6b`) — the two items below: the lifted closure body now does the caller's acquire
+for @Iface / managed-aggregate capture params on each call, and closure creation copies an aggregate
+capture in (conformance 1299).**
 **New, found while fixing that (not a wrapper issue): an @Iface closure capture is over-released on
 EVERY CALL.**  `@Iface` params follow a caller-owned convention (the caller RefIncs each @Iface arg;
 the callee only RefDecs at exit — e.g. `take(g @Getter)`: callee RefInc 0 / RefDec 1, caller RefIncs
