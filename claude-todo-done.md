@@ -1,3 +1,22 @@
+### AND/OR/XOR constant operands fold into logical immediates on all three native backends — DONE (binate `b2aa6d919`, arm32 file split `fa9647492`, 2026-09-27)
+
+T6(b) step b3.  An integer constant used only as an AND/OR/XOR operand (either side) rides the
+instruction immediate instead of being materialized and, under pressure, spilled/reloaded.
+`fold.LogicImmOperand` is the shared position rule; each backend's encodability check at the op width
+feeds both its `ImmOperandConsts` predicate and its emitter (which fails loud on a mismatch): aa64
+`aa64LogicImm` (bitmask immediate, W form for a 32-bit unsigned result; XOR all-ones → MVN; the tst-fold
+takes `tst xN, #K`), x64 `x64LogicImm` (SZ32 any uint32, SZ64 the sign-extended imm32; XOR all-ones →
+NOT), arm32 `arm32LogicImm` (modified immediates on the 32-bit pattern, AND via BIC when the complement
+encodes, XOR 0xFFFFFFFF → MVN).  Also: per-backend `markFoldCandidates` (fold-flag setup out of
+`emitFunc`), aa64 `aa64UseWForm`, arm32 frame/base memory helpers split into `arm32_frame_mem.bn`.
+Validation: before/after disassembly of cmd/bnc + ~60 programs on aa64/x64/arm32 changed only fold
+sites and the frame layout they shrink (aa64 421 / x64 422 / arm32 339 functions); outputs identical
+with both compilers; instructions retired (aa64 native -O2) 008_reg_pressure −4.6%, richards −0.9%.
+Limit: `x & -256` / `x & ~K` / int64 `x ^ -1` still don't fold — the constant reaches codegen as
+NEG/BITNOT of a constant (the open "iropt does no integer constant folding" item in T6).  Review
+findings filed separately: `UnhomeID` quadratic compile time (MAJOR), RHS parenthesized-constant
+re-typing (added to the negated-literal entry), dispatch files near cap, fixed-`/tmp` aa64 test race.
+
 ### irgen resolved names reached through an `expose` forwarder under the FORWARDER path — DONE (binate `d6747d898`, `a7331ce01`, 2026-09-26)
 
 A member reached as `A.X` through a pure forwarder IS the home's entity (`pkg.expose.identity`) and is

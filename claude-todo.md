@@ -984,13 +984,13 @@ iropt win, ✅ LANDED `2fa428d8b` (2026-09-21) — but a NO-OP on richards/fannk
     no operation swap) and arm32 (rotation-0 modified-immediate, sign-swap negatives, wordBytes=4
     excludes int64 pair-add).  Shared analysis reused; per-backend helpers in x64_fold.bn /
     arm32_fold.bn.  Native conformance x64 3048/0, arm32 3002/0; unit x64 316 / arm32 405; x64 disasm
-    confirms `addq $0x1` fires.  (b) AND/OR/EOR logical-immediate folding (needs an is-encodable-bitmask
-    check) — 🟡 IN PROGRESS (claimed 2026-09-25, work-4/session); (c) phi-copy coalescing (the bigger
+    confirms `addq $0x1` fires.  (b) AND/OR/EOR logical-immediate folding — ✅ DONE `b2aa6d919` (see done
+    log; the follow-ups in the plan below stay with this session); (c) phi-copy coalescing (the bigger
     007 lever — regalloc-core, regression risk) — 🔵 OPEN, queued after (b) by the same session.**
   - **Plan (decided 2026-09-25):** (b1 ✅ `96b39fd89`/`54592d56d`/`d35da4a89`) fail-loud fixes for the encoders on the fold's path; (b2 ✅ `f0a7f78fe`) replace the
     per-kind compare/add folds with ONE `fold.ImmOperandConsts(f, fits)` analysis + one `FoldedImm` flag
     (per-backend predicate + shared encoding helpers; uniform width guards) and make `getOperand` fail loud on
-    fold-flagged ids; (b3) the AND/OR/XOR immediate fold on all 3 backends (+ aa64 `tst a,#k`, XOR-all-ones →
+    fold-flagged ids; (b3 ✅ `b2aa6d919`, with the arm32 file split `fa9647492`) the AND/OR/XOR immediate fold on all 3 backends (+ aa64 `tst a,#k`, XOR-all-ones →
     MVN/NOT, arm32 BIC); then folded values out of LinearScan/PlanFrame; then the assembler hardening sweep;
     then (c).  Each step lands separately.
   - **Survey findings (2026-09-25, T6(b) understand pass; aa64 -O2; counts from disassembly cross-checked
