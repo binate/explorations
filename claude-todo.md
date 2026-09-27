@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### IR-gen's named-only type peels (`typeWidth`, `peelNamed`/`typeIsSigned`) mis-size and mis-sign readonly-wrapped values — silent wrong values, a stack out-of-bounds store — 🔴 OPEN (found 2026-09-26)
+### IR-gen's named-only type peels (`typeWidth`, `peelNamed`/`typeIsSigned`) mis-size and mis-sign readonly-wrapped values — silent wrong values, a stack out-of-bounds store — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-26, work-5/session — user: "take on the critical, then the majors")
 
 **Symptom (all backends, -O0 and -O2):** an untyped literal flowing into a `readonly` narrow slot is
 never narrowed: `func ro(x readonly float32) float64 { return cast(float64, x) }; ro(2.5)` passes a
@@ -19,7 +19,7 @@ int8`): `x / y` skips the MIN/-1 overflow guard on native aa64 and the VM (retur
 **Root cause:** `typeWidth` (pkg/binate/irgen/gen_binary_width.bn) and `peelNamed` → `typeIsSigned`
 (gen_typedecl.bn) peel only TYP_NAMED; a TYP_READONLY wrapper has Width 0 / Signed false, so the
 width falls to the 64-bit default (no fptrunc/trunc emitted) and signedness reads false.  The
-IR-gen twin of the codegen named-only peel fixed in `8a9638ede` (not yet landed at filing).
+IR-gen twin of the codegen named-only peel fixed in `15f6536d5`.
 **Found by:** the adversarial review of that codegen fix (two lenses + skeptics; a prototype
 readonly/alias arm in typeWidth made every repro correct on LLVM and native at -O0/-O2).
 **Proposed fix:** peel all transparent wrappers (named / alias / readonly — e.g. the shared
@@ -141,27 +141,6 @@ normally still passes (`767_panic_message.bn` already notes the harness only ass
 **Fix:** require `rc != 0` (compile errors already exit non-zero) and report "exited 0" as the failure;
 run every mode's `.error` tests once to find the ones that pass only because the status is ignored — each
 of those is a real bug (or a wrongly-classified test) to triage, not to xfail silently.
-
-### LLVM backend at -O1+: `cast` of a `readonly float` value emits ill-typed IR — clang rejects valid code — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-26, work-5/session — user: "let's fix that MAJOR before" the int64 fold)
-
-**Symptom:** `func conv(j readonly float32) float64 { return cast(float64, j) * 3.0 }` (and
-`func toInt(j readonly float64) int { return cast(int, j) }`) compile and run at -O0 but fail at
--O1/-O2 on the LLVM backend, any target: `main.ll: error: '%v0' defined with type 'float' but
-expected 'i32'  %v3 = uitofp i32 %v0 to double` (resp. `... 'double' but expected 'i64'  %v3 = add
-i64 %v0, 0`).  At -O0 the value goes through an alloca load and the cast sees the unwrapped type;
-at -O1+ mem2reg feeds the `readonly float` param straight into OP_CAST.
-**Root cause:** `emitCast` (pkg/binate/codegen/emit_cast.bn) resolves src/dst types with
-`unwrapNamed` (emit_types.bn), which peels only TYP_NAMED, so `srcIsFloat` is false for a
-TYP_READONLY float and the cast takes the int→float / int→int path (`isUnsigned` DOES peel readonly,
-hence `uitofp`).  The bit_cast classifier was already fixed to peel readonly/alias; emitCast wasn't.
-The native backends are fine (their float predicates use types.StripWrappers).
-**Found by:** the review of the arm32 overflowed-float-param fix (building >8-float test programs at
--O2); confirmed by two independent reproductions (host darwin-aarch64 and arm32-linux).
-**Why CI doesn't see it:** no conformance test casts a readonly float; a test that does would fail
-the -O2 lane's builder-comp shards (and can't be xfailed per opt level), so land it with the fix.
-**Proposed fix:** resolve emitCast's types with types.StripWrappers (peel readonly + alias + named);
-add a conformance test casting readonly float32/float64 params (to float, int, and the other float
-width) that runs at -O2 in CI.
 
 ### aa64 text assembler silently mis-assembles many load/store forms (latent — no live .s triggers them today) — 🟡 IN PROGRESS (found + claimed 2026-09-25, work-2 session; user: "Go ahead and fix the assembler")
 **Progress (2026-09-25, work-2/session — done, under adversarial review, not yet landed):** (1) new package

@@ -1,3 +1,32 @@
+### LLVM backend at -O1+: `cast` of a `readonly float` value emits ill-typed IR — clang rejects valid code — FIXED (binate `15f6536d5`, 2026-09-26)
+
+**Symptom:** `func conv(j readonly float32) float64 { return cast(float64, j) * 3.0 }` (and
+`func toInt(j readonly float64) int { return cast(int, j) }`) compile and run at -O0 but fail at
+-O1/-O2 on the LLVM backend, any target: `main.ll: error: '%v0' defined with type 'float' but
+expected 'i32'  %v3 = uitofp i32 %v0 to double` (resp. `... 'double' but expected 'i64'  %v3 = add
+i64 %v0, 0`).  At -O0 the value goes through an alloca load and the cast sees the unwrapped type;
+at -O1+ mem2reg feeds the `readonly float` param straight into OP_CAST.
+**Root cause:** `emitCast` (pkg/binate/codegen/emit_cast.bn) resolves src/dst types with
+`unwrapNamed` (emit_types.bn), which peels only TYP_NAMED, so `srcIsFloat` is false for a
+TYP_READONLY float and the cast takes the int→float / int→int path (`isUnsigned` DOES peel readonly,
+hence `uitofp`).  The bit_cast classifier was already fixed to peel readonly/alias; emitCast wasn't.
+The native backends are fine (their float predicates use types.StripWrappers).
+**Found by:** the review of the arm32 overflowed-float-param fix (building >8-float test programs at
+-O2); confirmed by two independent reproductions (host darwin-aarch64 and arm32-linux).
+**Why CI doesn't see it:** no conformance test casts a readonly float; a test that does would fail
+the -O2 lane's builder-comp shards (and can't be xfailed per opt level), so land it with the fix.
+**Proposed fix:** resolve emitCast's types with types.StripWrappers (peel readonly + alias + named);
+add a conformance test casting readonly float32/float64 params (to float, int, and the other float
+width) that runs at -O2 in CI.
+
+**Resolution (`15f6536d5`):** every codegen site that used the named-only `unwrapNamed` (emitCast,
+emitCmp, the binary-op result type, OP_NEG) now uses `peelReprType` (named / alias / readonly), and
+`unwrapNamed` is deleted.  The same gap also broke float compares (`icmp` on doubles), readonly
+pointer casts (`inttoptr` on a ptr), and — even at -O0 — named-over-readonly (`type RF readonly
+float32`).  Conformance 1290 (typed readonly / named-over-readonly / pointer casts and compares)
+fails at -O0 and -O2 without the fix.  Full LLVM conformance -O0 and -O2: 3058/0.  The review of the
+fix found the IR-gen twin (named-only `typeWidth` / `typeIsSigned`) → filed CRITICAL.
+
 ### Unified immediate-operand fold (ImmOperandConsts + FoldedImm); getOperand fails loud on folded-away values — DONE (binate `f0a7f78fe`, 2026-09-27)
 
 T6(b) step b2.  The compare-immediate fold (`ImmFoldableConsts` → `FoldedImmConst`) and the ADD/SUB fold
