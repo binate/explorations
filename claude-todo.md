@@ -191,7 +191,7 @@ back to the module when the defining package has no such name).
 - **An imported generic FUNCTION can't be called at the REPL prompt:** "extern not found:
   <pkg>.F__bn_inst__…", whether the fixture imports the package or it is imported mid-session.
 
-### aa64 backend encoders: SP and XZR share register number 31, and register classes are unchecked — 🔴 OPEN (found 2026-09-25/26, work-2/session; user decision: "Distinct XZR number")
+### aa64 backend encoders: SP and XZR share register number 31, and register classes are unchecked — 🟡 IN PROGRESS (found 2026-09-25/26; claimed 2026-09-27, work-2/session; user decision: "Distinct XZR number"; user: "yes, go for it")
 
 The `aarch64` package's backend API numbers SP and XZR both 31, so `Mov(rd, Reg(XZR))` emits `mov rd,
 sp` and `Neg(rd, Imm(k))` / `Add|Sub(rd, XZR, #imm)` read 31 as SP (latent: no native caller passes XZR
