@@ -304,20 +304,16 @@ r2, rrx #3` all assemble (a mistyped extra operand is dropped); the arm32 `, rrx
 `rrx` token itself as the next token instead of advancing past it (harmless only because trailing tokens
 are ignored).  Fix together: an end-of-line check after every instruction.
 
-### native: `getOperand` on a folded (skip-emitted) value silently reloads a never-written spill slot; several dispatcher cases silently drop an instruction on an unresolved operand — 🟡 PARTLY CLAIMED (found 2026-09-25; the `getOperand` fail-loud part claimed 2026-09-25, work-4/session — T6(b) step b2; the PlanFrame-slot part rides the LinearScan step; the dispatcher silent-return part stays 🔴 OPEN)
+### native: folded-away values still get PlanFrame slots; several dispatcher cases silently drop an instruction on an unresolved operand — 🟡 PARTLY CLAIMED (found 2026-09-25; the PlanFrame-slot part rides the T6 LinearScan step, work-4; the dispatcher silent-return part stays 🔴 OPEN)
 
-`PlanFrame` reserves a slot for every value, folded constants included (`native/common/common.bn` ~162,
-~222), so `getOperand` on a FoldedImmConst / FoldedAddImmConst id reloads that slot — which was never
-written, because the constant's emission was skipped — instead of returning -1 as the consumer comments
-claim (`aarch64_ops.bn` isFoldedAddConst doc, `x64_fold.bn`, `arm32_fold.bn`).  Any mismatch between a fold
-analysis and an emitter is therefore a silent garbage read, not a compile error.  (No live mismatch known:
-arm32 int64 constants are always materialized by `emitConst64` ahead of the generic flag check — safe by
-dispatch order, though the compare fold's flag is inaccurate for them since `ImmFoldableConsts` has no width
-guard.)  Separately, per-op dispatcher cases (`OP_COPY`, `OP_MANAGED_TO_RAW`, `OP_BIT_CAST`, `OP_CAST`, ~15
-more `if … < 0 { return }` sites across the three backends) silently emit nothing on an unresolved operand
-instead of failing loud like the dispatch tail — a dropped `OP_COPY` leaves a phi stale.  **Fix:**
-`getOperand` fails loud for fold-flagged ids and `PlanFrame` stops reserving their slots; replace the silent
-returns with `a.SetError("<op>: unresolved operand")`; fix the comments.
+(`getOperand` fails loud on any fold-flagged id since `f0a7f78fe`, see done log.)  Still open: (a) `PlanFrame`
+reserves a slot for every value, folded-away ones included (`native/common/common.bn` ~162, ~222) — wasted
+frame space (visible in the arm32 managed-slice destructor loops: the frame stays `sub sp,#128` after the
+folded constant's slot went unused); fixed together with dropping folded values from LinearScan.  (b) Per-op
+dispatcher cases (`OP_COPY`, `OP_MANAGED_TO_RAW`, `OP_BIT_CAST`, `OP_CAST`, ~15 more `if … < 0 { return }`
+sites across the three backends) silently emit nothing on an unresolved operand instead of failing loud like
+the dispatch tail — a dropped `OP_COPY` leaves a phi stale.  **Fix:** replace the silent returns with
+`a.SetError("<op>: unresolved operand")`.
 
 ## Performance
 
@@ -785,7 +781,7 @@ iropt win, ✅ LANDED `2fa428d8b` (2026-09-21) — but a NO-OP on richards/fannk
     confirms `addq $0x1` fires.  (b) AND/OR/EOR logical-immediate folding (needs an is-encodable-bitmask
     check) — 🟡 IN PROGRESS (claimed 2026-09-25, work-4/session); (c) phi-copy coalescing (the bigger
     007 lever — regalloc-core, regression risk) — 🔵 OPEN, queued after (b) by the same session.**
-  - **Plan (decided 2026-09-25):** (b1 ✅ `96b39fd89`/`54592d56d`/`d35da4a89`) fail-loud fixes for the encoders on the fold's path; (b2) replace the
+  - **Plan (decided 2026-09-25):** (b1 ✅ `96b39fd89`/`54592d56d`/`d35da4a89`) fail-loud fixes for the encoders on the fold's path; (b2 ✅ `f0a7f78fe`) replace the
     per-kind compare/add folds with ONE `fold.ImmOperandConsts(f, fits)` analysis + one `FoldedImm` flag
     (per-backend predicate + shared encoding helpers; uniform width guards) and make `getOperand` fail loud on
     fold-flagged ids; (b3) the AND/OR/XOR immediate fold on all 3 backends (+ aa64 `tst a,#k`, XOR-all-ones →
@@ -814,7 +810,7 @@ iropt win, ✅ LANDED `2fa428d8b` (2026-09-21) — but a NO-OP on richards/fannk
     - **Strength-reduced MUL/DIV/REM constants are still materialized and homed** (aa64
       `aarch64_muldiv.bn` consumes them via `constDivisor` but never marks them folded): 648 in `bnc` (566
       mul, 82 div/urem); some are stored to slots never read.
-    - **Cross-kind constants:** folding a constant whose uses span kinds (compare + add) would catch 289
+    - **Cross-kind constants** (✅ folded since `f0a7f78fe`): folding a constant whose uses span kinds (compare + add) would catch 289
       more in `bnc` (all the value 1 in managed-slice destructor loops).
     - **iropt does no integer constant folding** of all-constant binary ops / compares, nor identities
       (x&0, x&-1, x|-1, 0-x), nor NEG/BITNOT of a constant — so `x & -16` / `x & ~15` reach the AND as a

@@ -1,3 +1,20 @@
+### Unified immediate-operand fold (ImmOperandConsts + FoldedImm); getOperand fails loud on folded-away values — DONE (binate `f0a7f78fe`, 2026-09-27)
+
+T6(b) step b2.  The compare-immediate fold (`ImmFoldableConsts` → `FoldedImmConst`) and the ADD/SUB fold
+(`AddImmFoldableConsts` → `FoldedAddImmConst`) — two near-identical exclusive-use analyses — became one:
+`fold.ImmOperandConsts(f, fits)` marks an OP_CONST_INT iff every use is an operand `user.Args[argIdx]` for
+which the backend predicate holds (phi uses never fit); one RegMap flag `FoldedImm`.  Position rules are
+shared helpers (`CmpImmOperand`, `AddSubImmOperand`), ranges `CmpImmFits`/`AddSubImmFits`; each backend's
+predicate and its emitters decide through the same per-position helper, and every emitter re-verifies and
+fails loud on a mismatch.  `getOperand` fails loud on any fold-flagged id (`RegMap.IsFoldedAway`: FoldedImm,
+FusedCmp, TstFoldedAnd, FusableGep/FieldGep, FoldedDtor) instead of reloading a never-written slot.
+Behavior: a constant whose uses span kinds now folds — across all of cmd/bnc exactly the `1` in the
+managed-slice element destructor loops (`Refcount(..) == 1` + `i + 1`), 289 functions per target; the
+compare rule gained the width guard; `AddSubImmOperand` requires an integer result.  Before/after
+disassembly of cmd/bnc on aa64/x64/arm32 showed no other change.  Landing needed an adaptation to the
+concurrent raw-phi-operand IR change (`7102e88ce`: `PhiEntry.Val` is `*Instr`, `NewParamRef(f, p)`).
+Native conformance aa64 3057/0, x64 3057/0, arm32 3011/0.
+
 ### Containers moved under `pkg/std/containers/` (flat compat forwarders left behind) — DONE (binate `438e3ae19`, `083146cf1`, 2026-09-26)
 
 The 2026-08-25 stdx→std promotion (`904c0a31b`, `557fad1ad`, `a6cb15f87`) had put the seven
