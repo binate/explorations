@@ -316,7 +316,7 @@ split into small driver functions compiled in ~3 s.  Base compiler equally affec
 un-homes once); and audit every `AppendInt` loop in the RegMap/allocator (`SpillIDs`, `HomeIDs`, …)
 for the same quadratic build — an amortized-growth append (or `vec.Vec`) fixes the class.
 
-### e2e: a native compile failure is reported as SKIP in five FFI / library e2e scripts — 🔴 OPEN (found 2026-09-26, work-2/session)
+### e2e: a native compile failure is reported as SKIP in five FFI / library e2e scripts — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-26, work-2/session; user: "yes let's fix that MAJOR e2e bug")
 
 `e2e/ffi-export.sh` (`check_backend` / `check_narrow` / `check_bigagg` / `check_multiret` / `check_centry`),
 `ffi-ccall-narrow.sh`, `library-facade-asm.sh`, `library-iface-assert.sh` and `program-bn-init.sh` run
