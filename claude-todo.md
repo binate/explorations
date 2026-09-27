@@ -21,7 +21,7 @@ slot; named-over-readonly `MIN / -1` skips the overflow trap on native/VM).
 literal-hint helpers `isTypedInt` / `needsHintNarrowing` / `intFitsInType` peel every wrapper
 (PeelTransparent); conformance 1295 (untyped literals into readonly-narrow args / var inits / returns
 / fields / elements) + 1296 (named-over-readonly int8 MIN / -1 traps).
-**Committed on work-5, not yet landed (`74a543a39`):** emitCaptureRefInc delegates to
+**Committed on work-5, not yet landed (`375da0159`):** emitCaptureRefInc delegates to
 emitManagedValueCopyRefInc (full peel, +@Iface) — fixes the over-released readonly / named @T / @[]T
 / @func captures; conformance 1297.
 **New, found while fixing that (not a wrapper issue): an @Iface closure capture is over-released on
@@ -34,6 +34,16 @@ is RefDec'd once per call.  Repro: capture `var gi @Getter = ms` in a `*func` ca
 loop, then `other := make(S)`: `ms.v` / `gi.Get()` read the reused memory (prints 1 1, expected 7 7).
 Fix options: have the lifted body's prologue RefInc prepended @Iface capture params (one IR-gen fix
 for all backends), or make each backend's shim RefInc them.
+**Same class, also CRITICAL (found by the review of `74a543a39`; not a wrapper issue): a by-value
+struct / array capture with managed fields is over-released twice.**  (1) Closure creation
+(emitCaptureRefInc) never copies an aggregate capture in (no `__copy_1S` / array copy), but the
+closure dtor destroys the field (NeedsDestruction recurses into struct/array fields); (2) the lifted
+body destroys its by-value aggregate capture param at exit, once per call, while the shim passes it
+without a copy (the same caller-owned-param-vs-shim mismatch as the @Iface item).  Repro: `type S
+struct { b @Box; k int }`, `var s S; s.b = make(Box); s.b.v = 42`, then a `*func` capturing `s` called
+in a 3-iteration loop prints `42 0 0` (expected `42 42 42`); same with `var a [2]@Box`.  Fix: copy
+the aggregate in at capture (needsStructCopy / array copy, next to the scalar RefInc), and fold (2)
+into the @Iface capture-param fix.
 
 **Sweep (2026-09-26):** auditors over check+lint, IR-gen (first two thirds of the files), and the VM
 lowering reported the confirmed defects below (each with a repro, run on LLVM / native aa64 / VM).
