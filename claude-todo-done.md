@@ -1,3 +1,25 @@
+### e2e: a native build failure was reported as SKIP in sixteen e2e scripts — ✅ DONE (binate `5f547d6ce`, 2026-09-27)
+
+`e2e/ffi-export.sh` (`check_backend` / `check_narrow` / `check_bigagg` / `check_multiret` / `check_centry`),
+`ffi-ccall-narrow.sh`, `library-facade-asm.sh`, `library-iface-assert.sh` and `program-bn-init.sh` run
+their native variants with `required=0`: when `bnc --backend native --pkg` produces no object the variant
+prints `SKIP: native --pkg unavailable for this host` and the script still exits 0.  On every host with a
+native backend (aarch64 / x64 / arm32 all have one) that turns a native codegen failure into a green run.
+Found by a mutation check: restoring the pre-fix C-export trampoline (whose FP/LR STP offset is now
+rejected by the fail-loud assembler) made all six native variants of ffi-export SKIP — `Summary: 7 passed,
+0 failed, 6 skipped`, exit 0.  **Fix:** decide "native available" from the host, not from whether this
+facade happened to compile (e.g. native is required when the host arch has a native backend, or probe with
+a trivial package once), so a facade that fails to compile natively FAILs; audit each script's skip.
+
+**Resolution:** the sweep found 16 scripts, not 5 — eleven more (`c-call-*`, `c-entry-*`, `c-global-aggregate`,
+`c-subword-return`, `dispatch-seam-narrow`, `native-opt-loop`) skipped with "native backend cannot build this
+program on this host".  bnc picks the native backend from its own build arch (`nativeArchForTarget`), and
+aarch64 / x86_64 / arm32 all have one, so a host-targeted native build is never legitimately unavailable:
+the `required` parameter and skip branch were deleted everywhere, so a build failure on either backend FAILs
+(prerequisite skips — no C compiler, no arm32 cross toolchain/qemu, host OS — unchanged).  Before landing,
+no native variant skipped on either CI host (`15f6536d`), and all 16 pass on macOS arm64.  Mutation check:
+with the pre-fix trampoline restored, ffi-export now reports `7 passed, 6 failed, 0 skipped`, exit 1.
+
 ### native: arm32 un-homed call operands one at a time through a copy-per-append rebuild — O(args·H²) compile time — FIXED (binate `279896355`, 2026-09-27)
 
 arm32 `emitFunc` un-homed every call/return operand with `RegMap.UnhomeID`, which rebuilt the whole home

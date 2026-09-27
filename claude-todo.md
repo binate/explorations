@@ -357,19 +357,6 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### e2e: a native compile failure is reported as SKIP in five FFI / library e2e scripts — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-26, work-2/session; user: "yes let's fix that MAJOR e2e bug")
-
-`e2e/ffi-export.sh` (`check_backend` / `check_narrow` / `check_bigagg` / `check_multiret` / `check_centry`),
-`ffi-ccall-narrow.sh`, `library-facade-asm.sh`, `library-iface-assert.sh` and `program-bn-init.sh` run
-their native variants with `required=0`: when `bnc --backend native --pkg` produces no object the variant
-prints `SKIP: native --pkg unavailable for this host` and the script still exits 0.  On every host with a
-native backend (aarch64 / x64 / arm32 all have one) that turns a native codegen failure into a green run.
-Found by a mutation check: restoring the pre-fix C-export trampoline (whose FP/LR STP offset is now
-rejected by the fail-loud assembler) made all six native variants of ffi-export SKIP — `Summary: 7 passed,
-0 failed, 6 skipped`, exit 0.  **Fix:** decide "native available" from the host, not from whether this
-facade happened to compile (e.g. native is required when the host arch has a native backend, or probe with
-a trivial package once), so a facade that fails to compile natively FAILs; audit each script's skip.
-
 ### x64 assembler / text parser: `emitModRM` addresses the wrong location for some memory shapes, operand sizes unchecked, `[base+idx*scale+disp]` misparsed — 🟡 CLAIMED, queued (found 2026-09-25; claimed 2026-09-25, work-4/session — assembler sweep after T6(b), before (c))
 **Also (2026-09-26, found by the aa64 batch review, work-2/session):** the displacement parse after a `-`
 negates the whole rest of the expression — `mov eax, [rbp - 8 + 4]` encodes disp -12 (`8b 45 f4`), clang
