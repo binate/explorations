@@ -218,6 +218,13 @@ rejected by the fail-loud assembler) made all six native variants of ffi-export 
 facade happened to compile (e.g. native is required when the host arch has a native backend, or probe with
 a trivial package once), so a facade that fails to compile natively FAILs; audit each script's skip.
 
+### Conformance normal tests don't check the exit status — 🟡 IN PROGRESS (claimed 2026-09-27, claude/exciting-davinci-wahyt2 session; user: "I guess we can convert those tests")
+
+`run_test` compares output only, so a program that prints the expected output and then crashes passes
+(the harness strips signal-death messages). Only three tests currently exit non-zero, all deliberate
+nil-dispatch crashes (385_iface_nil_dispatch, spec/11-interfaces/081, spec/19-execution/010; 139 on LLVM
+and native x64). Convert them to assert the crash, then make `run_test` require exit 0.
+
 ### aa64 text assembler silently mis-assembles many load/store forms (latent — no live .s triggers them today) — 🟡 IN PROGRESS (found + claimed 2026-09-25, work-2 session; user: "Go ahead and fix the assembler")
 **Progress (2026-09-25, work-2/session — done, under adversarial review, not yet landed):** (1) new package
 `pkg/binate/asm/aarch64/isa`: exact single-instruction encoders for every load/store addressing mode,
