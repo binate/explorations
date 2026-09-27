@@ -164,25 +164,6 @@ All on main today; each is being fixed (with a test) in the aa64 text-assembler 
   sections but a header is written for each) → `ld: malformed load command`.  No native path found; `bnas`
   reaches it.
 
-### `var q = T{...}` (type inferred from a same-package struct literal) binds `q` to the literal's temp ADDRESS — silent wrong code — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1, forwarder-audit probe; reproduced)
-
-`VarSpec = identifier "=" Expression` (type inferred) is valid, but for a struct literal of a type
-declared in the SAME package the IR stores a pointer to the literal's temp into the variable's slot
-(`store i8* %v0, i8** %v3`).  Repro (reproduced with a tree gen1; also on the pinned BUILDER
-bnc-0.0.16):
-```
-type P struct { X int; Y int }
-func (p *P) Inc() { p.X = p.X + 1 }
-func inc(p *P) { p.X = p.X + 1 }
-func main() { var q = P{X: 1, Y: 2}; inc(&q); testing.Println(q.X); q.Inc(); testing.Println(q.X) }
-```
-prints `144115188075855872`, `144115188075855873` (want 2, 3); `var q P = P{...}` and `q := P{...}`
-are correct, as is a cross-package `var s = home.S{...}`.  Passing `q` by value passes the address
-on LLVM (the VM is right there); `&q` / method calls corrupt `q` in LLVM and the VM.  Conformance
-has almost no coverage of this form.  Root cause not yet investigated (irgen's inferred-type var
-init for a same-package named struct — likely the literal's value/address kind).  Needs a
-conformance test + fix.
-
 ### More silent wrong code found by the forwarder audit (not forwarder-specific) — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1; agents' repros, not yet independently re-verified)
 
 - **Type assertion / type switch to a generic interface is false when the parameterized impl is

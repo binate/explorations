@@ -1,3 +1,18 @@
+### `var q = T{...}` (inferred type) bound q to the literal temp's address — DONE (binate `2df02e928`, 2026-09-26)
+
+Locals (`genDecl`): the inferred type was the composite literal's alloca POINTER type, so q aliased the
+temp (garbage via `&q` / methods / by-value passing; an inferred array literal was invalid LLVM); now
+the aggregate type, decided by the checker's type of the initializer (`initIsAggregateValue`) so `&p`
+stays a pointer — which also fixed the pre-existing `q := &p` / `q := &arr` (bound q to p's storage:
+SIGSEGV / invalid LLVM).  Globals (`resolveGlobalVarType`, moved to `gen_global_type.bn`): an inferred
+global from a composite literal / call result / copy had no type (pointer-sized slot holding a
+dangling temp address, or an "unresolved selector" ICE); a composite literal now resolves its written
+type (incl. generic `Box[int]{...}`), any other initializer takes the checker's type — except shapes
+whose checker type differs from IR-gen's (generic instantiation, interface, pointer-to-foreign-type:
+`checkerTypeUnmappable`), still broken as before and tracked as an open MAJOR entry.  Test: conformance
+1298 (fails to build pre-fix; LLVM, native aa64, VM, gen2).  Review caught the `&p` regression before
+landing.
+
 ### AND/OR/XOR constant operands fold into logical immediates on all three native backends — DONE (binate `b2aa6d919`, arm32 file split `fa9647492`, 2026-09-27)
 
 T6(b) step b3.  An integer constant used only as an AND/OR/XOR operand (either side) rides the
