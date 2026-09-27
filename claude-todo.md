@@ -1012,7 +1012,7 @@ FP-arithmetic work. Full plan + sequencing: `plan-native-vectorization.md`.
 
 Order: V1 (aa64 first) → (A) → idiom recognition → B1 → B2 → B3. Each independently landable/measurable.
 
-### IR-gen emits an untyped LEFT-operand constant twice — a dead `int`-typed copy (non-canonical when the value doesn't fit `int`) — 🔴 OPEN (found 2026-09-25, work-4, T6 b1)
+### IR-gen emits an untyped LEFT-operand constant twice — a dead `int`-typed copy (non-canonical when the value doesn't fit `int`) — 🟡 IN PROGRESS (found 2026-09-25, work-4, T6 b1; verifier check claimed 2026-09-27, work-4/session)
 
 **Partly fixed (binate `6131c0e20`, 2026-09-27):** for every non-shift binary op the left constant is now
 emitted once, directly at its peer's type (the untyped-constant re-typing fix).  **Still open:** (1) a
