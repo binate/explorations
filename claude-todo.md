@@ -26,6 +26,9 @@ emitManagedValueCopyRefInc (full peel, +@Iface) — fixes the over-released read
 / @func captures; conformance 1297.
 **VM side landed (`89a56168`):** 1297 was still a use-after-free under bni after `fdd2da32` (caught by
 the normal-test exit-status check: exit 139 after correct output); with `89a56168` it exits 0.
+**FIXED (`7d5cc9650`): VM lowering through every wrapper** — vmUnwrapNamed (named-only) deleted,
+all sites use vmPeelTransparent (sub-word load/store width + sign, OP_NEG, bit_cast, multi-return
+extract sign, named-over-readonly aggregate returns, named iface-value upcast); conformance 1315.
 **Open, found by the VM-lowering fix's review (pre-existing, all backends):** (a) `cast(RH, H{n: 3, m:
 4})` of a struct composite LITERAL to a named-over-readonly struct (`type RH readonly H`) panics
 "cast between mismatched aggregate/scalar shapes reached codegen" (casting an `H` variable works);
