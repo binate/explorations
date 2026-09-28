@@ -49,8 +49,7 @@ miscompile found):
 4})` of a struct composite LITERAL to a named-over-readonly struct (`type RH readonly H`) panics
 "cast between mismatched aggregate/scalar shapes reached codegen" (casting an `H` variable works);
 ((b), a method call directly on a cast to a readonly `@T`, is fixed on main — verified 2026-09-28 after
-`1a3bec4d7`.)  (Also seen: `cast(RFn, f)` for `type RFn readonly *func(int) int`
-emits `add %BnFuncValue` on LLVM — the emit_cast.bn:75 func-value identity item below.)
+`1a3bec4d7`.)
 
 **Sweep (2026-09-26):** auditors over check+lint, IR-gen (first two thirds of the files), and the VM
 lowering reported the confirmed defects below (each with a repro, run on LLVM / native aa64 / VM).
@@ -62,8 +61,6 @@ fixed rows are in claude-todo-done.md.
 === irgen (2 open)
   - [major] `gen_defer_build.bn:185` deferMethodRecvType / buildDeferMethod — wrapper: named-distinct receiver: named scalar `type Money int`, named-over-struct `type NP Pt` (an — `defer m.Show()` looks up `int.Show` / `Pt.Show2` instead of `Money.Show` / `NP.Show2`, and IR-gen panics.
   - [nit] `gen_expr.bn:302` genUnary — wrapper: untyped negated operand whose checker-resolved type is readonly int8 / alias-of-readonly / — Contributing site of KNOWN issue (1), reported only so the fix covers it: for `-C` / `-100` with a wrapped resolved type negTyp falls to TypInt, so OP_NEG is emitted at i64 (`sub i64 0, %v0`) and correctness relies entirely on the
-=== codegen (1 open)
-  - [major] `emit_cast.bn:75` emitCast — wrapper: none needed: an identity cast of a func value, cast(*func(int) int, f), fails — srcIsAggregate lists only SLICE, MANAGED_SLICE and STRUCT.
 === check-lint (10 open)
   - [major] `check_cast_fits.bn:27` castTargetIsInteger — wrapper: named-over-named (`type M int8 — The constant fit-check is skipped entirely for these targets, so `cast(N, 200)` / `unsafe_cast(N, 300)` are accepted where `cast(int8, 200)` is rejected.
   - [major] `types_assignable.bn:263` untypedIntLitFitsTarget — wrapper: named-over-named (`type M int8 — Valid code is rejected.

@@ -1,3 +1,14 @@
+### `cast` between function-value types — DONE (binate `6495d342a`, 2026-09-28, work-5)
+
+An identity cast of a func value emitted `add %BnFuncValue %v, 0` (codegen emitCast did not treat function /
+interface values as aggregates), and `cast(*func(A) R, mf)` from a managed func value panicked in
+genCastValueConversion's shape guard (it is a same-layout borrow).  Both fixed; conformance 1374.  The review
+found the checker accepts `unsafe_cast(@func…, f)` (spec excludes it) — filed separately.
+
+```
+  - [major] `emit_cast.bn:75` emitCast — wrapper: none needed: an identity cast of a func value, cast(*func(int) int, f), fails — srcIsAggregate lists only SLICE, MANAGED_SLICE and STRUCT.  → FIXED `6495d342a` (conformance 1374)
+```
+
 ### Typed-constant expressions are folded without their type — silent wrong values, a compiler ICE, valid code rejected — DONE (binate `b6314e316` + `1db847da0`, docs `e48342f`, 2026-09-28, work-4)
 
 The user decided (2026-09-27) that an operator on **typed** integer constants behaves exactly as on values
