@@ -351,27 +351,12 @@ monomorphization instantiates `depth[int]`, `depth[@int]`, `depth[@@int]`, … w
 instantiation depth limit with a diagnostic, in the checker's per-instantiation worklist (plan above).
 Needs a conformance test.
 
-### A local `const` may redeclare a parameter or a name of its own block — accepted; the group form reads the other one — 🟡 IN PROGRESS (claimed 2026-09-28, work-4 — user: "I guess you can take on the two MAJORs next"; found 2026-09-28, work-4, review of constant-evaluator step 2; pre-existing, bnc-0.0.16 too)
-- `func k2(N int) int { const N = 7; return N }` is accepted; `var N` there correctly gives "N redeclared
-  in this scope".  So are a `for N := …` loop variable redeclared by a `const N` in the loop body, and
-  `var A int = 1; const ( A = 2 )` in one block.
-- The single-const form returns the const (7); the group form `const ( N = 7 )` returns the parameter or
-  var (3 / 1): the checker defines the const, but IR-gen's EXPR_IDENT tries `lookupVar` first.
-- Cause: the checker's local-const definition path (a DeclStmt's `checkConstDecl` / `checkGroupDecl`) has
-  no same-scope redeclaration check.  Fix: report the redeclaration exactly as the local `var` path does.
-  A const in a nested block shadowing an outer var is legitimate and works.
-- **Needs a user decision (2026-09-28):** the spec is silent on a local `const` redeclaring a name of its
-  own block.  `decl.var.redeclare` makes it an error for `var`; `decl.shortvar.no-new-name-rule` makes `:=`
-  rebind.  The fix in progress rejects a grouped `var` member (spec-backed), makes the checker and IR-gen
-  agree that the later binding wins for a local `const`, and leaves that accepted pending the decision.
-
-### A constant declared both as a single const and in a group, or in two groups, is not reported — 🟡 IN PROGRESS (claimed 2026-09-28, work-4 — user: "I guess you can take on the two MAJORs next"; found 2026-09-28, work-4, review of constant-evaluator step 2; pre-existing, bnc-0.0.16 too)
-- `const A = 5` plus `const ( A = 9; Z = A + 1 )` in one package is accepted; expected "A redeclared in
-  this block".  Which value each use reads depends on declaration order and differs between compilers.
-  A duplicate within one group is reported.
-- Cause: `checkDuplicateDecls` skips group entries and compares within one declaration list only.  Fix:
-  include group members (const, and check var/type groups too) in the package-level duplicate check.
-- No test yet.
+### Is a local `const` redeclaring a name of its own block an error? — ⚪ NEEDS DECISION (raised 2026-09-28, work-4)
+The spec is silent.  `decl.var.redeclare` makes redeclaring a same-block name with `var` an error;
+`decl.shortvar.no-new-name-rule` makes `:=` rebind.  Today (binate `f037beaef`) a local `const` naming a
+parameter, a loop variable or an earlier local of its block is accepted and the later binding wins — the
+checker and IR-gen agree.  Decide: an error like `var`, or a rebind like `:=`; either way add a spec line
+(and, for an error, the check in `check_stmt.bn` next to `errIfRedeclaredLocal`).
 
 ### Per-instantiation checking of generic bodies (design B) — 🟡 CLAIMED (2026-09-28, work-4; user chose "B"; to be done after the two const-redeclaration MAJORs — user: "I guess you can take on the two MAJORs next")
 The constant evaluator (binate `1db847da0`) marks a value depending on a type parameter DEPENDENT; the
@@ -410,13 +395,6 @@ VM "iface_upcast: target vtable not found: …_X", compiled "negative vtable slo
 ancestor of source)".  Fix: canonicalize an alias parent to its target when recording parents (IR-gen
 `collectInterfaceParents` / ParentNames) and at the upcast's target lookup.  Covered by conformance
 1321_iface_alias_parent_upcast (xfail.all, binate `b78c88f61`).
-
-### The checker accepts a type and an interface of the same name in one package — 🔴 OPEN (found 2026-09-27, work-1, review of the checker forward-parent fix; pre-existing)
-
-`type A struct {…}` + `interface A {…}`: `checkDuplicateDecls` skips DECL_TYPE and
-`checkTypeRedeclaration` compares types with types, so neither reports it; the later decl silently
-overwrites the scope symbol.  Fix: report "A redeclared in this block" for a type/interface clash.
-Covered by conformance 1322_err_type_iface_same_name (xfail.all, binate `b78c88f61`).
 
 ### IR-gen silently lowers an unresolved identifier to the constant 0 — 🔴 OPEN (found 2026-09-27, work-1, review of the bare-name precedence fix)
 

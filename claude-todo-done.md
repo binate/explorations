@@ -1,3 +1,45 @@
+### A local `const` may redeclare a parameter or a name of its own block — accepted; the group form reads the other one — DONE (binate `f037beaef`, 2026-09-28, work-4; the local-const rule itself is still open, see the todo entry "Is a local `const` redeclaring a name of its own block an error?")
+- `func k2(N int) int { const N = 7; return N }` is accepted; `var N` there correctly gives "N redeclared
+  in this scope".  So are a `for N := …` loop variable redeclared by a `const N` in the loop body, and
+  `var A int = 1; const ( A = 2 )` in one block.
+- The single-const form returns the const (7); the group form `const ( N = 7 )` returns the parameter or
+  var (3 / 1): the checker defines the const, but IR-gen's EXPR_IDENT tries `lookupVar` first.
+- Cause: the checker's local-const definition path (a DeclStmt's `checkConstDecl` / `checkGroupDecl`) has
+  no same-scope redeclaration check.  Fix: report the redeclaration exactly as the local `var` path does.
+  A const in a nested block shadowing an outer var is legitimate and works.
+- **Needs a user decision (2026-09-28):** the spec is silent on a local `const` redeclaring a name of its
+  own block.  `decl.var.redeclare` makes it an error for `var`; `decl.shortvar.no-new-name-rule` makes `:=`
+  rebind.  The fix in progress rejects a grouped `var` member (spec-backed), makes the checker and IR-gen
+  agree that the later binding wins for a local `const`, and leaves that accepted pending the decision.
+- Resolved (binate `f037beaef`): a grouped `var` member in a block is checked for redeclaration like a
+  single `var` (decl.var.redeclare); IR-gen binds each local constant (single or group member) in ctx.Vars
+  with no storage, so the checker and IR-gen agree on the binding a read gets (later binding wins), a
+  nested local const group shadows an outer var, untyped local constants stay untyped at their uses, and
+  function literals see the enclosing function's constants.  Tests: conformance spec/09 062, 063, 066, 067.
+
+
+### A constant declared both as a single const and in a group, or in two groups, is not reported — DONE (binate `f037beaef`, 2026-09-28, work-4)
+- `const A = 5` plus `const ( A = 9; Z = A + 1 )` in one package is accepted; expected "A redeclared in
+  this block".  Which value each use reads depends on declaration order and differs between compilers.
+  A duplicate within one group is reported.
+- Cause: `checkDuplicateDecls` skips group entries and compares within one declaration list only.  Fix:
+  include group members (const, and check var/type groups too) in the package-level duplicate check.
+- No test yet.
+- Resolved (binate `f037beaef`): `checkDuplicateDecls` runs once over a package's declarations, group
+  members and types included (two type declarations of a name stay with `checkTypeRedeclaration`).  It
+  also rejects a `.bn` repeating its `.bni`'s constant (spec `pkg.bni`); the five packages that did so
+  now declare them only in the `.bni`.  Tests: conformance spec/09 064 and 065, 1381, 1322.
+
+
+### The checker accepts a type and an interface of the same name in one package — DONE (binate `f037beaef`, 2026-09-28, work-4)
+
+`type A struct {…}` + `interface A {…}`: `checkDuplicateDecls` skips DECL_TYPE and
+`checkTypeRedeclaration` compares types with types, so neither reports it; the later decl silently
+overwrites the scope symbol.  Fix: report "A redeclared in this block" for a type/interface clash.
+Covered by conformance 1322_err_type_iface_same_name (xfail.all, binate `b78c88f61`).
+- Resolved by the package-wide duplicate check (binate `f037beaef`); conformance 1322 passes (xfail removed).
+
+
 ### `bnfmt` silently deleted every `defer` statement — ✅ LANDED 417ef22c6 (2026-09-28), work-3; pre-release `bnc-0.0.17-pre1`
 
 `printStmt` had no `STMT_DEFER` case and every unlisted statement kind fell through to "STMT_EMPTY prints
