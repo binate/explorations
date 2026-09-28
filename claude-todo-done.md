@@ -24902,3 +24902,11 @@ already-owned moved-in user params leaked.  Now the copy call carries its own pa
 (releasing the owned params, but NOT the copy target — its fields are not yet
 RefInc'd there), verified structurally (`gen_method_value_wrapper_test.bn`).
 
+
+## Native bounds check is one unsigned compare on x64 and arm32 — DONE (2026-09-28, binate 3e341d5c0)
+
+x64 emitted two signed compares for `OP_BOUNDS_CHECK` (`cmp i,0; jl` + `cmp i,len; jl`) where aa64
+already used one unsigned compare (`b.lo`). x64 now emits `cmp idx,len; jb ok` and arm32 `cmp; blo`
+(arm32 had the same two-compare shape). Sound because every bounds-check length is >= 0, so a
+negative index reinterpreted as unsigned is >= len. Unit tests pin the single-compare form on both
+backends; native x64 and native arm32-linux conformance were fully green.

@@ -1333,8 +1333,6 @@ that mostly follows from the same live aggregate state.
   stack slot every iteration (x64 `mov rcx,[rsp+..]; shl edx,cl`; aa64 `ldr x9,[sp,..]; lsl w,w,x9`).
   Needs: the const materialization not to hide the constant from shift-by-immediate selection
   (fold `add C,0`/propagate before LICM, or rematerialize constants instead of spilling). 🟡 IN PROGRESS (claimed 2026-09-28, claude/exciting-davinci-wahyt2 session)
-- **x64 bounds check is two signed compares** (`cmp i,0; jl` + `cmp i,len; jl`); aa64 already emits
-  one unsigned compare (`b.lo`). Port the unsigned single-compare form to x64. 🟡 IN PROGRESS (claimed 2026-09-28, claude/exciting-davinci-wahyt2 session)
 - **x64 element-address scaling uses `imul r,r,0x20`**; aa64 uses `lsl #5`. Use `shl`/scaled
   addressing for power-of-two element sizes on x64. 🟡 IN PROGRESS (claimed 2026-09-28, claude/exciting-davinci-wahyt2 session)
 - **Managed-slice header reloaded through its stack slot every iteration** (both backends, ~10
