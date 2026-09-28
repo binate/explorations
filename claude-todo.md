@@ -21,18 +21,6 @@ storage (`lookupVar`); every other base evaluates the array VALUE and copies it 
 **Test:** conformance `1339_array_slice_addressable_base_aliases` (`.xfail.all`, binate `10176f81`).
 
 
-### IR-gen ignores type declarations inside a `type ( ... )` group — silent wrong values — 🟡 IN PROGRESS (claimed 2026-09-27, work-1 — user: "I guess you can take that CRITICAL next."; found 2026-09-27, work-1, review of the declaration-order fix; pre-existing)
-
-`type ( S struct { x int }; C int; P = *C )`: IR-gen never registers grouped type declarations —
-GeneratePackage's first pass reaches a DECL_GROUP only through genConstGroup / registerVarGlobals, and
-the struct-name pre-pass, RegisterStructTypes and RegisterSelfTypes (and the dependency-ordered alias
-registration) look at top-level decls only (the checker handles groups).  A grouped struct's `s.x` →
-"unresolved selector" (VM) / wrong types (compiled); a grouped alias lowers as `int`: `P = *C` then `*p`
-printed an address, and a library's grouped `F = float64` got an i64 ABI (garbage floats on native / the
-VM, clang error on LLVM).  Fix: flatten a group's DECL_TYPE members everywhere IR-gen walks type
-declarations (every pass above; findNonStructTypeDecl).  Covered by conformance 1334_type_decl_group
-(xfail.all, binate `acc01c4a9`).
-
 ### Type-wrapper peel bug cluster (named / alias / readonly handled inconsistently across IR-gen, the VM lowering, codegen, and the checker) — silent wrong values, memory corruption, use-after-free — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-26, work-5/session — user: "take on the critical, then the majors")
 
 **Class:** a type decision (Kind / Width / Signed / float-vs-int / managed-vs-raw / aggregate-vs-scalar)

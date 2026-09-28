@@ -1,3 +1,14 @@
+### IR-gen ignored type declarations inside a `type ( ... )` group — DONE (binate `9d1ecfc20`, 2026-09-27)
+
+Every file entering IR-gen has its type groups flattened into their member declarations (flatTypeGroups,
+gen_type_groups.bn; the list-taking Register* entry points are wrappers over `…Flat` bodies), so grouped
+structs, named types, aliases and generics are registered — a grouped `P = *C` had printed an address and a
+library's grouped `F = float64` got an i64 ABI.  Also: the checker's `.bni` build skips a grouped generic
+struct in Pass 2 (was "undefined: T"), and the REPL evaluates a type / var group at the prompt member by
+member (promptDeclUnits; the next use had panicked the session / a grouped var read 0).  Tests: conformance
+1334 (xfail removed), 1340; e2e/repl.sh `tier2-type-and-var-groups`; irgen / repl unit tests.  Also landed:
+spec rule `type.alias.acyclic` (docs `ddbf38c`) with its spec test (binate `33f46e873`).
+
 ### `pkg/std/os` follow-ons: `FileMode.String()` and `os.Symlink` — ✅ LANDED c9e65c7d9 (2026-09-27), work-3
 
 `FileMode.String()` renders exactly as Go's os.FileMode (the `.bni` already promised "would print the
