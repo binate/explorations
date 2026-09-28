@@ -26,6 +26,8 @@ emitManagedValueCopyRefInc (full peel, +@Iface) — fixes the over-released read
 / @func captures; conformance 1297.
 **VM side landed (`89a56168`):** 1297 was still a use-after-free under bni after `fdd2da32` (caught by
 the normal-test exit-status check: exit 139 after correct output); with `89a56168` it exits 0.
+**FIXED (`c469b2fcb`): widenType keeps a wrapped wider integer left operand's type** (was TypInt —
+32-bit on arm32 — truncating `N int64` / `readonly int64` ops); unit test + conformance 1318.
 **FIXED (`7d5cc9650`): VM lowering through every wrapper** — vmUnwrapNamed (named-only) deleted,
 all sites use vmPeelTransparent (sub-word load/store width + sign, OP_NEG, bit_cast, multi-return
 extract sign, named-over-readonly aggregate returns, named iface-value upcast); conformance 1315.
