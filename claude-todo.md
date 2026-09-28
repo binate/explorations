@@ -13,7 +13,7 @@ assertion / switch keys on the alias's own identity instead of canonicalizing it
 (canonicalIfacePkg / canonicalIfaceName) before the satisfaction lookup / iface-id reference.  Covered
 by conformance 1353_iface_alias_type_assert (xfail.all, binate `f0fc356bd`).
 
-### Importers resolve a package's type declarations under the MERGED file's imports — silent truncation — 🔴 OPEN (found 2026-09-28, work-1, review of the named-type identity fix; pre-existing)
+### Importers resolve a package's type declarations under the MERGED file's imports — silent truncation — 🟡 IN PROGRESS (found 2026-09-28, work-1, review of the named-type identity fix; pre-existing; claimed 2026-09-28, work-1 — user: "then proceed as proposed")
 
 `pkg/xf.bni` imports `dep "pkg/p2"` and declares `type TB = dep.W` (int64), while one of pkg/xf's `.bn`
 files imports `dep "pkg/p1"` (W is int8).  An importer's `var v xf.TB = 100000; v = v * 3` prints `-32`:
@@ -24,10 +24,10 @@ gen_import.bn ~:248) resolves every declaration under `pushFileImports(merged)`,
 to import an alias wins it.  The defining package itself is right only because GeneratePackage
 re-resolves its own declarations per file (declImportFile) into a separate entry.  Fix: give the
 pre-pass the per-file ASTs and resolve each declaration under its own file's imports, so every module
-builds the same, correct entry.  Test: conformance 1361_bni_type_decl_imports_importer (xfail.all; not
-yet landed); 1360_type_decl_per_file_imports guards the defining package's per-file resolution.
+builds the same, correct entry.  Test: conformance 1361_bni_type_decl_imports_importer (xfail.all, binate
+`01c7f6981`); 1362_type_decl_per_file_imports guards the defining package's per-file resolution.
 **Blocks** the named-type identity fix below, which makes the defining package reuse the pre-pass
-entry (that alone breaks 1360: a `.bn`-private `type TB = dep.W` becomes int8).
+entry (that alone breaks 1362: a `.bn`-private `type TB = dep.W` becomes int8).
 
 ### A package's own named non-struct type has several IR identities — generic-interface instances split, silent wrong code — 🟡 IN PROGRESS (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing; claimed 2026-09-28, work-1 — user: "yes take that CRITICAL next")
 
