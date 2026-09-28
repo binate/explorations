@@ -166,7 +166,7 @@ a package declarations may appear in any order.  The checker resolves parents in
 PURPOSE (`check_iface_extends.bn` header: only the interface itself is pre-defined, "so a
 forward-reference cycle to ANOTHER interface still surfaces as 'undefined'") — i.e. it uses
 declaration order as its cycle guard.  The same forward parent in a `.bni` is accepted (and IR-gen keeps
-it since `8a21b7b5b`-equivalent landing).  Fix: resolve parents after every interface of the package is
+it once the forward-declared-generic-parent fix, not yet landed, is on main).  Fix: resolve parents after every interface of the package is
 declared, and detect extension cycles explicitly (DFS over the parent graph).  NEEDS A USER DECISION —
 it changes what the checker accepts (to match the spec).  Covered by conformance
 1316_iface_forward_parent_local (xfail.all; not yet landed).
