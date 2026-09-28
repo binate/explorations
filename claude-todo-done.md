@@ -105,7 +105,8 @@ silently truncated to pkg/p1's int8 W.  The drivers now register every loaded pa
 ASTs (irgen.RegisterSourceFiles, a path-keyed table); each registration pass installs a declaration's own
 file's imports (declImports), a stashed generic is narrowed to its declaration's file at instantiation,
 and GeneratePackage's `.bni`-prepended declarations resolve under the `.bni`'s imports.  Conformance 1361
-(every shape) + 1362, unit tests.  The review found a pre-existing loader bug the registry depends on
+(every shape) + 1362, unit tests; 1375 (`95a3aa74f`) adds consts, extern vars, generic bodies and
+interface extension.  The review found a pre-existing loader bug the registry depends on
 (gated imports in multi-file packages — todo, test 1370).
 
 ### A named non-struct type has one identity — its package-qualified name — DONE (binate `224f837ba`, 2026-09-28, work-1)
