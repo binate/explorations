@@ -251,15 +251,6 @@ not resolve a selector whose base is an index of a slice EXPRESSION. Needs a con
 defined in the `.bn` produces invalid LLVM — `extractvalue i64` — instead of a diagnostic.)
 
 
-### A receiver binder named like a package type is rejected — ⚪ NEEDS DECISION (conflicts with the spec) (noted 2026-09-27 by another session as a "related" note on the generic-param shadowing CRITICAL; split out 2026-09-27, work-6, when that landed)
-
-`type Box[K any] …; type K = bool; func (b *Box[K]) Get() K` → "methods / impls on a specific
-instantiation are not allowed".  The note proposes that the binder should shadow the package type inside
-the receiver clause.  But spec §12 `gen.method.generic-recv` says each bracket name "shall not name a
-predeclared or in-scope type" — a bracket entry that resolves to a type is a specific-instantiation
-receiver, rejected (`gen.no-conditional-impls`) — so the current rejection is what the spec requires.
-Changing it is a language-rule (spec) change.  Decision needed before any implementation.
-
 ### arm32 hard-float: a homogeneous-float-aggregate `__c_call` ARGUMENT is passed in GP registers — C reads garbage from `s0…` — 🔴 OPEN (found 2026-09-27, work-3, stale-ABI-comment sweep)
 
 On `--target arm32-linux` (FLOAT_ABI_HARD) `HfaAggregates` stays false, so a float-only named struct /

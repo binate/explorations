@@ -1,3 +1,20 @@
+### A receiver binder named like a package type stays rejected (spec `gen.method.generic-recv` kept) — ❎ DECLINED (2026-09-28), work-6
+
+The note (added by another session to the generic-param shadowing CRITICAL) proposed that a receiver
+binder should shadow a same-named package type: `type Box[K any] …; type K = bool; func (b *Box[K]) Get()
+K` is rejected ("methods / impls on a specific instantiation are not allowed"), per spec §12
+`gen.method.generic-recv` ("shall not name a predeclared or in-scope type").  Declined (user: "yes, go
+ahead and close the note").  Rationale: receiver brackets carry no constraints, so they are
+syntactically identical to type arguments; the rule is what lets the checker diagnose an attempted
+specialization (`func (b *Box[int]) Sum() int`) instead of silently compiling it as a generic method
+with `int` renamed.  It also keeps the natural syntax free for eventual specialization of generics
+(`func (b *Box[int])`, `impl *Box[MyType] : I`, partial `*Pair[int, V]`): enabling it later turns a
+rejection into acceptance without changing any valid program, whereas shadowing would make those forms
+mean "binder" and foreclose it.  Declared forms (`type Box[K any]`, `func f[K any]`) are unambiguous, so
+their parameters shadowing package types is harmless.  Note for if specialization is ever added: a
+package type introduced later named like a binder would silently flip `func (b *Box[K])` from generic to
+specialized — consider an explicit specialization marker, or an error on a binder / type collision.
+
 ### A blank `type _ …` declaration binds no name; its type is still checked — ✅ LANDED 555fe855f (+ spec docs a1a6d30) (2026-09-28), work-6
 
 `type _ struct{...}` bound `_` as an ordinary type name (a second one was a "duplicate type definition";
