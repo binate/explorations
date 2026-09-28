@@ -34,21 +34,33 @@ commit per step; land each before starting the next.
    landed `fd8d2eafb` (2026-09-27), with the lexer's TOK_FLOAT floating-point literals.
 2. ✅ FMOV (immediate) + FMOV GP ↔ FP (W–S, X–D, W/X–H; zero is FMOV from WZR/XZR) — landed
    `75fbf40d0` (2026-09-27).  The 8-bit immediate is decided exactly (value × 128), never rounded.
-   isa.FMovTopHalf (`Xd, Vn.D[1]` and back) exists; its parse waits for B1's lane syntax.
+   FMOV `Xd, Vn.D[1]` and back (isa.FMovTopHalf) is parsed since B1's lane syntax (`7e91dc04f`).
 3. ✅ FP ↔ integer: FCVT{N,P,M,Z,A}{S,U} (integer and fixed-point `#fbits`), SCVTF / UCVTF (both),
    FJCVTZS, and FEAT_FPRCVT (integer in an S / D register of a different size) — landed `abc0540ed`
    (2026-09-27).  The same-size FP-register forms (`fcvtzs s0, s1`) are Advanced SIMD scalar → B4.
 4. ✅ Move `asm/aarch64/aarch64_fp.bn` onto the isa FP encoders — landed `867f6c45c` (2026-09-27).
 
 **B. Advanced SIMD vector** (each class also has its scalar forms where the architecture defines them)
-1. Syntax infrastructure: `vN.<T>` arrangements, `vN.<T>[i]` lanes, `{…}` register lists (comma and
-   range forms), scalar SIMD registers in vector instructions; then parse FMOV `Xd, Vn.D[1]` / back.
-2. Three same (integer, FP, FP16, extra: SDOT / UDOT / SQRDMLAH / FCMLA / FCADD …).
+1. Syntax infrastructure.
+   - ✅ `vN.<T>` arrangements (incl. the partial 2b / 4b / 2h), `vN.<t>[i]` lanes (also on a partial
+     arrangement: `v2.4b[3]`), `vN.<suffix>` always a register (unknown suffix = "invalid vector kind
+     qualifier", as clang; ADR / ADRP's symbol reading of such names is a deliberate reject), FMOV
+     `Xd, Vn.D[1]` / back, and — brought forward from B5 — the copy class (DUP / INS / UMOV / SMOV and
+     their MOV aliases) — landed `7e91dc04f` (2026-09-28).
+   - `{…}` register lists: comma and range forms (`{v1.16b-v4.16b}`), wrapping mod 32
+     (`{v31.16b, v0.16b}`), 1–4 registers, a lane after the brace (`{v0.s, v1.s}[1]`).  Clang: an
+     empty list, a trailing comma, mixing range and comma forms, a descending or 1-register range, `q`
+     registers are rejected; it compares the suffixes case-sensitively (`{v1.16B, v2.16b}` = "mismatched
+     register size suffix") — follow clang unless the user decides otherwise.
+   - Scalar SIMD registers in vector instructions (with the classes that use them).
+2. Three same (integer, FP, FP16, extra: SDOT / UDOT / SQRDMLAH / FCMLA / FCADD …), including the
+   whole-vector `mov Vd.<T>, Vn.<T>` (ORR alias; today rejected as "not supported yet" — clang accepts
+   it for 8b / 16b / 4h / 8h / 2s / 4s / 1d / 2d, and rejects other arrangements, which must stay
+   rejected).
 3. Three different (long / wide / narrow, PMULL).
 4. Two-register miscellaneous (incl. FP16; incl. the scalar FCVT* / SCVTF / UCVTF `s0, s1` forms)
    and across-lanes.
-5. Copy (DUP / INS / UMOV / SMOV / MOV aliases) and modified immediate (MOVI / MVNI / ORR / BIC /
-   FMOV vector).
+5. Modified immediate (MOVI / MVNI / ORR / BIC / FMOV vector).  (The copy class landed with B1.)
 6. Shift by immediate (incl. narrowing / long / fixed-point conversions).
 7. Vector × indexed element.
 8. Permute (ZIP / UZP / TRN), EXT, TBL / TBX.
