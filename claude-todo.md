@@ -306,7 +306,7 @@ method-receiver wrapper fix (pre-existing).  Likely the defer method-resolution 
 (gen_defer_build.bn deferMethodRecvType / buildDeferMethod — also named in the wrapper-peel cluster
 for named-distinct receivers) doesn't resolve a method declared on a named pointer type.
 
-### An imported package's alias of a THIRD package's generic instantiation resolves to `int` in IR-gen — 🔴 OPEN (found 2026-09-27, work-1, review of the alias-receiver fix; reproduced by the reviewer, pre-existing)
+### An imported package's alias of a generic instantiation (its OWN generic or a THIRD package's) resolves to `int` in IR-gen — 🔴 OPEN (found 2026-09-27, work-1, review of the alias-receiver fix; reproduced by the reviewer, pre-existing; widened 2026-09-27, work-6)
 
 pkg/home has `type VI = bx.Box[int]` (bx another package's generic): `RegisterStructTypes`
 (`gen_module_register.bn` ~:117-123) resolves the alias before the generic decl is stashed (later, in
@@ -316,6 +316,12 @@ first match.  Effects: `var v home.VI; v.Get()` → undefined `…lang.int.Get` 
 "unresolved selector in IR-gen"; `impl *home.VI : I` keys on (pkg/home, VI) (native link failure).  A
 local `type LV = bx.Box[int]` works.  Fix: stash generic type decls before aliases are resolved, and/or
 replace a stale entry instead of appending a second one.
+
+Not limited to a THIRD package's generic (widened 2026-09-27, work-6, review of the generic-method
+param-shadowing fix; reproduced): an alias of the package's OWN generic fails the same way —
+`type IntBox = Box[int]` in `home.bni` (with `Box[T]` and `func (b *Box[U]) Val() U` in the same
+`.bni`), then `var b home.IntBox; b.Val()` in main → link failure (undefined `…lang…int…Val`), with or
+without a `home.bn`.  The checker accepts it; the failure is IR-gen's.
 
 ### Bugs found reviewing the identity refactor (pre-existing) — 🔴 OPEN (found 2026-09-27, work-1; reproduced by the reviewer)
 
