@@ -66,8 +66,13 @@ commit per step; land each before starting the next.
      the FCMLE / FCMLT / FACLE / FACLT register aliases (scalar H forms rejected, as clang; the
      review reports the architecture defines none of the four) — landed `9b90c8190` (2026-09-28).
      Still to come in other classes: FP by-element (B7), scalar pairwise FADDP / FMAXP / … (B4).
-   - (c) three same extra: SQRDMLAH / SQRDMLSH, SDOT / UDOT / USDOT, FCMLA / FCADD, SMMLA / UMMLA /
-     USMMLA, BFDOT / BFMMLA / BFMLAL, FMLAL / FMLSL (FHM), and the FP8 forms.
+   - (c) three same extra, in three commits:
+     - ✅ (c1) SQRDMLAH / SQRDMLSH (vector + scalar), SDOT / UDOT / USDOT, SMMLA / UMMLA / USMMLA —
+       landed `59a621006` (2026-09-28).
+     - (c2) FCMLA / FCADD (#rot), BFDOT / BFMMLA / BFMLALB / BFMLALT, FMLAL / FMLSL / FMLAL2 / FMLSL2
+       (FHM, in the plain three-same encoding).
+     - (c3) FP8: FDOT (2-way / 4-way), FMLALB / FMLALT, FMLALLBB / BT / TB / TT, FMMLA (F8F16MM /
+       F8F32MM), and any FP8 three-operand FCVTN.
 3. Three different (long / wide / narrow, PMULL).
 4. Two-register miscellaneous (incl. FP16; incl. the scalar FCVT* / SCVTF / UCVTF `s0, s1` forms)
    and across-lanes.
