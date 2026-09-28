@@ -125,6 +125,21 @@ spec should say so (and a lint could flag fresh managed temporaries in a raw-sli
   (`gen_iface_registry.bn` ~:72 handles only `TEXPR_NAMED`) → `g.get()` prints 0 in the VM, compiled
   ICEs.  The EBNF allows `interface X = TypeName[..]`; implement the `TEXPR_INSTANTIATE` case.
 
+### Duplicate type-parameter names in a generic function / type declaration are accepted — native miscompile (segfault), invalid LLVM IR — 🔴 OPEN (found 2026-09-27, work-6, review of the receiver-binder change; reproduced; pre-existing)
+
+`func pick[T any, T any](x T) T` called as `pick[int8, S](s)`, and `type Dup[T any, T any] struct{x T; …}`
+used as `Dup[int8, S]`, are accepted.  The checker's scope keeps the LAST binding (`Scope.Define`
+overwrites: T = position 1) while IR-gen's substitution takes the FIRST match in
+`CurrentTypeParamNames` (T = position 0), so the two disagree on every use of T.  LLVM backend: invalid
+IR (`sext i8 to %S`), clang rejects.  Native (aarch64): compiles, then SIGSEGV at run time (repro: the
+two decls above, printing fields of the result).  Several `_` parameters (`func f[_ any, _ any]`) are the
+same shape.  Fix: reject a type-parameter name declared twice (installTypeParamScope, and the collection
+of generic type / interface declarations), as receiver binders now do.  **Decision needed first:** what
+`_` means in a DECLARED type-parameter list — today `func id[_ any](x _) _ { var y _ = x; return y }`
+compiles (`_` is an ordinary name there).  For receiver binders `_` binds its position unnamed (not
+usable as a type); the consistent choice would make a declared `_` parameter unnamed too (so `x _` is
+undefined), with any number of `_` positions allowed.
+
 ## MAJOR
 
 ### A receiver binder named like a package type is rejected — ⚪ NEEDS DECISION (conflicts with the spec) (noted 2026-09-27 by another session as a "related" note on the generic-param shadowing CRITICAL; split out 2026-09-27, work-6, when that landed)
@@ -275,7 +290,8 @@ go wrong:
 a negative constant count in a constant `unsafe_shl` / `unsafe_shr` is a compile-time error ("3. compile-time
 check seems fine."), to be written into §13.5 `expr.shift.untyped-value.unsafe` / `expr.shift.negative`;
 so is a constant `unsafe_shl` / `unsafe_shr` of a typed value by a count ≥ its width ("I guess it can be
-an error, given that it's undefined at runtime").  Plan: `plan-constant-evaluator.md`; step 1 (the
+an error, given that it's undefined at runtime").  An untyped constant declared in a `.bni` stays untyped for
+its importers, as an in-package one does (the checker typed it `int`; user, 2026-09-27: "yes").  Plan: `plan-constant-evaluator.md`; step 1 (the
 `constval` package) LANDED (binate `b6314e316`); step 2 (switch the checker and IR-gen) in progress.
 
 The fix, covering these and the typed-constant cases above: one exact, type-aware constant evaluator
@@ -353,6 +369,13 @@ duplicate binder name at the declaration (and add the distinctness to the spec r
 needed** on `_` (reject, or allow as an unnamed binder).  Related cosmetic: a malformed `.bni` receiver
 (wrong arity / non-binder) also yields a cascade "wrong number of type arguments to generic type" from
 `copyImportedGenericMethods` re-resolving it.
+
+### A package's `type _ …` declaration binds `_` as a type name — ⚪ NEEDS DECISION (found 2026-09-27, work-6, review of the receiver-binder change; reproduced; pre-existing)
+
+With `type _ struct{ z int }` in a package, `_` resolves as that type: `func (p *Pair[_, V]) First() _ {
+var r _; return r }` compiles and runs (a blank receiver binder is otherwise not usable as a type).  The
+spec says nothing about a blank type declaration.  Decide whether `type _ …` is rejected, or accepted
+and binds nothing (as a blank `_` does elsewhere); either way `_` should not become a usable type name.
 
 ### Bugs found reviewing the identity refactor (pre-existing) — 🔴 OPEN (found 2026-09-27, work-1; reproduced by the reviewer)
 
