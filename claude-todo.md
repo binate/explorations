@@ -2384,7 +2384,7 @@ urgency (no current miscompile; the writable placement is safe, just unhardened)
 
 ## Testing: harness, runners & conformance coverage
 
-### `TestArm64FormatSelectsWriterAndPrefix` writes fixed `/tmp` paths — races with a concurrent aarch64 test run — 🔴 OPEN (found 2026-09-26)
+### `TestArm64FormatSelectsWriterAndPrefix` writes fixed `/tmp` paths — races with a concurrent aarch64 test run — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-28, work-3/session)
 
 `pkg/binate/native/aarch64/aarch64_test.bn` (~93) writes `/tmp/binate_aa64_fmt_macho.o` and
 `/tmp/binate_aa64_fmt_elf.o`; two aarch64 test binaries running at once (concurrent sessions, CI
