@@ -163,7 +163,7 @@ binder per type parameter, so the binders cover every position.)
 
 ## MAJOR
 
-### The checker rejects an interface whose parent is declared later in a `.bn` — valid code rejected — 🔴 OPEN (found 2026-09-27, work-1, fixing the forward-declared generic parent)
+### The checker rejects an interface whose parent is declared later in a `.bn` — valid code rejected — 🟡 IN PROGRESS (claimed 2026-09-27, work-1 — user: "Yes, if it's accepted in the .bni, it should be accepted in the .bn."; found 2026-09-27, work-1, fixing the forward-declared generic parent)
 
 `interface A : B` (or `: G[int]`) before `interface B` / `interface G[T any]` in a `.bn` → "undefined: B"
 + "interface extension target must be an interface, got void".  Spec `decl.order.forward` (§9.8): within
@@ -172,8 +172,7 @@ PURPOSE (`check_iface_extends.bn` header: only the interface itself is pre-defin
 forward-reference cycle to ANOTHER interface still surfaces as 'undefined'") — i.e. it uses
 declaration order as its cycle guard.  The same forward parent in a `.bni` is accepted (and IR-gen keeps
 it, binate `68dd1ef02`).  Fix: resolve parents after every interface of the package is
-declared, and detect extension cycles explicitly (DFS over the parent graph).  NEEDS A USER DECISION —
-it changes what the checker accepts (to match the spec).  Covered by conformance
+declared, and detect extension cycles explicitly (DFS over the parent graph).  Covered by conformance
 1317_iface_forward_parent_local (xfail.all, binate `e4308008d`).
 
 ### IR-gen silently lowers an unresolved identifier to the constant 0 — 🔴 OPEN (found 2026-09-27, work-1, review of the bare-name precedence fix)
