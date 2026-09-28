@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### Slicing an array reached other than by name slices a TEMPORARY COPY — writes lost, possible use-after-free — 🔴 OPEN (found 2026-09-28 by the review of the array-slice bounds-check fix, claude/exciting-davinci-wahyt2 session; pre-existing)
+### Slicing an array reached other than by name slices a TEMPORARY COPY — writes lost, possible use-after-free — 🟡 IN PROGRESS (found 2026-09-28 by the review of the array-slice bounds-check fix, claude/exciting-davinci-wahyt2 session; pre-existing; claimed 2026-09-28, same session — user: "yes, fix it now")
 
 **Symptom:** `s.arr[1:3]`, `(*p)[2:4]`, `n[1][0:3]` (and `(*mp)[...]` for `@([4]int)`) produce a slice
 of a fresh stack copy, not of the array: a write through the slice is invisible through the array.
@@ -18,7 +18,7 @@ storage (`lookupVar`); every other base evaluates the array VALUE and copies it 
 ("Fallback: alloc + store"), and the slice borrows the copy.
 **Fix:** for any addressable array base (selector, deref, index, ...) take its address — the way
 `genIndexPtr` / `genAddrOf` do — and slice that; copy only for a genuine r-value (call result).
-**Test:** conformance `1327_array_slice_addressable_base_aliases` (`.xfail.all`, not yet landed).
+**Test:** conformance `1339_array_slice_addressable_base_aliases` (`.xfail.all`, binate `10176f81`).
 
 
 ### IR-gen ignores type declarations inside a `type ( ... )` group — silent wrong values — 🟡 IN PROGRESS (claimed 2026-09-27, work-1 — user: "I guess you can take that CRITICAL next."; found 2026-09-27, work-1, review of the declaration-order fix; pre-existing)
@@ -210,24 +210,6 @@ prompt's synthetic is lowered per decl (LowerOneFunc), and the (instantiation, i
 on the session module at the boxing site (ensureGenericImplInfo) never reaches the VM's vtable table,
 which is built by LowerModule.  Fix: lower newly minted impl rows / vtables when a prompt decl is lowered.
 No test yet — e2e/repl.sh has no expected-failure mechanism; add a case with the fix.
-
-### Slicing an ARRAY is never bounds-checked — out-of-bounds slices in safe code, every backend — 🟡 IN PROGRESS (found 2026-09-28, claude/exciting-davinci-wahyt2 session, by the review of the single-unsigned-compare bounds check; claimed 2026-09-28, same session — user: "1.")
-
-**Symptom:** `var a [4]int; a[0:9]` yields a length-9 slice and `a[3:1]` a length −2 slice, with no
-fault, on the VM, LLVM and native (reproduced on main; the reviewer also on the pinned BUILDER 0.0.16).
-Reads/writes through the result are out of bounds. Same for `(*p)[lo:hi]` on a pointer to an array.
-**Root cause:** `irgen/gen_slice.bn` (~151-225) emits the hi (`hi < len+1`) and lo (`lo < hi+1`)
-checks only under `if isSliceType(collSt)`; `collSt` is the ORIGINAL collection type, still
-`TYP_ARRAY` for an array (it is converted to a slice before the checks), so neither check is emitted.
-**Why it matters beyond itself:** a negative slice length breaks the invariant the native backends'
-single unsigned bounds compare relies on (every OP_BOUNDS_CHECK length >= 0): with len −2, native
-aarch64 (already) and x64/arm32 (with the unsigned-compare change, held back for this) accept almost
-any index, where LLVM's signed form still traps.
-**Fix:** emit the two checks for the array arm too — against the array's constant length (or classify
-on the post-conversion slice type). **Tests:** conformance `1324_err_array_slice_hi_past_len`,
-`1325_err_array_slice_lo_past_hi` (`.xfail.all`, not yet landed — waiting on the user); drop the
-markers with the fix.
-
 
 ### Typed-constant expressions are folded without their type — silent wrong values, a compiler ICE, valid code rejected — 🟡 IN PROGRESS (found 2026-09-27, work-4, verifying the typed-constant rule for the untyped-bitwise spec change; pre-existing; claimed 2026-09-27, work-4/session — user: "That order is fine": right after the untyped-bitwise change lands)
 

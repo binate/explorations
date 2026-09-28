@@ -1,3 +1,27 @@
+### Slicing an ARRAY was never bounds-checked — ✅ DONE (2026-09-28, binate `d94117ee`)
+
+gen_slice now classifies on the collection after the array-to-slice conversion, so `arr[lo:hi]` (and
+`(*p)[..]`, named/readonly arrays, fields, call results) gets the hi/lo checks against the array length.
+Conformance 1336 (hi > len), 1337 (lo > hi), 1338 (valid edges). Found by the review of the
+single-unsigned-compare bounds check (whose soundness needs every checked length >= 0). Original entry:
+
+> ### Slicing an ARRAY is never bounds-checked — out-of-bounds slices in safe code, every backend — 🟡 IN PROGRESS (found 2026-09-28, claude/exciting-davinci-wahyt2 session, by the review of the single-unsigned-compare bounds check; claimed 2026-09-28, same session — user: "1.")
+>
+> **Symptom:** `var a [4]int; a[0:9]` yields a length-9 slice and `a[3:1]` a length −2 slice, with no
+> fault, on the VM, LLVM and native (reproduced on main; the reviewer also on the pinned BUILDER 0.0.16).
+> Reads/writes through the result are out of bounds. Same for `(*p)[lo:hi]` on a pointer to an array.
+> **Root cause:** `irgen/gen_slice.bn` (~151-225) emits the hi (`hi < len+1`) and lo (`lo < hi+1`)
+> checks only under `if isSliceType(collSt)`; `collSt` is the ORIGINAL collection type, still
+> `TYP_ARRAY` for an array (it is converted to a slice before the checks), so neither check is emitted.
+> **Why it matters beyond itself:** a negative slice length breaks the invariant the native backends'
+> single unsigned bounds compare relies on (every OP_BOUNDS_CHECK length >= 0): with len −2, native
+> aarch64 (already) and x64/arm32 (with the unsigned-compare change, held back for this) accept almost
+> any index, where LLVM's signed form still traps.
+> **Fix:** emit the two checks for the array arm too — against the array's constant length (or classify
+> on the post-conversion slice type). **Tests:** conformance `1324_err_array_slice_hi_past_len`,
+> `1325_err_array_slice_lo_past_hi` (`.xfail.all`, not yet landed — waiting on the user); drop the
+> markers with the fix.
+
 ### A named function-value type over a readonly function value was not a function value in IR-gen — DONE (binate `4fb867404`, 2026-09-27, work-5)
 
 `type RF readonly @func() int` / `type RNF readonly *func(int) int`: typeDeclEntryType, genCall's func-value
