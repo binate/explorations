@@ -5,6 +5,19 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
+### Same-named interfaces from two packages collide as generic type arguments — one instance, wrong dispatch — 🔴 OPEN (found 2026-09-28, work-1, fixing the alias-as-type-argument CRITICAL; pre-existing)
+
+`pkg/a` and `pkg/b` each declare `interface P` (different method sets); `H[*a.P]` and `H[*b.P]` get ONE
+instance (`__ifaceid.…H1_iN0_1_P`): `hb.Inner().Name()` and `.Extra()` return 0 (dispatched through
+`H[*a.P]`'s table), and a value implementing only `H[*a.P]` asserts as `H[*b.P]` — LLVM, native aa64 and
+the VM alike.  Root cause: irutil.MangleTypeArg mangles a TYP_INTERFACE leaf by
+`QualifiedTypeName()`, and an interface type's `Name` is bare (its package is in `.Pkg`), unlike a named
+struct's already-qualified `Name` — so the token carries no package (`N0_1_P`).  Fix: mangle an interface
+leaf qualified by its package (the universe `any` stays `any`); check the demangler and any other
+consumer of the token, and whether `QualifiedTypeName` itself should qualify interfaces (other identity
+keys built from it would collide the same way).  Test: conformance 1379_generic_iface_arg_same_name_pkgs
+(xfail.all; not yet landed).
+
 ### A generic interface instantiated with a type argument spelled through an interface alias is a DIFFERENT interface — silent wrong result, crash — 🟡 IN PROGRESS (found 2026-09-28, work-1, review of the instantiated interface-alias fix; upgraded to CRITICAL by the review of the alias-assertion fix; pre-existing; claimed 2026-09-28, work-1 — user: "take on the bugs that you filed")
 
 `interface PA = P`, `impl *U : G[*P]`:
