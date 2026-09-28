@@ -76,7 +76,33 @@ fixed rows are in claude-todo-done.md.
   - [minor] `readonly_uninit.bn:27` lintUninitReadonlyGlobal — wrapper: alias of readonly (`type RO = readonly int — Lint false negative: an uninitialized file-scope global of an alias-of-readonly type is not flagged, though the checker rejects every write to it (IsReadonly peels the alias), so it is zero forever.
 ```
 
+### A parallel short-variable declaration `a, b := x, y` binds only the first pair — silent wrong code — 🔴 OPEN (found 2026-09-28, work-6, probe during the blank-identifier review; reproduced; pre-existing)
+
+`a, b := 2, 3` leaves `b` = 0; `c, d := 4, bump(9)` never calls `bump` (its side effects are lost) and
+`d` = 0.  genShortVar (irgen/gen_short_var.bn ~:24-82) handles only the N-to-1 multi-return form; for
+len(Exprs) == len(Exprs2) > 1 it falls into the single-assign path on Exprs[0] / Exprs2[0] and ignores the
+rest.  The checker accepts the form (spec §9.3 `decl.shortvar`).  Wrong on LLVM, the VM (bni) and the
+REPL; present in the bnc of 2026-09-27.  Fix: evaluate every right-hand side left to right into temps
+(managed acquire as in the single case), then bind each non-blank name (a blank target still evaluates
+its RHS).  Needs a conformance test covering side effects and managed values.
+
+### Ranging over an array rvalue (`for x in [2]int{1, 2}`) is miscompiled on every backend — 🔴 OPEN (found 2026-09-28, work-6, probe during the blank-identifier review; reproduced; pre-existing)
+
+Spec §14.9 `stmt.for.in` allows ranging over an array value.  With a composite literal (or an
+array-returning call) as the operand: LLVM gets invalid IR (the literal is treated as a slice,
+`extractvalue` on a non-aggregate — clang rejects), native silently runs ZERO iterations, the VM
+segfaults.  Fix: when the range operand is a non-addressable array value, materialize it into a temp and
+range over that, as for an array variable.  Needs conformance coverage for array-literal and
+array-returning-call operands in every mode.
+
 ## MAJOR
+
+### Importing one package twice (a blank import plus a named one, or two aliases) makes the LLVM backend emit its externs twice — clang rejects — 🔴 OPEN (found 2026-09-28, work-6, probe during the blank-identifier review; reproduced by the prober; pre-existing)
+
+`import _ "pkg/qa"` + `import q "pkg/qa"` (or two aliases of one path): every extern of pkg/qa is
+`declare`d twice in the .ll ("invalid redefinition of function …").  Native and the VM are fine.  Fix:
+deduplicate import registration / extern declarations by package path, not per import alias.  Needs a
+positive conformance test with blank+named and two-alias imports of one package.
 
 ### `bnfmt` silently DELETES every `defer` statement — 🔴 OPEN (found 2026-09-28, work-3, fixed-/tmp test sweep)
 
