@@ -127,6 +127,20 @@ fixed rows are in claude-todo-done.md.
 
 ## MAJOR
 
+### A `#[build]`-gated import in a package with several `.bn` files is not gated per file — "unknown package" — 🔴 OPEN (found 2026-09-28, work-1, review of the per-file import pre-pass fix; pre-existing)
+
+`pkg/sel/a.bn`: `#[build(<false>)] import "pkg/never"`; `pkg/sel/b.bn` a second file.  Build fails
+"a.bn:…: unknown package".  The loader's gate (`gateMerged`, loader/buildconfig.bn) drops gated-out
+imports only from `merged.Imports`; with two or more `.bn` files the per-file ASTs (`Package.Files`) keep
+them, and the checker's per-file scopes (`buildFileScopes`) register the gated-out, never-loaded import.
+A single-file package works only because its merged file IS that file (gated in place).  IR-gen's
+per-file import overlays (GeneratePackage, and the registration passes' RegisterSourceFiles registry)
+install the same ungated `files[i].Imports`, so once the checker side is fixed a same-alias gated pair
+(`#[build(darwin)] import sys ".../darwin"` / `#[build(linux)] import sys ".../linux"`) would bind to the
+gated-out package in IR-gen.  Fix: the loader gates each file's imports (every `files[i]` and the `.bni`),
+not just the merged list.  Test: conformance 1370_build_gated_import_multi_file (xfail.all; not yet
+landed).
+
 ### A `.bni` forward `type X` completed by a NON-struct `type X int` in the `.bn` — checker accepts, IR-gen internal error — 🔴 OPEN (found 2026-09-28, work-1, review of the named-type identity fix; pre-existing)
 
 `pkg/h.bni`: `type Handle` plus `func Make(v int) @Handle`; `pkg/h/h.bn`: `type Handle int`.  The
