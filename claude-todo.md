@@ -130,6 +130,17 @@ with xfail markers to be added with the fix or ahead of it.
 
 ## MAJOR
 
+### A package-level NON-type declaration named like a predeclared type (`func uint16()`) shadows it only after its own position — invalid code accepted in one order — 🔴 OPEN (found 2026-09-28, work-5, review of the named-scalar-constants fix; pre-existing)
+
+`type N2 uint16; const c2 N2 = 5; func uint16() {}` is accepted, while the same declarations with
+`func uint16() {}` first give "uint16 is not a type".  A package-level name is visible throughout the
+package, so both orders must be rejected.  **Root cause:** only type declarations are pre-registered
+(preRegisterTypeNames); a func / var / const of a predeclared type's name enters the package scope
+only when collectDeclsBody reaches it, so earlier type references (and the scalar pre-fill) resolve
+the name to the universe type.  **Fix:** pre-register (or at least reserve) every package-level name
+before any type expression is resolved, so a non-type declaration shadows the predeclared type from
+the start.  **Test:** checker unit test for both orders (with the fix).
+
 ### A deferred method call on a generic instantiation or an imported type panics — "defer of an unresolved method call" — 🔴 OPEN (found 2026-09-28, work-5, review of the defer named-receiver fix; pre-existing)
 
 `var b @Box[int]; defer b.Get()` and `var sb @strings.Builder; defer sb.WriteByte(…)` panic "defer of an
