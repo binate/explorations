@@ -2244,7 +2244,12 @@ urgency (no current miscompile; the writable placement is safe, just unhardened)
 shards, parallel mutation runs) overwrite each other's file — it failed once ("format=elf should emit
 an ELF object") during the T6 b3 review's parallel runs and passes alone.  **Fix:** a per-run unique
 path (mktemp-style, or under the test's build dir), and grep the other test packages for fixed `/tmp`
-outputs.
+outputs.  **Sizing (2026-09-27 recon):** the same race is the norm, not an outlier — a repo-wide grep
+finds ~400 fixed `/tmp/binate_*` paths in ~60 `*_test.bn` files (`pkg/binate/link/*` ~180,
+`asm/elf` 32, `asm/macho` 16, `native/{aarch64,x64,arm32}` + `native_test` ~25, `std/os` + `os/sys`
+~65, `cmd/{bnc,bnld,bnas,bni}` tests ~25); `conformance/stdlib/os/*` also uses fixed paths. No shared
+unique-path helper exists; `os.MkdirTemp(dir, prefix)` (mkdtemp(3)) is the available mechanism — a
+per-package memoized `testTmpDir()` + path-join would convert each file mechanically.
 
 ### Conformance harness: `pkg0.testing` `--test`-only rules are not conformance-testable
 
