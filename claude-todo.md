@@ -77,8 +77,8 @@ fixed rows are in claude-todo-done.md.
   - [nit] `gen_expr.bn:302` genUnary — wrapper: untyped negated operand whose checker-resolved type is readonly int8 / alias-of-readonly / — Contributing site of KNOWN issue (1), reported only so the fix covers it: for `-C` / `-100` with a wrapped resolved type negTyp falls to TypInt, so OP_NEG is emitted at i64 (`sub i64 0, %v0`) and correctness relies entirely on the
 === check-lint (10 open)
   - [major] `check_cast_fits.bn:27` castTargetIsInteger — wrapper: named-over-named (`type M int8 — The constant fit-check is skipped entirely for these targets, so `cast(N, 200)` / `unsafe_cast(N, 300)` are accepted where `cast(int8, 200)` is rejected.
-  - [major] `types_assignable.bn:263` untypedIntLitFitsTarget — wrapper: named-over-named (`type M int8 — Valid code is rejected.
-  - [major] `check_decl.bn:245` resolveBuiltinScalarTypeDecls / isConcreteScalar — wrapper: named-over-named (`type N M`), named-over-readonly (`type R readonly int8`, TEXPR_CONST bo — The eager underlying-fill that runs before top-level consts are resolved skips any named type whose body is not a bare builtin scalar.
+  - [major] 🟡 IN PROGRESS (claimed 2026-09-28, work-5/session) `types_assignable.bn:263` untypedIntLitFitsTarget — wrapper: named-over-named (`type M int8 — Valid code is rejected.
+  - [major] 🟡 IN PROGRESS (claimed 2026-09-28, work-5/session) `check_decl.bn:245` resolveBuiltinScalarTypeDecls / isConcreteScalar — wrapper: named-over-named (`type N M`), named-over-readonly (`type R readonly int8`, TEXPR_CONST bo — The eager underlying-fill that runs before top-level consts are resolved skips any named type whose body is not a bare builtin scalar.
   - [minor] `type_helpers.bn:58` distinctNamedInts — wrapper: outer readonly (`readonly int64`), alias (`type W = int64`) — Invalid code is accepted.
   - [minor] `iface_borrow_escape_util.bn:97` borrowSourceFrameLocal — wrapper: outer readonly source (`readonly @Sq`, `readonly *Sq`) — Lint false positive: returning a readonly pointer or managed param as `*any` is reported as `iface-borrow-escape` (a frame-local value borrow), although the interface data pointer is the pointer value, not the address of the param
   - [minor] `borrowable_char_param_util.bn:102` isManagedCharSliceType — wrapper: outer readonly owned return operand (`var o readonly @[]char = ... — Lint false positive with harmful advice: the return-cascade blocker misses an owned `readonly @[]char` operand, so borrowable-char-param recommends converting the param and return type to *[]readonly char.
@@ -330,7 +330,7 @@ on the named type).  The spec allows it (§10 `func.method.receiver-base`: any n
 the same package), so this is a compiler bug: IR-gen needs the named identity for method / impl dispatch
 while keeping the func-value representation for calls / copies / dtors.
 
-### `type A B` over a named scalar B rejects an untyped constant (`var a A = 2`) — 🔴 OPEN (found 2026-09-27, work-1, probing order dependence; pre-existing, NOT order-dependent)
+### `type A B` over a named scalar B rejects an untyped constant (`var a A = 2`) — 🟡 IN PROGRESS (found 2026-09-27, work-1, probing order dependence; pre-existing, NOT order-dependent; claimed 2026-09-28, work-5/session, with the wrapper-cluster named-over-named checker rows — same root cause)
 
 `type B int; type A B; var a A = 2` → "cannot assign untyped int to A" in either declaration order; A's
 underlying type is int (spec: a defined type's underlying type is that of its source type), so the
