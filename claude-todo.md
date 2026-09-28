@@ -130,22 +130,16 @@ spec should say so (and a lint could flag fresh managed temporaries in a raw-sli
   (`gen_iface_registry.bn` ~:72 handles only `TEXPR_NAMED`) → `g.get()` prints 0 in the VM, compiled
   ICEs.  The EBNF allows `interface X = TypeName[..]`; implement the `TEXPR_INSTANTIATE` case.
 
-### A generic struct's parameter name shadows a same-named package type in its methods — silent wrong code — 🟡 IN PROGRESS (found 2026-09-27, work-1, review of the parameterized-impl row fix; pre-existing; claimed 2026-09-27, work-6/session — user: "look through the todos and claim one (probably a critical one)")
-
-`type K struct{n, m int}; type Box[K any] struct{v K}; func (b *Box[U]) Get() K {…}` — in the method,
-`K` is the package type (the receiver binder is U), but `emitInstantiatedMethod` binds the struct's
-own parameter names as a fallback after the receiver binders, so `K` resolves to the type argument:
-`Box[int]{…}.Get()` returns 0s when compiled, garbage through `*GI[K]`, SIGSEGV in the VM.  Covered by
-conformance 1311_generic_method_param_name_shadows_type (xfail.all, binate `e5651efde`).  Fix: bind only
-the receiver binders when resolving the method's signature/body; struct FIELD types (declared in the
-struct's parameter names) must resolve under the struct's own binding, separately.  (The
-parameterized-impl row minting had the same fallback and dropped it: the checker requires one plain
-binder per type parameter, so the binders cover every position.)  Related (checker, same shadowing): a
-method receiver binder named like a package type is taken as that type — `type Box[K any] …; func (b
-*Box[K]) Get() K`; `type K = bool` → "methods / impls on a specific instantiation are not allowed"; the
-binder should shadow the package type inside the receiver clause.
-
 ## MAJOR
+
+### A receiver binder named like a package type is rejected — ⚪ NEEDS DECISION (conflicts with the spec) (noted 2026-09-27 by another session as a "related" note on the generic-param shadowing CRITICAL; split out 2026-09-27, work-6, when that landed)
+
+`type Box[K any] …; type K = bool; func (b *Box[K]) Get() K` → "methods / impls on a specific
+instantiation are not allowed".  The note proposes that the binder should shadow the package type inside
+the receiver clause.  But spec §12 `gen.method.generic-recv` says each bracket name "shall not name a
+predeclared or in-scope type" — a bracket entry that resolves to a type is a specific-instantiation
+receiver, rejected (`gen.no-conditional-impls`) — so the current rejection is what the spec requires.
+Changing it is a language-rule (spec) change.  Decision needed before any implementation.
 
 ### arm32 hard-float: a homogeneous-float-aggregate `__c_call` ARGUMENT is passed in GP registers — C reads garbage from `s0…` — 🔴 OPEN (found 2026-09-27, work-3, stale-ABI-comment sweep)
 

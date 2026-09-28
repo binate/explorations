@@ -1,3 +1,21 @@
+### A generic struct's parameter name shadowed a same-named package type in its methods — ✅ LANDED 457f80a9a (2026-09-27), work-6
+
+`type K struct{n, m int}; type Box[K any] struct{v K}; func (b *Box[U]) Get() K {…}` — in the method
+only the receiver binder U is in scope, so K names the package type; two places also bound the type's
+own parameter names, so K resolved to the type argument.  (1) IR-gen's `emitInstantiatedMethod` bound
+the struct's parameter names as a fallback after the receiver binders: `Box[int]{…}.Get()` returned 0s
+compiled, garbage through `*GI[K]`, SIGSEGV in the VM.  The checker requires one plain binder per type
+parameter, so the fallback was dropped.  (2) Found while fixing it: the checker's
+`copyImportedGenericMethods` (an IMPORTED generic type's methods) resolved each signature under the
+instantiation's populate scope, which binds the type's parameter names, so `home.Box[int].Get()` was
+typed as returning int and valid code was rejected ("cannot assign int to K"; "cannot access field on
+this type" when reached transitively).  It now resolves under a fresh scope over the defining file's
+scope with only the receiver binders bound, under the defining package.  Tests: conformance 1311 (xfail
+removed), new 1328 (cross-package) and 1329 (a consumer reaching the instantiation only transitively,
+declaring its own K — fails on the pre-fix compiler).  Verified: 243 generic/cross-package conformance
+tests on LLVM and the VM, `check`/`irgen` unit tests.  The review's pre-existing findings are filed:
+duplicate/blank receiver binders accepted (todo), and the imported generic-alias entry widened.
+
 ### Comparison-chain diagnostic reach — and a false positive in it — ✅ LANDED 347df5b8d (+ parser split ed16c4497) (2026-09-27), work-3
 
 `a < b < c` was rejected everywhere, but only the for-clause's identifier-leading Pratt path said
