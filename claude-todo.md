@@ -128,6 +128,32 @@ undefined), with any number of `_` positions allowed.
 
 ## MAJOR
 
+### Indexing an array reached through a field or deref of a CALL evaluates the call twice — 🔴 OPEN (found 2026-09-28, claude/exciting-davinci-wahyt2 session, reviewing the in-place array-slice fix; pre-existing)
+
+`mkSP(&s).m[1]` and `(*getP(&a))[1]` run `mkSP` / `getP` twice (VM, LLVM, native; same on the
+pre-change compiler), and `mkBoxP[int](&bx).m[next()][1]` likewise. **Root cause:** `irgen/gen_access.bn`
+`genIndex` evaluates the base as a VALUE first (`collection = genExpr(e.X)`), then, for an array base
+that is a selector or a deref, evaluates it AGAIN for its storage (`genSelectorPtr(e.X)` /
+`genExpr(e.X.X)`). **Fix:** as the slice-expression fix did — decide from the checker's type that the
+base is an array with storage and take its address first, evaluating the base once (value path only for
+a storage-less base). Needs a conformance test counting calls.
+
+### A package-level `[N]char` initialized from a string literal is stored as a POINTER — garbage reads, clobbered neighbours — 🔴 OPEN (found 2026-09-28 by a reviewer probe, claude/exciting-davinci-wahyt2 session; pre-existing)
+
+`var M2 [5]char = "hello"` at package level reads back garbage (`M2[0]` 161 / 236, expected 104) on LLVM
+and native: `__init` emits `store i8* %str, i8** @global` — an 8-byte pointer into the 5-byte global,
+which can overwrite the next global (the reviewer saw `__bninit_done` clobbered). A LOCAL `[5]char` so
+initialized works. Needs a conformance test + the package-init lowering fixed to copy the bytes.
+
+### `sl[a:b][i].f` (field of an element of a slice expression) panics "unresolved selector in IR-gen" — 🔴 OPEN (found 2026-09-28 by a reviewer probe, claude/exciting-davinci-wahyt2 session; pre-existing)
+
+`var sl @[]R = make_slice(R, 3); sl[1:3][0].v` compiles, then aborts at run time with `panic: internal
+error: unresolved selector in IR-gen (compiler bug)` on LLVM and native. getSelectorType / genSelector do
+not resolve a selector whose base is an index of a slice EXPRESSION. Needs a conformance test.
+(Also reported by the same reviewer, not yet reproduced: a package var declared in the `.bni` but not
+defined in the `.bn` produces invalid LLVM — `extractvalue i64` — instead of a diagnostic.)
+
+
 ### A receiver binder named like a package type is rejected — ⚪ NEEDS DECISION (conflicts with the spec) (noted 2026-09-27 by another session as a "related" note on the generic-param shadowing CRITICAL; split out 2026-09-27, work-6, when that landed)
 
 `type Box[K any] …; type K = bool; func (b *Box[K]) Get() K` → "methods / impls on a specific
