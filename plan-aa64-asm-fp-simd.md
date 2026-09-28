@@ -47,11 +47,14 @@ commit per step; land each before starting the next.
      qualifier", as clang; ADR / ADRP's symbol reading of such names is a deliberate reject), FMOV
      `Xd, Vn.D[1]` / back, and — brought forward from B5 — the copy class (DUP / INS / UMOV / SMOV and
      their MOV aliases) — landed `7e91dc04f` (2026-09-28).
-   - `{…}` register lists: comma and range forms (`{v1.16b-v4.16b}`), wrapping mod 32
-     (`{v31.16b, v0.16b}`), 1–4 registers, a lane after the brace (`{v0.s, v1.s}[1]`).  Clang: an
-     empty list, a trailing comma, mixing range and comma forms, a descending or 1-register range, `q`
-     registers are rejected; it compares the suffixes case-sensitively (`{v1.16B, v2.16b}` = "mismatched
-     register size suffix") — follow clang unless the user decides otherwise.
+   - ✅ `{…}` register lists — comma and range forms, wrapping mod 32, 1–4 registers, a lane after a
+     list of bare elements, suffixes compared case-sensitively as clang does — and, brought forward from
+     B8, TBL / TBX — landed `19a84e582` (2026-09-28).
+   - Apple's legacy NEON syntax (`dup.4s v0, w1`, `umov.s w0, v1[1]`, `tbl.16b v0, {v1}, v3`), which
+     clang accepts on every target, is NOT supported (user, 2026-09-28: "we don't need alternate syntax,
+     unless there's a compelling reason (we've always tended to favor Intel/ARM syntax, I suppose)") —
+     to be listed with the deliberate rejects.  Kind-less `vN[i]` is still needed for FEAT_LUT
+     (`luti2 v0.16b, {v1.16b}, v2[0]`).
    - Scalar SIMD registers in vector instructions (with the classes that use them).
 2. Three same (integer, FP, FP16, extra: SDOT / UDOT / SQRDMLAH / FCMLA / FCADD …), including the
    whole-vector `mov Vd.<T>, Vn.<T>` (ORR alias; today rejected as "not supported yet" — clang accepts
@@ -63,7 +66,7 @@ commit per step; land each before starting the next.
 5. Modified immediate (MOVI / MVNI / ORR / BIC / FMOV vector).  (The copy class landed with B1.)
 6. Shift by immediate (incl. narrowing / long / fixed-point conversions).
 7. Vector × indexed element.
-8. Permute (ZIP / UZP / TRN), EXT, TBL / TBX.
+8. Permute (ZIP / UZP / TRN), EXT.  (TBL / TBX landed with B1.)
 9. Move `asm/aarch64/aarch64_neon*.bn` onto the isa encoders.
 
 **C. SIMD loads / stores**: LD1–LD4 / ST1–ST4 (multiple structures, post-index), LD1–LD4 / ST1–ST4
