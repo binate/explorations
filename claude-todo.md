@@ -500,11 +500,21 @@ without a `home.bn`.  The checker accepts it; the failure is IR-gen's.
 - Not covered by Define: struct fields (FieldByName / composite keys) and method sets
   (AddMethod / LookupMethod) — need their own rule + guard.
 - Labels do not exist in Binate (no label/goto in the grammar).
-- **Decisions needed (user):** (1) blank params / receivers / range vars / type-switch binders — legal,
-  binding nothing, duplicates allowed (spec carve-out in func.decl.params)?  (2) struct fields named `_`
-  (padding, unnamed, not selectable) or rejected?  (3) methods / interface methods named `_` — rejected, or
-  allowed-and-uncallable?  (4) blank decls in a .bni (`func _` / `var _` / `const _` / `type _`) — accepted
-  (export nothing) or rejected?
+- **Decided (2026-09-28, user):** "1. yes. 2. yes. 3. rejected, I think? 4. I think we can accept them
+  (sometimes, blank declarations are used as compile-time assertions; forcing a .bn to exist seems
+  suboptimal -- or perhaps sometimes the impl is private/binary-only, and the assertion is a check on the
+  user's build environment)".  So: (1) blank params / receivers / range vars / type-switch binders are
+  legal, bind nothing, duplicates allowed (spec carve-out in func.decl.params); (2) struct fields named
+  `_` are unnamed padding — not selectable, not a composite-literal key, any number allowed; (3) methods
+  and interface methods named `_` are rejected; (4) blank decls in a .bni (`func _` / `var _` /
+  `const _` / `type _` / `interface _`) are accepted, export nothing, and are still checked — no .bn
+  counterpart required.
+- **Plan (landable steps):** (A) Define refuses `_` + checkIdent rejects `_` as a value + by-decl
+  re-lookups + blank func / interface / const / param / range / type-switch handling in the checker and
+  IR-gen + blank import alias not recorded + duplicate blank params allowed + every blank const checked;
+  (B) blank struct fields as padding (with the separate duplicate-field MAJOR); (C) methods / interface
+  methods named `_` rejected; (D) .bni blank decls exported as nothing, checked, no .bn needed.  Spec
+  text with each.
 
 ### A generic struct / interface that is never instantiated is never checked — invalid declarations accepted — 🔴 OPEN (found 2026-09-28, work-6, review of the declared-type-param change; pre-existing)
 
