@@ -154,7 +154,44 @@ instantiation, and the switch handled that in IR-gen (a panic with no position).
   too late and the error must be caught earlier.").
 So the checker must evaluate every DEPENDENT constant, and check what depends on it, for each
 instantiation, with the instantiation's type arguments, reporting at the instantiation (with the generic
-body's position).  Design: to be written after mapping how the checker handles generics today.
+body's position).
+
+**Chosen design (user, 2026-09-28: "B"): re-check each generic body per concrete instantiation.**  Mapped by
+a design workflow (2026-09-28): the checker checks a generic body once, abstractly, and records no function
+instantiations; only IR-gen discovers the concrete set, while emitting.  Alternatives considered: recording
+dependent sites and evaluating them per instantiation (cheaper, but only the listed site kinds are checked
+and dependent-length identity needs a new rule).  Design B:
+- **Clones.**  Everything resolved or checked with type parameters bound works on a per-instantiation clone
+  of the generic's AST (`ast` clone functions; the clone resets `ResolvedTypeID`, `ConstID`, `LenKnown`,
+  `KeyKnown`, `Captures`), so per-node annotations stay per instantiation; the original generic AST only
+  carries binding-independent annotations.  This also removes the shared-AST length stamp bug (claude-todo:
+  "A generic struct's `[sizeof(T)]` field has the same length in every instantiation").
+- **Instances.**  `FuncInstance { Decl, Args (concrete), Clone, Sig, Recv, Site, Parent, Depth, Checked }`,
+  deduplicated by (decl, identical args); recorded at the instantiation funnels (`instantiateGenericFunc`
+  for calls / `&F[T]` / defer / method values; user-facing `instantiateGenericDeclWithArgs` for types,
+  whose methods all become instances).  An instantiation with abstract arguments inside a generic body is an
+  edge, substituted when that body's instance is checked; a concrete one is a root.
+- **Worklist.**  Drained at the end of each package's check (every body reachable from the package's roots
+  is in it or a dependency, all already checked), with a depth limit (polymorphic recursion becomes an
+  error; claude-todo: "Polymorphic recursion … crashes the compiler").
+- **Abstract check.**  A dependent array length is deferred to the instances (placeholder length, no
+  identity claims across dependent lengths); dependent literals are checked per instance.
+- **Errors.**  Primary position in the generic's source; the message names the instantiation chain; one
+  report per failing instance (errors dedupe by position + message).
+- **IR-gen** emits the checked clones and reads their annotations like an ordinary function's; its
+  DEPENDENT evaluation paths are deleted, and a missing record or failed constant is an internal error.
+- **Spec:** a new §12 rule: a generic body is checked for each instantiation the program names (every
+  method of each instantiated generic type included); an error only one instantiation has is a compile
+  error.
+- **Risks:** a clone missing a field (a clone-and-compare test over the corpus); checker time grows with
+  instances × body size (measure the gen1 self-compile); the abstract and per-instance checks disagreeing
+  (surfaces as errors, to investigate one by one); REPL tentative mode.
+- **Commits (draft):** (1) `ast` clone functions + tests; (2) the shared-stamp repro + populate / imported
+  method signatures on clones; (3) `FuncInstance` records, signature re-resolution, dependent lengths
+  deferred in abstract bodies (fixes dependent signatures); (4) worklist, depth limit, error context, type
+  methods (per-instantiation errors); (5) IR-gen emits the clones, DEPENDENT paths deleted; (6) cast /
+  `bit_cast` checks move from IR-gen to the instances; (7) spec text.  Detailed design:
+  scratch workflow output, to be written up here before commit (1).
 
 ## Commits
 
