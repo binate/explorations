@@ -5,6 +5,14 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
+### A type assertion / type switch to an interface ALIAS misses the aliased interface — silent wrong result — 🔴 OPEN (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing)
+
+`interface PA = P` (any alias, generic or not): `a.(*PA)` returns ok=false in the VM and `case *PA:`
+silently takes `default`; LLVM references an undefined `__ifaceid.…_PA` symbol (link error).  The
+assertion / switch keys on the alias's own identity instead of canonicalizing it to the aliased interface
+(canonicalIfacePkg / canonicalIfaceName) before the satisfaction lookup / iface-id reference.  Covered
+by conformance 1353_iface_alias_type_assert (xfail.all; not yet landed).
+
 ### Slicing an array reached other than by name slices a TEMPORARY COPY — writes lost, possible use-after-free — 🟡 IN PROGRESS (found 2026-09-28 by the review of the array-slice bounds-check fix, claude/exciting-davinci-wahyt2 session; pre-existing; claimed 2026-09-28, same session — user: "yes, fix it now")
 
 **Symptom:** `s.arr[1:3]`, `(*p)[2:4]`, `n[1][0:3]` (and `(*mp)[...]` for `@([4]int)`) produce a slice
@@ -125,6 +133,13 @@ number of positions may be `_`, matching receiver binders.  Today `_` is an ordi
 list (`func id[_ any](x _) _ { var y _ = x; return y }` compiles).
 
 ## MAJOR
+
+### A generic interface instantiated with a type argument spelled through an interface alias finds no vtable — 🔴 OPEN (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing)
+
+`var h *H[*PA] = &w` with `interface PA = P` and `impl *W : H[*P]`: SIGSEGV compiled, "call of nil
+interface value" in the VM.  The instance names agree, but the conversion site finds no vtable — the
+type argument's alias is not canonicalized where the (instantiation, interface) row is looked up.
+Covered by conformance 1354_generic_type_arg_iface_alias (xfail.all; not yet landed).
 
 ### Indexing an array reached through a field or deref of a CALL evaluates the call twice — 🔴 OPEN (found 2026-09-28, claude/exciting-davinci-wahyt2 session, reviewing the in-place array-slice fix; pre-existing)
 
