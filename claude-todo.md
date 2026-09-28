@@ -502,13 +502,11 @@ NEON text-syntax family, which adds the `{v0.d}[1]` lane syntax.  (3) LSE atomic
 (incl. the bare `[Xn]!` pre-index) — landed `ac4c5fc69` (2026-09-27).  (5) CRC32 / CRC32C, the pointer-auth
 register forms (PAC* / AUT* / XPAC* / PACGA) and flag manipulation (CFINV / XAFLAG / AXFLAG / RMIF /
 SETF8 / SETF16) — landed `8114782c0` (2026-09-27).  (6) FP and Advanced SIMD: tracked step by step in
-`plan-aa64-asm-fp-simd.md` (FP scalar done; vector syntax + copy class landed `7e91dc04f`).  **Needs a
-decision (found reviewing the register-list commit, 2026-09-28):** clang also accepts Apple's legacy NEON
-syntax, arrangement on the mnemonic and kind-less registers — `dup.4s v0, w1`, `umov.s w0, v1[1]`,
-`ins.s v0[1], w1`, `tbl.16b v0, {v1}, v3` — on every target, not just Darwin; support it (a second
-spelling for every NEON instruction, plus kind-less `vN[i]` lanes and `{v1, v2}` lists in the operand
-layer) or list it as a deliberate reject.  (Kind-less `vN[i]` is needed anyway for FEAT_LUT's
-`luti2 v0.16b, {v1.16b}, v2[0]`.)  **Also in scope (clang supports them; found while
+`plan-aa64-asm-fp-simd.md` (FP scalar done; vector syntax + copy class landed `7e91dc04f`, register lists +
+TBL / TBX `19a84e582`).  Apple's legacy NEON syntax (`dup.4s v0, w1`, `tbl.16b v0, {v1}, v3`), which clang
+accepts on every target, is not supported (user, 2026-09-28: "we don't need alternate syntax, unless there's
+a compelling reason (we've always tended to favor Intel/ARM syntax, I suppose)"); still to list it with the
+deliberate rejects.  **Also in scope (clang supports them; found while
 scoping (3)):** the later atomic extensions — FEAT_LSE128 (LDCLRP / LDSETP / SWPP), FEAT_THE (RCWCAS /
 RCWSWP / RCWCLR / RCWSET and their S / pair forms; the pairs need FEAT_D128), FEAT_LSFE (LDFADD /
 LDFMAX(NM) / … and ST* aliases on H / S / D), FEAT_LSUI (LDT<op> / SWPT / CAST / CASPT) — each its own family.
