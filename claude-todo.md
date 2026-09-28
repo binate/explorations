@@ -1021,6 +1021,16 @@ FP-arithmetic work. Full plan + sequencing: `plan-native-vectorization.md`.
 
 Order: V1 (aa64 first) → (A) → idiom recognition → B1 → B2 → B3. Each independently landable/measurable.
 
+### Spec gap: unary `~` on an untyped integer constant is undefined (its value depends on the width) — 🔴 OPEN (found 2026-09-27)
+
+§6.4 defines constant-expression arithmetic at union-range precision but never says what `~1` is: its
+value depends on the width it is taken at (`0xFE` at `uint8`, `-2` at a signed type), which an untyped
+constant does not have.  The checker defers such folds (and bitwise ops on negative constants) until the
+operand's type is known.  Found by the adversarial review of the untyped-shift-value rule
+(`plan-untyped-shift-value.md`), where `(1 << n) & ~1` into a `uint8` depends on the answer.  **Decide**
+the rule (e.g. `~` of an untyped constant is folded at the type the expression finally takes, or is an
+error until typed), write it into §6.4, and pin it with conformance tests.
+
 ### An untyped constant shift VALUE is typed two ways — `1 << n` at the count's type, `(0 + 1) << n` at `int` — 🟡 IN PROGRESS (found 2026-09-27; rule decided by the user 2026-09-27: an untyped constant shift value takes its type from the surrounding context; claimed work-4/session)
 
 With `n uint8` = 9, `cast(int64, 1 << n)` is 0 but `cast(int64, (0 + 1) << n)` is 512, on LLVM and native
