@@ -454,7 +454,7 @@ Each needs a test (xfail'd) + triage; grouped here so none is lost.
 - **Unverified:** the REPL (`repl/ir_imports.bn`) has no equivalent of `registerGenericBodyExternDeps`.
 - **Hazard:** `gen_type_resolve.bn:113,153,193` silently fall back to `TypInt()` on a registry miss.
 
-### LLVM `cast` of an array (aggregate retype, spec §8.5 `[4]int8 → [4]uint8`) emits `add [4 x i8] %v, 0` — clang rejects valid code — 🔴 OPEN (found 2026-09-26)
+### LLVM `cast` of an array (aggregate retype, spec §8.5 `[4]int8 → [4]uint8`) emits `add [4 x i8] %v, 0` — clang rejects valid code — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-27, work-3/session)
 
 `var a [4]int8; var u [4]uint8 = cast([4]uint8, a)` fails on the LLVM backend at -O0/-O2 ("integer
 constant must have integer type"); native aa64 and the VM are correct.  Root cause: emitCast's
