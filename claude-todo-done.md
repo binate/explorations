@@ -1,3 +1,16 @@
+### An interface alias of a generic interface's instantiation follows the instantiation — DONE (binate `dbd4e675f`, 2026-09-28, work-1)
+
+`interface X = home.Getter[int]` (and a `.bni`-declared or local alias of an instantiation) registered an
+EMPTY interface: `g.Get()` printed 0 in the VM and compiled builds ICEd.  The alias registration now handles
+a `TEXPR_INSTANTIATE` target (instantiatedAliasTarget): it resolves the type arguments in the alias's own
+package, instantiates the generic interface (ensureInstantiatedInterface) and records the instance as the
+alias target, filling an identity stub in place.  Instantiation is deferred to collection so an unused alias
+cannot change the instance for its users.  Conformance 1351 + 1352 and unit tests.  Found by the forwarder
+audit (2026-09-26).  The review turned up four older bugs, each an xfail'd conformance test in `f0fc356bd`
+plus a todo entry: 1353 (type assertion to an interface alias), 1354 (alias in a generic type argument) and
+1355 (a named non-struct type's several IR identities, CRITICAL); the `.bni` interface-typed global bug has
+a todo entry but no test yet.
+
 ### A package-level raw-slice literal viewed the module initializer's stack — DONE (binate `56eaaaed9` + split `3605dbb66`, 2026-09-28, work-5)
 
 `var gInts *[]readonly int = *[]readonly int{1, 2, 3}` read garbage in main (a managed-element one crashed):

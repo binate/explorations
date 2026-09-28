@@ -11,9 +11,9 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 silently takes `default`; LLVM references an undefined `__ifaceid.…_PA` symbol (link error).  The
 assertion / switch keys on the alias's own identity instead of canonicalizing it to the aliased interface
 (canonicalIfacePkg / canonicalIfaceName) before the satisfaction lookup / iface-id reference.  Covered
-by conformance 1353_iface_alias_type_assert (xfail.all; not yet landed).
+by conformance 1353_iface_alias_type_assert (xfail.all, binate `f0fc356bd`).
 
-### A package's own named non-struct type has several IR identities — generic-interface instances split, silent wrong code — 🔴 OPEN (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing)
+### A package's own named non-struct type has several IR identities — generic-interface instances split, silent wrong code — 🟡 IN PROGRESS (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing; claimed 2026-09-28, work-1 — user: "yes take that CRITICAL next")
 
 `type MyN int` in `pkg/home` becomes a different `TYP_NAMED` depending on where it is resolved:
 - bare `MyN` in the package's own compile (typeDeclEntryType: "bare for the current package");
@@ -38,8 +38,7 @@ Named STRUCTS don't split because their mangled symbols are always package-quali
 
 Fix: give a named non-struct type one context-independent identity (its defining package), as structs
 have — the TypeAliases key and TYP_NAMED name, and every def-side / call-side method key that assumes
-"bare in the own module".  Test: conformance 1355_named_type_arg_iface_identity (xfail.all; not yet
-landed).
+"bare in the own module".  Test: conformance 1355_named_type_arg_iface_identity (xfail.all, binate `f0fc356bd`).
 
 ### Slicing an array reached other than by name slices a TEMPORARY COPY — writes lost, possible use-after-free — 🟡 IN PROGRESS (found 2026-09-28 by the review of the array-slice bounds-check fix, claude/exciting-davinci-wahyt2 session; pre-existing; claimed 2026-09-28, same session — user: "yes, fix it now")
 
@@ -139,12 +138,6 @@ a global only once it is materialized (MaterializeOneGlobal).  Fix: mark the glo
 per function (not a shared GenCtx flag — closures generated inside an initializer must keep the ordinary
 path), and have runReplVarInit materialize any global created while generating it before calling it.
 
-### More silent wrong code found by the forwarder audit (not forwarder-specific) — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1; agents' repros, not yet independently re-verified)
-
-- **`interface X = home.Getter[int]` (instantiated alias target) registers an EMPTY interface**
-  (`gen_iface_registry.bn` ~:72 handles only `TEXPR_NAMED`) → `g.get()` prints 0 in the VM, compiled
-  ICEs.  The EBNF allows `interface X = TypeName[..]`; implement the `TEXPR_INSTANTIATE` case.
-
 ### Duplicate type-parameter names in a generic function / type declaration are accepted — native miscompile (segfault), invalid LLVM IR — 🟡 IN PROGRESS (found 2026-09-27, work-6, review of the receiver-binder change; reproduced; pre-existing; claimed 2026-09-28, work-6/session)
 
 `func pick[T any, T any](x T) T` called as `pick[int8, S](s)`, and `type Dup[T any, T any] struct{x T; …}`
@@ -186,7 +179,7 @@ module (as the file-load path and the statement path do), not just the helpers; 
 `var h *H[*PA] = &w` with `interface PA = P` and `impl *W : H[*P]`: SIGSEGV compiled, "call of nil
 interface value" in the VM.  The instance names agree, but the conversion site finds no vtable — the
 type argument's alias is not canonicalized where the (instantiation, interface) row is looked up.
-Covered by conformance 1354_generic_type_arg_iface_alias (xfail.all; not yet landed).
+Covered by conformance 1354_generic_type_arg_iface_alias (xfail.all, binate `f0fc356bd`).
 
 ### Indexing an array reached through a field or deref of a CALL evaluates the call twice — 🔴 OPEN (found 2026-09-28, claude/exciting-davinci-wahyt2 session, reviewing the in-place array-slice fix; pre-existing)
 
