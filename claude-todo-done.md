@@ -1,3 +1,9 @@
+### `__c_call` promotion diagnostics suggested Go's `int(x)` / `float64(x)` — ✅ LANDED 8fac0fce6 (2026-09-27), work-3
+
+`pkg/binate/check/check_c_interop.bn`'s unpromoted-variadic-argument errors now suggest
+`cast(float64, x)` / `cast(int, x)` (in Binate `int(x)` is "cannot call non-function").  Two unit tests
+pin the suggestions; nothing else matched the old text (conformance 103 anchors on the message prefix).
+
 ### Spec Ch.16 (Packages) — adversarial-review test follow-ups — ✅ LANDED 96fb75c2d + ce5490ee9 (2026-09-27), work-3
 
 From the 2026-06-19 Ch.16 review (0 blockers, 7 should-fix).  Tightened: 012/013 comments now state

@@ -2084,12 +2084,6 @@ directory inside a multi-file test (`NNN_name/root2/`) that every runner prepend
 test per facet.  (Annex C, where the spec plan says untested rules are to be listed, is still an
 unauthored stub.)
 
-### `__c_call` promotion diagnostics suggest `int(x)` / `float64(x)` — not Binate syntax — 🟡 IN PROGRESS (found 2026-09-27, work-3, authoring conformance 103; claimed 2026-09-27, work-3/session)
-
-`pkg/binate/check/check_c_interop.bn:98,103`: the unpromoted-variadic-argument errors advise "widen it
-to its C-promoted type (e.g. int(x))" and "pass float64(x)" — Go conversion syntax; in Binate `int(x)`
-is "cannot call non-function".  The suggestion should be `cast(int, x)` / `cast(float64, x)`.
-
 ### Observable optimizations and UB policy — broader question
 - Surfaced while planning const: allowing the compiler to allocate
   a shared static global for all-const composite literals is an
