@@ -1,3 +1,20 @@
+### `--test` discovery matches TestResult by spelling, not by resolved type — ✅ LANDED 92de25f09 (2026-09-28), work-3
+
+Both runners (`cmd/bnc/test.bn`, `cmd/bni/test.bn`) now call one shared predicate,
+`check.Checker.IsTestFunc`: a non-method `Test*` function with a body, no parameters, and one
+result that resolves — through type aliases — to the distinct named type
+`pkg/builtins/testing/sys.TestResult`.  The checker stamps each top-level function's resolved
+signature on its decl (`ast.Decl.ResolvedTypeID`, an index into the `ExprTypes` side table, same
+convention as `Expr`/`Capture`).  So `testing.TestResult`, `sys.TestResult`, an aliased import of
+either, and a local alias all qualify; a same-named type from another package does not.  The
+per-runner spelling matchers (`isTestResultReturn` / `hasLocalTestResultType`) and the dead
+`hasPrefix` helpers are gone.  The copies had drifted: bni also accepted a bare `@[]char` result,
+which bnc rejected — now both reject it.  Verified before switching: old and new predicates
+evaluated side by side on every decl in the full unit suites (78 packages compiled, 56 bytecode)
+disagreed nowhere; after switching both suites pass, only change cmd/bnc 156→146 tests (the
+deleted helper tests).  New check tests cover qualified / local-alias / aliased-import spellings
+and reject impostor type, `@[]char`, a parameter, a non-Test name and a method.
+
 ### An interface alias of a generic interface's instantiation follows the instantiation — DONE (binate `dbd4e675f`, 2026-09-28, work-1)
 
 `interface X = home.Getter[int]` (and a `.bni`-declared or local alias of an instantiation) registered an
