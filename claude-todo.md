@@ -12,24 +12,10 @@ made on a type that can carry a transparent wrapper — `readonly T`, alias `typ
 T`, and nestings (named-over-readonly `type R readonly int8`, alias-of-readonly, readonly-over-named) —
 where the code peels only TYP_NAMED (or nothing).  A wrapper carries no Width/Signed/Kind of its own,
 so the decision misclassifies.  Full peels already exist: irutil.PeelTransparent (IR-gen),
-types.StripWrappers, codegen peelReprType, native common peelTransparent; the VM's vmUnwrapNamed is
-named-only.  First instance found: IR-gen `typeWidth` / `typeIsSigned` (untyped literal into a
+types.StripWrappers, codegen peelReprType, native common peelTransparent.  First instance found: IR-gen `typeWidth` / `typeIsSigned` (untyped literal into a
 `readonly float32` param reads back 0; `var v readonly float32 = 2.5` stores 8 bytes into a 4-byte
 slot; named-over-readonly `MIN / -1` skips the overflow trap on native/VM).
 
-**Landed (`5fe4cc11b`):** IR-gen `typeWidth`, `typeIsSigned`, `typeIsUnsignedInt` and the
-literal-hint helpers `isTypedInt` / `needsHintNarrowing` / `intFitsInType` peel every wrapper
-(PeelTransparent); conformance 1295 (untyped literals into readonly-narrow args / var inits / returns
-/ fields / elements) + 1296 (named-over-readonly int8 MIN / -1 traps).
-**Landed (`fdd2da320`; VM half `89a56168c` — captureNeedsPtrPass peels wrappers, which 1297 needed on the VM):** emitCaptureRefInc delegates to
-emitManagedValueCopyRefInc (full peel, +@Iface) — fixes the over-released readonly / named @T / @[]T
-/ @func captures; conformance 1297.
-**VM side landed (`89a56168`):** 1297 was still a use-after-free under bni after `fdd2da32` (caught by
-the normal-test exit-status check: exit 139 after correct output); with `89a56168` it exits 0.
-**FIXED (`1595ee99e`): CRITICAL LEAK — releasing a managed pointer to a named-over-struct (`type NB Box`,
-`@NB`) skipped the struct dtor** (irbuild `EmitManagedPtrRefDec` tested the unpeeled pointee Kind, so every
-`@NB` release freed the cell with a null dtor and leaked Box's managed fields, all backends); now peels the
-pointee after the opaque-export arm; unit test + conformance 1324.
 **Triage of the un-audited areas (irgen last third, codegen, native, ir/irbuild/iropt/irutil/types) —
 done 2026-09-27.**  Only confirmed defect: the `@NB` release leak above.  Leftovers (no observable
 miscompile found):
@@ -51,11 +37,6 @@ miscompile found):
     types.PeelNamedBounded, ir.PeelToRepr, ir.PeelToUnderlying, codegen peelReprType, vm
     vmPeelTransparent, native common peelTransparent) — consolidating on one would remove the ad-hoc
     partial peels this cluster came from.
-**FIXED (`c469b2fcb`): widenType keeps a wrapped wider integer left operand's type** (was TypInt —
-32-bit on arm32 — truncating `N int64` / `readonly int64` ops); unit test + conformance 1318.
-**FIXED (`7d5cc9650`): VM lowering through every wrapper** — vmUnwrapNamed (named-only) deleted,
-all sites use vmPeelTransparent (sub-word load/store width + sign, OP_NEG, bit_cast, multi-return
-extract sign, named-over-readonly aggregate returns, named iface-value upcast); conformance 1315.
 **Open, found by the VM-lowering fix's review (pre-existing, all backends):** (a) `cast(RH, H{n: 3, m:
 4})` of a struct composite LITERAL to a named-over-readonly struct (`type RH readonly H`) panics
 "cast between mismatched aggregate/scalar shapes reached codegen" (casting an `H` variable works);
@@ -63,18 +44,6 @@ extract sign, named-over-readonly aggregate returns, named iface-value upcast); 
 resolves an empty receiver name ("extern not found: main..A" on the VM; undefined
 `_bn_F1_4_main2_0_1_A` at link).  (Also seen: `cast(RFn, f)` for `type RFn readonly *func(int) int`
 emits `add %BnFuncValue` on LLVM — the emit_cast.bn:75 func-value identity item below.)
-**FIXED (`8795c19cc`): method receivers / method values through readonly / alias wrappers**
-(applyReceiverConversion — readonly value receivers via *T/@T and defer, incl. readonly named-pointer
-receivers; genCapturedRecv — method values on readonly / alias pointer handles; synthMethodValueWrapper
-— alias / readonly captured values with pointer-receiver methods); conformance 1308.
-**FIXED (`82ed9c6c0`): a func literal bound for an alias / readonly `*func` (or alias-of-named func)
-destination now takes the destination's hint** (checkExprWithFVHint resolves alias+readonly; the hint
-no longer leaks into nested literals); conformance 1306.  Covers the check_expr.bn:34 / check_func_lit
-critical and the check_expr.bn:52 alias-of-named major below.
-**FIXED (`d676ebc80`): managed→raw slice decay at every store position** (decl / assign / parallel /
-composite field + array/slice literal elements / array & slice elements / pointer targets / multi-assign
-/ cast, through named / readonly wrappers), plus the raw `*T` multi-assign leak found by its review;
-conformance 1302.
 **Still corrupting the heap on the compiled backends (found 2026-09-28, claude/exciting-davinci-wahyt2
 session; main `0cd45ca6`):** 1302 prints three lines, then glibc aborts (`malloc.c:2599 (sysmalloc):
 assertion failed …`, exit 134) — on x86-64 with both `--backend native` and llvm (builder-comp and
@@ -83,52 +52,15 @@ with a store position still writing a 4-word managed slice into a 2-word raw-sli
 (llvm -g): `Invalid write of size 8 … 0 bytes after a block of size 48` from `rt.MakeManagedSlice` at
 1302 line 89, `var ls @[]*[]int = @[]*[]int{mb, m}` — the elements of a MANAGED-slice literal of raw
 slices are not decayed (the fixed-array literal on line 88 is fine).
-**FIXED (`19772cd6b`) — the two items below: the lifted closure body now does the caller's acquire
-for @Iface / managed-aggregate capture params on each call, and closure creation copies an aggregate
-capture in (conformance 1299).**
-**New, found while fixing that (not a wrapper issue): an @Iface closure capture is over-released on
-EVERY CALL.**  `@Iface` params follow a caller-owned convention (the caller RefIncs each @Iface arg;
-the callee only RefDecs at exit — e.g. `take(g @Getter)`: callee RefInc 0 / RefDec 1, caller RefIncs
-per call), unlike `@T` params (callee RefIncs on entry + RefDecs at exit).  A closure's lifted body
-takes its captures as prepended params, and the per-backend `__shim` loads them from the closure
-struct and tail-calls the body WITHOUT a caller-side RefInc — fine for @T, but an @Iface capture param
-is RefDec'd once per call.  Repro: capture `var gi @Getter = ms` in a `*func` called in a 2-iteration
-loop, then `other := make(S)`: `ms.v` / `gi.Get()` read the reused memory (prints 1 1, expected 7 7).
-Fix options: have the lifted body's prologue RefInc prepended @Iface capture params (one IR-gen fix
-for all backends), or make each backend's shim RefInc them.
-**Same class, also CRITICAL (found by the review of `74a543a39`; not a wrapper issue): a by-value
-struct / array capture with managed fields is over-released twice.**  (1) Closure creation
-(emitCaptureRefInc) never copies an aggregate capture in (no `__copy_1S` / array copy), but the
-closure dtor destroys the field (NeedsDestruction recurses into struct/array fields); (2) the lifted
-body destroys its by-value aggregate capture param at exit, once per call, while the shim passes it
-without a copy (the same caller-owned-param-vs-shim mismatch as the @Iface item).  Repro: `type S
-struct { b @Box; k int }`, `var s S; s.b = make(Box); s.b.v = 42`, then a `*func` capturing `s` called
-in a 3-iteration loop prints `42 0 0` (expected `42 42 42`); same with `var a [2]@Box`.  Fix: copy
-the aggregate in at capture (needsStructCopy / array copy, next to the scalar RefInc), and fold (2)
-into the @Iface capture-param fix.
 
 **Sweep (2026-09-26):** auditors over check+lint, IR-gen (first two thirds of the files), and the VM
 lowering reported the confirmed defects below (each with a repro, run on LLVM / native aa64 / VM).
-NOT YET AUDITED: the last third of pkg/binate/irgen, pkg/binate/codegen (beyond emitCast),
-pkg/binate/native/**, ir / irbuild / iropt / irutil / types.  Several findings need NO wrapper (plain
-types) — marked "wrapper: none needed".  Also from the IR-gen audit, same function as the first
-critical: `gen_func_lit.bn:342` emitCaptureRefInc has no @Iface branch, so a closure capturing a
-plain `@Getter` local is never RefInc'd but its dtor RefDecs it (use-after-free; fix: route through
-emitManagedValueCopyRefInc, which peels fully and handles @Iface).
+The remaining areas were triaged by reading on 2026-09-27 (block above).  Several findings need NO
+wrapper (plain types) — marked "wrapper: none needed".  The rows below are the still-open findings;
+fixed rows are in claude-todo-done.md.
 
 ```
-=== irgen (19)
-  - [critical] `gen_func_lit.bn:319` emitCaptureRefInc — wrapper: readonly @T / readonly @[]T / readonly @func (IR-gen keeps TYP_READONLY on lookupVarType), — The capture-site RefInc is skipped for a wrapped managed capture, but the closure-struct dtor (NeedsDestruction peels fully) still RefDecs the field -> one over-release per closure: premature free / use-after-free of the captured 
-  - [critical] `gen_method_recv.bn:55` applyReceiverConversion — wrapper: readonly value receiver `(f readonly F)` (spec func.method.receiver-kinds): sig.Params[0]  — Calling a `readonly T` value-receiver method through a `*T` / `@T` receiver skips the deref load and passes the POINTER as the struct value: garbage result / crash; LLVM -O2 emits invalid IR.
-  - [critical] `gen_method_value_recv.bn:126` genCapturedRecv — wrapper: checker type of the receiver expression: `readonly *F` / `readonly @F` handles (TYP_READON — Method value `p.get` on a wrapped pointer handle with a VALUE receiver misses the *T/@T->T load arm and falls back to plain genExpr, storing the pointer into the value-typed closure field; the call then reads garbage.
-  - [critical] `gen_method_value_wrapper.bn:80` synthMethodValueWrapper — wrapper: captured-by-value receiver type = checker type of a non-ident receiver expr: TYP_ALIAS (`t — The value->pointer materialize-capture bridge is skipped, so the wrapper passes the captured struct VALUE where the `*C` / `*readonly C` method expects a pointer: SIGSEGV / garbage; LLVM -O2 emits invalid IR.
-  - [critical] `gen_decl_stmt.bn:220` genDecl — wrapper: named raw slice dest (`type RBuf *[]int`), readonly dest (`readonly *[]int`, incl. alias-o — The implicit @[]T -> *[]T decay (EmitManagedToRaw) is skipped, so the 4-word managed slice is stored into the 2-word raw-slice slot: 16 bytes (8 on arm32) written past the slot.
-  - [critical] `gen_control.bn:173` genAssign — wrapper: named managed-slice source (`type MB @[]int`) assigned to a raw-slice var or field — `q = mb` / `s.b = mb` skips the managed->raw decay, so a 32-byte managed slice is stored into the 16-byte raw slot or field.
-  - [critical] `gen_assign_parallel.bn:299` coerceParallelRHS — wrapper: named or readonly raw-slice slot (`type RBuf *[]int`), named managed-slice source — A parallel assignment `r1, r2 = m, m` into RBuf slots skips the decay and stores 32 bytes into each 16-byte slot.
-  - [critical] `gen_composite.bn:132` genCompositeLit — wrapper: struct field of named raw slice (`b RBuf`) or `readonly *[]int` — `S{n: 1, b: m}` stores the 4-word managed slice into the 2-word field and writes 16 bytes past the end of the struct alloca.
-  - [critical] `gen_binary_width.bn:55` widenType — wrapper: named or readonly 64-bit integer left operand (`type N int64`, `readonly int64`) on a 32-b — If the left operand is a wrapped integer wider than the right operand's type, widenType returns TypInt() instead of `a`.
-  - [critical] `gen_control.bn:19` emitArrayElemStore / genAssign index+deref arms; gen_assign_multi.bn genMultiAssign; gen_composite.bn coerceCompositeElement / genManagedSliceLit / genRawSliceLit — wrapper: none needed: plain `*[]int` destinations (named/readonly destinations too) — Storing a managed slice into a raw-slice array element, slice element, pointer target, multi-assign component, or array/slice-literal element never emits EmitManagedToRaw.
-  - [major] FIXED (`190aa2d42`; conformance 1325) `gen_iface.bn:203` wrapAsIfaceValue — wrapper: `readonly *I` / `readonly @I` cast target (IR-gen TYP_READONLY via resolveTypeExpr) — ICE on valid code: wrapAsIfaceValue returns nil for a wrapped interface-value destination, and the cast arm panics.
+=== irgen (8 open)
   - [major] `gen_func_lit.bn:217` isManagedFuncValueLit — wrapper: named-over-readonly func value `type RF readonly @func() int` (checker type TYP_NAMED -> U — A capturing func literal whose resolved type is RF is judged NOT managed, so its closure struct is stack-alloca'd (EmitAlloc) while the value is an owning @func: the returned value dangles and its RefDec runs ZeroRefDestroy on sta
   - [major] `gen_typedecl.bn:51` typeDeclEntryType — wrapper: named-over-readonly func value `type RF readonly @func() int` — RF is not stripped to its func value (under.Kind is TYP_READONLY), so IR-gen keeps TYP_NAMED(READONLY(@func)); calling an RF-typed variable `f()` is lowered as a DIRECT call to a nonexistent symbol named after the variable.
   - [major] `gen_composite.bn:105` genCompositeLit — wrapper: named or readonly pointer/slice/managed-ptr/func-value fields (`b RBuf`, `p P` where `type — An omitted field of these types is zero-initialized with EmitConstInt(0, fieldType) instead of EmitConstNil.
@@ -137,29 +69,17 @@ emitManagedValueCopyRefInc, which peels fully and handles @Iface).
   - [major] `gen_defer_build.bn:185` deferMethodRecvType / buildDeferMethod — wrapper: named-distinct receiver: named scalar `type Money int`, named-over-struct `type NP Pt` (an — `defer m.Show()` looks up `int.Show` / `Pt.Show2` instead of `Money.Show` / `NP.Show2`, and IR-gen panics.
   - [major] `gen_access.bn:47` genBoundsCheck / genIndex / genIndexPtr — wrapper: none needed: any sub-int index (`uint8`, `int8`, named or readonly variants all behave the — Indexing a slice or array with a narrow-integer index (valid per spec expr.index, 'by an integer i') produces invalid LLVM IR: `icmp slt i64 %v5, 0` where %v5 is i8.
   - [nit] `gen_expr.bn:302` genUnary — wrapper: untyped negated operand whose checker-resolved type is readonly int8 / alias-of-readonly / — Contributing site of KNOWN issue (1), reported only so the fix covers it: for `-C` / `-100` with a wrapped resolved type negTyp falls to TypInt, so OP_NEG is emitted at i64 (`sub i64 0, %v0`) and correctness relies entirely on the
-=== vm (9)
-  - [critical] `lower_func.bn:25` captureNeedsPtrPass — wrapper: closure-struct field types keep TYP_READONLY: func-literal captures of `readonly F` locals — The VM treats a readonly-wrapped struct/slice/func/iface capture as a scalar and passes the field's first word instead of its address -> SIGSEGV / garbage.
-  - [critical] `lower_memory.bn:128` lowerStore — wrapper: named-over-readonly (type R32 readonly int32 / RF readonly float32 / R16 readonly int16) i — A store of a named-over-readonly 16/32-bit value has dstTyp.Elem = R32, which vmUnwrapNamed peels to TYP_READONLY (Width 0), so storeWidth stays 64 and it emits BC_STORE64.
-  - [critical] `lower_memory.bn:47` lowerLoad — wrapper: named-over-readonly scalar (type R8 readonly int8, R32 readonly int32, RB readonly bool) l — lt = vmUnwrapNamed(R8) is a TYP_READONLY with Width 0, so the load is emitted as BC_LOAD64 with no sign flag.
-  - [critical] `vm_extract.bn:44` lowerExtract — wrapper: PLAIN named distinct (type N8 int8), and named-over-readonly (R8), as multi-return tuple c — The sign bit for a scalar OP_EXTRACT is computed on the unpeeled field type.
-  - [critical] `lower_instr_helpers.bn:89` isMultiWordField / isVMAddressAggregate — wrapper: named-over-readonly aggregate returns: type RP readonly P (struct), type RMS readonly @[]i — For a named-over-readonly aggregate return value, isMultiWordField and isVMAddressAggregate peel RP down to TYP_READONLY and return false.
-  - [major] `lower_instr.bn:168` lowerInstr — wrapper: named-over-readonly float32 (type RF readonly float32) — nt = vmUnwrapNamed(RF) is TYP_READONLY.
-  - [major] `lower_instr.bn:366` lowerInstr — wrapper: named-over-readonly sub-word int as bit_cast target (type R8 readonly int8) — dstTyp = vmUnwrapNamed(R8) is TYP_READONLY, so the `Kind == TYP_INT` gate fails and no BC_SEXT/BC_ZEXT re-normalization is emitted.
-  - [major] `lower.bn:416` buildIfaceUpcastSuffixes — wrapper: PLAIN named interface-value type (type NShape *Shape) — A conversion between *Shape and a named iface-value type such as cast(NShape, s) lowers to OP_IFACE_UPCAST.
+=== vm (1 open)
   - [major] `gen_call.bn:151` genCall — wrapper: named-over-readonly func-value local (type RNF readonly *func(int) int). OUT OF VM AREA (I — The local's type is TYP_NAMED over TYP_READONLY, so peelReadonly does nothing and the Kind test fails.
-=== codegen (2)
+=== codegen (2 open)
   - [major] `emit_cast.bn:338` emitCast — wrapper: none needed — A cast between same-layout AGGREGATE types that reaches the identity fallback emits `add <aggregate> %v, 0`, which is invalid LLVM; native and VM are fine.
   - [major] `emit_cast.bn:75` emitCast — wrapper: none needed: an identity cast of a func value, cast(*func(int) int, f), fails — srcIsAggregate lists only SLICE, MANAGED_SLICE and STRUCT.
-=== check-lint (17)
-  - [critical] `check_expr.bn:34` checkExprWithFVHint — wrapper: alias of *func (`type F = *func() int`), outer readonly (`readonly *func() int`) — A func literal assigned to an alias-of-*func or readonly *func destination ignores the *func hint, so it resolves to the default @func and is heap-allocated as a statement temp.
-  - [critical] `gen_func_lit.bn:317` emitCaptureRefInc — wrapper: readonly (`readonly @Box`, e.g. a readonly param) and named-distinct (`type MB @Box`) mana — Capturing a readonly- or named-wrapped managed value does not RefInc it.
-  - [critical] `check_func_lit.bn:94` checkFuncLit — wrapper: alias of a raw func type (type AF = *func() int), plain `readonly *func() int`, alias-of-r — A *func hint wrapped in an alias or readonly is not recognized, so a capturing func literal falls through to the @func (managed) default.
+=== check-lint (13 open)
   - [major] `check_cast_fits.bn:27` castTargetIsInteger — wrapper: named-over-named (`type M int8 — The constant fit-check is skipped entirely for these targets, so `cast(N, 200)` / `unsafe_cast(N, 300)` are accepted where `cast(int8, 200)` is rejected.
   - [major] `types_assignable.bn:263` untypedIntLitFitsTarget — wrapper: named-over-named (`type M int8 — Valid code is rejected.
   - [major] `check_decl.bn:245` resolveBuiltinScalarTypeDecls / isConcreteScalar — wrapper: named-over-named (`type N M`), named-over-readonly (`type R readonly int8`, TEXPR_CONST bo — The eager underlying-fill that runs before top-level consts are resolved skips any named type whose body is not a bare builtin scalar.
   - [major] `types_assignable.bn:167` AssignableTo — wrapper: outer readonly source (`readonly @T`, `readonly @[]T`, `readonly @func`, typically a reado — Valid code is rejected.
   - [major] `check_builtin.bn:312` checkBuiltinCall — wrapper: outer readonly collection (`readonly @[]int` param), named-distinct slice/array (`type Buf — Valid code is rejected.
-  - [major] `check_expr.bn:52` namedUnderlyingIsFuncValue / checkExprWithFVHint — wrapper: alias of a named func-value type (`type Fn @func() int — Valid code is rejected.
   - [major] `check_expr_access.bn:367` checkSelectorExpr — wrapper: outer readonly on a pointer handle (`readonly *S`, `readonly @S`, e.g. a readonly param) — Valid code is rejected.
   - [minor] `type_helpers.bn:58` distinctNamedInts — wrapper: outer readonly (`readonly int64`), alias (`type W = int64`) — Invalid code is accepted.
   - [minor] `iface_borrow_escape_util.bn:97` borrowSourceFrameLocal — wrapper: outer readonly source (`readonly @Sq`, `readonly *Sq`) — Lint false positive: returning a readonly pointer or managed param as `*any` is reported as `iface-borrow-escape` (a frame-local value borrow), although the interface data pointer is the pointer value, not the address of the param
