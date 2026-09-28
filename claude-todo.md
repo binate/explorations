@@ -148,9 +148,10 @@ this type.
 - Check whether a named or pointer box with an outer `readonly` (`readonly @S`, `readonly Celsius`) has the
   same defect (the stripping rule covers them too).
 - Test: `conformance/1356_any_slice_assert_outer_readonly` (`.xfail.all`: fails identically on LLVM, the VM and native aa64).
-- When fixed: update the TODO in `impls/stdlib/pkg/std/fmt/fmt.bn` (stringOperand) and the comment in
-  `conformance/1196_fmt_wrapped_string.bn`, both of which describe the outer-readonly case as reaching
-  fmt's reflection fallback; fmt's `argTypeName` then names it "string" like the plain spellings.
+- When fixed: update the comment in `conformance/1196_fmt_wrapped_string.bn`, which describes the
+  outer-readonly case as a distinct type recovered by fmt's reflection fallback.  (fmt's `stringOperand`
+  classifies strings by reflected kind, so it does not depend on this; fmt's `argTypeName` then names the
+  case "string" like the plain spellings, instead of `readonly @[]readonly uint8`.)
 
 ### An interface-typed global declared in a `.bni` lowers as `int` in importers — 🔴 OPEN (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing)
 
