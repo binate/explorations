@@ -144,21 +144,6 @@ emitManagedValueCopyRefInc, which peels fully and handles @Iface).
   (`gen_iface_registry.bn` ~:72 handles only `TEXPR_NAMED`) → `g.get()` prints 0 in the VM, compiled
   ICEs.  The EBNF allows `interface X = TypeName[..]`; implement the `TEXPR_INSTANTIATE` case.
 
-### A generic body's bare type name binds to the IMPORTER's same-named type first — silent wrong code — 🟡 IN PROGRESS (claimed 2026-09-27, work-1 — user: "take on the bugs that you filed"; found 2026-09-27, work-1, review of the identity refactor; reproduced by the reviewer, pre-existing)
-
-In a monomorphized generic body from another package, an unqualified type name is looked up in the
-consuming module FIRST: `gen_type_resolve.bn` ~:130-139 checks `lookupStructIdx(gc, te.Name)` before
-the `CurrentImportPkg` fallback, and `gen_iface.bn` ~:79/154 checks `gc.PkgPath` before
-`CurrentImportPkg`.  Repro: pkg/g has `type T struct{X int}` and `func Get[X any](x X, t T) int {
-return t.X }`; main defines its own `T{Q, R, X}`; `g.Get[int](0, g.T{X: 3})` → 0 in the VM, SIGSEGV on
-LLVM.  Same for interfaces (VM "target vtable not found"; bnc ICE "negative vtable slot offset").
-Fix: inside a body with `CurrentImportPkg` set, resolve a bare name in THAT package first (only fall
-back to the module when the defining package has no such name).  The parameterized-impl row minting
-(`mintGenericImplRows`, which resolves an impl's interface args with `CurrentImportPkg` = the impl's
-package) hits the same precedence: pkg/home has `type Tag` and `impl *Box[T] : GT[Tag]`; main defines
-its own `Tag` and boxes a `home.Box[int]` into `*any` → `a.(*home.GT[Tag])` (main's Tag) is TRUE —
-a wrong satisfaction row.  Add that as a test with the fix.
-
 ### A generic struct's parameter name shadows a same-named package type in its methods — silent wrong code — 🔴 OPEN (found 2026-09-27, work-1, review of the parameterized-impl row fix; pre-existing)
 
 `type K struct{n, m int}; type Box[K any] struct{v K}; func (b *Box[U]) Get() K {…}` — in the method,

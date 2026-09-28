@@ -1,3 +1,17 @@
+### A bare name in a generic body / imported declaration bound the consumer's same-named declaration first — DONE (binate `df56f73cd`, 2026-09-27)
+
+While IR-gen generates another package's code (monomorphized generic body, imported `.bni` decls,
+parameterized-impl interface refs), bare names now resolve in that package (CurrentImportPkg) before the
+consuming module: types, interfaces, consts, globals and method expressions (`gen_bare_name.bn`).  Also
+fixed in the same commit: a type parameter named like an interface lowered as an interface value; a local
+or parameter shadowing a defining-package func bound the func; a local named like a type taking a method
+value (`var W *V; W.Get`) was compiled as a method expression (SIGSEGV, also in non-generic code); a
+transitively-reached package's consts/vars were never registered (`RegisterFuncExterns` →
+`RegisterGenericBodyDeps`, now also registering them).  Tests: conformance 1312, 1313, 1314; irgen unit
+tests.  Residuals filed: the zero-placeholder for unresolved idents (MAJOR), the REPL's missing
+generic-body dependency registration, and the fallback to a consumer const when the defining package's is
+unregistered.
+
 ### Backends resolved an OP_GET_FIELD_PTR base's struct from the unpeeled `Typ.Elem` — ✅ DONE (2026-09-26, binate `759ec68b` + `ab2e981a`)
 
 All three consumers (LLVM `emitGetFieldPtr`, native `common.StructTypeOf`/`IsSliceFieldBase`, VM
