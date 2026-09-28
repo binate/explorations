@@ -289,7 +289,9 @@ LDAPR post-index, STLR pre-index — landed `898eb3d59` (2026-09-27; the CONSTRA
 overlaps deliberately rejected, unlike clang).  **Still in scope:** LDAP1 / STL1 (FEAT_LRCPC3), with the
 NEON text-syntax family, which adds the `{v0.d}[1]` lane syntax.  (3) LSE atomics
 (v8.1: LD<op>/ST<op>, SWP, CAS, CASP) — landed `69116ea9c` (2026-09-27).  (4) LDTR/STTR family and LDRAA/LDRAB
-(incl. the bare `[Xn]!` pre-index) — landed `ac4c5fc69` (2026-09-27).  **Also in scope (clang supports them; found while
+(incl. the bare `[Xn]!` pre-index) — landed `ac4c5fc69` (2026-09-27).  (5) CRC32 / CRC32C, the pointer-auth
+register forms (PAC* / AUT* / XPAC* / PACGA) and flag manipulation (CFINV / XAFLAG / AXFLAG / RMIF /
+SETF8 / SETF16) — landed `8114782c0` (2026-09-27).  **Also in scope (clang supports them; found while
 scoping (3)):** the later atomic extensions — FEAT_LSE128 (LDCLRP / LDSETP / SWPP), FEAT_THE (RCWCAS /
 RCWSWP / RCWCLR / RCWSET and their S / pair forms; the pairs need FEAT_D128), FEAT_LSFE (LDFADD /
 LDFMAX(NM) / … and ST* aliases on H / S / D), FEAT_LSUI (LDT<op> / SWPT / CAST / CASPT) — each its own family.
