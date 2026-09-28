@@ -93,21 +93,7 @@ fixed rows are in claude-todo-done.md.
   - [minor] `readonly_uninit.bn:27` lintUninitReadonlyGlobal — wrapper: alias of readonly (`type RO = readonly int — Lint false negative: an uninitialized file-scope global of an alias-of-readonly type is not flagged, though the checker rejects every write to it (IsReadonly peels the alias), so it is zero forever.
 ```
 
-### A raw-slice literal's managed elements are released at end of statement while its scope-bound backing still holds them — use-after-free — 🟡 IN PROGRESS (found 2026-09-27, work-5, review of the slice-literal coercion fix; pre-existing; DECIDED reading A — user: "I think A is correct."; claimed 2026-09-27, work-5/session)
-
-`var rq *[]readonly Box = *[]readonly Box{mkbox(30), mkbox(40)}` (Box{b @int}) then `*rq[0].b, *rq[1].b`
-prints `0 0` (expected `30 40`) on LLVM and the VM; same with `*[]readonly @int{box(30), box(40)}` and
-`*[]readonly Box{Box{b: box(30)}, ...}`.  genRawSliceLit stores each element into its stack `[N]T` backing
-with no acquire (genManagedSliceLit / genArrayLit acquire each managed element), so a fresh element's only
-reference is the end-of-statement temp, which frees it while the backing still points at it.
-Semantics question: spec §13.10 `expr.composite.slice` calls the raw-slice literal "a read-only view of
-static data or a scope-bound stack backing" and says a MANAGED-slice literal retains its managed
-elements, but is silent for the raw one.  Reading A (backing owns its elements for the scope, like a local
-array): IR-gen must acquire each managed element and register the backing for release at scope exit —
-this is a compiler UAF (CRITICAL).  Reading B (elements are borrowed): the program is user error, and the
-spec should say so (and a lint could flag fresh managed temporaries in a raw-slice literal).
-
-### A package-level raw-slice literal views the stack of the module initializer — silent wrong values — 🔴 OPEN (found 2026-09-27, work-5, review of the raw-slice-literal ownership fix; pre-existing)
+### A package-level raw-slice literal views the stack of the module initializer — silent wrong values — 🟡 IN PROGRESS (found 2026-09-27, work-5, review of the raw-slice-literal ownership fix; pre-existing; claimed 2026-09-27, work-5/session — user: "then what you propose is fine")
 
 `var gRaw *[]readonly int = *[]readonly int{1, 2, 3}` then `gRaw[0], gRaw[1], gRaw[2]` in `main` prints
 garbage (`4334889136 6132048712 …`) on LLVM and the VM (a global ARRAY initializer is fine).  genRawSliceLit

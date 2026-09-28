@@ -1,3 +1,15 @@
+### A raw-slice literal's backing owns its managed elements for the enclosing scope — DONE (binate `561e8f1f5` + split `c860cd117`, docs `cd47853`, 2026-09-27, work-5)
+
+`*[]readonly Box{mkbox(30), mkbox(40)}` read `0 0`: the fresh elements' only owner was the end-of-statement
+temp.  Decided reading A (user: "I think A is correct."): the scope-bound backing owns its managed elements
+like a local `[N]T` array.  genRawSliceLit allocates such a backing once in the entry block
+(irbuild.EmitEntryAlloc), registers it as a hidden scope var (VarSlot.ClearAfterRelease), stores elements
+with acquire-then-release-old, and every scope exit releases + re-zeroes it — balanced for loop bodies,
+loop conditions, short-circuit operands and break / continue / return.  Spec §13.10 expr.composite.slice
+now says so (docs `cd47853`).  Conformance 1341 + unit test.  gen_func.bn's variable-slot code moved to
+gen_vars.bn (it was near the length cap).  The review found the separate, pre-existing package-level case
+(backing on the module initializer's stack), filed in claude-todo.md.
+
 ### IR-gen ignored type declarations inside a `type ( ... )` group — DONE (binate `9d1ecfc20`, 2026-09-27)
 
 Every file entering IR-gen has its type groups flattened into their member declarations (flatTypeGroups,
