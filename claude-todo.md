@@ -2715,7 +2715,7 @@ abi/07 §7.4 documents the two-arrangement split (docs e5483a0); update it
 if this lands.
 
 
-### Stale comments contradicting live ABI behavior (found 2026-09-04, ABI-spec recon) — 🟢 sweep
+### Stale comments contradicting live ABI behavior (found 2026-09-04, ABI-spec recon) — 🟡 IN PROGRESS (claimed 2026-09-27, work-3/session)
 
 All contradict code that has since changed; fix the comments, don't trust
 them (the ABI spec was authored from the code, not these):
