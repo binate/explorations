@@ -173,6 +173,16 @@ binder per type parameter, so the binders cover every position.)
 
 ## MAJOR
 
+### IR-gen silently lowers an unresolved identifier to the constant 0 — 🔴 OPEN (found 2026-09-27, work-1, review of the bare-name precedence fix)
+
+`genExpr`'s `EXPR_IDENT` arm (`gen_expr.bn` ~:125, "Unknown ident — return a zero placeholder") emits
+`0` for a name that is neither a local, a global nor a const.  The checker has already accepted the
+program, so reaching it means an IR-gen resolution gap — and the result is silent wrong code instead of a
+diagnosable failure (a generic body reading a transitively-reached package's global read 0 until
+RegisterGenericBodyDeps registered those).  Fix: make the miss loud — an ICE at IR-gen time, or the same
+runtime internal-error panic `genSelector`'s fallback emits — after auditing which legitimate idents (if
+any) still reach it.
+
 ### `defer ps.m()` on a method of a NAMED POINTER type panics the compiler ("defer of an unresolved method call") — 🔴 OPEN (found 2026-09-27)
 
 `type S struct { v int }; type PS *S; func (p PS) get() int { ... }; ... defer ps.get()` → IR-gen
