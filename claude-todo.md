@@ -510,6 +510,10 @@ without a `home.bn`.  The checker accepts it; the failure is IR-gen's.
   and interface methods named `_` are rejected; (4) blank decls in a .bni (`func _` / `var _` /
   `const _` / `type _` / `interface _`) are accepted, export nothing, and are still checked — no .bn
   counterpart required.
+- **Decided (2026-09-28, user) on `#[c_export] func _`:** "I guess (a) is fine" — keep lowering a blank
+  func that carries `#[c_export]` under an internal symbol (`__c_export_<C name>`), rather than rejecting
+  it.  And: "let's finish B and C off, rather than being interrupted constantly" — A, B and C committed
+  in sequence, landing approval asked once at the end.
 - **Plan (landable steps):** (A) Define refuses `_` + checkIdent rejects `_` as a value + by-decl
   re-lookups + blank func / interface / const / param / range / type-switch handling in the checker and
   IR-gen + blank import alias not recorded + duplicate blank params allowed + every blank const checked;
@@ -537,7 +541,7 @@ passes although its type is invalid.  Fix: at the declaration, run requireSizedT
 non-generic type declaration's whole resolved type (recursing into array elements and nested structs),
 and over the type checkBlankTypeDecl resolves.
 
-### Duplicate struct field names are accepted — 🔴 OPEN (found 2026-09-28, work-6, the blank-identifier audit; reproduced; pre-existing)
+### Duplicate struct field names are accepted — 🟡 IN PROGRESS (found 2026-09-28, work-6, the blank-identifier audit; reproduced; pre-existing; claimed 2026-09-28, work-6/session — with blank-identifier step B)
 
 `type S struct { a int; a int8 }` compiles and runs (`s.a = 300; Println(s.a)` prints 300 — the first
 field wins): there is no duplicate-field-name check in the checker.  Fix: reject a field name declared
