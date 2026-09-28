@@ -1,3 +1,23 @@
+### Type-wrapper peel cluster — named types over scalar chains take untyped constants — DONE (binate `9bea08ad9`, 2026-09-28, work-5)
+
+`type M int8; type N M; var n N = 5`, `type R readonly int8; const cr R = 5`, a named type over an alias
+(`type NA A; type A = int16`), a parenthesised type or an imported named scalar (`type D time.Delta`) —
+all valid — were rejected.  untypedIntLitFitsTarget now peels every wrapper level; the pre-const fill of
+named scalar underlyings (check_scalar_prefill.bn) follows every scalar chain through declarations,
+memoized with cycle detection.  The review also found: a package-level type shadowing a predeclared name
+(`type int16 = int8`) was invisible to the checker's pre-registration (preRegisterTypeNames now consults
+only the package scope), and a const of another package's opaque export over a scalar was accepted (const
+declarations now apply requireSizedType; conformance 1386).  Also resolves the claude-todo entry "`type A
+B` over a named scalar B rejects an untyped constant" (found by work-1, same root cause).  Filed from the
+reviews: IR-gen ignores a package type shadowing a predeclared name (CRITICAL), and a non-type
+declaration shadowing a predeclared type name only after its position (MAJOR).
+
+```
+  - [major] `check_cast_fits.bn:27` castTargetIsInteger — wrapper: named-over-named (`type M int8 — The constant fit-check is skipped entirely for these targets, so `cast(N, 200)` / `unsafe_cast(N, 300)` are accepted where `cast(int8, 200)` is rejected.  → verified fixed on main 2026-09-28 (`cast(N, 200)` over `type N M; type M int8` is rejected)
+  - [major] `types_assignable.bn:263` untypedIntLitFitsTarget — wrapper: named-over-named (`type M int8 — Valid code is rejected.  → FIXED `9bea08ad9` (check_scalar_prefill_test.bn, conformance 1385)
+  - [major] `check_decl.bn:245` resolveBuiltinScalarTypeDecls / isConcreteScalar — wrapper: named-over-named (`type N M`), named-over-readonly (`type R readonly int8`, TEXPR_CONST bo — The eager underlying-fill that runs before top-level consts are resolved skips any named type whose body is not a bare builtin scalar.  → FIXED `9bea08ad9` (check_scalar_prefill_test.bn, conformance 1385)
+```
+
 ### A type argument spelled through an interface alias names the aliased interface — DONE (binate `5a3777eb2`, 2026-09-28, work-1)
 
 `H[*PA]` (`interface PA = P`) was named from the argument as written — an interface of its own nothing
