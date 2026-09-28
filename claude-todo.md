@@ -293,6 +293,12 @@ NEON text-syntax family, which adds the `{v0.d}[1]` lane syntax.  (3) LSE atomic
 scoping (3)):** the later atomic extensions — FEAT_LSE128 (LDCLRP / LDSETP / SWPP), FEAT_THE (RCWCAS /
 RCWSWP / RCWCLR / RCWSET and their S / pair forms; the pairs need FEAT_D128), FEAT_LSFE (LDFADD /
 LDFMAX(NM) / … and ST* aliases on H / S / D), FEAT_LSUI (LDT<op> / SWPT / CAST / CASPT) — each its own family.
+**Scope (user, 2026-09-27: "we don't need to support everything *now* -- we just don't want ad hoc/arbitrary
+omissions just because we don't need it now"):** every A64 extension clang supports is in scope, SVE/SVE2 and
+SME/SME2 included — sequencing is free, but no family is dropped for lack of a consumer.  Beyond the families
+above: FEAT_MTE (IRG / GMI / SUBP(S) / ADDG / SUBG / STG / LDG / STGP / …), FEAT_MOPS (CPY* / SET*), FEAT_LS64
+(LD64B / ST64B*), FEAT_GCS, FEAT_CSSC (ABS / CNT / CTZ / SMAX / SMIN / UMAX / UMIN reg & imm), FEAT_SYSREG128 /
+FEAT_SYSINSTR128 (MRRS / MSRR / SYSP), CHKFEAT and the other newer hint / system forms, SVE/SVE2(.1), SME/SME2.
 **Also (found by the LSE review):** every AArch64 text-parser branch emits the instruction word and only then
 checks for a trailing token (`expectA64EOL` in `parse/aarch64_instr.bn`), so `ldadd w0, w1, [x2]!` emits a
 word before its error.  Harmless (any error aborts the assembly) but breaks "a rejected line emits nothing";
