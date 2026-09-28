@@ -1,3 +1,17 @@
+### native dispatch files near the 500-line cap — split `emitInstr` by op family — ✅ LANDED 1dea2c420 + 88c3972a4 + 3b8d2e0cb (2026-09-27), work-3
+
+Each backend's `emitInstr` now hands two op families to sub-dispatchers in their own files —
+`emitCallInstr` (calls, C interop, handles) and `emitValueInstr` (interface / function values, upcast,
+dtors, typeinfo) — each a `switch` (aa64/arm32) or if-chain (x64) claiming exactly its ops and returning
+false otherwise; case bodies moved verbatim (only `return` → `return true`, compiler-enforced).  Sizes:
+aa64 464→221, x64 481→251, arm32 462→338 (arm32's sub-dispatchers run after its float / int64
+interceptors, preserving order).  Proven a pure move: every per-package object of cmd/bnc compiled by the
+split compiler is byte-identical to the pre-split compiler's on all five native targets (aa64, x64
+Mach-O + ELF, arm32 hard-float + bare metal; a before-vs-before control confirmed determinism).  Each
+sub-dispatcher has unit tests (claims its ops, declines others without emitting).  Stale docs fixed on
+the way: all three `emitInstr` docs claimed or implied unhandled ops are silently dropped / "walking
+skeleton" / phase and increment labels; they fail loudly.
+
 ### A raw-slice literal's backing owns its managed elements for the enclosing scope — DONE (binate `561e8f1f5` + split `c860cd117`, docs `cd47853`, 2026-09-27, work-5)
 
 `*[]readonly Box{mkbox(30), mkbox(40)}` read `0 0`: the fresh elements' only owner was the end-of-statement

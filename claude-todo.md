@@ -2002,13 +2002,6 @@ and owning the backing is the trivial fix.
 
 ## Hygiene checks: tier dependencies & file length
 
-### native dispatch files near the 500-line cap — split `emitInstr` by op family — 🟡 IN PROGRESS (noted 2026-09-26; claimed 2026-09-27, work-3/session)
-
-`x64/x64_dispatch.bn` (481), `aarch64/aarch64_dispatch.bn` (464) and `arm32/arm32_dispatch.bn` (462) are
-each one big `emitInstr` switch that grows with every new op or fold.  Split along op families (e.g.
-memory / call / control / arithmetic sub-dispatchers in their own files) before the next case lands,
-rather than when a landing trips the cap.
-
 ### `Self`-parameter method is uncallable through a generic constraint (Self binds to the type param, not its base) — 🟠 OPEN (2026-07-03)
 
 **Severity: minor (obscure `Self` corner; the fix is a semantics decision, not a
