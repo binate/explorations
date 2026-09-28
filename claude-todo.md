@@ -282,6 +282,12 @@ go wrong:
   be errors, as they are in value position.  `[0xFFFFFFFFFFFFFFFF + 4]int` gives 3 the same way.
   `[0x8000000000000000 >> 60]int` is rejected as negative, where it should be 8.  On a 32-bit host,
   anything past 32 bits wraps.
+- **Silent wrong value in generics (found 2026-09-27, probing for the evaluator's DEPENDENT status):**
+  `func size[T any]() int { var a [sizeof(T)]uint8; return len(a) }` returns 8 for every T (`uint8`,
+  `uint16`, `uint64`).  The checker folds `sizeof(T)` to the pointer-size fallback `SizeOf` returns for a
+  type parameter and stamps that length on the shared `TypeExpr` (`LenVal`); IR-gen reads the stamp
+  instead of evaluating the length per instantiation.  Fixed by the evaluator's DEPENDENT status (no
+  stamp; IR-gen evaluates per instantiation); needs a conformance test.
 - **Needs a user decision:** a negative constant count in a constant `unsafe_shl` / `unsafe_shr` is
   silently accepted as a constant with no value: `const K = unsafe_shr(-8, -1)` reads 0, and
   `unsafe_shr(-8, -1) + 3` takes the value 3 via `commonType`.  The spec is ambiguous.
