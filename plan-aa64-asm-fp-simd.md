@@ -80,7 +80,10 @@ commit per step; land each before starting the next.
      - Not in Apple clang 21, so no reference words yet: the half-precision FDOT (FEAT_F16F32DOT,
        `fdot v0.2s, v1.4h, v2.4h`) and FMMLA (FEAT_F16F32MM / F16MM) Advanced SIMD forms — add them
        when a clang that knows them is available.
-3. Three different (long / wide / narrow, PMULL).
+3. ✅ Three different (long / wide / narrow and their "2" forms, PMULL incl. 1Q, the scalar SQDMLAL /
+   SQDMLSL / SQDMULL) — landed `52de9ee20` (2026-09-28).  Note: `aarch64_instr_dp2.bn` (the integer
+   data-processing parser, which routes SIMD destinations of shared mnemonics) is at ~450 lines —
+   put the next shared-mnemonic route elsewhere, not there.
 4. Two-register miscellaneous (incl. FP16; incl. the scalar FCVT* / SCVTF / UCVTF `s0, s1` forms)
    and across-lanes.
 5. Modified immediate (MOVI / MVNI / ORR / BIC / FMOV vector).  (The copy class landed with B1.)
