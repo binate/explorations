@@ -323,6 +323,21 @@ param-shadowing fix; reproduced): an alias of the package's OWN generic fails th
 `.bni`), then `var b home.IntBox; b.Val()` in main → link failure (undefined `…lang…int…Val`), with or
 without a `home.bn`.  The checker accepts it; the failure is IR-gen's.
 
+### Duplicate (or blank) receiver binders are accepted at the declaration — confusing errors at every use — 🔴 OPEN (found 2026-09-27, work-6, review of the generic-method param-shadowing fix; reproduced; pre-existing)
+
+`func (p *Pair[A, A]) First() A` on `type Pair[K any, V any]` (and `*Pair[_, _]`) passes
+`resolveGenericReceiverDecl` (`check_decl_func_generic.bn`), which checks arity and that each binder is a
+plain name not naming a type, but not that the binders are distinct.  The checker's `Define` overwrites,
+so A names position 1; IR-gen's substitution takes the first match, position 0 — the two disagree.  No
+miscompile found: every use is rejected, confusingly (`p.First()` → "receiver type Pair[int,S] not
+assignable to *Pair[S,S]"; with `impl *Pair[K, V] : I[V]`, "method `First` receiver kind incompatible
+with impl receiver").  Spec §12 `gen.method.generic-recv` calls the binders "fresh type-parameter names"
+but does not say explicitly that they must be distinct, nor whether `_` is allowed.  Fix: reject a
+duplicate binder name at the declaration (and add the distinctness to the spec rule); **decision
+needed** on `_` (reject, or allow as an unnamed binder).  Related cosmetic: a malformed `.bni` receiver
+(wrong arity / non-binder) also yields a cascade "wrong number of type arguments to generic type" from
+`copyImportedGenericMethods` re-resolving it.
+
 ### Bugs found reviewing the identity refactor (pre-existing) — 🔴 OPEN (found 2026-09-27, work-1; reproduced by the reviewer)
 
 - **`defer` of a method on an interface keys on the checker's SHORT package name:** the checker builds
