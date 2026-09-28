@@ -2114,6 +2114,21 @@ Found: adversarial review of the opaque-export dtor fix.
 
 ## bnfmt (self-hosted formatter)
 
+### bnfmt moves comments inside a function literal — 🟢 LOW (found 2026-09-28, review of the bnfmt defer fix)
+
+`printFuncLit` (`pkg/binate/format/print_stmt.bn`) prints the literal's body with no comment cursor, so a
+comment inside a function literal's body — or trailing the line that opens a multi-line literal — is
+re-emitted on its own line before the next statement instead of in place.  Nothing is lost, but the comment
+moves, e.g. in the common `defer func() { // why\n ... }()` pattern.  Fix: thread the comment cursor into the
+literal's body like printBlock does for statement blocks.
+
+### bnfmt prints `for ;; {` with a double space — 🟢 LOW (found 2026-09-28, review of the bnfmt defer fix)
+
+`printFor` (`pkg/binate/format/print_stmt.bn`) emits the separator space before an absent post statement,
+so `for ;; {` becomes `for ; ;  {` and `for ; i < n; {` becomes `for ; i < n;  {`.  The output reparses the
+same and is stable, but not canonical; the for-clause tests compare tokens only, so they miss it.  Fix the
+spacing and add a byte-exact test.
+
 ## bnlint rules, unused-entity checks & lint skips
 
 ### Raw-slice escape: decide whether a BROADER best-effort escape lint is wanted — 🟡 NEEDS DECISION
