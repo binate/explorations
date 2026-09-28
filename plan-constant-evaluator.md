@@ -82,10 +82,31 @@ every error, an IR-gen `Eval` failure is an internal error (loud), never a silen
 `evalConstBool`, and the host-`int` fallbacks are deleted.  A constant's stored value (`ModuleConst.Val`,
 `Symbol.ConstVal`) stays int64-exact as today (every value at a type fits its 64-bit pattern).
 
+## Integration requirements (from the review of step 1, 2026-09-27)
+
+- **IR-gen must store untyped constants exactly.**  `ModuleConst.Val int64` with `Typ nil` cannot tell
+  an untyped 2^64-1 from -1, so IR-gen's Env would fold `const BIG = 0xFFFFFFFFFFFFFFFF; const ( X
+  uint64 = BIG >> (60 + iota); Y )` (or the same in an imported `.bni`) wrongly.  Store a `bignum.Num`
+  (or a sign bit) for an untyped constant.
+- **Per-instantiation errors are user errors.**  A dependent constant (`sizeof(T)`) is evaluated per
+  instantiation, where `cast(uint8, sizeof(T) * 100)` or `[sizeof(T) - 8]int` can fail for one T and not
+  another.  The checker's Env answers DEPENDENT for them; IR-gen must report an instantiation's `Eval`
+  error as a diagnostic at the use site (naming the instantiation), not as an internal error.  Every
+  other IR-gen `Eval` failure is an internal error.
+- **Checker Env statuses:** NOT_KNOWN for a forward constant or a type whose layout is not complete yet
+  (pass 1, replacing `dimFullyKnown`); POISONED for a constant whose own initializer reported an error
+  (no cascade); DEPENDENT for anything involving a type parameter (never `SizeOf` a type parameter).
+- **`len` of an array / string literal** is a constant (spec §15 `builtin.len`); no evaluator folded it
+  before.  Both Envs implement `Len`.
+- **Known limitation:** `types`' layout computes sizes in a host `int`, so on a 32-bit host a type of
+  2^31 bytes or more has a wrapped size.  constval fails loudly (panic) on a negative size rather than
+  folding it; the layout itself is out of this plan's scope.
+
 ## Commits
 
-1. `constval` package with exhaustive unit tests (typed wrap at every width and signedness, the error
-   kinds, untyped exactness shared with part 1).  No consumers yet.
+1. `constval` package with unit tests (typed wrap at every width and signedness, the error kinds and
+   statuses, untyped exactness shared with part 1).  No consumers yet.  Committed on the work branch,
+   reviewed (review fixes folded in), awaiting approval to land.
 2. Checker and IR-gen switched to it together (so they cannot disagree in between), the dead evaluators
    deleted, spec `const.expr.typed` + the unsafe negative-count rule, and a spec conformance test for
    every repro above, plus the constant forms of `unsafe_shl` / `unsafe_shr` (a part 1 coverage gap).
