@@ -1,3 +1,12 @@
+### An interface method called directly on a `cast` / `unsafe_cast` / type-assertion result failed to link — DONE (binate `1a3bec4d7`, 2026-09-27, work-5)
+
+`cast(@Getter, m).Get()` and an assertion to an interface `g.(*Getter2).Get2()` compiled to a direct call of
+a nonexistent `main..Get` (link failure): irgen `isInterfaceMethodCall` typed only IDENT / SELECTOR / INDEX /
+UNARY / CALL receivers.  Now every non-ident receiver is typed via getSelectorType, which gained an
+EXPR_BUILTIN arm (the checker's resolved type).  The same arm also fixed a func-value field call on a cast
+base (`cast(*S, p).fn(x)`, link failure) and a chained selector off one (`cast(*Outer, p).inner.x = v`,
+"unresolved selector" panic), both found by the review.  Conformance 1326.
+
 ### Spec Ch.16 `pkg.build.errors` conformance test — ✅ LANDED 7e92408a0 (+ xfail tests 1abd623f5) (2026-09-27), work-3
 
 `conformance/spec/16-packages/095_err_build_errors` imports eleven packages, each with one declaration
