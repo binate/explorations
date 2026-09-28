@@ -26,6 +26,13 @@ emitManagedValueCopyRefInc (full peel, +@Iface) — fixes the over-released read
 / @func captures; conformance 1297.
 **VM side landed (`89a56168`):** 1297 was still a use-after-free under bni after `fdd2da32` (caught by
 the normal-test exit-status check: exit 139 after correct output); with `89a56168` it exits 0.
+**Open, found by the VM-lowering fix's review (pre-existing, all backends):** (a) `cast(RH, H{n: 3, m:
+4})` of a struct composite LITERAL to a named-over-readonly struct (`type RH readonly H`) panics
+"cast between mismatched aggregate/scalar shapes reached codegen" (casting an `H` variable works);
+(b) with `type RMB readonly @Base`, a method call directly on a cast result — `cast(@Base, r).A()` —
+resolves an empty receiver name ("extern not found: main..A" on the VM; undefined
+`_bn_F1_4_main2_0_1_A` at link).  (Also seen: `cast(RFn, f)` for `type RFn readonly *func(int) int`
+emits `add %BnFuncValue` on LLVM — the emit_cast.bn:75 func-value identity item below.)
 **FIXED (`8795c19cc`): method receivers / method values through readonly / alias wrappers**
 (applyReceiverConversion — readonly value receivers via *T/@T and defer, incl. readonly named-pointer
 receivers; genCapturedRecv — method values on readonly / alias pointer handles; synthMethodValueWrapper
