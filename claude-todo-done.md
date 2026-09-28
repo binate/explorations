@@ -1,3 +1,15 @@
+### `bnfmt` silently deleted every `defer` statement — ✅ LANDED 417ef22c6 (2026-09-28), work-3; pre-release `bnc-0.0.17-pre1`
+
+`printStmt` had no `STMT_DEFER` case and every unlisted statement kind fell through to "STMT_EMPTY prints
+nothing", so `bnfmt -w` deleted each `defer` (both the tree's and the pinned CHECK_TOOLS bnc-0.0.16 bnfmt).
+`417ef22c6` prints `defer <call>` and makes printStmt / printSimpleStmtCond / printExprE / printType /
+printDecl panic on a kind they have no case for (the same silent-drop had hit DECL_EXPOSE before).  Verified:
+the fixed bnfmt `--check` passes all 2,030 checked tree files, never reaches a new panic on any conformance
+source, and keeps every `defer` in the 24 conformance tests that use one; `TestStmtDefer` round-trips plain,
+method, func-literal and wrapped defers.  Reviewed (no defects; two older formatter issues filed).  Shipped in
+pre-release `bnc-0.0.17-pre1` (tag on `417ef22c6`; VERSION -> 0.0.17-pre2 in `457e2956b`) so hygiene's
+CHECK_TOOLS bnfmt can be bumped past the bug.
+
 ### A deferred method call on a named-distinct receiver — DONE (binate `63831b1ea`, 2026-09-28, work-5)
 
 `defer m.Show()` (`type Money int`), `defer n.Show2()` (`type NP Pt`) and `defer ps.Get()` (`type PS *S`) panicked
