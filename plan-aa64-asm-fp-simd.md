@@ -85,7 +85,21 @@ commit per step; land each before starting the next.
    data-processing parser, which routes SIMD destinations of shared mnemonics) is at ~450 lines —
    put the next shared-mnemonic route elsewhere, not there.
 4. Two-register miscellaneous (incl. FP16; incl. the scalar FCVT* / SCVTF / UCVTF `s0, s1` forms)
-   and across-lanes.
+   and across-lanes, in three commits:
+   - ✅ (a) integer: REV16/32/64, SADDLP/UADDLP/SADALP/UADALP, SUQADD/USQADD, CLS/CLZ/CNT, NOT/MVN/
+     RBIT, SQABS/SQNEG/ABS/NEG, CMxx #0, XTN/SQXTN/UQXTN/SQXTUN(2), SHLL(2) — landed `69fdc5e0e`
+     (2026-09-28), after the Advanced SIMD encoders moved to package `asm/aarch64/isa/simd`
+     (`4f75fcd93`; isa.bni had reached its 1000-line cap).  Shared-mnemonic routing from the
+     integer parser is in `parse/aarch64_instr_simd_route.bn`.
+   - (b) floating-point: FABS/FNEG/FSQRT, FRINT*, FRINT32/64*, FCVT{N,A,P,M,Z}{S,U} / SCVTF / UCVTF
+     (vector and scalar, incl. the same-size `s0, s1` forms), FCVTL/FCVTN/FCVTXN(2), BFCVTN(2),
+     FRECPE/FRSQRTE/FRECPX, FCMxx #0.0, and the integer URECPE / URSQRTE (they sit in the size=1x
+     half of this class, not in M2_*); FP16 forms.  The two-register FCVTN / FCVTN2 must be
+     dispatched ahead of the FP8 three-register parser (see B2c3's note).
+   - (c) across lanes (ADDV, SADDLV/UADDLV, S/UMAXV, S/UMINV, FMAXNMV/FMINNMV/FMAXV/FMINV) and
+     scalar pairwise (ADDP d, FADDP / FMAXP / FMINP / FMAXNMP / FMINNMP).
+   - Note for FEAT_CSSC (later): the general-register ABS / CNT (and friends) will need the same
+     integer-first routing that NEG / CLZ have — today `abs` / `cnt` go straight to the SIMD parser.
 5. Modified immediate (MOVI / MVNI / ORR / BIC / FMOV vector).  (The copy class landed with B1.)
 6. Shift by immediate (incl. narrowing / long / fixed-point conversions).
 7. Vector × indexed element.
