@@ -958,16 +958,6 @@ stores feeding 16-byte `movups` reloads are also a likely store-forwarding stall
 12× > instruction ratio 8.5×). The latch's ~60-instr phi-copy shuffle on x64 is register pressure
 that mostly follows from the same live aggregate state.
 
-- **Backends resolve an OP_GET_FIELD_PTR base's struct from the UNPEELED `Typ.Elem` — 🔵 OPEN
-  (latent; found 2026-09-24 by the adversarial review of the SROA copy-out split).** LLVM
-  `codegen/emit_helpers.bn` `emitGetFieldPtr`, native `native/common/common.bn` `StructTypeOf`,
-  and VM `vm/lower_memory.bn` `lowerGetFieldPtr` take the base's struct from `Args[0].TypeArg`,
-  else `Args[0].Typ.Elem` WITHOUT peeling `Typ` — a named / alias pointer type (`type PS *S`) has no
-  `Elem`, so the struct resolves to nil (LLVM: invalid GEP; native: result register never defined;
-  VM: every field at offset 0). irgen avoids it by setting `ptrVal.TypeArg = structTyp` before
-  each field access, so only an IR producer that forgets that trips it; the SROA copy-out split
-  now declines named-pointer destinations instead. Fix: peel `Typ` before taking `.Elem` in all
-  three places (plus a unit test per backend).
 - **Native code layout: functions (and loop headers) are not aligned — 🔵 OPEN (found 2026-09-24).**
   Native x64 function symbols land at unaligned addresses (e.g. `math.Sqrt` at `…83e`, `…903`);
   LLVM aligns functions to 16. Measured layout sensitivity: shifting a copy of `math.Sqrt`'s code

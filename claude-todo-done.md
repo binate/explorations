@@ -1,3 +1,21 @@
+### Backends resolved an OP_GET_FIELD_PTR base's struct from the unpeeled `Typ.Elem` — ✅ DONE (2026-09-26, binate `759ec68b` + `ab2e981a`)
+
+All three consumers (LLVM `emitGetFieldPtr`, native `common.StructTypeOf`/`IsSliceFieldBase`, VM
+`lowerGetFieldPtr`) now take the base's aggregate from `ir.FieldPtrBaseType` (a slot's TypeArg, else the
+peeled pointee of the base's pointer type), and IR-gen no longer tags field bases; conformance 1284-1287.
+Original entry (from the record-churn findings):
+
+> - **Backends resolve an OP_GET_FIELD_PTR base's struct from the UNPEELED `Typ.Elem` — 🔵 OPEN
+>   (latent; found 2026-09-24 by the adversarial review of the SROA copy-out split).** LLVM
+>   `codegen/emit_helpers.bn` `emitGetFieldPtr`, native `native/common/common.bn` `StructTypeOf`,
+>   and VM `vm/lower_memory.bn` `lowerGetFieldPtr` take the base's struct from `Args[0].TypeArg`,
+>   else `Args[0].Typ.Elem` WITHOUT peeling `Typ` — a named / alias pointer type (`type PS *S`) has no
+>   `Elem`, so the struct resolves to nil (LLVM: invalid GEP; native: result register never defined;
+>   VM: every field at offset 0). irgen avoids it by setting `ptrVal.TypeArg = structTyp` before
+>   each field access, so only an IR producer that forgets that trips it; the SROA copy-out split
+>   now declines named-pointer destinations instead. Fix: peel `Typ` before taking `.Elem` in all
+>   three places (plus a unit test per backend).
+
 ### Type assertion / type switch to a generic interface missed a parameterized impl's rows — DONE (binate `bacb8ec77`, 2026-09-27)
 
 A parameterized impl (`impl *Box[T] : GJ[T]`) has no static satisfaction row; its concrete rows were
