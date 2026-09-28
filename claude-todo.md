@@ -461,6 +461,15 @@ spec says nothing about a blank type declaration.  **Decided (2026-09-28, user):
 as an "assertion" in generated code that the `<any other type>` is a valid type."  So the RHS is still
 resolved and checked; `_` never becomes a usable type name.
 
+### A generic struct / interface that is never instantiated is never checked — invalid declarations accepted — 🔴 OPEN (found 2026-09-28, work-6, review of the declared-type-param change; pre-existing)
+
+A generic type's fields (and a generic interface's method signatures) are resolved only when it is
+instantiated (populateInstantiatedStruct / populateInstantiatedInterface), so an uninstantiated one is
+never checked: `type Box[T any] struct { x Undefined }` (or `x _` with a blank `_` parameter) compiles
+without a diagnostic as long as nothing uses `Box[…]`.  Fix: check each generic type / interface
+declaration once abstractly at the declaration (its parameters held abstract, as generic functions'
+bodies are checked), independent of instantiation.
+
 ### Bugs found reviewing the identity refactor (pre-existing) — 🔴 OPEN (found 2026-09-27, work-1; reproduced by the reviewer)
 
 - **`defer` of a method on an interface keys on the checker's SHORT package name:** the checker builds
