@@ -2079,7 +2079,7 @@ for-clause Pratt path (`parse_for.bn:199`); `if`/`var`/literal-leading contexts 
 parse errors. Conformant (rejection holds) — a diagnostic-consistency nicety only. Surfaced
 authoring `conformance/spec/13-expressions`.
 
-### Spec Ch.16 (Packages) — adversarial-review follow-ups (test-quality, non-blocking) — 2026-06-19
+### Spec Ch.16 (Packages) — adversarial-review follow-ups (test-quality, non-blocking) — 2026-06-19 — 🟡 IN PROGRESS (claimed 2026-09-27, work-3/session)
 The Ch.16 review found 0 blockers, 7 should-fix (landed tests work; these
 improve rigor). 015 mis-cite already FIXED (re-cited pkg.resolve→pkg.identity).
 Remaining, for a focused follow-up (with the build-constraint rework below):
