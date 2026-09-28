@@ -1333,7 +1333,7 @@ resolving.  Every non-BUILDER-tree consumer already imports the new paths.  Rema
 
 ## Documentation hygiene
 
-### ABI spec §5.2 — package-path validation now ENFORCED; update the "unvalidated" text — 🟢 minor (2026-09-07)
+### ABI spec §5.2 — package-path validation now ENFORCED; update the "unvalidated" text — 🟡 IN PROGRESS (2026-09-07; claimed 2026-09-27, work-3/session)
 
 `docs/abi/05-symbol-naming.md` §5.2 records package paths as "currently
 **unvalidated** (an out-of-set byte, or a `.`, would leak into symbols ...) — a
