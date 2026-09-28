@@ -44,20 +44,6 @@ miscompile found):
 resolves an empty receiver name ("extern not found: main..A" on the VM; undefined
 `_bn_F1_4_main2_0_1_A` at link).  (Also seen: `cast(RFn, f)` for `type RFn readonly *func(int) int`
 emits `add %BnFuncValue` on LLVM — the emit_cast.bn:75 func-value identity item below.)
-**CRITICAL — 🟡 IN PROGRESS (claimed 2026-09-27, work-5/session): still corrupting the heap on the compiled backends (found 2026-09-28, claude/exciting-davinci-wahyt2
-session; main `0cd45ca6`):** 1302 prints three lines, then glibc aborts (`malloc.c:2599 (sysmalloc):
-assertion failed …`, exit 134) — on x86-64 with both `--backend native` and llvm (builder-comp and
-builder-comp_native_x64 conformance FAIL on the new exit-status check); the VM passes. Consistent
-with a store position still writing a 4-word managed slice into a 2-word raw-slice slot. valgrind
-(llvm -g): `Invalid write of size 8 … 0 bytes after a block of size 48` from `rt.MakeManagedSlice` at
-1302 line 89, `var ls @[]*[]int = @[]*[]int{mb, m}` — the elements of a MANAGED-slice literal of raw
-slices are not decayed (the fixed-array literal on line 88 is fine).
-Root cause (confirmed 2026-09-27): genManagedSliceLit AND genRawSliceLit hand-roll the element coercions
-instead of calling the shared coerceCompositeElement, and both have drifted.  genManagedSliceLit omits the
-managed→raw decay (this entry); genRawSliceLit omits string-literal→char-slice and the composite-literal
-value load, which are SILENT WRONG VALUES on every backend: `*[]readonly *[]readonly char{"ab", "cde"}`
-reads r[1] back with len 0, `*[]readonly P{P{a: 1, b: 2}, ...}` reads q[0].a as an alloca address.
-Fix: both call coerceCompositeElement.
 
 **Sweep (2026-09-26):** auditors over check+lint, IR-gen (first two thirds of the files), and the VM
 lowering reported the confirmed defects below (each with a repro, run on LLVM / native aa64 / VM).
@@ -67,16 +53,16 @@ fixed rows are in claude-todo-done.md.
 
 ```
 === irgen (8 open)
-  - [major] `gen_func_lit.bn:217` isManagedFuncValueLit — wrapper: named-over-readonly func value `type RF readonly @func() int` (checker type TYP_NAMED -> U — A capturing func literal whose resolved type is RF is judged NOT managed, so its closure struct is stack-alloca'd (EmitAlloc) while the value is an owning @func: the returned value dangles and its RefDec runs ZeroRefDestroy on sta
-  - [major] `gen_typedecl.bn:51` typeDeclEntryType — wrapper: named-over-readonly func value `type RF readonly @func() int` — RF is not stripped to its func value (under.Kind is TYP_READONLY), so IR-gen keeps TYP_NAMED(READONLY(@func)); calling an RF-typed variable `f()` is lowered as a DIRECT call to a nonexistent symbol named after the variable.
+  - [major] 🟡 IN PROGRESS (claimed 2026-09-27, work-5/session) `gen_func_lit.bn:217` isManagedFuncValueLit — wrapper: named-over-readonly func value `type RF readonly @func() int` (checker type TYP_NAMED -> U — A capturing func literal whose resolved type is RF is judged NOT managed, so its closure struct is stack-alloca'd (EmitAlloc) while the value is an owning @func: the returned value dangles and its RefDec runs ZeroRefDestroy on sta
+  - [major] 🟡 IN PROGRESS (claimed 2026-09-27, work-5/session) `gen_typedecl.bn:51` typeDeclEntryType — wrapper: named-over-readonly func value `type RF readonly @func() int` — RF is not stripped to its func value (under.Kind is TYP_READONLY), so IR-gen keeps TYP_NAMED(READONLY(@func)); calling an RF-typed variable `f()` is lowered as a DIRECT call to a nonexistent symbol named after the variable.
   - [major] `gen_composite.bn:105` genCompositeLit — wrapper: named or readonly pointer/slice/managed-ptr/func-value fields (`b RBuf`, `p P` where `type — An omitted field of these types is zero-initialized with EmitConstInt(0, fieldType) instead of EmitConstNil.
   - [major] `gen_builtin.bn:424` genCastValueConversion — wrapper: named raw-slice cast target (`type RBuf *[]int`) — `cast(RBuf, m)` with m @[]int misses the managed->raw arm.
-  - [major] `gen_call.bn:151` genCall — wrapper: named-over-readonly func-value type `type RFn readonly @func(int) int`. typeDeclEntryType  — Calling a local, param or struct field of type RFn is not recognized as a func-value call.
+  - [major] 🟡 IN PROGRESS (claimed 2026-09-27, work-5/session) `gen_call.bn:151` genCall — wrapper: named-over-readonly func-value type `type RFn readonly @func(int) int`. typeDeclEntryType  — Calling a local, param or struct field of type RFn is not recognized as a func-value call.
   - [major] `gen_defer_build.bn:185` deferMethodRecvType / buildDeferMethod — wrapper: named-distinct receiver: named scalar `type Money int`, named-over-struct `type NP Pt` (an — `defer m.Show()` looks up `int.Show` / `Pt.Show2` instead of `Money.Show` / `NP.Show2`, and IR-gen panics.
   - [major] `gen_access.bn:47` genBoundsCheck / genIndex / genIndexPtr — wrapper: none needed: any sub-int index (`uint8`, `int8`, named or readonly variants all behave the — Indexing a slice or array with a narrow-integer index (valid per spec expr.index, 'by an integer i') produces invalid LLVM IR: `icmp slt i64 %v5, 0` where %v5 is i8.
   - [nit] `gen_expr.bn:302` genUnary — wrapper: untyped negated operand whose checker-resolved type is readonly int8 / alias-of-readonly / — Contributing site of KNOWN issue (1), reported only so the fix covers it: for `-C` / `-100` with a wrapped resolved type negTyp falls to TypInt, so OP_NEG is emitted at i64 (`sub i64 0, %v0`) and correctness relies entirely on the
 === vm (1 open)
-  - [major] `gen_call.bn:151` genCall — wrapper: named-over-readonly func-value local (type RNF readonly *func(int) int). OUT OF VM AREA (I — The local's type is TYP_NAMED over TYP_READONLY, so peelReadonly does nothing and the Kind test fails.
+  - [major] 🟡 IN PROGRESS (claimed 2026-09-27, work-5/session) `gen_call.bn:151` genCall — wrapper: named-over-readonly func-value local (type RNF readonly *func(int) int). OUT OF VM AREA (I — The local's type is TYP_NAMED over TYP_READONLY, so peelReadonly does nothing and the Kind test fails.
 === codegen (2 open)
   - [major] `emit_cast.bn:338` emitCast — wrapper: none needed — A cast between same-layout AGGREGATE types that reaches the identity fallback emits `add <aggregate> %v, 0`, which is invalid LLVM; native and VM are fine.
   - [major] `emit_cast.bn:75` emitCast — wrapper: none needed: an identity cast of a func value, cast(*func(int) int, f), fails — srcIsAggregate lists only SLICE, MANAGED_SLICE and STRUCT.

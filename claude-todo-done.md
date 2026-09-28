@@ -1,3 +1,14 @@
+### A managed-slice literal of raw slices overran its backing; raw-slice literals dropped string / struct-literal elements — DONE (binate `bd848fdc9`, 2026-09-27, work-5)
+
+Residual of `d676ebc80` (found by another session: 1302 aborted in glibc malloc on x86-64, native and llvm).
+genManagedSliceLit and genRawSliceLit hand-rolled their element coercions instead of calling the shared
+coerceCompositeElement and had drifted: the managed-slice literal skipped the managed→raw decay (4-word
+headers into 2-word elements), and the raw-slice literal skipped string-literal→char-slice (len read 0) and
+the composite-literal value load (element read as a stack address).  Both now call coerceCompositeElement.
+1302 runs clean under macOS Guard Malloc (segfaulted before); conformance 1327.  The review found a separate
+pre-existing issue (a raw-slice literal's fresh managed elements are freed at end of statement), filed in
+claude-todo.md pending a semantics decision.
+
 ### `__c_call` promotion diagnostics suggested Go's `int(x)` / `float64(x)` — ✅ LANDED 8fac0fce6 (2026-09-27), work-3
 
 `pkg/binate/check/check_c_interop.bn`'s unpromoted-variadic-argument errors now suggest
