@@ -102,6 +102,46 @@ every error, an IR-gen `Eval` failure is an internal error (loud), never a silen
   2^31 bytes or more has a wrapped size.  constval fails loudly (panic) on a negative size rather than
   folding it; the layout itself is out of this plan's scope.
 
+## Step 2 design (2026-09-27, after reading the consumers)
+
+**constval: one-node step.**  Split `Eval` into `Operands(e)` (the child expressions whose values an
+operation needs: `X`/`Y`, a cast's or an unsafe builtin's arguments; none for literals, names, sizeof,
+`len`) and `Step(env, e, vals, stats)` (the node's result from its operands' values and statuses; the
+first non-OK operand status propagates).  `Eval` = recurse over `Operands`, then `Step`.
+
+**Checker: record a value per checked node.**  `checkExpr` already types bottom-up and registers each
+node (`registerExprType`); right after, `recordConst(c, e)` calls `constval.Step` with the children's
+recorded values and stores `(Value, status)` in a side table parallel to `ExprTypes`.  O(n), and the
+dispatch is constval's, so the checker and `Eval` cannot disagree.  Errors are reported where they
+arise, once: `recordConst` reports every ERR_* status at its node and records POISONED, so ancestors
+stay quiet.  The untyped folds (`foldIntArith` / `foldIntBitwise` / unary `~`) keep computing the
+HasLitVal typing stamps (through constval's primitives) but stop reporting; `checkCastConstFits` and
+its `foldConstNum` go (a cast node's ERR_CAST_FIT is reported by `recordConst`); a typed operand-fit
+failure is a type error already reported by the typing, so `recordConst` records POISONED silently for
+ERR_OPERAND_FIT; `checkShiftCountNonNegative` keeps reporting a negative constant count only when the
+shift is not itself a constant (else `recordConst` reports it).
+- Symbols carry `constval.Value` + status (replacing `ConstVal` / `HasConstVal` / `SymBoolVal`), set by
+  const declarations from the initializer's recorded value (converted to the declared type; an untyped
+  value must fit it).  The checker's Env resolves names through the scope from these.
+- Array dimensions (not `checkExpr`'d; pass 1) and `.bni` constants (not `checkExpr`'d) use
+  `constval.Eval` with the checker's Env; NOT_KNOWN defers exactly as `dimFullyKnown` does today.
+- Const groups: a bare member re-evaluates the previous initializer at its own iota with `Eval` (no
+  re-`checkExpr` of the shared node, so the stamp save/restore workaround goes away).
+- Deleted: `evalConstIntValue`, `evalConstInt`'s host fold, `foldConstNum`, `foldConstMagSign`,
+  `foldConstIntValue`, `foldConstBoolValue`, `constIntFor`, `litIntValue`.
+- IR-gen stamps (`attachConstLitVal` / `LenVal`) are written from the recorded values.
+
+**IR-gen.**  An Env over `Module.Consts` (a `ModuleConst` holds a `constval.Value`, exact for untyped
+constants) and the current instantiation's type resolution.  `evalConstExpr` / `evalConstBool` are
+replaced by `constval.Eval`; a failure is an internal error except an ERR_* in a per-instantiation
+(DEPENDENT-in-the-checker) evaluation, which is a user diagnostic.  Call sites: `genConst` /
+`genConstGroup`, import const registration, `gen_type_resolve` array lengths, `gen_flow` case values,
+`gen_composite` keys, the REPL.
+
+**Landing.**  Develop as separate commits (constval step, checker, IR-gen, spec + tests), land together
+(squashed or as a series in one round), since either half alone leaves the checker and IR-gen folding
+typed constants differently.
+
 ## Commits
 
 1. `constval` package with unit tests (typed wrap at every width and signedness, the error kinds and
