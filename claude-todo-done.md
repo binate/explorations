@@ -24964,3 +24964,14 @@ already used one unsigned compare (`b.lo`). x64 now emits `cmp idx,len; jb ok` a
 (arm32 had the same two-compare shape). Sound because every bounds-check length is >= 0, so a
 negative index reinterpreted as unsigned is >= len. Unit tests pin the single-compare form on both
 backends; native x64 and native arm32-linux conformance were fully green.
+
+## Native power-of-two element scaling is a shift on x64 and arm32 — DONE (2026-09-28, binate 568a5bf64 + 1f315fc64)
+
+x64 scaled an element index by a non-SIB size with `imul r,r,size` even for powers of two; it now
+uses `shl r,k` (IMUL only for other sizes). arm32 always materialized the size and MULed; a
+power-of-two size now folds into `add rd, base, idx, lsl #k` (plain ADD for 1-byte elements), with a
+frame/global base computed into a scratch because rd may share idx's register. Preceded by
+`568a5bf64`, which moved the per-backend power-of-two / |int64| helpers and the magic-division
+constants out of native/common (its .bni was at the 1000-line cap) into a new leaf package
+`pkg/binate/native/strength`. x64's element/field-pointer emitters moved to x64_emit_elem.bn.
+Native x64 and arm32-linux conformance fully green.
