@@ -1875,7 +1875,7 @@ binate/examples.
 
 ## Test runner (`bnc --test`)
 
-### `--test` discovery matches TestResult by spelling, not by resolved type — 🟢 LOW (2026-08-03)
+### `--test` discovery matches TestResult by spelling, not by resolved type — 🟡 IN PROGRESS (2026-08-03; claimed 2026-09-27, work-3/session)
 
 `isTestResultReturn` — in BOTH runners now, `cmd/bnc/test.bn` (compiled) and
 `cmd/bni/main.bn` (bytecode VM), brought to parity in `236cf255` — recognizes a test by
