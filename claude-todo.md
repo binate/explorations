@@ -34,6 +34,27 @@ Hits every `@NB` release — scope exit, a struct field `p @NB` (struct dtor), a
 `box(nbValue)` — on LLVM, native and the VM (IR-level).  Value `NB` locals/fields/arrays/`@[]NB`
 elements are fine.  Found by the wrapper-peel triage (repro: rt.LiveBlocks delta 1 per release).
 Fix: peel the pointee (after the opaque-export check) before the struct arm.
+**Triage of the un-audited areas (irgen last third, codegen, native, ir/irbuild/iropt/irutil/types) —
+done 2026-09-27.**  Only confirmed defect: the `@NB` release leak above.  Leftovers (no observable
+miscompile found):
+  - [question for user] checker `Type.IsNillable` peels NAMED for pointers (`nil` → `type P *int` OK) but
+    not for function values (`f = nil` for `type F *func() int` is rejected); spec §7.7 / §10.8 are
+    silent on named function-value types.
+  - [dead code] irgen nil→slice coercions (`gen_control.bn` `*p = nil` / field arms, `gen_call_coerce.bn`
+    `nil` arg arm) — the checker rejects `nil`→slice (spec §7.7); irgen `isManagedReceiverType`
+    (test-only); native `common.UnwrapNamed` (no callers; a named-only peel, a trap for new callers).
+  - [stale comments] references to the deleted `vmUnwrapNamed` / "the old UnwrapNamed" (conformance
+    646, regressions/readonly-wrapped-64bit-arg.bn, arm32 `*_test.bn`, `common_scalar.bn`).
+  - [latent, LLVM] `codegen/emit_copy_ssa{,_load}.bn` (`isAggregateForStore`, `countAggregateLeaves`,
+    `emitLoadSSARec`, `emitStoreSSARec`) peel readonly but not NAMED, so a named aggregate skips the
+    per-leaf decomposition that keeps ARM EABI off `__aeabi_memcpy`; clang did not emit memcpy for
+    64/1024-element named arrays, so not observed.
+  - [bug, minor] DWARF: `emit_debug_types.bn` has no READONLY arm, and pointer DI nodes hardcode
+    `size: 64` (wrong on 32-bit targets).
+  - [refactor proposal] eight full-peel helpers (irutil.PeelTransparent, types.StripWrappers,
+    types.PeelNamedBounded, ir.PeelToRepr, ir.PeelToUnderlying, codegen peelReprType, vm
+    vmPeelTransparent, native common peelTransparent) — consolidating on one would remove the ad-hoc
+    partial peels this cluster came from.
 **FIXED (`c469b2fcb`): widenType keeps a wrapped wider integer left operand's type** (was TypInt —
 32-bit on arm32 — truncating `N int64` / `readonly int64` ops); unit test + conformance 1318.
 **FIXED (`7d5cc9650`): VM lowering through every wrapper** — vmUnwrapNamed (named-only) deleted,
