@@ -511,15 +511,24 @@ Each needs a test (xfail'd) + triage; grouped here so none is lost.
 - **Unverified:** the REPL (`repl/ir_imports.bn`) has no equivalent of `registerGenericBodyExternDeps`.
 - **Hazard:** `gen_type_resolve.bn:113,153,193` silently fall back to `TypInt()` on a registry miss.
 
-### LLVM `cast` of an array (aggregate retype, spec §8.5 `[4]int8 → [4]uint8`) emits `add [4 x i8] %v, 0` — clang rejects valid code — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-27, work-3/session)
+### The checker rejects spec-valid non-integer container retypes (`[N]bool → [N]uint8`, named ↔ underlying, same-layout named structs) — valid code rejected — 🔴 OPEN (found 2026-09-27, work-3, fixing the LLVM array-cast bug; pre-existing)
 
-`var a [4]int8; var u [4]uint8 = cast([4]uint8, a)` fails on the LLVM backend at -O0/-O2 ("integer
-constant must have integer type"); native aa64 and the VM are correct.  Root cause: emitCast's
-`srcIsAggregate` (pkg/binate/codegen/emit_cast.bn) lists SLICE / MANAGED_SLICE / STRUCT but not
-TYP_ARRAY, and typeBits has no array case (srcBits == dstBits), so the same-bits arm takes the scalar
-`add X, 0` identity.  No conformance test covers an array retype.  Fix: treat TYP_ARRAY as an
-aggregate (identity via `select i1 true` / reinterpret) + a conformance test.  Found by the review of
-the codegen readonly-peel fix (pre-existing).
+`conv.cast.aggregate-retype`'s leaf rule admits any element conversion that is total and
+bit-preserving (`cast` equals `bit_cast` on every element); its note names `bool → int8` explicitly,
+and named ↔ underlying / two named types sharing one underlying are same-layout retypes "for any type"
+(§8.5).  The checker's `bitPreservingElem` (`pkg/binate/check/check_cast_safe.bn`) admits only
+identical elements or same-size integers, so every mode rejects, with "cast does not support this
+conversion": `[3]bool → [3]uint8` / `[3]int8`, `@[]bool → @[]uint8`, `[2]Celsius → [2]float64`
+(`type Celsius float64`), `[2]P → [2]struct{…}` (P's anonymous underlying), and `[2]P → [2]Q` (two
+named structs, one layout).  Controls accepted: `[2]MyInt → [2]int`, scalar `cast(Q, p)`.  Test:
+`conformance/spec/08-conversions/017_cast_aggregate_retype_leaf` (`.xfail.all`).  Fix: widen
+`bitPreservingElem` to the leaf rule — elements identical after peeling named/alias wrappers
+(`sameStructFields` for two named structs), plus `bool →` a 1-byte integer (NOT the reverse:
+`int8 → bool` is partial) — keeping the readonly and managed-element exclusions.  This WIDENS what the
+checker accepts (to match the spec), so confirm with the user before landing.  Codegen is ready: the
+LLVM backend reinterprets an array whose element LLVM types differ (`[N x i1]` → `[N x i8]`,
+`[N x %P]` → `[N x %Q]`) through a scratch slot (`89be70e05`, unit-tested); native and the VM get
+their first end-to-end check when 017 un-xfails.
 
 ### Compile time is superlinear in function size — iropt mem2reg, the native allocator/liveness passes, and the compiler-wide copy-per-append `slices.Append` — 🔴 OPEN (found 2026-09-27)
 

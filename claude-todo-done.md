@@ -1,3 +1,19 @@
+### LLVM `cast` of an array emitted `add [4 x i8] %v, 0` — ✅ LANDED 89be70e05 (+ xfail test 3e3aea249) (2026-09-27), work-3
+
+`cast([4]uint8, a)` for `a [4]int8` (a container retype, §8.5 `conv.cast.aggregate-retype`) reached
+emitCast's scalar same-width arm on the LLVM backend (typeBits gives arrays the default width on both
+sides; `srcIsAggregate` lacked TYP_ARRAY), so clang rejected the `add [4 x i8] %v, 0` at -O0/-O2;
+native and the VM were already correct.  Fix (`pkg/binate/codegen/emit_cast.bn`): arrays are
+aggregates in both places structs are — a same-LLVM-type retype takes the identity `select`; a retype
+whose element LLVM types differ (`[N x i1]` → `[N x i8]`, `[N x %A]` → `[N x %B]`) reinterprets through
+the distinct-struct scratch slot.  New `conformance/spec/08-conversions/016_cast_aggregate_retype`
+(the rule's first test: array, named-array, raw-slice and managed-slice forms) + two codegen unit
+tests.  Verified: codegen unit tests; `cast`-filtered conformance subsets (82 tests) green on LLVM
+aa64, LLVM arm32 baremetal, the VM, native x64 and native arm32; 016 directly on LLVM -O0/-O2 and
+native aa64.  `bit_cast` of arrays was probed and already correct (IR-gen routes it through memory).
+Finding: the checker rejects several spec-valid leaf retypes (`bool → int8`, named ↔ underlying,
+same-layout named structs) — filed as a MAJOR in `claude-todo.md` with the `.xfail.all` test 017.
+
 ### A REPL mid-session import registers every package it loads; unregistered generic interfaces are internal errors — DONE (binate `1ec1766ce`, 2026-09-27)
 
 A mid-session import now checks every new package before lowering any, registers the struct types,
