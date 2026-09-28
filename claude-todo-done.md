@@ -1,3 +1,11 @@
+### A package-level raw-slice literal viewed the module initializer's stack — DONE (binate `56eaaaed9` + split `3605dbb66`, 2026-09-28, work-5)
+
+`var gInts *[]readonly int = *[]readonly int{1, 2, 3}` read garbage in main (a managed-element one crashed):
+genRawSliceLit put the backing on the module-init function's stack.  A package-level literal's backing is
+now a hidden module global `__rawslice_backing_<N>` (program lifetime, filled once by init, managed elements
+released by the global teardown).  Conformance 1350 + unit test.  gen_composite.bn's slice literals moved to
+gen_slice_lit.bn (it was near the length cap).  The REPL top-level var path is the remaining piece (todo).
+
 ### Receiver binders: duplicates rejected, `_` binds a position unnamed, constraints by position — ✅ LANDED 5bdd776f9 (+ spec docs 0de197c) (2026-09-27), work-6
 
 `func (p *Pair[A, A])` was accepted (checker bound the last position, IR-gen the first; every use failed

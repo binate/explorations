@@ -93,17 +93,15 @@ fixed rows are in claude-todo-done.md.
   - [minor] `readonly_uninit.bn:27` lintUninitReadonlyGlobal — wrapper: alias of readonly (`type RO = readonly int — Lint false negative: an uninitialized file-scope global of an alias-of-readonly type is not flagged, though the checker rejects every write to it (IsReadonly peels the alias), so it is zero forever.
 ```
 
-### A package-level raw-slice literal views the stack of the module initializer — silent wrong values — 🟡 IN PROGRESS (found 2026-09-27, work-5, review of the raw-slice-literal ownership fix; pre-existing; claimed 2026-09-27, work-5/session — user: "then what you propose is fine")
+### A REPL top-level `var` initialized with a raw-slice literal views the var-init function's stack — silent wrong values — 🟡 IN PROGRESS (found 2026-09-27, work-5, review of `56eaaaed9`; pre-existing; claimed 2026-09-28, work-5/session — user: "then start on the REPL fix")
 
-`var gRaw *[]readonly int = *[]readonly int{1, 2, 3}` then `gRaw[0], gRaw[1], gRaw[2]` in `main` prints
-garbage (`4334889136 6132048712 …`) on LLVM and the VM (a global ARRAY initializer is fine).  genRawSliceLit
-allocates the backing on the stack of the synthetic module-init function, so the global views dead stack
-once init returns.  With managed elements the raw-slice-literal ownership fix makes it worse: init's scope
-exit releases the elements, so a use then crashes instead of reading garbage.  A package-level literal's
-enclosing scope is the package: its backing must be a hidden GLOBAL `[N]T` (program lifetime; managed
-elements retained, never released), initialized in module init.  (Returning a function-local raw-slice
-literal's view is NOT this bug — that is a raw borrow outliving its scope, user error per spec §18.7
-`mem.raw-uaf`.)
+At the REPL prompt, `var g *[]readonly int = *[]readonly int{1, 2, 3}` then `testing.Println(g[0], g[1], g[2])`
+prints `2 55801020784 2`.  `56eaaaed9` gives a package-level literal a hidden module-global backing, but only
+inside the file-load module init (`<pkg>.__init`); the REPL initializes each top-level var in its own
+synthetic `__repl_var_init_<N>` (repl/decl.bn runReplVarInit), which is not recognized, and the VM resolves
+a global only once it is materialized (MaterializeOneGlobal).  Fix: mark the global-initializer function
+per function (not a shared GenCtx flag — closures generated inside an initializer must keep the ordinary
+path), and have runReplVarInit materialize any global created while generating it before calling it.
 
 ### More silent wrong code found by the forwarder audit (not forwarder-specific) — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1; agents' repros, not yet independently re-verified)
 
