@@ -21,7 +21,7 @@ storage (`lookupVar`); every other base evaluates the array VALUE and copies it 
 **Test:** conformance `1327_array_slice_addressable_base_aliases` (`.xfail.all`, not yet landed).
 
 
-### IR-gen ignores type declarations inside a `type ( ... )` group — silent wrong values — 🔴 OPEN (found 2026-09-27, work-1, review of the declaration-order fix; pre-existing)
+### IR-gen ignores type declarations inside a `type ( ... )` group — silent wrong values — 🟡 IN PROGRESS (claimed 2026-09-27, work-1 — user: "I guess you can take that CRITICAL next."; found 2026-09-27, work-1, review of the declaration-order fix; pre-existing)
 
 `type ( S struct { x int }; C int; P = *C )`: IR-gen never registers grouped type declarations —
 GeneratePackage's first pass reaches a DECL_GROUP only through genConstGroup / registerVarGlobals, and
