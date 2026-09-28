@@ -1,3 +1,20 @@
+### Stale comments contradicting live ABI behavior — ✅ LANDED 307380949 + c8935aa14 (2026-09-27), work-3
+
+Swept by over-broad grep (the 2026-09-04 list had drifted).  Key fact: `SysVSseInRegs()` / `HfaInSimd()`
+are TARGET PREDICATES (target == x64 / aa64), not development gates — so every "dormant until the gate
+flips" was stale: live in the x64/aa64 backends, "x64-only / aa64-only" in shared code (19 files incl.
+sites not on the list: types/abi_sysv/abi_hfa/layout, x64 closure-shim pack comments).  aa64 sret is
+above `cc.InternalSretBytes` (16), not 64, on both return and call sides; a stray duplicate of
+`emitReturn`'s doc (with a move breadcrumb) removed and the HFA return shape documented.  arm32
+float64-tuple "deferred (P5.3) … fails loudly" refuted (compiles) and removed.  `.ms` header routes to
+`rodata_relro`, not `data`.  `writeShimResultLLVM`'s `aggRetCoerced` branch proven unreachable (all 7
+callers take the retbuf shape first; `AggRetCoerced ⇒ IsAggregateReturn`) and deleted.  Already fixed
+before the sweep: `common_callconv_ctors.bn:44-50`, the ELF "no mapping yet" claim.  Verified: unit
+tests of all 9 touched packages; 251 func-value/closure/shim conformance tests on LLVM aa64 + arm32.
+**Finding:** `common_callconv_vfp.bn`'s "inert" was hiding a LIVE bug — on arm32-linux (hard float) a
+homogeneous-float-aggregate `__c_call` argument is passed in GP registers while C reads `s0…`
+(clang-verified) — filed as a MAJOR; the comment now carries a TODO pointing at it.
+
 ### Type-level forward references (decl.order.forward): aliases, interface aliases, interfaces named before their declaration — DONE (binate `f127b309f`, 2026-09-27)
 
 Checker: a per-batch pending-alias registry resolves a type or interface alias on demand when a bare name

@@ -2739,31 +2739,6 @@ abi/07 §7.4 documents the two-arrangement split (docs e5483a0); update it
 if this lands.
 
 
-### Stale comments contradicting live ABI behavior (found 2026-09-04, ABI-spec recon) — 🟡 IN PROGRESS (claimed 2026-09-27, work-3/session)
-
-All contradict code that has since changed; fix the comments, don't trust
-them (the ABI spec was authored from the code, not these):
-
-- "dormant until the gate flips" family — the SSE and HFA gates are LIVE
-  (SysVSseInRegs true for x64 since ce759c416; HfaInSimd true for aa64 since
-  48e3787b1): common_callconv.bn:90,164; common_callconv_ctors.bn:48-50;
-  x64_sse.bn:19-20; x64_return.bn:52,293; x64_call.bn:187;
-  emit_sysv_coerce.bn:39-40; aarch64_hfa.bn:18-20; abi_return.bn HFA notes.
-- common_callconv_vfp.bn:47-50 "no target stamps yet" — arm32-linux stamps
-  FLOAT_ABI_HARD (cmd/bnc target.bn).
-- aarch64_return.bn:9-16 / aarch64_call.bn:195-199 claim sret at ">64
-  bytes" — operative threshold is InternalSretBytes=16.
-- arm32_call.bn:22-25 header claims float64-in-multi-return is "deferred
-  (P5.3)" — implemented (also an increment label, banned in code comments).
-- irdata/data_strings.bn:30-33 + native/aarch64/aarch64.bn:28-29 say the .ms
-  string header lands in "data" — actual routing is rodata_relro.
-- asm/elf/elf_util.bn:211-216 claims aarch64 low-12/GOT fixups "have no ELF
-  mapping yet" — mapped directly below (:237-245).
-- codegen/emit_funcvals_sig.bn:160-176 (writeShimResultLLVM aggRetCoerced
-  branch) appears unreachable — all callers are behind isAggregateReturn,
-  which is true for every AggRetCoerced result; comment contradicts
-  abi_return.bn. Verify + delete or fix.
-
 ### Use interfaces more (where an interface is the best/natural design)
 - **Framing (2026-07-16)**: the bar is NOT "opportunistic / cheap
   cleanup".  The question is *what is the best/natural implementation*
