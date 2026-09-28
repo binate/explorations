@@ -26,14 +26,10 @@ emitManagedValueCopyRefInc (full peel, +@Iface) — fixes the over-released read
 / @func captures; conformance 1297.
 **VM side landed (`89a56168`):** 1297 was still a use-after-free under bni after `fdd2da32` (caught by
 the normal-test exit-status check: exit 139 after correct output); with `89a56168` it exits 0.
-**🟡 IN PROGRESS (found + claimed 2026-09-27, work-5/session) — CRITICAL LEAK: releasing a managed pointer to a
-named-over-struct (`type NB Box`, `@NB`) skips the struct dtor** — irbuild `EmitManagedPtrRefDec` tests the
-UNPEELED pointee `.Kind == TYP_STRUCT`; a TYP_NAMED pointee falls through every arm to a dtor-less
-`ZeroRefDestroy(p, null)`, so the pointee's managed fields leak (Box{s @[]int}: one block per release).
-Hits every `@NB` release — scope exit, a struct field `p @NB` (struct dtor), a `@Holder` owning one,
-`box(nbValue)` — on LLVM, native and the VM (IR-level).  Value `NB` locals/fields/arrays/`@[]NB`
-elements are fine.  Found by the wrapper-peel triage (repro: rt.LiveBlocks delta 1 per release).
-Fix: peel the pointee (after the opaque-export check) before the struct arm.
+**FIXED (`1595ee99e`): CRITICAL LEAK — releasing a managed pointer to a named-over-struct (`type NB Box`,
+`@NB`) skipped the struct dtor** (irbuild `EmitManagedPtrRefDec` tested the unpeeled pointee Kind, so every
+`@NB` release freed the cell with a null dtor and leaked Box's managed fields, all backends); now peels the
+pointee after the opaque-export arm; unit test + conformance 1324.
 **Triage of the un-audited areas (irgen last third, codegen, native, ir/irbuild/iropt/irutil/types) —
 done 2026-09-27.**  Only confirmed defect: the `@NB` release leak above.  Leftovers (no observable
 miscompile found):
@@ -132,7 +128,7 @@ emitManagedValueCopyRefInc, which peels fully and handles @Iface).
   - [critical] `gen_composite.bn:132` genCompositeLit — wrapper: struct field of named raw slice (`b RBuf`) or `readonly *[]int` — `S{n: 1, b: m}` stores the 4-word managed slice into the 2-word field and writes 16 bytes past the end of the struct alloca.
   - [critical] `gen_binary_width.bn:55` widenType — wrapper: named or readonly 64-bit integer left operand (`type N int64`, `readonly int64`) on a 32-b — If the left operand is a wrapped integer wider than the right operand's type, widenType returns TypInt() instead of `a`.
   - [critical] `gen_control.bn:19` emitArrayElemStore / genAssign index+deref arms; gen_assign_multi.bn genMultiAssign; gen_composite.bn coerceCompositeElement / genManagedSliceLit / genRawSliceLit — wrapper: none needed: plain `*[]int` destinations (named/readonly destinations too) — Storing a managed slice into a raw-slice array element, slice element, pointer target, multi-assign component, or array/slice-literal element never emits EmitManagedToRaw.
-  - [major] `gen_iface.bn:203` wrapAsIfaceValue — wrapper: `readonly *I` / `readonly @I` cast target (IR-gen TYP_READONLY via resolveTypeExpr) — ICE on valid code: wrapAsIfaceValue returns nil for a wrapped interface-value destination, and the cast arm panics.
+  - [major] 🟡 IN PROGRESS (claimed 2026-09-27, work-5/session) `gen_iface.bn:203` wrapAsIfaceValue — wrapper: `readonly *I` / `readonly @I` cast target (IR-gen TYP_READONLY via resolveTypeExpr) — ICE on valid code: wrapAsIfaceValue returns nil for a wrapped interface-value destination, and the cast arm panics.
   - [major] `gen_func_lit.bn:217` isManagedFuncValueLit — wrapper: named-over-readonly func value `type RF readonly @func() int` (checker type TYP_NAMED -> U — A capturing func literal whose resolved type is RF is judged NOT managed, so its closure struct is stack-alloca'd (EmitAlloc) while the value is an owning @func: the returned value dangles and its RefDec runs ZeroRefDestroy on sta
   - [major] `gen_typedecl.bn:51` typeDeclEntryType — wrapper: named-over-readonly func value `type RF readonly @func() int` — RF is not stripped to its func value (under.Kind is TYP_READONLY), so IR-gen keeps TYP_NAMED(READONLY(@func)); calling an RF-typed variable `f()` is lowered as a DIRECT call to a nonexistent symbol named after the variable.
   - [major] `gen_composite.bn:105` genCompositeLit — wrapper: named or readonly pointer/slice/managed-ptr/func-value fields (`b RBuf`, `p P` where `type — An omitted field of these types is zero-initialized with EmitConstInt(0, fieldType) instead of EmitConstNil.
