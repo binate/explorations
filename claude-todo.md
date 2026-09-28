@@ -2353,6 +2353,21 @@ finds ~400 fixed `/tmp/binate_*` paths in ~60 `*_test.bn` files (`pkg/binate/lin
 ~65, `cmd/{bnc,bnld,bnas,bni}` tests ~25); `conformance/stdlib/os/*` also uses fixed paths. No shared
 unique-path helper exists; `os.MkdirTemp(dir, prefix)` (mkdtemp(3)) is the available mechanism — a
 per-package memoized `testTmpDir()` + path-join would convert each file mechanically.
+**Progress (work-3):** `os.RemoveAll` landed (`6b1044949`) for cleanup — tests of BUILDER-cone packages
+may call it directly (tests are built by gen1 against the tree stdlib; probe-verified).  Pattern per test:
+`dir := os.MkdirTemp("/tmp", "binate_<pkg>_"); defer os.RemoveAll(dir)` + paths joined under `dir` (a
+fixed name overwritten each run leaks nothing today, so a unique dir MUST be removed).  Converting
+package by package, each group landed on its own.
+
+### `os.RemoveAll` is path-based — a concurrent directory→symlink swap mid-walk can make it delete outside the tree — 🟢 LOW (found 2026-09-28, review of `6b1044949`)
+
+`RemoveAll` walks by name (`Lstat`, then `ReadDir` / `Remove` on `path/...`), so another process that can
+write into the tree can replace a subdirectory with a symbolic link between the `Lstat` and the later
+calls, and the walk then deletes through the link (the class of Rust's CVE-2022-21658 `remove_dir_all`).
+Documented as a limitation in `os.bni` (fine for its current users: private 0700 `MkdirTemp` dirs).  A
+race-free walk needs directory-fd-relative calls that `pkg/std/os/sys` lacks: `openat(O_NOFOLLOW |
+O_DIRECTORY)`, `fdopendir`, `unlinkat(AT_REMOVEDIR)` (and an `fstatat(AT_SYMLINK_NOFOLLOW)`), on every
+hosted target.
 
 ### Conformance harness: `pkg0.testing` `--test`-only rules are not conformance-testable
 
