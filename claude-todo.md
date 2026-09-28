@@ -2154,7 +2154,7 @@ Remaining, for a focused follow-up (with the build-constraint rework below):
   (010) and `pkg.import` (001) lack negative tests (package-must-be-a-string-
   literal; no block-scoped import).
 
-### Spec Ch.16 build-constraint group — only the `pkg.build.errors` conformance test remains — 🟡 (done parts in done log, 2026-07-10)
+### Spec Ch.16 build-constraint group — only the `pkg.build.errors` conformance test remains — 🟡 IN PROGRESS (done parts in done log, 2026-07-10; claimed 2026-09-27, work-3/session)
 The build-constraint rework is done (re-authored `075_build_gate_file` / `076_build_gate_import` on the
 real file/import gating mechanism; the "unknown predicate/annotation" possible-gap was NOT a real
 validation gap — the compiler rejects them under a resolved config, unit-tested — see the done log).
