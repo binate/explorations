@@ -2378,7 +2378,7 @@ per-package memoized `testTmpDir()` + path-join would convert each file mechanic
 
 ## Standard library & libraries
 
-### `pkg/std/os` follow-ons split out of the (completed) os.Stat work — 🟢 LOW
+### `pkg/std/os` follow-ons split out of the (completed) os.Stat work — 🟡 IN PROGRESS (claimed 2026-09-27, work-3/session)
 
 Two small `pkg/std/os` items surfaced by the finished `os.Stat`/`FileInfo`/`FileMode`
 work (`done/plan-os-stat.md`), neither actionable within that plan:
