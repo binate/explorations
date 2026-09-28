@@ -193,9 +193,9 @@ SEGFAULTS at runtime — on the pre- and post-`31c1bc297` compilers alike (the r
 `type RF readonly @func() int` now fails the same way).  The checker accepts both.  Likely root cause:
 irgen `typeDeclEntryType` strips every named func-value type to its underlying func value (so IR-gen has
 no nominal type to mangle the method / impl vtable against, while the checker still resolves the method
-on the named type).  Needs investigation: whether the spec allows methods / impls on named func-value
-types (if not, the checker must reject them); if it does, IR-gen needs the named identity for method
-dispatch while keeping the func-value representation for calls / copies / dtors.
+on the named type).  The spec allows it (§10 `func.method.receiver-base`: any named type declared in
+the same package), so this is a compiler bug: IR-gen needs the named identity for method / impl dispatch
+while keeping the func-value representation for calls / copies / dtors.
 
 ### More declaration-order dependence (valid forward references rejected or mis-lowered) — 🟡 IN PROGRESS (claimed 2026-09-27, work-1 — user: "yes" to fixing all four together; found 2026-09-27, work-1, probing order dependence; pre-existing)
 
