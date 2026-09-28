@@ -311,7 +311,7 @@ monomorphization instantiates `depth[int]`, `depth[@int]`, `depth[@@int]`, … w
 instantiation depth limit with a diagnostic, in the checker's per-instantiation worklist (plan above).
 Needs a conformance test.
 
-### A local `const` may redeclare a parameter or a name of its own block — accepted; the group form reads the other one — 🔴 OPEN (found 2026-09-28, work-4, review of constant-evaluator step 2; pre-existing, bnc-0.0.16 too)
+### A local `const` may redeclare a parameter or a name of its own block — accepted; the group form reads the other one — 🟡 IN PROGRESS (claimed 2026-09-28, work-4 — user: "I guess you can take on the two MAJORs next"; found 2026-09-28, work-4, review of constant-evaluator step 2; pre-existing, bnc-0.0.16 too)
 - `func k2(N int) int { const N = 7; return N }` is accepted; `var N` there correctly gives "N redeclared
   in this scope".  So are a `for N := …` loop variable redeclared by a `const N` in the loop body, and
   `var A int = 1; const ( A = 2 )` in one block.
@@ -322,7 +322,7 @@ Needs a conformance test.
   A const in a nested block shadowing an outer var is legitimate and works.
 - No test yet.
 
-### A constant declared both as a single const and in a group, or in two groups, is not reported — 🔴 OPEN (found 2026-09-28, work-4, review of constant-evaluator step 2; pre-existing, bnc-0.0.16 too)
+### A constant declared both as a single const and in a group, or in two groups, is not reported — 🟡 IN PROGRESS (claimed 2026-09-28, work-4 — user: "I guess you can take on the two MAJORs next"; found 2026-09-28, work-4, review of constant-evaluator step 2; pre-existing, bnc-0.0.16 too)
 - `const A = 5` plus `const ( A = 9; Z = A + 1 )` in one package is accepted; expected "A redeclared in
   this block".  Which value each use reads depends on declaration order and differs between compilers.
   A duplicate within one group is reported.
@@ -330,77 +330,21 @@ Needs a conformance test.
   include group members (const, and check var/type groups too) in the package-level duplicate check.
 - No test yet.
 
-### Typed-constant expressions are folded without their type — silent wrong values, a compiler ICE, valid code rejected — 🟡 IN PROGRESS (found 2026-09-27, work-4, verifying the typed-constant rule for the untyped-bitwise spec change; pre-existing; claimed 2026-09-27, work-4/session — user: "That order is fine": right after the untyped-bitwise change lands)
+### Per-instantiation checking of generic bodies (design B) — 🟡 CLAIMED (2026-09-28, work-4; user chose "B"; to be done after the two const-redeclaration MAJORs — user: "I guess you can take on the two MAJORs next")
+The constant evaluator (binate `1db847da0`) marks a value depending on a type parameter DEPENDENT; the
+checker checks a generic body once, abstractly, and IR-gen evaluates DEPENDENT values per instantiation.
+Until each instantiation is checked:
+- an array whose length depends on a type parameter is rejected in a generic signature and with
+  array-literal elements, and `len` of one is not a constant (conformance
+  `spec/15-builtins/153_len_dependent_array_len`, xfail);
+- an error that only one instantiation has (`cast(uint8, sizeof(T) * 100)` with a large T) panics in
+  IR-gen with no position (`constEvalFailure`), as do the cast / `bit_cast` size checks that reach codegen
+  through a type parameter (conformance 1123, 1217, 1220).
+Design and commit plan: `plan-constant-evaluator.md` ("Per-instantiation checking"),
+`plan-generic-instance-check.md`.  Also fixes the two MAJOR entries above (a generic struct's
+`[sizeof(T)]` field length; polymorphic recursion).
 
-The user decided (2026-09-27) that an operator on **typed** integer constants behaves exactly as on values
-of that type (it wraps at the type; see [plan-untyped-bitwise-constants.md](plan-untyped-bitwise-constants.md),
-rule `const.expr.typed`).  Only the runtime path does that today (`var a uint8 = cast(uint8, 200) +
-cast(uint8, 100)` is 44).  Every compile-time evaluator folds the expression typeless:
-`check/evalConstIntValue` (host `int`; array dims, shift counts), `check/foldConstNum` (exact bignum;
-the cast fit check), and `irgen/evalConstExpr` (host `int`; const decls without a checker stamp).
-Repros (probed with the current compiler):
-- `const Z uint8 = cast(uint8, 1) / cast(uint8, 0)` compiles and reads **0**. The spec requires a
-  compile-time error (`expr.arith.divzero`), and the non-constant form panics at run time.
-  `evalConstExpr` returns `!ok` on the zero divisor and `genConst` stores the fallback value. **Silent wrong value.**
-- `var arr [cast(uint8, 200) + cast(uint8, 100)]int` has `len` **300**; `const X uint8` with the same
-  initializer reads 44.  **Silent wrong value** (and the two disagree).
-- `const M int8 = -cast(int8, -128)` and `const Y int8 = cast(int8, -128) / cast(int8, -1)` panic the
-  compiler: "const value overflows its signed target type -- the type-checker fit gate … was bypassed".
-  `evalConstExpr` folds 128 and `genConst`'s guard catches it.  **ICE.** (`var a int8 = -cast(int8, -128)` is
-  -128; the `/` form panics at run time, `expr.arith.minover`.)
-- `cast(int8, cast(uint8, 200) + cast(uint8, 100))` is rejected ("constant does not fit"). `foldConstNum`
-  fit-checks 300, not the value 44.  **Valid code rejected.**
-
-Proposed fix: fold a typed-constant operator once, in the checker, at its type: wrap to `T`, and make a
-zero divisor a compile-time error. Stamp the result on the expression, and have every consumer (array
-dims, shift counts, the cast fit check, `genConst`, `evalConstExpr`) read the stamp rather than re-fold
-typeless.  User decisions (2026-09-27): a typed-constant signed `MIN / -1` (and `%`) is a compile-time
-error ("I guess a compile-time error is fine"); `conv.cast.const-not-laundered` stays — a cast of a typed
-constant is still fit-checked, against its value at its type ("I guess we can keep the exception, since it
-probably catches real bugs").  No test covers this yet; the fix adds spec
-conformance tests for each repro.
-
-**Same root cause, found by the review of the untyped-bitwise change (2026-09-27; pre-existing, reproduced
-by the reviewer):** the host-`int` evaluators (`check/evalConstIntValue`, `irgen/evalConstExpr`) are
-neither exact nor complete, and the paths that re-fold with them instead of reading the checker's value
-go wrong:
-- **Compiler crash (exit 134) on a valid program:** `const ( A = -1 >> (0xFFFFFFFFFFFFFFFF - iota); B )`.
-  The bare member B is re-folded in host `int`, where its count wraps to -2, and the host shift panics
-  ("negative shift count").  `const C = -8 >> -1` also crashes instead of reporting the error (the
-  path is `constIntFor` → `foldConstNum` FOLD_UNKNOWN → `evalConstIntValue`).  Just returning ok=false for a
-  negative count is not a fix: `genConstGroup` then silently stores the iota value (next item).
-- **Silent wrong value:** neither host evaluator has a case for `unsafe_shl` / `unsafe_shr`, and
-  `genConstGroup` falls back to the iota value.  `const ( A = unsafe_shl(1, iota + 4); B; C )` prints
-  `16 1 2`, where it should print `16 32 64`.  The checker records B = 32, so `[B]int` and B disagree.
-  `[unsafe_shl(1, 3)]int` is rejected as "not a constant".
-- **Array dimensions ignore §6.4:** `evalConstInt` folds only in host `int`, so
-  `[(1 << 64) + 3]int` has length 3 and `[~0xFFFFFFFFFFFFFFFF + 2]int` has length 2, where both should
-  be errors, as they are in value position.  `[0xFFFFFFFFFFFFFFFF + 4]int` gives 3 the same way.
-  `[0x8000000000000000 >> 60]int` is rejected as negative, where it should be 8.  On a 32-bit host,
-  anything past 32 bits wraps.
-- **Silent wrong value in generics (found 2026-09-27, probing for the evaluator's DEPENDENT status):**
-  `func size[T any]() int { var a [sizeof(T)]uint8; return len(a) }` returns 8 for every T (`uint8`,
-  `uint16`, `uint64`).  The checker folds `sizeof(T)` to the pointer-size fallback `SizeOf` returns for a
-  type parameter and stamps that length on the shared `TypeExpr` (`LenVal`); IR-gen reads the stamp
-  instead of evaluating the length per instantiation.  Fixed by the evaluator's DEPENDENT status (no
-  stamp; IR-gen evaluates per instantiation); needs a conformance test.
-- **Needs a user decision:** a negative constant count in a constant `unsafe_shl` / `unsafe_shr` is
-  silently accepted as a constant with no value: `const K = unsafe_shr(-8, -1)` reads 0, and
-  `unsafe_shr(-8, -1) + 3` takes the value 3 via `commonType`.  The spec is ambiguous.
-  `expr.shift.untyped-value.unsafe` folds these "exactly like `<<`", but `expr.shift.negative` exempts
-  the unsafe forms from the negative-count check.
-
-**Decided (user, 2026-09-27):** the fix is one exact, type-aware constant evaluator, done next ("2. yes");
-a negative constant count in a constant `unsafe_shl` / `unsafe_shr` is a compile-time error ("3. compile-time
-check seems fine."), to be written into §13.5 `expr.shift.untyped-value.unsafe` / `expr.shift.negative`;
-so is a constant `unsafe_shl` / `unsafe_shr` of a typed value by a count ≥ its width ("I guess it can be
-an error, given that it's undefined at runtime").  An untyped constant declared in a `.bni` stays untyped for
-its importers, as an in-package one does (the checker typed it `int`; user, 2026-09-27: "yes").  Plan: `plan-constant-evaluator.md`; step 1 (the
-`constval` package) LANDED (binate `b6314e316`); step 2 (switch the checker and IR-gen) in progress; it also defines `.bni` constants and top-level
-const-group members in dependency order, so a forward reference in a `.bni` (rejected by both compilers
-before) and one between group members (read as 0 before) get their values.
-
-**Found by the review of step 2 (2026-09-28), pre-existing and outside this change (not yet fixed):**
+### Constant-evaluator leftovers — 🔴 OPEN (found 2026-09-28 by the review of constant-evaluator step 2; pre-existing)
 - `const F float64 = cast(float64, 5)` fails in clang: both the old and new compiler emit invalid LLVM IR.
 - `const S2 = sizeof([G2]uint8)` naming a const-group member declared later is rejected ("array length
   must be a constant integer"): the dependency walk (`collectConstDeps`) does not look into type
@@ -410,11 +354,6 @@ before) and one between group members (read as 0 before) get their values.
 - REPL: `checkGroupDeclTentative` still re-checks a const group's shared initializer for its bare members,
   which restamps it; IR-gen reads the checker's per-declaration values now, so this may be harmless.  Not
   verified.
-
-The fix, covering these and the typed-constant cases above: one exact, type-aware constant evaluator
-in the checker (bignum, wrapping at a typed operand's type) whose recorded value every consumer reads.
-The consumers are value position, array dimensions, shift counts, iota groups including bare members,
-`.bni` constants, and IR-gen.  No host-`int` re-fold anywhere.
 
 ### An interface alias named as a parent breaks the upcast — runtime panic / compiler ICE — 🔴 OPEN (found 2026-09-27, work-1, review of the checker forward-parent fix; pre-existing)
 

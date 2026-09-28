@@ -202,7 +202,10 @@ and dependent-length identity needs a new rule).  Design B:
    deleted, spec `const.expr.typed` + the unsafe negative-count rule, and a spec conformance test for
    every repro above, plus the constant forms of `unsafe_shl` / `unsafe_shr` (a part 1 coverage gap).
    Audit as in part 1: compile the toolchain and the conformance corpus before and after, host and
-   arm32, and compare.
+   arm32, and compare.  LANDED (binate `1db847da0`, docs `e48342f`, 2026-09-28).  It also defines `.bni`
+   constants and top-level const-group members in dependency order.
+3. Per-instantiation checking of generic bodies (design B, above): next, after the two
+   const-redeclaration MAJORs the step-2 review found.
 
 If (2) is too large to review as one, split it by consumer family (declarations; array dims and counts;
 casts and bools; IR-gen), each keeping checker and IR-gen in step for that family.
