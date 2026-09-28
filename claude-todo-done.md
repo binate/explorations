@@ -1,3 +1,10 @@
+### A REPL top-level `var` initialized with a raw-slice literal viewed the var-init function's stack — DONE (binate `19edbe22b`, 2026-09-28, work-5)
+
+`var g *[]readonly int = *[]readonly int{1, 2, 3}` at the prompt read `2 55801020784 2`.  irgen.GenGlobalInitFunc
+(used by the module init and runReplVarInit) marks the global-initializer function; a raw-slice literal
+generated directly in it gets a hidden module-global backing, which runReplVarInit materializes before
+running the initializer.  e2e/repl.sh case tier2-var-raw-slice-literal.
+
 ### `--test` discovery matches TestResult by spelling, not by resolved type — ✅ LANDED 92de25f09 (2026-09-28), work-3
 
 Both runners (`cmd/bnc/test.bn`, `cmd/bni/test.bn`) now call one shared predicate,

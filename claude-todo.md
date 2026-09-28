@@ -128,16 +128,6 @@ fixed rows are in claude-todo-done.md.
   - [minor] `readonly_uninit.bn:27` lintUninitReadonlyGlobal — wrapper: alias of readonly (`type RO = readonly int — Lint false negative: an uninitialized file-scope global of an alias-of-readonly type is not flagged, though the checker rejects every write to it (IsReadonly peels the alias), so it is zero forever.
 ```
 
-### A REPL top-level `var` initialized with a raw-slice literal views the var-init function's stack — silent wrong values — 🟡 IN PROGRESS (found 2026-09-27, work-5, review of `56eaaaed9`; pre-existing; claimed 2026-09-28, work-5/session — user: "then start on the REPL fix")
-
-At the REPL prompt, `var g *[]readonly int = *[]readonly int{1, 2, 3}` then `testing.Println(g[0], g[1], g[2])`
-prints `2 55801020784 2`.  `56eaaaed9` gives a package-level literal a hidden module-global backing, but only
-inside the file-load module init (`<pkg>.__init`); the REPL initializes each top-level var in its own
-synthetic `__repl_var_init_<N>` (repl/decl.bn runReplVarInit), which is not recognized, and the VM resolves
-a global only once it is materialized (MaterializeOneGlobal).  Fix: mark the global-initializer function
-per function (not a shared GenCtx flag — closures generated inside an initializer must keep the ordinary
-path), and have runReplVarInit materialize any global created while generating it before calling it.
-
 ### Duplicate type-parameter names in a generic function / type declaration are accepted — native miscompile (segfault), invalid LLVM IR — 🟡 IN PROGRESS (found 2026-09-27, work-6, review of the receiver-binder change; reproduced; pre-existing; claimed 2026-09-28, work-6/session)
 
 `func pick[T any, T any](x T) T` called as `pick[int8, S](s)`, and `type Dup[T any, T any] struct{x T; …}`
