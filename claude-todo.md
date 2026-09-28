@@ -247,6 +247,10 @@ NEON text-syntax family, which adds the `{v0.d}[1]` lane syntax.  (3) LSE atomic
 scoping (3)):** the later atomic extensions — FEAT_LSE128 (LDCLRP / LDSETP / SWPP), FEAT_THE (RCWCAS /
 RCWSWP / RCWCLR / RCWSET and their S / pair forms; the pairs need FEAT_D128), FEAT_LSFE (LDFADD /
 LDFMAX(NM) / … and ST* aliases on H / S / D), FEAT_LSUI (LDT<op> / SWPT / CAST / CASPT) — each its own family.
+**Also (found by the LSE review):** every AArch64 text-parser branch emits the instruction word and only then
+checks for a trailing token (`expectA64EOL` in `parse/aarch64_instr.bn`), so `ldadd w0, w1, [x2]!` emits a
+word before its error.  Harmless (any error aborts the assembly) but breaks "a rejected line emits nothing";
+fix by checking end-of-line before emitting, in every branch.
 
 ### Assigning `nil` to an `@func` holding a capturing closure clears only the fn word — double free (compiled backends) — 🔴 OPEN (found 2026-09-26)
 
