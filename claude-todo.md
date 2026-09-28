@@ -44,7 +44,7 @@ miscompile found):
 resolves an empty receiver name ("extern not found: main..A" on the VM; undefined
 `_bn_F1_4_main2_0_1_A` at link).  (Also seen: `cast(RFn, f)` for `type RFn readonly *func(int) int`
 emits `add %BnFuncValue` on LLVM — the emit_cast.bn:75 func-value identity item below.)
-**Still corrupting the heap on the compiled backends (found 2026-09-28, claude/exciting-davinci-wahyt2
+**CRITICAL — 🟡 IN PROGRESS (claimed 2026-09-27, work-5/session): still corrupting the heap on the compiled backends (found 2026-09-28, claude/exciting-davinci-wahyt2
 session; main `0cd45ca6`):** 1302 prints three lines, then glibc aborts (`malloc.c:2599 (sysmalloc):
 assertion failed …`, exit 134) — on x86-64 with both `--backend native` and llvm (builder-comp and
 builder-comp_native_x64 conformance FAIL on the new exit-status check); the VM passes. Consistent
