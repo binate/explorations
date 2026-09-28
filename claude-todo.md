@@ -80,17 +80,12 @@ wrapper (plain types) — marked "wrapper: none needed".  The rows below are the
 fixed rows are in claude-todo-done.md.
 
 ```
-=== irgen (8 open)
-  - [major] 🟡 IN PROGRESS (claimed 2026-09-27, work-5/session) `gen_func_lit.bn:217` isManagedFuncValueLit — wrapper: named-over-readonly func value `type RF readonly @func() int` (checker type TYP_NAMED -> U — A capturing func literal whose resolved type is RF is judged NOT managed, so its closure struct is stack-alloca'd (EmitAlloc) while the value is an owning @func: the returned value dangles and its RefDec runs ZeroRefDestroy on sta
-  - [major] 🟡 IN PROGRESS (claimed 2026-09-27, work-5/session) `gen_typedecl.bn:51` typeDeclEntryType — wrapper: named-over-readonly func value `type RF readonly @func() int` — RF is not stripped to its func value (under.Kind is TYP_READONLY), so IR-gen keeps TYP_NAMED(READONLY(@func)); calling an RF-typed variable `f()` is lowered as a DIRECT call to a nonexistent symbol named after the variable.
+=== irgen (5 open)
   - [major] `gen_composite.bn:105` genCompositeLit — wrapper: named or readonly pointer/slice/managed-ptr/func-value fields (`b RBuf`, `p P` where `type — An omitted field of these types is zero-initialized with EmitConstInt(0, fieldType) instead of EmitConstNil.
   - [major] `gen_builtin.bn:424` genCastValueConversion — wrapper: named raw-slice cast target (`type RBuf *[]int`) — `cast(RBuf, m)` with m @[]int misses the managed->raw arm.
-  - [major] 🟡 IN PROGRESS (claimed 2026-09-27, work-5/session) `gen_call.bn:151` genCall — wrapper: named-over-readonly func-value type `type RFn readonly @func(int) int`. typeDeclEntryType  — Calling a local, param or struct field of type RFn is not recognized as a func-value call.
   - [major] `gen_defer_build.bn:185` deferMethodRecvType / buildDeferMethod — wrapper: named-distinct receiver: named scalar `type Money int`, named-over-struct `type NP Pt` (an — `defer m.Show()` looks up `int.Show` / `Pt.Show2` instead of `Money.Show` / `NP.Show2`, and IR-gen panics.
   - [major] `gen_access.bn:47` genBoundsCheck / genIndex / genIndexPtr — wrapper: none needed: any sub-int index (`uint8`, `int8`, named or readonly variants all behave the — Indexing a slice or array with a narrow-integer index (valid per spec expr.index, 'by an integer i') produces invalid LLVM IR: `icmp slt i64 %v5, 0` where %v5 is i8.
   - [nit] `gen_expr.bn:302` genUnary — wrapper: untyped negated operand whose checker-resolved type is readonly int8 / alias-of-readonly / — Contributing site of KNOWN issue (1), reported only so the fix covers it: for `-C` / `-100` with a wrapped resolved type negTyp falls to TypInt, so OP_NEG is emitted at i64 (`sub i64 0, %v0`) and correctness relies entirely on the
-=== vm (1 open)
-  - [major] 🟡 IN PROGRESS (claimed 2026-09-27, work-5/session) `gen_call.bn:151` genCall — wrapper: named-over-readonly func-value local (type RNF readonly *func(int) int). OUT OF VM AREA (I — The local's type is TYP_NAMED over TYP_READONLY, so peelReadonly does nothing and the Kind test fails.
 === codegen (2 open)
   - [major] `emit_cast.bn:338` emitCast — wrapper: none needed — A cast between same-layout AGGREGATE types that reaches the identity fallback emits `add <aggregate> %v, 0`, which is invalid LLVM; native and VM are fine.
   - [major] `emit_cast.bn:75` emitCast — wrapper: none needed: an identity cast of a func value, cast(*func(int) int, f), fails — srcIsAggregate lists only SLICE, MANAGED_SLICE and STRUCT.

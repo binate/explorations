@@ -1,3 +1,18 @@
+### A named function-value type over a readonly function value was not a function value in IR-gen — DONE (binate `4fb867404`, 2026-09-27, work-5)
+
+`type RF readonly @func() int` / `type RNF readonly *func(int) int`: typeDeclEntryType, genCall's func-value
+callee checks and isManagedFuncValueLit peeled only part of the wrapper, so a call through an RF local /
+param / field lowered as a direct call to a symbol named after the variable, a call-result RF callee was
+missed, and a capturing literal bound to RF stack-allocated its closure.  All peel fully now; peelReadonly
+(no callers left) deleted.  Conformance 1335.  Sweep rows moved here:
+
+```
+  - [major] `gen_func_lit.bn:217` isManagedFuncValueLit — wrapper: named-over-readonly func value `type RF readonly @func() int` (checker type TYP_NAMED -> U — A capturing func literal whose resolved type is RF is judged NOT managed, so its closure struct is stack-alloca'd (EmitAlloc) while the value is an owning @func: the returned value dangles and its RefDec runs ZeroRefDestroy on sta
+  - [major] `gen_typedecl.bn:51` typeDeclEntryType — wrapper: named-over-readonly func value `type RF readonly @func() int` — RF is not stripped to its func value (under.Kind is TYP_READONLY), so IR-gen keeps TYP_NAMED(READONLY(@func)); calling an RF-typed variable `f()` is lowered as a DIRECT call to a nonexistent symbol named after the variable.
+  - [major] `gen_call.bn:151` genCall — wrapper: named-over-readonly func-value type `type RFn readonly @func(int) int`. typeDeclEntryType  — Calling a local, param or struct field of type RFn is not recognized as a func-value call.
+  - [major] `gen_call.bn:151` genCall — wrapper: named-over-readonly func-value local (type RNF readonly *func(int) int). OUT OF VM AREA (I — The local's type is TYP_NAMED over TYP_READONLY, so peelReadonly does nothing and the Kind test fails.
+```
+
 ### Stale comments contradicting live ABI behavior — ✅ LANDED 307380949 + c8935aa14 (2026-09-27), work-3
 
 Swept by over-broad grep (the 2026-09-04 list had drifted).  Key fact: `SysVSseInRegs()` / `HfaInSimd()`
