@@ -26,6 +26,10 @@ emitManagedValueCopyRefInc (full peel, +@Iface) — fixes the over-released read
 / @func captures; conformance 1297.
 **VM side landed (`89a56168`):** 1297 was still a use-after-free under bni after `fdd2da32` (caught by
 the normal-test exit-status check: exit 139 after correct output); with `89a56168` it exits 0.
+**FIXED (`8795c19cc`): method receivers / method values through readonly / alias wrappers**
+(applyReceiverConversion — readonly value receivers via *T/@T and defer, incl. readonly named-pointer
+receivers; genCapturedRecv — method values on readonly / alias pointer handles; synthMethodValueWrapper
+— alias / readonly captured values with pointer-receiver methods); conformance 1308.
 **FIXED (`82ed9c6c0`): a func literal bound for an alias / readonly `*func` (or alias-of-named func)
 destination now takes the destination's hint** (checkExprWithFVHint resolves alias+readonly; the hint
 no longer leaks into nested literals); conformance 1306.  Covers the check_expr.bn:34 / check_func_lit
