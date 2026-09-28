@@ -304,6 +304,14 @@ an error, given that it's undefined at runtime").  An untyped constant declared 
 its importers, as an in-package one does (the checker typed it `int`; user, 2026-09-27: "yes").  Plan: `plan-constant-evaluator.md`; step 1 (the
 `constval` package) LANDED (binate `b6314e316`); step 2 (switch the checker and IR-gen) in progress.
 
+**Found by the review of step 2 (2026-09-28), pre-existing and outside this change (not yet fixed):**
+- `const F float64 = cast(float64, 5)` fails in clang: both the old and new compiler emit invalid LLVM IR.
+- A forward const reference in a `.bni` (an array length or a const naming a const declared later in the
+  same `.bni`) is rejected by both compilers.
+- REPL: `checkGroupDeclTentative` still re-checks a const group's shared initializer for its bare members,
+  which restamps it; IR-gen reads the checker's per-declaration values now, so this may be harmless.  Not
+  verified.
+
 The fix, covering these and the typed-constant cases above: one exact, type-aware constant evaluator
 in the checker (bignum, wrapping at a typed operand's type) whose recorded value every consumer reads.
 The consumers are value position, array dimensions, shift counts, iota groups including bare members,
