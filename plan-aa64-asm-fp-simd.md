@@ -28,9 +28,10 @@ commit per step; land each before starting the next.
 ## Steps
 
 **A. FP scalar** (H / S / D precisions throughout; FP16 forms need `+fullfp16`)
-1. FP data-processing: 1-source (FMOV reg, FABS, FNEG, FSQRT, FCVT H/S/D, FRINT{N,P,M,Z,A,X,I},
+1. ✅ FP data-processing: 1-source (FMOV reg, FABS, FNEG, FSQRT, FCVT H/S/D, FRINT{N,P,M,Z,A,X,I},
    FRINT32/64{Z,X}, BFCVT), 2-source (FMUL, FDIV, FADD, FSUB, FMAX, FMIN, FMAXNM, FMINNM, FNMUL),
-   3-source (FMADD, FMSUB, FNMADD, FNMSUB), FCMP / FCMPE (incl. `#0.0`), FCCMP / FCCMPE, FCSEL.
+   3-source (FMADD, FMSUB, FNMADD, FNMSUB), FCMP / FCMPE (incl. `#0.0`), FCCMP / FCCMPE, FCSEL —
+   landed `fd8d2eafb` (2026-09-27), with the lexer's TOK_FLOAT floating-point literals.
 2. FMOV (immediate): floating-point literal lexing + the 8-bit FP immediate (exact-representability
    check, no rounding).
 3. FP ↔ integer: FCVT{N,P,M,Z,A}{S,U} (integer and fixed-point `#fbits`), SCVTF / UCVTF (both),
