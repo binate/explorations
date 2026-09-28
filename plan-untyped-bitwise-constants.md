@@ -1,10 +1,12 @@
 # Plan: bitwise operators on untyped integer constants (`~1`, `(0 - 2) | 1`)
 
-**Status:** 🟡 two commits, in order (user, 2026-09-27: "That order is fine").  (1) The untyped rules
-(`const.expr.bitwise`, `const.expr.shift`): implemented and unit-tested; spec text being written into
-docs.  (2) The typed-constant rule (`const.expr.typed`, wrap at the type), which needs an implementation
-(see "Typed constants" below).  Tracked in `claude-todo.md` ("Spec gap: unary `~`…" and "Typed-constant
-expressions are folded without their type").
+**Status:** (1) the untyped rules (`const.expr.bitwise`, `const.expr.shift`) LANDED (docs `b1c5a66`,
+binate `71b184eaf`, 2026-09-27).  (2) Next, widened (user, 2026-09-27: "2. yes"): one exact, type-aware
+constant evaluator that also implements `const.expr.typed` (wrap at the type) and removes every host-`int`
+re-fold; see `plan-constant-evaluator.md` and the `claude-todo.md` entry "Typed-constant expressions are
+folded without their type".  Coverage gap carried into (2): no conformance test yet pins the constant
+forms of `unsafe_shl` / `unsafe_shr` (`unsafe_shl(-1, 3)` is -8, `unsafe_shl(1, 64)` is an error), and a
+negative constant count there becomes a compile-time error (user: "3. compile-time check seems fine.").
 
 ## Problem
 
