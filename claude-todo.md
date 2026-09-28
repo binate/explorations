@@ -5,6 +5,18 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
+### The checker identifies an interface by its package's LAST path segment — distinct interfaces conflated — 🔴 OPEN (found 2026-09-28, work-1, fixing the same-named-interface collision; pre-existing)
+
+`pkg/x/a` and `pkg/y/a` each declare `interface P` (different methods).  The checker accepts
+`var q *ya.P = p` with `p *xa.P`, and `var y Box[*ya.P] = x` with `x Box[*xa.P]` (then types `y.v` as
+`*xa.P`); IR-gen — which keys interfaces by full path — panics "emitIfaceUpcast: negative vtable slot
+offset".  Root cause: the checker builds interface types with `c.curPkgShort` (the last path segment —
+check_interface.bn:163, bni_scope.bn:95, checker.bn:138/205), so (Pkg, Name) identity — and the
+package-qualified identity name (`types` QualifiedTypeName) — cannot tell the two apart.  Fix: give
+checker interface types their full package path (as IR-gen does), keeping display names short; also make
+an "cannot assign" between two types that DISPLAY the same name print them qualified.  Test: conformance
+1386_err_iface_same_last_segment_pkgs (xfail.all; not yet landed).
+
 ### Same-named interfaces from two packages collide as generic type arguments — one instance, wrong dispatch — 🟡 IN PROGRESS (found 2026-09-28, work-1, fixing the alias-as-type-argument CRITICAL; pre-existing; claimed 2026-09-28, work-1 — user: "yes, but first fetch and fast-forward binate/ main.")
 
 `pkg/a` and `pkg/b` each declare `interface P` (different method sets); `H[*a.P]` and `H[*b.P]` get ONE
