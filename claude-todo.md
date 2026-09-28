@@ -52,6 +52,12 @@ with a store position still writing a 4-word managed slice into a 2-word raw-sli
 (llvm -g): `Invalid write of size 8 … 0 bytes after a block of size 48` from `rt.MakeManagedSlice` at
 1302 line 89, `var ls @[]*[]int = @[]*[]int{mb, m}` — the elements of a MANAGED-slice literal of raw
 slices are not decayed (the fixed-array literal on line 88 is fine).
+Root cause (confirmed 2026-09-27): genManagedSliceLit AND genRawSliceLit hand-roll the element coercions
+instead of calling the shared coerceCompositeElement, and both have drifted.  genManagedSliceLit omits the
+managed→raw decay (this entry); genRawSliceLit omits string-literal→char-slice and the composite-literal
+value load, which are SILENT WRONG VALUES on every backend: `*[]readonly *[]readonly char{"ab", "cde"}`
+reads r[1] back with len 0, `*[]readonly P{P{a: 1, b: 2}, ...}` reads q[0].a as an alloca address.
+Fix: both call coerceCompositeElement.
 
 **Sweep (2026-09-26):** auditors over check+lint, IR-gen (first two thirds of the files), and the VM
 lowering reported the confirmed defects below (each with a repro, run on LLVM / native aa64 / VM).
