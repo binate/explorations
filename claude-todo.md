@@ -163,7 +163,7 @@ this type.
   `readonly @[]readonly uint8` (visible in fmt's `%!d(readonly @[]readonly uint8=hi)`).
 - Check whether a named or pointer box with an outer `readonly` (`readonly @S`, `readonly Celsius`) has the
   same defect (the stripping rule covers them too).
-- Test: `conformance/1356_any_slice_assert_outer_readonly` (`.xfail.all`: fails identically on LLVM, the VM and native aa64).
+- Test: `conformance/1363_any_slice_assert_outer_readonly` (landed `367e89991`; `.xfail.all`: fails identically on LLVM, the VM and native aa64).
 - When fixed: update the comment in `conformance/1196_fmt_wrapped_string.bn`, which describes the
   outer-readonly case as a distinct type recovered by fmt's reflection fallback.  (fmt's `stringOperand`
   classifies strings by reflected kind, so it does not depend on this; fmt's `argTypeName` then names the
@@ -1968,39 +1968,6 @@ bare.  A CHECK_TOOLS bump to a bundle carrying value-borrow (the `9d04870b`
 string-literal box + the earlier scalar/var value-borrow) would let those tests
 drop the `&`.  The non-linted conformance tests (1090/1135) already use the bare
 form.
-
-### fmt: auxiliary `*any` classifiers still match char-slices by exact spelling (named / `readonly` blind) — 🟡 IN PROGRESS (LOW, 2026-08-08; claimed 2026-09-28, work-3/session)
-
-The main value-rendering path is fixed: `writeArg` now recovers a wrapped/qualified
-char-slice via reflection (dynamic type peels to KIND_STRING), so Print/Println/Sprint
-+ Printf `%s`/`%v`/`%+v` render an `os.Args()`/`os.Env()` element (`readonly
-@[]readonly char`) and a named `type X @[]char` as text, not `%!?(unknown)` — landed
-`ce758276` (conformance `1196_fmt_wrapped_string`; see done log). The SAME
-qualifier/wrapper blindness remains in the auxiliary classifiers, which still switch
-on only the four exact spellings — all lower-impact (they render VISIBLY, never wrong
-text):
-
-- `argIsString` (`fmt.bn`) — Fprint's Go-style inter-operand spacing rule; a named /
-  `readonly` char-slice reads as non-string, so `fmt.Print(a, b)` may add a space Go
-  omits (only Fprint spacing; the text itself renders fine).
-- `isStringArg` (`fmt_printf_fields.bn`) — `zeroPadFor`'s `%08x`-of-a-string zero-pad
-  decision.
-- `emitBase` (`%x`/`%X`) and `emitQuote` (`%q`) char-slice switches
-  (`fmt_printf_fields.bn` / `fmt_printf_quote.bn`) — a named / `readonly` string hits
-  `default → emitBadVerb` (an error verb) instead of being hex-encoded / quoted.
-
-Fix: reuse the KIND_STRING reflection recovery — ideally a shared
-`stringDynamic(arg) -> (bytes, ok)` helper peeling named/alias/readonly — at these
-sites too.
-
-**Minor sign-aware edge (from the named-scalar review, `75d6e57c`):**
-`signAwareFor('v')` treats any integer-kind operand as sign-aware, but `%v` of a
-named int WITH a user `String()` renders that OPAQUE text — so `%08v` of such a
-value whose `String()` starts with `-` splits the sign (`-000x`) instead of
-front-padding (`000-x`), diverging from Go (which treats Stringer output as an
-opaque string). Rare. A clean fix must distinguish "renders as a number" from
-"renders via Stringer" for the sign-aware decision, e.g. `intOperandBuiltin(arg).ok
-|| (scalarReflect numeric && !tryStringer)`.
 
 ### `lang.Stringer` returns `@[]char`, but every string producer returns `@[]readonly char` — 🟡 OPEN (2026-08-02)
 

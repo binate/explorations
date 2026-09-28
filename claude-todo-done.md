@@ -1,3 +1,18 @@
+### fmt: auxiliary `*any` classifiers matched char-slices by exact spelling (named / `readonly` blind) — ✅ LANDED e8e1d7af9 + 01fc10102 (2026-09-28), work-3
+
+`e8e1d7af9`: one helper, `stringOperand`, classifies a string operand by its dynamic type's reflected kind
+(KIND_STRING) and returns a borrowed view of the boxed header's {data, len} — used by Print's spacing rule
+(`isStringArg`, merging the duplicate `argIsString`), the `%x` zero-pad decision, `%x`/`%X` hex-encoding,
+`%q`, and writeArg's own fallback.  So a named char-slice or an `os.Args()` element no longer gets spaces
+around it in Print or an error verb under `%x`/`%X`/`%q`.  The same commit fixes the sign-aware edge:
+`vRendersNumber` follows writeArg's order (built-in number, Stringer, named number), so `%08v` of a named int
+whose `String()` is "-5" front-pads ("000000-5").  `fmt.bni` says a named char-slice is a string.  Review
+follow-ups in `01fc10102`: `%+v` of a non-struct now matches `%v` (a built-in float read "1.500000" through
+lang's `String()`), and `%08v` of ±Inf/NaN space-pads like `%08g`.  New tests (fmt_string_operand_test,
+fmt_printf_v_test) fail with each fix reverted; fmt 52/52 on LLVM + native aa64, arm32 bare metal exit 0.
+The review also found the MAJOR "Boxing keeps an outer `readonly` in a slice's dynamic type" (test
+`367e89991`, still open), which is why an `os.Args()` element misses fmt's fast type switch.
+
 ### Slicing an array reached other than by name sliced a TEMPORARY COPY — ✅ DONE (2026-09-28, binate `4eada9b81`)
 
 genSliceExpr takes the array's address first when the checker types the base as an array with storage
