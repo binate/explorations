@@ -420,14 +420,23 @@ param-shadowing fix; reproduced): an alias of the package's OWN generic fails th
 `.bni`), then `var b home.IntBox; b.Val()` in main → link failure (undefined `…lang…int…Val`), with or
 without a `home.bn`.  The checker accepts it; the failure is IR-gen's.
 
-### A package's `type _ …` declaration binds `_` as a type name — 🟡 IN PROGRESS (found 2026-09-27, work-6, review of the receiver-binder change; reproduced; pre-existing; claimed 2026-09-28, work-6/session)
+### `_` binds as a name in `type _` / `interface _` / `func _` declarations — `_` should never be a valid identifier — 🟡 IN PROGRESS (found 2026-09-27, work-6, review of the receiver-binder change; reproduced; pre-existing; claimed 2026-09-28, work-6/session)
 
 With `type _ struct{ z int }` in a package, `_` resolves as that type: `func (p *Pair[_, V]) First() _ {
 var r _; return r }` compiles and runs (a blank receiver binder is otherwise not usable as a type).  The
 spec says nothing about a blank type declaration.  **Decided (2026-09-28, user):** "`type _ struct{...}`
 (or `type _ <any other type>`) should be accepted and bind nothing" — "a potential use-case is perhaps
 as an "assertion" in generated code that the `<any other type>` is a valid type."  So the RHS is still
-resolved and checked; `_` never becomes a usable type name.
+resolved and checked; `_` never becomes a usable type name.  (`type _` done on work-6, pending review
+and landing.)
+
+**Widened (2026-09-28, user):** "Yes, interface and func should behave the same way. _ should never be a
+valid identifier."  So: `interface _ { … }` and `func _(…) { … }` also bind nothing (the interface's
+method signatures / the function's signature and body still checked), and — more broadly — audit every
+place a name can be bound or referenced (params, results, struct fields, methods, labels, receivers,
+locals, generic parameters, import aliases, qualified `pkg._` references, …) so that `_` is never
+usable as a name: it may appear only as a blank (binding nothing), never resolve as a reference.
+Remaining after `type _` lands: `interface _`, `func _`, then that audit.
 
 ### A generic struct / interface that is never instantiated is never checked — invalid declarations accepted — 🔴 OPEN (found 2026-09-28, work-6, review of the declared-type-param change; pre-existing)
 
