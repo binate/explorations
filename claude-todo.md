@@ -5,6 +5,22 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
+### Slicing an array reached other than by name slices a TEMPORARY COPY — writes lost, possible use-after-free — 🔴 OPEN (found 2026-09-28 by the review of the array-slice bounds-check fix, claude/exciting-davinci-wahyt2 session; pre-existing)
+
+**Symptom:** `s.arr[1:3]`, `(*p)[2:4]`, `n[1][0:3]` (and `(*mp)[...]` for `@([4]int)`) produce a slice
+of a fresh stack copy, not of the array: a write through the slice is invisible through the array.
+`a[1]=11 / s.arr / (*p) / n[1]` probe prints `11 0 0 0` (expected `11 22 33 44`) on the VM, LLVM and
+native x64. Spec `type.array.index-slice` makes a sub-slice of an array a BORROWING view. Returning
+such a slice (`func f(p *S) *[]int { return p.arr[:] }`) would hand out a view of a dead stack slot
+(not yet tested).
+**Root cause:** `irgen/gen_slice.bn` array arm: only `e.X.Kind == ast.EXPR_IDENT` gets the array's
+storage (`lookupVar`); every other base evaluates the array VALUE and copies it into a new alloca
+("Fallback: alloc + store"), and the slice borrows the copy.
+**Fix:** for any addressable array base (selector, deref, index, ...) take its address — the way
+`genIndexPtr` / `genAddrOf` do — and slice that; copy only for a genuine r-value (call result).
+**Test:** conformance `1327_array_slice_addressable_base_aliases` (`.xfail.all`, not yet landed).
+
+
 ### IR-gen ignores type declarations inside a `type ( ... )` group — silent wrong values — 🔴 OPEN (found 2026-09-27, work-1, review of the declaration-order fix; pre-existing)
 
 `type ( S struct { x int }; C int; P = *C )`: IR-gen never registers grouped type declarations —
