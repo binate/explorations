@@ -163,7 +163,7 @@ binder per type parameter, so the binders cover every position.)
 
 ## MAJOR
 
-### Typed-constant expressions are folded without their type — silent wrong values, a compiler ICE, valid code rejected — 🔴 OPEN (found 2026-09-27, work-4, verifying the typed-constant rule for the untyped-bitwise spec change; pre-existing)
+### Typed-constant expressions are folded without their type — silent wrong values, a compiler ICE, valid code rejected — 🟡 IN PROGRESS (found 2026-09-27, work-4, verifying the typed-constant rule for the untyped-bitwise spec change; pre-existing; claimed 2026-09-27, work-4/session — user: "That order is fine": right after the untyped-bitwise change lands)
 
 The user decided (2026-09-27) that an operator on **typed** integer constants behaves exactly as on values
 of that type (it wraps at the type; see [plan-untyped-bitwise-constants.md](plan-untyped-bitwise-constants.md),
@@ -187,8 +187,10 @@ Repros (probed with the current compiler):
 Proposed fix: fold a typed-constant operator once, in the checker, at its type: wrap to `T`, and make a
 zero divisor a compile-time error. Stamp the result on the expression, and have every consumer (array
 dims, shift counts, the cast fit check, `genConst`, `evalConstExpr`) read the stamp rather than re-fold
-typeless.  Open semantic question for the user: typed-constant signed `MIN / -1` (compile-time error, like
-a constant divide by zero, or the run-time `minover` panic).  No test covers this yet; the fix adds spec
+typeless.  User decisions (2026-09-27): a typed-constant signed `MIN / -1` (and `%`) is a compile-time
+error ("I guess a compile-time error is fine"); `conv.cast.const-not-laundered` stays — a cast of a typed
+constant is still fit-checked, against its value at its type ("I guess we can keep the exception, since it
+probably catches real bugs").  No test covers this yet; the fix adds spec
 conformance tests for each repro.
 
 ### An interface alias named as a parent breaks the upcast — runtime panic / compiler ICE — 🔴 OPEN (found 2026-09-27, work-1, review of the checker forward-parent fix; pre-existing)
