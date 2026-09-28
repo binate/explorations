@@ -163,6 +163,30 @@ binder per type parameter, so the binders cover every position.)
 
 ## MAJOR
 
+### An interface alias named as a parent breaks the upcast — runtime panic / compiler ICE — 🔴 OPEN (found 2026-09-27, work-1, review of the checker forward-parent fix; pre-existing)
+
+`interface Y {…}; interface X = Y; interface A : X {…}` then `var x *X = a` (a `*A`): the checker
+accepts it, but IR-gen / the backends do not follow the alias when walking A's ancestors for the upcast —
+VM "iface_upcast: target vtable not found: …_X", compiled "negative vtable slot offset (target not an
+ancestor of source)".  Fix: canonicalize an alias parent to its target when recording parents (IR-gen
+`collectInterfaceParents` / ParentNames) and at the upcast's target lookup.  Covered by conformance
+1320_iface_alias_parent_upcast (xfail.all; not yet landed).
+
+### The checker accepts a type and an interface of the same name in one package — 🔴 OPEN (found 2026-09-27, work-1, review of the checker forward-parent fix; pre-existing)
+
+`type A struct {…}` + `interface A {…}`: `checkDuplicateDecls` skips DECL_TYPE and
+`checkTypeRedeclaration` compares types with types, so neither reports it; the later decl silently
+overwrites the scope symbol.  Fix: report "A redeclared in this block" for a type/interface clash.
+Covered by conformance 1321_err_type_iface_same_name (xfail.all; not yet landed).
+
+### A reference to an interface alias declared later is rejected — valid code rejected — 🔴 OPEN (found 2026-09-27, work-1, review of the checker forward-parent fix; pre-existing)
+
+`func f(x *X)` before `interface X = Y` → "undefined: X", in a `.bn` and in a `.bni` (whose Pass 1
+defers aliases to Pass 2, in order).  Spec `decl.order.forward` allows any order.  Interfaces proper are
+pre-registered (both paths); aliases are defined only when reached.  Fix: define aliases in the
+pre-registration phase once their targets resolve (iterating alias-to-alias chains), reporting an
+unresolvable target once.  Covered by conformance 1322_iface_forward_alias (xfail.all; not yet landed).
+
 ### The checker rejects an interface whose parent is declared later in a `.bn` — valid code rejected — 🟡 IN PROGRESS (claimed 2026-09-27, work-1 — user: "Yes, if it's accepted in the .bni, it should be accepted in the .bn."; found 2026-09-27, work-1, fixing the forward-declared generic parent)
 
 `interface A : B` (or `: G[int]`) before `interface B` / `interface G[T any]` in a `.bn` → "undefined: B"
