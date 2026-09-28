@@ -1,3 +1,33 @@
+### An untyped constant's `~`, `&`, `|`, `^` (and constant shifts) depended on a width it does not have — rule decided and implemented — DONE (docs `b1c5a66`, binate `71b184eaf`, 2026-09-27)
+
+Spec §6.4 `const.expr.bitwise` / `const.expr.shift` (user: "What should we do about unary ~? It seems like
+logically, it should extend 1s infinitely to the left, and essentially be a bignum negative, until its
+type resolved", then "yes; I think we should do & and ^ in the same way"). An untyped constant's `~`,
+`&`, `|`, `^` act on its two's-complement value extended infinitely to the left (`~x` is `-x-1`). A
+constant shift of an untyped value is exact: `x<<k` is `x·2^k`, `x>>k` rounds toward −∞, there is no
+overshift, and `1 << 64` is an error. bignum gained `Not` and exact two's-complement `And`/`Or`/`Xor`/
+`Shl`/`Shr`; `foldIntBitwise` and unary `~` fold through them.
+
+This fixed two silent bugs. `var v uint8 = -2 | 1` compiled to 255, because the result was never
+fit-checked. `var v uint64 = ~0xFFFFFFFFFFFFFFFF` compiled to 2^64-1. The review also found that a typed
+constant shift count ≥ 2^63 was read as negative, so `(-1 >> K) + 3` folded to 3; that is fixed here too.
+Compiling the toolchain and every single-file conformance program before and after gives identical
+results. Spec tests are `conformance/spec/06-constants/118`–`124`.
+
+The typed-constant rule (wrap at the type) and the host-`int` evaluator bugs the review found are the
+follow-on entry "Typed-constant expressions are folded without their type" in `claude-todo.md`.
+Original entry:
+
+> ### Spec gap: unary `~` on an untyped integer constant is undefined (its value depends on the width) — 🟡 IN PROGRESS (found 2026-09-27; rule decided by the user 2026-09-27: untyped `~`, `&`, `|`, `^` act on the infinitely sign-extended two's complement value — `~x` is `-x-1`; claimed work-4/session)
+>
+> §6.4 defines constant-expression arithmetic at union-range precision but never says what `~1` is: its
+> value depends on the width it is taken at (`0xFE` at `uint8`, `-2` at a signed type), which an untyped
+> constant does not have.  The checker defers such folds (and bitwise ops on negative constants) until the
+> operand's type is known.  Found by the adversarial review of the untyped-shift-value rule
+> (`done/plan-untyped-shift-value.md`), where `(1 << n) & ~1` into a `uint8` depends on the answer.  **Decide**
+> the rule (e.g. `~` of an untyped constant is folded at the type the expression finally takes, or is an
+> error until typed), write it into §6.4, and pin it with conformance tests.
+
 ### Native x64 functions and loop headers were not aligned — ✅ DONE (2026-09-28, binate `cec99cb9`)
 
 Every x64 text entry point (functions, C-export aliases, the mangled entry after a C-entry thunk or

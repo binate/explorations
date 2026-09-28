@@ -278,7 +278,11 @@ go wrong:
   `expr.shift.untyped-value.unsafe` folds these "exactly like `<<`", but `expr.shift.negative` exempts
   the unsafe forms from the negative-count check.
 
-Proposed fix, covering these and the typed-constant cases above: one exact, type-aware constant evaluator
+**Decided (user, 2026-09-27):** the fix is one exact, type-aware constant evaluator, done next ("2. yes");
+a negative constant count in a constant `unsafe_shl` / `unsafe_shr` is a compile-time error ("3. compile-time
+check seems fine."), to be written into §13.5 `expr.shift.untyped-value.unsafe` / `expr.shift.negative`.
+
+The fix, covering these and the typed-constant cases above: one exact, type-aware constant evaluator
 in the checker (bignum, wrapping at a typed operand's type) whose recorded value every consumer reads.
 The consumers are value position, array dimensions, shift counts, iota groups including bare members,
 `.bni` constants, and IR-gen.  No host-`int` re-fold anywhere.
@@ -1188,16 +1192,6 @@ FP-arithmetic work. Full plan + sequencing: `plan-native-vectorization.md`.
 - **Idiom recognition** (between A and B): recognise memset/memcpy loops in compiled code → lower to (A).
 
 Order: V1 (aa64 first) → (A) → idiom recognition → B1 → B2 → B3. Each independently landable/measurable.
-
-### Spec gap: unary `~` on an untyped integer constant is undefined (its value depends on the width) — 🟡 IN PROGRESS (found 2026-09-27; rule decided by the user 2026-09-27: untyped `~`, `&`, `|`, `^` act on the infinitely sign-extended two's complement value — `~x` is `-x-1`; claimed work-4/session)
-
-§6.4 defines constant-expression arithmetic at union-range precision but never says what `~1` is: its
-value depends on the width it is taken at (`0xFE` at `uint8`, `-2` at a signed type), which an untyped
-constant does not have.  The checker defers such folds (and bitwise ops on negative constants) until the
-operand's type is known.  Found by the adversarial review of the untyped-shift-value rule
-(`done/plan-untyped-shift-value.md`), where `(1 << n) & ~1` into a `uint8` depends on the answer.  **Decide**
-the rule (e.g. `~` of an untyped constant is folded at the type the expression finally takes, or is an
-error until typed), write it into §6.4, and pin it with conformance tests.
 
 ### IR optimization passes (help LLVM + native backends + the VM) — 🟡 OPEN
 
