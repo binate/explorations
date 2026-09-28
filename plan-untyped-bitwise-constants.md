@@ -1,6 +1,6 @@
 # Plan: bitwise operators on untyped integer constants (`~1`, `(0 - 2) | 1`)
 
-**Status:** 🟡 spec text revision 2 after the first adversarial review (2026-09-27); implementation done for the untyped rules; the typed-constant question awaits the owner.  Tracked in `claude-todo.md`
+**Status:** 🟡 spec text revision 2 + the typed-constant rule (user decision: wrap at the type) (2026-09-27); implementation done for the untyped rules; second adversarial review pending.  Tracked in `claude-todo.md`
 ("Spec gap: unary `~` on an untyped integer constant is undefined").
 
 ## Problem
@@ -64,7 +64,8 @@ var v uint8 = -2 | 1          -> error: -1 does not fit uint8
 > mask does not fit an unsigned type: with `x` of any unsigned type, `x & ~1` is an error (`~1` is -2),
 > and so are `var u uint8 = ~1`, `const C uint8 = ~1`, `Mask uint8 = ~(1 << iota)`, and
 > `(1 << n) & ~1` in a `uint8` context (`~1` is its maximal constant subexpression, §13.5
-> `expr.shift.untyped-value.typing`). Write the mask directly (`x & 0xFE`). By contrast
+> `expr.shift.untyped-value.typing`). Write the mask directly (`x & 0xFE`) or complement a typed
+> constant (`x & ~cast(uint8, 1)`, which is `x & 254`, `const.expr.typed`). By contrast
 > `m & ~(1 << n)` is valid at `m`'s type: `1 << n` is not a constant, so its `~` is taken at the type
 > the expression acquires.
 
@@ -74,9 +75,8 @@ constant the bitwise operators act on its width-independent value (§6.4 `const.
 type it acquires (`expr.shift.untyped-value.typing`)."  Chapter 6's intro gains "bitwise and shift" in
 its list of what §6.4 covers.
 
-**Open (owner decision):** the typed-constant case — `~cast(uint8, 1)`, `flags & ~FlagRead` with a
-typed `Flags` constant, `cast(uint8, 1) << 8` — is not specified anywhere (no rule defines operators on
-typed constants); see "Typed constants" below.
+The typed-constant case (`~cast(uint8, 1)`, `flags & ~FlagRead`, `cast(uint8, 1) << 8`) is the rule
+`const.expr.typed` below ("Typed constants").
 
 ## Behavior changes vs the current implementation
 
@@ -92,16 +92,28 @@ typed constants); see "Typed constants" below.
 - Audit (2026-09-27): all toolchain commands and the 1885 single-file conformance programs compile
   identically (host and arm32) — nothing relied on the silent truncation.
 
-## Typed constants (open — owner decision)
+## Typed constants (decided by the user, 2026-09-27: wrap at the type)
 
-No rule defines operators on typed constants (`cast(uint8, 1)` is a typed constant by
-`conv.cast.const-not-laundered`).  Today the checker does not fold them and IR-gen computes them at the
-type (`~cast(uint8, 1)` is 254, `cast(uint8, 1) << 8` is 0, `cast(uint8, 200) + cast(uint8, 100)` wraps
-to 44).  The reviewer's proposal (Go's rule): an operator on typed constants of type `T` yields a
-constant of type `T` whose value is the exact result and must fit `T` (`const.expr.fit`) — so
-`cast(uint8, 1) << 8` and `cast(uint8, 200) + cast(uint8, 100)` are errors — except `~x`, taken at
-`T`'s width (`2^n - 1 - x` for an `n`-bit unsigned `T`, `-x - 1` for a signed `T`), which keeps
-`flags & ~FlagRead` working.
+No rule defined operators on typed constants (`cast(uint8, 1)` is a typed constant by
+`conv.cast.const-not-laundered`).  Decision: a typed constant behaves exactly like a value of its type —
+`x + y` must not mean something different when `x` is a typed constant rather than a typed variable.
+(The first review proposed Go's "exact result must fit the type"; rejected: Binate is not Go.)  This is
+what the compiler already does (`~cast(uint8, 1)` is 254, `cast(uint8, 1) << 8` is 0,
+`cast(uint8, 200) + cast(uint8, 100)` is 44), so it is spec text and tests only.
+
+New rule in §6.4, after `const.expr.shift`:
+
+`const.expr.typed` — An operator whose operands are **typed** integer constants of a type `T` (an
+untyped constant operand takes `T`, and must fit it, `const.expr.fit`) is evaluated exactly as it is for
+operands of type `T` that are not constants — arithmetic wraps (§13.3), `~` is the complement at `T`'s
+width (`expr.bitwise`), a shift follows `expr.shift` and `expr.shift.overshift` — and its result is a
+constant of type `T`. A typed constant is never evaluated at union-range precision: `cast(uint8, 200) +
+cast(uint8, 100)` is `44`, `cast(uint8, 1) << 8` is `0`, and `~cast(uint8, 1)` is `254`, exactly as for
+`uint8` variables holding those values. (A constant division or remainder by zero is still a
+compile-time error, §13.4.)
+
+The untyped-mask Note then also offers `x & ~cast(uint8, 1)` (a typed constant, complemented at `uint8`:
+`x & 254`).
 
 ## Implementation sketch
 
