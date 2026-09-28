@@ -73,8 +73,7 @@ wrapper (plain types) — marked "wrapper: none needed".  The rows below are the
 fixed rows are in claude-todo-done.md.
 
 ```
-=== irgen (2 open)
-  - [major] 🟡 IN PROGRESS (claimed 2026-09-28, work-5/session) `gen_defer_build.bn:185` deferMethodRecvType / buildDeferMethod — wrapper: named-distinct receiver: named scalar `type Money int`, named-over-struct `type NP Pt` (an — `defer m.Show()` looks up `int.Show` / `Pt.Show2` instead of `Money.Show` / `NP.Show2`, and IR-gen panics.
+=== irgen (1 open)
   - [nit] `gen_expr.bn:302` genUnary — wrapper: untyped negated operand whose checker-resolved type is readonly int8 / alias-of-readonly / — Contributing site of KNOWN issue (1), reported only so the fix covers it: for `-C` / `-100` with a wrapped resolved type negTyp falls to TypInt, so OP_NEG is emitted at i64 (`sub i64 0, %v0`) and correctness relies entirely on the
 === check-lint (10 open)
   - [major] `check_cast_fits.bn:27` castTargetIsInteger — wrapper: named-over-named (`type M int8 — The constant fit-check is skipped entirely for these targets, so `cast(N, 200)` / `unsafe_cast(N, 300)` are accepted where `cast(int8, 200)` is rejected.
@@ -440,15 +439,6 @@ back to the consuming module's same-named const/global when the defining package
 e.g. an imported const that neither folds nor has a checker stamp is dropped by
 `registerImportConstsAndVars`, so a generic body's bare read of it binds the consumer's.  The principled
 guard is "the defining package declares this name" (the checker's package scope), not "it is registered".
-
-### `defer ps.m()` on a method of a NAMED POINTER type panics the compiler ("defer of an unresolved method call") — 🟡 IN PROGRESS (found 2026-09-27; claimed 2026-09-28, work-5/session, with the wrapper-cluster defer row — same root cause)
-
-`type S struct { v int }; type PS *S; func (p PS) get() int { ... }; ... defer ps.get()` → IR-gen
-panics "defer of an unresolved method call" (valid code, every backend).  No wrapper involved — a
-plain `func (p PS) get()` hits it; a direct `ps.get()` call works.  Found by the review of the
-method-receiver wrapper fix (pre-existing).  Likely the defer method-resolution path
-(gen_defer_build.bn deferMethodRecvType / buildDeferMethod — also named in the wrapper-peel cluster
-for named-distinct receivers) doesn't resolve a method declared on a named pointer type.
 
 ### An imported package's alias of a generic instantiation (its OWN generic or a THIRD package's) resolves to `int` in IR-gen — 🔴 OPEN (found 2026-09-27, work-1, review of the alias-receiver fix; reproduced by the reviewer, pre-existing; widened 2026-09-27, work-6)
 

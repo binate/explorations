@@ -1,3 +1,14 @@
+### A deferred method call on a named-distinct receiver — DONE (binate `63831b1ea`, 2026-09-28, work-5)
+
+`defer m.Show()` (`type Money int`), `defer n.Show2()` (`type NP Pt`) and `defer ps.Get()` (`type PS *S`) panicked
+"defer of an unresolved method call": deferMethodRecvType fully peeled the receiver type, naming the method on
+the underlying.  It now keeps the named identity (ir.StripConstForIR).  Closes the wrapper-cluster row and
+work-1's "`defer ps.m()` on a method of a NAMED POINTER type" entry.  Conformance 1380.
+
+```
+  - [major] `gen_defer_build.bn:185` deferMethodRecvType / buildDeferMethod — wrapper: named-distinct receiver: named scalar `type Money int`, named-over-struct `type NP Pt` (an — `defer m.Show()` looks up `int.Show` / `Pt.Show2` instead of `Money.Show` / `NP.Show2`, and IR-gen panics.  → FIXED `63831b1ea` (conformance 1380)
+```
+
 ### A struct literal omitting a struct-typed field failed to compile (from "Bugs found reviewing the identity refactor") — DONE (binate `901b85e17`, 2026-09-28, work-5)
 
 Fixed by the omitted-field zero-value change (emitZeroValue), which covers struct, array, float, func-value and
