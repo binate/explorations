@@ -141,7 +141,7 @@ emitManagedValueCopyRefInc, which peels fully and handles @Iface).
   (`gen_iface_registry.bn` ~:72 handles only `TEXPR_NAMED`) → `g.get()` prints 0 in the VM, compiled
   ICEs.  The EBNF allows `interface X = TypeName[..]`; implement the `TEXPR_INSTANTIATE` case.
 
-### A generic body's bare type name binds to the IMPORTER's same-named type first — silent wrong code — 🔴 OPEN (found 2026-09-27, work-1, review of the identity refactor; reproduced by the reviewer, pre-existing)
+### A generic body's bare type name binds to the IMPORTER's same-named type first — silent wrong code — 🟡 IN PROGRESS (claimed 2026-09-27, work-1 — user: "take on the bugs that you filed"; found 2026-09-27, work-1, review of the identity refactor; reproduced by the reviewer, pre-existing)
 
 In a monomorphized generic body from another package, an unqualified type name is looked up in the
 consuming module FIRST: `gen_type_resolve.bn` ~:130-139 checks `lookupStructIdx(gc, te.Name)` before
@@ -220,8 +220,8 @@ defined but can't be referenced (lookupConst has no callers).  Each family: isa 
 parser + golden lines from clang.
 
 **Progress (work-2):** family by family, one reviewed commit each.  (1) exclusive / ordered loads and
-stores — LDXR…STLXP, LDAR/STLR, LDLAR/STLLR, LDAPR, LDAPUR/STLUR incl. the RCPC3 SIMD&FP forms — done,
-not yet landed.  **Also in scope (found while doing (1)):** the rest of FEAT_LRCPC3 — LDIAPP / STILP, LDAPR
+stores — LDXR…STLXP, LDAR/STLR, LDLAR/STLLR, LDAPR, LDAPUR/STLUR incl. the RCPC3 SIMD&FP forms — landed
+`920be83aa` (2026-09-27; LDXP/LDAXP Rt == Rt2 deliberately rejected, unlike clang).  **Also in scope (found while doing (1)):** the rest of FEAT_LRCPC3 — LDIAPP / STILP, LDAPR
 post-index, STLR pre-index (next commit) and LDAP1 / STL1 (with the NEON text-syntax family, which adds the
 `{v0.d}[1]` lane syntax).
 
