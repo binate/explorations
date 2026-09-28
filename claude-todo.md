@@ -127,6 +127,15 @@ fixed rows are in claude-todo-done.md.
 
 ## MAJOR
 
+### The checker accepts `unsafe_cast` from a raw function value (or raw slice) to its managed form — internal error in IR-gen — 🔴 OPEN (found 2026-09-28, work-5, review of the func-value cast fix; pre-existing)
+
+`var f *func(int) int = dbl; unsafe_cast(@func(int) int, f)` passes the checker and then panics in IR-gen
+("internal error: cast between mismatched aggregate/scalar shapes reached codegen").  Spec §8.7
+`conv.unsafe-cast` adds only `*T → @T` for raw→managed and explicitly excludes `*[]T → @[]T` and
+`*func → @func` ("under-determined constructions, not reinterpretations"; §8.4).  Fix: reject both in the
+checker's unsafe_cast rules with a diagnostic pointing at constructing the managed value; add `.error`
+conformance tests for both (check whether `*[]T → @[]T` is also accepted today).
+
 ### Indexing an array field loads the WHOLE array as a value — 80 MB of LLVM IR for conformance 1301, clang exhausts memory — 🔴 OPEN (found 2026-09-28, work-1, while finding what exhausted system memory during a local conformance run; pre-existing)
 
 Conformance `1301_large_elem_index` (`type Big struct { a [70001]uint8 }`, `g[i].a[off]` read and write)
