@@ -1,3 +1,26 @@
+### Slicing an array reached other than by name sliced a TEMPORARY COPY — ✅ DONE (2026-09-28, binate `4eada9b81`)
+
+genSliceExpr takes the array's address first when the checker types the base as an array with storage
+(variable, field, deref, array/slice element), slicing in place and evaluating the base once; only a
+storage-less value (call result, composite literal) is copied. genIndexPtr's selector arm falls back to
+the checker type (a field of a generic instantiation), which also removed a double evaluation of the index.
+Conformance 1339, 1360. Original entry:
+
+> ### Slicing an array reached other than by name slices a TEMPORARY COPY — writes lost, possible use-after-free — 🟡 IN PROGRESS (found 2026-09-28 by the review of the array-slice bounds-check fix, claude/exciting-davinci-wahyt2 session; pre-existing; claimed 2026-09-28, same session — user: "yes, fix it now")
+>
+> **Symptom:** `s.arr[1:3]`, `(*p)[2:4]`, `n[1][0:3]` (and `(*mp)[...]` for `@([4]int)`) produce a slice
+> of a fresh stack copy, not of the array: a write through the slice is invisible through the array.
+> `a[1]=11 / s.arr / (*p) / n[1]` probe prints `11 0 0 0` (expected `11 22 33 44`) on the VM, LLVM and
+> native x64. Spec `type.array.index-slice` makes a sub-slice of an array a BORROWING view. Returning
+> such a slice (`func f(p *S) *[]int { return p.arr[:] }`) would hand out a view of a dead stack slot
+> (not yet tested).
+> **Root cause:** `irgen/gen_slice.bn` array arm: only `e.X.Kind == ast.EXPR_IDENT` gets the array's
+> storage (`lookupVar`); every other base evaluates the array VALUE and copies it into a new alloca
+> ("Fallback: alloc + store"), and the slice borrows the copy.
+> **Fix:** for any addressable array base (selector, deref, index, ...) take its address — the way
+> `genIndexPtr` / `genAddrOf` do — and slice that; copy only for a genuine r-value (call result).
+> **Test:** conformance `1339_array_slice_addressable_base_aliases` (`.xfail.all`, binate `10176f81`).
+
 ### Duplicate type-parameter names rejected; a declared `_` type parameter is unnamed — ✅ LANDED ecbc5874a (+ spec docs faa3b5e) (2026-09-28), work-6
 
 CRITICAL: `func pick[T any, T any](x T) T` / `type Dup[T any, T any]` / `interface Two[X any, X any]` were

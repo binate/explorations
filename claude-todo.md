@@ -61,22 +61,6 @@ qualify bare lookups (as structs do), so the pre-pass entry and the module's own
 the full builder-comp-comp / builder-comp-int suites, but it reuses the pre-pass entry, which is resolved
 under the merged file's imports (entry above) — so it must land after that fix.
 
-### Slicing an array reached other than by name slices a TEMPORARY COPY — writes lost, possible use-after-free — 🟡 IN PROGRESS (found 2026-09-28 by the review of the array-slice bounds-check fix, claude/exciting-davinci-wahyt2 session; pre-existing; claimed 2026-09-28, same session — user: "yes, fix it now")
-
-**Symptom:** `s.arr[1:3]`, `(*p)[2:4]`, `n[1][0:3]` (and `(*mp)[...]` for `@([4]int)`) produce a slice
-of a fresh stack copy, not of the array: a write through the slice is invisible through the array.
-`a[1]=11 / s.arr / (*p) / n[1]` probe prints `11 0 0 0` (expected `11 22 33 44`) on the VM, LLVM and
-native x64. Spec `type.array.index-slice` makes a sub-slice of an array a BORROWING view. Returning
-such a slice (`func f(p *S) *[]int { return p.arr[:] }`) would hand out a view of a dead stack slot
-(not yet tested).
-**Root cause:** `irgen/gen_slice.bn` array arm: only `e.X.Kind == ast.EXPR_IDENT` gets the array's
-storage (`lookupVar`); every other base evaluates the array VALUE and copies it into a new alloca
-("Fallback: alloc + store"), and the slice borrows the copy.
-**Fix:** for any addressable array base (selector, deref, index, ...) take its address — the way
-`genIndexPtr` / `genAddrOf` do — and slice that; copy only for a genuine r-value (call result).
-**Test:** conformance `1339_array_slice_addressable_base_aliases` (`.xfail.all`, binate `10176f81`).
-
-
 ### Type-wrapper peel bug cluster (named / alias / readonly handled inconsistently across IR-gen, the VM lowering, codegen, and the checker) — silent wrong values, memory corruption, use-after-free — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-26, work-5/session — user: "take on the critical, then the majors")
 
 **Class:** a type decision (Kind / Width / Signed / float-vs-int / managed-vs-raw / aggregate-vs-scalar)
@@ -211,7 +195,7 @@ interface value" in the VM.  The instance names agree, but the conversion site f
 type argument's alias is not canonicalized where the (instantiation, interface) row is looked up.
 Covered by conformance 1354_generic_type_arg_iface_alias (xfail.all, binate `f0fc356bd`).
 
-### Indexing an array reached through a field or deref of a CALL evaluates the call twice — 🔴 OPEN (found 2026-09-28, claude/exciting-davinci-wahyt2 session, reviewing the in-place array-slice fix; pre-existing)
+### Indexing an array reached through a field or deref of a CALL evaluates the call twice — 🟡 IN PROGRESS (found 2026-09-28, claude/exciting-davinci-wahyt2 session, reviewing the in-place array-slice fix; pre-existing; claimed 2026-09-28, same session — user: "yes, go ahead")
 
 `mkSP(&s).m[1]` and `(*getP(&a))[1]` run `mkSP` / `getP` twice (VM, LLVM, native; same on the
 pre-change compiler), and `mkBoxP[int](&bx).m[next()][1]` likewise. **Root cause:** `irgen/gen_access.bn`
