@@ -1,6 +1,8 @@
 # Plan: the type of an untyped constant shift VALUE (`1 << n`)
 
-**Status:** 🟡 spec text revision 3 after two adversarial reviews (2026-09-27); ready to write into the spec.  Tracked in
+**Status:** 🟡 implemented, awaiting landing approval (2026-09-27): spec change written (docs, not yet
+landed), checker + IR-gen implementation with unit tests and spec conformance tests 057-060, all
+validated; not yet on main.  The audit found no existing tree / conformance code whose typing changes.  Tracked in
 `claude-todo.md` ("An untyped constant shift VALUE is typed two ways").
 
 ## Problem
