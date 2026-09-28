@@ -147,6 +147,26 @@ binder should shadow the package type inside the receiver clause.
 
 ## MAJOR
 
+### arm32 hard-float: a homogeneous-float-aggregate `__c_call` ARGUMENT is passed in GP registers — C reads garbage from `s0…` — 🔴 OPEN (found 2026-09-27, work-3, stale-ABI-comment sweep)
+
+On `--target arm32-linux` (FLOAT_ABI_HARD) `HfaAggregates` stays false, so a float-only named struct /
+array rides the GP-coerced path — self-consistent between Binate's own native and LLVM sides, but NOT
+what a hard-float C callee expects: AAPCS-VFP passes a 1-4 member HFA in VFP registers.  Evidence
+(compile-only, clang `--target=arm-linux-gnueabihf -mfloat-abi=hard -O2`): for
+`type V2 struct { x float32; y float32 }` and `__c_call("sum_v2", float32, v)`, the LLVM backend
+declares `float @sum_v2([2 x i32])` and the caller loads 1.5f/2.5f into `r0`/`r1`, while the C
+`float sum_v2(struct V2 v) { return v.x + v.y; }` compiles to `vadd.f32 s0, s0, s1` — it reads `s0`/`s1`.
+Silent wrong values.  The checker already REJECTS the return side for exactly this reason
+(`check_c_interop.bn`: "__c_call return of a homogeneous-float aggregate is not yet supported on arm32
+hard-float"); the argument side has no check.  The native arm32 hard-float backend takes the same
+GP-coerced path (not separately verified — no qemu-arm here).  Likely the same mismatch in reverse for
+C calling Binate (`#[c_export]` / `__c_entry`) with an HFA parameter — unverified.  Fix options: (a)
+interim, matching the return-side policy — reject an HFA `__c_call` argument (and `#[c_export]` HFA
+params, if confirmed) on arm32 hard-float with a clear error + tests; (b) real — AAPCS-VFP HFA passing
+at the C boundary (back-filling the S-slot mask, `common_callconv_vfp.bn`) on both backends.  User's
+call which (and whether (a) first).  Needs a conformance test on `builder-comp_arm32_linux` /
+`builder-comp_native_arm32_linux` (qemu-arm user-mode is not installed on this host).
+
 ### `#[build(...)]` is ignored on the MAIN program's own files, declarations and imports — neither applied nor validated — 🔴 OPEN (found 2026-09-27, work-3, authoring the `pkg.build.errors` conformance tests)
 
 Both program drivers parse + merge the main source files themselves and hand only `merged.Imports` to
