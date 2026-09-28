@@ -259,6 +259,23 @@ on the session module at the boxing site (ensureGenericImplInfo) never reaches t
 which is built by LowerModule.  Fix: lower newly minted impl rows / vtables when a prompt decl is lowered.
 No test yet — e2e/repl.sh has no expected-failure mechanism; add a case with the fix.
 
+### A generic struct's `[sizeof(T)]` field has the same length in every instantiation — silent wrong layout — 🔴 OPEN (found 2026-09-28, work-4, per-instantiation design mapping; reproduced on main)
+
+`type Box[T any] struct { a [sizeof(T)]uint8 }`: `Box[int32]` and `Box[int64]` both get an 8-byte `a`, and
+`sizeof(Box[int32])` is 8 (should be 4).  Cause: the checker stamps a known array length on the SHARED
+`TypeExpr` (`LenVal` / `LenKnown`, check/resolve_type.bn) even when it resolves the type under one
+instantiation's type arguments (struct population, imported generic method signatures), and IR-gen trusts
+the stamp for every instantiation.  On main the stamped value is `sizeof`'s pointer-size fallback for a type
+parameter.  Fix: part of per-instantiation checking (plan-constant-evaluator.md, "Per-instantiation
+checking"); a dependent length must never be stamped on the shared node.  Needs a conformance test.
+
+### Polymorphic recursion in a generic function crashes the compiler — 🔴 OPEN (found 2026-09-28, work-4, per-instantiation design mapping; reproduced on main)
+
+`func depth[T any](n int) int { ...; return 1 + depth[@T](n - 1) }` makes bnc segfault (exit 139): IR-gen's
+monomorphization instantiates `depth[int]`, `depth[@int]`, `depth[@@int]`, … without bound.  Fix: an
+instantiation depth limit with a diagnostic, in the checker's per-instantiation worklist (plan above).
+Needs a conformance test.
+
 ### Typed-constant expressions are folded without their type — silent wrong values, a compiler ICE, valid code rejected — 🟡 IN PROGRESS (found 2026-09-27, work-4, verifying the typed-constant rule for the untyped-bitwise spec change; pre-existing; claimed 2026-09-27, work-4/session — user: "That order is fine": right after the untyped-bitwise change lands)
 
 The user decided (2026-09-27) that an operator on **typed** integer constants behaves exactly as on values
