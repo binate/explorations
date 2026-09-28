@@ -1059,19 +1059,6 @@ operand's type is known.  Found by the adversarial review of the untyped-shift-v
 the rule (e.g. `~` of an untyped constant is folded at the type the expression finally takes, or is an
 error until typed), write it into §6.4, and pin it with conformance tests.
 
-### An untyped constant shift VALUE is typed two ways — `1 << n` at the count's type, `(0 + 1) << n` at `int` — 🟡 IN PROGRESS — implemented, awaiting landing approval (found 2026-09-27; rule decided by the user 2026-09-27: an untyped constant shift value takes its type from the surrounding context; claimed work-4/session; see plan-untyped-shift-value.md)
-
-With `n uint8` = 9, `cast(int64, 1 << n)` is 0 but `cast(int64, (0 + 1) << n)` is 512, on LLVM and native
-alike.  The checker types both shifts as `uint8`: an untyped operand of a shift goes through
-`foldIntBitwise` → `commonType`, which gives the untyped value the COUNT's type.  IR-gen follows that only
-for a plain literal value (its literal-only re-emit at the count's type); a constant expression or const
-name value is computed at `int`.  The spec (§13.5 `expr.shift`) says the result type is the value's type and
-the count's type is independent, but is silent on an UNTYPED value in a non-constant shift.  **Decide** the
-rule (the count's type, as the checker does now; `int` / the default type; or the context's type), write it
-into §13.5, then make the checker and IR-gen agree — which also drops the shift path's double emission
-of a literal value (its literal-only re-emit leaves a dead first copy).  Conformance coverage with
-the fix.
-
 ### IR optimization passes (help LLVM + native backends + the VM) — 🟡 OPEN
 
 - **Pass infra + mem2reg + BCE** — design settled

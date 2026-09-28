@@ -1,3 +1,20 @@
+### An untyped constant shift VALUE was typed from the COUNT (`1 << n` vs `(0 + 1) << n` disagreed) — rule decided and implemented — DONE (docs `c73b9e2`, binate `e5bffe43d` + `0cd45ca65`, 2026-09-27)
+
+The checker typed a non-constant shift with an untyped value by the count's type (commonType), and IR-gen
+followed that only for a plain literal: with `n uint8` = 9, `cast(int64, 1 << n)` was 0 but
+`cast(int64, (0 + 1) << n)` was 512.  Rule (user, 2026-09-27; spec text after two adversarial reviews,
+`done/plan-untyped-shift-value.md`): §13.5 `expr.shift.untyped-value` — such a shift, and a `-`/`~`/
+arithmetic/bitwise expression over it and untyped constants, is an *untyped non-constant integer
+expression*, typed exactly as an untyped constant in the same position (context type; default `int`;
+interface targets `int`; non-integer target an error); the type flows through operands and shift values,
+never into a count; every maximal constant must fit; `unsafe_shl`/`unsafe_shr` alike.  Implementation:
+`types.Type.NonConst`, `check/check_untyped_shift.bn` (context recording at the assignability boundaries,
+operator peers, compound assignment, switch, cast; default pass per declaration and in the REPL entry
+points), IR-gen emits each shift at its recorded type (dropping the literal-only re-emit and its dead
+duplicate).  Audit: no existing tree or conformance code changes type.  Tests: checker/irgen unit tests,
+spec conformance 057-060 on VM, LLVM, native aa64/x64/arm32.  Split first: `check_decl_pass2.bn`,
+`gen_cast_value.bn`.
+
 ### A bare name in a generic body / imported declaration bound the consumer's same-named declaration first — DONE (binate `df56f73cd`, 2026-09-27)
 
 While IR-gen generates another package's code (monomorphized generic body, imported `.bni` decls,
