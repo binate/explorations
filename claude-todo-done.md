@@ -1,3 +1,11 @@
+### A generic interface parent declared after its child in a `.bni` was silently dropped — DONE (binate `68dd1ef02`, 2026-09-27)
+
+Every interface-collection pass now stashes the generic interfaces first (`stashGenericIfaceDecls`, one
+deduplicated `stashGenericIfaceDecl`), so `interface Sub : Base[int]` before `interface Base[T any]` keeps
+Base's methods and the upcast.  The miss stays non-fatal under a TODO until the REPL's mid-session import
+registers indirectly loaded packages (it still reaches it).  Test: conformance 1316.  The checker's
+rejection of the same forward parent in a `.bn` is filed separately (1317, xfail).
+
 ### An untyped constant shift VALUE was typed from the COUNT (`1 << n` vs `(0 + 1) << n` disagreed) — rule decided and implemented — DONE (docs `c73b9e2`, binate `e5bffe43d` + `0cd45ca65`, 2026-09-27)
 
 The checker typed a non-constant shift with an untyped value by the count's type (commonType), and IR-gen

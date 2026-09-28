@@ -145,12 +145,6 @@ emitManagedValueCopyRefInc, which peels fully and handles @Iface).
 
 ### More silent wrong code found by the forwarder audit (not forwarder-specific) — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1; agents' repros, not yet independently re-verified)
 
-- **A forward-declared generic parent in a `.bni` is silently dropped:** `interface Sub : Base[int]`
-  declared before `interface Base[T]` passes the checker, but `Base` is not yet stashed when `Sub` is
-  collected (`gen_iface_registry.bn` ~:182 `if gd == nil { continue }`; first registration wins the
-  dedup, `gen_module_register.bn:52`) → the VM prints 0 instead of 7, compiled ICEs.  Fix: stash every
-  generic interface decl in a file before collecting its interfaces (`RegisterAllInterfaces`,
-  `gen_module.bn:181`, `gen_module_single.bn:86`, `gen_import.bn:213`), then make the miss an ICE.
 - **`interface X = home.Getter[int]` (instantiated alias target) registers an EMPTY interface**
   (`gen_iface_registry.bn` ~:72 handles only `TEXPR_NAMED`) → `g.get()` prints 0 in the VM, compiled
   ICEs.  The EBNF allows `interface X = TypeName[..]`; implement the `TEXPR_INSTANTIATE` case.
@@ -177,10 +171,10 @@ a package declarations may appear in any order.  The checker resolves parents in
 PURPOSE (`check_iface_extends.bn` header: only the interface itself is pre-defined, "so a
 forward-reference cycle to ANOTHER interface still surfaces as 'undefined'") — i.e. it uses
 declaration order as its cycle guard.  The same forward parent in a `.bni` is accepted (and IR-gen keeps
-it once the forward-declared-generic-parent fix, not yet landed, is on main).  Fix: resolve parents after every interface of the package is
+it, binate `68dd1ef02`).  Fix: resolve parents after every interface of the package is
 declared, and detect extension cycles explicitly (DFS over the parent graph).  NEEDS A USER DECISION —
 it changes what the checker accepts (to match the spec).  Covered by conformance
-1316_iface_forward_parent_local (xfail.all; not yet landed).
+1317_iface_forward_parent_local (xfail.all, binate `e4308008d`).
 
 ### IR-gen silently lowers an unresolved identifier to the constant 0 — 🔴 OPEN (found 2026-09-27, work-1, review of the bare-name precedence fix)
 
@@ -305,8 +299,8 @@ interp driver do (`registerGenericBodyExternDeps` → `irgen.RegisterGenericBody
 instantiation of `g.Outer[int]` whose body calls `h.Inner` (h never imported at the prompt) lacks h's func
 externs, consts and vars.  Fix: register the
 newly loaded packages' interfaces + generic decls into `s.MainGc` before `RegisterImportFuncSigs`; then
-the generic-interface impl misses in `collectImplsFromDecl` / `collectImportedImplsFromDecl` (TODOs
-naming this entry) can become internal errors.  Add an `e2e/repl.sh` case.
+the generic-interface misses in `collectImplsFromDecl` / `collectImportedImplsFromDecl` /
+`collectInterfaceParents` (TODOs naming this entry) can become internal errors.  Add an `e2e/repl.sh` case.
 
 ### Loud miscompiles / wrong rejections found by the forwarder audit (not forwarder-specific) — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1; agents' repros, not yet independently re-verified)
 
