@@ -375,7 +375,10 @@ Needs a conformance test.
 - Cause: the checker's local-const definition path (a DeclStmt's `checkConstDecl` / `checkGroupDecl`) has
   no same-scope redeclaration check.  Fix: report the redeclaration exactly as the local `var` path does.
   A const in a nested block shadowing an outer var is legitimate and works.
-- No test yet.
+- **Needs a user decision (2026-09-28):** the spec is silent on a local `const` redeclaring a name of its
+  own block.  `decl.var.redeclare` makes it an error for `var`; `decl.shortvar.no-new-name-rule` makes `:=`
+  rebind.  The fix in progress rejects a grouped `var` member (spec-backed), makes the checker and IR-gen
+  agree that the later binding wins for a local `const`, and leaves that accepted pending the decision.
 
 ### A constant declared both as a single const and in a group, or in two groups, is not reported — 🟡 IN PROGRESS (claimed 2026-09-28, work-4 — user: "I guess you can take on the two MAJORs next"; found 2026-09-28, work-4, review of constant-evaluator step 2; pre-existing, bnc-0.0.16 too)
 - `const A = 5` plus `const ( A = 9; Z = A + 1 )` in one package is accepted; expected "A redeclared in
@@ -394,7 +397,11 @@ Until each instantiation is checked:
   `spec/15-builtins/153_len_dependent_array_len`, xfail);
 - an error that only one instantiation has (`cast(uint8, sizeof(T) * 100)` with a large T) panics in
   IR-gen with no position (`constEvalFailure`), as do the cast / `bit_cast` size checks that reach codegen
-  through a type parameter (conformance 1123, 1217, 1220).
+  through a type parameter (conformance 1123, 1217, 1220);
+- IR-gen's own evaluation of a type-parameter-dependent constant resolves names by last registration in
+  `Module.Consts`, not by scope: `{ const K = 1 }; const S = K * sizeof(T)` reads the ended block's K
+  (silent wrong value; conformance `spec/12-generics/078_dependent_const_names_in_scope`, xfail; found
+  2026-09-28 reviewing the const-redeclaration MAJORs).
 Design and commit plan: `plan-constant-evaluator.md` ("Per-instantiation checking"),
 `plan-generic-instance-check.md`.  Also fixes the two MAJOR entries above (a generic struct's
 `[sizeof(T)]` field length; polymorphic recursion).
