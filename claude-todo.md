@@ -186,7 +186,7 @@ replace a stale entry instead of appending a second one.
 - **An imported generic FUNCTION can't be called at the REPL prompt:** "extern not found:
   <pkg>.F__bn_inst__…", whether the fixture imports the package or it is imported mid-session.
 
-### aa64 text assembler: clang-valid instruction families still rejected (completeness) — 🔴 OPEN (listed 2026-09-26, work-2/session; user: "Next, after this lands")
+### aa64 text assembler: clang-valid instruction families still rejected (completeness) — 🟡 IN PROGRESS (listed 2026-09-26; claimed 2026-09-27, work-2/session; user: "Next, after this lands", then "yes"; landing family by family)
 
 Loud rejections, not mis-assembly, but the assembler is meant to be comprehensive: exclusive / acquire-
 release loads and stores (LDXR/STXR/LDAXR/STLXR/LDXP/STXP/LDAR/STLR/LDAPR/LDLAR/LDAPUR/STLUR), LSE
