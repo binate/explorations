@@ -134,6 +134,14 @@ list (`func id[_ any](x _) _ { var y _ = x; return y }` compiles).
 
 ## MAJOR
 
+### REPL: a top-level `var` initialized with a function literal panics — "vm: function not found: main.__funclit_0" — 🔴 OPEN (found 2026-09-28, work-5, review of the REPL raw-slice-literal fix; pre-existing)
+
+At the REPL prompt, `var f *func() int = func() int { return 7 }` panics `vm: function not found:
+main.__funclit_0` (before and after `1000f6105`).  runReplVarInit (repl/decl.bn) lowers the var-init
+synthetic and the dtor/copy helpers EnsureReplBodyHelpers adds, but not the lifted `__funclit_<N>` the
+initializer's func literal produced.  Likely fix: lower every function the generation appended to the
+module (as the file-load path and the statement path do), not just the helpers; add an e2e/repl.sh case.
+
 ### A generic interface instantiated with a type argument spelled through an interface alias finds no vtable — 🔴 OPEN (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing)
 
 `var h *H[*PA] = &w` with `interface PA = P` and `impl *W : H[*P]`: SIGSEGV compiled, "call of nil
