@@ -71,8 +71,15 @@ commit per step; land each before starting the next.
        landed `59a621006` (2026-09-28).
      - ✅ (c2) FCMLA / FCADD (#rot), BFDOT / BFMMLA / BFMLALB / BFMLALT, FMLAL / FMLSL / FMLAL2 /
        FMLSL2 — landed `5fb7778d6` (2026-09-28).  BFCVTN / BFCVTN2 are two-register misc (B4).
-     - (c3) FP8: FDOT (2-way / 4-way), FMLALB / FMLALT, FMLALLBB / BT / TB / TT, FMMLA (F8F16MM /
-       F8F32MM), and any FP8 three-operand FCVTN.
+     - ✅ (c3) FP8: FDOT (2-way / 4-way), FMLALB / FMLALT, FMLALLBB / BT / TB / TT, the three-register
+       FCVTN / FCVTN2, FMMLA (F8F16MM / F8F32MM) — landed `74a3c37f1` (2026-09-28).  Dispatch note for
+       B4 / B7: this parser claims fcvtn / fcvtn2 / fdot / fmlalb / fmlalt / fmlall* / fmmla by mnemonic
+       and rejects other shapes (two-register fcvtn: "not supported yet"), so the two-register FCVTN /
+       FCVTN2 (B4) and the FP8 by-element forms (B7) must be dispatched ahead of it or from inside it
+       (e.g. branch on the operand count, as emitA64FP hands vector destinations to the SIMD parser).
+     - Not in Apple clang 21, so no reference words yet: the half-precision FDOT (FEAT_F16F32DOT,
+       `fdot v0.2s, v1.4h, v2.4h`) and FMMLA (FEAT_F16F32MM / F16MM) Advanced SIMD forms — add them
+       when a clang that knows them is available.
 3. Three different (long / wide / narrow, PMULL).
 4. Two-register miscellaneous (incl. FP16; incl. the scalar FCVT* / SCVTF / UCVTF `s0, s1` forms)
    and across-lanes.
