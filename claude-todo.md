@@ -5,6 +5,22 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
+### A generic interface instantiated with a type argument spelled through an interface alias is a DIFFERENT interface — silent wrong result, crash — 🔴 OPEN (found 2026-09-28, work-1, review of the instantiated interface-alias fix; upgraded to CRITICAL by the review of the alias-assertion fix; pre-existing)
+
+`interface PA = P`, `impl *U : G[*P]`:
+- `a.(*G[*PA])` returns `false` where `a.(*G[*P])` returns `true` (LLVM and VM) — silent wrong result;
+- the checker accepts `var g2 *G[*PA] = &u`, then `g2.Val().Get()` SIGSEGVs (LLVM, native) / "call of nil
+  interface value" (VM); `var h *H[*PA] = &w` with `impl *W : H[*P]` finds no vtable.
+Likely cause (to confirm — an earlier note said the instance names agree and only the vtable row lookup
+misses): IR-gen names the instance from the type argument as written (MangleTypeArg of the alias's
+TYP_INTERFACE), so `G[*PA]` becomes its own interface — the review saw `__ifaceid.…G1_iN0_2_PA` — that
+nothing implements.  Fix: resolve an
+interface-alias type argument to the aliased interface (CanonicalIfacePkg / CanonicalIfaceName, recursing
+through pointer / managed wrappers) before the instance is named — ensureInstantiatedInterface /
+instantiationMangledName, and the same for generic structs and functions if their instances are keyed the
+same way.  Covered by conformance 1354_generic_type_arg_iface_alias (xfail.all, binate `f0fc356bd`); add
+the assertion and the method-call-through-the-value cases.
+
 ### A type assertion / type switch to an interface ALIAS misses the aliased interface — silent wrong result — 🟡 IN PROGRESS (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing; claimed 2026-09-28, work-1 — user: "take on the bugs that you filed")
 
 `interface PA = P` (any alias, generic or not): `a.(*PA)` returns ok=false in the VM and `case *PA:`
@@ -177,13 +193,6 @@ main.__funclit_0` (before and after `1000f6105`).  runReplVarInit (repl/decl.bn)
 synthetic and the dtor/copy helpers EnsureReplBodyHelpers adds, but not the lifted `__funclit_<N>` the
 initializer's func literal produced.  Likely fix: lower every function the generation appended to the
 module (as the file-load path and the statement path do), not just the helpers; add an e2e/repl.sh case.
-
-### A generic interface instantiated with a type argument spelled through an interface alias finds no vtable — 🔴 OPEN (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing)
-
-`var h *H[*PA] = &w` with `interface PA = P` and `impl *W : H[*P]`: SIGSEGV compiled, "call of nil
-interface value" in the VM.  The instance names agree, but the conversion site finds no vtable — the
-type argument's alias is not canonicalized where the (instantiation, interface) row is looked up.
-Covered by conformance 1354_generic_type_arg_iface_alias (xfail.all, binate `f0fc356bd`).
 
 ### Indexing an array reached through a field or deref of a CALL evaluates the call twice — 🟡 IN PROGRESS (found 2026-09-28, claude/exciting-davinci-wahyt2 session, reviewing the in-place array-slice fix; pre-existing; claimed 2026-09-28, same session — user: "yes, go ahead")
 
