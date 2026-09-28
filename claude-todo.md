@@ -2066,7 +2066,7 @@ language extension, not a bug fix.
 - Missing-return check (test 245) uses Go-style termination analysis simplified: RETURN terminates; `panic(...)` terminates; BLOCK terminates if last stmt does; IF terminates if both branches do; FOR with no condition and no `break` in body terminates; SWITCH with default and all cases terminating (no break) terminates.
 - **Labeled break**: Binate currently has no labels. If/when we add them, termination analysis needs to track labels — a `break L` inside a nested for doesn't break the inner for (contrary to the current "any break disqualifies enclosing for/switch" rule). Revisit when labels are on the table.
 
-### Relational-comparison chain (`a < b < c`) diagnostic reach — nicety
+### Relational-comparison chain (`a < b < c`) diagnostic reach — nicety — 🟡 IN PROGRESS (claimed 2026-09-27, work-3/session)
 The `expr.compare.relational` rule: `a < b < c` is correctly rejected in every context, but the
 dedicated "comparison operators do not chain" message fires only for the identifier-leading
 for-clause Pratt path (`parse_for.bn:199`); `if`/`var`/literal-leading contexts reject via generic
