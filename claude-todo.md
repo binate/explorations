@@ -53,12 +53,6 @@ miscompile found):
     types.PeelNamedBounded, ir.PeelToRepr, ir.PeelToUnderlying, codegen peelReprType, vm
     vmPeelTransparent, native common peelTransparent) — consolidating on one would remove the ad-hoc
     partial peels this cluster came from.
-**Open, found by the VM-lowering fix's review (pre-existing, all backends):** (a) `cast(RH, H{n: 3, m:
-4})` of a struct composite LITERAL to a named-over-readonly struct (`type RH readonly H`) panics
-"cast between mismatched aggregate/scalar shapes reached codegen" (casting an `H` variable works);
-((b), a method call directly on a cast to a readonly `@T`, is fixed on main — verified 2026-09-28 after
-`1a3bec4d7`.)
-
 **Sweep (2026-09-26):** auditors over check+lint, IR-gen (first two thirds of the files), and the VM
 lowering reported the confirmed defects below (each with a repro, run on LLVM / native aa64 / VM).
 The remaining areas were triaged by reading on 2026-09-27 (block above).  Several findings need NO

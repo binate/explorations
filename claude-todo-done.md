@@ -1,3 +1,12 @@
+### Casting a struct / array composite literal — DONE (binate `8c769e1ad`, 2026-09-28, work-5)
+
+Review item (a) of the VM-lowering fix: `cast(RH, H{n: 3, m: 4})` panicked — and so did every cast /
+unsafe_cast / bit_cast of a struct or array composite literal, wrappers or not (the literal evaluates to its
+alloca pointer).  The builtin arm now loads the literal's value first; conformance 1378.  Item (b), a method
+call on a cast to readonly `@T`, was already fixed by `1a3bec4d7`.  A generic `cast(T, S{...})` with T an
+interface now reaches the IR-gen widening backstop instead of borrowing a stack temporary; the missing
+instantiation-time cast check is filed separately.
+
 ### An assertion or boxing through an interface alias uses the aliased interface — DONE (binate `e0c676c22`, 2026-09-28, work-1)
 
 `x.(*PA)` / `case *PA:` with `interface PA = P` looked up `__ifaceid` of PA itself, which nothing
