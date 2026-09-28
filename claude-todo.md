@@ -109,7 +109,6 @@ elements, but is silent for the raw one.  Reading A (backing owns its elements f
 array): IR-gen must acquire each managed element and register the backing for release at scope exit —
 this is a compiler UAF (CRITICAL).  Reading B (elements are borrowed): the program is user error, and the
 spec should say so (and a lint could flag fresh managed temporaries in a raw-slice literal).
-Repros: scratch rv15/{min1..min4}.bn from the review (re-create from the snippets above).
 
 ### More silent wrong code found by the forwarder audit (not forwarder-specific) — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1; agents' repros, not yet independently re-verified)
 
