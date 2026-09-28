@@ -943,7 +943,7 @@ stores feeding 16-byte `movups` reloads are also a likely store-forwarding stall
 12× > instruction ratio 8.5×). The latch's ~60-instr phi-copy shuffle on x64 is register pressure
 that mostly follows from the same live aggregate state.
 
-- **Native code layout: functions (and loop headers) are not aligned — 🔵 OPEN (found 2026-09-24).**
+- **Native code layout: functions (and loop headers) are not aligned — 🟡 IN PROGRESS (found 2026-09-24; claimed 2026-09-28, claude/exciting-davinci-wahyt2 session).**
   Native x64 function symbols land at unaligned addresses (e.g. `math.Sqrt` at `…83e`, `…903`);
   LLVM aligns functions to 16. Measured layout sensitivity: shifting a copy of `math.Sqrt`'s code
   by padding (same compiler, identical instructions) moves a Sqrt-bound loop's user time by up to
