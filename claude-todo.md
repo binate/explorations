@@ -527,6 +527,42 @@ without a `home.bn`.  The checker accepts it; the failure is IR-gen's.
   is never usable as a name: it may appear only as a blank (binding nothing), never resolve as a
   reference.
 
+**Audit results (2026-09-28, work-6; read-only sweep + ~30 reproduced probes on main `555fe855f`):**
+- Chokepoint: `Scope.Define` (check/scope.bn:94) is the ONLY writer of checker scopes — every define*
+  helper, definePkg, the .bni→impl copy (checker.bn:210), the exposed surface (bni_scope_expose.bn) and
+  file-scope DelegateDefine reach it.  A silent no-op for `_` there keeps `_` out of every checker scope
+  (package / file / .bni / function / block / loop / case / func-literal / REPL), so every Lookup("_")
+  fails — closing the direct-Lookup paths too (`[_]int` array length via eval_const_int, `_[int]`,
+  `_.X`, isAddressable, `_func_handle(_)`, …).  Callers that re-find their own decl's symbol BY NAME
+  must switch to the decl: checkFuncDecl (check_decl_func.bn:368 → use d.ResolvedTypeID), the .bni
+  interface resolution (bni_scope_iface.bn:27,56), the REPL redefinition lookup (repl/decl.bn:165),
+  checkBniSignatureMatch / checkBniVarMatch.
+- Reference side: checkIdent (check_expr.bn:191) returns TypVoid for `_` with NO diagnostic, so
+  `x := _`, `var a *any = _`, `testing.Println(_)` are ACCEPTED and MISCOMPILE (LLVM `alloca void`;
+  native segfault / garbage; IR-gen resolves `_` to a param / for-key / type-switch binder / REPL global
+  / const `_` or a zero placeholder).  Must become an error.
+- Reproduced wrong acceptances: `func _` called as `_()` (two `func _` → duplicate symbol);
+  `interface _` / `interface _ = I` usable; params / receivers / range key+value / type-switch binders
+  named `_` readable; `const _ = 1` then `_` / `[_]int` / `const K = _ + 1`; `import _ "p"` then `_.X`
+  (violates spec pkg.import.blank); a .bni `func _` / `var _` / `const _` reachable as `p._` (a var → link
+  error); struct fields `_` (`s._`, `S{_: 1}`); methods / interface methods named `_` callable.
+- Wrong rejections: `func f(_ int, _ int)` ("duplicate parameter name: _"); `func f(_ int) { var _ = g() }`
+  ("_ redeclared in this scope" — the body shares the param scope); the same for a range key `_`.
+- Only the FIRST top-level `const _` is checked (the const resolve memo is keyed by name,
+  check_const_resolve.bn:94-150): `const _ = 1; const _ int = "x"` is accepted.
+- IR-gen has its own name tables (ctx.Vars, Module.Consts, globals, func emission, import alias maps):
+  guard at LOOKUP (a blank param still needs its slot for managed cleanup), skip blank func / const
+  emission, and stop recording `_` as an import alias (gen_register_import.bn overlayFileImports,
+  RebindImportPath, repl/ir_imports.bn).
+- Not covered by Define: struct fields (FieldByName / composite keys) and method sets
+  (AddMethod / LookupMethod) — need their own rule + guard.
+- Labels do not exist in Binate (no label/goto in the grammar).
+- **Decisions needed (user):** (1) blank params / receivers / range vars / type-switch binders — legal,
+  binding nothing, duplicates allowed (spec carve-out in func.decl.params)?  (2) struct fields named `_`
+  (padding, unnamed, not selectable) or rejected?  (3) methods / interface methods named `_` — rejected, or
+  allowed-and-uncallable?  (4) blank decls in a .bni (`func _` / `var _` / `const _` / `type _`) — accepted
+  (export nothing) or rejected?
+
 ### A generic struct / interface that is never instantiated is never checked — invalid declarations accepted — 🔴 OPEN (found 2026-09-28, work-6, review of the declared-type-param change; pre-existing)
 
 A generic type's fields (and a generic interface's method signatures) are resolved only when it is
@@ -546,6 +582,13 @@ type that can never be used is thus declarable, and a blank type (a compile-time
 passes although its type is invalid.  Fix: at the declaration, run requireSizedType over each non-forward,
 non-generic type declaration's whole resolved type (recursing into array elements and nested structs),
 and over the type checkBlankTypeDecl resolves.
+
+### Duplicate struct field names are accepted — 🔴 OPEN (found 2026-09-28, work-6, the blank-identifier audit; reproduced; pre-existing)
+
+`type S struct { a int; a int8 }` compiles and runs (`s.a = 300; Println(s.a)` prints 300 — the first
+field wins): there is no duplicate-field-name check in the checker.  Fix: reject a field name declared
+twice in one struct (named and anonymous struct types alike; blank `_` fields per the pending decision
+on `_` fields in the blank-identifier entry).
 
 ### Bugs found reviewing the identity refactor (pre-existing) — 🔴 OPEN (found 2026-09-27, work-1; reproduced by the reviewer)
 
