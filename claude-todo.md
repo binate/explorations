@@ -186,19 +186,6 @@ replace a stale entry instead of appending a second one.
 - **An imported generic FUNCTION can't be called at the REPL prompt:** "extern not found:
   <pkg>.F__bn_inst__…", whether the fixture imports the package or it is imported mid-session.
 
-### aa64 backend encoders: SP and XZR share register number 31, and register classes are unchecked — 🟡 IN PROGRESS (found 2026-09-25/26; claimed 2026-09-27, work-2/session; user decision: "Distinct XZR number"; user: "yes, go for it")
-
-The `aarch64` package's backend API numbers SP and XZR both 31, so `Mov(rd, Reg(XZR))` emits `mov rd,
-sp` and `Neg(rd, Imm(k))` / `Add|Sub(rd, XZR, #imm)` read 31 as SP (latent: no native caller passes XZR
-there).  And its hand-rolled encoders (Madd/Msub/…, the FP and most NEON encoders; aarch64_branch.bn
-alone has ~46 sites) mask register numbers with `& 0x1f`, so a D/V register (numbered 32..63) passed as a
-GP operand, or a GP one as a V operand, silently becomes another register.  (The exact `isa` encoders,
-the NEON Q load/stores and LD1/ST1 already range-check.)  **Fix (user-chosen):** give XZR its own value
-in the wrapper register namespace (SP stays 31); every wrapper maps each operand field explicitly
-(ZR field: XZR→31, SP→error; SP field: SP→31, XZR→error or the ZR-capable alias) and checks the register
-class of every operand (GP 0..31 / V,D 32..63) — mechanical at the native call sites that pass XZR.
-Planned as the next commit after the text-assembler batch (landed `e864bdbed`).
-
 ### aa64 text assembler: clang-valid instruction families still rejected (completeness) — 🔴 OPEN (listed 2026-09-26, work-2/session; user: "Next, after this lands")
 
 Loud rejections, not mis-assembly, but the assembler is meant to be comprehensive: exclusive / acquire-

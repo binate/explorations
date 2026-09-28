@@ -1,3 +1,25 @@
+### aa64 backend encoders: SP and XZR shared register number 31, and register classes were unchecked — ✅ DONE (binate `d1327d3f7`, 2026-09-27)
+
+The `aarch64` package's backend API numbers SP and XZR both 31, so `Mov(rd, Reg(XZR))` emits `mov rd,
+sp` and `Neg(rd, Imm(k))` / `Add|Sub(rd, XZR, #imm)` read 31 as SP (latent: no native caller passes XZR
+there).  And its hand-rolled encoders (Madd/Msub/…, the FP and most NEON encoders; aarch64_branch.bn
+alone has ~46 sites) mask register numbers with `& 0x1f`, so a D/V register (numbered 32..63) passed as a
+GP operand, or a GP one as a V operand, silently becomes another register.  (The exact `isa` encoders,
+the NEON Q load/stores and LD1/ST1 already range-check.)  **Fix (user-chosen):** give XZR its own value
+in the wrapper register namespace (SP stays 31); every wrapper maps each operand field explicitly
+(ZR field: XZR→31, SP→error; SP field: SP→31, XZR→error or the ZR-capable alias) and checks the register
+class of every operand (GP 0..31 / V,D 32..63) — mechanical at the native call sites that pass XZR.
+Planned as the next commit after the text-assembler batch (landed `e864bdbed`).
+
+**Resolution:** XZR = 64 (outside GP 0..31 with SP = 31, and FP/SIMD 32..63).  Every wrapper maps each
+register operand by its field's rule — `zrReg` (31 = zero register), `spReg` (31 = SP), `vReg` (D/V) — and
+a rejected operand maps to -1, which every encoder rejects without emitting.  The hand-rolled integer /
+branch / extend / csel / load-store / system encoders now go through isa; FP and NEON pack mapped fields.
+Also fixed on the way: `add x0, sp, x1` (and SUB/ADDS/SUBS/CMP/CMN with SP and a register operand) used
+the shifted-register form, whose Rn 31 is XZR — now the extended-register form, as clang; `mov x0, xzr`
+works (ORR); native `isFpReg` bounded to D0..D31.  Verified: full native aa64 conformance 3070/0, unit
+tests (aarch64, isa, native aarch64, parse, macho, elf, link), e2e ffi-export + bnc-bnld-macos.
+
 ### Impl receivers spelled through an imported type alias keyed on the alias — DONE (binate `13033f11d`, 2026-09-27)
 
 `recvBaseNameAndPkg`'s alias gate matched only the BARE receiver name (the current module's aliases), so
