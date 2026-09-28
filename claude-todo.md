@@ -181,7 +181,11 @@ program, so reaching it means an IR-gen resolution gap — and the result is sil
 diagnosable failure (a generic body reading a transitively-reached package's global read 0 until
 RegisterGenericBodyDeps registered those).  Fix: make the miss loud — an ICE at IR-gen time, or the same
 runtime internal-error panic `genSelector`'s fallback emits — after auditing which legitimate idents (if
-any) still reach it.
+any) still reach it.  A sibling fallback: `lookupBareConst` / `bareGlobalIdx` (`gen_bare_name.bn`) fall
+back to the consuming module's same-named const/global when the defining package's is not registered —
+e.g. an imported const that neither folds nor has a checker stamp is dropped by
+`registerImportConstsAndVars`, so a generic body's bare read of it binds the consumer's.  The principled
+guard is "the defining package declares this name" (the checker's package scope), not "it is registered".
 
 ### `defer ps.m()` on a method of a NAMED POINTER type panics the compiler ("defer of an unresolved method call") — 🔴 OPEN (found 2026-09-27)
 
@@ -277,7 +281,11 @@ so `import "pkg/gen"` + an impl of `gen.GI[int]` works.  Remaining: `RegisterAll
 "call of nil interface value"; it works when pkg/other/lib was imported first (and a transitively
 referenced `pkg/std/hash.Hasher` from `import "pkg/binate/irdata"` is never stashed).  The same gap
 covers TYPE ALIASES of the indirectly loaded packages: pkg/lib's `impl *home.SA : Loc` (SA an alias in
-pkg/home) keys on the alias when pkg/home was not imported at the prompt first.  Fix: register the
+pkg/home) keys on the alias when pkg/home was not imported at the prompt first.  Likewise the REPL
+(`pkg/binate/repl/ir_imports.bn`) never runs the generic-body dependency registration that bnc and the
+interp driver do (`registerGenericBodyExternDeps` → `irgen.RegisterGenericBodyDeps`): a prompt-level
+instantiation of `g.Outer[int]` whose body calls `h.Inner` (h never imported at the prompt) lacks h's func
+externs, consts and vars.  Fix: register the
 newly loaded packages' interfaces + generic decls into `s.MainGc` before `RegisterImportFuncSigs`; then
 the generic-interface impl misses in `collectImplsFromDecl` / `collectImportedImplsFromDecl` (TODOs
 naming this entry) can become internal errors.  Add an `e2e/repl.sh` case.
