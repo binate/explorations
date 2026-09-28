@@ -1,3 +1,15 @@
+### IR-gen emitted an untyped LEFT-operand constant twice; the IR verifier now checks every integer constant fits its type — DONE (binate `6131c0e20`, `ae63f2a90`, 2026-09-27)
+
+For a non-shift binary op the left constant is emitted once, at its peer's type (`6131c0e20`, the
+untyped-constant re-typing fix).  `ae63f2a90`: `--verify-ir` reports `VERR_CONST_OUT_OF_RANGE` for an
+`OP_CONST_INT` whose value is outside its type (untyped judged as the target int; 64-bit types take any
+pattern), and three producers were fixed: the 32-bit int minimum `-2147483648` (was the out-of-range
+magnitude 2^31 negated; `tryFoldOversizedConst` emits the value at int), float-to-unsigned saturation masks
+(were -1 for an unsigned type; `emitAllOnes` gives 2^N-1), and an oversized untyped shift count (was
+retagged to the value's type; now keeps its own).  cmd/{bnc,bni,bnas,bnlint} verify clean on host and
+arm32-linux, as do all 1885 single-file conformance programs (compile-only, both targets).  The shift
+path's double emission of a literal value remains — it goes with the open shift-typing question.
+
 ### aa64 backend encoders: SP and XZR shared register number 31, and register classes were unchecked — ✅ DONE (binate `d1327d3f7`, 2026-09-27)
 
 The `aarch64` package's backend API numbers SP and XZR both 31, so `Mov(rd, Reg(XZR))` emits `mov rd,

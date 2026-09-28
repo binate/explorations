@@ -1009,28 +1009,6 @@ FP-arithmetic work. Full plan + sequencing: `plan-native-vectorization.md`.
 
 Order: V1 (aa64 first) → (A) → idiom recognition → B1 → B2 → B3. Each independently landable/measurable.
 
-### IR-gen emits an untyped LEFT-operand constant twice — a dead `int`-typed copy (non-canonical when the value doesn't fit `int`) — 🟡 IN PROGRESS (found 2026-09-25, work-4, T6 b1; verifier check claimed 2026-09-27, work-4/session)
-
-**Partly fixed (binate `6131c0e20`, 2026-09-27):** for every non-shift binary op the left constant is now
-emitted once, directly at its peer's type (the untyped-constant re-typing fix).  **Still open:** (1) a
-shift's untyped-literal VALUE operand is still emitted twice (`genBinary` keeps the literal-only re-emit
-for shifts — see the shift-typing entry below); (2) the IR verifier check that every `OP_CONST_INT`'s
-value fits its type.
-
-For `K | x` (untyped constant on the LEFT of a binary op whose right operand is typed), IR-gen emits the
-constant first with the default type `int` — unused — and then again with the operand's type; with the
-constant on the RIGHT (`x | K`) only the correctly typed constant is emitted.  Minimal repro (arm32 target,
-`--emit-llvm`): `func f(x uint64) uint64 { return 0x7FF0000000000000 | x }` →
-`%v2 = add i32 9218868437227405312, 0` (dead) then `%v4 = add i64 9218868437227405312, 0`; `5 | x` gives
-the same dead `add i32 5, 0`.  Effects: dead constants in every such expression (materialized by the native
-backends at -O0); where `int` is narrower than the value (arm32), the dead copy is a NON-CANONICAL constant
-— an `OP_CONST_INT` whose `IntVal` does not fit its type — which the LLVM path truncates silently and which
-tripped the native arm32 backend once its encoder stopped truncating (fixed on the backend side: 
-`emitConstInt32` now reduces to the low 32 bits explicitly).  Seen in `softfloat.F64Mul`'s
-`return 0x7FF0000000000000 | productSign`.  **Fix:** in IR-gen's binary-operator lowering, type an untyped
-left-operand constant from the other operand before emitting it (as already happens for the right
-operand); add an IR verifier check that every `OP_CONST_INT`'s value fits its type.
-
 ### An untyped constant shift VALUE is typed two ways — `1 << n` at the count's type, `(0 + 1) << n` at `int` — 🔴 OPEN, needs a language decision (found 2026-09-27)
 
 With `n uint8` = 9, `cast(int64, 1 << n)` is 0 but `cast(int64, (0 + 1) << n)` is 512, on LLVM and native
@@ -1040,7 +1018,8 @@ for a plain literal value (its literal-only re-emit at the count's type); a cons
 name value is computed at `int`.  The spec (§13.5 `expr.shift`) says the result type is the value's type and
 the count's type is independent, but is silent on an UNTYPED value in a non-constant shift.  **Decide** the
 rule (the count's type, as the checker does now; `int` / the default type; or the context's type), write it
-into §13.5, then make the checker and IR-gen agree (and drop the double emission).  Conformance coverage with
+into §13.5, then make the checker and IR-gen agree — which also drops the shift path's double emission
+of a literal value (its literal-only re-emit leaves a dead first copy).  Conformance coverage with
 the fix.
 
 ### IR optimization passes (help LLVM + native backends + the VM) — 🟡 OPEN
