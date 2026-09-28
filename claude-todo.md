@@ -1020,15 +1020,6 @@ stores feeding 16-byte `movups` reloads are also a likely store-forwarding stall
 12× > instruction ratio 8.5×). The latch's ~60-instr phi-copy shuffle on x64 is register pressure
 that mostly follows from the same live aggregate state.
 
-- **Native code layout: functions (and loop headers) are not aligned — 🟡 IN PROGRESS (found 2026-09-24; claimed 2026-09-28, claude/exciting-davinci-wahyt2 session).**
-  Native x64 function symbols land at unaligned addresses (e.g. `math.Sqrt` at `…83e`, `…903`);
-  LLVM aligns functions to 16. Measured layout sensitivity: shifting a copy of `math.Sqrt`'s code
-  by padding (same compiler, identical instructions) moves a Sqrt-bound loop's user time by up to
-  16% (0.875s–1.019s, x64, 8 paddings). This showed up as a spurious +11% n-body "regression"
-  between two builds whose Sqrt loop differed by one removed copy (callgrind: new build executed
-  1.9% FEWER instructions). Besides being a real performance gap, it makes single-build A/B
-  comparisons of branchy hot loops unreliable. Fix: align function entries (and probably loop
-  headers of hot/innermost loops) in the native backends, as LLVM does.
 - **n-body is ~90% software `math.Sqrt` on BOTH backends — 🔵 OPEN (found 2026-09-24).** callgrind:
   native 88%, LLVM 90% of instructions in `math.Sqrt`'s bit-by-bit loop (neither emits `sqrtsd` /
   `fsqrt`); the source notes "a hardware sqrt intrinsic may replace this as a fast path later". So

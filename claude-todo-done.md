@@ -1,3 +1,24 @@
+### Native x64 functions and loop headers were not aligned — ✅ DONE (2026-09-28, binate `cec99cb9`)
+
+Every x64 text entry point (functions, C-export aliases, the mangled entry after a C-entry thunk or
+trampoline, C-entry thunks, function-value shims, the package-descriptor accessor) and every loop header
+(`iropt.ComputeLoopHeaders`) now starts 16-aligned with SDM multi-byte NOPs (`asm/x64` `NopN`/`AlignNops`),
+matching LLVM's generic x86-64 layout. aarch64/arm32 unchanged: clang does not align beyond 4 bytes for
+generic aarch64, Apple arm64 or armv7. n-body: unaligned function entries 584/812 → 0 (the 49 remaining
+unaligned symbols are data); binary +0.25%. Timing could not resolve an effect on this box (same-binary
+A/A ±5% even pinned; no PMU); all 8 benchmarks within noise (richards 0.92× unpinned, noise pinned).
+Original entry:
+
+> - **Native code layout: functions (and loop headers) are not aligned — 🟡 IN PROGRESS (found 2026-09-24; claimed 2026-09-28, claude/exciting-davinci-wahyt2 session).**
+>   Native x64 function symbols land at unaligned addresses (e.g. `math.Sqrt` at `…83e`, `…903`);
+>   LLVM aligns functions to 16. Measured layout sensitivity: shifting a copy of `math.Sqrt`'s code
+>   by padding (same compiler, identical instructions) moves a Sqrt-bound loop's user time by up to
+>   16% (0.875s–1.019s, x64, 8 paddings). This showed up as a spurious +11% n-body "regression"
+>   between two builds whose Sqrt loop differed by one removed copy (callgrind: new build executed
+>   1.9% FEWER instructions). Besides being a real performance gap, it makes single-build A/B
+>   comparisons of branchy hot loops unreliable. Fix: align function entries (and probably loop
+>   headers of hot/innermost loops) in the native backends, as LLVM does.
+
 ### The checker rejected an interface whose parent is declared later in a `.bn`; `.bni` extension cycles crashed it — DONE (binate `4b5d8d399`, 2026-09-27)
 
 Both paths now define every interface before resolving any extension clause (`.bn`:
