@@ -35,8 +35,9 @@ commit per step; land each before starting the next.
 2. ✅ FMOV (immediate) + FMOV GP ↔ FP (W–S, X–D, W/X–H; zero is FMOV from WZR/XZR) — landed
    `75fbf40d0` (2026-09-27).  The 8-bit immediate is decided exactly (value × 128), never rounded.
    isa.FMovTopHalf (`Xd, Vn.D[1]` and back) exists; its parse waits for B1's lane syntax.
-3. FP ↔ integer: FCVT{N,P,M,Z,A}{S,U} (integer and fixed-point `#fbits`), SCVTF / UCVTF (both),
-   FJCVTZS.
+3. ✅ FP ↔ integer: FCVT{N,P,M,Z,A}{S,U} (integer and fixed-point `#fbits`), SCVTF / UCVTF (both),
+   FJCVTZS, and FEAT_FPRCVT (integer in an S / D register of a different size) — landed `abc0540ed`
+   (2026-09-27).  The same-size FP-register forms (`fcvtzs s0, s1`) are Advanced SIMD scalar → B4.
 4. Move `asm/aarch64/aarch64_fp.bn` onto the isa FP encoders.
 
 **B. Advanced SIMD vector** (each class also has its scalar forms where the architecture defines them)
@@ -44,7 +45,8 @@ commit per step; land each before starting the next.
    range forms), scalar SIMD registers in vector instructions; then parse FMOV `Xd, Vn.D[1]` / back.
 2. Three same (integer, FP, FP16, extra: SDOT / UDOT / SQRDMLAH / FCMLA / FCADD …).
 3. Three different (long / wide / narrow, PMULL).
-4. Two-register miscellaneous (incl. FP16) and across-lanes.
+4. Two-register miscellaneous (incl. FP16; incl. the scalar FCVT* / SCVTF / UCVTF `s0, s1` forms)
+   and across-lanes.
 5. Copy (DUP / INS / UMOV / SMOV / MOV aliases) and modified immediate (MOVI / MVNI / ORR / BIC /
    FMOV vector).
 6. Shift by immediate (incl. narrowing / long / fixed-point conversions).
