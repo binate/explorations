@@ -367,7 +367,7 @@ monomorphization instantiates `depth[int]`, `depth[@int]`, `depth[@@int]`, … w
 instantiation depth limit with a diagnostic, in the checker's per-instantiation worklist (plan above).
 Needs a conformance test.
 
-### Is a local `const` redeclaring a name of its own block an error? — ⚪ NEEDS DECISION (raised 2026-09-28, work-4)
+### A local `const` redeclaring a name of its own block is an error — 🟡 IN PROGRESS (raised 2026-09-28, work-4; decided and claimed 2026-09-28, work-4 — user: "I think it should be an error.")
 The spec is silent.  `decl.var.redeclare` makes redeclaring a same-block name with `var` an error;
 `decl.shortvar.no-new-name-rule` makes `:=` rebind.  Today (binate `f037beaef`) a local `const` naming a
 parameter, a loop variable or an earlier local of its block is accepted and the later binding wins — the
@@ -391,6 +391,15 @@ Until each instantiation is checked:
 Design and commit plan: `plan-constant-evaluator.md` ("Per-instantiation checking"),
 `plan-generic-instance-check.md`.  Also fixes the two MAJOR entries above (a generic struct's
 `[sizeof(T)]` field length; polymorphic recursion).
+
+### Language feature: array-literal keys that depend on a type parameter — 🔴 OPEN (raised 2026-09-28, work-4)
+`[sizeof(T)]uint8{sizeof(T) - 1: 7}` (a key whose value depends on a type parameter) is rejected today
+(check_expr_composite.bn, "must be a constant").  User (2026-09-28): "they seem like they could be useful
+(precisely for your example), but maybe not worth the effort of doing now. (OTOH, if it's easy to do now,
+I guess we can allow.)"  Not easy before per-instantiation checking (design B) lands: IR-gen would need
+each instantiation's key values.  After it, likely small: the abstract check defers a dependent key (as it
+defers the element count), each instance's check validates it on its clone (KeyVal / KeyKnown), and
+IR-gen reads the clone's stamps.  Needs a spec line (§7 composite literals) with it.
 
 ### Constant-evaluator leftovers — 🔴 OPEN (found 2026-09-28 by the review of constant-evaluator step 2; pre-existing)
 - `const F float64 = cast(float64, 5)` fails in clang: both the old and new compiler emit invalid LLVM IR.
