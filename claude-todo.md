@@ -13,54 +13,6 @@ assertion / switch keys on the alias's own identity instead of canonicalizing it
 (canonicalIfacePkg / canonicalIfaceName) before the satisfaction lookup / iface-id reference.  Covered
 by conformance 1353_iface_alias_type_assert (xfail.all, binate `f0fc356bd`).
 
-### Importers resolve a package's type declarations under the MERGED file's imports — silent truncation — 🟡 IN PROGRESS (found 2026-09-28, work-1, review of the named-type identity fix; pre-existing; claimed 2026-09-28, work-1 — user: "then proceed as proposed")
-
-`pkg/xf.bni` imports `dep "pkg/p2"` and declares `type TB = dep.W` (int64), while one of pkg/xf's `.bn`
-files imports `dep "pkg/p1"` (W is int8).  An importer's `var v xf.TB = 100000; v = v * 3` prints `-32`:
-TB resolved to int8.  The import pre-pass drivers (bnc, interp `registerAllStructTypes` /
-`collectPkgFile`, repl `registerLoadedPkgTypes`) hand IR-gen each package's `Merged` file (.bni + every
-.bn), and RegisterStructTypes → registerPkgTypeDecl (likewise RegisterImport's alias loop,
-gen_import.bn ~:248) resolves every declaration under `pushFileImports(merged)`, where the first file
-to import an alias wins it.  The defining package itself is right only because GeneratePackage
-re-resolves its own declarations per file (declImportFile) into a separate entry.  Fix: give the
-pre-pass the per-file ASTs and resolve each declaration under its own file's imports, so every module
-builds the same, correct entry.  Test: conformance 1361_bni_type_decl_imports_importer (xfail.all, binate
-`01c7f6981`); 1362_type_decl_per_file_imports guards the defining package's per-file resolution.
-**Blocks** the named-type identity fix below, which makes the defining package reuse the pre-pass
-entry (that alone breaks 1362: a `.bn`-private `type TB = dep.W` becomes int8).
-
-### A package's own named non-struct type has several IR identities — generic-interface instances split, silent wrong code — 🟡 IN PROGRESS (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing; claimed 2026-09-28, work-1 — user: "yes take that CRITICAL next")
-
-`type MyN int` in `pkg/home` becomes a different `TYP_NAMED` depending on where it is resolved:
-- bare `MyN` in the package's own compile (typeDeclEntryType: "bare for the current package");
-- qualified `pkg/home.MyN` in the own compile's import pre-pass, when gc.PkgPath is still empty;
-- qualified in an importer.
-
-Anything that embeds the type in an identity therefore splits. A generic interface instantiated with
-it (`H[MyN]`) gets two ModuleInterface instances in one module — `__ifaceid…H1_N0_3_MyN` and
-`…H1_N2_3_pkg4_home3_MyN` — and the impl rows sit on only one of them.
-
-Symptoms (every backend, including pre-fix main):
-- an interface alias `interface JA = H[MyN]` in the library's `.bni`, boxed in the library: native
-  aa64 builds and SEGFAULTs; LLVM rejects the IR (`ret i8*` from an iface-returning func); pre-fix VM
-  prints `0` for `2`;
-- the same alias declared in the library's `.bn` panics in emitIfaceUpcast ("target not an ancestor");
-- an importer's `var h *home.H[home.MyN] = &k` fails to link (LLVM + native); the VM calls a nil
-  interface value.
-
-Root cause: the type's identity is keyed to the compile context rather than to its defining package.
-Named STRUCTS don't split because their mangled symbols are always package-qualified.
-`definingPkgFor` can't paper over it: the pre-pass runs with no gc.PkgPath.
-
-Fix: give a named non-struct type one context-independent identity (its defining package), as structs
-have — the TypeAliases key and TYP_NAMED name, and every def-side / call-side method key that assumes
-"bare in the own module".  Test: conformance 1355_named_type_arg_iface_identity (xfail.all, binate `f0fc356bd`).
-
-Status: fix drafted (not yet landed) — register own-module named types under their qualified name and
-qualify bare lookups (as structs do), so the pre-pass entry and the module's own entry are one.  Passes
-the full builder-comp-comp / builder-comp-int suites, but it reuses the pre-pass entry, which is resolved
-under the merged file's imports (entry above) — so it must land after that fix.
-
 ### Type-wrapper peel bug cluster (named / alias / readonly handled inconsistently across IR-gen, the VM lowering, codegen, and the checker) — silent wrong values, memory corruption, use-after-free — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-26, work-5/session — user: "take on the critical, then the majors")
 
 **Class:** a type decision (Kind / Width / Signed / float-vs-int / managed-vs-raw / aggregate-vs-scalar)
@@ -162,8 +114,8 @@ per-file import overlays (GeneratePackage, and the registration passes' Register
 install the same ungated `files[i].Imports`, so once the checker side is fixed a same-alias gated pair
 (`#[build(darwin)] import sys ".../darwin"` / `#[build(linux)] import sys ".../linux"`) would bind to the
 gated-out package in IR-gen.  Fix: the loader gates each file's imports (every `files[i]` and the `.bni`),
-not just the merged list.  Test: conformance 1370_build_gated_import_multi_file (xfail.all; not yet
-landed).
+not just the merged list.  Test: conformance 1370_build_gated_import_multi_file (xfail.all, binate
+`9667e6656`).
 
 ### A `.bni` forward `type X` completed by a NON-struct `type X int` in the `.bn` — checker accepts, IR-gen internal error — 🔴 OPEN (found 2026-09-28, work-1, review of the named-type identity fix; pre-existing)
 

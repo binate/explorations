@@ -1,3 +1,24 @@
+### Every declaration resolves under its own source file's imports — DONE (binate `7cb297b73`, 2026-09-28, work-1)
+
+Importers resolved a package's `.bni` declarations under the merged file's first-wins imports, so with a
+`.bni` `import dep "pkg/p2"` and a `.bn` `import dep "pkg/p1"`, every `.bni` declaration built on `dep.W`
+(alias, distinct named type, struct field, interface method / function signature, generic struct field)
+silently truncated to pkg/p1's int8 W.  The drivers now register every loaded package's `.bni` and `.bn`
+ASTs (irgen.RegisterSourceFiles, a path-keyed table); each registration pass installs a declaration's own
+file's imports (declImports), a stashed generic is narrowed to its declaration's file at instantiation,
+and GeneratePackage's `.bni`-prepended declarations resolve under the `.bni`'s imports.  Conformance 1361
+(every shape) + 1362, unit tests.  The review found a pre-existing loader bug the registry depends on
+(gated imports in multi-file packages — todo, test 1370).
+
+### A named non-struct type has one identity — its package-qualified name — DONE (binate `224f837ba`, 2026-09-28, work-1)
+
+`type MyN int` was `MyN` in its own module but `pkg/home.MyN` in the import pre-pass and in importers,
+so `H[MyN]` split into two interface instances with the impl rows on one (native segfault, LLVM IR
+rejected, VM wrong value, importer link failure).  Own-module named types and aliases are now registered
+under their module-qualified name and lookupTypeAlias qualifies a bare key, as for structs.  Needed the
+per-file import fix above first (reusing the pre-pass entry otherwise broke 1362).  Conformance 1355,
+unit test.
+
 ### A receiver binder named like a package type stays rejected (spec `gen.method.generic-recv` kept) — ❎ DECLINED (2026-09-28), work-6
 
 The note (added by another session to the generic-param shadowing CRITICAL) proposed that a receiver
