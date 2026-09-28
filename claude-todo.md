@@ -420,7 +420,7 @@ param-shadowing fix; reproduced): an alias of the package's OWN generic fails th
 `.bni`), then `var b home.IntBox; b.Val()` in main → link failure (undefined `…lang…int…Val`), with or
 without a `home.bn`.  The checker accepts it; the failure is IR-gen's.
 
-### A package's `type _ …` declaration binds `_` as a type name — 🟡 CLAIMED, queued after the duplicate type-param CRITICAL (found 2026-09-27, work-6, review of the receiver-binder change; reproduced; pre-existing; claimed 2026-09-28, work-6/session)
+### A package's `type _ …` declaration binds `_` as a type name — 🟡 IN PROGRESS (found 2026-09-27, work-6, review of the receiver-binder change; reproduced; pre-existing; claimed 2026-09-28, work-6/session)
 
 With `type _ struct{ z int }` in a package, `_` resolves as that type: `func (p *Pair[_, V]) First() _ {
 var r _; return r }` compiles and runs (a blank receiver binder is otherwise not usable as a type).  The
