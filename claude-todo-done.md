@@ -1,3 +1,15 @@
+### Type assertion / type switch to a generic interface missed a parameterized impl's rows — DONE (binate `bacb8ec77`, 2026-09-27)
+
+A parameterized impl (`impl *Box[T] : GJ[T]`) has no static satisfaction row; its concrete rows were
+minted only at a boxing site INTO that exact interface, so a `Box[int]` boxed into `any` and asserted to
+`*GJ[int]` / its parent `*GI[int]` returned ok=false (type switch: default arm), locally and across
+packages.  Parameterized impl decls are now stashed (GenericImplDecls, including transitively loaded
+packages'), and `ensureGenericImplRows` mints every parameterized impl's rows for a struct instantiation
+when a value of it is boxed into any interface (once per impl+instantiation per module; interface args
+resolved with only the receiver binders bound).  Tests: conformance 1309, 1310; irgen unit tests.  The
+review surfaced two pre-existing bugs, filed as CRITICALs: a struct parameter name shadowing a package
+type in methods (1311, xfail) and the bare-type-name precedence bug, which the new minting inherits.
+
 ### IR-gen emitted an untyped LEFT-operand constant twice; the IR verifier now checks every integer constant fits its type — DONE (binate `6131c0e20`, `ae63f2a90`, 2026-09-27)
 
 For a non-shift binary op the left constant is emitted once, at its peer's type (`6131c0e20`, the

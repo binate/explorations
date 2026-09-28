@@ -127,10 +127,6 @@ emitManagedValueCopyRefInc, which peels fully and handles @Iface).
 
 ### More silent wrong code found by the forwarder audit (not forwarder-specific) — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1; agents' repros, not yet independently re-verified)
 
-- **Type assertion / type switch to a generic interface is false when the parameterized impl is
-  declared in the home `.bni`:** `&Box[int]` asserted to `*home.GJ[int]` / `*home.GI[int]` (impl
-  `impl *Box[T] : GJ[T]` in home's `.bni`) returns ok=false in every mode; the all-local program
-  returns true.
 - **A forward-declared generic parent in a `.bni` is silently dropped:** `interface Sub : Base[int]`
   declared before `interface Base[T]` passes the checker, but `Base` is not yet stashed when `Sub` is
   collected (`gen_iface_registry.bn` ~:182 `if gd == nil { continue }`; first registration wins the
@@ -162,7 +158,7 @@ a wrong satisfaction row.  Add that as a test with the fix.
 `K` is the package type (the receiver binder is U), but `emitInstantiatedMethod` binds the struct's
 own parameter names as a fallback after the receiver binders, so `K` resolves to the type argument:
 `Box[int]{…}.Get()` returns 0s when compiled, garbage through `*GI[K]`, SIGSEGV in the VM.  Covered by
-conformance 1311_generic_method_param_name_shadows_type (xfail.all; not yet landed).  Fix: bind only
+conformance 1311_generic_method_param_name_shadows_type (xfail.all, binate `e5651efde`).  Fix: bind only
 the receiver binders when resolving the method's signature/body; struct FIELD types (declared in the
 struct's parameter names) must resolve under the struct's own binding, separately.  (The
 parameterized-impl row minting had the same fallback and dropped it: the checker requires one plain
