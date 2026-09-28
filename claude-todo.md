@@ -119,6 +119,18 @@ array): IR-gen must acquire each managed element and register the backing for re
 this is a compiler UAF (CRITICAL).  Reading B (elements are borrowed): the program is user error, and the
 spec should say so (and a lint could flag fresh managed temporaries in a raw-slice literal).
 
+### A package-level raw-slice literal views the stack of the module initializer — silent wrong values — 🔴 OPEN (found 2026-09-27, work-5, review of the raw-slice-literal ownership fix; pre-existing)
+
+`var gRaw *[]readonly int = *[]readonly int{1, 2, 3}` then `gRaw[0], gRaw[1], gRaw[2]` in `main` prints
+garbage (`4334889136 6132048712 …`) on LLVM and the VM (a global ARRAY initializer is fine).  genRawSliceLit
+allocates the backing on the stack of the synthetic module-init function, so the global views dead stack
+once init returns.  With managed elements the raw-slice-literal ownership fix makes it worse: init's scope
+exit releases the elements, so a use then crashes instead of reading garbage.  A package-level literal's
+enclosing scope is the package: its backing must be a hidden GLOBAL `[N]T` (program lifetime; managed
+elements retained, never released), initialized in module init.  (Returning a function-local raw-slice
+literal's view is NOT this bug — that is a raw borrow outliving its scope, user error per spec §18.7
+`mem.raw-uaf`.)
+
 ### More silent wrong code found by the forwarder audit (not forwarder-specific) — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1; agents' repros, not yet independently re-verified)
 
 - **`interface X = home.Getter[int]` (instantiated alias target) registers an EMPTY interface**
