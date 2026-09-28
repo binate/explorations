@@ -190,6 +190,18 @@ binder per type parameter, so the binders cover every position.)
 
 ## MAJOR
 
+### An interface method called directly on a `cast` / `unsafe_cast` result fails to link — 🔴 OPEN (found 2026-09-27, work-5, testing the readonly-iface cast fix; pre-existing, no wrapper needed)
+
+`cast(@Getter, m).Get()` (m `@S`, `impl @S : Getter`) compiles to a direct call of a nonexistent
+`main..Get` (`undefined _bn_F1_4_main2_0_3_Get`) on LLVM and native.  Binding the cast first
+(`var g @Getter = cast(@Getter, m); g.Get()`), a paren receiver, a type-assertion receiver and a
+call-result receiver all dispatch correctly, as does a struct-method call on a cast (`cast(@S, r).Get()`).
+Root cause: irgen `isInterfaceMethodCall` (gen_iface_dispatch.bn) types only IDENT / SELECTOR /
+INSTANTIATE_OR_INDEX / UNARY / CALL receivers; a `cast(...)` receiver is EXPR_BUILTIN, so its type is
+nil and the call falls to the concrete-method path, which mangles an empty receiver name.
+Fix: type the receiver from the checker's resolved type for the remaining expression kinds (and give
+getSelectorType an EXPR_BUILTIN arm if the concrete path needs it); conformance test with the fix.
+
 ### More declaration-order dependence (valid forward references rejected or mis-lowered) — 🟡 IN PROGRESS (claimed 2026-09-27, work-1 — user: "yes" to fixing all four together; found 2026-09-27, work-1, probing order dependence; pre-existing)
 
 Spec `decl.order.forward` (§9.8): declarations may appear in any order within a package.  Probed every
