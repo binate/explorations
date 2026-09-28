@@ -96,6 +96,21 @@ fixed rows are in claude-todo-done.md.
   - [minor] `readonly_uninit.bn:27` lintUninitReadonlyGlobal — wrapper: alias of readonly (`type RO = readonly int — Lint false negative: an uninitialized file-scope global of an alias-of-readonly type is not flagged, though the checker rejects every write to it (IsReadonly peels the alias), so it is zero forever.
 ```
 
+### A raw-slice literal's managed elements are released at end of statement while its scope-bound backing still holds them — use-after-free — 🔴 OPEN, needs a semantics decision (found 2026-09-27, work-5, review of the slice-literal coercion fix; pre-existing)
+
+`var rq *[]readonly Box = *[]readonly Box{mkbox(30), mkbox(40)}` (Box{b @int}) then `*rq[0].b, *rq[1].b`
+prints `0 0` (expected `30 40`) on LLVM and the VM; same with `*[]readonly @int{box(30), box(40)}` and
+`*[]readonly Box{Box{b: box(30)}, ...}`.  genRawSliceLit stores each element into its stack `[N]T` backing
+with no acquire (genManagedSliceLit / genArrayLit acquire each managed element), so a fresh element's only
+reference is the end-of-statement temp, which frees it while the backing still points at it.
+Semantics question: spec §13.10 `expr.composite.slice` calls the raw-slice literal "a read-only view of
+static data or a scope-bound stack backing" and says a MANAGED-slice literal retains its managed
+elements, but is silent for the raw one.  Reading A (backing owns its elements for the scope, like a local
+array): IR-gen must acquire each managed element and register the backing for release at scope exit —
+this is a compiler UAF (CRITICAL).  Reading B (elements are borrowed): the program is user error, and the
+spec should say so (and a lint could flag fresh managed temporaries in a raw-slice literal).
+Repros: scratch rv15/{min1..min4}.bn from the review (re-create from the snippets above).
+
 ### More silent wrong code found by the forwarder audit (not forwarder-specific) — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1; agents' repros, not yet independently re-verified)
 
 - **`interface X = home.Getter[int]` (instantiated alias target) registers an EMPTY interface**
