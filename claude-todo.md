@@ -13,6 +13,22 @@ assertion / switch keys on the alias's own identity instead of canonicalizing it
 (canonicalIfacePkg / canonicalIfaceName) before the satisfaction lookup / iface-id reference.  Covered
 by conformance 1353_iface_alias_type_assert (xfail.all, binate `f0fc356bd`).
 
+### Importers resolve a package's type declarations under the MERGED file's imports — silent truncation — 🔴 OPEN (found 2026-09-28, work-1, review of the named-type identity fix; pre-existing)
+
+`pkg/xf.bni` imports `dep "pkg/p2"` and declares `type TB = dep.W` (int64), while one of pkg/xf's `.bn`
+files imports `dep "pkg/p1"` (W is int8).  An importer's `var v xf.TB = 100000; v = v * 3` prints `-32`:
+TB resolved to int8.  The import pre-pass drivers (bnc, interp `registerAllStructTypes` /
+`collectPkgFile`, repl `registerLoadedPkgTypes`) hand IR-gen each package's `Merged` file (.bni + every
+.bn), and RegisterStructTypes → registerPkgTypeDecl (likewise RegisterImport's alias loop,
+gen_import.bn ~:248) resolves every declaration under `pushFileImports(merged)`, where the first file
+to import an alias wins it.  The defining package itself is right only because GeneratePackage
+re-resolves its own declarations per file (declImportFile) into a separate entry.  Fix: give the
+pre-pass the per-file ASTs and resolve each declaration under its own file's imports, so every module
+builds the same, correct entry.  Test: conformance 1361_bni_type_decl_imports_importer (xfail.all; not
+yet landed); 1360_type_decl_per_file_imports guards the defining package's per-file resolution.
+**Blocks** the named-type identity fix below, which makes the defining package reuse the pre-pass
+entry (that alone breaks 1360: a `.bn`-private `type TB = dep.W` becomes int8).
+
 ### A package's own named non-struct type has several IR identities — generic-interface instances split, silent wrong code — 🟡 IN PROGRESS (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing; claimed 2026-09-28, work-1 — user: "yes take that CRITICAL next")
 
 `type MyN int` in `pkg/home` becomes a different `TYP_NAMED` depending on where it is resolved:
@@ -39,6 +55,11 @@ Named STRUCTS don't split because their mangled symbols are always package-quali
 Fix: give a named non-struct type one context-independent identity (its defining package), as structs
 have — the TypeAliases key and TYP_NAMED name, and every def-side / call-side method key that assumes
 "bare in the own module".  Test: conformance 1355_named_type_arg_iface_identity (xfail.all, binate `f0fc356bd`).
+
+Status: fix drafted (not yet landed) — register own-module named types under their qualified name and
+qualify bare lookups (as structs do), so the pre-pass entry and the module's own entry are one.  Passes
+the full builder-comp-comp / builder-comp-int suites, but it reuses the pre-pass entry, which is resolved
+under the merged file's imports (entry above) — so it must land after that fix.
 
 ### Slicing an array reached other than by name slices a TEMPORARY COPY — writes lost, possible use-after-free — 🟡 IN PROGRESS (found 2026-09-28 by the review of the array-slice bounds-check fix, claude/exciting-davinci-wahyt2 session; pre-existing; claimed 2026-09-28, same session — user: "yes, fix it now")
 
@@ -129,6 +150,17 @@ fixed rows are in claude-todo-done.md.
 ```
 
 ## MAJOR
+
+### A `.bni` forward `type X` completed by a NON-struct `type X int` in the `.bn` — checker accepts, IR-gen internal error — 🔴 OPEN (found 2026-09-28, work-1, review of the named-type identity fix; pre-existing)
+
+`pkg/h.bni`: `type Handle` plus `func Make(v int) @Handle`; `pkg/h/h.bn`: `type Handle int`.  The
+checker accepts it; every backend then panics "internal error: cast between mismatched aggregate/scalar
+shapes reached codegen".  RegisterSelfTypes pre-registers every forward declaration as an empty opaque
+struct and resolveTypeExpr consults structs first.  **Needs a language decision:** spec §7.12
+(type.opaque.forward / single-source) describes the completion as `type Foo struct { … }` and doesn't
+say whether a non-struct definition may complete a forward declaration.  If it may, IR-gen must register
+the completion as the named type; if not, the checker must reject it.  Probe: a library as above, main
+does `var x @h.Handle = h.Make(21)` and calls a method on it.
 
 ### Boxing keeps an outer `readonly` in a slice's dynamic type — a boxed `readonly @[]readonly char` (every `os.Args()` element) matches no type-switch case — 🔴 OPEN (found 2026-09-28, work-3, review of the fmt string-operand fix)
 
