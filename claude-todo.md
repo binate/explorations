@@ -84,6 +84,21 @@ fixed rows are in claude-todo-done.md.
 
 ## MAJOR
 
+### `bnfmt` silently DELETES every `defer` statement — 🔴 OPEN (found 2026-09-28, work-3, fixed-/tmp test sweep)
+
+`bnfmt -w` on a file containing `defer f()` rewrites that line to an empty line — the statement is gone, a
+silent semantic change.  Both the tree's bnfmt and the pinned CHECK_TOOLS bnfmt (bnc-0.0.16, used by the
+`bnfmt-format` hygiene check) do it.  Root cause: `printStmt` (`pkg/binate/format/print_stmt.bn`) has no
+`ast.STMT_DEFER` case, and any unlisted statement kind falls through to the "STMT_EMPTY prints nothing" end —
+so the fallthrough itself is the deeper defect (a future statement kind would vanish the same way).  It went
+unnoticed because nothing in bnfmt's scope uses `defer` (the 24 `defer` conformance tests live in
+`conformance/`, which the bnfmt check skips).
+- Fix: print `defer <call>`; make an unhandled statement kind fail loudly instead of printing nothing (only
+  STMT_EMPTY prints nothing); add a round-trip unit test.
+- Consequence: until the CHECK_TOOLS bnfmt carries the fix, any `defer` in bnfmt-checked tree code fails the
+  `bnfmt-format` hygiene check (the pinned bnfmt's output drops it), and running `bnfmt -w` deletes it.  This
+  blocks the fixed-/tmp test sweep's `defer os.RemoveAll(dir)` pattern.
+
 ### A `cast` / `unsafe_cast` / `bit_cast` that is invalid only once a generic type parameter is instantiated crashes IR-gen instead of getting a diagnostic — 🔴 OPEN (found 2026-09-28, work-5, review of the composite-literal cast fix; pre-existing design gap)
 
 check_cast_safe.bn `checkCastSafeSet` defers validation when a side is an abstract type parameter, and
