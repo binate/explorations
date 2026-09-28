@@ -425,7 +425,9 @@ FEAT_SYSINSTR128 (MRRS / MSRR / SYSP), CHKFEAT and the other newer hint / system
 **Also (found by the LSE review):** every AArch64 text-parser branch emits the instruction word and only then
 checks for a trailing token (`expectA64EOL` in `parse/aarch64_instr.bn`), so `ldadd w0, w1, [x2]!` emits a
 word before its error.  Harmless (any error aborts the assembly) but breaks "a rejected line emits nothing";
-fix by checking end-of-line before emitting, in every branch.
+fix by checking end-of-line before emitting, in every branch.  With that fix, make the golden-test helper
+`goldenReject` (`parse/aarch64_golden_test.bn`) also check that nothing was emitted, so every reject table
+pins the rule (today it checks only that an error was set).
 
 ### Assigning `nil` to an `@func` holding a capturing closure clears only the fn word — double free (compiled backends) — 🔴 OPEN (found 2026-09-26)
 
