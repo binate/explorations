@@ -1,3 +1,19 @@
+### Comparison-chain diagnostic reach — and a false positive in it — ✅ LANDED 347df5b8d (+ parser split ed16c4497) (2026-09-27), work-3
+
+`a < b < c` was rejected everywhere, but only the for-clause's identifier-leading Pratt path said
+"comparison operators do not chain"; `if`/`var`/assignment contexts went through `parseCompareExpr`,
+which stopped after one comparison and left a generic "expected {, got <".  Now both paths report a
+chain once and fold the rest so the statement resyncs.  Found and fixed on the way: the Pratt path
+decided "chain" by whether its LEFT OPERAND was a comparison, but the AST keeps no paren node, so
+`for a && (b < c) == d {}` (valid — comparing two bools) was REJECTED.  Both paths now use one
+structural rule: a chain is a second comparison folded at one level.  Tests: parser unit tests (if /
+assignment chains, a longer for-clause chain reported once, parenthesized comparisons accepted on both
+paths); conformance 040 now requires the dedicated message; new 061 runs the parenthesized shapes.
+Verified: parser unit tests, the new gen1 compiling all of `cmd/bnc`, and 41 comparison/precedence
+conformance tests on LLVM and the VM.  The change pushed `parse_expr.bn` to 486/500, so the postfix half
+(index/slice, bracket type-args, calls, selectors) moved to `parse_postfix.bn` (+ its tests) — a pure
+move, verified byte-identical on reassembly.
+
 ### A managed-slice literal of raw slices overran its backing; raw-slice literals dropped string / struct-literal elements — DONE (binate `bd848fdc9`, 2026-09-27, work-5)
 
 Residual of `d676ebc80` (found by another session: 1302 aborted in glibc malloc on x86-64, native and llvm).
