@@ -127,6 +127,21 @@ fixed rows are in claude-todo-done.md.
 
 ## MAJOR
 
+### Indexing an array field loads the WHOLE array as a value — 80 MB of LLVM IR for conformance 1301, clang exhausts memory — 🔴 OPEN (found 2026-09-28, work-1, while finding what exhausted system memory during a local conformance run; pre-existing)
+
+Conformance `1301_large_elem_index` (`type Big struct { a [70001]uint8 }`, `g[i].a[off]` read and write)
+emits an 80 MB `.ll` (1.3M lines) on the LLVM backend: `get` and `set` are ~210k lines each, `main` ~910k.
+Each access to `g[i].a[off]` first emits an aggregate OP_LOAD of the whole `[70001 x i8]` field — a
+70001-leaf load + insertvalue chain (codegen/emit_copy_ssa_load.bn decomposes aggregate loads per leaf)
+whose value is then unused (`set` stores the one byte through a separately computed address).  clang
+-cc1 compiling it passed 4.5 GB RSS (killed there by a memory watcher); an unwatched `builder-comp-comp`
+run on 2026-09-28 ~10:32–10:35 drove the machine into memory-pressure jetsam.  The test passes, so
+nothing flags it.  Root cause to pin down: which IR-gen path evaluates the array VALUE of an addressable
+base (`g[i].a`) when indexing it — it should index through the element address (cf. `4eada9b81`, the
+same shape for slicing).  Also check the other backends: the VM / native may copy 70 KB per access.
+Consider a compile-size or compile-memory guard in the conformance runner so a pathological test fails
+instead of exhausting the machine.
+
 ### A `#[build]`-gated import in a package with several `.bn` files is not gated per file — "unknown package" — 🔴 OPEN (found 2026-09-28, work-1, review of the per-file import pre-pass fix; pre-existing)
 
 `pkg/sel/a.bn`: `#[build(<false>)] import "pkg/never"`; `pkg/sel/b.bn` a second file.  Build fails
