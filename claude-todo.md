@@ -206,7 +206,7 @@ on the session module at the boxing site (ensureGenericImplInfo) never reaches t
 which is built by LowerModule.  Fix: lower newly minted impl rows / vtables when a prompt decl is lowered.
 No test yet — e2e/repl.sh has no expected-failure mechanism; add a case with the fix.
 
-### Slicing an ARRAY is never bounds-checked — out-of-bounds slices in safe code, every backend — 🔴 OPEN (found 2026-09-28, claude/exciting-davinci-wahyt2 session, by the review of the single-unsigned-compare bounds check)
+### Slicing an ARRAY is never bounds-checked — out-of-bounds slices in safe code, every backend — 🟡 IN PROGRESS (found 2026-09-28, claude/exciting-davinci-wahyt2 session, by the review of the single-unsigned-compare bounds check; claimed 2026-09-28, same session — user: "1.")
 
 **Symptom:** `var a [4]int; a[0:9]` yields a length-9 slice and `a[3:1]` a length −2 slice, with no
 fault, on the VM, LLVM and native (reproduced on main; the reviewer also on the pinned BUILDER 0.0.16).
