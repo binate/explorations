@@ -199,8 +199,24 @@ initialized works. Needs a conformance test + the package-init lowering fixed to
 `var sl @[]R = make_slice(R, 3); sl[1:3][0].v` compiles, then aborts at run time with `panic: internal
 error: unresolved selector in IR-gen (compiler bug)` on LLVM and native. getSelectorType / genSelector do
 not resolve a selector whose base is an index of a slice EXPRESSION. Needs a conformance test.
-(Also reported by the same reviewer, not yet reproduced: a package var declared in the `.bni` but not
-defined in the `.bn` produces invalid LLVM — `extractvalue i64` — instead of a diagnostic.)
+(Also reported by the same reviewer: a package var declared in the `.bni` but not defined in the `.bn`
+is not rejected by the checker — it produced invalid LLVM (`extractvalue i64`); since the in-place
+array-index change, reading `A[2]` of such an array panics in IR-gen. Reproduced by a second reviewer.)
+
+### `(&s).f` / `(&s).m[i]` — a selector whose base is an address-of — fails to compile or panics — 🔴 OPEN (found 2026-09-28 by the review of the in-place array-index fix, claude/exciting-davinci-wahyt2 session; pre-existing)
+
+`genSelectorPtr` (`irgen/gen_selector_ptr.bn`) has no arm for a `&x` base: `(&s).x` compiles to a run-time
+`unresolved selector in IR-gen` panic (every backend), and `(&s).m[1]` now panics in bnc
+("array base with storage has no address"; before, it gave invalid LLVM IR). Fix: `&x` as a selector base
+is `x`'s address — add the arm (genLValueAddr of the operand). Needs a conformance test.
+
+### `genIndexPtr` evaluates the index BEFORE the base — wrong left-to-right order — 🔴 OPEN (found 2026-09-28 by the review of the in-place array-index fix, claude/exciting-davinci-wahyt2 session; pre-existing)
+
+`irgen/gen_access.bn` `genIndexPtr` evaluates `e.Args[0]` first in every arm, then the base; so wherever an
+element address is taken through it (e.g. the value-borrow of an index expression passed to
+`testing.Println(b(&s).m[ix(1)])`) a side-effecting index runs before a side-effecting base ("idx base";
+the value path gives "base idx"). Fix: evaluate the base (its address) before the index in each arm.
+Needs a conformance test observing the order.
 
 
 ### arm32 hard-float: a homogeneous-float-aggregate `__c_call` ARGUMENT is passed in GP registers — C reads garbage from `s0…` — 🔴 OPEN (found 2026-09-27, work-3, stale-ABI-comment sweep)
