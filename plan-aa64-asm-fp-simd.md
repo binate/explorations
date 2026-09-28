@@ -32,15 +32,16 @@ commit per step; land each before starting the next.
    FRINT32/64{Z,X}, BFCVT), 2-source (FMUL, FDIV, FADD, FSUB, FMAX, FMIN, FMAXNM, FMINNM, FNMUL),
    3-source (FMADD, FMSUB, FNMADD, FNMSUB), FCMP / FCMPE (incl. `#0.0`), FCCMP / FCCMPE, FCSEL —
    landed `fd8d2eafb` (2026-09-27), with the lexer's TOK_FLOAT floating-point literals.
-2. FMOV (immediate): floating-point literal lexing + the 8-bit FP immediate (exact-representability
-   check, no rounding).
+2. ✅ FMOV (immediate) + FMOV GP ↔ FP (W–S, X–D, W/X–H; zero is FMOV from WZR/XZR) — landed
+   `75fbf40d0` (2026-09-27).  The 8-bit immediate is decided exactly (value × 128), never rounded.
+   isa.FMovTopHalf (`Xd, Vn.D[1]` and back) exists; its parse waits for B1's lane syntax.
 3. FP ↔ integer: FCVT{N,P,M,Z,A}{S,U} (integer and fixed-point `#fbits`), SCVTF / UCVTF (both),
-   FMOV GP ↔ FP (incl. `v0.d[1]`), FJCVTZS.
+   FJCVTZS.
 4. Move `asm/aarch64/aarch64_fp.bn` onto the isa FP encoders.
 
 **B. Advanced SIMD vector** (each class also has its scalar forms where the architecture defines them)
 1. Syntax infrastructure: `vN.<T>` arrangements, `vN.<T>[i]` lanes, `{…}` register lists (comma and
-   range forms), scalar SIMD registers in vector instructions.
+   range forms), scalar SIMD registers in vector instructions; then parse FMOV `Xd, Vn.D[1]` / back.
 2. Three same (integer, FP, FP16, extra: SDOT / UDOT / SQRDMLAH / FCMLA / FCADD …).
 3. Three different (long / wide / narrow, PMULL).
 4. Two-register miscellaneous (incl. FP16) and across-lanes.
