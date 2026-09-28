@@ -13,6 +13,34 @@ assertion / switch keys on the alias's own identity instead of canonicalizing it
 (canonicalIfacePkg / canonicalIfaceName) before the satisfaction lookup / iface-id reference.  Covered
 by conformance 1353_iface_alias_type_assert (xfail.all; not yet landed).
 
+### A package's own named non-struct type has several IR identities — generic-interface instances split, silent wrong code — 🔴 OPEN (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing)
+
+`type MyN int` in `pkg/home` becomes a different `TYP_NAMED` depending on where it is resolved:
+- bare `MyN` in the package's own compile (typeDeclEntryType: "bare for the current package");
+- qualified `pkg/home.MyN` in the own compile's import pre-pass, when gc.PkgPath is still empty;
+- qualified in an importer.
+
+Anything that embeds the type in an identity therefore splits. A generic interface instantiated with
+it (`H[MyN]`) gets two ModuleInterface instances in one module — `__ifaceid…H1_N0_3_MyN` and
+`…H1_N2_3_pkg4_home3_MyN` — and the impl rows sit on only one of them.
+
+Symptoms (every backend, including pre-fix main):
+- an interface alias `interface JA = H[MyN]` in the library's `.bni`, boxed in the library: native
+  aa64 builds and SEGFAULTs; LLVM rejects the IR (`ret i8*` from an iface-returning func); pre-fix VM
+  prints `0` for `2`;
+- the same alias declared in the library's `.bn` panics in emitIfaceUpcast ("target not an ancestor");
+- an importer's `var h *home.H[home.MyN] = &k` fails to link (LLVM + native); the VM calls a nil
+  interface value.
+
+Root cause: the type's identity is keyed to the compile context rather than to its defining package.
+Named STRUCTS don't split because their mangled symbols are always package-qualified.
+`definingPkgFor` can't paper over it: the pre-pass runs with no gc.PkgPath.
+
+Fix: give a named non-struct type one context-independent identity (its defining package), as structs
+have — the TypeAliases key and TYP_NAMED name, and every def-side / call-side method key that assumes
+"bare in the own module".  Test: conformance 1355_named_type_arg_iface_identity (xfail.all; not yet
+landed).
+
 ### Slicing an array reached other than by name slices a TEMPORARY COPY — writes lost, possible use-after-free — 🟡 IN PROGRESS (found 2026-09-28 by the review of the array-slice bounds-check fix, claude/exciting-davinci-wahyt2 session; pre-existing; claimed 2026-09-28, same session — user: "yes, fix it now")
 
 **Symptom:** `s.arr[1:3]`, `(*p)[2:4]`, `n[1][0:3]` (and `(*mp)[...]` for `@([4]int)`) produce a slice
@@ -133,6 +161,17 @@ number of positions may be `_`, matching receiver binders.  Today `_` is an ordi
 list (`func id[_ any](x _) _ { var y _ = x; return y }` compiles).
 
 ## MAJOR
+
+### An interface-typed global declared in a `.bni` lowers as `int` in importers — 🔴 OPEN (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing)
+
+`pkg/home.bni`: `var GR *R` / `var GZ *G[int]` / `var GX *X` (plain, instantiated and alias-of-
+instantiation interfaces).  An importer's `home.GR.Get()` fails to link on LLVM
+(`undefined _bn_F3_3_pkg8_builtins4_lang2_3_int3_Get` — the global's type fell to the `int`
+fallback, so the call mangles an `int` receiver); the VM panics "internal error: unresolved selector in
+IR-gen".  The declaration order in the `.bni` (globals before or after the interfaces) doesn't matter.
+Root cause: unknown — likely the importer's global registration resolves the global's type before (or
+without) the imported interfaces being registered.  Needs a conformance test (library `.bni` with
+interface-typed globals, set by the library, read by the importer).
 
 ### REPL: a top-level `var` initialized with a function literal panics — "vm: function not found: main.__funclit_0" — 🔴 OPEN (found 2026-09-28, work-5, review of the REPL raw-slice-literal fix; pre-existing)
 
