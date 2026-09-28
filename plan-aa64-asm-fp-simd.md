@@ -62,7 +62,10 @@ commit per step; land each before starting the next.
      (2026-09-28).  Note for B4 / B7: the three-same parser rejects every form it does not handle for
      its mnemonics, so by-element MUL / MLA / MLS / SQ(R)DMULH, compare-against-zero, and scalar
      pairwise ADDP must be dispatched ahead of it (ORR / BIC vector-immediate too, B5).
-   - (b) FP and FP16 (vector + scalar), incl. FCMLE / FCMLT / FACLE / FACLT register aliases.
+   - ✅ (b) FP and FP16 (vector + scalar), FAMAX / FAMIN (FEAT_FAMINMAX) and FSCALE (FEAT_FP8), and
+     the FCMLE / FCMLT / FACLE / FACLT register aliases (scalar H forms rejected, as clang; the
+     review reports the architecture defines none of the four) — landed `9b90c8190` (2026-09-28).
+     Still to come in other classes: FP by-element (B7), scalar pairwise FADDP / FMAXP / … (B4).
    - (c) three same extra: SQRDMLAH / SQRDMLSH, SDOT / UDOT / USDOT, FCMLA / FCADD, SMMLA / UMMLA /
      USMMLA, BFDOT / BFMMLA / BFMLAL, FMLAL / FMLSL (FHM), and the FP8 forms.
 3. Three different (long / wide / narrow, PMULL).
