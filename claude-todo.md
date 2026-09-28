@@ -61,7 +61,7 @@ fixed rows are in claude-todo-done.md.
 
 ```
 === irgen (2 open)
-  - [major] `gen_defer_build.bn:185` deferMethodRecvType / buildDeferMethod — wrapper: named-distinct receiver: named scalar `type Money int`, named-over-struct `type NP Pt` (an — `defer m.Show()` looks up `int.Show` / `Pt.Show2` instead of `Money.Show` / `NP.Show2`, and IR-gen panics.
+  - [major] 🟡 IN PROGRESS (claimed 2026-09-28, work-5/session) `gen_defer_build.bn:185` deferMethodRecvType / buildDeferMethod — wrapper: named-distinct receiver: named scalar `type Money int`, named-over-struct `type NP Pt` (an — `defer m.Show()` looks up `int.Show` / `Pt.Show2` instead of `Money.Show` / `NP.Show2`, and IR-gen panics.
   - [nit] `gen_expr.bn:302` genUnary — wrapper: untyped negated operand whose checker-resolved type is readonly int8 / alias-of-readonly / — Contributing site of KNOWN issue (1), reported only so the fix covers it: for `-C` / `-100` with a wrapped resolved type negTyp falls to TypInt, so OP_NEG is emitted at i64 (`sub i64 0, %v0`) and correctness relies entirely on the
 === check-lint (10 open)
   - [major] `check_cast_fits.bn:27` castTargetIsInteger — wrapper: named-over-named (`type M int8 — The constant fit-check is skipped entirely for these targets, so `cast(N, 200)` / `unsafe_cast(N, 300)` are accepted where `cast(int8, 200)` is rejected.
@@ -429,7 +429,7 @@ e.g. an imported const that neither folds nor has a checker stamp is dropped by
 `registerImportConstsAndVars`, so a generic body's bare read of it binds the consumer's.  The principled
 guard is "the defining package declares this name" (the checker's package scope), not "it is registered".
 
-### `defer ps.m()` on a method of a NAMED POINTER type panics the compiler ("defer of an unresolved method call") — 🔴 OPEN (found 2026-09-27)
+### `defer ps.m()` on a method of a NAMED POINTER type panics the compiler ("defer of an unresolved method call") — 🟡 IN PROGRESS (found 2026-09-27; claimed 2026-09-28, work-5/session, with the wrapper-cluster defer row — same root cause)
 
 `type S struct { v int }; type PS *S; func (p PS) get() int { ... }; ... defer ps.get()` → IR-gen
 panics "defer of an unresolved method call" (valid code, every backend).  No wrapper involved — a
