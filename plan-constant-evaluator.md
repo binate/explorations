@@ -105,8 +105,8 @@ every error, an IR-gen `Eval` failure is an internal error (loud), never a silen
 ## Commits
 
 1. `constval` package with unit tests (typed wrap at every width and signedness, the error kinds and
-   statuses, untyped exactness shared with part 1).  No consumers yet.  Committed on the work branch,
-   reviewed (review fixes folded in), awaiting approval to land.
+   statuses, untyped exactness shared with part 1).  No consumers yet.  LANDED (binate `b6314e316`,
+   2026-09-27).
 2. Checker and IR-gen switched to it together (so they cannot disagree in between), the dead evaluators
    deleted, spec `const.expr.typed` + the unsafe negative-count rule, and a spec conformance test for
    every repro above, plus the constant forms of `unsafe_shl` / `unsafe_shr` (a part 1 coverage gap).
