@@ -30,8 +30,8 @@ registration) look at top-level decls only (the checker handles groups).  A grou
 "unresolved selector" (VM) / wrong types (compiled); a grouped alias lowers as `int`: `P = *C` then `*p`
 printed an address, and a library's grouped `F = float64` got an i64 ABI (garbage floats on native / the
 VM, clang error on LLVM).  Fix: flatten a group's DECL_TYPE members everywhere IR-gen walks type
-declarations (every pass above; findNonStructTypeDecl).  Covered by conformance 1330_type_decl_group
-(xfail.all; not yet landed).
+declarations (every pass above; findNonStructTypeDecl).  Covered by conformance 1334_type_decl_group
+(xfail.all, binate `acc01c4a9`).
 
 ### Type-wrapper peel bug cluster (named / alias / readonly handled inconsistently across IR-gen, the VM lowering, codegen, and the checker) — silent wrong values, memory corruption, use-after-free — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-26, work-5/session — user: "take on the critical, then the majors")
 
@@ -197,22 +197,6 @@ on the named type).  The spec allows it (§10 `func.method.receiver-base`: any n
 the same package), so this is a compiler bug: IR-gen needs the named identity for method / impl dispatch
 while keeping the func-value representation for calls / copies / dtors.
 
-### More declaration-order dependence (valid forward references rejected or mis-lowered) — 🟡 IN PROGRESS (claimed 2026-09-27, work-1 — user: "yes" to fixing all four together; found 2026-09-27, work-1, probing order dependence; pre-existing)
-
-Spec `decl.order.forward` (§9.8): declarations may appear in any order within a package.  Probed every
-kind of forward reference (types, struct fields, signatures, vars, consts, methods, impls, generics,
-constraints, array sizes, func values): all work except
-- checker: a type alias naming a LATER alias (`type A = B; type B = C; type C int`) → "cannot use an
-  opaque type by value" (dependency order, or `B = C` before `C`, works);
-- IR-gen: a global var of a later-declared interface type (`var gi *I` before `interface I`) and a type
-  alias to one (`type P = *I` before `interface I`) resolve to the `int` fallback — the var/alias types are
-  resolved in declaration order before the module's interfaces are collected → "extern not found:
-  lang.int.M" (VM) / undefined symbol (link);
-- checker: an interface alias referenced before its declaration (`func f(x *X)` before `interface X = Y`)
-  — its own entry below / conformance 1323.
-Fix: in both layers, register every type-level name (struct, alias, interface, interface alias) before
-resolving any type expression; resolve alias chains in dependency order.
-
 ### `type A B` over a named scalar B rejects an untyped constant (`var a A = 2`) — 🔴 OPEN (found 2026-09-27, work-1, probing order dependence; pre-existing, NOT order-dependent)
 
 `type B int; type A B; var a A = 2` → "cannot assign untyped int to A" in either declaration order; A's
@@ -331,14 +315,6 @@ ancestor of source)".  Fix: canonicalize an alias parent to its target when reco
 `checkTypeRedeclaration` compares types with types, so neither reports it; the later decl silently
 overwrites the scope symbol.  Fix: report "A redeclared in this block" for a type/interface clash.
 Covered by conformance 1322_err_type_iface_same_name (xfail.all, binate `b78c88f61`).
-
-### A reference to an interface alias declared later is rejected — valid code rejected — 🟡 IN PROGRESS (claimed 2026-09-27, work-1, with the declaration-order entry; found 2026-09-27, work-1, review of the checker forward-parent fix; pre-existing)
-
-`func f(x *X)` before `interface X = Y` → "undefined: X", in a `.bn` and in a `.bni` (whose Pass 1
-defers aliases to Pass 2, in order).  Spec `decl.order.forward` allows any order.  Interfaces proper are
-pre-registered (both paths); aliases are defined only when reached.  Fix: define aliases in the
-pre-registration phase once their targets resolve (iterating alias-to-alias chains), reporting an
-unresolvable target once.  Covered by conformance 1323_iface_forward_alias (xfail.all, binate `b78c88f61`).
 
 ### IR-gen silently lowers an unresolved identifier to the constant 0 — 🔴 OPEN (found 2026-09-27, work-1, review of the bare-name precedence fix)
 

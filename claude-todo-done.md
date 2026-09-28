@@ -1,3 +1,19 @@
+### Type-level forward references (decl.order.forward): aliases, interface aliases, interfaces named before their declaration — DONE (binate `f127b309f`, 2026-09-27)
+
+Checker: a per-batch pending-alias registry resolves a type or interface alias on demand when a bare name
+of the batch's own package still reaches its placeholder (not a type parameter / local of the same name,
+not another package's generic being instantiated), under the batch's scope; alias cycles are reported
+("invalid recursive type alias").  Fixed forward alias chains, fields / params / consts / receivers
+through a later alias, interface aliases (`.bn` and `.bni`; conformance 1323 no longer xfail).  IR-gen:
+interface identity stubs (ModuleInterface.IsStub) and generic stashes registered before any type is
+resolved (module first pass, RegisterStructTypes), and a package's type aliases registered in dependency
+order ahead of consts / globals / fields / signatures (GeneratePackage, RegisterSelfTypes,
+RegisterStructTypes) — fixes a global / alias typed through a later interface (and a library's `type P =
+*I` in any order), an alias of a later generic instantiation, alias chains ending in non-int types.
+Tests: conformance 1330-1333; checker / irgen unit tests.  Found along the way, filed separately: IR-gen
+ignores grouped type declarations (CRITICAL, 1334 xfail); `type A B` over a named / alias scalar rejects an
+untyped constant.
+
 ### A generic struct's parameter name shadowed a same-named package type in its methods — ✅ LANDED 457f80a9a (2026-09-27), work-6
 
 `type K struct{n, m int}; type Box[K any] struct{v K}; func (b *Box[U]) Get() K {…}` — in the method
