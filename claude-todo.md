@@ -194,6 +194,18 @@ binder per type parameter, so the binders cover every position.)
 
 ## MAJOR
 
+### REPL: boxing a generic-receiver impl's instantiation at the prompt aborts — "interface vtable not found" — 🔴 OPEN (found 2026-09-27, work-1, review of the REPL mid-session registration fix; pre-existing)
+
+pkg/gcur: `type Cursor[T any] struct { v T }`, `func (c *Cursor[T]) Get() T`, `impl *Cursor[T] :
+gbase.Base[T]`, `func MkInt(n int) Cursor[int]`.  At the prompt: `import "pkg/gcur"`, `import
+"pkg/gbase"`, `var c gcur.Cursor[int] = gcur.MkInt(5)`, `var bb *gbase.Base[int] = &c` → `panic: vm:
+interface vtable not found: __ivt…Cursor__bn_inst…Base__bn_inst…`, aborting the session.  The same
+program works under bnc and the interpreter, and inside a package imported mid-session.  Likely: the
+prompt's synthetic is lowered per decl (LowerOneFunc), and the (instantiation, interface) row IR-gen mints
+on the session module at the boxing site (ensureGenericImplInfo) never reaches the VM's vtable table,
+which is built by LowerModule.  Fix: lower newly minted impl rows / vtables when a prompt decl is lowered.
+No test yet — e2e/repl.sh has no expected-failure mechanism; add a case with the fix.
+
 ### Slicing an ARRAY is never bounds-checked — out-of-bounds slices in safe code, every backend — 🔴 OPEN (found 2026-09-28, claude/exciting-davinci-wahyt2 session, by the review of the single-unsigned-compare bounds check)
 
 **Symptom:** `var a [4]int; a[0:9]` yields a length-9 slice and `a[3:1]` a length −2 slice, with no
