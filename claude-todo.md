@@ -1011,7 +1011,7 @@ FP-arithmetic work. Full plan + sequencing: `plan-native-vectorization.md`.
 
 Order: V1 (aa64 first) → (A) → idiom recognition → B1 → B2 → B3. Each independently landable/measurable.
 
-### An untyped constant shift VALUE is typed two ways — `1 << n` at the count's type, `(0 + 1) << n` at `int` — 🔴 OPEN, needs a language decision (found 2026-09-27)
+### An untyped constant shift VALUE is typed two ways — `1 << n` at the count's type, `(0 + 1) << n` at `int` — 🟡 IN PROGRESS (found 2026-09-27; rule decided by the user 2026-09-27: an untyped constant shift value takes its type from the surrounding context; claimed work-4/session)
 
 With `n uint8` = 9, `cast(int64, 1 << n)` is 0 but `cast(int64, (0 + 1) << n)` is 512, on LLVM and native
 alike.  The checker types both shifts as `uint8`: an untyped operand of a shift goes through
