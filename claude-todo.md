@@ -470,6 +470,17 @@ without a diagnostic as long as nothing uses `Box[…]`.  Fix: check each generi
 declaration once abstractly at the declaration (its parameters held abstract, as generic functions'
 bodies are checked), independent of instantiation.
 
+### An opaque type held by value inside an array is accepted at the declaration — 🔴 OPEN (found 2026-09-28, work-6, review of the blank-type-decl change; reproduced; pre-existing)
+
+The declaration-site value-embedding check (checkValueEmbedding → requireSizedType, check_decl.bn) walks
+only a struct declaration's TOP-LEVEL fields, so an opaque type held by value inside an array is accepted
+where the type is declared and rejected only at a use: `type Op` (forward / opaque) then `type A [2]Op`,
+`type _ [2]Op`, `type _ = [2]Op`, `type _ [3]struct { o Op }` all compile; `var c [2]Op` is rejected.  A
+type that can never be used is thus declarable, and a blank type (a compile-time validity assertion)
+passes although its type is invalid.  Fix: at the declaration, run requireSizedType over each non-forward,
+non-generic type declaration's whole resolved type (recursing into array elements and nested structs),
+and over the type checkBlankTypeDecl resolves.
+
 ### Bugs found reviewing the identity refactor (pre-existing) — 🔴 OPEN (found 2026-09-27, work-1; reproduced by the reviewer)
 
 - **`defer` of a method on an interface keys on the checker's SHORT package name:** the checker builds
