@@ -203,6 +203,35 @@ constant is still fit-checked, against its value at its type ("I guess we can ke
 probably catches real bugs").  No test covers this yet; the fix adds spec
 conformance tests for each repro.
 
+**Same root cause, found by the review of the untyped-bitwise change (2026-09-27; pre-existing, reproduced
+by the reviewer):** the host-`int` evaluators (`check/evalConstIntValue`, `irgen/evalConstExpr`) are
+neither exact nor complete, and the paths that re-fold with them instead of reading the checker's value
+go wrong:
+- **Compiler crash (exit 134) on a valid program:** `const ( A = -1 >> (0xFFFFFFFFFFFFFFFF - iota); B )`.
+  The bare member B is re-folded in host `int`, where its count wraps to -2, and the host shift panics
+  ("negative shift count").  `const C = -8 >> -1` also crashes instead of reporting the error (the
+  path is `constIntFor` → `foldConstNum` FOLD_UNKNOWN → `evalConstIntValue`).  Just returning ok=false for a
+  negative count is not a fix: `genConstGroup` then silently stores the iota value (next item).
+- **Silent wrong value:** neither host evaluator has a case for `unsafe_shl` / `unsafe_shr`, and
+  `genConstGroup` falls back to the iota value.  `const ( A = unsafe_shl(1, iota + 4); B; C )` prints
+  `16 1 2`, where it should print `16 32 64`.  The checker records B = 32, so `[B]int` and B disagree.
+  `[unsafe_shl(1, 3)]int` is rejected as "not a constant".
+- **Array dimensions ignore §6.4:** `evalConstInt` folds only in host `int`, so
+  `[(1 << 64) + 3]int` has length 3 and `[~0xFFFFFFFFFFFFFFFF + 2]int` has length 2, where both should
+  be errors, as they are in value position.  `[0xFFFFFFFFFFFFFFFF + 4]int` gives 3 the same way.
+  `[0x8000000000000000 >> 60]int` is rejected as negative, where it should be 8.  On a 32-bit host,
+  anything past 32 bits wraps.
+- **Needs a user decision:** a negative constant count in a constant `unsafe_shl` / `unsafe_shr` is
+  silently accepted as a constant with no value: `const K = unsafe_shr(-8, -1)` reads 0, and
+  `unsafe_shr(-8, -1) + 3` takes the value 3 via `commonType`.  The spec is ambiguous.
+  `expr.shift.untyped-value.unsafe` folds these "exactly like `<<`", but `expr.shift.negative` exempts
+  the unsafe forms from the negative-count check.
+
+Proposed fix, covering these and the typed-constant cases above: one exact, type-aware constant evaluator
+in the checker (bignum, wrapping at a typed operand's type) whose recorded value every consumer reads.
+The consumers are value position, array dimensions, shift counts, iota groups including bare members,
+`.bni` constants, and IR-gen.  No host-`int` re-fold anywhere.
+
 ### An interface alias named as a parent breaks the upcast — runtime panic / compiler ICE — 🔴 OPEN (found 2026-09-27, work-1, review of the checker forward-parent fix; pre-existing)
 
 `interface Y {…}; interface X = Y; interface A : X {…}` then `var x *X = a` (a `*A`): the checker
