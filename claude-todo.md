@@ -105,7 +105,7 @@ fixed rows are in claude-todo-done.md.
   - [minor] `readonly_uninit.bn:27` lintUninitReadonlyGlobal — wrapper: alias of readonly (`type RO = readonly int — Lint false negative: an uninitialized file-scope global of an alias-of-readonly type is not flagged, though the checker rejects every write to it (IsReadonly peels the alias), so it is zero forever.
 ```
 
-### A raw-slice literal's managed elements are released at end of statement while its scope-bound backing still holds them — use-after-free — 🔴 OPEN, needs a semantics decision (found 2026-09-27, work-5, review of the slice-literal coercion fix; pre-existing)
+### A raw-slice literal's managed elements are released at end of statement while its scope-bound backing still holds them — use-after-free — 🟡 IN PROGRESS (found 2026-09-27, work-5, review of the slice-literal coercion fix; pre-existing; DECIDED reading A — user: "I think A is correct."; claimed 2026-09-27, work-5/session)
 
 `var rq *[]readonly Box = *[]readonly Box{mkbox(30), mkbox(40)}` (Box{b @int}) then `*rq[0].b, *rq[1].b`
 prints `0 0` (expected `30 40`) on LLVM and the VM; same with `*[]readonly @int{box(30), box(40)}` and
