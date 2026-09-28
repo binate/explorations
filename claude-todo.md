@@ -1055,7 +1055,7 @@ Order: V1 (aa64 first) → (A) → idiom recognition → B1 → B2 → B3. Each 
 value depends on the width it is taken at (`0xFE` at `uint8`, `-2` at a signed type), which an untyped
 constant does not have.  The checker defers such folds (and bitwise ops on negative constants) until the
 operand's type is known.  Found by the adversarial review of the untyped-shift-value rule
-(`plan-untyped-shift-value.md`), where `(1 << n) & ~1` into a `uint8` depends on the answer.  **Decide**
+(`done/plan-untyped-shift-value.md`), where `(1 << n) & ~1` into a `uint8` depends on the answer.  **Decide**
 the rule (e.g. `~` of an untyped constant is folded at the type the expression finally takes, or is an
 error until typed), write it into §6.4, and pin it with conformance tests.
 
