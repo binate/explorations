@@ -190,6 +190,29 @@ binder per type parameter, so the binders cover every position.)
 
 ## MAJOR
 
+### `#[build(...)]` is ignored on the MAIN program's own files, declarations and imports — neither applied nor validated — 🔴 OPEN (found 2026-09-27, work-3, authoring the `pkg.build.errors` conformance tests)
+
+Both program drivers parse + merge the main source files themselves and hand only `merged.Imports` to
+the loader — bnc's whole-program path (`cmd/bnc/main.bn`: `parseSourceFiles` → `mergeFiles` →
+`ldr.LoadImports(file.Imports)`) and the VM's `interp.LoadProgram` (`pkg/binate/interp/interp.bn:163`,
+`loader.MergeFiles` → `LoadImports`).  The build gate (`Loader.gateMerged` for declarations/imports,
+the per-file package-clause check in `loadPackage`) runs only inside `loadPackage`, so the main
+program's own constraints are never evaluated.  Consequences, all spec violations (`pkg.build.gate`
+names no main-package exception; `pkg.build.errors` says a constraint that fails to evaluate is a
+hard error and "a silent skip is never used"): (1) complementary gates collide — two `func pick()`
+under `#[build(is(arch,"aarch64"))]` / `#[build(!is(arch,"aarch64"))]` → "pick redeclared in this
+block" (the same shape works in an imported package, conformance 737); (2) a false gate does not
+exclude its declaration (a body that only compiles on another target is type-checked here); (3) every
+malformed constraint (`#[bogus]`, `is(cpu,…)`, `is(arch,"vax")`, `gt(version,…)`,
+`at_least(arch,…)`, a bad version literal, `==`, unary `-`, a bare `arch`) is silently ACCEPTED,
+exit 0; (4) a gated `import` in main is loaded unconditionally (running its initializers on the wrong
+target); (5) `gateMerged`'s `#[c_export]`-placement check is skipped for main.  `--pkg` and `--test`
+are unaffected (they load the package through `loadPackage`).  Fix: route the main program's
+files through the same gate — per-file package-clause check before merging, then the
+declaration/import gate on the merged file before `LoadImports` — via one exported loader entry both
+drivers call (so they cannot drift), with conformance tests for the gate and the error path in the
+main package (the imported-package error path is covered by the `pkg.build.errors` tests).
+
 ### An interface method called directly on a `cast` / `unsafe_cast` result fails to link — 🔴 OPEN (found 2026-09-27, work-5, testing the readonly-iface cast fix; pre-existing, no wrapper needed)
 
 `cast(@Getter, m).Get()` (m `@S`, `impl @S : Getter`) compiles to a direct call of a nonexistent
