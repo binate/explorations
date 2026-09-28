@@ -1,3 +1,18 @@
+### Indexing an array reached through a field or deref of a call evaluated the call twice — ✅ DONE (2026-09-28, binate `b24497e02`)
+
+genIndex indexes an array with storage in place (gen_array_base.bn: address first, then index via genIntOperand,
+bounds check, element type from the IR pointer). Conformance 1379. Original entry:
+
+> ### Indexing an array reached through a field or deref of a CALL evaluates the call twice — 🟡 IN PROGRESS (found 2026-09-28, claude/exciting-davinci-wahyt2 session, reviewing the in-place array-slice fix; pre-existing; claimed 2026-09-28, same session — user: "yes, go ahead")
+>
+> `mkSP(&s).m[1]` and `(*getP(&a))[1]` run `mkSP` / `getP` twice (VM, LLVM, native; same on the
+> pre-change compiler), and `mkBoxP[int](&bx).m[next()][1]` likewise. **Root cause:** `irgen/gen_access.bn`
+> `genIndex` evaluates the base as a VALUE first (`collection = genExpr(e.X)`), then, for an array base
+> that is a selector or a deref, evaluates it AGAIN for its storage (`genSelectorPtr(e.X)` /
+> `genExpr(e.X.X)`). **Fix:** as the slice-expression fix did — decide from the checker's type that the
+> base is an array with storage and take its address first, evaluating the base once (value path only for
+> a storage-less base). Needs a conformance test counting calls.
+
 ### Casting a struct / array composite literal — DONE (binate `8c769e1ad`, 2026-09-28, work-5)
 
 Review item (a) of the VM-lowering fix: `cast(RH, H{n: 3, m: 4})` panicked — and so did every cast /

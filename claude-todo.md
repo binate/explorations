@@ -234,16 +234,6 @@ synthetic and the dtor/copy helpers EnsureReplBodyHelpers adds, but not the lift
 initializer's func literal produced.  Likely fix: lower every function the generation appended to the
 module (as the file-load path and the statement path do), not just the helpers; add an e2e/repl.sh case.
 
-### Indexing an array reached through a field or deref of a CALL evaluates the call twice — 🟡 IN PROGRESS (found 2026-09-28, claude/exciting-davinci-wahyt2 session, reviewing the in-place array-slice fix; pre-existing; claimed 2026-09-28, same session — user: "yes, go ahead")
-
-`mkSP(&s).m[1]` and `(*getP(&a))[1]` run `mkSP` / `getP` twice (VM, LLVM, native; same on the
-pre-change compiler), and `mkBoxP[int](&bx).m[next()][1]` likewise. **Root cause:** `irgen/gen_access.bn`
-`genIndex` evaluates the base as a VALUE first (`collection = genExpr(e.X)`), then, for an array base
-that is a selector or a deref, evaluates it AGAIN for its storage (`genSelectorPtr(e.X)` /
-`genExpr(e.X.X)`). **Fix:** as the slice-expression fix did — decide from the checker's type that the
-base is an array with storage and take its address first, evaluating the base once (value path only for
-a storage-less base). Needs a conformance test counting calls.
-
 ### A package-level `[N]char` initialized from a string literal is stored as a POINTER — garbage reads, clobbered neighbours — 🔴 OPEN (found 2026-09-28 by a reviewer probe, claude/exciting-davinci-wahyt2 session; pre-existing)
 
 `var M2 [5]char = "hello"` at package level reads back garbage (`M2[0]` 161 / 236, expected 104) on LLVM
