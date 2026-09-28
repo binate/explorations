@@ -5,6 +5,18 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
+### IR-gen ignores type declarations inside a `type ( ... )` group — silent wrong values — 🔴 OPEN (found 2026-09-27, work-1, review of the declaration-order fix; pre-existing)
+
+`type ( S struct { x int }; C int; P = *C )`: IR-gen never registers grouped type declarations —
+GeneratePackage's first pass reaches a DECL_GROUP only through genConstGroup / registerVarGlobals, and
+the struct-name pre-pass, RegisterStructTypes and RegisterSelfTypes (and the dependency-ordered alias
+registration) look at top-level decls only (the checker handles groups).  A grouped struct's `s.x` →
+"unresolved selector" (VM) / wrong types (compiled); a grouped alias lowers as `int`: `P = *C` then `*p`
+printed an address, and a library's grouped `F = float64` got an i64 ABI (garbage floats on native / the
+VM, clang error on LLVM).  Fix: flatten a group's DECL_TYPE members everywhere IR-gen walks type
+declarations (every pass above; findNonStructTypeDecl).  Covered by conformance 1330_type_decl_group
+(xfail.all; not yet landed).
+
 ### Type-wrapper peel bug cluster (named / alias / readonly handled inconsistently across IR-gen, the VM lowering, codegen, and the checker) — silent wrong values, memory corruption, use-after-free — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-26, work-5/session — user: "take on the critical, then the majors")
 
 **Class:** a type decision (Kind / Width / Signed / float-vs-int / managed-vs-raw / aggregate-vs-scalar)
@@ -112,7 +124,10 @@ conformance 1311_generic_method_param_name_shadows_type (xfail.all, binate `e565
 the receiver binders when resolving the method's signature/body; struct FIELD types (declared in the
 struct's parameter names) must resolve under the struct's own binding, separately.  (The
 parameterized-impl row minting had the same fallback and dropped it: the checker requires one plain
-binder per type parameter, so the binders cover every position.)
+binder per type parameter, so the binders cover every position.)  Related (checker, same shadowing): a
+method receiver binder named like a package type is taken as that type — `type Box[K any] …; func (b
+*Box[K]) Get() K`; `type K = bool` → "methods / impls on a specific instantiation are not allowed"; the
+binder should shadow the package type inside the receiver clause.
 
 ## MAJOR
 
