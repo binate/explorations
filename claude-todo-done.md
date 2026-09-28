@@ -1,3 +1,17 @@
+### Spec Ch.16 (Packages) — adversarial-review test follow-ups — ✅ LANDED 96fb75c2d + ce5490ee9 (2026-09-27), work-3
+
+From the 2026-06-19 Ch.16 review (0 blockers, 7 should-fix).  Tightened: 012/013 comments now state
+what one search root can and cannot show; 050 claims only the symbol half and points at 051 for type
+distinctness; 091's extern var is now written from the importer and from the defining package and each
+write observed from the other side (a copied value used to pass).  New tests: 098 `.bni`/`.bn`
+parameter-type, parameter-count and result-count mismatches; 099 the `.bni` kinds 032 omitted
+(interface, impl in `.bni` and impl in `.bn` only, body-less opaque type); 100 `package main`
+rejected; 101/102 import inside a function / after a declaration rejected; 103 `__c_call`
+unpromoted variadic args (int8, bool, char, float32 — each line-anchored) and an opaque-by-value
+return rejected.  All ten green on LLVM, VM and native arm32-baremetal.  Remaining: the multi-root
+harness limit (kept in `claude-todo.md`).  Found: the `__c_call` promotion diagnostics suggest Go
+syntax `int(x)` — filed.
+
 ### An interface method called directly on a `cast` / `unsafe_cast` / type-assertion result failed to link — DONE (binate `1a3bec4d7`, 2026-09-27, work-5)
 
 `cast(@Getter, m).Get()` and an assertion to an interface `g.(*Getter2).Get2()` compiled to a direct call of

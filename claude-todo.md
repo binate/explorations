@@ -2073,27 +2073,22 @@ for-clause Pratt path (`parse_for.bn:199`); `if`/`var`/literal-leading contexts 
 parse errors. Conformant (rejection holds) — a diagnostic-consistency nicety only. Surfaced
 authoring `conformance/spec/13-expressions`.
 
-### Spec Ch.16 (Packages) — adversarial-review follow-ups (test-quality, non-blocking) — 2026-06-19 — 🟡 IN PROGRESS (claimed 2026-09-27, work-3/session)
-The Ch.16 review found 0 blockers, 7 should-fix (landed tests work; these
-improve rigor). 015 mis-cite already FIXED (re-cited pkg.resolve→pkg.identity).
-Remaining, for a focused follow-up (with the build-constraint rework below):
-- **Harness limit (root cause of 2 findings):** the runner gives a test ONE
-  search root, so `pkg.resolve.public` (013, public-vs-local under DIFFERENT
-  roots) and `pkg.resolve`'s independent-.bni/impl-roots facet (012) can't be
-  exercised — both tests only show "resolves under one root". Soften their
-  comments to not overclaim; the multi-root facets need a harness extension (a
-  second `--prepend` root) — note in Annex C as untested.
-- **Vacuity to tighten:** 050 (`pkg.identity`) asserts values, not type-
-  distinctness — the distinctness is actually pinned by 051's cross-pkg-assign
-  reject; re-scope 050's comment. 091 (`pkg.extern` var) only reads once — make
-  var-ness load-bearing (mutate via a setter, observe). 090 extern-func is the
-  same shape as a normal exported func (inherent).
-- **Missing coverage:** `pkg.bni.consistency` only tests return/var-type
-  mismatch (033/034) — add param-type + param-count + result-count mismatch.
-  `pkg.bni` (032) omits the opaque-type and interface/impl .bni decl kinds.
-  `pkg.ccall` (092) has no C-ABI-passability reject test (§16.9). `pkg.clause`
-  (010) and `pkg.import` (001) lack negative tests (package-must-be-a-string-
-  literal; no block-scoped import).
+### Conformance harness: a test gets ONE search root — `pkg.resolve`'s multi-root facets are untestable — 🟢 OPEN (from the Ch.16 review, 2026-06-19; rest of that entry landed 2026-09-27)
+
+The runner prepends a single test root (`binate-paths.sh --prepend <test dir>`), so two `pkg.resolve`
+facets cannot be exercised: the `.bni` and the impl directory resolved on INDEPENDENT search paths
+(a `.bni` under one root, its impl dir under another — `spec/16-packages/012`), and
+`pkg.resolve.public`'s public-vs-local packages living under DIFFERENT roots (`013`).  Both tests now
+say so in their comments.  Closing it needs a harness extension — e.g. an optional second root
+directory inside a multi-file test (`NNN_name/root2/`) that every runner prepends as well — then a
+test per facet.  (Annex C, where the spec plan says untested rules are to be listed, is still an
+unauthored stub.)
+
+### `__c_call` promotion diagnostics suggest `int(x)` / `float64(x)` — not Binate syntax — 🟡 IN PROGRESS (found 2026-09-27, work-3, authoring conformance 103; claimed 2026-09-27, work-3/session)
+
+`pkg/binate/check/check_c_interop.bn:98,103`: the unpromoted-variadic-argument errors advise "widen it
+to its C-promoted type (e.g. int(x))" and "pass float64(x)" — Go conversion syntax; in Binate `int(x)`
+is "cannot call non-function".  The suggestion should be `cast(int, x)` / `cast(float64, x)`.
 
 ### Observable optimizations and UB policy — broader question
 - Surfaced while planning const: allowing the compiler to allocate
