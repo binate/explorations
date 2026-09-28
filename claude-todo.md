@@ -203,6 +203,12 @@ without `#`, `uxtw x0, x1`, a char-literal immediate without `#`, `ldr w0, [x1, 
 defined but can't be referenced (lookupConst has no callers).  Each family: isa encoder (if missing) +
 parser + golden lines from clang.
 
+**Progress (work-2):** family by family, one reviewed commit each.  (1) exclusive / ordered loads and
+stores — LDXR…STLXP, LDAR/STLR, LDLAR/STLLR, LDAPR, LDAPUR/STLUR incl. the RCPC3 SIMD&FP forms — done,
+not yet landed.  **Also in scope (found while doing (1)):** the rest of FEAT_LRCPC3 — LDIAPP / STILP, LDAPR
+post-index, STLR pre-index (next commit) and LDAP1 / STL1 (with the NEON text-syntax family, which adds the
+`{v0.d}[1]` lane syntax).
+
 ### Assigning `nil` to an `@func` holding a capturing closure clears only the fn word — double free (compiled backends) — 🔴 OPEN (found 2026-09-26)
 
 `var fb @func() int = func() int { return b.v }` (any capture, e.g. a plain `@Box`), then `fb = nil`:
