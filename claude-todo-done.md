@@ -1,3 +1,16 @@
+### `pkg/std/os` follow-ons: `FileMode.String()` and `os.Symlink` — ✅ LANDED c9e65c7d9 (2026-09-27), work-3
+
+`FileMode.String()` renders exactly as Go's os.FileMode (the `.bni` already promised "would print the
+same"): letters of the set type/special bits (`dalTLDpSugct?`, highest first) or `-`, then the nine
+`rwx` characters; `impl FileMode : lang.Stringer` in `os.bni`, so formatting paths use it.
+`os.Symlink(oldname, newname)` via `sys.Symlink` (symlink(2)); dangling links valid, an existing name is
+`errors.AlreadyExists`; bare-metal stub fails like Rename (compile-checked for arm32-baremetal).  Lstat
+on a real symlink is now tested end to end: new stdlib conformance `012_symlink` (green on LLVM, VM,
+native aa64; xfail on bare metal like its siblings) + `TestSymlink` / `TestFileModeString` /
+`TestFileModeStringer` unit tests, the symlink tests in a `MkdirTemp` directory.  (Landing needed a
+rebase of local main: another session had pushed `d94117eeb`/`10176f818` to origin without going
+through local main.)
+
 ### Slicing an ARRAY was never bounds-checked — ✅ DONE (2026-09-28, binate `d94117ee`)
 
 gen_slice now classifies on the collection after the array-to-slice conversion, so `arr[lo:hi]` (and
