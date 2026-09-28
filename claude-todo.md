@@ -202,14 +202,14 @@ accepts it, but IR-gen / the backends do not follow the alias when walking A's a
 VM "iface_upcast: target vtable not found: …_X", compiled "negative vtable slot offset (target not an
 ancestor of source)".  Fix: canonicalize an alias parent to its target when recording parents (IR-gen
 `collectInterfaceParents` / ParentNames) and at the upcast's target lookup.  Covered by conformance
-1320_iface_alias_parent_upcast (xfail.all; not yet landed).
+1321_iface_alias_parent_upcast (xfail.all, binate `b78c88f61`).
 
 ### The checker accepts a type and an interface of the same name in one package — 🔴 OPEN (found 2026-09-27, work-1, review of the checker forward-parent fix; pre-existing)
 
 `type A struct {…}` + `interface A {…}`: `checkDuplicateDecls` skips DECL_TYPE and
 `checkTypeRedeclaration` compares types with types, so neither reports it; the later decl silently
 overwrites the scope symbol.  Fix: report "A redeclared in this block" for a type/interface clash.
-Covered by conformance 1321_err_type_iface_same_name (xfail.all; not yet landed).
+Covered by conformance 1322_err_type_iface_same_name (xfail.all, binate `b78c88f61`).
 
 ### A reference to an interface alias declared later is rejected — valid code rejected — 🔴 OPEN (found 2026-09-27, work-1, review of the checker forward-parent fix; pre-existing)
 
@@ -217,19 +217,7 @@ Covered by conformance 1321_err_type_iface_same_name (xfail.all; not yet landed)
 defers aliases to Pass 2, in order).  Spec `decl.order.forward` allows any order.  Interfaces proper are
 pre-registered (both paths); aliases are defined only when reached.  Fix: define aliases in the
 pre-registration phase once their targets resolve (iterating alias-to-alias chains), reporting an
-unresolvable target once.  Covered by conformance 1322_iface_forward_alias (xfail.all; not yet landed).
-
-### The checker rejects an interface whose parent is declared later in a `.bn` — valid code rejected — 🟡 IN PROGRESS (claimed 2026-09-27, work-1 — user: "Yes, if it's accepted in the .bni, it should be accepted in the .bn."; found 2026-09-27, work-1, fixing the forward-declared generic parent)
-
-`interface A : B` (or `: G[int]`) before `interface B` / `interface G[T any]` in a `.bn` → "undefined: B"
-+ "interface extension target must be an interface, got void".  Spec `decl.order.forward` (§9.8): within
-a package declarations may appear in any order.  The checker resolves parents in declaration order ON
-PURPOSE (`check_iface_extends.bn` header: only the interface itself is pre-defined, "so a
-forward-reference cycle to ANOTHER interface still surfaces as 'undefined'") — i.e. it uses
-declaration order as its cycle guard.  The same forward parent in a `.bni` is accepted (and IR-gen keeps
-it, binate `68dd1ef02`).  Fix: resolve parents after every interface of the package is
-declared, and detect extension cycles explicitly (DFS over the parent graph).  Covered by conformance
-1317_iface_forward_parent_local (xfail.all, binate `e4308008d`).
+unresolvable target once.  Covered by conformance 1323_iface_forward_alias (xfail.all, binate `b78c88f61`).
 
 ### IR-gen silently lowers an unresolved identifier to the constant 0 — 🔴 OPEN (found 2026-09-27, work-1, review of the bare-name precedence fix)
 

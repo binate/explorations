@@ -1,3 +1,14 @@
+### The checker rejected an interface whose parent is declared later in a `.bn`; `.bni` extension cycles crashed it — DONE (binate `4b5d8d399`, 2026-09-27)
+
+Both paths now define every interface before resolving any extension clause (`.bn`:
+preRegisterInterfaces + resolvePendingIfaceParents; `.bni`: Pass 3, bni_scope_iface.bn), reject a parent
+that closes a cycle ("interface extension cycle", compared by identity — short package names collide), and
+queue method-conflict checks (pending interfaces and instantiations populated during collection) until
+every parent edge exists.  Tests: conformance 1317 (was xfail), 1319 (`.bni` cycle, was a crash), 1320
+(same-short-name packages, not a cycle); 397 now expects the cycle diagnostic; checker unit tests.
+Pre-existing bugs found in review filed separately (1321 alias-parent upcast, 1322 type/interface name
+clash, 1323 forward interface alias).
+
 ### A generic interface parent declared after its child in a `.bni` was silently dropped — DONE (binate `68dd1ef02`, 2026-09-27)
 
 Every interface-collection pass now stashes the generic interfaces first (`stashGenericIfaceDecls`, one
