@@ -190,7 +190,7 @@ binder per type parameter, so the binders cover every position.)
 
 ## MAJOR
 
-### More declaration-order dependence (valid forward references rejected or mis-lowered) — 🔴 OPEN (found 2026-09-27, work-1, probing order dependence; pre-existing)
+### More declaration-order dependence (valid forward references rejected or mis-lowered) — 🟡 IN PROGRESS (claimed 2026-09-27, work-1 — user: "yes" to fixing all four together; found 2026-09-27, work-1, probing order dependence; pre-existing)
 
 Spec `decl.order.forward` (§9.8): declarations may appear in any order within a package.  Probed every
 kind of forward reference (types, struct fields, signatures, vars, consts, methods, impls, generics,
@@ -322,7 +322,7 @@ ancestor of source)".  Fix: canonicalize an alias parent to its target when reco
 overwrites the scope symbol.  Fix: report "A redeclared in this block" for a type/interface clash.
 Covered by conformance 1322_err_type_iface_same_name (xfail.all, binate `b78c88f61`).
 
-### A reference to an interface alias declared later is rejected — valid code rejected — 🔴 OPEN (found 2026-09-27, work-1, review of the checker forward-parent fix; pre-existing)
+### A reference to an interface alias declared later is rejected — valid code rejected — 🟡 IN PROGRESS (claimed 2026-09-27, work-1, with the declaration-order entry; found 2026-09-27, work-1, review of the checker forward-parent fix; pre-existing)
 
 `func f(x *X)` before `interface X = Y` → "undefined: X", in a `.bn` and in a `.bni` (whose Pass 1
 defers aliases to Pass 2, in order).  Spec `decl.order.forward` allows any order.  Interfaces proper are
