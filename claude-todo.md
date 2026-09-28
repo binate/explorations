@@ -185,6 +185,18 @@ drivers call (so they cannot drift), un-xfailing `conformance/spec/16-packages/0
 `097_err_build_errors_main` (error path), both `.xfail.all` since `1abd623f5` (the imported-package
 error path is covered by `095_err_build_errors`).
 
+### Methods and impls on a named function-value type are broken — link failure / runtime segfault — 🔴 OPEN (found 2026-09-27, work-5, review of the named-readonly func-value fix; pre-existing, no wrapper needed)
+
+For `type Fn @func() int` (plain, no readonly): a method `func (f Fn) M() int` compiles to a call of an
+undefined symbol (link failure), and `impl *Fn : Caller` with vtable dispatch compiles and links but
+SEGFAULTS at runtime — on the pre- and post-`31c1bc297` compilers alike (the readonly-wrapped
+`type RF readonly @func() int` now fails the same way).  The checker accepts both.  Likely root cause:
+irgen `typeDeclEntryType` strips every named func-value type to its underlying func value (so IR-gen has
+no nominal type to mangle the method / impl vtable against, while the checker still resolves the method
+on the named type).  Needs investigation: whether the spec allows methods / impls on named func-value
+types (if not, the checker must reject them); if it does, IR-gen needs the named identity for method
+dispatch while keeping the func-value representation for calls / copies / dtors.
+
 ### More declaration-order dependence (valid forward references rejected or mis-lowered) — 🟡 IN PROGRESS (claimed 2026-09-27, work-1 — user: "yes" to fixing all four together; found 2026-09-27, work-1, probing order dependence; pre-existing)
 
 Spec `decl.order.forward` (§9.8): declarations may appear in any order within a package.  Probed every
