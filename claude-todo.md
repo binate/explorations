@@ -107,6 +107,27 @@ segfaults.  Fix: when the range operand is a non-addressable array value, materi
 range over that, as for an array variable.  Needs conformance coverage for array-literal and
 array-returning-call operands in every mode.
 
+### A package-level type named like a predeclared type (`type int16 = int8`) is ignored by IR-gen — every backend uses the predeclared type — silent wrong values and layout — 🔴 OPEN (found 2026-09-28, work-5, review of the named-scalar-constants fix; pre-existing)
+
+The spec allows the shadowing (`lex.predeclared.are-idents`: the predeclared type names "may be
+shadowed by a user declaration"; `decl.scope.levels`), and the checker honours it (it rejects
+`var v int16 = 200` below), but IR-gen does not, so checker and codegen disagree on arithmetic width
+and struct layout.  Identical on LLVM, native aa64 and the VM:
+```
+type int16 = int8
+type W uint8
+type S struct { a int16; b W }
+var v int16 = 100; v = v + 100     // prints 200, expected -56
+sizeof(int16), sizeof(S)           // 2 and 4, expected 1 and 2
+```
+**Root cause:** IR-gen's `resolveTypeExpr` (`pkg/binate/irgen/gen_type_resolve.bn`, the
+`irutil.Streq(te.Name, "int")` … `"char"` ladder) matches the predeclared names BEFORE
+`definingPkgType` / the module's structs and aliases, so the package's own type is never reached.
+Other by-name predeclared-type matches in irgen / irutil / codegen / native need the same audit.
+**Fix:** resolve the package's own type declarations (ideally the checker's resolved types) before
+the predeclared names, and fix every other by-name match the audit finds.  **Test:** conformance test
+with xfail markers to be added with the fix or ahead of it.
+
 ## MAJOR
 
 ### A deferred method call on a generic instantiation or an imported type panics — "defer of an unresolved method call" — 🔴 OPEN (found 2026-09-28, work-5, review of the defer named-receiver fix; pre-existing)
