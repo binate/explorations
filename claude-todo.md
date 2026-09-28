@@ -379,7 +379,7 @@ With `type _ struct{ z int }` in a package, `_` resolves as that type: `func (p 
 var r _; return r }` compiles and runs (a blank receiver binder is otherwise not usable as a type).  The
 spec says nothing about a blank type declaration.  **Decided (2026-09-28, user):** "`type _ struct{...}`
 (or `type _ <any other type>`) should be accepted and bind nothing" — "a potential use-case is perhaps
-as an \"assertion\" in generated code that the `<any other type>` is a valid type."  So the RHS is still
+as an "assertion" in generated code that the `<any other type>` is a valid type."  So the RHS is still
 resolved and checked; `_` never becomes a usable type name.
 
 ### Bugs found reviewing the identity refactor (pre-existing) — 🔴 OPEN (found 2026-09-27, work-1; reproduced by the reviewer)
