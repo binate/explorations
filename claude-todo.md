@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### A type assertion / type switch to an interface ALIAS misses the aliased interface — silent wrong result — 🔴 OPEN (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing)
+### A type assertion / type switch to an interface ALIAS misses the aliased interface — silent wrong result — 🟡 IN PROGRESS (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing; claimed 2026-09-28, work-1 — user: "take on the bugs that you filed")
 
 `interface PA = P` (any alias, generic or not): `a.(*PA)` returns ok=false in the VM and `case *PA:`
 silently takes `default`; LLVM references an undefined `__ifaceid.…_PA` symbol (link error).  The
