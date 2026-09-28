@@ -1,3 +1,17 @@
+### A blank `type _ …` declaration binds no name; its type is still checked — ✅ LANDED 555fe855f (+ spec docs a1a6d30) (2026-09-28), work-6
+
+`type _ struct{...}` bound `_` as an ordinary type name (a second one was a "duplicate type definition";
+`_` was usable as a type).  Per the user ("`type _ struct{...}` (or `type _ <any other type>`) should be
+accepted and bind nothing"; use case: an "assertion" in generated code that a type is valid), a blank
+type declaration now binds no name, any number may appear, and its type is still resolved and checked.
+Checker: preRegisterTypeNames, collectTypeDecl (checkBlankTypeDecl), isFullTypeDecl, the pending-alias
+registry and bni_scope skip the name; IR-gen's flatTypeGroups (every file entering IR-gen) drops blank
+type decls and GenDecl ignores one at the REPL; bnlint treats one as a root, never unused; naming.sh
+skips `_`.  REPL (from the review): a reference to `_` is reported at once instead of parked, pending
+lookups never match a blank decl, a blank struct gets the opaque-by-value check.  Spec §7.3
+`type.decl.two-forms`.  Tests: conformance 1366–1369, lint and REPL unit tests.  Filed from the review:
+an opaque type held by value inside an array is accepted at the declaration.
+
 ### Type-wrapper peel cluster — more rows fixed / verified fixed — DONE (binate `901b85e17`, `ba4043497`, 2026-09-28, work-5)
 
 `901b85e17`: an omitted struct-literal field gets its type's zero value (emitZeroValue) — omitting a float,
