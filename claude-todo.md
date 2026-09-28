@@ -1911,7 +1911,7 @@ string-literal box + the earlier scalar/var value-borrow) would let those tests
 drop the `&`.  The non-linted conformance tests (1090/1135) already use the bare
 form.
 
-### fmt: auxiliary `*any` classifiers still match char-slices by exact spelling (named / `readonly` blind) — 🟢 LOW (2026-08-08)
+### fmt: auxiliary `*any` classifiers still match char-slices by exact spelling (named / `readonly` blind) — 🟡 IN PROGRESS (LOW, 2026-08-08; claimed 2026-09-28, work-3/session)
 
 The main value-rendering path is fixed: `writeArg` now recovers a wrapped/qualified
 char-slice via reflection (dynamic type peels to KIND_STRING), so Print/Println/Sprint
