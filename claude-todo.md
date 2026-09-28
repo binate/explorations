@@ -338,6 +338,25 @@ monomorphization instantiates `depth[int]`, `depth[@int]`, `depth[@@int]`, … w
 instantiation depth limit with a diagnostic, in the checker's per-instantiation worklist (plan above).
 Needs a conformance test.
 
+### A local `const` may redeclare a parameter or a name of its own block — accepted; the group form reads the other one — 🔴 OPEN (found 2026-09-28, work-4, review of constant-evaluator step 2; pre-existing, bnc-0.0.16 too)
+- `func k2(N int) int { const N = 7; return N }` is accepted; `var N` there correctly gives "N redeclared
+  in this scope".  So are a `for N := …` loop variable redeclared by a `const N` in the loop body, and
+  `var A int = 1; const ( A = 2 )` in one block.
+- The single-const form returns the const (7); the group form `const ( N = 7 )` returns the parameter or
+  var (3 / 1): the checker defines the const, but IR-gen's EXPR_IDENT tries `lookupVar` first.
+- Cause: the checker's local-const definition path (a DeclStmt's `checkConstDecl` / `checkGroupDecl`) has
+  no same-scope redeclaration check.  Fix: report the redeclaration exactly as the local `var` path does.
+  A const in a nested block shadowing an outer var is legitimate and works.
+- No test yet.
+
+### A constant declared both as a single const and in a group, or in two groups, is not reported — 🔴 OPEN (found 2026-09-28, work-4, review of constant-evaluator step 2; pre-existing, bnc-0.0.16 too)
+- `const A = 5` plus `const ( A = 9; Z = A + 1 )` in one package is accepted; expected "A redeclared in
+  this block".  Which value each use reads depends on declaration order and differs between compilers.
+  A duplicate within one group is reported.
+- Cause: `checkDuplicateDecls` skips group entries and compares within one declaration list only.  Fix:
+  include group members (const, and check var/type groups too) in the package-level duplicate check.
+- No test yet.
+
 ### Typed-constant expressions are folded without their type — silent wrong values, a compiler ICE, valid code rejected — 🟡 IN PROGRESS (found 2026-09-27, work-4, verifying the typed-constant rule for the untyped-bitwise spec change; pre-existing; claimed 2026-09-27, work-4/session — user: "That order is fine": right after the untyped-bitwise change lands)
 
 The user decided (2026-09-27) that an operator on **typed** integer constants behaves exactly as on values
@@ -404,12 +423,17 @@ check seems fine."), to be written into §13.5 `expr.shift.untyped-value.unsafe`
 so is a constant `unsafe_shl` / `unsafe_shr` of a typed value by a count ≥ its width ("I guess it can be
 an error, given that it's undefined at runtime").  An untyped constant declared in a `.bni` stays untyped for
 its importers, as an in-package one does (the checker typed it `int`; user, 2026-09-27: "yes").  Plan: `plan-constant-evaluator.md`; step 1 (the
-`constval` package) LANDED (binate `b6314e316`); step 2 (switch the checker and IR-gen) in progress.
+`constval` package) LANDED (binate `b6314e316`); step 2 (switch the checker and IR-gen) in progress; it also defines `.bni` constants and top-level
+const-group members in dependency order, so a forward reference in a `.bni` (rejected by both compilers
+before) and one between group members (read as 0 before) get their values.
 
 **Found by the review of step 2 (2026-09-28), pre-existing and outside this change (not yet fixed):**
 - `const F float64 = cast(float64, 5)` fails in clang: both the old and new compiler emit invalid LLVM IR.
-- A forward const reference in a `.bni` (an array length or a const naming a const declared later in the
-  same `.bni`) is rejected by both compilers.
+- `const S2 = sizeof([G2]uint8)` naming a const-group member declared later is rejected ("array length
+  must be a constant integer"): the dependency walk (`collectConstDeps`) does not look into type
+  arguments.  `const S = sizeof(T)` with `type T` declared later is rejected as opaque by both compilers.
+- After `undefined: Undef` in a constant initializer, a follow-on "arithmetic op requires numeric
+  operands" is reported for the same expression.
 - REPL: `checkGroupDeclTentative` still re-checks a const group's shared initializer for its bare members,
   which restamps it; IR-gen reads the checker's per-declaration values now, so this may be harmless.  Not
   verified.
