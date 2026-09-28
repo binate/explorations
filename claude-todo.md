@@ -76,6 +76,17 @@ fixed rows are in claude-todo-done.md.
 
 ## MAJOR
 
+### A `cast` / `unsafe_cast` / `bit_cast` that is invalid only once a generic type parameter is instantiated crashes IR-gen instead of getting a diagnostic — 🔴 OPEN (found 2026-09-28, work-5, review of the composite-literal cast fix; pre-existing design gap)
+
+check_cast_safe.bn `checkCastSafeSet` defers validation when a side is an abstract type parameter, and
+nothing re-checks the conversion per instantiation; IR-gen's backstops then `panic` ("internal error: …
+reached codegen via a generic type parameter", in gen_builtin.bn / gen_cast_value.bn: narrowing an
+interface, mismatched aggregate shapes, different-size slices / bit_cast, and widening a VALUE
+operand (a composite literal) to an interface, e.g. `func conv[T any]() T { return cast(T, Thing{x: 42}) }` called as
+`conv[*Getter]()`).  A user program should get a positioned compile error naming the instantiation, not a
+compiler panic.  Fix: run the cast-safety rules on the substituted types when a generic body is
+instantiated (checker-side, before IR-gen), and turn the IR-gen panics into unreachable asserts.
+
 ### The checker accepts `unsafe_cast` from a raw function value (or raw slice) to its managed form — internal error in IR-gen — 🔴 OPEN (found 2026-09-28, work-5, review of the func-value cast fix; pre-existing)
 
 `var f *func(int) int = dbl; unsafe_cast(@func(int) int, f)` passes the checker and then panics in IR-gen
