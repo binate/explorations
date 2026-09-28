@@ -480,8 +480,8 @@ SETF8 / SETF16) — landed `8114782c0` (2026-09-27).  (6) FP and Advanced SIMD: 
 `plan-aa64-asm-fp-simd.md` (FP scalar done; vector syntax + copy class landed `7e91dc04f`, register lists +
 TBL / TBX `19a84e582`).  Apple's legacy NEON syntax (`dup.4s v0, w1`, `tbl.16b v0, {v1}, v3`), which clang
 accepts on every target, is not supported (user, 2026-09-28: "we don't need alternate syntax, unless there's
-a compelling reason (we've always tended to favor Intel/ARM syntax, I suppose)"); still to list it with the
-deliberate rejects.  **Also in scope (clang supports them; found while
+a compelling reason (we've always tended to favor Intel/ARM syntax, I suppose)") — listed with the deliberate
+rejects, `bf5f7966b`.  **Also in scope (clang supports them; found while
 scoping (3)):** the later atomic extensions — FEAT_LSE128 (LDCLRP / LDSETP / SWPP), FEAT_THE (RCWCAS /
 RCWSWP / RCWCLR / RCWSET and their S / pair forms; the pairs need FEAT_D128), FEAT_LSFE (LDFADD /
 LDFMAX(NM) / … and ST* aliases on H / S / D), FEAT_LSUI (LDT<op> / SWPT / CAST / CASPT) — each its own family.

@@ -53,7 +53,7 @@ commit per step; land each before starting the next.
    - Apple's legacy NEON syntax (`dup.4s v0, w1`, `umov.s w0, v1[1]`, `tbl.16b v0, {v1}, v3`), which
      clang accepts on every target, is NOT supported (user, 2026-09-28: "we don't need alternate syntax,
      unless there's a compelling reason (we've always tended to favor Intel/ARM syntax, I suppose)") —
-     to be listed with the deliberate rejects.  Kind-less `vN[i]` is still needed for FEAT_LUT
+     listed with the deliberate rejects (`bf5f7966b`).  Kind-less `vN[i]` is still needed for FEAT_LUT
      (`luti2 v0.16b, {v1.16b}, v2[0]`).
    - Scalar SIMD registers in vector instructions (with the classes that use them).
 2. Three same (integer, FP, FP16, extra: SDOT / UDOT / SQRDMLAH / FCMLA / FCADD …), including the
