@@ -27,7 +27,7 @@ commit per step; land each before starting the next.
 
 ## Steps
 
-**A. FP scalar** (H / S / D precisions throughout; FP16 forms need `+fullfp16`)
+**A. FP scalar** (H / S / D precisions throughout; FP16 forms need `+fullfp16`) — ✅ done
 1. ✅ FP data-processing: 1-source (FMOV reg, FABS, FNEG, FSQRT, FCVT H/S/D, FRINT{N,P,M,Z,A,X,I},
    FRINT32/64{Z,X}, BFCVT), 2-source (FMUL, FDIV, FADD, FSUB, FMAX, FMIN, FMAXNM, FMINNM, FNMUL),
    3-source (FMADD, FMSUB, FNMADD, FNMSUB), FCMP / FCMPE (incl. `#0.0`), FCCMP / FCCMPE, FCSEL —
@@ -38,7 +38,7 @@ commit per step; land each before starting the next.
 3. ✅ FP ↔ integer: FCVT{N,P,M,Z,A}{S,U} (integer and fixed-point `#fbits`), SCVTF / UCVTF (both),
    FJCVTZS, and FEAT_FPRCVT (integer in an S / D register of a different size) — landed `abc0540ed`
    (2026-09-27).  The same-size FP-register forms (`fcvtzs s0, s1`) are Advanced SIMD scalar → B4.
-4. Move `asm/aarch64/aarch64_fp.bn` onto the isa FP encoders.
+4. ✅ Move `asm/aarch64/aarch64_fp.bn` onto the isa FP encoders — landed `867f6c45c` (2026-09-27).
 
 **B. Advanced SIMD vector** (each class also has its scalar forms where the architecture defines them)
 1. Syntax infrastructure: `vN.<T>` arrangements, `vN.<T>[i]` lanes, `{…}` register lists (comma and
