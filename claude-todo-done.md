@@ -1,3 +1,21 @@
+### Receiver binders: duplicates rejected, `_` binds a position unnamed, constraints by position — ✅ LANDED 5bdd776f9 (+ spec docs 0de197c) (2026-09-27), work-6
+
+`func (p *Pair[A, A])` was accepted (checker bound the last position, IR-gen the first; every use failed
+confusingly); now rejected ("receiver binds type parameter name A more than once").  A blank `_` binder
+(user: "Should obviously be allowed as unnamed.") binds its position without naming it, any number of
+positions may be `_`: several `_` used to collapse onto one parameter when the receiver type was
+resolved by binder name (`Pair[_, _]` on Pair[int8, S] taken for Pair[S, S]).  ast.ReceiverBinderName
+gives each blank position its own unspellable name (`_#<i>`), ast.WithNamedBlankBinders copies the
+receiver with blanks renamed; checker (method/impl collection, imported generic methods) and IR-gen
+(instantiated methods, generic impl rows) bind under those names.  Found by the review: binder
+constraints were resolved under the RECEIVER's binder names, so `type W[X any, C Cont[X]]` with
+`*W[_, D]` / `*W[A, D]` failed ("undefined: X") and a reordered binder list could tie the constraint to
+the wrong position — now resolved by position in the type's defining file.  Spec §12
+`gen.method.generic-recv` updated (distinct names, `_`, constraints by position).  Tests: ast unit tests;
+conformance 1342/1345/1346/1349 (run; 1342 and 1349 fail on the previous compiler), 1343/1347 (duplicate
+binder, method/impl), 1344/1348 (`_` as a type).  Filed from the review: CRITICAL duplicate type-param
+names in generic function/type DECLARATIONS (native segfault), and the `type _` question.
+
 ### native dispatch files near the 500-line cap — split `emitInstr` by op family — ✅ LANDED 1dea2c420 + 88c3972a4 + 3b8d2e0cb (2026-09-27), work-3
 
 Each backend's `emitInstr` now hands two op families to sub-dispatchers in their own files —
