@@ -1,3 +1,16 @@
+### Spec Ch.16 `pkg.build.errors` conformance test — ✅ LANDED 7e92408a0 (+ xfail tests 1abd623f5) (2026-09-27), work-3
+
+`conformance/spec/16-packages/095_err_build_errors` imports eleven packages, each with one declaration
+whose `#[build(...)]` fails to evaluate in a different way — the rule's whole list, including the scope
+that grew with the version predicate: unknown unqualified annotation, unknown predicate, unknown tag,
+unknown predicate function (`gt`), ordered matcher on a non-version key (`at_least(arch, …)`), malformed
+and adjacent-concatenated version literals, a comparison (`==`), a disallowed unary (`-`), a bare key
+and a malformed expression.  `Loader.gateMerged` stops at a package's first failure, so one package per
+case lets a single build report all eleven; the `error` file requires each diagnostic.  Ch.16 is now
+fully covered.  Verified (`build` filter, `--check-xpass`): LLVM, VM, native arm32-baremetal.  Finding
+while authoring it: `#[build]` on the MAIN program's own file is never evaluated (both program drivers
+bypass the gate) — filed as a MAJOR in `claude-todo.md` with xfail'd tests 096/097.
+
 ### Type-wrapper peel bug cluster — fixed pieces — DONE (binate `5fe4cc11b`, `fdd2da320`, `89a56168c`, `7d5cc9650`,
 `c469b2fcb`, `8795c19cc`, `82ed9c6c0`, `d676ebc80`, `19772cd6b`, `1595ee99e`, `190aa2d42`; 2026-09-26..27, work-5)
 

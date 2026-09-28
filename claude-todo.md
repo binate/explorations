@@ -130,8 +130,9 @@ target); (5) `gateMerged`'s `#[c_export]`-placement check is skipped for main.  
 are unaffected (they load the package through `loadPackage`).  Fix: route the main program's
 files through the same gate — per-file package-clause check before merging, then the
 declaration/import gate on the merged file before `LoadImports` — via one exported loader entry both
-drivers call (so they cannot drift), with conformance tests for the gate and the error path in the
-main package (the imported-package error path is covered by the `pkg.build.errors` tests).
+drivers call (so they cannot drift), un-xfailing `conformance/spec/16-packages/096_build_gate_main` (gate) and
+`097_err_build_errors_main` (error path), both `.xfail.all` since `1abd623f5` (the imported-package
+error path is covered by `095_err_build_errors`).
 
 ### An interface method called directly on a `cast` / `unsafe_cast` result fails to link — 🟡 IN PROGRESS (found 2026-09-27, work-5, testing the readonly-iface cast fix; pre-existing, no wrapper needed; claimed 2026-09-27, work-5/session — user: "you can pick which bug to take on next")
 
@@ -2099,25 +2100,6 @@ Remaining, for a focused follow-up (with the build-constraint rework below):
   `pkg.ccall` (092) has no C-ABI-passability reject test (§16.9). `pkg.clause`
   (010) and `pkg.import` (001) lack negative tests (package-must-be-a-string-
   literal; no block-scoped import).
-
-### Spec Ch.16 build-constraint group — only the `pkg.build.errors` conformance test remains — 🟡 IN PROGRESS (done parts in done log, 2026-07-10; claimed 2026-09-27, work-3/session)
-The build-constraint rework is done (re-authored `075_build_gate_file` / `076_build_gate_import` on the
-real file/import gating mechanism; the "unknown predicate/annotation" possible-gap was NOT a real
-validation gap — the compiler rejects them under a resolved config, unit-tested — see the done log).
-**Remaining:** the one uncovered rule `pkg.build.errors` needs a conformance `.error` test (or a
-small suite) — a `#[build(...)]` whose predicate FAILS TO EVALUATE on a *required* element under a
-resolved target, so validation fires and the build aborts. Ch.16 stays 21/22 until then (behavior is
-unit-tested in `buildcfg_test.bn`).
-
-**Scope grew (the version predicate landed `dedbb620`, 2026-07-13; spec `038d98e`):** `pkg.build.errors`
-now covers more than the original "unknown predicate/annotation" framing, so the test(s) should exercise
-the expanded set — each a distinct `#[build(...)]` on a required element under a resolved target:
-- unknown unqualified annotation; unknown predicate or tag (the original cases);
-- **unknown predicate function** — a call that isn't `is`/`at_least`/`at_most` (e.g. `gt(version,"1.0.0")`);
-- **ordered matcher on a non-`version` key** — `at_least(arch, "x64")` / `at_most(os, "linux")`;
-- **malformed or adjacent-concatenated `version` literal** — `at_least(version, "0.0")` / `at_least(version, "0.0" ".11")`;
-- a disallowed operator (a bare `<`/`==`) or otherwise malformed expression.
-(Behavior for all of these is already unit-tested in `buildcfg_test.bn`; this is the conformance-side gap.)
 
 ### Observable optimizations and UB policy — broader question
 - Surfaced while planning const: allowing the compiler to allocate
