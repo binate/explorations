@@ -1064,7 +1064,7 @@ FP-arithmetic work. Full plan + sequencing: `plan-native-vectorization.md`.
 
 Order: V1 (aa64 first) → (A) → idiom recognition → B1 → B2 → B3. Each independently landable/measurable.
 
-### Spec gap: unary `~` on an untyped integer constant is undefined (its value depends on the width) — 🔴 OPEN (found 2026-09-27)
+### Spec gap: unary `~` on an untyped integer constant is undefined (its value depends on the width) — 🟡 IN PROGRESS (found 2026-09-27; rule decided by the user 2026-09-27: untyped `~`, `&`, `|`, `^` act on the infinitely sign-extended two's complement value — `~x` is `-x-1`; claimed work-4/session)
 
 §6.4 defines constant-expression arithmetic at union-range precision but never says what `~1` is: its
 value depends on the width it is taken at (`0xFE` at `uint8`, `-2` at a signed type), which an untyped
