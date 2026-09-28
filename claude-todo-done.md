@@ -1,3 +1,16 @@
+### A type argument spelled through an interface alias names the aliased interface — DONE (binate `5a3777eb2`, 2026-09-28, work-1)
+
+`H[*PA]` (`interface PA = P`) was named from the argument as written — an interface of its own nothing
+implements (assertion silently false, method call through a nil vtable), and `Box[*PA]` / `f[@PA]` separate
+instances.  The ensureInstantiated* entry points now resolve every interface a type argument names (under
+pointer / slice / array / readonly / iface-value / func / anonymous-struct structure) to its alias chain's
+tail (canonicalTypeArgs).  Two review rounds shaped it: an alias of an instantiation is a stub until
+collected, so resolution order split one type into two instances — a pending stub is now completed on
+first use (completeIfaceAliasStub); and that completion could run before the target's type arguments were
+registered (binding X to G[int]) — the type-declaration dependency walk now follows same-package interface
+aliases (typeDeclDepNames).  Conformance 1354, 1383 + unit tests.  Found on the way: same-named interfaces
+from two packages collide as type arguments (CRITICAL, 1384).
+
 ### A local `const` may redeclare a parameter or a name of its own block — accepted; the group form reads the other one — DONE (binate `f037beaef`, 2026-09-28, work-4; the local-const rule itself is still open, see the todo entry "Is a local `const` redeclaring a name of its own block an error?")
 - `func k2(N int) int { const N = 7; return N }` is accepted; `var N` there correctly gives "N redeclared
   in this scope".  So are a `for N := …` loop variable redeclared by a `const N` in the loop body, and

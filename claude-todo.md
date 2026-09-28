@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### Same-named interfaces from two packages collide as generic type arguments — one instance, wrong dispatch — 🔴 OPEN (found 2026-09-28, work-1, fixing the alias-as-type-argument CRITICAL; pre-existing)
+### Same-named interfaces from two packages collide as generic type arguments — one instance, wrong dispatch — 🟡 IN PROGRESS (found 2026-09-28, work-1, fixing the alias-as-type-argument CRITICAL; pre-existing; claimed 2026-09-28, work-1 — user: "yes, but first fetch and fast-forward binate/ main.")
 
 `pkg/a` and `pkg/b` each declare `interface P` (different method sets); `H[*a.P]` and `H[*b.P]` get ONE
 instance (`__ifaceid.…H1_iN0_1_P`): `hb.Inner().Name()` and `.Extra()` return 0 (dispatched through
@@ -15,24 +15,8 @@ the VM alike.  Root cause: irutil.MangleTypeArg mangles a TYP_INTERFACE leaf by
 struct's already-qualified `Name` — so the token carries no package (`N0_1_P`).  Fix: mangle an interface
 leaf qualified by its package (the universe `any` stays `any`); check the demangler and any other
 consumer of the token, and whether `QualifiedTypeName` itself should qualify interfaces (other identity
-keys built from it would collide the same way).  Test: conformance 1379_generic_iface_arg_same_name_pkgs
-(xfail.all; not yet landed).
-
-### A generic interface instantiated with a type argument spelled through an interface alias is a DIFFERENT interface — silent wrong result, crash — 🟡 IN PROGRESS (found 2026-09-28, work-1, review of the instantiated interface-alias fix; upgraded to CRITICAL by the review of the alias-assertion fix; pre-existing; claimed 2026-09-28, work-1 — user: "take on the bugs that you filed")
-
-`interface PA = P`, `impl *U : G[*P]`:
-- `a.(*G[*PA])` returns `false` where `a.(*G[*P])` returns `true` (LLVM and VM) — silent wrong result;
-- the checker accepts `var g2 *G[*PA] = &u`, then `g2.Val().Get()` SIGSEGVs (LLVM, native) / "call of nil
-  interface value" (VM); `var h *H[*PA] = &w` with `impl *W : H[*P]` finds no vtable.
-Likely cause (to confirm — an earlier note said the instance names agree and only the vtable row lookup
-misses): IR-gen names the instance from the type argument as written (MangleTypeArg of the alias's
-TYP_INTERFACE), so `G[*PA]` becomes its own interface — the review saw `__ifaceid.…G1_iN0_2_PA` — that
-nothing implements.  Fix: resolve an
-interface-alias type argument to the aliased interface (CanonicalIfacePkg / CanonicalIfaceName, recursing
-through pointer / managed wrappers) before the instance is named — ensureInstantiatedInterface /
-instantiationMangledName, and the same for generic structs and functions if their instances are keyed the
-same way.  Covered by conformance 1354_generic_type_arg_iface_alias (xfail.all, binate `f0fc356bd`); add
-the assertion and the method-call-through-the-value cases.
+keys built from it would collide the same way).  Test: conformance 1384_generic_iface_arg_same_name_pkgs
+(xfail.all, binate `566b280c9`).
 
 ### Type-wrapper peel bug cluster (named / alias / readonly handled inconsistently across IR-gen, the VM lowering, codegen, and the checker) — silent wrong values, memory corruption, use-after-free — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-26, work-5/session — user: "take on the critical, then the majors")
 
