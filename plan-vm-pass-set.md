@@ -135,10 +135,11 @@ iropt) → 38s (the loops that sweep missed: simplify, dom, multi-line-signature
 index instead of a whole-function scan per candidate) → 23.1s (per-callee inlining facts cached)
 → ~20.5s (callee lookup via the name index instead of a linear scan per call site; flat use
 index; load-forwarding's per-alloca analysis via the index). Whole compile with no passes: ~12s.
-bni -O 2 loading cmd/bnc: 50.5s (before) → ~9.6s; -O 0 is ~4.3s. Open: `slices.Append` is O(n) per call
-and has ~840 call sites across pkg/binate (parser, irgen, ...), not just iropt — whether to fix
-per site or make Append amortized (managed-slices carry a backing length; aliasing semantics)
-is a library decision put to the user.
+bni -O 2 loading cmd/bnc: 50.5s (before) → ~9.6s; -O 0 is ~4.3s. Open: `slices.Append` is O(n) per
+call and has ~840 call sites across pkg/binate (parser, irgen, ...), not just iropt.  `Append`
+itself cannot be amortized — a Binate slice is a view with no capacity, not a Go slice — so each
+site that builds a list in a loop moves to `std/containers/vec` (tracked in claude-todo.md,
+"Compile time is superlinear in function size").
 
 ## Step 3 — measure each pass under the VM
 

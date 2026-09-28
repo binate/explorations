@@ -309,7 +309,9 @@ Profiles (`sample`, top of stack):
 - **-O0 native:** `DomInfo.Dominates` called from `AllocateRegisters` (~28%), liveness
   (`blockLiveBefore` + `livenessFixpoint`, ~23%), `blockReferencesValue` (~14%), `AggLoadElidable` →
   `blockAllocaOnlyLoadStore` (~7%), `sortIntervalsByStart` (~5%).
-- **Pervasive:** `pkg/stdx/slices.Append` allocates len+1 and copies on every call (documented O(n));
+- **Pervasive:** `pkg/stdx/slices.Append` allocates len+1 and copies on every call (documented O(n)) —
+  and it cannot be made amortized: a Binate slice is a view with no capacity (not a Go slice), so the
+  fix is always to build such lists with `std/containers/vec` instead of `Append`;
   it has 779 non-test call sites in the compiler tree (irgen 41 files, check 25, iropt 20, codegen 13,
   parser 12, native …) plus 63 per-type `appendXxx` helpers, so every loop that builds a list sized by
   the function (instructions, values, uses, blocks) is quadratic.
