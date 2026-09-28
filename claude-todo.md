@@ -368,7 +368,7 @@ param-shadowing fix; reproduced): an alias of the package's OWN generic fails th
 `.bni`), then `var b home.IntBox; b.Val()` in main → link failure (undefined `…lang…int…Val`), with or
 without a `home.bn`.  The checker accepts it; the failure is IR-gen's.
 
-### Duplicate (or blank) receiver binders are accepted at the declaration — confusing errors at every use — 🔴 OPEN (found 2026-09-27, work-6, review of the generic-method param-shadowing fix; reproduced; pre-existing)
+### Duplicate (or blank) receiver binders are accepted at the declaration — confusing errors at every use — 🟡 IN PROGRESS (found 2026-09-27, work-6, review of the generic-method param-shadowing fix; reproduced; pre-existing; claimed 2026-09-27, work-6/session — user on `_`: "Should obviously be allowed as unnamed.")
 
 `func (p *Pair[A, A]) First() A` on `type Pair[K any, V any]` (and `*Pair[_, _]`) passes
 `resolveGenericReceiverDecl` (`check_decl_func_generic.bn`), which checks arity and that each binder is a
