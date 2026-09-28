@@ -169,16 +169,16 @@ this type.
   classifies strings by reflected kind, so it does not depend on this; fmt's `argTypeName` then names the
   case "string" like the plain spellings, instead of `readonly @[]readonly uint8`.)
 
-### An interface-typed global declared in a `.bni` lowers as `int` in importers — 🔴 OPEN (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing)
+### A `.bni` extern `var` with no definition in the `.bn` is not diagnosed — IR-gen internal error / link failure — 🔴 OPEN (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing)
 
-`pkg/home.bni`: `var GR *R` / `var GZ *G[int]` / `var GX *X` (plain, instantiated and alias-of-
-instantiation interfaces).  An importer's `home.GR.Get()` fails to link on LLVM
-(`undefined _bn_F3_3_pkg8_builtins4_lang2_3_int3_Get` — the global's type fell to the `int`
-fallback, so the call mangles an `int` receiver); the VM panics "internal error: unresolved selector in
-IR-gen".  The declaration order in the `.bni` (globals before or after the interfaces) doesn't matter.
-Root cause: unknown — likely the importer's global registration resolves the global's type before (or
-without) the imported interfaces being registered.  Needs a conformance test (library `.bni` with
-interface-typed globals, set by the library, read by the importer).
+`pkg/home.bni`: `var G int` (any type — scalar, interface, instantiated interface); `pkg/home/home.bn`
+assigns `G` but never declares it.  Spec `decl.var.extern` / §16 (`.bni` `var`): the `.bn` **must**
+define `X` with an identical type.  The checker accepts the missing definition; an importer reading
+`home.G` then panics "internal error: unresolved selector in IR-gen" (VM) or fails to link
+(`undefined _bn_F3_3_pkg8_builtins4_lang2_3_int3_Get` for an interface-typed one — the type fell to the
+int fallback).  With the `.bn` definition in place all of these work.  Fix: the checker rejects a `.bni`
+extern var the package's `.bn` files do not define (in the package's own compile, where the `.bn` files
+are available).  Needs an `.error` conformance test.
 
 ### REPL: a top-level `var` initialized with a function literal panics — "vm: function not found: main.__funclit_0" — 🔴 OPEN (found 2026-09-28, work-5, review of the REPL raw-slice-literal fix; pre-existing)
 
