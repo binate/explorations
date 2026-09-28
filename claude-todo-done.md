@@ -83,6 +83,10 @@ lang's `String()`), and `%08v` of ±Inf/NaN space-pads like `%08g`.  New tests (
 fmt_printf_v_test) fail with each fix reverted; fmt 52/52 on LLVM + native aa64, arm32 bare metal exit 0.
 The review also found the MAJOR "Boxing keeps an outer `readonly` in a slice's dynamic type" (test
 `367e89991`, still open), which is why an `os.Args()` element misses fmt's fast type switch.
+Decided with the user (2026-09-28): the typed verbs, `%q` included, keep ignoring `String()` — they render
+the value itself (a number, or for `%q` a code-compatible literal), which a `String()` rendering is not; Go
+differs (it quotes / hex-encodes `String()` under `%x`/`%X`/`%q`).  `fb024cd8d` fixed `intOperand`'s comment,
+which claimed Go parity, and pinned `%x`/`%q` of a named int with a `String()` in the named-scalar test.
 
 ### Slicing an array reached other than by name sliced a TEMPORARY COPY — ✅ DONE (2026-09-28, binate `4eada9b81`)
 
