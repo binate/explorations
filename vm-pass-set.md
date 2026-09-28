@@ -14,11 +14,12 @@ user-selectable -On …" in [claude-todo.md](claude-todo.md).
 
 ## Current VM pass set
 
-**Accepted (user, 2026-09-25), tentative:** mem2reg, dead-phi, load-fwd, field-load-fwd, simplify,
-div-check-elim, bce-const, bce-loop, bce-redundant.
+**Accepted (user, 2026-09-25; simplify dropped 2026-09-28, binate `e919d600`):** mem2reg, dead-phi,
+load-fwd, field-load-fwd, div-check-elim, bce-const, bce-loop, bce-redundant.
 
 **Excluded:** inline, sroa (together ~+2.2 s = +50% on a large load; their benefit is concentrated
-in small-by-value-struct code — record-churn), licm, fuse-madd (no measurable VM benefit).
+in small-by-value-struct code — record-churn), simplify, licm, fuse-madd (no measurable VM benefit;
+simplify costs ~3.5% of the O0 load).
 The REPL excludes inline regardless (redefinition semantics; plan-vm-pass-set.md).
 
 Implemented: `iropt.VMOptConfig()` (binate `4ff351ea`); bni applies `-f` / `-fno` on top of it.
@@ -172,7 +173,7 @@ the pass) against O2, i.e. what dropping the pass from the full set loses, with 
 | dead-phi | +0.45G (~0.09 s) | small: binary-trees 0.82 vs 0.76, record-churn 0.56 vs 0.52 | yes |
 | load-fwd | +3.90G (~0.8 s) | large, broad: n-body 0.84, binary-trees 0.96, fannkuch 0.69, fasta 0.83, richards 0.94, spectral 0.57 vs 0.48 | yes |
 | field-load-fwd | +0.86G (~0.17 s) | richards 0.79 vs 0.71 | yes |
-| simplify | +0.71G (~0.14 s) | none resolved (every loo within noise of O2) | yes — see below |
+| simplify | +0.71G (~0.14 s) | none resolved (every loo within noise of O2) | no (dropped 2026-09-28) |
 | div-check-elim | +0.02G | spectral (cum 0.56 → 0.50) | yes |
 | bce-const | +0.02G | none resolved | yes (free) |
 | bce-loop | +0.32G (~0.06 s) | n-body (cum 0.49 → 0.42), spectral 0.53 vs 0.48 | yes |
@@ -184,10 +185,9 @@ The current set's load is 1.50× O0 (30.7G vs 20.5G instructions); all passes 1.
 matches O2 on every benchmark except record-churn (0.95 vs 0.52, the inline + sroa effect) and
 mandelbrot (0.73 vs 0.67).
 
-**Open question (not changed):** simplify costs ~3.5% of the O0 load and shows no run benefit these
-benchmarks resolve. It may still pay on code they don't exercise (it folds what the other passes
-expose); decide whether to keep it or drop it. licm stays out by the same reading (+0.59G, benefit
-only on fannkuch).
+simplify costs ~3.5% of the O0 load and shows no run benefit these benchmarks resolve, so it was
+dropped from the set (user, 2026-09-28). licm stays out by the same reading (+0.59G, benefit only on
+fannkuch).
 
 Decision rule used (stated after the fact — make it explicit next time): a pass is in if its
 run-time benefit is broad (several benchmarks) or large, and its load cost on the big-program
@@ -199,4 +199,4 @@ long-running compute, where inline + sroa could pay for their load cost.
 
 - 2026-09-25: first measurement (above); tentative set accepted.
 - 2026-09-27: remeasured after the load-fwd miscompile fix, with deterministic (callgrind) load
-  costs; the set stands. Open: simplify (no resolved benefit).
+  costs; the set stands except simplify (no resolved benefit), dropped 2026-09-28 (binate `e919d600`).

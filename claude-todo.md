@@ -439,9 +439,7 @@ quote numbers from this file (they go stale):**
 
 The bytecode VM runs a fixed pass set (`iropt.VMOptConfig`, pass_config.bn); a new pass is off for
 the VM until measured. When adding or materially changing a pass, run `perf/vm-pass-costs.py`, add
-its row to the living doc [vm-pass-set.md](vm-pass-set.md), and record the decision there. Open
-(2026-09-27 remeasurement): simplify shows no resolved run benefit for ~3.5% of the O0 load — keep or
-drop is the user's call.
+its row to the living doc [vm-pass-set.md](vm-pass-set.md), and record the decision there.
 
 ### Cross-language benchmark suite (github.com/binate/benchmarks) — 🟢 in-flight
 
