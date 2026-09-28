@@ -97,9 +97,12 @@ The typed-constant case (`~cast(uint8, 1)`, `flags & ~FlagRead`, `cast(uint8, 1)
 No rule defined operators on typed constants (`cast(uint8, 1)` is a typed constant by
 `conv.cast.const-not-laundered`).  Decision: a typed constant behaves exactly like a value of its type —
 `x + y` must not mean something different when `x` is a typed constant rather than a typed variable.
-(The first review proposed Go's "exact result must fit the type"; rejected: Binate is not Go.)  This is
-what the compiler already does (`~cast(uint8, 1)` is 254, `cast(uint8, 1) << 8` is 0,
-`cast(uint8, 200) + cast(uint8, 100)` is 44), so it is spec text and tests only.
+(The first review proposed Go's "exact result must fit the type"; rejected: Binate is not Go.)  Only the
+**run-time** path does this today (`var a uint8 = cast(uint8, 200) + cast(uint8, 100)` is 44).  The
+compile-time evaluators fold typed constants typeless, which gives silent wrong values, an ICE, and
+valid code rejected (probed 2026-09-27; MAJOR entry "Typed-constant expressions are folded without their
+type" in `claude-todo.md`).  So this rule needs a real implementation: fold a typed-constant operator
+once in the checker at its type, and have every consumer read that value.
 
 New rule in §6.4, after `const.expr.shift`:
 
