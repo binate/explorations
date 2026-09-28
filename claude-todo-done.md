@@ -1,3 +1,13 @@
+### A REPL mid-session import registers every package it loads; unregistered generic interfaces are internal errors — DONE (binate `1ec1766ce`, 2026-09-27)
+
+A mid-session import now checks every new package before lowering any, registers the struct types,
+interfaces and generic decls of every package it loaded (directly or indirectly, incl. `expose` targets) on
+the session gen ctx (registerLoadedPkgTypes; RegisterGenericDecls now runs in the REPL too), and keeps a
+package that failed checking (or imports one that did) out of IR-gen and off the prompt (kernel.FailedPkgs,
+"package not imported … failed type-checking").  The three generic-interface misses in IR-gen are internal
+errors (panicGenericIfaceMissing).  e2e/repl.sh cases.  Remaining: the REPL's generic-body dependency
+registration (own entry).
+
 ### An untyped constant's `~`, `&`, `|`, `^` (and constant shifts) depended on a width it does not have — rule decided and implemented — DONE (docs `b1c5a66`, binate `71b184eaf`, 2026-09-27)
 
 Spec §6.4 `const.expr.bitwise` / `const.expr.shift` (user: "What should we do about unary ~? It seems like

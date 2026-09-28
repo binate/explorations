@@ -190,6 +190,29 @@ binder per type parameter, so the binders cover every position.)
 
 ## MAJOR
 
+### More declaration-order dependence (valid forward references rejected or mis-lowered) — 🔴 OPEN (found 2026-09-27, work-1, probing order dependence; pre-existing)
+
+Spec `decl.order.forward` (§9.8): declarations may appear in any order within a package.  Probed every
+kind of forward reference (types, struct fields, signatures, vars, consts, methods, impls, generics,
+constraints, array sizes, func values): all work except
+- checker: a type alias naming a LATER alias (`type A = B; type B = C; type C int`) → "cannot use an
+  opaque type by value" (dependency order, or `B = C` before `C`, works);
+- IR-gen: a global var of a later-declared interface type (`var gi *I` before `interface I`) and a type
+  alias to one (`type P = *I` before `interface I`) resolve to the `int` fallback — the var/alias types are
+  resolved in declaration order before the module's interfaces are collected → "extern not found:
+  lang.int.M" (VM) / undefined symbol (link);
+- checker: an interface alias referenced before its declaration (`func f(x *X)` before `interface X = Y`)
+  — its own entry below / conformance 1323.
+Fix: in both layers, register every type-level name (struct, alias, interface, interface alias) before
+resolving any type expression; resolve alias chains in dependency order.
+
+### `type A B` over a named scalar B rejects an untyped constant (`var a A = 2`) — 🔴 OPEN (found 2026-09-27, work-1, probing order dependence; pre-existing, NOT order-dependent)
+
+`type B int; type A B; var a A = 2` → "cannot assign untyped int to A" in either declaration order; A's
+underlying type is int (spec: a defined type's underlying type is that of its source type), so the
+untyped constant should be assignable.  Verify against the spec's defined-type / assignability rules
+before fixing.
+
 ### REPL: boxing a generic-receiver impl's instantiation at the prompt aborts — "interface vtable not found" — 🔴 OPEN (found 2026-09-27, work-1, review of the REPL mid-session registration fix; pre-existing)
 
 pkg/gcur: `type Cursor[T any] struct { v T }`, `func (c *Cursor[T]) Get() T`, `impl *Cursor[T] :
@@ -423,24 +446,16 @@ spelling; VM "extern not found: main..Area"), and one reaching another package's
 a pointer (`var g1 = geom.NewPoint(1, 2)` returning `@geom.Point` — methods resolved in this package:
 undefined `main.Point.Sum`).  Explicitly typed forms work.
 
-### REPL mid-session import doesn't register generic interfaces of the packages it loads INDIRECTLY — 🟡 IN PROGRESS (claimed 2026-09-26, work-1; found 2026-09-26, work-1; the short-alias stash-key half fixed by the identity refactor)
+### The REPL never runs the generic-body dependency registration — 🔴 OPEN (found 2026-09-27, work-1; the indirect-package type registration half landed in binate `1ec1766ce`)
 
-A package imported at the prompt now has its generic interfaces stashed under its path (the REPL's
-short-alias stash key was the other half of this entry, fixed when package identity became the path),
-so `import "pkg/gen"` + an impl of `gen.GI[int]` works.  Remaining: `RegisterAllInterfaces` /
-`RegisterGenericDecls` never run for the packages a prompt import pulls in TRANSITIVELY — e.g.
-`import "pkg/lib3"` (whose impls name pkg/other/lib's generic interface) then `lib3.AsBox(w).Get()` →
-"call of nil interface value"; it works when pkg/other/lib was imported first (and a transitively
-referenced `pkg/std/hash.Hasher` from `import "pkg/binate/irdata"` is never stashed).  The same gap
-covers TYPE ALIASES of the indirectly loaded packages: pkg/lib's `impl *home.SA : Loc` (SA an alias in
-pkg/home) keys on the alias when pkg/home was not imported at the prompt first.  Likewise the REPL
-(`pkg/binate/repl/ir_imports.bn`) never runs the generic-body dependency registration that bnc and the
-interp driver do (`registerGenericBodyExternDeps` → `irgen.RegisterGenericBodyDeps`): a prompt-level
-instantiation of `g.Outer[int]` whose body calls `h.Inner` (h never imported at the prompt) lacks h's func
-externs, consts and vars.  Fix: register the
-newly loaded packages' interfaces + generic decls into `s.MainGc` before `RegisterImportFuncSigs`; then
-the generic-interface misses in `collectImplsFromDecl` / `collectImportedImplsFromDecl` /
-`collectInterfaceParents` (TODOs naming this entry) can become internal errors.  Add an `e2e/repl.sh` case.
+bnc and the interp driver register, for every package a monomorphized generic body may reach without the
+consumer importing it, its func externs, consts and vars (`registerGenericBodyExternDeps` →
+`irgen.RegisterGenericBodyDeps`); the REPL (`pkg/binate/repl/ir_imports.bn`, initial load and mid-session
+import) never does: a prompt-level instantiation of `g.Outer[int]` whose body calls `h.Inner` (h never
+imported at the prompt) lacks h's signatures (a struct-returning call lowers as a scalar), consts and vars.
+`RegisterGenericBodyDeps` always adds extern Funcs, which the live session module must not get
+mid-session (its func index space mirrors the VM's) — it needs a signatures-only mode, as
+`RegisterImportFuncSigs` has.  Add an `e2e/repl.sh` case.
 
 ### Loud miscompiles / wrong rejections found by the forwarder audit (not forwarder-specific) — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1; agents' repros, not yet independently re-verified)
 
