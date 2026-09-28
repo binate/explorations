@@ -1,7 +1,10 @@
 # Plan: bitwise operators on untyped integer constants (`~1`, `(0 - 2) | 1`)
 
-**Status:** 🟡 spec text revision 2 + the typed-constant rule (user decision: wrap at the type) (2026-09-27); implementation done for the untyped rules; second adversarial review pending.  Tracked in `claude-todo.md`
-("Spec gap: unary `~` on an untyped integer constant is undefined").
+**Status:** 🟡 two commits, in order (user, 2026-09-27: "That order is fine").  (1) The untyped rules
+(`const.expr.bitwise`, `const.expr.shift`): implemented and unit-tested; spec text being written into
+docs.  (2) The typed-constant rule (`const.expr.typed`, wrap at the type), which needs an implementation
+(see "Typed constants" below).  Tracked in `claude-todo.md` ("Spec gap: unary `~`…" and "Typed-constant
+expressions are folded without their type").
 
 ## Problem
 
@@ -103,6 +106,14 @@ compile-time evaluators fold typed constants typeless, which gives silent wrong 
 valid code rejected (probed 2026-09-27; MAJOR entry "Typed-constant expressions are folded without their
 type" in `claude-todo.md`).  So this rule needs a real implementation: fold a typed-constant operator
 once in the checker at its type, and have every consumer read that value.
+
+User decisions (2026-09-27) for the typed rule:
+- A typed-constant signed `MIN / -1` (and `MIN % -1`) is a **compile-time error**, like a constant
+  division by zero ("I guess a compile-time error is fine").
+- `conv.cast.const-not-laundered` stays: a cast of a typed constant is still fit-checked, against the
+  constant's value at its type (`cast(int8, cast(uint8, 200) + cast(uint8, 100))` is 44, valid;
+  `cast(int8, cast(uint8, 200))` stays an error) ("I guess we can keep the exception, since it probably
+  catches real bugs").
 
 New rule in §6.4, after `const.expr.shift`:
 
