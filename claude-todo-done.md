@@ -1117,8 +1117,11 @@ Measurement (record-churn native, gen1 before/after): **−1.8% instructions ret
 N=2000; native/llvm **5.55× → 5.45×**), **−2.0% user CPU** (8 interleaved order-alternated rounds);
 checksum unchanged. Modest but real and above the noise floor — record-churn's hot path is the O(N²)
 churn loop (mix calls + stores) that T3 doesn't touch; the wins are its O(N) extract-only field-read
-loops. Conformance all green on the LANDED code: aa64 3047/0 (post-fix authoritative), x64-native
-3047/0, arm32-native 3001/0; 5 new native/common unit tests.
+loops. Conformance all green on the LANDED code: LLVM (`builder-comp`) 3047/0, x64-native 3047/0,
+arm32-native 3001/0; 5 new native/common unit tests.  CORRECTION (2026-09-27): the `builder-comp` run
+was originally reported here as the native-aa64 check, but `builder-comp` is the LLVM backend (bnc's
+default); native aa64 was covered by CI instead — `builder-comp_native_aa64-comp_native_aa64` and the
+Linux/ELF aa64 mode both passed on `dd7562825` (CI run 35679607897).
 
 **Self-compile re-check (`perf/native-vs-llvm.sh`, instructions retired — the noise-immune metric; the
 box was too loaded for user CPU, whose L time swung ~20% between identical-codegen states).** T3 is
