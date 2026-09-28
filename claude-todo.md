@@ -26,6 +26,14 @@ emitManagedValueCopyRefInc (full peel, +@Iface) — fixes the over-released read
 / @func captures; conformance 1297.
 **VM side landed (`89a56168`):** 1297 was still a use-after-free under bni after `fdd2da32` (caught by
 the normal-test exit-status check: exit 139 after correct output); with `89a56168` it exits 0.
+**🟡 IN PROGRESS (found + claimed 2026-09-27, work-5/session) — CRITICAL LEAK: releasing a managed pointer to a
+named-over-struct (`type NB Box`, `@NB`) skips the struct dtor** — irbuild `EmitManagedPtrRefDec` tests the
+UNPEELED pointee `.Kind == TYP_STRUCT`; a TYP_NAMED pointee falls through every arm to a dtor-less
+`ZeroRefDestroy(p, null)`, so the pointee's managed fields leak (Box{s @[]int}: one block per release).
+Hits every `@NB` release — scope exit, a struct field `p @NB` (struct dtor), a `@Holder` owning one,
+`box(nbValue)` — on LLVM, native and the VM (IR-level).  Value `NB` locals/fields/arrays/`@[]NB`
+elements are fine.  Found by the wrapper-peel triage (repro: rt.LiveBlocks delta 1 per release).
+Fix: peel the pointee (after the opaque-export check) before the struct arm.
 **FIXED (`c469b2fcb`): widenType keeps a wrapped wider integer left operand's type** (was TypInt —
 32-bit on arm32 — truncating `N int64` / `readonly int64` ops); unit test + conformance 1318.
 **FIXED (`7d5cc9650`): VM lowering through every wrapper** — vmUnwrapNamed (named-only) deleted,
