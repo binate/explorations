@@ -1,3 +1,14 @@
+### An assertion or boxing through an interface alias uses the aliased interface — DONE (binate `e0c676c22`, 2026-09-28, work-1)
+
+`x.(*PA)` / `case *PA:` with `interface PA = P` looked up `__ifaceid` of PA itself, which nothing
+registers under (satisfaction entries are keyed on the canonical interface): the comma-ok form returned
+false, a type switch silently took `default`, LLVM referenced an undefined symbol.  ifaceIdSymFor now
+resolves the alias chain (CanonicalIfacePkg / CanonicalIfaceName).  The review also found `interface A =
+any` never reached the universe `any` (its bare target was recorded in the alias's own package): assertions
+missed and boxing into `*A` / `@A` produced IR clang rejected — a bare target naming a universe interface
+now records package "".  Conformance 1353, 1376, 1377 + unit tests.  Still open: an alias as a generic
+type argument (1354, CRITICAL).
+
 ### `cast` between function-value types — DONE (binate `6495d342a`, 2026-09-28, work-5)
 
 An identity cast of a func value emitted `add %BnFuncValue %v, 0` (codegen emitCast did not treat function /

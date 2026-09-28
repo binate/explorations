@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### A generic interface instantiated with a type argument spelled through an interface alias is a DIFFERENT interface — silent wrong result, crash — 🔴 OPEN (found 2026-09-28, work-1, review of the instantiated interface-alias fix; upgraded to CRITICAL by the review of the alias-assertion fix; pre-existing)
+### A generic interface instantiated with a type argument spelled through an interface alias is a DIFFERENT interface — silent wrong result, crash — 🟡 IN PROGRESS (found 2026-09-28, work-1, review of the instantiated interface-alias fix; upgraded to CRITICAL by the review of the alias-assertion fix; pre-existing; claimed 2026-09-28, work-1 — user: "take on the bugs that you filed")
 
 `interface PA = P`, `impl *U : G[*P]`:
 - `a.(*G[*PA])` returns `false` where `a.(*G[*P])` returns `true` (LLVM and VM) — silent wrong result;
@@ -20,14 +20,6 @@ through pointer / managed wrappers) before the instance is named — ensureInsta
 instantiationMangledName, and the same for generic structs and functions if their instances are keyed the
 same way.  Covered by conformance 1354_generic_type_arg_iface_alias (xfail.all, binate `f0fc356bd`); add
 the assertion and the method-call-through-the-value cases.
-
-### A type assertion / type switch to an interface ALIAS misses the aliased interface — silent wrong result — 🟡 IN PROGRESS (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing; claimed 2026-09-28, work-1 — user: "take on the bugs that you filed")
-
-`interface PA = P` (any alias, generic or not): `a.(*PA)` returns ok=false in the VM and `case *PA:`
-silently takes `default`; LLVM references an undefined `__ifaceid.…_PA` symbol (link error).  The
-assertion / switch keys on the alias's own identity instead of canonicalizing it to the aliased interface
-(canonicalIfacePkg / canonicalIfaceName) before the satisfaction lookup / iface-id reference.  Covered
-by conformance 1353_iface_alias_type_assert (xfail.all, binate `f0fc356bd`).
 
 ### Type-wrapper peel bug cluster (named / alias / readonly handled inconsistently across IR-gen, the VM lowering, codegen, and the checker) — silent wrong values, memory corruption, use-after-free — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-26, work-5/session — user: "take on the critical, then the majors")
 
