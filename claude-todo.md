@@ -176,7 +176,7 @@ emitManagedValueCopyRefInc, which peels fully and handles @Iface).
   (`gen_iface_registry.bn` ~:72 handles only `TEXPR_NAMED`) → `g.get()` prints 0 in the VM, compiled
   ICEs.  The EBNF allows `interface X = TypeName[..]`; implement the `TEXPR_INSTANTIATE` case.
 
-### A generic struct's parameter name shadows a same-named package type in its methods — silent wrong code — 🔴 OPEN (found 2026-09-27, work-1, review of the parameterized-impl row fix; pre-existing)
+### A generic struct's parameter name shadows a same-named package type in its methods — silent wrong code — 🟡 IN PROGRESS (found 2026-09-27, work-1, review of the parameterized-impl row fix; pre-existing; claimed 2026-09-27, work-6/session — user: "look through the todos and claim one (probably a critical one)")
 
 `type K struct{n, m int}; type Box[K any] struct{v K}; func (b *Box[U]) Get() K {…}` — in the method,
 `K` is the package type (the receiver binder is U), but `emitInstantiatedMethod` binds the struct's
