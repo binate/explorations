@@ -223,9 +223,10 @@ parser + golden lines from clang.
 
 **Progress (work-2):** family by family, one reviewed commit each.  (1) exclusive / ordered loads and
 stores — LDXR…STLXP, LDAR/STLR, LDLAR/STLLR, LDAPR, LDAPUR/STLUR incl. the RCPC3 SIMD&FP forms — landed
-`920be83aa` (2026-09-27; LDXP/LDAXP Rt == Rt2 deliberately rejected, unlike clang).  **Also in scope (found while doing (1)):** the rest of FEAT_LRCPC3 — LDIAPP / STILP, LDAPR
-post-index, STLR pre-index (next commit) and LDAP1 / STL1 (with the NEON text-syntax family, which adds the
-`{v0.d}[1]` lane syntax).
+`920be83aa` (2026-09-27; LDXP/LDAXP Rt == Rt2 deliberately rejected, unlike clang).  (2) the rest of FEAT_LRCPC3's loads/stores — LDIAPP / STILP,
+LDAPR post-index, STLR pre-index — landed `898eb3d59` (2026-09-27; the CONSTRAINED UNPREDICTABLE register
+overlaps deliberately rejected, unlike clang).  **Still in scope:** LDAP1 / STL1 (FEAT_LRCPC3), with the
+NEON text-syntax family, which adds the `{v0.d}[1]` lane syntax.
 
 ### Assigning `nil` to an `@func` holding a capturing closure clears only the fn word — double free (compiled backends) — 🔴 OPEN (found 2026-09-26)
 
