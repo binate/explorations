@@ -163,6 +163,34 @@ binder per type parameter, so the binders cover every position.)
 
 ## MAJOR
 
+### Typed-constant expressions are folded without their type — silent wrong values, a compiler ICE, valid code rejected — 🔴 OPEN (found 2026-09-27, work-4, verifying the typed-constant rule for the untyped-bitwise spec change; pre-existing)
+
+The user decided (2026-09-27) that an operator on **typed** integer constants behaves exactly as on values
+of that type (it wraps at the type; see [plan-untyped-bitwise-constants.md](plan-untyped-bitwise-constants.md),
+rule `const.expr.typed`).  Only the runtime path does that today (`var a uint8 = cast(uint8, 200) +
+cast(uint8, 100)` is 44).  Every compile-time evaluator folds the expression typeless:
+`check/evalConstIntValue` (host `int`; array dims, shift counts), `check/foldConstNum` (exact bignum;
+the cast fit check), and `irgen/evalConstExpr` (host `int`; const decls without a checker stamp).
+Repros (probed with the current compiler):
+- `const Z uint8 = cast(uint8, 1) / cast(uint8, 0)` compiles and reads **0**. The spec requires a
+  compile-time error (`expr.arith.divzero`), and the non-constant form panics at run time.
+  `evalConstExpr` returns `!ok` on the zero divisor and `genConst` stores the fallback value. **Silent wrong value.**
+- `var arr [cast(uint8, 200) + cast(uint8, 100)]int` has `len` **300**; `const X uint8` with the same
+  initializer reads 44.  **Silent wrong value** (and the two disagree).
+- `const M int8 = -cast(int8, -128)` and `const Y int8 = cast(int8, -128) / cast(int8, -1)` panic the
+  compiler: "const value overflows its signed target type -- the type-checker fit gate … was bypassed".
+  `evalConstExpr` folds 128 and `genConst`'s guard catches it.  **ICE.** (`var a int8 = -cast(int8, -128)` is
+  -128; the `/` form panics at run time, `expr.arith.minover`.)
+- `cast(int8, cast(uint8, 200) + cast(uint8, 100))` is rejected ("constant does not fit"). `foldConstNum`
+  fit-checks 300, not the value 44.  **Valid code rejected.**
+
+Proposed fix: fold a typed-constant operator once, in the checker, at its type: wrap to `T`, and make a
+zero divisor a compile-time error. Stamp the result on the expression, and have every consumer (array
+dims, shift counts, the cast fit check, `genConst`, `evalConstExpr`) read the stamp rather than re-fold
+typeless.  Open semantic question for the user: typed-constant signed `MIN / -1` (compile-time error, like
+a constant divide by zero, or the run-time `minover` panic).  No test covers this yet; the fix adds spec
+conformance tests for each repro.
+
 ### An interface alias named as a parent breaks the upcast — runtime panic / compiler ICE — 🔴 OPEN (found 2026-09-27, work-1, review of the checker forward-parent fix; pre-existing)
 
 `interface Y {…}; interface X = Y; interface A : X {…}` then `var x *X = a` (a `*A`): the checker
