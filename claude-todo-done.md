@@ -1,3 +1,8 @@
+### A struct literal omitting a struct-typed field failed to compile (from "Bugs found reviewing the identity refactor") — DONE (binate `901b85e17`, 2026-09-28, work-5)
+
+Fixed by the omitted-field zero-value change (emitZeroValue), which covers struct, array, float, func-value and
+iface-value fields and every named / readonly wrapper; conformance 1364.
+
 ### Indexing an array reached through a field or deref of a call evaluated the call twice — ✅ DONE (2026-09-28, binate `b24497e02`)
 
 genIndex indexes an array with storage in place (gen_array_base.bn: address first, then index via genIntOperand,

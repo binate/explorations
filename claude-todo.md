@@ -110,6 +110,15 @@ array-returning-call operands in every mode.
 
 ## MAJOR
 
+### A deferred method call on a generic instantiation or an imported type panics — "defer of an unresolved method call" — 🔴 OPEN (found 2026-09-28, work-5, review of the defer named-receiver fix; pre-existing)
+
+`var b @Box[int]; defer b.Get()` and `var sb @strings.Builder; defer sb.WriteByte(…)` panic "defer of an
+unresolved method call" on every backend; the direct calls work.  buildDeferMethod (gen_defer_build.bn)
+names the method from the receiver's CHECKER type (baseNamedTypeName → buildMethodQualName), which carries
+the checker's raw instantiation spelling / unqualified imported name, while a direct method call names it
+from the receiver's IR-gen value type.  Fix: resolve the receiver's IR-gen type the way the direct call /
+method-value paths do (cf. methodValueRecvIRType) instead of the checker type.
+
 ### Importing one package twice (a blank import plus a named one, or two aliases) makes the LLVM backend emit its externs twice — clang rejects — 🔴 OPEN (found 2026-09-28, work-6, probe during the blank-identifier review; reproduced by the prober; pre-existing)
 
 `import _ "pkg/qa"` + `import q "pkg/qa"` (or two aliases of one path): every extern of pkg/qa is
@@ -554,10 +563,6 @@ on `_` fields in the blank-identifier entry).
   interface (`@gen.Holder[int]`), or on a non-main package's own interface still misses ("defer of an
   unresolved interface method").  Fix: carry the full path (the checker's interface types, or compute the
   identity from the receiver's IR type as `genInterfaceMethodCall` does).
-- **A struct literal omitting a struct-typed field fails to compile:** `gen_composite.bn` ~:105-108
-  emits `EmitConstInt(0, structType)`, so `Plain{V: 1}` with an unset field `O T` → LLVM "integer
-  constant must have integer type", VM SIGSEGV.  (The entry on unset pointer/slice fields does not cover
-  struct-typed ones.)
 - **An imported generic FUNCTION can't be called at the REPL prompt:** "extern not found:
   <pkg>.F__bn_inst__…", whether the fixture imports the package or it is imported mid-session.
 
