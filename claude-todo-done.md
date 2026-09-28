@@ -1,3 +1,19 @@
+### Duplicate type-parameter names rejected; a declared `_` type parameter is unnamed — ✅ LANDED ecbc5874a (+ spec docs faa3b5e) (2026-09-28), work-6
+
+CRITICAL: `func pick[T any, T any](x T) T` / `type Dup[T any, T any]` / `interface Two[X any, X any]` were
+accepted; the checker bound the LAST position, IR-gen the FIRST, so they disagreed on every use — invalid
+LLVM IR (clang rejects), and on native a program that compiled then segfaulted.  Now rejected ("type
+parameter name T declared more than once") for generic functions, types and interfaces — including a
+generic interface in the package's own .bni (the review found that path skipped the check and
+miscompiled: the check now runs before stashGenericIfaceDecl's already-stashed early return).  Per the
+user ("_ in type-parameter lists should be accepted (as unnamed)"), a declared `_` parameter binds its
+position without naming it: skipped by the checker's signature scope, body pass, populate / constraint
+scopes and the receiver-constraint scope, and by IR-gen's new declTypeParamBinding (replacing three
+copies of the binding loop).  Spec §12 `gen.typeparams` updated.  Tests: conformance 1356 (blank
+parameters on a function, type, interface), 1357 (duplicates rejected), 1358 (`_` as a type rejected at
+five sites), 1359 (duplicates in an imported .bni).  Filed from the review: uninstantiated generic types /
+interfaces are never checked (MAJOR).
+
 ### A REPL top-level `var` initialized with a raw-slice literal viewed the var-init function's stack — DONE (binate `19edbe22b`, 2026-09-28, work-5)
 
 `var g *[]readonly int = *[]readonly int{1, 2, 3}` at the prompt read `2 55801020784 2`.  irgen.GenGlobalInitFunc

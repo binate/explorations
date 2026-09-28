@@ -128,21 +128,6 @@ fixed rows are in claude-todo-done.md.
   - [minor] `readonly_uninit.bn:27` lintUninitReadonlyGlobal — wrapper: alias of readonly (`type RO = readonly int — Lint false negative: an uninitialized file-scope global of an alias-of-readonly type is not flagged, though the checker rejects every write to it (IsReadonly peels the alias), so it is zero forever.
 ```
 
-### Duplicate type-parameter names in a generic function / type declaration are accepted — native miscompile (segfault), invalid LLVM IR — 🟡 IN PROGRESS (found 2026-09-27, work-6, review of the receiver-binder change; reproduced; pre-existing; claimed 2026-09-28, work-6/session)
-
-`func pick[T any, T any](x T) T` called as `pick[int8, S](s)`, and `type Dup[T any, T any] struct{x T; …}`
-used as `Dup[int8, S]`, are accepted.  The checker's scope keeps the LAST binding (`Scope.Define`
-overwrites: T = position 1) while IR-gen's substitution takes the FIRST match in
-`CurrentTypeParamNames` (T = position 0), so the two disagree on every use of T.  LLVM backend: invalid
-IR (`sext i8 to %S`), clang rejects.  Native (aarch64): compiles, then SIGSEGV at run time (repro: the
-two decls above, printing fields of the result).  Several `_` parameters (`func f[_ any, _ any]`) are the
-same shape.  Fix: reject a type-parameter name declared twice (installTypeParamScope, and the collection
-of generic type / interface declarations), as receiver binders now do.  **Decided (2026-09-28, user):**
-"_ in type-parameter lists should be accepted (as unnamed)" — a declared `_` type parameter binds its
-position without naming it (so `func id[_ any](x _) _` is rejected: `_` is not a type there), and any
-number of positions may be `_`, matching receiver binders.  Today `_` is an ordinary name in a declared
-list (`func id[_ any](x _) _ { var y _ = x; return y }` compiles).
-
 ## MAJOR
 
 ### An interface-typed global declared in a `.bni` lowers as `int` in importers — 🔴 OPEN (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing)
