@@ -150,7 +150,23 @@ the `CurrentImportPkg` fallback, and `gen_iface.bn` ~:79/154 checks `gc.PkgPath`
 return t.X }`; main defines its own `T{Q, R, X}`; `g.Get[int](0, g.T{X: 3})` → 0 in the VM, SIGSEGV on
 LLVM.  Same for interfaces (VM "target vtable not found"; bnc ICE "negative vtable slot offset").
 Fix: inside a body with `CurrentImportPkg` set, resolve a bare name in THAT package first (only fall
-back to the module when the defining package has no such name).
+back to the module when the defining package has no such name).  The parameterized-impl row minting
+(`mintGenericImplRows`, which resolves an impl's interface args with `CurrentImportPkg` = the impl's
+package) hits the same precedence: pkg/home has `type Tag` and `impl *Box[T] : GT[Tag]`; main defines
+its own `Tag` and boxes a `home.Box[int]` into `*any` → `a.(*home.GT[Tag])` (main's Tag) is TRUE —
+a wrong satisfaction row.  Add that as a test with the fix.
+
+### A generic struct's parameter name shadows a same-named package type in its methods — silent wrong code — 🔴 OPEN (found 2026-09-27, work-1, review of the parameterized-impl row fix; pre-existing)
+
+`type K struct{n, m int}; type Box[K any] struct{v K}; func (b *Box[U]) Get() K {…}` — in the method,
+`K` is the package type (the receiver binder is U), but `emitInstantiatedMethod` binds the struct's
+own parameter names as a fallback after the receiver binders, so `K` resolves to the type argument:
+`Box[int]{…}.Get()` returns 0s when compiled, garbage through `*GI[K]`, SIGSEGV in the VM.  Covered by
+conformance 1311_generic_method_param_name_shadows_type (xfail.all; not yet landed).  Fix: bind only
+the receiver binders when resolving the method's signature/body; struct FIELD types (declared in the
+struct's parameter names) must resolve under the struct's own binding, separately.  (The
+parameterized-impl row minting had the same fallback and dropped it: the checker requires one plain
+binder per type parameter, so the binders cover every position.)
 
 ## MAJOR
 
