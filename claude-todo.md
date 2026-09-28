@@ -48,6 +48,12 @@ critical and the check_expr.bn:52 alias-of-named major below.
 composite field + array/slice literal elements / array & slice elements / pointer targets / multi-assign
 / cast, through named / readonly wrappers), plus the raw `*T` multi-assign leak found by its review;
 conformance 1302.
+**Still corrupting the heap on the compiled backends (found 2026-09-28, claude/exciting-davinci-wahyt2
+session; main `0cd45ca6`):** 1302 prints three lines, then glibc aborts (`malloc.c:2599 (sysmalloc):
+assertion failed …`, exit 134) — on x86-64 with both `--backend native` and llvm (builder-comp and
+builder-comp_native_x64 conformance FAIL on the new exit-status check); the VM passes. Consistent
+with a store position still writing a 4-word managed slice into a 2-word raw-slice slot. Needs
+valgrind on the compiled binary to find the statement.
 **FIXED (`19772cd6b`) — the two items below: the lifted closure body now does the caller's acquire
 for @Iface / managed-aggregate capture params on each call, and closure creation copies an aggregate
 capture in (conformance 1299).**
