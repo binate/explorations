@@ -1333,19 +1333,15 @@ resolving.  Every non-BUILDER-tree consumer already imports the new paths.  Rema
 
 ## Documentation hygiene
 
-### ABI spec §5.2 — package-path validation now ENFORCED; update the "unvalidated" text — 🟡 IN PROGRESS (2026-09-07; claimed 2026-09-27, work-3/session)
+### Language spec doesn't state the package-path syntax the toolchain enforces — 🟢 minor, needs a decision (found 2026-09-27, work-3)
 
-`docs/abi/05-symbol-naming.md` §5.2 records package paths as "currently
-**unvalidated** (an out-of-set byte, or a `.`, would leak into symbols ...) — a
-recorded enforcement gap". That gap is now closed: `mangle.IsValidPackagePath`
-plus loader enforcement (`loadPackage`) reject any package path that is not a
-`/`-separated sequence of NON-EMPTY `[A-Za-z0-9_]` segments — a hostile path
-(e.g. an aliased `import "ev.il"`) now fails with a clean "invalid package path"
-error instead of an undefined-symbol clang failure (was ABI review #12). Update
-§5.2 to state the rule is enforced (drop the "enforcement gap" framing) and note
-the non-empty-segment requirement, which is slightly stricter than the raw
-length-prefix grammar (whose `Ident` could encode a 0-length segment). Re-check
-§5.5 wording for the now-closed discriminator hazard.
+§16.2/§16.3 define a package path only as a `string_literal` (the package clause / import path), but
+the loader rejects any path that is not a `/`-separated sequence of non-empty `[A-Za-z0-9_]` segments
+("invalid package path …", `pkg/binate/loader/loader_load.bn` via `mangle.IsValidPackagePath`) — so
+`package "ev.il"` is a user-visible compile error the language spec never mentions (the ABI spec,
+§5.2, now documents it).  Decide whether the language spec should state the rule (a new constraint
+rule-ID in §16.2, e.g. `pkg.clause.path`, with an `.error` conformance test) — it is a language-level
+restriction, so it's the user's call, not a doc tidy-up.
 
 ### ABI spec — first version AUTHORED (docs 2fc2b2e); follow-up decisions open — 🟡 (2026-09-04)
 

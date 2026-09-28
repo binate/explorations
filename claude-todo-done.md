@@ -1,3 +1,13 @@
+### ABI spec §5.2 — package-path validation is enforced; "unvalidated" wording dropped — ✅ LANDED docs e1e0ed4 (2026-09-27), work-3
+
+`docs/abi/05-symbol-naming.md` §5.2 now states the enforced rule (every loaded package's path is a
+`/`-separated sequence of NON-EMPTY `[A-Za-z0-9_]` segments, rejected with an error before the mangler
+otherwise — `mangle.IsValidPackagePath` at the loader's `loadPackage` chokepoint), notes it is slightly
+stricter than the `PkgPath` production (0-length segment) and distinct from the 0-SEGMENT path of a
+primitive leaf (`N0_3_int`), and §5.5 now says why the `.` discriminator is sound (a mangled core never
+contains one).  A docs-wide grep found no other mention of the old gap.  Finding: the LANGUAGE spec
+(§16.2 package clause) never states this path restriction — filed in `claude-todo.md` for a decision.
+
 ### LLVM `cast` of an array emitted `add [4 x i8] %v, 0` — ✅ LANDED 89be70e05 (+ xfail test 3e3aea249) (2026-09-27), work-3
 
 `cast([4]uint8, a)` for `a [4]int8` (a container retype, §8.5 `conv.cast.aggregate-retype`) reached
