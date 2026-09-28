@@ -104,7 +104,7 @@ array-returning-call operands in every mode.
 deduplicate import registration / extern declarations by package path, not per import alias.  Needs a
 positive conformance test with blank+named and two-alias imports of one package.
 
-### `bnfmt` silently DELETES every `defer` statement — 🔴 OPEN (found 2026-09-28, work-3, fixed-/tmp test sweep)
+### `bnfmt` silently DELETES every `defer` statement — 🟡 IN PROGRESS (found 2026-09-28, work-3, fixed-/tmp test sweep; claimed 2026-09-28, work-3/session)
 
 `bnfmt -w` on a file containing `defer f()` rewrites that line to an empty line — the statement is gone, a
 silent semantic change.  Both the tree's bnfmt and the pinned CHECK_TOOLS bnfmt (bnc-0.0.16, used by the
