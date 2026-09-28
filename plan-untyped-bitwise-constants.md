@@ -1,6 +1,6 @@
 # Plan: bitwise operators on untyped integer constants (`~1`, `(0 - 2) | 1`)
 
-**Status:** 🟡 spec text drafted, adversarial review pending (2026-09-27).  Tracked in `claude-todo.md`
+**Status:** 🟡 spec text revision 2 after the first adversarial review (2026-09-27); implementation done for the untyped rules; the typed-constant question awaits the owner.  Tracked in `claude-todo.md`
 ("Spec gap: unary `~` on an untyped integer constant is undefined").
 
 ## Problem
@@ -18,48 +18,90 @@ extension — `~x` is `-x-1`), "and `&` and `^` the same way": every untyped con
 width-independent value.  (`|` and constant shifts of a negative value follow from the same model and
 are included; an `&^` operator is NOT part of this change.)
 
-## Proposed spec text
+## Proposed spec text (revision 2, after the first adversarial review)
 
-New rule in §6.4, after `const.expr.signedness`:
+New rules in §6.4, after `const.expr.signedness`:
 
-`const.expr.bitwise` — The bitwise operators `~`, `&`, `|`, and `^` on untyped integer constants act on
-each constant's **two's-complement representation extended infinitely to the left**: a non-negative
-value has infinitely many leading `0` bits, a negative value infinitely many leading `1` bits. Each
-result is therefore an exact integer that depends on no width: `~x` is `-x - 1`, and `a & b`, `a | b`,
-`a ^ b` combine the two representations bit by bit. A constant shift of a negative value is exact in
-the same way: `x << k` is `x·2^k`, and `x >> k` is `⌊x / 2^k⌋` (the sign fills in). As for every
-constant operation, a result outside the union range is rejected (`const.expr.precision`); of the
-bitwise operators only `~x` for `x ≥ 2^63` and `^` of a value `≥ 2^63` with a negative value can leave
-it. The value then fits a type, or does not, like any other constant (`const.expr.fit`).
+`const.expr.bitwise` — The bitwise operators `~`, `&`, `|`, and `^` on **untyped** integer constants
+act on each constant's **two's-complement representation extended infinitely to the left**: a
+non-negative value has infinitely many leading `0` bits, a negative value infinitely many leading `1`
+bits. Each result is therefore an exact integer that depends on no width: `~x` is `-x - 1`, and
+`a & b`, `a | b`, `a ^ b` combine the two representations bit by bit. As for every constant operation,
+a result outside the union range is rejected (`const.expr.precision`); the value then fits a type, or
+does not, like any other constant (`const.expr.fit`).
+
+`const.expr.shift` — A shift that is a constant expression (both operands constants, §13.5
+`expr.shift.untyped-value`) with an **untyped** value `x` and a count `k` (a negative constant count is
+an error, `expr.shift.negative`) is exact for every `x` of either sign: `x << k` is `x·2^k`, and
+`x >> k` is `⌊x / 2^k⌋` (rounded toward −∞, so the sign fills in). The value has no width, so
+`expr.shift.overshift` does not apply: for a large `k`, `x >> k` is `0` when `x ≥ 0` and `-1` when
+`x < 0`, and `0 << k` is `0`; any other result outside the union range is rejected — `1 << 64` is an
+error, not `0`.
 
 ```
 ~1                            -> -2
-~(0 - 1)                      -> 0
-(0 - 2) | 1                   -> -1
-(0 - 2) & 0xFF                -> 254
-(0 - 2) ^ 3                   -> -3
+~-1                           -> 0
+-2 | 1                        -> -1
+-2 & 0xFF                     -> 254
+-2 ^ 3                        -> -3
 0xFFFFFFFFFFFFFFFF & ~1       -> 2^64 - 2       (fits uint64)
-(0 - 1) << 3                  -> -8
-(0 - 16) >> 2                 -> -4
+-1 << 3                       -> -8
+-1 << 63                      -> -2^63
+-16 >> 2                      -> -4
+-3 >> 1                       -> -2             (rounded toward −∞)
+-1 >> 1000                    -> -1
 ~0xFFFFFFFFFFFFFFFF           -> -2^64          (rejected: outside the union range)
-0xFFFFFFFFFFFFFFFF ^ (0 - 1)  -> -2^64          (rejected)
-var v uint8 = (0 - 2) | 1     -> error: -1 does not fit uint8
+0xFFFFFFFFFFFFFFFF ^ -1       -> -2^64          (rejected)
+1 << 64                       -> 2^64           (rejected)
+var v uint8 = -2 | 1          -> error: -1 does not fit uint8
 ```
 
-> _Note._ A complemented mask for a narrow type is typically written with a typed constant: with
-> `x uint8`, `x & ~1` is an error (`~1` is -2, which does not fit `uint8`); `x & ~cast(uint8, 1)` takes
-> the complement at `uint8` (`expr.bitwise`) and is `x & 254`, as is `x & 0xFE`.
+> _Note._ Of the bitwise operators, `~x` for `x ≥ 2^63` and `^` of a value `≥ 2^63` with a negative
+> value — these, and only these — leave the union range (always, landing in `[-2^64, -2^63-1]`); `&` and
+> `|` of in-range values stay in range.
 
-Cross-reference in §13.5 `expr.bitwise`: "… (`~` of a `uint8` is an 8-bit result); on untyped
-constants the bitwise operators are exact, §6.4 `const.expr.bitwise`."
+> _Note._ Because an untyped constant keeps its exact value until it is typed, a complemented untyped
+> mask does not fit an unsigned type: with `x` of any unsigned type, `x & ~1` is an error (`~1` is -2),
+> and so are `var u uint8 = ~1`, `const C uint8 = ~1`, `Mask uint8 = ~(1 << iota)`, and
+> `(1 << n) & ~1` in a `uint8` context (`~1` is its maximal constant subexpression, §13.5
+> `expr.shift.untyped-value.typing`). Write the mask directly (`x & 0xFE`). By contrast
+> `m & ~(1 << n)` is valid at `m`'s type: `1 << n` is not a constant, so its `~` is taken at the type
+> the expression acquires.
+
+Cross-reference in §13.5 `expr.bitwise`: "… (`~` of a `uint8` is an 8-bit result). On an untyped
+constant the bitwise operators act on its width-independent value (§6.4 `const.expr.bitwise`) —
+`var u uint8 = ~1` is an error, not 254; on an untyped non-constant integer expression they act at the
+type it acquires (`expr.shift.untyped-value.typing`)."  Chapter 6's intro gains "bitwise and shift" in
+its list of what §6.4 covers.
+
+**Open (owner decision):** the typed-constant case — `~cast(uint8, 1)`, `flags & ~FlagRead` with a
+typed `Flags` constant, `cast(uint8, 1) << 8` — is not specified anywhere (no rule defines operators on
+typed constants); see "Typed constants" below.
 
 ## Behavior changes vs the current implementation
 
-- `&`, `|`, `^`, `<<` with a negative untyped constant operand fold exactly (were deferred, so their
-  results were never fit-checked): code that relied on the silent truncation — `var v uint8 = (0 - 2) |
-  1` — becomes a compile error.  `(0 - 2) & 0xFF` and other in-range results are unchanged.
-- `~0xFFFFFFFFFFFFFFFF` (and `~x` for any `x >= 2^63`) becomes a range error (the checker kept the
-  un-complemented value there).
+- `&`, `|`, `^`, `<<` with a negative untyped constant operand fold exactly (were deferred, so the
+  results were never fit-checked): code relying on the silent truncation — `var v uint8 = -2 | 1`
+  (compiled to 255) — becomes a compile error.  In-range results (`-2 & 0xFF`) are unchanged.
+- New range errors: `^` of a value `>= 2^63` with a negative value (`0xFFFFFFFFFFFFFFFF ^ -1`, 0 at
+  uint64 width before), a negative left shift out of range (`-1 << 64`), and a constant `x << k` with
+  `k >= 64` and `x != 0` (`1 << 64`, previously unfolded and 0).
+- **Wrong-code bug fixed:** `~x` for `x >= 2^63` kept the un-complemented value, so
+  `var v uint64 = ~0xFFFFFFFFFFFFFFFF` compiled to 2^64-1; it is now a range error.
+- `>>` of a negative constant already rounded toward −∞; unchanged.
+- Audit (2026-09-27): all toolchain commands and the 1885 single-file conformance programs compile
+  identically (host and arm32) — nothing relied on the silent truncation.
+
+## Typed constants (open — owner decision)
+
+No rule defines operators on typed constants (`cast(uint8, 1)` is a typed constant by
+`conv.cast.const-not-laundered`).  Today the checker does not fold them and IR-gen computes them at the
+type (`~cast(uint8, 1)` is 254, `cast(uint8, 1) << 8` is 0, `cast(uint8, 200) + cast(uint8, 100)` wraps
+to 44).  The reviewer's proposal (Go's rule): an operator on typed constants of type `T` yields a
+constant of type `T` whose value is the exact result and must fit `T` (`const.expr.fit`) — so
+`cast(uint8, 1) << 8` and `cast(uint8, 200) + cast(uint8, 100)` are errors — except `~x`, taken at
+`T`'s width (`2^n - 1 - x` for an `n`-bit unsigned `T`, `-x - 1` for a signed `T`), which keeps
+`flags & ~FlagRead` working.
 
 ## Implementation sketch
 
