@@ -52,8 +52,10 @@ conformance 1302.
 session; main `0cd45ca6`):** 1302 prints three lines, then glibc aborts (`malloc.c:2599 (sysmalloc):
 assertion failed …`, exit 134) — on x86-64 with both `--backend native` and llvm (builder-comp and
 builder-comp_native_x64 conformance FAIL on the new exit-status check); the VM passes. Consistent
-with a store position still writing a 4-word managed slice into a 2-word raw-slice slot. Needs
-valgrind on the compiled binary to find the statement.
+with a store position still writing a 4-word managed slice into a 2-word raw-slice slot. valgrind
+(llvm -g): `Invalid write of size 8 … 0 bytes after a block of size 48` from `rt.MakeManagedSlice` at
+1302 line 89, `var ls @[]*[]int = @[]*[]int{mb, m}` — the elements of a MANAGED-slice literal of raw
+slices are not decayed (the fixed-array literal on line 88 is fine).
 **FIXED (`19772cd6b`) — the two items below: the lifted closure body now does the caller's acquire
 for @Iface / managed-aggregate capture params on each call, and closure creation copies an aggregate
 capture in (conformance 1299).**
