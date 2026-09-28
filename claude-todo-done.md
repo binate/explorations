@@ -1,3 +1,22 @@
+### Type-wrapper peel cluster — more rows fixed / verified fixed — DONE (binate `901b85e17`, `ba4043497`, 2026-09-28, work-5)
+
+`901b85e17`: an omitted struct-literal field gets its type's zero value (emitZeroValue) — omitting a float,
+struct, array, func-value or iface-value field, or any named / readonly pointer or slice field, was invalid IR
+on LLVM / native.  `ba4043497`: a narrower-than-int index, slice bound or make_slice length is converted to int
+(genIntOperand).  Re-checked on main 2026-09-28 and found already fixed: the named raw-slice cast target,
+the aggregate identity cast, the checker's readonly-source / readonly-collection / readonly-pointer-handle
+rejections, and a method call on a cast to readonly `@T` (review item (b)).
+
+```
+  - [major] `gen_composite.bn:105` genCompositeLit — wrapper: named or readonly pointer/slice/managed-ptr/func-value fields (`b RBuf`, `p P` where `type — An omitted field of these types is zero-initialized with EmitConstInt(0, fieldType) instead of EmitConstNil.  → FIXED `901b85e17` (conformance 1364)
+  - [major] `gen_builtin.bn:424` genCastValueConversion — wrapper: named raw-slice cast target (`type RBuf *[]int`) — `cast(RBuf, m)` with m @[]int misses the managed->raw arm.  → verified fixed on main 2026-09-28 (the cast arm of `d676ebc80`)
+  - [major] `gen_access.bn:47` genBoundsCheck / genIndex / genIndexPtr — wrapper: none needed: any sub-int index (`uint8`, `int8`, named or readonly variants all behave the — Indexing a slice or array with a narrow-integer index (valid per spec expr.index, 'by an integer i') produces invalid LLVM IR: `icmp slt i64 %v5, 0` where %v5 is i8.  → FIXED `ba4043497` (conformance 1365; also slice bounds and make_slice length)
+  - [major] `emit_cast.bn:338` emitCast — wrapper: none needed — A cast between same-layout AGGREGATE types that reaches the identity fallback emits `add <aggregate> %v, 0`, which is invalid LLVM; native and VM are fine.  → verified fixed on main 2026-09-28 (`89be70e05`)
+  - [major] `types_assignable.bn:167` AssignableTo — wrapper: outer readonly source (`readonly @T`, `readonly @[]T`, `readonly @func`, typically a reado — Valid code is rejected.  → verified fixed on main 2026-09-28
+  - [major] `check_builtin.bn:312` checkBuiltinCall — wrapper: outer readonly collection (`readonly @[]int` param), named-distinct slice/array (`type Buf — Valid code is rejected.  → verified fixed on main 2026-09-28
+  - [major] `check_expr_access.bn:367` checkSelectorExpr — wrapper: outer readonly on a pointer handle (`readonly *S`, `readonly @S`, e.g. a readonly param) — Valid code is rejected.  → verified fixed on main 2026-09-28
+```
+
 ### fmt: auxiliary `*any` classifiers matched char-slices by exact spelling (named / `readonly` blind) — ✅ LANDED e8e1d7af9 + 01fc10102 (2026-09-28), work-3
 
 `e8e1d7af9`: one helper, `stringOperand`, classifies a string operand by its dynamic type's reflected kind

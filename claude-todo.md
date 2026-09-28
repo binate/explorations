@@ -96,9 +96,8 @@ miscompile found):
 **Open, found by the VM-lowering fix's review (pre-existing, all backends):** (a) `cast(RH, H{n: 3, m:
 4})` of a struct composite LITERAL to a named-over-readonly struct (`type RH readonly H`) panics
 "cast between mismatched aggregate/scalar shapes reached codegen" (casting an `H` variable works);
-(b) with `type RMB readonly @Base`, a method call directly on a cast result — `cast(@Base, r).A()` —
-resolves an empty receiver name ("extern not found: main..A" on the VM; undefined
-`_bn_F1_4_main2_0_1_A` at link).  (Also seen: `cast(RFn, f)` for `type RFn readonly *func(int) int`
+((b), a method call directly on a cast to a readonly `@T`, is fixed on main — verified 2026-09-28 after
+`1a3bec4d7`.)  (Also seen: `cast(RFn, f)` for `type RFn readonly *func(int) int`
 emits `add %BnFuncValue` on LLVM — the emit_cast.bn:75 func-value identity item below.)
 
 **Sweep (2026-09-26):** auditors over check+lint, IR-gen (first two thirds of the files), and the VM
@@ -108,22 +107,15 @@ wrapper (plain types) — marked "wrapper: none needed".  The rows below are the
 fixed rows are in claude-todo-done.md.
 
 ```
-=== irgen (5 open)
-  - [major] `gen_composite.bn:105` genCompositeLit — wrapper: named or readonly pointer/slice/managed-ptr/func-value fields (`b RBuf`, `p P` where `type — An omitted field of these types is zero-initialized with EmitConstInt(0, fieldType) instead of EmitConstNil.
-  - [major] `gen_builtin.bn:424` genCastValueConversion — wrapper: named raw-slice cast target (`type RBuf *[]int`) — `cast(RBuf, m)` with m @[]int misses the managed->raw arm.
+=== irgen (2 open)
   - [major] `gen_defer_build.bn:185` deferMethodRecvType / buildDeferMethod — wrapper: named-distinct receiver: named scalar `type Money int`, named-over-struct `type NP Pt` (an — `defer m.Show()` looks up `int.Show` / `Pt.Show2` instead of `Money.Show` / `NP.Show2`, and IR-gen panics.
-  - [major] `gen_access.bn:47` genBoundsCheck / genIndex / genIndexPtr — wrapper: none needed: any sub-int index (`uint8`, `int8`, named or readonly variants all behave the — Indexing a slice or array with a narrow-integer index (valid per spec expr.index, 'by an integer i') produces invalid LLVM IR: `icmp slt i64 %v5, 0` where %v5 is i8.
   - [nit] `gen_expr.bn:302` genUnary — wrapper: untyped negated operand whose checker-resolved type is readonly int8 / alias-of-readonly / — Contributing site of KNOWN issue (1), reported only so the fix covers it: for `-C` / `-100` with a wrapped resolved type negTyp falls to TypInt, so OP_NEG is emitted at i64 (`sub i64 0, %v0`) and correctness relies entirely on the
-=== codegen (2 open)
-  - [major] `emit_cast.bn:338` emitCast — wrapper: none needed — A cast between same-layout AGGREGATE types that reaches the identity fallback emits `add <aggregate> %v, 0`, which is invalid LLVM; native and VM are fine.
+=== codegen (1 open)
   - [major] `emit_cast.bn:75` emitCast — wrapper: none needed: an identity cast of a func value, cast(*func(int) int, f), fails — srcIsAggregate lists only SLICE, MANAGED_SLICE and STRUCT.
-=== check-lint (13 open)
+=== check-lint (10 open)
   - [major] `check_cast_fits.bn:27` castTargetIsInteger — wrapper: named-over-named (`type M int8 — The constant fit-check is skipped entirely for these targets, so `cast(N, 200)` / `unsafe_cast(N, 300)` are accepted where `cast(int8, 200)` is rejected.
   - [major] `types_assignable.bn:263` untypedIntLitFitsTarget — wrapper: named-over-named (`type M int8 — Valid code is rejected.
   - [major] `check_decl.bn:245` resolveBuiltinScalarTypeDecls / isConcreteScalar — wrapper: named-over-named (`type N M`), named-over-readonly (`type R readonly int8`, TEXPR_CONST bo — The eager underlying-fill that runs before top-level consts are resolved skips any named type whose body is not a bare builtin scalar.
-  - [major] `types_assignable.bn:167` AssignableTo — wrapper: outer readonly source (`readonly @T`, `readonly @[]T`, `readonly @func`, typically a reado — Valid code is rejected.
-  - [major] `check_builtin.bn:312` checkBuiltinCall — wrapper: outer readonly collection (`readonly @[]int` param), named-distinct slice/array (`type Buf — Valid code is rejected.
-  - [major] `check_expr_access.bn:367` checkSelectorExpr — wrapper: outer readonly on a pointer handle (`readonly *S`, `readonly @S`, e.g. a readonly param) — Valid code is rejected.
   - [minor] `type_helpers.bn:58` distinctNamedInts — wrapper: outer readonly (`readonly int64`), alias (`type W = int64`) — Invalid code is accepted.
   - [minor] `iface_borrow_escape_util.bn:97` borrowSourceFrameLocal — wrapper: outer readonly source (`readonly @Sq`, `readonly *Sq`) — Lint false positive: returning a readonly pointer or managed param as `*any` is reported as `iface-borrow-escape` (a frame-local value borrow), although the interface data pointer is the pointer value, not the address of the param
   - [minor] `borrowable_char_param_util.bn:102` isManagedCharSliceType — wrapper: outer readonly owned return operand (`var o readonly @[]char = ... — Lint false positive with harmful advice: the return-cascade blocker misses an owned `readonly @[]char` operand, so borrowable-char-param recommends converting the param and return type to *[]readonly char.
