@@ -334,7 +334,10 @@ go wrong:
 
 **Decided (user, 2026-09-27):** the fix is one exact, type-aware constant evaluator, done next ("2. yes");
 a negative constant count in a constant `unsafe_shl` / `unsafe_shr` is a compile-time error ("3. compile-time
-check seems fine."), to be written into §13.5 `expr.shift.untyped-value.unsafe` / `expr.shift.negative`.
+check seems fine."), to be written into §13.5 `expr.shift.untyped-value.unsafe` / `expr.shift.negative`;
+so is a constant `unsafe_shl` / `unsafe_shr` of a typed value by a count ≥ its width ("I guess it can be
+an error, given that it's undefined at runtime").  Plan: `plan-constant-evaluator.md`; step 1 (the
+`constval` package) committed on the work branch, under review.
 
 The fix, covering these and the typed-constant cases above: one exact, type-aware constant evaluator
 in the checker (bignum, wrapping at a typed operand's type) whose recorded value every consumer reads.

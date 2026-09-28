@@ -55,9 +55,9 @@ Examples for the spec: `cast(uint8, 200) + cast(uint8, 100)` is 44; `~cast(uint8
 `-cast(int8, -128)` is -128; `'a' - 'b'` is 255 (`char` is `uint8`); `cast(int8, cast(uint8, 200) + cast(uint8,
 100))` is 44 (valid); `cast(int8, cast(uint8, 200))` is an error.
 
-**Open (ask the user before writing the spec):** a constant `unsafe_shl` / `unsafe_shr` with a TYPED
-value and a count ≥ its width, and a constant `unsafe_div` / `unsafe_rem` by zero or `MIN / -1` — all
-undefined at run time.  Proposed: compile-time errors, for the same reason as the negative count.
+**Decided (user, 2026-09-27):** a constant `unsafe_shl` / `unsafe_shr` with a TYPED value and a count
+≥ its width is a compile-time error ("I guess it can be an error, given that it's undefined at
+runtime"); so is a constant `unsafe_div` / `unsafe_rem` by zero or `MIN / -1`, as for `/` and `%`.
 
 ## Design
 
