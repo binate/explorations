@@ -142,6 +142,20 @@ replaced by `constval.Eval`; a failure is an internal error except an ERR_* in a
 (squashed or as a series in one round), since either half alone leaves the checker and IR-gen folding
 typed constants differently.
 
+## Per-instantiation checking (decided 2026-09-28)
+
+The step-2 review found that a value depending on a type parameter can only be checked per
+instantiation, and the switch handled that in IR-gen (a panic with no position).  User decisions:
+- Arrays whose length depends on a type parameter get the correct fix, not an interim rejection ("We should
+  do the correct fix"): generic signatures (`func F[T any](a [sizeof(T)]uint8)` called as `F[int64](x)`)
+  and array literals (`[sizeof(T)]uint8{1, 2, 3}`) are checked with the length each instantiation has.
+- An error that only one instantiation has (`cast(uint8, sizeof(T) * 100)` with a large T) must be caught
+  by the type checker, not IR-gen ("I think we should reconsider how that's checked. Doing it in IR-gen is
+  too late and the error must be caught earlier.").
+So the checker must evaluate every DEPENDENT constant, and check what depends on it, for each
+instantiation, with the instantiation's type arguments, reporting at the instantiation (with the generic
+body's position).  Design: to be written after mapping how the checker handles generics today.
+
 ## Commits
 
 1. `constval` package with unit tests (typed wrap at every width and signedness, the error kinds and
