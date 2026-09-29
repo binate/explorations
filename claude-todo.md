@@ -30,7 +30,7 @@ lowering reported the confirmed defects; all are fixed (claude-todo-done.md).
 
 ## MAJOR
 
-### `cast(*any, &s)` with `s @[]readonly char` boxes as `@[]char` — a type switch hands out a MUTABLE slice over readonly data — 🔴 OPEN (found 2026-09-29, work-3, review of the outer-readonly boxing fix; pre-existing)
+### `cast(*any, &s)` with `s @[]readonly char` boxes as `@[]char` — a type switch hands out a MUTABLE slice over readonly data — 🟡 IN PROGRESS (found 2026-09-29, work-3, review of the outer-readonly boxing fix; pre-existing; claimed 2026-09-29, work-3/session)
 
 The `cast` / `unsafe_cast` widening-to-interface paths (`pkg/binate/irgen/gen_builtin.bn` ~:60 and ~:129)
 pass `val.Typ` as wrapAsIfaceValue's un-stripped source type, but every IR instruction type has ALL
