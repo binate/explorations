@@ -1,3 +1,9 @@
+### `f := nil` was accepted (the name got the nil type) — DONE (binate `538e71d59`, docs `231170e`, 2026-09-29, work-5)
+
+User: "f := nil should be rejected".  `:=`, `var x = e` and `box(e)` now report "cannot infer a type
+from nil: nil has no default type" and bind the error type (`present` of it adds no second error); the
+spec's type.nil.literal says nil has no default type.  Conformance 1430 + checker unit test.
+
 ### A literal nil takes its destination's type wherever IR-gen consumes one; wrapper-cluster dead code and stale comments — DONE (binate `6aae56c3d`, `bc870d328`, 2026-09-29, work-5)
 
 `take(nil, nil)` with `*func` / `@func` parameters crashed every backend, and `a, g = 3, nil` into a

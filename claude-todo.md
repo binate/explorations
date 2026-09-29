@@ -25,7 +25,7 @@ miscompile found):
     64/1024-element named arrays, so not observed.
   - [bug, minor] DWARF: `emit_debug_types.bn` has no READONLY arm, and pointer DI nodes hardcode
     `size: 64` (wrong on 32-bit targets).
-  - [approved, to do] consolidate the eight full-peel helpers (irutil.PeelTransparent,
+  - [🟡 IN PROGRESS, work-5, 2026-09-29] consolidate the eight full-peel helpers (irutil.PeelTransparent,
     types.StripWrappers, types.PeelNamedBounded, ir.PeelToRepr, ir.PeelToUnderlying, codegen
     peelReprType, vm vmPeelTransparent, native common peelTransparent; ~420 call sites) on
     types.StripWrappers, one package per commit.  PeelToRepr differs (an opaque named type peels to
@@ -35,14 +35,6 @@ miscompile found):
 lowering reported the confirmed defects; all are fixed (claude-todo-done.md).
 
 ## MAJOR
-
-### `f := nil` (and `a, f := 1, nil`) is accepted — the variable gets the nil type — 🟡 IN PROGRESS (found 2026-09-29 by the review of the nil-argument fix; user: "f := nil should be rejected"; claimed 2026-09-29, work-5/session)
-
-The checker binds `f` with the nil type; only a later use fails ("present argument must be…"), and
-`f := nil` alone compiles and runs.  `nil` has no default type (spec §7.7 "a distinct nil type"), so
-an inference context (`:=`, `var x = nil`) must reject it.  **Fix:** reject an untyped `nil` wherever
-a variable's type is inferred from it; spec: say `nil` has no default type.  **Test:** checker unit
-tests + a conformance error test.
 
 ### A call returning ONE multi-result func value is taken as a multi-result call — `a, b := mk()` accepted, garbage — 🟡 IN PROGRESS (found 2026-09-29, work-6, reconning 1404; reproduced; pre-existing; claimed 2026-09-29, work-6/session — user: "I think you should, but get a focused review of the approach first")
 
