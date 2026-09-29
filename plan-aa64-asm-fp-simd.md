@@ -110,7 +110,27 @@ commit per step; land each before starting the next.
 6. Shift by immediate (incl. narrowing / long / fixed-point conversions — the vector
    `fcvtzs v0.4s, v1.4s, #3` AND the same-size scalar `fcvtzs s0, s1, #3` / `scvtf h0, h1, #16`,
    which the conversion parser now rejects as "not supported yet").
-7. Vector × indexed element.
+7. Vector × indexed element.  Recon (clang matrix, 2026-09-28):
+   - Encoding `0 Q U 01111 size L M Rm opcode H 0 Rn Rd` (scalar `01 U 11111 …`); the index is
+     H:L:M for 16-bit elements (then Rm is 4 bits: Vm v0–v15), H:L for 32-bit (Vm v0–v31), H for
+     64-bit.
+   - Same-shape: MLA / MLS / MUL (4h / 8h with h[0..7], 2s / 4s with s[0..3]); SQDMULH / SQRDMULH /
+     SQRDMLAH / SQRDMLSH (+ scalar H / S); FMLA / FMLS / FMUL / FMULX (4h / 8h, 2s / 4s, 2d with
+     d[0..1]; + scalar H / S / D).
+   - Long (and "2"): S/U MLAL / MLSL / MULL, SQDMLAL / SQDMLSL / SQDMULL (+ scalar `Sd, Hn,
+     Vm.h[i]` / `Dd, Sn, Vm.s[i]`): 4s from 4h / 8h (h[0..7]), 2d from 2s / 4s (s[0..3]).
+   - FHM FMLAL / FMLSL(2): 2s / 4s from 2h / 4h with h[0..7]; BFMLALB / T: 4s from 8h, h[0..7];
+     FP8 FMLALB / T (8h) and FMLALL* (4s) from 16b with b[0..15] (Vm v0–v15).
+   - Dot products: SDOT / UDOT / USDOT / SUDOT (2s / 4s from 8b / 16b, 4b[0..3], Vm v0–v31 —
+     SUDOT exists only by element); BFDOT (2s / 4s from 4h / 8h, 2h[0..3]); FP8 FDOT (4h / 8h
+     with 2b[0..7], Vm v0–v15; 2s / 4s with 4b[0..3], Vm v0–v31).
+   - FCMLA by element: 4h (h[0..1]), 8h (h[0..3]), 4s (s[0..1]), rot 0 / 90 / 180 / 270, Vm
+     v0–v31; no 2s / 2d.
+   - Dispatch: each of these mnemonics is claimed by an existing parser that rejects a lane on
+     Vm (simd3 / DP route: mla / mls / mul / sqdmulh / sqrdmulh; simd3fp / FP parser: fmla /
+     fmls / fmul / fmulx; simd3diff: the long ops; simd3x: sqrdmlah / sqrdmlsh / the dots;
+     simd3fx: fmlal / bfdot / bfmlal / fcmla; the FP8 parser: fdot / fmlalb / fmlall*) — route
+     a lane-indexed last source to the by-element parser from each.
 8. Permute (ZIP / UZP / TRN), EXT.  (TBL / TBX landed with B1.)
 9. Move `asm/aarch64/aarch64_neon*.bn` onto the isa encoders.
 
