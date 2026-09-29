@@ -1357,6 +1357,12 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   backends are far from C (which uses `sqrtsd`). A hardware sqrt (per-arch asm or an intrinsic the
   backends lower) is the large lever for n-body; the loop's native codegen (spilled loop-carried
   values, shift counts reloaded into `cl` from stack slots) is the gap lever.
+- **x64 caller-saved homes (Stage 5e)** — 🟡 IN PROGRESS (claimed 2026-09-29,
+  claude/exciting-davinci-wahyt2 session; then latch copy coalescing). x64 homes only RBX/R12–R15
+  (5); record-churn's x64 loop spills most of its ~18 live scalars (115 instrs/element vs ~67 on
+  aa64). Plan + measured per-op scratch demand: `plan-native-regalloc.md` "Stage 5e". Tier A = homes
+  += {RSI, RDI}; Tier B = also {R8, R9}. RAX/RCX/RDX would need a per-register clobber model (not
+  planned; to be raised with the user).
 - **x64 `rt.MemZero`** (zeroing each `make_slice`) is a 4×-unrolled 8-byte store loop reloading its
   zero constants from 4 stack slots — 11.6% of native instructions; LLVM uses glibc `rep stosb`.
   Covered by the x64 MemZero/MemCopy item under native vectorization (A) (being worked on
