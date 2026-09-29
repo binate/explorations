@@ -76,6 +76,15 @@ genBuiltin's cast / unsafe_cast path casts the pointer directly.  Fix: apply the
 
 ## MAJOR
 
+### A method value bound to a `*T` method of a struct field or array/slice element captures a copy — the mutation is lost — 🔴 OPEN (found 2026-09-29, work-6, review of the literal-array / selector fixes; reproduced; pre-existing)
+
+`func (p *P) Inc() int`; `var h *func() int = s.p.Inc` (a field), `arr[1].Inc` (an array element) or
+`sl[1].Inc` (a slice element), then `h()`: the result is 1 but the field/element is still 0 on LLVM,
+native and the VM.  `func.method-value.capture` says a `*T` receiver captures `&x` (mutations visible);
+bound on a variable (`p.Inc`) it does.  Root cause: unknown — needs investigation (the method-value
+construction for a non-variable receiver takes the receiver's value, not its address).  Covered by
+conformance 1421 (`xfail.all`).
+
 ### Passing a literal `nil` as a function-value ARGUMENT crashes every backend — 🟡 IN PROGRESS (found 2026-09-28, work-5, testing named function-value nillability; pre-existing; claimed 2026-09-29, work-5/session — with the wrapper-cluster dead-code cleanup)
 
 `func take(f *func() int, m @func() int) bool { return present(f) || present(m) }` called as
@@ -195,6 +204,9 @@ Decided (user, 2026-09-29: "I think that rule makes sense. i, arr[i] = pair() st
 is surprising"): every assignment form evaluates (1) its right-hand side(s), (2) every target's designator
 operands left to right, (3) the stores left to right — genParallelAssign and genMultiAssign both
 restructure to resolve all targets before any store.
+Also (work-6, 2026-09-29): genIndexPtr's composite-literal-base arm (`&[3]int{…}[i]`, a borrowed or
+field-accessed literal element) follows the same index-before-base order, while the literal's value path
+(genArrayIndexInPlace) evaluates the literal first — the base-first change should cover that arm too.
 
 ### A pointer-receiver method call on an element or field evaluates the receiver expression twice — 🔴 OPEN (found 2026-09-28, work-1, by the index-designator evaluation-order test; pre-existing)
 
