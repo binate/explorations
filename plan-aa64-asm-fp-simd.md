@@ -104,7 +104,9 @@ commit per step; land each before starting the next.
      landed `578120799` (2026-09-28).  B4 complete.
    - Note for FEAT_CSSC (later): the general-register ABS / CNT (and friends) will need the same
      integer-first routing that NEG / CLZ have — today `abs` / `cnt` go straight to the SIMD parser.
-5. Modified immediate (MOVI / MVNI / ORR / BIC / FMOV vector).  (The copy class landed with B1.)
+5. ✅ Modified immediate (MOVI / MVNI / ORR / BIC / FMOV vector) — landed `335de1d57` (2026-09-28),
+   with the scanner's IT_MSL modifier item (only with an amount; `b msl` stays a label) and the
+   PRFM / literal-load modifier-name rule matched to clang.  (The copy class landed with B1.)
 6. Shift by immediate (incl. narrowing / long / fixed-point conversions — the vector
    `fcvtzs v0.4s, v1.4s, #3` AND the same-size scalar `fcvtzs s0, s1, #3` / `scvtf h0, h1, #16`,
    which the conversion parser now rejects as "not supported yet").
