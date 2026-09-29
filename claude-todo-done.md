@@ -1,3 +1,30 @@
+### A local `const` redeclaring a name of its own block is an error — DONE (binate `35900d591`, docs `a53e4b9`, 2026-09-28, work-4; decided by the user: "I think it should be an error.")
+The spec is silent.  `decl.var.redeclare` makes redeclaring a same-block name with `var` an error;
+`decl.shortvar.no-new-name-rule` makes `:=` rebind.  Today (binate `f037beaef`) a local `const` naming a
+parameter, a loop variable or an earlier local of its block is accepted and the later binding wins — the
+checker and IR-gen agree.  Decide: an error like `var`, or a rebind like `:=`; either way add a spec line
+(and, for an error, the check in `check_stmt.bn` next to `errIfRedeclaredLocal`).
+- Resolved (binate `35900d591`, docs `a53e4b9`): spec §9.1 `decl.const.redeclare` (and §9.3 / §14.6 /
+  §14.7 amended); the checker reports a local `const` — single or group member — naming a parameter, an
+  earlier declaration of its block or an earlier member of its group.  Tests: conformance spec/09 068, 069;
+  TestCheckLocalRedeclared.
+
+
+### `pkg/std/fmt` unit test `TestSprintfNamedScalar` fails on main — DONE (binate `098728091`, 2026-09-28, work-4)
+The last assertion fails: `Sprintf("%t", &c)` with `var c namedInt = 20` should give
+`%!t(namedInt=20)` (the inapplicable verb names the named type via `reflect.TypeOf`, `argTypeName`'s
+default case in fmt_printf.bn).  Fails at main `457e2956b`, at `1db847da0`, and at its parent `fb024cd8d`
+(the fmt commit "the typed verbs ignore String() by design; say so, and pin %x / %q"); not bisected further.
+Root cause unknown — needs investigation (a reflect/RTTI name or type-switch default issue, or the test's
+expectation).  Covered by the unit test itself (red on main).
+- Root cause: `224f837ba` (a named non-struct type has one identity, its package-qualified name) made such
+  a type's RTTI name path-qualified, as a named struct's already was and as reflect.bni documents
+  ("canonical, path-qualified name").  `TestSprintfNamedScalar` and `TestSprintfHexWrappedStrings` still
+  expected the old bare names (`namedInt`, `soName`).  Fixed the expectations (`pkg/std/fmt.namedInt`,
+  `pkg/std/fmt.soName`) and argTypeName's comment.  Whether fmt should print a shorter type name is a
+  separate format decision, not taken.
+
+
 ### `_` is never a valid identifier: blank declarations bind nothing; blank struct fields are padding; no method named `_` — ✅ LANDED 7f7e6cab1 + c4994375e + f22e3a2c6 (+ spec docs 0a2f88d) (2026-09-28), work-6
 
 User: "_ should never be a valid identifier."  An audit (read-only sweep + ~30 reproduced probes) found `_`

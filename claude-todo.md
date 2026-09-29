@@ -208,14 +208,6 @@ checks such as check_cast_safe.bn, IR / backends), and drop `distinctNamedInts`,
 redundant.  **Test:** conformance test with both pairs (int/int64 and int/int32) so it fails on every
 target — to be added.
 
-### `pkg/std/fmt` unit test `TestSprintfNamedScalar` fails on main — 🟡 IN PROGRESS (found 2026-09-28, work-4, full unit-test run; pre-existing; claimed 2026-09-28, work-4 — user: "Can you look into that MAJOR while you're at it?")
-The last assertion fails: `Sprintf("%t", &c)` with `var c namedInt = 20` should give
-`%!t(namedInt=20)` (the inapplicable verb names the named type via `reflect.TypeOf`, `argTypeName`'s
-default case in fmt_printf.bn).  Fails at main `457e2956b`, at `1db847da0`, and at its parent `fb024cd8d`
-(the fmt commit "the typed verbs ignore String() by design; say so, and pin %x / %q"); not bisected further.
-Root cause unknown — needs investigation (a reflect/RTTI name or type-switch default issue, or the test's
-expectation).  Covered by the unit test itself (red on main).
-
 ### A package-level NON-type declaration named like a predeclared type (`func uint16()`) shadows it only after its own position — invalid code accepted in one order — 🔴 OPEN (found 2026-09-28, work-5, review of the named-scalar-constants fix; pre-existing)
 
 `type N2 uint16; const c2 N2 = 5; func uint16() {}` is accepted, while the same declarations with
@@ -461,13 +453,6 @@ checking"); a dependent length must never be stamped on the shared node.  Needs 
 monomorphization instantiates `depth[int]`, `depth[@int]`, `depth[@@int]`, … without bound.  Fix: an
 instantiation depth limit with a diagnostic, in the checker's per-instantiation worklist (plan above).
 Needs a conformance test.
-
-### A local `const` redeclaring a name of its own block is an error — 🟡 IN PROGRESS (raised 2026-09-28, work-4; decided and claimed 2026-09-28, work-4 — user: "I think it should be an error.")
-The spec is silent.  `decl.var.redeclare` makes redeclaring a same-block name with `var` an error;
-`decl.shortvar.no-new-name-rule` makes `:=` rebind.  Today (binate `f037beaef`) a local `const` naming a
-parameter, a loop variable or an earlier local of its block is accepted and the later binding wins — the
-checker and IR-gen agree.  Decide: an error like `var`, or a rebind like `:=`; either way add a spec line
-(and, for an error, the check in `check_stmt.bn` next to `errIfRedeclaredLocal`).
 
 ### Per-instantiation checking of generic bodies (design B) — 🟡 CLAIMED (2026-09-28, work-4; user chose "B"; to be done after the two const-redeclaration MAJORs — user: "I guess you can take on the two MAJORs next")
 The constant evaluator (binate `1db847da0`) marks a value depending on a type parameter DEPENDENT; the
