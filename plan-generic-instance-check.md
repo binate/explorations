@@ -257,7 +257,15 @@ constraints through the enclosing bounds; (2) casts involving a type parameter a
 instance is checked (signature, body, fields, method signatures, parameterized impls); (4) branching on
 `sizeof(T)` stays a limitation (language-feature todo filed); (5) the named set is finite, plus an
 implementation limit of at least 128 in Ch.21; (6) diagnostics at the root instantiation, naming the
-generic's position and the chain.  Spec text written, not yet
+generic's position and the chain; (7, user 2026-09-28: "Nah, we should make it work") a type assertion /
+type-switch case whose target names a type parameter is dependent (spec `iface.assert.typeparam`): a bare
+`T` takes its recovery kind from the type argument (`T = @U` → `x.(@U)`, `T = U` → value copy), a written
+kind applies as written; today such an assertion is rejected at the declaration, so implementing it means
+deferring the target check in abstract bodies, checking it per instance, and lowering it per instance in
+IR-gen.  Also from the spec-text review: uses needing a type parameter's layout (by-value var / field /
+param / result, `make`, `make_slice`) are dependent (the opaque-type gate), an impl's interface-list
+constraints are satisfied through the type's parameter constraints (checked once), and a new
+`conf.implementation.limits` backs the chain bound.  Spec text written, not yet
 landed.
 
 **Implementation (design changes, no decision needed):**
