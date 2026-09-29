@@ -19,9 +19,9 @@ slot; named-over-readonly `MIN / -1` skips the overflow trap on native/VM).
 **Triage of the un-audited areas (irgen last third, codegen, native, ir/irbuild/iropt/irutil/types) —
 done 2026-09-27.**  Only confirmed defect: the `@NB` release leak above.  Leftovers (no observable
 miscompile found):
-  - [question for user] checker `Type.IsNillable` peels NAMED for pointers (`nil` → `type P *int` OK) but
-    not for function values (`f = nil` for `type F *func() int` is rejected); spec §7.7 / §10.8 are
-    silent on named function-value types.
+  - [decided, to do] checker `Type.IsNillable` peels NAMED for pointers (`nil` → `type P *int` OK) but
+    not for function values (`f = nil` for `type F *func() int` is rejected).  User (2026-09-28): "if
+    function-value types are nilable, then their named counterparts should also be nilable."
   - [dead code] irgen nil→slice coercions (`gen_control.bn` `*p = nil` / field arms, `gen_call_coerce.bn`
     `nil` arg arm) — the checker rejects `nil`→slice (spec §7.7); irgen `isManagedReceiverType`
     (test-only); native `common.UnwrapNamed` (no callers; a named-only peel, a trap for new callers).
@@ -33,20 +33,14 @@ miscompile found):
     64/1024-element named arrays, so not observed.
   - [bug, minor] DWARF: `emit_debug_types.bn` has no READONLY arm, and pointer DI nodes hardcode
     `size: 64` (wrong on 32-bit targets).
-  - [refactor proposal] eight full-peel helpers (irutil.PeelTransparent, types.StripWrappers,
-    types.PeelNamedBounded, ir.PeelToRepr, ir.PeelToUnderlying, codegen peelReprType, vm
-    vmPeelTransparent, native common peelTransparent) — consolidating on one would remove the ad-hoc
-    partial peels this cluster came from.
+  - [approved, to do] consolidate the eight full-peel helpers (irutil.PeelTransparent,
+    types.StripWrappers, types.PeelNamedBounded, ir.PeelToRepr, ir.PeelToUnderlying, codegen
+    peelReprType, vm vmPeelTransparent, native common peelTransparent; ~420 call sites) on
+    types.StripWrappers, one package per commit.  PeelToRepr differs (an opaque named type peels to
+    nil) and PeelNamedBounded is depth-bounded — handle both explicitly.  User: "let's do the
+    peel-helper consolidation".
 **Sweep (2026-09-26):** auditors over check+lint, IR-gen (first two thirds of the files), and the VM
-lowering reported the confirmed defects below (each with a repro, run on LLVM / native aa64 / VM).
-The remaining areas were triaged by reading on 2026-09-27 (block above).  Several findings need NO
-wrapper (plain types) — marked "wrapper: none needed".  The rows below are the still-open findings;
-fixed rows are in claude-todo-done.md.
-
-```
-=== irgen (1 open)
-  - [nit] `gen_expr.bn:302` genUnary — wrapper: untyped negated operand whose checker-resolved type is readonly int8 / alias-of-readonly / — Contributing site of KNOWN issue (1), reported only so the fix covers it: for `-C` / `-100` with a wrapped resolved type negTyp falls to TypInt, so OP_NEG is emitted at i64 (`sub i64 0, %v0`) and correctness relies entirely on the
-```
+lowering reported the confirmed defects; all are fixed (claude-todo-done.md).
 
 ### A generic function instantiation discarded into a blank target is miscompiled — the rest of the function silently does not run — 🟡 IN PROGRESS (found 2026-09-28, work-6, review of the parallel short-variable fix; pre-existing; claimed 2026-09-28, work-6/session — user: "since you've recon-ed them, maybe just claim them now")
 
@@ -103,25 +97,6 @@ Other by-name predeclared-type matches in irgen / irutil / codegen / native need
 **Fix:** resolve the package's own type declarations (ideally the checker's resolved types) before
 the predeclared names, and fix every other by-name match the audit finds.  **Test:** conformance
 1399_predeclared_type_shadowed (`.xfail.all`, binate `5428bbb51`) — remove the marker with the fix.
-
-### A negated literal of 2^63 (`-9223372036854775808`) written inline computes as UNSIGNED — wrong division, comparison and float conversion on every backend — 🟡 IN PROGRESS (found 2026-09-28, work-5, fixing the genUnary type-wrapper row; pre-existing; claimed 2026-09-28, work-5/session — user: "yes, go ahead and fix that CRITICAL together with the nit")
-
-```
-var d int64 = 3
-var q int64 = -9223372036854775808 / d          // prints 3074457345618258602, expected -3074457345618258602
--9223372036854775808 < d                          // false, expected true
-cast(float64, -9223372036854775808 + d)           // +9.2e18, expected -9.2e18
-```
-Identical on LLVM, native aa64 and the VM; `>> 1` happens to be right.  A named constant of the
-same value (`const M = -9223372036854775808`) is folded and correct.  **Root cause:** IR-gen stamps
-an integer literal >= 2^63 as `uint64` (gen_expr.bn EXPR_INT_LIT, so an int->float conversion of it
-stays unsigned), and genUnary's MINUS arm takes a typed operand's IR type before the checker's
-type of the negation, so `-lit` is an OP_NEG of type uint64 and every consumer treats the
-int64-min bit pattern as 2^63.  **Fix:** for an untyped operand (untyped int, or the >= 2^63
-literal stamp) type the negation by the checker's resolved type of the expression (peeled of
-wrappers); only a typed operand keeps its own IR type (the per-instantiation-safe choice in a
-generic body).  This also covers the genUnary type-wrapper row (a wrapped resolved type).
-**Test:** conformance test (division / comparison / float conversion, plain and wrapped int64).
 
 ## MAJOR
 
