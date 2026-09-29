@@ -208,6 +208,24 @@ Plan: genIndexPtr evaluates the base first; the spec pins base-before-index for 
 states that `x++` / `x--` evaluate their operand as `x += 1` does (§14.5), and resolves §14.4 / §21 by
 pinning what every backend does — right-hand side(s) first, then each designator's operands left to right;
 a conformance test counts the order for every form.
+Also found (2026-09-28): a parallel assignment evaluates each target's designator and then its own
+right-hand side, pair by pair (`(*b())[i()], (*c())[j()] = r1(), r2()` runs b i r1 c j r2), where a single
+or multi-value assignment evaluates the right-hand side first — resolveParallelEntry (gen_assign_parallel.bn)
+does both per entry.  Pinning one assignment rule needs genParallelAssign to evaluate every right-hand
+side first (coercing each to its target's checker type), then the designators left to right.
+
+### A pointer-receiver method call on an element or field evaluates the receiver expression twice — 🔴 OPEN (found 2026-09-28, work-1, by the index-designator evaluation-order test; pre-existing)
+
+`(*pbase())[idx()].bump()` (`func (p *P) bump()`) runs `pbase` and `idx` twice; `hbase().p.bump()` runs
+`hbase` twice; `defer (*pbase())[idx()].bump()` too.  A value-receiver call (`.get()`) evaluates once, and
+`(*p).m()` is already special-cased.  genMethodCall (gen_method.bn) evaluates the receiver as a VALUE
+(`genExpr(sel.X)`), then applyReceiverConversion (gen_method_recv.bn), for a `*T` method on an addressable
+`T`, evaluates `sel.X` AGAIN for its address (genSelectorPtr / genIndexPtr); gen_defer_exit.bn has the
+same pair.  The call lands on the right object, but side effects repeat, and the first evaluation is a
+dead whole-struct load (the conformance 1301 shape: a large receiver struct makes an O(size) load per
+call on LLVM).  Fix: when the method takes `*T` and the receiver is an addressable `T` (a variable, field,
+element or dereference), take the receiver's address first — once — and load through it only for a value
+receiver.
 
 ### The LLVM backend lowers aggregate loads, copies and zero-fills one scalar leaf at a time — IR (and clang memory) grows with array length — 🔴 OPEN (found 2026-09-28, work-1, while fixing conformance 1301's whole-array load; pre-existing)
 
