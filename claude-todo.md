@@ -711,6 +711,18 @@ word before its error.  Harmless (any error aborts the assembly) but breaks "a r
 fix by checking end-of-line before emitting, in every branch.  With that fix, make the golden-test helper
 `goldenReject` (`parse/aarch64_golden_test.bn`) also check that nothing was emitted, so every reject table
 pins the rule (today it checks only that an error was set).
+**Found by the emit-before-EOL review (2026-09-29), not yet done:** (a) the AArch64 control-flow reject
+tables hold 17 multi-line cases written with `"\\n"` (`aarch64_instr_ctrl_reject_test.bn`: `.Llocal:\\nb
+.Llocal`, `1:\\nb 1b`, `Kc = 16\\nb Kc`, the odd-offset `adr` / `b` / `cbz` over `.byte` data, …) — in a
+Binate string that is a backslash and `n`, so the lexer rejects each at the backslash and none reaches the
+case it names; they pass without testing anything.  Fix: a multi-line golden-reject helper (parse each line,
+then finish the assembly, so a reference resolved at the end is checked too) and the cases rewritten on it —
+some may turn out accepted, which is then a real finding.  (b) Outside the instruction parsers a rejected
+line can still emit: a data directive with trailing text or a later bad value (`.ascii "ab" x`, `.uint32 1
+2`, `.int8 1, 300`, `.zero 4 x`, `.fill 2, 1, 7 x`, `.balign 8 x` padding in text) writes its bytes before
+the error, and a label prefix on a rejected line (`L1: ldr x0, [x1] x2`) is still defined.  Harmless (an
+error aborts the file) but the same "a rejected line emits nothing" rule; `lineRejected` in `parse_test.bn`
+checks bytes but not fixups.
 
 ### Assigning `nil` to an `@func` holding a capturing closure clears only the fn word — double free (every backend) — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-29, work-3/session)
 
