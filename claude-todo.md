@@ -514,7 +514,19 @@ cycle involving `S`".  Tests: conformance
 `spec/15-builtins/154_sizeof_package_const` and `155_len_package_var_const` (xfail.all, binate
 `86a9b93f0`); the cycle's error test comes with the fix.
 
-### A constant's initializer is never required to be constant — `const C = v` compiles and reads `v` at run time — 🔴 OPEN (found 2026-09-29, work-4, review of the package-constant fix; reproduced on current bnc; pre-existing)
+### Resolve every package-level declaration on demand (a full demand-driven resolver) — 🔴 OPEN (raised 2026-09-29, work-4, review of the package-constant fix; user chose to track it: "go with your rec")
+
+The package-constant fix resolves constants after collection and, on first read, the constants, types (for a
+layout) and variables a read needs.  One path stays partial: an inferred-type variable named while types are
+collected — by an array length, directly or through a constant it reads (`type B [len(tbl)]uint8; var tbl =
+mk()`) — is checked against a half-collected package, so a function, type, method or impl declared later is
+not there yet; the check reports that name as "declared later than a type whose array length needs it"
+rather than resolving it.  Fix: resolve every package-level declaration on demand — function signatures,
+types (for any use that needs their layout or methods), methods and impls — with one cycle stack, so the
+order of collection never matters.  Needs conformance tests for each of those forms and for cycles through
+them (`var v = F(); func F() [len(v)]int`, `type T [len(v)]int; var v = T{}`).
+
+### A constant's initializer is never required to be constant — `const C = v` compiles and reads `v` at run time — 🟡 IN PROGRESS (found 2026-09-29, work-4, review of the package-constant fix; reproduced on current bnc; pre-existing; claimed 2026-09-29, work-4 — user: "1. yes")
 
 Spec `decl.const`: a constant's value is computed at compile time.  The checker never checks that a const
 initializer is a constant expression: in a function, `var v = 3; const C = v` compiles and prints 3 (IR-gen
