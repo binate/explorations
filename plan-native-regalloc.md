@@ -693,6 +693,27 @@ End), so it cannot see the gap; coalescing needs a hole-aware assignment (let an
 register whose holder's ranges don't overlap its own) plus a copy-partner hint.  That is a
 shared-allocator change affecting all three native backends.
 
+**Latch copy coalescing design (2026-09-29).**  Unlike the shelved Stage 5b (which only reused a
+source register that was already FREE — the LIFO pool gets that for free), this targets the case
+Stage 5b could not reach: the phi is still ACTIVE (its whole-interval End is the back edge) when
+the new value is assigned, so the register is never free.  In record-churn's inner loop all 8
+carry phis end up spilled and the latch shuffles each through a scratch register.
+- Interference becomes range-aware: two intervals may share a register when their range lists are
+  disjoint, except that they may overlap at exactly one position P holding an `OP_COPY` between
+  them (the copy's source use ends at P+1 and its destination def starts at P; the move
+  degenerates to `mov r, r`, which every backend elides).  Everything else keeps the one-register-
+  per-live-value rule, so no emitter has to change: a home register holds a value only across that
+  value's live ranges, and homes never enter the transient register cache.
+- LinearScan (moved to its own file, as a small state struct) picks, in order: a copy partner's
+  register if sharing is legal (the hint that makes the latch copy vanish), a free register, a
+  register whose active holders all have holes covering this interval, and finally eviction.  A
+  register goes back to its free pool only when its LAST active holder expires; eviction only
+  considers registers with a single holder.
+- Copy points (position, dst, src) are collected from the same liveness universe as the intervals,
+  so the GP and FP passes each see only their own class's copies.
+- Validation: native x64 conformance -O0/-O2, native arm32 baremetal/linux, aa64 via CI;
+  native self-compile fixpoint; record-churn instruction count (callgrind).
+
 Steps 2–5 are no-ops before step 6 (no home can be in an arg register yet), so each lands and
 validates on its own, as Stage 5d's increments did.
 
