@@ -258,7 +258,7 @@ value with no expression, so there is no conversion to apply.  Fix: an IR-value-
 construction (the value-producing half of genExprOrFuncRef's interface arms), applied in coerceAssignValue.
 Needs a conformance test (LLVM, VM, native).
 
-### A field reached through `(*pp)` where `*pp` is itself a pointer is not addressable in IR-gen — stores silently lost, `&` crashes — 🔴 OPEN (found 2026-09-29, work-1, review of the receiver-evaluation fix; pre-existing)
+### A field reached through `(*pp)` where `*pp` is itself a pointer is not addressable in IR-gen — stores silently lost, `&` crashes — 🟡 IN PROGRESS (found 2026-09-29, work-1, review of the receiver-evaluation fix; pre-existing; claimed 2026-09-29, work-1 — user: "yes, go ahead")
 
 `var hp *H = &h; var pp **H = &hp`: `(*pp).p.n = 5` and `(*pp).a = 3` silently store into a throwaway copy
 (nothing changes), `&(*pp).p` crashes (SIGSEGV), `(*pp).arr[1].bump()` hits "array base with storage has no
