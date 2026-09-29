@@ -59,17 +59,6 @@ be added but not dropped") and type.readonly.drop say otherwise.  Decide which t
 the dynamic type, or the recovery, should keep the readonly); then pin it with a test (conformance 1429 was
 deliberately limited to the handle-readonly `readonly @Box` case so as not to lock this in).
 
-### A call returning ONE multi-result func value is taken as a multi-result call — `a, b := mk()` accepted, garbage — 🟡 IN PROGRESS (found 2026-09-29, work-6, reconning 1404; reproduced; pre-existing; claimed 2026-09-29, work-6/session — user: "I think you should, but get a focused review of the approach first")
-
-`func mk() @func() (int, int)`: `a, b := mk()`, `x, y = mk()` and `return mk()` (from a `(int, int)`
-function) pass the checker; LLVM then gets invalid IR (`extractvalue %BnFuncValue` on a `ptr`) and native
-prints garbage (`%!?(unknown) 0`).  Root cause: checkCallExpr (check_expr.bn) represents a multi-result
-call by returning the callee's own func type, and the three distribution sites test
-`hasExpandableResults(t) && len(t.Results) == N` — a single func-value result with N results of its own
-is identical.  The same ambiguity blocks a clean fix for 1404 (a single-value check cannot tell the
-two apart either).  Proposed fix: a distinct result-tuple type kind for a multi-result call (types),
-hasExpandableResults tests that kind.  Covered by conformance 1429 (`.error`, `xfail.all`).
-
 ### A method value bound to a `*T` method of a struct field or array/slice element captures a copy — the mutation is lost — 🔴 OPEN (found 2026-09-29, work-6, review of the literal-array / selector fixes; reproduced; pre-existing)
 
 `func (p *P) Inc() int`; `var h *func() int = s.p.Inc` (a field), `arr[1].Inc` (an array element) or
@@ -95,20 +84,6 @@ a prompt global or inside a prompt function — panics "vm: interface vtable not
 (main and the fix alike).  The compiled and file-run VM paths register the name-less `any` row
 (ensureAnyImplInfo) and lower its vtable; the per-prompt lowering evidently doesn't reach it.  Needs a test
 (e2e/repl.sh case) and a root cause.
-
-### The checker accepts a no-result call, or a multi-valued call as one list element, as a variable initializer — 🟡 IN PROGRESS (found 2026-09-28, work-6, review of the parallel short-variable fix; pre-existing; claimed 2026-09-29, work-6/session — user: "I think it should be an error.")
-
-`a := nothing()`, `var b = nothing()` (nothing has no result) and `c, d := 1, two()` (two returns two
-values) all pass the checker: LLVM then fails in clang (`alloca void`), while native and the VM run with a
-garbage value.  Each should be a diagnostic at the statement.  Covered by conformance 1404 (an `.error`
-test pinning a diagnostic at each of the three lines, `xfail.all`).
-Recon (2026-09-29): contexts with a target type already reject it, with poor messages ("cannot assign
-void to int", "cannot assign func()(int,int) to int"); the inferred-type bindings (`var v = nothing()`,
-`q := nothing()`, and `var w = two()` — a two-result call bound to ONE variable) and `_ = nothing()`
-are accepted.  Decided (user, 2026-09-29): `_ = nothing()` is an error too — "An _ = ... is an
-assignment, even if to a blackhole, and here there's nothing to assign."  So a call with no result has
-no value (only an expression statement), and a multi-valued call is a value only where its results are
-distributed; needs a spec rule (the spec is silent) and a single-value check with clear messages.
 
 ### A package-level NON-type declaration named like a predeclared type (`func uint16()`) shadows it only after its own position — invalid code accepted in one order — 🔴 OPEN (found 2026-09-28, work-5, review of the named-scalar-constants fix; pre-existing)
 

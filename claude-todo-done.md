@@ -1,3 +1,42 @@
+### The checker accepts a no-result call, or a multi-valued call as one list element, as a variable initializer — DONE (binate `558ef2f22`, 2026-09-29, work-6; `_ = nothing()` an error per the user)
+
+`a := nothing()`, `var b = nothing()` (nothing has no result) and `c, d := 1, two()` (two returns two
+values) all pass the checker: LLVM then fails in clang (`alloca void`), while native and the VM run with a
+garbage value.  Each should be a diagnostic at the statement.  Covered by conformance 1404 (an `.error`
+test pinning a diagnostic at each of the three lines, `xfail.all`).
+Recon (2026-09-29): contexts with a target type already reject it, with poor messages ("cannot assign
+void to int", "cannot assign func()(int,int) to int"); the inferred-type bindings (`var v = nothing()`,
+`q := nothing()`, and `var w = two()` — a two-result call bound to ONE variable) and `_ = nothing()`
+are accepted.  Decided (user, 2026-09-29): `_ = nothing()` is an error too — "An _ = ... is an
+assignment, even if to a blackhole, and here there's nothing to assign."  So a call with no result has
+no value (only an expression statement), and a multi-valued call is a value only where its results are
+distributed; needs a spec rule (the spec is silent) and a single-value check with clear messages.
+- Fixed (binate `558ef2f22`, with its xfail test `3c2293c75`; spec docs `281edb7`, `func.call.value`): a
+  multi-result call is typed as a result tuple (types TYP_TUPLE) at all four producers (Self-substituted
+  for constraint methods — which also made `(Self, Self)` constraint methods usable), hasExpandableResults
+  tests it; checkExpr rejects a tuple or a no-result call (void `__c_call` included) as a value, with
+  checkExprRaw only at the expression statement, `defer`, the destructure and the tail return.
+  Tests: conformance 1404, 1434, spec 10/202, 10/203; check and types unit tests.
+
+
+### A call returning ONE multi-result func value is taken as a multi-result call — `a, b := mk()` accepted, garbage — DONE (binate `558ef2f22`, 2026-09-29, work-6)
+
+`func mk() @func() (int, int)`: `a, b := mk()`, `x, y = mk()` and `return mk()` (from a `(int, int)`
+function) pass the checker; LLVM then gets invalid IR (`extractvalue %BnFuncValue` on a `ptr`) and native
+prints garbage (`%!?(unknown) 0`).  Root cause: checkCallExpr (check_expr.bn) represents a multi-result
+call by returning the callee's own func type, and the three distribution sites test
+`hasExpandableResults(t) && len(t.Results) == N` — a single func-value result with N results of its own
+is identical.  The same ambiguity blocks a clean fix for 1404 (a single-value check cannot tell the
+two apart either).  Proposed fix: a distinct result-tuple type kind for a multi-result call (types),
+hasExpandableResults tests that kind.  Covered by conformance 1429 (`.error`, `xfail.all`).
+- Fixed (binate `558ef2f22`, with its xfail test `3c2293c75`; spec docs `281edb7`, `func.call.value`): a
+  multi-result call is typed as a result tuple (types TYP_TUPLE) at all four producers (Self-substituted
+  for constraint methods — which also made `(Self, Self)` constraint methods usable), hasExpandableResults
+  tests it; checkExpr rejects a tuple or a no-result call (void `__c_call` included) as a value, with
+  checkExprRaw only at the expression statement, `defer`, the destructure and the tail return.
+  Tests: conformance 1404, 1434, spec 10/202, 10/203; check and types unit tests.
+
+
 ### Type-wrapper cluster: a named aggregate is copied leaf by leaf (LLVM) — DONE (binate `d500a2af7`, 2026-09-29, work-5)
 
 codegen's SSA copy helpers peeled only alias / readonly, so `b = a` for `type Row [4]int` emitted a
