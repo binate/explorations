@@ -96,17 +96,17 @@ commit per step; land each before starting the next.
      landed `46bd1a0b3` (2026-09-28).  The operand scanner's floating-point literal item
      (IT_FLOAT) is opt-in (`parseA64ItemsFloat`) so no integer operand ever sees one; the
      vector FMOV immediate (B5) will want it.
-   - (b2) conversions: FCVT{N,A,P,M,Z}{S,U} / SCVTF / UCVTF (vector and scalar, incl. the
-     same-size `s0, s1` forms that `emitA64FPRegInt` now calls "not supported yet"),
-     FCVTL/FCVTN/FCVTXN(2), BFCVTN(2); FP16 forms.  The two-register FCVTN / FCVTN2 must be
-     dispatched ahead of the FP8 three-register parser (see B2c3's note), and fcvt* / scvtf /
-     ucvtf with a vector or same-size operand ahead of / inside the FP-integer parser.
+   - ✅ (b2) conversions: FCVT{N,A,P,M,Z}{S,U} / SCVTF / UCVTF (vector and same-size scalar),
+     FCVTL/FCVTN/FCVTXN(2) (+ scalar FCVTXN), BFCVTN(2), and the FP8 F1CVTL / F2CVTL / BF1CVTL /
+     BF2CVTL(2); FP16 forms — landed `18788e730` (2026-09-28).
    - (c) across lanes (ADDV, SADDLV/UADDLV, S/UMAXV, S/UMINV, FMAXNMV/FMINNMV/FMAXV/FMINV) and
      scalar pairwise (ADDP d, FADDP / FMAXP / FMINP / FMAXNMP / FMINNMP).
    - Note for FEAT_CSSC (later): the general-register ABS / CNT (and friends) will need the same
      integer-first routing that NEG / CLZ have — today `abs` / `cnt` go straight to the SIMD parser.
 5. Modified immediate (MOVI / MVNI / ORR / BIC / FMOV vector).  (The copy class landed with B1.)
-6. Shift by immediate (incl. narrowing / long / fixed-point conversions).
+6. Shift by immediate (incl. narrowing / long / fixed-point conversions — the vector
+   `fcvtzs v0.4s, v1.4s, #3` AND the same-size scalar `fcvtzs s0, s1, #3` / `scvtf h0, h1, #16`,
+   which the conversion parser now rejects as "not supported yet").
 7. Vector × indexed element.
 8. Permute (ZIP / UZP / TRN), EXT.  (TBL / TBX landed with B1.)
 9. Move `asm/aarch64/aarch64_neon*.bn` onto the isa encoders.
