@@ -29,6 +29,23 @@ lowering reported the confirmed defects; all are fixed (claude-todo-done.md).
 
 ## MAJOR
 
+### The REPL runs a prompt whose errors all repeat an earlier prompt's — segfault / "extern not found" — 🔴 OPEN (found 2026-09-29, work-6, review of the one-mistake-one-error cleanup; reproduced; pre-existing)
+
+Enter `u[0] = 5` twice (u undefined): the first prompt reports its errors; the second runs and bni
+segfaults (rc=139).  `nope()` twice: `panic: vm: extern not found: main.nope`.  Cause: every REPL
+prompt's errors are at `<repl>:1:<col>`, `appendUniqueCheckError` (check/checker_errors.bn) drops an
+error equal to ANY earlier one — earlier prompts included — and the REPL decides a prompt failed only if
+the error count grew (repl/eval.bn, decl.bn).  A prompt whose errors all repeat an earlier prompt's adds
+none and is executed.  The one-mistake-one-error cleanup (not yet landed) makes it far easier to hit:
+without the follow-on errors, `u` then `u = 5` / `u[0] = 5` / `u.f = 5` / `u++` all run.  Fix:
+deduplicate only against errors added during the current check call (a mark taken at each REPL entry,
+CheckDeclInScope / CheckStmtListInScope / CheckExprInScope), or gate the REPL on a count that includes
+deduplicated reports; a repl unit test feeding the same mistake twice.  Related (minor): a failed REPL
+declaration leaves its symbol in the persistent scope (IR-gen skipped it), so later prompts read a global
+that was never emitted — `var x = 1 + true` then `var y int = x` prints 0 today; the cleanup types more
+such symbols TypError, so fewer later errors flag it.  Fix: roll back or poison an errored declaration's
+symbols.
+
 ### `cast(*any, &s)` with `s @[]readonly char` boxes as `@[]char` — a type switch hands out a MUTABLE slice over readonly data — 🟡 IN PROGRESS (found 2026-09-29, work-3, review of the outer-readonly boxing fix; pre-existing; claimed 2026-09-29, work-3/session)
 
 The `cast` / `unsafe_cast` widening-to-interface paths (`pkg/binate/irgen/gen_builtin.bn` ~:60 and ~:129)
