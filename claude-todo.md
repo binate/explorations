@@ -1333,6 +1333,19 @@ stores feeding 16-byte `movups` reloads are also a likely store-forwarding stall
 12× > instruction ratio 8.5×). The latch's ~60-instr phi-copy shuffle on x64 is register pressure
 that mostly follows from the same live aggregate state.
 
+**Re-profiled 2026-09-29 (bnc main `f4570cfdf`): the aggregate-copy premise above is RESOLVED** — the
+optimized IR's inner loop has no `Record` alloca and no aggregate copy (8 field loads, 8 ops, 8 field
+stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What remains, by backend:
+- **x64 (126 instrs/element): register allocation.** x64 homes only RBX/R12–R15 (5 regs,
+  `x64AllocatablePool`); R10/R11/RCX/RDX/R8/R9/RDI are a fixed scratch pool and `CallerSaved` is
+  deliberately empty. The loop has ~18 live scalars (8 carried fields, 8 loaded fields, index, bound),
+  so most round-trip `[rsp+..]` every iteration. aa64 closed the same gap with caller-saved arg-bank
+  homes (Stage 5d); x64 has no equivalent.
+- **aa64 (67 instrs/element, static): nearly register-resident.**
+- **Both:** (a) the `arr`/`out` managed-slice header allocas' ADDRESS is materialized (`sp+off`),
+  spilled and reloaded, then data/len are reloaded — loop-invariant (the "managed-slice header
+  reloaded" item below); (b) ~9 latch phi-copy moves per iteration (no copy coalescing).
+
 - **n-body is ~90% software `math.Sqrt` on BOTH backends — 🔵 OPEN (found 2026-09-24).** callgrind:
   native 88%, LLVM 90% of instructions in `math.Sqrt`'s bit-by-bit loop (neither emits `sqrtsd` /
   `fsqrt`); the source notes "a hardware sqrt intrinsic may replace this as a fast path later". So
