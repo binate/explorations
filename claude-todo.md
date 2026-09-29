@@ -379,18 +379,6 @@ on the session module at the boxing site (ensureGenericImplInfo) never reaches t
 which is built by LowerModule.  Fix: lower newly minted impl rows / vtables when a prompt decl is lowered.
 No test yet — e2e/repl.sh has no expected-failure mechanism; add a case with the fix.
 
-### `sizeof` of a generic type instantiated with a type parameter is 0 through a constant or an array length — silent wrong value — 🟡 IN PROGRESS (found 2026-09-28, work-4, recon of design B commit 3 / plan §6b; reproduced on main; claimed 2026-09-28, work-4 — user: "since you've recon-ed it, you may as well claim it")
-With `type Box[T any] struct { a [sizeof(T)]uint8 }`, in a generic function instantiated for int32 / int64:
-`const S = sizeof(Box[T])` reads 0 / 0 and `var a [sizeof(Box[T])]uint8` has length 0 / 0 (should be 4 / 8);
-a direct `sizeof(Box[T])` is right (IR-gen evaluates it per instantiation).  bnc-0.0.16 gave 8 for all.
-Cause: `checkerEnv.Type` (check/check_constval.bn) decides DEPENDENT with `containsByValueTypeParam ||
-arrayLenDependent`, neither of which looks into a struct field for a dependent-length array, so the size is
-recorded as a constant from the abstract `Box[T]` (placeholder length 0); a local const reads it, and an
-array length stamps it on the shared node, which IR-gen trusts.  Fix: one `layoutDependsOnTypeParam` there
-(struct fields, arrays, by-value type parameters, an instantiation still populating with type-parameter
-arguments conservatively dependent); the comparability callers of `containsByValueTypeParam` keep it.
-Needs a conformance test (const / array-length / alignof / nested `Outer[T]`).
-
 ### Polymorphic recursion in a generic function crashes the compiler — 🔴 OPEN (found 2026-09-28, work-4, per-instantiation design mapping; reproduced on main)
 
 `func depth[T any](n int) int { ...; return 1 + depth[@T](n - 1) }` makes bnc segfault (exit 139): IR-gen's
@@ -420,8 +408,7 @@ Until each instantiation is checked:
   a = b` compiles, as does `[sizeof(Outer[T])]` from `[sizeof(T)]` — at int32 an 8-byte array assigned
   from a 4-byte one (found 2026-09-29 reviewing design B commit 3) — commits 4–5.
 Design and commit plan: `plan-constant-evaluator.md` ("Per-instantiation checking"),
-`plan-generic-instance-check.md`.  Also fixes the two MAJOR entries above (a generic struct's
-`[sizeof(T)]` field length; polymorphic recursion).
+`plan-generic-instance-check.md`.  Also fixes the polymorphic-recursion MAJOR entry above.
 
 ### Language feature: array-literal keys that depend on a type parameter — 🔴 OPEN (raised 2026-09-28, work-4)
 `[sizeof(T)]uint8{sizeof(T) - 1: 7}` (a key whose value depends on a type parameter) is rejected today
@@ -471,8 +458,9 @@ before `collectDeclsBody` fills in struct and array types (`resolveBuiltinScalar
 named scalars), so the constant's `sizeof` sees the placeholder (nil Underlying), which `isOpaqueType`
 takes for an opaque type, and `checkBuiltinCall` reports it; package variables are not defined yet at all.
 Fix: when a top-level constant needs a type's layout or a variable's type, resolve that declaration on demand (the reverse of an array length pulling in a constant),
-with a cycle diagnostic for `type A [S]uint8; const S = sizeof(A)`.  Needs a conformance test (struct,
-array, a type declared after the constant, the cycle).
+with a cycle diagnostic for `type A [S]uint8; const S = sizeof(A)`.  Tests: conformance
+`spec/15-builtins/154_sizeof_package_const` and `155_len_package_var_const` (xfail.all, binate
+`86a9b93f0`); the cycle's error test comes with the fix.
 
 ### A generic struct that contains itself by value crashes the compiler instead of reporting a recursive type — 🟡 IN PROGRESS (found 2026-09-29, work-4, review of design B commit 3; reproduced; pre-existing; claimed 2026-09-29, work-4 — user: "let's land the tests first, then fix the two MAJORs")
 
@@ -482,8 +470,9 @@ function that is instantiated) makes bnc segfault (exit 139, a stack overflow re
 a type cannot contain itself by value".  Cause: `checkValueEmbedding` skips generic declarations, so
 `checkTypeByValueCycle` never sees an instantiation, and the walks over its layout recurse without bound.
 Fix: run the by-value cycle check on each instantiation as it is populated; a field that expands forever
-(`x Bad[@T]` by value: `Bad[int32]` holds `Bad[@int32]` holds …) must be rejected too.  Needs a conformance
-error test.
+(`x Bad[@T]` by value: `Bad[int32]` holds `Bad[@int32]` holds …) is already rejected ("generic
+instantiation nested too deeply").  Tests: conformance `regressions/recursive-generic-struct-by-value` and
+`recursive-generic-struct-in-generic-func` (xfail.all, binate `86a9b93f0`).
 
 ### Constant `sizeof` of a type built from repeated struct fields takes time exponential in the nesting depth — 🔴 OPEN (found 2026-09-29, work-4, review of design B commit 3; pre-existing)
 

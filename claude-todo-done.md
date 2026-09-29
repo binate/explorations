@@ -1,3 +1,19 @@
+### `sizeof` of a generic type instantiated with a type parameter is 0 through a constant or an array length — silent wrong value — DONE (binate `82cd129ff`, 2026-09-29, work-4)
+With `type Box[T any] struct { a [sizeof(T)]uint8 }`, in a generic function instantiated for int32 / int64:
+`const S = sizeof(Box[T])` reads 0 / 0 and `var a [sizeof(Box[T])]uint8` has length 0 / 0 (should be 4 / 8);
+a direct `sizeof(Box[T])` is right (IR-gen evaluates it per instantiation).  bnc-0.0.16 gave 8 for all.
+Cause: `checkerEnv.Type` (check/check_constval.bn) decides DEPENDENT with `containsByValueTypeParam ||
+arrayLenDependent`, neither of which looks into a struct field for a dependent-length array, so the size is
+recorded as a constant from the abstract `Box[T]` (placeholder length 0); a local const reads it, and an
+array length stamps it on the shared node, which IR-gen trusts.  Fix: one `layoutDependsOnTypeParam` there
+(struct fields, arrays, by-value type parameters, an instantiation still populating with type-parameter
+arguments conservatively dependent); the comparability callers of `containsByValueTypeParam` keep it.
+- Fixed (binate `82cd129ff`): `checkerEnv.Type` treats a type as DEPENDENT when `layoutDependsOnTypeParam`
+  (a by-value type parameter, a dependent-length array, a struct field that is one, or an instantiation still
+  populating with type-parameter arguments).  Test: conformance
+  `spec/12-generics/080_sizeof_dependent_generic_instance`.
+
+
 ### A generic function instantiation discarded into a blank target is miscompiled — the rest of the function silently does not run — DONE (binate `36ea3fe6c`, 2026-09-29, work-6)
 
 `_ = Ident[int]`, `var _ = Ident[int]` and `a, _ := 1, Ident[int]` (Ident a generic function): LLVM gets

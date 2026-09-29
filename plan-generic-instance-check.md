@@ -1,6 +1,6 @@
 # Plan: check each generic body per concrete instantiation
 
-**Status:** design chosen by the user 2026-09-28 ("B"), not started; the proposed spec rule was reviewed 2026-09-28 (§11), decisions made and the spec text landed (docs `9c9b08e`); implementation in progress (commits 1 and 2 landed).  Part of `plan-constant-evaluator.md` ("Per-instantiation checking"); fixes the claude-todo entries "A generic struct's `[sizeof(T)]` field has the same length in every instantiation" and "Polymorphic recursion in a generic function crashes the compiler".  The text below is the design as drafted by the 2026-09-28 design workflow (read-only code mapping; nothing built); paths are relative to `pkg/binate/`.  Its "decisions" section (§9) was settled in §11.
+**Status:** design chosen by the user 2026-09-28 ("B"), not started; the proposed spec rule was reviewed 2026-09-28 (§11), decisions made and the spec text landed (docs `9c9b08e`); implementation in progress (commits 1–3 landed).  Part of `plan-constant-evaluator.md` ("Per-instantiation checking"); fixes the claude-todo entries "A generic struct's `[sizeof(T)]` field has the same length in every instantiation" and "Polymorphic recursion in a generic function crashes the compiler".  The text below is the design as drafted by the 2026-09-28 design workflow (read-only code mapping; nothing built); paths are relative to `pkg/binate/`.  Its "decisions" section (§9) was settled in §11.
 
 I only read code; nothing was built or run. Paths are relative to `/Users/vtl/binate/temp-binate-4/pkg/binate/`.
 
@@ -175,7 +175,8 @@ Each commit leaves the tree green.
    shared declaration; IR-gen still reads the shared declaration and evaluates a dependent length per
    instantiation itself, which is now correct.  Switching IR-gen to read the checked clones moves to commit 6,
    where IR-gen switches to checked clones generally.
-3. Fix §6b: `layoutDependsOnTypeParam`, with a `sizeof(Box[T])` test.
+3. Fix §6b: `layoutDependsOnTypeParam`, with a `sizeof(Box[T])` test.  **LANDED (binate `82cd129ff`,
+   2026-09-29)**, test conformance `spec/12-generics/080_sizeof_dependent_generic_instance`.
 4. `FuncInstance` records and signature re-resolution; keep the dependent flag and fix identity; defer dependent assignability in abstract bodies; guard the literal count. This fixes problem (1). Tests: `F[int64]` with `[8]uint8` accepted, `F[int32]` with `[8]uint8` rejected.
 5. Queue, drain, depth cap, error context and de-duplication, and queuing generic-type methods. This fixes problem (2). Tests: overflow in one instance, division by a dependent zero, count in one instance, polymorphic recursion, de-duplication, chained instantiation.
 6. IR-gen emits the clones; delete the `DEPENDENT` paths; missing records and constant failures become ICEs.
