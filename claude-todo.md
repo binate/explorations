@@ -76,7 +76,7 @@ genBuiltin's cast / unsafe_cast path casts the pointer directly.  Fix: apply the
 
 ## MAJOR
 
-### Passing a literal `nil` as a function-value ARGUMENT crashes every backend — 🔴 OPEN (found 2026-09-28, work-5, testing named function-value nillability; pre-existing)
+### Passing a literal `nil` as a function-value ARGUMENT crashes every backend — 🟡 IN PROGRESS (found 2026-09-28, work-5, testing named function-value nillability; pre-existing; claimed 2026-09-29, work-5/session — with the wrapper-cluster dead-code cleanup)
 
 `func take(f *func() int, m @func() int) bool { return present(f) || present(m) }` called as
 `take(nil, nil)`: bus error on LLVM, segfault on native aa64 and the VM (exit 139).  Passing a nil
