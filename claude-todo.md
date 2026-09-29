@@ -15,7 +15,7 @@ own (a slice / pointer / array of interface values …) is identified by `irutil
 Fix: canonicalize the type (canonicalTypeArg) before NamelessAnySrcName on both sides.  Test: conformance
 1400_nameless_box_iface_alias_elem (xfail.all; not yet landed).
 
-### The checker identifies an interface by its package's LAST path segment — distinct interfaces conflated — 🔴 OPEN (found 2026-09-28, work-1, fixing the same-named-interface collision; pre-existing)
+### The checker identifies an interface by its package's LAST path segment — distinct interfaces conflated — 🟡 IN PROGRESS (found 2026-09-28, work-1, fixing the same-named-interface collision; pre-existing; claimed 2026-09-28, work-1 — user: "yes; we can hold off on landing the xfail test commits")
 
 `pkg/x/a` and `pkg/y/a` each declare `interface P` (different methods).  The checker accepts
 `var q *ya.P = p` with `p *xa.P`, and `var y Box[*ya.P] = x` with `x Box[*xa.P]` (then types `y.v` as
