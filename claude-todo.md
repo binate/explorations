@@ -100,6 +100,19 @@ the predeclared names, and fix every other by-name match the audit finds.  **Tes
 
 ## MAJOR
 
+### Passing a literal `nil` as a function-value ARGUMENT crashes every backend — 🔴 OPEN (found 2026-09-28, work-5, testing named function-value nillability; pre-existing)
+
+`func take(f *func() int, m @func() int) bool { return present(f) || present(m) }` called as
+`take(nil, nil)`: bus error on LLVM, segfault on native aa64 and the VM (exit 139).  Passing a nil
+VARIABLE (`var g *func() int = nil; take(g)`) works, as do `nil` in a struct literal field, a
+`return nil`, and an assignment.  Likely cause: irgen `coerceArgEager` (gen_call_coerce.bn) retypes
+a literal `nil` argument to the parameter's type only for a slice parameter (`OP_CONST_NIL &&
+isSliceType(pt)`), so for a function-value parameter the untyped, pointer-sized nil is passed where
+the callee reads a 2-word {fn, data} value.  **Fix:** retype a literal nil argument to any nillable
+parameter type that is not a single pointer word (function values, raw or managed, named too), and
+check the other nil-consuming argument paths (variadic tail, method receivers, deferred calls).
+**Test:** conformance (raw and managed, named and unnamed func-value params).
+
 ### A failed interface-target assertion names the target by its bare name — qualify it — 🔴 OPEN (follow-up to `53c0e5fd5`, 2026-09-28; user: "Improving the message with the qualified name would be better, but can be a follow-up.")
 
 `x.(*Flyer)` failing prints `type assertion failed: main.Dog is not Flyer` (gen_assert_iface.bn uses the
