@@ -168,6 +168,13 @@ Each commit leaves the tree green.
 1. `ast` clone functions and tests. No behaviour change.  LANDED (binate `7aabeb8d6`, with refcount-matrix
    `assign/deref` cells `ea8598ecf` for the `*c = *d` whole-node copy it relies on).
 2. Build a repro for §6a (`Buf[int32]` plus `Buf[int64]`); if it reproduces, add the conformance test, xfail markers and a todo. Then switch populate and imported-method signatures to clones (`InstTypeRef`), and make IR-gen's struct/interface instantiation use them.
+   **As done (in progress, 2026-09-28):** reproduced on main (`Box[int32]`, `Box[int64]`, `Box[int8]` all got the
+   last-populated length, on both backends; also an imported generic's method signature and a generic
+   interface's).  The checker now resolves each instantiation from its own clone (`GenericInstantiation.Clone`,
+   and a clone of each imported generic method's signature), so no instance-specific length is stamped on the
+   shared declaration; IR-gen still reads the shared declaration and evaluates a dependent length per
+   instantiation itself, which is now correct.  Switching IR-gen to read the checked clones moves to commit 6,
+   where IR-gen switches to checked clones generally.
 3. Fix §6b: `layoutDependsOnTypeParam`, with a `sizeof(Box[T])` test.
 4. `FuncInstance` records and signature re-resolution; keep the dependent flag and fix identity; defer dependent assignability in abstract bodies; guard the literal count. This fixes problem (1). Tests: `F[int64]` with `[8]uint8` accepted, `F[int32]` with `[8]uint8` rejected.
 5. Queue, drain, depth cap, error context and de-duplication, and queuing generic-type methods. This fixes problem (2). Tests: overflow in one instance, division by a dependent zero, count in one instance, polymorphic recursion, de-duplication, chained instantiation.
