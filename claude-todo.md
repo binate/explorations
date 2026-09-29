@@ -187,7 +187,7 @@ reached through a call (`*rawp()`, `getPtr().arr`) — is copied into a hidden l
 "rooted in a variable", not the spec's addressability; ranging in place iff addressable (holding the
 header's temporaries, as the loop now does) would make it uniform.  §14.9 `stmt.for.in` says neither.
 
-### `types.Identical` treats same-width predeclared integers as one type (`int` ≡ `int64` on 64-bit, `int` ≡ `int32` on 32-bit) — generic instances aliased, target-dependent acceptance — 🔴 OPEN (found 2026-09-28, work-5, review of the distinctNamedInts wrapper fix; pre-existing)
+### `types.Identical` treats same-width predeclared integers as one type (`int` ≡ `int64` on 64-bit, `int` ≡ `int32` on 32-bit) — generic instances aliased, target-dependent acceptance — 🟡 IN PROGRESS (found 2026-09-28, work-5, review of the distinctNamedInts wrapper fix; pre-existing; claimed 2026-09-28, work-5/session — user: "let's do the proper fix")
 
 `Identical`'s TYP_INT arm (`pkg/binate/types/types_identical.bn`, ~line 94) compares only width and
 signedness.  The checker patches the top level of arithmetic / assignment with `distinctNamedInts`,
