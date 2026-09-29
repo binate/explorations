@@ -1,3 +1,12 @@
+### Two codegen unit tests failed on main — a dangling module-name global — DONE (binate `83ce84a25`, 2026-09-28, work-1)
+
+`TestEmitLoadSSARecLastInsertvalueNamesResult` / `TestEmitLoadSSARecPaddedNamedStruct` failed with
+`%bn_S1_4_\0\0\0\01_1_S`: codegen's `modulePkgName` global was a raw view of the emitted module's name,
+left set after EmitModule, so it dangled once the module was freed and the tests (calling an emitter
+directly after an earlier test's module was dropped) read freed memory.  Exposed by an allocation change,
+not caused by one; compiled output was unaffected (EmitModule sets it before use).  The global now owns a
+copy; tests saving it hold it managed; the two tests set the name they expect.
+
 ### Interfaces and named types are identified by their full package path; name-less boxes resolve interface aliases — DONE (binate `3086a29aa` + `53c0e5fd5`, 2026-09-28, work-1)
 
 Three CRITICALs, fixed together after reviews showed each part alone regressed:
