@@ -199,6 +199,8 @@ target with an unsubstituted generic checker type (`getS[T](p)[0], n = v, 1`: wr
 RefInc) — fix: acquire in phase 1 by the value's own type, coerce in phase 3 by the designator's IR type;
 (4, pre-existing) multi-value into an interface target never builds the interface value, and `g, n = nil, 1`
 into an @func is invalid IR — phase 3 should apply the single-assignment conversions; spec nits on §21.5.
+Decided (user, 2026-09-29): call arguments are pinned left to right ("3: left to right" — the spec gains it,
+with a test); this landing waits until the borrowed-operand fix below is in ("2: I guess it can wait").
 
 ### A managed operand borrowed during evaluation can be freed by a later operand's side effect — use-after-free in well-typed code — 🔴 OPEN (found 2026-09-29, work-1, review of the evaluation-order change; pre-existing)
 
