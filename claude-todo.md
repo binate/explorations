@@ -267,7 +267,7 @@ say whether a non-struct definition may complete a forward declaration.  If it m
 the completion as the named type; if not, the checker must reject it.  Probe: a library as above, main
 does `var x @h.Handle = h.Make(21)` and calls a method on it.
 
-### Boxing keeps an outer `readonly` in a slice's dynamic type — a boxed `readonly @[]readonly char` (every `os.Args()` element) matches no type-switch case — 🔴 OPEN (found 2026-09-28, work-3, review of the fmt string-operand fix)
+### Boxing keeps an outer `readonly` in a slice's dynamic type — a boxed `readonly @[]readonly char` (every `os.Args()` element) matches no type-switch case — 🟡 IN PROGRESS (found 2026-09-28, work-3, review of the fmt string-operand fix; claimed 2026-09-29, work-3/session)
 
 Spec §11.12 `iface.assert`: the dynamic type of a boxed value is its type "with its `*`/`@`/outer-`readonly`
 stripped", and `iface.assert.slice` makes a slice's identity `{ managed | raw, element-readonly?, element }`
