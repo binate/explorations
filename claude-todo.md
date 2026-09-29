@@ -597,7 +597,7 @@ fix by checking end-of-line before emitting, in every branch.  With that fix, ma
 `goldenReject` (`parse/aarch64_golden_test.bn`) also check that nothing was emitted, so every reject table
 pins the rule (today it checks only that an error was set).
 
-### Assigning `nil` to an `@func` holding a capturing closure clears only the fn word — double free (every backend) — 🔴 OPEN (found 2026-09-26)
+### Assigning `nil` to an `@func` holding a capturing closure clears only the fn word — double free (every backend) — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-29, work-3/session)
 
 `var fb @func() int = func() int { return b.v }` (any capture, e.g. a plain `@Box`), then `fb = nil`:
 LLVM and native aa64 print correctly then segfault at exit (rc 139).  The LLVM IR for
