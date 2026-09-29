@@ -606,16 +606,23 @@ fix by checking end-of-line before emitting, in every branch.  With that fix, ma
 `goldenReject` (`parse/aarch64_golden_test.bn`) also check that nothing was emitted, so every reject table
 pins the rule (today it checks only that an error was set).
 
-### Assigning `nil` to an `@func` holding a capturing closure clears only the fn word — double free (compiled backends) — 🔴 OPEN (found 2026-09-26)
+### Assigning `nil` to an `@func` holding a capturing closure clears only the fn word — double free (every backend) — 🔴 OPEN (found 2026-09-26)
 
 `var fb @func() int = func() int { return b.v }` (any capture, e.g. a plain `@Box`), then `fb = nil`:
-LLVM and native aa64 print correctly then segfault at exit (rc 139); the VM is fine.  The LLVM IR for
+LLVM and native aa64 print correctly then segfault at exit (rc 139).  The LLVM IR for
 `fb = nil` is `store i8* null, i8** %slot` — it zeroes only the FIRST word (fn / vtable) of the
 two-word `%BnFuncValue`; the data word still points at the closure record the assignment just
 RefDec'd (and freed), and the frame-end RefDec of `fb` releases it again.  Suspected fix: a nil
 assignment to an @func (and any 2-word value — check @Iface too) must store the full two-word zero
 value.  Found by the review of the closure capture-param fix (pre-existing; not related to it).
 Repro: a function with a captured `@Box`, `var fb @func() int = func...; println(fb()); fb = nil`.
+The VM is NOT fine once the closure is shared (review of the range-loop operand change, 2026-09-28,
+work-6; reproduced): `var g @func(int) int = fs[1]; fs[1] = nil; g(4)` over a `[2]@func(int) int`
+whose closure captures a local prints 12 on the VM, then traps (BPT) on the next call; LLVM and
+native segfault.  Nil-ing an array element (`fs[1] = nil` after `fs[1] = func…`, then calling
+`fs[0]`) also segfaults on LLVM and native and traps on the VM after one call.  A range loop over
+such an array whose body nils an element reaches this too (the loop's copy shares the closure) —
+not a regression: before the hidden-operand change the loop read in place and called nil.
 
 ### Package-level var inferred from a generic-instantiated non-literal initializer (also: interface-typed, pointer-to-foreign-type) — builds broken — 🔴 OPEN (found 2026-09-26, work-1, fixing the inferred-var miscompile; pre-existing)
 
@@ -824,6 +831,16 @@ quote numbers from this file (they go stale):**
   x64/arm32 codegen changes (a revert looks "neutral"). Measure non-host
   backends by static instruction/reload counting on a `--target` build, or on
   real hardware/CI.
+
+### Copying or releasing an array of managed elements is emitted unrolled, one sequence per element — code size grows with N — 🔴 OPEN (found 2026-09-28, work-6, review of the range-loop operand change; pre-existing)
+
+The copy of an array whose elements are managed (a retain per element) and its release (a release per
+element) are emitted inline for every element: a local `var tmp [8000]@Box` alone takes a native
+binary from 169 KB to 466 KB.  A range loop now copies its array operand into a hidden local
+(`stmt.for.in.operand`), so each loop over a `[N]@T` array pays it: one loop over `[8000]@Box` gives
+532 KB, three loops 1.23 MB, against 169 KB for an index loop.  The N retains and N releases are
+required; emitting them unrolled is a codegen choice.  Fix: emit a loop over the elements (in IR-gen's
+struct/array copy and destructor helpers) once N passes a small threshold.
 
 ### Standing: decide each new IR pass's VM membership in [vm-pass-set.md](vm-pass-set.md)
 
