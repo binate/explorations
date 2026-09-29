@@ -148,6 +148,14 @@ the predeclared names, and fix every other by-name match the audit finds.  **Tes
 
 ## MAJOR
 
+### A name repeated on the left of `:=` or among a range loop's binders is accepted — 🟡 IN PROGRESS, DECIDED: an error, `_` exempt (found 2026-09-28, work-6, review of the parallel short-variable fix; claimed 2026-09-28, work-6/session — user: "yes to both")
+
+`a, a := 1, 2` binds `a` = 2 (the last wins); `for i, i in xs` binds the index (the first wins).  A
+parameter list already rejects a repeated name ("duplicate parameter name: a").  Decided (user, "probably
+it should be an error, I think", then "yes to both"): the checker reports a name repeated among the names
+one `:=` or one range loop declares; `_` may repeat.  Needs spec text (§9.3 `decl.shortvar`, §14.9
+`stmt.for.in`) and conformance `.error` coverage.
+
 ### REPL: boxing a name-less type into `*any` at a prompt panics — "interface vtable not found: __ivt…__nameless_…" — 🔴 OPEN (found 2026-09-28, work-1, review of the interface-identity stack; pre-existing)
 
 At the REPL prompt, any boxing of a type with no name of its own into `*any` — even a plain `*[]int` held in
@@ -171,7 +179,7 @@ values) all pass the checker: LLVM then fails in clang (`alloca void`), while na
 garbage value.  Each should be a diagnostic at the statement.  Covered by conformance 1404 (an `.error`
 test pinning a diagnostic at each of the three lines, `xfail.all`).
 
-### Range-loop operand lifetime and in-place-ness are unspecified — reassigning the loop's root variable in the body is a use-after-free — 🔴 OPEN, DECIDED: a hidden temporary for every operand (found 2026-09-28, work-6, review of the range-loop fix; pre-existing)
+### Range-loop operand lifetime and in-place-ness are unspecified — reassigning the loop's root variable in the body is a use-after-free — 🟡 IN PROGRESS, DECIDED: a hidden temporary for every operand (found 2026-09-28, work-6, review of the range-loop fix; pre-existing; claimed 2026-09-28, work-6/session — user: "yes to both")
 
 (a) `for x in s { s = other; … }` with `s @[]@[]char`, and `for y in p.arr { p = nil; … }` with `p @H`:
 the loop reads through the operand's storage without holding a reference of its own, so the reassignment
@@ -191,7 +199,7 @@ topic for another time (and probably we should allow all correct optimizations, 
 are observable)."  So every operand is evaluated once into a hidden local (`tmp := operand`) held until
 the loop exits: a managed-slice is retained once per loop, and an array is copied (value semantics — a
 write to the original during the loop is not seen; conformance 1401 currently pins the in-place `4 5 60`).
-Open: confirm the array consequence; eliding the temporary where unobservable is a separate topic.
+The array copy is confirmed (user: "yes to both"); eliding the temporary where unobservable is a separate topic.
 
 ### `types.Identical` treats same-width predeclared integers as one type (`int` ≡ `int64` on 64-bit, `int` ≡ `int32` on 32-bit) — generic instances aliased, target-dependent acceptance — 🟡 IN PROGRESS (found 2026-09-28, work-5, review of the distinctNamedInts wrapper fix; pre-existing; claimed 2026-09-28, work-5/session — user: "let's do the proper fix")
 
@@ -2264,7 +2272,7 @@ language extension, not a bug fix.
 
 ## Language-feature proposals
 
-### Ranging over a string literal (`for c in "hi"`) is rejected — spec question (found 2026-09-28, work-6, review of the range-loop fix)
+### Ranging over a string literal (`for c in "hi"`) is rejected — 🟡 IN PROGRESS, DECIDED: accepted, with the literal's natural type `[N]readonly char` (found 2026-09-28, work-6, review of the range-loop fix; claimed 2026-09-28, work-6/session — user: "yes to both")
 
 §14.9 `stmt.for.in` allows a slice, managed-slice or array operand; a string literal's natural type is
 `[N]readonly char` and its default type `@[]readonly char` (§6.6), either iterable, yet the checker reports
