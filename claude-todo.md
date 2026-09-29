@@ -218,7 +218,7 @@ instantiated (checker-side, before IR-gen), and turn the IR-gen panics into unre
 checker's unsafe_cast rules with a diagnostic pointing at constructing the managed value; add `.error`
 conformance tests for both (check whether `*[]T → @[]T` is also accepted today).
 
-### Indexing an array field loads the WHOLE array as a value — 80 MB of LLVM IR for conformance 1301, clang exhausts memory — 🔴 OPEN (found 2026-09-28, work-1, while finding what exhausted system memory during a local conformance run; pre-existing)
+### Indexing an array field loads the WHOLE array as a value — 80 MB of LLVM IR for conformance 1301, clang exhausts memory — 🟡 IN PROGRESS (found 2026-09-28, work-1, while finding what exhausted system memory during a local conformance run; pre-existing; claimed 2026-09-28, work-1 — user: "take on the bugs that you filed"; reads fixed by `b24497e02`, writes still load the whole array: 40 MB IR at `83ce84a25`)
 
 Conformance `1301_large_elem_index` (`type Big struct { a [70001]uint8 }`, `g[i].a[off]` read and write)
 emits an 80 MB `.ll` (1.3M lines) on the LLVM backend: `get` and `set` are ~210k lines each, `main` ~910k.
