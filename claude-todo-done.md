@@ -1,3 +1,13 @@
+### Type-wrapper cluster leftover: a named function-value type is nillable — DONE (binate `b61a23b78`, docs `5462217`, 2026-09-29, work-5)
+
+`type F *func() int; var f F = nil` was rejected while a named pointer took nil: IsNillable peeled
+named types for pointers only.  User: "if function-value types are nilable, then their named
+counterparts should also be nilable."  IsNillable now peels named types for function values too; the
+spec gains `type.named.nillability`.  Conformance 1425 + unit test.  Found on the way: a literal `nil`
+function-value ARGUMENT crashes every backend (MAJOR, filed); and the spec's
+`type.named.func-value-nominal` still calls constructing a named function value from a literal a
+rejected gap, though it compiles and runs.
+
 ### A generic struct's `[sizeof(T)]` field has the same length in every instantiation — silent wrong layout — DONE (binate `a53adf5b3`, 2026-09-29, work-4; design B commit 2)
 
 `type Box[T any] struct { a [sizeof(T)]uint8 }`: `Box[int32]` and `Box[int64]` both get an 8-byte `a`, and

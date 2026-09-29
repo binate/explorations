@@ -19,9 +19,6 @@ slot; named-over-readonly `MIN / -1` skips the overflow trap on native/VM).
 **Triage of the un-audited areas (irgen last third, codegen, native, ir/irbuild/iropt/irutil/types) —
 done 2026-09-27.**  Only confirmed defect: the `@NB` release leak above.  Leftovers (no observable
 miscompile found):
-  - [decided, to do] checker `Type.IsNillable` peels NAMED for pointers (`nil` → `type P *int` OK) but
-    not for function values (`f = nil` for `type F *func() int` is rejected).  User (2026-09-28): "if
-    function-value types are nilable, then their named counterparts should also be nilable."
   - [dead code] irgen nil→slice coercions (`gen_control.bn` `*p = nil` / field arms, `gen_call_coerce.bn`
     `nil` arg arm) — the checker rejects `nil`→slice (spec §7.7); irgen `isManagedReceiverType`
     (test-only); native `common.UnwrapNamed` (no callers; a named-only peel, a trap for new callers).
