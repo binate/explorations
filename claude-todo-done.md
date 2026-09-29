@@ -1,3 +1,18 @@
+### `#[build(...)]` ignored on the MAIN program's own files, declarations and imports; gated imports not gated per file (1370) — ✅ LANDED bf7d6f078 (2026-09-29), work-3
+
+`Loader.LoadRoot` gives the root package (the main program, or an embedder's driver package) exactly the
+gate an imported package gets — package-clause gate per file, then the declaration/import gate, then load the
+surviving imports; an all-gated-out root is an error.  bnc's whole-program build, the VM's LoadProgram and
+LoadCallable (the embedder path had the same bypass) and the REPL's NewKernel all load through it.  The
+review of that change found the per-file side of the same defect: the declaration/import gate (`gateMerged`,
+renamed `gateDeclsAndImports`) ran only on the MERGED file, so per-file ASTs kept a gated-out import
+("unknown package" in a multi-file package — the 1370 entry, found work-1) and MergeFiles' import de-dup
+could let a gated-out spec in one file drop the same import made unconditionally in another.  It now runs on
+each file before the merge, in loadPackage and LoadRoot alike.  `096_build_gate_main`,
+`097_err_build_errors_main` and `1370_build_gated_import_multi_file` un-xfailed (pass on LLVM, the VM and
+native aa64); 8 new loader tests (the two per-file ones fail with the per-file gate reverted).  The spec note
+claiming gating is inactive in the REPL / bytecode tool / unit tests was stale — corrected (docs `f3a1b18`).
+
 ### Range-loop operand lifetime and in-place-ness are unspecified — reassigning the loop's root variable in the body is a use-after-free — DONE (binate `6951dd07e`, docs `40b69a3`, 2026-09-28, work-6; decided by the user)
 
 (a) `for x in s { s = other; … }` with `s @[]@[]char`, and `for y in p.arr { p = nil; … }` with `p @H`:

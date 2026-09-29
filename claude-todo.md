@@ -211,20 +211,6 @@ same shape for slicing).  Also check the other backends: the VM / native may cop
 Consider a compile-size or compile-memory guard in the conformance runner so a pathological test fails
 instead of exhausting the machine.
 
-### A `#[build]`-gated import in a package with several `.bn` files is not gated per file — "unknown package" — 🟡 IN PROGRESS (found 2026-09-28, work-1, review of the per-file import pre-pass fix; pre-existing; claimed 2026-09-29, work-3/session, with the root-package #[build] fix)
-
-`pkg/sel/a.bn`: `#[build(<false>)] import "pkg/never"`; `pkg/sel/b.bn` a second file.  Build fails
-"a.bn:…: unknown package".  The loader's gate (`gateMerged`, loader/buildconfig.bn) drops gated-out
-imports only from `merged.Imports`; with two or more `.bn` files the per-file ASTs (`Package.Files`) keep
-them, and the checker's per-file scopes (`buildFileScopes`) register the gated-out, never-loaded import.
-A single-file package works only because its merged file IS that file (gated in place).  IR-gen's
-per-file import overlays (GeneratePackage, and the registration passes' RegisterSourceFiles registry)
-install the same ungated `files[i].Imports`, so once the checker side is fixed a same-alias gated pair
-(`#[build(darwin)] import sys ".../darwin"` / `#[build(linux)] import sys ".../linux"`) would bind to the
-gated-out package in IR-gen.  Fix: the loader gates each file's imports (every `files[i]` and the `.bni`),
-not just the merged list.  Test: conformance 1370_build_gated_import_multi_file (xfail.all, binate
-`9667e6656`).
-
 ### A `.bni` forward `type X` completed by a NON-struct `type X int` in the `.bn` — checker accepts, IR-gen internal error — 🔴 OPEN (found 2026-09-28, work-1, review of the named-type identity fix; pre-existing)
 
 `pkg/h.bni`: `type Handle` plus `func Make(v int) @Handle`; `pkg/h/h.bn`: `type Handle int`.  The
@@ -329,30 +315,6 @@ params, if confirmed) on arm32 hard-float with a clear error + tests; (b) real �
 at the C boundary (back-filling the S-slot mask, `common_callconv_vfp.bn`) on both backends.  User's
 call which (and whether (a) first).  Needs a conformance test on `builder-comp_arm32_linux` /
 `builder-comp_native_arm32_linux` (qemu-arm user-mode is not installed on this host).
-
-### `#[build(...)]` is ignored on the MAIN program's own files, declarations and imports — neither applied nor validated — 🟡 IN PROGRESS (found 2026-09-27, work-3, authoring the `pkg.build.errors` conformance tests; claimed 2026-09-29, work-3/session)
-
-Both program drivers parse + merge the main source files themselves and hand only `merged.Imports` to
-the loader — bnc's whole-program path (`cmd/bnc/main.bn`: `parseSourceFiles` → `mergeFiles` →
-`ldr.LoadImports(file.Imports)`) and the VM's `interp.LoadProgram` (`pkg/binate/interp/interp.bn:163`,
-`loader.MergeFiles` → `LoadImports`).  The build gate (`Loader.gateMerged` for declarations/imports,
-the per-file package-clause check in `loadPackage`) runs only inside `loadPackage`, so the main
-program's own constraints are never evaluated.  Consequences, all spec violations (`pkg.build.gate`
-names no main-package exception; `pkg.build.errors` says a constraint that fails to evaluate is a
-hard error and "a silent skip is never used"): (1) complementary gates collide — two `func pick()`
-under `#[build(is(arch,"aarch64"))]` / `#[build(!is(arch,"aarch64"))]` → "pick redeclared in this
-block" (the same shape works in an imported package, conformance 737); (2) a false gate does not
-exclude its declaration (a body that only compiles on another target is type-checked here); (3) every
-malformed constraint (`#[bogus]`, `is(cpu,…)`, `is(arch,"vax")`, `gt(version,…)`,
-`at_least(arch,…)`, a bad version literal, `==`, unary `-`, a bare `arch`) is silently ACCEPTED,
-exit 0; (4) a gated `import` in main is loaded unconditionally (running its initializers on the wrong
-target); (5) `gateMerged`'s `#[c_export]`-placement check is skipped for main.  `--pkg` and `--test`
-are unaffected (they load the package through `loadPackage`).  Fix: route the main program's
-files through the same gate — per-file package-clause check before merging, then the
-declaration/import gate on the merged file before `LoadImports` — via one exported loader entry both
-drivers call (so they cannot drift), un-xfailing `conformance/spec/16-packages/096_build_gate_main` (gate) and
-`097_err_build_errors_main` (error path), both `.xfail.all` since `1abd623f5` (the imported-package
-error path is covered by `095_err_build_errors`).
 
 ### Methods and impls on a named function-value type are broken — link failure / runtime segfault — 🔴 OPEN (found 2026-09-27, work-5, review of the named-readonly func-value fix; pre-existing, no wrapper needed)
 
