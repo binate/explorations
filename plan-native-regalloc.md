@@ -660,7 +660,11 @@ Tier B's 4-register pool needs exactly REM, DIV, MADD and MSUB slimmed.
 
 **Progress:** steps 1 (pool shrink + OP_RODATA_ARRAY scratch) and 2 (two-pass param landing) LANDED
 `1af07ee75` / `ffacd98cd` (2026-09-29); native x64 conformance 3252/0 at -O0 and -O2, native
-self-compile OK.  Next: step 3 (parallel-move call marshalling).
+self-compile OK.  Steps 3 + 5 (parallel-move placement of RSI/RDI-homed call args at every call
+site, reservation of filled arg registers in the arg loops, 2-register parallel move in the
+bounds/div-check fail calls and RefDec's destroy call) LANDED `2ac43b27e`.  Step 4 is unnecessary:
+func-value / iface-value operands are aggregates, never homed, so `fvAddr` / `ivAddr` cannot be in
+RSI/RDI.  Next: step 6 (flip `CallerSaved = {RSI, RDI}`).
 
 Steps 2–5 are no-ops before step 6 (no home can be in an arg register yet), so each lands and
 validates on its own, as Stage 5d's increments did.
