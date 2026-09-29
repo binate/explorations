@@ -1,3 +1,31 @@
+### A generic struct that contains itself by value crashes the compiler instead of reporting a recursive type — DONE (binate `215ccf9a4`, 2026-09-29, work-4)
+
+`type Bad[T any] struct { x Bad[T]; y T }` used as `var b Bad[int32]` (or as `var b Bad[T]` in a generic
+function that is instantiated) makes bnc segfault (exit 139, a stack overflow reached in
+`types.ResolveAliasAndConst`).  The non-generic `type Bad struct { x Bad; y int32 }` gets "recursive type:
+a type cannot contain itself by value".  Cause: `checkValueEmbedding` skips generic declarations, so
+`checkTypeByValueCycle` never sees an instantiation, and the walks over its layout recurse without bound.
+Fix: run the by-value cycle check on each instantiation as it is populated; a field that expands forever
+(`x Bad[@T]` by value: `Bad[int32]` holds `Bad[@int32]` holds …) is already rejected ("generic
+instantiation nested too deeply").  Tests: conformance `regressions/recursive-generic-struct-by-value` and
+`recursive-generic-struct-in-generic-func` (xfail.all, binate `86a9b93f0`).
+Found by the fix's review (2026-09-29), same class, in the fix: a named type declared over an instantiation
+that holds it (`type Wrap Bad[int32]` with `w Wrap` in `Bad[T]`, or `type Wrap Box[Wrap]`) was silently
+accepted (an infinite-size type) or crashed bnc, because `checkTypeByValueCycle` looked only at a struct or
+array underlying; and a package whose `.bni` declares a self-containing generic crashed every importer,
+even with the generic never instantiated — IR-gen's import pre-pass (`registerStructTypesFlat`, and
+`RegisterSelfTypes`'s first pass) registered generic struct declarations as plain structs, resolving their
+fields with no type parameters bound into a bogus all-`int` instantiation (dead dtor symbols for a valid
+generic; a non-terminating destruction walk for a self-containing one).
+- Fixed (binate `215ccf9a4`): each generic struct instantiation is checked for a by-value cycle as it is
+  populated; `checkTypeByValueCycle` looks through named / alias / readonly wrappers (`type Wrap Bad[int32]`,
+  `type Wrap Box[Wrap]`); IR-gen's `registerStructTypesFlat` and `RegisterSelfTypes` register nothing for a
+  generic struct declaration.  Tests: conformance regressions `recursive-generic-struct-*`,
+  `recursive-struct-through-generic`, `recursive-named-over-generic(-arg)`, 1433; irgen
+  `TestRegisterStructTypesSkipsGenericStructs`, `TestRegisterSelfTypesSkipsGenericStruct`.  An uninstantiated
+  self-containing generic is still accepted — see the "never instantiated" entry.
+
+
 ### Boxing kept an outer `readonly` in a slice's dynamic type — a boxed `readonly @[]readonly char` (every `os.Args()` element) matched no case — ✅ LANDED 89602a530 (2026-09-29), work-3
 
 The name-less box identity was built from the checker type with the outer `readonly` still on it;

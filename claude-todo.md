@@ -509,26 +509,6 @@ guard — a cycle is already `prog.init.var-cycle`'s error), and skip it when pa
 mechanism the package-constant fix above needs for `len` of an inferred-type variable.  Needs conformance
 tests (a forward reference to an inferred variable, through a function-call initializer, and a cycle).
 
-### A generic struct that contains itself by value crashes the compiler instead of reporting a recursive type — 🟡 IN PROGRESS (found 2026-09-29, work-4, review of design B commit 3; reproduced; pre-existing; claimed 2026-09-29, work-4 — user: "let's land the tests first, then fix the two MAJORs")
-
-`type Bad[T any] struct { x Bad[T]; y T }` used as `var b Bad[int32]` (or as `var b Bad[T]` in a generic
-function that is instantiated) makes bnc segfault (exit 139, a stack overflow reached in
-`types.ResolveAliasAndConst`).  The non-generic `type Bad struct { x Bad; y int32 }` gets "recursive type:
-a type cannot contain itself by value".  Cause: `checkValueEmbedding` skips generic declarations, so
-`checkTypeByValueCycle` never sees an instantiation, and the walks over its layout recurse without bound.
-Fix: run the by-value cycle check on each instantiation as it is populated; a field that expands forever
-(`x Bad[@T]` by value: `Bad[int32]` holds `Bad[@int32]` holds …) is already rejected ("generic
-instantiation nested too deeply").  Tests: conformance `regressions/recursive-generic-struct-by-value` and
-`recursive-generic-struct-in-generic-func` (xfail.all, binate `86a9b93f0`).
-Found by the fix's review (2026-09-29), same class, in the fix: a named type declared over an instantiation
-that holds it (`type Wrap Bad[int32]` with `w Wrap` in `Bad[T]`, or `type Wrap Box[Wrap]`) was silently
-accepted (an infinite-size type) or crashed bnc, because `checkTypeByValueCycle` looked only at a struct or
-array underlying; and a package whose `.bni` declares a self-containing generic crashed every importer,
-even with the generic never instantiated — IR-gen's import pre-pass (`registerStructTypesFlat`, and
-`RegisterSelfTypes`'s first pass) registered generic struct declarations as plain structs, resolving their
-fields with no type parameters bound into a bogus all-`int` instantiation (dead dtor symbols for a valid
-generic; a non-terminating destruction walk for a self-containing one).
-
 ### Constant `sizeof` of a type built from repeated struct fields takes time exponential in the nesting depth — 🔴 OPEN (found 2026-09-29, work-4, review of design B commit 3; pre-existing)
 
 Eleven levels of `type Ln struct { f0 Ln-1; f1 Ln-1; f2 Ln-1; f3 Ln-1 }` and `const S = sizeof(L11)` in a
