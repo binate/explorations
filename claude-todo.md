@@ -2960,7 +2960,7 @@ unblock them:
 
 ## Opportunistic code cleanups
 
-### Most checker contexts re-report an operand whose error is already reported — cascading diagnostics — 🔴 OPEN (found 2026-09-29, work-6, review of the result-tuple change; pre-existing)
+### Most checker contexts re-report an operand whose error is already reported — cascading diagnostics — 🟡 IN PROGRESS (found 2026-09-29, work-6, review of the result-tuple change; pre-existing; claimed 2026-09-29, work-6/session — user: "wait 15 minutes, then go ahead; then do the cascade cleanup")
 
 One mistake yields several errors: `var x int = undefinedV[0]` gives "undefined: undefinedV", "cannot
 index this type" and "cannot assign void to int"; `undefinedV.M()` adds "cannot access field on this
