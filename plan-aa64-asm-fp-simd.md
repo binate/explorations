@@ -156,6 +156,14 @@ commit per step; land each before starting the next.
 
 **C. SIMD loads / stores**: LD1–LD4 / ST1–ST4 (multiple structures, post-index), LD1–LD4 / ST1–ST4
 single lane, LD1R–LD4R, LDAP1 / STL1 (FEAT_LRCPC3).
+- ✅ C1 multiple structures (no offset, post-index #transfer-size / Xm) — landed `4d379318b`
+  (2026-09-29): encoders `isa/simd/ldst_multi.bn`, parser `aarch64_instr_simd_ldst.bn` with its
+  own address parser (`parseA64StructAddr`; the shared `parseA64Addr` has ~10 Mode consumers);
+  the backend's `Vld1*` / `Vst1*` now encode through it.  A post-index XZR / X31 is rejected
+  (clang encodes Rm 31 = the immediate form; user-approved divergence, in
+  TestGoldenDeliberateRejects).
+- C2: single lane (index Q:S:size by element), LD1R–LD4R (opcode scale 11, loads only),
+  LDAP1 / STL1.
 
 **D. Crypto**: AES, SHA1 / SHA256 / SHA512, SHA3 (EOR3 / RAX1 / XAR / BCAX), SM3 / SM4.
 
