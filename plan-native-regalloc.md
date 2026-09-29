@@ -713,6 +713,25 @@ carry phis end up spilled and the latch shuffles each through a scratch register
   so the GP and FP passes each see only their own class's copies.
 - Validation: native x64 conformance -O0/-O2, native arm32 baremetal/linux, aa64 via CI;
   native self-compile fixpoint; record-churn instruction count (callgrind).
+- **Finding while implementing: copy-only sharing never fires on the real shapes.**  In
+  `iNext = i + 1; copy i <- iNext` and in record-churn's `m.f0 = a.f1 + c.f0; ...; copy c.f0 <- m.f0`
+  the phi's last use is the very instruction that defines its successor, so the two overlap at that
+  instruction too (use ranges end one past the use; def ranges start at the def).  The successor can
+  take the phi's register only if the defining instruction may write its result into the register of
+  an operand that dies there (a *tie*).  No emitter is handed rd == a dying operand's home today, so
+  this is gated: `RegClassDesc.TieOps` lists the opcodes whose emitters read every operand before
+  writing the result, per backend and per register class.  Audit: aa64/arm32 ADD/SUB/AND/OR/XOR/SHL/
+  SHR (register and immediate-fold paths) are single three-address instructions — safe.  x64's
+  register-form binop (`mov rd, lhs; op rd, rhs`) clobbers rhs when rd == rhs; it gets a swap
+  (commutative ops) / `neg rd; add rd, lhs` (SUB); its fold paths and the register-count shift (count
+  moved to CL first) are safe.  MUL/DIV/REM stay out (aa64 REM is `sdiv rd; msub rd, rd, rhs, lhs`;
+  const-multiply sequences not audited).  Non-copy ties require an integer result (arm32 soft-float
+  float ADD is a libcall).  FP class: COPY only on x64/aa64 (the copy bridges through a GP scratch);
+  none on arm32.
+- The interference rule at a shared position P: P holds a tie between the two (one defined there, the
+  other an operand of it) and the operand's value is dead after P — its interval does not cover P+1,
+  or P+1 redefines it (the adjacency case: `iNext = i + 1` right before `copy i <- iNext` merges the
+  phi's two ranges into one, so the death has to be read off the redefinition).
 
 Steps 2–5 are no-ops before step 6 (no home can be in an arg register yet), so each lands and
 validates on its own, as Stage 5d's increments did.
