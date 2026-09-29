@@ -1,3 +1,66 @@
+### A generic function instantiation discarded into a blank target is miscompiled — the rest of the function silently does not run — DONE (binate `36ea3fe6c`, 2026-09-29, work-6)
+
+`_ = Ident[int]`, `var _ = Ident[int]` and `a, _ := 1, Ident[int]` (Ident a generic function): LLVM gets
+invalid IR (`extractvalue i64 %v0, 0` — clang rejects); on native and the VM the statements after it in
+`main` silently never run (no output, exit 0).  A named target (`var f = Ident[int]`) works — genDecl and
+genShortVar special-case an `EXPR_INSTANTIATE_OR_INDEX` RHS naming a generic function only when binding
+a name.  Root cause: genExprOrFuncRef lowers an instantiation to a func value only against a known
+func-value target type; a blank target has none, so it falls to genExpr, whose EXPR_INSTANTIATE_OR_INDEX
+arm lowers it as indexing a value (a plain `_ = g` works).  Fix: genExpr recognizes a generic-function
+instance (genericFuncInstanceName) and emits its func value at the default managed `@func` type, as
+`var f = Ident[int]` does.  Covered by conformance 1402 (`xfail.all`).
+- Fixed (binate `36ea3fe6c`): genExpr lowers a generic-function instance with no func-value target to its
+  func value at the default `@func` type; genericFuncInstanceName's cross-package arm also skips a local
+  variable shadowing the import alias (found by the review).  Tests: conformance 1402, 1427.
+
+
+### Sub-slicing a composite-literal array (`[3]int{7, 8, 9}[:]`) is miscompiled — zero length / crash — DONE (binate `a0ea51604`, 2026-09-29, work-6)
+
+A composite literal is addressable (spec §13, addressability), so `[3]int{7, 8, 9}[:]` is a raw slice
+over the literal (`type.array.index-slice`).  `len([3]int{1, 1, 1}[1:])` is 0 on native and the VM;
+`digits([3]int{7, 8, 9}[:])` segfaults on native and prints nothing on the VM; LLVM gets invalid IR
+(`extractvalue` on the literal's pointer).  Sub-slicing an array call result (`mkArr()[:]`) or an array
+variable works.  Root cause: genArrayLit returns the literal's alloca (its address); arrayStorageAddr /
+arrayHasStorage (irgen/gen_array_base.bn) do not list a composite literal as storage, so genSliceExpr
+evaluates it as a value, gets the pointer, misses the array-to-slice arm (the type is a pointer) and uses
+the pointer as a slice.  Fix: a composite literal is storage (it is addressable per spec §13).  Covered by conformance 1403 (`xfail.all`, including a
+range-loop operand).
+- Fixed (binate `a0ea51604`): arrayStorageAddr / arrayHasStorage / genIndexPtr treat an array composite
+  literal as storage (its alloca) — slicing, in-place indexing, a borrowed element (`testing.Println(lit[i])`
+  printed `%!?(unknown)`), `&lit[i]`, and `lit[i][j]`.  Test: conformance 1403.
+
+
+### `cast` of a string literal is broken — `cast(*[]readonly char, "hi")` miscompiled (length 0 / garbage), every other target an IR-gen panic — DONE (binate `f3a4a8efd`, 2026-09-29, work-6)
+
+A string literal is assignable to `*[]readonly char` (§6.6 `const.string.types`), so the cast has the
+implicit conversion's meaning (§8 `conv.cast` part 1).  The VM gives length 0 (then an index-out-of-bounds
+fault), native a garbage length, and LLVM invalid IR (`ptrtoint i8* … to %BnSlice`).  The implicit
+conversion (`var s *[]readonly char = "hi"`) works.  Casts to `@[]readonly char`, `@[]char`,
+`[2]readonly char` and `[2]char` panic IR-gen ("cast between mismatched aggregate/scalar shapes").  Root
+cause: a string literal lowers to a bare `*readonly char` (OP_CONST_STRING); every implicit-conversion
+site first converts it (EmitStringToChars for a char slice, EmitRodataArray for a char array), but
+genBuiltin's cast / unsafe_cast path casts the pointer directly.  Fix: apply the same conversion there.  Covered by conformance 1405 (`xfail.all`).
+- Fixed (binate `f3a4a8efd`): castStringLiteral (irgen/gen_cast_value.bn) converts a string-literal
+  operand of cast / unsafe_cast as the implicit conversion does, then relabels a wrapper target (so a
+  named target's methods apply).  Test: conformance 1405 (renamed 1405_cast_string_literal).  The ~26
+  duplicated implicit-conversion sites were not consolidated.
+
+
+### `sl[a:b][i].f` (field of an element of a slice expression) panics "unresolved selector in IR-gen" — DONE (binate `16115bd32`, 2026-09-29, work-6)
+
+`var sl @[]R = make_slice(R, 3); sl[1:3][0].v` compiles, then aborts at run time with `panic: internal
+error: unresolved selector in IR-gen (compiler bug)` on LLVM and native. getSelectorType / genSelector do
+not resolve a selector whose base is an index of a slice EXPRESSION. Needs a conformance test.
+The same panic for a field of an element of an array COMPOSITE LITERAL: `[2]P{P{n: 3}, P{n: 4}}[1].n`
+(found 2026-09-28, work-6, fixing the literal-array sub-slice CRITICAL; reproduced on LLVM and native,
+before and after that fix) — getSelectorType has no type for an index whose base is a composite literal,
+though genIndexPtr now takes the element's address in place.
+- Fixed (binate `16115bd32`): indexExprType types a composite literal and a slice expression, and
+  getIndexElemType uses it for those bases — field reads and writes, `&sl[a:b][i].f`, and nested stores
+  through a slice expression (`a2[:][1][0] = 7`, silently dropped before).  Test: conformance 1426.  The
+  `.bni` remark this entry carried moved to the `.bni` extern `var` entry.
+
+
 ### Tests wrote fixed `/tmp` paths (`TestArm64FormatSelectsWriterAndPrefix` flake) — ✅ LANDED 5925055d2 af1eb6a30 0eab563f3 21aeb335e d59c3afe0 (2026-09-29), work-3
 
 ~360 fixed `/tmp/binate_*` paths in ~47 test files (native ×4 packages, asm/elf, asm/macho, asm/parse,
