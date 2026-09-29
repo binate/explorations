@@ -123,7 +123,7 @@ the predeclared names, and fix every other by-name match the audit finds.  **Tes
 
 ## MAJOR
 
-### `pkg/std/fmt` unit test `TestSprintfNamedScalar` fails on main — 🔴 OPEN (found 2026-09-28, work-4, full unit-test run; pre-existing)
+### `pkg/std/fmt` unit test `TestSprintfNamedScalar` fails on main — 🟡 IN PROGRESS (found 2026-09-28, work-4, full unit-test run; pre-existing; claimed 2026-09-28, work-4 — user: "Can you look into that MAJOR while you're at it?")
 The last assertion fails: `Sprintf("%t", &c)` with `var c namedInt = 20` should give
 `%!t(namedInt=20)` (the inapplicable verb names the named type via `reflect.TypeOf`, `argTypeName`'s
 default case in fmt_printf.bn).  Fails at main `457e2956b`, at `1db847da0`, and at its parent `fb024cd8d`
