@@ -25492,3 +25492,11 @@ result; backends already extract from it in temp cleanups) makes such locals sca
 Validated at -O2: native x64 / native arm32-linux / builder-comp-comp 3213/0; LLVM builder-comp
 3212/1 (the 1 = 1301_large_elem_index clang hang, pre-existing, IR byte-identical before/after —
 tracked as its own 🔴 entry).
+
+## x64 caller-saved homes (Stage 5e) — DONE (2026-09-29, binate 1af07ee75, ffacd98cd, 2ac43b27e, ab3438374, b6fca222f, 8d72d2c44)
+
+x64 homed values only in RBX/R12-R15. Now also RSI, RDI, R8, R9 (values not live across a call):
+scratch pool shrunk to R10/R11/RCX/RDX (every lowering fits in 4), two-pass param landing,
+parallel-move placement of homed call operands at every call site and runtime-call setup, and an
+OP_CALL_HANDLE handle save (review-caught latent wrong code). record-churn 141.6M -> 132.5M instrs;
+native bnc compiling record-churn 6.73G -> 6.18G. Plan: plan-native-regalloc.md "Stage 5e".

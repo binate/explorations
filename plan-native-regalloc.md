@@ -671,6 +671,12 @@ Native x64 conformance 3258/0 at -O0 and -O2, self-compile fixpoint B==C.  Effec
 141.6M -> 134.5M instrs (loop 115 -> 109/element); native bnc compiling record-churn 6.73G -> 6.36G
 instrs.  **Tier A done.**
 
+**Tier B LANDED `b6fca222f` + `8d72d2c44` (2026-09-29):** const-divisor DIV/REM and MADD/MSUB fit
+in 4 pool registers; pool = R10, R11, RCX, RDX; caller-saved homes = RSI, RDI, R8, R9 (9 homes).
+Native x64 conformance 3265/0 at -O0 and -O2, self-compile fixpoint B==C.  Effect: record-churn
+134.5M -> 132.5M instrs (loop 109 -> 107); native bnc compiling record-churn 6.36G -> 6.18G.
+**Stage 5e done.**  RAX/RCX/RDX as homes would need a per-register clobber model (not planned).
+
 **Tier B recon (2026-09-29):** outside the pool/argReg tables, R8/R9 are hardcoded only in the
 u64<->float cast pickers (`pickTwoScratchGP`, x64_float_convert.bn).  The 5-6-register lowerings to
 slim to 4 (pool R10, R11, RCX, RDX): const-divisor OP_REM/OP_DIV (x64_muldiv.bn: lhs, mreg, treg,

@@ -1476,12 +1476,11 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   free_fn / trampoline calls with scalar-or-void results), but each is a silent miscompile if a
   new caller reaches it. Fix: share emitCall's argument placement, or assert the supported shapes
   loudly. Needs a test that pins whichever is chosen.
-- **x64 caller-saved homes (Stage 5e)** — 🟡 IN PROGRESS (claimed 2026-09-29,
-  claude/exciting-davinci-wahyt2 session; then latch copy coalescing). Tier A (RSI/RDI homes) LANDED
-  `ab3438374`; remaining: Tier B (R8/R9). record-churn's x64 loop still spills most of its ~18 live
-  scalars (109 instrs/element vs ~67 on aa64). Plan + measured per-op scratch demand: `plan-native-regalloc.md` "Stage 5e". Tier A = homes
-  += {RSI, RDI}; Tier B = also {R8, R9}. RAX/RCX/RDX would need a per-register clobber model (not
-  planned; to be raised with the user).
+- **Loop-latch copy coalescing (native, all backends)** — 🟡 IN PROGRESS (claimed 2026-09-29,
+  claude/exciting-davinci-wahyt2 session). EliminatePhis leaves `OP_COPY phi <- new` at each loop latch;
+  the allocator homes phi and new value separately, so each carried value costs a move per
+  iteration (record-churn: ~9 on aa64). Needs hole-aware LinearScan + copy-partner hints — see
+  `plan-native-regalloc.md` "Latch copy coalescing recon".
 - **x64 `rt.MemZero`** (zeroing each `make_slice`) is a 4×-unrolled 8-byte store loop reloading its
   zero constants from 4 stack slots — 11.6% of native instructions; LLVM uses glibc `rep stosb`.
   Covered by the x64 MemZero/MemCopy item under native vectorization (A) (being worked on
