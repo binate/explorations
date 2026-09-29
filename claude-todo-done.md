@@ -1,3 +1,57 @@
+### Range-loop operand lifetime and in-place-ness are unspecified — reassigning the loop's root variable in the body is a use-after-free — DONE (binate `6951dd07e`, docs `40b69a3`, 2026-09-28, work-6; decided by the user)
+
+(a) `for x in s { s = other; … }` with `s @[]@[]char`, and `for y in p.arr { p = nil; … }` with `p @H`:
+the loop reads through the operand's storage without holding a reference of its own, so the reassignment
+frees what it ranges over — the remaining iterations read freed memory (`2 0 0 1 0 0` instead of
+`2 3 1 1 2 3` on LLVM, native and the VM).  Options: the loop retains the managed value it reads through
+(one retain and release per loop) — the operand is "evaluated once" in the RC sense — or this is declared
+user error.  (b) An array operand rooted in a variable (`v.arr`, `grid[1]`, `*p`) is ranged in place (a
+write to a later element during the loop is seen); any other array operand — including an addressable one
+reached through a call (`*rawp()`, `getPtr().arr`) — is copied into a hidden local first.  The rule follows
+"rooted in a variable", not the spec's addressability; ranging in place iff addressable (holding the
+header's temporaries, as the loop now does) would make it uniform.  §14.9 `stmt.for.in` says neither.
+
+Decision (user, 2026-09-28): "The divergence in behavior between `for x in s` and `for x in f()` is
+wrong. I think there should be a hidden temporary that lives for the life of the `for` in both cases.
+The only question is if we allow optimizations in the case that `s` isn't modified; possibly that's a
+topic for another time (and probably we should allow all correct optimizations, even though refcounts
+are observable)."  So every operand is evaluated once into a hidden local (`tmp := operand`) held until
+the loop exits: a managed-slice is retained once per loop, and an array is copied (value semantics — a
+write to the original during the loop is not seen; conformance 1401 currently pins the in-place `4 5 60`).
+The array copy is confirmed (user: "yes to both"); eliding the temporary where unobservable is a separate topic.
+- Resolved (binate `6951dd07e`): every range operand is evaluated once into a hidden local
+  (`tmp := coll`) held until the loop exits — arrays copied, managed collections held, header
+  temporaries a raw view borrows from held; the variable-rooted in-place path is gone.  Spec
+  `stmt.for.in.operand` (docs `40b69a3`).  Tests: conformance 1401, spec conformance 14/168, irgen unit
+  tests.  Eliding the temporary where unobservable is a separate topic (not taken); the unrolled
+  per-element copy/release of managed-element arrays is filed under Performance.
+
+
+### A name repeated on the left of `:=` or among a range loop's binders is accepted — DONE (binate `5286c7156`, docs `40b69a3`, 2026-09-28, work-6; decided by the user: "yes to both")
+
+`a, a := 1, 2` binds `a` = 2 (the last wins); `for i, i in xs` binds the index (the first wins).  A
+parameter list already rejects a repeated name ("duplicate parameter name: a").  Decided (user, "probably
+it should be an error, I think", then "yes to both"): the checker reports a name repeated among the names
+one `:=` or one range loop declares; `_` may repeat.  Needs spec text (§9.3 `decl.shortvar`, §14.9
+`stmt.for.in`) and conformance `.error` coverage.
+- Resolved (binate `5286c7156`): the checker reports "<name> declared twice in one statement" for a
+  non-blank name repeated on the left of one `:=` (parallel, multi-return, comma-ok) and for a range
+  loop whose index and value variables share a name; `_` may repeat.  Spec `decl.shortvar.duplicate`,
+  `stmt.for.in.duplicate` (docs `40b69a3`).  Tests: spec conformance 09/171, 14/169; check unit tests.
+
+
+### Ranging over a string literal (`for c in "hi"`) is rejected — DONE (binate `929ec68b5`, docs `40b69a3`, 2026-09-28, work-6; decided by the user: "yes to both")
+
+§14.9 `stmt.for.in` allows a slice, managed-slice or array operand; a string literal's natural type is
+`[N]readonly char` and its default type `@[]readonly char` (§6.6), either iterable, yet the checker reports
+"cannot range over non-iterable type".  Decide whether an untyped string constant is a valid range operand
+(and with which type) and spell it out in `stmt.for.in`.
+- Resolved (binate `929ec68b5`): the checker ranges an untyped string operand as its natural type
+  `[N]readonly char` (N iterations, `readonly char` elements); IR-gen's hidden local holds the literal's
+  static view, no copy.  Spec `stmt.for.in` (docs `40b69a3`).  Tests: spec conformance 14/170; check
+  unit test.
+
+
 ### Two codegen unit tests failed on main — a dangling module-name global — DONE (binate `83ce84a25`, 2026-09-28, work-1)
 
 `TestEmitLoadSSARecLastInsertvalueNamesResult` / `TestEmitLoadSSARecPaddedNamedStruct` failed with

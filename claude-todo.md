@@ -134,14 +134,6 @@ an interface inside a composite (`*[]*pkg/b.P`) — prints qualified.  Print the
 matrix/type-assert/iface/*/abort cells (generator `conformance/gen-type-assert-matrix.py`, whose comment
 documents the bare form).
 
-### A name repeated on the left of `:=` or among a range loop's binders is accepted — 🟡 IN PROGRESS, DECIDED: an error, `_` exempt (found 2026-09-28, work-6, review of the parallel short-variable fix; claimed 2026-09-28, work-6/session — user: "yes to both")
-
-`a, a := 1, 2` binds `a` = 2 (the last wins); `for i, i in xs` binds the index (the first wins).  A
-parameter list already rejects a repeated name ("duplicate parameter name: a").  Decided (user, "probably
-it should be an error, I think", then "yes to both"): the checker reports a name repeated among the names
-one `:=` or one range loop declares; `_` may repeat.  Needs spec text (§9.3 `decl.shortvar`, §14.9
-`stmt.for.in`) and conformance `.error` coverage.
-
 ### REPL: boxing a name-less type into `*any` at a prompt panics — "interface vtable not found: __ivt…__nameless_…" — 🔴 OPEN (found 2026-09-28, work-1, review of the interface-identity stack; pre-existing)
 
 At the REPL prompt, any boxing of a type with no name of its own into `*any` — even a plain `*[]int` held in
@@ -156,28 +148,6 @@ a prompt global or inside a prompt function — panics "vm: interface vtable not
 values) all pass the checker: LLVM then fails in clang (`alloca void`), while native and the VM run with a
 garbage value.  Each should be a diagnostic at the statement.  Covered by conformance 1404 (an `.error`
 test pinning a diagnostic at each of the three lines, `xfail.all`).
-
-### Range-loop operand lifetime and in-place-ness are unspecified — reassigning the loop's root variable in the body is a use-after-free — 🟡 IN PROGRESS, DECIDED: a hidden temporary for every operand (found 2026-09-28, work-6, review of the range-loop fix; pre-existing; claimed 2026-09-28, work-6/session — user: "yes to both")
-
-(a) `for x in s { s = other; … }` with `s @[]@[]char`, and `for y in p.arr { p = nil; … }` with `p @H`:
-the loop reads through the operand's storage without holding a reference of its own, so the reassignment
-frees what it ranges over — the remaining iterations read freed memory (`2 0 0 1 0 0` instead of
-`2 3 1 1 2 3` on LLVM, native and the VM).  Options: the loop retains the managed value it reads through
-(one retain and release per loop) — the operand is "evaluated once" in the RC sense — or this is declared
-user error.  (b) An array operand rooted in a variable (`v.arr`, `grid[1]`, `*p`) is ranged in place (a
-write to a later element during the loop is seen); any other array operand — including an addressable one
-reached through a call (`*rawp()`, `getPtr().arr`) — is copied into a hidden local first.  The rule follows
-"rooted in a variable", not the spec's addressability; ranging in place iff addressable (holding the
-header's temporaries, as the loop now does) would make it uniform.  §14.9 `stmt.for.in` says neither.
-
-Decision (user, 2026-09-28): "The divergence in behavior between `for x in s` and `for x in f()` is
-wrong. I think there should be a hidden temporary that lives for the life of the `for` in both cases.
-The only question is if we allow optimizations in the case that `s` isn't modified; possibly that's a
-topic for another time (and probably we should allow all correct optimizations, even though refcounts
-are observable)."  So every operand is evaluated once into a hidden local (`tmp := operand`) held until
-the loop exits: a managed-slice is retained once per loop, and an array is copied (value semantics — a
-write to the original during the loop is not seen; conformance 1401 currently pins the in-place `4 5 60`).
-The array copy is confirmed (user: "yes to both"); eliding the temporary where unobservable is a separate topic.
 
 ### A package-level NON-type declaration named like a predeclared type (`func uint16()`) shadows it only after its own position — invalid code accepted in one order — 🔴 OPEN (found 2026-09-28, work-5, review of the named-scalar-constants fix; pre-existing)
 
@@ -2271,13 +2241,6 @@ managed fields). Currently `const` is scalar-only (non-scalar → `errNonScalarC
 language extension, not a bug fix.
 
 ## Language-feature proposals
-
-### Ranging over a string literal (`for c in "hi"`) is rejected — 🟡 IN PROGRESS, DECIDED: accepted, with the literal's natural type `[N]readonly char` (found 2026-09-28, work-6, review of the range-loop fix; claimed 2026-09-28, work-6/session — user: "yes to both")
-
-§14.9 `stmt.for.in` allows a slice, managed-slice or array operand; a string literal's natural type is
-`[N]readonly char` and its default type `@[]readonly char` (§6.6), either iterable, yet the checker reports
-"cannot range over non-iterable type".  Decide whether an untyped string constant is a valid range operand
-(and with which type) and spell it out in `stmt.for.in`.
 
 ### Switch `fallthrough` — proposal
 - Not in the current grammar (`grammar.ebnf`). Binate switch cases are implicit-break (Go-style), but there's no opt-in for Go's `fallthrough` keyword.
