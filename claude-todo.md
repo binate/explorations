@@ -485,11 +485,13 @@ for an instantiation, `&&` / `||`, `switch`, and whether the skipped branch is s
 `type Point struct { x int32; y int32 }` then `const S = sizeof(Point)` at package level fails with
 "cannot take sizeof/alignof of an opaque type (its layout is not available here)"; so does
 `type Point [2]int32`.  The same constant inside a function works, and so does a package-level
-`var g [sizeof(Point)]uint8`.  Cause: `collectDecls` (check/check_decl.bn) runs `resolveTopLevelConsts`
+`var g [sizeof(Point)]uint8`.  `len` of a package-level array variable fails the same way: `const L =
+len(g)` with `var g [3]int32` declared after it, or `var h Arr` (a named array type) in either order, gives
+"undefined: g".  Cause: `collectDecls` (check/check_decl.bn) runs `resolveTopLevelConsts`
 before `collectDeclsBody` fills in struct and array types (`resolveBuiltinScalarTypeDecls` pre-fills only
 named scalars), so the constant's `sizeof` sees the placeholder (nil Underlying), which `isOpaqueType`
-takes for an opaque type, and `checkBuiltinCall` reports it.  Fix: when a top-level constant needs a type's
-layout, resolve that type declaration on demand (the reverse of an array length pulling in a constant),
+takes for an opaque type, and `checkBuiltinCall` reports it; package variables are not defined yet at all.
+Fix: when a top-level constant needs a type's layout or a variable's type, resolve that declaration on demand (the reverse of an array length pulling in a constant),
 with a cycle diagnostic for `type A [S]uint8; const S = sizeof(A)`.  Needs a conformance test (struct,
 array, a type declared after the constant, the cycle).
 
