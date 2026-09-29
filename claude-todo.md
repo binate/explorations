@@ -5,6 +5,16 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
+### A name-less boxed composite keys its interface elements as spelled, not through alias chains — silent assertion miss — 🔴 OPEN (found 2026-09-28, work-1, review of the same-named-interface collision fix; pre-existing)
+
+`*[]*a.Q` (`interface Q = b.P`) boxed into `*any`: `w.(*[]*b.P)` returns false, `case *[]*b.P:` takes
+`default`, the expression form panics `*[]*Q is not *[]*P` — every backend.  A box with no type name of its
+own (a slice / pointer / array of interface values …) is identified by `irutil.NamelessAnySrcName` →
+`MangleTypeArg` of the type as written, on both the box side (gen_iface.bn ~231/319) and the assertion side
+(gen_assert.bn ~104/123); neither resolves interface aliases (instantiation does — canonicalTypeArgs).
+Fix: canonicalize the type (canonicalTypeArg) before NamelessAnySrcName on both sides.  Test: conformance
+1400_nameless_box_iface_alias_elem (xfail.all; not yet landed).
+
 ### The checker identifies an interface by its package's LAST path segment — distinct interfaces conflated — 🔴 OPEN (found 2026-09-28, work-1, fixing the same-named-interface collision; pre-existing)
 
 `pkg/x/a` and `pkg/y/a` each declare `interface P` (different methods).  The checker accepts
@@ -29,6 +39,13 @@ leaf qualified by its package (the universe `any` stays `any`); check the demang
 consumer of the token, and whether `QualifiedTypeName` itself should qualify interfaces (other identity
 keys built from it would collide the same way).  Test: conformance 1384_generic_iface_arg_same_name_pkgs
 (xfail.all, binate `566b280c9`).
+
+Status: fix drafted (not landed) — the identity form of a type name (types QualifiedTypeName) qualifies an
+interface by its package.  Blocked: its review found two regressions — IR-gen mangles checker-built types
+in a few fallbacks (a chained call through a non-imported package), whose interface package is the LAST
+path segment while IR-gen's is the full path, so a box and its assertion key differently (fix the checker
+entry below, 1386, first); and the name-less box alias gap above (1400) widens to same-named re-exports.
+Also unify the user-visible spelling (it would read `P`, `a.P` and `pkg/a.P` in different messages).
 
 ### Type-wrapper peel bug cluster (named / alias / readonly handled inconsistently across IR-gen, the VM lowering, codegen, and the checker) — silent wrong values, memory corruption, use-after-free — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-26, work-5/session — user: "take on the critical, then the majors")
 
