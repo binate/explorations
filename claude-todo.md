@@ -117,6 +117,33 @@ segfaults.  Fix: when the range operand is a non-addressable array value, materi
 range over that, as for an array variable.  Needs conformance coverage for array-literal and
 array-returning-call operands in every mode.
 
+### A generic function instantiation discarded into a blank target is miscompiled — the rest of the function silently does not run — 🔴 OPEN (found 2026-09-28, work-6, review of the parallel short-variable fix; pre-existing)
+
+`_ = Ident[int]`, `var _ = Ident[int]` and `a, _ := 1, Ident[int]` (Ident a generic function): LLVM gets
+invalid IR (`extractvalue i64 %v0, 0` — clang rejects); on native and the VM the statements after it in
+`main` silently never run (no output, exit 0).  A named target (`var f = Ident[int]`) works — genDecl and
+genShortVar special-case an `EXPR_INSTANTIATE_OR_INDEX` RHS naming a generic function only when binding
+a name.  Root cause: unknown — needs investigation (likely the blank path's plain genExpr of the
+instantiation).  Covered by conformance 1402 (`xfail.all`; renumbered at landing).
+
+### Sub-slicing a composite-literal array (`[3]int{7, 8, 9}[:]`) is miscompiled — zero length / crash — 🔴 OPEN (found 2026-09-28, work-6, probing the range-loop fix; pre-existing, present in the bnc of 2026-09-27)
+
+A composite literal is addressable (spec §13, addressability), so `[3]int{7, 8, 9}[:]` is a raw slice
+over the literal (`type.array.index-slice`).  `len([3]int{1, 1, 1}[1:])` is 0 on native and the VM;
+`digits([3]int{7, 8, 9}[:])` segfaults on native and prints nothing on the VM; LLVM gets invalid IR
+(`extractvalue` on the literal's pointer).  Sub-slicing an array call result (`mkArr()[:]`) or an array
+variable works.  Root cause: unknown — needs investigation (the slice expression's array-operand path
+does not handle a composite-literal operand).  Covered by conformance 1403 (`xfail.all`, including a
+range-loop operand; renumbered at landing).
+
+### `cast(*[]readonly char, "hi")` is miscompiled — length 0 / garbage length — 🔴 OPEN (found 2026-09-28, work-6, review of the range-loop fix; pre-existing)
+
+A string literal is assignable to `*[]readonly char` (§6.6 `const.string.types`), so the cast has the
+implicit conversion's meaning (§8 `conv.cast` part 1).  The VM gives length 0 (then an index-out-of-bounds
+fault), native a garbage length, and LLVM invalid IR (`ptrtoint i8* … to %BnSlice`).  The implicit
+conversion (`var s *[]readonly char = "hi"`) works.  Root cause: unknown — the cast lowering of an untyped
+string constant to a raw slice.  Covered by conformance 1405 (`xfail.all`; renumbered at landing).
+
 ### A package-level type named like a predeclared type (`type int16 = int8`) is ignored by IR-gen — every backend uses the predeclared type — silent wrong values and layout — 🔴 OPEN (found 2026-09-28, work-5, review of the named-scalar-constants fix; pre-existing)
 
 The spec allows the shadowing (`lex.predeclared.are-idents`: the predeclared type names "may be
@@ -139,6 +166,26 @@ the predeclared names, and fix every other by-name match the audit finds.  **Tes
 1399_predeclared_type_shadowed (`.xfail.all`, binate `5428bbb51`) — remove the marker with the fix.
 
 ## MAJOR
+
+### The checker accepts a no-result call, or a multi-valued call as one list element, as a variable initializer — 🔴 OPEN (found 2026-09-28, work-6, review of the parallel short-variable fix; pre-existing)
+
+`a := nothing()`, `var b = nothing()` (nothing has no result) and `c, d := 1, two()` (two returns two
+values) all pass the checker: LLVM then fails in clang (`alloca void`), while native and the VM run with a
+garbage value.  Each should be a diagnostic at the statement.  Covered by conformance 1404 (an `.error`
+test pinning a diagnostic at each of the three lines, `xfail.all`; renumbered at landing).
+
+### Range-loop operand lifetime and in-place-ness are unspecified — reassigning the loop's root variable in the body is a use-after-free — 🔴 OPEN, NEEDS A DECISION (found 2026-09-28, work-6, review of the range-loop fix; pre-existing)
+
+(a) `for x in s { s = other; … }` with `s @[]@[]char`, and `for y in p.arr { p = nil; … }` with `p @H`:
+the loop reads through the operand's storage without holding a reference of its own, so the reassignment
+frees what it ranges over — the remaining iterations read freed memory (`2 0 0 1 0 0` instead of
+`2 3 1 1 2 3` on LLVM, native and the VM).  Options: the loop retains the managed value it reads through
+(one retain and release per loop) — the operand is "evaluated once" in the RC sense — or this is declared
+user error.  (b) An array operand rooted in a variable (`v.arr`, `grid[1]`, `*p`) is ranged in place (a
+write to a later element during the loop is seen); any other array operand — including an addressable one
+reached through a call (`*rawp()`, `getPtr().arr`) — is copied into a hidden local first.  The rule follows
+"rooted in a variable", not the spec's addressability; ranging in place iff addressable (holding the
+header's temporaries, as the loop now does) would make it uniform.  §14.9 `stmt.for.in` says neither.
 
 ### `types.Identical` treats same-width predeclared integers as one type (`int` ≡ `int64` on 64-bit, `int` ≡ `int32` on 32-bit) — generic instances aliased, target-dependent acceptance — 🔴 OPEN (found 2026-09-28, work-5, review of the distinctNamedInts wrapper fix; pre-existing)
 
@@ -2223,6 +2270,13 @@ managed fields). Currently `const` is scalar-only (non-scalar → `errNonScalarC
 language extension, not a bug fix.
 
 ## Language-feature proposals
+
+### Ranging over a string literal (`for c in "hi"`) is rejected — spec question (found 2026-09-28, work-6, review of the range-loop fix)
+
+§14.9 `stmt.for.in` allows a slice, managed-slice or array operand; a string literal's natural type is
+`[N]readonly char` and its default type `@[]readonly char` (§6.6), either iterable, yet the checker reports
+"cannot range over non-iterable type".  Decide whether an untyped string constant is a valid range operand
+(and with which type) and spell it out in `stmt.for.in`.
 
 ### Switch `fallthrough` — proposal
 - Not in the current grammar (`grammar.ebnf`). Binate switch cases are implicit-break (Go-style), but there's no opt-in for Go's `fallthrough` keyword.
