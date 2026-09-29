@@ -145,7 +145,7 @@ Other by-name predeclared-type matches in irgen / irutil / codegen / native need
 the predeclared names, and fix every other by-name match the audit finds.  **Test:** conformance
 1399_predeclared_type_shadowed (`.xfail.all`, binate `5428bbb51`) — remove the marker with the fix.
 
-### A negated literal of 2^63 (`-9223372036854775808`) written inline computes as UNSIGNED — wrong division, comparison and float conversion on every backend — 🔴 OPEN (found 2026-09-28, work-5, fixing the genUnary type-wrapper row; pre-existing)
+### A negated literal of 2^63 (`-9223372036854775808`) written inline computes as UNSIGNED — wrong division, comparison and float conversion on every backend — 🟡 IN PROGRESS (found 2026-09-28, work-5, fixing the genUnary type-wrapper row; pre-existing; claimed 2026-09-28, work-5/session — user: "yes, go ahead and fix that CRITICAL together with the nit")
 
 ```
 var d int64 = 3
