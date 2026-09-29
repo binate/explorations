@@ -140,6 +140,27 @@ the predeclared names, and fix every other by-name match the audit finds.  **Tes
 
 ## MAJOR
 
+### `types.Identical` treats same-width predeclared integers as one type (`int` ≡ `int64` on 64-bit, `int` ≡ `int32` on 32-bit) — generic instances aliased, target-dependent acceptance — 🔴 OPEN (found 2026-09-28, work-5, review of the distinctNamedInts wrapper fix; pre-existing)
+
+`Identical`'s TYP_INT arm (`pkg/binate/types/types_identical.bn`, ~line 94) compares only width and
+signedness.  The checker patches the top level of arithmetic / assignment with `distinctNamedInts`,
+but every other use of `Identical` sees `int` and `int64` as the same type on a 64-bit target (and
+`int` / `int32` on a 32-bit one):
+  - **Generic instances are aliased:** `Box[int]` then `Box[int64]` in one program share one
+    instance, so `b.v = anInt64` on the `Box[int64]` is rejected ("cannot assign int64 to int") —
+    valid generic code using both (e.g. `vec.Vec[int]` and `vec.Vec[int64]`) fails on 64-bit.
+    Whether a shared instance can also produce wrong code (a type switch / boxed dynamic type
+    naming the other instance, impls on both) is not yet checked.
+  - **Target-dependent acceptance one level down:** `var p *int64 = &anInt`, `var s *[]int64 =
+    anIntArray[:]`, and a method `M(x int64) int64` satisfying `interface { M(x int) int }` are
+    accepted on 64-bit and rejected on 32-bit.  Likely also `.bn`/`.bni` signature matching and
+    func-value signature matching.
+**Fix:** make the TYP_INT arm compare identity (every TYP_INT is a named predeclared singleton, so
+the name or the singleton), audit `Identical` callers that want LAYOUT equality instead (cast-safety
+checks such as check_cast_safe.bn, IR / backends), and drop `distinctNamedInts`, which the fix makes
+redundant.  **Test:** conformance test with both pairs (int/int64 and int/int32) so it fails on every
+target — to be added.
+
 ### `pkg/std/fmt` unit test `TestSprintfNamedScalar` fails on main — 🟡 IN PROGRESS (found 2026-09-28, work-4, full unit-test run; pre-existing; claimed 2026-09-28, work-4 — user: "Can you look into that MAJOR while you're at it?")
 The last assertion fails: `Sprintf("%t", &c)` with `var c namedInt = 20` should give
 `%!t(namedInt=20)` (the inapplicable verb names the named type via `reflect.TypeOf`, `argTypeName`'s
