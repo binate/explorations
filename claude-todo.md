@@ -241,7 +241,7 @@ same shape for slicing).  Also check the other backends: the VM / native may cop
 Consider a compile-size or compile-memory guard in the conformance runner so a pathological test fails
 instead of exhausting the machine.
 
-### A `#[build]`-gated import in a package with several `.bn` files is not gated per file — "unknown package" — 🔴 OPEN (found 2026-09-28, work-1, review of the per-file import pre-pass fix; pre-existing)
+### A `#[build]`-gated import in a package with several `.bn` files is not gated per file — "unknown package" — 🟡 IN PROGRESS (found 2026-09-28, work-1, review of the per-file import pre-pass fix; pre-existing; claimed 2026-09-29, work-3/session, with the root-package #[build] fix)
 
 `pkg/sel/a.bn`: `#[build(<false>)] import "pkg/never"`; `pkg/sel/b.bn` a second file.  Build fails
 "a.bn:…: unknown package".  The loader's gate (`gateMerged`, loader/buildconfig.bn) drops gated-out
