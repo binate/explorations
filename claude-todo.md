@@ -19,11 +19,6 @@ slot; named-over-readonly `MIN / -1` skips the overflow trap on native/VM).
 **Triage of the un-audited areas (irgen last third, codegen, native, ir/irbuild/iropt/irutil/types) —
 done 2026-09-27.**  Only confirmed defect: the `@NB` release leak above.  Leftovers (no observable
 miscompile found):
-  - [dead code] irgen nil→slice coercions (`gen_control.bn` `*p = nil` / field arms, `gen_call_coerce.bn`
-    `nil` arg arm) — the checker rejects `nil`→slice (spec §7.7); irgen `isManagedReceiverType`
-    (test-only); native `common.UnwrapNamed` (no callers; a named-only peel, a trap for new callers).
-  - [stale comments] references to the deleted `vmUnwrapNamed` / "the old UnwrapNamed" (conformance
-    646, regressions/readonly-wrapped-64bit-arg.bn, arm32 `*_test.bn`, `common_scalar.bn`).
   - [latent, LLVM] `codegen/emit_copy_ssa{,_load}.bn` (`isAggregateForStore`, `countAggregateLeaves`,
     `emitLoadSSARec`, `emitStoreSSARec`) peel readonly but not NAMED, so a named aggregate skips the
     per-leaf decomposition that keeps ARM EABI off `__aeabi_memcpy`; clang did not emit memcpy for
@@ -40,6 +35,14 @@ miscompile found):
 lowering reported the confirmed defects; all are fixed (claude-todo-done.md).
 
 ## MAJOR
+
+### `f := nil` (and `a, f := 1, nil`) is accepted — the variable gets the nil type — 🟡 IN PROGRESS (found 2026-09-29 by the review of the nil-argument fix; user: "f := nil should be rejected"; claimed 2026-09-29, work-5/session)
+
+The checker binds `f` with the nil type; only a later use fails ("present argument must be…"), and
+`f := nil` alone compiles and runs.  `nil` has no default type (spec §7.7 "a distinct nil type"), so
+an inference context (`:=`, `var x = nil`) must reject it.  **Fix:** reject an untyped `nil` wherever
+a variable's type is inferred from it; spec: say `nil` has no default type.  **Test:** checker unit
+tests + a conformance error test.
 
 ### A call returning ONE multi-result func value is taken as a multi-result call — `a, b := mk()` accepted, garbage — 🟡 IN PROGRESS (found 2026-09-29, work-6, reconning 1404; reproduced; pre-existing; claimed 2026-09-29, work-6/session — user: "I think you should, but get a focused review of the approach first")
 
@@ -60,19 +63,6 @@ native and the VM.  `func.method-value.capture` says a `*T` receiver captures `&
 bound on a variable (`p.Inc`) it does.  Root cause: unknown — needs investigation (the method-value
 construction for a non-variable receiver takes the receiver's value, not its address).  Covered by
 conformance 1428 (`xfail.all`).
-
-### Passing a literal `nil` as a function-value ARGUMENT crashes every backend — 🟡 IN PROGRESS (found 2026-09-28, work-5, testing named function-value nillability; pre-existing; claimed 2026-09-29, work-5/session — with the wrapper-cluster dead-code cleanup)
-
-`func take(f *func() int, m @func() int) bool { return present(f) || present(m) }` called as
-`take(nil, nil)`: bus error on LLVM, segfault on native aa64 and the VM (exit 139).  Passing a nil
-VARIABLE (`var g *func() int = nil; take(g)`) works, as do `nil` in a struct literal field, a
-`return nil`, and an assignment.  Likely cause: irgen `coerceArgEager` (gen_call_coerce.bn) retypes
-a literal `nil` argument to the parameter's type only for a slice parameter (`OP_CONST_NIL &&
-isSliceType(pt)`), so for a function-value parameter the untyped, pointer-sized nil is passed where
-the callee reads a 2-word {fn, data} value.  **Fix:** retype a literal nil argument to any nillable
-parameter type that is not a single pointer word (function values, raw or managed, named too), and
-check the other nil-consuming argument paths (variadic tail, method receivers, deferred calls).
-**Test:** conformance (raw and managed, named and unnamed func-value params).
 
 ### A failed interface-target assertion names the target by its bare name — qualify it — 🔴 OPEN (follow-up to `53c0e5fd5`, 2026-09-28; user: "Improving the message with the qualified name would be better, but can be a follow-up.")
 

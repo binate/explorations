@@ -1,3 +1,13 @@
+### A literal nil takes its destination's type wherever IR-gen consumes one; wrapper-cluster dead code and stale comments — DONE (binate `6aae56c3d`, `bc870d328`, 2026-09-29, work-5)
+
+`take(nil, nil)` with `*func` / `@func` parameters crashed every backend, and `a, g = 3, nil` into a
+managed function value failed to compile on LLVM / segfaulted: argument, parallel-assignment and var-
+initializer coercions retyped a literal nil to the destination only for some kinds, so a function value
+received a one-word null.  Every literal nil now takes the destination type (conformance 1429, LLVM /
+native aa64 / VM / native arm32).  Cleanup `bc870d328`: the unreachable nil→slice assignment arms, the
+unused irgen isManagedReceiverType and native common.UnwrapNamed, and five comments explaining code by
+contrast with the deleted UnwrapNamed / vmUnwrapNamed.
+
 ### `sizeof` of a generic type instantiated with a type parameter is 0 through a constant or an array length — silent wrong value — DONE (binate `82cd129ff`, 2026-09-29, work-4)
 With `type Box[T any] struct { a [sizeof(T)]uint8 }`, in a generic function instantiated for int32 / int64:
 `const S = sizeof(Box[T])` reads 0 / 0 and `var a [sizeof(Box[T])]uint8` has length 0 / 0 (should be 4 / 8);
