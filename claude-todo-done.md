@@ -1,3 +1,13 @@
+### Type-wrapper cluster: a named aggregate is copied leaf by leaf (LLVM) — DONE (binate `d500a2af7`, 2026-09-29, work-5)
+
+codegen's SSA copy helpers peeled only alias / readonly, so `b = a` for `type Row [4]int` emitted a
+whole-aggregate `store [4 x i64]` (ARM EABI can lower it to `__aeabi_memcpy`); they now peel with
+types.StripWrappers.  Its test exposed that the single-file test harness irgen.GenModule never
+registered named non-struct types (nor stashed generic structs) as GeneratePackage does — a named array
+lowered as int in every GenModule-based unit test; fixed in GeneratePackage's order.  Review side note,
+not filed pending a decision: sret return buffers, call-site sret loads and zero-value construction
+still use whole-aggregate load / store (same ARM EABI hazard in principle; nothing observed).
+
 ### Type-wrapper cluster: the full-peel helpers consolidated on types.StripWrappers — DONE (binate `ce5eb6e58`, `191cd8bd2`, `f6da526fa`, 2026-09-29, work-5)
 
 User: "let's do the peel-helper consolidation".  One bounded peel, types.StripWrappers (1024 NAMED steps,

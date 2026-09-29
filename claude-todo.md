@@ -19,12 +19,11 @@ slot; named-over-readonly `MIN / -1` skips the overflow trap on native/VM).
 **Triage of the un-audited areas (irgen last third, codegen, native, ir/irbuild/iropt/irutil/types) —
 done 2026-09-27.**  Only confirmed defect: the `@NB` release leak above.  Leftovers (no observable
 miscompile found):
-  - [latent, LLVM] `codegen/emit_copy_ssa{,_load}.bn` (`isAggregateForStore`, `countAggregateLeaves`,
-    `emitLoadSSARec`, `emitStoreSSARec`) peel readonly but not NAMED, so a named aggregate skips the
-    per-leaf decomposition that keeps ARM EABI off `__aeabi_memcpy`; clang did not emit memcpy for
-    64/1024-element named arrays, so not observed.
-  - [bug, minor] DWARF: `emit_debug_types.bn` has no READONLY arm, and pointer DI nodes hardcode
-    `size: 64` (wrong on 32-bit targets).
+  - [bug, minor; 🟡 IN PROGRESS, work-5, 2026-09-29] DWARF: `emit_debug_types.bn` has no READONLY
+    (or ALIAS) arm — such a variable gets the fallback `int` debug type — and every word-sized debug
+    type assumes 64 bits: pointer nodes (`size: 64`), slices (128 / 256, members at 64-bit offsets,
+    `len` typed with the 64-bit `int` node), interface and function values (128) — wrong on 32-bit
+    targets.
 **Sweep (2026-09-26):** auditors over check+lint, IR-gen (first two thirds of the files), and the VM
 lowering reported the confirmed defects; all are fixed (claude-todo-done.md).
 
