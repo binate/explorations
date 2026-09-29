@@ -117,8 +117,10 @@ commit per step; land each before starting the next.
      `isa/simd/elem.bn` (`ByElement` / `ByElementScalar`, EL_*), parser
      `aarch64_instr_simd_elem.bn`, handed a lane-indexed last source by the simd3 / simd3diff /
      simd3fp / simd3x / FP parsers.
-   - (b) the rest: FHM / BF16 / FP8 multiply-accumulate, the dot products, FCMLA.  Routed from
-     the simd3x, simd3fx and FP8 parsers.
+   - ✅ (b) the rest: the dot products SDOT / UDOT / USDOT / SUDOT, BFDOT and the FP8 FDOT; the
+     FHM / BF16 / FP8 widening multiply-accumulates; FCMLA — landed `2995555f4` (2026-09-29),
+     encoders in `isa/simd/elem_extra.bn`, parser `aarch64_instr_simd_elemx.bn` (handed a
+     lane-indexed Vm by the simd3x, simd3fx and FP8 parsers).  B7 complete.
    Recon (clang matrix, 2026-09-28):
    - Encoding `0 Q U 01111 size L M Rm opcode H 0 Rn Rd` (scalar `01 U 11111 …`); the index is
      H:L:M for 16-bit elements (then Rm is 4 bits: Vm v0–v15), H:L for 32-bit (Vm v0–v31), H for
