@@ -110,7 +110,16 @@ commit per step; land each before starting the next.
 6. ✅ Shift by immediate (right / left / saturating, narrowing and long with "2" forms, SXTL /
    UXTL, and the fixed-point SCVTF / UCVTF / FCVTZS / FCVTZU — vector and scalar) — landed
    `988b38d97` (2026-09-28).
-7. Vector × indexed element.  Recon (clang matrix, 2026-09-28):
+7. Vector × indexed element.
+   - ✅ (a) same-shape (MLA / MLS / MUL, SQDMULH / SQRDMULH / SQRDMLAH / SQRDMLSH, FMLA / FMLS /
+     FMUL / FMULX, vector and scalar) and long (S/U MLAL / MLSL / MULL, SQDMLAL / SQDMLSL /
+     SQDMULL and "2" forms, + the scalar SQDM*) — landed `85ed1dbe1` (2026-09-29), encoders in
+     `isa/simd/elem.bn` (`ByElement` / `ByElementScalar`, EL_*), parser
+     `aarch64_instr_simd_elem.bn`, handed a lane-indexed last source by the simd3 / simd3diff /
+     simd3fp / simd3x / FP parsers.
+   - (b) the rest: FHM / BF16 / FP8 multiply-accumulate, the dot products, FCMLA.  Routed from
+     the simd3x, simd3fx and FP8 parsers.
+   Recon (clang matrix, 2026-09-28):
    - Encoding `0 Q U 01111 size L M Rm opcode H 0 Rn Rd` (scalar `01 U 11111 …`); the index is
      H:L:M for 16-bit elements (then Rm is 4 bits: Vm v0–v15), H:L for 32-bit (Vm v0–v31), H for
      64-bit.
@@ -120,7 +129,9 @@ commit per step; land each before starting the next.
    - Long (and "2"): S/U MLAL / MLSL / MULL, SQDMLAL / SQDMLSL / SQDMULL (+ scalar `Sd, Hn,
      Vm.h[i]` / `Dd, Sn, Vm.s[i]`): 4s from 4h / 8h (h[0..7]), 2d from 2s / 4s (s[0..3]).
    - FHM FMLAL / FMLSL(2): 2s / 4s from 2h / 4h with h[0..7]; BFMLALB / T: 4s from 8h, h[0..7];
-     FP8 FMLALB / T (8h) and FMLALL* (4s) from 16b with b[0..15] (Vm v0–v15).
+     FP8 FMLALB / T (8h) and FMLALL* (4s) from 16b with b[0..15] (Vm v0–v7: the index is
+     H:L:M:Rm<3>, so Rm is 3 bits — clang rejects v8; e.g. `fmlalb v5.8h, v18.16b, v7.b[15]` =
+     0x0FFF0A45, b[1] sets bit 19, b[4] L, b[8] H).
    - Dot products: SDOT / UDOT / USDOT / SUDOT (2s / 4s from 8b / 16b, 4b[0..3], Vm v0–v31 —
      SUDOT exists only by element); BFDOT (2s / 4s from 4h / 8h, 2h[0..3]); FP8 FDOT (4h / 8h
      with 2b[0..7], Vm v0–v15; 2s / 4s with 4b[0..3], Vm v0–v31).
