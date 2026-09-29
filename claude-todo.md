@@ -210,8 +210,7 @@ parallel or single assignment gets the interface construction from genExprOrFunc
 driven by the right-hand AST expression — box / implicit borrow); a multi-value component is an extracted IR
 value with no expression, so there is no conversion to apply.  Fix: an IR-value-level concrete→interface
 construction (the value-producing half of genExprOrFuncRef's interface arms), applied in coerceAssignValue.
-Repro: the review's `mv1.bn` (scratch; rebuild from this description).  Needs a conformance test (LLVM, VM,
-native).
+Needs a conformance test (LLVM, VM, native).
 
 ### A pointer-receiver method call on an element or field evaluates the receiver expression twice — 🟡 IN PROGRESS (found 2026-09-28, work-1, by the index-designator evaluation-order test; pre-existing; claimed 2026-09-29, work-1 — user: "receiver bug: separately (maybe as an immediate follow-up)")
 
