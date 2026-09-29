@@ -213,6 +213,12 @@ right-hand side, pair by pair (`(*b())[i()], (*c())[j()] = r1(), r2()` runs b i 
 or multi-value assignment evaluates the right-hand side first — resolveParallelEntry (gen_assign_parallel.bn)
 does both per entry.  Pinning one assignment rule needs genParallelAssign to evaluate every right-hand
 side first (coercing each to its target's checker type), then the designators left to right.
+Also: a multi-value assignment stores each target before evaluating the next target's designator, so
+`i, arr[i] = pair()` writes `arr[new i]` while parallel `j, arr[j] = 1, 7` writes `arr[old j]`.
+Decided (user, 2026-09-29: "I think that rule makes sense. i, arr[i] = pair() storing to arr at the new i
+is surprising"): every assignment form evaluates (1) its right-hand side(s), (2) every target's designator
+operands left to right, (3) the stores left to right — genParallelAssign and genMultiAssign both
+restructure to resolve all targets before any store.
 
 ### A pointer-receiver method call on an element or field evaluates the receiver expression twice — 🔴 OPEN (found 2026-09-28, work-1, by the index-designator evaluation-order test; pre-existing)
 
