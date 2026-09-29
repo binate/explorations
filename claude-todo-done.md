@@ -12,7 +12,7 @@ its RHS).  Needs a conformance test covering side effects and managed values.
   (renameVar) — so `a, b := b, a` swaps and a right-hand side never sees a name the statement declares.
   The checker, and bnlint's borrowable-char-param and iface-borrow-escape scope walkers, likewise check
   every right-hand side before binding.  Tests: conformance 1400; lint unit tests.  User decisions after
-  landing: the §9.3 spec text is wanted ("1. yes"); duplicate names on the left (`a, a := 1, 2`, now last
+  landing: the §9.3 spec text is wanted ("1. yes") — docs `94e4bf5`; duplicate names on the left (`a, a := 1, 2`, now last
   wins) "probably it should be an error" — to be settled.
 
 
