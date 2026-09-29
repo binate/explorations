@@ -1,3 +1,39 @@
+### A parallel short-variable declaration `a, b := x, y` binds only the first pair — silent wrong code — DONE (binate `dd191a07e`, 2026-09-28, work-6; found in a probe during the blank-identifier review)
+
+`a, b := 2, 3` leaves `b` = 0; `c, d := 4, bump(9)` never calls `bump` (its side effects are lost) and
+`d` = 0.  genShortVar (irgen/gen_short_var.bn ~:24-82) handles only the N-to-1 multi-return form; for
+len(Exprs) == len(Exprs2) > 1 it falls into the single-assign path on Exprs[0] / Exprs2[0] and ignores the
+rest.  The checker accepts the form (spec §9.3 `decl.shortvar`).  Wrong on LLVM, the VM (bni) and the
+REPL; present in the bnc of 2026-09-27.  Fix: evaluate every right-hand side left to right into temps
+(managed acquire as in the single case), then bind each non-blank name (a blank target still evaluates
+its RHS).  Needs a conformance test covering side effects and managed values.
+- Fixed (binate `dd191a07e`): genShortVar's parallel form evaluates every right-hand side, left to right,
+  into the single-bind path (genShortVarOne) under hidden names, then renames each slot to its real name
+  (renameVar) — so `a, b := b, a` swaps and a right-hand side never sees a name the statement declares.
+  The checker, and bnlint's borrowable-char-param and iface-borrow-escape scope walkers, likewise check
+  every right-hand side before binding.  Tests: conformance 1400; lint unit tests.  User decisions after
+  landing: the §9.3 spec text is wanted ("1. yes"); duplicate names on the left (`a, a := 1, 2`, now last
+  wins) "probably it should be an error" — to be settled.
+
+
+### Ranging over an array rvalue (`for x in [2]int{1, 2}`) is miscompiled on every backend — DONE (binate `d1f042ecd`, 2026-09-28, work-6; found in a probe during the blank-identifier review)
+
+Spec §14.9 `stmt.for.in` allows ranging over an array value.  With a composite literal (or an
+array-returning call) as the operand: LLVM gets invalid IR (the literal is treated as a slice,
+`extractvalue` on a non-aggregate — clang rejects), native silently runs ZERO iterations, the VM
+segfaults.  Fix: when the range operand is a non-addressable array value, materialize it into a temp and
+range over that, as for an array variable.  Needs conformance coverage for array-literal and
+array-returning-call operands in every mode.
+- Fixed (binate `d1f042ecd`, genForIn now in irgen/gen_for_in.bn): an operand rooted in a variable is
+  ranged directly (an array in place through its address, with the nil-checked dereferencing forms
+  indexing uses); any other operand is bound to a hidden local first (`tmp := operand`), released as the
+  loop exits.  The header's other temporaries are held in hidden locals until the loop exits (a raw view
+  of a managed call result read freed memory when they were released at the loop's top), and the
+  header's VM stack growth is reclaimed before the loop.  Tests: conformance 1401; irgen unit tests.
+  Open follow-ups filed as their own entries: the range-operand lifetime / in-place-ness decision, and
+  sub-slicing a composite-literal array (conformance 1403).
+
+
 ### A local `const` redeclaring a name of its own block is an error — DONE (binate `35900d591`, docs `a53e4b9`, 2026-09-28, work-4; decided by the user: "I think it should be an error.")
 The spec is silent.  `decl.var.redeclare` makes redeclaring a same-block name with `var` an error;
 `decl.shortvar.no-new-name-rule` makes `:=` rebind.  Today (binate `f037beaef`) a local `const` naming a

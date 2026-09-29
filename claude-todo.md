@@ -98,25 +98,6 @@ fixed rows are in claude-todo-done.md.
   - [minor] `readonly_uninit.bn:27` lintUninitReadonlyGlobal — wrapper: alias of readonly (`type RO = readonly int — Lint false negative: an uninitialized file-scope global of an alias-of-readonly type is not flagged, though the checker rejects every write to it (IsReadonly peels the alias), so it is zero forever.
 ```
 
-### A parallel short-variable declaration `a, b := x, y` binds only the first pair — silent wrong code — 🟡 IN PROGRESS (found 2026-09-28, work-6, probe during the blank-identifier review; reproduced; pre-existing; claimed 2026-09-28, work-6/session — user: "yes")
-
-`a, b := 2, 3` leaves `b` = 0; `c, d := 4, bump(9)` never calls `bump` (its side effects are lost) and
-`d` = 0.  genShortVar (irgen/gen_short_var.bn ~:24-82) handles only the N-to-1 multi-return form; for
-len(Exprs) == len(Exprs2) > 1 it falls into the single-assign path on Exprs[0] / Exprs2[0] and ignores the
-rest.  The checker accepts the form (spec §9.3 `decl.shortvar`).  Wrong on LLVM, the VM (bni) and the
-REPL; present in the bnc of 2026-09-27.  Fix: evaluate every right-hand side left to right into temps
-(managed acquire as in the single case), then bind each non-blank name (a blank target still evaluates
-its RHS).  Needs a conformance test covering side effects and managed values.
-
-### Ranging over an array rvalue (`for x in [2]int{1, 2}`) is miscompiled on every backend — 🟡 IN PROGRESS (found 2026-09-28, work-6, probe during the blank-identifier review; reproduced; pre-existing; claimed 2026-09-28, work-6/session — user: "yes")
-
-Spec §14.9 `stmt.for.in` allows ranging over an array value.  With a composite literal (or an
-array-returning call) as the operand: LLVM gets invalid IR (the literal is treated as a slice,
-`extractvalue` on a non-aggregate — clang rejects), native silently runs ZERO iterations, the VM
-segfaults.  Fix: when the range operand is a non-addressable array value, materialize it into a temp and
-range over that, as for an array variable.  Needs conformance coverage for array-literal and
-array-returning-call operands in every mode.
-
 ### A generic function instantiation discarded into a blank target is miscompiled — the rest of the function silently does not run — 🔴 OPEN (found 2026-09-28, work-6, review of the parallel short-variable fix; pre-existing)
 
 `_ = Ident[int]`, `var _ = Ident[int]` and `a, _ := 1, Ident[int]` (Ident a generic function): LLVM gets
@@ -124,7 +105,7 @@ invalid IR (`extractvalue i64 %v0, 0` — clang rejects); on native and the VM t
 `main` silently never run (no output, exit 0).  A named target (`var f = Ident[int]`) works — genDecl and
 genShortVar special-case an `EXPR_INSTANTIATE_OR_INDEX` RHS naming a generic function only when binding
 a name.  Root cause: unknown — needs investigation (likely the blank path's plain genExpr of the
-instantiation).  Covered by conformance 1402 (`xfail.all`; renumbered at landing).
+instantiation).  Covered by conformance 1402 (`xfail.all`).
 
 ### Sub-slicing a composite-literal array (`[3]int{7, 8, 9}[:]`) is miscompiled — zero length / crash — 🔴 OPEN (found 2026-09-28, work-6, probing the range-loop fix; pre-existing, present in the bnc of 2026-09-27)
 
@@ -134,7 +115,7 @@ over the literal (`type.array.index-slice`).  `len([3]int{1, 1, 1}[1:])` is 0 on
 (`extractvalue` on the literal's pointer).  Sub-slicing an array call result (`mkArr()[:]`) or an array
 variable works.  Root cause: unknown — needs investigation (the slice expression's array-operand path
 does not handle a composite-literal operand).  Covered by conformance 1403 (`xfail.all`, including a
-range-loop operand; renumbered at landing).
+range-loop operand).
 
 ### `cast(*[]readonly char, "hi")` is miscompiled — length 0 / garbage length — 🔴 OPEN (found 2026-09-28, work-6, review of the range-loop fix; pre-existing)
 
@@ -142,7 +123,7 @@ A string literal is assignable to `*[]readonly char` (§6.6 `const.string.types`
 implicit conversion's meaning (§8 `conv.cast` part 1).  The VM gives length 0 (then an index-out-of-bounds
 fault), native a garbage length, and LLVM invalid IR (`ptrtoint i8* … to %BnSlice`).  The implicit
 conversion (`var s *[]readonly char = "hi"`) works.  Root cause: unknown — the cast lowering of an untyped
-string constant to a raw slice.  Covered by conformance 1405 (`xfail.all`; renumbered at landing).
+string constant to a raw slice.  Covered by conformance 1405 (`xfail.all`).
 
 ### A package-level type named like a predeclared type (`type int16 = int8`) is ignored by IR-gen — every backend uses the predeclared type — silent wrong values and layout — 🔴 OPEN (found 2026-09-28, work-5, review of the named-scalar-constants fix; pre-existing)
 
@@ -172,7 +153,7 @@ the predeclared names, and fix every other by-name match the audit finds.  **Tes
 `a := nothing()`, `var b = nothing()` (nothing has no result) and `c, d := 1, two()` (two returns two
 values) all pass the checker: LLVM then fails in clang (`alloca void`), while native and the VM run with a
 garbage value.  Each should be a diagnostic at the statement.  Covered by conformance 1404 (an `.error`
-test pinning a diagnostic at each of the three lines, `xfail.all`; renumbered at landing).
+test pinning a diagnostic at each of the three lines, `xfail.all`).
 
 ### Range-loop operand lifetime and in-place-ness are unspecified — reassigning the loop's root variable in the body is a use-after-free — 🔴 OPEN, NEEDS A DECISION (found 2026-09-28, work-6, review of the range-loop fix; pre-existing)
 
