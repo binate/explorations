@@ -449,6 +449,15 @@ each instantiation's key values.  After it, likely small: the abstract check def
 defers the element count), each instance's check validates it on its clone (KeyVal / KeyKnown), and
 IR-gen reads the clone's stamps.  Needs a spec line (§7 composite literals) with it.
 
+### Spec gap: which scope do for-header, range and type-switch binder names live in? — 🔴 OPEN (found 2026-09-28, work-4, review of the local-const redeclaration error)
+The checker puts a `for` header's variables and `for … in` range variables in the same scope as the loop
+body (`checkForStmt` pushes one scope), and a type-switch binder in each clause's scope, so `for i := 0; …
+{ var i int }` / `{ const i = 1 }`, `for i, v in xs { const v = 1 }` and `switch v := x.(type) { case …:
+const v = 1 }` are redeclaration errors (decl.var.redeclare / decl.const.redeclare).  The spec does not say
+so: §9.5 `decl.scope.block` ("the bodies of … `for` … are blocks") reads as if the body were nested inside
+the header's scope, where these would shadow.  Decide and state where these names live (and that a `:=` is
+an "earlier declaration" for the redeclaration rules).
+
 ### Constant-evaluator leftovers — 🔴 OPEN (found 2026-09-28 by the review of constant-evaluator step 2; pre-existing)
 - `const F float64 = cast(float64, 5)` fails in clang: both the old and new compiler emit invalid LLVM IR.
 - `const S2 = sizeof([G2]uint8)` naming a const-group member declared later is rejected ("array length
