@@ -393,7 +393,7 @@ at the C boundary (back-filling the S-slot mask, `common_callconv_vfp.bn`) on bo
 call which (and whether (a) first).  Needs a conformance test on `builder-comp_arm32_linux` /
 `builder-comp_native_arm32_linux` (qemu-arm user-mode is not installed on this host).
 
-### `#[build(...)]` is ignored on the MAIN program's own files, declarations and imports — neither applied nor validated — 🔴 OPEN (found 2026-09-27, work-3, authoring the `pkg.build.errors` conformance tests)
+### `#[build(...)]` is ignored on the MAIN program's own files, declarations and imports — neither applied nor validated — 🟡 IN PROGRESS (found 2026-09-27, work-3, authoring the `pkg.build.errors` conformance tests; claimed 2026-09-29, work-3/session)
 
 Both program drivers parse + merge the main source files themselves and hand only `merged.Imports` to
 the loader — bnc's whole-program path (`cmd/bnc/main.bn`: `parseSourceFiles` → `mergeFiles` →
