@@ -155,7 +155,7 @@ values) all pass the checker: LLVM then fails in clang (`alloca void`), while na
 garbage value.  Each should be a diagnostic at the statement.  Covered by conformance 1404 (an `.error`
 test pinning a diagnostic at each of the three lines, `xfail.all`).
 
-### Range-loop operand lifetime and in-place-ness are unspecified — reassigning the loop's root variable in the body is a use-after-free — 🔴 OPEN, NEEDS A DECISION (found 2026-09-28, work-6, review of the range-loop fix; pre-existing)
+### Range-loop operand lifetime and in-place-ness are unspecified — reassigning the loop's root variable in the body is a use-after-free — 🔴 OPEN, DECIDED: a hidden temporary for every operand (found 2026-09-28, work-6, review of the range-loop fix; pre-existing)
 
 (a) `for x in s { s = other; … }` with `s @[]@[]char`, and `for y in p.arr { p = nil; … }` with `p @H`:
 the loop reads through the operand's storage without holding a reference of its own, so the reassignment
@@ -167,6 +167,15 @@ write to a later element during the loop is seen); any other array operand — i
 reached through a call (`*rawp()`, `getPtr().arr`) — is copied into a hidden local first.  The rule follows
 "rooted in a variable", not the spec's addressability; ranging in place iff addressable (holding the
 header's temporaries, as the loop now does) would make it uniform.  §14.9 `stmt.for.in` says neither.
+
+Decision (user, 2026-09-28): "The divergence in behavior between `for x in s` and `for x in f()` is
+wrong. I think there should be a hidden temporary that lives for the life of the `for` in both cases.
+The only question is if we allow optimizations in the case that `s` isn't modified; possibly that's a
+topic for another time (and probably we should allow all correct optimizations, even though refcounts
+are observable)."  So every operand is evaluated once into a hidden local (`tmp := operand`) held until
+the loop exits: a managed-slice is retained once per loop, and an array is copied (value semantics — a
+write to the original during the loop is not seen; conformance 1401 currently pins the in-place `4 5 60`).
+Open: confirm the array consequence; eliding the temporary where unobservable is a separate topic.
 
 ### `types.Identical` treats same-width predeclared integers as one type (`int` ≡ `int64` on 64-bit, `int` ≡ `int32` on 32-bit) — generic instances aliased, target-dependent acceptance — 🟡 IN PROGRESS (found 2026-09-28, work-5, review of the distinctNamedInts wrapper fix; pre-existing; claimed 2026-09-28, work-5/session — user: "let's do the proper fix")
 
