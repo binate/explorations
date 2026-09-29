@@ -91,11 +91,16 @@ commit per step; land each before starting the next.
      (2026-09-28), after the Advanced SIMD encoders moved to package `asm/aarch64/isa/simd`
      (`4f75fcd93`; isa.bni had reached its 1000-line cap).  Shared-mnemonic routing from the
      integer parser is in `parse/aarch64_instr_simd_route.bn`.
-   - (b) floating-point: FABS/FNEG/FSQRT, FRINT*, FRINT32/64*, FCVT{N,A,P,M,Z}{S,U} / SCVTF / UCVTF
-     (vector and scalar, incl. the same-size `s0, s1` forms), FCVTL/FCVTN/FCVTXN(2), BFCVTN(2),
-     FRECPE/FRSQRTE/FRECPX, FCMxx #0.0, and the integer URECPE / URSQRTE (they sit in the size=1x
-     half of this class, not in M2_*); FP16 forms.  The two-register FCVTN / FCVTN2 must be
-     dispatched ahead of the FP8 three-register parser (see B2c3's note).
+   - ✅ (b1) floating-point, non-converting: FABS/FNEG/FSQRT, FRINT*, FRINT32/64*, FRECPE/FRSQRTE/
+     FRECPX, FCMxx #0.0 (zero as `#0.0` / `0.0` / `#0` / `0`), URECPE / URSQRTE; FP16 forms —
+     landed `46bd1a0b3` (2026-09-28).  The operand scanner's floating-point literal item
+     (IT_FLOAT) is opt-in (`parseA64ItemsFloat`) so no integer operand ever sees one; the
+     vector FMOV immediate (B5) will want it.
+   - (b2) conversions: FCVT{N,A,P,M,Z}{S,U} / SCVTF / UCVTF (vector and scalar, incl. the
+     same-size `s0, s1` forms that `emitA64FPRegInt` now calls "not supported yet"),
+     FCVTL/FCVTN/FCVTXN(2), BFCVTN(2); FP16 forms.  The two-register FCVTN / FCVTN2 must be
+     dispatched ahead of the FP8 three-register parser (see B2c3's note), and fcvt* / scvtf /
+     ucvtf with a vector or same-size operand ahead of / inside the FP-integer parser.
    - (c) across lanes (ADDV, SADDLV/UADDLV, S/UMAXV, S/UMINV, FMAXNMV/FMINNMV/FMAXV/FMINV) and
      scalar pairwise (ADDP d, FADDP / FMAXP / FMINP / FMAXNMP / FMINNMP).
    - Note for FEAT_CSSC (later): the general-register ABS / CNT (and friends) will need the same
