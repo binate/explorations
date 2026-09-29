@@ -447,8 +447,22 @@ len(g)` with `var g [3]int32` declared after it, or `var h Arr` (a named array t
 before `collectDeclsBody` fills in struct and array types (`resolveBuiltinScalarTypeDecls` pre-fills only
 named scalars), so the constant's `sizeof` sees the placeholder (nil Underlying), which `isOpaqueType`
 takes for an opaque type, and `checkBuiltinCall` reports it; package variables are not defined yet at all.
-Fix: when a top-level constant needs a type's layout or a variable's type, resolve that declaration on demand (the reverse of an array length pulling in a constant),
-with a cycle diagnostic for `type A [S]uint8; const S = sizeof(A)`.  Tests: conformance
+Also failing (recon 2026-09-29): `sizeof(Box[Pt])` (a generic instance over a package type), `sizeof([N]int32)`
+with `N` declared later ("array length must be a constant integer": `collectConstDeps` does not walk type
+operands), and `len(g)` for an inferred-type variable (`var g = [3]int32{…}` or `= mk()`), which inside a
+function is a constant.  Not affected: `.bni` constants (a `.bni` `const L = sizeof(Later)` with `Later`
+declared after it is right), and IR-gen (it reads the checker's recorded values).
+Fix design: when a top-level constant needs a type's layout or a variable's type, resolve that declaration on
+demand — as pending aliases already are (check_pending_alias.bn).  `resolveConstByName` first prepares its
+initializer's operands: for a `sizeof` / `alignof` type, a by-value walk of the type expression resolves the
+constants its array lengths name (`resolveConstByName`), then collects each of the package's non-generic type
+declarations it names (`collectTypeDecl`, idempotent), recursing through struct fields, array elements, alias
+targets, instance type arguments and generic field types, and stopping at pointers, slices and function types;
+a declaration already in progress stops silently (a by-value self-reference is `checkTypeByValueCycle`'s).
+For `len(v)`: a declared-type variable gets its type prepared and is defined; an inferred-type one has its
+initializer typed on demand, which needs function signatures (`resolveFuncDeclType` + `defineFunc`) and other
+variables on demand too.  The cycle `type A [S]uint8; const S = sizeof(A)` then reports "constant definition
+cycle involving `S`".  Tests: conformance
 `spec/15-builtins/154_sizeof_package_const` and `155_len_package_var_const` (xfail.all, binate
 `86a9b93f0`); the cycle's error test comes with the fix.
 
