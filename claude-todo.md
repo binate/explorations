@@ -532,6 +532,15 @@ without a diagnostic as long as nothing uses `Box[…]`.  Fix: check each generi
 declaration once abstractly at the declaration (its parameters held abstract, as generic functions'
 bodies are checked), independent of instantiation.
 
+### A generic type declaration that is not a struct (`type P[T any] [2]T`) is accepted; each use then fails as an "opaque type" — 🔴 OPEN (found 2026-09-29, work-4, probing the generic self-containment fix; pre-existing)
+
+Spec `gen.typeparams` allows type parameters only on a function, struct or interface, but the checker
+accepts `type P[T any] [2]T` (or any non-struct, non-interface underlying) at the declaration.
+`populateInstantiatedStruct` fills in only a struct body, so every instantiation stays an unfilled named
+type: `var p P[int32]` reports "cannot use an opaque type by value", `p[1]` "cannot index this type", and a
+declaration that is never used compiles silently.  Fix: reject the declaration ("only a function, struct
+or interface may declare type parameters").  Needs a conformance error test.
+
 ### An opaque type held by value inside an array is accepted at the declaration — 🔴 OPEN (found 2026-09-28, work-6, review of the blank-type-decl change; reproduced; pre-existing)
 
 The declaration-site value-embedding check (checkValueEmbedding → requireSizedType, check_decl.bn) walks
