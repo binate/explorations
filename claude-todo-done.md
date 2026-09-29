@@ -10,9 +10,9 @@ wrapper-cluster row below (it missed readonly / alias wrappers).  Callers audite
 intent: only the cast safe set's element retype wants it, and it keeps its explicit same-size rule
 (`cast(@[]int64, anIntSlice)` still works where widths agree).  Conformance 1407 (generic instances,
 type switch) and 1408 (the pointer / slice / cast / method cases, rejected on every target) + unit
-tests.  Open follow-up (asked): the spec's `type.scalar.no-implicit-mix` parenthetical "(same width and
-signedness for integers …)" reads as width-based identity and §7 has no identity rule for predeclared
-scalars.
+tests.  The spec's `type.scalar.no-implicit-mix` parenthetical "(same width and signedness for integers
+…)" read as width-based identity; docs `0b9b454` adds `type.scalar.distinct` (predeclared scalars are
+pairwise distinct whatever their widths) and points no-implicit-mix at it.
 
 ```
   - [minor] `type_helpers.bn:58` distinctNamedInts — wrapper: outer readonly (`readonly int64`), alias (`type W = int64`) — Invalid code is accepted.  → FIXED `50d176225` (distinctNamedInts removed; Identical compares integer types by name)
