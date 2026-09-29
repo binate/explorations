@@ -332,6 +332,17 @@ say whether a non-struct definition may complete a forward declaration.  If it m
 the completion as the named type; if not, the checker must reject it.  Probe: a library as above, main
 does `var x @h.Handle = h.Make(21)` and calls a method on it.
 
+### A `.bni` constant `len` of a `.bni` array variable has no constant value for an importer — valid code rejected — 🔴 OPEN (found 2026-09-29, work-4, review of the constant-expression check; reproduced; pre-existing)
+
+With `var Arr [4]int` and `const LArr = len(Arr)` in `a.bni`, an importer's `var x [a.LArr]int` fails with
+"array length must be a constant integer" (printing `a.LArr` gives 4, re-lowered at run time).  Cause: while
+the `.bni` scope is built, its variables are defined only in the package scope `s`, not in the build scope
+`c.Scope` that `checkerEnv.Len` reads, so the constant is recorded without a value; and a variable declared
+after the constant is not defined at all yet (the constant's dependency walk does not follow `len` operands
+to the constants their array lengths name).  Fix: resolve a `.bni` variable a constant's `len` reads on
+demand, with the constants its array length names first.  Needs a multi-package conformance test (before
+and after the constant; the length from a later constant).
+
 ### A `.bni` extern `var` with no definition in the `.bn` is not diagnosed — IR-gen internal error / link failure — 🔴 OPEN (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing)
 
 `pkg/home.bni`: `var G int` (any type — scalar, interface, instantiated interface); `pkg/home/home.bn`
@@ -345,6 +356,9 @@ are available).  Needs an `.error` conformance test.
 Also (a reviewer of the in-place array-index change, reproduced by a second): an undefined `.bni` var
 produced invalid LLVM (`extractvalue i64`), and since that change reading `A[2]` of such an array panics
 in IR-gen.
+Also (found 2026-09-29, work-4, reviewing the constant-expression check): with `var Arr [4]int` only in
+`c.bni`, `func Get() int { return len(Arr) }` in `c.bn` reaches clang as invalid IR ("extractvalue operand
+must be aggregate type" in `pkg__c.ll`) instead of a diagnostic.
 
 ### REPL: a top-level `var` initialized with a function literal panics — "vm: function not found: main.__funclit_0" — 🔴 OPEN (found 2026-09-28, work-5, review of the REPL raw-slice-literal fix; pre-existing)
 
