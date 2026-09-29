@@ -611,6 +611,54 @@ same machine, arg-bank commit is the ONLY difference):**
   SPILL cost (~75% of it non-call-spanning); the remaining ~1.89× excess is the genuinely
   call-spanning values (interval-splitting follow-up), instruction selection, and aggregate copies.
 
+## Stage 5e — x64 caller-saved homes (RSI/RDI, then R8/R9) — PLANNED (2026-09-29, claude/exciting-davinci-wahyt2 session)
+
+**Why.** x64 homes only RBX/R12–R15 (5); `rdesc.CallerSaved` is empty.  record-churn's x64 inner
+loop (~18 live scalars) spills most of them — 126 instrs/element vs ~67 on aa64, which has 18 homes
+after Stage 5d.  Recon (read-only, 2026-09-29) of x64 register use:
+
+- Scratch pool (`regPool`, per-instruction): R10, R11, RCX, RDX, R8, R9, RDI.  Static worst case is
+  **6** (const-divisor REM magic path); MADD/MSUB 5; shift, hw DIV/REM, struct copy, non-SIB GEP,
+  float compare 4; everything else ≤3.  RDI (slot 6) appears unreached — to be CONFIRMED by
+  instrumenting the self-compile (as aa64 did), not by reading.
+- RSI is never a body scratch: only arg register 1 (calls, RefDec slow path, guards' fail calls,
+  Make/Box/MakeSlice, stack frames, func-value data).
+- RAX/RCX/RDX are fixed by non-call ops (DIV/REM, const-div MUL, u64↔float casts, FUNC_VALUE /
+  IFACE_UPCAST shuttle, shifts) and by every call's return.  The shared allocator's clobber model
+  is per-op "all caller-saved", with no per-register masks, so these cannot be homes without a new
+  per-register clobber model.  Out of scope here.
+- Every x64 call-emitting op is already in `EmitsReturningBl` (x64 now inlines RefInc; the
+  OP_REFINC note in "The clobber & scratch model" above is stale).  `LinearScan` already gives
+  CallerSaved only to non-spanning intervals and records only callee-saved in SavedRegs — no
+  `common` change is needed to populate `CallerSaved`.
+
+**Tier A — homes += {RSI, RDI} (5 → 7), scratch pool R10, R11, RCX, RDX, R8, R9 (6).**
+1. Instrument the per-op scratch high-water over the x64 self-compile; confirm ≤ 6.  Drop RDI from
+   `regPool`.  OP_RODATA_ARRAY hardcodes RDI (not a call, so not a clobber point) — switch it to a
+   scratch.
+2. Param landing → spill-then-reload for register-allocated params (no-op while homes are
+   callee-saved; lands first, validates alone).
+3. Call marshalling → a parallel move (`common.PlanParallelMove`) for register-homed scalar args at
+   direct / indirect / func-value / iface call sites, as aa64's `emitArgBankHomedScalarArgs`.  Also:
+   placed arg registers must not be reused as a later arg's reload scratch (RCX/RDX/R8/R9 are both
+   arg and scratch registers) — mark them used or keep reloads in R10/R11.
+4. Func-value / iface calls re-read the callee address (`fvAddr` / `ivAddr`) AFTER marshalling, and
+   the iface path writes argReg(0) before reading `ivAddr` — stash the address first.
+5. Two-register runtime-call setup (RefDec slow path, bounds/div/shift-check fail calls, stack
+   frames) currently relies on "RSI isn't allocatable" — use a 2-element parallel move.
+   `emitStackFrames` writes RSI before reading `bufPtr`.
+6. Flip `rdesc.CallerSaved = {RSI, RDI}`.  Validate: native x64 conformance at -O0 AND -O2,
+   native x64 self-compile + gen fixpoint, native/x64 + native/common unit tests; disassemble
+   record-churn's loop to confirm the spills convert.
+
+Steps 2–5 are no-ops before step 6 (no home can be in an arg register yet), so each lands and
+validates on its own, as Stage 5d's increments did.
+
+**Tier B — also {R8, R9} (→ 9 homes), scratch pool R10, R11, RCX, RDX (4).**  On top of Tier A:
+rewrite the const-divisor REM (6) and MADD/MSUB (5) lowerings to ≤4 scratch; drop R8/R9 from the
+u64↔float cast pickers (`pickTwoScratchGP` — RAX, RDX, R10, R11 still leave two); re-check the
+shift / hw-DIV comments that depend on pool slot positions ("RCX is slot 2", "divSrc never RDX").
+
 ## Correctness & validation (miscompile is the top risk)
 
 A wrong assignment is a **silent** wrong-register read. Front-load validation:
