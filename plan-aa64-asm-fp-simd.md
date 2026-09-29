@@ -149,7 +149,10 @@ commit per step; land each before starting the next.
    outside the vector (0..7 / 0..15) and a symbolic index, which clang wraps into range or
    encodes as #0 (user-approved divergence; in TestGoldenDeliberateRejects).  (TBL / TBX
    landed with B1.)
-9. Move `asm/aarch64/aarch64_neon*.bn` onto the isa encoders.
+9. ✅ Move `asm/aarch64/aarch64_neon*.bn` onto the isa encoders — landed `7176e10ef`
+   (2026-09-29): the integer / bitwise / FP / lane / modified-immediate wrappers call
+   isa/simd (the Q LDR / STR / LDP / STP already went through isa).  LD1 / ST1
+   (`Vld1*` / `Vst1*`) still hand-build their words — they move onto the C encoders.
 
 **C. SIMD loads / stores**: LD1–LD4 / ST1–ST4 (multiple structures, post-index), LD1–LD4 / ST1–ST4
 single lane, LD1R–LD4R, LDAP1 / STL1 (FEAT_LRCPC3).
