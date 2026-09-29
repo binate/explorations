@@ -1390,6 +1390,15 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   backends are far from C (which uses `sqrtsd`). A hardware sqrt (per-arch asm or an intrinsic the
   backends lower) is the large lever for n-body; the loop's native codegen (spilled loop-carried
   values, shift counts reloaded into `cl` from stack slots) is the gap lever.
+- **x64 `emitCallIndirect` diverges from `emitCall` (latent)** — 🔵 OPEN (found 2026-09-29 in review of
+  the x64 caller-saved-homes work; pre-existing). `pkg/binate/native/x64/x64_call_indirect.bn`
+  `emitCallIndirect`: (a) no sret shift in `argTypes`, so for a big aggregate / big multi-return
+  result the post-loop `LEA RDI` overwrites arg 0; (b) floats beyond XMM7 are silently dropped (no
+  stack overflow path); (c) SSE aggregates go down the GP `emitAggregateArg` path, so a pure-SSE
+  aggregate is placed nowhere. Probably unreachable today (OP_CALL_INDIRECT is used for dtor /
+  free_fn / trampoline calls with scalar-or-void results), but each is a silent miscompile if a
+  new caller reaches it. Fix: share emitCall's argument placement, or assert the supported shapes
+  loudly. Needs a test that pins whichever is chosen.
 - **x64 caller-saved homes (Stage 5e)** — 🟡 IN PROGRESS (claimed 2026-09-29,
   claude/exciting-davinci-wahyt2 session; then latch copy coalescing). x64 homes only RBX/R12–R15
   (5); record-churn's x64 loop spills most of its ~18 live scalars (115 instrs/element vs ~67 on
