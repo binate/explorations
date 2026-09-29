@@ -664,7 +664,28 @@ self-compile OK.  Steps 3 + 5 (parallel-move placement of RSI/RDI-homed call arg
 site, reservation of filled arg registers in the arg loops, 2-register parallel move in the
 bounds/div-check fail calls and RefDec's destroy call) LANDED `2ac43b27e`.  Step 4 is unnecessary:
 func-value / iface-value operands are aggregates, never homed, so `fvAddr` / `ivAddr` cannot be in
-RSI/RDI.  Next: step 6 (flip `CallerSaved = {RSI, RDI}`).
+RSI/RDI.  Step 6 (`CallerSaved = {RSI, RDI}`) LANDED `ab3438374` — review caught a latent
+wrong-code case first: OP_CALL_HANDLE's callee is a scalar `*uint8` handle (homeable, unlike a
+func value) that emitCallFuncValue re-read after placing args; it is now saved to its slot first.
+Native x64 conformance 3258/0 at -O0 and -O2, self-compile fixpoint B==C.  Effect: record-churn
+141.6M -> 134.5M instrs (loop 115 -> 109/element); native bnc compiling record-churn 6.73G -> 6.36G
+instrs.  **Tier A done.**
+
+**Tier B recon (2026-09-29):** outside the pool/argReg tables, R8/R9 are hardcoded only in the
+u64<->float cast pickers (`pickTwoScratchGP`, x64_float_convert.bn).  The 5-6-register lowerings to
+slim to 4 (pool R10, R11, RCX, RDX): const-divisor OP_REM/OP_DIV (x64_muldiv.bn: lhs, mreg, treg,
+qres, dreg, rd) — mreg/treg/dreg can share one register (M is dead after the MUL), and the quotient
+can stay in RDX (claimed), giving lhs + shared + RDX + rd = 4; hw OP_DIV/OP_REM (lhs, rhs, divSrc,
+rd); OP_MADD/OP_MSUB (a, b, c, rd, t) — computing into rd is unsafe when rd aliases an operand's
+home, so each alias case needs handling (or keep t and drop a reload by operating from memory).
+The call pre-pass (`isArgRegHomeX64`) and the parallel-move helpers must add R8/R9.
+
+**Latch copy coalescing recon:** EliminatePhis emits `OP_COPY phi <- new` at the latch (the phi keeps
+its id at both defs), so the phi's interval spans the whole loop: [header, last use] and [latch copy,
+back edge].  The new value lives only in the gap.  LinearScan is whole-interval (active/expire by
+End), so it cannot see the gap; coalescing needs a hole-aware assignment (let an interval take a
+register whose holder's ranges don't overlap its own) plus a copy-partner hint.  That is a
+shared-allocator change affecting all three native backends.
 
 Steps 2–5 are no-ops before step 6 (no home can be in an arg register yet), so each lands and
 validates on its own, as Stage 5d's increments did.

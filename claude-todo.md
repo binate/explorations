@@ -1477,9 +1477,9 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   new caller reaches it. Fix: share emitCall's argument placement, or assert the supported shapes
   loudly. Needs a test that pins whichever is chosen.
 - **x64 caller-saved homes (Stage 5e)** — 🟡 IN PROGRESS (claimed 2026-09-29,
-  claude/exciting-davinci-wahyt2 session; then latch copy coalescing). x64 homes only RBX/R12–R15
-  (5); record-churn's x64 loop spills most of its ~18 live scalars (115 instrs/element vs ~67 on
-  aa64). Plan + measured per-op scratch demand: `plan-native-regalloc.md` "Stage 5e". Tier A = homes
+  claude/exciting-davinci-wahyt2 session; then latch copy coalescing). Tier A (RSI/RDI homes) LANDED
+  `ab3438374`; remaining: Tier B (R8/R9). record-churn's x64 loop still spills most of its ~18 live
+  scalars (109 instrs/element vs ~67 on aa64). Plan + measured per-op scratch demand: `plan-native-regalloc.md` "Stage 5e". Tier A = homes
   += {RSI, RDI}; Tier B = also {R8, R9}. RAX/RCX/RDX would need a per-register clobber model (not
   planned; to be raised with the user).
 - **x64 `rt.MemZero`** (zeroing each `make_slice`) is a 4×-unrolled 8-byte store loop reloading its
