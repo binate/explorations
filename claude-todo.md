@@ -258,6 +258,28 @@ value with no expression, so there is no conversion to apply.  Fix: an IR-value-
 construction (the value-producing half of genExprOrFuncRef's interface arms), applied in coerceAssignValue.
 Needs a conformance test (LLVM, VM, native).
 
+### A field reached through `(*pp)` where `*pp` is itself a pointer is not addressable in IR-gen — stores silently lost, `&` crashes — 🔴 OPEN (found 2026-09-29, work-1, review of the receiver-evaluation fix; pre-existing)
+
+`var hp *H = &h; var pp **H = &hp`: `(*pp).p.n = 5` and `(*pp).a = 3` silently store into a throwaway copy
+(nothing changes), `&(*pp).p` crashes (SIGSEGV), `(*pp).arr[1].bump()` hits "array base with storage has no
+address", and `(*pp).p.bump()` mutated a copy (with the receiver fix: "implicit-& method receiver has no
+address").  Same for `var pm *@H = &mh; (*pm).p...`.  genSelectorPtr's explicit-deref arm
+(gen_selector_ptr.bn) handles `(*P).f` only when P points at a struct; when `*P` is itself a raw / managed
+pointer the field access auto-derefs it, but the arm returns nil and genLValueAddr falls back to the value.
+Fix: when P's pointee is a pointer to a struct, load it (nil-checked) and take the field address off it.
+Needs conformance tests for the store, `&`, method-call and index forms.
+
+### A pointer-receiver method on an element of an array composite literal fails to link — 🔴 OPEN (found 2026-09-29, work-1, review of the receiver-evaluation fix; pre-existing)
+
+`[2]P{}[1].bump()` (`func (p *P) bump()`) fails at link time: undefined `bn_F1_4_main2_0_4_bump` — the method
+symbol is mangled from the literal's element expression instead of P.  Needs a conformance test.
+
+### A `*readonly Box[T]` method is rejected on a `Box[int]` value receiver — 🔴 OPEN (found 2026-09-29, work-1, review of the receiver-evaluation fix; pre-existing)
+
+A method declared `func (b *readonly Box[T]) get() T` called on `var bx Box[int]` is rejected ("not
+assignable to *readonly Box[T]"); the same shape on a non-generic type is accepted.  The receiver-smoothing
+check compares against the uninstantiated receiver type.  Needs a conformance test (checker).
+
 ### A pointer-receiver method call on an element or field evaluates the receiver expression twice — 🟡 IN PROGRESS (found 2026-09-28, work-1, by the index-designator evaluation-order test; pre-existing; claimed 2026-09-29, work-1 — user: "receiver bug: separately (maybe as an immediate follow-up)")
 
 `(*pbase())[idx()].bump()` (`func (p *P) bump()`) runs `pbase` and `idx` twice; `hbase().p.bump()` runs
