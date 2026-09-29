@@ -1,3 +1,31 @@
+### `_` is never a valid identifier: blank declarations bind nothing; blank struct fields are padding; no method named `_` — ✅ LANDED 7f7e6cab1 + c4994375e + f22e3a2c6 (+ spec docs 0a2f88d) (2026-09-28), work-6
+
+User: "_ should never be a valid identifier."  An audit (read-only sweep + ~30 reproduced probes) found `_`
+bound and usable almost everywhere: `func _` callable (two → duplicate symbol), `interface _` usable,
+`const _` readable (even as an array length), params / receivers / range / type-switch binders named `_`
+readable, `_.X` through a blank import, `p._` (a var → link error), `_` fields selectable, methods named `_`
+callable — and `x := _` / `Println(_)` MISCOMPILED (void operand: invalid LLVM IR, native garbage/segfault).
+(A, 7f7e6cab1) Scope.Define — the only checker-scope writer — never binds `_`; checkIdent reports "cannot
+use _ as a value"; code re-finding a decl's own symbol by name works from the decl; every blank const is
+checked (the by-name memo only checked the first); `var _ T` checks T; any number of `_` params; IR-gen's
+per-file normalization (flatTypeGroups → normalizeFileDecls, gen_normalize.bn) drops blank type /
+interface / func decls; a blank `#[c_export]` func is kept and emitted as `__c_export_<C name>` (user:
+option (a)); blank .bni decls export nothing, need no .bn, and are checked (incl. a .bni-only package's);
+the loader never pairs a blank .bni func with a .bn one; REPL: a blank func lowers nothing, a blank var's
+initializer runs (no `_` global).  (B, c4994375e) a `_` struct field is unnamed padding (in the layout;
+not selectable / keyable / addressable; a positional literal fills it — user: "they should probably fill
+it, given that's the only way to fill padding in a non-default way"; part of == and reflection — user:
+"they can take padding into account"); duplicate field names rejected (named / anonymous / generic;
+embedded fields exempt); a struct literal mixing keyed and positional elements is rejected (it silently
+lost values).  (C, f22e3a2c6) a method or interface method named `_` is rejected (and joins no method
+set).  Spec: new `decl.blank` (§9.5), func.decl.params, type.struct.decl, expr.composite.struct,
+pkg.cexport.eligible.  Tests: conformance 1387–1398, e2e ffi-export (blank c_export, LLVM + native),
+irgen / lint / repl unit tests; full builder-comp 3194/3194.  Found along the way and filed: CRITICAL
+parallel `:=` binds only the first pair; CRITICAL range over an array rvalue miscompiled; MAJOR duplicate
+import → duplicate LLVM externs; MAJOR opaque-by-value inside an array accepted at the declaration; MAJOR
+uninstantiated generic types never checked.  binate's vendored scripts/spec-coverage/rule-ids.txt lags
+docs by the new decl.blank line (no test cites it; sync with the next spec-coverage refresh).
+
 ### Type-wrapper peel cluster — named types over scalar chains take untyped constants — DONE (binate `9bea08ad9`, 2026-09-28, work-5)
 
 `type M int8; type N M; var n N = 5`, `type R readonly int8; const cr R = 5`, a named type over an alias
