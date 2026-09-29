@@ -1328,7 +1328,7 @@ iropt win, ✅ LANDED `2fa428d8b` (2026-09-21) — but a NO-OP on richards/fannk
 
 Order: T1 → T2 → T3 → T4 → T5 → T6.
 
-### record-churn residual is SROA-pinned aggregate copies, NOT the SIMD ceiling — findings 2026-09-24 — 🔵 OPEN (SROA copy-out split + dead-phi elimination ✅ LANDED `9da1662f`/`9c934585`, see done log)
+### record-churn residual is SROA-pinned aggregate copies, NOT the SIMD ceiling — findings 2026-09-24 — 🟡 IN PROGRESS (claimed 2026-09-29, claude/exciting-davinci-wahyt2 session; SROA copy-out split + dead-phi elimination ✅ LANDED `9da1662f`/`9c934585`, see done log)
 
 Profiled on x64 (callgrind instruction counts; no PMU in the VM) + static aa64 disassembly of a
 cross-built object, bnc from main `abb168186`, `--emit-llvm` for the shared IR. x64 record-churn is
