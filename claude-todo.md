@@ -207,6 +207,28 @@ restructure to resolve all targets before any store.
 Also (work-6, 2026-09-29): genIndexPtr's composite-literal-base arm (`&[3]int{…}[i]`, a borrowed or
 field-accessed literal element) follows the same index-before-base order, while the literal's value path
 (genArrayIndexInPlace) evaluates the literal first — the base-first change should cover that arm too.
+Review of the unlanded implementation (2026-09-29) found, before landing: (1) phase 3 releases each old
+occupant right after its own store, so `p, p.val = two()` (p a sole-owner @Node) writes into freed old p —
+the parallel form `p, p.val = q, 5` already did before; fix: store every target, then release the saved old
+occupants; (2) base-before-index in genIndexPtr borrows a managed base across the index, so `s[g()]++` where g
+reassigns s writes freed memory (the general class is its own entry below); (3) assignTargetType can type a
+target with an unsubstituted generic checker type (`getS[T](p)[0], n = v, 1`: wrong store width, missing
+RefInc) — fix: acquire in phase 1 by the value's own type, coerce in phase 3 by the designator's IR type;
+(4, pre-existing) multi-value into an interface target never builds the interface value, and `g, n = nil, 1`
+into an @func is invalid IR — phase 3 should apply the single-assignment conversions; spec nits on §21.5.
+
+### A managed operand borrowed during evaluation can be freed by a later operand's side effect — use-after-free in well-typed code — 🔴 OPEN (found 2026-09-29, work-1, review of the evaluation-order change; pre-existing)
+
+IR-gen reads a managed value from a variable as a BORROW (no RefInc) while it evaluates later operands; if a
+later operand runs code that reassigns the variable holding the only reference, the pending use reads or
+writes freed memory.  Repros (exit 139 under `DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib`), all on the
+compiler before the evaluation-order change: `f(s, g())` with `g` reassigning global `s @[]int` (f reads a
+freed slice); `s[g()] = 5` and a read of `s[g()]`; parallel `p, p.val = q, 5` (p a sole-owner @Node).  The
+base-before-index change extends it to `s[g()]++`, `&s[g()]`, `ps[h()].x = 3`, and a field/element address
+through a managed pointer (`p.arr[g()]`).  Not `mem.raw-uaf` (no raw value in user code: the compiler chose
+the borrow).  Fix direction (needs a decision; the spec should say it): hold a reference on each managed
+object a pending operand or address depends on while a later operand that can run code (a call) is
+evaluated — RefInc + register as a statement temp — so the cost is paid only where user code can intervene.
 
 ### A pointer-receiver method call on an element or field evaluates the receiver expression twice — 🟡 IN PROGRESS (found 2026-09-28, work-1, by the index-designator evaluation-order test; pre-existing; claimed 2026-09-29, work-1 — user: "receiver bug: separately (maybe as an immediate follow-up)")
 
