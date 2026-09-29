@@ -41,7 +41,7 @@ lowering reported the confirmed defects; all are fixed (claude-todo-done.md).
 
 ## MAJOR
 
-### A call returning ONE multi-result func value is taken as a multi-result call — `a, b := mk()` accepted, garbage — 🔴 OPEN (found 2026-09-29, work-6, reconning 1404; reproduced; pre-existing)
+### A call returning ONE multi-result func value is taken as a multi-result call — `a, b := mk()` accepted, garbage — 🟡 IN PROGRESS (found 2026-09-29, work-6, reconning 1404; reproduced; pre-existing; claimed 2026-09-29, work-6/session — user: "I think you should, but get a focused review of the approach first")
 
 `func mk() @func() (int, int)`: `a, b := mk()`, `x, y = mk()` and `return mk()` (from a `(int, int)`
 function) pass the checker; LLVM then gets invalid IR (`extractvalue %BnFuncValue` on a `ptr`) and native
