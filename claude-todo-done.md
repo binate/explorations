@@ -1,3 +1,16 @@
+### Tests wrote fixed `/tmp` paths (`TestArm64FormatSelectsWriterAndPrefix` flake) — ✅ LANDED 5925055d2 af1eb6a30 0eab563f3 21aeb335e d59c3afe0 (2026-09-29), work-3
+
+~360 fixed `/tmp/binate_*` paths in ~47 test files (native ×4 packages, asm/elf, asm/macho, asm/parse,
+asm/assemble, link ×20 files, std/os, os/sys, cmd/bnld) plus six `conformance/stdlib/os` programs raced
+between concurrent runs.  Each test now writes into its own `os.MkdirTemp` dir removed with
+`defer os.RemoveAll(dir)` (per-package `testTmpDir`); `os/sys` (below `os`) uses `sys.MkdirTemp` + deferred
+`Remove`s; bnld's `-L`/`-l` tests search a private dir; name-only labels (in-memory parse names, argv
+strings) and read-only `/tmp` stats unchanged.  Needed along the way: `os.RemoveAll` (`6b1044949`); a bnfmt
+fix — it deleted every `defer` (`417ef22c6`, MAJOR) — shipped in pre-release `bnc-0.0.17-pre1` with
+`CHECK_TOOLS_VERSION` bumped to it (`04e1ef517`).  Per-package test runs pass and leave nothing in `/tmp`.
+Not converted (by design): `cmd/bnc/main.bn`'s dead fallback to a fixed `/tmp/bnrt_<stem>.o` in
+assembleDotSFile (every caller passes a build dir) — raised with the user.
+
 ### Type-wrapper cluster leftover: a named function-value type is nillable — DONE (binate `b61a23b78`, docs `5462217`, 2026-09-29, work-5)
 
 `type F *func() int; var f F = nil` was rejected while a named pointer took nil: IsNillable peeled

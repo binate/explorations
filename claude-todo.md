@@ -2360,28 +2360,6 @@ urgency (no current miscompile; the writable placement is safe, just unhardened)
 
 ## Testing: harness, runners & conformance coverage
 
-### `TestArm64FormatSelectsWriterAndPrefix` writes fixed `/tmp` paths — races with a concurrent aarch64 test run — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-28, work-3/session)
-
-`pkg/binate/native/aarch64/aarch64_test.bn` (~93) writes `/tmp/binate_aa64_fmt_macho.o` and
-`/tmp/binate_aa64_fmt_elf.o`; two aarch64 test binaries running at once (concurrent sessions, CI
-shards, parallel mutation runs) overwrite each other's file — it failed once ("format=elf should emit
-an ELF object") during the T6 b3 review's parallel runs and passes alone.  **Fix:** a per-run unique
-path (mktemp-style, or under the test's build dir), and grep the other test packages for fixed `/tmp`
-outputs.  **Sizing (2026-09-27 recon):** the same race is the norm, not an outlier — a repo-wide grep
-finds ~400 fixed `/tmp/binate_*` paths in ~60 `*_test.bn` files (`pkg/binate/link/*` ~180,
-`asm/elf` 32, `asm/macho` 16, `native/{aarch64,x64,arm32}` + `native_test` ~25, `std/os` + `os/sys`
-~65, `cmd/{bnc,bnld,bnas,bni}` tests ~25); `conformance/stdlib/os/*` also uses fixed paths. No shared
-unique-path helper exists; `os.MkdirTemp(dir, prefix)` (mkdtemp(3)) is the available mechanism — a
-per-package memoized `testTmpDir()` + path-join would convert each file mechanically.
-**Progress (work-3):** `os.RemoveAll` landed (`6b1044949`) for cleanup — tests of BUILDER-cone packages
-may call it directly (tests are built by gen1 against the tree stdlib; probe-verified).  Pattern per test:
-`dir := os.MkdirTemp("/tmp", "binate_<pkg>_"); defer os.RemoveAll(dir)` + paths joined under `dir` (a
-fixed name overwritten each run leaks nothing today, so a unique dir MUST be removed).  Converting
-package by package, each group landed on its own.  **Blocker cleared:** `defer` needed a bnfmt that
-keeps it — fixed (`417ef22c6`) and shipped in pre-release `bnc-0.0.17-pre1`; `CHECK_TOOLS_VERSION`
-now points at it (`04e1ef517`).  All groups are converted and pass (native, asm, link, os + os/sys +
-bnld, the os conformance programs); landing next.
-
 ### `os.RemoveAll` is path-based — a concurrent directory→symlink swap mid-walk can make it delete outside the tree — 🟢 LOW (found 2026-09-28, review of `6b1044949`)
 
 `RemoveAll` walks by name (`Lstat`, then `ReadDir` / `Remove` on `path/...`), so another process that can
