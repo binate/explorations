@@ -172,5 +172,11 @@ single lane, LD1R–LD4R, LDAP1 / STL1 (FEAT_LRCPC3).
   accepted where clang wants the literal `0` token (harmless: the value is zero).
 
 **D. Crypto**: AES, SHA1 / SHA256 / SHA512, SHA3 (EOR3 / RAX1 / XAR / BCAX), SM3 / SM4.
+- ✅ landed `ef7ab6191` (2026-09-29): encoders `isa/simd/crypto.bn` (Crypto2 / 3 / 4 over CR_*, Xar,
+  Sm3tt), parser `aarch64_instr_simd_crypto.bn` (per-mnemonic shape strings).  A bare V register
+  as a Q operand (SHA1C … SHA512H2) is rejected (clang takes it; user-approved, in
+  TestGoldenDeliberateRejects, like LDAPUR / STLUR).  Complete for Advanced SIMD: LLVM's other
+  crypto instructions (AESEMC / AESDIMC, PMLAL) are SVE-only.  **The FP / SIMD plan (A–D) is
+  complete**; what remains is the C follow-ups above and SVE / SME (their own plan).
 
 SVE / SVE2 and SME / SME2 get their own plan when they are reached.
