@@ -201,6 +201,18 @@ needlessly expensive when the call doesn't touch the earlier value.  The spec ma
 a possible bnlint rule — e.g. flag an expression/statement that reads a managed GLOBAL (or a field/element of
 one) as an operand before a later operand that contains a call (any call can reassign a global).
 
+### A multi-value assignment into an interface-typed target never builds the interface value — 🔴 OPEN (found 2026-09-29, work-1, review of the evaluation-order change; pre-existing)
+
+`iv, n = mkHello()` (mkHello returns `(@Hello, int)`, iv `@Greeter`): the extracted @Hello component is stored
+into the interface slot as-is.  Before the evaluation-order change it crashed at run time; with the shared
+assignment lowering (gen_assign_entry.bn) clang rejects the IR ("extractvalue operand must be aggregate").  A
+parallel or single assignment gets the interface construction from genExprOrFuncRef's target-type hint (it is
+driven by the right-hand AST expression — box / implicit borrow); a multi-value component is an extracted IR
+value with no expression, so there is no conversion to apply.  Fix: an IR-value-level concrete→interface
+construction (the value-producing half of genExprOrFuncRef's interface arms), applied in coerceAssignValue.
+Repro: the review's `mv1.bn` (scratch; rebuild from this description).  Needs a conformance test (LLVM, VM,
+native).
+
 ### A pointer-receiver method call on an element or field evaluates the receiver expression twice — 🟡 IN PROGRESS (found 2026-09-28, work-1, by the index-designator evaluation-order test; pre-existing; claimed 2026-09-29, work-1 — user: "receiver bug: separately (maybe as an immediate follow-up)")
 
 `(*pbase())[idx()].bump()` (`func (p *P) bump()`) runs `pbase` and `idx` twice; `hbase().p.bump()` runs
