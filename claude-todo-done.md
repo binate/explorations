@@ -25398,3 +25398,16 @@ shifted-register MOV. Counts >= width (spec'd 0 / sign-fill) and negative counts
 path. Conformance test 1406 covers counts 0, 1, width-1 on every sized integer type; native x64 and
 arm32-linux conformance fully green. Not handled: a typed constant count of a different width than
 the value arrives as an OP_CAST of the constant and is not folded.
+
+## Managed-slice header no longer reloaded every loop iteration — DONE (2026-09-29, binate 33f64415c)
+
+A `@[]T` local initialized or reassigned from make_slice was never a managed-slice SROA candidate
+(isExtractableAggregateValue did not admit OP_MAKE_SLICE), so the slot stayed in memory; once the
+local was assigned more than once (load forwarding needs a single store) every loop reading it
+reloaded the header through the slot. Admitting OP_MAKE_SLICE (a fresh +1-owned slice, like a call
+result; backends already extract from it in temp cleanups) makes such locals scalar-replace, and
+`arr = out` then splits so `out` scalar-replaces on the next SROA round. record-churn x64 inner loop
+126 -> 115 instrs/element; whole program 152.6M -> 141.6M instructions (callgrind, N=1000).
+Validated at -O2: native x64 / native arm32-linux / builder-comp-comp 3213/0; LLVM builder-comp
+3212/1 (the 1 = 1301_large_elem_index clang hang, pre-existing, IR byte-identical before/after —
+tracked as its own 🔴 entry).

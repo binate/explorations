@@ -1357,12 +1357,6 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   backends are far from C (which uses `sqrtsd`). A hardware sqrt (per-arch asm or an intrinsic the
   backends lower) is the large lever for n-body; the loop's native codegen (spilled loop-carried
   values, shift counts reloaded into `cl` from stack slots) is the gap lever.
-- **Managed-slice header reloaded through its stack slot every iteration** (both backends, ~10
-  instrs per slice per iteration for `arr`/`out`): the `@[]Record` locals stay in memory and the loop
-  re-reads data/len; LLVM hoists them (no aliasing store). Investigate why these managed-slice
-  allocas are not SROA'd / why the loads are not loop-invariant-hoisted. 🟡 IN PROGRESS (claimed
-  2026-09-29, claude/exciting-davinci-wahyt2 session; then x64 caller-saved homes, then latch copy
-  coalescing, per the user's "all of them, in order")
 - **x64 `rt.MemZero`** (zeroing each `make_slice`) is a 4×-unrolled 8-byte store loop reloading its
   zero constants from 4 stack slots — 11.6% of native instructions; LLVM uses glibc `rep stosb`.
   Covered by the x64 MemZero/MemCopy item under native vectorization (A) (being worked on
