@@ -88,13 +88,6 @@ fixed rows are in claude-todo-done.md.
 ```
 === irgen (1 open)
   - [nit] `gen_expr.bn:302` genUnary — wrapper: untyped negated operand whose checker-resolved type is readonly int8 / alias-of-readonly / — Contributing site of KNOWN issue (1), reported only so the fix covers it: for `-C` / `-100` with a wrapped resolved type negTyp falls to TypInt, so OP_NEG is emitted at i64 (`sub i64 0, %v0`) and correctness relies entirely on the
-=== check-lint (6 open)
-  - [minor] `iface_borrow_escape_util.bn:97` borrowSourceFrameLocal — wrapper: outer readonly source (`readonly @Sq`, `readonly *Sq`) — Lint false positive: returning a readonly pointer or managed param as `*any` is reported as `iface-borrow-escape` (a frame-local value borrow), although the interface data pointer is the pointer value, not the address of the param
-  - [minor] `borrowable_char_param_util.bn:102` isManagedCharSliceType — wrapper: outer readonly owned return operand (`var o readonly @[]char = ... — Lint false positive with harmful advice: the return-cascade blocker misses an owned `readonly @[]char` operand, so borrowable-char-param recommends converting the param and return type to *[]readonly char.
-  - [minor] `lint.bn:169` isManagedToRawSlice / lintVarDecl — wrapper: named managed-slice source (`type MS @[]int`), alias raw-slice destination (`type RS = *[] — Lint false negative: `var r *[]int = m` / `r = m` with m of named type MS (the checker accepts it via named transparency) and `var r RS = m` (alias dst) get no managed-to-raw-assign, while the unwrapped forms do.
-  - [minor] `lint.bn:255` lhsEscapesLocalFrame — wrapper: named pointer receiver (`type PS *S`) — Lint false negative: storing a capturing *func literal through a named-pointer receiver (`p.fn = func() int { return x }` with p PS) is not flagged as func-value-escape.
-  - [minor] `check_capture.bn:171` captureKindFromType — wrapper: named raw pointer (`type PI *int`) — Lint false negative: an @func capturing a named raw pointer is not flagged as managed-func-raw-capture.
-  - [minor] `readonly_uninit.bn:27` lintUninitReadonlyGlobal — wrapper: alias of readonly (`type RO = readonly int — Lint false negative: an uninitialized file-scope global of an alias-of-readonly type is not flagged, though the checker rejects every write to it (IsReadonly peels the alias), so it is zero forever.
 ```
 
 ### A generic function instantiation discarded into a blank target is miscompiled — the rest of the function silently does not run — 🔴 OPEN (found 2026-09-28, work-6, review of the parallel short-variable fix; pre-existing)

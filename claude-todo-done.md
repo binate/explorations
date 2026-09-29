@@ -1,3 +1,22 @@
+### Type-wrapper peel cluster — the six check-lint rows — DONE (binate `2ba0f46ba`, 2026-09-28, work-5)
+
+Each lint rule decided on a type as written or peeled only aliases / named types; they now peel through
+types.StripWrappers (replacing the lint's peelNamed / peelFVNamed), and the checker records a `var`'s
+resolved type on its declaration (Decl.ResolvedTypeID) for the two rules that read a declared type.  The
+review found that iface-borrow-escape treated every slice and function value as boxed directly — IR-gen
+boxes only pointers and interface values directly — so `func f(s *[]int) *any { return s }` (a
+use-after-free of the parameter slot) was never reported; its exclusion list now matches IR-gen's four
+kinds.  `lint.sh --from-source` finds nothing new in the tree.
+
+```
+  - [minor] `iface_borrow_escape_util.bn:97` borrowSourceFrameLocal — wrapper: outer readonly source (`readonly @Sq`, `readonly *Sq`) — Lint false positive: returning a readonly pointer or managed param as `*any` is reported as `iface-borrow-escape` (a frame-local value borrow), although the interface data pointer is the pointer value, not the address of the param  → FIXED `2ba0f46ba`
+  - [minor] `borrowable_char_param_util.bn:102` isManagedCharSliceType — wrapper: outer readonly owned return operand (`var o readonly @[]char = ... — Lint false positive with harmful advice: the return-cascade blocker misses an owned `readonly @[]char` operand, so borrowable-char-param recommends converting the param and return type to *[]readonly char.  → FIXED `2ba0f46ba`
+  - [minor] `lint.bn:169` isManagedToRawSlice / lintVarDecl — wrapper: named managed-slice source (`type MS @[]int`), alias raw-slice destination (`type RS = *[] — Lint false negative: `var r *[]int = m` / `r = m` with m of named type MS (the checker accepts it via named transparency) and `var r RS = m` (alias dst) get no managed-to-raw-assign, while the unwrapped forms do.  → FIXED `2ba0f46ba`
+  - [minor] `lint.bn:255` lhsEscapesLocalFrame — wrapper: named pointer receiver (`type PS *S`) — Lint false negative: storing a capturing *func literal through a named-pointer receiver (`p.fn = func() int { return x }` with p PS) is not flagged as func-value-escape.  → FIXED `2ba0f46ba`
+  - [minor] `check_capture.bn:171` captureKindFromType — wrapper: named raw pointer (`type PI *int`) — Lint false negative: an @func capturing a named raw pointer is not flagged as managed-func-raw-capture.  → FIXED `2ba0f46ba`
+  - [minor] `readonly_uninit.bn:27` lintUninitReadonlyGlobal — wrapper: alias of readonly (`type RO = readonly int — Lint false negative: an uninitialized file-scope global of an alias-of-readonly type is not flagged, though the checker rejects every write to it (IsReadonly peels the alias), so it is zero forever.  → FIXED `2ba0f46ba`
+```
+
 ### `types.Identical` treated same-width predeclared integers as one type — DONE (binate `50d176225`, 2026-09-28, work-5)
 
 `Identical`'s TYP_INT arm compared width and signedness only, so `int` ≡ `int64` on 64-bit (`int` ≡
