@@ -252,7 +252,7 @@ value with no expression, so there is no conversion to apply.  Fix: an IR-value-
 construction (the value-producing half of genExprOrFuncRef's interface arms), applied in coerceAssignValue.
 Needs a conformance test (LLVM, VM, native).
 
-### `(*pp).m()` where `*pp` is itself a pointer passes pp as the receiver — the method reads and writes the pointer slot as the struct — 🔴 OPEN (found 2026-09-29, work-1, review of the `(*pp).f` fix; pre-existing)
+### `(*pp).m()` where `*pp` is itself a pointer passes pp as the receiver — the method reads and writes the pointer slot as the struct — 🟡 IN PROGRESS (found 2026-09-29, work-1, review of the `(*pp).f` fix; pre-existing; claimed 2026-09-29, work-1 — user: "go ahead and fold it in")
 
 `var pv *S = &s; var pp **S = &pv`: `(*pp).val()` prints a pointer value, `(*pp).bump()` adds to the pointer in
 `pv`; `var pm *@S = &m; (*pm).bump()` corrupts the managed pointer m — on the VM, LLVM and native.  The
