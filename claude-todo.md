@@ -41,6 +41,17 @@ lowering reported the confirmed defects; all are fixed (claude-todo-done.md).
 
 ## MAJOR
 
+### A call returning ONE multi-result func value is taken as a multi-result call — `a, b := mk()` accepted, garbage — 🔴 OPEN (found 2026-09-29, work-6, reconning 1404; reproduced; pre-existing)
+
+`func mk() @func() (int, int)`: `a, b := mk()`, `x, y = mk()` and `return mk()` (from a `(int, int)`
+function) pass the checker; LLVM then gets invalid IR (`extractvalue %BnFuncValue` on a `ptr`) and native
+prints garbage (`%!?(unknown) 0`).  Root cause: checkCallExpr (check_expr.bn) represents a multi-result
+call by returning the callee's own func type, and the three distribution sites test
+`hasExpandableResults(t) && len(t.Results) == N` — a single func-value result with N results of its own
+is identical.  The same ambiguity blocks a clean fix for 1404 (a single-value check cannot tell the
+two apart either).  Proposed fix: a distinct result-tuple type kind for a multi-result call (types),
+hasExpandableResults tests that kind.  Covered by conformance 1429 (`.error`, `xfail.all`).
+
 ### A method value bound to a `*T` method of a struct field or array/slice element captures a copy — the mutation is lost — 🔴 OPEN (found 2026-09-29, work-6, review of the literal-array / selector fixes; reproduced; pre-existing)
 
 `func (p *P) Inc() int`; `var h *func() int = s.p.Inc` (a field), `arr[1].Inc` (an array element) or
