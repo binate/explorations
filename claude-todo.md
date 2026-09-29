@@ -148,6 +148,14 @@ the predeclared names, and fix every other by-name match the audit finds.  **Tes
 
 ## MAJOR
 
+### REPL: boxing a name-less type into `*any` at a prompt panics — "interface vtable not found: __ivt…__nameless_…" — 🔴 OPEN (found 2026-09-28, work-1, review of the interface-identity stack; pre-existing)
+
+At the REPL prompt, any boxing of a type with no name of its own into `*any` — even a plain `*[]int` held in
+a prompt global or inside a prompt function — panics "vm: interface vtable not found: __ivt…__nameless_…"
+(main and the fix alike).  The compiled and file-run VM paths register the name-less `any` row
+(ensureAnyImplInfo) and lower its vtable; the per-prompt lowering evidently doesn't reach it.  Needs a test
+(e2e/repl.sh case) and a root cause.
+
 ### Two codegen unit tests fail on main — `TestEmitLoadSSARecLastInsertvalueNamesResult`, `TestEmitLoadSSARecPaddedNamedStruct` — 🔴 OPEN (found 2026-09-28, work-1; pre-existing on main)
 
 `pkg/binate/codegen` unit tests (emit_copy_ssa_load_test.bn): "expected first insertvalue against undef"
