@@ -1,3 +1,14 @@
+### Boxing kept an outer `readonly` in a slice's dynamic type — a boxed `readonly @[]readonly char` (every `os.Args()` element) matched no case — ✅ LANDED 89602a530 (2026-09-29), work-3
+
+The name-less box identity was built from the checker type with the outer `readonly` still on it;
+`stripOuterReadonly` (through aliases) now removes it before `mergeQualifiedReadonly` restores element
+`readonly`, and the IR-side type is fully stripped too (a named pointer source kept its `readonly` —
+review finding).  1363 un-xfailed; new 1432 (alias-hidden outer readonly, `readonly *[]char`, named-pointer
+sources, managed `@any`) and 1431 (`readonly @Box` handle).  Named boxes already stripped the outer readonly.
+1196's comment updated.  The review also filed two MAJORs (`cast(*any, &readonly slice)` drops element
+readonly; `@any` of a named managed slice misses its case) and a spec decision (recovering a mutable
+pointer to a boxed `readonly` named value).
+
 ### `f := nil` was accepted (the name got the nil type) — DONE (binate `538e71d59`, docs `231170e`, 2026-09-29, work-5)
 
 User: "f := nil should be rejected".  `:=`, `var x = e` and `box(e)` now report "cannot infer a type

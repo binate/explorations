@@ -303,29 +303,6 @@ say whether a non-struct definition may complete a forward declaration.  If it m
 the completion as the named type; if not, the checker must reject it.  Probe: a library as above, main
 does `var x @h.Handle = h.Make(21)` and calls a method on it.
 
-### Boxing keeps an outer `readonly` in a slice's dynamic type — a boxed `readonly @[]readonly char` (every `os.Args()` element) matches no type-switch case — 🟡 IN PROGRESS (found 2026-09-28, work-3, review of the fmt string-operand fix; claimed 2026-09-29, work-3/session)
-
-Spec §11.12 `iface.assert`: the dynamic type of a boxed value is its type "with its `*`/`@`/outer-`readonly`
-stripped", and `iface.assert.slice` makes a slice's identity `{ managed | raw, element-readonly?, element }`
-— no outer-readonly component.  So a boxed `readonly @[]readonly char` must match `case @[]readonly char:`,
-a boxed `readonly @[]char` `case @[]char:`, and a boxed `readonly *[]readonly char` `case *[]readonly char:`.
-Instead every one of them matches NO case, and the comma-ok assertion `x.(@[]readonly char)` fails — a
-spec-valid program silently takes the wrong branch, and the slice target grammar cannot even spell an outer
-`readonly`, so user code has no way to recover such a value.  `os.Args()` / `os.Env()` elements are exactly
-this type.
-- Cause (from the reviewer; confirm when fixing): the name-less box identity is built by
-  `mergeQualifiedReadonly` (`pkg/binate/irgen/gen_iface_nameless.bn`), which re-wraps a TOP-LEVEL
-  `TYP_READONLY` too (it should only restore ELEMENT readonly), and `MangleTypeArg` (`irutil/util.bn`)
-  encodes it, so the box's `__typeinfo` / identity differs from the target's.  The recorded TypeInfo name is
-  `readonly @[]readonly uint8` (visible in fmt's `%!d(readonly @[]readonly uint8=hi)`).
-- Check whether a named or pointer box with an outer `readonly` (`readonly @S`, `readonly Celsius`) has the
-  same defect (the stripping rule covers them too).
-- Test: `conformance/1363_any_slice_assert_outer_readonly` (landed `367e89991`; `.xfail.all`: fails identically on LLVM, the VM and native aa64).
-- When fixed: update the comment in `conformance/1196_fmt_wrapped_string.bn`, which describes the
-  outer-readonly case as a distinct type recovered by fmt's reflection fallback.  (fmt's `stringOperand`
-  classifies strings by reflected kind, so it does not depend on this; fmt's `argTypeName` then names the
-  case "string" like the plain spellings, instead of `readonly @[]readonly uint8`.)
-
 ### A `.bni` extern `var` with no definition in the `.bn` is not diagnosed — IR-gen internal error / link failure — 🔴 OPEN (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing)
 
 `pkg/home.bni`: `var G int` (any type — scalar, interface, instantiated interface); `pkg/home/home.bn`
