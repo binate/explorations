@@ -200,9 +200,10 @@ RefInc) — fix: acquire in phase 1 by the value's own type, coerce in phase 3 b
 (4, pre-existing) multi-value into an interface target never builds the interface value, and `g, n = nil, 1`
 into an @func is invalid IR — phase 3 should apply the single-assignment conversions; spec nits on §21.5.
 Decided (user, 2026-09-29): call arguments are pinned left to right ("3: left to right" — the spec gains it,
-with a test); this landing waits until the borrowed-operand fix below is in ("2: I guess it can wait").
+with a test).  The borrowed-operand class below is undefined behavior (spec), not a compiler fix, so review
+item (2) needs only the spec rule; the landing no longer waits on a compiler borrow fix.
 
-### A managed operand borrowed during evaluation can be freed by a later operand's side effect — use-after-free in well-typed code — 🔴 OPEN (found 2026-09-29, work-1, review of the evaluation-order change; pre-existing)
+### A managed operand borrowed during evaluation can be freed by a later operand's side effect — spec it as undefined behavior; consider a bnlint check — 🔴 OPEN (found 2026-09-29, work-1, review of the evaluation-order change; pre-existing)
 
 IR-gen reads a managed value from a variable as a BORROW (no RefInc) while it evaluates later operands; if a
 later operand runs code that reassigns the variable holding the only reference, the pending use reads or
@@ -211,9 +212,12 @@ compiler before the evaluation-order change: `f(s, g())` with `g` reassigning gl
 freed slice); `s[g()] = 5` and a read of `s[g()]`; parallel `p, p.val = q, 5` (p a sole-owner @Node).  The
 base-before-index change extends it to `s[g()]++`, `&s[g()]`, `ps[h()].x = 3`, and a field/element address
 through a managed pointer (`p.arr[g()]`).  Not `mem.raw-uaf` (no raw value in user code: the compiler chose
-the borrow).  Fix direction (needs a decision; the spec should say it): hold a reference on each managed
-object a pending operand or address depends on while a later operand that can run code (a call) is
-evaluated — RefInc + register as a statement temp — so the cost is paid only where user code can intervene.
+the borrow).  Decided (user, 2026-09-29): NOT a compiler fix — a hidden RefInc/RefDec is rejected ("That's a
+hidden refinc/refdec, which we don't like"), and holding a reference whenever a later operand has a call is
+needlessly expensive when the call doesn't touch the earlier value.  The spec makes it undefined behavior
+(landing with the evaluation-order change: §18 next to `mem.raw-uaf`, and the §21.6 list).  Remaining here:
+a possible bnlint rule — e.g. flag an expression/statement that reads a managed GLOBAL (or a field/element of
+one) as an operand before a later operand that contains a call (any call can reassign a global).
 
 ### A pointer-receiver method call on an element or field evaluates the receiver expression twice — 🟡 IN PROGRESS (found 2026-09-28, work-1, by the index-designator evaluation-order test; pre-existing; claimed 2026-09-29, work-1 — user: "receiver bug: separately (maybe as an immediate follow-up)")
 
