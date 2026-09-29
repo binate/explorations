@@ -514,6 +514,22 @@ cycle involving `S`".  Tests: conformance
 `spec/15-builtins/154_sizeof_package_const` and `155_len_package_var_const` (xfail.all, binate
 `86a9b93f0`); the cycle's error test comes with the fix.
 
+### A constant's initializer is never required to be constant — `const C = v` compiles and reads `v` at run time — 🔴 OPEN (found 2026-09-29, work-4, review of the package-constant fix; reproduced on current bnc; pre-existing)
+
+Spec `decl.const`: a constant's value is computed at compile time.  The checker never checks that a const
+initializer is a constant expression: in a function, `var v = 3; const C = v` compiles and prints 3 (IR-gen
+lowers C as a use of v), `const C = f()` likewise.  At package level the same was rejected only by accident
+("undefined: v": variables and functions were not in scope yet when constants were resolved); the
+package-constant fix (resolve constants after collection) removes that accident, and then `const C = v`
+prints 0, `const C = len(s)` of a managed-slice prints 0, `var v = 2.5; const C = v * 2.0` prints 50, and one
+form fails in clang (`'%v8' defined with type 'i64' but expected 'double'`).  The constant evaluator
+(constval) covers only integer and boolean values, so its status cannot decide constness (a float constant is
+NOT_CONST there).  Fix: a structural check at each const declaration — every operand a literal, a constant,
+`iota`, `sizeof` / `alignof`, `len` of an array or string literal, a `cast` / `bit_cast` of a constant to a
+scalar type, or an operator / parenthesis over those — rejecting anything else ("constant initializer is not a
+constant expression").  Must land with, or before, the package-constant fix.  Needs conformance error tests
+(local and package level: a variable, a call, `len` of a slice, a float variable).
+
 ### A package-level variable with an inferred type cannot be named before its declaration — valid code rejected — 🟡 IN PROGRESS (found 2026-09-29, work-4, designing the package-constant fix; reproduced on current bnc and bnc-0.0.16; pre-existing; claimed 2026-09-29, work-4, with the package-constant MAJOR — user: "yes to your question about the MAJOR")
 
 `var A = B + 1; var B = 10` at package level fails with "undefined: B" (then "arithmetic op requires numeric
