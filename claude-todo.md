@@ -118,8 +118,8 @@ sizeof(int16), sizeof(S)           // 2 and 4, expected 1 and 2
 `definingPkgType` / the module's structs and aliases, so the package's own type is never reached.
 Other by-name predeclared-type matches in irgen / irutil / codegen / native need the same audit.
 **Fix:** resolve the package's own type declarations (ideally the checker's resolved types) before
-the predeclared names, and fix every other by-name match the audit finds.  **Test:** conformance test
-with xfail markers to be added with the fix or ahead of it.
+the predeclared names, and fix every other by-name match the audit finds.  **Test:** conformance
+1399_predeclared_type_shadowed (`.xfail.all`, binate `5428bbb51`) — remove the marker with the fix.
 
 ## MAJOR
 
