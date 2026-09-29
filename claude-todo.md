@@ -495,7 +495,9 @@ cycle involving `S`".  Tests: conformance
 ### A package-level variable with an inferred type cannot be named before its declaration — valid code rejected — 🟡 IN PROGRESS (found 2026-09-29, work-4, designing the package-constant fix; reproduced on current bnc and bnc-0.0.16; pre-existing; claimed 2026-09-29, work-4, with the package-constant MAJOR — user: "yes to your question about the MAJOR")
 
 `var A = B + 1; var B = 10` at package level fails with "undefined: B" (then "arithmetic op requires numeric
-operands"); so do `var a = b; var b = [3]int32{1, 2, 3}` and `var C = D; var D = mk()`.  Spec
+operands"); so do `var a = b; var b = [3]int32{1, 2, 3}` and `var C = D; var D = mk()` — and, more broadly, a
+FUNCTION body using an inferred-type package variable declared after the function (`func f() int { return v
++ 1 }; var v = 41` → "undefined: v").  Spec
 `decl.order.forward` allows any order, and `prog.init.order` runs initializers in dependency order — the
 done entry for dependency-order initialization (`444c9c90`) records `var A = B+1; var B = 10` as working, but
 it does not compile now (nor on bnc-0.0.16); the conformance tests of init order all declare explicit types
