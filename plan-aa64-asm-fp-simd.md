@@ -162,8 +162,14 @@ single lane, LD1R–LD4R, LDAP1 / STL1 (FEAT_LRCPC3).
   the backend's `Vld1*` / `Vst1*` now encode through it.  A post-index XZR / X31 is rejected
   (clang encodes Rm 31 = the immediate form; user-approved divergence, in
   TestGoldenDeliberateRejects).
-- C2: single lane (index Q:S:size by element), LD1R–LD4R (opcode scale 11, loads only),
-  LDAP1 / STL1.
+- ✅ C2 single lane (index Q:S:size by element), LD1R–LD4R (opcode scale 11, loads only),
+  LDAP1 / STL1 — landed `e5a192554` (2026-09-29): encoders `isa/simd/ldst_single.bn`, parsed in
+  `aarch64_instr_simd_ldst.bn`.  C complete.
+- Follow-up found in C (shared address parser, affects every load / store — not yet done):
+  (1) clang accepts an in-bracket offset without `#` (`ldr x0, [x1, 8]`, `ldap1 {v5.d}[1],
+  [x18, 0]`); `parseA64Addr` rejects it (no mis-encoding, a spelling not taken).  (2) LDAPR /
+  STLR / LDAP1 / STL1's "#0 only" offset is checked by value, so `#-0` / `#(1-1)` / `#(0)` are
+  accepted where clang wants the literal `0` token (harmless: the value is zero).
 
 **D. Crypto**: AES, SHA1 / SHA256 / SHA512, SHA3 (EOR3 / RAX1 / XAR / BCAX), SM3 / SM4.
 
