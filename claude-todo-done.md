@@ -1,3 +1,23 @@
+### Interfaces and named types are identified by their full package path; name-less boxes resolve interface aliases — DONE (binate `3086a29aa` + `53c0e5fd5`, 2026-09-28, work-1)
+
+Three CRITICALs, fixed together after reviews showed each part alone regressed:
+- **Same-named interfaces from two packages collided as generic type arguments** (1384): the identity form
+  of a type name (types QualifiedTypeName) rendered an interface by its bare leaf, so `H[*a.P]` / `H[*b.P]`
+  were one instance.  It now qualifies interfaces — and named types, by their own package-qualified name
+  (never the underlying struct's: `type N S` must not name S, test 1415).
+- **The checker identified an interface by its package's last path segment** (1417): `pkg/x/a.P` and
+  `pkg/y/a.P` were one type (assignment accepted, IR-gen panicked).  Checker interface types and named-type
+  placeholders now carry the full path (curPkgPath; curPkgShort removed) — also needed so checker-built and
+  IR-built types agree wherever IR-gen falls back to checker types.
+- **A name-less boxed composite keyed its interface elements as spelled** (1418): `*[]*a.Q` (`Q = b.P`)
+  missed assertions to `*[]*b.P`.  The box, assert and reflection-record keys now resolve aliases
+  (ir.CanonicalIfaceType, moved from irgen).
+Also: deferred interface calls look the interface up by its full path (an `s "shapes"` alias rebinding
+pkg/other/shapes' slot — silent wrong dispatch; test 1410); diagnostics print both operands qualified when
+they display alike (1413); the checker rejects Box[a.T] → Box[b.T] (1412, 1416); anonymous-struct records
+agree across TUs (1414).  Follow-ups filed: qualify an interface target in assertion messages; a deferred
+call through a generic interface instance.
+
 ### Type-wrapper peel cluster — the six check-lint rows — DONE (binate `2ba0f46ba`, 2026-09-28, work-5)
 
 Each lint rule decided on a type as written or peeled only aliases / named types; they now peel through

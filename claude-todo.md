@@ -5,48 +5,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### A name-less boxed composite keys its interface elements as spelled, not through alias chains — silent assertion miss — 🔴 OPEN (found 2026-09-28, work-1, review of the same-named-interface collision fix; pre-existing)
-
-`*[]*a.Q` (`interface Q = b.P`) boxed into `*any`: `w.(*[]*b.P)` returns false, `case *[]*b.P:` takes
-`default`, the expression form panics `*[]*Q is not *[]*P` — every backend.  A box with no type name of its
-own (a slice / pointer / array of interface values …) is identified by `irutil.NamelessAnySrcName` →
-`MangleTypeArg` of the type as written, on both the box side (gen_iface.bn ~231/319) and the assertion side
-(gen_assert.bn ~104/123); neither resolves interface aliases (instantiation does — canonicalTypeArgs).
-Fix: canonicalize the type (canonicalTypeArg) before NamelessAnySrcName on both sides.  Test: conformance
-1400_nameless_box_iface_alias_elem (xfail.all; not yet landed).
-
-### The checker identifies an interface by its package's LAST path segment — distinct interfaces conflated — 🟡 IN PROGRESS (found 2026-09-28, work-1, fixing the same-named-interface collision; pre-existing; claimed 2026-09-28, work-1 — user: "yes; we can hold off on landing the xfail test commits")
-
-`pkg/x/a` and `pkg/y/a` each declare `interface P` (different methods).  The checker accepts
-`var q *ya.P = p` with `p *xa.P`, and `var y Box[*ya.P] = x` with `x Box[*xa.P]` (then types `y.v` as
-`*xa.P`); IR-gen — which keys interfaces by full path — panics "emitIfaceUpcast: negative vtable slot
-offset".  Root cause: the checker builds interface types with `c.curPkgShort` (the last path segment —
-check_interface.bn:163, bni_scope.bn:95, checker.bn:138/205), so (Pkg, Name) identity — and the
-package-qualified identity name (`types` QualifiedTypeName) — cannot tell the two apart.  Fix: give
-checker interface types their full package path (as IR-gen does), keeping display names short; also make
-an "cannot assign" between two types that DISPLAY the same name print them qualified.  Test: conformance
-1386_err_iface_same_last_segment_pkgs (xfail.all; not yet landed).
-
-### Same-named interfaces from two packages collide as generic type arguments — one instance, wrong dispatch — 🟡 IN PROGRESS (found 2026-09-28, work-1, fixing the alias-as-type-argument CRITICAL; pre-existing; claimed 2026-09-28, work-1 — user: "yes, but first fetch and fast-forward binate/ main.")
-
-`pkg/a` and `pkg/b` each declare `interface P` (different method sets); `H[*a.P]` and `H[*b.P]` get ONE
-instance (`__ifaceid.…H1_iN0_1_P`): `hb.Inner().Name()` and `.Extra()` return 0 (dispatched through
-`H[*a.P]`'s table), and a value implementing only `H[*a.P]` asserts as `H[*b.P]` — LLVM, native aa64 and
-the VM alike.  Root cause: irutil.MangleTypeArg mangles a TYP_INTERFACE leaf by
-`QualifiedTypeName()`, and an interface type's `Name` is bare (its package is in `.Pkg`), unlike a named
-struct's already-qualified `Name` — so the token carries no package (`N0_1_P`).  Fix: mangle an interface
-leaf qualified by its package (the universe `any` stays `any`); check the demangler and any other
-consumer of the token, and whether `QualifiedTypeName` itself should qualify interfaces (other identity
-keys built from it would collide the same way).  Test: conformance 1384_generic_iface_arg_same_name_pkgs
-(xfail.all, binate `566b280c9`).
-
-Status: fix drafted (not landed) — the identity form of a type name (types QualifiedTypeName) qualifies an
-interface by its package.  Blocked: its review found two regressions — IR-gen mangles checker-built types
-in a few fallbacks (a chained call through a non-imported package), whose interface package is the LAST
-path segment while IR-gen's is the full path, so a box and its assertion key differently (fix the checker
-entry below, 1386, first); and the name-less box alias gap above (1400) widens to same-named re-exports.
-Also unify the user-visible spelling (it would read `P`, `a.P` and `pkg/a.P` in different messages).
-
 ### Type-wrapper peel bug cluster (named / alias / readonly handled inconsistently across IR-gen, the VM lowering, codegen, and the checker) — silent wrong values, memory corruption, use-after-free — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-26, work-5/session — user: "take on the critical, then the majors")
 
 **Class:** a type decision (Kind / Width / Signed / float-vs-int / managed-vs-raw / aggregate-vs-scalar)
@@ -158,6 +116,15 @@ generic body).  This also covers the genUnary type-wrapper row (a wrapped resolv
 **Test:** conformance test (division / comparison / float conversion, plain and wrapped int64).
 
 ## MAJOR
+
+### A failed interface-target assertion names the target by its bare name — qualify it — 🔴 OPEN (follow-up to `53c0e5fd5`, 2026-09-28; user: "Improving the message with the qualified name would be better, but can be a follow-up.")
+
+`x.(*Flyer)` failing prints `type assertion failed: main.Dog is not Flyer` (gen_assert_iface.bn uses the
+interface's bare `.Name`), while every other type in these messages — the dynamic type, a concrete target,
+an interface inside a composite (`*[]*pkg/b.P`) — prints qualified.  Print the target qualified
+(`<Pkg>.<Name>`) and update the tests that pin the bare form: conformance 1014 and the
+matrix/type-assert/iface/*/abort cells (generator `conformance/gen-type-assert-matrix.py`, whose comment
+documents the bare form).
 
 ### A name repeated on the left of `:=` or among a range loop's binders is accepted — 🟡 IN PROGRESS, DECIDED: an error, `_` exempt (found 2026-09-28, work-6, review of the parallel short-variable fix; claimed 2026-09-28, work-6/session — user: "yes to both")
 
@@ -574,13 +541,12 @@ and over the type checkBlankTypeDecl resolves.
 
 ### Bugs found reviewing the identity refactor (pre-existing) — 🔴 OPEN (found 2026-09-27, work-1; reproduced by the reviewer)
 
-- **`defer` of a method on an interface keys on the checker's SHORT package name:** the checker builds
-  interface types with the package's short name (`check_interface.bn:79`, `bni_scope.bn:93`:
-  `curPkgShort`), and `buildDeferIface` (`gen_defer_build.bn`) resolves it through the file's aliases —
-  so a deferred call through an explicitly aliased import (`import L "pkg/other/lib"`), on a generic
-  interface (`@gen.Holder[int]`), or on a non-main package's own interface still misses ("defer of an
-  unresolved interface method").  Fix: carry the full path (the checker's interface types, or compute the
-  identity from the receiver's IR type as `genInterfaceMethodCall` does).
+- **`defer` of a method on an interface keys on the checker's SHORT package name:** (title kept — the
+  TODO in `gen_defer_build.bn` cites it.)  Interface types now carry their full package path (`53c0e5fd5`),
+  so an explicitly aliased import and a non-main package's own interface work; what remains: a deferred
+  call through a GENERIC interface instance (`@gen.Holder[int]`) still misses ("defer of an unresolved
+  interface method") — the checker names the instance differently than IR-gen.  Fix: compute the identity
+  from the receiver's IR type, as `genInterfaceMethodCall` does.
 - **An imported generic FUNCTION can't be called at the REPL prompt:** "extern not found:
   <pkg>.F__bn_inst__…", whether the fixture imports the package or it is imported mid-session.
 
