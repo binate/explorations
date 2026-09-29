@@ -375,7 +375,10 @@ checker checks a generic body once, abstractly, and IR-gen evaluates DEPENDENT v
 Until each instantiation is checked:
 - an array whose length depends on a type parameter is rejected in a generic signature and with
   array-literal elements, and `len` of one is not a constant (conformance
-  `spec/15-builtins/153_len_dependent_array_len`, xfail);
+  `spec/15-builtins/153_len_dependent_array_len`, xfail); the same for a local generic type's METHOD
+  signature (`func (b *Box[T]) Get(x [len(gArr) + sizeof(T)]uint8)` called with a `[7]uint8`: "cannot
+  assign [7]uint8 to [0]uint8" — substituteTypeParams keeps the placeholder 0; the imported equivalent is
+  right, being re-resolved per instantiation) — commit 4 (signatures re-resolved per instantiation);
 - an error that only one instantiation has (`cast(uint8, sizeof(T) * 100)` with a large T) panics in
   IR-gen with no position (`constEvalFailure`), as do the cast / `bit_cast` size checks that reach codegen
   through a type parameter (conformance 1123, 1217, 1220);
