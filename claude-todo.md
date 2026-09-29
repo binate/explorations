@@ -211,6 +211,30 @@ same shape for slicing).  Also check the other backends: the VM / native may cop
 Consider a compile-size or compile-memory guard in the conformance runner so a pathological test fails
 instead of exhausting the machine.
 
+### The LLVM backend lowers aggregate loads, copies and zero-fills one scalar leaf at a time — IR (and clang memory) grows with array length — 🔴 OPEN (found 2026-09-28, work-1, while fixing 1301 above; pre-existing)
+
+Every aggregate memory operation in the LLVM backend decomposes per scalar leaf: a zero-fill is one GEP +
+`store 0` per leaf (codegen emit_copy.bn `emitFieldwiseZero` / `emitZeroRec`), a copy one GEP + load +
+store per leaf (`emitCopyRec`), an aggregate load one load + `insertvalue` per leaf
+(emit_copy_ssa_load.bn).  So the emitted IR is O(number of array elements):
+- `var buf [1000000]uint8` in a function: 1,000,000 `store i8 0` (2M lines of IR);
+- `var d [100000]uint8 = src` (a global): 800k lines (per-byte zero-fill, then per-byte load +
+  insertvalue);
+- conformance 1301's `var local [2]Big` (`Big` holds `[70001]uint8`): 140,002 byte stores, most of its
+  remaining 13 MB of IR.
+A local array of a few MB drives clang into multi-GB RSS, which is the same failure 1301 had.  Native aa64
+compiles the 1 MB case in 0.07 s, so this is LLVM-specific.
+Why it is per-leaf: emitFieldwiseZero's doc says an aggregate `store zeroinitializer` may lower to
+`memset` / `__aeabi_memclr`, which bare metal does not carry.  But `runtime/baremetal_arm32/semihost.s`
+already provides byte-loop `memset` / `memcpy` / `memmove` / `memcmp` for exactly the calls clang emits
+implicitly (not `__aeabi_memclr`), so that rationale needs re-checking per target.
+Fix direction (needs a decision): emit a loop over the elements for an array past a small size (it would
+need `"no-builtins"` so LLVM does not turn it back into memset, if memset is to be avoided), or allow the
+memset/memcpy intrinsics and provide every symbol they can lower to on each target.
+No test pins it yet: unit-test xfails are per package and mode (scripts/unittest/), so one codegen test
+can't be marked expected-fail, and a conformance test big enough to show it would exhaust memory until
+the fix lands.
+
 ### A `.bni` forward `type X` completed by a NON-struct `type X int` in the `.bn` — checker accepts, IR-gen internal error — 🔴 OPEN (found 2026-09-28, work-1, review of the named-type identity fix; pre-existing)
 
 `pkg/h.bni`: `type Handle` plus `func Make(v int) @Handle`; `pkg/h/h.bn`: `type Handle int`.  The
