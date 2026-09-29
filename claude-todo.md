@@ -171,22 +171,19 @@ instantiated (checker-side, before IR-gen), and turn the IR-gen panics into unre
 checker's unsafe_cast rules with a diagnostic pointing at constructing the managed value; add `.error`
 conformance tests for both (check whether `*[]T → @[]T` is also accepted today).
 
-### Indexing an array field loads the WHOLE array as a value — 80 MB of LLVM IR for conformance 1301, clang exhausts memory — 🟡 IN PROGRESS (found 2026-09-28, work-1, while finding what exhausted system memory during a local conformance run; pre-existing; claimed 2026-09-28, work-1 — user: "take on the bugs that you filed"; reads fixed by `b24497e02`, writes still load the whole array: 40 MB IR at `83ce84a25`)
+### The conformance runner has no compile-size / compile-memory guard — one pathological test can exhaust the machine — 🔴 OPEN (split out of the 1301 whole-array-load entry, 2026-09-28, work-1; user: "yes, keep the 1301 suggestion as its own todo")
 
-Conformance `1301_large_elem_index` (`type Big struct { a [70001]uint8 }`, `g[i].a[off]` read and write)
-emits an 80 MB `.ll` (1.3M lines) on the LLVM backend: `get` and `set` are ~210k lines each, `main` ~910k.
-Each access to `g[i].a[off]` first emits an aggregate OP_LOAD of the whole `[70001 x i8]` field — a
-70001-leaf load + insertvalue chain (codegen/emit_copy_ssa_load.bn decomposes aggregate loads per leaf)
-whose value is then unused (`set` stores the one byte through a separately computed address).  clang
--cc1 compiling it passed 4.5 GB RSS (killed there by a memory watcher); an unwatched `builder-comp-comp`
-run on 2026-09-28 ~10:32–10:35 drove the machine into memory-pressure jetsam.  The test passes, so
-nothing flags it.  Root cause to pin down: which IR-gen path evaluates the array VALUE of an addressable
-base (`g[i].a`) when indexing it — it should index through the element address (cf. `4eada9b81`, the
-same shape for slicing).  Also check the other backends: the VM / native may copy 70 KB per access.
-Consider a compile-size or compile-memory guard in the conformance runner so a pathological test fails
-instead of exhausting the machine.
+Conformance 1301 used to make clang -cc1 pass 4.5 GB RSS, and an unwatched `builder-comp-comp` run on
+2026-09-28 drove the machine into memory-pressure jetsam, while the test itself "passed" — nothing flagged
+the blow-up.  1301 is fixed (binate `e0287aa7b`), but any future test (or compiler regression) with the
+same shape would do it again: the per-leaf aggregate lowering entry below is one live source.  Proposal:
+make the runner fail a test whose compile (bnc and its clang/linker children) exceeds a memory or time
+budget, instead of letting it take the machine down.  macOS has no working `ulimit -v`, so this needs a
+watcher on the process tree's RSS (the ad hoc local one sampled `ps` every 2 s and killed any descendant
+over 4 GB) or a per-test timeout plus a post-hoc peak-RSS check (`/usr/bin/time -l` reports the max over
+waited-for children).  Wiring it into CI is a separate decision.
 
-### The LLVM backend lowers aggregate loads, copies and zero-fills one scalar leaf at a time — IR (and clang memory) grows with array length — 🔴 OPEN (found 2026-09-28, work-1, while fixing 1301 above; pre-existing)
+### The LLVM backend lowers aggregate loads, copies and zero-fills one scalar leaf at a time — IR (and clang memory) grows with array length — 🔴 OPEN (found 2026-09-28, work-1, while fixing conformance 1301's whole-array load; pre-existing)
 
 Every aggregate memory operation in the LLVM backend decomposes per scalar leaf: a zero-fill is one GEP +
 `store 0` per leaf (codegen emit_copy.bn `emitFieldwiseZero` / `emitZeroRec`), a copy one GEP + load +

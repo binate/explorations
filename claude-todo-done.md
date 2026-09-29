@@ -1,3 +1,19 @@
+### Indexing / storing to an array element loaded the WHOLE array as a value — 80 MB of LLVM IR for conformance 1301 — DONE (binate `b24497e02` reads, `e0287aa7b` writes, 2026-09-28, work-1)
+
+Conformance `1301_large_elem_index` (`type Big struct { a [70001]uint8 }`, `g[i].a[off]` read and write)
+emitted an 80 MB `.ll`; clang passed 4.5 GB RSS compiling it.  Every access to an element of an array
+reached through a field, dereference or element first evaluated the array as a VALUE (a dead aggregate
+load, 70001 leaves on LLVM) and then evaluated the base again for its address — so a side-effecting base
+also ran twice on every backend.  Reads were fixed by `b24497e02` (genArrayIndexInPlace).  `e0287aa7b`
+fixes the stores: plain, compound, multi-value and parallel assignment take the element address through
+genArrayElemPtrInPlace (base once, then index, bounds check, store); the single-assignment index path moved
+to gen_assign_index.bn.  Its review found the multi-value arm acquiring the already-acquired component a
+second time (a leak), in the new in-place arm and in the pre-existing nested-array arm; both store through
+emitElemPtrStore now.  1301: 13 MB of IR, 2.9 s, 430 MB peak (the remaining IR is the LLVM per-leaf
+zero-fill, its own todo entry).  Conformance 1419 (base evaluated once, each store form) and 1420
+(refcount after managed stores into array elements, every base shape), irgen unit tests.  The suggested
+conformance-runner memory guard is its own todo entry.
+
 ### A negated literal of 2^63 written inline computed as UNSIGNED; untyped unary constants typed by IR type — DONE (binate `4ffdc118f`, 2026-09-28, work-5)
 
 `-9223372036854775808 / d` gave +3074457345618258602, `-9223372036854775808 < d` false, and its float
