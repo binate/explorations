@@ -482,6 +482,21 @@ cycle involving `S`".  Tests: conformance
 `spec/15-builtins/154_sizeof_package_const` and `155_len_package_var_const` (xfail.all, binate
 `86a9b93f0`); the cycle's error test comes with the fix.
 
+### A package-level variable with an inferred type cannot be named before its declaration — valid code rejected — 🔴 OPEN (found 2026-09-29, work-4, designing the package-constant fix; reproduced on current bnc and bnc-0.0.16; pre-existing)
+
+`var A = B + 1; var B = 10` at package level fails with "undefined: B" (then "arithmetic op requires numeric
+operands"); so do `var a = b; var b = [3]int32{1, 2, 3}` and `var C = D; var D = mk()`.  Spec
+`decl.order.forward` allows any order, and `prog.init.order` runs initializers in dependency order — the
+done entry for dependency-order initialization (`444c9c90`) records `var A = B+1; var B = 10` as working, but
+it does not compile now (nor on bnc-0.0.16); the conformance tests of init order all declare explicit types
+(`var Second int = First + 5`).  Cause: a variable with a declared type is defined in pass 1
+(`collectDeclsBody`), but one whose type comes from its initializer is defined only when pass 2
+(`checkVarDecl`) reaches it, in source order.  Fix: when checking an identifier finds a package variable
+whose inferred type is not known yet, check that variable's declaration first (on demand, with a cycle
+guard — a cycle is already `prog.init.var-cycle`'s error), and skip it when pass 2 reaches it.  The same
+mechanism the package-constant fix above needs for `len` of an inferred-type variable.  Needs conformance
+tests (a forward reference to an inferred variable, through a function-call initializer, and a cycle).
+
 ### A generic struct that contains itself by value crashes the compiler instead of reporting a recursive type — 🟡 IN PROGRESS (found 2026-09-29, work-4, review of design B commit 3; reproduced; pre-existing; claimed 2026-09-29, work-4 — user: "let's land the tests first, then fix the two MAJORs")
 
 `type Bad[T any] struct { x Bad[T]; y T }` used as `var b Bad[int32]` (or as `var b Bad[T]` in a generic
