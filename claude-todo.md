@@ -80,12 +80,19 @@ a prompt global or inside a prompt function — panics "vm: interface vtable not
 (ensureAnyImplInfo) and lower its vtable; the per-prompt lowering evidently doesn't reach it.  Needs a test
 (e2e/repl.sh case) and a root cause.
 
-### The checker accepts a no-result call, or a multi-valued call as one list element, as a variable initializer — 🔴 OPEN (found 2026-09-28, work-6, review of the parallel short-variable fix; pre-existing)
+### The checker accepts a no-result call, or a multi-valued call as one list element, as a variable initializer — 🟡 IN PROGRESS (found 2026-09-28, work-6, review of the parallel short-variable fix; pre-existing; claimed 2026-09-29, work-6/session — user: "I think it should be an error.")
 
 `a := nothing()`, `var b = nothing()` (nothing has no result) and `c, d := 1, two()` (two returns two
 values) all pass the checker: LLVM then fails in clang (`alloca void`), while native and the VM run with a
 garbage value.  Each should be a diagnostic at the statement.  Covered by conformance 1404 (an `.error`
 test pinning a diagnostic at each of the three lines, `xfail.all`).
+Recon (2026-09-29): contexts with a target type already reject it, with poor messages ("cannot assign
+void to int", "cannot assign func()(int,int) to int"); the inferred-type bindings (`var v = nothing()`,
+`q := nothing()`, and `var w = two()` — a two-result call bound to ONE variable) and `_ = nothing()`
+are accepted.  Decided (user, 2026-09-29): `_ = nothing()` is an error too — "An _ = ... is an
+assignment, even if to a blackhole, and here there's nothing to assign."  So a call with no result has
+no value (only an expression statement), and a multi-valued call is a value only where its results are
+distributed; needs a spec rule (the spec is silent) and a single-value check with clear messages.
 
 ### A package-level NON-type declaration named like a predeclared type (`func uint16()`) shadows it only after its own position — invalid code accepted in one order — 🔴 OPEN (found 2026-09-28, work-5, review of the named-scalar-constants fix; pre-existing)
 
