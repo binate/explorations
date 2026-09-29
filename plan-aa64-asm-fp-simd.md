@@ -144,7 +144,11 @@ commit per step; land each before starting the next.
      fmls / fmul / fmulx; simd3diff: the long ops; simd3x: sqrdmlah / sqrdmlsh / the dots;
      simd3fx: fmlal / bfdot / bfmlal / fcmla; the FP8 parser: fdot / fmlalb / fmlall*) — route
      a lane-indexed last source to the by-element parser from each.
-8. Permute (ZIP / UZP / TRN), EXT.  (TBL / TBX landed with B1.)
+8. ✅ Permute (ZIP / UZP / TRN), EXT — landed `7e9cb1cd3` (2026-09-29), encoders in
+   `isa/simd/permute.bn`, parser `aarch64_instr_simd_permute.bn`.  EXT rejects an index
+   outside the vector (0..7 / 0..15) and a symbolic index, which clang wraps into range or
+   encodes as #0 (user-approved divergence; in TestGoldenDeliberateRejects).  (TBL / TBX
+   landed with B1.)
 9. Move `asm/aarch64/aarch64_neon*.bn` onto the isa encoders.
 
 **C. SIMD loads / stores**: LD1–LD4 / ST1–ST4 (multiple structures, post-index), LD1–LD4 / ST1–ST4
