@@ -107,9 +107,9 @@ commit per step; land each before starting the next.
 5. ✅ Modified immediate (MOVI / MVNI / ORR / BIC / FMOV vector) — landed `335de1d57` (2026-09-28),
    with the scanner's IT_MSL modifier item (only with an amount; `b msl` stays a label) and the
    PRFM / literal-load modifier-name rule matched to clang.  (The copy class landed with B1.)
-6. Shift by immediate (incl. narrowing / long / fixed-point conversions — the vector
-   `fcvtzs v0.4s, v1.4s, #3` AND the same-size scalar `fcvtzs s0, s1, #3` / `scvtf h0, h1, #16`,
-   which the conversion parser now rejects as "not supported yet").
+6. ✅ Shift by immediate (right / left / saturating, narrowing and long with "2" forms, SXTL /
+   UXTL, and the fixed-point SCVTF / UCVTF / FCVTZS / FCVTZU — vector and scalar) — landed
+   `988b38d97` (2026-09-28).
 7. Vector × indexed element.  Recon (clang matrix, 2026-09-28):
    - Encoding `0 Q U 01111 size L M Rm opcode H 0 Rn Rd` (scalar `01 U 11111 …`); the index is
      H:L:M for 16-bit elements (then Rm is 4 bits: Vm v0–v15), H:L for 32-bit (Vm v0–v31), H for
