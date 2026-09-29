@@ -458,7 +458,7 @@ for an instantiation, `&&` / `||`, `switch`, and whether the skipped branch is s
   which restamps it; IR-gen reads the checker's per-declaration values now, so this may be harmless.  Not
   verified.
 
-### A package-level constant that takes `sizeof` / `alignof` of a struct or array type is rejected — valid code rejected — 🔴 OPEN (found 2026-09-29, work-4, review of design B commit 3; reproduced; pre-existing — gen1 builds of 2026-09-25/26 reject it too)
+### A package-level constant that takes `sizeof` / `alignof` of a struct or array type is rejected — valid code rejected — 🟡 IN PROGRESS (found 2026-09-29, work-4, review of design B commit 3; reproduced; pre-existing — gen1 builds of 2026-09-25/26 reject it too; claimed 2026-09-29, work-4 — user: "let's land the tests first, then fix the two MAJORs")
 
 `type Point struct { x int32; y int32 }` then `const S = sizeof(Point)` at package level fails with
 "cannot take sizeof/alignof of an opaque type (its layout is not available here)"; so does
@@ -471,7 +471,7 @@ layout, resolve that type declaration on demand (the reverse of an array length 
 with a cycle diagnostic for `type A [S]uint8; const S = sizeof(A)`.  Needs a conformance test (struct,
 array, a type declared after the constant, the cycle).
 
-### A generic struct that contains itself by value crashes the compiler instead of reporting a recursive type — 🔴 OPEN (found 2026-09-29, work-4, review of design B commit 3; reproduced; pre-existing)
+### A generic struct that contains itself by value crashes the compiler instead of reporting a recursive type — 🟡 IN PROGRESS (found 2026-09-29, work-4, review of design B commit 3; reproduced; pre-existing; claimed 2026-09-29, work-4 — user: "let's land the tests first, then fix the two MAJORs")
 
 `type Bad[T any] struct { x Bad[T]; y T }` used as `var b Bad[int32]` (or as `var b Bad[T]` in a generic
 function that is instantiated) makes bnc segfault (exit 139, a stack overflow reached in
