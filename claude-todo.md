@@ -2930,6 +2930,19 @@ unblock them:
 
 ## Opportunistic code cleanups
 
+### Most checker contexts re-report an operand whose error is already reported — cascading diagnostics — 🔴 OPEN (found 2026-09-29, work-6, review of the result-tuple change; pre-existing)
+
+One mistake yields several errors: `var x int = undefinedV[0]` gives "undefined: undefinedV", "cannot
+index this type" and "cannot assign void to int"; `undefinedV.M()` adds "cannot access field on this
+type" and "cannot call non-function"; `-undefinedV`, `for v in undefinedV`, `len(undefinedV)` each add
+one.  A no-result or multi-result call used as a value (func.call.value — typed TypError after its own
+error) cascades the same way in these contexts: index, selector / receiver (`f().m()`), unary `-` / `!`
+/ `&`, range, `len`, type assertion, `make_slice` size, `unsafe_index` / `unsafe_div`.  Only
+assignability, binary operators, conditions, callees and the multi-value destructure skip a TypError
+operand today.  Also an undefined name is typed TypVoid (hence "cannot assign void"), not TypError.
+Fix: every context that reports an operand-type error skips a TYP_ERROR operand (a shared helper), and
+an undefined name is typed TypError; `const k = two()` then stops printing `<error>`.
+
 ### Migrate `pkg/semihost`'s assembly to the package-`.s` mechanism — 🟢 candidate (2026-09-21)
 
 pkg/semihost is a `.bni`-only package whose mangled definitions
