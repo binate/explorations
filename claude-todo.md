@@ -25,12 +25,6 @@ miscompile found):
     64/1024-element named arrays, so not observed.
   - [bug, minor] DWARF: `emit_debug_types.bn` has no READONLY arm, and pointer DI nodes hardcode
     `size: 64` (wrong on 32-bit targets).
-  - [🟡 IN PROGRESS, work-5, 2026-09-29] consolidate the eight full-peel helpers (irutil.PeelTransparent,
-    types.StripWrappers, types.PeelNamedBounded, ir.PeelToRepr, ir.PeelToUnderlying, codegen
-    peelReprType, vm vmPeelTransparent, native common peelTransparent; ~420 call sites) on
-    types.StripWrappers, one package per commit.  PeelToRepr differs (an opaque named type peels to
-    nil) and PeelNamedBounded is depth-bounded — handle both explicitly.  User: "let's do the
-    peel-helper consolidation".
 **Sweep (2026-09-26):** auditors over check+lint, IR-gen (first two thirds of the files), and the VM
 lowering reported the confirmed defects; all are fixed (claude-todo-done.md).
 

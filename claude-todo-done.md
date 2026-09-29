@@ -1,3 +1,13 @@
+### Type-wrapper cluster: the full-peel helpers consolidated on types.StripWrappers — DONE (binate `ce5eb6e58`, `191cd8bd2`, `f6da526fa`, 2026-09-29, work-5)
+
+User: "let's do the peel-helper consolidation".  One bounded peel, types.StripWrappers (1024 NAMED steps,
+the declaration-time cycle check's own bound), replaces PeelNamedBounded, irutil.PeelTransparent (~200
+sites), ir.PeelToRepr / PeelToUnderlying, codegen peelReprType + llvmType's peel arms, vm
+vmPeelTransparent + resolveToStruct, native common peelTransparent, and types hfaPeel / sysvPeel.  One was
+a partial peel with a real gap: irgen constValueFitsSignedTarget stopped at an alias under a named type.
+Along the way the constant-fold fix's codegen unit test was found red on main (TestEmitUnaryNeg expected an
+OP_NEG for `-42`) and fixed (`2aeb0eace`).
+
 ### A generic struct that contains itself by value crashes the compiler instead of reporting a recursive type — DONE (binate `215ccf9a4`, 2026-09-29, work-4)
 
 `type Bad[T any] struct { x Bad[T]; y T }` used as `var b Bad[int32]` (or as `var b Bad[T]` in a generic
