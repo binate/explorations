@@ -71,8 +71,8 @@ between concurrent runs.  Each test now writes into its own `os.MkdirTemp` dir r
 strings) and read-only `/tmp` stats unchanged.  Needed along the way: `os.RemoveAll` (`6b1044949`); a bnfmt
 fix — it deleted every `defer` (`417ef22c6`, MAJOR) — shipped in pre-release `bnc-0.0.17-pre1` with
 `CHECK_TOOLS_VERSION` bumped to it (`04e1ef517`).  Per-package test runs pass and leave nothing in `/tmp`.
-Not converted (by design): `cmd/bnc/main.bn`'s dead fallback to a fixed `/tmp/bnrt_<stem>.o` in
-assembleDotSFile (every caller passes a build dir) — raised with the user.
+`cmd/bnc/main.bn`'s assembleDotSFile had a dead fallback to a fixed `/tmp/bnrt_<stem>.o` (every caller
+passes a build dir) — removed, an empty build dir is now an internal error (`b08ffd4a3`).
 
 ### Type-wrapper cluster leftover: a named function-value type is nillable — DONE (binate `b61a23b78`, docs `5462217`, 2026-09-29, work-5)
 
