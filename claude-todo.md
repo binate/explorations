@@ -480,6 +480,14 @@ Fix: run the by-value cycle check on each instantiation as it is populated; a fi
 (`x Bad[@T]` by value: `Bad[int32]` holds `Bad[@int32]` holds …) is already rejected ("generic
 instantiation nested too deeply").  Tests: conformance `regressions/recursive-generic-struct-by-value` and
 `recursive-generic-struct-in-generic-func` (xfail.all, binate `86a9b93f0`).
+Found by the fix's review (2026-09-29), same class, in the fix: a named type declared over an instantiation
+that holds it (`type Wrap Bad[int32]` with `w Wrap` in `Bad[T]`, or `type Wrap Box[Wrap]`) was silently
+accepted (an infinite-size type) or crashed bnc, because `checkTypeByValueCycle` looked only at a struct or
+array underlying; and a package whose `.bni` declares a self-containing generic crashed every importer,
+even with the generic never instantiated — IR-gen's import pre-pass (`registerStructTypesFlat`, and
+`RegisterSelfTypes`'s first pass) registered generic struct declarations as plain structs, resolving their
+fields with no type parameters bound into a bogus all-`int` instantiation (dead dtor symbols for a valid
+generic; a non-terminating destruction walk for a self-containing one).
 
 ### Constant `sizeof` of a type built from repeated struct fields takes time exponential in the nesting depth — 🔴 OPEN (found 2026-09-29, work-4, review of design B commit 3; pre-existing)
 
@@ -535,7 +543,8 @@ without a `home.bn`.  The checker accepts it; the failure is IR-gen's.
 A generic type's fields (and a generic interface's method signatures) are resolved only when it is
 instantiated (populateInstantiatedStruct / populateInstantiatedInterface), so an uninstantiated one is
 never checked: `type Box[T any] struct { x Undefined }` (or `x _` with a blank `_` parameter) compiles
-without a diagnostic as long as nothing uses `Box[…]`.  Fix: check each generic type / interface
+without a diagnostic as long as nothing uses `Box[…]`.  So is `type Bad[T any] struct { x Bad[T] }`, which holds itself by value
+for every `T`; the abstract check would reject it at the declaration.  Fix: check each generic type / interface
 declaration once abstractly at the declaration (its parameters held abstract, as generic functions'
 bodies are checked), independent of instantiation.
 
