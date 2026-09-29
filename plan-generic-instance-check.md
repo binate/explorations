@@ -1,6 +1,6 @@
 # Plan: check each generic body per concrete instantiation
 
-**Status:** design chosen by the user 2026-09-28 ("B"), not started; the proposed spec rule was reviewed 2026-09-28 (§11), decisions made and the spec text landed (docs `9c9b08e`); implementation in progress (commit 1 landed).  Part of `plan-constant-evaluator.md` ("Per-instantiation checking"); fixes the claude-todo entries "A generic struct's `[sizeof(T)]` field has the same length in every instantiation" and "Polymorphic recursion in a generic function crashes the compiler".  The text below is the design as drafted by the 2026-09-28 design workflow (read-only code mapping; nothing built); paths are relative to `pkg/binate/`.  Its "decisions" section (§9) was settled in §11.
+**Status:** design chosen by the user 2026-09-28 ("B"), not started; the proposed spec rule was reviewed 2026-09-28 (§11), decisions made and the spec text landed (docs `9c9b08e`); implementation in progress (commits 1 and 2 landed).  Part of `plan-constant-evaluator.md` ("Per-instantiation checking"); fixes the claude-todo entries "A generic struct's `[sizeof(T)]` field has the same length in every instantiation" and "Polymorphic recursion in a generic function crashes the compiler".  The text below is the design as drafted by the 2026-09-28 design workflow (read-only code mapping; nothing built); paths are relative to `pkg/binate/`.  Its "decisions" section (§9) was settled in §11.
 
 I only read code; nothing was built or run. Paths are relative to `/Users/vtl/binate/temp-binate-4/pkg/binate/`.
 
@@ -168,7 +168,7 @@ Each commit leaves the tree green.
 1. `ast` clone functions and tests. No behaviour change.  LANDED (binate `7aabeb8d6`, with refcount-matrix
    `assign/deref` cells `ea8598ecf` for the `*c = *d` whole-node copy it relies on).
 2. Build a repro for §6a (`Buf[int32]` plus `Buf[int64]`); if it reproduces, add the conformance test, xfail markers and a todo. Then switch populate and imported-method signatures to clones (`InstTypeRef`), and make IR-gen's struct/interface instantiation use them.
-   **As done (in progress, 2026-09-28):** reproduced on main (`Box[int32]`, `Box[int64]`, `Box[int8]` all got the
+   **LANDED (binate `a53adf5b3`, 2026-09-29):** reproduced on main (`Box[int32]`, `Box[int64]`, `Box[int8]` all got the
    last-populated length, on both backends; also an imported generic's method signature and a generic
    interface's).  The checker now resolves each instantiation from its own clone (`GenericInstantiation.Clone`,
    and a clone of each imported generic method's signature), so no instance-specific length is stamped on the

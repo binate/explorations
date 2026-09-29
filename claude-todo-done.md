@@ -1,3 +1,19 @@
+### A generic struct's `[sizeof(T)]` field has the same length in every instantiation — silent wrong layout — DONE (binate `a53adf5b3`, 2026-09-29, work-4; design B commit 2)
+
+`type Box[T any] struct { a [sizeof(T)]uint8 }`: `Box[int32]` and `Box[int64]` both get an 8-byte `a`, and
+`sizeof(Box[int32])` is 8 (should be 4).  Cause: the checker stamps a known array length on the SHARED
+`TypeExpr` (`LenVal` / `LenKnown`, check/resolve_type.bn) even when it resolves the type under one
+instantiation's type arguments (struct population, imported generic method signatures), and IR-gen trusts
+the stamp for every instantiation.  On main the stamped value is `sizeof`'s pointer-size fallback for a type
+parameter.  Fix: part of per-instantiation checking (plan-constant-evaluator.md, "Per-instantiation
+checking"); a dependent length must never be stamped on the shared node.  Needs a conformance test.
+- Resolved (binate `a53adf5b3`): the checker resolves each generic type instantiation from its own clone
+  (ast.CloneDecl), an imported generic method's signature from a signature clone, and constraints from a
+  copy; the shared declaration is resolved once with its type parameters abstract, recording only what
+  every instantiation shares (IR-gen still builds each instantiation from it, evaluating a dependent length
+  per instantiation).  Tests: conformance spec/12-generics 079, 1424.
+
+
 ### A package-level type named like a predeclared type (`type int16 = int8`, `any`) was ignored by IR-gen — ✅ LANDED ce7927df3 (2026-09-29), work-3
 
 IR-gen's resolveTypeExpr matched the predeclared names before the package's own types, so a shadowing

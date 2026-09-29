@@ -381,16 +381,6 @@ array length stamps it on the shared node, which IR-gen trusts.  Fix: one `layou
 arguments conservatively dependent); the comparability callers of `containsByValueTypeParam` keep it.
 Needs a conformance test (const / array-length / alignof / nested `Outer[T]`).
 
-### A generic struct's `[sizeof(T)]` field has the same length in every instantiation — silent wrong layout — 🟡 IN PROGRESS (found 2026-09-28, work-4, per-instantiation design mapping; reproduced on main; claimed 2026-09-28, work-4 — design B commit 2)
-
-`type Box[T any] struct { a [sizeof(T)]uint8 }`: `Box[int32]` and `Box[int64]` both get an 8-byte `a`, and
-`sizeof(Box[int32])` is 8 (should be 4).  Cause: the checker stamps a known array length on the SHARED
-`TypeExpr` (`LenVal` / `LenKnown`, check/resolve_type.bn) even when it resolves the type under one
-instantiation's type arguments (struct population, imported generic method signatures), and IR-gen trusts
-the stamp for every instantiation.  On main the stamped value is `sizeof`'s pointer-size fallback for a type
-parameter.  Fix: part of per-instantiation checking (plan-constant-evaluator.md, "Per-instantiation
-checking"); a dependent length must never be stamped on the shared node.  Needs a conformance test.
-
 ### Polymorphic recursion in a generic function crashes the compiler — 🔴 OPEN (found 2026-09-28, work-4, per-instantiation design mapping; reproduced on main)
 
 `func depth[T any](n int) int { ...; return 1 + depth[@T](n - 1) }` makes bnc segfault (exit 139): IR-gen's
