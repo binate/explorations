@@ -145,6 +145,25 @@ Other by-name predeclared-type matches in irgen / irutil / codegen / native need
 the predeclared names, and fix every other by-name match the audit finds.  **Test:** conformance
 1399_predeclared_type_shadowed (`.xfail.all`, binate `5428bbb51`) — remove the marker with the fix.
 
+### A negated literal of 2^63 (`-9223372036854775808`) written inline computes as UNSIGNED — wrong division, comparison and float conversion on every backend — 🔴 OPEN (found 2026-09-28, work-5, fixing the genUnary type-wrapper row; pre-existing)
+
+```
+var d int64 = 3
+var q int64 = -9223372036854775808 / d          // prints 3074457345618258602, expected -3074457345618258602
+-9223372036854775808 < d                          // false, expected true
+cast(float64, -9223372036854775808 + d)           // +9.2e18, expected -9.2e18
+```
+Identical on LLVM, native aa64 and the VM; `>> 1` happens to be right.  A named constant of the
+same value (`const M = -9223372036854775808`) is folded and correct.  **Root cause:** IR-gen stamps
+an integer literal >= 2^63 as `uint64` (gen_expr.bn EXPR_INT_LIT, so an int->float conversion of it
+stays unsigned), and genUnary's MINUS arm takes a typed operand's IR type before the checker's
+type of the negation, so `-lit` is an OP_NEG of type uint64 and every consumer treats the
+int64-min bit pattern as 2^63.  **Fix:** for an untyped operand (untyped int, or the >= 2^63
+literal stamp) type the negation by the checker's resolved type of the expression (peeled of
+wrappers); only a typed operand keeps its own IR type (the per-instantiation-safe choice in a
+generic body).  This also covers the genUnary type-wrapper row (a wrapped resolved type).
+**Test:** conformance test (division / comparison / float conversion, plain and wrapped int64).
+
 ## MAJOR
 
 ### A name repeated on the left of `:=` or among a range loop's binders is accepted — 🟡 IN PROGRESS, DECIDED: an error, `_` exempt (found 2026-09-28, work-6, review of the parallel short-variable fix; claimed 2026-09-28, work-6/session — user: "yes to both")
