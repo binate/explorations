@@ -632,6 +632,13 @@ after Stage 5d.  Recon (read-only, 2026-09-29) of x64 register use:
   CallerSaved only to non-spanning intervals and records only callee-saved in SavedRegs — no
   `common` change is needed to populate `CallerSaved`.
 
+**Measured (2026-09-29, instrumented `allocReg` counting pool registers the CURRENT instruction
+has claimed, over the native x64 `-O2` compile of `cmd/bnc`):** the max is **6** (OP_REM, 2
+sites); **5** for OP_DIV (4), OP_MADD (57), OP_MSUB (1); every other op ≤ 4.  (Counting how far
+`allocReg`'s scan reaches overstates demand: its first pass skips registers that only hold a
+previous instruction's cached value.)  So Tier A's 6-register pool covers the self-compile, and
+Tier B's 4-register pool needs exactly REM, DIV, MADD and MSUB slimmed.
+
 **Tier A — homes += {RSI, RDI} (5 → 7), scratch pool R10, R11, RCX, RDX, R8, R9 (6).**
 1. Instrument the per-op scratch high-water over the x64 self-compile; confirm ≤ 6.  Drop RDI from
    `regPool`.  OP_RODATA_ARRAY hardcodes RDI (not a call, so not a clobber point) — switch it to a
