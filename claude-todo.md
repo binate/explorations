@@ -295,7 +295,7 @@ and native: `__init` emits `store i8* %str, i8** @global` — an 8-byte pointer 
 which can overwrite the next global (the reviewer saw `__bninit_done` clobbered). A LOCAL `[5]char` so
 initialized works. Needs a conformance test + the package-init lowering fixed to copy the bytes.
 
-### `sl[a:b][i].f` (field of an element of a slice expression) panics "unresolved selector in IR-gen" — 🔴 OPEN (found 2026-09-28 by a reviewer probe, claude/exciting-davinci-wahyt2 session; pre-existing)
+### `sl[a:b][i].f` (field of an element of a slice expression) panics "unresolved selector in IR-gen" — 🟡 IN PROGRESS (found 2026-09-28 by a reviewer probe, claude/exciting-davinci-wahyt2 session; pre-existing; claimed 2026-09-28, work-6/session — user: "Do you want to claim that entry too?")
 
 `var sl @[]R = make_slice(R, 3); sl[1:3][0].v` compiles, then aborts at run time with `panic: internal
 error: unresolved selector in IR-gen (compiler bug)` on LLVM and native. getSelectorType / genSelector do
