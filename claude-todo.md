@@ -489,7 +489,7 @@ cycle involving `S`".  Tests: conformance
 `spec/15-builtins/154_sizeof_package_const` and `155_len_package_var_const` (xfail.all, binate
 `86a9b93f0`); the cycle's error test comes with the fix.
 
-### A package-level variable with an inferred type cannot be named before its declaration — valid code rejected — 🔴 OPEN (found 2026-09-29, work-4, designing the package-constant fix; reproduced on current bnc and bnc-0.0.16; pre-existing)
+### A package-level variable with an inferred type cannot be named before its declaration — valid code rejected — 🟡 IN PROGRESS (found 2026-09-29, work-4, designing the package-constant fix; reproduced on current bnc and bnc-0.0.16; pre-existing; claimed 2026-09-29, work-4, with the package-constant MAJOR — user: "yes to your question about the MAJOR")
 
 `var A = B + 1; var B = 10` at package level fails with "undefined: B" (then "arithmetic op requires numeric
 operands"); so do `var a = b; var b = [3]int32{1, 2, 3}` and `var C = D; var D = mk()`.  Spec
