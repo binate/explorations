@@ -658,7 +658,9 @@ text forms, CRC32*, PACGA/XPACI, CFINV/RMIF/SETF8, TLBI/AT, the `:abs_g*:` and T
 `.L` / numeric local labels, literal pools (`ldr =imm`, deliberately rejected today), `prfm pldslckeep`,
 `dsb nXS`, `clrbhb`, `allint`, `dc gva`; small forms: `add …, #4096, lsl #0`, `[x1, 8]` / `[x1, (8)]`
 without `#`, `uxtw x0, x1`, a char-literal immediate without `#`, `ldr w0, [x1, sym@GOTPAGEOFF]`,
-`b lsl` / `b eq` (a modifier or condition name as a branch label); and `name = expr` constants, which are
+`b lsl` / `b eq` (a modifier or condition name as a branch label), LDAPR / STLR / LDAP1 / STL1's "#0 only"
+offset checked by value (`#-0` / `#(1-1)` accepted where clang wants the literal token; harmless, the value
+is zero); and `name = expr` constants, which are
 defined but can't be referenced (lookupConst has no callers).  Each family: isa encoder (if missing) +
 parser + golden lines from clang.
 
@@ -666,14 +668,14 @@ parser + golden lines from clang.
 stores — LDXR…STLXP, LDAR/STLR, LDLAR/STLLR, LDAPR, LDAPUR/STLUR incl. the RCPC3 SIMD&FP forms — landed
 `920be83aa` (2026-09-27; LDXP/LDAXP Rt == Rt2 deliberately rejected, unlike clang).  (2) the rest of FEAT_LRCPC3's loads/stores — LDIAPP / STILP,
 LDAPR post-index, STLR pre-index — landed `898eb3d59` (2026-09-27; the CONSTRAINED UNPREDICTABLE register
-overlaps deliberately rejected, unlike clang).  **Still in scope:** LDAP1 / STL1 (FEAT_LRCPC3), with the
-NEON text-syntax family, which adds the `{v0.d}[1]` lane syntax.  (3) LSE atomics
+overlaps deliberately rejected, unlike clang).  (3) LSE atomics
 (v8.1: LD<op>/ST<op>, SWP, CAS, CASP) — landed `69116ea9c` (2026-09-27).  (4) LDTR/STTR family and LDRAA/LDRAB
 (incl. the bare `[Xn]!` pre-index) — landed `ac4c5fc69` (2026-09-27).  (5) CRC32 / CRC32C, the pointer-auth
 register forms (PAC* / AUT* / XPAC* / PACGA) and flag manipulation (CFINV / XAFLAG / AXFLAG / RMIF /
-SETF8 / SETF16) — landed `8114782c0` (2026-09-27).  (6) FP and Advanced SIMD: tracked step by step in
-`plan-aa64-asm-fp-simd.md` (FP scalar done; vector syntax + copy class landed `7e91dc04f`, register lists +
-TBL / TBX `19a84e582`).  Apple's legacy NEON syntax (`dup.4s v0, w1`, `tbl.16b v0, {v1}, v3`), which clang
+SETF8 / SETF16) — landed `8114782c0` (2026-09-27).  (6) FP and Advanced SIMD, incl. the SIMD loads /
+stores (LD1–LD4 / ST1–ST4, LD1R–LD4R, LDAP1 / STL1) and crypto — complete, last piece landed `ef7ab6191`
+(2026-09-29); step-by-step record in `done/plan-aa64-asm-fp-simd.md`.  Apple's legacy NEON syntax
+(`dup.4s v0, w1`, `tbl.16b v0, {v1}, v3`), which clang
 accepts on every target, is not supported (user, 2026-09-28: "we don't need alternate syntax, unless there's
 a compelling reason (we've always tended to favor Intel/ARM syntax, I suppose)") — listed with the deliberate
 rejects, `bf5f7966b`.  **Also in scope (clang supports them; found while
