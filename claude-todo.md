@@ -231,7 +231,7 @@ needlessly expensive when the call doesn't touch the earlier value.  The spec ma
 a possible bnlint rule — e.g. flag an expression/statement that reads a managed GLOBAL (or a field/element of
 one) as an operand before a later operand that contains a call (any call can reassign a global).
 
-### Native aa64 reads a by-value global aggregate operand AFTER later operands run — `show(gt, bump())` sees bump's write — 🔴 OPEN (found 2026-09-29, work-1, re-review of the evaluation-order change; pre-existing)
+### The native backends read a by-value global aggregate operand AFTER later operands run — `show(gt, bump())` sees bump's write — 🔴 OPEN (found 2026-09-29, work-1, re-review of the evaluation-order change; pre-existing)
 
 `type T struct { v int; w int }; var gt T; func bump() int { gt.v = 99; return 1 }`: `show(gt, bump())` passes
 `t.v == 99` on native aa64 but 0 on LLVM (and per the review the VM agrees with LLVM); a parallel
@@ -239,10 +239,13 @@ one) as an operand before a later operand that contains a call (any call can rea
 order.  So native defers the load of a global aggregate operand to its use, after later operands (calls) have
 run — wrong under the left-to-right call-argument and assignment orders the spec now pins
 (`func.call.eval-order`, `stmt.assign.eval-order`).  Nothing is released, so this is not the
-`mem.operand-release` undefined behavior: it is a value read at the wrong time.  Native x64 and native arm32
-not yet checked (the host gen1's `--target` has no x64 key; arm32-baremetal needs the emulator run).  Fix
-lives in the native backend's aggregate-operand lowering (materialize the copy where the operand is
-evaluated).  Needs a conformance test, xfail'd on the native modes that fail.
+`mem.operand-release` undefined behavior: it is a value read at the wrong time.  Confirmed on native aa64,
+native x64 (darwin) and native arm32 (baremetal) — shared native lowering; the Linux native modes (same
+backends) are xfail'd without a local run.  A global ARRAY behaves the same; a local struct changed through a
+pointer by a later operand is read in order.  Fix lives in the native aggregate-operand lowering
+(materialize the copy where the operand is evaluated).  Pinned by spec conformance
+10-functions/203_call_aggregate_arg_eval_order and 14-statements/172_assign_aggregate_value_eval_order,
+xfail'd on all six native modes (landing with the evaluation-order change).
 
 ### A multi-value assignment into an interface-typed target never builds the interface value — 🔴 OPEN (found 2026-09-29, work-1, review of the evaluation-order change; pre-existing)
 
