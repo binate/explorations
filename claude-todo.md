@@ -77,27 +77,6 @@ cause: a string literal lowers to a bare `*readonly char` (OP_CONST_STRING); eve
 site first converts it (EmitStringToChars for a char slice, EmitRodataArray for a char array), but
 genBuiltin's cast / unsafe_cast path casts the pointer directly.  Fix: apply the same conversion there.  Covered by conformance 1405 (`xfail.all`).
 
-### A package-level type named like a predeclared type (`type int16 = int8`) is ignored by IR-gen — every backend uses the predeclared type — silent wrong values and layout — 🟡 IN PROGRESS (found 2026-09-28, work-5, review of the named-scalar-constants fix; pre-existing; claimed 2026-09-28, work-3)
-
-The spec allows the shadowing (`lex.predeclared.are-idents`: the predeclared type names "may be
-shadowed by a user declaration"; `decl.scope.levels`), and the checker honours it (it rejects
-`var v int16 = 200` below), but IR-gen does not, so checker and codegen disagree on arithmetic width
-and struct layout.  Identical on LLVM, native aa64 and the VM:
-```
-type int16 = int8
-type W uint8
-type S struct { a int16; b W }
-var v int16 = 100; v = v + 100     // prints 200, expected -56
-sizeof(int16), sizeof(S)           // 2 and 4, expected 1 and 2
-```
-**Root cause:** IR-gen's `resolveTypeExpr` (`pkg/binate/irgen/gen_type_resolve.bn`, the
-`irutil.Streq(te.Name, "int")` … `"char"` ladder) matches the predeclared names BEFORE
-`definingPkgType` / the module's structs and aliases, so the package's own type is never reached.
-Other by-name predeclared-type matches in irgen / irutil / codegen / native need the same audit.
-**Fix:** resolve the package's own type declarations (ideally the checker's resolved types) before
-the predeclared names, and fix every other by-name match the audit finds.  **Test:** conformance
-1399_predeclared_type_shadowed (`.xfail.all`, binate `5428bbb51`) — remove the marker with the fix.
-
 ## MAJOR
 
 ### Passing a literal `nil` as a function-value ARGUMENT crashes every backend — 🔴 OPEN (found 2026-09-28, work-5, testing named function-value nillability; pre-existing)
@@ -2411,7 +2390,10 @@ per-package memoized `testTmpDir()` + path-join would convert each file mechanic
 may call it directly (tests are built by gen1 against the tree stdlib; probe-verified).  Pattern per test:
 `dir := os.MkdirTemp("/tmp", "binate_<pkg>_"); defer os.RemoveAll(dir)` + paths joined under `dir` (a
 fixed name overwritten each run leaks nothing today, so a unique dir MUST be removed).  Converting
-package by package, each group landed on its own.
+package by package, each group landed on its own.  **Blocker cleared:** `defer` needed a bnfmt that
+keeps it — fixed (`417ef22c6`) and shipped in pre-release `bnc-0.0.17-pre1`; `CHECK_TOOLS_VERSION`
+now points at it (`04e1ef517`).  All groups are converted and pass (native, asm, link, os + os/sys +
+bnld, the os conformance programs); landing next.
 
 ### `os.RemoveAll` is path-based — a concurrent directory→symlink swap mid-walk can make it delete outside the tree — 🟢 LOW (found 2026-09-28, review of `6b1044949`)
 

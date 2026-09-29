@@ -1,3 +1,19 @@
+### A package-level type named like a predeclared type (`type int16 = int8`, `any`) was ignored by IR-gen — ✅ LANDED ce7927df3 (2026-09-29), work-3
+
+IR-gen's resolveTypeExpr matched the predeclared names before the package's own types, so a shadowing
+`type int16 = int8` was ignored on every backend (wrong width / layout).  A bare type name now resolves to
+the type the package whose code is being generated declares (contextPkgType), then the predeclared type,
+then the module's own types (the existing fallback for another package's code — so a consumer's shadowing
+type cannot capture a predeclared name inside an imported generic).  The review found `any` uncovered: IR-gen
+(bareIfacePkg, for `*any`/`@any`) and the checker's generic-constraint check took the universe `any` by
+spelling — both now honour a package's own `any`.  The first version made bnc's self-compile +1.9%
+instructions; an incrementally-maintained "some registered type shadows a predeclared name" record
+(shadowsPredeclared) skips the lookups otherwise — A/B +0.02%, inside the 0.14% noise floor.  Tests: 1399
+un-xfailed; new 1422 (imported generic keeps the predeclared int16), 1423 (`*any`/`@any` to a package's
+struct any), 1421 (`[T any]` with a package's interface any) — pass on LLVM, VM, native aa64; full LLVM
+suite 3241/0.  Audit: the ladder was the only by-name predeclared-type match in IR-gen/codegen/native/ir/VM;
+bnlint's borrowable-char-param matches `char` by spelling, which can only produce a false negative.
+
 ### Indexing / storing to an array element loaded the WHOLE array as a value — 80 MB of LLVM IR for conformance 1301 — DONE (binate `b24497e02` reads, `e0287aa7b` writes, 2026-09-28, work-1)
 
 Conformance `1301_large_elem_index` (`type Big struct { a [70001]uint8 }`, `g[i].a[off]` read and write)
