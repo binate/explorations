@@ -1338,11 +1338,6 @@ that mostly follows from the same live aggregate state.
   backends are far from C (which uses `sqrtsd`). A hardware sqrt (per-arch asm or an intrinsic the
   backends lower) is the large lever for n-body; the loop's native codegen (spilled loop-carried
   values, shift counts reloaded into `cl` from stack slots) is the gap lever.
-- **Constant shift amount not folded (both backends).** `c.f2 << 1` reaches the backends as
-  `shl %x, %v403` with `%v403 = add i32 1, 0` hoisted out of the loop; native then reloads it from a
-  stack slot every iteration (x64 `mov rcx,[rsp+..]; shl edx,cl`; aa64 `ldr x9,[sp,..]; lsl w,w,x9`).
-  Needs: the const materialization not to hide the constant from shift-by-immediate selection
-  (fold `add C,0`/propagate before LICM, or rematerialize constants instead of spilling). 🟡 IN PROGRESS (claimed 2026-09-28, claude/exciting-davinci-wahyt2 session)
 - **Managed-slice header reloaded through its stack slot every iteration** (both backends, ~10
   instrs per slice per iteration for `arr`/`out`): the `@[]Record` locals stay in memory and the loop
   re-reads data/len; LLVM hoists them (no aliasing store). Investigate why these managed-slice

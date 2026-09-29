@@ -25099,3 +25099,16 @@ frame/global base computed into a scratch because rd may share idx's register. P
 constants out of native/common (its .bni was at the 1000-line cap) into a new leaf package
 `pkg/binate/native/strength`. x64's element/field-pointer emitters moved to x64_emit_elem.bn.
 Native x64 and arm32-linux conformance fully green.
+
+## Native constant shift count folds into the shift immediate — DONE (2026-09-29, binate f4570cfdf)
+
+A constant shift count reached all three native backends as a register operand (materialized, often
+hoisted and spilled, reloaded every iteration; x64 also moved it into CL). The `add i32 1, 0` in the
+LLVM output was only how that backend prints an IR constant — the IR held a plain OP_CONST_INT, so
+the fix was instruction selection, not an IR pass. `fold.ShiftImmOperand` (count of an OP_SHL/OP_SHR
+no wider than the word, constant in [0, width)) is accepted by each backend's ImmOperandConsts
+predicate; new emitters use x64 `shl/shr/sar r, imm8`, aarch64 LSL/LSR/ASR immediate, arm32 a
+shifted-register MOV. Counts >= width (spec'd 0 / sign-fill) and negative counts keep the register
+path. Conformance test 1406 covers counts 0, 1, width-1 on every sized integer type; native x64 and
+arm32-linux conformance fully green. Not handled: a typed constant count of a different width than
+the value arrives as an OP_CAST of the constant and is not folded.
