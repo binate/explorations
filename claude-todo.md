@@ -300,6 +300,10 @@ initialized works. Needs a conformance test + the package-init lowering fixed to
 `var sl @[]R = make_slice(R, 3); sl[1:3][0].v` compiles, then aborts at run time with `panic: internal
 error: unresolved selector in IR-gen (compiler bug)` on LLVM and native. getSelectorType / genSelector do
 not resolve a selector whose base is an index of a slice EXPRESSION. Needs a conformance test.
+The same panic for a field of an element of an array COMPOSITE LITERAL: `[2]P{P{n: 3}, P{n: 4}}[1].n`
+(found 2026-09-28, work-6, fixing the literal-array sub-slice CRITICAL; reproduced on LLVM and native,
+before and after that fix) — getSelectorType has no type for an index whose base is a composite literal,
+though genIndexPtr now takes the element's address in place.
 (Also reported by the same reviewer: a package var declared in the `.bni` but not defined in the `.bn`
 is not rejected by the checker — it produced invalid LLVM (`extractvalue i64`); since the in-place
 array-index change, reading `A[2]` of such an array panics in IR-gen. Reproduced by a second reviewer.)
