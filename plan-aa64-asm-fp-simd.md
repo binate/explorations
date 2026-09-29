@@ -99,8 +99,9 @@ commit per step; land each before starting the next.
    - ✅ (b2) conversions: FCVT{N,A,P,M,Z}{S,U} / SCVTF / UCVTF (vector and same-size scalar),
      FCVTL/FCVTN/FCVTXN(2) (+ scalar FCVTXN), BFCVTN(2), and the FP8 F1CVTL / F2CVTL / BF1CVTL /
      BF2CVTL(2); FP16 forms — landed `18788e730` (2026-09-28).
-   - (c) across lanes (ADDV, SADDLV/UADDLV, S/UMAXV, S/UMINV, FMAXNMV/FMINNMV/FMAXV/FMINV) and
-     scalar pairwise (ADDP d, FADDP / FMAXP / FMINP / FMAXNMP / FMINNMP).
+   - ✅ (c) across lanes (ADDV, SADDLV/UADDLV, S/UMAXV, S/UMINV, FMAXNMV/FMINNMV/FMAXV/FMINV incl.
+     FP16) and scalar pairwise (ADDP d, FADDP / FMAXP / FMINP / FMAXNMP / FMINNMP incl. 2h) —
+     landed `578120799` (2026-09-28).  B4 complete.
    - Note for FEAT_CSSC (later): the general-register ABS / CNT (and friends) will need the same
      integer-first routing that NEG / CLZ have — today `abs` / `cnt` go straight to the SIMD parser.
 5. Modified immediate (MOVI / MVNI / ORR / BIC / FMOV vector).  (The copy class landed with B1.)
