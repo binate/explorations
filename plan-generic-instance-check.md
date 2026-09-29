@@ -1,6 +1,6 @@
 # Plan: check each generic body per concrete instantiation
 
-**Status:** design chosen by the user 2026-09-28 ("B"), not started.  Part of `plan-constant-evaluator.md` ("Per-instantiation checking"); fixes the claude-todo entries "A generic struct's `[sizeof(T)]` field has the same length in every instantiation" and "Polymorphic recursion in a generic function crashes the compiler".  The text below is the design as drafted by the 2026-09-28 design workflow (read-only code mapping; nothing built); paths are relative to `pkg/binate/`.  Its "decisions" section is still open.
+**Status:** design chosen by the user 2026-09-28 ("B"), not started; the proposed spec rule was reviewed 2026-09-28 (§11), decisions pending.  Part of `plan-constant-evaluator.md` ("Per-instantiation checking"); fixes the claude-todo entries "A generic struct's `[sizeof(T)]` field has the same length in every instantiation" and "Polymorphic recursion in a generic function crashes the compiler".  The text below is the design as drafted by the 2026-09-28 design workflow (read-only code mapping; nothing built); paths are relative to `pkg/binate/`.  Its "decisions" section is still open.
 
 I only read code; nothing was built or run. Paths are relative to `/Users/vtl/binate/temp-binate-4/pkg/binate/`.
 
@@ -188,6 +188,90 @@ These change language semantics, so the spec rule in (a) needs your approval.
 - **Per-node side tables fit this approach badly** (irgen-mono map §5.5) because there are six stamp sites; that is why section 0 uses clones.
 - **The hard part is divergence.** Checking a body monomorphically is stricter in ways the constraint-based definition never promised; §4's ICE classification is there to catch it.
 - **bnlint never checks imported generic bodies**, so instances of those generics are skipped under bnlint.
+
+## 11. Review of the proposed spec rule (2026-09-28)
+
+User decisions so far: design B ("B"); dependent array lengths in an abstract body are deferred to the
+instances ("Defer sounds right"); dependent array-literal keys stay rejected for now (language-feature todo
+in claude-todo.md).  The proposed rule was:
+
+> `gen.mono.check` (Constraint) — Besides being checked against its type parameters' constraints, a generic
+> function or method body is checked once for each instantiation the program names, with its type
+> parameters bound to the type arguments: each generic function instantiation named in checked code
+> (including in another instantiation's body), and each method of each generic type instantiation named
+> there. An error such an instantiation has is a compile-time error. Instantiations nested beyond an
+> implementation-defined depth are an error.
+
+The user: "I think it works, but I'd get a focused review of it too".  A two-lens review (spec wording;
+implementability) found:
+
+**Spec / language (decisions needed):**
+1. "An error such an instantiation has" is too broad.  Re-checking a whole body per instance applies
+   site-dependent rules at the wrong site: `gen.satisfy` ("impl visible at the instantiation site") inside
+   another package's generic (`F[K]` in L naming `G[K]`, K's impl in main, invisible from L); the same for
+   `iface.construct.visible-impl` and `type.opaque` (an opaque type laid out in its own package).  Proposed
+   fix: only **dependent** constructs are re-checked per instance — those whose check needs a value
+   computed from a type parameter (`sizeof` / `alignof` of such a type, constants and array lengths using
+   them, and the rules that consume such a length or size: array identity / assignability, literal counts,
+   `bit_cast` size equality); every other rule is decided once by the abstract check.  Names resolve where
+   the generic is declared; a type argument's impls, visibility and opacity are those at the root
+   instantiation site; an inner instantiation with parameter-built arguments satisfies its constraint through
+   the enclosing parameter's bound.
+2. Cast validity that depends on T's KIND (`cast(int64, t)` with `T any`) — today check_cast_safe.bn skips
+   every cast involving T and IR-gen panics on a bad instance.  Checking it per instance makes the operations
+   allowed on T depend on the concrete T, against `expr.compare.typeparam` ("a type parameter is never one
+   of the concrete types … regardless of its interface constraints").  Decide: abstract (constraint-based)
+   or per instance.  Size-based checks fit the dependent model; kind-based ones need a separate decision.
+   Also needed in the spec: `sizeof(T)` in a generic body is a constant fixed per instantiation (§6/§15).
+3. Dependent array types are compared outside bodies too: signatures (already decided to be checked per
+   instantiation), struct fields, method signatures, interface method signatures, and parameterized-impl
+   coverage (`interface I[T any] { Get() [sizeof(T)]uint8 }` vs `impl Box[T] : I[T]` returning
+   `[alignof(T)]uint8`: accepted today, wrong for a struct T).  Either every declaration of each named
+   instance (signature, body, fields, method signatures, each parameterized impl's coverage) is checked per
+   instance, or dependent lengths are never abstractly identical.
+4. Branching on the size of T becomes impossible: `if sizeof(T) == 4 { bit_cast(T, load32(…)) } else {
+   bit_cast(T, load64(…)) }` fails one branch's `bit_cast` size check for every T, and naming `Atomic[int32]`
+   checks all methods.  Binate has no compile-time `if`.  Decide: an accepted limitation (document the
+   pointer-cast idiom), or a rule that a branch whose condition is constant-false for the instance is not
+   checked per instance.
+5. "Named" needs an inductive definition (fields, alias / defined-type right-hand sides, nested type
+   arguments, constraints, `.bni` files, method-instance bodies, instantiations written inside generics
+   that are never instantiated).  Binate has no type-argument inference (`gen.instantiate`).
+6. Depth: the spec has no translation limits.  Proposed: "the set of instantiations a program names shall be
+   finite" (rejects polymorphic recursion through functions and types), plus an implementation limit
+   catalogued in Ch.21 with a guaranteed minimum (128), measured as the shortest chain from a root.
+7. All methods of a named type instance: the language-level reason is that a method on `Box[T]` is promised
+   for every T (`gen.no-conditional-impls`), and vtable reachability is whole-program (impls in any
+   package), not that IR-gen emits them all.  Consequence: generic bodies in a `.bni` are part of the API.
+8. Error position: the recorded user decision (plan-constant-evaluator.md) is "reporting at the
+   instantiation (with the generic body's position)"; §4 above puts the primary position in the body.
+   Follow the user's decision.
+9. A generic never named with concrete arguments is not checked for dependent errors, even ones that fail
+   for every T — say so explicitly.
+
+**Implementation (design changes, no decision needed):**
+- Blocker: interpreted mode (`bni`, the `-int` modes, `bni --test`, the REPL) and bnlint never check the
+  bodies of `.bni`-loaded generics (injected stdlib packages have no `CheckPackage`), yet IR-gen
+  monomorphizes them.  Record a home for every generic declaration with a body in
+  `LoadPackageInterface`; check it abstractly and per instance only when something names it.
+- The main program is checked with `c.Check(mainFile)`, not `CheckPackage`: add an explicit final drain
+  step to every driver (bnc, bni, interp, bnlint, REPL); IR-gen asserts the queue is empty.
+- Generic type instances created by substitution (`userFacing=false`), during `.bni` surface building or
+  declaration collection, are real instances: queue their methods on every concrete, non-probe creation,
+  and enumerate the method set at drain time (methods declared later / backfilled / at a later REPL prompt).
+- REPL: keep a `Failed` flag on an instance and report again at each new naming site; de-duplicate errors
+  per checking call, not globally; drop or re-arm instances created in `TentativeMode` whose declaration
+  parks.
+- Depth: queued methods set `Parent` too (recursion through methods); process depth-first or stop at the
+  first overflow (fan-out `F[@T](); F[*T]()` is exponential breadth-first).
+- Key IR-gen's lookups by an instance record stamped on the naming node, not by recomputed argument types;
+  a missing home is an ICE, not a skip.
+- Skip instances whose constraint check (or containing type instance's) failed, to avoid cascades.
+- Deferring dependent lengths must also cover function-type identity, the instance cache key, and impl
+  matching.
+- The checker's per-instance population of struct fields / interface method signatures should be under the
+  rule too; interface instances that only IR-gen mints (generic impl rows, imported impls) are unchecked.
+- Cost: ~64 generic functions, ~15 generic types, ~140 distinct instantiations in `pkg/` + `cmd/`; small.
 
 ## Appendix: how the checker handles generics today (mapping, 2026-09-28)
 
