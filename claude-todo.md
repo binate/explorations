@@ -36,6 +36,36 @@ lowering reported the confirmed defects; all are fixed (claude-todo-done.md).
 
 ## MAJOR
 
+### `cast(*any, &s)` with `s @[]readonly char` boxes as `@[]char` — a type switch hands out a MUTABLE slice over readonly data — 🔴 OPEN (found 2026-09-29, work-3, review of the outer-readonly boxing fix; pre-existing)
+
+The `cast` / `unsafe_cast` widening-to-interface paths (`pkg/binate/irgen/gen_builtin.bn` ~:60 and ~:129)
+pass `val.Typ` as wrapAsIfaceValue's un-stripped source type, but every IR instruction type has ALL
+`readonly` stripped (NewInstr → StripConstForIR), and the fail-loud guard only checks for nil.  So
+`var s @[]readonly char = "hi"; var a *any = cast(*any, &s)` boxes with identity `@[]char`, and
+`case @[]char:` / `a.(@[]char)` matches and returns a mutable `@[]char` over the readonly bytes — a
+write-through-readonly hole (spec §8: `cast` never drops element readonly).  The checker accepts it.
+Reviewer's fix: pass the checker type of the operand (`ctx.Checker.ExprType(e.Args[0].ResolvedTypeID)`).
+Traced by reading, not yet reproduced; needs a conformance test (cast(*any, &readonly slice) must match
+`case @[]readonly char:` and never `case @[]char:`).
+
+### `@any` of a named managed slice or pointer (`type S @[]int`, `type H @Node`) never matches its own `case @S:` — assertion aborts — 🔴 OPEN (found 2026-09-29, work-3, review of the outer-readonly boxing fix; pre-existing)
+
+`var a @any = box(s)` for `type S @[]int` takes wrapAsIfaceValue's owning-pointee path and keys the box on
+the name-less STRUCTURAL identity of the underlying slice, while `typeInfoSymFor(@S)` (gen_assert.bn
+~:131-139) falls to the nominal branch and keys on `main.S` — two different `__typeinfo` symbols, so
+`a.(@S)` aborts on a miss (the checker allows the target).  Same for `type H @Node` / `case @H:`.  The raw
+`*any` of `&s` path is nominal, so the two box paths disagree.  Traced by reading, not yet reproduced;
+needs a conformance test over both box paths.
+
+### Spec decision: may a type assertion recover a MUTABLE pointer to a boxed `readonly` named value? — 🔴 NEEDS DECISION (raised 2026-09-29, work-3, review of the outer-readonly boxing fix)
+
+`var c readonly Celsius = 21; var x *any = &c; x.(*Celsius)` succeeds today (named boxes drop the outer
+readonly), handing out a mutable `*Celsius` to readonly storage without `unsafe_cast`.  §11.12 iface.assert's
+literal wording ("outer-`readonly` stripped") allows it, but iface.assert.kind ("element-level readonly may
+be added but not dropped") and type.readonly.drop say otherwise.  Decide which the spec means (and whether
+the dynamic type, or the recovery, should keep the readonly); then pin it with a test (conformance 1429 was
+deliberately limited to the handle-readonly `readonly @Box` case so as not to lock this in).
+
 ### A call returning ONE multi-result func value is taken as a multi-result call — `a, b := mk()` accepted, garbage — 🟡 IN PROGRESS (found 2026-09-29, work-6, reconning 1404; reproduced; pre-existing; claimed 2026-09-29, work-6/session — user: "I think you should, but get a focused review of the approach first")
 
 `func mk() @func() (int, int)`: `a, b := mk()`, `x, y = mk()` and `return mk()` (from a `(int, int)`
