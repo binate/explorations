@@ -123,6 +123,14 @@ with xfail markers to be added with the fix or ahead of it.
 
 ## MAJOR
 
+### `pkg/std/fmt` unit test `TestSprintfNamedScalar` fails on main — 🔴 OPEN (found 2026-09-28, work-4, full unit-test run; pre-existing)
+The last assertion fails: `Sprintf("%t", &c)` with `var c namedInt = 20` should give
+`%!t(namedInt=20)` (the inapplicable verb names the named type via `reflect.TypeOf`, `argTypeName`'s
+default case in fmt_printf.bn).  Fails at main `457e2956b`, at `1db847da0`, and at its parent `fb024cd8d`
+(the fmt commit "the typed verbs ignore String() by design; say so, and pin %x / %q"); not bisected further.
+Root cause unknown — needs investigation (a reflect/RTTI name or type-switch default issue, or the test's
+expectation).  Covered by the unit test itself (red on main).
+
 ### A package-level NON-type declaration named like a predeclared type (`func uint16()`) shadows it only after its own position — invalid code accepted in one order — 🔴 OPEN (found 2026-09-28, work-5, review of the named-scalar-constants fix; pre-existing)
 
 `type N2 uint16; const c2 N2 = 5; func uint16() {}` is accepted, while the same declarations with
