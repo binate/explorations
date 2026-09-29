@@ -401,7 +401,11 @@ Until each instantiation is checked:
 - IR-gen's own evaluation of a type-parameter-dependent constant resolves names by last registration in
   `Module.Consts`, not by scope: `{ const K = 1 }; const S = K * sizeof(T)` reads the ended block's K
   (silent wrong value; conformance `spec/12-generics/078_dependent_const_names_in_scope`, xfail; found
-  2026-09-28 reviewing the const-redeclaration MAJORs).
+  2026-09-28 reviewing the const-redeclaration MAJORs);
+- arrays whose lengths depend on a type parameter are identical whatever their length expressions
+  (`types.Identical` compares the placeholder 0): `var a [sizeof(T)*2]uint8; var b [sizeof(T)]uint8;
+  a = b` compiles, as does `[sizeof(Outer[T])]` from `[sizeof(T)]` — at int32 an 8-byte array assigned
+  from a 4-byte one (found 2026-09-29 reviewing design B commit 3) — commits 4–5.
 Design and commit plan: `plan-constant-evaluator.md` ("Per-instantiation checking"),
 `plan-generic-instance-check.md`.  Also fixes the two MAJOR entries above (a generic struct's
 `[sizeof(T)]` field length; polymorphic recursion).
@@ -441,6 +445,39 @@ for an instantiation, `&&` / `||`, `switch`, and whether the skipped branch is s
 - REPL: `checkGroupDeclTentative` still re-checks a const group's shared initializer for its bare members,
   which restamps it; IR-gen reads the checker's per-declaration values now, so this may be harmless.  Not
   verified.
+
+### A package-level constant that takes `sizeof` / `alignof` of a struct or array type is rejected — valid code rejected — 🔴 OPEN (found 2026-09-29, work-4, review of design B commit 3; reproduced; pre-existing — gen1 builds of 2026-09-25/26 reject it too)
+
+`type Point struct { x int32; y int32 }` then `const S = sizeof(Point)` at package level fails with
+"cannot take sizeof/alignof of an opaque type (its layout is not available here)"; so does
+`type Point [2]int32`.  The same constant inside a function works, and so does a package-level
+`var g [sizeof(Point)]uint8`.  Cause: `collectDecls` (check/check_decl.bn) runs `resolveTopLevelConsts`
+before `collectDeclsBody` fills in struct and array types (`resolveBuiltinScalarTypeDecls` pre-fills only
+named scalars), so the constant's `sizeof` sees the placeholder (nil Underlying), which `isOpaqueType`
+takes for an opaque type, and `checkBuiltinCall` reports it.  Fix: when a top-level constant needs a type's
+layout, resolve that type declaration on demand (the reverse of an array length pulling in a constant),
+with a cycle diagnostic for `type A [S]uint8; const S = sizeof(A)`.  Needs a conformance test (struct,
+array, a type declared after the constant, the cycle).
+
+### A generic struct that contains itself by value crashes the compiler instead of reporting a recursive type — 🔴 OPEN (found 2026-09-29, work-4, review of design B commit 3; reproduced; pre-existing)
+
+`type Bad[T any] struct { x Bad[T]; y T }` used as `var b Bad[int32]` (or as `var b Bad[T]` in a generic
+function that is instantiated) makes bnc segfault (exit 139, a stack overflow reached in
+`types.ResolveAliasAndConst`).  The non-generic `type Bad struct { x Bad; y int32 }` gets "recursive type:
+a type cannot contain itself by value".  Cause: `checkValueEmbedding` skips generic declarations, so
+`checkTypeByValueCycle` never sees an instantiation, and the walks over its layout recurse without bound.
+Fix: run the by-value cycle check on each instantiation as it is populated; a field that expands forever
+(`x Bad[@T]` by value: `Bad[int32]` holds `Bad[@int32]` holds …) must be rejected too.  Needs a conformance
+error test.
+
+### Constant `sizeof` of a type built from repeated struct fields takes time exponential in the nesting depth — 🔴 OPEN (found 2026-09-29, work-4, review of design B commit 3; pre-existing)
+
+Eleven levels of `type Ln struct { f0 Ln-1; f1 Ln-1; f2 Ln-1; f3 Ln-1 }` and `const S = sizeof(L11)` in a
+function take 8.6s of user time to compile (36s with a gen1 bnc of 2026-09-26).  Cause not confirmed:
+the checker's by-value walks (`embedsOpaqueByValueSeen`, `containsByValueTypeParam`,
+`layoutDependsOnTypeParam`) recurse into every field of every named type with no memo, so a DAG of named
+types is walked as a tree (4^11 visits here).  Fix: memoize per named type, or stop at a named type whose
+answer is already known.  Needs a compile-time test that bounds it.
 
 ### An interface alias named as a parent breaks the upcast — runtime panic / compiler ICE — 🔴 OPEN (found 2026-09-27, work-1, review of the checker forward-parent fix; pre-existing)
 
