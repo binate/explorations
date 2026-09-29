@@ -88,8 +88,7 @@ fixed rows are in claude-todo-done.md.
 ```
 === irgen (1 open)
   - [nit] `gen_expr.bn:302` genUnary — wrapper: untyped negated operand whose checker-resolved type is readonly int8 / alias-of-readonly / — Contributing site of KNOWN issue (1), reported only so the fix covers it: for `-C` / `-100` with a wrapped resolved type negTyp falls to TypInt, so OP_NEG is emitted at i64 (`sub i64 0, %v0`) and correctness relies entirely on the
-=== check-lint (7 open)
-  - [minor] `type_helpers.bn:58` distinctNamedInts — wrapper: outer readonly (`readonly int64`), alias (`type W = int64`) — Invalid code is accepted.
+=== check-lint (6 open)
   - [minor] `iface_borrow_escape_util.bn:97` borrowSourceFrameLocal — wrapper: outer readonly source (`readonly @Sq`, `readonly *Sq`) — Lint false positive: returning a readonly pointer or managed param as `*any` is reported as `iface-borrow-escape` (a frame-local value borrow), although the interface data pointer is the pointer value, not the address of the param
   - [minor] `borrowable_char_param_util.bn:102` isManagedCharSliceType — wrapper: outer readonly owned return operand (`var o readonly @[]char = ... — Lint false positive with harmful advice: the return-cascade blocker misses an owned `readonly @[]char` operand, so borrowable-char-param recommends converting the param and return type to *[]readonly char.
   - [minor] `lint.bn:169` isManagedToRawSlice / lintVarDecl — wrapper: named managed-slice source (`type MS @[]int`), alias raw-slice destination (`type RS = *[] — Lint false negative: `var r *[]int = m` / `r = m` with m of named type MS (the checker accepts it via named transparency) and `var r RS = m` (alias dst) get no managed-to-raw-assign, while the unwrapped forms do.
@@ -200,27 +199,6 @@ are observable)."  So every operand is evaluated once into a hidden local (`tmp 
 the loop exits: a managed-slice is retained once per loop, and an array is copied (value semantics — a
 write to the original during the loop is not seen; conformance 1401 currently pins the in-place `4 5 60`).
 The array copy is confirmed (user: "yes to both"); eliding the temporary where unobservable is a separate topic.
-
-### `types.Identical` treats same-width predeclared integers as one type (`int` ≡ `int64` on 64-bit, `int` ≡ `int32` on 32-bit) — generic instances aliased, target-dependent acceptance — 🟡 IN PROGRESS (found 2026-09-28, work-5, review of the distinctNamedInts wrapper fix; pre-existing; claimed 2026-09-28, work-5/session — user: "let's do the proper fix")
-
-`Identical`'s TYP_INT arm (`pkg/binate/types/types_identical.bn`, ~line 94) compares only width and
-signedness.  The checker patches the top level of arithmetic / assignment with `distinctNamedInts`,
-but every other use of `Identical` sees `int` and `int64` as the same type on a 64-bit target (and
-`int` / `int32` on a 32-bit one):
-  - **Generic instances are aliased:** `Box[int]` then `Box[int64]` in one program share one
-    instance, so `b.v = anInt64` on the `Box[int64]` is rejected ("cannot assign int64 to int") —
-    valid generic code using both (e.g. `vec.Vec[int]` and `vec.Vec[int64]`) fails on 64-bit.
-    Whether a shared instance can also produce wrong code (a type switch / boxed dynamic type
-    naming the other instance, impls on both) is not yet checked.
-  - **Target-dependent acceptance one level down:** `var p *int64 = &anInt`, `var s *[]int64 =
-    anIntArray[:]`, and a method `M(x int64) int64` satisfying `interface { M(x int) int }` are
-    accepted on 64-bit and rejected on 32-bit.  Likely also `.bn`/`.bni` signature matching and
-    func-value signature matching.
-**Fix:** make the TYP_INT arm compare identity (every TYP_INT is a named predeclared singleton, so
-the name or the singleton), audit `Identical` callers that want LAYOUT equality instead (cast-safety
-checks such as check_cast_safe.bn, IR / backends), and drop `distinctNamedInts`, which the fix makes
-redundant.  **Test:** conformance test with both pairs (int/int64 and int/int32) so it fails on every
-target — to be added.
 
 ### A package-level NON-type declaration named like a predeclared type (`func uint16()`) shadows it only after its own position — invalid code accepted in one order — 🔴 OPEN (found 2026-09-28, work-5, review of the named-scalar-constants fix; pre-existing)
 

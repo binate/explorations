@@ -1,3 +1,23 @@
+### `types.Identical` treated same-width predeclared integers as one type — DONE (binate `50d176225`, 2026-09-28, work-5)
+
+`Identical`'s TYP_INT arm compared width and signedness only, so `int` ≡ `int64` on 64-bit (`int` ≡
+`int32` on 32-bit): `Box[int]` and `Box[int64]` were one generic instance (valid code rejected), and
+`*int` → `*int64`, `*[]int` → `*[]int64`, `cast(*int, p)`, a method `M(int64) int64` for `M(int) int`,
+and a struct cast differing only in int vs int64 fields were accepted on 64-bit and rejected on 32-bit.
+The arm now compares names (every TYP_INT is a named predeclared singleton; char/byte are the uint8
+singleton), and the checker's top-level patch `distinctNamedInts` is gone — which also resolves the
+wrapper-cluster row below (it missed readonly / alias wrappers).  Callers audited for layout-equality
+intent: only the cast safe set's element retype wants it, and it keeps its explicit same-size rule
+(`cast(@[]int64, anIntSlice)` still works where widths agree).  Conformance 1407 (generic instances,
+type switch) and 1408 (the pointer / slice / cast / method cases, rejected on every target) + unit
+tests.  Open follow-up (asked): the spec's `type.scalar.no-implicit-mix` parenthetical "(same width and
+signedness for integers …)" reads as width-based identity and §7 has no identity rule for predeclared
+scalars.
+
+```
+  - [minor] `type_helpers.bn:58` distinctNamedInts — wrapper: outer readonly (`readonly int64`), alias (`type W = int64`) — Invalid code is accepted.  → FIXED `50d176225` (distinctNamedInts removed; Identical compares integer types by name)
+```
+
 ### A parallel short-variable declaration `a, b := x, y` binds only the first pair — silent wrong code — DONE (binate `dd191a07e`, 2026-09-28, work-6; found in a probe during the blank-identifier review)
 
 `a, b := 2, 3` leaves `b` = 0; `c, d := 4, bump(9)` never calls `bump` (its side effects are lost) and
