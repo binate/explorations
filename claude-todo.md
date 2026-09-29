@@ -490,6 +490,13 @@ so: §9.5 `decl.scope.block` ("the bodies of … `for` … are blocks") reads as
 the header's scope, where these would shadow.  Decide and state where these names live (and that a `:=` is
 an "earlier declaration" for the redeclaration rules).
 
+### Language feature: exempt a branch whose condition is constant-false for an instantiation from that instantiation's check — 🔴 OPEN (raised 2026-09-28, work-4, review of the gen.mono.check rule)
+Under per-instantiation checking (spec §12.3 `gen.mono.check`, docs `861dd3b` when landed) both branches
+of `if sizeof(T) == 4 { … bit_cast(uint32, t) … } else { … bit_cast(uint64, t) … }` are checked for every
+T, so one always fails; Binate has no compile-time `if`.  The user accepted the limitation for now (my
+recommendation: limitation + this todo).  Open questions if pursued: which conditions count as constant
+for an instantiation, `&&` / `||`, `switch`, and whether the skipped branch is still checked abstractly.
+
 ### Constant-evaluator leftovers — 🔴 OPEN (found 2026-09-28 by the review of constant-evaluator step 2; pre-existing)
 - `const F float64 = cast(float64, 5)` fails in clang: both the old and new compiler emit invalid LLVM IR.
 - `const S2 = sizeof([G2]uint8)` naming a const-group member declared later is rejected ("array length
