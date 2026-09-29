@@ -441,7 +441,7 @@ on the session module at the boxing site (ensureGenericImplInfo) never reaches t
 which is built by LowerModule.  Fix: lower newly minted impl rows / vtables when a prompt decl is lowered.
 No test yet — e2e/repl.sh has no expected-failure mechanism; add a case with the fix.
 
-### A generic struct's `[sizeof(T)]` field has the same length in every instantiation — silent wrong layout — 🔴 OPEN (found 2026-09-28, work-4, per-instantiation design mapping; reproduced on main)
+### A generic struct's `[sizeof(T)]` field has the same length in every instantiation — silent wrong layout — 🟡 IN PROGRESS (found 2026-09-28, work-4, per-instantiation design mapping; reproduced on main; claimed 2026-09-28, work-4 — design B commit 2)
 
 `type Box[T any] struct { a [sizeof(T)]uint8 }`: `Box[int32]` and `Box[int64]` both get an 8-byte `a`, and
 `sizeof(Box[int32])` is 8 (should be 4).  Cause: the checker stamps a known array length on the SHARED
