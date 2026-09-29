@@ -183,6 +183,19 @@ watcher on the process tree's RSS (the ad hoc local one sampled `ps` every 2 s a
 over 4 GB) or a per-test timeout plus a post-hoc peak-RSS check (`/usr/bin/time -l` reports the max over
 waited-for children).  Wiring it into CI is a separate decision.
 
+### Index designators evaluate base and index in different orders by form; the spec contradicts itself on assignment order — 🟡 IN PROGRESS (found 2026-09-28, work-1, review of the 1301 write-path fix; claimed 2026-09-28, work-1 — user: "yes, go for it (and resolve the issues with the spec)")
+
+Measured on LLVM and the VM with side-effecting base / index / rhs calls: read `x[i]` is base, index;
+`x[i] = v` and `x[i] += v` are rhs, base, index; but `x[i]++`, `&x[i]`, read `x[i].f` are index, base, and
+`x[i].f = v` is rhs, index, base.  Every index-first form goes through irgen `genIndexPtr` (gen_access.bn),
+which evaluates the index before the base (also nested `a[i][j]` targets and method receivers `a[i].M()`).
+The spec pins none of this, and contradicts itself on assignment: §14.4 marks "rhs before the left-hand
+designator" _Open_ (`stmt.assign.eval-order`), the §21 table says it "**is** pinned".
+Plan: genIndexPtr evaluates the base first; the spec pins base-before-index for index expressions (§13),
+states that `x++` / `x--` evaluate their operand as `x += 1` does (§14.5), and resolves §14.4 / §21 by
+pinning what every backend does — right-hand side(s) first, then each designator's operands left to right;
+a conformance test counts the order for every form.
+
 ### The LLVM backend lowers aggregate loads, copies and zero-fills one scalar leaf at a time — IR (and clang memory) grows with array length — 🔴 OPEN (found 2026-09-28, work-1, while fixing conformance 1301's whole-array load; pre-existing)
 
 Every aggregate memory operation in the LLVM backend decomposes per scalar leaf: a zero-fill is one GEP +
