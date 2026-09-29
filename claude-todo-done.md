@@ -1,3 +1,18 @@
+### A negated literal of 2^63 written inline computed as UNSIGNED; untyped unary constants typed by IR type — DONE (binate `4ffdc118f`, 2026-09-28, work-5)
+
+`-9223372036854775808 / d` gave +3074457345618258602, `-9223372036854775808 < d` false, and its float
+conversion was positive, on every 64-bit backend: IR-gen lowers a literal >= 2^63 as uint64 and genUnary
+negated it at that type.  The review of the first fix found the same class in `-(-2^63)`,
+`-(0 - 2^63)` and (LLVM) `cast(float64, ~5)`.  genBinary's untyped-constant fold is now
+emitUntypedIntConst (gen_untyped_const.bn), used by genUnary too, so an untyped constant with a unary
+operator is emitted as the checker's folded value typed by its true sign; genUnary's MINUS arm also
+peels the checker's type (the wrapper-cluster genUnary row, below).  Conformance 1409 (LLVM, native
+aa64, VM, LLVM and native arm32) + unit tests.
+
+```
+  - [nit] `gen_expr.bn:302` genUnary — wrapper: untyped negated operand whose checker-resolved type is readonly int8 / alias-of-readonly / — Contributing site of KNOWN issue (1), reported only so the fix covers it: for `-C` / `-100` with a wrapped resolved type negTyp falls to TypInt, so OP_NEG is emitted at i64 (`sub i64 0, %v0`) and correctness relies entirely on the  → FIXED `4ffdc118f`
+```
+
 ### `#[build(...)]` ignored on the MAIN program's own files, declarations and imports; gated imports not gated per file (1370) — ✅ LANDED bf7d6f078 (2026-09-29), work-3
 
 `Loader.LoadRoot` gives the root package (the main program, or an embedder's driver package) exactly the

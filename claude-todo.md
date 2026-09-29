@@ -77,7 +77,7 @@ cause: a string literal lowers to a bare `*readonly char` (OP_CONST_STRING); eve
 site first converts it (EmitStringToChars for a char slice, EmitRodataArray for a char array), but
 genBuiltin's cast / unsafe_cast path casts the pointer directly.  Fix: apply the same conversion there.  Covered by conformance 1405 (`xfail.all`).
 
-### A package-level type named like a predeclared type (`type int16 = int8`) is ignored by IR-gen — every backend uses the predeclared type — silent wrong values and layout — 🔴 OPEN (found 2026-09-28, work-5, review of the named-scalar-constants fix; pre-existing)
+### A package-level type named like a predeclared type (`type int16 = int8`) is ignored by IR-gen — every backend uses the predeclared type — silent wrong values and layout — 🟡 IN PROGRESS (found 2026-09-28, work-5, review of the named-scalar-constants fix; pre-existing; claimed 2026-09-28, work-3)
 
 The spec allows the shadowing (`lex.predeclared.are-idents`: the predeclared type names "may be
 shadowed by a user declaration"; `decl.scope.levels`), and the checker honours it (it rejects
