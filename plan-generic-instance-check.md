@@ -1,6 +1,6 @@
 # Plan: check each generic body per concrete instantiation
 
-**Status:** design chosen by the user 2026-09-28 ("B"), not started; the proposed spec rule was reviewed 2026-09-28 (§11), decisions pending.  Part of `plan-constant-evaluator.md` ("Per-instantiation checking"); fixes the claude-todo entries "A generic struct's `[sizeof(T)]` field has the same length in every instantiation" and "Polymorphic recursion in a generic function crashes the compiler".  The text below is the design as drafted by the 2026-09-28 design workflow (read-only code mapping; nothing built); paths are relative to `pkg/binate/`.  Its "decisions" section is still open.
+**Status:** design chosen by the user 2026-09-28 ("B"), not started; the proposed spec rule was reviewed 2026-09-28 (§11), decisions made and the spec text landed (docs `9c9b08e`); implementation not started.  Part of `plan-constant-evaluator.md` ("Per-instantiation checking"); fixes the claude-todo entries "A generic struct's `[sizeof(T)]` field has the same length in every instantiation" and "Polymorphic recursion in a generic function crashes the compiler".  The text below is the design as drafted by the 2026-09-28 design workflow (read-only code mapping; nothing built); paths are relative to `pkg/binate/`.  Its "decisions" section (§9) was settled in §11.
 
 I only read code; nothing was built or run. Paths are relative to `/Users/vtl/binate/temp-binate-4/pkg/binate/`.
 
@@ -265,8 +265,7 @@ deferring the target check in abstract bodies, checking it per instance, and low
 IR-gen.  Also from the spec-text review: uses needing a type parameter's layout (by-value var / field /
 param / result, `make`, `make_slice`) are dependent (the opaque-type gate), an impl's interface-list
 constraints are satisfied through the type's parameter constraints (checked once), and a new
-`conf.implementation.limits` backs the chain bound.  Spec text written, not yet
-landed.
+`conf.implementation.limits` backs the chain bound.  Spec text LANDED (docs `9c9b08e`).
 
 **Implementation (design changes, no decision needed):**
 - Blocker: interpreted mode (`bni`, the `-int` modes, `bni --test`, the REPL) and bnlint never check the
