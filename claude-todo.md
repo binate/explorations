@@ -208,7 +208,7 @@ Also (work-6, 2026-09-29): genIndexPtr's composite-literal-base arm (`&[3]int{�
 field-accessed literal element) follows the same index-before-base order, while the literal's value path
 (genArrayIndexInPlace) evaluates the literal first — the base-first change should cover that arm too.
 
-### A pointer-receiver method call on an element or field evaluates the receiver expression twice — 🔴 OPEN (found 2026-09-28, work-1, by the index-designator evaluation-order test; pre-existing)
+### A pointer-receiver method call on an element or field evaluates the receiver expression twice — 🟡 IN PROGRESS (found 2026-09-28, work-1, by the index-designator evaluation-order test; pre-existing; claimed 2026-09-29, work-1 — user: "receiver bug: separately (maybe as an immediate follow-up)")
 
 `(*pbase())[idx()].bump()` (`func (p *P) bump()`) runs `pbase` and `idx` twice; `hbase().p.bump()` runs
 `hbase` twice; `defer (*pbase())[idx()].bump()` too.  A value-receiver call (`.get()`) evaluates once, and
