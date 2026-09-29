@@ -142,7 +142,7 @@ a prompt global or inside a prompt function — panics "vm: interface vtable not
 (ensureAnyImplInfo) and lower its vtable; the per-prompt lowering evidently doesn't reach it.  Needs a test
 (e2e/repl.sh case) and a root cause.
 
-### Two codegen unit tests fail on main — `TestEmitLoadSSARecLastInsertvalueNamesResult`, `TestEmitLoadSSARecPaddedNamedStruct` — 🔴 OPEN (found 2026-09-28, work-1; pre-existing on main)
+### Two codegen unit tests fail on main — `TestEmitLoadSSARecLastInsertvalueNamesResult`, `TestEmitLoadSSARecPaddedNamedStruct` — 🟡 IN PROGRESS (found 2026-09-28, work-1; pre-existing on main; claimed 2026-09-28, work-1 — user: "take on the bugs that you filed")
 
 `pkg/binate/codegen` unit tests (emit_copy_ssa_load_test.bn): "expected first insertvalue against undef"
 and "expected int64 insertvalue at LLVM index 2 (skipping padding)".  They passed at `e0c676c22` and fail at
