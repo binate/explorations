@@ -214,22 +214,6 @@ needlessly expensive when the call doesn't touch the earlier value.  The spec ma
 a possible bnlint rule — e.g. flag an expression/statement that reads a managed GLOBAL (or a field/element of
 one) as an operand before a later operand that contains a call (any call can reassign a global).
 
-### The native backends read a by-value global aggregate operand AFTER later operands run — `show(gt, bump())` sees bump's write — 🟡 IN PROGRESS (found 2026-09-29, work-1, re-review of the evaluation-order change; pre-existing; claimed 2026-09-29, work-1 — user: "yes")
-
-`type T struct { v int; w int }; var gt T; func bump() int { gt.v = 99; return 1 }`: `show(gt, bump())` passes
-`t.v == 99` on native aa64 but 0 on LLVM (and per the review the VM agrees with LLVM); a parallel
-`x, …, n = gt, …, bump()` behaves the same way on native.  A local aggregate (`x, n = loc, bump()`) is read in
-order.  So native defers the load of a global aggregate operand to its use, after later operands (calls) have
-run — wrong under the left-to-right call-argument and assignment orders the spec now pins
-(`func.call.eval-order`, `stmt.assign.eval-order`).  Nothing is released, so this is not the
-`mem.operand-release` undefined behavior: it is a value read at the wrong time.  Confirmed on native aa64,
-native x64 (darwin) and native arm32 (baremetal) — shared native lowering; the Linux native modes (same
-backends) are xfail'd without a local run.  A global ARRAY behaves the same; a local struct changed through a
-pointer by a later operand is read in order.  Fix lives in the native aggregate-operand lowering
-(materialize the copy where the operand is evaluated).  Pinned by spec conformance
-10-functions/206_call_aggregate_arg_eval_order and 14-statements/172_assign_aggregate_value_eval_order,
-xfail'd on all six native modes (binate `b2f8fe94d`).
-
 ### A multi-value assignment into an interface-typed target never builds the interface value — 🔴 OPEN (found 2026-09-29, work-1, review of the evaluation-order change; pre-existing)
 
 `iv, n = mkHello()` (mkHello returns `(@Hello, int)`, iv `@Greeter`): the extracted @Hello component is stored

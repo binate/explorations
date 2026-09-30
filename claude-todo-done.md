@@ -1,3 +1,13 @@
+### The native backends read a by-value global aggregate operand after later operands ran — DONE (binate `896595612`, 2026-09-29, work-1)
+
+`show(gt, bump())` (bump writing the global struct gt) passed show gt's value AFTER bump on native aa64,
+x64 and arm32 — and `x, n = gt, bump()` likewise — while LLVM and the VM read it where it is evaluated.
+AggLoadElidable's S-alloca rule (native/common) let an aggregate load alias a source OP_ALLOC whose address
+is confined to whole loads/stores — a frame slot only a direct store can write; a package global's
+reference is also an OP_ALLOC (IsGlobalRef, a fresh pseudo per use, so always "confined"), but a call can
+write it.  The rule now excludes IsGlobalRef (as the field / element GEP fusions already did).  Spec
+conformance 10/206 and 14/172 lost their six native xfails; unit test in native/common.
+
 ### AArch64 multi-line reject tests tested nothing; a statement split by a comment that spans lines — DONE (binate `e4ed79687`, `e0d92fe80`, 2026-09-29, work-2)
 
 Seventeen control-flow reject cases were one string with a literal backslash-n (a backslash and `n` in a
