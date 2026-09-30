@@ -356,6 +356,25 @@ statement, so a later call reads freed memory — the same as `var q *P = &P{nam
 fields live until its storage does (the frame), or whether taking the address of such a literal / binding a
 `*T` method value to it is undefined behaviour (mem.raw-uaf) or rejected.
 
+### The checker accepts `++` / `--` on a non-addressable selector — the increment lands in a throwaway copy — 🔴 OPEN (found 2026-09-30, work-7, review of the `(&x).f` selector fix; pre-existing)
+
+`getS().x++` (getS returning a struct by value) and `unsafe_index(arr, 2).x++` compile and increment a
+temporary copy — `arr[2].x` stays 0 on every backend — while `getS().x = v`, `getS().x += 1` and
+`&getS().x` are rejected as non-addressable.  §14.5 defines `x++` as `x += 1`, so the checker's
+STMT_INC_DEC arm must apply the same addressability check (expr.addressable) as a compound assignment.
+Needs an `.error` conformance test.  Separately (a question, not a bug): §15.6 describes `unsafe_index(c, i)`
+as "exactly `c[i]`", yet `unsafe_index(arr, 2).x = 5` is rejected as non-addressable — decide which is meant.
+
+### A method value on a generic receiver written as `(*p).M`, `(&b).M`, `Box[int]{…}.M` or `a.(*Box[int]).M` fails to build — 🔴 OPEN (found 2026-09-30, work-7, review of the method-value fix; pre-existing)
+
+With `type Box[T any] struct { n T }` and `func (b *Box[T]) Inc() int`: `(*pb).Inc`, `(*pb).Get`, `(&b).Inc`,
+`(&w.b).Inc`, `Box[int]{n: 3}.Inc` and `a.(*Box[int]).Inc` — native: undefined `…Box[int]3_Inc`; LLVM:
+invalid IR (`%bn_S…_Box[int]`); VM: "extern not found: main.Box[int].Inc".  methodValueRecvIRType
+(irgen gen_method_value_recv.bn) returns nil for a unary, composite-literal or type-assertion receiver, so
+the method is named from the checker's raw instantiation spelling.  Fix: arms for those shapes (`*P` → P's
+IR pointee, `&x` → a pointer to x's IR type, a composite literal → its resolved TypeRef, an assertion → its
+resolved target).  Needs conformance cases (each shape, a generic `*T` and value method).
+
 ### A failed interface-target assertion names the target by its bare name — qualify it — 🔴 OPEN (follow-up to `53c0e5fd5`, 2026-09-28; user: "Improving the message with the qualified name would be better, but can be a follow-up.")
 
 `x.(*Flyer)` failing prints `type assertion failed: main.Dog is not Flyer` (gen_assert_iface.bn uses the
