@@ -49,6 +49,16 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### REPL: a generic method that parks, or is rolled back, stays callable on instances of its type named before it — 🔴 OPEN MAJOR (found 2026-09-30, work-4, reviewing design B's REPL instance checks; reproduced on main `6c3a92440` with a check unit-test probe; pre-existing)
+
+```
+type Box[T any] struct { v T }
+var bx Box[int]
+func (b *Box[T]) Get() T { zz(); return b.v }   // parks on zz
+_ = bx.Get()                                     // accepted
+```
+The REPL would then call a method that was never emitted.  Cause: collectDecls ends with backfillInstantiationMethods, which copies the new method into every existing instance's method set (Box[int]).  Undoing the declaration (undoDecl / RollbackDecl, when it parks or fails) restores the placeholder's method set (restoreMethod) but not the instances'.  Fix: the undo must also remove the method from each instance it was copied into (record them in DeclRollback, or re-sync the instances' method sets after the undo).  Needs a check unit test (the probe above: `_ = bx.Get()` after the parked `Get` must be rejected, or park).
+
 ### arm32 assembler: `ldr rX, label` overwrites its own instruction — silent wrong code — 🔴 OPEN MAJOR (found 2026-09-30, work-2, by the review of the aa64 local-label commit; confirmed by reading; pre-existing)
 
 `arm32.Ldr` with an `OP_LABEL` operand (`pkg/binate/asm/arm32/arm32_mem.bn`) records a `FIX_ABS32` fixup at the
