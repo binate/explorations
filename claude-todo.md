@@ -49,6 +49,25 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### arm32 assembler: `ldr rX, label` overwrites its own instruction — silent wrong code — 🔴 OPEN MAJOR (found 2026-09-30, work-2, by the review of the aa64 local-label commit; confirmed by reading; pre-existing)
+
+`arm32.Ldr` with an `OP_LABEL` operand (`pkg/binate/asm/arm32/arm32_mem.bn`) records a `FIX_ABS32` fixup at the
+LDR's own offset and emits `LDR Rt, [PC, #0]`; `arm32.ResolveFixups` → `bakeRelAddend` then writes the addend (0)
+over the instruction word, and the R_ARM_ABS32 relocation would make the linker write the label's address there —
+the instruction becomes data.  The text parser routes `ldr r0, foo` (and now `ldr r0, 1f` / `ldr r0, .Lx`) here;
+nothing in the tree uses it.  Fix: a PC-relative literal load needs a PC-relative fixup (R_ARM_LDR_PC_G0-style,
+resolved in place for a same-section label, the 12-bit offset field with its U bit), not a word-absolute one; add
+a conformance/unit test that assembles `ldr r0, lbl` with `lbl: .uint32 …` and checks the LDR word.
+
+### arm32 assembler: a branch that cannot be patched is written unpatched, with no error — 🔴 OPEN MAJOR (found 2026-09-30, work-2, by the review of the aa64 local-label commit; confirmed by reading; pre-existing)
+
+`arm32.ResolveFixups` (`pkg/binate/asm/arm32/arm32_sys.bn`) sets `ok = false` when `patchBranch24` rejects an
+offset (misaligned, or beyond ±32 MB) but never calls `SetError`, and marks a same-section branch resolved anyway;
+the assemble driver (`pkg/binate/asm/assemble/assemble.bn`) ignores the resolvers' return value.  So such a branch
+is written with an unpatched imm24 (a branch to PC+8) and the assembly reports success.  Fix: set the assembler
+error on every `patchBranch24` / `bakeRelAddend` failure (with the label), and have the driver fail on a resolver's
+false; test with a misaligned same-section target (`b lbl` where `lbl` is 2 bytes in).
+
 ### Until `BUILDER_VERSION` includes binate `1f29d31e9`, gen1 silently miscompiles some statements that open a block or follow a compound statement in BUILDER-compiled code — 🔴 OPEN MAJOR (constraint until the next BUILDER release; found 2026-09-30, work-4)
 
 bnc-0.0.16 (the pinned BUILDER) has the IR-gen defect fixed on main by `1f29d31e9`.  So in cmd/bnc's cone (the packages the BUILDER compiles into gen1), these must not be the first statement of a loop / `if` / `else` / `case` body, nor the statement right after an `if` / `for` / `switch`:
