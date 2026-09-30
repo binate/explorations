@@ -744,7 +744,7 @@ carry phis end up spilled and the latch shuffles each through a scratch register
   not runnable in this container (no aarch64 linker) — CI.  Remaining loop cost: the 8 record
   fields are all loaded before any is used and spill (an instruction-ordering problem).
 
-**Extract sinking (2026-09-30, claimed).**  The "8 loads" in record-churn are one aggregate
+**Extract sinking (2026-09-30, landed as binate `ac6d08b92`: record-churn 25.98M -> 22.98M).**  The "8 loads" in record-churn are one aggregate
 `OP_LOAD` of `arr[i]` plus 8 `OP_EXTRACT`s that SROA/inlining leave together right after it (where
 `mix`'s parameter `a` was bound).  The native backend elides the aggregate load (S-extract shape,
 `common_aggload_elision.bn`) and lowers each extract to a field load AT THE EXTRACT, so the fields

@@ -26095,3 +26095,14 @@ summed cost. x64's two-address binop handles rd == rhs. record-churn native x64 
 25.98M instructions; native bnc compiling record-churn 6.19G -> 5.90G. Native x64 -O0/-O2 and
 arm32-linux conformance 3265/0, self-compile fixpoint; aa64 via CI (no aarch64 linker in the
 container). Plan: plan-native-regalloc.md "Latch copy coalescing design".
+
+## Sink field extracts to their first use (iropt sink-extract) — DONE (2026-09-30, binate ac6d08b92)
+
+New IR pass `sink-extract` (last in the pipeline, -O1+, not in the VM set): each OP_EXTRACT whose
+uses are all later in its block moves to just before its first use, never past an instruction that
+may write or free memory (`iropt.OpWritesNothing`, moved from native/common and now shared with the
+native aggregate-load elision), so native's direct field reads stay valid. record-churn native x64
+N=500 25.98M -> 22.98M instructions; loop 84 -> 70 instructions. Native x64/arm32-linux -O2
+conformance 3278/0, LLVM -O2 3277/1 (1301: the pre-existing clang -O2 hang, IR byte-identical with
+and without the pass), self-compile fixpoint. Review found the latent native elision gap filed as
+"Native aggregate-load elision: aggregate-typed extract read after its checked interval".

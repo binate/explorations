@@ -1646,9 +1646,9 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
 - **aa64 (67 instrs/element, static): nearly register-resident.**
 - **Both:** (a) the `arr`/`out` managed-slice header allocas' ADDRESS is materialized (`sp+off`),
   spilled and reloaded, then data/len are reloaded — loop-invariant (the "managed-slice header
-  reloaded" item below); (b) the 8 record fields are all loaded before any is used, so under
-  pressure they spill to the stack (an instruction-ordering problem; the latch phi-copy moves are
-  gone since 8ef99bd39).
+  reloaded" item below); (b) three stores per iteration write field values that are already dead
+  (the lazy spill keeps saving them) — not yet investigated.  (Latch phi-copy moves are gone since
+  8ef99bd39; field loads sit at their uses since ac6d08b92.)
 
 - **n-body is ~90% software `math.Sqrt` on BOTH backends — 🔵 OPEN (found 2026-09-24).** callgrind:
   native 88%, LLVM 90% of instructions in `math.Sqrt`'s bit-by-bit loop (neither emits `sqrtsd` /
@@ -1679,11 +1679,6 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   RHS first). Next: find whether IR-gen can produce the shape at all; either way close the analysis
   gap (treat an aggregate-typed extract's uses as uses of the load, or reject aggregate-typed
   extracts in every shape), with a unit test on AggLoadElidable.
-- **Sink loads toward their uses (native codegen quality, all backends)** — 🟡 IN PROGRESS (claimed
-  2026-09-30). record-churn's inner loop loads all 8 fields of `arr[i]` (SROA of the aggregate load)
-  before any is used, so ~16 scalars are live at once and the fields spill to the stack on x64 (9
-  homes). Moving each load down to just before its first use (within the block, not past a store
-  or call that may alias it) shortens those live ranges. Plan in `plan-native-regalloc.md`.
 - **x64 `rt.MemZero`** (zeroing each `make_slice`) is a 4×-unrolled 8-byte store loop reloading its
   zero constants from 4 stack slots — 11.6% of native instructions; LLVM uses glibc `rep stosb`.
   Covered by the x64 MemZero/MemCopy item under native vectorization (A) (being worked on
