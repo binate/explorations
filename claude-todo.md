@@ -696,7 +696,15 @@ above: FEAT_MTE (IRG / GMI / SUBP(S) / ADDG / SUBG / STG / LDG / STGP / …), FE
 (LD64B / ST64B*), FEAT_GCS, FEAT_CSSC (ABS / CNT / CTZ / SMAX / SMIN / UMAX / UMIN reg & imm), FEAT_SYSREG128 /
 FEAT_SYSINSTR128 (MRRS / MSRR / SYSP), CHKFEAT and the other newer hint / system forms, SVE/SVE2(.1), SME/SME2.
 **Found by the emit-before-EOL review (2026-09-29), not yet done:** a '$' in a label name (`L$foo:`) —
-clang accepts it, this assembler rejects it.  (b) Outside the instruction parsers a rejected
+clang accepts it, this assembler rejects it.  **Found by the small-forms review (2026-09-29), not yet
+done:** (i) system operands silently drop a symbol tail — `dmb ish-1` and `dsb sy+4` assemble as `dmb ish` /
+`dsb sy`, likewise `isb sy@PLT`, `bti c+4`, `psb csync+4`, `mrs x0, nzcv+4`, `msr nzcv+4, x0`, `sys #0, c7+4,
+c5, #0`, `dc cvac+4, x0` (the scanner makes the name a label with Imm / Spec, which the system handlers never
+check; clang rejects them all) — fix: reject a name operand carrying an addend or specifier there; (ii) shift
+amounts written as expressions that clang rejects but this assembler takes (the value is right):
+register-offset `lsl +3` / `lsl (3)` / `lsl ~-4` / `uxtw (3)`, add / sub `lsl #(12)` / `lsl #6+6` / `lsl
+6+6`, `#4096, lsl #(0)` / `lsl #0+0`; (iii) forms clang takes that this assembler rejects: `add x0, x1,
+#:lo12:sym, lsl #0` and `…, lsl #12`, `prfm 5, [x1, 8]` (a prefetch operation number without `#`).  (b) Outside the instruction parsers a rejected
 line can still emit: a data directive with trailing text or a later bad value (`.ascii "ab" x`, `.uint32 1
 2`, `.int8 1, 300`, `.zero 4 x`, `.fill 2, 1, 7 x`, `.balign 8 x` padding in text) writes its bytes before
 the error, and a label prefix on a rejected line (`L1: ldr x0, [x1] x2`) is still defined.  Harmless (an
