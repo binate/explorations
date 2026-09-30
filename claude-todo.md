@@ -64,7 +64,10 @@ ever shown.  `RetryPendingDecls` (check/check_pending.bn) migrates the retry's r
 c.Errors but still appends the decl to `resolved`, contrary to its own doc; `retryPending`
 (repl/decl.bn) never prints those errors and IR-gens and runs the decl.  Fix: a retry that reports
 errors is not resolved — the REPL prints its errors and undoes it (SnapshotDecl / RollbackDecl, as a
-failed prompt is), rather than emitting it.
+failed prompt is), rather than emitting it.  Its review found that undoing a failed retry exposes the
+optimistic forward-reference design (dependents of a parked declaration resolve against it, stale parked
+entries survive a redefinition, a failed type retry unblocks its dependents, a parked type redefinition
+mutates the old type); user: "Do the full rework" — plan: [plan-repl-forward-refs.md](plan-repl-forward-refs.md).
 
 ### A generic function whose parameter type contains `readonly T` (`x readonly T`, `s *[]readonly T`) cannot be called — valid code rejected — 🟡 IN PROGRESS (found 2026-09-29, work-3, writing conformance 1437; reproduced; pre-existing; claimed 2026-09-29, work-3/session — user: "then fix the two MAJORs next")
 
