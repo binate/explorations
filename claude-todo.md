@@ -19,7 +19,7 @@ reproduce on `builder-comp_arm32_baremetal` with a large by-value struct return 
 object for `__aeabi_memcpy` references); if it reproduces, route those paths through the leaf-by-leaf
 helpers.
 
-### The REPL runs a parked declaration whose retry fails to check — errors never shown, garbage values — 🔴 OPEN (found 2026-09-29, work-6, review of the REPL failed-prompt fix; reproduced by the reviewer; pre-existing)
+### The REPL runs a parked declaration whose retry fails to check — errors never shown, garbage values — 🟡 IN PROGRESS (found 2026-09-29, work-6, review of the REPL failed-prompt fix; reproduced by the reviewer; pre-existing; claimed 2026-09-29, work-6/session — user: "yes, let's fix the failed-retry bug")
 
 `var x int = y` (parks on y), then `var y @[]char = "hello"`: the retry of x fails (a `@[]char` is not
 an int) but prints "variable x resolved", and `testing.Println(x)` prints a pointer value — no error is
