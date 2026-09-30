@@ -2551,6 +2551,33 @@ spacing and add a byte-exact test.
 
 ## bnlint rules, unused-entity checks & lint skips
 
+### bnlint: flag a capturing `*func` closure made in a loop and stored where it outlives the iteration — 🔴 OPEN (proposed 2026-09-30 by the spec review of the *func closure frame lifetime; decided: add later)
+
+A capturing `*func` closure site has one record per frame (`func.closure.allocation`):
+each evaluation re-captures into it, so every value the site produced sees the latest
+captures.  `for i := 0; i < 3; i++ { fs[i] = func() int { return i } }` gives three
+closures that all return 2.  Flag a capturing `*func` literal or method value inside a
+loop whose value is stored into a variable, element or field declared outside the loop
+body (or otherwise outlives the iteration), pointing at `@func` for independent
+closures.
+
+### bnlint: flag `bit_cast` of a function literal to a raw or named-raw function-value type — 🔴 OPEN (proposed 2026-09-30 by the review of the cast-operand hint fix; decided: add later)
+
+`bit_cast` reinterprets its operand as it is typed (`conv.bit-cast`), so it gives a
+function literal no destination hint: `bit_cast(*func(int) int, func(x int) int {…})`
+makes the literal a heap `@func` statement temporary and reinterprets it as a raw
+closure that dangles after the statement.  Flag it, pointing at `cast` (which makes
+the literal a frame closure).
+
+### bnlint: flag an `@func` temporary borrowed by a `*func` destination past its statement — 🔴 OPEN (proposed 2026-09-30 by the review of the cast-operand hint fix; decided: add later)
+
+`var h *func(int) int = cast(@func(int) int, func…)` or `= mk(7)` (with
+`mk` returning `@func`) borrows a statement temporary as a raw `*func`; the temporary
+is released at the end of the statement and `h` dangles (user error per the
+memory-management rules — the compiler does not extend the temporary).  Flag a
+`*func` variable / field / element initialized or assigned from an `@func`-typed call
+result or cast that is not otherwise owned.
+
 ### bnlint: `func-value-escape` and `managed-func-raw-capture` do not look inside composite literals — 🔴 OPEN (MINOR; found 2026-09-29 by code reading in the review of the composite-literal function-literal hint fix, not run)
 
 `func-value-escape` flags only a bare function literal in `return` position, so
