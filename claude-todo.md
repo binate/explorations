@@ -619,8 +619,10 @@ without a `home.bn`.  The checker accepts it; the failure is IR-gen's.
 A generic type's fields (and a generic interface's method signatures) are resolved only when it is
 instantiated (populateInstantiatedStruct / populateInstantiatedInterface), so an uninstantiated one is
 never checked: `type Box[T any] struct { x Undefined }` (or `x _` with a blank `_` parameter) compiles
-without a diagnostic as long as nothing uses `Box[…]`.  So is `type Bad[T any] struct { x Bad[T] }`, which holds itself by value
-for every `T`; the abstract check would reject it at the declaration.  Fix: check each generic type / interface
+without a diagnostic as long as nothing uses `Box[…]`.  Done in part (binate `285d7faab`, docs `f0d69c6`): each generic struct's
+instantiation with its own type parameters is now built at its declaration, which rejects one that holds
+itself by value (spec `type.named.value-acyclic`) or whose fields grow without bound (`gen.mono.instances`);
+the rest of a never-instantiated generic's fields and method signatures are still unchecked.  Fix: check each generic type / interface
 declaration once abstractly at the declaration (its parameters held abstract, as generic functions'
 bodies are checked), independent of instantiation.
 
