@@ -1096,6 +1096,26 @@ quote numbers from this file (they go stale):**
   backends by static instruction/reload counting on a `--target` build, or on
   real hardware/CI.
 
+### IR-level optimizations for large-aggregate copies — shared by every backend — 🔴 OPEN (raised 2026-09-30, work-1; user decision: "This and other optimizations are what we need")
+
+The LLVM backend now carries a large aggregate (more than 16 scalar leaves) as memory and copies it with
+rt.MemCopy / rt.MemZero (plan-llvm-bulk-aggregate-values.md), and the native backends copy aggregates too, so
+the copies the IR asks for are all executed — nothing downstream removes them (clang can't see through
+rt.MemCopy on bare metal, and the native backends run the IR's loads / stores as written).  Reviews of that
+work found these patterns in -O2 IR; each is an IR-level (iropt) transform so native benefits equally:
+- Field reads of a whole load: `extract(load p, i)` with no write between the load and the extract → load the
+  field from `p` directly (e.g. `var x Big = *p; return x.n` copies all of Big to read one field).
+- Dead aggregate stores: a store / copy into an alloca that is never read (SROA leftovers — `mkBig().n` at -O2
+  copies the 100-byte member into a slot nothing reads).
+- Copy chains: a value copied into a temporary only to be copied again (load → private copy → temp slot →
+  argument).
+- Zero-fill then full overwrite: `var x T` followed by `x = v` zero-fills x and then overwrites every byte.
+User direction (2026-09-30): the native backends are co-equal, so fixes must let native make the same
+optimizations — do them in the IR, not only by handing LLVM an intrinsic.  (On hosted targets the LLVM
+backend separately switches its bulk copies to llvm.memcpy / llvm.memset so clang can optimize them — a
+regression fix, not a substitute for this entry.)
+Measure per explorations/perf-optimization-guide.md.
+
 ### Copying or releasing an array of managed elements is emitted unrolled, one sequence per element — code size grows with N — 🔴 OPEN (found 2026-09-28, work-6, review of the range-loop operand change; pre-existing)
 
 The copy of an array whose elements are managed (a retain per element) and its release (a release per
