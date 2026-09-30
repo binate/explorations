@@ -348,7 +348,7 @@ A method declared `func (b *readonly Box[T]) get() T` called on `var bx Box[int]
 assignable to *readonly Box[T]"); the same shape on a non-generic type is accepted.  The receiver-smoothing
 check compares against the uninstantiated receiver type.  Needs a conformance test (checker).
 
-### The LLVM backend lowers aggregate loads, copies and zero-fills one scalar leaf at a time — IR (and clang memory) grows with array length — 🟡 IN PROGRESS (found 2026-09-28, work-1, while fixing conformance 1301's whole-array load; pre-existing; claimed 2026-09-29, work-1; zero-fill + memory-to-memory copy DONE `a39d67d9f`)
+### The LLVM backend lowers aggregate loads, copies and zero-fills one scalar leaf at a time — IR (and clang memory) grows with array length — 🟡 IN PROGRESS (found 2026-09-28, work-1, while fixing conformance 1301's whole-array load; pre-existing; claimed 2026-09-29, work-1; zero-fill + memory-to-memory copy DONE `a39d67d9f`; memory-backed values step 1 (bulk load stored as a whole) DONE `575fb43ee`)
 
 Every aggregate memory operation in the LLVM backend decomposes per scalar leaf: a zero-fill is one GEP +
 `store 0` per leaf (codegen emit_copy.bn `emitFieldwiseZero` / `emitZeroRec`), a copy one GEP + load +
