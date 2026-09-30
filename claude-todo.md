@@ -655,7 +655,7 @@ at the C boundary (back-filling the S-slot mask, `common_callconv_vfp.bn`) on bo
 call which (and whether (a) first).  Needs a conformance test on `builder-comp_arm32_linux` /
 `builder-comp_native_arm32_linux` (qemu-arm user-mode is not installed on this host).
 
-### A named non-struct type that names itself through an indirection is mis-typed in IR-gen — `type StateFn @func(int) StateFn`, `type Tree @[]Tree` — 🔴 OPEN MAJOR (found 2026-09-30, work-7, audit for the named func-value methods fix; reproduced; pre-existing)
+### A named non-struct type that names itself through an indirection is mis-typed in IR-gen — `type StateFn @func(int) StateFn`, `type Tree @[]Tree` — 🟡 IN PROGRESS (found 2026-09-30, work-7, audit for the named func-value methods fix; reproduced; pre-existing; MAJOR; claimed 2026-09-30, work-7/session — recon now, the fix after the named func-value methods fix lands; user: "yes, you can take it on afterwards")
 
 IR-gen resolves a named type declaration's underlying before registering the type (registerModuleTypeDecl /
 registerPkgTypeDecl / the import pre-passes / the REPL's genReplTypeDecl all compute the entry, then append
