@@ -702,7 +702,7 @@ above: FEAT_MTE (IRG / GMI / SUBP(S) / ADDG / SUBG / STG / LDG / STGP / …), FE
 FEAT_SYSINSTR128 (MRRS / MSRR / SYSP), CHKFEAT and the other newer hint / system forms, SVE/SVE2(.1), SME/SME2.
 **Found by the emit-before-EOL review (2026-09-29), not yet done:** a '$' in a label name (`L$foo:`) —
 clang accepts it, this assembler rejects it.  **Found by the small-forms review (2026-09-29), not yet
-done:** (i) system operands silently drop a symbol tail — `dmb ish-1` and `dsb sy+4` assemble as `dmb ish` /
+done:** (i) — 🟡 IN PROGRESS (claimed 2026-09-29, work-2/session) — system operands silently drop a symbol tail — `dmb ish-1` and `dsb sy+4` assemble as `dmb ish` /
 `dsb sy`, likewise `isb sy@PLT`, `bti c+4`, `psb csync+4`, `mrs x0, nzcv+4`, `msr nzcv+4, x0`, `sys #0, c7+4,
 c5, #0`, `dc cvac+4, x0` (the scanner makes the name a label with Imm / Spec, which the system handlers never
 check; clang rejects them all) — fix: reject a name operand carrying an addend or specifier there; (ii) shift
