@@ -330,7 +330,7 @@ cannot drift again.  Conformance `.error` files for parse errors are `grep -E` r
 so they should keep matching; add a test that pins the position (a parse-error `.error` line matching
 `<file>:<line>:<col>: expected expression`).
 
-### `@any` of a named managed slice or pointer (`type S @[]int`, `type H @Node`) never matches its own `case @S:` — assertion aborts — 🔴 OPEN (found 2026-09-29, work-3, review of the outer-readonly boxing fix; pre-existing)
+### `@any` of a named managed slice or pointer (`type S @[]int`, `type H @Node`) never matches its own `case @S:` — assertion aborts — 🟡 IN PROGRESS (found 2026-09-29, work-3, review of the outer-readonly boxing fix; pre-existing; claimed 2026-09-30, work-3/session)
 
 `var a @any = box(s)` for `type S @[]int` takes wrapAsIfaceValue's owning-pointee path and keys the box on
 the name-less STRUCTURAL identity of the underlying slice, while `typeInfoSymFor(@S)` (gen_assert.bn
