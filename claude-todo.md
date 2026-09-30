@@ -42,7 +42,60 @@ blanket rule.
 (the use-after-free) and `208_funclit_composite_elem_named` (the named-type
 rejection), both `.xfail.all`.
 
+### Checker: `cast(*func(…), func…)` does not give the function literal the cast's target type — the result dangles into a freed heap closure — 🟡 NEEDS DECISION (is a cast target a hinting destination?) (found 2026-09-29 by the review of the composite-literal function-literal hint fix)
+
+`var g = cast(*func(int) int, func(x int) int { return x + k })` compiles; the
+literal (checked with plain `checkExpr` in `check_builtin.bn`'s CAST /
+UNSAFE_CAST) defaults to a heap `@func` statement temporary, the cast borrows it,
+the statement cleanup frees it, and `g(1)` reads freed memory (prints `1` instead
+of `8` on LLVM and native aa64).  `cast(Fn, func…)` for a named `Fn` is rejected
+("cast does not support this conversion").  `func.lit.inferred-default` pins a
+literal to `*func` only for "a destination that hints a `*func` slot"; whether a
+cast target is such a destination is unspecified.  If it is: check the cast
+operand with `checkExprWithFVHint(c, arg, target)` (a silent use-after-free today,
+so CRITICAL), and decide whether `cast(Fn, lit)` is accepted.  If it is not, the
+pattern borrows a statement temporary (user error) and is a candidate for a lint.
+
 ## MAJOR
+
+### IR-gen: a capturing raw `*func` closure's record is one hoisted slot per literal, released at the end of the innermost block — re-evaluation leaks captures, and the record does not live as long as the frame — 🔴 OPEN (leak: must fix; lifetime: 🟡 NEEDS DECISION) (found 2026-09-29 by the review of the composite-literal function-literal hint fix)
+
+**Leak (must fix).** A capturing `*func` literal evaluated more than once in one
+scope — a `for` condition or post statement — RefIncs its managed captures into
+the same record on every evaluation but releases them only once, at scope exit:
+`for i := 0; i < lim(func(x int) int { return x + l.y }); i++ {…}` (with
+`lim(f *func(int) int)`) leaks one reference to `l` per extra evaluation, on LLVM,
+native aa64 and the VM.  `genFor` (`gen_flow.bn`) generates cond and post in the
+enclosing scope; `genFuncLit`'s `registerClosureLocalForCleanup` registers the
+closure local there (its destructor runs once, at scope exit); the record's
+alloca is hoisted to the entry block.  The composite-literal hint fix (not yet
+landed) extends the leak to `limH(H{g: func…})` in a `for` condition, which as a
+heap `@func` statement temporary was released per evaluation.  Proposed fix:
+release the record's previous captures before re-filling it (run the
+closure-struct destructor on the zero-initialized hoisted record at the literal
+site), keeping the scope-exit cleanup — or give `for` cond / post a
+per-evaluation cleanup scope.  Test (not yet landed):
+`conformance/spec/10-functions/210_funclit_raw_closure_reeval_releases`
+(`.xfail.all`).
+
+**Lifetime (needs a decision).** `func.closure.allocation` says the record's
+"lifetime [is] tied to that frame", but IR-gen releases a `*func` closure's
+captures at the end of the innermost enclosing block, and every evaluation of one
+literal shares one record:
+- `if c { var m @Leaf = …; h = H{g: func(x int) int { return x + m.y }} }` then
+  `h.g(1)` reads a released capture (the direct `h.g = func…` form too);
+- `if c { …; defer use(func(x int) int { return x + m.y }) }` — the deferred call
+  at function exit reads a released capture (prints `1000001` instead of `8`);
+- closures stored from three loop iterations
+  (`hs[i] = H{g: func(x int) int { return x + i + l.y }}`) all see the last
+  iteration's snapshot (`102 102 102`), contradicting `func.closure.capture`'s "a
+  snapshot taken when the literal is evaluated".
+Options: (A) spec — block lifetime, and re-evaluating a literal ends the previous
+closure's life (the `if`-block / `defer` shapes become undefined behaviour); (B)
+IR-gen — frame lifetime: register the closure cleanup at function scope, plus the
+release-before-refill above.  Either way one record per literal site is shared by
+its evaluations (a per-evaluation record would need dynamic stack allocation), so
+the spec needs a rule for what re-evaluation does to an earlier closure.
 
 ### LLVM backend: whole-aggregate load / store left in sret returns, call-site sret loads and zero-value construction — possible `__aeabi_memcpy` on ARM EABI — 🔴 OPEN (investigate; found 2026-09-29 by the review of the named-aggregate copy fix `d500a2af7`)
 
@@ -2198,6 +2251,17 @@ same and is stable, but not canonical; the for-clause tests compare tokens only,
 spacing and add a byte-exact test.
 
 ## bnlint rules, unused-entity checks & lint skips
+
+### bnlint: `func-value-escape` and `managed-func-raw-capture` do not look inside composite literals — 🔴 OPEN (MINOR; found 2026-09-29 by code reading in the review of the composite-literal function-literal hint fix, not run)
+
+`func-value-escape` flags only a bare function literal in `return` position, so
+`return H{g: func(x int) int { return x + k }}` — a frame-owned `*func` closure
+escaping through the returned struct — is not flagged.  `walkExprFuncLits`
+(`pkg/binate/lint/func_value_escape.bn`) never descends into a composite
+literal's `Elems`, so `managed-func-raw-capture` misses an `MFn` / `@func`
+composite element that captures a raw pointer.  Proposed fix: walk
+`Elems[i].Value`, and apply the return check to `*func`-typed composite elements
+recursively.
 
 ### Raw-slice escape: decide whether a BROADER best-effort escape lint is wanted — 🟡 NEEDS DECISION
 The original framing ("demote the raw-slice escape TYPE ERROR to a linter rule")
