@@ -1,3 +1,26 @@
+### A method value on a composite-literal receiver with managed fields, a package-level method value's closure record, and a cast of a function reference — DONE (binate `b5c2a6423`, `ba0dd3bd1`, `be50fe4b5`, 2026-09-30, work-5)
+
+- **Composite-literal receiver (MAJOR, wrong code).**  `S{m: l}.Get` stored the
+  literal's alloca pointer into the method value's record and copied managed
+  fields out of garbage; the aggregate-alloca load now runs for a receiver with
+  managed fields too (`b5c2a6423`); test 213.
+- **Package-level method value (MAJOR, wrong code).**  Its record lived in the
+  package initializer's frame and dangled after init.  `allocFrameClosureRecord`
+  now gives a package initializer's record package storage
+  (`newPackageStaticSlot`, program lifetime, released only by the VM's global
+  teardown), and the VM's own per-value record for it lives in a VM-owned
+  block (`ir.Instr.StaticClosureRecord`, `vm.staticClosureRecs`) (`ba0dd3bd1`);
+  test 214.  The spec states the rule (`func.closure.allocation`, docs
+  `02e7d5f`).  The REPL-session variant noted on the entry was not probed
+  separately; REPL var initializers go through the same `GenGlobalInitFunc`
+  path.
+- **Cast of a function reference (MAJOR, IR-gen panic).**  `cast(*func(int) int,
+  add1)` now forms the function value via `genExprOrFuncRef` (`be50fe4b5`); the
+  same commit makes `funcRefShadowed` treat `x.F` with a local `x` hiding an
+  import as a method value, and releases a fresh non-capturing managed function
+  value built for a cast (a VM ClosureRec reference leak); test 216 and
+  `TestCastFuncRefToManagedReleasesClosureRec`.
+
 ### `@any` of a named managed slice or owning array (`type S @[]int`, `type Arr2 [2]@Node`) never matched its own `case @S:` — DONE for slices / arrays (binate `02857f863`, 2026-09-30, work-3); the named-pointer / function-value part stays open
 
 `var a @any = box(s)` for `type S @[]int` takes wrapAsIfaceValue's owning-pointee path and keys the box on

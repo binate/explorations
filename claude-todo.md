@@ -70,21 +70,6 @@ per function, but it never reaches zero).  Check with a VM unit test in the styl
 of `TestCastFuncRefToManagedReleasesClosureRec` (vm_funcvalue_rec_leak_test.bn);
 if it leaks, skip the RefInc for a raw `*func` result type.
 
-### IR-gen: a cast of a function reference to a function-value type panics in IR-gen — 🟡 IN PROGRESS (claimed 2026-09-30, work-5) (found 2026-09-30 by the review of the cast-operand hint fix)
-
-`cast(*func(int) int, add1)` — likewise to a named `Fn`, a managed `MFn` or
-`@func(int) int` — type-checks (conv.cast part 1: everything assignable, and a
-function reference decays to a function value, func.ref.decay), but
-`genBuiltin` (`pkg/binate/irgen/gen_builtin.bn`) evaluates the operand with
-plain `genExpr`, so the reference never becomes an `OP_FUNC_VALUE` and IR-gen
-panics ("internal error: cast between mismatched aggregate/scalar shapes
-reached codegen").  The implicit form `var r *func(int) int = add1` works.
-Proposed fix: for CAST / UNSAFE_CAST whose (peeled) target is a function-value
-type, route a function-reference operand through `genExprOrFuncRef`'s
-function-reference path.  Test:
-`conformance/spec/10-functions/216_cast_function_reference` (`.xfail.all`, landed
-`b3dbd9d35`).
-
 ### Checker / IR-gen: a function literal cast to a type parameter gets no destination type — the instantiated cast borrows a freed heap closure (silent use-after-free) — 🔴 OPEN (found 2026-09-30 by the review of the cast-operand hint fix)
 
 In a generic body, `var g = cast(T, func(x int) int { return x + k })` (or
@@ -143,42 +128,6 @@ Fix if confirmed: copy exactly `SizeOf(T)` bytes (a byte / halfword tail after t
 but expected 'i64'".  A loud compile failure, not a miscompile.  Other backends / the VM not yet checked.
 Needs a conformance test (xfail on the failing modes) and a fix in the cast lowering (a pointer-typed nil
 source needs no `inttoptr`).
-
-### IR-gen: a package-level method value's closure record lives in the package initializer's stack frame — dangling after init (wrong code) — 🟡 IN PROGRESS (claimed 2026-09-30, work-5) (found 2026-09-29 while fixing the *func closure frame lifetime)
-
-`var g @Leaf = mk(); var mv *func(int) int = g.Add` at package level:
-`genMethodValue` builds the method value's `*func` closure record (holding the
-receiver) in the frame of the package's global initializer function, so after
-the initializer returns `mv`'s data word points into a dead stack frame.  Calling
-`mv` after anything reuses that stack reads garbage — native aa64 printed
-garbage before the frame-lifetime fix and aborts after it (the record is now
-also released at the initializer's exit); LLVM happens to print the right
-value.  A package-level function literal cannot capture (there are no locals),
-so method values are the only package-level closure records.  Proposed fix:
-mirror the raw-slice-literal backing — when `isGlobalInitFunc(ctx)`,
-`allocFrameClosureRecord` allocates the record as package-level static storage
-(`newPackageLiteralBacking`), stored with init semantics and never released
-(program lifetime), and the spec says so in `func.closure.allocation`.  Test:
-`conformance/spec/10-functions/214_method_value_package_level` (`.xfail.all`,
-landed `7cd2ea520` — which modes pass by luck depends on stack layout).  Unverified,
-likely the same shape: a REPL session variable holding a capturing raw `*func`
-closure (or method value) made at a prompt, whose record lives in that prompt's
-frame — check it alongside the fix.
-
-### IR-gen: a method value on a composite-literal receiver with managed fields stores the literal's address, not its value — wrong code (garbage / segfault) — 🟡 IN PROGRESS (claimed 2026-09-30, work-5) (found 2026-09-29 by the review of the *func closure frame-lifetime fix)
-
-`S{m: l, k: 10}.Get` — `S` has an `@Leaf` field, `Get` a value receiver — stores
-the composite literal's alloca POINTER into the method value's closure-record
-field (`store i8* %v4, i8** %v9`, `%v4` the `%S` alloca) and then runs `__copy_S`
-over that garbage: LLVM segfaults, native aa64 / x64 and the VM read garbage.  A
-receiver literal WITHOUT managed fields (`P{a: 2, b: 3}.Sum`) is loaded first
-(`genMethodValue`'s `isAggregateAllocToLoad` path, `gen_method_value.bn`) and
-works; the managed-field (`needsStructCopy`) path skips that load.  Proposed fix:
-load an aggregate-alloca receiver in the `needsStructCopy` case too, then confirm
-the ownership balances (the record copies the fields in; the literal temp keeps
-its own end-of-statement release).  Test:
-`conformance/spec/10-functions/213_method_value_composite_lit_receiver`
-(`.xfail.all`, landed `fcdb31f86`).
 
 ### LLVM backend: whole-aggregate load / store left in sret returns, call-site sret loads and zero-value construction — possible `__aeabi_memcpy` on ARM EABI — 🔴 OPEN (investigate; found 2026-09-29 by the review of the named-aggregate copy fix `d500a2af7`)
 
