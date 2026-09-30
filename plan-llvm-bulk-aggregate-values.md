@@ -50,7 +50,7 @@ correct on its own, and extends the set of memory-backed values by adding consum
 
 ## Steps (each lands separately, green)
 
-1. Framework (bulk-value analysis, `.m` slots in the alloca hoist) + P1 + C1 — whole-aggregate copies.  DONE `575fb43ee`.
+1. Framework (bulk-value analysis, `.m` slots in the alloca hoist) + P1 + C1 — whole-aggregate copies.  DONE `575fb43ee`; runtime test conformance 1442 (`8a8b29687`).
 2. C2 / P3 — extracts.
 3. C3 — by-value arguments.
 4. C4 + P2 — returns and sret call results.
