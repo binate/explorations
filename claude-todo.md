@@ -301,21 +301,6 @@ it.  Decide: (a) reject a TYP_TYPE_PARAM target in assertTargetType now, with it
 check nothing in the tree or the conformance suite asserts on a type parameter), or (b) implement the
 Draft rule (per-instantiation checking — design B).
 
-### Parse errors are printed with no file:line:col — a syntax error anywhere in a build gives no location — 🟡 IN PROGRESS (found 2026-09-29, work-3, review of the type-argument parser fix; reproduced; pre-existing; claimed 2026-09-30, work-3/session — user: "yes")
-
-`var x int = = 1` makes bnc print just `expected expression` / `expected ; or }` — no file, line or
-column — while checker errors print `file:line:col: msg`.  In a multi-package build the user cannot even
-tell which file.  Every `ParseError` carries a `Pos` (token.Pos: File, Line, Col), but each reporting
-site keeps only the message: `cmd/bnc/compile.bn` ~:338 (`fmt.Println(errors[ei].Msg)`),
-`pkg/binate/loader/loader_load.bn` ~:56 (.bni) and ~:128 (.bn) (`l.Errors = … errs[j].Msg`),
-`pkg/binate/loader/loader_asm.bn` ~:35 (a `.s` file's build gate), and `cmd/bnc/test.bn` ~:111 (the test
-runner source); check bni / bnlint / bnfmt's own reporting too.  Diagnostics quality rather than wrong
-code — filed as MAJOR because it hits every syntax error; re-rank if that is too high.  Fix: format each
-as `file:line:col: msg`, the same way checker errors are, ideally through one shared helper so the sites
-cannot drift again.  Conformance `.error` files for parse errors are `grep -E` regexes over the message,
-so they should keep matching; add a test that pins the position (a parse-error `.error` line matching
-`<file>:<line>:<col>: expected expression`).
-
 ### `@any` of a named managed pointer or function value (`type H @Node`, `type F @func() int`) never matches its own `case` — 🔴 NEEDS DECISION (split out 2026-09-30, work-3, from the named-owning-pointee entry; slices / arrays fixed in binate `02857f863`)
 
 `var a @any = box(h)` for `type H @Node` keys the box structurally (`rt.__nameless_<H>`) while `case @H:` /
