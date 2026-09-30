@@ -716,24 +716,6 @@ the error, and a label prefix on a rejected line (`L1: ldr x0, [x1] x2`) is stil
 error aborts the file) but the same "a rejected line emits nothing" rule; `lineRejected` in `parse_test.bn`
 checks bytes but not fixups.
 
-### Assigning `nil` to an `@func` holding a capturing closure clears only the fn word — double free (every backend) — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-29, work-3/session)
-
-`var fb @func() int = func() int { return b.v }` (any capture, e.g. a plain `@Box`), then `fb = nil`:
-LLVM and native aa64 print correctly then segfault at exit (rc 139).  The LLVM IR for
-`fb = nil` is `store i8* null, i8** %slot` — it zeroes only the FIRST word (fn / vtable) of the
-two-word `%BnFuncValue`; the data word still points at the closure record the assignment just
-RefDec'd (and freed), and the frame-end RefDec of `fb` releases it again.  Suspected fix: a nil
-assignment to an @func (and any 2-word value — check @Iface too) must store the full two-word zero
-value.  Found by the review of the closure capture-param fix (pre-existing; not related to it).
-Repro: a function with a captured `@Box`, `var fb @func() int = func...; println(fb()); fb = nil`.
-The VM is NOT fine once the closure is shared (review of the range-loop operand change, 2026-09-28,
-work-6; reproduced): `var g @func(int) int = fs[1]; fs[1] = nil; g(4)` over a `[2]@func(int) int`
-whose closure captures a local prints 12 on the VM, then traps (BPT) on the next call; LLVM and
-native segfault.  Nil-ing an array element (`fs[1] = nil` after `fs[1] = func…`, then calling
-`fs[0]`) also segfaults on LLVM and native and traps on the VM after one call.  A range loop over
-such an array whose body nils an element reaches this too (the loop's copy shares the closure) —
-not a regression: before the hidden-operand change the loop read in place and called nil.
-
 ### Package-level var inferred from a generic-instantiated non-literal initializer (also: interface-typed, pointer-to-foreign-type) — builds broken — 🔴 OPEN (found 2026-09-26, work-1, fixing the inferred-var miscompile; pre-existing)
 
 `var gv = vec.New[int]()` / `var gb = mkBox[int](6)` / `var gp = &gb` at package level (the type is

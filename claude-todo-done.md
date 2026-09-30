@@ -1,3 +1,29 @@
+### Assigning `nil` to an `@func` holding a capturing closure clears only the fn word — double free (every backend) — DONE (binate `fc58c6821`, 2026-09-29, work-3)
+
+`var fb @func() int = func() int { return b.v }` (any capture, e.g. a plain `@Box`), then `fb = nil`:
+LLVM and native aa64 print correctly then segfault at exit (rc 139).  The LLVM IR for
+`fb = nil` is `store i8* null, i8** %slot` — it zeroes only the FIRST word (fn / vtable) of the
+two-word `%BnFuncValue`; the data word still points at the closure record the assignment just
+RefDec'd (and freed), and the frame-end RefDec of `fb` releases it again.  Suspected fix: a nil
+assignment to an @func (and any 2-word value — check @Iface too) must store the full two-word zero
+value.  Found by the review of the closure capture-param fix (pre-existing; not related to it).
+Repro: a function with a captured `@Box`, `var fb @func() int = func...; println(fb()); fb = nil`.
+The VM is NOT fine once the closure is shared (review of the range-loop operand change, 2026-09-28,
+work-6; reproduced): `var g @func(int) int = fs[1]; fs[1] = nil; g(4)` over a `[2]@func(int) int`
+whose closure captures a local prints 12 on the VM, then traps (BPT) on the next call; LLVM and
+native segfault.  Nil-ing an array element (`fs[1] = nil` after `fs[1] = func…`, then calling
+`fs[0]`) also segfaults on LLVM and native and traps on the VM after one call.  A range loop over
+such an array whose body nils an element reaches this too (the loop's copy shares the closure) —
+not a regression: before the hidden-operand change the loop read in place and called nil.
+
+Resolved: a literal `nil` is lowered with the nil type (one pointer-sized null), so every store
+path that stored it as-is into a two-word function-value slot zeroed only the code word.  The
+shared store dispatcher (`emitStoreManagedSlot`) now retypes a literal nil to the slot type's zero
+value (`nilForSlot`) — both words — and the array-element and raw-slice / pointer-index store
+paths do the same; the per-arm nil special cases in `genAssign` went away.  Conformance 1435 covers
+a variable, a field, an array element with a shared closure, a deref, and managed- and raw-slice
+elements, on every backend and the VM.
+
 ### The checker accepts a no-result call, or a multi-valued call as one list element, as a variable initializer — DONE (binate `558ef2f22`, 2026-09-29, work-6; `_ = nothing()` an error per the user)
 
 `a := nothing()`, `var b = nothing()` (nothing has no result) and `c, d := 1, two()` (two returns two
