@@ -658,6 +658,34 @@ Each needs a cycle break (e.g. name a named type nominally where it recurs into 
 larger than the registration change.  Found while fixing methods on named func-value types (a named type
 over a func value is where this shape is most natural).
 
+### An owning interface box of a named managed value whose impl is declared in another package leaks — the defining package's vtable has a null slot-0 dtor — 🔴 OPEN MAJOR (found 2026-09-30, work-7, review of the named func-value methods fix; reproduced on LLVM, native and the VM; pre-existing)
+
+pkg/fv: `type Hook @func(int) int`, `interface Applier { Apply(x int) int }`, `func (h Hook) Apply(x int)
+int`, `impl Hook : Applier`, a capturing `Make(n)`; main loops `var h fv.Hook = fv.Make(5); var a
+@fv.Applier = box(h); a.Apply(1)`: rt.LiveBlocks grows 1 per box on compiled builds, 2 on the VM; the same
+through `x.(@fv.Applier)` from an `@any` box.  A named managed slice leaks the same way (`type S @[]int;
+impl S : Lener` in a package, boxed into `@sv.Lener` in main).  collectImplsFromDecl (irgen gen_impl.bn
+~102) names the slot-0 dtor with boxSlot0DtorName (`<pkg>.__dtor_func` / `__dtor_ms_…`) but never registers
+its body (wrapAsIfaceValue does, `if mgdOwning { ir.RegisterModulePendingDtor }`), so unless the defining
+package drops such a value elsewhere codegen emits `ptr null` in its `__ivt` slot 0; its weak_odr
+`__typeinfo.<Hook>` then differs from main's copy (null dtor vs `main.__dtor_func` — an ODR mismatch, the
+linker keeps either).  The same-package case balances.  Fix: in collectImplsFromDecl, when boxSlot0DtorName
+picks a structural dtor (ms / mp / func / interface / array), also RegisterModulePendingDtor the receiver
+type.  Needs a cross-package conformance test with a live-block balance.
+
+### A receiver whose type comes from a package the caller does not import directly: `defer x.M()` panics bnc; on LLVM a method value `x.M` references an undeclared symbol — 🔴 OPEN MAJOR (found 2026-09-30, work-7, review of the named func-value methods fix; reproduced; pre-existing)
+
+pkg/b: `type Hook @func(int) int; func (h Hook) Apply(x int) int` (also a named struct `b.St`, a named int
+`b.Cnt`); pkg/a imports b, `func Get(n int) b.Hook`; main imports only pkg/a: `var h = a.Get(2)`.
+- `defer h.Apply(1)` → "defer of an unresolved method call" in bnc (LLVM, native) and bni: buildDeferMethod
+  (irgen gen_defer_build.bn) looks the method's signature up with lookupFuncSig, registered only for
+  directly imported packages; the direct call `h.Apply(1)` registers the extern on demand.
+- `var mv *func(int) int = h.Apply` → LLVM "use of undefined value '@bn_F2_3_pkg1_b2_4_Hook5_Apply'" (no
+  `declare` for the wrapper's target); native aa64 and the VM print the right answer.
+Fix: the defer and method-value paths register the method's extern signature on demand, as the direct
+method call does.  (The generic-instance defer ICE in the forwarder-audit entry's bullet was fixed by binate
+`9faa66906`.)  Needs multi-package conformance tests (named func, struct and int receivers).
+
 ### Methods and impls on a named function-value type are broken — link failure / runtime segfault — 🟡 IN PROGRESS (found 2026-09-27, work-5, review of the named-readonly func-value fix; pre-existing, no wrapper needed; claimed 2026-09-30, work-7/session; user: "Your recs for A and B are fine.")
 
 For `type Fn @func() int` (plain, no readonly): a method `func (f Fn) M() int` compiles to a call of an
