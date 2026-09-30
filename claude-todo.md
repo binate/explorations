@@ -7,6 +7,18 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### LLVM backend: whole-aggregate load / store left in sret returns, call-site sret loads and zero-value construction — possible `__aeabi_memcpy` on ARM EABI — 🔴 OPEN (investigate; found 2026-09-29 by the review of the named-aggregate copy fix `d500a2af7`)
+
+codegen lowers an aggregate OP_LOAD / OP_STORE leaf by leaf (emit_copy_ssa{,_load}.bn) because LLVM's ARM
+EABI backend may lower a whole-aggregate `load <T>` / `store <T>` to `__aeabi_memcpy`, a C-library call
+bare metal does not have.  Other paths still emit whole-aggregate forms: a by-value struct RETURN writes
+`store %W %v, ptr %v.retbuf`, the call site reads `load %W, ptr %v.sret`, and a zero value built field by
+field is then loaded as `%vN = load %T, ptr %vN.a`.  Nothing has been observed (conformance on LLVM arm32
+baremetal passes), but large enough aggregates on these paths may hit the memcpy lowering.  **To do:**
+reproduce on `builder-comp_arm32_baremetal` with a large by-value struct return / zero value (check the
+object for `__aeabi_memcpy` references); if it reproduces, route those paths through the leaf-by-leaf
+helpers.
+
 ### The REPL runs a parked declaration whose retry fails to check — errors never shown, garbage values — 🔴 OPEN (found 2026-09-29, work-6, review of the REPL failed-prompt fix; reproduced by the reviewer; pre-existing)
 
 `var x int = y` (parks on y), then `var y @[]char = "hello"`: the retry of x fails (a `@[]char` is not
