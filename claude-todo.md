@@ -382,16 +382,25 @@ receiver checks); IR-gen (enrol an addressed composite literal in a `var` / `:=`
 scope-end cleanup, as value-borrow's materialized temporaries are); `.error` and run conformance tests on
 every mode.
 
-Open sub-question (asked 2026-09-30): in a storing position that outlives the statement —
-`q = &P{name: mk()}`, `return &P{…}`, `s.h = P{…}.Name` — is it UB (the "anywhere else" rule) or a
-compile error, like value-borrow's store rule (11-interfaces/090)?
+3. (decided 2026-09-30, follow-up to 2) An addressed composite literal in a storing position that
+   outlives the statement — an assignment, a field / element store, a `return`: `q = &P{name: mk()}`,
+   `return &P{…}`, `s.h = P{…}.Name` — is a compile error, like value-borrow's store rule
+   (11-interfaces/090): it always dangles.  No tree code is affected (every `&T{…}` in pkg / cmd /
+   conformance is a `var` initializer).
 
-### Spec question: is an `unsafe_index(c, i)` result addressable? — 🔴 NEEDS DECISION (raised 2026-09-30, work-7, review of the `(&x).f` selector fix)
+### An `unsafe_index(c, i)` result is addressable exactly when `c[i]` is — 🔴 OPEN, DECIDED 2026-09-30 (raised 2026-09-30, work-7, review of the `(&x).f` selector fix)
 
 §15.6 describes `unsafe_index(c, i)` as "exactly `c[i]`" (without the bounds check), yet the checker
 treats its result as non-addressable: `unsafe_index(arr, 2).x = 5` and `unsafe_index(arr, 2).x++`
 (binate `aad5222aa`) are rejected, while `arr[2].x = 5` is accepted.  Decide which is meant — make the
 result addressable wherever `c[i]` is, or state in §15.6 that it is a value.
+Decision (user, 2026-09-30): addressable exactly when `c[i]` is — always for a slice or raw pointer, for
+an array iff the array operand is addressable — as "exactly `c[i]`" says.  Today there is no unchecked
+store at all (`unsafe_index(s, i) = v` is "cannot assign to a non-addressable value"; isAddressable,
+check_addr.bn, has no arm for it), so the bounds-check opt-out covers only reads.  Work: the checker's
+isAddressable arm; IR-gen's lvalue-address path for unsafe_index (the element address computation exists
+for reads); §13 `expr.addressable` lists it; run tests for stores, `++`, a field store, `&unsafe_index(…)`
+and the array-of-a-call-result rejection, on every mode.
 
 ### A method value on a generic receiver written as `(*p).M`, `(&b).M`, `Box[int]{…}.M` or `a.(*Box[int]).M` fails to build — 🔴 OPEN (found 2026-09-30, work-7, review of the method-value fix; pre-existing)
 
