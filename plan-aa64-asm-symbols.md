@@ -8,7 +8,7 @@ The assembler's directive set is its own dialect (`.section text`, `.uint64`, `.
 directives take numeric expressions only), so this item is about names, constants, literal pools
 and relocation operators in instruction operands — plus the two directives literal pools need.
 
-## 3a. `.`-leading names and numeric local labels
+## 3a. `.`-leading names and numeric local labels — ✅ landed `477048003` (2026-09-30)
 
 clang: any name may start with `.` (`.Lfoo:`, `.foo:`, `b .Lfoo`, `adr x0, .Lfoo+4`); a statement
 starting `.name` is a directive unless `:` (label) or `=` follows.  `N:` (decimal) defines an

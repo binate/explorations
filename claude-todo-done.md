@@ -236,6 +236,18 @@ CHECK_TOOLS bnfmt/bnlint have the old parser, so bnc's own tree and hygiene-chec
 use these spellings until those are bumped.  The review's side note (parse errors print no position)
 is filed as its own MAJOR.
 
+### Assembler `.`-leading names, numeric local labels, temporary labels per format — DONE (binate `477048003`, 2026-09-30, work-2)
+
+Names may start with '.' (`.Lfoo`, `..x`, `.$`); a `.name` statement is a directive unless ':' / '=' follows;
+section names stay bare.  Numeric labels `N:` / `Nb` / `Nf` (by value; an integer then `b`/`f`, spaces allowed,
+as clang), unsatisfied references reported at their line by Parser.Finish.  Temporaries per format (Mach-O `L`,
+ELF `.L`, generated `L\x02…` on both); asm.CheckTemporaryLabels rejects undefined / global ones; the ELF writer
+relocates against the section symbol where clang does (not GOT references; on arm32 only ABS32) and lists the
+temporaries a relocation still names (generated ones as `.Ltmp<n>`).  The first review caught the design moving
+GOT references onto the section symbol (lld would load the wrong pointer); reworked into the writer, re-reviewed
+clean.  x86-64 / arm32 parsers take both kinds of label.  Found along the way, tracked in the todo: two arm32
+assembler MAJORs, and `@PLT` dropped on both formats.
+
 ### AArch64 system operation tables — DONE (binate `19e49d3c0`, 2026-09-30, work-2)
 
 TLBI (new: all 85 operations, each with its `nxs` form at CRn 9; a register exactly when the operation takes

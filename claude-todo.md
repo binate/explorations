@@ -903,7 +903,8 @@ stores (LD1–LD4 / ST1–ST4, LD1R–LD4R, LDAP1 / STL1) and crypto — complet
 (2026-09-29); step-by-step record in `done/plan-aa64-asm-fp-simd.md`.  (7) the system operation tables —
 TLBI / AT, all of DC / IC, DSB nXS, PRFM's SLC target, CLRBHB / PACM, every PSTATE field — landed `19e49d3c0`
 (2026-09-30; a DSB immediate past 15 written as an expression deliberately rejected, since clang reads it by
-its leading literal alone — user: "The reject sounds good").  Apple's legacy NEON syntax
+its leading literal alone — user: "The reject sounds good").  (8) `.`-leading names, numeric local labels and
+per-format temporary labels (plan item 3a) — landed `477048003` (2026-09-30).  Apple's legacy NEON syntax
 (`dup.4s v0, w1`, `tbl.16b v0, {v1}, v3`), which clang
 accepts on every target, is not supported (user, 2026-09-28: "we don't need alternate syntax, unless there's
 a compelling reason (we've always tended to favor Intel/ARM syntax, I suppose)") — listed with the deliberate
