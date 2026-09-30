@@ -56,6 +56,22 @@ operand with `checkExprWithFVHint(c, arg, target)` (a silent use-after-free toda
 so CRITICAL), and decide whether `cast(Fn, lit)` is accepted.  If it is not, the
 pattern borrows a statement temporary (user error) and is a candidate for a lint.
 
+### native aa64 / x64: an aggregate copy rounds its size up to whole 8-byte words — overwrites up to 7 bytes past the destination (silent memory corruption) — 🟡 IN PROGRESS (found 2026-09-29, work-7, review of the string-literal [N]char fix; pre-existing; claimed 2026-09-29, work-7/session)
+
+Every by-value aggregate move on native aa64 and x64 — a store of a struct / array value into a field,
+element, through a pointer or into a global — copies whole 8-byte words: aa64 `emitAggMemcpyAarch64`
+copies a sub-word tail as one full word and `emitAggMemcpySafeAarch64` rounds to `(sz + 7) / 8` words
+(native/aarch64/aarch64_emit.bn ~203-256); x64 `emitAggMemcpyX64` / `emitAggMemcpySafeX64` do the same
+(native/x64/x64_emit.bn ~219-260).  Their comments assume the tail is padding, which is false for any
+aggregate whose size is not a multiple of 8 (alignment below 8): the store writes up to 7 bytes past
+the destination.  Repros (reviewer, bnc-base and later): `type P struct { a, b, c uint8 }` inside
+`type W struct { p P; s1 … s5 uint8 }`, `w.p = q` zeroes s1..s3 on native (LLVM keeps them); `var a
+[1]char; var b [3]char = "bbb"`, then `a = v` in main clears b on aa64 and x64; a sweep over N = 1..17
+zeroes the 8 − (N mod 8) bytes after an `[N]char` field.  native arm32 and LLVM are right.  Fix: copy
+the tail exactly (4/2/1-byte accesses, or an overlapping final word at sz − 8 when sz ≥ 8).  Needs a
+conformance test that checks the neighbours of field, element, deref and global stores of `[3]char` and
+a 3-byte struct.
+
 ## MAJOR
 
 ### IR-gen: a capturing raw `*func` closure's record is one hoisted slot per literal, released at the end of the innermost block — re-evaluation leaks captures, and the record does not live as long as the frame — 🟡 IN PROGRESS (claimed 2026-09-29, work-5; decided 2026-09-29: frame lifetime, option B) (found 2026-09-29 by the review of the composite-literal function-literal hint fix)
