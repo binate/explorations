@@ -1,3 +1,23 @@
+### `@any` of a named managed slice or owning array (`type S @[]int`, `type Arr2 [2]@Node`) never matched its own `case @S:` — DONE for slices / arrays (binate `02857f863`, 2026-09-30, work-3); the named-pointer / function-value part stays open
+
+`var a @any = box(s)` for `type S @[]int` takes wrapAsIfaceValue's owning-pointee path and keys the box on
+the name-less STRUCTURAL identity of the underlying slice, while `typeInfoSymFor(@S)` (gen_assert.bn
+~:131-139) falls to the nominal branch and keys on `main.S` — two different `__typeinfo` symbols, so
+`a.(@S)` aborts on a miss (the checker allows the target).  Same for `type H @Node` / `case @H:`.  The raw
+`*any` of `&s` path is nominal, so the two box paths disagree.  Traced by reading, not yet reproduced;
+needs a conformance test over both box paths.
+
+Resolved (split, user: "let's split"): a named owning pointee boxed as a pointer to its cell (managed
+slice, owning array, managed interface value) keys its `@any` identity by name on every route (direct
+`@any` box, user interface, upcast, raw `*any`), and typeInfoSymFor's owning-array special case went.
+Review follow-ups in the same commit: (1) ensureAnyImplInfo queues the owning dtor body whenever it
+creates a (T, any) row (new `ir.RegisterModulePendingDtor`) — a module that only raw-boxed or asserted T
+emitted a null-slot-0 weak copy that could win the link and leak another module's `@any` boxes (already
+so for name-less `@[]@Node`); (2) a universe-`any` box keys on its POINTEE's own name (anyPointeeName,
+one pointer level): `&np` for `np @Node` took Node's row with the managed-pointer dtor — live once (1)
+generated the body, it segfaulted a later `@any` of a plain `@Node`; `case *Node:` also no longer matches
+`&np`.  Conformance 1454 + multi-package 1455.
+
 ### IR-gen: `Box[Box[Box[int8]]]`'s `bbb.Get().v.v` panicked at run time with "unresolved selector in IR-gen" — DONE (already fixed on main; regression test binate `3d026ea69`, 2026-09-30, work-4)
 
 Found by the review of design B's per-instance checking; it reproduces on BUILDER bnc-0.0.16 (LLVM and native).

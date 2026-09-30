@@ -329,14 +329,22 @@ cannot drift again.  Conformance `.error` files for parse errors are `grep -E` r
 so they should keep matching; add a test that pins the position (a parse-error `.error` line matching
 `<file>:<line>:<col>: expected expression`).
 
-### `@any` of a named managed slice or pointer (`type S @[]int`, `type H @Node`) never matches its own `case @S:` — assertion aborts — 🟡 IN PROGRESS (found 2026-09-29, work-3, review of the outer-readonly boxing fix; pre-existing; claimed 2026-09-30, work-3/session)
+### `@any` of a named managed pointer or function value (`type H @Node`, `type F @func() int`) never matches its own `case` — 🔴 NEEDS DECISION (split out 2026-09-30, work-3, from the named-owning-pointee entry; slices / arrays fixed in binate `02857f863`)
 
-`var a @any = box(s)` for `type S @[]int` takes wrapAsIfaceValue's owning-pointee path and keys the box on
-the name-less STRUCTURAL identity of the underlying slice, while `typeInfoSymFor(@S)` (gen_assert.bn
-~:131-139) falls to the nominal branch and keys on `main.S` — two different `__typeinfo` symbols, so
-`a.(@S)` aborts on a miss (the checker allows the target).  Same for `type H @Node` / `case @H:`.  The raw
-`*any` of `&s` path is nominal, so the two box paths disagree.  Traced by reading, not yet reproduced;
-needs a conformance test over both box paths.
+`var a @any = box(h)` for `type H @Node` keys the box structurally (`rt.__nameless_<H>`) while `case @H:` /
+`a.(@H)` key on `main.H`, so the assertion misses.  It cannot simply key by name like a named slice: for a
+named POINTER type the nominal identity `main.H` already means "the data word IS the H" (an own `impl H :
+I`: collectImplsFromDecl registers TypeInfo(main.H) with RecvTyp = Node, dispatch without a thunk), while
+`&h` / `box(h)` put a pointer to an H CELL in the data word — two layouts.  Keying `box(h)` by name made
+reflection / fmt misread it as a Node, let `a.(@Getter)` succeed and dispatch garbage, and `var gd @Getter
+= h; up.(@H)` hits and segfaults on deref (that last one on main already).  Decide the convention for
+boxing a named pointer type — which layout the data word carries, and which identity each spelling
+(`h`, `&h`, `box(h)`) gets — then fix `case @H:` together with the dispatch MAJOR above ("A value-receiver
+method of a named POINTER type called through an interface reads garbage"), which is the same root cause.
+A named function value is separate: IR-gen erases F's name (`typeDeclEntryType`), so the box keys
+`rt.__nameless_<@func()>` while `case @F:` keys `(main, "")` — `case @F:` / `fa.(@F)` miss (spec §11.12
+allows the target).  A managed box of a named RAW pointer with its own impl (`type PS *S`, `impl PS : I`)
+has the same layout conflict as H.  wrapAsIfaceValue / typeInfoSymFor carry TODOs pointing here.
 
 ### Spec decision: may a type assertion recover a MUTABLE pointer to a boxed `readonly` named value? — 🔴 NEEDS DECISION (raised 2026-09-29, work-3, review of the outer-readonly boxing fix)
 
