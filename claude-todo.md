@@ -58,6 +58,20 @@ Reviewer's fix: pass the checker type of the operand (`ctx.Checker.ExprType(e.Ar
 Traced by reading, not yet reproduced; needs a conformance test (cast(*any, &readonly slice) must match
 `case @[]readonly char:` and never `case @[]char:`).
 
+### In a generic body, boxing a `T`-typed value into `*any` / `@any` drops element-`readonly` — a type switch hands out a MUTABLE slice over readonly data — 🔴 OPEN (found 2026-09-29, work-3, probing the `cast(*any, &s)` readonly fix; reproduced; pre-existing)
+
+`func viaVar[T any](x T) … { var a *any = &x; … }` called as `viaVar[@[]readonly char](s)` boxes `x` as
+`@[]char`: `case @[]char:` matches and recovers a mutable slice over the readonly bytes.  Every box path
+does it — `cast(*any, &x)`, an implicit `classify(&x)` argument and a `var a *any = &x` initializer
+(reproduced on builder-comp).  Root cause: wrapAsIfaceValue's name-less path takes element-`readonly`
+from the box source's CHECKER type (the IR type has it stripped), and in a generic body that type is the
+definition-time `*T` — a TYP_TYPE_PARAM, so `mergeQualifiedReadonly` finds no `readonly` and degrades to
+the stripped IR type.  Proposed fix: resolve a TYP_TYPE_PARAM on the checker side through IR-gen's current
+binding (`gc.CurrentTypeParamNames` / `CurrentTypeParamTypes`, as `resolveTypeExpr` does) before merging —
+the bound type keeps `readonly`.  Check whether per-instantiation checking (design B) would instead stamp
+instantiated expression types, which would make the checker-side type right directly.  Needs a
+conformance test over the three box paths.
+
 ### `@any` of a named managed slice or pointer (`type S @[]int`, `type H @Node`) never matches its own `case @S:` — assertion aborts — 🔴 OPEN (found 2026-09-29, work-3, review of the outer-readonly boxing fix; pre-existing)
 
 `var a @any = box(s)` for `type S @[]int` takes wrapAsIfaceValue's owning-pointee path and keys the box on
