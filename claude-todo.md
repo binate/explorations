@@ -261,6 +261,21 @@ ambiguous with indexing by a dereferenced parenthesized expression (`a[*(p)]`), 
 try-then-fall-back.  Source can spell such a type argument through a type alias meanwhile.  Needs a
 conformance test.
 
+### Parse errors are printed with no file:line:col — a syntax error anywhere in a build gives no location — 🔴 OPEN (found 2026-09-29, work-3, review of the type-argument parser fix; reproduced; pre-existing)
+
+`var x int = = 1` makes bnc print just `expected expression` / `expected ; or }` — no file, line or
+column — while checker errors print `file:line:col: msg`.  In a multi-package build the user cannot even
+tell which file.  Every `ParseError` carries a `Pos` (token.Pos: File, Line, Col), but each reporting
+site keeps only the message: `cmd/bnc/compile.bn` ~:338 (`fmt.Println(errors[ei].Msg)`),
+`pkg/binate/loader/loader_load.bn` ~:56 (.bni) and ~:128 (.bn) (`l.Errors = … errs[j].Msg`),
+`pkg/binate/loader/loader_asm.bn` ~:35 (a `.s` file's build gate), and `cmd/bnc/test.bn` ~:111 (the test
+runner source); check bni / bnlint / bnfmt's own reporting too.  Diagnostics quality rather than wrong
+code — filed as MAJOR because it hits every syntax error; re-rank if that is too high.  Fix: format each
+as `file:line:col: msg`, the same way checker errors are, ideally through one shared helper so the sites
+cannot drift again.  Conformance `.error` files for parse errors are `grep -E` regexes over the message,
+so they should keep matching; add a test that pins the position (a parse-error `.error` line matching
+`<file>:<line>:<col>: expected expression`).
+
 ### `@any` of a named managed slice or pointer (`type S @[]int`, `type H @Node`) never matches its own `case @S:` — assertion aborts — 🔴 OPEN (found 2026-09-29, work-3, review of the outer-readonly boxing fix; pre-existing)
 
 `var a @any = box(s)` for `type S @[]int` takes wrapAsIfaceValue's owning-pointee path and keys the box on
