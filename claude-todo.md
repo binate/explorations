@@ -160,7 +160,10 @@ mirror the raw-slice-literal backing — when `isGlobalInitFunc(ctx)`,
 (`newPackageLiteralBacking`), stored with init semantics and never released
 (program lifetime), and the spec says so in `func.closure.allocation`.  Test
 (not yet landed): `conformance/spec/10-functions/214_method_value_package_level`
-(`.xfail.all` — which modes pass by luck depends on stack layout).
+(`.xfail.all` — which modes pass by luck depends on stack layout).  Unverified,
+likely the same shape: a REPL session variable holding a capturing raw `*func`
+closure (or method value) made at a prompt, whose record lives in that prompt's
+frame — check it alongside the fix.
 
 ### IR-gen: a method value on a composite-literal receiver with managed fields stores the literal's address, not its value — wrong code (garbage / segfault) — 🔴 OPEN (found 2026-09-29 by the review of the *func closure frame-lifetime fix)
 
