@@ -836,14 +836,36 @@ the rest of a never-instantiated generic's fields and method signatures are stil
 declaration once abstractly at the declaration (its parameters held abstract, as generic functions'
 bodies are checked), independent of instantiation.
 
-### A generic type declaration that is not a struct (`type P[T any] [2]T`) is accepted; each use then fails as an "opaque type" — 🟡 IN PROGRESS (found 2026-09-29, work-4, probing the generic self-containment fix; pre-existing; claimed 2026-09-30, work-7/session)
+### Support generic type declarations whose underlying type is not a struct (`type P[T any] [2]T`, `@func(T) bool`, …) — 🔴 OPEN (found 2026-09-29, work-4, probing the generic self-containment fix; direction decided 2026-09-30: support them, don't reject them)
 
-Spec `gen.typeparams` allows type parameters only on a function, struct or interface, but the checker
-accepts `type P[T any] [2]T` (or any non-struct, non-interface underlying) at the declaration.
-`populateInstantiatedStruct` fills in only a struct body, so every instantiation stays an unfilled named
-type: `var p P[int32]` reports "cannot use an opaque type by value", `p[1]` "cannot index this type", and a
-declaration that is never used compiles silently.  Fix: reject the declaration ("only a function, struct
-or interface may declare type parameters").  Needs a conformance error test.
+The checker accepts a generic `type` declaration of any underlying type (`type P[T any] [2]T`,
+`type Ptr[T any] *T`, `type Less[T any] @func(a T, b T) bool`), but instantiation fills in only a struct
+body (`populateInstantiatedStruct` in check, `ensureInstantiatedStruct` in IR-gen), so every
+instantiation stays an unfilled named type: `var p P[int32]` reports "cannot use an opaque type by
+value", `p[1]` "cannot index this type", and a declaration that is never used compiles silently.  Spec
+§12.1 `gen.typeparams` allows type parameters only on a function, struct or interface, but that wording
+recorded what the implementation handled when the chapter was written (2026-06-12): no design rationale
+excludes other forms (the design notes say "generic types AND functions"), and the grammar
+(`TypeSpec = identifier [ TypeParams ] TypeDef`) already admits them.  Decision (2026-09-30): support
+them rather than reject the declaration.
+
+Work:
+- Spec: widen `gen.typeparams` to a `type` declaration of any underlying type; define instantiation as
+  substituting the type arguments into the underlying type (a distinct named type per instantiation:
+  `P[int32]`, underlying `[2]int32`).
+- Checker: instantiate a non-struct generic declaration by resolving its underlying type with the
+  parameters bound and substituting (`substituteTypeParams`, check_generic.bn) — a generalization of
+  `populateInstantiatedStruct`.
+- IR-gen: naming/mangling of non-struct instantiations (the layout is the underlying type's); methods on
+  such types through the parameterized receiver (`gen.method.generic-recv`).
+- Tests: positive conformance tests (array, raw/managed pointer, slice, function-value underlyings;
+  methods; use from another package through a `.bni`) on every mode.
+
+Open questions for the user before the spec change: (1) generic aliases (`type L[T any] = Box[T]`) —
+transparent substitution, so `L[int]` is identical to `Box[int]`?  (Related: the imported-alias-of-a-
+generic-instantiation entry above.)  (2) empty (opaque / forward) generic declarations (`type L[T any]`
+with no body) — consumers need the body to instantiate, so allow only as a same-package forward
+declaration, or reject?
 
 ### An opaque type held by value inside an array is accepted at the declaration — 🔴 OPEN (found 2026-09-28, work-6, review of the blank-type-decl change; reproduced; pre-existing)
 
