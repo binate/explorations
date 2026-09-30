@@ -238,7 +238,7 @@ Needs a conformance `.error` test.
 calling `Size` panics in the VM "no shim vtable for native interface method dispatch" (a file program
 too).  Root cause: needs investigation.
 
-### REPL type redefinition: shadowing (the design) is not implemented; a redefinition is rejected meanwhile — 🔴 OPEN (found 2026-09-29, work-6, review of the REPL forward-reference plan)
+### REPL redefinition of types and interfaces, and across kinds: shadowing (the design) is not implemented; such a redefinition is rejected meanwhile — 🔴 OPEN (found 2026-09-29, work-6, review of the REPL forward-reference plan; widened 2026-09-30)
 
 claude-notes.md ("Redefinition in the REPL") says an incompatible type redefinition shadows the old
 type: "existing instances retain the old layout/type definition".  Until binate `8ba473042` a
@@ -248,6 +248,15 @@ redefine type T", check/check_pending_tentative.bn rejectTypeRedefinitions; user
 shadowing lands).  Shadowing needs a type identity that tells the two T's apart through the checker
 (named-type identity is by qualified name today), IR-gen's type registries (lookupStructIdx returns the
 first `main.T`) and the destructor / copy helper names.
+
+The same holds for interfaces, and for a declaration of another kind over a type's or an interface's
+name, or a type or interface over another kind of name (`interface Sizer {…}`, `const Sizer = 1`,
+`interface Sizer {…}` again): IR-gen's registries keep the first registration, so without the rejection
+a conversion dispatched through the stale interface (wrong code).  These are rejected at the prompt too
+("cannot redefine interface Sizer as a constant"; user: "(a) is fine for now, though maybe (b) should be
+a todo" — (b) being cross-kind shadowing, like type shadowing).  Shadowing them needs the same
+generation-distinct identity through the checker's and IR-gen's registries.
+
 ### A generic type that names a type declared after it is broken at the REPL prompt — wrong size, IR-gen panic — 🔴 OPEN MAJOR (found 2026-09-29, work-6, review of the REPL forward-reference rework; reproduced; pre-existing)
 
 `type G[T any] struct { v T; w Missing }`, then `type Missing struct { a int; b int }`: `sizeof(G[int])`
