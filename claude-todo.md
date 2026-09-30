@@ -184,45 +184,6 @@ watcher on the process tree's RSS (the ad hoc local one sampled `ps` every 2 s a
 over 4 GB) or a per-test timeout plus a post-hoc peak-RSS check (`/usr/bin/time -l` reports the max over
 waited-for children).  Wiring it into CI is a separate decision.
 
-### Index designators evaluate base and index in different orders by form; the spec contradicts itself on assignment order — 🟡 IN PROGRESS (found 2026-09-28, work-1, review of the 1301 write-path fix; claimed 2026-09-28, work-1 — user: "yes, go for it (and resolve the issues with the spec)")
-
-Measured on LLVM and the VM with side-effecting base / index / rhs calls: read `x[i]` is base, index;
-`x[i] = v` and `x[i] += v` are rhs, base, index; but `x[i]++`, `&x[i]`, read `x[i].f` are index, base, and
-`x[i].f = v` is rhs, index, base.  Every index-first form goes through irgen `genIndexPtr` (gen_access.bn),
-which evaluates the index before the base (also nested `a[i][j]` targets and method receivers `a[i].M()`).
-The spec pins none of this, and contradicts itself on assignment: §14.4 marks "rhs before the left-hand
-designator" _Open_ (`stmt.assign.eval-order`), the §21 table says it "**is** pinned".
-Plan: genIndexPtr evaluates the base first; the spec pins base-before-index for index expressions (§13),
-states that `x++` / `x--` evaluate their operand as `x += 1` does (§14.5), and resolves §14.4 / §21 by
-pinning what every backend does — right-hand side(s) first, then each designator's operands left to right;
-a conformance test counts the order for every form.
-Also found (2026-09-28): a parallel assignment evaluates each target's designator and then its own
-right-hand side, pair by pair (`(*b())[i()], (*c())[j()] = r1(), r2()` runs b i r1 c j r2), where a single
-or multi-value assignment evaluates the right-hand side first — resolveParallelEntry (gen_assign_parallel.bn)
-does both per entry.  Pinning one assignment rule needs genParallelAssign to evaluate every right-hand
-side first (coercing each to its target's checker type), then the designators left to right.
-Also: a multi-value assignment stores each target before evaluating the next target's designator, so
-`i, arr[i] = pair()` writes `arr[new i]` while parallel `j, arr[j] = 1, 7` writes `arr[old j]`.
-Decided (user, 2026-09-29: "I think that rule makes sense. i, arr[i] = pair() storing to arr at the new i
-is surprising"): every assignment form evaluates (1) its right-hand side(s), (2) every target's designator
-operands left to right, (3) the stores left to right — genParallelAssign and genMultiAssign both
-restructure to resolve all targets before any store.
-Also (work-6, 2026-09-29): genIndexPtr's composite-literal-base arm (`&[3]int{…}[i]`, a borrowed or
-field-accessed literal element) follows the same index-before-base order, while the literal's value path
-(genArrayIndexInPlace) evaluates the literal first — the base-first change should cover that arm too.
-Review of the unlanded implementation (2026-09-29) found, before landing: (1) phase 3 releases each old
-occupant right after its own store, so `p, p.val = two()` (p a sole-owner @Node) writes into freed old p —
-the parallel form `p, p.val = q, 5` already did before; fix: store every target, then release the saved old
-occupants; (2) base-before-index in genIndexPtr borrows a managed base across the index, so `s[g()]++` where g
-reassigns s writes freed memory (the general class is its own entry below); (3) assignTargetType can type a
-target with an unsubstituted generic checker type (`getS[T](p)[0], n = v, 1`: wrong store width, missing
-RefInc) — fix: acquire in phase 1 by the value's own type, coerce in phase 3 by the designator's IR type;
-(4, pre-existing) multi-value into an interface target never builds the interface value, and `g, n = nil, 1`
-into an @func is invalid IR — phase 3 should apply the single-assignment conversions; spec nits on §21.5.
-Decided (user, 2026-09-29): call arguments are pinned left to right ("3: left to right" — the spec gains it,
-with a test).  The borrowed-operand class below is undefined behavior (spec), not a compiler fix, so review
-item (2) needs only the spec rule; the landing no longer waits on a compiler borrow fix.
-
 ### A managed operand borrowed during evaluation can be freed by a later operand's side effect — spec it as undefined behavior; consider a bnlint check — 🔴 OPEN (found 2026-09-29, work-1, review of the evaluation-order change; pre-existing)
 
 IR-gen reads a managed value from a variable as a BORROW (no RefInc) while it evaluates later operands; if a
@@ -235,7 +196,7 @@ through a managed pointer (`p.arr[g()]`).  Not `mem.raw-uaf` (no raw value in us
 the borrow).  Decided (user, 2026-09-29): NOT a compiler fix — a hidden RefInc/RefDec is rejected ("That's a
 hidden refinc/refdec, which we don't like"), and holding a reference whenever a later operand has a call is
 needlessly expensive when the call doesn't touch the earlier value.  The spec makes it undefined behavior
-(landing with the evaluation-order change: §18 next to `mem.raw-uaf`, and the §21.6 list).  Remaining here:
+(docs `e2c178c`: §18.7 `mem.operand-release`, listed in §21.6).  Remaining here:
 a possible bnlint rule — e.g. flag an expression/statement that reads a managed GLOBAL (or a field/element of
 one) as an operand before a later operand that contains a call (any call can reassign a global).
 
@@ -252,8 +213,8 @@ native x64 (darwin) and native arm32 (baremetal) — shared native lowering; the
 backends) are xfail'd without a local run.  A global ARRAY behaves the same; a local struct changed through a
 pointer by a later operand is read in order.  Fix lives in the native aggregate-operand lowering
 (materialize the copy where the operand is evaluated).  Pinned by spec conformance
-10-functions/203_call_aggregate_arg_eval_order and 14-statements/172_assign_aggregate_value_eval_order,
-xfail'd on all six native modes (landing with the evaluation-order change).
+10-functions/206_call_aggregate_arg_eval_order and 14-statements/172_assign_aggregate_value_eval_order,
+xfail'd on all six native modes (binate `b2f8fe94d`).
 
 ### A multi-value assignment into an interface-typed target never builds the interface value — 🔴 OPEN (found 2026-09-29, work-1, review of the evaluation-order change; pre-existing)
 
@@ -266,27 +227,6 @@ value with no expression, so there is no conversion to apply.  Fix: an IR-value-
 construction (the value-producing half of genExprOrFuncRef's interface arms), applied in coerceAssignValue.
 Needs a conformance test (LLVM, VM, native).
 
-### `(*pp).m()` where `*pp` is itself a pointer passes pp as the receiver — the method reads and writes the pointer slot as the struct — 🟡 IN PROGRESS (found 2026-09-29, work-1, review of the `(*pp).f` fix; pre-existing; claimed 2026-09-29, work-1 — user: "go ahead and fold it in")
-
-`var pv *S = &s; var pp **S = &pv`: `(*pp).val()` prints a pointer value, `(*pp).bump()` adds to the pointer in
-`pv`; `var pm *@S = &m; (*pm).bump()` corrupts the managed pointer m — on the VM, LLVM and native.  The
-explicit-deref receiver arm (genMethodReceiver, shared with `defer`) evaluates `(*P).m()`'s receiver as P
-(`&*P == P`), which is right only when P points at the receiver's struct; when `*P` is itself a pointer to a
-struct the method call auto-derefs `*P`, so the receiver is the loaded `*P`.  Fix: the same rule as the
-`(*pp).f` fix — when P's pointee is a raw / managed pointer to a struct, nil-check P and load `*P`.  Test:
-`(*pp).m()` / `(*pm).m()` (value and `*T` methods) in conformance 1422.
-
-### A field reached through `(*pp)` where `*pp` is itself a pointer is not addressable in IR-gen — stores silently lost, `&` crashes — 🟡 IN PROGRESS (found 2026-09-29, work-1, review of the receiver-evaluation fix; pre-existing; claimed 2026-09-29, work-1 — user: "yes, go ahead")
-
-`var hp *H = &h; var pp **H = &hp`: `(*pp).p.n = 5` and `(*pp).a = 3` silently store into a throwaway copy
-(nothing changes), `&(*pp).p` crashes (SIGSEGV), `(*pp).arr[1].bump()` hits "array base with storage has no
-address", and `(*pp).p.bump()` mutated a copy (with the receiver fix: "implicit-& method receiver has no
-address").  Same for `var pm *@H = &mh; (*pm).p...`.  genSelectorPtr's explicit-deref arm
-(gen_selector_ptr.bn) handles `(*P).f` only when P points at a struct; when `*P` is itself a raw / managed
-pointer the field access auto-derefs it, but the arm returns nil and genLValueAddr falls back to the value.
-Fix: when P's pointee is a pointer to a struct, load it (nil-checked) and take the field address off it.
-Needs conformance tests for the store, `&`, method-call and index forms.
-
 ### A pointer-receiver method on an element of an array composite literal fails to link — 🔴 OPEN (found 2026-09-29, work-1, review of the receiver-evaluation fix; pre-existing)
 
 `[2]P{}[1].bump()` (`func (p *P) bump()`) fails at link time: undefined `bn_F1_4_main2_0_4_bump` — the method
@@ -297,19 +237,6 @@ symbol is mangled from the literal's element expression instead of P.  Needs a c
 A method declared `func (b *readonly Box[T]) get() T` called on `var bx Box[int]` is rejected ("not
 assignable to *readonly Box[T]"); the same shape on a non-generic type is accepted.  The receiver-smoothing
 check compares against the uninstantiated receiver type.  Needs a conformance test (checker).
-
-### A pointer-receiver method call on an element or field evaluates the receiver expression twice — 🟡 IN PROGRESS (found 2026-09-28, work-1, by the index-designator evaluation-order test; pre-existing; claimed 2026-09-29, work-1 — user: "receiver bug: separately (maybe as an immediate follow-up)")
-
-`(*pbase())[idx()].bump()` (`func (p *P) bump()`) runs `pbase` and `idx` twice; `hbase().p.bump()` runs
-`hbase` twice; `defer (*pbase())[idx()].bump()` too.  A value-receiver call (`.get()`) evaluates once, and
-`(*p).m()` is already special-cased.  genMethodCall (gen_method.bn) evaluates the receiver as a VALUE
-(`genExpr(sel.X)`), then applyReceiverConversion (gen_method_recv.bn), for a `*T` method on an addressable
-`T`, evaluates `sel.X` AGAIN for its address (genSelectorPtr / genIndexPtr); gen_defer_exit.bn has the
-same pair.  The call lands on the right object, but side effects repeat, and the first evaluation is a
-dead whole-struct load (the conformance 1301 shape: a large receiver struct makes an O(size) load per
-call on LLVM).  Fix: when the method takes `*T` and the receiver is an addressable `T` (a variable, field,
-element or dereference), take the receiver's address first — once — and load through it only for a value
-receiver.
 
 ### The LLVM backend lowers aggregate loads, copies and zero-fills one scalar leaf at a time — IR (and clang memory) grows with array length — 🔴 OPEN (found 2026-09-28, work-1, while fixing conformance 1301's whole-array load; pre-existing)
 

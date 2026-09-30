@@ -1,3 +1,36 @@
+### Operand evaluation order pinned: index designators base-then-index; assignments values → targets → stores → releases — DONE (binate `b2f8fe94d`, docs `e2c178c`, 2026-09-29, work-1)
+
+Index designators evaluated base and index in different orders by form (genIndexPtr — `x[i]++`, `&x[i]`,
+`x[i].f`, nested, receivers — took the index first), parallel assignment interleaved each target with its
+right-hand side, multi-value assignment stored each target before the next designator (`i, a[i] = f()` hit
+the NEW i), and the spec contradicted itself on "rhs before designator".  `b2f8fe94d`: genIndexPtr
+(gen_index_ptr.bn) evaluates the base first in every arm; parallel and multi-value assignment share one
+lowering (gen_assign_entry.bn) — values, then every designator, then conversion + acquire by the
+designator's type, stores, then the releases of replaced values (so `p, p.v = q, 1` with p the only
+reference no longer writes freed memory); the `*p` target hint; a generic call-result field typed from its
+field pointer (it was a use-after-free); `nil` via nilForSlot.  Spec (docs `e2c178c`, user decisions
+2026-09-29): `expr.index.eval-order`, `func.call.eval-order` (callee then args left to right — "3: left to
+right"), `stmt.assign.eval-order` (the three-step rule — "I think that rule makes sense"), `x++` as
+`x += 1`, `mem.operand-release` (a later operand releasing an earlier operand's managed value is UB — not a
+hidden RefInc: "That's a hidden refinc/refdec, which we don't like"), §21.5/§21.6 rows.  Tests: spec
+10/205, 13/063, 14/171; conformance 1437; 10/206 + 14/172 xfail'd on native (the native late-read entry).
+
+### `(*pp).f` and `(*pp).m()` with `*pp` itself a pointer to a struct — DONE (binate `e3a069ae1`, 2026-09-29, work-1)
+
+genSelectorPtr's explicit-deref arm handled `(*P).f` only when P points at a struct: with `*P` itself a
+pointer (P `**S` / `*@S`) stores were silently lost, `&(*pp).f` crashed, `(*pp).arr[i].m()` hit an internal
+error.  And `(*P).m()` passed P as the receiver — the method read and wrote P's own storage as the struct
+(silent memory corruption).  Both now load `*P` (nil-checked; pointsAtStructPtr / loadThroughPtr /
+genDerefReceiverPtr); a named pointer keeps its own method set.  Conformance 1436.
+
+### A pointer-receiver method on a value evaluated the receiver twice — DONE (binate `143ad1d5a`, 2026-09-29, work-1)
+
+`arr[idx()].pm()` ran idx twice (mutating the element at the second index), `po().inr.pm()` ran po twice,
+`defer` likewise; the discarded value was a whole-struct load (native aa64: ~65 ns per call on a 2 KB
+struct vs ~3 ns).  The checker records the implicit `&` on the selector (ast.Expr.ImplicitAddr); IR-gen's
+genMethodReceiver takes the receiver's address once (genReceiverAddr: nil-checked under opt-in nil
+checking).  Spec conformance 10/204; check / irgen / ast unit tests.
+
 ### The REPL runs a prompt whose errors all repeat an earlier prompt's — segfault / "extern not found" — DONE (binate `9cc321de8`, 2026-09-29, work-6; the uncovered registries are a separate entry)
 
 Enter `u[0] = 5` twice (u undefined): the first prompt reports its errors; the second runs and bni
