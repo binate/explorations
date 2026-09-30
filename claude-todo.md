@@ -275,6 +275,21 @@ memset/memcpy intrinsics and provide every symbol they can lower to on each targ
 No test pins it yet: unit-test xfails are per package and mode (scripts/unittest/), so one codegen test
 can't be marked expected-fail, and a conformance test big enough to show it would exhaust memory until
 the fix lands.
+Recon (2026-09-29, work-1): the per-leaf lowering is deliberate — done/plan-codegen-c-free-copies.md (shipped
+2026-06-01) made bnc-emitted code free of memcpy / memset / memmove / `__aeabi_*` so bare metal (no libc, and
+semihost.s has no `__aeabi_*`) links; that plan already named the follow-up for big aggregates: "a
+Binate-level byte-loop helper (`rt.CopyBytes(dst, src, n)`) ... add later if measured" — now measured.  Also
+found: on HOSTED targets at `-O2` LLVM's loop idioms already turn a plain Binate copy loop into a libc
+`memcpy` call (`nm -u` shows `_memcpy`) — only bare metal passes `-ffreestanding` (cmd/bnc/target.bn), which
+stops that; so the C-free property holds for bnc-emitted aggregate ops but not for optimized user loops on
+hosted targets (a separate question).  Options: (A) above a size / leaf-count threshold, emit a call to a
+C-free runtime helper (rt.ZeroBytes / rt.CopyBytes — Binate, later per-arch asm) for zero-fill and
+memory-to-memory copy — O(1) IR on every target, keeps the C-free rule; (B) emit an IR loop over the
+elements — O(1) IR, stays a loop on bare metal, but becomes libc memset/memcpy at hosted -O2; (C) allow the
+llvm.memset/memcpy intrinsics — contradicts the C-free plan, needs `__aeabi_*` on bare metal.  Hard part in
+any option: an aggregate LOAD is an SSA value (per-leaf load + insertvalue); a big one has to stay in memory
+(temp + copy helper, the value represented by its address, as native does) — every SSA-aggregate consumer
+(store, byval call arg, return, extract, phi) must accept that form.
 
 ### A `.bni` forward `type X` completed by a NON-struct `type X int` in the `.bn` — checker accepts, IR-gen internal error — 🔴 OPEN (found 2026-09-28, work-1, review of the named-type identity fix; pre-existing)
 
