@@ -2659,7 +2659,7 @@ and owning the backing is the trivial fix.
 
 ## Hygiene checks: tier dependencies & file length
 
-### Split `pkg/binate/ir.bni` — at 975 of its 1000-line cap — 🔴 OPEN (raised 2026-09-30, work-3; user: "File the splitting of ir.bni as a todo.")
+### Split `pkg/binate/ir.bni` — at 975 of its 1000-line cap — 🟡 IN PROGRESS (raised 2026-09-30, work-3; user: "File the splitting of ir.bni as a todo."; claimed 2026-09-30, work-3/session — user: "yes")
 
 `ir.bni` reached 975 lines with the module-level `ir.RegisterModulePendingDtor` (binate, the `@any`
 named-owning-pointee identity fix).  A `.bni` cannot be split within its package (the loader reads one
