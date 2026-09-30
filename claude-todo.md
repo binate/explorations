@@ -507,36 +507,6 @@ for an instantiation, `&&` / `||`, `switch`, and whether the skipped branch is s
   which restamps it; IR-gen reads the checker's per-declaration values now, so this may be harmless.  Not
   verified.
 
-### A package-level constant that takes `sizeof` / `alignof` of a struct or array type is rejected — valid code rejected — 🟡 IN PROGRESS (found 2026-09-29, work-4, review of design B commit 3; reproduced; pre-existing — gen1 builds of 2026-09-25/26 reject it too; claimed 2026-09-29, work-4 — user: "let's land the tests first, then fix the two MAJORs")
-
-`type Point struct { x int32; y int32 }` then `const S = sizeof(Point)` at package level fails with
-"cannot take sizeof/alignof of an opaque type (its layout is not available here)"; so does
-`type Point [2]int32`.  The same constant inside a function works, and so does a package-level
-`var g [sizeof(Point)]uint8`.  `len` of a package-level array variable fails the same way: `const L =
-len(g)` with `var g [3]int32` declared after it, or `var h Arr` (a named array type) in either order, gives
-"undefined: g".  Cause: `collectDecls` (check/check_decl.bn) runs `resolveTopLevelConsts`
-before `collectDeclsBody` fills in struct and array types (`resolveBuiltinScalarTypeDecls` pre-fills only
-named scalars), so the constant's `sizeof` sees the placeholder (nil Underlying), which `isOpaqueType`
-takes for an opaque type, and `checkBuiltinCall` reports it; package variables are not defined yet at all.
-Also failing (recon 2026-09-29): `sizeof(Box[Pt])` (a generic instance over a package type), `sizeof([N]int32)`
-with `N` declared later ("array length must be a constant integer": `collectConstDeps` does not walk type
-operands), and `len(g)` for an inferred-type variable (`var g = [3]int32{…}` or `= mk()`), which inside a
-function is a constant.  Not affected: `.bni` constants (a `.bni` `const L = sizeof(Later)` with `Later`
-declared after it is right), and IR-gen (it reads the checker's recorded values).
-Fix design: when a top-level constant needs a type's layout or a variable's type, resolve that declaration on
-demand — as pending aliases already are (check_pending_alias.bn).  `resolveConstByName` first prepares its
-initializer's operands: for a `sizeof` / `alignof` type, a by-value walk of the type expression resolves the
-constants its array lengths name (`resolveConstByName`), then collects each of the package's non-generic type
-declarations it names (`collectTypeDecl`, idempotent), recursing through struct fields, array elements, alias
-targets, instance type arguments and generic field types, and stopping at pointers, slices and function types;
-a declaration already in progress stops silently (a by-value self-reference is `checkTypeByValueCycle`'s).
-For `len(v)`: a declared-type variable gets its type prepared and is defined; an inferred-type one has its
-initializer typed on demand, which needs function signatures (`resolveFuncDeclType` + `defineFunc`) and other
-variables on demand too.  The cycle `type A [S]uint8; const S = sizeof(A)` then reports "constant definition
-cycle involving `S`".  Tests: conformance
-`spec/15-builtins/154_sizeof_package_const` and `155_len_package_var_const` (xfail.all, binate
-`86a9b93f0`); the cycle's error test comes with the fix.
-
 ### Resolve every package-level declaration on demand (a full demand-driven resolver) — 🔴 OPEN (raised 2026-09-29, work-4, review of the package-constant fix; user chose to track it: "go with your rec")
 
 The package-constant fix resolves constants after collection and, on first read, the constants, types (for a
@@ -548,39 +518,6 @@ rather than resolving it.  Fix: resolve every package-level declaration on deman
 types (for any use that needs their layout or methods), methods and impls — with one cycle stack, so the
 order of collection never matters.  Needs conformance tests for each of those forms and for cycles through
 them (`var v = F(); func F() [len(v)]int`, `type T [len(v)]int; var v = T{}`).
-
-### A constant's initializer is never required to be constant — `const C = v` compiles and reads `v` at run time — 🟡 IN PROGRESS (found 2026-09-29, work-4, review of the package-constant fix; reproduced on current bnc; pre-existing; claimed 2026-09-29, work-4 — user: "1. yes")
-
-Spec `decl.const`: a constant's value is computed at compile time.  The checker never checks that a const
-initializer is a constant expression: in a function, `var v = 3; const C = v` compiles and prints 3 (IR-gen
-lowers C as a use of v), `const C = f()` likewise.  At package level the same was rejected only by accident
-("undefined: v": variables and functions were not in scope yet when constants were resolved); the
-package-constant fix (resolve constants after collection) removes that accident, and then `const C = v`
-prints 0, `const C = len(s)` of a managed-slice prints 0, `var v = 2.5; const C = v * 2.0` prints 50, and one
-form fails in clang (`'%v8' defined with type 'i64' but expected 'double'`).  The constant evaluator
-(constval) covers only integer and boolean values, so its status cannot decide constness (a float constant is
-NOT_CONST there).  Fix: a structural check at each const declaration — every operand a literal, a constant,
-`iota`, `sizeof` / `alignof`, `len` of an array or string literal, a `cast` / `bit_cast` of a constant to a
-scalar type, or an operator / parenthesis over those — rejecting anything else ("constant initializer is not a
-constant expression").  Must land with, or before, the package-constant fix.  Needs conformance error tests
-(local and package level: a variable, a call, `len` of a slice, a float variable).
-
-### A package-level variable with an inferred type cannot be named before its declaration — valid code rejected — 🟡 IN PROGRESS (found 2026-09-29, work-4, designing the package-constant fix; reproduced on current bnc and bnc-0.0.16; pre-existing; claimed 2026-09-29, work-4, with the package-constant MAJOR — user: "yes to your question about the MAJOR")
-
-`var A = B + 1; var B = 10` at package level fails with "undefined: B" (then "arithmetic op requires numeric
-operands"); so do `var a = b; var b = [3]int32{1, 2, 3}` and `var C = D; var D = mk()` — and, more broadly, a
-FUNCTION body using an inferred-type package variable declared after the function (`func f() int { return v
-+ 1 }; var v = 41` → "undefined: v").  Spec
-`decl.order.forward` allows any order, and `prog.init.order` runs initializers in dependency order — the
-done entry for dependency-order initialization (`444c9c90`) records `var A = B+1; var B = 10` as working, but
-it does not compile now (nor on bnc-0.0.16); the conformance tests of init order all declare explicit types
-(`var Second int = First + 5`).  Cause: a variable with a declared type is defined in pass 1
-(`collectDeclsBody`), but one whose type comes from its initializer is defined only when pass 2
-(`checkVarDecl`) reaches it, in source order.  Fix: when checking an identifier finds a package variable
-whose inferred type is not known yet, check that variable's declaration first (on demand, with a cycle
-guard — a cycle is already `prog.init.var-cycle`'s error), and skip it when pass 2 reaches it.  The same
-mechanism the package-constant fix above needs for `len` of an inferred-type variable.  Needs conformance
-tests (a forward reference to an inferred variable, through a function-call initializer, and a cycle).
 
 ### Constant `sizeof` of a type built from repeated struct fields takes time exponential in the nesting depth — 🔴 OPEN (found 2026-09-29, work-4, review of design B commit 3; pre-existing)
 
