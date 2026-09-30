@@ -49,6 +49,15 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### REPL: a method or parameterized impl typed at the prompt is not checked for every instance of its type the program names — 🟡 IN PROGRESS MAJOR (claimed 2026-09-30, work-4/session — user: "let's land first and then do option B"; found by reviews of design B's per-instance checking, the REPL part of commit 5)
+
+Batch mode checks each named instance's methods and parameterized impls (gen.mono.check).  At the REPL, design B's commit 5 tracks which instances the program names (InstCheckState.Live, commitNamed) and re-checks those when a later prompt adds a method or impl (requeueTypeInstances).  Reviews found that tracking incomplete, so the REPL still accepts some such programs a batch compile rejects:
+- instances named by the REPL's loaded main file are never counted (CheckMainPersistent opens no naming window);
+- naming an instance whose check already passed does not count the instances it names;
+- a namer recorded in an earlier drain is not failed when the instance it named fails later.
+
+Main does not check instances per instantiation at the REPL at all, so none of these is a regression.  Plan (option B): drop the liveness bookkeeping and check at the use sites where IR-gen emits an instance's methods (ensureMethodsForInstName: a method call on, or the boxing of, a value of the instance's type).  There, check the instance's methods and parameterized impls not yet checked, so everything IR-gen emits is checked by the input that makes it emit.  Keep the re-check after a failure and the failure propagation to namers.
+
 ### Checker: adding `readonly` one level down (`@[]*int → @[]*readonly int`) is accepted — the unsound `T** → const T**` hole — 🟡 NEEDS DECISION (found 2026-09-30 by the spec review of Ch.8's notes; code reading, not run)
 
 `AssignableTo` accepts adding `readonly` below the outermost level, e.g.
