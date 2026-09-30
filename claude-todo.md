@@ -303,7 +303,7 @@ value receiver (the probe's line for it was cut off by the runner's output limit
 backends not yet checked.  Needs a conformance test over raw and managed interfaces, `@`- and
 `*`-named receivers, and every backend.
 
-### An alias to a pointer (or array / function / struct) type is accepted as a type-assertion target — `x.(*NP)` recovers a Node cell as `*(@Node)` — 🔴 OPEN (found 2026-09-30, work-3, review of the `@any` pointee-keying change; reproduced; pre-existing)
+### An alias to a pointer (or array / function / struct) type is accepted as a type-assertion target — `x.(*NP)` recovers a Node cell as `*(@Node)` — 🟡 IN PROGRESS (found 2026-09-30, work-3, review of the `@any` pointee-keying change; reproduced; pre-existing; claimed 2026-09-30, work-3/session — user: "yes")
 
 With `type NP = @Node`, `x.(*NP)` compiles: the parser takes a TypeName and `assertTargetType` never
 rejects a base that resolves (through the alias) to a pointer.  §11.12 allows only a nameable type or a
