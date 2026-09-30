@@ -433,6 +433,16 @@ Until each instantiation is checked:
   (`types.Identical` compares the placeholder 0): `var a [sizeof(T)*2]uint8; var b [sizeof(T)]uint8;
   a = b` compiles, as does `[sizeof(Outer[T])]` from `[sizeof(T)]` — at int32 an 8-byte array assigned
   from a 4-byte one (found 2026-09-29 reviewing design B commit 3) — commits 4–5.
+- the same placeholder makes a generic FUNCTION's dependent-length parameter wrong both ways
+  (substituteTypeParams' TYP_ARRAY case keeps ArrayLen 0 and drops ArrayLenDependent): with
+  `func alen[T any](x [sizeof(T)]uint8) int { return len(x) }`, `var z [0]uint8; alen[int32](z)` compiles
+  and prints 4 — the callee reads 4 bytes from a 0-byte object (silent miscompile) — while `alen[int32](x4)`
+  with `x4 [4]uint8` is rejected ("cannot assign [4]uint8 to [0]uint8"); a direct method call
+  `b4.Fill(x4)` with `func (b *Box[T]) Fill(x [sizeof(T)]uint8)` is rejected the same way
+  (`spec/12-generics/079` only calls it through an interface).  An anonymous struct parameter
+  (`struct { a [sizeof(T)]uint8 }`) reaches it too.  Imported generics are right (re-resolved from the AST
+  under a binder scope, `copyImportedGenericMethods`).  (Reproduced 2026-09-29 by the review of the
+  readonly-substitution fix, work-3.)
 Design and commit plan: `plan-constant-evaluator.md` ("Per-instantiation checking"),
 `plan-generic-instance-check.md`.  Also fixes the polymorphic-recursion MAJOR entry above.
 
