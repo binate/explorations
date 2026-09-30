@@ -356,7 +356,7 @@ statement, so a later call reads freed memory — the same as `var q *P = &P{nam
 fields live until its storage does (the frame), or whether taking the address of such a literal / binding a
 `*T` method value to it is undefined behaviour (mem.raw-uaf) or rejected.
 
-### The checker accepts `++` / `--` on a non-addressable selector — the increment lands in a throwaway copy — 🔴 OPEN (found 2026-09-30, work-7, review of the `(&x).f` selector fix; pre-existing)
+### The checker accepts `++` / `--` on a non-addressable selector — the increment lands in a throwaway copy — 🟡 IN PROGRESS (found 2026-09-30, work-7, review of the `(&x).f` selector fix; pre-existing; claimed 2026-09-30, work-7/session)
 
 `getS().x++` (getS returning a struct by value) and `unsafe_index(arr, 2).x++` compile and increment a
 temporary copy — `arr[2].x` stays 0 on every backend — while `getS().x = v`, `getS().x += 1` and
@@ -420,7 +420,7 @@ IR-gen-type mapper (instantiate a checker instantiation via InstDecl + mapped In
 named type) — the same mapper the "Package-level var inferred from a generic-instantiated non-literal
 initializer" entry needs; build it once for both.
 
-### Importing one package twice (a blank import plus a named one, or two aliases) makes the LLVM backend emit its externs twice — clang rejects — 🔴 OPEN (found 2026-09-28, work-6, probe during the blank-identifier review; reproduced by the prober; pre-existing)
+### Importing one package twice (a blank import plus a named one, or two aliases) makes the LLVM backend emit its externs twice — clang rejects — 🟡 IN PROGRESS (found 2026-09-28, work-6, probe during the blank-identifier review; reproduced by the prober; pre-existing; claimed 2026-09-30, work-7/session)
 
 `import _ "pkg/qa"` + `import q "pkg/qa"` (or two aliases of one path): every extern of pkg/qa is
 `declare`d twice in the .ll ("invalid redefinition of function …").  Native and the VM are fine.  Fix:
@@ -792,7 +792,7 @@ the rest of a never-instantiated generic's fields and method signatures are stil
 declaration once abstractly at the declaration (its parameters held abstract, as generic functions'
 bodies are checked), independent of instantiation.
 
-### A generic type declaration that is not a struct (`type P[T any] [2]T`) is accepted; each use then fails as an "opaque type" — 🔴 OPEN (found 2026-09-29, work-4, probing the generic self-containment fix; pre-existing)
+### A generic type declaration that is not a struct (`type P[T any] [2]T`) is accepted; each use then fails as an "opaque type" — 🟡 IN PROGRESS (found 2026-09-29, work-4, probing the generic self-containment fix; pre-existing; claimed 2026-09-30, work-7/session)
 
 Spec `gen.typeparams` allows type parameters only on a function, struct or interface, but the checker
 accepts `type P[T any] [2]T` (or any non-struct, non-interface underlying) at the declaration.
