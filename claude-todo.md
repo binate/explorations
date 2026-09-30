@@ -274,6 +274,10 @@ llvm.memset/memcpy intrinsics — contradicts the C-free plan, needs `__aeabi_*`
 any option: an aggregate LOAD is an SSA value (per-leaf load + insertvalue); a big one has to stay in memory
 (temp + copy helper, the value represented by its address, as native does) — every SSA-aggregate consumer
 (store, byval call arg, return, extract, phi) must accept that form.
+Decided (user, 2026-09-29): "(A) is already our standard, and we already have rt.MemZero/rt.MemCopy (or
+however they're spelled) ... and they mostly have per-arch assembly.  When running on Linux or Mac OS, we
+can live with a call to memcpy; that's ok, given that stdlib isn't C free at all." — so big aggregates call
+the existing runtime helpers; the hosted -O2 memcpy is accepted.
 
 ### A `.bni` forward `type X` completed by a NON-struct `type X int` in the `.bn` — checker accepts, IR-gen internal error — 🔴 OPEN (found 2026-09-28, work-1, review of the named-type identity fix; pre-existing)
 
