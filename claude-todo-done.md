@@ -1,3 +1,16 @@
+### A declaration IR-gen does not lower at the REPL prompt is undone; the rollback covers every registry — DONE (binate `418119a87`, 2026-09-30, work-6)
+
+`interface` and `impl` declarations at the prompt are refused by IR-gen, and so is a var whose inferred
+type IR-gen cannot name — but the checker had bound them, so a later prompt type-checked against them
+and crashed the REPL (`s.Size()` "vm: extern not found"; `b.v` "unresolved selector in IR-gen").  The
+REPL now undoes a declaration GenDecl refuses (RollbackDecl), and the rollback covers what the
+failed-declaration rollback entry listed as uncovered: `impl` records (c.Impls), generic type and
+interface declaration stashes (c.GenericTypeDecls / c.GenericIfaceDecls and their parallel lists);
+it restores the parked declarations exactly (the snapshot keeps the list) and PendingMark.  The rest of
+that entry — a generic-receiver method's entry and a parked type redefinition — was closed by binate
+`8ba473042`.  A parked var refused on a retry still crashes: the inferred-var entry in claude-todo.md.
+Supporting interface / impl at the prompt (part 2) stays open.
+
 ### Explicit generic type arguments starting with `*(`, `*@` or `readonly` are rejected in expression context — valid code rejected — DONE (binate `1c7a1ad4e`, 2026-09-30, work-3)
 
 `f[*(@[]int)](x)`, `f[*([3]int)](x)` and `f[*@[]int](x)` fail to parse ("expected {, got )" / "expected

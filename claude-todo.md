@@ -268,7 +268,7 @@ interface and impl declarations to park on names not yet declared like other REP
 guess they should park"), which needs (2).  Related: the rollback-gaps entry below (`impl` at the
 prompt registers into c.Impls).
 
-Part 1 (undo a declaration IR-gen refuses) is binate `2a883e2ac`, landing.  Part 2 decisions (user, 2026-09-30,
+Part 1 (undo a declaration IR-gen refuses) landed as binate `418119a87`.  Part 2 decisions (user, 2026-09-30,
 "1-3 recs seem fine; 4: do what you think is best (if it expands scope too much, then no); 5: yes"):
 (1) redefining an interface, or a type over an interface or the reverse, is rejected like a type
 redefinition; (2) an incompatible redefinition of a method an `impl` uses shadows it — the `impl` keeps
@@ -3041,16 +3041,16 @@ ship one that runs).
 
 ## REPL
 
-### The REPL's failed-declaration rollback does not cover every registry — 🔴 OPEN (found 2026-09-29, work-6, review of the REPL failed-prompt fix; pre-existing)
+### Generic functions and methods of generic types declared at the REPL prompt panic when called — 🔴 OPEN MAJOR (found 2026-09-29, work-6, review of the REPL failed-prompt fix; reproduced 2026-09-30; pre-existing)
 
-Not covered by the rollback (found by its review; pre-existing): the generic-type-declaration
-registry (c.GenericTypeDecls / …Pkgs / …Scopes — a failed `type G[T any] struct {…}` is re-reported on
-every later use of a corrected G), and `impl` at the prompt (collectImplDecl registers into c.Impls
-whatever the check says, and GenDecl then refuses it: `i.M()` is "call of nil interface value").  (A
-generic-receiver method's entry, and a parked type redefinition, are undone since binate `8ba473042`.)
-Separately, generic functions and generic-receiver methods at the prompt panic "extern not found" even
-when valid.
-
+`func id[T any](x T) T { return x }` then `testing.Println(id[int](3))` panics "vm: extern not found:
+main." (the call names an empty function).  `type Box[T any] struct { v T }`, `func (b *Box[T]) Get() T
+{ return b.v }`, `var bx Box[int]`, `testing.Println(bx.Get())` panics "vm: extern not found:
+pkg/builtins/lang.int.Get" (the receiver resolved as int).  irgen GenDecl lowers a generic function or
+method declaration as an ordinary one (genFunc / genMethod) instead of registering it for instantiation
+at its call sites, as GeneratePackage does (gc.GenericDecls, stashGeneric…).  Root cause: needs
+investigation.  Generic types, generic interfaces and generic-receiver impls declared in an imported
+package work (e2e tier5-box-generic-receiver-impl-instantiation).
 ### REPL: remove process-global session state (multi-session blocker)
 - **Now owned by [`done/plan-embeddable-vm.md`](done/plan-embeddable-vm.md)** (scoped
   2026-06-16): the `ir` half below is increments 4–5 of that plan, which
