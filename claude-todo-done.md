@@ -1,3 +1,25 @@
+### Interface and `impl` declarations at the REPL prompt park on names not yet declared, like other declarations — DONE (binate `643e94c37`, 2026-09-30, work-6)
+
+Plan: [done/plan-repl-iface-impl.md](done/plan-repl-iface-impl.md).  An interface naming a type not yet
+declared parks on it; an impl whose type lacks a method parks on `T.M`.  A conversion, cast or generic
+constraint needing an impl no declaration has made waits on `T:I` (check_pending_impl.bn noteMissingImpl /
+noteMissingImplOf) — but only when the shape could be made legal by an impl (a value or `*T`/`@T` to `*I`,
+`@T` to `@I`); anything else stays an error.  An impl provides `T:I` for each interface it lists and their
+parents (user, 2026-09-30: a parked impl is labelled `impl *Box : Sizer`, and a conversion to its
+interface or any of that interface's parents waits on it); keys go through aliases, carry the interface's
+package when it is not the session's, and key a generic interface instance by the generic's name.  Only
+the interfaces an impl lists count when a new declaration supersedes a parked one (directKeys), so an impl
+of a parent does not drop a parked impl of a child.  An impl on a generic type is rejected, also through
+an alias of an instance (user on generics: "do what you think is best (if it expands scope too much, then
+no)" — generic interfaces work, generic-receiver impls stay out, see the generic-at-prompt entry).  Emission of
+a resolved group: IR-gen GenTypeDecls registers struct shells, interfaces, aliases / named types, then
+interface method sets, fields and helpers; impl rows are registered before the group's functions are
+generated (a method boxing its receiver into the impl's interface dispatches through it), and vtables are
+lowered after them.  Review found and fixed: rows registered after functions, the alias-before-method-set
+order, un-qualified and alias keys, supersession by parent impls, false waits, cast / constraint hooks,
+alias generic impls, the error naming a key instead of the impl.  Tests: check_pending_impl_test.bn (16),
+repl decl_iface_test, e2e repl cases 53–60.
+
 ### An alias to a pointer (or array / function / struct) type is accepted as a type-assertion target — `x.(*NP)` recovers a Node cell as `*(@Node)` — DONE (binate `76e4391e8`, 2026-09-30, work-3)
 
 With `type NP = @Node`, `x.(*NP)` compiles: the parser takes a TypeName and `assertTargetType` never

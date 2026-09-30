@@ -190,17 +190,6 @@ reproduce on `builder-comp_arm32_baremetal` with a large by-value struct return 
 object for `__aeabi_memcpy` references); if it reproduces, route those paths through the leaf-by-leaf
 helpers.
 
-### Interface and `impl` declarations at the REPL prompt park on names not yet declared, like other declarations — 🟡 IN PROGRESS (claimed 2026-09-29, work-6/session — user: "Yes, claim both and start with 1."; "I guess they should park")
-
-Interface and impl declarations work at the prompt since binate `d220d330b` but are checked strictly: one
-naming something not yet declared (a type, an interface, a method of the impl's type) is an error, not
-parked, and a conversion needing a parked impl is an error too.  Plan:
-[plan-repl-iface-impl.md](plan-repl-iface-impl.md) (checker section: the two kinds parkable; an impl's
-missing method captured as `T.M`; plural keys, an impl providing `T:I` for its interfaces and their
-parents; a conversion with no impl record for (T, I) captured as `T:I`; REPL group emission and labels).
-Decision (user, 2026-09-30): a parked impl is labelled `impl *Box : Sizer`, and a conversion to its
-interface or any of that interface's parents waits on it.
-
 ### Boxing a named type defined over a struct (`type S2 S`) leaks the struct's managed fields — 🔴 OPEN MAJOR (found 2026-09-30, work-6, review of interface / impl at the REPL prompt; reproduced, compiled and REPL; pre-existing)
 
 `type S struct { p @Inner }`, `type S2 S`, `impl *S2 : Sizer`: dropping a `@S2` boxed into `@Sizer` leaves
