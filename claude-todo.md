@@ -115,7 +115,7 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### IR-gen: a cast of a function reference to a function-value type panics in IR-gen — 🔴 OPEN (found 2026-09-30 by the review of the cast-operand hint fix)
+### IR-gen: a cast of a function reference to a function-value type panics in IR-gen — 🟡 IN PROGRESS (claimed 2026-09-30, work-5) (found 2026-09-30 by the review of the cast-operand hint fix)
 
 `cast(*func(int) int, add1)` — likewise to a named `Fn`, a managed `MFn` or
 `@func(int) int` — type-checks (conv.cast part 1: everything assignable, and a
@@ -197,7 +197,7 @@ but expected 'i64'".  A loud compile failure, not a miscompile.  Other backends 
 Needs a conformance test (xfail on the failing modes) and a fix in the cast lowering (a pointer-typed nil
 source needs no `inttoptr`).
 
-### IR-gen: a package-level method value's closure record lives in the package initializer's stack frame — dangling after init (wrong code) — 🔴 OPEN (found 2026-09-29 while fixing the *func closure frame lifetime)
+### IR-gen: a package-level method value's closure record lives in the package initializer's stack frame — dangling after init (wrong code) — 🟡 IN PROGRESS (claimed 2026-09-30, work-5) (found 2026-09-29 while fixing the *func closure frame lifetime)
 
 `var g @Leaf = mk(); var mv *func(int) int = g.Add` at package level:
 `genMethodValue` builds the method value's `*func` closure record (holding the
@@ -218,7 +218,7 @@ likely the same shape: a REPL session variable holding a capturing raw `*func`
 closure (or method value) made at a prompt, whose record lives in that prompt's
 frame — check it alongside the fix.
 
-### IR-gen: a method value on a composite-literal receiver with managed fields stores the literal's address, not its value — wrong code (garbage / segfault) — 🔴 OPEN (found 2026-09-29 by the review of the *func closure frame-lifetime fix)
+### IR-gen: a method value on a composite-literal receiver with managed fields stores the literal's address, not its value — wrong code (garbage / segfault) — 🟡 IN PROGRESS (claimed 2026-09-30, work-5) (found 2026-09-29 by the review of the *func closure frame-lifetime fix)
 
 `S{m: l, k: 10}.Get` — `S` has an `@Leaf` field, `Get` a value receiver — stores
 the composite literal's alloca POINTER into the method value's closure-record
