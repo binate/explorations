@@ -697,7 +697,8 @@ SME/SME2 included — sequencing is free, but no family is dropped for lack of a
 above: FEAT_MTE (IRG / GMI / SUBP(S) / ADDG / SUBG / STG / LDG / STGP / …), FEAT_MOPS (CPY* / SET*), FEAT_LS64
 (LD64B / ST64B*), FEAT_GCS, FEAT_CSSC (ABS / CNT / CTZ / SMAX / SMIN / UMAX / UMIN reg & imm), FEAT_SYSREG128 /
 FEAT_SYSINSTR128 (MRRS / MSRR / SYSP), CHKFEAT and the other newer hint / system forms, SVE/SVE2(.1), SME/SME2.
-**Found by the emit-before-EOL review (2026-09-29), not yet done:** (a) the AArch64 control-flow reject
+**Found by the emit-before-EOL review (2026-09-29), not yet done:** (a) — 🟡 IN PROGRESS (claimed 2026-09-29,
+work-2/session) — the AArch64 control-flow reject
 tables hold 17 multi-line cases written with `"\\n"` (`aarch64_instr_ctrl_reject_test.bn`: `.Llocal:\\nb
 .Llocal`, `1:\\nb 1b`, `Kc = 16\\nb Kc`, the odd-offset `adr` / `b` / `cbz` over `.byte` data, …) — in a
 Binate string that is a backslash and `n`, so the lexer rejects each at the backslash and none reaches the
