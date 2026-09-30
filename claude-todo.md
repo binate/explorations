@@ -630,6 +630,24 @@ at the C boundary (back-filling the S-slot mask, `common_callconv_vfp.bn`) on bo
 call which (and whether (a) first).  Needs a conformance test on `builder-comp_arm32_linux` /
 `builder-comp_native_arm32_linux` (qemu-arm user-mode is not installed on this host).
 
+### A named non-struct type that names itself through an indirection is mis-typed in IR-gen — `type StateFn @func(int) StateFn`, `type Tree @[]Tree` — 🔴 OPEN MAJOR (found 2026-09-30, work-7, audit for the named func-value methods fix; reproduced; pre-existing)
+
+IR-gen resolves a named type declaration's underlying before registering the type (registerModuleTypeDecl /
+registerPkgTypeDecl / the import pre-passes / the REPL's genReplTypeDecl all compute the entry, then append
+it), and the dependency walk skips the self-reference, so the inner name falls to resolveTypeExpr's `int`
+fallback: `StateFn`'s result is a one-word int where a two-word func value belongs — a state machine
+`s = s(i)` fails in clang ("extractvalue operand must be aggregate type"; the natives would silently
+mis-lower), and `Tree` is `@[]int`.  The checker accepts both.  Fix: register the named entry first and
+set its underlying after (as generic struct instantiations pre-register) — a helper replacing the five
+entry sites is done on the local branch `named-type-self-reference-20260930` (work-7), with conformance
+1460 (StateFn and Tree, same-package and through a `.bni`).  But making the type genuinely recursive then
+sends every structural walker that looks through named types into infinite recursion:
+irutil.dtorTypeSuffixRec (dtor naming, `@[]Celsius` sharing `__dtor_ms_int` by design) overflows the stack
+on `Tree`; likely also the dtor / copy body generators, debug info (dbgTypeID) and typeinfo descriptors.
+Each needs a cycle break (e.g. name a named type nominally where it recurs into itself), so the fix is
+larger than the registration change.  Found while fixing methods on named func-value types (a named type
+over a func value is where this shape is most natural).
+
 ### Methods and impls on a named function-value type are broken — link failure / runtime segfault — 🟡 IN PROGRESS (found 2026-09-27, work-5, review of the named-readonly func-value fix; pre-existing, no wrapper needed; claimed 2026-09-30, work-7/session; user: "Your recs for A and B are fine.")
 
 For `type Fn @func() int` (plain, no readonly): a method `func (f Fn) M() int` compiles to a call of an
