@@ -1068,6 +1068,21 @@ sites across the three backends) silently emit nothing on an unresolved operand 
 the dispatch tail — a dropped `OP_COPY` leaves a phi stale.  **Fix:** replace the silent returns with
 `a.SetError("<op>: unresolved operand")`.
 
+### Checker: the function-literal destination hint leaks into operands that are not destinations (`bit_cast`, `box`, a callee) — 🔴 OPEN (MINOR; found 2026-09-30 by the spec review of the function-value destination rules)
+
+`checkExprWithFVHint` installs `c.ExpectedFVType` for its whole destination
+expression, and only `checkExprWithFVHint`, `checkFuncLit` (for its body) and
+`check_decl_batch` ever clear it; an operand checked with plain `checkExpr`
+inside that expression inherits the outer destination.  So in
+`var p *func() = bit_cast(*func(), func() {…x…})` the literal becomes a `*func`
+frame closure, though `func.lit.inferred-default` says a `bit_cast` operand is
+not a destination (it gets the `@func` default); likewise a `box` operand and a
+callee expression.  The effect is benign (code the spec says dangles works), but
+the checker diverges from the spec.  Proposed fix: clear the hint (check with
+`checkExprWithFVHint(c, x, nil)`) for every operand that is not itself a
+destination — the `bit_cast` / `box` operands, callees, index / selector bases,
+binary / unary operands.
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
