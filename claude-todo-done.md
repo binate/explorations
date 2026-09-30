@@ -1,3 +1,16 @@
+### AArch64 load / store parsers emitted before their end-of-line check — DONE (binate `aa935a16e`, 2026-09-29, work-2)
+
+Found by the LSE review: the token-level load / store parsers (plain and pair, the literal, unprivileged
+and authenticated loads, the LSE atomics, the exclusive / ordered forms) emitted the instruction word and
+only then had the dispatcher check for a trailing token, so `ldadd w0, w1, [x2]!` wrote a word before its
+error.  Resolved: each checks the end of the line (`a64AtEOL`) before it emits (the scanner-based parsers
+and the FP compare / FMOV / SIMD load-store parsers already did), and `goldenReject` now fails if a rejected
+line emitted bytes or a fixup, so every AArch64 reject table pins "a rejected line emits nothing";
+`TestGoldenTrailingOperandEmitsNothing` covers each token-level path.  The review of the fix found two
+pre-existing gaps outside it (tracked in the aa64 completeness entry of `claude-todo.md`): control-flow
+reject cases written with a literal `\\n` that test nothing, and directives / label prefixes that still emit
+on a rejected line.
+
 ### Assigning `nil` to an `@func` holding a capturing closure clears only the fn word — double free (every backend) — DONE (binate `fc58c6821`, 2026-09-29, work-3)
 
 `var fb @func() int = func() int { return b.v }` (any capture, e.g. a plain `@Box`), then `fb = nil`:

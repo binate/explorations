@@ -697,12 +697,6 @@ SME/SME2 included — sequencing is free, but no family is dropped for lack of a
 above: FEAT_MTE (IRG / GMI / SUBP(S) / ADDG / SUBG / STG / LDG / STGP / …), FEAT_MOPS (CPY* / SET*), FEAT_LS64
 (LD64B / ST64B*), FEAT_GCS, FEAT_CSSC (ABS / CNT / CTZ / SMAX / SMIN / UMAX / UMIN reg & imm), FEAT_SYSREG128 /
 FEAT_SYSINSTR128 (MRRS / MSRR / SYSP), CHKFEAT and the other newer hint / system forms, SVE/SVE2(.1), SME/SME2.
-**Also (found by the LSE review) — 🟡 IN PROGRESS (claimed 2026-09-29, work-2/session):** every AArch64 text-parser branch emits the instruction word and only then
-checks for a trailing token (`expectA64EOL` in `parse/aarch64_instr.bn`), so `ldadd w0, w1, [x2]!` emits a
-word before its error.  Harmless (any error aborts the assembly) but breaks "a rejected line emits nothing";
-fix by checking end-of-line before emitting, in every branch.  With that fix, make the golden-test helper
-`goldenReject` (`parse/aarch64_golden_test.bn`) also check that nothing was emitted, so every reject table
-pins the rule (today it checks only that an error was set).
 **Found by the emit-before-EOL review (2026-09-29), not yet done:** (a) the AArch64 control-flow reject
 tables hold 17 multi-line cases written with `"\\n"` (`aarch64_instr_ctrl_reject_test.bn`: `.Llocal:\\nb
 .Llocal`, `1:\\nb 1b`, `Kc = 16\\nb Kc`, the odd-offset `adr` / `b` / `cbz` over `.byte` data, …) — in a
