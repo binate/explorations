@@ -712,13 +712,14 @@ above: FEAT_MTE (IRG / GMI / SUBP(S) / ADDG / SUBG / STG / LDG / STGP / …), FE
 (LD64B / ST64B*), FEAT_GCS, FEAT_CSSC (ABS / CNT / CTZ / SMAX / SMIN / UMAX / UMIN reg & imm), FEAT_SYSREG128 /
 FEAT_SYSINSTR128 (MRRS / MSRR / SYSP), CHKFEAT and the other newer hint / system forms, SVE/SVE2(.1), SME/SME2.
 **Found by the emit-before-EOL review (2026-09-29), not yet done:** (a) — 🟡 IN PROGRESS (claimed 2026-09-29,
-work-2/session) — the AArch64 control-flow reject
-tables hold 17 multi-line cases written with `"\\n"` (`aarch64_instr_ctrl_reject_test.bn`: `.Llocal:\\nb
-.Llocal`, `1:\\nb 1b`, `Kc = 16\\nb Kc`, the odd-offset `adr` / `b` / `cbz` over `.byte` data, …) — in a
-Binate string that is a backslash and `n`, so the lexer rejects each at the backslash and none reaches the
-case it names; they pass without testing anything.  Fix: a multi-line golden-reject helper (parse each line,
-then finish the assembly, so a reference resolved at the end is checked too) and the cases rewritten on it —
-some may turn out accepted, which is then a real finding.  (b) Outside the instruction parsers a rejected
+work-2/session; the tests are fixed, not yet landed — goldenSourceReject / goldenSourceWord assemble real
+multi-line sources) — 17 control-flow reject cases written with a literal backslash-n tested nothing.
+Assembled as real sources they show these open items: a '$' in a label name (`L$foo:`; clang accepts it,
+this assembler rejects it); and — needs a decision — `nop /* multi <newline> still */ nop`: clang treats the
+comment as whitespace, joins the lines into one statement and rejects it (`nop nop`), while this assembler
+ends the statement at the newline inside the comment and emits two NOPs (a statement split across a
+multi-line comment: match clang, or reject it?).  (`.L` / numeric local labels and referencing a
+`name = expr` constant are the items listed above.)  (b) Outside the instruction parsers a rejected
 line can still emit: a data directive with trailing text or a later bad value (`.ascii "ab" x`, `.uint32 1
 2`, `.int8 1, 300`, `.zero 4 x`, `.fill 2, 1, 7 x`, `.balign 8 x` padding in text) writes its bytes before
 the error, and a label prefix on a rejected line (`L1: ldr x0, [x1] x2`) is still defined.  Harmless (an
