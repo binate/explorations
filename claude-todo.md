@@ -1109,6 +1109,14 @@ the checker diverges from the spec.  Proposed fix: clear the hint (check with
 `checkExprWithFVHint(c, x, nil)`) for every operand that is not itself a
 destination — the `bit_cast` / `box` operands, callees, index / selector bases,
 binary / unary operands.
+Observable effect (checked 2026-09-30): the checker ACCEPTS a program the spec
+rejects — `type Fn *func() int; var f Fn = *box(func() int { return k })` (the
+boxed literal should be the `@func` default, and `@func` is not implicitly
+assignable to the nominal `Fn`; likewise an `MFn` over `@func`) — and programs
+the spec makes undefined behavior (`bit_cast(*func() int, func…)`,
+`*box(func…)` into a `*func`, each with a capture) happen to work.  No case found
+where it rejects a valid program: the hint applies only on a signature match,
+which only makes the literal more assignable.
 
 ## Performance
 
