@@ -612,7 +612,7 @@ at the C boundary (back-filling the S-slot mask, `common_callconv_vfp.bn`) on bo
 call which (and whether (a) first).  Needs a conformance test on `builder-comp_arm32_linux` /
 `builder-comp_native_arm32_linux` (qemu-arm user-mode is not installed on this host).
 
-### Methods and impls on a named function-value type are broken — link failure / runtime segfault — 🟡 IN PROGRESS (found 2026-09-27, work-5, review of the named-readonly func-value fix; pre-existing, no wrapper needed; claimed 2026-09-30, work-7/session — to start once the checker→IR-gen type mapper lands; user: "Your recs for A and B are fine.")
+### Methods and impls on a named function-value type are broken — link failure / runtime segfault — 🟡 IN PROGRESS (found 2026-09-27, work-5, review of the named-readonly func-value fix; pre-existing, no wrapper needed; claimed 2026-09-30, work-7/session; user: "Your recs for A and B are fine.")
 
 For `type Fn @func() int` (plain, no readonly): a method `func (f Fn) M() int` compiles to a call of an
 undefined symbol (link failure), and `impl *Fn : Caller` with vtable dispatch compiles and links but
@@ -626,6 +626,11 @@ while keeping the func-value representation for calls / copies / dtors.
 A DEFERRED call to such a method fails too since binate `9faa66906` ("defer of an unresolved method
 call"): the defer path now names the receiver from its IR-gen type, as the direct call does; before, it
 happened to resolve through the checker's name.  The fix must cover both paths.
+Approach decided 2026-09-30 (user: "Let's do 1"): give a distinct named func-value type a nominal
+IR-gen type — TYP_NAMED over its func value, as every other named type has (stop stripping it in
+typeDeclEntryType) — and make every func-value kind test in irgen / ir / irbuild / the VM / the backends
+look through the named wrapper.  This also separates `Box[Fn]` from `Box[@func(int) int]` (the checker
+keeps them distinct; IR-gen collapsed them, so a constraint call `v.Twice()` with T = Fn found no method).
 
 ### Polymorphic recursion in a generic function crashes the compiler — 🔴 OPEN (found 2026-09-28, work-4, per-instantiation design mapping; reproduced on main)
 
