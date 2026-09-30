@@ -58,7 +58,7 @@ bnc-0.0.16 (the pinned BUILDER) has the IR-gen defect fixed on main by `1f29d31e
 
 gen1 would get silently wrong code there, and gen1 compiles every test and gen2.  Examples: a loop body that never runs (the function returns early, with no error); `st.Top++` right after an `if` or a `for` does nothing.  An identifier `++` just before it doesn't help.  A statement that goes through expression evaluation first (`x.f = x.f + 1`, a declaration, a call) is fine, and so is one in a function's opening straight-line code.  Hit by design B's `drainInstances` (`for st.Top > 0 … { st.Top-- … }`): the BUILDER-built loop returns immediately.  A 2026-09-30 scan of non-test code found no other field `++` / `--` (the only two are design B's), no `x := name` short-var, and no `*any` variable, parameter or field.  Clears when a BUILDER containing `1f29d31e9` is pinned (cut only when independently justified).
 
-### VM: does building a non-capturing raw `*func` value add a reference to the callee's shared ClosureRec that nothing releases? — 🔴 OPEN (needs investigation; found 2026-09-30 by the review of the method-value / cast fixes, unverified)
+### VM: does building a non-capturing raw `*func` value add a reference to the callee's shared ClosureRec that nothing releases? — 🟡 IN PROGRESS (claimed 2026-09-30, work-5; needs investigation; found 2026-09-30 by the review of the method-value / cast fixes, unverified)
 
 `BC_FUNC_VALUE` for a non-capturing function value (`vm_exec_funcref.bn`, `Src1 == -1`)
 RefIncs the callee's shared per-function ClosureRec so an `@func` value owns a
@@ -70,7 +70,7 @@ per function, but it never reaches zero).  Check with a VM unit test in the styl
 of `TestCastFuncRefToManagedReleasesClosureRec` (vm_funcvalue_rec_leak_test.bn);
 if it leaks, skip the RefInc for a raw `*func` result type.
 
-### Checker / IR-gen: a function literal cast to a type parameter gets no destination type — the instantiated cast borrows a freed heap closure (silent use-after-free) — 🔴 OPEN (found 2026-09-30 by the review of the cast-operand hint fix)
+### Checker / IR-gen: a function literal cast to a type parameter gets no destination type — the instantiated cast borrows a freed heap closure (silent use-after-free) — 🟡 IN PROGRESS (claimed 2026-09-30, work-5; decided: implement per-instantiation checking) (found 2026-09-30 by the review of the cast-operand hint fix)
 
 In a generic body, `var g = cast(T, func(x int) int { return x + k })` (or
 `unsafe_cast`) types the literal once, while `T` is still abstract, so
