@@ -72,6 +72,31 @@ the tail exactly (4/2/1-byte accesses, or an overlapping final word at sz − 8 
 conformance test that checks the neighbours of field, element, deref and global stores of `[3]char` and
 a 3-byte struct.
 
+### native x64 / aa64: multi-value return and sret stores copy an aggregate field in whole words — x64 overwrites a callee-saved register's save slot — 🟡 IN PROGRESS (found 2026-09-30, work-7, review of the exact aggregate-copy fix; pre-existing; claimed 2026-09-30, work-7/session)
+
+The exact-copy fix (emitAggMemcpy*) left the return / call marshalling paths storing aggregates in whole
+8-byte words: x64 `emitMultiReturnPack` (x64_return.bn ~187-196) copies an aggregate tuple field into the
+red-zone image word by word, so `func mk(x uint8) (uint8, [15]char)` writes image bytes [1, 17) and the
+last word reaches `[RSP+0]` — the prologue's save slot of r14 / r15 — and the epilogue restores a corrupted
+register (reviewer repro: a caller keeping two values live across the call SIGSEGVs at -O0 and prints a
+wrong sum at -O1; LLVM, aa64 and the VM are right).  The same last-field overrun: the tuple collect after a
+call (`storeMultiReturnTupleFieldsAA64`, aarch64_call_return.bn ~69-73; `storeMultiReturnTupleFields_x64`,
+x64_call_return.bn ~86-90 — also used for shim retbufs and a C caller's exact-size sret buffer via
+aarch64_cexport_retadapt.bn ~97 / x64_cexport_trampoline.bn ~398), the multi-return sret in emitReturn
+(aarch64_return.bn ~137-141, x64_return.bn ~113-119), and the single-aggregate sret (aarch64_return.bn ~93-97,
+x64_return.bn ~97-101: `roundup8(size)` bytes — harmless for a native caller's 8-rounded region, an overrun of
+an exact-size C / LLVM buffer).  Fix: route every aggregate store on these paths through the exact copy
+(aggcopy.TailPieces).  Needs conformance tests (multi-value returns with an odd-size aggregate at an odd
+offset, the caller keeping callee-saved values live; a C caller's sret buffer if reachable).
+
+### native aa64: a conditional branch beyond ±1 MB is not relaxed — a very large function fails to assemble — 🔴 OPEN (found 2026-09-30, work-7, review of the exact aggregate-copy fix; pre-existing)
+
+"PC-relative reference to 'L_…phicrit.71' is out of range or misaligned": B.cond / CBZ reach ±1 MB and
+the backend does not relax an out-of-range one (invert the condition around an unconditional B).  Reached
+when every aggregate copy is fully unrolled — a function copying a 16 KB aggregate a few times (about 4K
+instructions per copy) at -O1.  Fails loudly at build time.  Fix: branch relaxation in the aa64 emitter
+(or a loop for large aggregate copies, which the LLVM backend's per-leaf entry also wants).
+
 ## MAJOR
 
 ### IR-gen: a package-level method value's closure record lives in the package initializer's stack frame — dangling after init (wrong code) — 🔴 OPEN (found 2026-09-29 while fixing the *func closure frame lifetime)
