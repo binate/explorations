@@ -225,7 +225,7 @@ be added but not dropped") and type.readonly.drop say otherwise.  Decide which t
 the dynamic type, or the recovery, should keep the readonly); then pin it with a test (conformance 1429 was
 deliberately limited to the handle-readonly `readonly @Box` case so as not to lock this in).
 
-### A method value bound to a `*T` method of a struct field or array/slice element captures a copy — the mutation is lost — 🔴 OPEN (found 2026-09-29, work-6, review of the literal-array / selector fixes; reproduced; pre-existing)
+### A method value bound to a `*T` method of a struct field or array/slice element captures a copy — the mutation is lost — 🟡 IN PROGRESS (found 2026-09-29, work-6, review of the literal-array / selector fixes; reproduced; pre-existing; claimed 2026-09-29, work-7/session)
 
 `func (p *P) Inc() int`; `var h *func() int = s.p.Inc` (a field), `arr[1].Inc` (an array element) or
 `sl[1].Inc` (a slice element), then `h()`: the result is 1 but the field/element is still 0 on LLVM,
