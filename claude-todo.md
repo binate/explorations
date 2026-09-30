@@ -3060,6 +3060,15 @@ method declaration as an ordinary one (genFunc / genMethod) instead of registeri
 at its call sites, as GeneratePackage does (gc.GenericDecls, stashGeneric…).  Root cause: needs
 investigation.  Generic types, generic interfaces and generic-receiver impls declared in an imported
 package work (e2e tier5-box-generic-receiver-impl-instantiation).
+Found 2026-09-30 (work-7, building the checker→IR-gen type mapper): generic TYPE declarations typed at
+the prompt are not registered for instantiation either — the REPL lowers a `type` through GenTypeDecls,
+which never stashes a generic struct decl (stashGenericStructDecl), so every IR-gen instantiation of a
+prompt-declared generic type falls back to `int`: `type Box[T any] struct { v T }` then
+`func mk3() Box[int] { var x Box[int]; x.v = 7; return x }` panics "internal error: selector assignment
+target with no address in IR-gen"; a local, global or field of such a type is mis-typed, and a var
+inferred from one (`var a = mk()`) is refused ("var decl at the prompt requires an explicit type …") because
+the mapper finds no generic decl to instantiate.  Likely also the root cause of the `b.v++` entry
+("REPL: `b.v++` / `b.v += 1` on a top-level var of a generic struct type panics in IR-gen").
 ### REPL: remove process-global session state (multi-session blocker)
 - **Now owned by [`done/plan-embeddable-vm.md`](done/plan-embeddable-vm.md)** (scoped
   2026-06-16): the `ir` half below is increments 4–5 of that plan, which
