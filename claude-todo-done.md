@@ -25677,3 +25677,15 @@ scratch pool shrunk to R10/R11/RCX/RDX (every lowering fits in 4), two-pass para
 parallel-move placement of homed call operands at every call site and runtime-call setup, and an
 OP_CALL_HANDLE handle save (review-caught latent wrong code). record-churn 141.6M -> 132.5M instrs;
 native bnc compiling record-churn 6.73G -> 6.18G. Plan: plan-native-regalloc.md "Stage 5e".
+
+## Loop-latch copy coalescing (native, all backends) — DONE (2026-09-30, binate 8ef99bd39)
+
+The shared linear scan lets two values share a register when their range lists are disjoint, or
+when every common position is a tie (the instruction defines one and reads the other, which dies
+there; opcode in the backend's audited RegClassDesc.TieOps: COPY + integer ADD/SUB/AND/OR/XOR/SHL/
+SHR on GP, COPY only on x64/aa64 FP). Tie partners are preferred, so a loop phi and its latch value
+share a register and the latch copy emits nothing; eviction prices a register at its holders'
+summed cost. x64's two-address binop handles rd == rhs. record-churn native x64 N=500 33.80M ->
+25.98M instructions; native bnc compiling record-churn 6.19G -> 5.90G. Native x64 -O0/-O2 and
+arm32-linux conformance 3265/0, self-compile fixpoint; aa64 via CI (no aarch64 linker in the
+container). Plan: plan-native-regalloc.md "Latch copy coalescing design".

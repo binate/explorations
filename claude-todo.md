@@ -1385,7 +1385,9 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
 - **aa64 (67 instrs/element, static): nearly register-resident.**
 - **Both:** (a) the `arr`/`out` managed-slice header allocas' ADDRESS is materialized (`sp+off`),
   spilled and reloaded, then data/len are reloaded — loop-invariant (the "managed-slice header
-  reloaded" item below); (b) ~9 latch phi-copy moves per iteration (no copy coalescing).
+  reloaded" item below); (b) the 8 record fields are all loaded before any is used, so under
+  pressure they spill to the stack (an instruction-ordering problem; the latch phi-copy moves are
+  gone since 8ef99bd39).
 
 - **n-body is ~90% software `math.Sqrt` on BOTH backends — 🔵 OPEN (found 2026-09-24).** callgrind:
   native 88%, LLVM 90% of instructions in `math.Sqrt`'s bit-by-bit loop (neither emits `sqrtsd` /
@@ -1403,11 +1405,6 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   free_fn / trampoline calls with scalar-or-void results), but each is a silent miscompile if a
   new caller reaches it. Fix: share emitCall's argument placement, or assert the supported shapes
   loudly. Needs a test that pins whichever is chosen.
-- **Loop-latch copy coalescing (native, all backends)** — 🟡 IN PROGRESS (claimed 2026-09-29,
-  claude/exciting-davinci-wahyt2 session). EliminatePhis leaves `OP_COPY phi <- new` at each loop latch;
-  the allocator homes phi and new value separately, so each carried value costs a move per
-  iteration (record-churn: ~9 on aa64). Needs hole-aware LinearScan + copy-partner hints — see
-  `plan-native-regalloc.md` "Latch copy coalescing recon".
 - **x64 `rt.MemZero`** (zeroing each `make_slice`) is a 4×-unrolled 8-byte store loop reloading its
   zero constants from 4 stack slots — 11.6% of native instructions; LLVM uses glibc `rep stosb`.
   Covered by the x64 MemZero/MemCopy item under native vectorization (A) (being worked on

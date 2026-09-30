@@ -737,7 +737,7 @@ carry phis end up spilled and the latch shuffles each through a scratch register
   cheap candidate, so it spilled while carries (210) kept registers.  Eviction now prices a register
   at its holders' summed cost and spills them all.  Ties to folded-away values (FoldedImm, fused
   cmp/GEP, tst-AND, folded dtor handle) are dropped: they never occupy a register.
-- **Result (2026-09-30, work-branch commit `7d4d497b3`, not yet landed):** record-churn native x64
+- **Result (2026-09-30, landed as binate `8ef99bd39`):** record-churn native x64
   N=500 33.80M -> 25.98M instructions (-23.1%); the latch went from 19 instructions to 3 (seven
   carry lanes and `i` homed).  Native self-compiled bnc compiling record-churn 6.19G -> 5.90G.
   Native x64 -O0/-O2 and native arm32-linux conformance 3265/0; self-compile fixpoint holds.  aa64
