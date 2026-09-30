@@ -672,7 +672,7 @@ Each needs a cycle break (e.g. name a named type nominally where it recurs into 
 larger than the registration change.  Found while fixing methods on named func-value types (a named type
 over a func value is where this shape is most natural).
 
-### An owning interface box of a named managed value whose impl is declared in another package leaks — the defining package's vtable has a null slot-0 dtor — 🔴 OPEN MAJOR (found 2026-09-30, work-7, review of the named func-value methods fix; reproduced on LLVM, native and the VM; pre-existing)
+### An owning interface box of a named managed value whose impl is declared in another package leaks — the defining package's vtable has a null slot-0 dtor — 🟡 IN PROGRESS (found 2026-09-30, work-7, review of the named func-value methods fix; reproduced on LLVM, native and the VM; pre-existing; MAJOR; claimed 2026-09-30, work-7/session; user: "yes, fix the leak now")
 
 pkg/fv: `type Hook @func(int) int`, `interface Applier { Apply(x int) int }`, `func (h Hook) Apply(x int)
 int`, `impl Hook : Applier`, a capturing `Make(n)`; main loops `var h fv.Hook = fv.Make(5); var a
