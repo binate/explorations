@@ -1,6 +1,6 @@
 # Plan: REPL forward references — a parked declaration binds nothing
 
-Status: IN PROGRESS (work-6, 2026-09-29).  User: "Do the full rework"; after the plan review,
+Status: DONE — landed as binate `8ba473042` (2026-09-29).  User: "Do the full rework"; after the plan review,
 "Let's do (b)" (type redefinition is an error until shadowing lands).  The first model below (R1–R6)
 was reviewed and replaced: it tried to make every USE of a parked declaration wait on it, and the
 review found about half the use forms uncovered (method calls, `impl`, array-length constants,

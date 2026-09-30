@@ -125,49 +125,16 @@ reproduce on `builder-comp_arm32_baremetal` with a large by-value struct return 
 object for `__aeabi_memcpy` references); if it reproduces, route those paths through the leaf-by-leaf
 helpers.
 
-### The REPL runs a parked declaration whose retry fails to check — errors never shown, garbage values — 🟡 IN PROGRESS (found 2026-09-29, work-6, review of the REPL failed-prompt fix; reproduced by the reviewer; pre-existing; claimed 2026-09-29, work-6/session — user: "yes, let's fix the failed-retry bug")
+### REPL type redefinition: shadowing (the design) is not implemented; a redefinition is rejected meanwhile — 🔴 OPEN (found 2026-09-29, work-6, review of the REPL forward-reference plan)
 
-`var x int = y` (parks on y), then `var y @[]char = "hello"`: the retry of x fails (a `@[]char` is not
-an int) but prints "variable x resolved", and `testing.Println(x)` prints a pointer value — no error is
-ever shown.  `RetryPendingDecls` (check/check_pending.bn) migrates the retry's real errors into
-c.Errors but still appends the decl to `resolved`, contrary to its own doc; `retryPending`
-(repl/decl.bn) never prints those errors and IR-gens and runs the decl.  Fix: a retry that reports
-errors is not resolved — the REPL prints its errors and undoes it (SnapshotDecl / RollbackDecl, as a
-failed prompt is), rather than emitting it.  Its review found that undoing a failed retry exposes the
-optimistic forward-reference design (dependents of a parked declaration resolve against it, stale parked
-entries survive a redefinition, a failed type retry unblocks its dependents, a parked type redefinition
-mutates the old type); user: "Do the full rework" — plan: [plan-repl-forward-refs.md](plan-repl-forward-refs.md).
-
-The plan's review (2026-09-29) found more, all reproduced at the REPL on the failed-retry fix:
-- CRITICAL: a parked type redefinition, when it resolves, refills the OLD type object with the new
-  layout, so values of the old type are read through it: `type T struct { a int }`, `var t T = T{a: 7}`,
-  `type T struct { b int; c U }` (parks), `type U int` → `t.a` is "undefined: a" and `t.b` prints 7.
-- MAJOR: a parked function redefinition with a different signature is lowered in place when it
-  resolves (no shadow), so old callers run the new body with the old arguments: `func f(x int) int`,
-  `func g() int { return f(41) }`, `func f(x int, y int) int { return x + y + z }` (parks),
-  `var z int = 100` → `g()` prints 141.
-- MAJOR: a parked method can be called: `func (t *T) M() int { return t.a + q }` (parks), then
-  `x.M()` → panic "vm: extern not found: main.T.M".
-- MAJOR: a pointer to a parked type is emitted as a pointer to int: `type T struct { a int; c U }`
-  (parks), `var p *T`, `type U int`, `var v T = T{a: 5}`, `p = &v`, `p.a` → panic "internal error:
-  unresolved selector in IR-gen".
-- MINOR: a parked constant used as an array length reports "array length must be a constant integer"
-  instead of parking.
-Found by reading only, not yet reproduced: a struct emitted while the type one of its `@` fields points
-to is parked gets a destructor that does not release that type's managed fields (a leak); a retry
-skips the value-embedding and by-value-cycle checks.
-
-### The REPL silently ignores a type redefinition — 🔴 OPEN MAJOR (found 2026-09-29, work-6, review of the REPL forward-reference plan; reproduced; pre-existing)
-
-`type T struct { a int }` then `type T struct { b int }`: no error, but the checker keeps the first T
-(collectTypeDecl returns early on a filled named type), so `var t T` then `t.b` is "undefined: b".
-IR-gen meanwhile registers a second `main.T` struct from the new source and reuses the old destructor
-and copy helpers by name (irgen gen_repl_types.bn).  claude-notes.md ("Redefinition in the REPL") says
-an incompatible type redefinition shadows ("existing instances retain the old layout/type
-definition"); that needs a type identity that tells the two T's apart through the checker (named-type
-identity is by qualified name today), IR-gen's type registries and the helper names.  A parked type
-redefinition mutating the old type is in the forward-reference entry above.
-
+claude-notes.md ("Redefinition in the REPL") says an incompatible type redefinition shadows the old
+type: "existing instances retain the old layout/type definition".  Until binate `8ba473042` a
+redefinition was silently ignored by the checker (collectTypeDecl returned early on a filled named type)
+while IR-gen registered a second `main.T`; since then `type T …` over a bound type is rejected ("cannot
+redefine type T", check/check_pending_tentative.bn rejectTypeRedefinitions; user chose this until
+shadowing lands).  Shadowing needs a type identity that tells the two T's apart through the checker
+(named-type identity is by qualified name today), IR-gen's type registries (lookupStructIdx returns the
+first `main.T`) and the destructor / copy helper names.
 ### A generic type that names a type declared after it is broken at the REPL prompt — wrong size, IR-gen panic — 🔴 OPEN MAJOR (found 2026-09-29, work-6, review of the REPL forward-reference rework; reproduced; pre-existing)
 
 `type G[T any] struct { v T; w Missing }`, then `type Missing struct { a int; b int }`: `sizeof(G[int])`
@@ -2847,11 +2814,11 @@ ship one that runs).
 
 Not covered by the rollback (found by its review; pre-existing): the generic-type-declaration
 registry (c.GenericTypeDecls / …Pkgs / …Scopes — a failed `type G[T any] struct {…}` is re-reported on
-every later use of a corrected G), a failed method with a generic receiver (methodBaseTypeForDecl returns
-nil for `*Box[T]`), `impl` at the prompt (collectImplDecl registers into c.Impls whatever the check says,
-and GenDecl then refuses it: `i.M()` is "call of nil interface value"), and a PARKED redefinition of a
-type clears the old type in place.  Separately, generic functions and generic-receiver methods at the
-prompt panic "extern not found" even when valid.
+every later use of a corrected G), and `impl` at the prompt (collectImplDecl registers into c.Impls
+whatever the check says, and GenDecl then refuses it: `i.M()` is "call of nil interface value").  (A
+generic-receiver method's entry, and a parked type redefinition, are undone since binate `8ba473042`.)
+Separately, generic functions and generic-receiver methods at the prompt panic "extern not found" even
+when valid.
 
 ### REPL: remove process-global session state (multi-session blocker)
 - **Now owned by [`done/plan-embeddable-vm.md`](done/plan-embeddable-vm.md)** (scoped

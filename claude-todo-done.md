@@ -1,3 +1,35 @@
+### REPL forward references: a parked declaration binds nothing; parked declarations resolve in dependency groups — DONE (binate `8ba473042`, 2026-09-29, work-6)
+
+Started as "the REPL runs a parked declaration whose retry fails to check" (`var x int = y`, then `var y
+@[]char = "hello"`: x printed "resolved" and ran with a garbage value, no error shown).  Undoing a failed
+retry exposed the optimistic forward-reference design — a parked declaration stayed bound, so dependents
+resolved and were emitted against it — and the user said "Do the full rework"; plan:
+[done/plan-repl-forward-refs.md](done/plan-repl-forward-refs.md).  Reproduced consequences, all fixed:
+dependents ran without their dependency ("extern not found"); a pointer to a parked type crashed IR-gen; a
+parked method could be called; a parked function redefinition with a different signature replaced the
+old one in place on resolving (`g()` printed 141); a parked type redefinition rewrote the old type's
+layout (`t.b` read `t.a`'s storage); a stale parked entry clobbered a later redefinition; a failed type
+retry unblocked its dependents.
+
+Now a parked declaration is undone and binds nothing, so every use of it — pointer uses, method calls
+(key `T.M`), constants and `len` in array lengths — parks on it, and a use at the prompt reports it
+unresolved.  Parked declarations are retried after every declaring prompt in strongly connected groups,
+dependencies first, each checked like a file's declarations (all declared first; by-value type cycles,
+value embedding, constant and initialization cycles); a group resolves whole or stays parked.  A group
+that fails once its names are declared stays parked (claude-notes.md: "`f` remains pending") and shows
+its errors when new.  A resolved redefinition replaces or shadows as at the prompt.  A newer declaration
+of a parked name replaces the parked one.  Type redefinition at the prompt is an error (user: "Let's do
+(b)"; shadowing stays open in claude-todo.md).  A redefinition referring to its own old value (`var x int
+= x + 1` over `var x int = 5`) is an initialization cycle, as in a file (recommended; user: "yes, go
+ahead").  The pending-type machinery (Type.IsPending, capturePendingIfSized, the signature audit) and the
+"pending cycle" report are gone.  Review fixes folded in: a forward-declared type filled by a parked or
+failed definition is unfilled; misses that are not forward references (package members, fields) are
+errors; const-group members are checked in their group at their iota; generic types are covered by the
+redefinition rejection and a parked generic-receiver method is undone.  Found along the way and filed as
+separate MAJOR todos (pre-existing): a generic type naming a later type is broken at the prompt; a type
+declared over a variable or function name is ignored; a variable redefined with another type keeps the
+old value.
+
 ### AArch64 system operands dropped a symbol tail; the decided small forms — DONE (binate `2ff3ca163`, `0a4c23c68`, 2026-09-29, work-2)
 
 `dmb ish-1`, `dsb sy+4`, `bti c+4`, `mrs x0, nzcv+4`, `sys #0, c7+4, …`, `dc cvac+4, x0` and the like
