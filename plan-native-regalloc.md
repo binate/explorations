@@ -732,6 +732,17 @@ carry phis end up spilled and the latch shuffles each through a scratch register
   other an operand of it) and the operand's value is dead after P — its interval does not cover P+1,
   or P+1 redefines it (the adjacency case: `iNext = i + 1` right before `copy i <- iNext` merges the
   phi's two ranges into one, so the death has to be read off the redefinition).
+- **Eviction by register (found measuring):** with ties, a carry phi and its latch value share a
+  register; skipping shared registers in eviction left the loop counter `i` (cost 710) as the only
+  cheap candidate, so it spilled while carries (210) kept registers.  Eviction now prices a register
+  at its holders' summed cost and spills them all.  Ties to folded-away values (FoldedImm, fused
+  cmp/GEP, tst-AND, folded dtor handle) are dropped: they never occupy a register.
+- **Result (2026-09-30, work-branch commit `7d4d497b3`, not yet landed):** record-churn native x64
+  N=500 33.80M -> 25.98M instructions (-23.1%); the latch went from 19 instructions to 3 (seven
+  carry lanes and `i` homed).  Native self-compiled bnc compiling record-churn 6.19G -> 5.90G.
+  Native x64 -O0/-O2 and native arm32-linux conformance 3265/0; self-compile fixpoint holds.  aa64
+  not runnable in this container (no aarch64 linker) — CI.  Remaining loop cost: the 8 record
+  fields are all loaded before any is used and spill (an instruction-ordering problem).
 
 Steps 2–5 are no-ops before step 6 (no home can be in an arg register yet), so each lands and
 validates on its own, as Stage 5d's increments did.
