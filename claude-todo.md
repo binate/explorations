@@ -74,6 +74,21 @@ a 3-byte struct.
 
 ## MAJOR
 
+### IR-gen: a method value on a composite-literal receiver with managed fields stores the literal's address, not its value — wrong code (garbage / segfault) — 🔴 OPEN (found 2026-09-29 by the review of the *func closure frame-lifetime fix)
+
+`S{m: l, k: 10}.Get` — `S` has an `@Leaf` field, `Get` a value receiver — stores
+the composite literal's alloca POINTER into the method value's closure-record
+field (`store i8* %v4, i8** %v9`, `%v4` the `%S` alloca) and then runs `__copy_S`
+over that garbage: LLVM segfaults, native aa64 / x64 and the VM read garbage.  A
+receiver literal WITHOUT managed fields (`P{a: 2, b: 3}.Sum`) is loaded first
+(`genMethodValue`'s `isAggregateAllocToLoad` path, `gen_method_value.bn`) and
+works; the managed-field (`needsStructCopy`) path skips that load.  Proposed fix:
+load an aggregate-alloca receiver in the `needsStructCopy` case too, then confirm
+the ownership balances (the record copies the fields in; the literal temp keeps
+its own end-of-statement release).  Test (not yet landed):
+`conformance/spec/10-functions/213_method_value_composite_lit_receiver`
+(`.xfail.all`).
+
 ### IR-gen: a capturing raw `*func` closure's record is one hoisted slot per literal, released at the end of the innermost block — re-evaluation leaks captures, and the record does not live as long as the frame — 🟡 IN PROGRESS (claimed 2026-09-29, work-5; decided 2026-09-29: frame lifetime, option B) (found 2026-09-29 by the review of the composite-literal function-literal hint fix)
 
 **Leak (must fix).** A capturing `*func` literal evaluated more than once in one
