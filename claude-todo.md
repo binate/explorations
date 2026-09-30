@@ -375,6 +375,36 @@ the method is named from the checker's raw instantiation spelling.  Fix: arms fo
 IR pointee, `&x` → a pointer to x's IR type, a composite literal → its resolved TypeRef, an assertion → its
 resolved target).  Needs conformance cases (each shape, a generic `*T` and value method).
 
+### The implicit managed→raw borrow silently drops element-level readonly — `var q *[]int = p` with `p @[]readonly int` compiles — 🔴 OPEN MAJOR (found 2026-09-30, work-7, review of the unsafe_cast gate; pre-existing)
+
+`func h(p @[]readonly int) { var q *[]int = p; q[0] = 7 }` and `func k(p @readonly int) { var q *int = p; *q =
+9 }` both compile: assignability (check/types_assignable.bn ~159 / ~164) tests the element with
+`dropsConst(src.Elem, d.Elem)`, which strips the OUTER readonly of both arguments, so `readonly int` vs `int`
+compares equal.  §8.4 says the borrow has "no element-level `readonly` drop".  The same leak lets `cast(*S,
+p @readonly S)` through cast's safe set.  Fix: `DropsConstStrict(src.Elem, d.Elem)` (or `dropsConst(src,
+d)`), then fix whatever in the tree relied on it.  Needs `.error` conformance tests (slice and pointer).
+
+### REPL: `b.v++` / `b.v += 1` on a top-level var of a generic struct type panics in IR-gen — 🔴 OPEN MAJOR (found 2026-09-30, work-7, review of the ++/-- addressability fix; pre-existing)
+
+At the prompt: `type B[T any] struct { v T }`, `var b B[int]`, then `b.v++` → "internal error: ++/-- target with
+no address in IR-gen"; `b.v += 1` → "selector assignment target with no address" (these were silently dropped
+stores before the IR-gen selector fix made them loud).  The non-generic equivalent works, and so does the
+same code in a file.  Likely: the REPL global's IR-gen type for a generic instantiation is not the
+instantiated struct genSelectorPtr looks the field up in.  Needs an e2e/repl.sh case.
+
+### REPL: package-variable initializers are not run — `qa.G` reads 0 — 🔴 OPEN (found 2026-09-30, work-7, review of the duplicate-import fix; pre-existing)
+
+With `pkg/qa` declaring `var G int = 5`, `qa.G` reads 0 in the REPL — the module's own package-level vars and
+imported packages' alike, at the initial load and on a mid-session import; `bni main.bn` gives 5.  The
+REPL does not call the packages' `__init` functions (or not the imported ones).  Needs an e2e/repl.sh case.
+
+### A cast through a generic struct whose type parameter appears in no field is not deferred to instantiation — valid code rejected — 🔴 OPEN (found 2026-09-30, work-7, review of the recursive-cast fix; pre-existing)
+
+`type P[T any] struct { n int }; func g[T any](x @P[int]) @P[T] { return cast(@P[T], x) }` is rejected at the
+definition, though valid for T = int.  isTypeParamType / containsTypeParam (check/check_cast_safe.bn) calls
+StripWrappers first, which drops the TYP_NAMED wrapper carrying the instantiation's InstArgs, so a type
+parameter that only appears there is never seen.  Fix: check InstArgs on each named step before peeling.
+
 ### A failed interface-target assertion names the target by its bare name — qualify it — 🔴 OPEN (follow-up to `53c0e5fd5`, 2026-09-28; user: "Improving the message with the qualified name would be better, but can be a follow-up.")
 
 `x.(*Flyer)` failing prints `type assertion failed: main.Dog is not Flyer` (gen_assert_iface.bn uses the
