@@ -5,21 +5,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### IR-gen: a struct-field `x.f++` / `x.f--` that opens a block is emitted into the previous, already-terminated block — silent wrong code / trap / hang — 🟡 IN PROGRESS (claimed 2026-09-30, work-4/session — user: "Yes, you should claim and fix") (found 2026-09-30, work-4, while building design B's instance-body drain loop; reproduced; pre-existing — every compiler back to BUILDER bnc-0.0.16)
-
-**Symptom.**  A field `++`/`--` as the first statement of a loop body, `if` body or `else` body — or preceded there only by an ident `i++` — miscompiles.  Example: `for s.Top > 0 { s.Top-- }` on a local struct `s`, or on a local `@State`/`*State` pointer `p.Top--`.
-- **LLVM:** the field's load/sub/store land in the loop-condition (or pre-`if`) block, AFTER its terminating branch.  The body block holds only the GEP.  The result is a silent early return (wrong output, rc 0) or a trap (rc 133).
-- **Native:** hangs.
-- **At -O2:** iropt panics with "operand not defined in f (dangling) after inlining / load-forwarding".  BUILDER bnc-0.0.16 at -O2 instead emits invalid LLVM ("use of undefined value").
-
-Array-element, deref and plain-local `++`/`--` are fine, and so is a field `++` in straight-line code (conformance 739).
-
-**Root cause.**  `genIncDec` (`pkg/binate/irgen/gen_flow.bn`) calls `genSelectorPtr(ctx, b, x, true)` and then reads `b = ctx.CurBlock`, but never syncs `ctx.CurBlock = b` first.  For a local-struct or local-pointer base, `genSelectorPtr` emits the GEP into `b` and never touches `ctx.CurBlock`.  That leaves `ctx.CurBlock` as whatever block was current before the enclosing construct (the cond / pre-`if` block, already terminated), so the rest of the read-modify-write goes there.  The index and deref paths escape only because they go through `genExpr`, whose `genExprInner` syncs `ctx.CurBlock = b` on entry.  Assignment already does the same sync (`resolveAndStoreAssignEntries`), and so does `STMT_DECL`.
-
-**Proposed fix.**  Set `ctx.CurBlock = b` at the top of `genIncDec`.  Alternatively, do it once at `genStmt` entry, which restores the invariant for every statement kind.  Add a conformance test covering field `++`/`--` as the first statement of a `for` / `if` / `else` body, on a struct local and a pointer local, at the default level and -O2.
-
-**Exposure.**  Only 9 field `++`/`--` statements exist in the tree, and none of the landed ones opens a block, which is why it stayed latent.  Design B's instance-body drain loop (`st.Top--` in `drainInstances`, not yet landed) hits it: the gen2 build panics in iropt.
-
 ### native aa64: a conditional branch beyond ±1 MB is not relaxed — a very large function fails to assemble — 🔴 OPEN (found 2026-09-30, work-7, review of the exact aggregate-copy fix; pre-existing)
 
 "PC-relative reference to 'L_…phicrit.71' is out of range or misaligned": B.cond / CBZ reach ±1 MB and

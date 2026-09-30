@@ -1,3 +1,19 @@
+### IR-gen: a statement opening a block (a field `++` / `--`, `f := add`, assigning a variable to a `*any`) was emitted after the previous block's terminator — DONE (binate `1f29d31e9`, 2026-09-30, work-4)
+
+A struct-field `++` / `--`, binding a function to a new variable, or assigning a variable to a `*any`, as the
+first statement of a loop / `if` / `else` / `case` body, was emitted after the branch ending the block before
+it.  It returned early or trapped under LLVM, hung under native, and made iropt panic at -O2.  Every compiler
+back to bnc-0.0.16 was affected.  Root cause: statement lowering reads the block it continues in back from
+ctx.CurBlock, and these paths reached that read without anything having set ctx.CurBlock to the statement's
+block (genIncDec -> genSelectorPtr's variable / pointer arms; the function-value short-var path; the
+`*any` value-borrow boxing path), so it still named the terminated condition block.  Fix: genStmt sets
+ctx.CurBlock = b on entry (subsuming the per-kind syncs for declarations, the for-post statement and
+assignment targets, now removed).  genSelectorPtr, genIndexPtr and arrayStorageAddr also sync on entry, for
+their callers' read-back; no current source shape needs that.  Tests: conformance 1451_block_first_statement
+(fails without the genStmt sync), and irgen TestVerifyAcceptsStatementOpeningBlock (no instruction after a
+terminator).  Side finding: IR-gen's zero-argument `defer panic()` path (storeEmptyPanicMsg) is unreachable,
+since the checker requires exactly one argument to `panic`.
+
 ### REPL: code generated for a prompt entry now all reaches the VM — boxing into `*any` / a generic-receiver impl's interface, imported generic functions, literals in prompt functions — DONE (binate `4af0cd413`, 2026-09-30, work-6)
 
 Closes "REPL: boxing a name-less type into `*any` at a prompt panics", "REPL: boxing a generic-receiver
