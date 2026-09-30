@@ -1,3 +1,34 @@
+### A function literal in a composite-literal field / element takes its destination's function-value type; a capturing *func closure's record lives as long as its frame; a cast target is a function literal's destination — DONE (binate `1d87238dd`, `0222fc66c`, `9b15e1372`, 2026-09-30, work-5)
+
+Three linked entries, landed together:
+- **Composite-literal fields / elements (CRITICAL).**  The checker checked
+  composite-literal field and element values without the destination hint, so a
+  function literal bound for a raw `*func` slot was a heap `@func` statement
+  temporary the slot dangled into (silent use-after-free), and one bound for a
+  named function-value type was rejected.  `check_expr_composite.bn` now checks
+  every field / element value with `checkExprWithFVHint` (`1d87238dd`); tests
+  207–209, 212, and `check_func_lit_composite_test.bn`.
+- **Frame lifetime of a *func closure record (MAJOR).**  The record was
+  allocated and zero-filled at the closure's site on every evaluation and
+  released at the end of its block: a re-evaluated site (a `for` condition or
+  post statement) leaked its previous captures, and a closure made in an `if`
+  block and called after it or from a deferred call read released captures.
+  Decided: the spec's frame lifetime (`func.closure.allocation`), one record per
+  site per frame.  `allocFrameClosureRecord` allocates it once per call at the
+  end of the entry block's prologue; `releaseFrameClosureRecords` releases every
+  record before each function exit and fault-pad unwind once the body is
+  generated; captures are stored with release-the-old-value semantics.  Method
+  values get the same treatment (`0222fc66c`); tests 210, 211, 1450.
+- **Cast target (decided: a cast / unsafe_cast target IS a function literal's
+  destination).**  `cast(*func(int) int, func…)` made a heap temporary the cast
+  borrowed; the operand is now checked with the target as its hint, so the
+  literal is a frame closure, and `cast(Fn, lit)` constructs an `Fn`
+  (`9b15e1372`); test 215.
+Follow-ups filed separately: a method value on a composite-literal receiver with
+managed fields, a package-level method value's record, a cast of a function
+reference, a literal cast to a type parameter, and bnlint rules for the related
+hazards.
+
 ### A declaration IR-gen does not lower at the REPL prompt is undone; the rollback covers every registry — DONE (binate `418119a87`, 2026-09-30, work-6)
 
 `interface` and `impl` declarations at the prompt are refused by IR-gen, and so is a var whose inferred

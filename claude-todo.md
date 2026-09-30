@@ -20,57 +20,6 @@ Array-element, deref and plain-local `++`/`--` are fine, and so is a field `++` 
 
 **Exposure.**  Only 9 field `++`/`--` statements exist in the tree, and none of the landed ones opens a block, which is why it stayed latent.  Design B's instance-body drain loop (`st.Top--` in `drainInstances`, not yet landed) hits it: the gen2 build panics in iropt.
 
-### Checker: a function literal in a composite-literal field / element does not take its destination's function-value type — a `*func` slot dangles into a freed heap closure (silent use-after-free) — 🟡 IN PROGRESS (claimed 2026-09-29, work-5; found 2026-09-29 by the focused review of the named-function-value-from-literal spec update)
-
-**Symptom.** `H{g: func(x int) int { return x + k }}` with field `g *func(int) int`
-compiles, and calling `h.g(1)` after any later heap allocation reads freed memory
-(prints `1000001` / `1` / `0` instead of `8`), on LLVM, native aa64 and the VM.
-The same happens for a positional field (`H{func…}`), an array element
-(`[2]RF{func…, …}`, `RF = *func(int) int`), a managed-slice element
-(`@[]RF{func…}`) and a nested literal (`[1]H{H{g: func…}}`).  With a NAMED
-function-value field / element type (`f MFn`, `[2]MFn{…}`, `@[]Fn{…}`) the literal
-is instead rejected: `cannot assign @func(int)int to MFn`.
-
-**Root cause.** The checker passes the destination's function-value type to a
-function literal (`checkExprWithFVHint`, which sets `ExpectedFVType`) only at var
-initializers, call / method arguments, assignment and `return`.  Composite-literal
-field and element values are checked with plain `checkExpr`
-(`pkg/binate/check/check_expr_composite.bn`, the value checks at ~118 / 158 / 169 /
-252 / 271), so the literal falls back to its default heap `@func` type
-(`func.lit.inferred-default`).  A raw `*func` slot then borrows that statement
-temporary, the statement cleanup frees it, and the slot dangles — contradicting
-`func.lit.inferred-default` ("a destination that hints a `*func` slot of matching
-signature pins the literal to the raw `*func` form", a stack closure per
-`func.closure.allocation`).  Assigning the same literal to the field afterwards
-(`h.g = func…`) is correct, as is parallel assignment.
-
-**Proposed fix.** Check each composite-literal field / element value with
-`checkExprWithFVHint(c, value, <field or element type>)`, keeping the existing
-`BorrowPosKind` handling; then confirm IR-gen lowers the now-`*func`-typed literal
-to a frame-owned closure in that position on all three executors (LLVM, native,
-VM).  That fixes both the use-after-free and the named-type rejection.  Once fixed,
-the spec update for named-function-value-from-literal construction (§7.3 / §10.8 /
-§10.9, and the "Draft" status lines in `10b` / `10` / `00-index`) can state the
-blanket rule.
-
-**Tests.** `conformance/spec/10-functions/207_funclit_composite_elem_raw_closure`
-(the use-after-free) and `208_funclit_composite_elem_named` (the named-type
-rejection), both `.xfail.all`.
-
-### Checker: `cast(*func(…), func…)` does not give the function literal the cast's target type — the result dangles into a freed heap closure — 🟡 IN PROGRESS (claimed 2026-09-29, work-5; decided 2026-09-29: a cast target IS a hinting destination, and `cast(Fn, lit)` is accepted) (found 2026-09-29 by the review of the composite-literal function-literal hint fix)
-
-`var g = cast(*func(int) int, func(x int) int { return x + k })` compiles; the
-literal (checked with plain `checkExpr` in `check_builtin.bn`'s CAST /
-UNSAFE_CAST) defaults to a heap `@func` statement temporary, the cast borrows it,
-the statement cleanup frees it, and `g(1)` reads freed memory (prints `1` instead
-of `8` on LLVM and native aa64).  `cast(Fn, func…)` for a named `Fn` is rejected
-("cast does not support this conversion").  `func.lit.inferred-default` pins a
-literal to `*func` only for "a destination that hints a `*func` slot"; whether a
-cast target is such a destination is unspecified.  If it is: check the cast
-operand with `checkExprWithFVHint(c, arg, target)` (a silent use-after-free today,
-so CRITICAL), and decide whether `cast(Fn, lit)` is accepted.  If it is not, the
-pattern borrows a statement temporary (user error) and is a candidate for a lint.
-
 ### native aa64: a conditional branch beyond ±1 MB is not relaxed — a very large function fails to assemble — 🔴 OPEN (found 2026-09-30, work-7, review of the exact aggregate-copy fix; pre-existing)
 
 "PC-relative reference to 'L_…phicrit.71' is out of range or misaligned": B.cond / CBZ reach ±1 MB and
@@ -126,8 +75,9 @@ panics ("internal error: cast between mismatched aggregate/scalar shapes
 reached codegen").  The implicit form `var r *func(int) int = add1` works.
 Proposed fix: for CAST / UNSAFE_CAST whose (peeled) target is a function-value
 type, route a function-reference operand through `genExprOrFuncRef`'s
-function-reference path.  Test (not yet landed):
-`conformance/spec/10-functions/216_cast_function_reference` (`.xfail.all`).
+function-reference path.  Test:
+`conformance/spec/10-functions/216_cast_function_reference` (`.xfail.all`, landed
+`b3dbd9d35`).
 
 ### Checker / IR-gen: a function literal cast to a type parameter gets no destination type — the instantiated cast borrows a freed heap closure (silent use-after-free) — 🔴 OPEN (found 2026-09-30 by the review of the cast-operand hint fix)
 
@@ -142,8 +92,8 @@ known per instantiation, which is what §12.3 `gen.mono.check` (per-instantiatio
 checking — specified, not yet implemented) covers.  Options: implement
 per-instantiation checking for this case, or an interim IR-gen rule that picks
 the literal's heap vs frame allocation from the substituted cast target.
-Test (not yet landed): `conformance/spec/10-functions/217_funclit_cast_type_param`
-(`.xfail.all`).
+Test: `conformance/spec/10-functions/217_funclit_cast_type_param` (`.xfail.all`,
+landed `b3dbd9d35`).
 
 ### IR-gen: `Box[Box[Box[int8]]]`'s `bbb.Get().v.v` compiles, then panics at run time with "unresolved selector in IR-gen" — 🔴 OPEN MAJOR (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16, LLVM and native; pre-existing)
 
@@ -232,45 +182,6 @@ the ownership balances (the record copies the fields in; the literal temp keeps
 its own end-of-statement release).  Test:
 `conformance/spec/10-functions/213_method_value_composite_lit_receiver`
 (`.xfail.all`, landed `fcdb31f86`).
-
-### IR-gen: a capturing raw `*func` closure's record is one hoisted slot per literal, released at the end of the innermost block — re-evaluation leaks captures, and the record does not live as long as the frame — 🟡 IN PROGRESS (claimed 2026-09-29, work-5; decided 2026-09-29: frame lifetime, option B) (found 2026-09-29 by the review of the composite-literal function-literal hint fix)
-
-**Leak (must fix).** A capturing `*func` literal evaluated more than once in one
-scope — a `for` condition or post statement — RefIncs its managed captures into
-the same record on every evaluation but releases them only once, at scope exit:
-`for i := 0; i < lim(func(x int) int { return x + l.y }); i++ {…}` (with
-`lim(f *func(int) int)`) leaks one reference to `l` per extra evaluation, on LLVM,
-native aa64 and the VM.  `genFor` (`gen_flow.bn`) generates cond and post in the
-enclosing scope; `genFuncLit`'s `registerClosureLocalForCleanup` registers the
-closure local there (its destructor runs once, at scope exit); the record's
-alloca is hoisted to the entry block.  The composite-literal hint fix (not yet
-landed) extends the leak to `limH(H{g: func…})` in a `for` condition, which as a
-heap `@func` statement temporary was released per evaluation.  Proposed fix:
-release the record's previous captures before re-filling it (run the
-closure-struct destructor on the zero-initialized hoisted record at the literal
-site), keeping the scope-exit cleanup — or give `for` cond / post a
-per-evaluation cleanup scope.  Test:
-`conformance/spec/10-functions/210_funclit_raw_closure_reeval_releases`
-(`.xfail.all`, landed `690c18863`).
-
-**Lifetime (needs a decision).** `func.closure.allocation` says the record's
-"lifetime [is] tied to that frame", but IR-gen releases a `*func` closure's
-captures at the end of the innermost enclosing block, and every evaluation of one
-literal shares one record:
-- `if c { var m @Leaf = …; h = H{g: func(x int) int { return x + m.y }} }` then
-  `h.g(1)` reads a released capture (the direct `h.g = func…` form too);
-- `if c { …; defer use(func(x int) int { return x + m.y }) }` — the deferred call
-  at function exit reads a released capture (prints `1000001` instead of `8`);
-- closures stored from three loop iterations
-  (`hs[i] = H{g: func(x int) int { return x + i + l.y }}`) all see the last
-  iteration's snapshot (`102 102 102`), contradicting `func.closure.capture`'s "a
-  snapshot taken when the literal is evaluated".
-Options: (A) spec — block lifetime, and re-evaluating a literal ends the previous
-closure's life (the `if`-block / `defer` shapes become undefined behaviour); (B)
-IR-gen — frame lifetime: register the closure cleanup at function scope, plus the
-release-before-refill above.  Either way one record per literal site is shared by
-its evaluations (a per-evaluation record would need dynamic stack allocation), so
-the spec needs a rule for what re-evaluation does to an earlier closure.
 
 ### LLVM backend: whole-aggregate load / store left in sret returns, call-site sret loads and zero-value construction — possible `__aeabi_memcpy` on ARM EABI — 🔴 OPEN (investigate; found 2026-09-29 by the review of the named-aggregate copy fix `d500a2af7`)
 
