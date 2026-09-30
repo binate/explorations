@@ -1113,6 +1113,38 @@ the spec makes undefined behavior (`bit_cast(*func() int, func…)`,
 where it rejects a valid program: the hint applies only on a signature match,
 which only makes the literal more assignable.
 
+### interp: `RunFunc` / `RunFuncTyped` re-run the package initializers (`main.__init_all`) on every call — package globals are reset between host calls — 🟡 NEEDS DECISION (found 2026-09-30 by the review of the closure-site speed-up)
+
+`interp.RunFunc` (interp.bn) and `RunFuncTyped` (runfunc_typed.bn) call
+`main.__init_all` before every entered function (irbuild's comment says the VM runs
+it "before each entered function"), while compiled `bn_init` has a run-once guard.
+So a host calling `RunFunc` twice re-initializes every package global, discarding
+state from the first call — and every re-run initializer is a potential leak site
+(a managed global's old value is released by the plain `=`, but anything that
+assumes once-per-program storage, e.g. a package-level method value's static
+closure record stored with init semantics, is not).  Decide: run-once (as compiled
+code), or per-call re-initialization as a documented embedding contract.
+
+### Checker: `cast` rejects a container retype that also adds element-level `readonly` — 🔴 OPEN (found 2026-09-30 by the review of the §8.5 status note; code reading, not run)
+
+`conv.cast.aggregate-retype` condition (2) forbids only DROPPING element-level
+`readonly`, so `cast(@[]readonly uint8, x)` with `x @[]int8` is a valid retype
+(bit-preserving leaf, readonly added).  `bitPreservingElem`
+(`pkg/binate/check/check_cast_safe.bn`) rejects a readonly change in either
+direction.  Accept the add; keep rejecting the drop.  Add a case to
+`conformance/spec/08-conversions/017_cast_aggregate_retype_leaf` or a new test.
+
+### Checker: `unsafe_cast` rejects every interface-to-interface conversion, including the identity and the widening `cast` accepts — `cast ⊆ unsafe_cast` does not hold — 🔴 OPEN (found 2026-09-30 by the review of the §8.7 status note)
+
+`check_builtin.bn`'s UNSAFE_CAST `srcIface && dstIface` branch rejects all of them
+("unsafe_cast does not convert between interface values") — including
+`unsafe_cast(@I, x)` with `x @I` and a sub-interface → super-interface widening,
+both of which `cast` accepts (§8.1 case 7; IR-gen lowers it with
+`EmitIfaceUpcast`).  The one unit test (`TestCheckUnsafeCastIfaceToIfaceRejected`)
+uses two unrelated interfaces.  Fix: accept what `castSafeSetAllows` accepts there
+and lower it as `cast` does; keep rejecting a sub-interface recovery (needs a
+run-time vtable; conformance 1217).
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
