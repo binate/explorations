@@ -178,7 +178,26 @@ Each commit leaves the tree green.
 3. Fix §6b: `layoutDependsOnTypeParam`, with a `sizeof(Box[T])` test.  **LANDED (binate `82cd129ff`,
    2026-09-29)**, test conformance `spec/12-generics/080_sizeof_dependent_generic_instance`.
 4. `FuncInstance` records and signature re-resolution; keep the dependent flag and fix identity; defer dependent assignability in abstract bodies; guard the literal count. This fixes problem (1). Tests: `F[int64]` with `[8]uint8` accepted, `F[int32]` with `[8]uint8` rejected.
+   **Implemented 2026-09-29 (work-4), not yet landed — lands together with 5:** `check_instances.bn`
+   (`GenericHome` per generic function, recorded at collection and `.bni` load; `FuncInstance` per
+   (decl, concrete args) with its signature resolved from a signature clone in the home, binders bound);
+   local generic-type methods now resolve per instantiation from their declarations like imported ones
+   (`GenericMethods` entries carry each method's own scope, so a method in another file keeps its
+   imports); `Checker.DerivingInstanceSig` makes those derived resolutions non-user-facing (a constraint
+   miss there is the declaration's own); `types.Identical` never equates a dependent array with a concrete
+   one; `check_dependent.bn` defers assignability up to dependent lengths and an array literal's count /
+   bounds in abstract bodies.  `len` of a dependent array stays not-a-constant until 6 (IR-gen reads the
+   checker's placeholder type for it), so 153 stays xfail.
 5. Queue, drain, depth cap, error context and de-duplication, and queuing generic-type methods. This fixes problem (2). Tests: overflow in one instance, division by a dependent zero, count in one instance, polymorphic recursion, de-duplication, chained instantiation.
+   **In progress 2026-09-29 (work-4):** `check_instance_body.bn` — `InstWork` queued when a function
+   instance or a concrete struct instance is created, drained at the end of each package check and at the
+   single-file / REPL entry points; each body checked on a `CloneDecl` in the home scope with the binders
+   bound (`checkFuncBody` factored out of `checkFuncDecl`); errors keep the generic's position and gain
+   ` (in F[int64], instantiated at <root site> via <root>)`, de-duplicated by (position, message);
+   `MAX_INSTANCE_DEPTH` 128 reports polymorphic recursion at the root site.  Known gaps, to decide:
+   instances of a generic whose body this compilation never checked (interface-only imports under
+   bni / bnlint) are skipped; an instance whose constraint check failed is still checked (possible
+   cascades); every instance error is reported as a user error (no ICE classification of divergences yet).
 6. IR-gen emits the clones; delete the `DEPENDENT` paths; missing records and constant failures become ICEs.
 7. `bit_cast` and cast checks in abstract bodies defer to the instance check; the IR-gen panics become ICEs.
 
