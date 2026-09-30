@@ -405,6 +405,20 @@ definition, though valid for T = int.  isTypeParamType / containsTypeParam (chec
 StripWrappers first, which drops the TYP_NAMED wrapper carrying the instantiation's InstArgs, so a type
 parameter that only appears there is never seen.  Fix: check InstArgs on each named step before peeling.
 
+### Spec gap: what a `bool` holding a value other than 0 / 1 is — the backends disagree — 🔴 NEEDS DECISION (found 2026-09-30, work-7, review of the unsafe_cast gate; pre-existing)
+
+§8.7 makes `int8 -> bool` an unsafe_cast direction ("a value outside {0, 1} is not a valid bool") but the spec
+says neither what the scalar conversion produces nor what using such a bool does, and Ch.21 has no entry.
+`var i int8 = 2; b := unsafe_cast(bool, i)`, printed as `b, cast(int, b)`: LLVM `false 0`, native `true 2`,
+VM `false 2`; a retyped `@[]int8{2} -> @[]bool` element: LLVM `false 0 true` (b, int, !b), native `true 2
+true` (b and !b both true), VM `false 2 false`; constant `unsafe_cast(bool, 2)`: LLVM / VM false, native true.
+Decide: normalize at the conversion (any nonzero -> true), or make an invalid bool undefined behaviour
+(listed in Ch.21) — and reject a constant operand outside {0, 1} at compile time either way.
+Related (same review): a NESTED container retype (`[2][4]int8 -> [2][4]bool`, `@[]@[]int8 -> @[]@[]bool`) is
+accepted by unsafe_cast (its element retype applied in place, recursively) while `cast`'s leaf rule looks one
+level deep (`cast([2][4]uint8, a)` from `[2][4]int8` is rejected though total and bit-preserving) — state in
+§8.5 whether the aggregate retype nests.
+
 ### A failed interface-target assertion names the target by its bare name — qualify it — 🔴 OPEN (follow-up to `53c0e5fd5`, 2026-09-28; user: "Improving the message with the qualified name would be better, but can be a follow-up.")
 
 `x.(*Flyer)` failing prints `type assertion failed: main.Dog is not Flyer` (gen_assert_iface.bn uses the
