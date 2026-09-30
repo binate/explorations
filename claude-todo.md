@@ -212,6 +212,20 @@ interface and impl declarations to park on names not yet declared like other REP
 guess they should park"), which needs (2).  Related: the rollback-gaps entry below (`impl` at the
 prompt registers into c.Impls).
 
+Part 1 (undo a declaration IR-gen refuses) is binate `2a883e2ac`, landing.  Part 2 decisions (user, 2026-09-30,
+"1-3 recs seem fine; 4: do what you think is best (if it expands scope too much, then no); 5: yes"):
+(1) redefining an interface, or a type over an interface or the reverse, is rejected like a type
+redefinition; (2) an incompatible redefinition of a method an `impl` uses shadows it — the `impl` keeps
+the old method, as existing callers do; (3) a parked `impl` is labelled `impl *Box : Sizer`, and a
+conversion to its interface or any of that interface's parents waits on it; (4) generic interfaces and
+generic-receiver impls at the prompt only if they do not expand the scope much; (5) first, as its own
+change: build the VM vtables for impl rows minted while a prompt function or var initializer is lowered
+(LowerNewImpls runs only after a statement prompt) — the two "vtable not found" entries.  Risks from the
+recon: value-receiver dispatch thunks must be built from the latest definition of a method (a stale one
+is the old signature calling the new body); a boxed named managed-slice / managed-pointer / array
+receiver's slot-0 destructor is frozen at 0 when its vtable is built (a leak); a prompt impl's coverage
+is never checked (checkAllImplsSatisfaction runs only for whole packages).
+
 ### REPL type redefinition: shadowing (the design) is not implemented; a redefinition is rejected meanwhile — 🔴 OPEN (found 2026-09-29, work-6, review of the REPL forward-reference plan)
 
 claude-notes.md ("Redefinition in the REPL") says an incompatible type redefinition shadows the old
@@ -389,7 +403,7 @@ an interface inside a composite (`*[]*pkg/b.P`) — prints qualified.  Print the
 matrix/type-assert/iface/*/abort cells (generator `conformance/gen-type-assert-matrix.py`, whose comment
 documents the bare form).
 
-### REPL: boxing a name-less type into `*any` at a prompt panics — "interface vtable not found: __ivt…__nameless_…" — 🔴 OPEN (found 2026-09-28, work-1, review of the interface-identity stack; pre-existing)
+### REPL: boxing a name-less type into `*any` at a prompt panics — "interface vtable not found: __ivt…__nameless_…" — 🟡 IN PROGRESS (found 2026-09-28, work-1, review of the interface-identity stack; pre-existing; claimed 2026-09-30, work-6/session — likely the missing LowerNewImpls after a prompt function / var-init is lowered; user: "5: yes")
 
 At the REPL prompt, any boxing of a type with no name of its own into `*any` — even a plain `*[]int` held in
 a prompt global or inside a prompt function — panics "vm: interface vtable not found: __ivt…__nameless_…"
@@ -605,7 +619,7 @@ on the named type).  The spec allows it (§10 `func.method.receiver-base`: any n
 the same package), so this is a compiler bug: IR-gen needs the named identity for method / impl dispatch
 while keeping the func-value representation for calls / copies / dtors.
 
-### REPL: boxing a generic-receiver impl's instantiation at the prompt aborts — "interface vtable not found" — 🔴 OPEN (found 2026-09-27, work-1, review of the REPL mid-session registration fix; pre-existing)
+### REPL: boxing a generic-receiver impl's instantiation at the prompt aborts — "interface vtable not found" — 🟡 IN PROGRESS (found 2026-09-27, work-1, review of the REPL mid-session registration fix; pre-existing; claimed 2026-09-30, work-6/session — likely the missing LowerNewImpls after a prompt function / var-init is lowered; user: "5: yes")
 
 pkg/gcur: `type Cursor[T any] struct { v T }`, `func (c *Cursor[T]) Get() T`, `impl *Cursor[T] :
 gbase.Base[T]`, `func MkInt(n int) Cursor[int]`.  At the prompt: `import "pkg/gcur"`, `import
