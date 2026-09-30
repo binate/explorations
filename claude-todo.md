@@ -71,39 +71,6 @@ operand with `checkExprWithFVHint(c, arg, target)` (a silent use-after-free toda
 so CRITICAL), and decide whether `cast(Fn, lit)` is accepted.  If it is not, the
 pattern borrows a statement temporary (user error) and is a candidate for a lint.
 
-### native aa64 / x64: an aggregate copy rounds its size up to whole 8-byte words — overwrites up to 7 bytes past the destination (silent memory corruption) — 🟡 IN PROGRESS (found 2026-09-29, work-7, review of the string-literal [N]char fix; pre-existing; claimed 2026-09-29, work-7/session)
-
-Every by-value aggregate move on native aa64 and x64 — a store of a struct / array value into a field,
-element, through a pointer or into a global — copies whole 8-byte words: aa64 `emitAggMemcpyAarch64`
-copies a sub-word tail as one full word and `emitAggMemcpySafeAarch64` rounds to `(sz + 7) / 8` words
-(native/aarch64/aarch64_emit.bn ~203-256); x64 `emitAggMemcpyX64` / `emitAggMemcpySafeX64` do the same
-(native/x64/x64_emit.bn ~219-260).  Their comments assume the tail is padding, which is false for any
-aggregate whose size is not a multiple of 8 (alignment below 8): the store writes up to 7 bytes past
-the destination.  Repros (reviewer, bnc-base and later): `type P struct { a, b, c uint8 }` inside
-`type W struct { p P; s1 … s5 uint8 }`, `w.p = q` zeroes s1..s3 on native (LLVM keeps them); `var a
-[1]char; var b [3]char = "bbb"`, then `a = v` in main clears b on aa64 and x64; a sweep over N = 1..17
-zeroes the 8 − (N mod 8) bytes after an `[N]char` field.  native arm32 and LLVM are right.  Fix: copy
-the tail exactly (4/2/1-byte accesses, or an overlapping final word at sz − 8 when sz ≥ 8).  Needs a
-conformance test that checks the neighbours of field, element, deref and global stores of `[3]char` and
-a 3-byte struct.
-
-### native x64 / aa64: multi-value return and sret stores copy an aggregate field in whole words — x64 overwrites a callee-saved register's save slot — 🟡 IN PROGRESS (found 2026-09-30, work-7, review of the exact aggregate-copy fix; pre-existing; claimed 2026-09-30, work-7/session)
-
-The exact-copy fix (emitAggMemcpy*) left the return / call marshalling paths storing aggregates in whole
-8-byte words: x64 `emitMultiReturnPack` (x64_return.bn ~187-196) copies an aggregate tuple field into the
-red-zone image word by word, so `func mk(x uint8) (uint8, [15]char)` writes image bytes [1, 17) and the
-last word reaches `[RSP+0]` — the prologue's save slot of r14 / r15 — and the epilogue restores a corrupted
-register (reviewer repro: a caller keeping two values live across the call SIGSEGVs at -O0 and prints a
-wrong sum at -O1; LLVM, aa64 and the VM are right).  The same last-field overrun: the tuple collect after a
-call (`storeMultiReturnTupleFieldsAA64`, aarch64_call_return.bn ~69-73; `storeMultiReturnTupleFields_x64`,
-x64_call_return.bn ~86-90 — also used for shim retbufs and a C caller's exact-size sret buffer via
-aarch64_cexport_retadapt.bn ~97 / x64_cexport_trampoline.bn ~398), the multi-return sret in emitReturn
-(aarch64_return.bn ~137-141, x64_return.bn ~113-119), and the single-aggregate sret (aarch64_return.bn ~93-97,
-x64_return.bn ~97-101: `roundup8(size)` bytes — harmless for a native caller's 8-rounded region, an overrun of
-an exact-size C / LLVM buffer).  Fix: route every aggregate store on these paths through the exact copy
-(aggcopy.TailPieces).  Needs conformance tests (multi-value returns with an odd-size aggregate at an odd
-offset, the caller keeping callee-saved values live; a C caller's sret buffer if reachable).
-
 ### native aa64: a conditional branch beyond ±1 MB is not relaxed — a very large function fails to assemble — 🔴 OPEN (found 2026-09-30, work-7, review of the exact aggregate-copy fix; pre-existing)
 
 "PC-relative reference to 'L_…phicrit.71' is out of range or misaligned": B.cond / CBZ reach ±1 MB and
@@ -312,25 +279,6 @@ be added but not dropped") and type.readonly.drop say otherwise.  Decide which t
 the dynamic type, or the recovery, should keep the readonly); then pin it with a test (conformance 1429 was
 deliberately limited to the handle-readonly `readonly @Box` case so as not to lock this in).
 
-### A method value bound to a `*T` method of a struct field or array/slice element captures a copy — the mutation is lost — 🟡 IN PROGRESS (found 2026-09-29, work-6, review of the literal-array / selector fixes; reproduced; pre-existing; claimed 2026-09-29, work-7/session)
-
-`func (p *P) Inc() int`; `var h *func() int = s.p.Inc` (a field), `arr[1].Inc` (an array element) or
-`sl[1].Inc` (a slice element), then `h()`: the result is 1 but the field/element is still 0 on LLVM,
-native and the VM.  `func.method-value.capture` says a `*T` receiver captures `&x` (mutations visible);
-bound on a variable (`p.Inc`) it does.  Root cause: unknown — needs investigation (the method-value
-construction for a non-variable receiver takes the receiver's value, not its address).  Covered by
-conformance 1428 (`xfail.all`).
-
-### A deferred interface-method call through a pointer to an interface value crashes bnc — "defer of an unresolved interface method" — 🟡 IN PROGRESS (found 2026-09-29, work-7, review of the `(&x).f` selector fix; pre-existing; claimed 2026-09-30, work-7/session)
-
-`defer (&iv).Show()` (iv `*I`), `defer (&mv).Show()` (mv `@I`) and `defer piv.Show()` (piv `*(*I)`) panic in
-bnc with every compiler checked; the same calls without `defer` work, and so does `defer (*piv).Show()`.
-`buildDeferIface` / `deferCalleeType` (irgen gen_defer_build.bn) key on the checker type of the selector's
-receiver (`*(*I)`) without auto-dereferencing the one pointer level a method call does, and
-`deferMethodRecvType` peels only an explicit `*`.  Fix: auto-dereference a pointer-to-interface-value
-receiver in the defer path as the direct call path does.  Needs a conformance test (the three forms,
-every backend).
-
 ### Spec decision: a `*T` method VALUE on a NON-addressable receiver (`mk().Inc`) — reject, or capture a copy? — 🔴 NEEDS DECISION (raised 2026-09-30, work-7, fixing the method-value-captures-a-copy bug)
 
 `func.method-value.capture` says a `*T` receiver captures `&x`; a by-value call result has no address.  The
@@ -356,14 +304,12 @@ statement, so a later call reads freed memory — the same as `var q *P = &P{nam
 fields live until its storage does (the frame), or whether taking the address of such a literal / binding a
 `*T` method value to it is undefined behaviour (mem.raw-uaf) or rejected.
 
-### The checker accepts `++` / `--` on a non-addressable selector — the increment lands in a throwaway copy — 🟡 IN PROGRESS (found 2026-09-30, work-7, review of the `(&x).f` selector fix; pre-existing; claimed 2026-09-30, work-7/session)
+### Spec question: is an `unsafe_index(c, i)` result addressable? — 🔴 NEEDS DECISION (raised 2026-09-30, work-7, review of the `(&x).f` selector fix)
 
-`getS().x++` (getS returning a struct by value) and `unsafe_index(arr, 2).x++` compile and increment a
-temporary copy — `arr[2].x` stays 0 on every backend — while `getS().x = v`, `getS().x += 1` and
-`&getS().x` are rejected as non-addressable.  §14.5 defines `x++` as `x += 1`, so the checker's
-STMT_INC_DEC arm must apply the same addressability check (expr.addressable) as a compound assignment.
-Needs an `.error` conformance test.  Separately (a question, not a bug): §15.6 describes `unsafe_index(c, i)`
-as "exactly `c[i]`", yet `unsafe_index(arr, 2).x = 5` is rejected as non-addressable — decide which is meant.
+§15.6 describes `unsafe_index(c, i)` as "exactly `c[i]`" (without the bounds check), yet the checker
+treats its result as non-addressable: `unsafe_index(arr, 2).x = 5` and `unsafe_index(arr, 2).x++`
+(binate `aad5222aa`) are rejected, while `arr[2].x = 5` is accepted.  Decide which is meant — make the
+result addressable wherever `c[i]` is, or state in §15.6 that it is a value.
 
 ### A method value on a generic receiver written as `(*p).M`, `(&b).M`, `Box[int]{…}.M` or `a.(*Box[int]).M` fails to build — 🔴 OPEN (found 2026-09-30, work-7, review of the method-value fix; pre-existing)
 
@@ -464,13 +410,6 @@ IR-gen-type mapper (instantiate a checker instantiation via InstDecl + mapped In
 named type) — the same mapper the "Package-level var inferred from a generic-instantiated non-literal
 initializer" entry needs; build it once for both.
 
-### Importing one package twice (a blank import plus a named one, or two aliases) makes the LLVM backend emit its externs twice — clang rejects — 🟡 IN PROGRESS (found 2026-09-28, work-6, probe during the blank-identifier review; reproduced by the prober; pre-existing; claimed 2026-09-30, work-7/session)
-
-`import _ "pkg/qa"` + `import q "pkg/qa"` (or two aliases of one path): every extern of pkg/qa is
-`declare`d twice in the .ll ("invalid redefinition of function …").  Native and the VM are fine.  Fix:
-deduplicate import registration / extern declarations by package path, not per import alias.  Needs a
-positive conformance test with blank+named and two-alias imports of one package.
-
 ### A `cast` / `unsafe_cast` / `bit_cast` that is invalid only once a generic type parameter is instantiated crashes IR-gen instead of getting a diagnostic — 🔴 OPEN (found 2026-09-28, work-5, review of the composite-literal cast fix; pre-existing design gap)
 
 check_cast_safe.bn `checkCastSafeSet` defers validation when a side is an abstract type parameter, and
@@ -481,15 +420,6 @@ operand (a composite literal) to an interface, e.g. `func conv[T any]() T { retu
 `conv[*Getter]()`).  A user program should get a positioned compile error naming the instantiation, not a
 compiler panic.  Fix: run the cast-safety rules on the substituted types when a generic body is
 instantiated (checker-side, before IR-gen), and turn the IR-gen panics into unreachable asserts.
-
-### The checker accepts `unsafe_cast` from a raw function value (or raw slice) to its managed form — internal error in IR-gen — 🟡 IN PROGRESS (found 2026-09-28, work-5, review of the func-value cast fix; pre-existing; claimed 2026-09-30, work-7/session)
-
-`var f *func(int) int = dbl; unsafe_cast(@func(int) int, f)` passes the checker and then panics in IR-gen
-("internal error: cast between mismatched aggregate/scalar shapes reached codegen").  Spec §8.7
-`conv.unsafe-cast` adds only `*T → @T` for raw→managed and explicitly excludes `*[]T → @[]T` and
-`*func → @func` ("under-determined constructions, not reinterpretations"; §8.4).  Fix: reject both in the
-checker's unsafe_cast rules with a diagnostic pointing at constructing the managed value; add `.error`
-conformance tests for both (check whether `*[]T → @[]T` is also accepted today).
 
 ### The conformance runner has no compile-size / compile-memory guard — one pathological test can exhaust the machine — 🔴 OPEN (split out of the 1301 whole-array-load entry, 2026-09-28, work-1; user: "yes, keep the 1301 suggestion as its own todo")
 
@@ -627,20 +557,6 @@ main.__funclit_0` (before and after `1000f6105`).  runReplVarInit (repl/decl.bn)
 synthetic and the dtor/copy helpers EnsureReplBodyHelpers adds, but not the lifted `__funclit_<N>` the
 initializer's func literal produced.  Likely fix: lower every function the generation appended to the
 module (as the file-load path and the statement path do), not just the helpers; add an e2e/repl.sh case.
-
-### A package-level `[N]char` initialized from a string literal is stored as a POINTER — garbage reads, clobbered neighbours — 🟡 IN PROGRESS (found 2026-09-28 by a reviewer probe, claude/exciting-davinci-wahyt2 session; pre-existing; claimed 2026-09-29, work-7/session)
-
-`var M2 [5]char = "hello"` at package level reads back garbage (`M2[0]` 161 / 236, expected 104) on LLVM
-and native: `__init` emits `store i8* %str, i8** @global` — an 8-byte pointer into the 5-byte global,
-which can overwrite the next global (the reviewer saw `__bninit_done` clobbered). A LOCAL `[5]char` so
-initialized works. Needs a conformance test + the package-init lowering fixed to copy the bytes.
-
-### `(&s).f` / `(&s).m[i]` — a selector whose base is an address-of — fails to compile or panics — 🟡 IN PROGRESS (found 2026-09-28 by the review of the in-place array-index fix, claude/exciting-davinci-wahyt2 session; pre-existing; claimed 2026-09-29, work-7/session)
-
-`genSelectorPtr` (`irgen/gen_selector_ptr.bn`) has no arm for a `&x` base: `(&s).x` compiles to a run-time
-`unresolved selector in IR-gen` panic (every backend), and `(&s).m[1]` now panics in bnc
-("array base with storage has no address"; before, it gave invalid LLVM IR). Fix: `&x` as a selector base
-is `x`'s address — add the arm (genLValueAddr of the operand). Needs a conformance test.
 
 ### arm32 hard-float: a homogeneous-float-aggregate `__c_call` ARGUMENT is passed in GP registers — C reads garbage from `s0…` — 🔴 OPEN (found 2026-09-27, work-3, stale-ABI-comment sweep)
 

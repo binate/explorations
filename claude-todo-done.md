@@ -1,3 +1,73 @@
+### A package-level `[N]char` initialized from a string literal was stored as a pointer — DONE (binate `d827aecb6`, 2026-09-30, work-7)
+
+`var M2 [5]char = "hello"` stored the literal's 8-byte address into the 5-byte global (garbage reads, the
+next global clobbered).  IR-gen now delivers a string literal to a `[N]char` slot as the array value in
+every position (package and local initializers, assignments, stores through pointers, returns, arguments)
+through one helper, `materializeStringLit` (irgen gen_string_lit.bn).  Tests: irgen unit tests;
+conformance spec/06-constants 133–135; loop-leak matrix cells `rodata-array-assign` / `rodata-array-arg`.
+
+### `(&s).f` / `(&s).m[i]` — a selector whose base is an address-of — failed to compile or panicked — DONE (binate `12b511073`, 2026-09-30, work-7)
+
+A selector on `&x` is `x`'s selector: IR-gen's selector paths take the operand's address for an
+address-of base (reads, stores, nested selectors, element stores, interface-method calls, named pointees,
+generic-call bases).  Tests: irgen unit tests; conformance spec/13-expressions 064, 065.
+
+### native aa64 / x64: an aggregate copy rounded its size up to whole 8-byte words — DONE (binate `881ce28f7`, 2026-09-30, work-7)
+
+A by-value aggregate store whose size is not a multiple of 8 wrote up to 7 bytes past the destination on
+native aa64 and x64 (silent memory corruption).  The sub-word tail is now copied exactly, planned by the
+new shared package `pkg/binate/native/aggcopy` (`TailPieces`).  Tests: aggcopy and aa64 / x64 emitter
+unit tests; conformance 1443.
+
+### A method value bound to a `*T` method of a struct field or array/slice element captured a copy — DONE (binate `7d6cde7a0`, 2026-09-30, work-7)
+
+`s.p.Inc`, `arr[1].Inc`, `sl[1].Inc` (any addressable receiver) now capture `&x` per
+`func.method-value.capture`: the checker records the implicit `&` and IR-gen stores the address.  A
+non-addressable receiver still captures a copy; whether to reject it is the open "Spec decision: a `*T`
+method VALUE on a NON-addressable receiver" todo entry.  Tests: checker and irgen unit tests; conformance
+1428 (no longer xfail) and 1444.
+
+### native x64 / aa64: multi-value return and sret stores copied an aggregate field in whole words — DONE (binate `30dbb203d`, 2026-09-30, work-7)
+
+The return / call marshalling paths (x64's multi-return red-zone pack, the tuple collect after a call —
+shim retbufs and C-caller sret buffers included — and the multi-value and single-aggregate sret stores)
+now store aggregates through the exact copy; x64 no longer overwrites a callee-saved register's save slot
+returning `(uint8, [15]char)`.  Tests: aa64 / x64 unit tests; conformance 1445.
+
+### A deferred interface-method call through a pointer to an interface value crashed bnc — DONE (binate `ff6013ab8`, 2026-09-30, work-7)
+
+`defer (&iv).Show()`, `defer (&mv).Show()` and `defer piv.Show()` now auto-dereference the one pointer
+level a method call does and dispatch by vtable.  Tests: irgen unit test; conformance
+spec/14-statements/173.
+
+### A cast to or from a recursive struct type crashed bnc (unbounded recursion) — DONE (binate `9b4aac2c8`, 2026-09-30, work-7)
+
+Found while tightening the unsafe_cast rules (no todo entry): the checker's type-parameter scan
+(`isTypeParamType`) walked a struct's fields and pointer / slice elements with no visited set, so
+`cast(@Node, n)` with `type Node struct { next @Node }` overflowed the stack (SIGSEGV, no diagnostic).
+The walk (`containsTypeParam`) now stops at a struct it is already inside.  Tests: checker unit test;
+conformance spec/08-conversions/021.
+
+### The checker accepted `unsafe_cast` from a raw slice or raw function value to its managed form — DONE (binate `a612b17da`, 2026-09-30, work-7)
+
+A non-interface `unsafe_cast` is now gated to spec §8.7's set (`checkUnsafeCastSet`): cast's set, a
+readonly drop, the scalar directions, `*T -> @T`, and same-shape container retypes over a bit-preserving
+element conversion.  `*[]T -> @[]T`, `*func -> @func`, a struct to an integer, `@[]int32 -> @[]float32`
+and the like are rejected with the right alternative named (they used to panic in IR-gen).  Tests:
+checker unit tests; conformance spec/08-conversions 019, 020, 023 (rejected) and 022 (accepted, run).
+
+### The checker accepted `++` / `--` on a non-addressable selector — DONE (binate `aad5222aa`, 2026-09-30, work-7)
+
+`x++` is `x += 1` (§14.5), so the inc/dec statement now applies the compound assignment's addressability
+check: `getS().x++` and `unsafe_index(arr, 2).x++` are rejected.  Tests: checker unit test; conformance
+spec/14-statements/174.  (Whether an `unsafe_index` result should be addressable is a separate open
+todo entry.)
+
+### Importing one package twice made the LLVM backend declare its externs twice — DONE (binate `fbf56e23c`, 2026-09-30, work-7)
+
+IR-gen registers a package imported under several names (a blank import plus aliases) once and records
+every alias, so each extern is declared once.  Tests: irgen unit test; conformance 1446.
+
 ### A pointer-receiver method on an element of an array composite literal failed to link — no longer reproduces (verified 2026-09-30, work-7)
 
 `[2]P{}[1].bump()` (`func (p *P) bump()`) links and runs on main (`896595612` and later): `[2]P{P{v: 4},
