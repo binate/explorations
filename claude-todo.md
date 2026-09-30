@@ -343,6 +343,18 @@ copy).  Options: (a) reject, like the call — consistent with the smoothing rul
 calls mutate the closure's one copy (41, 42); (c) keep today's behaviour and spec it.  Recommendation: (a),
 together with `receiverAssignable` for method values.  Addressable receivers capture `&x` since the
 method-value fix (work-7).
+Same question for a READ-ONLY receiver object (work-7 review, 2026-09-30): `s.p.Inc` with `s *readonly S`,
+`xs[0].Inc` with `xs *[]readonly P` — the call form is rejected ("receiver type readonly P not assignable
+to *P", func.method.object-const), the method value is accepted and captures a copy (the method-value fix
+deliberately does not mark a read-only receiver for address capture); a bare read-only VARIABLE
+(`var rp readonly P; rp.Inc`) captures &rp and the method mutates it (pre-existing).  `receiverAssignable` in
+the checker's method-value arm would reject all of these.
+And the lifetime of a composite literal whose address a method value captures (work-7 review): `P{v: i,
+name: mkname(i)}.Name` captures the literal's address, but its managed field is released at the end of the
+statement, so a later call reads freed memory — the same as `var q *P = &P{name: mk()}` then `q.name`
+(pre-existing).  Composite literals are addressable (expr.addressable); decide whether a literal's managed
+fields live until its storage does (the frame), or whether taking the address of such a literal / binding a
+`*T` method value to it is undefined behaviour (mem.raw-uaf) or rejected.
 
 ### A failed interface-target assertion names the target by its bare name — qualify it — 🔴 OPEN (follow-up to `53c0e5fd5`, 2026-09-28; user: "Improving the message with the qualified name would be better, but can be a follow-up.")
 
