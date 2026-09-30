@@ -5,6 +5,43 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
+### Checker: a function literal in a composite-literal field / element does not take its destination's function-value type — a `*func` slot dangles into a freed heap closure (silent use-after-free) — 🔴 OPEN (found 2026-09-29 by the focused review of the named-function-value-from-literal spec update)
+
+**Symptom.** `H{g: func(x int) int { return x + k }}` with field `g *func(int) int`
+compiles, and calling `h.g(1)` after any later heap allocation reads freed memory
+(prints `1000001` / `1` / `0` instead of `8`), on LLVM, native aa64 and the VM.
+The same happens for a positional field (`H{func…}`), an array element
+(`[2]RF{func…, …}`, `RF = *func(int) int`), a managed-slice element
+(`@[]RF{func…}`) and a nested literal (`[1]H{H{g: func…}}`).  With a NAMED
+function-value field / element type (`f MFn`, `[2]MFn{…}`, `@[]Fn{…}`) the literal
+is instead rejected: `cannot assign @func(int)int to MFn`.
+
+**Root cause.** The checker passes the destination's function-value type to a
+function literal (`checkExprWithFVHint`, which sets `ExpectedFVType`) only at var
+initializers, call / method arguments, assignment and `return`.  Composite-literal
+field and element values are checked with plain `checkExpr`
+(`pkg/binate/check/check_expr_composite.bn`, the value checks at ~118 / 158 / 169 /
+252 / 271), so the literal falls back to its default heap `@func` type
+(`func.lit.inferred-default`).  A raw `*func` slot then borrows that statement
+temporary, the statement cleanup frees it, and the slot dangles — contradicting
+`func.lit.inferred-default` ("a destination that hints a `*func` slot of matching
+signature pins the literal to the raw `*func` form", a stack closure per
+`func.closure.allocation`).  Assigning the same literal to the field afterwards
+(`h.g = func…`) is correct, as is parallel assignment.
+
+**Proposed fix.** Check each composite-literal field / element value with
+`checkExprWithFVHint(c, value, <field or element type>)`, keeping the existing
+`BorrowPosKind` handling; then confirm IR-gen lowers the now-`*func`-typed literal
+to a frame-owned closure in that position on all three executors (LLVM, native,
+VM).  That fixes both the use-after-free and the named-type rejection.  Once fixed,
+the spec update for named-function-value-from-literal construction (§7.3 / §10.8 /
+§10.9, and the "Draft" status lines in `10b` / `10` / `00-index`) can state the
+blanket rule.
+
+**Tests (not yet landed).** `conformance/spec/10-functions/204_funclit_composite_elem_raw_closure`
+(the use-after-free) and `205_funclit_composite_elem_named` (the named-type
+rejection), both `.xfail.all`.
+
 ## MAJOR
 
 ### LLVM backend: whole-aggregate load / store left in sret returns, call-site sret loads and zero-value construction — possible `__aeabi_memcpy` on ARM EABI — 🔴 OPEN (investigate; found 2026-09-29 by the review of the named-aggregate copy fix `d500a2af7`)
