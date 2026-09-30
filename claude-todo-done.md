@@ -1,3 +1,19 @@
+### A deferred method call on a generic instantiation or an imported type panicked; a package-level var inferred from a generic instantiation (also interface-typed, pointer to another package's type) was untyped — DONE (binate `9faa66906`, 2026-09-30, work-7)
+
+Both came from IR-gen typing a value from the checker's type, which names types differently (an
+instantiation `pkg.Box[int]`, a named type by (Pkg, Name), an abstract type parameter).
+irTypeFromChecker (irgen gen_checker_type.bn) maps a checker type to IR-gen's: an instantiation through
+its generic declaration (new Checker.GenericDeclPkg), a named type through IR-gen's registries, a type
+parameter by owner and index (bindTypeParams' scheme — a generic method may rename, blank or swap the
+type's parameters; a review found name-based binding silently called the wrong instantiation's method).
+An inferred global now gets its explicit twin's type (checkerTypeUnmappable deleted; a checked global
+with no type is an internal error), and `defer b.Get()` / `defer sb.WriteByte(…)` name the method as the
+direct call does.  Tests: irgen unit tests; conformance 1457, 1458; e2e REPL case (a variable inferred
+from an imported instantiation, typed directly and after parking, fields and methods).  Left open,
+tracked: a generic type declared at the REPL prompt is never registered for instantiation (see "Generic
+functions and methods of generic types declared at the REPL prompt panic when called"); a deferred call
+on a receiver with a type-parameter-sized array argument; methods of a named func-value type.
+
 ### Interface and `impl` declarations at the REPL prompt — supported; a declaration of another kind over a type's or interface's name rejected — DONE (binate `d220d330b`, 2026-09-30, work-6)
 
 IR-gen registers a prompt interface / impl as the file-load passes do (generic interface stashed; impl on

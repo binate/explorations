@@ -432,23 +432,6 @@ the name to the universe type.  **Fix:** pre-register (or at least reserve) ever
 before any type expression is resolved, so a non-type declaration shadows the predeclared type from
 the start.  **Test:** checker unit test for both orders (with the fix).
 
-### A deferred method call on a generic instantiation or an imported type panics — "defer of an unresolved method call" — 🟡 IN PROGRESS (found 2026-09-28, work-5, review of the defer named-receiver fix; pre-existing; tried and unclaimed 2026-09-30, work-7 — see the note at the end; claimed 2026-09-30, work-7/session, with the package-level-var entry: one checker→IR-gen type mapper for both)
-
-`var b @Box[int]; defer b.Get()` and `var sb @strings.Builder; defer sb.WriteByte(…)` panic "defer of an
-unresolved method call" on every backend; the direct calls work.  buildDeferMethod (gen_defer_build.bn)
-names the method from the receiver's CHECKER type (baseNamedTypeName → buildMethodQualName), which carries
-the checker's raw instantiation spelling / unqualified imported name, while a direct method call names it
-from the receiver's IR-gen value type.  Fix: resolve the receiver's IR-gen type the way the direct call /
-method-value paths do (cf. methodValueRecvIRType) instead of the checker type.
-Tried 2026-09-30 (work-7): that alone does not work — defer sites are built by an ENTRY pre-pass
-(registerFuncDefers, gen_defer.bn), before any local is declared, so ctx.Vars has no IR-gen type for a local
-receiver (only parameters and globals resolve); and a local generic instantiation may not be instantiated
-yet at that point, so ensureMethodsForInstName has nothing to emit.  The pre-pass cannot be made lazy (an
-early `return` before the defer statement emits the site's exit call).  So the fix needs a checker-type →
-IR-gen-type mapper (instantiate a checker instantiation via InstDecl + mapped InstArgs; qualify an imported
-named type) — the same mapper the "Package-level var inferred from a generic-instantiated non-literal
-initializer" entry needs; build it once for both.
-
 ### A deferred method call on a receiver whose instantiation has an array argument sized by a type parameter panics — "defer of an unresolved method call" — 🔴 OPEN (found 2026-09-30, work-7, review of the checker→IR-gen type mapper; user chose to track it separately)
 
 `func F[T any](x T) { var b Box[[sizeof(T)]uint8]; defer b.Mark(3) }`, `F[int32](5)`: bnc panics; the
@@ -640,6 +623,9 @@ no nominal type to mangle the method / impl vtable against, while the checker st
 on the named type).  The spec allows it (§10 `func.method.receiver-base`: any named type declared in
 the same package), so this is a compiler bug: IR-gen needs the named identity for method / impl dispatch
 while keeping the func-value representation for calls / copies / dtors.
+A DEFERRED call to such a method fails too since binate `9faa66906` ("defer of an unresolved method
+call"): the defer path now names the receiver from its IR-gen type, as the direct call does; before, it
+happened to resolve through the checker's name.  The fix must cover both paths.
 
 ### Polymorphic recursion in a generic function crashes the compiler — 🔴 OPEN (found 2026-09-28, work-4, per-instantiation design mapping; reproduced on main)
 
@@ -895,34 +881,6 @@ error aborts the file) but the same "a rejected line emits nothing" rule; `lineR
 checks bytes but not fixups.  And x64's Intel-syntax parser reads a '$'-leading
 operand (`call $foo`, `mov rax, $5`) as a symbol reference, where clang rejects it (the shared lexer takes
 '$' in names for AArch64 / arm32, where clang does; an undefined, undeclared symbol still fails at the end).
-
-### Package-level var inferred from a generic-instantiated non-literal initializer (also: interface-typed, pointer-to-foreign-type) — builds broken — 🟡 IN PROGRESS (found 2026-09-26, work-1, fixing the inferred-var miscompile; pre-existing; claimed 2026-09-30, work-7/session, with the deferred-method-call entry: one checker→IR-gen type mapper for both)
-
-`var gv = vec.New[int]()` / `var gb = mkBox[int](6)` / `var gp = &gb` at package level (the type is
-inferred and involves a generic instantiation, and the initializer is not a composite literal) fail to
-link (undefined method symbols): `resolveGlobalVarType` (`irgen/gen_global_type.bn`) cannot use the
-checker's inferred type because the checker names an instantiation by its source spelling
-(`Box[int]`, a `TYP_NAMED` with `InstDecl`), not IR-gen's instantiated name, so such a global stays
-untyped (a pointer-sized scalar slot).  A composite-literal initializer (`var g = Box[int]{...}`)
-works (resolved through `resolveTypeExpr`), as do locals.  Fix: map a checker instantiation type to
-IR-gen's (instantiate via the generic decl in `InstDecl` + `InstArgs`, recursively through
-pointer/slice/array/iface wrappers), then drop the `checkerTypeUnmappable` skip (its TODO names this
-entry).  The same skip also covers two other shapes whose checker type differs from IR-gen's (both
-broken before too, found reviewing the inferred-var fix): an interface-typed inferred global
-(`var gi2 = gi` with `gi *Shape` — the checker's interface carries the quoted `"main"` package
-spelling; VM "extern not found: main..Area"), and one reaching another package's named type through
-a pointer (`var g1 = geom.NewPoint(1, 2)` returning `@geom.Point` — methods resolved in this package:
-undefined `main.Point.Sum`).  Explicitly typed forms work.
-
-At the REPL (found 2026-09-30, work-6, review of the refused-declaration undo; MAJOR there): the same
-limitation makes irgen GenDecl refuse such a var ("var decl at the prompt requires an explicit type or a
-literal initializer").  One typed at the prompt is undone since the refused-declaration undo, but one
-that parked and resolves on a retry is refused after the checker bound it (and after other members of
-its group may have been emitted): it stays bound, its initializer runs against a global that does not
-exist, and a later use crashes the REPL — `type Box[T any] struct { v T }`, `var b = mk()` (parks),
-`func mk() Box[int] { var x Box[int]; return x }` ("variable b resolved", then the refusal), then
-`testing.Println(b.v)` panics "internal error: unresolved selector in IR-gen".  Fixing this entry removes
-the refusal.
 
 ### The REPL never runs the generic-body dependency registration — 🔴 OPEN (found 2026-09-27, work-1; the indirect-package type registration half landed in binate `1ec1766ce`)
 
