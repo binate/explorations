@@ -76,14 +76,12 @@ ELF: the MOVW group — `:abs_g0:` … `:abs_g3:`, `_nc`, `_s` (MOVZ / MOVN / MO
 Mach-O relocation mappings, and the resolver (none of these resolve at assembly time).  Likely
 two commits: MOVW, then TLS.
 
-## Decisions (asked 2026-09-30)
+## Decisions (user, 2026-09-30 — each the recommended option)
 
-1. ELF temporaries: omit `.L…` and numeric-label instances from the ELF symbol table and
-   relocate against section symbols, as clang does (recommended), vs. keep listing them as locals.
-2. Forward references to a constant: reject all of them (recommended; the `mov` / scaled-`ldr`
-   forms clang accepts become deliberate rejects — clang's `mov` even takes the first of several
-   later definitions), vs. resolving them at layout time as clang does in those few places.
-3. Symbol-valued constants: aliases (`A = sym ± k`) and `C = .` in 3b (recommended); label
-   differences (`D = l2 - l1`, and `#(l2 - l1)` / `.uint32 l2 - l1`, none supported today) as
-   their own family on the list, vs. all in 3b.
-4. `.ltorg` / `.pool` as new directives in the dialect (recommended — clang's names).
+1. ELF temporaries: match clang — omit `.L…` and numeric-label instances from the ELF symbol table
+   and relocate against section symbols.
+2. Forward references to a constant: reject all; the `mov` / scaled-`ldr` forms clang accepts go
+   on the deliberate-reject list.
+3. Symbol-valued constants: aliases (`A = sym ± k`) and `C = .` in 3b; label differences (in
+   definitions, immediates and data directives) are their own family on the todo list.
+4. `.ltorg` / `.pool` are added as directives.
