@@ -115,6 +115,36 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### IR-gen: a cast of a function reference to a function-value type panics in IR-gen — 🔴 OPEN (found 2026-09-30 by the review of the cast-operand hint fix)
+
+`cast(*func(int) int, add1)` — likewise to a named `Fn`, a managed `MFn` or
+`@func(int) int` — type-checks (conv.cast part 1: everything assignable, and a
+function reference decays to a function value, func.ref.decay), but
+`genBuiltin` (`pkg/binate/irgen/gen_builtin.bn`) evaluates the operand with
+plain `genExpr`, so the reference never becomes an `OP_FUNC_VALUE` and IR-gen
+panics ("internal error: cast between mismatched aggregate/scalar shapes
+reached codegen").  The implicit form `var r *func(int) int = add1` works.
+Proposed fix: for CAST / UNSAFE_CAST whose (peeled) target is a function-value
+type, route a function-reference operand through `genExprOrFuncRef`'s
+function-reference path.  Test (not yet landed):
+`conformance/spec/10-functions/216_cast_function_reference` (`.xfail.all`).
+
+### Checker / IR-gen: a function literal cast to a type parameter gets no destination type — the instantiated cast borrows a freed heap closure (silent use-after-free) — 🔴 OPEN (found 2026-09-30 by the review of the cast-operand hint fix)
+
+In a generic body, `var g = cast(T, func(x int) int { return x + k })` (or
+`unsafe_cast`) types the literal once, while `T` is still abstract, so
+`checkExprWithFVHint` installs no hint and the literal defaults to a heap
+`@func` statement temporary.  Instantiated with a raw `*func` type (`viaCast[RF]`,
+`type RF = *func(int) int`), the cast borrows that temporary past its statement
+and the result reads freed memory (LLVM / native print garbage, the VM panics).
+Instantiated with `@func` it is correct.  The literal's destination type is only
+known per instantiation, which is what §12.3 `gen.mono.check` (per-instantiation
+checking — specified, not yet implemented) covers.  Options: implement
+per-instantiation checking for this case, or an interim IR-gen rule that picks
+the literal's heap vs frame allocation from the substituted cast target.
+Test (not yet landed): `conformance/spec/10-functions/217_funclit_cast_type_param`
+(`.xfail.all`).
+
 ### IR-gen: `Box[Box[Box[int8]]]`'s `bbb.Get().v.v` compiles, then panics at run time with "unresolved selector in IR-gen" — 🔴 OPEN MAJOR (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16, LLVM and native; pre-existing)
 
 ```
