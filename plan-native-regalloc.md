@@ -744,6 +744,23 @@ carry phis end up spilled and the latch shuffles each through a scratch register
   not runnable in this container (no aarch64 linker) — CI.  Remaining loop cost: the 8 record
   fields are all loaded before any is used and spill (an instruction-ordering problem).
 
+**Extract sinking (2026-09-30, claimed).**  The "8 loads" in record-churn are one aggregate
+`OP_LOAD` of `arr[i]` plus 8 `OP_EXTRACT`s that SROA/inlining leave together right after it (where
+`mix`'s parameter `a` was bound).  The native backend elides the aggregate load (S-extract shape,
+`common_aggload_elision.bn`) and lowers each extract to a field load AT THE EXTRACT, so the fields
+become 8 simultaneously-live scalars.  Design:
+- New IR pass `sink-extract` (PASS_SINK_EXTRACT, last in the pipeline, after fuse-madd; -O1+; not in
+  the VM set): within each block, move every `OP_EXTRACT` whose uses are all later in the same block
+  (no phi / other-block / fault-pad use) to just before its first use — but never past an
+  instruction that may write or free memory, so the native S-extract elision (which requires only
+  such instructions between the load and its last extract) keeps holding and the move can never
+  force a full aggregate copy.  Extracts of extracts sink in dependency order.  O(block) rebuild:
+  each moved extract gets an anchor (the original index it is emitted before), computed bottom-up.
+- The "writes nothing" whitelist moves from `native/common` (`opIsPureBetween`) to `iropt`, exported,
+  and the elision calls it, so the pass and the elision agree by construction.
+- Semantics: an extract reads an SSA aggregate value, so moving it later in the block is always
+  correct in the IR; the memory-write barrier is purely to keep native's elision.
+
 Steps 2–5 are no-ops before step 6 (no home can be in an arg register yet), so each lands and
 validates on its own, as Stage 5d's increments did.
 
