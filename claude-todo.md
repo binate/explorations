@@ -74,9 +74,9 @@ heap `@func` statement temporary was released per evaluation.  Proposed fix:
 release the record's previous captures before re-filling it (run the
 closure-struct destructor on the zero-initialized hoisted record at the literal
 site), keeping the scope-exit cleanup — or give `for` cond / post a
-per-evaluation cleanup scope.  Test (not yet landed):
+per-evaluation cleanup scope.  Test:
 `conformance/spec/10-functions/210_funclit_raw_closure_reeval_releases`
-(`.xfail.all`).
+(`.xfail.all`, landed `690c18863`).
 
 **Lifetime (needs a decision).** `func.closure.allocation` says the record's
 "lifetime [is] tied to that frame", but IR-gen releases a `*func` closure's
