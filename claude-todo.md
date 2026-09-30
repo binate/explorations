@@ -953,9 +953,9 @@ and over the type checkBlankTypeDecl resolves.
 Loud rejections, not mis-assembly, but the assembler is meant to be comprehensive: exclusive / acquire-
 release loads and stores (LDXR/STXR/LDAXR/STLXR/LDXP/STXP/LDAR/STLR/LDAPR/LDLAR/LDAPUR/STLUR), LSE
 atomics (LDADD*/STADD/SWP/CAS/CASP), LDTR/STTR*, LDRAA/LDRAB, NEON LD1/ST1/LD1R and NEON / FP arithmetic
-text forms, CRC32*, PACGA/XPACI, CFINV/RMIF/SETF8, TLBI/AT, the `:abs_g*:` and TLS relocation operators,
-`.L` / numeric local labels, literal pools (`ldr =imm`, deliberately rejected today), `prfm pldslckeep`,
-`dsb nXS`, `clrbhb`, `allint`, `dc gva`; and `name = expr` constants, which are defined but can't be
+text forms, CRC32*, PACGA/XPACI, CFINV/RMIF/SETF8, TLBI/AT (🟡 IN PROGRESS with `prfm pldslckeep`, `dsb nXS`,
+`clrbhb`, `allint`, `dc gva` — claimed 2026-09-30, work-2/session), the `:abs_g*:` and TLS relocation
+operators, `.L` / numeric local labels, literal pools (`ldr =imm`, deliberately rejected today); and `name = expr` constants, which are defined but can't be
 referenced (lookupConst has no callers).  Each family: isa encoder (if missing) +
 parser + golden lines from clang.
 
