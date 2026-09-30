@@ -234,17 +234,6 @@ value receiver (the probe's line for it was cut off by the runner's output limit
 backends not yet checked.  Needs a conformance test over raw and managed interfaces, `@`- and
 `*`-named receivers, and every backend.
 
-### An alias to a pointer (or array / function / struct) type is accepted as a type-assertion target — `x.(*NP)` recovers a Node cell as `*(@Node)` — 🟡 IN PROGRESS (found 2026-09-30, work-3, review of the `@any` pointee-keying change; reproduced; pre-existing; claimed 2026-09-30, work-3/session — user: "yes")
-
-With `type NP = @Node`, `x.(*NP)` compiles: the parser takes a TypeName and `assertTargetType` never
-rejects a base that resolves (through the alias) to a pointer.  §11.12 allows only a nameable type or a
-slice as a target, so it should be a compile error.  On a plain `@Node` box (`var r *any = n`, data word =
-the Node cell), `r.(*NP)` HITS (typeInfoSymFor keys it on `main.Node`, peeling every pointer level) and
-recovers the Node cell as a `*(@Node)` — dereferencing it reads `Node.v` as a pointer (type confusion).
-The same gap admits an alias to an array, function or struct type.  Fix: in the checker, reject an
-assertion target whose base resolves through an alias to a pointer / array / function / struct (the
-kinds §11.12 already rejects when spelled directly); add a conformance `.error` test for each.
-
 ### A type-parameter assertion target (`x.(*T)`) is accepted although §11.12 says it is rejected — `f[@Node]` recovers a Node cell as `*(@Node)` — 🔴 NEEDS DECISION (found 2026-09-30, work-3, review of the alias-target checker fix; reproduced; pre-existing)
 
 `func f[T any](x @any) bool { _, ok := x.(*T); return ok }` with `var a @any = n` (n `@Node`) and

@@ -1,3 +1,20 @@
+### An alias to a pointer (or array / function / struct) type is accepted as a type-assertion target — `x.(*NP)` recovers a Node cell as `*(@Node)` — DONE (binate `76e4391e8`, 2026-09-30, work-3)
+
+With `type NP = @Node`, `x.(*NP)` compiles: the parser takes a TypeName and `assertTargetType` never
+rejects a base that resolves (through the alias) to a pointer.  §11.12 allows only a nameable type or a
+slice as a target, so it should be a compile error.  On a plain `@Node` box (`var r *any = n`, data word =
+the Node cell), `r.(*NP)` HITS (typeInfoSymFor keys it on `main.Node`, peeling every pointer level) and
+recovers the Node cell as a `*(@Node)` — dereferencing it reads `Node.v` as a pointer (type confusion).
+The same gap admits an alias to an array, function or struct type.  Fix: in the checker, reject an
+assertion target whose base resolves through an alias to a pointer / array / function / struct (the
+kinds §11.12 already rejects when spelled directly); add a conformance `.error` test for each.
+
+Resolved: assertTargetType rejects a target whose resolved base is, under any alias / readonly
+wrapper (aliases stay TYP_ALIAS in the checker, so the peel is needed), a pointer, slice, array,
+anonymous struct, function value or interface value (isNameableAssertBase); named types over those and
+aliases of named types stay legal.  Conformance 1459 (error) + 1460.  The review found the same type
+confusion through a TYPE-PARAMETER target, filed separately (needs decision).
+
 ### A deferred method call on a generic instantiation or an imported type panicked; a package-level var inferred from a generic instantiation (also interface-typed, pointer to another package's type) was untyped — DONE (binate `9faa66906`, 2026-09-30, work-7)
 
 Both came from IR-gen typing a value from the checker's type, which names types differently (an
