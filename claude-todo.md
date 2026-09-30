@@ -925,6 +925,9 @@ and over the type checkBlankTypeDecl resolves.
   from the receiver's IR type, as `genInterfaceMethodCall` does.
 - **An imported generic FUNCTION can't be called at the REPL prompt:** "extern not found:
   <pkg>.F__bn_inst__…", whether the fixture imports the package or it is imported mid-session.
+  🟡 IN PROGRESS (claimed 2026-09-30, work-6/session): root cause — the REPL lowered only a prompt
+  entry's own function, not the instantiations IR-gen appended while generating it; fixed by the
+  prompt-lowering change under review (lowerGenerated), with tests.
 
 ### aa64 text assembler: clang-valid instruction families still rejected (completeness) — 🟡 IN PROGRESS (listed 2026-09-26; claimed 2026-09-27, work-2/session; user: "Next, after this lands", then "yes"; landing family by family)
 
