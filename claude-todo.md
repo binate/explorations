@@ -3144,7 +3144,9 @@ pkg/builtins/lang.int.Get" (the receiver resolved as int).  irgen GenDecl lowers
 method declaration as an ordinary one (genFunc / genMethod) instead of registering it for instantiation
 at its call sites, as GeneratePackage does (gc.GenericDecls, stashGeneric…).  Root cause: needs
 investigation.  Generic types, generic interfaces and generic-receiver impls declared in an imported
-package work (e2e tier5-box-generic-receiver-impl-instantiation).
+package work (e2e tier5-box-generic-receiver-impl-instantiation).  Also (found 2026-09-30 reviewing
+interface / impl parking, reproduced): `type Cur[T any] struct { v T }`, `type CI = Cur[int]`, `var cc
+CI`, `cc.v = 4` panics IR-gen "selector assignment target with no address".
 Found 2026-09-30 (work-7, building the checker→IR-gen type mapper): generic TYPE declarations typed at
 the prompt are not registered for instantiation either — the REPL lowers a `type` through GenTypeDecls,
 which never stashes a generic struct decl (stashGenericStructDecl), so every IR-gen instantiation of a
