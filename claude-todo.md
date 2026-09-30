@@ -720,7 +720,8 @@ SME/SME2 included — sequencing is free, but no family is dropped for lack of a
 above: FEAT_MTE (IRG / GMI / SUBP(S) / ADDG / SUBG / STG / LDG / STGP / …), FEAT_MOPS (CPY* / SET*), FEAT_LS64
 (LD64B / ST64B*), FEAT_GCS, FEAT_CSSC (ABS / CNT / CTZ / SMAX / SMIN / UMAX / UMIN reg & imm), FEAT_SYSREG128 /
 FEAT_SYSINSTR128 (MRRS / MSRR / SYSP), CHKFEAT and the other newer hint / system forms, SVE/SVE2(.1), SME/SME2.
-**Found by the emit-before-EOL review (2026-09-29), not yet done:** a '$' in a label name (`L$foo:`) —
+**Found by the emit-before-EOL review (2026-09-29), not yet done — 🟡 IN PROGRESS with the small-forms review's
+items below (claimed 2026-09-29, work-2/session):** a '$' in a label name (`L$foo:`) —
 clang accepts it, this assembler rejects it.  **Found by the small-forms review (2026-09-29), not yet
 done:** shift amounts written as expressions that clang rejects but this assembler takes (the value is
 right): register-offset `lsl +3` / `lsl (3)` / `lsl ~-4` / `uxtw (3)`, add / sub `lsl #(12)` / `lsl #6+6` /
