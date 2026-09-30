@@ -321,7 +321,7 @@ bound on a variable (`p.Inc`) it does.  Root cause: unknown — needs investigat
 construction for a non-variable receiver takes the receiver's value, not its address).  Covered by
 conformance 1428 (`xfail.all`).
 
-### A deferred interface-method call through a pointer to an interface value crashes bnc — "defer of an unresolved interface method" — 🔴 OPEN (found 2026-09-29, work-7, review of the `(&x).f` selector fix; pre-existing)
+### A deferred interface-method call through a pointer to an interface value crashes bnc — "defer of an unresolved interface method" — 🟡 IN PROGRESS (found 2026-09-29, work-7, review of the `(&x).f` selector fix; pre-existing; claimed 2026-09-30, work-7/session)
 
 `defer (&iv).Show()` (iv `*I`), `defer (&mv).Show()` (mv `@I`) and `defer piv.Show()` (piv `*(*I)`) panic in
 bnc with every compiler checked; the same calls without `defer` work, and so does `defer (*piv).Show()`.
