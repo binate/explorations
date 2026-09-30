@@ -74,6 +74,22 @@ a 3-byte struct.
 
 ## MAJOR
 
+### IR-gen: a package-level method value's closure record lives in the package initializer's stack frame — dangling after init (wrong code) — 🔴 OPEN (found 2026-09-29 while fixing the *func closure frame lifetime)
+
+`var g @Leaf = mk(); var mv *func(int) int = g.Add` at package level:
+`genMethodValue` builds the method value's `*func` closure record (holding the
+receiver) in the frame of the package's global initializer function, so after
+the initializer returns `mv`'s data word points into a dead stack frame.  Calling
+`mv` after anything reuses that stack reads garbage — native aa64 printed
+garbage before the frame-lifetime fix and aborts after it (the record is now
+also released at the initializer's exit); LLVM happens to print the right
+value.  A package-level function literal cannot capture (there are no locals),
+so method values are the only package-level closure records.  Proposed fix:
+mirror the raw-slice-literal backing — when `isGlobalInitFunc(ctx)`,
+`allocFrameClosureRecord` allocates the record as package-level static storage
+(`newPackageLiteralBacking`), stored with init semantics and never released
+(program lifetime), and the spec says so in `func.closure.allocation`.
+
 ### IR-gen: a method value on a composite-literal receiver with managed fields stores the literal's address, not its value — wrong code (garbage / segfault) — 🔴 OPEN (found 2026-09-29 by the review of the *func closure frame-lifetime fix)
 
 `S{m: l, k: 10}.Get` — `S` has an `@Leaf` field, `Get` a value receiver — stores
