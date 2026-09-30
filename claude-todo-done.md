@@ -40,7 +40,8 @@ generated (a method boxing its receiver into the impl's interface dispatches thr
 lowered after them.  Review found and fixed: rows registered after functions, the alias-before-method-set
 order, un-qualified and alias keys, supersession by parent impls, false waits, cast / constraint hooks,
 alias generic impls, the error naming a key instead of the impl.  Tests: check_pending_impl_test.bn (16),
-repl decl_iface_test, e2e repl cases 53–60.
+repl decl_iface_test, e2e repl cases 53–60; cases 61–62 (binate `3acd2b2a9`) run a cast waiting on an
+alias-receiver impl and an impl of a generic interface instance.
 
 ### An alias to a pointer (or array / function / struct) type is accepted as a type-assertion target — `x.(*NP)` recovers a Node cell as `*(@Node)` — DONE (binate `76e4391e8`, 2026-09-30, work-3)
 

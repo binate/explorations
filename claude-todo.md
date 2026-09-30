@@ -215,7 +215,7 @@ reproduce on `builder-comp_arm32_baremetal` with a large by-value struct return 
 object for `__aeabi_memcpy` references); if it reproduces, route those paths through the leaf-by-leaf
 helpers.
 
-### Boxing a named type defined over a struct (`type S2 S`) leaks the struct's managed fields — 🔴 OPEN MAJOR (found 2026-09-30, work-6, review of interface / impl at the REPL prompt; reproduced, compiled and REPL; pre-existing)
+### Boxing a named type defined over a struct (`type S2 S`) leaks the struct's managed fields — 🟡 IN PROGRESS (claimed 2026-09-30, work-6/session — user: "then continue") (found 2026-09-30, work-6, review of interface / impl at the REPL prompt; reproduced, compiled and REPL; pre-existing)
 
 `type S struct { p @Inner }`, `type S2 S`, `impl *S2 : Sizer`: dropping a `@S2` boxed into `@Sizer` leaves
 the Inner's refcount one high (a file program too).  irgen boxSlot0DtorName (gen_iface_anybox.bn) names
