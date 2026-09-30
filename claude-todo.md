@@ -1443,6 +1443,11 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   free_fn / trampoline calls with scalar-or-void results), but each is a silent miscompile if a
   new caller reaches it. Fix: share emitCall's argument placement, or assert the supported shapes
   loudly. Needs a test that pins whichever is chosen.
+- **Sink loads toward their uses (native codegen quality, all backends)** — 🟡 IN PROGRESS (claimed
+  2026-09-30). record-churn's inner loop loads all 8 fields of `arr[i]` (SROA of the aggregate load)
+  before any is used, so ~16 scalars are live at once and the fields spill to the stack on x64 (9
+  homes). Moving each load down to just before its first use (within the block, not past a store
+  or call that may alias it) shortens those live ranges. Plan in `plan-native-regalloc.md`.
 - **x64 `rt.MemZero`** (zeroing each `make_slice`) is a 4×-unrolled 8-byte store loop reloading its
   zero constants from 4 stack slots — 11.6% of native instructions; LLVM uses glibc `rep stosb`.
   Covered by the x64 MemZero/MemCopy item under native vectorization (A) (being worked on
