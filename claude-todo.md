@@ -156,7 +156,7 @@ reproduce on `builder-comp_arm32_baremetal` with a large by-value struct return 
 object for `__aeabi_memcpy` references); if it reproduces, route those paths through the leaf-by-leaf
 helpers.
 
-### Interface and `impl` declarations at the REPL prompt are refused by IR-gen but stay bound in the checker — a later use crashes the REPL — 🔴 OPEN MAJOR (found 2026-09-29, work-6, recon for parking interface / impl declarations; reproduced; pre-existing)
+### Interface and `impl` declarations at the REPL prompt are refused by IR-gen but stay bound in the checker — a later use crashes the REPL — 🟡 IN PROGRESS MAJOR (found 2026-09-29, work-6, recon for parking interface / impl declarations; reproduced; pre-existing; both parts claimed 2026-09-29, work-6/session — user: "Yes, claim both and start with 1.")
 
 `interface Sizer { Size() int }` and `impl *Box : Sizer` at the prompt each print "only func / const /
 var / type declarations are supported at the prompt (Tier 2)" (irgen GenDecl), but the checker has
