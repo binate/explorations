@@ -7,6 +7,16 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### The REPL runs a parked declaration whose retry fails to check — errors never shown, garbage values — 🔴 OPEN (found 2026-09-29, work-6, review of the REPL failed-prompt fix; reproduced by the reviewer; pre-existing)
+
+`var x int = y` (parks on y), then `var y @[]char = "hello"`: the retry of x fails (a `@[]char` is not
+an int) but prints "variable x resolved", and `testing.Println(x)` prints a pointer value — no error is
+ever shown.  `RetryPendingDecls` (check/check_pending.bn) migrates the retry's real errors into
+c.Errors but still appends the decl to `resolved`, contrary to its own doc; `retryPending`
+(repl/decl.bn) never prints those errors and IR-gens and runs the decl.  Fix: a retry that reports
+errors is not resolved — the REPL prints its errors and undoes it (SnapshotDecl / RollbackDecl, as a
+failed prompt is), rather than emitting it.
+
 ### The REPL runs a prompt whose errors all repeat an earlier prompt's — segfault / "extern not found" — 🟡 IN PROGRESS (found 2026-09-29, work-6, review of the one-mistake-one-error cleanup; reproduced; pre-existing; claimed 2026-09-29, work-6/session — user: "yes, go ahead and fix it, and I guess you can also fix the failed-decl issue")
 
 Enter `u[0] = 5` twice (u undefined): the first prompt reports its errors; the second runs and bni
@@ -23,6 +33,13 @@ declaration leaves its symbol in the persistent scope (IR-gen skipped it), so la
 that was never emitted — `var x = 1 + true` then `var y int = x` prints 0 today; the cleanup types more
 such symbols TypError, so fewer later errors flag it.  Fix: roll back or poison an errored declaration's
 symbols.
+Not covered by the rollback (found by its review; pre-existing): the generic-type-declaration
+registry (c.GenericTypeDecls / …Pkgs / …Scopes — a failed `type G[T any] struct {…}` is re-reported on
+every later use of a corrected G), a failed method with a generic receiver (methodBaseTypeForDecl returns
+nil for `*Box[T]`), `impl` at the prompt (collectImplDecl registers into c.Impls whatever the check says,
+and GenDecl then refuses it: `i.M()` is "call of nil interface value"), and a PARKED redefinition of a
+type clears the old type in place.  Separately, generic functions and generic-receiver methods at the
+prompt panic "extern not found" even when valid.
 
 ### `cast(*any, &s)` with `s @[]readonly char` boxes as `@[]char` — a type switch hands out a MUTABLE slice over readonly data — 🟡 IN PROGRESS (found 2026-09-29, work-3, review of the outer-readonly boxing fix; pre-existing; claimed 2026-09-29, work-3/session)
 
