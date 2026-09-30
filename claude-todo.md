@@ -168,6 +168,32 @@ definition"); that needs a type identity that tells the two T's apart through th
 identity is by qualified name today), IR-gen's type registries and the helper names.  A parked type
 redefinition mutating the old type is in the forward-reference entry above.
 
+### A generic type that names a type declared after it is broken at the REPL prompt — wrong size, IR-gen panic — 🔴 OPEN MAJOR (found 2026-09-29, work-6, review of the REPL forward-reference rework; reproduced; pre-existing)
+
+`type G[T any] struct { v T; w Missing }`, then `type Missing struct { a int; b int }`: `sizeof(G[int])`
+prints 8 (the same program as a file prints 24), and `var g G[int]` then `g.w.b = 7` panics "internal
+error: unresolved selector in IR-gen", killing the REPL.  Instantiating before Missing is declared
+(`var g G[bool]` parks on Missing, then resolves) gives the same size 8.  A generic type declaration at
+the prompt never parks — its body is resolved only when instantiated — so it is accepted with a missing
+name, and something (the checker's instantiation or IR-gen's REPL type registration) then lays out the
+field of the later-declared type wrongly.  Root cause: unknown — needs investigation.
+
+### A type declared over a REPL variable or function name is silently ignored — 🔴 OPEN MAJOR (found 2026-09-29, work-6, review of the REPL forward-reference rework; reproduced; pre-existing)
+
+`type Q struct { a int }`, `var P Q`, `type P struct { x int; y int }`: no error, but P stays the
+variable — `sizeof(P)` then reports "P is not a type".  `func T() int { return 1 }`, `type T struct { x
+int }`: no error, then `func (t *T) M() int` reports "method receiver must be a named type".  A type
+declaration's name already bound to a non-type in the session scope gets no placeholder
+(preRegisterTypeNames), and collectTypeDecl then leaves the binding alone or binds an unnamed struct.  Fix:
+decide what a declaration of another kind over a REPL name does (replace the binding, or reject it as a
+type redefinition is), and make the checker and IR-gen do it.
+
+### A REPL variable redefined with a different type keeps the old variable's value — 🔴 OPEN MAJOR (found 2026-09-29, work-6, review of the REPL forward-reference rework; reproduced; pre-existing)
+
+`var x int = 1`, `var x bool = true`, `testing.Println(x)` prints 1 (silent wrong value); redefining with
+the same type (`var q int = 1`, `var q int = 2`) prints 2.  Root cause: unknown — needs investigation
+(how a redefined variable's new global is materialized and found, and what its initializer writes).
+
 ### Explicit generic type arguments starting with `*(`, `*@` or `readonly` are rejected in expression context — valid code rejected — 🟡 IN PROGRESS (found 2026-09-29, work-3, writing conformance 1437; reproduced; pre-existing; claimed 2026-09-29, work-3/session — user: "then fix the two MAJORs next")
 
 `f[*(@[]int)](x)`, `f[*([3]int)](x)` and `f[*@[]int](x)` fail to parse ("expected {, got )" / "expected
