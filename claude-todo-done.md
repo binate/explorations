@@ -1,3 +1,24 @@
+### A generic function whose parameter type contains `readonly T` (`x readonly T`, `s *[]readonly T`) cannot be called — valid code rejected — DONE (binate `af525228f`, 2026-09-29, work-3)
+
+`func n[T any](s *[]readonly T) int` called as `n[int](a)` with `a *[]readonly int` fails "cannot assign
+*[]readonly int to *[]readonly T"; `func f[T any](x readonly T)` called as `f[@[]readonly char](s)` fails
+"cannot assign @[]readonly uint8 to readonly T".  `substituteTypeParams` (check/check_generic.bn ~:283)
+walks pointer / slice / array / interface-value / function kinds but returns a TYP_READONLY unchanged, so
+the `T` under a `readonly` is never substituted.  Nothing in the tree uses `readonly T` in a generic
+signature, which is why it went unnoticed — but `*[]readonly T` is the natural parameter type for a
+read-only slice API.  Fix: substitute under TYP_READONLY (`MakeReadonlyType(subst(Elem))`), audit the
+other kinds it skips (alias, anonymous struct fields, tuple), and check that IR-gen's instantiation
+resolves the same types.  Needs a conformance test (a `readonly T` and a `*[]readonly T` parameter,
+called and run on every backend).
+
+Resolved: substituteTypeParams rebuilds a TYP_READONLY and an anonymous TYP_STRUCT around their
+substituted parts (the other skipped kinds — alias, named, tuple, Self — cannot carry a type parameter in
+a generic signature).  The same walk serves method-signature backfill and generic-impl matching, so a
+`*readonly Box[T]` receiver and `impl @Box[T] : Getter[readonly T]` work too.  Conformance 1441 + two
+check unit tests.  1441 spells `Box[readonly int]{…}` through an alias until the type-argument parser
+MAJOR lands.  The review also reproduced the dependent-array-length wrong-accept, added to the design-B
+entry (explorations 0eaca65a1).
+
 ### AArch64 small forms — DONE (binate `2767b7aaf`, 2026-09-29, work-2)
 
 Landed: an offset inside the brackets without `#` (every address form), a character literal wherever a bare
