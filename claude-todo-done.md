@@ -1,3 +1,16 @@
+### A pointer-receiver method on an element of an array composite literal failed to link — no longer reproduces (verified 2026-09-30, work-7)
+
+`[2]P{}[1].bump()` (`func (p *P) bump()`) links and runs on main (`896595612` and later): `[2]P{P{v: 4},
+P{v: 9}}[1].bump()` returns 10 on LLVM, native aa64 and the VM.  Fixed by an earlier landing in the
+receiver / array-literal work (the entry was filed before it landed).
+
+### A `*readonly Box[T]` method was rejected on a `Box[int]` value receiver — DONE (binate `af525228f`, 2026-09-29, work-3)
+
+`func (b *readonly Box[T]) get() T` called on `var bx Box[int]` ("not assignable to *readonly Box[T]"):
+substituteTypeParams did not substitute under `readonly`, so the method's receiver kept the abstract `T`.
+`af525228f` substitutes under readonly (its commit message names this receiver); verified 2026-09-30 by
+work-7 on LLVM, native aa64 and the VM.
+
 ### REPL forward references: a parked declaration binds nothing; parked declarations resolve in dependency groups — DONE (binate `8ba473042`, 2026-09-29, work-6)
 
 Started as "the REPL runs a parked declaration whose retry fails to check" (`var x int = y`, then `var y
