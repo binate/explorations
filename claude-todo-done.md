@@ -123,6 +123,18 @@ CHECK_TOOLS bnfmt/bnlint have the old parser, so bnc's own tree and hygiene-chec
 use these spellings until those are bumped.  The review's side note (parse errors print no position)
 is filed as its own MAJOR.
 
+### AArch64 system operation tables — DONE (binate `19e49d3c0`, 2026-09-30, work-2)
+
+TLBI (new: all 85 operations, each with its `nxs` form at CRn 9; a register exactly when the operation takes
+one), AT (new: 17), DC (38, was 10: the MTE G / GD forms, GVA / GZVA, …VAOC, CIVAPS, CIPAE, CIPAPA), IC —
+one packed sysOp per operation in `asm/parse/aarch64_sysops.bn`; DSB nXS by name and `#16/#20/#24/#28`
+(isa.DsbNxs), `csync` as barrier option 0; PRFM / PRFUM's SLC target; CLRBHB / PACM; MSR (immediate) of
+ALLINT / PM / SVCRSM / SVCRZA / SVCRSMZA, and SPSel / UAO / PAN / DIT / SSBS / TCO widened to clang's (and the
+Arm ARM's) 0..15.  The review found a DSB expression past 15 assembled differently from clang (clang reads
+it by its leading literal: `dsb #8+8` is `dsb #8`); an nXS immediate must now be a single literal, and the
+expressions are deliberate rejects (user: "The reject sounds good").  A DSB / DMB / ISB immediate without `#`
+must start with a literal, as clang requires.  Goldens for every operation from Apple clang 21.
+
 ### AArch64 remaining small parity items — DONE (binate `2ba733647`, 2026-09-30, work-2)
 
 Shift amounts as clang takes them (after `#` starting with a literal or '(', without `#` with a literal; a

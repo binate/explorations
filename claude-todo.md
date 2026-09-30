@@ -903,8 +903,7 @@ and over the type checkBlankTypeDecl resolves.
 Loud rejections, not mis-assembly, but the assembler is meant to be comprehensive: exclusive / acquire-
 release loads and stores (LDXR/STXR/LDAXR/STLXR/LDXP/STXP/LDAR/STLR/LDAPR/LDLAR/LDAPUR/STLUR), LSE
 atomics (LDADD*/STADD/SWP/CAS/CASP), LDTR/STTR*, LDRAA/LDRAB, NEON LD1/ST1/LD1R and NEON / FP arithmetic
-text forms, CRC32*, PACGA/XPACI, CFINV/RMIF/SETF8, TLBI/AT (🟡 IN PROGRESS with `prfm pldslckeep`, `dsb nXS`,
-`clrbhb`, `allint`, `dc gva` — claimed 2026-09-30, work-2/session), the `:abs_g*:` and TLS relocation
+text forms, CRC32*, PACGA/XPACI, CFINV/RMIF/SETF8, TLBI/AT, the `:abs_g*:` and TLS relocation
 operators, `.L` / numeric local labels, literal pools (`ldr =imm`, deliberately rejected today); and `name = expr` constants, which are defined but can't be
 referenced (lookupConst has no callers).  Each family: isa encoder (if missing) +
 parser + golden lines from clang.
@@ -919,7 +918,10 @@ overlaps deliberately rejected, unlike clang).  (3) LSE atomics
 register forms (PAC* / AUT* / XPAC* / PACGA) and flag manipulation (CFINV / XAFLAG / AXFLAG / RMIF /
 SETF8 / SETF16) — landed `8114782c0` (2026-09-27).  (6) FP and Advanced SIMD, incl. the SIMD loads /
 stores (LD1–LD4 / ST1–ST4, LD1R–LD4R, LDAP1 / STL1) and crypto — complete, last piece landed `ef7ab6191`
-(2026-09-29); step-by-step record in `done/plan-aa64-asm-fp-simd.md`.  Apple's legacy NEON syntax
+(2026-09-29); step-by-step record in `done/plan-aa64-asm-fp-simd.md`.  (7) the system operation tables —
+TLBI / AT, all of DC / IC, DSB nXS, PRFM's SLC target, CLRBHB / PACM, every PSTATE field — landed `19e49d3c0`
+(2026-09-30; a DSB immediate past 15 written as an expression deliberately rejected, since clang reads it by
+its leading literal alone — user: "The reject sounds good").  Apple's legacy NEON syntax
 (`dup.4s v0, w1`, `tbl.16b v0, {v1}, v3`), which clang
 accepts on every target, is not supported (user, 2026-09-28: "we don't need alternate syntax, unless there's
 a compelling reason (we've always tended to favor Intel/ARM syntax, I suppose)") — listed with the deliberate
@@ -932,7 +934,12 @@ omissions just because we don't need it now"):** every A64 extension clang suppo
 SME/SME2 included — sequencing is free, but no family is dropped for lack of a consumer.  Beyond the families
 above: FEAT_MTE (IRG / GMI / SUBP(S) / ADDG / SUBG / STG / LDG / STGP / …), FEAT_MOPS (CPY* / SET*), FEAT_LS64
 (LD64B / ST64B*), FEAT_GCS, FEAT_CSSC (ABS / CNT / CTZ / SMAX / SMIN / UMAX / UMIN reg & imm), FEAT_SYSREG128 /
-FEAT_SYSINSTR128 (MRRS / MSRR / SYSP), CHKFEAT and the other newer hint / system forms, SVE/SVE2(.1), SME/SME2.
+FEAT_SYSINSTR128 (MRRS / MSRR / SYSP), FEAT_RPRFM (RPRFM), FEAT_PAuth_LR (PACIASPPC / AUTIASPPC / RETAASPPC /
+PACIA171615 / …), CHKFEAT and the other newer hint / system forms with their own syntax (GCSB DSYNC, STSHH,
+CFP / DVP / CPP / COSP RCTX, BRB, TRCIT, TLBIP, SMSTART / SMSTOP), SVE/SVE2(.1), SME/SME2 — and the named
+system registers: `sysRegByName` knows ~70 of the hundreds clang names (the generic
+`s<op0>_<op1>_c<n>_c<m>_<op2>` form reaches any).  Newer LLVM only (Apple clang 21 rejects them; take them
+when the reference clang does): FEAT_TLBID's optional Xt on the broadcast TLBI operations, DC GBVA / ZGBVA.
 **Also open (found by reviews, 2026-09-29):** outside the instruction parsers a rejected
 line can still emit: a data directive with trailing text or a later bad value (`.ascii "ab" x`, `.uint32 1
 2`, `.int8 1, 300`, `.zero 4 x`, `.fill 2, 1, 7 x`, `.balign 8 x` padding in text) writes its bytes before
