@@ -53,7 +53,7 @@ Reviewer's fix: pass the checker type of the operand (`ctx.Checker.ExprType(e.Ar
 Traced by reading, not yet reproduced; needs a conformance test (cast(*any, &readonly slice) must match
 `case @[]readonly char:` and never `case @[]char:`).
 
-### In a generic body, boxing a `T`-typed value into `*any` / `@any` drops element-`readonly` — a type switch hands out a MUTABLE slice over readonly data — 🔴 OPEN (found 2026-09-29, work-3, probing the `cast(*any, &s)` readonly fix; reproduced; pre-existing)
+### In a generic body, boxing a `T`-typed value into `*any` / `@any` drops element-`readonly` — a type switch hands out a MUTABLE slice over readonly data — 🟡 IN PROGRESS (found 2026-09-29, work-3, probing the `cast(*any, &s)` readonly fix; reproduced; pre-existing; claimed 2026-09-29, work-3/session — same type-parameter substitution fixes a regression the review found in the cast fix)
 
 `func viaVar[T any](x T) … { var a *any = &x; … }` called as `viaVar[@[]readonly char](s)` boxes `x` as
 `@[]char`: `case @[]char:` matches and recovers a mutable slice over the readonly bytes.  Every box path
