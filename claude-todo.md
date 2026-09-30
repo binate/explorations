@@ -114,6 +114,36 @@ instructions per copy) at -O1.  Fails loudly at build time.  Fix: branch relaxat
 
 ## MAJOR
 
+### LLVM backend: a >16-byte `__c_call` aggregate argument's slot is smaller / less aligned than the ABI access made through it (undefined behaviour; can fault) — 🔴 OPEN (found 2026-09-30, work-1, by the review of the bulk by-value-argument change; pre-existing)
+
+The by-value slot a `__c_call` argument is passed through is `alloca <T>` with no explicit alignment, but:
+- arm32 (AAPCS32): writeByvalArgPreamble loads the coerced words from it — for `[17]uint8`,
+  `load [5 x i32], ptr <slot>` from `alloca [17 x i8]`: 3 bytes past the slot, and the load's implied 4-byte
+  alignment exceeds the slot's 1 (an `ldm` from a misaligned address faults).
+- x64: writeByvalArgLLVM passes it `ptr byval(<T>) align 8`, claiming 8-byte alignment the alloca doesn't have.
+The slot is `%v<call>.bv<i>`, or (since the bulk by-value change) a memory-backed argument's `%v<ID>.m`, which
+has the same shape.  Found reading emitted IR (`--target arm32-linux` for the arm32 case); no test shows a
+failure yet.
+Fix: give each slot the size and alignment the ABI access needs — allocate the coerced `[N x iW]` (as the
+`.agA<i>` coercion slot already does) or round the slot up, and emit `align` ≥ the alignment the load / byval
+claims; the same for a `.m` slot passed to a `__c_call`.  Add an IR-level unit test for each target.
+
+### Native aa64: a by-value aggregate parameter passed indirectly may be copied as whole 8-byte words, reading past the caller's copy — 🔴 OPEN, UNCONFIRMED (reported 2026-09-30 by the review of the bulk by-value-argument change)
+
+Reported: the aa64 callee copies an IndirectLargeAggregates parameter as `common.ArgWords(T) * 8` bytes, so a
+100-byte `[100]uint8` parameter reads 104 bytes from the caller's copy — past its end (harmless on the stack
+in practice; a fault if the copy ends at an unmapped page boundary).  Not yet confirmed against the code
+(start at the aa64 incoming-parameter spill and `common.ArgWords`); check x64 and arm32 for the same pattern.
+Fix if confirmed: copy exactly `SizeOf(T)` bytes (a byte / halfword tail after the whole words).
+
+### LLVM backend: `cast(*T, nil)` emits invalid IR — clang rejects the program — 🔴 OPEN (found 2026-09-30, work-1, by the review of the bulk by-value-argument change)
+
+`var p *uint8 = cast(*uint8, nil)` type-checks but the LLVM backend emits `%v0 = inttoptr i64 0 to i8*` then
+`%v1 = inttoptr i64 %v0 to i8*` — `%v0` is already a pointer, so clang fails: "'%v0' defined with type 'ptr'
+but expected 'i64'".  A loud compile failure, not a miscompile.  Other backends / the VM not yet checked.
+Needs a conformance test (xfail on the failing modes) and a fix in the cast lowering (a pointer-typed nil
+source needs no `inttoptr`).
+
 ### IR-gen: a package-level method value's closure record lives in the package initializer's stack frame — dangling after init (wrong code) — 🔴 OPEN (found 2026-09-29 while fixing the *func closure frame lifetime)
 
 `var g @Leaf = mk(); var mv *func(int) int = g.Add` at package level:
