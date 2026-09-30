@@ -79,7 +79,60 @@ when every aggregate copy is fully unrolled — a function copying a 16 KB aggre
 instructions per copy) at -O1.  Fails loudly at build time.  Fix: branch relaxation in the aa64 emitter
 (or a loop for large aggregate copies, which the LLVM backend's per-leaf entry also wants).
 
+### An interface value as a generic type argument (`id[GI](g)`, `type GI = *Getter`) — native prints garbage, LLVM emits invalid IR — 🔴 OPEN (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
+
+```
+interface Getter { Get() int }
+type W struct { n int }
+impl *W : Getter
+func (w *W) Get() int { return w.n }
+type GI = *Getter
+func id[T any](x T) T { var y T = x; return y }
+// main: var w W; w.n = 4; var g *Getter = &w
+//       var h *Getter = id[GI](g); testing.Println(h.Get())   // expect 4
+```
+- **Native aa64:** compiles and prints garbage (e.g. `6135964040`), a silent wrong result.
+- **LLVM:** clang rejects the IR: `ret i8* %v2` against a `%BnIfaceValue` result.
+
+Root cause unknown; it looks as if the instance's `T` is lowered as a plain pointer rather than a two-word interface value.  Needs a conformance test (xfails per failing mode) and a root-cause investigation.
+
+### Constraint calls through `impl *P` / `impl @M` give wrong results — needs a spec decision — 🔴 NEEDS DECISION (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
+
+```
+type P struct { v int }
+impl *P : lang.Comparable
+func (s *P) Compare(o P) int { return s.v - o.v }   // Self is P (iface.self); `o *P` is rejected
+type PP = *P
+func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
+// eq[PP](&p1, &p2) with p1.v == p2.v == 3
+```
+- **bnc-0.0.16 (LLVM and native):** `eq[PP]` and the `@M` analogue print `false false` for equal values, while the direct calls return 0.  This is silent wrong code.
+- **With design B's per-instance body check (not yet landed):** rejected, but with a misleading error inside the generic body: `cannot assign PP to P (in eq[PP], instantiated at …)`.
+
+`*P` satisfies the constraint, and the abstract check passes `b : T` as Self; with `T = *P`, the method's `o P` doesn't take a `*P`.  Two directions, which need a spec call:
+- `*P` does not satisfy `Comparable`, so the error is at the instantiation.
+- Constraint-call lowering reconciles Self with the receiver kind (passes `*b`).
+
 ## MAJOR
+
+### IR-gen: `Box[Box[Box[int8]]]`'s `bbb.Get().v.v` compiles, then panics at run time with "unresolved selector in IR-gen" — 🔴 OPEN MAJOR (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16, LLVM and native; pre-existing)
+
+```
+type Box[T any] struct { v T; n int }
+func (b *Box[T]) Get() T { return b.v }
+// main: var bbb Box[Box[Box[int8]]]; bbb.v.v.v = 3; testing.Println(bbb.Get().v.v)   // expect 3
+```
+The two-level `bb.Get().v` works.  The panic is IR-gen's fallback when no selector arm resolves the chain; which arm should have resolved `….Get().v.v` has not been investigated.  Needs a conformance test (xfails) and a root-cause fix in IR-gen.
+
+### A parameterized impl's coverage is not checked per instance — dependent array lengths pass, and a call reads past the caller's array — 🟡 IN PROGRESS MAJOR (claimed 2026-09-30, work-4/session; fixed as part of design B's per-instance checking, not yet landed) (found 2026-09-30 by the review of that work; pre-existing)
+
+```
+interface Sized[T any] { Put(x [sizeof(T)]uint8) int }
+type Wrap[K any] struct { k K }
+impl *Wrap[K] : Sized[K]
+func (w *Wrap[K]) Put(x [sizeof(K) + 6]uint8) int { … }
+```
+The impl is accepted because both lengths are dependent placeholders.  A call through `*Sized[int16]` with a `[2]uint8` gives a callee that sees `[8]uint8`: `len` is 8, and `x[7]` reads past the caller's array (LLVM and native aa64).  Each concrete instance of `Wrap` must re-check the impl's coverage with the bindings in place, and reject `Wrap[int16]` (8 against 2).
 
 ### LLVM backend: a >16-byte `__c_call` aggregate argument's slot is smaller / less aligned than the ABI access made through it (undefined behaviour; can fault) — 🔴 OPEN (found 2026-09-30, work-1, by the review of the bulk by-value-argument change; pre-existing)
 
