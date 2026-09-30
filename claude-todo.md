@@ -69,6 +69,36 @@ optimistic forward-reference design (dependents of a parked declaration resolve 
 entries survive a redefinition, a failed type retry unblocks its dependents, a parked type redefinition
 mutates the old type); user: "Do the full rework" — plan: [plan-repl-forward-refs.md](plan-repl-forward-refs.md).
 
+The plan's review (2026-09-29) found more, all reproduced at the REPL on the failed-retry fix:
+- CRITICAL: a parked type redefinition, when it resolves, refills the OLD type object with the new
+  layout, so values of the old type are read through it: `type T struct { a int }`, `var t T = T{a: 7}`,
+  `type T struct { b int; c U }` (parks), `type U int` → `t.a` is "undefined: a" and `t.b` prints 7.
+- MAJOR: a parked function redefinition with a different signature is lowered in place when it
+  resolves (no shadow), so old callers run the new body with the old arguments: `func f(x int) int`,
+  `func g() int { return f(41) }`, `func f(x int, y int) int { return x + y + z }` (parks),
+  `var z int = 100` → `g()` prints 141.
+- MAJOR: a parked method can be called: `func (t *T) M() int { return t.a + q }` (parks), then
+  `x.M()` → panic "vm: extern not found: main.T.M".
+- MAJOR: a pointer to a parked type is emitted as a pointer to int: `type T struct { a int; c U }`
+  (parks), `var p *T`, `type U int`, `var v T = T{a: 5}`, `p = &v`, `p.a` → panic "internal error:
+  unresolved selector in IR-gen".
+- MINOR: a parked constant used as an array length reports "array length must be a constant integer"
+  instead of parking.
+Found by reading only, not yet reproduced: a struct emitted while the type one of its `@` fields points
+to is parked gets a destructor that does not release that type's managed fields (a leak); a retry
+skips the value-embedding and by-value-cycle checks.
+
+### The REPL silently ignores a type redefinition — 🔴 OPEN MAJOR (found 2026-09-29, work-6, review of the REPL forward-reference plan; reproduced; pre-existing)
+
+`type T struct { a int }` then `type T struct { b int }`: no error, but the checker keeps the first T
+(collectTypeDecl returns early on a filled named type), so `var t T` then `t.b` is "undefined: b".
+IR-gen meanwhile registers a second `main.T` struct from the new source and reuses the old destructor
+and copy helpers by name (irgen gen_repl_types.bn).  claude-notes.md ("Redefinition in the REPL") says
+an incompatible type redefinition shadows ("existing instances retain the old layout/type
+definition"); that needs a type identity that tells the two T's apart through the checker (named-type
+identity is by qualified name today), IR-gen's type registries and the helper names.  A parked type
+redefinition mutating the old type is in the forward-reference entry above.
+
 ### A generic function whose parameter type contains `readonly T` (`x readonly T`, `s *[]readonly T`) cannot be called — valid code rejected — 🟡 IN PROGRESS (found 2026-09-29, work-3, writing conformance 1437; reproduced; pre-existing; claimed 2026-09-29, work-3/session — user: "then fix the two MAJORs next")
 
 `func n[T any](s *[]readonly T) int` called as `n[int](a)` with `a *[]readonly int` fails "cannot assign
