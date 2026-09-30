@@ -42,7 +42,7 @@ blanket rule.
 (the use-after-free) and `208_funclit_composite_elem_named` (the named-type
 rejection), both `.xfail.all`.
 
-### Checker: `cast(*func(…), func…)` does not give the function literal the cast's target type — the result dangles into a freed heap closure — 🟡 NEEDS DECISION (is a cast target a hinting destination?) (found 2026-09-29 by the review of the composite-literal function-literal hint fix)
+### Checker: `cast(*func(…), func…)` does not give the function literal the cast's target type — the result dangles into a freed heap closure — 🟡 IN PROGRESS (claimed 2026-09-29, work-5; decided 2026-09-29: a cast target IS a hinting destination, and `cast(Fn, lit)` is accepted) (found 2026-09-29 by the review of the composite-literal function-literal hint fix)
 
 `var g = cast(*func(int) int, func(x int) int { return x + k })` compiles; the
 literal (checked with plain `checkExpr` in `check_builtin.bn`'s CAST /
@@ -58,7 +58,7 @@ pattern borrows a statement temporary (user error) and is a candidate for a lint
 
 ## MAJOR
 
-### IR-gen: a capturing raw `*func` closure's record is one hoisted slot per literal, released at the end of the innermost block — re-evaluation leaks captures, and the record does not live as long as the frame — 🔴 OPEN (leak: must fix; lifetime: 🟡 NEEDS DECISION) (found 2026-09-29 by the review of the composite-literal function-literal hint fix)
+### IR-gen: a capturing raw `*func` closure's record is one hoisted slot per literal, released at the end of the innermost block — re-evaluation leaks captures, and the record does not live as long as the frame — 🟡 IN PROGRESS (claimed 2026-09-29, work-5; decided 2026-09-29: frame lifetime, option B) (found 2026-09-29 by the review of the composite-literal function-literal hint fix)
 
 **Leak (must fix).** A capturing `*func` literal evaluated more than once in one
 scope — a `for` condition or post statement — RefIncs its managed captures into
