@@ -95,6 +95,30 @@ _ = bx.Get()                                     // accepted
 ```
 The REPL would then call a method that was never emitted.  Cause: collectDecls ends with backfillInstantiationMethods, which copies the new method into every existing instance's method set (Box[int]).  Undoing the declaration (undoDecl / RollbackDecl, when it parks or fails) restores the placeholder's method set (restoreMethod) but not the instances'.  Fix: the undo must also remove the method from each instance it was copied into (record them in DeclRollback, or re-sync the instances' method sets after the undo).  Needs a check unit test (the probe above: `_ = bx.Get()` after the parked `Get` must be rejected, or park).
 
+### arm32 text assembler: `label+N` drops the addend — `ldr r0, lbl+4`, `b lbl+4` assemble to a different word — 🔴 OPEN MAJOR (found 2026-09-30, work-2, by the review of the arm32 literal-load fix; pre-existing)
+
+`parseArm32Operand` (`pkg/binate/asm/parse/arm32.bn` ~250) returns `arm32.Label(name)` and leaves `+ 4` as the
+next token; the load / store / branch cases in `arm32_instr.bn` return without an end-of-line check, so the
+addend is silently dropped (the arm32 `Label` operand has no addend field).  clang: `lbl: .word 1` / `.word 2` /
+`ldr r0, lbl+4` is E51F000C, ours E51F0010 (loads `lbl`); `ldr r1, ext+4` has field -4 with R_ARM_LDR_PC_G0,
+ours -8; `b lbl+4` is EAFFFFFB, ours EAFFFFFA.  Valid clang syntax silently assembled wrong.  Fix: parse
+`ident [(+|-) expr]` into the label operand's addend and pass it to the fixup (the resolver and REL baking
+already fold `fix.Addend`, A-8 for REL); B / BL need the addend too; and the end-of-line check after every arm32
+instruction that the "text parser silently ignores anything after a complete instruction" note (below, with the
+x64 immediates) asks for — which also covers `add r0, r1, r2 junk`.
+
+### arm32 assembler: a same-section branch / literal load to a global or weak symbol is resolved in place — 🔴 NEEDS DECISION (found 2026-09-30, work-2, by the review of the arm32 literal-load fix; pre-existing for branches)
+
+`arm32.ResolveFixups` (`pkg/binate/asm/arm32/arm32_sys.bn`) resolves any same-section target in place; unlike
+the aarch64 and x64 resolvers it never asks `a.DisplacementFixed` (on ELF: only a local symbol's displacement is
+fixed).  clang emits a relocation for `b g` / `ldr r7, g` / `ldrh r9, g` when `g` is `.globl` or `.weak`
+(R_ARM_JUMP24 / R_ARM_LDR_PC_G0 / R_ARM_LDRS_PC_G0).  For a global in a static link the result is the same
+(different words from clang); for a `.weak` symbol overridden by a strong definition elsewhere, our branch / load
+still reaches the local weak copy — wrong code.  Native arm32's link-once weak functions are identical copies
+(unaffected).  Decision: gate in-place resolution on `DisplacementFixed` as aarch64 / x64 do — which turns
+native `bl` to same-object global functions into R_ARM_JUMP24 relocations (bnld and GNU ld handle them) — or
+keep resolving and accept the weak-override case.
+
 ### arm32 assembler: `ldr rX, label` overwrites its own instruction — silent wrong code — 🟡 IN PROGRESS MAJOR (claimed 2026-09-30, work-2/session — user: "let's fix them now before 3b"; found 2026-09-30, work-2, by the review of the aa64 local-label commit; confirmed by reading; pre-existing)
 
 `arm32.Ldr` with an `OP_LABEL` operand (`pkg/binate/asm/arm32/arm32_mem.bn`) records a `FIX_ABS32` fixup at the
