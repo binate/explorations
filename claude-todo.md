@@ -638,9 +638,9 @@ it), and the dependency walk skips the self-reference, so the inner name falls t
 fallback: `StateFn`'s result is a one-word int where a two-word func value belongs — a state machine
 `s = s(i)` fails in clang ("extractvalue operand must be aggregate type"; the natives would silently
 mis-lower), and `Tree` is `@[]int`.  The checker accepts both.  Fix: register the named entry first and
-set its underlying after (as generic struct instantiations pre-register) — a helper replacing the five
-entry sites is done on the local branch `named-type-self-reference-20260930` (work-7), with conformance
-1460 (StateFn and Tree, same-package and through a `.bni`).  But making the type genuinely recursive then
+set its underlying after (as generic struct instantiations pre-register) — work-7 drafted a helper
+replacing the five entry sites, with a conformance test (StateFn and Tree, same-package and through a
+`.bni`); not landed.  But making the type genuinely recursive then
 sends every structural walker that looks through named types into infinite recursion:
 irutil.dtorTypeSuffixRec (dtor naming, `@[]Celsius` sharing `__dtor_ms_int` by design) overflows the stack
 on `Tree`; likely also the dtor / copy body generators, debug info (dbgTypeID) and typeinfo descriptors.
