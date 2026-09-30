@@ -372,7 +372,7 @@ the name to the universe type.  **Fix:** pre-register (or at least reserve) ever
 before any type expression is resolved, so a non-type declaration shadows the predeclared type from
 the start.  **Test:** checker unit test for both orders (with the fix).
 
-### A deferred method call on a generic instantiation or an imported type panics — "defer of an unresolved method call" — 🔴 OPEN (found 2026-09-28, work-5, review of the defer named-receiver fix; pre-existing)
+### A deferred method call on a generic instantiation or an imported type panics — "defer of an unresolved method call" — 🟡 IN PROGRESS (found 2026-09-28, work-5, review of the defer named-receiver fix; pre-existing; claimed 2026-09-30, work-7/session)
 
 `var b @Box[int]; defer b.Get()` and `var sb @strings.Builder; defer sb.WriteByte(…)` panic "defer of an
 unresolved method call" on every backend; the direct calls work.  buildDeferMethod (gen_defer_build.bn)
