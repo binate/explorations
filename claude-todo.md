@@ -416,7 +416,7 @@ and native: `__init` emits `store i8* %str, i8** @global` — an 8-byte pointer 
 which can overwrite the next global (the reviewer saw `__bninit_done` clobbered). A LOCAL `[5]char` so
 initialized works. Needs a conformance test + the package-init lowering fixed to copy the bytes.
 
-### `(&s).f` / `(&s).m[i]` — a selector whose base is an address-of — fails to compile or panics — 🔴 OPEN (found 2026-09-28 by the review of the in-place array-index fix, claude/exciting-davinci-wahyt2 session; pre-existing)
+### `(&s).f` / `(&s).m[i]` — a selector whose base is an address-of — fails to compile or panics — 🟡 IN PROGRESS (found 2026-09-28 by the review of the in-place array-index fix, claude/exciting-davinci-wahyt2 session; pre-existing; claimed 2026-09-29, work-7/session)
 
 `genSelectorPtr` (`irgen/gen_selector_ptr.bn`) has no arm for a `&x` base: `(&s).x` compiles to a run-time
 `unresolved selector in IR-gen` panic (every backend), and `(&s).m[1]` now panics in bnc
