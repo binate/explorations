@@ -1134,7 +1134,7 @@ quote numbers from this file (they go stale):**
   backends by static instruction/reload counting on a `--target` build, or on
   real hardware/CI.
 
-### IR-level optimizations for large-aggregate copies — shared by every backend — 🔴 OPEN (raised 2026-09-30, work-1; user decision: "This and other optimizations are what we need")
+### IR-level optimizations for large-aggregate copies — shared by every backend — 🟡 IN PROGRESS (raised 2026-09-30, work-1; user decision: "This and other optimizations are what we need"; claimed 2026-09-30, work-1)
 
 The LLVM backend now carries a large aggregate (more than 16 scalar leaves) as memory and copies it with
 rt.MemCopy / rt.MemZero (plan-llvm-bulk-aggregate-values.md), and the native backends copy aggregates too, so
