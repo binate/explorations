@@ -1,3 +1,15 @@
+### AArch64 small forms — DONE (binate `2767b7aaf`, 2026-09-29, work-2)
+
+Landed: an offset inside the brackets without `#` (every address form), a character literal wherever a bare
+integer is taken (immediate, shift / MSL amount, symbol addend), `add … #4096, lsl #0` encoded with `lsl #12`
+(as clang), and symbols named like a condition (anywhere) or a shift / extend (B / BL / B.cond / ADR / ADRP
+only — CBZ / TBZ / DP / memory positions read a shift there and reject, as clang).  Decided (user, 2026-09-29:
+"your recs for 1/2/3 are fine"): LDAPR / STLR / LDAP1 / STL1's "#0 only" offset stays checked by value
+(clang's check is on the token: it takes `#0+0` but not `#-0` / `#(0)`); `uxtw` / `sxtw x0, x1` (an X source,
+which clang takes; the architecture's syntax is `<Wn>`) and `ldr w0, [x1, sym@GOTPAGEOFF]` (a 32-bit load of a
+64-bit GOT slot on LP64, which only Mach-O clang takes) stay rejected, listed with the deliberate rejects —
+revisit the GOT load if an arm64_32 target is added.
+
 ### The native backends read a by-value global aggregate operand after later operands ran — DONE (binate `896595612`, 2026-09-29, work-1)
 
 `show(gt, bump())` (bump writing the global struct gt) passed show gt's value AFTER bump on native aa64,
