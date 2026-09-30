@@ -581,7 +581,8 @@ release loads and stores (LDXR/STXR/LDAXR/STLXR/LDXP/STXP/LDAR/STLR/LDAPR/LDLAR/
 atomics (LDADD*/STADD/SWP/CAS/CASP), LDTR/STTR*, LDRAA/LDRAB, NEON LD1/ST1/LD1R and NEON / FP arithmetic
 text forms, CRC32*, PACGA/XPACI, CFINV/RMIF/SETF8, TLBI/AT, the `:abs_g*:` and TLS relocation operators,
 `.L` / numeric local labels, literal pools (`ldr =imm`, deliberately rejected today), `prfm pldslckeep`,
-`dsb nXS`, `clrbhb`, `allint`, `dc gva`; small forms: `add …, #4096, lsl #0`, `[x1, 8]` / `[x1, (8)]`
+`dsb nXS`, `clrbhb`, `allint`, `dc gva`; small forms (🟡 IN PROGRESS, claimed 2026-09-29, work-2/session):
+`add …, #4096, lsl #0`, `[x1, 8]` / `[x1, (8)]`
 without `#`, `uxtw x0, x1`, a char-literal immediate without `#`, `ldr w0, [x1, sym@GOTPAGEOFF]`,
 `b lsl` / `b eq` (a modifier or condition name as a branch label), LDAPR / STLR / LDAP1 / STL1's "#0 only"
 offset checked by value (`#-0` / `#(1-1)` accepted where clang wants the literal token; harmless, the value
