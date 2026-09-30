@@ -72,7 +72,7 @@ block (genIncDec -> genSelectorPtr's variable / pointer arms; the function-value
 ctx.CurBlock = b on entry (subsuming the per-kind syncs for declarations, the for-post statement and
 assignment targets, now removed).  genSelectorPtr, genIndexPtr and arrayStorageAddr also sync on entry, for
 their callers' read-back; no current source shape needs that.  Tests: conformance 1451_block_first_statement
-(fails without the genStmt sync), and irgen TestVerifyAcceptsStatementOpeningBlock (no instruction after a
+(fails without the genStmt sync; extended to the after-a-compound-statement positions by `6c3a92440`), and irgen TestVerifyAcceptsStatementOpeningBlock (no instruction after a
 terminator).  Side finding: IR-gen's zero-argument `defer panic()` path (storeEmptyPanicMsg) is unreachable,
 since the checker requires exactly one argument to `panic`.
 
