@@ -49,6 +49,17 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### Checker: adding `readonly` one level down (`@[]*int → @[]*readonly int`) is accepted — the unsound `T** → const T**` hole — 🟡 NEEDS DECISION (found 2026-09-30 by the spec review of Ch.8's notes; code reading, not run)
+
+`AssignableTo` accepts adding `readonly` below the outermost level, e.g.
+`@[]*int → @[]*readonly int`, and §8.5's leaf rule would allow the same retype.
+Through the new handle a `*readonly int` (say, `&x` of a `var x readonly int`) can be
+stored into the slice and then read back through the OLD handle as a `*int` — a
+writable pointer to readonly storage with no `unsafe_cast`: C++'s unsound
+`T** → const T**`.  Decide the rule (e.g. adding readonly is sound only at the
+outermost level of an element that is itself not a pointer / handle — C++'s
+`T** → const T* const*` shape), then fix the checker and the spec (§8.3, §8.5).
+
 ### REPL: a generic method that parks, or is rolled back, stays callable on instances of its type named before it — 🔴 OPEN MAJOR (found 2026-09-30, work-4, reviewing design B's REPL instance checks; reproduced on main `6c3a92440` with a check unit-test probe; pre-existing)
 
 ```
