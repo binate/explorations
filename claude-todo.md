@@ -5,28 +5,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### Type-wrapper peel bug cluster (named / alias / readonly handled inconsistently across IR-gen, the VM lowering, codegen, and the checker) — silent wrong values, memory corruption, use-after-free — 🟡 IN PROGRESS (found 2026-09-26; claimed 2026-09-26, work-5/session — user: "take on the critical, then the majors")
-
-**Class:** a type decision (Kind / Width / Signed / float-vs-int / managed-vs-raw / aggregate-vs-scalar)
-made on a type that can carry a transparent wrapper — `readonly T`, alias `type A = T`, named `type N
-T`, and nestings (named-over-readonly `type R readonly int8`, alias-of-readonly, readonly-over-named) —
-where the code peels only TYP_NAMED (or nothing).  A wrapper carries no Width/Signed/Kind of its own,
-so the decision misclassifies.  Full peels already exist: irutil.PeelTransparent (IR-gen),
-types.StripWrappers, codegen peelReprType, native common peelTransparent.  First instance found: IR-gen `typeWidth` / `typeIsSigned` (untyped literal into a
-`readonly float32` param reads back 0; `var v readonly float32 = 2.5` stores 8 bytes into a 4-byte
-slot; named-over-readonly `MIN / -1` skips the overflow trap on native/VM).
-
-**Triage of the un-audited areas (irgen last third, codegen, native, ir/irbuild/iropt/irutil/types) —
-done 2026-09-27.**  Only confirmed defect: the `@NB` release leak above.  Leftovers (no observable
-miscompile found):
-  - [bug, minor; 🟡 IN PROGRESS, work-5, 2026-09-29] DWARF: `emit_debug_types.bn` has no READONLY
-    (or ALIAS) arm — such a variable gets the fallback `int` debug type — and every word-sized debug
-    type assumes 64 bits: pointer nodes (`size: 64`), slices (128 / 256, members at 64-bit offsets,
-    `len` typed with the 64-bit `int` node), interface and function values (128) — wrong on 32-bit
-    targets.
-**Sweep (2026-09-26):** auditors over check+lint, IR-gen (first two thirds of the files), and the VM
-lowering reported the confirmed defects; all are fixed (claude-todo-done.md).
-
 ## MAJOR
 
 ### The REPL runs a prompt whose errors all repeat an earlier prompt's — segfault / "extern not found" — 🟡 IN PROGRESS (found 2026-09-29, work-6, review of the one-mistake-one-error cleanup; reproduced; pre-existing; claimed 2026-09-29, work-6/session — user: "yes, go ahead and fix it, and I guess you can also fix the failed-decl issue")

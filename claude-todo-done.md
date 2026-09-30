@@ -1,3 +1,12 @@
+### Type-wrapper peel bug cluster (named / alias / readonly handled inconsistently) — DONE (last pieces binate `d500a2af7`, `3f0b620c0`, 2026-09-29, work-5)
+
+Every confirmed finding of the 2026-09-26 sweep and the 2026-09-27 triage is fixed (per-row entries
+above and below in this file).  The closing pieces: the full-peel helpers consolidated on one bounded
+types.StripWrappers (`ce5eb6e58`, `191cd8bd2`, `f6da526fa`); a named aggregate copied leaf by leaf on LLVM
+(`d500a2af7`, which also made the single-file test harness register named non-struct types); and DWARF
+debug info describing readonly / alias types and target-width words (`3f0b620c0`).  Decided along the
+way: a named function-value type is nillable (`b61a23b78`); `f := nil` is rejected (`538e71d59`).
+
 ### A constant's initializer is never required to be constant — `const C = v` compiles and reads `v` at run time — DONE (binate `15f5ae012`, 2026-09-29, work-4)
 
 Spec `decl.const`: a constant's value is computed at compile time.  The checker never checks that a const
