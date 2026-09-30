@@ -5,6 +5,22 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
+### IR-gen: `x++` / `x--` and switch case expressions never release their statement temporaries — a later statement releases them in a block their definition does not dominate (LLVM rejects the program, native segfaults, the VM leaks) — 🟡 IN PROGRESS (claimed 2026-09-30, work-5; found by the review of the fresh-function-value-temp change)
+
+`genIncDec` (`gen_flow.bn`) never calls `emitTempCleanup`, and `genSwitch` evaluates
+each case expression with `genExpr` and never flushes its temps.  A temp left in
+`ctx.Temps` is released by the NEXT statement's cleanup, which can sit in a block
+the temp's definition does not dominate: `if c { a[len(make_slice(int, 1)) - 1]++ }`
+fails to compile under LLVM ("Instruction does not dominate all uses!") and
+segfaults natively on the path that skips the `if`; in a loop the VM releases only
+the last iteration's temp.  Pre-existing, but every function reference / generic
+instance / non-capturing literal passed as an argument is now a temp (the
+fresh-function-value-temp change), so `a[idx(add1, i)]++` in a loop and
+`case apply(add1, x) == 7:` with an empty or `break`-first body now hit it.  Fix:
+end `genIncDec` with `emitTempCleanup` (which also emits the SP_RESTORE it
+misses), and flush each case expression's temps in its compare block before the
+branch.
+
 ### native aa64: a conditional branch beyond ±1 MB is not relaxed — a very large function fails to assemble — 🔴 OPEN (found 2026-09-30, work-7, review of the exact aggregate-copy fix; pre-existing)
 
 "PC-relative reference to 'L_…phicrit.71' is out of range or misaligned": B.cond / CBZ reach ±1 MB and
