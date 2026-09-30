@@ -598,15 +598,8 @@ SME/SME2 included — sequencing is free, but no family is dropped for lack of a
 above: FEAT_MTE (IRG / GMI / SUBP(S) / ADDG / SUBG / STG / LDG / STGP / …), FEAT_MOPS (CPY* / SET*), FEAT_LS64
 (LD64B / ST64B*), FEAT_GCS, FEAT_CSSC (ABS / CNT / CTZ / SMAX / SMIN / UMAX / UMIN reg & imm), FEAT_SYSREG128 /
 FEAT_SYSINSTR128 (MRRS / MSRR / SYSP), CHKFEAT and the other newer hint / system forms, SVE/SVE2(.1), SME/SME2.
-**Found by the emit-before-EOL review (2026-09-29), not yet done:** (a) — 🟡 IN PROGRESS (claimed 2026-09-29,
-work-2/session; the tests are fixed, not yet landed — goldenSourceReject / goldenSourceWord assemble real
-multi-line sources) — 17 control-flow reject cases written with a literal backslash-n tested nothing.
-Assembled as real sources they show these open items: a '$' in a label name (`L$foo:`; clang accepts it,
-this assembler rejects it); and — needs a decision — `nop /* multi <newline> still */ nop`: clang treats the
-comment as whitespace, joins the lines into one statement and rejects it (`nop nop`), while this assembler
-ends the statement at the newline inside the comment and emits two NOPs (a statement split across a
-multi-line comment: match clang, or reject it?).  (`.L` / numeric local labels and referencing a
-`name = expr` constant are the items listed above.)  (b) Outside the instruction parsers a rejected
+**Found by the emit-before-EOL review (2026-09-29), not yet done:** a '$' in a label name (`L$foo:`) —
+clang accepts it, this assembler rejects it.  (b) Outside the instruction parsers a rejected
 line can still emit: a data directive with trailing text or a later bad value (`.ascii "ab" x`, `.uint32 1
 2`, `.int8 1, 300`, `.zero 4 x`, `.fill 2, 1, 7 x`, `.balign 8 x` padding in text) writes its bytes before
 the error, and a label prefix on a rejected line (`L1: ldr x0, [x1] x2`) is still defined.  Harmless (an

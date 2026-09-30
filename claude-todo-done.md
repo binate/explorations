@@ -1,3 +1,18 @@
+### AArch64 multi-line reject tests tested nothing; a statement split by a comment that spans lines — DONE (binate `e4ed79687`, `e0d92fe80`, 2026-09-29, work-2)
+
+Seventeen control-flow reject cases were one string with a literal backslash-n (a backslash and `n` in a
+Binate string), so the lexer rejected each at the backslash and none reached its case.  Resolved:
+`goldenSource` / `goldenSourceWord` / `goldenSourceReject` assemble real multi-line sources (parse each line,
+resolve the fixups, finish the sections, and report a comment left open); against clang, four cases are real
+rejects (a duplicate label, B / CBZ to an odd byte offset, a forward constant — the last only because any
+constant reference is rejected today), three are goldens (a '.' in a label, BL to an earlier label, ADR to an
+odd byte offset), and the rest were clang-accepted gaps (tracked in the todo) or `.byte` spellings (this
+assembler's directives are `.uint8` … by design).  They also showed `nop /* … <newline> … */ nop` assembling
+as two NOPs where clang joins the lines and rejects `nop nop`; per the user ("Let's do (b)"), a comment that
+spans lines with statement text both before its `/*` and after its `*/` now makes the closing line an error —
+also through a chained spanning comment — while one with nothing on a side, or only labels before it
+(`lbl: /* … */ nop` is `lbl: nop`), is unchanged, as in clang.
+
 ### In a generic body, boxing a `T`-typed value into `*any` / `@any` drops element-`readonly` — a type switch hands out a MUTABLE slice over readonly data — DONE (binate `9f98ad6ae`, 2026-09-29, work-3)
 
 `func viaVar[T any](x T) … { var a *any = &x; … }` called as `viaVar[@[]readonly char](s)` boxes `x` as
