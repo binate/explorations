@@ -773,6 +773,16 @@ spelling; VM "extern not found: main..Area"), and one reaching another package's
 a pointer (`var g1 = geom.NewPoint(1, 2)` returning `@geom.Point` — methods resolved in this package:
 undefined `main.Point.Sum`).  Explicitly typed forms work.
 
+At the REPL (found 2026-09-30, work-6, review of the refused-declaration undo; MAJOR there): the same
+limitation makes irgen GenDecl refuse such a var ("var decl at the prompt requires an explicit type or a
+literal initializer").  One typed at the prompt is undone since the refused-declaration undo, but one
+that parked and resolves on a retry is refused after the checker bound it (and after other members of
+its group may have been emitted): it stays bound, its initializer runs against a global that does not
+exist, and a later use crashes the REPL — `type Box[T any] struct { v T }`, `var b = mk()` (parks),
+`func mk() Box[int] { var x Box[int]; return x }` ("variable b resolved", then the refusal), then
+`testing.Println(b.v)` panics "internal error: unresolved selector in IR-gen".  Fixing this entry removes
+the refusal.
+
 ### The REPL never runs the generic-body dependency registration — 🔴 OPEN (found 2026-09-27, work-1; the indirect-package type registration half landed in binate `1ec1766ce`)
 
 bnc and the interp driver register, for every package a monomorphized generic body may reach without the
