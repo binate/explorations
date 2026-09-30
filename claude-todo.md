@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### Checker: a function literal in a composite-literal field / element does not take its destination's function-value type — a `*func` slot dangles into a freed heap closure (silent use-after-free) — 🔴 OPEN (found 2026-09-29 by the focused review of the named-function-value-from-literal spec update)
+### Checker: a function literal in a composite-literal field / element does not take its destination's function-value type — a `*func` slot dangles into a freed heap closure (silent use-after-free) — 🟡 IN PROGRESS (claimed 2026-09-29, work-5; found 2026-09-29 by the focused review of the named-function-value-from-literal spec update)
 
 **Symptom.** `H{g: func(x int) int { return x + k }}` with field `g *func(int) int`
 compiles, and calling `h.g(1)` after any later heap allocation reads freed memory
@@ -38,8 +38,8 @@ the spec update for named-function-value-from-literal construction (§7.3 / §10
 §10.9, and the "Draft" status lines in `10b` / `10` / `00-index`) can state the
 blanket rule.
 
-**Tests (not yet landed).** `conformance/spec/10-functions/204_funclit_composite_elem_raw_closure`
-(the use-after-free) and `205_funclit_composite_elem_named` (the named-type
+**Tests.** `conformance/spec/10-functions/207_funclit_composite_elem_raw_closure`
+(the use-after-free) and `208_funclit_composite_elem_named` (the named-type
 rejection), both `.xfail.all`.
 
 ## MAJOR
