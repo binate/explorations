@@ -1,3 +1,26 @@
+### Explicit generic type arguments starting with `*(`, `*@` or `readonly` are rejected in expression context — valid code rejected — DONE (binate `1c7a1ad4e`, 2026-09-30, work-3)
+
+`f[*(@[]int)](x)`, `f[*([3]int)](x)` and `f[*@[]int](x)` fail to parse ("expected {, got )" / "expected
+{, got ]"), and `f[readonly @[]char](x)` fails "expected ], got @"; `f[@(@[]int)](x)` and `f[*K](x)`
+parse.  `startsBracketTypeArg` (parser/parse_postfix.bn) sends only `@…`, `[` and `*[` to the type
+parser; every other bracket element is parsed as an expression, which works for `*K` (the checker
+reinterprets a deref as a pointer type) but not when what follows the `*` is not an expression.  The
+grammar (binate.ebnf D5) says a single bracketed element followed by `(` is tried as an instantiation
+first, falling back to an index.  `readonly` and `*@` can probably commit to the type path, but `*(` is
+ambiguous with indexing by a dereferenced parenthesized expression (`a[*(p)]`), so it needs that
+try-then-fall-back.  Source can spell such a type argument through a type alias meanwhile.  Needs a
+conformance test.
+
+Resolved: `readonly` and `struct` go straight to the type parser; an element starting with `*` or `(`
+is parsed as an expression and, if that fails or does not end at `]`/`,`/`:`, rewound (new lexer
+Save/Restore + parser snapshot) and re-read as a type; an element that is both stays an expression.  A
+literal missing its `{` now records that and ends (parseFuncLit read the rest of the block as its body —
+the review found this made parse time double per `*func(...)` type argument; 13 s at 19).  Conformance
+1448 + parser/lexer unit tests (incl. 40 `*func` type args in one block).  The pinned BUILDER and
+CHECK_TOOLS bnfmt/bnlint have the old parser, so bnc's own tree and hygiene-checked code should not
+use these spellings until those are bumped.  The review's side note (parse errors print no position)
+is filed as its own MAJOR.
+
 ### AArch64 remaining small parity items — DONE (binate `2ba733647`, 2026-09-30, work-2)
 
 Shift amounts as clang takes them (after `#` starting with a literal or '(', without `#` with a literal; a

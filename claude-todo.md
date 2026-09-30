@@ -315,19 +315,6 @@ type redefinition is), and make the checker and IR-gen do it.
 the same type (`var q int = 1`, `var q int = 2`) prints 2.  Root cause: unknown — needs investigation
 (how a redefined variable's new global is materialized and found, and what its initializer writes).
 
-### Explicit generic type arguments starting with `*(`, `*@` or `readonly` are rejected in expression context — valid code rejected — 🟡 IN PROGRESS (found 2026-09-29, work-3, writing conformance 1437; reproduced; pre-existing; claimed 2026-09-29, work-3/session — user: "then fix the two MAJORs next")
-
-`f[*(@[]int)](x)`, `f[*([3]int)](x)` and `f[*@[]int](x)` fail to parse ("expected {, got )" / "expected
-{, got ]"), and `f[readonly @[]char](x)` fails "expected ], got @"; `f[@(@[]int)](x)` and `f[*K](x)`
-parse.  `startsBracketTypeArg` (parser/parse_postfix.bn) sends only `@…`, `[` and `*[` to the type
-parser; every other bracket element is parsed as an expression, which works for `*K` (the checker
-reinterprets a deref as a pointer type) but not when what follows the `*` is not an expression.  The
-grammar (binate.ebnf D5) says a single bracketed element followed by `(` is tried as an instantiation
-first, falling back to an index.  `readonly` and `*@` can probably commit to the type path, but `*(` is
-ambiguous with indexing by a dereferenced parenthesized expression (`a[*(p)]`), so it needs that
-try-then-fall-back.  Source can spell such a type argument through a type alias meanwhile.  Needs a
-conformance test.
-
 ### Parse errors are printed with no file:line:col — a syntax error anywhere in a build gives no location — 🔴 OPEN (found 2026-09-29, work-3, review of the type-argument parser fix; reproduced; pre-existing)
 
 `var x int = = 1` makes bnc print just `expected expression` / `expected ; or }` — no file, line or
