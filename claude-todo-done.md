@@ -1,3 +1,44 @@
+### In a generic body, boxing a `T`-typed value into `*any` / `@any` drops element-`readonly` — a type switch hands out a MUTABLE slice over readonly data — DONE (binate `9f98ad6ae`, 2026-09-29, work-3)
+
+`func viaVar[T any](x T) … { var a *any = &x; … }` called as `viaVar[@[]readonly char](s)` boxes `x` as
+`@[]char`: `case @[]char:` matches and recovers a mutable slice over the readonly bytes.  Every box path
+does it — `cast(*any, &x)`, an implicit `classify(&x)` argument and a `var a *any = &x` initializer
+(reproduced on builder-comp).  Root cause: wrapAsIfaceValue's name-less path takes element-`readonly`
+from the box source's CHECKER type (the IR type has it stripped), and in a generic body that type is the
+definition-time `*T` — a TYP_TYPE_PARAM, so `mergeQualifiedReadonly` finds no `readonly` and degrades to
+the stripped IR type.  Proposed fix: resolve a TYP_TYPE_PARAM on the checker side through IR-gen's current
+binding (`gc.CurrentTypeParamNames` / `CurrentTypeParamTypes`, as `resolveTypeExpr` does) before merging —
+the bound type keeps `readonly`.  Check whether per-instantiation checking (design B) would instead stamp
+instantiated expression types, which would make the checker-side type right directly.  Needs a
+conformance test over the three box paths.
+
+Resolved: wrapAsIfaceValue binds the checker type's type parameters before merging
+(`bindTypeParams`), by the checker's identity — owner decl + index, recorded in GenCtx as
+`CurrentTypeParamOwner` / `CurrentTypeParamArgs` by ensureInstantiated and emitInstantiatedMethod.
+Binding by NAME (the first version) was wrong: a generic type's methods share one checker instance
+per argument list, named by whichever method was checked first, so swapped (`Pair[V, K]`) or blank
+(`Box[_]`) receiver binders picked the wrong argument or none (found by the review).  Design B was
+not needed.  Conformance 1440 (functions: the three box paths, bare-`T` casts, an outer-readonly
+argument; methods with swapped / blank / named binders) and multi-package 1438 (imported generics).
+
+### `cast(*any, &s)` with `s @[]readonly char` boxes as `@[]char` — a type switch hands out a MUTABLE slice over readonly data — DONE (binate `9f98ad6ae`, 2026-09-29, work-3)
+
+The `cast` / `unsafe_cast` widening-to-interface paths (`pkg/binate/irgen/gen_builtin.bn` ~:60 and ~:129)
+pass `val.Typ` as wrapAsIfaceValue's un-stripped source type, but every IR instruction type has ALL
+`readonly` stripped (NewInstr → StripConstForIR), and the fail-loud guard only checks for nil.  So
+`var s @[]readonly char = "hi"; var a *any = cast(*any, &s)` boxes with identity `@[]char`, and
+`case @[]char:` / `a.(@[]char)` matches and returns a mutable `@[]char` over the readonly bytes — a
+write-through-readonly hole (spec §8: `cast` never drops element readonly).  The checker accepts it.
+Reviewer's fix: pass the checker type of the operand (`ctx.Checker.ExprType(e.Args[0].ResolvedTypeID)`).
+Traced by reading, not yet reproduced; needs a conformance test (cast(*any, &readonly slice) must match
+`case @[]readonly char:` and never `case @[]char:`).
+
+Resolved: the `cast` / `unsafe_cast` widening paths pass the operand's checker type (as the
+declaration and implicit-conversion paths do).  Conformance 1439 covers managed and raw readonly
+slices through both builtins into `*any` and `@any` (owning and borrowing), and a named-distinct
+pointer operand.  Landed together with the generic-body entry above, which the review showed the
+cast change needs (a bare-`T` generic `cast(@any, x)` otherwise hits the fail-loud panic).
+
 ### Operand evaluation order pinned: index designators base-then-index; assignments values → targets → stores → releases — DONE (binate `b2f8fe94d`, docs `e2c178c`, 2026-09-29, work-1)
 
 Index designators evaluated base and index in different orders by form (genIndexPtr — `x[i]++`, `&x[i]`,

@@ -29,33 +29,7 @@ c.Errors but still appends the decl to `resolved`, contrary to its own doc; `ret
 errors is not resolved — the REPL prints its errors and undoes it (SnapshotDecl / RollbackDecl, as a
 failed prompt is), rather than emitting it.
 
-### `cast(*any, &s)` with `s @[]readonly char` boxes as `@[]char` — a type switch hands out a MUTABLE slice over readonly data — 🟡 IN PROGRESS (found 2026-09-29, work-3, review of the outer-readonly boxing fix; pre-existing; claimed 2026-09-29, work-3/session)
-
-The `cast` / `unsafe_cast` widening-to-interface paths (`pkg/binate/irgen/gen_builtin.bn` ~:60 and ~:129)
-pass `val.Typ` as wrapAsIfaceValue's un-stripped source type, but every IR instruction type has ALL
-`readonly` stripped (NewInstr → StripConstForIR), and the fail-loud guard only checks for nil.  So
-`var s @[]readonly char = "hi"; var a *any = cast(*any, &s)` boxes with identity `@[]char`, and
-`case @[]char:` / `a.(@[]char)` matches and returns a mutable `@[]char` over the readonly bytes — a
-write-through-readonly hole (spec §8: `cast` never drops element readonly).  The checker accepts it.
-Reviewer's fix: pass the checker type of the operand (`ctx.Checker.ExprType(e.Args[0].ResolvedTypeID)`).
-Traced by reading, not yet reproduced; needs a conformance test (cast(*any, &readonly slice) must match
-`case @[]readonly char:` and never `case @[]char:`).
-
-### In a generic body, boxing a `T`-typed value into `*any` / `@any` drops element-`readonly` — a type switch hands out a MUTABLE slice over readonly data — 🟡 IN PROGRESS (found 2026-09-29, work-3, probing the `cast(*any, &s)` readonly fix; reproduced; pre-existing; claimed 2026-09-29, work-3/session — same type-parameter substitution fixes a regression the review found in the cast fix)
-
-`func viaVar[T any](x T) … { var a *any = &x; … }` called as `viaVar[@[]readonly char](s)` boxes `x` as
-`@[]char`: `case @[]char:` matches and recovers a mutable slice over the readonly bytes.  Every box path
-does it — `cast(*any, &x)`, an implicit `classify(&x)` argument and a `var a *any = &x` initializer
-(reproduced on builder-comp).  Root cause: wrapAsIfaceValue's name-less path takes element-`readonly`
-from the box source's CHECKER type (the IR type has it stripped), and in a generic body that type is the
-definition-time `*T` — a TYP_TYPE_PARAM, so `mergeQualifiedReadonly` finds no `readonly` and degrades to
-the stripped IR type.  Proposed fix: resolve a TYP_TYPE_PARAM on the checker side through IR-gen's current
-binding (`gc.CurrentTypeParamNames` / `CurrentTypeParamTypes`, as `resolveTypeExpr` does) before merging —
-the bound type keeps `readonly`.  Check whether per-instantiation checking (design B) would instead stamp
-instantiated expression types, which would make the checker-side type right directly.  Needs a
-conformance test over the three box paths.
-
-### A generic function whose parameter type contains `readonly T` (`x readonly T`, `s *[]readonly T`) cannot be called — valid code rejected — 🔴 OPEN (found 2026-09-29, work-3, writing conformance 1437; reproduced; pre-existing)
+### A generic function whose parameter type contains `readonly T` (`x readonly T`, `s *[]readonly T`) cannot be called — valid code rejected — 🟡 IN PROGRESS (found 2026-09-29, work-3, writing conformance 1437; reproduced; pre-existing; claimed 2026-09-29, work-3/session — user: "then fix the two MAJORs next")
 
 `func n[T any](s *[]readonly T) int` called as `n[int](a)` with `a *[]readonly int` fails "cannot assign
 *[]readonly int to *[]readonly T"; `func f[T any](x readonly T)` called as `f[@[]readonly char](s)` fails
@@ -68,7 +42,7 @@ other kinds it skips (alias, anonymous struct fields, tuple), and check that IR-
 resolves the same types.  Needs a conformance test (a `readonly T` and a `*[]readonly T` parameter,
 called and run on every backend).
 
-### Explicit generic type arguments starting with `*(`, `*@` or `readonly` are rejected in expression context — valid code rejected — 🔴 OPEN (found 2026-09-29, work-3, writing conformance 1437; reproduced; pre-existing)
+### Explicit generic type arguments starting with `*(`, `*@` or `readonly` are rejected in expression context — valid code rejected — 🟡 IN PROGRESS (found 2026-09-29, work-3, writing conformance 1437; reproduced; pre-existing; claimed 2026-09-29, work-3/session — user: "then fix the two MAJORs next")
 
 `f[*(@[]int)](x)`, `f[*([3]int)](x)` and `f[*@[]int](x)` fail to parse ("expected {, got )" / "expected
 {, got ]"), and `f[readonly @[]char](x)` fails "expected ], got @"; `f[@(@[]int)](x)` and `f[*K](x)`
