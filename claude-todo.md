@@ -419,7 +419,7 @@ operand (a composite literal) to an interface, e.g. `func conv[T any]() T { retu
 compiler panic.  Fix: run the cast-safety rules on the substituted types when a generic body is
 instantiated (checker-side, before IR-gen), and turn the IR-gen panics into unreachable asserts.
 
-### The checker accepts `unsafe_cast` from a raw function value (or raw slice) to its managed form — internal error in IR-gen — 🔴 OPEN (found 2026-09-28, work-5, review of the func-value cast fix; pre-existing)
+### The checker accepts `unsafe_cast` from a raw function value (or raw slice) to its managed form — internal error in IR-gen — 🟡 IN PROGRESS (found 2026-09-28, work-5, review of the func-value cast fix; pre-existing; claimed 2026-09-30, work-7/session)
 
 `var f *func(int) int = dbl; unsafe_cast(@func(int) int, f)` passes the checker and then panics in IR-gen
 ("internal error: cast between mismatched aggregate/scalar shapes reached codegen").  Spec §8.7
