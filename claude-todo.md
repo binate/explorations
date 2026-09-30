@@ -29,7 +29,7 @@ lowering reported the confirmed defects; all are fixed (claude-todo-done.md).
 
 ## MAJOR
 
-### The REPL runs a prompt whose errors all repeat an earlier prompt's — segfault / "extern not found" — 🔴 OPEN (found 2026-09-29, work-6, review of the one-mistake-one-error cleanup; reproduced; pre-existing)
+### The REPL runs a prompt whose errors all repeat an earlier prompt's — segfault / "extern not found" — 🟡 IN PROGRESS (found 2026-09-29, work-6, review of the one-mistake-one-error cleanup; reproduced; pre-existing; claimed 2026-09-29, work-6/session — user: "yes, go ahead and fix it, and I guess you can also fix the failed-decl issue")
 
 Enter `u[0] = 5` twice (u undefined): the first prompt reports its errors; the second runs and bni
 segfaults (rc=139).  `nope()` twice: `panic: vm: extern not found: main.nope`.  Cause: every REPL
