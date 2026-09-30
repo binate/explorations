@@ -49,6 +49,15 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### Until `BUILDER_VERSION` includes binate `1f29d31e9`, gen1 silently miscompiles a statement that opens a block in BUILDER-compiled code — 🔴 OPEN MAJOR (constraint until the next BUILDER release; found 2026-09-30, work-4)
+
+bnc-0.0.16 (the pinned BUILDER) has the IR-gen defect fixed on main by `1f29d31e9`.  So in cmd/bnc's cone (the packages the BUILDER compiles into gen1), these must not be the first statement of a loop / `if` / `else` / `case` body:
+- a struct-field `++` / `--`;
+- `f := someFunc`;
+- assigning a variable to a `*any`.
+
+gen1 would get silently wrong code there (e.g. a loop body that never runs, returning early with no error), and gen1 compiles every test and gen2.  An identifier `++` just before it doesn't help.  Hit by design B's `drainInstances` (`for st.Top > 0 … { st.Top-- … }`): the BUILDER-built loop returns immediately.  A 2026-09-30 scan found no other such site in non-test code.  Clears when a BUILDER containing `1f29d31e9` is pinned (cut only when independently justified).
+
 ### VM: does building a non-capturing raw `*func` value add a reference to the callee's shared ClosureRec that nothing releases? — 🔴 OPEN (needs investigation; found 2026-09-30 by the review of the method-value / cast fixes, unverified)
 
 `BC_FUNC_VALUE` for a non-capturing function value (`vm_exec_funcref.bn`, `Src1 == -1`)
