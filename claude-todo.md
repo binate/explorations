@@ -348,6 +348,17 @@ type redefinition is), and make the checker and IR-gen do it.
 the same type (`var q int = 1`, `var q int = 2`) prints 2.  Root cause: unknown — needs investigation
 (how a redefined variable's new global is materialized and found, and what its initializer writes).
 
+### A value-receiver method of a named POINTER type called through an interface reads garbage — the receiver is the box cell, not the pointer in it — 🔴 OPEN (found 2026-09-30, work-3, fixing the `@any` named-owning-pointee identity; reproduced on LLVM and the VM; pre-existing)
+
+`type H @Node` with `func (h H) Get() int { return h.v }` and `impl H : Getter`: `h.Get()` returns the
+right value, but `var r *Getter = &h; r.Get()` and `var g @Getter = box(h); g.Get()` return garbage
+(an address-sized number) — silent wrong value.  Looks like the interface dispatch passes the boxed
+cell's address as the receiver where the value receiver is the POINTER stored in the cell (a missing
+load for a receiver whose named type is itself a pointer).  Probably the same for `type P *Node` with a
+value receiver (the probe's line for it was cut off by the runner's output limit — check).  Native
+backends not yet checked.  Needs a conformance test over raw and managed interfaces, `@`- and
+`*`-named receivers, and every backend.
+
 ### Parse errors are printed with no file:line:col — a syntax error anywhere in a build gives no location — 🔴 OPEN (found 2026-09-29, work-3, review of the type-argument parser fix; reproduced; pre-existing)
 
 `var x int = = 1` makes bnc print just `expected expression` / `expected ; or }` — no file, line or
