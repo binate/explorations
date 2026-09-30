@@ -2591,6 +2591,18 @@ and owning the backing is the trivial fix.
 
 ## Hygiene checks: tier dependencies & file length
 
+### Split `pkg/binate/ir.bni` — at 975 of its 1000-line cap — 🔴 OPEN (raised 2026-09-30, work-3; user: "File the splitting of ir.bni as a todo.")
+
+`ir.bni` reached 975 lines with the module-level `ir.RegisterModulePendingDtor` (binate, the `@any`
+named-owning-pointee identity fix).  A `.bni` cannot be split within its package (the loader reads one
+`<pkg>.bni`), so this means peeling a cohesive part of `ir`'s API into an acyclic sub-package, as with
+ir -> {irbuild, iropt, irdata}.  Its sections: IR data structures (~20-565), Module / Function / Param /
+Block, string constants, static-data / RTTI gather (~649-664), helpers, module init/entry emission
+(~705-732), and "Shared IR-construction utilities (used by irgen)" (~733-972, the largest non-data-model
+part — a natural candidate).  The file also ends with an empty "Structural IR verifier (verify.bn)"
+section header (the verifier lives in irbuild now) — delete it.  Do this before anything else grows
+`ir.bni`.
+
 ### `Self`-parameter method is uncallable through a generic constraint (Self binds to the type param, not its base) — 🟠 OPEN (2026-07-03)
 
 **Severity: minor (obscure `Self` corner; the fix is a semantics decision, not a
