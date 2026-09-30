@@ -50,8 +50,8 @@ fixed it (not bisected).  Conformance 1453_generic_nested_call_selector guards t
 ### IR-gen: a statement opening a block (a field `++` / `--`, `f := add`, assigning a variable to a `*any`) was emitted after the previous block's terminator — DONE (binate `1f29d31e9`, 2026-09-30, work-4)
 
 A struct-field `++` / `--`, binding a function to a new variable, or assigning a variable to a `*any`, as the
-first statement of a loop / `if` / `else` / `case` body, was emitted after the branch ending the block before
-it.  It returned early or trapped under LLVM, hung under native, and made iropt panic at -O2.  Every compiler
+first statement of a loop / `if` / `else` / `case` body, or as the statement right after an `if` / `for` /
+`switch`, was emitted after the branch ending the block before it (the one current before that statement).  It returned early or trapped under LLVM, hung under native, and made iropt panic at -O2.  Every compiler
 back to bnc-0.0.16 was affected.  Root cause: statement lowering reads the block it continues in back from
 ctx.CurBlock, and these paths reached that read without anything having set ctx.CurBlock to the statement's
 block (genIncDec -> genSelectorPtr's variable / pointer arms; the function-value short-var path; the
