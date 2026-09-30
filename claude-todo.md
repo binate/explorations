@@ -351,30 +351,40 @@ be added but not dropped") and type.readonly.drop say otherwise.  Decide which t
 the dynamic type, or the recovery, should keep the readonly); then pin it with a test (conformance 1429 was
 deliberately limited to the handle-readonly `readonly @Box` case so as not to lock this in).
 
-### Spec decision: a `*T` method VALUE on a NON-addressable receiver (`mk().Inc`) — reject, or capture a copy? — 🔴 NEEDS DECISION (raised 2026-09-30, work-7, fixing the method-value-captures-a-copy bug)
+### Method values on non-addressable / read-only receivers, and the lifetime of an addressed composite literal — 🔴 OPEN, DECIDED 2026-09-30 (raised 2026-09-30, work-7, fixing the method-value-captures-a-copy bug)
 
-`func.method-value.capture` says a `*T` receiver captures `&x`; a by-value call result has no address.  The
-checker rejects the CALL `mk().Inc()` (func.method.smoothing: an implicit `&` needs an addressable receiver)
-but accepts the method VALUE `mk().Inc`, and the checker's method-value arm (check_expr_access.bn) applies
-none of the smoothing checks — not addressability, nor `receiverAssignable` (a value / `*T` receiver bound
-to a `@T` method, which would fabricate a reference).  IR-gen captures such a receiver BY VALUE and the
-wrapper re-copies it for every call, so `h := mk().Inc; h(); h()` returns 41, 41 (each call mutates a fresh
-copy).  Options: (a) reject, like the call — consistent with the smoothing rule; (b) keep the copy but have
-calls mutate the closure's one copy (41, 42); (c) keep today's behaviour and spec it.  Recommendation: (a),
-together with `receiverAssignable` for method values.  Addressable receivers capture `&x` since the
-method-value fix (work-7).
-Same question for a READ-ONLY receiver object (work-7 review, 2026-09-30): `s.p.Inc` with `s *readonly S`,
-`xs[0].Inc` with `xs *[]readonly P` — the call form is rejected ("receiver type readonly P not assignable
-to *P", func.method.object-const), the method value is accepted and captures a copy (the method-value fix
-deliberately does not mark a read-only receiver for address capture); a bare read-only VARIABLE
-(`var rp readonly P; rp.Inc`) captures &rp and the method mutates it (pre-existing).  `receiverAssignable` in
-the checker's method-value arm would reject all of these.
-And the lifetime of a composite literal whose address a method value captures (work-7 review): `P{v: i,
-name: mkname(i)}.Name` captures the literal's address, but its managed field is released at the end of the
-statement, so a later call reads freed memory — the same as `var q *P = &P{name: mk()}` then `q.name`
-(pre-existing).  Composite literals are addressable (expr.addressable); decide whether a literal's managed
-fields live until its storage does (the frame), or whether taking the address of such a literal / binding a
-`*T` method value to it is undefined behaviour (mem.raw-uaf) or rejected.
+Decisions (user, 2026-09-30):
+1. A method value binds its receiver exactly as the call would: `x.M` is legal iff `x.M()` is, as far as
+   the receiver goes.  The checker's method-value arm (check_expr_access.bn) applies none of the call's
+   receiver checks today; it must apply all of them: func.method.smoothing (an implicit `&` needs an
+   addressable receiver), `receiverAssignable` (a value / `*T` receiver cannot bind a `@T` method — that
+   would fabricate a reference), and func.method.object-const (a read-only object binds only a
+   read-only-receiver method).  Rejected by this, accepted today: `mk().Inc` (captured by value, and the
+   wrapper re-copies it per call, so `h := mk().Inc; h(); h()` gives 41, 41); `s.p.Inc` with
+   `s *readonly S` and `xs[0].Inc` with `xs *[]readonly P` (capture a copy); `var rp readonly P; rp.Inc`
+   (captures `&rp`, and `Inc` writes the read-only object).
+2. An addressed composite literal follows the `iface.construct.value-borrow` precedent (§11: a
+   materialized temporary in a `var` / `:=` initializer "co-scopes with the new binding"; conformance
+   11-interfaces/091).  In a `var` / `:=` initializer — `var q *P = &P{name: mk()}`, or `h := P{…}.Name`
+   with `func (p *P) Name()` — the literal lives as long as the new binding: its managed fields are
+   released at the end of the binding's scope, not the statement (no extra refcount operations; only the
+   release point moves).  Anywhere else the literal is a statement temporary, and a raw pointer to it used
+   after the statement is `mem.raw-uaf`.  Today the literal is always released at the statement's end, so
+   both examples read freed memory on a later `q.name` / `h()`.  The same rule settles
+   `var iv *any = P{name: mk()}`: value-borrow's text lists "a variable, field, or element" as addressable
+   and "a literal, an expression, or a call result" as not, while §13 `expr.addressable` makes a composite
+   literal addressable — the literal is co-scoped either way.
+   (A call `P{…}.Name()` is legal and safe: it runs within the statement.)
+
+Work: spec (§10b `func.method-value.capture` / §10 smoothing wording for method values; §13 / §18.4 the
+addressed-literal lifetime; §11 value-borrow's addressable list); checker (the method-value arm's
+receiver checks); IR-gen (enrol an addressed composite literal in a `var` / `:=` initializer for
+scope-end cleanup, as value-borrow's materialized temporaries are); `.error` and run conformance tests on
+every mode.
+
+Open sub-question (asked 2026-09-30): in a storing position that outlives the statement —
+`q = &P{name: mk()}`, `return &P{…}`, `s.h = P{…}.Name` — is it UB (the "anywhere else" rule) or a
+compile error, like value-borrow's store rule (11-interfaces/090)?
 
 ### Spec question: is an `unsafe_index(c, i)` result addressable? — 🔴 NEEDS DECISION (raised 2026-09-30, work-7, review of the `(&x).f` selector fix)
 
