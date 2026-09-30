@@ -28,7 +28,7 @@ func id[T any](x T) T { var y T = x; return y }
 - **Native aa64:** compiles and prints garbage (e.g. `6135964040`), a silent wrong result.
 - **LLVM:** clang rejects the IR: `ret i8* %v2` against a `%BnIfaceValue` result.
 
-Root cause unknown; it looks as if the instance's `T` is lowered as a plain pointer rather than a two-word interface value.  Needs a conformance test (xfails per failing mode) and a root-cause investigation.
+Root cause unknown; it looks as if the instance's `T` is lowered as a plain pointer rather than a two-word interface value.  The bytecode VM fails too ("call of nil interface value"), so the defect is in shared IR, not a backend.  Test: conformance 1452 (binate `3d026ea69`, expected-fail in every mode).  Needs a root-cause investigation.
 
 ### Constraint calls through `impl *P` / `impl @M` give wrong results — needs a spec decision — 🔴 NEEDS DECISION (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
 
@@ -91,15 +91,6 @@ per-instantiation checking for this case, or an interim IR-gen rule that picks
 the literal's heap vs frame allocation from the substituted cast target.
 Test: `conformance/spec/10-functions/217_funclit_cast_type_param` (`.xfail.all`,
 landed `b3dbd9d35`).
-
-### IR-gen: `Box[Box[Box[int8]]]`'s `bbb.Get().v.v` compiles, then panics at run time with "unresolved selector in IR-gen" — 🔴 OPEN MAJOR (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16, LLVM and native; pre-existing)
-
-```
-type Box[T any] struct { v T; n int }
-func (b *Box[T]) Get() T { return b.v }
-// main: var bbb Box[Box[Box[int8]]]; bbb.v.v.v = 3; testing.Println(bbb.Get().v.v)   // expect 3
-```
-The two-level `bb.Get().v` works.  The panic is IR-gen's fallback when no selector arm resolves the chain; which arm should have resolved `….Get().v.v` has not been investigated.  Needs a conformance test (xfails) and a root-cause fix in IR-gen.
 
 ### A parameterized impl's coverage is not checked per instance — dependent array lengths pass, and a call reads past the caller's array — 🟡 IN PROGRESS MAJOR (claimed 2026-09-30, work-4/session; fixed as part of design B's per-instance checking, not yet landed) (found 2026-09-30 by the review of that work; pre-existing)
 

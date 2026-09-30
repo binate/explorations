@@ -1,3 +1,9 @@
+### IR-gen: `Box[Box[Box[int8]]]`'s `bbb.Get().v.v` panicked at run time with "unresolved selector in IR-gen" — DONE (already fixed on main; regression test binate `3d026ea69`, 2026-09-30, work-4)
+
+Found by the review of design B's per-instance checking; it reproduces on BUILDER bnc-0.0.16 (LLVM and native).
+It passes on main at `1f29d31e9` in every mode that runs locally, so one of that day's irgen / checker commits
+fixed it (not bisected).  Conformance 1453_generic_nested_call_selector guards the two- and three-level chains.
+
 ### IR-gen: a statement opening a block (a field `++` / `--`, `f := add`, assigning a variable to a `*any`) was emitted after the previous block's terminator — DONE (binate `1f29d31e9`, 2026-09-30, work-4)
 
 A struct-field `++` / `--`, binding a function to a new variable, or assigning a variable to a `*any`, as the
