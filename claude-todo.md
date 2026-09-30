@@ -258,6 +258,19 @@ receiver (`*(*I)`) without auto-dereferencing the one pointer level a method cal
 receiver in the defer path as the direct call path does.  Needs a conformance test (the three forms,
 every backend).
 
+### Spec decision: a `*T` method VALUE on a NON-addressable receiver (`mk().Inc`) — reject, or capture a copy? — 🔴 NEEDS DECISION (raised 2026-09-30, work-7, fixing the method-value-captures-a-copy bug)
+
+`func.method-value.capture` says a `*T` receiver captures `&x`; a by-value call result has no address.  The
+checker rejects the CALL `mk().Inc()` (func.method.smoothing: an implicit `&` needs an addressable receiver)
+but accepts the method VALUE `mk().Inc`, and the checker's method-value arm (check_expr_access.bn) applies
+none of the smoothing checks — not addressability, nor `receiverAssignable` (a value / `*T` receiver bound
+to a `@T` method, which would fabricate a reference).  IR-gen captures such a receiver BY VALUE and the
+wrapper re-copies it for every call, so `h := mk().Inc; h(); h()` returns 41, 41 (each call mutates a fresh
+copy).  Options: (a) reject, like the call — consistent with the smoothing rule; (b) keep the copy but have
+calls mutate the closure's one copy (41, 42); (c) keep today's behaviour and spec it.  Recommendation: (a),
+together with `receiverAssignable` for method values.  Addressable receivers capture `&x` since the
+method-value fix (work-7).
+
 ### A failed interface-target assertion names the target by its bare name — qualify it — 🔴 OPEN (follow-up to `53c0e5fd5`, 2026-09-28; user: "Improving the message with the qualified name would be better, but can be a follow-up.")
 
 `x.(*Flyer)` failing prints `type assertion failed: main.Dog is not Flyer` (gen_assert_iface.bn uses the
