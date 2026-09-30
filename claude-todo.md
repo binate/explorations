@@ -29,30 +29,6 @@ c.Errors but still appends the decl to `resolved`, contrary to its own doc; `ret
 errors is not resolved — the REPL prints its errors and undoes it (SnapshotDecl / RollbackDecl, as a
 failed prompt is), rather than emitting it.
 
-### The REPL runs a prompt whose errors all repeat an earlier prompt's — segfault / "extern not found" — 🟡 IN PROGRESS (found 2026-09-29, work-6, review of the one-mistake-one-error cleanup; reproduced; pre-existing; claimed 2026-09-29, work-6/session — user: "yes, go ahead and fix it, and I guess you can also fix the failed-decl issue")
-
-Enter `u[0] = 5` twice (u undefined): the first prompt reports its errors; the second runs and bni
-segfaults (rc=139).  `nope()` twice: `panic: vm: extern not found: main.nope`.  Cause: every REPL
-prompt's errors are at `<repl>:1:<col>`, `appendUniqueCheckError` (check/checker_errors.bn) drops an
-error equal to ANY earlier one — earlier prompts included — and the REPL decides a prompt failed only if
-the error count grew (repl/eval.bn, decl.bn).  A prompt whose errors all repeat an earlier prompt's adds
-none and is executed.  The one-mistake-one-error cleanup (not yet landed) makes it far easier to hit:
-without the follow-on errors, `u` then `u = 5` / `u[0] = 5` / `u.f = 5` / `u++` all run.  Fix:
-deduplicate only against errors added during the current check call (a mark taken at each REPL entry,
-CheckDeclInScope / CheckStmtListInScope / CheckExprInScope), or gate the REPL on a count that includes
-deduplicated reports; a repl unit test feeding the same mistake twice.  Related (minor): a failed REPL
-declaration leaves its symbol in the persistent scope (IR-gen skipped it), so later prompts read a global
-that was never emitted — `var x = 1 + true` then `var y int = x` prints 0 today; the cleanup types more
-such symbols TypError, so fewer later errors flag it.  Fix: roll back or poison an errored declaration's
-symbols.
-Not covered by the rollback (found by its review; pre-existing): the generic-type-declaration
-registry (c.GenericTypeDecls / …Pkgs / …Scopes — a failed `type G[T any] struct {…}` is re-reported on
-every later use of a corrected G), a failed method with a generic receiver (methodBaseTypeForDecl returns
-nil for `*Box[T]`), `impl` at the prompt (collectImplDecl registers into c.Impls whatever the check says,
-and GenDecl then refuses it: `i.M()` is "call of nil interface value"), and a PARKED redefinition of a
-type clears the old type in place.  Separately, generic functions and generic-receiver methods at the
-prompt panic "extern not found" even when valid.
-
 ### `cast(*any, &s)` with `s @[]readonly char` boxes as `@[]char` — a type switch hands out a MUTABLE slice over readonly data — 🟡 IN PROGRESS (found 2026-09-29, work-3, review of the outer-readonly boxing fix; pre-existing; claimed 2026-09-29, work-3/session)
 
 The `cast` / `unsafe_cast` widening-to-interface paths (`pkg/binate/irgen/gen_builtin.bn` ~:60 and ~:129)
@@ -2782,6 +2758,16 @@ ship one that runs).
 
 ## REPL
 
+### The REPL's failed-declaration rollback does not cover every registry — 🔴 OPEN (found 2026-09-29, work-6, review of the REPL failed-prompt fix; pre-existing)
+
+Not covered by the rollback (found by its review; pre-existing): the generic-type-declaration
+registry (c.GenericTypeDecls / …Pkgs / …Scopes — a failed `type G[T any] struct {…}` is re-reported on
+every later use of a corrected G), a failed method with a generic receiver (methodBaseTypeForDecl returns
+nil for `*Box[T]`), `impl` at the prompt (collectImplDecl registers into c.Impls whatever the check says,
+and GenDecl then refuses it: `i.M()` is "call of nil interface value"), and a PARKED redefinition of a
+type clears the old type in place.  Separately, generic functions and generic-receiver methods at the
+prompt panic "extern not found" even when valid.
+
 ### REPL: remove process-global session state (multi-session blocker)
 - **Now owned by [`done/plan-embeddable-vm.md`](done/plan-embeddable-vm.md)** (scoped
   2026-06-16): the `ir` half below is increments 4–5 of that plan, which
@@ -2945,19 +2931,6 @@ unblock them:
   note elsewhere in this file — the same key-ergonomics gap.
 
 ## Opportunistic code cleanups
-
-### Most checker contexts re-report an operand whose error is already reported — cascading diagnostics — 🟡 IN PROGRESS (found 2026-09-29, work-6, review of the result-tuple change; pre-existing; claimed 2026-09-29, work-6/session — user: "wait 15 minutes, then go ahead; then do the cascade cleanup")
-
-One mistake yields several errors: `var x int = undefinedV[0]` gives "undefined: undefinedV", "cannot
-index this type" and "cannot assign void to int"; `undefinedV.M()` adds "cannot access field on this
-type" and "cannot call non-function"; `-undefinedV`, `for v in undefinedV`, `len(undefinedV)` each add
-one.  A no-result or multi-result call used as a value (func.call.value — typed TypError after its own
-error) cascades the same way in these contexts: index, selector / receiver (`f().m()`), unary `-` / `!`
-/ `&`, range, `len`, type assertion, `make_slice` size, `unsafe_index` / `unsafe_div`.  Only
-assignability, binary operators, conditions, callees and the multi-value destructure skip a TypError
-operand today.  Also an undefined name is typed TypVoid (hence "cannot assign void"), not TypError.
-Fix: every context that reports an operand-type error skips a TYP_ERROR operand (a shared helper), and
-an undefined name is typed TypError; `const k = two()` then stops printing `<error>`.
 
 ### Migrate `pkg/semihost`'s assembly to the package-`.s` mechanism — 🟢 candidate (2026-09-21)
 

@@ -1,3 +1,42 @@
+### The REPL runs a prompt whose errors all repeat an earlier prompt's — segfault / "extern not found" — DONE (binate `9cc321de8`, 2026-09-29, work-6; the uncovered registries are a separate entry)
+
+Enter `u[0] = 5` twice (u undefined): the first prompt reports its errors; the second runs and bni
+segfaults (rc=139).  `nope()` twice: `panic: vm: extern not found: main.nope`.  Cause: every REPL
+prompt's errors are at `<repl>:1:<col>`, `appendUniqueCheckError` (check/checker_errors.bn) drops an
+error equal to ANY earlier one — earlier prompts included — and the REPL decides a prompt failed only if
+the error count grew (repl/eval.bn, decl.bn).  A prompt whose errors all repeat an earlier prompt's adds
+none and is executed.  The one-mistake-one-error cleanup (not yet landed) makes it far easier to hit:
+without the follow-on errors, `u` then `u = 5` / `u[0] = 5` / `u.f = 5` / `u++` all run.  Fix:
+deduplicate only against errors added during the current check call (a mark taken at each REPL entry,
+CheckDeclInScope / CheckStmtListInScope / CheckExprInScope), or gate the REPL on a count that includes
+deduplicated reports; a repl unit test feeding the same mistake twice.  Related (minor): a failed REPL
+declaration leaves its symbol in the persistent scope (IR-gen skipped it), so later prompts read a global
+that was never emitted — `var x = 1 + true` then `var y int = x` prints 0 today; the cleanup types more
+such symbols TypError, so fewer later errors flag it.  Fix: roll back or poison an errored declaration's
+symbols.
+- Fixed (binate `9cc321de8`): Checker.DedupFrom bounds the duplicate check to the current REPL prompt;
+  a failed REPL declaration is undone (SnapshotDecl / RollbackDecl: names, methods, parked entries).
+  Tests: repl failed_prompt_test.bn, check checker_rollback_test.bn.
+
+
+### Most checker contexts re-report an operand whose error is already reported — cascading diagnostics — DONE (binate `b6c1d4f43`, 2026-09-29, work-6)
+
+One mistake yields several errors: `var x int = undefinedV[0]` gives "undefined: undefinedV", "cannot
+index this type" and "cannot assign void to int"; `undefinedV.M()` adds "cannot access field on this
+type" and "cannot call non-function"; `-undefinedV`, `for v in undefinedV`, `len(undefinedV)` each add
+one.  A no-result or multi-result call used as a value (func.call.value — typed TypError after its own
+error) cascades the same way in these contexts: index, selector / receiver (`f().m()`), unary `-` / `!`
+/ `&`, range, `len`, type assertion, `make_slice` size, `unsafe_index` / `unsafe_div`.  Only
+assignability, binary operators, conditions, callees and the multi-value destructure skip a TypError
+operand today.  Also an undefined name is typed TypVoid (hence "cannot assign void"), not TypError.
+Fix: every context that reports an operand-type error skips a TYP_ERROR operand (a shared helper), and
+an undefined name is typed TypError; `const k = two()` then stops printing `<error>`.
+- Fixed (binate `b6c1d4f43`): 55 error paths return TypError (not TypVoid); ~20 operand contexts skip a
+  TypError operand (isErrType, check/check_cascade.bn); a type built on an error is the error (composite
+  type expressions, func-value types, func literals); a type-expression error makes a constant POISONED.
+  Test: check_cascade_test.bn (38 single-mistake programs, one error each).
+
+
 ### Type-wrapper peel bug cluster (named / alias / readonly handled inconsistently) — DONE (last pieces binate `d500a2af7`, `3f0b620c0`, 2026-09-29, work-5)
 
 Every confirmed finding of the 2026-09-26 sweep and the 2026-09-27 triage is fixed (per-row entries
