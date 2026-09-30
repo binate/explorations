@@ -88,7 +88,9 @@ so method values are the only package-level closure records.  Proposed fix:
 mirror the raw-slice-literal backing — when `isGlobalInitFunc(ctx)`,
 `allocFrameClosureRecord` allocates the record as package-level static storage
 (`newPackageLiteralBacking`), stored with init semantics and never released
-(program lifetime), and the spec says so in `func.closure.allocation`.
+(program lifetime), and the spec says so in `func.closure.allocation`.  Test
+(not yet landed): `conformance/spec/10-functions/214_method_value_package_level`
+(`.xfail.all` — which modes pass by luck depends on stack layout).
 
 ### IR-gen: a method value on a composite-literal receiver with managed fields stores the literal's address, not its value — wrong code (garbage / segfault) — 🔴 OPEN (found 2026-09-29 by the review of the *func closure frame-lifetime fix)
 
