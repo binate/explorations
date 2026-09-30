@@ -906,7 +906,7 @@ atomics (LDADD*/STADD/SWP/CAS/CASP), LDTR/STTR*, LDRAA/LDRAB, NEON LD1/ST1/LD1R 
 text forms, CRC32*, PACGA/XPACI, CFINV/RMIF/SETF8, TLBI/AT, the `:abs_g*:` and TLS relocation
 operators, `.L` / numeric local labels, literal pools (`ldr =imm`, deliberately rejected today); and `name = expr` constants, which are defined but can't be
 referenced (lookupConst has no callers) — these four 🟡 IN PROGRESS (claimed 2026-09-30, work-2/session;
-user: "yes").  Each family: isa encoder (if missing) +
+user: "yes"; plan and open decisions in `plan-aa64-asm-symbols.md`).  Each family: isa encoder (if missing) +
 parser + golden lines from clang.
 
 **Progress (work-2):** family by family, one reviewed commit each.  (1) exclusive / ordered loads and
