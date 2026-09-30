@@ -483,7 +483,7 @@ definition, though valid for T = int.  isTypeParamType / containsTypeParam (chec
 StripWrappers first, which drops the TYP_NAMED wrapper carrying the instantiation's InstArgs, so a type
 parameter that only appears there is never seen.  Fix: check InstArgs on each named step before peeling.
 
-### Spec gap: what a `bool` holding a value other than 0 / 1 is — the backends disagree — 🔴 NEEDS DECISION (found 2026-09-30, work-7, review of the unsafe_cast gate; pre-existing)
+### A `bool` holding a byte other than 0 / 1 is undefined behaviour; the aggregate retype nests — 🔴 OPEN, DECIDED 2026-09-30 (found 2026-09-30, work-7, review of the unsafe_cast gate; pre-existing)
 
 §8.7 makes `int8 -> bool` an unsafe_cast direction ("a value outside {0, 1} is not a valid bool") but the spec
 says neither what the scalar conversion produces nor what using such a bool does, and Ch.21 has no entry.
@@ -496,6 +496,14 @@ Related (same review): a NESTED container retype (`[2][4]int8 -> [2][4]bool`, `@
 accepted by unsafe_cast (its element retype applied in place, recursively) while `cast`'s leaf rule looks one
 level deep (`cast([2][4]uint8, a)` from `[2][4]int8` is rejected though total and bit-preserving) — state in
 §8.5 whether the aggregate retype nests.
+Decisions (user, 2026-09-30): (1) undefined behaviour — `unsafe_cast(bool, i)` asserts `i` is 0 or 1 (as
+`*T -> @T` asserts a header); using a bool object whose byte is not 0 / 1, however it got there (a scalar
+unsafe_cast, a container retype, bit_cast, raw memory), is UB, listed in §21.6; a CONSTANT operand outside
+{0, 1} (`unsafe_cast(bool, 2)`) is a compile error.  `i != 0` is the defined integer -> bool.  (User: "each
+backend has surprising behavior in its own way!" — sanctioned under UB.)  (2) The aggregate retype nests,
+for `cast` and `unsafe_cast` alike: `cast([2][4]uint8, a)` from `[2][4]int8` is accepted.  Work: spec
+§8.5 (nesting), §8.7 / §21.6 (the bool assertion); checker (the constant-operand check; `cast`'s leaf
+rule recursing through nested containers, as checkUnsafeCastSet already does); tests.
 
 ### A failed interface-target assertion names the target by its bare name — qualify it — 🔴 OPEN (follow-up to `53c0e5fd5`, 2026-09-28; user: "Improving the message with the qualified name would be better, but can be a follow-up.")
 
@@ -525,7 +533,7 @@ the name to the universe type.  **Fix:** pre-register (or at least reserve) ever
 before any type expression is resolved, so a non-type declaration shadows the predeclared type from
 the start.  **Test:** checker unit test for both orders (with the fix).
 
-### A deferred method call on a generic instantiation or an imported type panics — "defer of an unresolved method call" — 🔴 OPEN (found 2026-09-28, work-5, review of the defer named-receiver fix; pre-existing; tried and unclaimed 2026-09-30, work-7 — see the note at the end)
+### A deferred method call on a generic instantiation or an imported type panics — "defer of an unresolved method call" — 🟡 IN PROGRESS (found 2026-09-28, work-5, review of the defer named-receiver fix; pre-existing; tried and unclaimed 2026-09-30, work-7 — see the note at the end; claimed 2026-09-30, work-7/session, with the package-level-var entry: one checker→IR-gen type mapper for both)
 
 `var b @Box[int]; defer b.Get()` and `var sb @strings.Builder; defer sb.WriteByte(…)` panic "defer of an
 unresolved method call" on every backend; the direct calls work.  buildDeferMethod (gen_defer_build.bn)
@@ -984,7 +992,7 @@ checks bytes but not fixups.  And x64's Intel-syntax parser reads a '$'-leading
 operand (`call $foo`, `mov rax, $5`) as a symbol reference, where clang rejects it (the shared lexer takes
 '$' in names for AArch64 / arm32, where clang does; an undefined, undeclared symbol still fails at the end).
 
-### Package-level var inferred from a generic-instantiated non-literal initializer (also: interface-typed, pointer-to-foreign-type) — builds broken — 🔴 OPEN (found 2026-09-26, work-1, fixing the inferred-var miscompile; pre-existing)
+### Package-level var inferred from a generic-instantiated non-literal initializer (also: interface-typed, pointer-to-foreign-type) — builds broken — 🟡 IN PROGRESS (found 2026-09-26, work-1, fixing the inferred-var miscompile; pre-existing; claimed 2026-09-30, work-7/session, with the deferred-method-call entry: one checker→IR-gen type mapper for both)
 
 `var gv = vec.New[int]()` / `var gb = mkBox[int](6)` / `var gp = &gb` at package level (the type is
 inferred and involves a generic instantiation, and the initializer is not a composite literal) fail to
