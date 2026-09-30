@@ -1718,7 +1718,7 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   new caller reaches it. Fix: share emitCall's argument placement, or assert the supported shapes
   loudly. Needs a test that pins whichever is chosen.
 - **Native aggregate-load elision: aggregate-typed extract read after its checked interval (latent)**
-  — 🔵 OPEN (found 2026-09-30 in review of the extract-sinking pass; pre-existing).
+  — 🟡 IN PROGRESS (claimed 2026-09-30; found in review of the extract-sinking pass; pre-existing).
   `native/common/common_aggload_elision.bn`: the S-alloca and S-adjacent shapes accept any extract
   as a read-only use (`lastReadOnlyUseIndex`), and only S-extract rejects aggregate-typed extracts.
   An aggregate-typed extract lowers to an ADDRESS inside the load's source (aarch64 `emitExtract`
