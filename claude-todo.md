@@ -356,7 +356,7 @@ synthetic and the dtor/copy helpers EnsureReplBodyHelpers adds, but not the lift
 initializer's func literal produced.  Likely fix: lower every function the generation appended to the
 module (as the file-load path and the statement path do), not just the helpers; add an e2e/repl.sh case.
 
-### A package-level `[N]char` initialized from a string literal is stored as a POINTER — garbage reads, clobbered neighbours — 🔴 OPEN (found 2026-09-28 by a reviewer probe, claude/exciting-davinci-wahyt2 session; pre-existing)
+### A package-level `[N]char` initialized from a string literal is stored as a POINTER — garbage reads, clobbered neighbours — 🟡 IN PROGRESS (found 2026-09-28 by a reviewer probe, claude/exciting-davinci-wahyt2 session; pre-existing; claimed 2026-09-29, work-7/session)
 
 `var M2 [5]char = "hello"` at package level reads back garbage (`M2[0]` 161 / 236, expected 104) on LLVM
 and native: `__init` emits `store i8* %str, i8** @global` — an 8-byte pointer into the 5-byte global,
