@@ -141,33 +141,16 @@ reproduce on `builder-comp_arm32_baremetal` with a large by-value struct return 
 object for `__aeabi_memcpy` references); if it reproduces, route those paths through the leaf-by-leaf
 helpers.
 
-### Interface and `impl` declarations at the REPL prompt are refused by IR-gen but stay bound in the checker — a later use crashes the REPL — 🟡 IN PROGRESS MAJOR (found 2026-09-29, work-6, recon for parking interface / impl declarations; reproduced; pre-existing; both parts claimed 2026-09-29, work-6/session — user: "Yes, claim both and start with 1.")
+### Interface and `impl` declarations at the REPL prompt park on names not yet declared, like other declarations — 🟡 IN PROGRESS (claimed 2026-09-29, work-6/session — user: "Yes, claim both and start with 1."; "I guess they should park")
 
-`interface Sizer { Size() int }` and `impl *Box : Sizer` at the prompt each print "only func / const /
-var / type declarations are supported at the prompt (Tier 2)" (irgen GenDecl), but the checker has
-already bound Sizer and recorded the impl (collectInterfaceDecl / collectImplDecl), and the REPL does not
-undo a declaration GenDecl refuses (repl/decl.bn evalReplOneDecl prints the message and returns).  So
-`var s *Sizer = &b` then `testing.Println(s.Size())` type-checks and panics "vm: extern not found:
-pkg/builtins/lang.int.Size", killing the REPL.  Two parts: (1) a declaration IR-gen refuses must not
-stay bound — undo it (SnapshotDecl / RollbackDecl), or reject the kind in the checker; (2) supporting
-interface and impl declarations at the prompt (IR-gen registration, vtables, lowering).  The user wants
-interface and impl declarations to park on names not yet declared like other REPL declarations ("I
-guess they should park"), which needs (2).  Related: the rollback-gaps entry below (`impl` at the
-prompt registers into c.Impls).
-
-Part 1 (undo a declaration IR-gen refuses) landed as binate `418119a87`.  Part 2 decisions (user, 2026-09-30,
-"1-3 recs seem fine; 4: do what you think is best (if it expands scope too much, then no); 5: yes"):
-(1) redefining an interface, or a type over an interface or the reverse, is rejected like a type
-redefinition; (2) an incompatible redefinition of a method an `impl` uses shadows it — the `impl` keeps
-the old method, as existing callers do; (3) a parked `impl` is labelled `impl *Box : Sizer`, and a
-conversion to its interface or any of that interface's parents waits on it; (4) generic interfaces and
-generic-receiver impls at the prompt only if they do not expand the scope much; (5) first, as its own
-change: build the VM vtables for impl rows minted while a prompt function or var initializer is lowered
-(LowerNewImpls runs only after a statement prompt) — the two "vtable not found" entries.  Risks from the
-recon: value-receiver dispatch thunks must be built from the latest definition of a method (a stale one
-is the old signature calling the new body); a boxed named managed-slice / managed-pointer / array
-receiver's slot-0 destructor is frozen at 0 when its vtable is built (a leak); a prompt impl's coverage
-is never checked (checkAllImplsSatisfaction runs only for whole packages).
+Interface and impl declarations work at the prompt since binate `d220d330b` but are checked strictly: one
+naming something not yet declared (a type, an interface, a method of the impl's type) is an error, not
+parked, and a conversion needing a parked impl is an error too.  Plan:
+[plan-repl-iface-impl.md](plan-repl-iface-impl.md) (checker section: the two kinds parkable; an impl's
+missing method captured as `T.M`; plural keys, an impl providing `T:I` for its interfaces and their
+parents; a conversion with no impl record for (T, I) captured as `T:I`; REPL group emission and labels).
+Decision (user, 2026-09-30): a parked impl is labelled `impl *Box : Sizer`, and a conversion to its
+interface or any of that interface's parents waits on it.
 
 ### Boxing a named type defined over a struct (`type S2 S`) leaks the struct's managed fields — 🔴 OPEN MAJOR (found 2026-09-30, work-6, review of interface / impl at the REPL prompt; reproduced, compiled and REPL; pre-existing)
 
@@ -224,16 +207,6 @@ error: unresolved selector in IR-gen", killing the REPL.  Instantiating before M
 the prompt never parks — its body is resolved only when instantiated — so it is accepted with a missing
 name, and something (the checker's instantiation or IR-gen's REPL type registration) then lays out the
 field of the later-declared type wrongly.  Root cause: unknown — needs investigation.
-
-### A type declared over a REPL variable or function name is silently ignored — 🔴 OPEN MAJOR (found 2026-09-29, work-6, review of the REPL forward-reference rework; reproduced; pre-existing)
-
-`type Q struct { a int }`, `var P Q`, `type P struct { x int; y int }`: no error, but P stays the
-variable — `sizeof(P)` then reports "P is not a type".  `func T() int { return 1 }`, `type T struct { x
-int }`: no error, then `func (t *T) M() int` reports "method receiver must be a named type".  A type
-declaration's name already bound to a non-type in the session scope gets no placeholder
-(preRegisterTypeNames), and collectTypeDecl then leaves the binding alone or binds an unnamed struct.  Fix:
-decide what a declaration of another kind over a REPL name does (replace the binding, or reject it as a
-type redefinition is), and make the checker and IR-gen do it.
 
 ### A REPL variable redefined with a different type keeps the old variable's value — 🔴 OPEN MAJOR (found 2026-09-29, work-6, review of the REPL forward-reference rework; reproduced; pre-existing)
 

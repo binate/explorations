@@ -1,6 +1,6 @@
 # Plan: `interface` and `impl` declarations at the REPL prompt, parking like other declarations
 
-Status: PLANNED (work-6, 2026-09-30).  Todo: "Interface and `impl` declarations at the REPL prompt …"
+Status: IN PROGRESS (work-6, 2026-09-30) — support at the prompt landed as binate `d220d330b`; parking remains.  Todo: "Interface and `impl` declarations at the REPL prompt …"
 (part 2).  User: "Yes, claim both and start with 1."; decisions "1-3 recs seem fine; 4: do what you think
 is best (if it expands scope too much, then no); 5: yes".  Part 1 (undo a refused declaration) landed as
 binate `418119a87`; decision 5 (vtables for rows minted by prompt functions / var initializers, and

@@ -1,3 +1,16 @@
+### Interface and `impl` declarations at the REPL prompt — supported; a declaration of another kind over a type's or interface's name rejected — DONE (binate `d220d330b`, 2026-09-30, work-6)
+
+IR-gen registers a prompt interface / impl as the file-load passes do (generic interface stashed; impl on
+a generic type refused — generic-receiver methods do not work at the prompt); an impl's structural
+slot-0 destructor is queued when it is declared (ir.RegisterModulePendingDtor) and its vtable built then;
+a value-receiver method gets its dispatch thunk (irgen.GenReplRecvThunk), replaced or shadowed with it —
+without it the method got the interface value's data pointer as its value (garbage for a scalar, a
+refcount drop per call for managed fields: found by the review).  The checker checks a prompt impl's
+coverage and rejects redefining a type or interface and any declaration across kinds with a type or
+interface on either side (check_redefinition.bn; user: "(a) is fine for now") — which also closes "A
+type declared over a REPL variable or function name is silently ignored" (now an error; shadowing across
+kinds stays open with type shadowing).  Part 1 was binate `418119a87`; parking the two kinds stays open.
+
 ### A method value on a composite-literal receiver with managed fields, a package-level method value's closure record, and a cast of a function reference — DONE (binate `b5c2a6423`, `ba0dd3bd1`, `be50fe4b5`, 2026-09-30, work-5)
 
 - **Composite-literal receiver (MAJOR, wrong code).**  `S{m: l}.Get` stored the
