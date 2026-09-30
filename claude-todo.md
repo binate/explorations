@@ -70,7 +70,7 @@ per function, but it never reaches zero).  Check with a VM unit test in the styl
 of `TestCastFuncRefToManagedReleasesClosureRec` (vm_funcvalue_rec_leak_test.bn);
 if it leaks, skip the RefInc for a raw `*func` result type.
 
-### Checker / IR-gen: a function literal cast to a type parameter gets no destination type — the instantiated cast borrows a freed heap closure (silent use-after-free) — 🟡 IN PROGRESS (claimed 2026-09-30, work-5; decided: implement per-instantiation checking) (found 2026-09-30 by the review of the cast-operand hint fix)
+### Checker / IR-gen: a function literal cast to a type parameter gets no destination type — the instantiated cast borrows a freed heap closure (silent use-after-free) — 🔴 OPEN, BLOCKED on per-instantiation checking (design B, work-4) commit 6 (decided 2026-09-30: fix via per-instantiation checking; work-5 released its claim — design B is work-4's) (found 2026-09-30 by the review of the cast-operand hint fix)
 
 In a generic body, `var g = cast(T, func(x int) int { return x + k })` (or
 `unsafe_cast`) types the literal once, while `T` is still abstract, so
@@ -85,6 +85,15 @@ per-instantiation checking for this case, or an interim IR-gen rule that picks
 the literal's heap vs frame allocation from the substituted cast target.
 Test: `conformance/spec/10-functions/217_funclit_cast_type_param` (`.xfail.all`,
 landed `b3dbd9d35`).
+Fixed by design B's commit 6 (IR-gen emits the per-instance checked clone, whose
+literal carries the instance's type — `checkExprWithFVHint` sees `T` bound), not
+by commits 4-5 (they check a clone and drop it).  Open spec question (needs a
+user decision before commit 6 relies on it): is the type a function literal takes
+from a `cast` / `unsafe_cast` target containing a type parameter decided per
+instantiation (reading A: 217 prints `8 14`) or once, abstractly (reading B: the
+literal is the `@func` default and `cast(RF, …)` borrows a statement temporary —
+undefined behaviour)?  Settle with a line in `gen.mono.check`'s dependent list or
+in §10.9.
 
 ### A parameterized impl's coverage is not checked per instance — dependent array lengths pass, and a call reads past the caller's array — 🟡 IN PROGRESS MAJOR (claimed 2026-09-30, work-4/session; fixed as part of design B's per-instance checking, not yet landed) (found 2026-09-30 by the review of that work; pre-existing)
 
