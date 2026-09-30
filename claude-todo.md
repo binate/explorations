@@ -247,7 +247,7 @@ it.  Decide: (a) reject a TYP_TYPE_PARAM target in assertTargetType now, with it
 check nothing in the tree or the conformance suite asserts on a type parameter), or (b) implement the
 Draft rule (per-instantiation checking — design B).
 
-### Parse errors are printed with no file:line:col — a syntax error anywhere in a build gives no location — 🔴 OPEN (found 2026-09-29, work-3, review of the type-argument parser fix; reproduced; pre-existing)
+### Parse errors are printed with no file:line:col — a syntax error anywhere in a build gives no location — 🟡 IN PROGRESS (found 2026-09-29, work-3, review of the type-argument parser fix; reproduced; pre-existing; claimed 2026-09-30, work-3/session — user: "yes")
 
 `var x int = = 1` makes bnc print just `expected expression` / `expected ; or }` — no file, line or
 column — while checker errors print `file:line:col: msg`.  In a multi-package build the user cannot even
