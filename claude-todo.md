@@ -181,9 +181,9 @@ so method values are the only package-level closure records.  Proposed fix:
 mirror the raw-slice-literal backing — when `isGlobalInitFunc(ctx)`,
 `allocFrameClosureRecord` allocates the record as package-level static storage
 (`newPackageLiteralBacking`), stored with init semantics and never released
-(program lifetime), and the spec says so in `func.closure.allocation`.  Test
-(not yet landed): `conformance/spec/10-functions/214_method_value_package_level`
-(`.xfail.all` — which modes pass by luck depends on stack layout).  Unverified,
+(program lifetime), and the spec says so in `func.closure.allocation`.  Test:
+`conformance/spec/10-functions/214_method_value_package_level` (`.xfail.all`,
+landed `7cd2ea520` — which modes pass by luck depends on stack layout).  Unverified,
 likely the same shape: a REPL session variable holding a capturing raw `*func`
 closure (or method value) made at a prompt, whose record lives in that prompt's
 frame — check it alongside the fix.
@@ -199,9 +199,9 @@ receiver literal WITHOUT managed fields (`P{a: 2, b: 3}.Sum`) is loaded first
 works; the managed-field (`needsStructCopy`) path skips that load.  Proposed fix:
 load an aggregate-alloca receiver in the `needsStructCopy` case too, then confirm
 the ownership balances (the record copies the fields in; the literal temp keeps
-its own end-of-statement release).  Test (not yet landed):
+its own end-of-statement release).  Test:
 `conformance/spec/10-functions/213_method_value_composite_lit_receiver`
-(`.xfail.all`).
+(`.xfail.all`, landed `fcdb31f86`).
 
 ### IR-gen: a capturing raw `*func` closure's record is one hoisted slot per literal, released at the end of the innermost block — re-evaluation leaks captures, and the record does not live as long as the frame — 🟡 IN PROGRESS (claimed 2026-09-29, work-5; decided 2026-09-29: frame lifetime, option B) (found 2026-09-29 by the review of the composite-literal function-literal hint fix)
 
