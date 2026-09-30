@@ -49,6 +49,18 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### VM: does building a non-capturing raw `*func` value add a reference to the callee's shared ClosureRec that nothing releases? — 🔴 OPEN (needs investigation; found 2026-09-30 by the review of the method-value / cast fixes, unverified)
+
+`BC_FUNC_VALUE` for a non-capturing function value (`vm_exec_funcref.bn`, `Src1 == -1`)
+RefIncs the callee's shared per-function ClosureRec so an `@func` value owns a
+reference, balanced by the value's scope-end RefDec.  A raw `*func` has no RefDec
+lifecycle, so if the same RefInc runs for a raw `*func` construction
+(`var f *func(int) int = add1` in a loop), the ClosureRec's refcount grows by one per
+evaluation and it is never freed — a leak (the record is per function, so bounded
+per function, but it never reaches zero).  Check with a VM unit test in the style
+of `TestCastFuncRefToManagedReleasesClosureRec` (vm_funcvalue_rec_leak_test.bn);
+if it leaks, skip the RefInc for a raw `*func` result type.
+
 ### IR-gen: a cast of a function reference to a function-value type panics in IR-gen — 🟡 IN PROGRESS (claimed 2026-09-30, work-5) (found 2026-09-30 by the review of the cast-operand hint fix)
 
 `cast(*func(int) int, add1)` — likewise to a named `Fn`, a managed `MFn` or
@@ -2462,6 +2474,16 @@ same and is stable, but not canonical; the for-clause tests compare tokens only,
 spacing and add a byte-exact test.
 
 ## bnlint rules, unused-entity checks & lint skips
+
+### bnlint: flag a pointer-receiver method value on a composite literal (`S{…}.PGet`) — 🔴 OPEN (proposed 2026-09-30 by the review of the method-value fixes; decided: add later)
+
+A pointer-receiver method value on an addressable composite literal captures the
+literal's ADDRESS (`func.method-value.capture`: `*T` captures `&x`), and the
+literal is a statement temporary (§18.4 `mem.temporary`), so the method value
+reads freed fields once the statement ends — user error by the spec, but
+inconsistent with `mk().PGet`, which captures a call result by value.  Likewise
+`var p *S = &S{m: mkLeaf(1000)}`.  Flag a method value or `&` of a composite
+literal whose result outlives its statement.
 
 ### bnlint: flag a capturing `*func` closure made in a loop and stored where it outlives the iteration — 🔴 OPEN (proposed 2026-09-30 by the spec review of the *func closure frame lifetime; decided: add later)
 
