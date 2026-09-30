@@ -1,3 +1,19 @@
+### REPL: code generated for a prompt entry now all reaches the VM — boxing into `*any` / a generic-receiver impl's interface, imported generic functions, literals in prompt functions — DONE (binate `4af0cd413`, 2026-09-30, work-6)
+
+Closes "REPL: boxing a name-less type into `*any` at a prompt panics", "REPL: boxing a generic-receiver
+impl's instantiation at the prompt aborts" and the "An imported generic FUNCTION can't be called at the
+REPL prompt" bullet of "Bugs found reviewing the identity refactor".  Two root causes: (1) the REPL
+lowered only a prompt entry's own function and the helpers drained after it, not the functions IR-gen
+appended while generating it (instantiations of generic functions / methods, function literals), and
+took the FIRST function GenDecl appended as a declaration's body (it is the last) — now lowerGenerated
+lowers everything appended, the body last (first, for a shadowing redefinition, so a literal in it that
+calls the function binds to the new definition); (2) impl rows IR-gen mints at a boxing site got VM
+vtables only when the statement prompt being run minted them — now the session counts the rows with
+vtables (ImplsLowered) and lowers the rest before any prompt code runs (lowerPendingImpls).  Tests:
+repl eval_test (boxing in a var initializer / in a prompt function), e2e/repl.sh tier5-box-generic-
+receiver-impl-instantiation, tier5-generic-instantiation-in-prompt-func, tier5-imported-generic-func-at-
+prompt, tier2-func-literal-in-prompt-func, tier4-shadow-literal-calls-new.
+
 ### A function literal in a composite-literal field / element takes its destination's function-value type; a capturing *func closure's record lives as long as its frame; a cast target is a function literal's destination — DONE (binate `1d87238dd`, `0222fc66c`, `9b15e1372`, 2026-09-30, work-5)
 
 Three linked entries, landed together:

@@ -425,14 +425,6 @@ an interface inside a composite (`*[]*pkg/b.P`) — prints qualified.  Print the
 matrix/type-assert/iface/*/abort cells (generator `conformance/gen-type-assert-matrix.py`, whose comment
 documents the bare form).
 
-### REPL: boxing a name-less type into `*any` at a prompt panics — "interface vtable not found: __ivt…__nameless_…" — 🟡 IN PROGRESS (found 2026-09-28, work-1, review of the interface-identity stack; pre-existing; claimed 2026-09-30, work-6/session — likely the missing LowerNewImpls after a prompt function / var-init is lowered; user: "5: yes")
-
-At the REPL prompt, any boxing of a type with no name of its own into `*any` — even a plain `*[]int` held in
-a prompt global or inside a prompt function — panics "vm: interface vtable not found: __ivt…__nameless_…"
-(main and the fix alike).  The compiled and file-run VM paths register the name-less `any` row
-(ensureAnyImplInfo) and lower its vtable; the per-prompt lowering evidently doesn't reach it.  Needs a test
-(e2e/repl.sh case) and a root cause.
-
 ### A package-level NON-type declaration named like a predeclared type (`func uint16()`) shadows it only after its own position — invalid code accepted in one order — 🔴 OPEN (found 2026-09-28, work-5, review of the named-scalar-constants fix; pre-existing)
 
 `type N2 uint16; const c2 N2 = 5; func uint16() {}` is accepted, while the same declarations with
@@ -641,18 +633,6 @@ on the named type).  The spec allows it (§10 `func.method.receiver-base`: any n
 the same package), so this is a compiler bug: IR-gen needs the named identity for method / impl dispatch
 while keeping the func-value representation for calls / copies / dtors.
 
-### REPL: boxing a generic-receiver impl's instantiation at the prompt aborts — "interface vtable not found" — 🟡 IN PROGRESS (found 2026-09-27, work-1, review of the REPL mid-session registration fix; pre-existing; claimed 2026-09-30, work-6/session — likely the missing LowerNewImpls after a prompt function / var-init is lowered; user: "5: yes")
-
-pkg/gcur: `type Cursor[T any] struct { v T }`, `func (c *Cursor[T]) Get() T`, `impl *Cursor[T] :
-gbase.Base[T]`, `func MkInt(n int) Cursor[int]`.  At the prompt: `import "pkg/gcur"`, `import
-"pkg/gbase"`, `var c gcur.Cursor[int] = gcur.MkInt(5)`, `var bb *gbase.Base[int] = &c` → `panic: vm:
-interface vtable not found: __ivt…Cursor__bn_inst…Base__bn_inst…`, aborting the session.  The same
-program works under bnc and the interpreter, and inside a package imported mid-session.  Likely: the
-prompt's synthetic is lowered per decl (LowerOneFunc), and the (instantiation, interface) row IR-gen mints
-on the session module at the boxing site (ensureGenericImplInfo) never reaches the VM's vtable table,
-which is built by LowerModule.  Fix: lower newly minted impl rows / vtables when a prompt decl is lowered.
-No test yet — e2e/repl.sh has no expected-failure mechanism; add a case with the fix.
-
 ### Polymorphic recursion in a generic function crashes the compiler — 🔴 OPEN (found 2026-09-28, work-4, per-instantiation design mapping; reproduced on main)
 
 `func depth[T any](n int) int { ...; return 1 + depth[@T](n - 1) }` makes bnc segfault (exit 139): IR-gen's
@@ -853,11 +833,6 @@ and over the type checkBlankTypeDecl resolves.
   call through a GENERIC interface instance (`@gen.Holder[int]`) still misses ("defer of an unresolved
   interface method") — the checker names the instance differently than IR-gen.  Fix: compute the identity
   from the receiver's IR type, as `genInterfaceMethodCall` does.
-- **An imported generic FUNCTION can't be called at the REPL prompt:** "extern not found:
-  <pkg>.F__bn_inst__…", whether the fixture imports the package or it is imported mid-session.
-  🟡 IN PROGRESS (claimed 2026-09-30, work-6/session): root cause — the REPL lowered only a prompt
-  entry's own function, not the instantiations IR-gen appended while generating it; fixed by the
-  prompt-lowering change under review (lowerGenerated), with tests.
 
 ### aa64 text assembler: clang-valid instruction families still rejected (completeness) — 🟡 IN PROGRESS (listed 2026-09-26; claimed 2026-09-27, work-2/session; user: "Next, after this lands", then "yes"; landing family by family)
 
