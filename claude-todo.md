@@ -640,6 +640,20 @@ at the C boundary (back-filling the S-slot mask, `common_callconv_vfp.bn`) on bo
 call which (and whether (a) first).  Needs a conformance test on `builder-comp_arm32_linux` /
 `builder-comp_native_arm32_linux` (qemu-arm user-mode is not installed on this host).
 
+### interp embedding API: marshalableType recurses forever on a recursive type — even `type Node struct { kids @[]Node }` — 🔴 OPEN MAJOR (found 2026-09-30, work-7, recon for the self-referential named types fix; static finding, not yet reproduced; pre-existing)
+
+pkg/binate/interp runfunc_typed.bn ~230 marshalableType (via supportedParamType / supportedResultType /
+supportedResultMarshalType, reached from RunFuncTyped and CallIfaceMethod call_iface.bn) runs on CHECKER
+types, which are recursive on main: StripWrappers(named) → managed slice → marshalableType(Elem) → the same
+type, and struct → field → `@[]Self` → the struct, with no visited set — a stack overflow in the public
+embedding API for `type Tree @[]Tree`, `type A @[]B; type B @[]A`, or an ordinary recursive struct.
+Fix: carry the (type, allowIface) pairs being checked (by type pointer) and answer true on a repeat — the
+predicate only ANDs its parts' results, so a cycle adds no condition; allowIface must be in the key, or
+`struct R { i @I; kids @[]R }` would accept the iface field on the second visit.  (Alternatively answer
+false — "not supported" — on a repeat; a decision for the user.)  releaseImage / unmarshal walk the finite
+data, so a value of a recursive type can be released.  Needs a reproduction first (an interp unit test
+calling RunFuncTyped with a recursive-type parameter).
+
 ### A named non-struct type that names itself through an indirection is mis-typed in IR-gen — `type StateFn @func(int) StateFn`, `type Tree @[]Tree` — 🟡 IN PROGRESS (found 2026-09-30, work-7, audit for the named func-value methods fix; reproduced; pre-existing; MAJOR; claimed 2026-09-30, work-7/session — recon now, the fix after the named func-value methods fix lands; user: "yes, you can take it on afterwards")
 
 IR-gen resolves a named type declaration's underlying before registering the type (registerModuleTypeDecl /
