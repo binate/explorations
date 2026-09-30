@@ -67,6 +67,32 @@ the bound type keeps `readonly`.  Check whether per-instantiation checking (desi
 instantiated expression types, which would make the checker-side type right directly.  Needs a
 conformance test over the three box paths.
 
+### A generic function whose parameter type contains `readonly T` (`x readonly T`, `s *[]readonly T`) cannot be called — valid code rejected — 🔴 OPEN (found 2026-09-29, work-3, writing conformance 1437; reproduced; pre-existing)
+
+`func n[T any](s *[]readonly T) int` called as `n[int](a)` with `a *[]readonly int` fails "cannot assign
+*[]readonly int to *[]readonly T"; `func f[T any](x readonly T)` called as `f[@[]readonly char](s)` fails
+"cannot assign @[]readonly uint8 to readonly T".  `substituteTypeParams` (check/check_generic.bn ~:283)
+walks pointer / slice / array / interface-value / function kinds but returns a TYP_READONLY unchanged, so
+the `T` under a `readonly` is never substituted.  Nothing in the tree uses `readonly T` in a generic
+signature, which is why it went unnoticed — but `*[]readonly T` is the natural parameter type for a
+read-only slice API.  Fix: substitute under TYP_READONLY (`MakeReadonlyType(subst(Elem))`), audit the
+other kinds it skips (alias, anonymous struct fields, tuple), and check that IR-gen's instantiation
+resolves the same types.  Needs a conformance test (a `readonly T` and a `*[]readonly T` parameter,
+called and run on every backend).
+
+### Explicit generic type arguments starting with `*(`, `*@` or `readonly` are rejected in expression context — valid code rejected — 🔴 OPEN (found 2026-09-29, work-3, writing conformance 1437; reproduced; pre-existing)
+
+`f[*(@[]int)](x)`, `f[*([3]int)](x)` and `f[*@[]int](x)` fail to parse ("expected {, got )" / "expected
+{, got ]"), and `f[readonly @[]char](x)` fails "expected ], got @"; `f[@(@[]int)](x)` and `f[*K](x)`
+parse.  `startsBracketTypeArg` (parser/parse_postfix.bn) sends only `@…`, `[` and `*[` to the type
+parser; every other bracket element is parsed as an expression, which works for `*K` (the checker
+reinterprets a deref as a pointer type) but not when what follows the `*` is not an expression.  The
+grammar (binate.ebnf D5) says a single bracketed element followed by `(` is tried as an instantiation
+first, falling back to an index.  `readonly` and `*@` can probably commit to the type path, but `*(` is
+ambiguous with indexing by a dereferenced parenthesized expression (`a[*(p)]`), so it needs that
+try-then-fall-back.  Source can spell such a type argument through a type alias meanwhile.  Needs a
+conformance test.
+
 ### `@any` of a named managed slice or pointer (`type S @[]int`, `type H @Node`) never matches its own `case @S:` — assertion aborts — 🔴 OPEN (found 2026-09-29, work-3, review of the outer-readonly boxing fix; pre-existing)
 
 `var a @any = box(s)` for `type S @[]int` takes wrapAsIfaceValue's owning-pointee path and keys the box on
