@@ -125,6 +125,20 @@ reproduce on `builder-comp_arm32_baremetal` with a large by-value struct return 
 object for `__aeabi_memcpy` references); if it reproduces, route those paths through the leaf-by-leaf
 helpers.
 
+### Interface and `impl` declarations at the REPL prompt are refused by IR-gen but stay bound in the checker — a later use crashes the REPL — 🔴 OPEN MAJOR (found 2026-09-29, work-6, recon for parking interface / impl declarations; reproduced; pre-existing)
+
+`interface Sizer { Size() int }` and `impl *Box : Sizer` at the prompt each print "only func / const /
+var / type declarations are supported at the prompt (Tier 2)" (irgen GenDecl), but the checker has
+already bound Sizer and recorded the impl (collectInterfaceDecl / collectImplDecl), and the REPL does not
+undo a declaration GenDecl refuses (repl/decl.bn evalReplOneDecl prints the message and returns).  So
+`var s *Sizer = &b` then `testing.Println(s.Size())` type-checks and panics "vm: extern not found:
+pkg/builtins/lang.int.Size", killing the REPL.  Two parts: (1) a declaration IR-gen refuses must not
+stay bound — undo it (SnapshotDecl / RollbackDecl), or reject the kind in the checker; (2) supporting
+interface and impl declarations at the prompt (IR-gen registration, vtables, lowering).  The user wants
+interface and impl declarations to park on names not yet declared like other REPL declarations ("I
+guess they should park"), which needs (2).  Related: the rollback-gaps entry below (`impl` at the
+prompt registers into c.Impls).
+
 ### REPL type redefinition: shadowing (the design) is not implemented; a redefinition is rejected meanwhile — 🔴 OPEN (found 2026-09-29, work-6, review of the REPL forward-reference plan)
 
 claude-notes.md ("Redefinition in the REPL") says an incompatible type redefinition shadows the old
