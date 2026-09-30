@@ -488,6 +488,18 @@ IR-gen-type mapper (instantiate a checker instantiation via InstDecl + mapped In
 named type) — the same mapper the "Package-level var inferred from a generic-instantiated non-literal
 initializer" entry needs; build it once for both.
 
+### A deferred method call on a receiver whose instantiation has an array argument sized by a type parameter panics — "defer of an unresolved method call" — 🔴 OPEN (found 2026-09-30, work-7, review of the checker→IR-gen type mapper; user chose to track it separately)
+
+`func F[T any](x T) { var b Box[[sizeof(T)]uint8]; defer b.Mark(3) }`, `F[int32](5)`: bnc panics; the
+same call without `defer` compiles and runs.  The defer path names the method from the receiver's
+checker type mapped to IR-gen's (irTypeFromChecker — defer sites are built at function entry, before any
+local exists), and the checker's `[sizeof(T)]uint8` has no length (ArrayLenDependent, placeholder 0), so
+the receiver's type has no IR-gen form.  Fix options: the checker records the length expression on a
+dependent array type (an opaque AST pointer, like InstDecl) and IR-gen evaluates it under the current
+instantiation — careful: evaluating `sizeof(T)` resolves T by NAME, the binder-name hazard
+bindTypeParams notes; or, for a local receiver, resolve the type from its declaration's written type
+(the entry pre-pass would have to find the declaration in the body).  Needs a conformance test.
+
 ### A `cast` / `unsafe_cast` / `bit_cast` that is invalid only once a generic type parameter is instantiated crashes IR-gen instead of getting a diagnostic — 🔴 OPEN (found 2026-09-28, work-5, review of the composite-literal cast fix; pre-existing design gap)
 
 check_cast_safe.bn `checkCastSafeSet` defers validation when a side is an abstract type parameter, and
@@ -656,7 +668,7 @@ at the C boundary (back-filling the S-slot mask, `common_callconv_vfp.bn`) on bo
 call which (and whether (a) first).  Needs a conformance test on `builder-comp_arm32_linux` /
 `builder-comp_native_arm32_linux` (qemu-arm user-mode is not installed on this host).
 
-### Methods and impls on a named function-value type are broken — link failure / runtime segfault — 🔴 OPEN (found 2026-09-27, work-5, review of the named-readonly func-value fix; pre-existing, no wrapper needed)
+### Methods and impls on a named function-value type are broken — link failure / runtime segfault — 🟡 IN PROGRESS (found 2026-09-27, work-5, review of the named-readonly func-value fix; pre-existing, no wrapper needed; claimed 2026-09-30, work-7/session — to start once the checker→IR-gen type mapper lands; user: "Your recs for A and B are fine.")
 
 For `type Fn @func() int` (plain, no readonly): a method `func (f Fn) M() int` compiles to a call of an
 undefined symbol (link failure), and `impl *Fn : Caller` with vtable dispatch compiles and links but
