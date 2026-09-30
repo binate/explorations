@@ -220,6 +220,33 @@ is the old signature calling the new body); a boxed named managed-slice / manage
 receiver's slot-0 destructor is frozen at 0 when its vtable is built (a leak); a prompt impl's coverage
 is never checked (checkAllImplsSatisfaction runs only for whole packages).
 
+### Boxing a named type defined over a struct (`type S2 S`) leaks the struct's managed fields — 🔴 OPEN MAJOR (found 2026-09-30, work-6, review of interface / impl at the REPL prompt; reproduced, compiled and REPL; pre-existing)
+
+`type S struct { p @Inner }`, `type S2 S`, `impl *S2 : Sizer`: dropping a `@S2` boxed into `@Sizer` leaves
+the Inner's refcount one high (a file program too).  irgen boxSlot0DtorName (gen_iface_anybox.bn) names
+slot 0 `__dtor_S2`, but only `__dtor_S` is emitted, so slot 0 is null.  Fix: when the receiver's
+underlying type is a struct, key the slot-0 destructor on that struct's name (as the named managed
+pointer receiver case keys on its pointee's).  Needs a conformance test with a refcount check.
+
+### A REPL type defined after a forward declaration keeps a stale IR-gen type in types that used it — leak — 🔴 OPEN MAJOR (found 2026-09-30, work-6, review of interface / impl at the REPL prompt; reproduced; pre-existing)
+
+`type S5`, `type MPP @@S5`, `type S5 struct { p @Inner }`, then dropping an MPP value leaves Inner's
+refcount rising (1 → 2 → 3) — no impl involved; a box of one into a prompt interface leaks too.  MPP was
+lowered while S5 was an empty forward type, and IR-gen does not refresh it when S5 is filled.  Root
+cause: needs investigation (IR-gen's forward-type registration at the prompt).
+
+### A type or interface name used as a value is accepted — `testing.Println(I)` crashes — 🔴 OPEN MAJOR (found 2026-09-30, work-6, review of interface / impl at the REPL prompt; reproduced, compiled and REPL; pre-existing)
+
+`interface I { M() }` then `testing.Println(I)` segfaults (a file program too); a struct type name
+prints `%!?(unknown)`.  The checker must reject a type or interface name where a value is required.
+Needs a conformance `.error` test.
+
+### Boxing a named managed function value into an interface panics — "no shim vtable for native interface method dispatch" — 🔴 OPEN (found 2026-09-30, work-6, review of interface / impl at the REPL prompt; reproduced, compiled and REPL; pre-existing)
+
+`type FV @func() int`, `func (f *FV) Size() int`, `impl *FV : Sizer`, boxing a `*FV` into `*Sizer` and
+calling `Size` panics in the VM "no shim vtable for native interface method dispatch" (a file program
+too).  Root cause: needs investigation.
+
 ### REPL type redefinition: shadowing (the design) is not implemented; a redefinition is rejected meanwhile — 🔴 OPEN (found 2026-09-29, work-6, review of the REPL forward-reference plan)
 
 claude-notes.md ("Redefinition in the REPL") says an incompatible type redefinition shadows the old
