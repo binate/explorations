@@ -236,6 +236,19 @@ The same gap admits an alias to an array, function or struct type.  Fix: in the 
 assertion target whose base resolves through an alias to a pointer / array / function / struct (the
 kinds §11.12 already rejects when spelled directly); add a conformance `.error` test for each.
 
+### A type-parameter assertion target (`x.(*T)`) is accepted although §11.12 says it is rejected — `f[@Node]` recovers a Node cell as `*(@Node)` — 🔴 NEEDS DECISION (found 2026-09-30, work-3, review of the alias-target checker fix; reproduced; pre-existing)
+
+`func f[T any](x @any) bool { _, ok := x.(*T); return ok }` with `var a @any = n` (n `@Node`) and
+`f[@Node](a)` compiles on builder-comp and prints `true`: the checker sees TYP_TYPE_PARAM (not in the
+alias-target rejection list), checks the generic body once abstractly, and IR-gen builds the
+instantiated target `*(@Node)`, which typeInfoSymFor keys on `main.Node` — matching a plain `@Node` box and
+recovering its Node cell as a `*(@Node)` (the same type confusion the alias-target fix closed).  The spec
+(§11.12 `iface.assert.typeparam`, Draft) specifies per-instantiation semantics but says "Today an assertion
+whose target names a type parameter is rejected at the generic declaration" — the checker does not reject
+it.  Decide: (a) reject a TYP_TYPE_PARAM target in assertTargetType now, with its own message (first
+check nothing in the tree or the conformance suite asserts on a type parameter), or (b) implement the
+Draft rule (per-instantiation checking — design B).
+
 ### Parse errors are printed with no file:line:col — a syntax error anywhere in a build gives no location — 🔴 OPEN (found 2026-09-29, work-3, review of the type-argument parser fix; reproduced; pre-existing)
 
 `var x int = = 1` makes bnc print just `expected expression` / `expected ; or }` — no file, line or
