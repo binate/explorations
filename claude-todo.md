@@ -431,15 +431,6 @@ initialized works. Needs a conformance test + the package-init lowering fixed to
 ("array base with storage has no address"; before, it gave invalid LLVM IR). Fix: `&x` as a selector base
 is `x`'s address — add the arm (genLValueAddr of the operand). Needs a conformance test.
 
-### `genIndexPtr` evaluates the index BEFORE the base — wrong left-to-right order — 🔴 OPEN (found 2026-09-28 by the review of the in-place array-index fix, claude/exciting-davinci-wahyt2 session; pre-existing)
-
-`irgen/gen_access.bn` `genIndexPtr` evaluates `e.Args[0]` first in every arm, then the base; so wherever an
-element address is taken through it (e.g. the value-borrow of an index expression passed to
-`testing.Println(b(&s).m[ix(1)])`) a side-effecting index runs before a side-effecting base ("idx base";
-the value path gives "base idx"). Fix: evaluate the base (its address) before the index in each arm.
-Needs a conformance test observing the order.
-
-
 ### arm32 hard-float: a homogeneous-float-aggregate `__c_call` ARGUMENT is passed in GP registers — C reads garbage from `s0…` — 🔴 OPEN (found 2026-09-27, work-3, stale-ABI-comment sweep)
 
 On `--target arm32-linux` (FLOAT_ABI_HARD) `HfaAggregates` stays false, so a float-only named struct /
