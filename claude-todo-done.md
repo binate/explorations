@@ -1,3 +1,13 @@
+### AArch64 remaining small parity items — DONE (binate `2ba733647`, 2026-09-30, work-2)
+
+Shift amounts as clang takes them (after `#` starting with a literal or '(', without `#` with a literal; a
+single literal after an add / sub immediate, the immediate itself written with '#' or starting with a
+literal), `#:lo12:sym, lsl #0|#12` (isa.AddSubLo12 gained shift12; Mach-O linkers reject the shifted form, as
+for clang's), '$' in symbol names (first only before a letter, digit or '_'), and a PRFM operation number
+without `#`.  Left: x64's Intel-syntax parser now reads `call $foo` as a symbol reference where clang rejects
+a '$'-leading operand there (from the shared lexer; an undefined, undeclared symbol still fails at the end) —
+tracked in the todo.
+
 ### A package-level `[N]char` initialized from a string literal was stored as a pointer — DONE (binate `d827aecb6`, 2026-09-30, work-7)
 
 `var M2 [5]char = "hello"` stored the literal's 8-byte address into the 5-byte global (garbage reads, the

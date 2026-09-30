@@ -869,18 +869,14 @@ SME/SME2 included — sequencing is free, but no family is dropped for lack of a
 above: FEAT_MTE (IRG / GMI / SUBP(S) / ADDG / SUBG / STG / LDG / STGP / …), FEAT_MOPS (CPY* / SET*), FEAT_LS64
 (LD64B / ST64B*), FEAT_GCS, FEAT_CSSC (ABS / CNT / CTZ / SMAX / SMIN / UMAX / UMIN reg & imm), FEAT_SYSREG128 /
 FEAT_SYSINSTR128 (MRRS / MSRR / SYSP), CHKFEAT and the other newer hint / system forms, SVE/SVE2(.1), SME/SME2.
-**Found by the emit-before-EOL review (2026-09-29), not yet done — 🟡 IN PROGRESS with the small-forms review's
-items below (claimed 2026-09-29, work-2/session):** a '$' in a label name (`L$foo:`) —
-clang accepts it, this assembler rejects it.  **Found by the small-forms review (2026-09-29), not yet
-done:** shift amounts written as expressions that clang rejects but this assembler takes (the value is
-right): register-offset `lsl +3` / `lsl (3)` / `lsl ~-4` / `uxtw (3)`, add / sub `lsl #(12)` / `lsl #6+6` /
-`lsl 6+6`, `#4096, lsl #(0)` / `lsl #0+0`; and forms clang takes that this assembler rejects: `add x0, x1,
-#:lo12:sym, lsl #0` and `…, lsl #12`, `prfm 5, [x1, 8]` (a prefetch operation number without `#`).  (b) Outside the instruction parsers a rejected
+**Also open (found by reviews, 2026-09-29):** outside the instruction parsers a rejected
 line can still emit: a data directive with trailing text or a later bad value (`.ascii "ab" x`, `.uint32 1
 2`, `.int8 1, 300`, `.zero 4 x`, `.fill 2, 1, 7 x`, `.balign 8 x` padding in text) writes its bytes before
 the error, and a label prefix on a rejected line (`L1: ldr x0, [x1] x2`) is still defined.  Harmless (an
 error aborts the file) but the same "a rejected line emits nothing" rule; `lineRejected` in `parse_test.bn`
-checks bytes but not fixups.
+checks bytes but not fixups.  And x64's Intel-syntax parser reads a '$'-leading
+operand (`call $foo`, `mov rax, $5`) as a symbol reference, where clang rejects it (the shared lexer takes
+'$' in names for AArch64 / arm32, where clang does; an undefined, undeclared symbol still fails at the end).
 
 ### Package-level var inferred from a generic-instantiated non-literal initializer (also: interface-typed, pointer-to-foreign-type) — builds broken — 🔴 OPEN (found 2026-09-26, work-1, fixing the inferred-var miscompile; pre-existing)
 
