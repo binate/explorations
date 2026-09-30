@@ -174,7 +174,7 @@ needlessly expensive when the call doesn't touch the earlier value.  The spec ma
 a possible bnlint rule — e.g. flag an expression/statement that reads a managed GLOBAL (or a field/element of
 one) as an operand before a later operand that contains a call (any call can reassign a global).
 
-### The native backends read a by-value global aggregate operand AFTER later operands run — `show(gt, bump())` sees bump's write — 🔴 OPEN (found 2026-09-29, work-1, re-review of the evaluation-order change; pre-existing)
+### The native backends read a by-value global aggregate operand AFTER later operands run — `show(gt, bump())` sees bump's write — 🟡 IN PROGRESS (found 2026-09-29, work-1, re-review of the evaluation-order change; pre-existing; claimed 2026-09-29, work-1 — user: "yes")
 
 `type T struct { v int; w int }; var gt T; func bump() int { gt.v = 99; return 1 }`: `show(gt, bump())` passes
 `t.v == 99` on native aa64 but 0 on LLVM (and per the review the VM agrees with LLVM); a parallel
