@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### IR-gen: a struct-field `x.f++` / `x.f--` that opens a block is emitted into the previous, already-terminated block — silent wrong code / trap / hang — 🔴 OPEN (found 2026-09-30, work-4, while building design B's instance-body drain loop; reproduced; pre-existing — every compiler back to BUILDER bnc-0.0.16)
+### IR-gen: a struct-field `x.f++` / `x.f--` that opens a block is emitted into the previous, already-terminated block — silent wrong code / trap / hang — 🟡 IN PROGRESS (claimed 2026-09-30, work-4/session — user: "Yes, you should claim and fix") (found 2026-09-30, work-4, while building design B's instance-body drain loop; reproduced; pre-existing — every compiler back to BUILDER bnc-0.0.16)
 
 **Symptom.**  A field `++`/`--` as the first statement of a loop body, `if` body or `else` body — or preceded there only by an ident `i++` — miscompiles.  Example: `for s.Top > 0 { s.Top-- }` on a local struct `s`, or on a local `@State`/`*State` pointer `p.Top--`.
 - **LLVM:** the field's load/sub/store land in the loop-condition (or pre-`if`) block, AFTER its terminating branch.  The body block holds only the GEP.  The result is a silent early return (wrong output, rc 0) or a trap (rc 133).
