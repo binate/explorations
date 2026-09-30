@@ -22,6 +22,15 @@ S-alloca (the source is a confined, non-escaping stack slot not re-stored before
 S-extract (every use is a field extract; any size).  An IR-level load→store peephole was considered there and
 rejected as the primary lever: it changes the IR the VM also runs.
 
+Landed first (the quick regression fix): on hosted targets the LLVM backend's bulk copies / zero-fills are
+llvm.memcpy / llvm.memset (`733aa87dc`), which clang optimizes; bare metal keeps rt.MemCopy / rt.MemZero.
+
+Finding (2026-09-30): the native aa64 backend does NOT elide the review's example either — `var x Big = *p;
+return x.n` at -O2 copies all 808 bytes, zero-fills the 800-byte SROA slot of `arr` and copies `arr` into it
+(a slot nothing reads).  Those writes sit between the load and the `n` extract, so AggLoadElidable's
+"nothing writes between" rules refuse.  Step B (dropping the dead slot's zero-fill and store) is what makes
+the load's only use the `n` extract; then native's S-extract elides it, and step A lets LLVM do the same.
+
 ## Steps
 
 A. LLVM backend parity with native: a bulk load that `AggLoadElidable` accepts is not copied into `.m`; its
