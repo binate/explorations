@@ -215,6 +215,16 @@ bound on a variable (`p.Inc`) it does.  Root cause: unknown — needs investigat
 construction for a non-variable receiver takes the receiver's value, not its address).  Covered by
 conformance 1428 (`xfail.all`).
 
+### A deferred interface-method call through a pointer to an interface value crashes bnc — "defer of an unresolved interface method" — 🔴 OPEN (found 2026-09-29, work-7, review of the `(&x).f` selector fix; pre-existing)
+
+`defer (&iv).Show()` (iv `*I`), `defer (&mv).Show()` (mv `@I`) and `defer piv.Show()` (piv `*(*I)`) panic in
+bnc with every compiler checked; the same calls without `defer` work, and so does `defer (*piv).Show()`.
+`buildDeferIface` / `deferCalleeType` (irgen gen_defer_build.bn) key on the checker type of the selector's
+receiver (`*(*I)`) without auto-dereferencing the one pointer level a method call does, and
+`deferMethodRecvType` peels only an explicit `*`.  Fix: auto-dereference a pointer-to-interface-value
+receiver in the defer path as the direct call path does.  Needs a conformance test (the three forms,
+every backend).
+
 ### A failed interface-target assertion names the target by its bare name — qualify it — 🔴 OPEN (follow-up to `53c0e5fd5`, 2026-09-28; user: "Improving the message with the qualified name would be better, but can be a follow-up.")
 
 `x.(*Flyer)` failing prints `type assertion failed: main.Dog is not Flyer` (gen_assert_iface.bn uses the
