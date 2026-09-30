@@ -319,7 +319,7 @@ A method declared `func (b *readonly Box[T]) get() T` called on `var bx Box[int]
 assignable to *readonly Box[T]"); the same shape on a non-generic type is accepted.  The receiver-smoothing
 check compares against the uninstantiated receiver type.  Needs a conformance test (checker).
 
-### The LLVM backend lowers aggregate loads, copies and zero-fills one scalar leaf at a time — IR (and clang memory) grows with array length — 🟡 IN PROGRESS (found 2026-09-28, work-1, while fixing conformance 1301's whole-array load; pre-existing; claimed for recon 2026-09-29, work-1 — user: "maybe recon the next thing while waiting")
+### The LLVM backend lowers aggregate loads, copies and zero-fills one scalar leaf at a time — IR (and clang memory) grows with array length — 🟡 IN PROGRESS (found 2026-09-28, work-1, while fixing conformance 1301's whole-array load; pre-existing; claimed 2026-09-29, work-1; zero-fill + memory-to-memory copy DONE `a39d67d9f`)
 
 Every aggregate memory operation in the LLVM backend decomposes per scalar leaf: a zero-fill is one GEP +
 `store 0` per leaf (codegen emit_copy.bn `emitFieldwiseZero` / `emitZeroRec`), a copy one GEP + load +
@@ -361,6 +361,14 @@ Decided (user, 2026-09-29): "(A) is already our standard, and we already have rt
 however they're spelled) ... and they mostly have per-arch assembly.  When running on Linux or Mac OS, we
 can live with a call to memcpy; that's ok, given that stdlib isn't C free at all." — so big aggregates call
 the existing runtime helpers; the hosted -O2 memcpy is accepted.
+Stage 1 landed (binate `a39d67d9f`): above 16 scalar leaves emitFieldwiseZero / emitFieldwiseCopy call
+rt.MemZero / rt.MemCopy — 1301 is 37 KB of IR (was 13 MB), a 1 MB local zero-fill 412 lines.  REMAINING:
+large aggregate SSA values.  Measured with stage 1: a 100 KB array passed by value and returned by value
+is 900k lines of IR, 382 s and 3.8 GB to compile.  Decided (user, 2026-09-29: "Doesn't (a) still leave the
+'uncommon' case still rather disastrous?"): the full fix — every large-aggregate VALUE is memory-backed in
+the LLVM backend (as native does): a load MemCopies into a function-scoped temp and the value is its
+address; stores MemCopy from it, extracts GEP into it, by-value args / returns / call results / phis use
+the address — every codegen producer and consumer of aggregate values handles that form.
 
 ### A `.bni` forward `type X` completed by a NON-struct `type X int` in the `.bn` — checker accepts, IR-gen internal error — 🔴 OPEN (found 2026-09-28, work-1, review of the named-type identity fix; pre-existing)
 
