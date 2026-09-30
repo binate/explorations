@@ -1,3 +1,14 @@
+### AArch64 system operands dropped a symbol tail; the decided small forms — DONE (binate `2ff3ca163`, `0a4c23c68`, 2026-09-29, work-2)
+
+`dmb ish-1`, `dsb sy+4`, `bti c+4`, `mrs x0, nzcv+4`, `sys #0, c7+4, …`, `dc cvac+4, x0` and the like
+assembled as the bare name (the scanner reads `ish-1` as a symbol and an addend; the system handlers read only
+the name).  Resolved: every system operand name must be a bare name (`isSysName` — no addend, not even `+0`,
+no `@` specifier, no `:got:`), as clang requires.  Landed with it, per the user's decisions: the "#0 only"
+offset stays checked by value (clang takes any zero for the release stores, wants a literal first token for
+the loads / exclusives); a GOT page-offset access other than a 64-bit LDR stays rejected (listed with the
+deliberate rejects); UXTW takes an X spelling of its source like the sign-extends (UXTB / UXTH do not, as
+clang).
+
 ### A generic function whose parameter type contains `readonly T` (`x readonly T`, `s *[]readonly T`) cannot be called — valid code rejected — DONE (binate `af525228f`, 2026-09-29, work-3)
 
 `func n[T any](s *[]readonly T) int` called as `n[int](a)` with `a *[]readonly int` fails "cannot assign
