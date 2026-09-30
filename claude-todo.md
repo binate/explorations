@@ -147,6 +147,9 @@ failure yet.
 Fix: give each slot the size and alignment the ABI access needs — allocate the coerced `[N x iW]` (as the
 `.agA<i>` coercion slot already does) or round the slot up, and emit `align` ≥ the alignment the load / byval
 claims; the same for a `.m` slot passed to a `__c_call`.  Add an IR-level unit test for each target.
+Same class, internal calls too (found by the review of the bulk-returns change): on arm32 every sret call site
+passes `ptr sret(<T>) align 8` on its `.sret` alloca, whose natural alignment is 4 for e.g. `[64 x i32]` — a
+false alignment claim.  Fix it with the rest (emit the claimed alignment on the slot's alloca).
 
 ### Native aa64: a by-value aggregate parameter passed indirectly may be copied as whole 8-byte words, reading past the caller's copy — 🔴 OPEN, UNCONFIRMED (reported 2026-09-30 by the review of the bulk by-value-argument change)
 
