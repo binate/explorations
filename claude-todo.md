@@ -372,7 +372,7 @@ the name to the universe type.  **Fix:** pre-register (or at least reserve) ever
 before any type expression is resolved, so a non-type declaration shadows the predeclared type from
 the start.  **Test:** checker unit test for both orders (with the fix).
 
-### A deferred method call on a generic instantiation or an imported type panics — "defer of an unresolved method call" — 🟡 IN PROGRESS (found 2026-09-28, work-5, review of the defer named-receiver fix; pre-existing; claimed 2026-09-30, work-7/session)
+### A deferred method call on a generic instantiation or an imported type panics — "defer of an unresolved method call" — 🔴 OPEN (found 2026-09-28, work-5, review of the defer named-receiver fix; pre-existing; tried and unclaimed 2026-09-30, work-7 — see the note at the end)
 
 `var b @Box[int]; defer b.Get()` and `var sb @strings.Builder; defer sb.WriteByte(…)` panic "defer of an
 unresolved method call" on every backend; the direct calls work.  buildDeferMethod (gen_defer_build.bn)
@@ -380,6 +380,14 @@ names the method from the receiver's CHECKER type (baseNamedTypeName → buildMe
 the checker's raw instantiation spelling / unqualified imported name, while a direct method call names it
 from the receiver's IR-gen value type.  Fix: resolve the receiver's IR-gen type the way the direct call /
 method-value paths do (cf. methodValueRecvIRType) instead of the checker type.
+Tried 2026-09-30 (work-7): that alone does not work — defer sites are built by an ENTRY pre-pass
+(registerFuncDefers, gen_defer.bn), before any local is declared, so ctx.Vars has no IR-gen type for a local
+receiver (only parameters and globals resolve); and a local generic instantiation may not be instantiated
+yet at that point, so ensureMethodsForInstName has nothing to emit.  The pre-pass cannot be made lazy (an
+early `return` before the defer statement emits the site's exit call).  So the fix needs a checker-type →
+IR-gen-type mapper (instantiate a checker instantiation via InstDecl + mapped InstArgs; qualify an imported
+named type) — the same mapper the "Package-level var inferred from a generic-instantiated non-literal
+initializer" entry needs; build it once for both.
 
 ### Importing one package twice (a blank import plus a named one, or two aliases) makes the LLVM backend emit its externs twice — clang rejects — 🔴 OPEN (found 2026-09-28, work-6, probe during the blank-identifier review; reproduced by the prober; pre-existing)
 
