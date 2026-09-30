@@ -53,7 +53,7 @@ correct on its own, and extends the set of memory-backed values by adding consum
 1. Framework (bulk-value analysis, `.m` slots in the alloca hoist) + P1 + C1 — whole-aggregate copies.  DONE `575fb43ee`; runtime test conformance 1442 (`8a8b29687`).
 2. C2 / P3 — extracts.
 3. C3 — by-value arguments.  DONE `c97493379` (a single-use argument in the load's block passes the private copy itself; conformance 1447).
-4. C4 + P2 — returns and sret call results.
+4. C4 + P2 — returns and sret call results.  DONE `352691b60` (also the `.rb` result buffer of function-value / interface-method calls; conformance 1449).  The 100 KB pass/return program: 900k lines / 382 s / 3.8 GB → 475 lines / 0.2 s.
 5. P4, P5 / C5 — nil constants, phis.
 6. C6 — whatever remains (box, interface values, tuples, C calls).
 
