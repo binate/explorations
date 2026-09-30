@@ -903,7 +903,12 @@ the error, and a label prefix on a rejected line (`L1: ldr x0, [x1] x2`) is stil
 error aborts the file) but the same "a rejected line emits nothing" rule; `lineRejected` in `parse_test.bn`
 checks bytes but not fixups.  And x64's Intel-syntax parser reads a '$'-leading
 operand (`call $foo`, `mov rax, $5`) as a symbol reference, where clang rejects it (the shared lexer takes
-'$' in names for AArch64 / arm32, where clang does; an undefined, undeclared symbol still fails at the end).
+'$' in names for AArch64 / arm32, where clang does; an undefined, undeclared symbol still fails at the end).  And
+aarch64 `bl sym@PLT` / `b sym@PLT` is accepted and the `@PLT` dropped (a plain branch fixup) on both formats:
+clang rejects `@PLT` on Mach-O ("invalid specifier"), and on ELF keeps a temporary target's own symbol for it
+(`R_AARCH64_CALL26 .Lg`, where we relocate against the section — the same linked result).  Fix: carry the
+specifier into the fixup (a PLT branch kind), which the Mach-O writer rejects and the ELF writer keeps against
+the label (found 2026-09-30 by the review of the local-labels commit).
 
 ### The REPL never runs the generic-body dependency registration — 🔴 OPEN (found 2026-09-27, work-1; the indirect-package type registration half landed in binate `1ec1766ce`)
 
