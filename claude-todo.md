@@ -683,7 +683,7 @@ at the C boundary (back-filling the S-slot mask, `common_callconv_vfp.bn`) on bo
 call which (and whether (a) first).  Needs a conformance test on `builder-comp_arm32_linux` /
 `builder-comp_native_arm32_linux` (qemu-arm user-mode is not installed on this host).
 
-### interp embedding API: marshalableType recurses forever on a recursive type — even `type Node struct { kids @[]Node }` — 🔴 OPEN MAJOR (found 2026-09-30, work-7, recon for the self-referential named types fix; static finding, not yet reproduced; pre-existing)
+### interp embedding API: marshalableType recurses forever on a recursive type — even `type Node struct { kids @[]Node }` — 🟡 IN PROGRESS (MAJOR; found 2026-09-30, work-7, recon for the self-referential named types fix; static finding, not yet reproduced; pre-existing; claimed 2026-10-01, work-7/session; user: "let's take on the first three")
 
 pkg/binate/interp runfunc_typed.bn ~230 marshalableType (via supportedParamType / supportedResultType /
 supportedResultMarshalType, reached from RunFuncTyped and CallIfaceMethod call_iface.bn) runs on CHECKER
@@ -697,7 +697,7 @@ false — "not supported" — on a repeat; a decision for the user.)  releaseIma
 data, so a value of a recursive type can be released.  Needs a reproduction first (an interp unit test
 calling RunFuncTyped with a recursive-type parameter).
 
-### The checker rejects `@op.Tree` when `op.Tree` is an opaque export whose `.bn` definition names itself (`type Tree @[]Tree`) — 🔴 OPEN (found 2026-09-30, work-7, review of the self-referential named types fix; reproduced; pre-existing)
+### The checker rejects `@op.Tree` when `op.Tree` is an opaque export whose `.bn` definition names itself (`type Tree @[]Tree`) — 🟡 IN PROGRESS (found 2026-09-30, work-7, review of the self-referential named types fix; reproduced; pre-existing; claimed 2026-10-01, work-7/session; user: "let's take on the first three")
 
 pkg/op.bni `type Tree` (forward), `func Mk() @Tree`; pkg/op/op.bn `type Tree @[]Tree`; main `op.Mk()` →
 "cannot form a pointer to a type that embeds an opaque type by value".  pointeeEmbedsOpaque
@@ -710,7 +710,7 @@ pre-existing) by an opaque struct embedding another opaque type of its package b
 A`, `type W`, `func MakeW() @W`; wo.bn `type A struct { v int }`, `type W struct { x A }`; main `var w @wo.W
 = wo.MakeW()` is rejected the same way (the peel reaches W's struct, which holds the opaque A).
 
-### A receiver whose type comes from a package the caller does not import directly: `defer x.M()` panics bnc; on LLVM a method value `x.M` references an undeclared symbol — 🔴 OPEN MAJOR (found 2026-09-30, work-7, review of the named func-value methods fix; reproduced; pre-existing)
+### A receiver whose type comes from a package the caller does not import directly: `defer x.M()` panics bnc; on LLVM a method value `x.M` references an undeclared symbol — 🟡 IN PROGRESS (MAJOR; found 2026-09-30, work-7, review of the named func-value methods fix; reproduced; pre-existing; claimed 2026-10-01, work-7/session; user: "let's take on the first three")
 
 pkg/b: `type Hook @func(int) int; func (h Hook) Apply(x int) int` (also a named struct `b.St`, a named int
 `b.Cnt`); pkg/a imports b, `func Get(n int) b.Hook`; main imports only pkg/a: `var h = a.Get(2)`.
