@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### An instance created only while resolving a signature is never checked — a batch compile accepts an ill-typed instance body, and IR-gen emits it — 🔴 OPEN (found 2026-09-30, work-4, review of the REPL reachability follow-up; reproduced on main; introduced by binate `fe95d7de8`)
+### An instance created only while resolving a signature is never checked — a batch compile accepts an ill-typed instance body, and IR-gen emits it — 🟡 IN PROGRESS (claimed 2026-09-30, work-4/session — user: "Do 1. first. Then continue with the 4 fixes.") (found 2026-09-30, work-4, review of the REPL reachability follow-up; reproduced on main; introduced by binate `fe95d7de8`)
 
 ```
 type Box[T any] struct { v T }
