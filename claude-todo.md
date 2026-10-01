@@ -119,7 +119,8 @@ Loud, not wrong code: `ldr r0, [r1]!` (clang E5B10000), `ldr r0, [r1, r2, lsl #2
 r2, lsl #2` (E6910102), `ldr r0, [r1], -r2`, `ldr r0, [r1, r2, rrx]` (E7910062), `ldm r0, {r1}^` (E8D00002),
 `mov r0, #255, #30` (E3A00FFF, the explicit-rotation immediate), `b .+8`, and `bl ext(PLT)` (the old `(PLT)`
 suffix; clang: R_ARM_CALL).  Also a multi-term label addend (`lbl+4+4`, `lbl+2*2`), rejected on arm32 as on
-AArch64 (one number or a parenthesized expression) where clang reads one expression.  Each its own small fix in
+AArch64 (one number or a parenthesized expression) where clang reads one expression — 🟡 IN PROGRESS with the
+aa64 constants item (claimed 2026-10-01; user: "2. yes").  Each its own small fix in
 `asm/parse/arm32.bn` / `arm32_instr.bn` (+ encoder support where missing), goldens from clang.
 
 ### Until `BUILDER_VERSION` includes binate `1f29d31e9`, gen1 silently miscompiles some statements that open a block or follow a compound statement in BUILDER-compiled code — 🔴 OPEN MAJOR (constraint until the next BUILDER release; found 2026-09-30, work-4)
@@ -929,7 +930,9 @@ stores (LD1–LD4 / ST1–ST4, LD1R–LD4R, LDAP1 / STL1) and crypto — complet
 TLBI / AT, all of DC / IC, DSB nXS, PRFM's SLC target, CLRBHB / PACM, every PSTATE field — landed `19e49d3c0`
 (2026-09-30; a DSB immediate past 15 written as an expression deliberately rejected, since clang reads it by
 its leading literal alone — user: "The reject sounds good").  (8) `.`-leading names, numeric local labels and
-per-format temporary labels (plan item 3a) — landed `477048003` (2026-09-30).  Apple's legacy NEON syntax
+per-format temporary labels (plan item 3a) — landed `477048003` (2026-09-30).  (9) `name = expr` constants (plan
+item 3b), with multi-term label addends (`lbl+4+4`) on AArch64 and arm32 — 🟡 IN PROGRESS (claimed 2026-10-01;
+user: "1. yes. 2. yes.").  Apple's legacy NEON syntax
 (`dup.4s v0, w1`, `tbl.16b v0, {v1}, v3`), which clang
 accepts on every target, is not supported (user, 2026-09-28: "we don't need alternate syntax, unless there's
 a compelling reason (we've always tended to favor Intel/ARM syntax, I suppose)") — listed with the deliberate
