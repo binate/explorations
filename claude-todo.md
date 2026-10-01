@@ -731,7 +731,7 @@ false — "not supported" — on a repeat; a decision for the user.)  releaseIma
 data, so a value of a recursive type can be released.  Needs a reproduction first (an interp unit test
 calling RunFuncTyped with a recursive-type parameter).
 
-### Overwriting or dropping a value of a named managed slice / pointer type releases it without its destructor — its elements leak — 🔴 OPEN MAJOR (found 2026-09-30, work-7, review of the self-referential named types fix; reproduced; pre-existing)
+### Overwriting or dropping a value of a named managed slice / pointer type releases it without its destructor — its elements leak — 🟡 IN PROGRESS (found 2026-09-30, work-7, review of the self-referential named types fix; reproduced; pre-existing; MAJOR; claimed 2026-09-30, work-7/session; user: "1. yes")
 
 `type Names @[]@[]char`; `var a Names = mk(); a = mk()` (overwrite), `b[0] = mk()` over a non-empty
 element, and a dropped temporary `len(mk())` each free the outer slice with a plain RefDec and leak the
