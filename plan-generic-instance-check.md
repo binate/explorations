@@ -1,6 +1,6 @@
 # Plan: check each generic body per concrete instantiation
 
-**Status:** design chosen by the user 2026-09-28 ("B"), not started; the proposed spec rule was reviewed 2026-09-28 (§11), decisions made and the spec text landed (docs `9c9b08e`); implementation in progress (commits 1–3 landed).  Part of `plan-constant-evaluator.md` ("Per-instantiation checking"); fixes the claude-todo entries "A generic struct's `[sizeof(T)]` field has the same length in every instantiation" and "Polymorphic recursion in a generic function crashes the compiler".  The text below is the design as drafted by the 2026-09-28 design workflow (read-only code mapping; nothing built); paths are relative to `pkg/binate/`.  Its "decisions" section (§9) was settled in §11.
+**Status:** design chosen by the user 2026-09-28 ("B"), not started; the proposed spec rule was reviewed 2026-09-28 (§11), decisions made and the spec text landed (docs `9c9b08e`); implementation in progress (commits 1–5 landed; 4 binate `f1554cbd6`, 5 `fe95d7de8`, 2026-09-30).  Part of `plan-constant-evaluator.md` ("Per-instantiation checking"); fixes the claude-todo entries "A generic struct's `[sizeof(T)]` field has the same length in every instantiation" and "Polymorphic recursion in a generic function crashes the compiler".  The text below is the design as drafted by the 2026-09-28 design workflow (read-only code mapping; nothing built); paths are relative to `pkg/binate/`.  Its "decisions" section (§9) was settled in §11.
 
 I only read code; nothing was built or run. Paths are relative to `/Users/vtl/binate/temp-binate-4/pkg/binate/`.
 
@@ -178,7 +178,7 @@ Each commit leaves the tree green.
 3. Fix §6b: `layoutDependsOnTypeParam`, with a `sizeof(Box[T])` test.  **LANDED (binate `82cd129ff`,
    2026-09-29)**, test conformance `spec/12-generics/080_sizeof_dependent_generic_instance`.
 4. `FuncInstance` records and signature re-resolution; keep the dependent flag and fix identity; defer dependent assignability in abstract bodies; guard the literal count. This fixes problem (1). Tests: `F[int64]` with `[8]uint8` accepted, `F[int32]` with `[8]uint8` rejected.
-   **Implemented 2026-09-29 (work-4), not yet landed — lands together with 5:** `check_instances.bn`
+   **LANDED (binate `f1554cbd6`, 2026-09-30):** `check_instances.bn`
    (`GenericHome` per generic function, recorded at collection and `.bni` load; `FuncInstance` per
    (decl, concrete args) with its signature resolved from a signature clone in the home, binders bound);
    local generic-type methods now resolve per instantiation from their declarations like imported ones
@@ -189,7 +189,7 @@ Each commit leaves the tree green.
    bounds in abstract bodies.  `len` of a dependent array stays not-a-constant until 6 (IR-gen reads the
    checker's placeholder type for it), so 153 stays xfail.
 5. Queue, drain, depth cap, error context and de-duplication, and queuing generic-type methods. This fixes problem (2). Tests: overflow in one instance, division by a dependent zero, count in one instance, polymorphic recursion, de-duplication, chained instantiation.
-   **In progress 2026-09-29 (work-4):** `check_instance_body.bn` — `InstWork` queued when a function
+   **LANDED (binate `fe95d7de8`, 2026-09-30):** `check_instance_body.bn` — `InstWork` queued when a function
    instance or a concrete struct instance is created, drained at the end of each package check and at the
    single-file / REPL entry points; each body checked on a `CloneDecl` in the home scope with the binders
    bound (`checkFuncBody` factored out of `checkFuncDecl`); errors keep the generic's position and gain
@@ -198,6 +198,11 @@ Each commit leaves the tree green.
    instances of a generic whose body this compilation never checked (interface-only imports under
    bni / bnlint) are skipped; an instance whose constraint check failed is still checked (possible
    cascades); every instance error is reported as a user error (no ICE classification of divergences yet).
+   Review follow-ups folded in before landing: a depth-first stack (fan-out recursion bounded), per-instance
+   coverage of parameterized impls (conformance 091–095), and REPL instance-check state (re-checked after a
+   failure, drained with tentative declarations, failures passed to namers).  The REPL's re-check of
+   instances for a method typed later is incomplete: claude-todo "REPL: a generic-receiver method typed at
+   the prompt …" (option B).
 6. IR-gen emits the clones; delete the `DEPENDENT` paths; missing records and constant failures become ICEs.
 7. `bit_cast` and cast checks in abstract bodies defer to the instance check; the IR-gen panics become ICEs.
 

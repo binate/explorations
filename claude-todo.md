@@ -57,7 +57,7 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 // eq[PP](&p1, &p2) with p1.v == p2.v == 3
 ```
 - **bnc-0.0.16 (LLVM and native):** `eq[PP]` and the `@M` analogue print `false false` for equal values, while the direct calls return 0.  This is silent wrong code.
-- **With design B's per-instance body check (not yet landed):** rejected, but with a misleading error inside the generic body: `cannot assign PP to P (in eq[PP], instantiated at …)`.
+- **Since design B's per-instance body check (binate `fe95d7de8`):** rejected, but with a misleading error inside the generic body: `cannot assign PP to P (in eq[PP], instantiated at …)`.
 
 `*P` satisfies the constraint, and the abstract check passes `b : T` as Self; with `T = *P`, the method's `o P` doesn't take a `*P`.  Two directions, which need a spec call:
 - `*P` does not satisfy `Comparable`, so the error is at the instantiation.
@@ -123,7 +123,7 @@ bnc-0.0.16 (the pinned BUILDER) has the IR-gen defect fixed on main by `1f29d31e
 - `f := someFunc`;
 - assigning a variable to a `*any`.
 
-gen1 would get silently wrong code there, and gen1 compiles every test and gen2.  Examples: a loop body that never runs (the function returns early, with no error); `st.Top++` right after an `if` or a `for` does nothing.  An identifier `++` just before it doesn't help.  A statement that goes through expression evaluation first (`x.f = x.f + 1`, a declaration, a call) is fine, and so is one in a function's opening straight-line code.  Hit by design B's `drainInstances` (`for st.Top > 0 … { st.Top-- … }`): the BUILDER-built loop returns immediately.  A 2026-09-30 scan of non-test code found no other field `++` / `--` (the only two are design B's), no `x := name` short-var, and no `*any` variable, parameter or field.  Clears when a BUILDER containing `1f29d31e9` is pinned (cut only when independently justified).
+gen1 would get silently wrong code there, and gen1 compiles every test and gen2.  Examples: a loop body that never runs (the function returns early, with no error); `st.Top++` right after an `if` or a `for` does nothing.  An identifier `++` just before it doesn't help.  A statement that goes through expression evaluation first (`x.f = x.f + 1`, a declaration, a call) is fine, and so is one in a function's opening straight-line code.  Design B's instance stack (`pushInstWork` / `popInstWork`, binate `fe95d7de8`) keeps its `++` / `--` out of those positions; TODOs there mark it.  A 2026-09-30 scan of non-test code found no other field `++` / `--` (the only two are design B's), no `x := name` short-var, and no `*any` variable, parameter or field.  Clears when a BUILDER containing `1f29d31e9` is pinned (cut only when independently justified).
 
 ### VM: does building a non-capturing raw `*func` value add a reference to the callee's shared ClosureRec that nothing releases? — 🟡 IN PROGRESS (claimed 2026-09-30, work-5; needs investigation; found 2026-09-30 by the review of the method-value / cast fixes, unverified)
 
@@ -161,16 +161,6 @@ instantiation (reading A: 217 prints `8 14`) or once, abstractly (reading B: the
 literal is the `@func` default and `cast(RF, …)` borrows a statement temporary —
 undefined behaviour)?  Settle with a line in `gen.mono.check`'s dependent list or
 in §10.9.
-
-### A parameterized impl's coverage is not checked per instance — dependent array lengths pass, and a call reads past the caller's array — 🟡 IN PROGRESS MAJOR (claimed 2026-09-30, work-4/session; fixed as part of design B's per-instance checking, not yet landed) (found 2026-09-30 by the review of that work; pre-existing)
-
-```
-interface Sized[T any] { Put(x [sizeof(T)]uint8) int }
-type Wrap[K any] struct { k K }
-impl *Wrap[K] : Sized[K]
-func (w *Wrap[K]) Put(x [sizeof(K) + 6]uint8) int { … }
-```
-The impl is accepted because both lengths are dependent placeholders.  A call through `*Sized[int16]` with a `[2]uint8` gives a callee that sees `[8]uint8`: `len` is 8, and `x[7]` reads past the caller's array (LLVM and native aa64).  Each concrete instance of `Wrap` must re-check the impl's coverage with the bindings in place, and reject `Wrap[int16]` (8 against 2).
 
 ### LLVM backend: a >16-byte `__c_call` aggregate argument's slot is smaller / less aligned than the ABI access made through it (undefined behaviour; can fault) — 🔴 OPEN (found 2026-09-30, work-1, by the review of the bulk by-value-argument change; pre-existing)
 
@@ -749,46 +739,22 @@ typeDeclEntryType) — and make every func-value kind test in irgen / ir / irbui
 look through the named wrapper.  This also separates `Box[Fn]` from `Box[@func(int) int]` (the checker
 keeps them distinct; IR-gen collapsed them, so a constraint call `v.Twice()` with T = Fn found no method).
 
-### Polymorphic recursion in a generic function crashes the compiler — 🔴 OPEN (found 2026-09-28, work-4, per-instantiation design mapping; reproduced on main)
-
-`func depth[T any](n int) int { ...; return 1 + depth[@T](n - 1) }` makes bnc segfault (exit 139): IR-gen's
-monomorphization instantiates `depth[int]`, `depth[@int]`, `depth[@@int]`, … without bound.  Fix: an
-instantiation depth limit with a diagnostic, in the checker's per-instantiation worklist (plan above).
-Needs a conformance test.
-
-### Per-instantiation checking of generic bodies (design B) — 🟡 CLAIMED (2026-09-28, work-4; user chose "B"; to be done after the two const-redeclaration MAJORs — user: "I guess you can take on the two MAJORs next")
-The constant evaluator (binate `1db847da0`) marks a value depending on a type parameter DEPENDENT; the
-checker checks a generic body once, abstractly, and IR-gen evaluates DEPENDENT values per instantiation.
-Until each instantiation is checked:
-- an array whose length depends on a type parameter is rejected in a generic signature and with
-  array-literal elements, and `len` of one is not a constant (conformance
-  `spec/15-builtins/153_len_dependent_array_len`, xfail); the same for a local generic type's METHOD
-  signature (`func (b *Box[T]) Get(x [len(gArr) + sizeof(T)]uint8)` called with a `[7]uint8`: "cannot
-  assign [7]uint8 to [0]uint8" — substituteTypeParams keeps the placeholder 0; the imported equivalent is
-  right, being re-resolved per instantiation) — commit 4 (signatures re-resolved per instantiation);
-- an error that only one instantiation has (`cast(uint8, sizeof(T) * 100)` with a large T) panics in
-  IR-gen with no position (`constEvalFailure`), as do the cast / `bit_cast` size checks that reach codegen
-  through a type parameter (conformance 1123, 1217, 1220);
-- IR-gen's own evaluation of a type-parameter-dependent constant resolves names by last registration in
-  `Module.Consts`, not by scope: `{ const K = 1 }; const S = K * sizeof(T)` reads the ended block's K
-  (silent wrong value; conformance `spec/12-generics/078_dependent_const_names_in_scope`, xfail; found
-  2026-09-28 reviewing the const-redeclaration MAJORs);
-- arrays whose lengths depend on a type parameter are identical whatever their length expressions
-  (`types.Identical` compares the placeholder 0): `var a [sizeof(T)*2]uint8; var b [sizeof(T)]uint8;
-  a = b` compiles, as does `[sizeof(Outer[T])]` from `[sizeof(T)]` — at int32 an 8-byte array assigned
-  from a 4-byte one (found 2026-09-29 reviewing design B commit 3) — commits 4–5.
-- the same placeholder makes a generic FUNCTION's dependent-length parameter wrong both ways
-  (substituteTypeParams' TYP_ARRAY case keeps ArrayLen 0 and drops ArrayLenDependent): with
-  `func alen[T any](x [sizeof(T)]uint8) int { return len(x) }`, `var z [0]uint8; alen[int32](z)` compiles
-  and prints 4 — the callee reads 4 bytes from a 0-byte object (silent miscompile) — while `alen[int32](x4)`
-  with `x4 [4]uint8` is rejected ("cannot assign [4]uint8 to [0]uint8"); a direct method call
-  `b4.Fill(x4)` with `func (b *Box[T]) Fill(x [sizeof(T)]uint8)` is rejected the same way
-  (`spec/12-generics/079` only calls it through an interface).  An anonymous struct parameter
-  (`struct { a [sizeof(T)]uint8 }`) reaches it too.  Imported generics are right (re-resolved from the AST
-  under a binder scope, `copyImportedGenericMethods`).  (Reproduced 2026-09-29 by the review of the
-  readonly-substitution fix, work-3.)
+### Per-instantiation checking of generic bodies (design B) — 🟡 IN PROGRESS (claimed 2026-09-28, work-4; user chose "B"; commits 1–5 landed, the last binate `fe95d7de8` 2026-09-30)
+Commits 4 (`f1554cbd6`: signatures resolved per instantiation, dependent-array identity) and 5
+(`fe95d7de8`: each instance's body, methods and parameterized impls checked with its type arguments bound)
+landed 2026-09-30.  Still to do:
+- commit 6: IR-gen reads each instance's checked clone instead of evaluating dependent values itself.  That
+  makes `len` of a dependent array a constant (conformance `spec/15-builtins/153_len_dependent_array_len`,
+  xfail), and resolves a type-parameter-dependent constant's names by scope, not by last registration in
+  `Module.Consts` (`spec/12-generics/078_dependent_const_names_in_scope`, xfail);
+- commit 7: cast / `bit_cast` / type assertion per instance, including `iface.assert.typeparam`.
+Known gaps of commit 5, to decide: instances of a generic whose body this compilation never checked
+(interface-only imports under bni / bnlint) are skipped; an instance whose constraint check failed is
+still checked (possible cascades); every instance error is reported as a user error (no ICE
+classification of divergences); and the REPL's re-check of instances for a method typed later (entry
+"REPL: a generic-receiver method typed at the prompt …", option B).
 Design and commit plan: `plan-constant-evaluator.md` ("Per-instantiation checking"),
-`plan-generic-instance-check.md`.  Also fixes the polymorphic-recursion MAJOR entry above.
+`plan-generic-instance-check.md`.
 
 ### Language feature: array-literal keys that depend on a type parameter — 🔴 OPEN (raised 2026-09-28, work-4)
 `[sizeof(T)]uint8{sizeof(T) - 1: 7}` (a key whose value depends on a type parameter) is rejected today

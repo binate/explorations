@@ -1,3 +1,24 @@
+### Per-instantiation checking (design B), commits 4 and 5: signatures, bodies, methods and parameterized impls checked per instance — DONE (binate `f1554cbd6`, `fe95d7de8`, 2026-09-30, work-4)
+
+Commit 4 resolves a generic function's and a generic type's method signatures per instantiation, from a
+copy of the declaration in the generic's home with the type parameters bound, and makes a dependent array
+identical to no concrete one.  Commit 5 checks each named instance's body, and each method body and
+parameterized impl of a concrete struct instance, with its type arguments bound
+(`check_instance_body.bn`, `check_instance_impls.bn`, `check_instance_state.bn`).  Instances are checked
+depth-first, and a chain longer than 128 is reported at the program's instantiation.  Closes:
+- "Polymorphic recursion in a generic function crashes the compiler": now "generic instantiation nested too
+  deeply" (conformance `spec/12-generics` 088, 090, 093);
+- "A parameterized impl's coverage is not checked per instance": 091, 092, 094, 095.
+Also fixed:
+- dependent arrays identical whatever their lengths;
+- a generic function's dependent-length parameter wrong both ways;
+- an error only one instantiation has, panicking in IR-gen (conformance 1217 and 1220 are now rejected by
+  the checker).
+At the REPL, an instance is checked again after a failure, drained with the declaration that names it, and
+a failure reaches the instances that named it.  The instance stack keeps its `++` / `--` out of the
+positions the pinned BUILDER miscompiles (TODOs until `BUILDER_VERSION` includes `1f29d31e9`).  Remaining:
+commits 6 and 7 (the design B todo entry), and the REPL's re-check for a method typed later (option B).
+
 ### Split `pkg/binate/ir.bni` — at 975 of its 1000-line cap — DONE (binate `88fd7d767`, 2026-09-30, work-3; now 854 lines)
 
 `ir.bni` reached 975 lines with the module-level `ir.RegisterModulePendingDtor` (binate, the `@any`
