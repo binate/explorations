@@ -1,3 +1,19 @@
+### The implicit managed→raw borrow silently drops element-level readonly — `var q *[]int = p` with `p @[]readonly int` compiles — DONE (binate `448fe484d`, 2026-09-30, work-3)
+
+`func h(p @[]readonly int) { var q *[]int = p; q[0] = 7 }` and `func k(p @readonly int) { var q *int = p; *q =
+9 }` both compile: assignability (check/types_assignable.bn ~159 / ~164) tests the element with
+`dropsConst(src.Elem, d.Elem)`, which strips the OUTER readonly of both arguments, so `readonly int` vs `int`
+compares equal.  §8.4 says the borrow has "no element-level `readonly` drop".  The same leak lets `cast(*S,
+p @readonly S)` through cast's safe set.  Fix: `DropsConstStrict(src.Elem, d.Elem)` (or `dropsConst(src,
+d)`), then fix whatever in the tree relied on it.  Needs `.error` conformance tests (slice and pointer).
+
+Resolved: the @T→*T / @[]T→*[]T assignability arms compare elements with DropsConstStrict; cast
+rejects the borrow-plus-drop with the readonly message (isBorrowDroppingReadonly); unsafe_cast keeps
+accepting it (user: "We can keep it, and we can clarify the spec" — spec §8.7 clarified, docs 98193ae).
+bnlint --from-source type-checks the whole tree cleanly under the stricter rule.  Conformance 1473 (error)
++ 1474.  The review found the same leak on other routes (function values, anonymous structs) — filed
+separately; the pointer-box recovery case went to the readonly-recovery decision entry.
+
 ### Methods and impls on a named function-value type were broken — link failure / segfault / defer ICE; `Box[Fn]` collapsed into `Box[@func…]` — DONE (binate `3cf3d8ab5`, 2026-09-30, work-7)
 
 IR-gen stripped `type Fn @func(int) int` to its bare func value (typeDeclEntryType), so a method call named

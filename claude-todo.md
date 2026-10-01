@@ -474,15 +474,6 @@ recursing into params / results / fields, or IdenticalStrict in funcSignaturesMa
 struct arms), contravariant for parameters (a callee param may ADD readonly, not drop it); the outermost
 readonly of a parameter stays ignored, per spec.  Needs `.error` tests per route.
 
-### The implicit managed→raw borrow silently drops element-level readonly — `var q *[]int = p` with `p @[]readonly int` compiles — 🟡 IN PROGRESS (found 2026-09-30, work-7, review of the unsafe_cast gate; pre-existing; claimed 2026-09-30, work-3/session — user: "yes")
-
-`func h(p @[]readonly int) { var q *[]int = p; q[0] = 7 }` and `func k(p @readonly int) { var q *int = p; *q =
-9 }` both compile: assignability (check/types_assignable.bn ~159 / ~164) tests the element with
-`dropsConst(src.Elem, d.Elem)`, which strips the OUTER readonly of both arguments, so `readonly int` vs `int`
-compares equal.  §8.4 says the borrow has "no element-level `readonly` drop".  The same leak lets `cast(*S,
-p @readonly S)` through cast's safe set.  Fix: `DropsConstStrict(src.Elem, d.Elem)` (or `dropsConst(src,
-d)`), then fix whatever in the tree relied on it.  Needs `.error` conformance tests (slice and pointer).
-
 ### REPL: `b.v++` / `b.v += 1` on a top-level var of a generic struct type panics in IR-gen — 🔴 OPEN MAJOR (found 2026-09-30, work-7, review of the ++/-- addressability fix; pre-existing)
 
 At the prompt: `type B[T any] struct { v T }`, `var b B[int]`, then `b.v++` → "internal error: ++/-- target with
