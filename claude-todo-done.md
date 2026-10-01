@@ -1,3 +1,23 @@
+### Split `pkg/binate/ir.bni` — at 975 of its 1000-line cap — DONE (binate `88fd7d767`, 2026-09-30, work-3; now 854 lines)
+
+`ir.bni` reached 975 lines with the module-level `ir.RegisterModulePendingDtor` (binate, the `@any`
+named-owning-pointee identity fix).  A `.bni` cannot be split within its package (the loader reads one
+`<pkg>.bni`), so this means peeling a cohesive part of `ir`'s API into an acyclic sub-package, as with
+ir -> {irbuild, iropt, irdata}.  Its sections: IR data structures (~20-565), Module / Function / Param /
+Block, string constants, static-data / RTTI gather (~649-664), helpers, module init/entry emission
+(~705-732), and "Shared IR-construction utilities (used by irgen)" (~733-972, the largest non-data-model
+part — a natural candidate).  The file also ends with an empty "Structural IR verifier (verify.bn)"
+section header (the verifier lives in irbuild now) — delete it.  Do this before anything else grows
+`ir.bni`.
+
+Resolved (user: "getting more headroom would be good"): moved to irbuild — the destructor work-list
+API (RegisterPending*Dtor, RegisterModulePendingDtor), the construction helpers nothing inside ir calls
+(NewParam, NewExternFunc, NewVoidInstr, NewParamRef, NewGlobalRef, MakeArgs1/2, BlockIndexIn,
+ResolveImportPkg) and the verifier's IRViolation; NewInstr, AddBlock, NewFunc, NewModule stay (ir's own
+tests use NewInstr; the others are used in 90-150 files).  ir.bni also declared six functions twice —
+deduplicated (filed: the checker accepts a duplicate .bni declaration).  ~70 call sites; new irbuild
+tests (construct_test.bn, pending_dtor_test.bn).
+
 ### Native AggLoadElidable's S-alloca rule may let an aggregate member be read after its source is overwritten — DONE (binate `a3766314e`, 2026-09-30, another session; raised 2026-09-30, work-1)
 
 `AggLoadElidable` (pkg/binate/native/common/common_aggload_elision.bn) accepts, under S-alloca, a load whose uses
