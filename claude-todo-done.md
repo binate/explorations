@@ -1,3 +1,23 @@
+### A forward-declared or opaque type may be defined as any type — REPL forward types no longer leak, a non-struct opaque export no longer panics IR-gen — DONE (binate `255d85be8` + `381214442`, 2026-10-01, work-6)
+
+User decision (2026-09-30): "Ideally (b)", then "Go with (b)" — a forward declaration `type X` may be
+completed by any type, at the prompt and across .bni / .bn.  Fixed: an opaque export defined in its .bn as
+a non-struct was pre-registered as an empty struct (codegen panic); a REPL forward declaration registered
+nothing, so a type or function lowered before X's definition used `int` for X and leaked (`type S5`, `type
+MPP @@S5`, `type S5 struct { p @Inner }`).  IR-gen now registers X as an opaque named type that its
+definition fills in place (an unfilled opaque counts as a pending named type, with work-7's
+pre-registration of named types, binate `7c0cfeaef`); RegisterSelfTypes stamps the package's opaque
+exports whatever registered them first (also closing a gap where an opaque struct with nothing to destroy
+got no public dtor); code that cannot see X's definition releases an `@X` through `__dtor_X` by name,
+which now exists for every definition (genNamedDtorWithName; at the prompt an empty placeholder until X
+is defined, replaced in place in the VM; one over a still-undefined G calls G's).  Reviews found and the
+landing fixed: pre-definition code crashing the REPL ("function not found: __dtor_N"), alias definitions
+at the prompt, a func-value opaque crashing LLVM, the rebase dropping the opaque stamp (D1), a dtor built
+over a still-undefined type (D2).  `255d85be8` first moved the dtor helper generators to
+gen_dtor_ensure.bn (gen_dtor_emit.bn was near the file cap).  Tests: conformance 1480, REPL e2e cases
+68–72, irgen unit tests.  Still open: the alias-at-prompt and §7.12 decisions (NEEDS DECISION entry), the
+`@op.Tree` checker rejection, and a forward type held by value in an array.
+
 ### Native: constant-branch folding in iropt — a function-reference argument's statement release folds away — DONE (binate `8019b068d`, 2026-10-01, work-5)
 
 New iropt pass `fold-branch` (after `simplify`, on at -O1+, left out of the VM's set until measured there):
