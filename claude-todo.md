@@ -232,7 +232,7 @@ reproduce on `builder-comp_arm32_baremetal` with a large by-value struct return 
 object for `__aeabi_memcpy` references); if it reproduces, route those paths through the leaf-by-leaf
 helpers.
 
-### An opaque type completed with a non-struct type (`type X` in the `.bni`, `type X int` in the `.bn`) panics IR-gen — 🔴 OPEN MAJOR (found 2026-09-30, work-6, investigating the REPL forward-type leak; reproduced in the VM; pre-existing)
+### An opaque type completed with a non-struct type (`type X` in the `.bni`, `type X int` in the `.bn`) panics IR-gen — 🟡 IN PROGRESS (claimed 2026-09-30, work-6/session — user: "Go with (b)") (found 2026-09-30, work-6, investigating the REPL forward-type leak; reproduced in the VM; pre-existing)
 
 Package `pkg/op` with `type X` in op.bni and `type X int` in op.bn (plus `func Make(v int) @X { var p @X =
 make(X); *p = cast(X, v); return p }`): the checker accepts it, and a program calling `op.Make` panics
@@ -242,7 +242,8 @@ opaque-exported type as a STRUCT shell, so X is an empty struct in IR-gen.  With
 non-struct body is excluded.  Decide: is a forward type's full definition restricted to a struct (then the
 checker rejects the rest), or may it be any type (then IR-gen's opaque-export path must register a
 non-struct completion, and its force-emitted public dtor must handle a non-struct underlying)?  The REPL
-forward-type leak fix depends on the same answer.
+forward-type leak fix depends on the same answer.  Decision (user, 2026-09-30): any type — "Ideally (b)",
+then "Go with (b)" — so a forward type may be completed by any type, at the prompt and across .bni / .bn.
 
 ### A REPL type defined after a forward declaration keeps a stale IR-gen type in types that used it — leak — 🟡 IN PROGRESS (claimed 2026-09-30, work-6/session — user: "yes") (found 2026-09-30, work-6, review of interface / impl at the REPL prompt; reproduced; pre-existing)
 
