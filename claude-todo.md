@@ -417,7 +417,7 @@ the method is named from the checker's raw instantiation spelling.  Fix: arms fo
 IR pointee, `&x` → a pointer to x's IR type, a composite literal → its resolved TypeRef, an assertion → its
 resolved target).  Needs conformance cases (each shape, a generic `*T` and value method).
 
-### The implicit managed→raw borrow silently drops element-level readonly — `var q *[]int = p` with `p @[]readonly int` compiles — 🔴 OPEN MAJOR (found 2026-09-30, work-7, review of the unsafe_cast gate; pre-existing)
+### The implicit managed→raw borrow silently drops element-level readonly — `var q *[]int = p` with `p @[]readonly int` compiles — 🟡 IN PROGRESS (found 2026-09-30, work-7, review of the unsafe_cast gate; pre-existing; claimed 2026-09-30, work-3/session — user: "yes")
 
 `func h(p @[]readonly int) { var q *[]int = p; q[0] = 7 }` and `func k(p @readonly int) { var q *int = p; *q =
 9 }` both compile: assignability (check/types_assignable.bn ~159 / ~164) tests the element with
