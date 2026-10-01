@@ -1,3 +1,21 @@
+### A named non-struct type that names itself or another one was mis-typed in IR-gen — DONE (binate `7c0cfeaef`, with `6b9ec373d`, 2026-10-01, work-7)
+
+`type StateFn @func(int) StateFn`, `type Tree @[]Tree`, mutual groups (`type SA @[]SB; type SB @[]SA`, through
+a function value or an alias) fell to resolveTypeExpr's `int` fallback for the inner name.  Every distinct
+named non-struct type is now registered by name before any underlying is resolved, at every registration
+site including the REPL (which also orders a parked group's aliases first); destructor naming, the dtor
+generators and codegen's struct discovery got cycle breaks.  `6b9ec373d`: the checker's cast type-param scan
+and unsafe_cast retype walk stopped looping on such types (an unsafe_cast between distinct recursive slice
+types is accepted as a retype all the way down — user: "yes").  Tests: conformance 1478, e2e REPL cases, an
+irgen dtor-name unit test, a checker unit test.  Plan: [done/plan-self-referential-named-types.md](done/plan-self-referential-named-types.md).
+
+### Overwriting or dropping a value of a named managed slice / pointer type leaked its elements — DONE (binate `89de58288`, 2026-10-01, work-7)
+
+irbuild EmitManagedSliceRefDec / EmitManagedPtrRefDec read `.Elem` off a TYP_NAMED value (nil) and freed it
+with no destructor on an overwrite (variable, element) or a dropped temporary; both now look through the
+named wrapper.  Test: conformance 1472 (named managed slices, recursive and not, and named managed pointers;
+live-block balance).
+
 ### An instance created only while resolving a signature, or reached only through a field, was never checked — a batch compile accepted an ill-typed instance body — DONE (binate `475d37112`, 2026-10-01, work-4)
 
 Introduced by `fe95d7de8`: an instance's check was queued only where the program named it.  So `Pair[int64]`,

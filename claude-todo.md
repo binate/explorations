@@ -688,19 +688,6 @@ false — "not supported" — on a repeat; a decision for the user.)  releaseIma
 data, so a value of a recursive type can be released.  Needs a reproduction first (an interp unit test
 calling RunFuncTyped with a recursive-type parameter).
 
-### Overwriting or dropping a value of a named managed slice / pointer type releases it without its destructor — its elements leak — 🟡 IN PROGRESS (found 2026-09-30, work-7, review of the self-referential named types fix; reproduced; pre-existing; MAJOR; claimed 2026-09-30, work-7/session; user: "1. yes")
-
-`type Names @[]@[]char`; `var a Names = mk(); a = mk()` (overwrite), `b[0] = mk()` over a non-empty
-element, and a dropped temporary `len(mk())` each free the outer slice with a plain RefDec and leak the
-inner `@[]char` (rt.LiveBlocks +3 per run).  irbuild EmitManagedSliceRefDec / EmitManagedPtrRefDec read
-the value type's `.Elem`, which is nil on a TYP_NAMED value, so they fall back to a dtor-less RefDec; scope
--end cleanup peels the type first (emitDecForManagedLocal, StripWrappers), but these release sites do not:
-emitStoreManagedSlot (the replaced value), the index-set (gen_assign_index), releaseReplacedValue, and
-emitTempRefDecs (a call result typed with the named result type).  A recursive `type Tree @[]Tree` leaks
-whole subtrees this way.  Fix: peel the value type (types.StripWrappers) in the two emitters (or at those
-sites).  Needs a conformance test with overwrite / element-overwrite / temporary cases and a live-block
-balance (named managed slice and named managed pointer, recursive and not).
-
 ### The checker rejects `@op.Tree` when `op.Tree` is an opaque export whose `.bn` definition names itself (`type Tree @[]Tree`) — 🔴 OPEN (found 2026-09-30, work-7, review of the self-referential named types fix; reproduced; pre-existing)
 
 pkg/op.bni `type Tree` (forward), `func Mk() @Tree`; pkg/op/op.bn `type Tree @[]Tree`; main `op.Mk()` →
@@ -713,24 +700,6 @@ Also triggered (found 2026-10-01, work-6, review of the opaque-defined-as-any-ty
 pre-existing) by an opaque struct embedding another opaque type of its package by value: pkg/wo.bni `type
 A`, `type W`, `func MakeW() @W`; wo.bn `type A struct { v int }`, `type W struct { x A }`; main `var w @wo.W
 = wo.MakeW()` is rejected the same way (the peel reaches W's struct, which holds the opaque A).
-
-### A named non-struct type that names itself through an indirection is mis-typed in IR-gen — `type StateFn @func(int) StateFn`, `type Tree @[]Tree` — 🟡 IN PROGRESS (found 2026-09-30, work-7, audit for the named func-value methods fix; reproduced; pre-existing; MAJOR; claimed 2026-09-30, work-7/session — recon now, the fix after the named func-value methods fix lands; user: "yes, you can take it on afterwards")
-
-IR-gen resolves a named type declaration's underlying before registering the type (registerModuleTypeDecl /
-registerPkgTypeDecl / the import pre-passes / the REPL's genReplTypeDecl all compute the entry, then append
-it), and the dependency walk skips the self-reference, so the inner name falls to resolveTypeExpr's `int`
-fallback: `StateFn`'s result is a one-word int where a two-word func value belongs — a state machine
-`s = s(i)` fails in clang ("extractvalue operand must be aggregate type"; the natives would silently
-mis-lower), and `Tree` is `@[]int`.  The checker accepts both.  Fix: register the named entry first and
-set its underlying after (as generic struct instantiations pre-register) — work-7 drafted a helper
-replacing the five entry sites, with a conformance test (StateFn and Tree, same-package and through a
-`.bni`); not landed.  But making the type genuinely recursive then
-sends every structural walker that looks through named types into infinite recursion:
-irutil.dtorTypeSuffixRec (dtor naming, `@[]Celsius` sharing `__dtor_ms_int` by design) overflows the stack
-on `Tree`; likely also the dtor / copy body generators, debug info (dbgTypeID) and typeinfo descriptors.
-Each needs a cycle break (e.g. name a named type nominally where it recurs into itself), so the fix is
-larger than the registration change.  Found while fixing methods on named func-value types (a named type
-over a func value is where this shape is most natural).
 
 ### A receiver whose type comes from a package the caller does not import directly: `defer x.M()` panics bnc; on LLVM a method value `x.M` references an undeclared symbol — 🔴 OPEN MAJOR (found 2026-09-30, work-7, review of the named func-value methods fix; reproduced; pre-existing)
 
