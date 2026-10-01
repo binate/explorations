@@ -2064,6 +2064,16 @@ so each comment stands on its own (Comments Stand Alone). Deferred follow-ups:
    with the corresponding spec reference rather than deleted. Any such
    references left un-stripped by the sweep are tracked here.
 
+### stdlib/debug/001_callers prints "short" at -O2 on LLVM arm32 bare metal — tail calls lose their frames — 🔴 OPEN (found 2026-09-30, work-1, once bare-metal -O2 builds linked)
+
+`BINATE_FLAGS=-O2 conformance/run.sh builder-comp_arm32_baremetal stdlib/debug/001_callers` prints `short`:
+debug.Callers sees fewer than 3 frames above c3.  c1 -> c2 -> c3 are all tail calls (`return c2(into)`), which the
+LLVM arm32 backend makes sibling calls at -O2, so their frames are gone; the test passes at -O2 on the host LLVM
+lane and at -O0 everywhere.  Not visible before because no bare-metal program linked at -O1+ (fixed with the
+AEABI memory helpers).  Decide what debug.Callers promises under optimization: keep tail callers' frames
+(emit `"disable-tail-calls"="true"`, as frame-pointer="all" already keeps frame pointers), or let the test
+accept fewer frames at -O1+.  No CI lane runs LLVM bare metal at -O2 yet.
+
 ## Test-flake watch
 
 Intermittent, load-/environment-dependent test failures tracked for recurrence —
