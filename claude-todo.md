@@ -1824,6 +1824,10 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   free_fn / trampoline calls with scalar-or-void results), but each is a silent miscompile if a
   new caller reaches it. Fix: share emitCall's argument placement, or assert the supported shapes
   loudly. Needs a test that pins whichever is chosen.
+- **Native x64: dead field values stored to their slots in record-churn's loop** — 🟡 IN PROGRESS
+  (claimed 2026-10-01). After the extract sinking (ac6d08b92) three stores per iteration write
+  loaded field values (`[rsp+0x610]`, `0x640`, `0x650`) that nothing reads again. Suspect the lazy
+  spill (dirty scratch values stored on eviction) is not gated by liveness here. Investigating.
 - **x64 `rt.MemZero`** (zeroing each `make_slice`) is a 4×-unrolled 8-byte store loop reloading its
   zero constants from 4 stack slots — 11.6% of native instructions; LLVM uses glibc `rep stosb`.
   Covered by the x64 MemZero/MemCopy item under native vectorization (A) (being worked on
