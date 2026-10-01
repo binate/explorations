@@ -321,6 +321,17 @@ it.  Decide: (a) reject a TYP_TYPE_PARAM target in assertTargetType now, with it
 check nothing in the tree or the conformance suite asserts on a type parameter), or (b) implement the
 Draft rule (per-instantiation checking — design B).
 
+### A `.bni` may declare the same function twice — the later declaration silently wins — invalid code accepted (minor) — 🔴 OPEN (found 2026-09-30, work-3, splitting `ir.bni`; reproduced; pre-existing)
+
+`pkg/binate/ir.bni` declared NewModule, NewFunc, NewExternFunc, AddBlock, AddFaultPad and NewParam twice
+each (identical signatures, one copy per section) and nothing complained; removed in the ir.bni split.
+With DIFFERENT signatures (`func F() int` then `func F(x int) int` in one `.bni`), the later one silently
+wins: the errors then land elsewhere — ".bn has 0 parameters but .bni declares 1" at the `.bn`, "wrong
+number of arguments" at a call written against the first — never at the duplicate.  A second declaration
+of a name in the same `.bni` should be a "declared twice" error at the second one (check what the spec's
+declaration rules say for `.bni` vs `.bn`; a `.bn` duplicate is presumably already rejected).  Needs an
+error test (identical and differing signatures, and a type / var / const declared twice).
+
 ### `@any` of a named managed pointer or function value (`type H @Node`, `type F @func() int`) never matches its own `case` — 🔴 NEEDS DECISION (split out 2026-09-30, work-3, from the named-owning-pointee entry; slices / arrays fixed in binate `02857f863`)
 
 `var a @any = box(h)` for `type H @Node` keys the box structurally (`rt.__nameless_<H>`) while `case @H:` /
