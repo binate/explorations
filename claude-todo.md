@@ -366,6 +366,13 @@ pointer.  With `type S struct { n int; m int; p @Inner }`, `type MS @S`, `impl M
 segfaults (exit 139).  Until the convention is decided, `@H` → `@I` should probably be rejected rather than
 corrupting memory — part of the same decision.
 
+Also a named managed INTERFACE value with its own impl (found 2026-09-30, work-7, adding coverage to the
+cross-package owning-box leak fix): `type X @J; impl X : Lener; var l @Lener = box(x)` dispatches right
+but dropping the box crashes (bus error) — same package on main; and `type PP @(@[]int); impl PP : Lener`
+boxed reads `len(*p)` as 0 then segfaults on drop.  Conformance 1461 covers both (xfail'd).  The
+cross-package owning-box leak fix (which queues the declaring module's structural slot-0 dtor) turns the
+cross-package X case from a leak into the same crash, as the same-package case already is.
+
 ### Spec decision: may a type assertion recover a MUTABLE pointer to a boxed `readonly` named value? — 🔴 NEEDS DECISION (raised 2026-09-29, work-3, review of the outer-readonly boxing fix)
 
 `var c readonly Celsius = 21; var x *any = &c; x.(*Celsius)` succeeds today (named boxes drop the outer
