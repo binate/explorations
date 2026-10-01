@@ -237,6 +237,17 @@ CHECK_TOOLS bnfmt/bnlint have the old parser, so bnc's own tree and hygiene-chec
 use these spellings until those are bumped.  The review's side note (parse errors print no position)
 is filed as its own MAJOR.
 
+### arm32 assembler: `ldr rX, label` overwrote itself; unpatchable fixups written silently — DONE (binate `7fd441827`, 2026-09-30, work-2)
+
+Both MAJORs (found by the review of the local-labels commit).  A label operand of LDR / LDRB / STR / STRB / LDRH /
+STRH / LDRSB / LDRSH is now the PC-relative form, as clang assembles it: fixup kinds FIX_LDR_PC_G0 (12-bit) /
+FIX_LDRS_PC_G0 (split 8-bit), resolved in place within a section, otherwise R_ARM_LDR_PC_G0 (4) / R_ARM_LDRS_PC_G0
+(64) with the REL addend -8 in the field; bnld applies both.  A register, immediate or (halfword forms) shifted
+register operand is an error that emits nothing — they used to fall through to a bogus `[PC, #0]` / `[r0]`.
+arm32.ResolveFixups sets an error naming the label for every value its field cannot hold, and the assemble driver
+fails on any resolver's false.  The review found two more pre-existing arm32 issues, tracked in the todo (`label+N`
+addend dropped; same-section global / weak targets resolved in place).
+
 ### Assembler `.`-leading names, numeric local labels, temporary labels per format — DONE (binate `477048003`, 2026-09-30, work-2)
 
 Names may start with '.' (`.Lfoo`, `..x`, `.$`); a `.name` statement is a directive unless ':' / '=' follows;
