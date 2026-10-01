@@ -1091,7 +1091,9 @@ paths, and SZ16 imm16 landed in `d35da4a89`, see done log.)  Still open, all sil
 addresses — a memory operand with no base but an index (`MemIdx(-1, RCX, 8, 16)`, which the parser builds
 from `[rcx*8 + 16]`) encodes `[rdi + rcx*8 + 0x10]` (clang `48 8b 04 cd 10000000`); index=RSP is dropped
 (`[rax+rsp]` → `[rax+riz]`); scale 3 encodes as 8; a displacement beyond int32 truncates (same unbounded
-frame/field-offset callers).  (ii) Operand SIZES are not validated: mixed register/memory or register/register
+frame/field-offset callers); and an operand with neither base nor index (`MemDisp`, which the parser builds
+from `[5]`) encodes RIP-relative `[rip + 5]` (`48 8b 05 05000000`), where clang encodes the absolute address
+(`48 8b 04 25 05000000`) — found 2026-10-01, work-2.  (ii) Operand SIZES are not validated: mixed register/memory or register/register
 sizes encode at one operand's width (`Mov(Mem SZ64, Reg SZ32)` → `48 89 08`, a 64-bit store; clang rejects
 `mov qword ptr [rax], ecx`), non-SZ sizes encode as 32-bit ops, and the parser defaults an unsized `[rax]` to
 SZ64 so `mov [rax], ecx` is an 8-byte store — fix by requiring matching SZ sizes in emitALU/Test/Mov/
