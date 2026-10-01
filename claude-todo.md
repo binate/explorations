@@ -125,7 +125,10 @@ r2, lsl #2` (E6910102), `ldr r0, [r1], -r2`, `ldr r0, [r1, r2, rrx]` (E7910062),
 `mov r0, #255, #30` (E3A00FFF, the explicit-rotation immediate), `b .+8`, and `bl ext(PLT)` (the old `(PLT)`
 suffix; clang: R_ARM_CALL).  Also a multi-term label addend (`lbl+4+4`, `lbl+2*2`), rejected on arm32 as on
 AArch64 (one number or a parenthesized expression) where clang reads one expression — 🟡 IN PROGRESS with the
-aa64 constants item (claimed 2026-10-01; user: "2. yes").  Each its own small fix in
+aa64 constants item (claimed 2026-10-01; user: "2. yes").  Also (found 2026-10-01, work-2, probing constants): the
+shift instructions `lsl` / `lsr` / `asr` / `ror` (aliases of MOV with a shifted register; "unknown instruction"),
+`adr r0, label` / `adr r0, 8` (clang E28F0008), and immediates written without '#': `svc 5`, and `mov r0, 5`,
+which clang encodes as MOVW (E3000005), not MOV.  Each its own small fix in
 `asm/parse/arm32.bn` / `arm32_instr.bn` (+ encoder support where missing), goldens from clang.
 
 ### Until `BUILDER_VERSION` includes binate `1f29d31e9`, gen1 silently miscompiles some statements that open a block or follow a compound statement in BUILDER-compiled code — 🔴 OPEN MAJOR (constraint until the next BUILDER release; found 2026-09-30, work-4)
