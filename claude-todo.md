@@ -643,7 +643,7 @@ to the constants their array lengths name).  Fix: resolve a `.bni` variable a co
 demand, with the constants its array length names first.  Needs a multi-package conformance test (before
 and after the constant; the length from a later constant).
 
-### A `.bni` extern `var` with no definition in the `.bn` is not diagnosed — IR-gen internal error / link failure — 🔴 OPEN (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing)
+### A `.bni` extern `var` with no definition in the `.bn` is not diagnosed — IR-gen internal error / link failure — 🟡 IN PROGRESS (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing; claimed 2026-10-01, work-3/session, self-drive)
 
 `pkg/home.bni`: `var G int` (any type — scalar, interface, instantiated interface); `pkg/home/home.bn`
 assigns `G` but never declares it.  Spec `decl.var.extern` / §16 (`.bni` `var`): the `.bn` **must**
