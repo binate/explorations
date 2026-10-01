@@ -86,16 +86,41 @@ Batch mode checks each named instance's methods and parameterized impls (gen.mon
 
 Main does not check instances per instantiation at the REPL at all, so none of these is a regression.  Plan (option B): drop the liveness bookkeeping and check at the use sites where IR-gen emits an instance's methods (ensureMethodsForInstName: a method call on, or the boxing of, a value of the instance's type).  There, check the instance's methods and parameterized impls not yet checked, so everything IR-gen emits is checked by the input that makes it emit.  Keep the re-check after a failure and the failure propagation to namers.
 
-### Checker: adding `readonly` one level down (`@[]*int → @[]*readonly int`) is accepted — the unsound `T** → const T**` hole — 🟡 NEEDS DECISION (found 2026-09-30 by the spec review of Ch.8's notes; code reading, not run)
+### Checker: adding `readonly` below the outermost shared handle (`@[]*char → @[]*readonly char`) is accepted — a `*readonly` stored through the new handle reads back writable through the old — 🔴 OPEN MAJOR (found 2026-09-30 by the spec review of Ch.8's notes; reproduced 2026-09-30 on builder-comp; rule DECIDED 2026-09-30 by the user)
 
-`AssignableTo` accepts adding `readonly` below the outermost level, e.g.
-`@[]*int → @[]*readonly int`, and §8.5's leaf rule would allow the same retype.
-Through the new handle a `*readonly int` (say, `&x` of a `var x readonly int`) can be
-stored into the slice and then read back through the OLD handle as a `*int` — a
-writable pointer to readonly storage with no `unsafe_cast`: C++'s unsound
-`T** → const T**`.  Decide the rule (e.g. adding readonly is sound only at the
-outermost level of an element that is itself not a pointer / handle — C++'s
-`T** → const T* const*` shape), then fix the checker and the spec (§8.3, §8.5).
+```
+var a @[]*char = make_slice(*char, 1)
+var b @[]*readonly char = a      // accepted today
+var s *[]readonly char = "hi"
+b[0] = &s[0]                     // stores a *readonly char into the shared slot
+var p *char = a[0]               // reads it back through a, typed *char
+*p = 'X'                         // bus error: writes the literal's read-only byte
+```
+
+`AssignableTo` accepts adding `readonly` below the outermost level, and §8.5's leaf
+rule (which forbids only DROPPING readonly) allows the same retype through `cast`.
+`readonly` is a handle restriction, not `const`; the defect is that a writable handle
+to readonly storage comes out with no `unsafe_cast`.  The user: "Maybe we're being
+too liberal in our implicit slice conversions. This could presumably be solved by only
+allowing it if b were actually @[]readonly * readonly char, right?"
+
+Decided rule (the C++ qualification-conversion shape, `T** → const T* const*`):
+adding `readonly` at a level below the outermost shared handle is allowed only if
+every level between that handle and the added one is also `readonly` in the target.
+- `@[]*char → @[]readonly *readonly char`: OK (b's slots cannot be written).
+- `@[]*char → @[]*readonly char`: rejected.
+- `**char → *readonly *readonly char`: OK; `**char → **readonly char`: rejected.
+  Nested arrays/slices/pointers follow the same rule.
+- Adding readonly one level in (`@[]char → @[]readonly char`, `*T → *readonly T`)
+  is always OK.
+- By-value copies are exempt (`[2]*char → [2]*readonly char` copies into fresh
+  storage), but a pointer to such an array shares storage and needs the full rule.
+
+Fix: checker `AssignableTo` and `cast`'s aggregate retype
+(`pkg/binate/check/check_cast_safe.bn`), spec §8.3/§8.5, `.error` conformance tests
+for each route (the repro above as the negative case; the all-levels-readonly form as
+the positive case).  The separate entry "`cast` rejects a container retype that also
+adds element-level `readonly`" adds readonly one level in, which stays accepted.
 
 ### REPL: a generic method that parks, or is rolled back, stays callable on instances of its type named before it — 🔴 OPEN MAJOR (found 2026-09-30, work-4, reviewing design B's REPL instance checks; reproduced on main `6c3a92440` with a check unit-test probe; pre-existing)
 
