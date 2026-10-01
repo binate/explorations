@@ -338,6 +338,14 @@ of a name in the same `.bni` should be a "declared twice" error at the second on
 declaration rules say for `.bni` vs `.bn`; a `.bn` duplicate is presumably already rejected).  Needs an
 error test (identical and differing signatures, and a type / var / const declared twice).
 
+### A method expression through a type alias fails — `type Alias = Point; Alias.Get(p)` gives "undefined: Get" — valid code rejected — 🔴 OPEN (found 2026-10-01, work-3, review of the type-name-as-value check; reproduced; pre-existing)
+
+The method-expression branch of checkSelectorExpr (`check_expr_access.bn`, the SYM_TYPE arm: "Method
+expression: T.M where T is a named type") calls `LookupMethod` on the symbol's type without resolving the
+alias, so an alias of a named type finds no methods.  Fix: resolve the alias (types.ResolveAlias /
+StripWrappers as appropriate) before the lookup; check IR-gen's method-expression lowering resolves it the
+same way.  Needs a conformance test (value and call forms).
+
 ### `@any` of a named managed pointer or function value (`type H @Node`, `type F @func() int`) never matches its own `case` — 🔴 NEEDS DECISION (split out 2026-09-30, work-3, from the named-owning-pointee entry; slices / arrays fixed in binate `02857f863`)
 
 `var a @any = box(h)` for `type H @Node` keys the box structurally (`rt.__nameless_<H>`) while `case @H:` /
@@ -996,6 +1004,10 @@ Each needs a test (xfail'd) + triage; grouped here so none is lost.
 - **Cross-package non-generic method expression drops the receiver in the checker:**
   `home.S.Sum(s)` → "wrong number of arguments"; `*func(home.S) int = home.S.Sum` → "cannot assign
   *func()int to *func(S)int" (local `S.Add(s, x)` works).
+  Note (2026-10-01, work-3): since the type-name-as-value check (binate, `check: a type or interface name
+  read as a value is an error`, not yet landed when written), `pkg.T.M` is rejected earlier with "T is a
+  type, not a value" (checkSelectorExpr checks `pkg.T` as an expression before the method lookup) — the
+  error text above changes; the fix still needs the qualified-type branch before checkExpr(c, e.X).
 - **Generic method expression as a value** (`var f = Box[int].Peek`) → invalid LLVM (`extractvalue
   operand must be aggregate type`), native link failure, VM SIGSEGV (local) / ICE `unresolved selector
   in IR-gen` (cross-package).
