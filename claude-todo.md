@@ -222,12 +222,36 @@ reproduce on `builder-comp_arm32_baremetal` with a large by-value struct return 
 object for `__aeabi_memcpy` references); if it reproduces, route those paths through the leaf-by-leaf
 helpers.
 
+### An opaque type completed with a non-struct type (`type X` in the `.bni`, `type X int` in the `.bn`) panics IR-gen — 🔴 OPEN MAJOR (found 2026-09-30, work-6, investigating the REPL forward-type leak; reproduced in the VM; pre-existing)
+
+Package `pkg/op` with `type X` in op.bni and `type X int` in op.bn (plus `func Make(v int) @X { var p @X =
+make(X); *p = cast(X, v); return p }`): the checker accepts it, and a program calling `op.Make` panics
+"cast between mismatched aggregate/scalar shapes reached codegen" — gen_self_types.bn pre-registers every
+opaque-exported type as a STRUCT shell, so X is an empty struct in IR-gen.  Within one file `type Y` then
+`type Y int` works.  §7.12 shows the full definition as `type Foo struct { … }` but does not say a
+non-struct body is excluded.  Decide: is a forward type's full definition restricted to a struct (then the
+checker rejects the rest), or may it be any type (then IR-gen's opaque-export path must register a
+non-struct completion, and its force-emitted public dtor must handle a non-struct underlying)?  The REPL
+forward-type leak fix depends on the same answer.
+
 ### A REPL type defined after a forward declaration keeps a stale IR-gen type in types that used it — leak — 🟡 IN PROGRESS (claimed 2026-09-30, work-6/session — user: "yes") (found 2026-09-30, work-6, review of interface / impl at the REPL prompt; reproduced; pre-existing)
 
 `type S5`, `type MPP @@S5`, `type S5 struct { p @Inner }`, then dropping an MPP value leaves Inner's
-refcount rising (1 → 2 → 3) — no impl involved; a box of one into a prompt interface leaks too.  MPP was
-lowered while S5 was an empty forward type, and IR-gen does not refresh it when S5 is filled.  Root
-cause: needs investigation (IR-gen's forward-type registration at the prompt).
+refcount rising (1 → 2 → 3) — no impl involved; a box of one into a prompt interface leaks too.
+
+Root cause (2026-09-30): IR-gen registers nothing for a forward `type S5` at the prompt (GenTypeDecls /
+genReplTypeDecl skip a body-less decl), so until S5 is completed every reference resolves through
+resolveTypeExpr's int fallback: `MPP` is lowered as named `@@int` and never refreshed.  Functions and
+helpers lowered between the forward declaration and the completion bake the same wrong type in:
+`func clearIt(pp @@S5) { var e @S5; *pp = e }`, declared before `type S5 struct { p @Inner }` and run
+after, drops the last `@S5` with no destructor and leaks its Inner.  Anything lowered before the
+completion cannot see S5's layout, so its drops must reach S5's destructor by name — the opaque-export
+model (gen_self_types.bn pre-registers an opaque-exported struct shell; emitManagedPtrRefDec RefDecs an
+opaque type through its dtor; gen_dtor_emit force-emits that dtor).  Proposed fix: register a prompt
+forward type as such a shell, fill it in place on completion (so types like MPP see the fields), make
+drops of it go through its dtor by name, and force-emit the dtor at completion.  Open question for the
+user: the checker accepts completing a forward type with a NON-struct (`type F1` then `type F1 int` /
+`type F2 @[]char`, at the prompt and in files) — see "An opaque type completed with a non-struct type".
 
 ### A type or interface name used as a value is accepted — `testing.Println(I)` crashes — 🔴 OPEN MAJOR (found 2026-09-30, work-6, review of interface / impl at the REPL prompt; reproduced, compiled and REPL; pre-existing)
 
