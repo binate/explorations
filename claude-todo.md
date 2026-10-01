@@ -332,9 +332,8 @@ reflection / fmt misread it as a Node, let `a.(@Getter)` succeed and dispatch ga
 boxing a named pointer type — which layout the data word carries, and which identity each spelling
 (`h`, `&h`, `box(h)`) gets — then fix `case @H:` together with the dispatch MAJOR above ("A value-receiver
 method of a named POINTER type called through an interface reads garbage"), which is the same root cause.
-A named function value is separate: IR-gen erases F's name (`typeDeclEntryType`), so the box keys
-`rt.__nameless_<@func()>` while `case @F:` keys `(main, "")` — `case @F:` / `fa.(@F)` miss (spec §11.12
-allows the target).  A managed box of a named RAW pointer with its own impl (`type PS *S`, `impl PS : I`)
+(A named function value is no longer part of this: IR-gen keeps F nominal since binate `3cf3d8ab5`, and
+`case @F:` matches — conformance 1470.)  A managed box of a named RAW pointer with its own impl (`type PS *S`, `impl PS : I`)
 has the same layout conflict as H.  wrapAsIfaceValue / typeInfoSymFor carry TODOs pointing here.
 
 The conflict also corrupts memory on DROP (found 2026-09-30, work-6, review of the named-over-struct box
@@ -348,10 +347,10 @@ corrupting memory — part of the same decision.
 Also a named managed INTERFACE value with its own impl (found 2026-09-30, work-7, adding coverage to the
 cross-package owning-box leak fix): `type X @J; impl X : Lener; var l @Lener = box(x)` dispatches right
 but dropping the box crashes (bus error) — same package on main; and `type PP @(@[]int); impl PP : Lener`
-boxed reads `len(*p)` as 0 then segfaults on drop.  Conformance 1465 covers both (xfail'd).  The
+boxed reads `len(*p)` as 0 then segfaults on drop.  Conformance 1469 covers both (xfail'd).  The
 cross-package owning-box leak fix (which queues the declaring module's structural slot-0 dtor) turns the
 cross-package X case from a leak into the same crash, as the same-package case already is (user,
-2026-09-30: "I think the crash is ok *for now*").  The test number moved to 1465 at landing.
+2026-09-30: "I think the crash is ok *for now*"; landed as binate `e26352158`).
 
 ### Spec decision: may a type assertion recover a MUTABLE pointer to a boxed `readonly` named value? — 🔴 NEEDS DECISION (raised 2026-09-29, work-3, review of the outer-readonly boxing fix)
 
@@ -729,21 +728,6 @@ Each needs a cycle break (e.g. name a named type nominally where it recurs into 
 larger than the registration change.  Found while fixing methods on named func-value types (a named type
 over a func value is where this shape is most natural).
 
-### An owning interface box of a named managed value whose impl is declared in another package leaks — the defining package's vtable has a null slot-0 dtor — 🟡 IN PROGRESS (found 2026-09-30, work-7, review of the named func-value methods fix; reproduced on LLVM, native and the VM; pre-existing; MAJOR; claimed 2026-09-30, work-7/session; user: "yes, fix the leak now")
-
-pkg/fv: `type Hook @func(int) int`, `interface Applier { Apply(x int) int }`, `func (h Hook) Apply(x int)
-int`, `impl Hook : Applier`, a capturing `Make(n)`; main loops `var h fv.Hook = fv.Make(5); var a
-@fv.Applier = box(h); a.Apply(1)`: rt.LiveBlocks grows 1 per box on compiled builds, 2 on the VM; the same
-through `x.(@fv.Applier)` from an `@any` box.  A named managed slice leaks the same way (`type S @[]int;
-impl S : Lener` in a package, boxed into `@sv.Lener` in main).  collectImplsFromDecl (irgen gen_impl.bn
-~102) names the slot-0 dtor with boxSlot0DtorName (`<pkg>.__dtor_func` / `__dtor_ms_…`) but never registers
-its body (wrapAsIfaceValue does, `if mgdOwning { ir.RegisterModulePendingDtor }`), so unless the defining
-package drops such a value elsewhere codegen emits `ptr null` in its `__ivt` slot 0; its weak_odr
-`__typeinfo.<Hook>` then differs from main's copy (null dtor vs `main.__dtor_func` — an ODR mismatch, the
-linker keeps either).  The same-package case balances.  Fix: in collectImplsFromDecl, when boxSlot0DtorName
-picks a structural dtor (ms / mp / func / interface / array), also RegisterModulePendingDtor the receiver
-type.  Needs a cross-package conformance test with a live-block balance.
-
 ### A receiver whose type comes from a package the caller does not import directly: `defer x.M()` panics bnc; on LLVM a method value `x.M` references an undeclared symbol — 🔴 OPEN MAJOR (found 2026-09-30, work-7, review of the named func-value methods fix; reproduced; pre-existing)
 
 pkg/b: `type Hook @func(int) int; func (h Hook) Apply(x int) int` (also a named struct `b.St`, a named int
@@ -756,26 +740,6 @@ pkg/b: `type Hook @func(int) int; func (h Hook) Apply(x int) int` (also a named 
 Fix: the defer and method-value paths register the method's extern signature on demand, as the direct
 method call does.  (The generic-instance defer ICE in the forwarder-audit entry's bullet was fixed by binate
 `9faa66906`.)  Needs multi-package conformance tests (named func, struct and int receivers).
-
-### Methods and impls on a named function-value type are broken — link failure / runtime segfault — 🟡 IN PROGRESS (found 2026-09-27, work-5, review of the named-readonly func-value fix; pre-existing, no wrapper needed; claimed 2026-09-30, work-7/session; user: "Your recs for A and B are fine.")
-
-For `type Fn @func() int` (plain, no readonly): a method `func (f Fn) M() int` compiles to a call of an
-undefined symbol (link failure), and `impl *Fn : Caller` with vtable dispatch compiles and links but
-SEGFAULTS at runtime — on the pre- and post-`31c1bc297` compilers alike (the readonly-wrapped
-`type RF readonly @func() int` now fails the same way).  The checker accepts both.  Likely root cause:
-irgen `typeDeclEntryType` strips every named func-value type to its underlying func value (so IR-gen has
-no nominal type to mangle the method / impl vtable against, while the checker still resolves the method
-on the named type).  The spec allows it (§10 `func.method.receiver-base`: any named type declared in
-the same package), so this is a compiler bug: IR-gen needs the named identity for method / impl dispatch
-while keeping the func-value representation for calls / copies / dtors.
-A DEFERRED call to such a method fails too since binate `9faa66906` ("defer of an unresolved method
-call"): the defer path now names the receiver from its IR-gen type, as the direct call does; before, it
-happened to resolve through the checker's name.  The fix must cover both paths.
-Approach decided 2026-09-30 (user: "Let's do 1"): give a distinct named func-value type a nominal
-IR-gen type — TYP_NAMED over its func value, as every other named type has (stop stripping it in
-typeDeclEntryType) — and make every func-value kind test in irgen / ir / irbuild / the VM / the backends
-look through the named wrapper.  This also separates `Box[Fn]` from `Box[@func(int) int]` (the checker
-keeps them distinct; IR-gen collapsed them, so a constraint call `v.Twice()` with T = Fn found no method).
 
 ### Per-instantiation checking of generic bodies (design B) — 🟡 IN PROGRESS (claimed 2026-09-28, work-4; user chose "B"; commits 1–5 landed, the last binate `fe95d7de8` 2026-09-30)
 Commits 4 (`f1554cbd6`: signatures resolved per instantiation, dependent-array identity) and 5

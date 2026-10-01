@@ -1,3 +1,28 @@
+### Methods and impls on a named function-value type were broken — link failure / segfault / defer ICE; `Box[Fn]` collapsed into `Box[@func…]` — DONE (binate `3cf3d8ab5`, 2026-09-30, work-7)
+
+IR-gen stripped `type Fn @func(int) int` to its bare func value (typeDeclEntryType), so a method call named
+an empty type (`main..Twice`, link failure), vtable dispatch segfaulted, a deferred method call panicked,
+and `Box[Fn]` / `Box[@func(int) int]` were one instantiation.  Approach chosen by the user ("Let's do 1"):
+keep the type nominal (TYP_NAMED over its func value) and make every reader of a func value's kind or
+signature look through the wrapper — audited across irgen / IR layers / codegen / VM / natives (a
+four-agent read-only sweep), fixed in LLVM codegen's func-value call path, the OP_FUNC_VALUE shim
+signatures (codegen + three natives), the VM's closure-record placement, and IR-gen's func-value
+declaration path.  `case @F:` on an `@any` box now matches.  Tests: conformance 1470 (all call / method /
+box / defer / container / cross-package shapes, capturing values, a live-block balance); irgen unit tests.
+Found along the way and tracked separately: self-referential named types (plan-self-referential-named-
+types.md), receivers from packages the caller does not import directly, the interp marshalableType
+recursion.
+
+### An owning interface box of a named managed value whose impl is declared in another package leaked — DONE (binate `e26352158`, 2026-09-30, work-7)
+
+collectImplsFromDecl named the impl's structural slot-0 dtor (`<pkg>.__dtor_func`, `__dtor_ms_…`) without
+queuing its body, so the declaring module's vtable had a null slot 0 and a box made in an importing
+package leaked its value.  The impl now queues the body (irbuild.RegisterModulePendingDtor); the REPL's
+separate queuing was dropped.  Tests: conformance 1468 (named func value, managed slice, array of managed
+slices; direct and via an `@any` assertion; live-block balance).  The named managed-pointer / interface
+receivers (`type PP @(@[]int)`, `type X @J`) belong to the named-pointer boxing NEEDS DECISION entry (1469,
+xfail'd); cross-package X now crashes on drop like same-package (user: "I think the crash is ok *for now*").
+
 ### VM function-value closure-record leaks, x++ / x-- and switch-case temp release, and once-per-call closure stores — DONE (binate `e8f712597`, `899fb8409`, `fba37e6c6`, `0211c3f76`, 2026-09-30, work-5)
 
 - **VM ClosureRec leaks (investigated: real).**  A raw `*func` built from a
