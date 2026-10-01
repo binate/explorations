@@ -433,6 +433,28 @@ isAddressable arm; IR-gen's lvalue-address path for unsafe_index (the element ad
 for reads); §13 `expr.addressable` lists it; run tests for stores, `++`, a field store, `&unsafe_index(…)`
 and the array-of-a-call-result rejection, on every mode.
 
+### Boxing a pointer to a type from a package the module does not import into an interface stores a null vtable — the call through it crashes — 🔴 OPEN MAJOR (found 2026-10-01, work-7, testing the indirectly-imported-method fix; reproduced; pre-existing)
+
+pkg/b: `interface Sizer { Size() int }`, `type St struct { n int }`, `impl *St : Sizer`; pkg/a: `interface Sz
+= b.Sizer`, `func GetP(n int) *b.St`; main imports only a.  `var z *a.Sz = a.GetP(5); z.Size()` crashes
+(LLVM, aa64, x64: segfault; VM: "call of nil interface value"; native arm32: hangs), and so does passing
+`a.GetP(5)` to a b method's `*b.Sizer` parameter.  The box holds the data pointer and a NULL vtable word:
+wrapAsIfaceValue's findImplVtableName finds no (pkg/b.St, pkg/b.Sizer) row (RegisterImportedImpls is meant
+to cover the transitive closure — why the row is missing needs investigation), and on a miss
+wrapAsIfaceValue returns nil, after which the caller stores the bare pointer as the interface value
+instead of failing.  Fix: find the row; and make a missing row for a non-`any` interface a hard IR-gen
+error, never a null vtable.  Covered by conformance 1484 (`.xfail.all`).
+
+### native arm32: a closure or method value capturing an aggregate wider than 16 bytes fails to build — 🔴 OPEN (found 2026-10-01, work-7, testing the indirectly-imported-method fix; pre-existing)
+
+`type Big struct { a, b, c, d, e int }` (20 bytes on arm32), `func (g Big) Sum() int`, `var f *func() int =
+g.Sum` — both native arm32 modes fail to compile: "closure func value with an indirect-large (>16-byte)
+aggregate capture not implemented".  Such a capture is passed by address (EffectiveArgWords 1), and
+neither closure-shim capture-load path (arm32_closure_shim.bn's fast path, arm32_closure_shim_spill.bn)
+has a by-address load for it; plan-native-arm32.md left it fail-loud when Phase C completed.  Native aa64
+and x64 build and run it.  Fix: a by-address capture load (the capture's address in the closure record)
+on both paths.  Covered by conformance 1485 (xfail on both native arm32 modes).
+
 ### A method value on a generic receiver written as `(*p).M`, `(&b).M`, `Box[int]{…}.M` or `a.(*Box[int]).M` fails to build — 🔴 OPEN (found 2026-09-30, work-7, review of the method-value fix; pre-existing)
 
 With `type Box[T any] struct { n T }` and `func (b *Box[T]) Inc() int`: `(*pb).Inc`, `(*pb).Get`, `(&b).Inc`,
@@ -442,6 +464,10 @@ invalid IR (`%bn_S…_Box[int]`); VM: "extern not found: main.Box[int].Inc".  me
 the method is named from the checker's raw instantiation spelling.  Fix: arms for those shapes (`*P` → P's
 IR pointee, `&x` → a pointer to x's IR type, a composite literal → its resolved TypeRef, an assertion → its
 resolved target).  Needs conformance cases (each shape, a generic `*T` and value method).
+
+Not only generic receivers: with `p *b.St` from a directly imported b, the method value `(*pp).Show`
+(`pp **b.St`) is named from the checker's unqualified `St` and references `main.St.Show` — native: an
+undefined symbol at link (found 2026-10-01, work-7).  The same arms fix it.
 
 ### REPL: `b.v++` / `b.v += 1` on a top-level var of a generic struct type panics in IR-gen — 🔴 OPEN MAJOR (found 2026-09-30, work-7, review of the ++/-- addressability fix; pre-existing)
 
