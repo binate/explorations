@@ -557,7 +557,7 @@ needlessly expensive when the call doesn't touch the earlier value.  The spec ma
 a possible bnlint rule — e.g. flag an expression/statement that reads a managed GLOBAL (or a field/element of
 one) as an operand before a later operand that contains a call (any call can reassign a global).
 
-### Upcasting an unset interface value yields a present one on LLVM and the native backends — `present` lies, a call jumps through a bogus vtable — 🔴 OPEN MAJOR (found 2026-10-01, work-3, review of the multi-value interface fix; reproduced on builder-comp and native aa64; pre-existing)
+### Upcasting an unset interface value yields a present one on LLVM and the native backends — `present` lies, a call jumps through a bogus vtable — 🟡 IN PROGRESS MAJOR (found 2026-10-01, work-3, review of the multi-value interface fix; reproduced on builder-comp and native aa64; pre-existing; claimed 2026-10-01, work-3/session, self-drive)
 
 ```
 interface Greeter { Greet() int }
