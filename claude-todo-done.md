@@ -1,3 +1,31 @@
+### Function-value and anonymous-struct assignability ignore element-level readonly — DONE (binate `eb69e3f31`, 2026-10-01, work-3)
+
+Same class as the managed→raw borrow fix (binate, `check: borrowing a managed pointer or slice as raw
+cannot drop element readonly`), on routes it did not touch — one probe wrote through readonly data on
+each: (1) `var f *func() *readonly int = ro; var h *func() *int = f; *h() = 2` — the `src.Identical(dst)` arm
+of AssignableTo accepts it because `types.Identical` ignores readonly inside a function signature and
+dropsConst returns false for function kinds; §7.11 `type.readonly.param-signature` / §9.4
+`decl.readonly.param` say element readonly in a parameter (or result) type IS significant for
+function-value assignability, and §8.4 forbids the drop on `@func → *func`; (2) a function REFERENCE to a
+function value, `var h2 *func() *int = ro`, and the `@func → *func` borrow arm — funcSignaturesMatch compares
+with the readonly-blind Identical; (3) an anonymous struct copy whose field drops readonly, `var t struct{ q
+*int } = s` with `s struct{ q *readonly int }` — dropsConst treats a struct as a value type and never looks
+at its fields.  Fix: a readonly-strict comparison for signatures and anonymous-struct fields (DropsConstStrict
+recursing into params / results / fields, or IdenticalStrict in funcSignaturesMatch and the func-value /
+struct arms), contravariant for parameters (a callee param may ADD readonly, not drop it); the outermost
+readonly of a parameter stays ignored, per spec.  Needs `.error` tests per route.
+
+Resolved: dropsConst / DropsConstStrict fall back to readonlyDiffersInside (function kinds: signatures
+compared with element readonly significant, each param's and result's outermost readonly ignored —
+identity, not variance, per §7.9 type.func.kinds; anonymous structs: per-field check), and the same
+comparison (sigTypeIdenticalStrict / signaturesMatchStrict) is used by funcSignaturesMatch,
+methodSigSatisfies (impl satisfaction, hence generic constraints), the function-literal hints, the .bni /
+.bn signature check and the inherited-method conflict check — the review found those four routes too.
+Readonly helpers moved into check/readonly_drop.bn.  bnlint --from-source type-checks the whole tree
+under the stricter rules.  Conformance 1475 (error) + 1477 (multi-package error) + 1476; unit tests.
+Open: whether §7.11 should also state that a RESULT's outermost readonly is not part of the signature
+(the checker ignores it, as before) — asked the user.
+
 ### bnld bound a reference to a weak symbol to the referencing object's own copy — DONE (binate `a58fd8e02`, 2026-10-01; found 2026-09-30 by the review of the arm32 global / weak relocation change)
 
 `symbolAddr` (`pkg/binate/link/relocate.bn`) followed the symbol table only for an undefined symbol, so a reference
