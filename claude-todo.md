@@ -110,6 +110,15 @@ _ = bx.Get()                                     // accepted
 ```
 The REPL would then call a method that was never emitted.  Cause: collectDecls ends with backfillInstantiationMethods, which copies the new method into every existing instance's method set (Box[int]).  Undoing the declaration (undoDecl / RollbackDecl, when it parks or fails) restores the placeholder's method set (restoreMethod) but not the instances'.  Fix: the undo must also remove the method from each instance it was copied into (record them in DeclRollback, or re-sync the instances' method sets after the undo).  Needs a check unit test (the probe above: `_ = bx.Get()` after the parked `Get` must be rejected, or park).
 
+### arm32 text assembler: forms clang accepts that are rejected — 🔴 OPEN (found 2026-09-30, work-2, by the review of the arm32 label-addend fix; each used to be silently miscompiled, now an error)
+
+Loud, not wrong code: `ldr r0, [r1]!` (clang E5B10000), `ldr r0, [r1, r2, lsl #2]!` (E7B10102), `ldr r0, [r1],
+r2, lsl #2` (E6910102), `ldr r0, [r1], -r2`, `ldr r0, [r1, r2, rrx]` (E7910062), `ldm r0, {r1}^` (E8D00002),
+`mov r0, #255, #30` (E3A00FFF, the explicit-rotation immediate), `b .+8`, and `bl ext(PLT)` (the old `(PLT)`
+suffix; clang: R_ARM_CALL).  Also a multi-term label addend (`lbl+4+4`, `lbl+2*2`), rejected on arm32 as on
+AArch64 (one number or a parenthesized expression) where clang reads one expression.  Each its own small fix in
+`asm/parse/arm32.bn` / `arm32_instr.bn` (+ encoder support where missing), goldens from clang.
+
 ### arm32 text assembler: `label+N` drops the addend — `ldr r0, lbl+4`, `b lbl+4` assemble to a different word — 🟡 IN PROGRESS MAJOR (claimed 2026-09-30, work-2/session — user: "2. yes"; found 2026-09-30, work-2, by the review of the arm32 literal-load fix; pre-existing)
 
 `parseArm32Operand` (`pkg/binate/asm/parse/arm32.bn` ~250) returns `arm32.Label(name)` and leaves `+ 4` as the
