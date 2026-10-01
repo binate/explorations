@@ -77,6 +77,26 @@ failure is stdlib/debug/001_callers (see "stdlib/debug/001_callers prints "short
 decision before a lane can go green (xfail markers are per mode, not per -O level).  Adding the lane is the user's
 call (CI wiring).
 
+### Slicing a `readonly` array yields a writable slice — writes through readonly storage — 🔴 OPEN MAJOR (found 2026-10-01, work-3, review of the readonly-below-a-shared-handle fix; reproduced on builder-comp; pre-existing)
+
+```
+var r readonly [3]int
+var w *[]int = r[:]       // accepted
+w[0] = 7                  // r[0] is now 7
+var a [2]int
+var pa *(readonly [2]int) = &a
+var w2 *[]int = (*pa)[:]  // accepted; w2[1] = 9 writes a through the readonly view
+```
+`checkSliceExpr` (check/check_expr_access.bn, ~:141) strips the operand's wrappers and returns
+`MakeSliceType(xt.Elem)`, dropping the array's readonly; indexing keeps it (`baseConst` /
+`peelFieldAccessBase`), slicing does not.  It also defeats the readonly-below-a-shared-handle rule:
+`*(readonly [1]*readonly char)` is a sound target only while its slots cannot be written, but
+`(*ra)[:]` hands out a `*[]*readonly char` whose slots can.  Same for an array field reached through a
+readonly struct.  Fix: a slice of an array reached through a readonly path gets readonly elements
+(`*[]readonly T`); error test for each route (readonly local, through a readonly pointer, through a
+readonly struct field) plus the positive `*[]readonly T` result.  No spec text covers slicing a
+readonly array yet — add it with the fix.
+
 ### Checker: adding `readonly` below the outermost shared handle (`@[]*char → @[]*readonly char`) is accepted — a `*readonly` stored through the new handle reads back writable through the old — 🟡 IN PROGRESS MAJOR (found 2026-09-30 by the spec review of Ch.8's notes; reproduced 2026-09-30 on builder-comp; rule DECIDED 2026-09-30 by the user; claimed 2026-10-01, work-3/session, self-drive)
 
 ```
