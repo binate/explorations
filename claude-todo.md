@@ -28,7 +28,12 @@ func id[T any](x T) T { var y T = x; return y }
 - **Native aa64:** compiles and prints garbage (e.g. `6135964040`), a silent wrong result.
 - **LLVM:** clang rejects the IR: `ret i8* %v2` against a `%BnIfaceValue` result.
 
-Root cause unknown; it looks as if the instance's `T` is lowered as a plain pointer rather than a two-word interface value.  The bytecode VM fails too ("call of nil interface value"), so the defect is in shared IR, not a backend.  Test: conformance 1452 (binate `3d026ea69`, expected-fail in every mode).  Needs a root-cause investigation.
+Root cause (2026-10-01): IR-gen's implicit value-borrow in `genExprOrFuncRef` (gen_util.bn) decides from the checker's type of the source expression whether a value flowing into a raw `*Iface` slot is boxed by its address.  In a generic body that type is the abstract `T`, which `isBorrowableValueSource` treats as a value type, so it takes `&x`; `wrapAsIfaceValue` cannot box a `*T` and returns nil, and the fallback `val = lp` uses the ADDRESS as the value.  The instance's IR is `store y ← &x; return &y` with no loads, in every backend (the VM fails too).  `@Iface` targets are not affected (the borrow fires only for raw `*Iface`).
+- The same defect gives wrong results for a `T` bound to a plain pointer: in `func boxIt[T any](x T) int { var a *any = x; p, ok := a.(*W); … }`, `boxIt[*W](&w)` boxes `&x` rather than `x`, so the assertion fails (returns -1; the same code outside a generic gives 4).  Needs a conformance test.
+- General cause: IR-gen reads the checker's abstract types in generic bodies (31 `Checker.ExprType` sites in irgen).  Design B commit 6 (IR-gen reads each instance's checked clone) gives IR-gen the instance's concrete types at every such site; a narrow fix would map the type through `irTypeFromChecker` at the borrow sites (gen_util.bn, gen_defer_build.bn).
+- Checker, separate defect: `id[*Getter](g)` (the type argument spelled directly, not through an alias) is rejected with "cannot assign *main.Getter to *main.Getter": `typeArgFromExpr`'s `*X` arm (check_generic.bn) builds a plain pointer even when `X` is an interface, where `resolveTypeExpr` builds the interface value.  And `id[Getter]` (a bare interface) is accepted as a type argument, so the errors land inside the generic ("interface name `T` is not a type expression") instead of at the argument.
+
+Test: conformance 1452 (binate `3d026ea69`, expected-fail in every mode).
 
 ### Constraint calls through `impl *P` / `impl @M` give wrong results — needs a spec decision — 🔴 NEEDS DECISION (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
 
