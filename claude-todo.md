@@ -77,7 +77,7 @@ failure is stdlib/debug/001_callers (see "stdlib/debug/001_callers prints "short
 decision before a lane can go green (xfail markers are per mode, not per -O level).  Adding the lane is the user's
 call (CI wiring).
 
-### Checker: adding `readonly` below the outermost shared handle (`@[]*char → @[]*readonly char`) is accepted — a `*readonly` stored through the new handle reads back writable through the old — 🔴 OPEN MAJOR (found 2026-09-30 by the spec review of Ch.8's notes; reproduced 2026-09-30 on builder-comp; rule DECIDED 2026-09-30 by the user)
+### Checker: adding `readonly` below the outermost shared handle (`@[]*char → @[]*readonly char`) is accepted — a `*readonly` stored through the new handle reads back writable through the old — 🟡 IN PROGRESS MAJOR (found 2026-09-30 by the spec review of Ch.8's notes; reproduced 2026-09-30 on builder-comp; rule DECIDED 2026-09-30 by the user; claimed 2026-10-01, work-3/session, self-drive)
 
 ```
 var a @[]*char = make_slice(*char, 1)
