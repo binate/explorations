@@ -1,3 +1,23 @@
+### Native AggLoadElidable's S-alloca rule may let an aggregate member be read after its source is overwritten — DONE (binate `a3766314e`, 2026-09-30, another session; raised 2026-09-30, work-1)
+
+`AggLoadElidable` (pkg/binate/native/common/common_aggload_elision.bn) accepts, under S-alloca, a load whose uses
+include an AGGREGATE-typed `OP_EXTRACT`.  Its own S-extract comment says the native backends lower such an
+extract to an address INTO the source, the actual read happening later at the extract's consumers — but the
+S-alloca check (no store to the source slot between the load and its LAST DIRECT USE) does not cover those later
+reads.  So `x := a; m := x.arr; a = b; use(m)` (a confined slot `a`, the member's consumer after the re-store)
+would read the overwritten bytes.  Probe programs written to that shape (scratchpad, several variants) ran
+correctly on native aa64 and LLVM at -O0 / -O2 — the IR passes never produced the shape — so no failing
+case is known.  The LLVM backend's use of the rule (emit_bulk_elide.bn) excludes loads with memory-backed bulk
+members, so it is not exposed.
+To do: construct the shape (IR-level unit test in native/common building the instructions directly, if source
+can't reach it), and if it fails, make S-alloca check the uses of aggregate-typed extracts too (or reject them,
+as S-extract does).
+
+Resolved by `a3766314e` ("native: an aggregate load's use range includes reads through its aliases"):
+the use range now follows aliases transitively — an aggregate-typed extract, a managed-to-raw view, an
+aggregate cast / bit-cast — so every shape (S-alloca and S-adjacent included) checks the aliases'
+consumers too; new common_aggload_alias_test.bn.
+
 ### Parse errors are printed with no file:line:col — a syntax error anywhere in a build gives no location — DONE (binate `3bbe222cf`, 2026-09-30, work-3)
 
 `var x int = = 1` makes bnc print just `expected expression` / `expected ; or }` — no file, line or

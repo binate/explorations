@@ -37,12 +37,13 @@ A. LLVM backend parity with native: a bulk load that `AggLoadElidable` accepts i
    memory is its source.  Extracts GEP into the source; a store / return copies straight from the source.  A
    by-value call argument from such a load is always copied into the call's slot (never the source itself —
    the callee may write its argument).  Fixes the first pattern on every LLVM target, bare metal included.
-   Status: implemented (work-1, 2026-09-30; not yet landed) — emit_bulk_elide.bn, AggLoadElidable exported from
+   Status: DONE `8589029a6` (2026-09-30) — emit_bulk_elide.bn, AggLoadElidable exported from
    native/common, conformance 1463.  A load whose only use is a by-value argument of a call in its block keeps
    passing its private copy (one copy either way).  Checked while designing: AggLoadElidable's S-alloca shape
    does not check an aggregate member's later reads (S-extract rejects aggregate members for exactly that
    reason); probe programs (member read after the source is reassigned) ran correctly on native and LLVM at
-   -O0 / -O2, so no failing case is known — the LLVM side excludes memory-backed members regardless.
+   -O0 / -O2; another session then made the rule follow aliases (`a3766314e`).  The LLVM side excludes
+   memory-backed members regardless.
 B. IR-level dead-store elimination for aggregate slots: a store (or zero-fill) into an alloca whose bytes are
    never read afterwards — SROA leftovers — is dropped.  Every backend and the VM benefit.
 C. Zero-fill then full overwrite: a zero-fill of a slot followed by a store of the whole slot, with no read of
