@@ -1172,7 +1172,7 @@ the spec makes undefined behavior (`bit_cast(*func() int, func…)`,
 where it rejects a valid program: the hint applies only on a signature match,
 which only makes the literal more assignable.
 
-### interp: `RunFunc` / `RunFuncTyped` re-run the package initializers (`main.__init_all`) on every call — package globals are reset between host calls — 🔴 OPEN, DECIDED 2026-09-30 (found 2026-09-30 by the review of the closure-site speed-up)
+### interp: `RunFunc` / `RunFuncTyped` re-run the package initializers (`main.__init_all`) on every call — package globals are reset between host calls — 🟡 IN PROGRESS (claimed 2026-10-01, work-5; DECIDED 2026-09-30; found 2026-09-30 by the review of the closure-site speed-up)
 
 `interp.RunFunc` (interp.bn) and `RunFuncTyped` (runfunc_typed.bn) call
 `main.__init_all` before every entered function (irbuild's comment says the VM runs
