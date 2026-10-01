@@ -65,6 +65,19 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### bnld binds a reference to a weak symbol to the referencing object's own copy, ignoring a strong definition elsewhere — silent wrong code — 🔴 OPEN MAJOR (found 2026-09-30, work-2, by the review of the arm32 global / weak relocation change; confirmed by reading; pre-existing, all arches)
+
+`symbolAddr` (`pkg/binate/link/relocate.bn`) follows the symbol table only for an UNDEFINED symbol; a symbol
+defined in the referencing object (`SecIndex >= 0`) resolves to that object's copy whatever its binding.  So when
+object A defines `.weak w` and references it (now a relocation on arm32, as on aarch64 / x64) and object B defines a
+strong `w`, `Resolve` picks B's (`resolve.bn`, weak replaced by global) but A's relocation still lands on A's `w`.
+Link-once weak copies (generic instantiations, the native weak C-entry thunks whose "one survivor" identity
+`native/arm32/arm32_c_entry.bn` relies on) each keep their own address per object under bnld.  GNU ld / lld honour
+the override.  Fix: in `symbolAddr`, resolve every non-local (GLOBAL / WEAK) symbol through `t.Lookup(sym.Name)`,
+using the object's own definition only for BIND_LOCAL; add a two-object test (A: weak `w` + `b w` / `bl w` /
+address-of; B: strong `w` — the patched references must land on B's `w`), and one with two weak copies (every
+reference lands on the survivor).
+
 ### LLVM arm32 bare metal at -O1 and above fails to link: clang turns zeroing loops / zero stores into `__aeabi_memclr` calls — 🔴 OPEN (found 2026-09-30, work-1, running the aggregate-copy tests at -O2 on every mode; pre-existing)
 
 `BINATE_FLAGS=-O2 conformance/run.sh builder-comp_arm32_baremetal <any test that prints>` fails to link:
