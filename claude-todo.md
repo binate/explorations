@@ -466,7 +466,7 @@ IR pointee, `&x` → a pointer to x's IR type, a composite literal → its resol
 resolved target).  Needs conformance cases (each shape, a generic `*T` and value method).
 
 Not only generic receivers: with `p *b.St` from a directly imported b, the method value `(*pp).Show`
-(`pp **b.St`) is named from the checker's unqualified `St` and references `main.St.Show` — native: an
+(`pp **b.St`) is named from the checker's unqualified `St` and references `main.St.Show` — LLVM: an
 undefined symbol at link (found 2026-10-01, work-7).  The same arms fix it.
 
 ### REPL: `b.v++` / `b.v += 1` on a top-level var of a generic struct type panics in IR-gen — 🔴 OPEN MAJOR (found 2026-09-30, work-7, review of the ++/-- addressability fix; pre-existing)
