@@ -1231,20 +1231,6 @@ quote numbers from this file (they go stale):**
   backends by static instruction/reload counting on a `--target` build, or on
   real hardware/CI.
 
-### Native: constant-branch folding in iropt, so a function-reference argument's statement release (dead in compiled code) costs nothing — 🟡 IN PROGRESS (claimed 2026-09-30, work-5; decided: the general folding, not a narrow native peephole)
-
-Every fresh managed function value is a statement temporary (binate `fba37e6c6`):
-its release is `extract data word; eq nil; branch; dtor` — needed in the VM (the
-data word is the callee's shared ClosureRec), dead in compiled code (a
-non-capturing value's data word is null).  LLVM folds it; native emits a reload,
-compare and two branches per function-reference argument (`apply(add1, i)` in a
-loop).  Plan: (1) a compiled-only iropt fold of an argument-less OP_FUNC_VALUE's
-data-word extract to nil (the VM config leaves it off — the representation
-differs); (2) a general pass for all configs: fold compares of constants, turn a
-branch on a constant into a jump, remove unreachable blocks (fixing up phis).
-Measure per explorations/perf-optimization-guide.md (native aa64 / x64 / arm32
-disassembly first, then timings).
-
 ### Native: a block that only jumps is not threaded — execution hops through two branches — 🔴 OPEN (found 2026-09-30, work-5, disassembling the fold-branch pass's output; pre-existing)
 
 In a loop that passes a function reference (`total = total + apply(twice, i)`), native aa64 at -O2 ends the

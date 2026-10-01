@@ -1,3 +1,20 @@
+### Native: constant-branch folding in iropt — a function-reference argument's statement release folds away — DONE (binate `8019b068d`, 2026-10-01, work-5)
+
+New iropt pass `fold-branch` (after `simplify`, on at -O1+, left out of the VM's set until measured there):
+an EQ / NE of two constants folds to a constant bool (integers compared at the operand type's width — IR-gen
+does not always store a constant normalized), a branch on a constant becomes a jump, and the blocks left
+unreachable go with their phi entries.  With `OptConfig.NullFuncValueData` (bnc sets it: every compiled
+backend gives a non-capturing function value a null data word) it first folds that data word's extract to
+nil, so the release `extract data; eq nil; branch; dtor` of a function reference passed to a call folds away.
+Measured 2026-09-30 on native aa64 (`perf/ab-binaries.sh`, instructions retired, interleaved / alternating):
+a loop passing a function reference −3.58% (user CPU −1.35%); bnc's own `__text` −716 bytes, all in 7 cold
+target-config functions with build-constant branches; bnc self-compile with vs without the pass, and the
+pass's own compile-time cost, both inside the ±0.3% run-to-run noise (same binary against itself).
+Validated: -O2 conformance native aa64 full (3360/0), -O2 subsets on LLVM / native x64 / native arm32
+(551/0 each) and native aa64 after the rebases over the dead-slot and dead-store passes (554/0); iropt unit tests incl.
+`fold_branch_test.bn`.  Follow-ups seen in the disassembly: the two "Native:" entries on jump-only blocks
+and the unreachable trailing epilogue in claude-todo.md.
+
 ### REPL: a generic-receiver method typed at the prompt was not checked for every instance of its type the program reaches — DONE (binate `d69ea61bd`, 2026-10-01, work-4)
 
 Batch mode checks each named instance's methods (gen.mono.check).  The REPL now re-checks a method typed at a
