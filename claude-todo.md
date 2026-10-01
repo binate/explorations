@@ -731,6 +731,28 @@ false — "not supported" — on a repeat; a decision for the user.)  releaseIma
 data, so a value of a recursive type can be released.  Needs a reproduction first (an interp unit test
 calling RunFuncTyped with a recursive-type parameter).
 
+### Overwriting or dropping a value of a named managed slice / pointer type releases it without its destructor — its elements leak — 🔴 OPEN MAJOR (found 2026-09-30, work-7, review of the self-referential named types fix; reproduced; pre-existing)
+
+`type Names @[]@[]char`; `var a Names = mk(); a = mk()` (overwrite), `b[0] = mk()` over a non-empty
+element, and a dropped temporary `len(mk())` each free the outer slice with a plain RefDec and leak the
+inner `@[]char` (rt.LiveBlocks +3 per run).  irbuild EmitManagedSliceRefDec / EmitManagedPtrRefDec read
+the value type's `.Elem`, which is nil on a TYP_NAMED value, so they fall back to a dtor-less RefDec; scope
+-end cleanup peels the type first (emitDecForManagedLocal, StripWrappers), but these release sites do not:
+emitStoreManagedSlot (the replaced value), the index-set (gen_assign_index), releaseReplacedValue, and
+emitTempRefDecs (a call result typed with the named result type).  A recursive `type Tree @[]Tree` leaks
+whole subtrees this way.  Fix: peel the value type (types.StripWrappers) in the two emitters (or at those
+sites).  Needs a conformance test with overwrite / element-overwrite / temporary cases and a live-block
+balance (named managed slice and named managed pointer, recursive and not).
+
+### The checker rejects `@op.Tree` when `op.Tree` is an opaque export whose `.bn` definition names itself (`type Tree @[]Tree`) — 🔴 OPEN (found 2026-09-30, work-7, review of the self-referential named types fix; reproduced; pre-existing)
+
+pkg/op.bni `type Tree` (forward), `func Mk() @Tree`; pkg/op/op.bn `type Tree @[]Tree`; main `op.Mk()` →
+"cannot form a pointer to a type that embeds an opaque type by value".  pointeeEmbedsOpaque
+(check_opaque.bn) peels the pointee with peelFieldAccessBase — which also strips the opaque export itself,
+to `@[]op.Tree`, whose element is opaque to main — before its `!isOpaqueValueType(c, base)` escape test,
+which therefore never fires.  A non-recursive opaque export works.  Fix: return false when the pointee
+itself (before the named peel) is an opaque value type.  Needs a multi-package `.error`-free test.
+
 ### A named non-struct type that names itself through an indirection is mis-typed in IR-gen — `type StateFn @func(int) StateFn`, `type Tree @[]Tree` — 🟡 IN PROGRESS (found 2026-09-30, work-7, audit for the named func-value methods fix; reproduced; pre-existing; MAJOR; claimed 2026-09-30, work-7/session — recon now, the fix after the named func-value methods fix lands; user: "yes, you can take it on afterwards")
 
 IR-gen resolves a named type declaration's underlying before registering the type (registerModuleTypeDecl /
