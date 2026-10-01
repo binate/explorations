@@ -557,6 +557,25 @@ needlessly expensive when the call doesn't touch the earlier value.  The spec ma
 a possible bnlint rule — e.g. flag an expression/statement that reads a managed GLOBAL (or a field/element of
 one) as an operand before a later operand that contains a call (any call can reassign a global).
 
+### Upcasting an unset interface value yields a present one on LLVM and the native backends — `present` lies, a call jumps through a bogus vtable — 🔴 OPEN MAJOR (found 2026-10-01, work-3, review of the multi-value interface fix; reproduced on builder-comp and native aa64; pre-existing)
+
+```
+interface Greeter { Greet() int }
+interface Loud : Greeter { Shout() int }
+var l @Loud                 // unset: {nil, nil}
+var g @Greeter = l          // OP_IFACE_UPCAST
+testing.Println(present(l), present(g))   // false true   (the VM: false false)
+```
+Same for raw `*Loud → *Greeter`, and for a comma-ok miss into an ancestor (`g, ok = a.(@Loud)`).
+The compiled `OP_IFACE_UPCAST` lowerings compute `vtable + offset*W` with no null check (codegen
+`emit_iface_upcast.bn`, aarch64 `aarch64_dispatch_value.bn`, x64 `x64_dispatch_value.bn`, arm32
+`arm32_iface_dispatch.bn`); a real parent's offset is >= 2 words, so `{nil, nil}` becomes `{nil, 0x10}`
+(0x8 on arm32).  `present` tests the vtable word, so it reports true, and `g.Greet()` loads from a low
+address (SIGSEGV; on bare-metal arm32 possibly a wild jump) instead of the `iface.dispatch.nil` panic.
+The VM passes the nil through (`vm_exec_iface.bn`).  Fix: keep a null vtable null in all four compiled
+lowerings; conformance test for an unset upcast (single assignment, raw and managed, and the comma-ok
+miss), on LLVM, the VM and the three native backends.
+
 ### A multi-value assignment into an interface-typed target never builds the interface value — 🟡 IN PROGRESS (found 2026-09-29, work-1, review of the evaluation-order change; pre-existing; claimed 2026-10-01, work-3/session, self-drive)
 
 `iv, n = mkHello()` (mkHello returns `(@Hello, int)`, iv `@Greeter`): the extracted @Hello component is stored
