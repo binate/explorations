@@ -73,7 +73,7 @@ extract to an address INTO the source, the actual read happening later at the ex
 S-alloca check (no store to the source slot between the load and its LAST DIRECT USE) does not cover those later
 reads.  So `x := a; m := x.arr; a = b; use(m)` (a confined slot `a`, the member's consumer after the re-store)
 would read the overwritten bytes.  Probe programs written to that shape (scratchpad, several variants) ran
-correctly on native aa64 / x64-shaped IR at -O0 / -O2 — the IR passes never produced the shape — so no failing
+correctly on native aa64 and LLVM at -O0 / -O2 — the IR passes never produced the shape — so no failing
 case is known.  The LLVM backend's use of the rule (emit_bulk_elide.bn) excludes loads with memory-backed bulk
 members, so it is not exposed.
 To do: construct the shape (IR-level unit test in native/common building the instructions directly, if source
