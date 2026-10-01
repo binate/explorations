@@ -354,9 +354,10 @@ corrupting memory — part of the same decision.
 Also a named managed INTERFACE value with its own impl (found 2026-09-30, work-7, adding coverage to the
 cross-package owning-box leak fix): `type X @J; impl X : Lener; var l @Lener = box(x)` dispatches right
 but dropping the box crashes (bus error) — same package on main; and `type PP @(@[]int); impl PP : Lener`
-boxed reads `len(*p)` as 0 then segfaults on drop.  Conformance 1461 covers both (xfail'd).  The
+boxed reads `len(*p)` as 0 then segfaults on drop.  Conformance 1465 covers both (xfail'd).  The
 cross-package owning-box leak fix (which queues the declaring module's structural slot-0 dtor) turns the
-cross-package X case from a leak into the same crash, as the same-package case already is.
+cross-package X case from a leak into the same crash, as the same-package case already is (user,
+2026-09-30: "I think the crash is ok *for now*").  The test number moved to 1465 at landing.
 
 ### Spec decision: may a type assertion recover a MUTABLE pointer to a boxed `readonly` named value? — 🔴 NEEDS DECISION (raised 2026-09-29, work-3, review of the outer-readonly boxing fix)
 
