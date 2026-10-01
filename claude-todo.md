@@ -457,7 +457,7 @@ the method is named from the checker's raw instantiation spelling.  Fix: arms fo
 IR pointee, `&x` → a pointer to x's IR type, a composite literal → its resolved TypeRef, an assertion → its
 resolved target).  Needs conformance cases (each shape, a generic `*T` and value method).
 
-### Function-value and anonymous-struct assignability ignore element-level readonly — `*func() *readonly int` assigns to `*func() *int`, writes go through — 🔴 OPEN MAJOR (found 2026-09-30, work-3, review of the managed→raw borrow fix; reproduced on builder-comp; pre-existing)
+### Function-value and anonymous-struct assignability ignore element-level readonly — `*func() *readonly int` assigns to `*func() *int`, writes go through — 🟡 IN PROGRESS (found 2026-09-30, work-3, review of the managed→raw borrow fix; reproduced on builder-comp; pre-existing; claimed 2026-09-30, work-3/session — user: "yes, continue")
 
 Same class as the managed→raw borrow fix (binate, `check: borrowing a managed pointer or slice as raw
 cannot drop element readonly`), on routes it did not touch — one probe wrote through readonly data on
