@@ -349,6 +349,14 @@ A named function value is separate: IR-gen erases F's name (`typeDeclEntryType`)
 allows the target).  A managed box of a named RAW pointer with its own impl (`type PS *S`, `impl PS : I`)
 has the same layout conflict as H.  wrapAsIfaceValue / typeInfoSymFor carry TODOs pointing here.
 
+The conflict also corrupts memory on DROP (found 2026-09-30, work-6, review of the named-over-struct box
+leak fix; reproduced in the VM, pre-existing): the (H, I) row's slot 0 is the pointee's destructor — right
+for the own-impl layout (`var s @I = h`, the data word IS the H) — so dropping an `@H` boxed into `@I`
+(`var c @H = make(H); *c = node; var s @I = c`) runs Node's destructor on the H CELL, which holds only a
+pointer.  With `type S struct { n int; m int; p @Inner }`, `type MS @S`, `impl MS : Sizer`, the drop
+segfaults (exit 139).  Until the convention is decided, `@H` → `@I` should probably be rejected rather than
+corrupting memory — part of the same decision.
+
 ### Spec decision: may a type assertion recover a MUTABLE pointer to a boxed `readonly` named value? — 🔴 NEEDS DECISION (raised 2026-09-29, work-3, review of the outer-readonly boxing fix)
 
 `var c readonly Celsius = 21; var x *any = &c; x.(*Celsius)` succeeds today (named boxes drop the outer
