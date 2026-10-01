@@ -1848,6 +1848,21 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   is written to the load's spill slot and reloaded at every extract (record-churn: `arr[i]`'s
   address stored and reloaded each iteration). Make an elided load's address an allocatable
   pointer value on all three native backends.
+  - **Investigated 2026-10-01 — not a net improvement as-is; awaiting a decision.** Implemented
+    (all three backends; set `AggAddrRegLoads` = elided loads whose every use is an extract's
+    aggregate or a store's value, threaded into liveness and handleResult). record-churn N=50 x64
+    instructions (callgrind): 797,726 → 830,672 (+4%). Root cause: register pressure. The x64 home
+    pool is 9 registers; the mix loop has 8 carry lanes + `i` + the address + the out GEP. The
+    address takes a register, and the scan then cascades: an untied latch value (cost 300) evicts
+    a lane phi (cost 210), whose own latch value then evicts the next — 4 lanes spilled instead of 1.
+    Pricing eviction by value + direct copy-tie partners stops the cascade (805,878, +1%), but the
+    address still displaces a lane, and its spill-cost (9 uses × weight) overstates the real cost
+    of leaving it spilled (the scratch reload cache made it ~1 store + 3 reloads). The pricing
+    change alone (address off): 798,634 (≈ neutral). Code parked locally (not landed).
+  - What would actually relieve pressure in these loops: the checksum loop holds 8 copies of the
+    same constant multiplier (0x1000193) in registers because x64 `imul` by an immediate is not
+    folded (`imul r32, r/m32, imm32` exists) — folding it frees most of the pool there; a larger
+    home pool (RAX/RCX/RDX/R10/R11 are scratch-only; LLVM allocates all 15) is the structural fix.
 - **x64 `rt.MemZero`** (zeroing each `make_slice`) is a 4×-unrolled 8-byte store loop reloading its
   zero constants from 4 stack slots — 11.6% of native instructions; LLVM uses glibc `rep stosb`.
   Covered by the x64 MemZero/MemCopy item under native vectorization (A) (being worked on
