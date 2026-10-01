@@ -1203,7 +1203,7 @@ the spec makes undefined behavior (`bit_cast(*func() int, func…)`,
 where it rejects a valid program: the hint applies only on a signature match,
 which only makes the literal more assignable.
 
-### interp: `RunFunc` / `RunFuncTyped` re-run the package initializers (`main.__init_all`) on every call — package globals are reset between host calls — 🟡 NEEDS DECISION (found 2026-09-30 by the review of the closure-site speed-up)
+### interp: `RunFunc` / `RunFuncTyped` re-run the package initializers (`main.__init_all`) on every call — package globals are reset between host calls — 🔴 OPEN, DECIDED 2026-09-30 (found 2026-09-30 by the review of the closure-site speed-up)
 
 `interp.RunFunc` (interp.bn) and `RunFuncTyped` (runfunc_typed.bn) call
 `main.__init_all` before every entered function (irbuild's comment says the VM runs
@@ -1212,8 +1212,11 @@ So a host calling `RunFunc` twice re-initializes every package global, discardin
 state from the first call — and every re-run initializer is a potential leak site
 (a managed global's old value is released by the plain `=`, but anything that
 assumes once-per-program storage, e.g. a package-level method value's static
-closure record stored with init semantics, is not).  Decide: run-once (as compiled
-code), or per-call re-initialization as a documented embedding contract.
+closure record stored with init semantics, is not).  Decided 2026-09-30 (user:
+both behaviors are plausible/useful — separate initialization from calls): an
+explicit, guarded `Init` (runs the package initializers once), `RunFunc` /
+`RunFuncTyped` that only call, and an optional explicit `Reinit` for a host that
+wants fresh globals.
 
 ### Checker: `cast` rejects a container retype that also adds element-level `readonly` — 🔴 OPEN (found 2026-09-30 by the review of the §8.5 status note; code reading, not run)
 
@@ -1258,6 +1261,20 @@ quote numbers from this file (they go stale):**
   x64/arm32 codegen changes (a revert looks "neutral"). Measure non-host
   backends by static instruction/reload counting on a `--target` build, or on
   real hardware/CI.
+
+### Native: constant-branch folding in iropt, so a function-reference argument's statement release (dead in compiled code) costs nothing — 🟡 IN PROGRESS (claimed 2026-09-30, work-5; decided: the general folding, not a narrow native peephole)
+
+Every fresh managed function value is a statement temporary (binate `fba37e6c6`):
+its release is `extract data word; eq nil; branch; dtor` — needed in the VM (the
+data word is the callee's shared ClosureRec), dead in compiled code (a
+non-capturing value's data word is null).  LLVM folds it; native emits a reload,
+compare and two branches per function-reference argument (`apply(add1, i)` in a
+loop).  Plan: (1) a compiled-only iropt fold of an argument-less OP_FUNC_VALUE's
+data-word extract to nil (the VM config leaves it off — the representation
+differs); (2) a general pass for all configs: fold compares of constants, turn a
+branch on a constant into a jump, remove unreachable blocks (fixing up phis).
+Measure per explorations/perf-optimization-guide.md (native aa64 / x64 / arm32
+disassembly first, then timings).
 
 ### IR-level optimizations for large-aggregate copies — shared by every backend — 🟡 IN PROGRESS (raised 2026-09-30, work-1; user decision: "This and other optimizations are what we need"; claimed 2026-09-30, work-1)
 
