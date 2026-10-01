@@ -26400,3 +26400,14 @@ earlier in the block are rejected. Unit tests (common_aggload_alias_test.bn) pin
 (accepted before the fix) and the alias kinds; not reproduced from source (tuple assignment copies
 RHS first). Native x64 -O0/-O2 and arm32-linux -O2 conformance 3327/0, self-compile fixpoint;
 compiling cmd/bnc gives byte-identical output before and after the review follow-ups.
+
+## Native: an evicted dirty value is stored only if it is still live — DONE (2026-10-01, binate 6de81730a)
+
+Lazy spill gated its reset / block-end stores on liveness, but `storeDirtyOnEvict` (a scratch
+register taken from a dirty value) stored unconditionally, so a value used once right after its
+load was written to its slot for nothing. All three backends' emit loops now stamp
+`RegMap.CurLive` (live into the instruction while it is emitted, live out of it afterwards) and
+eviction drops a dead victim unstored. record-churn native x64 N=500 22.98M -> 21.22M instructions
+(loop 70 -> 66). Native x64 and arm32-linux conformance at -O0 and -O2 3340/0, self-compile
+fixpoint. The liveness-redirect requirement for future folds is documented in
+regalloc_fuse_liveness.bn.

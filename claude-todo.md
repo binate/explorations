@@ -1798,9 +1798,9 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
 - **aa64 (67 instrs/element, static): nearly register-resident.**
 - **Both:** (a) the `arr`/`out` managed-slice header allocas' ADDRESS is materialized (`sp+off`),
   spilled and reloaded, then data/len are reloaded — loop-invariant (the "managed-slice header
-  reloaded" item below); (b) three stores per iteration write field values that are already dead
-  (the lazy spill keeps saving them) — not yet investigated.  (Latch phi-copy moves are gone since
-  8ef99bd39; field loads sit at their uses since ac6d08b92.)
+  reloaded" item below); (b) the elided aggregate load's element address is stored to its slot
+  and reloaded within the iteration.  (Latch phi-copy moves are gone since 8ef99bd39; field loads
+  sit at their uses since ac6d08b92; dead eviction stores are gone since 6de81730a.)
 
 - **n-body is ~90% software `math.Sqrt` on BOTH backends — 🔵 OPEN (found 2026-09-24).** callgrind:
   native 88%, LLVM 90% of instructions in `math.Sqrt`'s bit-by-bit loop (neither emits `sqrtsd` /
@@ -1818,10 +1818,6 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   free_fn / trampoline calls with scalar-or-void results), but each is a silent miscompile if a
   new caller reaches it. Fix: share emitCall's argument placement, or assert the supported shapes
   loudly. Needs a test that pins whichever is chosen.
-- **Native x64: dead field values stored to their slots in record-churn's loop** — 🟡 IN PROGRESS
-  (claimed 2026-10-01). After the extract sinking (ac6d08b92) three stores per iteration write
-  loaded field values (`[rsp+0x610]`, `0x640`, `0x650`) that nothing reads again. Suspect the lazy
-  spill (dirty scratch values stored on eviction) is not gated by liveness here. Investigating.
 - **x64 `rt.MemZero`** (zeroing each `make_slice`) is a 4×-unrolled 8-byte store loop reloading its
   zero constants from 4 stack slots — 11.6% of native instructions; LLVM uses glibc `rep stosb`.
   Covered by the x64 MemZero/MemCopy item under native vectorization (A) (being worked on
