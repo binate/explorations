@@ -5,22 +5,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### An instance created only while resolving a signature is never checked — a batch compile accepts an ill-typed instance body, and IR-gen emits it — 🟡 IN PROGRESS (claimed 2026-09-30, work-4/session — user: "Do 1. first. Then continue with the 4 fixes.") (found 2026-09-30, work-4, review of the REPL reachability follow-up; reproduced on main; introduced by binate `fe95d7de8`)
-
-```
-type Box[T any] struct { v T }
-func (b *Box[T]) Get() int { var a [2]uint8; var z [sizeof(T)]uint8 = a; return len(z) }
-type Pair[T any] struct { b *Box[T] }
-func (p *Pair[T]) PGet() int { return p.b.Get() }
-func mk[T any]() *Pair[T] { return nil }
-func main() { testing.Println(mk[int64]().PGet()) }
-```
-This compiles (exit 0); `Box[int64].Get` assigns a [2]uint8 to an [8]uint8, which `gen.mono.check` rejects.
-
-Cause: `queueStructInstance` queues a new instance's check only when the program names it there (`namedByProgram`: user-facing, or inside an instance's check).  `Pair[int64]` is first created while `mk[int64]`'s signature is resolved, under `DerivingInstanceSig` with no instance being checked, and `Box[int64]` while `Pair[int64]`'s fields are populated.  Neither is queued.  Later uses hit the cache: `PGet`'s `p.b.Get()` instantiates nothing.  So `Box[int64]` is never checked, and IR-gen emits its methods.
-
-The gate exists to stop a REPL method copied into an instance only a rejected input named (`backfillInstantiationMethods`) from checking the instances that method's signature derives.  Fix: exempt only that backfill from queuing, not every derived resolution.  Also queue a struct instance's field instances when it is checked.  Needs a conformance test.
-
 ### native aa64: a conditional branch beyond ±1 MB is not relaxed — a very large function fails to assemble — 🔴 OPEN (found 2026-09-30, work-7, review of the exact aggregate-copy fix; pre-existing)
 
 "PC-relative reference to 'L_…phicrit.71' is out of range or misaligned": B.cond / CBZ reach ±1 MB and

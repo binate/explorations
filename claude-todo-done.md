@@ -1,3 +1,17 @@
+### An instance created only while resolving a signature, or reached only through a field, was never checked — a batch compile accepted an ill-typed instance body — DONE (binate `475d37112`, 2026-10-01, work-4)
+
+Introduced by `fe95d7de8`: an instance's check was queued only where the program named it.  So `Pair[int64]`,
+created while `mk[int64]`'s signature was resolved, and `Box[int64]`, through `Pair`'s field, compiled with
+`Box[int64].Get` assigning a [2]uint8 to an [8]uint8, which IR-gen emitted.  Fix:
+- every concrete struct instance is queued when created or named again, except, at the REPL, the instances
+  derived while a new method is copied into the existing ones (`backfillQueueSkipped`);
+- for those, a struct instance's check queues the instances its fields' types refer to, through pointers,
+  slices, arrays, function types and interface method signatures (`check_instance_fields.bn`);
+- a function instance's signature is resolved with that instance current, so derived instances chain to
+  its call site.
+Tests: conformance `spec/12-generics` 096–098, `check_instance_fields_test.bn` (each REPL field-path test
+fails without its walk).
+
 ### Function-value and anonymous-struct assignability ignore element-level readonly — DONE (binate `eb69e3f31`, 2026-10-01, work-3)
 
 Same class as the managed→raw borrow fix (binate, `check: borrowing a managed pointer or slice as raw
