@@ -80,9 +80,9 @@ To do: construct the shape (IR-level unit test in native/common building the ins
 can't reach it), and if it fails, make S-alloca check the uses of aggregate-typed extracts too (or reject them,
 as S-extract does).
 
-### REPL: a method or parameterized impl typed at the prompt is not checked for every instance of its type the program names — 🟡 IN PROGRESS MAJOR (claimed 2026-09-30, work-4/session — user: "let's land first and then do option B"; found by reviews of design B's per-instance checking, the REPL part of commit 5)
+### REPL: a generic-receiver method typed at the prompt is not checked for every instance of its type the program names — 🟡 IN PROGRESS MAJOR (claimed 2026-09-30, work-4/session — user: "let's land first and then do option B"; found by reviews of design B's per-instance checking, the REPL part of commit 5)
 
-Batch mode checks each named instance's methods and parameterized impls (gen.mono.check).  At the REPL, design B's commit 5 tracks which instances the program names (InstCheckState.Live, commitNamed) and re-checks those when a later prompt adds a method or impl (requeueTypeInstances).  Reviews found that tracking incomplete, so the REPL still accepts some such programs a batch compile rejects:
+Batch mode checks each named instance's methods and parameterized impls (gen.mono.check).  At the REPL, design B's commit 5 tracks which instances the program names (InstCheckState.Live, commitNamed) and re-checks those when a later prompt adds a method (requeueTypeInstances).  An impl on a generic type is rejected at the prompt (rejectGenericImpls), so only methods arrive this way.  Reviews found that tracking incomplete, so the REPL still accepts some such programs a batch compile rejects:
 - instances named by the REPL's loaded main file are never counted (CheckMainPersistent opens no naming window);
 - naming an instance whose check already passed does not count the instances it names;
 - a namer recorded in an earlier drain is not failed when the instance it named fails later.
