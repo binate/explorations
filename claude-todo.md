@@ -49,6 +49,20 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### x64 text parser drops a label addend — `call lbl+4` assembles as `call lbl` — silent wrong code — 🔴 OPEN MAJOR (found 2026-10-01, work-2, probing clang for the aa64 constants item; awaiting a user decision)
+
+bnas `-arch x64` assembles `call lbl+4`, `jmp lbl+4` and `je lbl+4` as a branch to `lbl` (the `+4` is dropped
+without an error), accepts trailing text after the target (`call lbl junk`), and drops the displacement of a
+RIP-relative operand: `lea rax, [rip + lbl + 4]` / `mov rax, [rip + lbl + 8]` reference `lbl`, where clang
+references `lbl+4` / `lbl+8`.  Root cause: `parseX64Instruction`'s call / jmp / jcc branches take the target's
+name token and return without parsing the rest of the line (`x64_instr.bn`), and `parseX64MemOperand` adds a
+displacement after the RIP label to `disp`, which the RIP-label operand never uses (`x64.RipLabel(ripLabel)`,
+`x64.bn`).  Fix: carry an addend on x64 label operands and RIP-label operands (the encoder's fixup addend),
+parse the target as a symbol plus a constant expression (clang: `call lbl+4+4` → lbl+8, `call 4+lbl`), and
+require the end of the line after it; golden tests against clang.  Related: the claimed x64 text-parser entry
+(`emitModRM` wrong addresses, …) below, and the symbol-plus-constant expression values the aa64 constants item
+adds to `expr.bn`, which this parse would use.
+
 ### No CI lane runs the LLVM arm32 bare-metal mode at -O2 — 🔴 OPEN (raised 2026-09-30, work-1; awaiting a user decision)
 
 .github/workflows/conformance-o2.yml runs builder-comp (host LLVM) and the native modes at -O2, not
