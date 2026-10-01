@@ -352,6 +352,11 @@ literal wording ("outer-`readonly` stripped") allows it, but iface.assert.kind (
 be added but not dropped") and type.readonly.drop say otherwise.  Decide which the spec means (and whether
 the dynamic type, or the recovery, should keep the readonly); then pin it with a test (conformance 1429 was
 deliberately limited to the handle-readonly `readonly @Box` case so as not to lock this in).
+The same question for a POINTER box, reproduced 2026-09-30 (work-3, review of the managed→raw borrow fix):
+`@readonly Node` boxed into `@any` and recovered with `.(@Node)` yields a writable `@Node` — the boxed
+dynamic type strips the pointee's readonly, so the "element readonly may be added but not dropped" rule
+cannot be enforced for pointer boxes (slice boxes keep element readonly in their identity, pointer boxes
+do not).
 
 ### Method values on non-addressable / read-only receivers, and the lifetime of an addressed composite literal — 🔴 OPEN, DECIDED 2026-09-30 (raised 2026-09-30, work-7, fixing the method-value-captures-a-copy bug)
 
@@ -413,6 +418,23 @@ invalid IR (`%bn_S…_Box[int]`); VM: "extern not found: main.Box[int].Inc".  me
 the method is named from the checker's raw instantiation spelling.  Fix: arms for those shapes (`*P` → P's
 IR pointee, `&x` → a pointer to x's IR type, a composite literal → its resolved TypeRef, an assertion → its
 resolved target).  Needs conformance cases (each shape, a generic `*T` and value method).
+
+### Function-value and anonymous-struct assignability ignore element-level readonly — `*func() *readonly int` assigns to `*func() *int`, writes go through — 🔴 OPEN MAJOR (found 2026-09-30, work-3, review of the managed→raw borrow fix; reproduced on builder-comp; pre-existing)
+
+Same class as the managed→raw borrow fix (binate, `check: borrowing a managed pointer or slice as raw
+cannot drop element readonly`), on routes it did not touch — one probe wrote through readonly data on
+each: (1) `var f *func() *readonly int = ro; var h *func() *int = f; *h() = 2` — the `src.Identical(dst)` arm
+of AssignableTo accepts it because `types.Identical` ignores readonly inside a function signature and
+dropsConst returns false for function kinds; §7.11 `type.readonly.param-signature` / §9.4
+`decl.readonly.param` say element readonly in a parameter (or result) type IS significant for
+function-value assignability, and §8.4 forbids the drop on `@func → *func`; (2) a function REFERENCE to a
+function value, `var h2 *func() *int = ro`, and the `@func → *func` borrow arm — funcSignaturesMatch compares
+with the readonly-blind Identical; (3) an anonymous struct copy whose field drops readonly, `var t struct{ q
+*int } = s` with `s struct{ q *readonly int }` — dropsConst treats a struct as a value type and never looks
+at its fields.  Fix: a readonly-strict comparison for signatures and anonymous-struct fields (DropsConstStrict
+recursing into params / results / fields, or IdenticalStrict in funcSignaturesMatch and the func-value /
+struct arms), contravariant for parameters (a callee param may ADD readonly, not drop it); the outermost
+readonly of a parameter stays ignored, per spec.  Needs `.error` tests per route.
 
 ### The implicit managed→raw borrow silently drops element-level readonly — `var q *[]int = p` with `p @[]readonly int` compiles — 🟡 IN PROGRESS (found 2026-09-30, work-7, review of the unsafe_cast gate; pre-existing; claimed 2026-09-30, work-3/session — user: "yes")
 
