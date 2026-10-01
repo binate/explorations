@@ -1,3 +1,20 @@
+### Boxing a named type defined over a struct (`type S2 S`) leaks the struct's managed fields — DONE (binate `7921d1b6e`, 2026-09-30, work-6)
+
+Slot 0 of the box's vtable named `__dtor_S2`, which is never emitted (only the struct's `__dtor_S` is), so
+dropping an `@S2` boxed into a user interface or `@any` never released the struct's fields — in compiled
+programs, the VM and the REPL, for `type S3 S2`, `type S2 other.S` and `type G2 G[int]` too.
+boxSlot0DtorName (gen_iface_anybox.bn) now keys a struct pointee on the struct, through any named layers,
+qualified with the struct's own package (structDtorFuncName).  The review found that an impl on a named
+RAW pointer (`type PS *S`, `impl PS : I`) put S's dtor in slot 0, so dropping an `@PS` boxed into `@I`
+(its cell holds a borrowed pointer) freed the struct under its owner — pre-existing for `type PS *S`, and
+the first version of the fix extended it to `type PS2 *S2`; a named raw pointer receiver now gets a null
+slot 0 (isNamedRawPointer).  Tests: conformance 1464 (another package's struct, a third package's named
+type, field / local / array), 1465 (named raw pointers), 1466 (same package: pointer and value receivers,
+named over named and over a generic instance, a named managed pointer, `@any`, declarations after their
+impl); REPL e2e case 67.  The same review confirmed a separate pre-existing segfault: dropping an `@H`
+boxed into `@I` with an own `impl H : I` (`type MS @S`) runs S's dtor on the H cell — recorded in the
+"`@any` of a named managed pointer …" NEEDS DECISION entry.
+
 ### Per-instantiation checking (design B), commits 4 and 5: signatures, bodies, methods and parameterized impls checked per instance — DONE (binate `f1554cbd6`, `fe95d7de8`, 2026-09-30, work-4)
 
 Commit 4 resolves a generic function's and a generic type's method signatures per instantiation, from a

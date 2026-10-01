@@ -222,14 +222,6 @@ reproduce on `builder-comp_arm32_baremetal` with a large by-value struct return 
 object for `__aeabi_memcpy` references); if it reproduces, route those paths through the leaf-by-leaf
 helpers.
 
-### Boxing a named type defined over a struct (`type S2 S`) leaks the struct's managed fields — 🟡 IN PROGRESS (claimed 2026-09-30, work-6/session — user: "then continue") (found 2026-09-30, work-6, review of interface / impl at the REPL prompt; reproduced, compiled and REPL; pre-existing)
-
-`type S struct { p @Inner }`, `type S2 S`, `impl *S2 : Sizer`: dropping a `@S2` boxed into `@Sizer` leaves
-the Inner's refcount one high (a file program too).  irgen boxSlot0DtorName (gen_iface_anybox.bn) names
-slot 0 `__dtor_S2`, but only `__dtor_S` is emitted, so slot 0 is null.  Fix: when the receiver's
-underlying type is a struct, key the slot-0 destructor on that struct's name (as the named managed
-pointer receiver case keys on its pointee's).  Needs a conformance test with a refcount check.
-
 ### A REPL type defined after a forward declaration keeps a stale IR-gen type in types that used it — leak — 🔴 OPEN MAJOR (found 2026-09-30, work-6, review of interface / impl at the REPL prompt; reproduced; pre-existing)
 
 `type S5`, `type MPP @@S5`, `type S5 struct { p @Inner }`, then dropping an MPP value leaves Inner's
