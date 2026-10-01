@@ -78,20 +78,14 @@ using the object's own definition only for BIND_LOCAL; add a two-object test (A:
 address-of; B: strong `w` — the patched references must land on B's `w`), and one with two weak copies (every
 reference lands on the survivor).
 
-### LLVM arm32 bare metal at -O1 and above fails to link: clang turns zeroing loops / zero stores into `__aeabi_memclr` calls — 🟡 IN PROGRESS (found 2026-09-30, work-1, running the aggregate-copy tests at -O2 on every mode; pre-existing; claimed 2026-09-30, work-1 — user chose option (b), the asm helpers)
+### No CI lane runs the LLVM arm32 bare-metal mode at -O2 — 🔴 OPEN (raised 2026-09-30, work-1; awaiting a user decision)
 
-`BINATE_FLAGS=-O2 conformance/run.sh builder-comp_arm32_baremetal <any test that prints>` fails to link:
-`ld.lld: error: undefined symbol: __aeabi_memclr` (and `__aeabi_memclr4` / `__aeabi_memclr8`), referenced from
-pkg__builtins__rt.o — rt.MemZero's own byte loop, and the zero-fills in rtFormatInt / rtWriteInt /
-abortWithMessage.  At -O1+ clang's optimizer forms llvm.memset from a zeroing loop (loop-idiom) and from a run of
-zero stores (memcpyopt), and the ARM EABI backend lowers it to `__aeabi_memclr*`, which bare metal does not have
-(runtime/baremetal_arm32 has aeabi_{int,float}.s, no memory helpers).  `-ffreestanding` does not stop it here:
-bnc hands clang `.ll` files, whose functions carry no `"no-builtins"` attribute.  Independent of the bulk-copy
-work (fails with -fno-dead-slot too, and rt.MemZero's loop predates it).  No CI lane catches it: the -O2 workflow
-runs LLVM only on the host (builder-comp), not builder-comp_arm32_baremetal.
-Fix options (decide): (a) emit `"no-builtins"` on every function for a freestanding target, so clang forms no
-library call; (b) provide `__aeabi_memclr*` / `__aeabi_memset*` / `__aeabi_memcpy*` / `__aeabi_memmove*` in
-runtime/baremetal_arm32 (asm, C-free), as for the int / float helpers; and add the -O2 bare-metal lane to CI.
+.github/workflows/conformance-o2.yml runs builder-comp (host LLVM) and the native modes at -O2, not
+builder-comp_arm32_baremetal, so bare-metal -O2 link failures (`__aeabi_memclr`, fixed in `457365120`) went
+unnoticed.  Locally that mode now passes the 805-test call/aggregate subset at -O2 (1414/0); the one known -O2
+failure is stdlib/debug/001_callers (see "stdlib/debug/001_callers prints "short" at -O2 …"), which needs its own
+decision before a lane can go green (xfail markers are per mode, not per -O level).  Adding the lane is the user's
+call (CI wiring).
 
 ### REPL: a generic-receiver method typed at the prompt is not checked for every instance of its type the program names — 🟡 IN PROGRESS MAJOR (claimed 2026-09-30, work-4/session — user: "let's land first and then do option B"; found by reviews of design B's per-instance checking, the REPL part of commit 5)
 

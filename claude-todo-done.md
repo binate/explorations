@@ -1,3 +1,25 @@
+### LLVM arm32 bare metal at -O1 and above fails to link: clang turns zeroing loops / zero stores into `__aeabi_memclr` calls — DONE (binate `457365120`, 2026-10-01, work-1; found 2026-09-30 running the aggregate-copy tests at -O2 on every mode)
+
+`BINATE_FLAGS=-O2 conformance/run.sh builder-comp_arm32_baremetal <any test that prints>` fails to link:
+`ld.lld: error: undefined symbol: __aeabi_memclr` (and `__aeabi_memclr4` / `__aeabi_memclr8`), referenced from
+pkg__builtins__rt.o — rt.MemZero's own byte loop, and the zero-fills in rtFormatInt / rtWriteInt /
+abortWithMessage.  At -O1+ clang's optimizer forms llvm.memset from a zeroing loop (loop-idiom) and from a run of
+zero stores (memcpyopt), and the ARM EABI backend lowers it to `__aeabi_memclr*`, which bare metal does not have
+(runtime/baremetal_arm32 has aeabi_{int,float}.s, no memory helpers).  `-ffreestanding` does not stop it here:
+bnc hands clang `.ll` files, whose functions carry no `"no-builtins"` attribute.  Independent of the bulk-copy
+work (fails with -fno-dead-slot too, and rt.MemZero's loop predates it).  No CI lane catches it: the -O2 workflow
+runs LLVM only on the host (builder-comp), not builder-comp_arm32_baremetal.
+Fix options (decide): (a) emit `"no-builtins"` on every function for a freestanding target, so clang forms no
+library call; (b) provide `__aeabi_memclr*` / `__aeabi_memset*` / `__aeabi_memcpy*` / `__aeabi_memmove*` in
+runtime/baremetal_arm32 (asm, C-free), as for the int / float helpers; and add the -O2 bare-metal lane to CI.
+
+Resolved (option (b), user's choice): runtime/baremetal_arm32/semihost.s defines __aeabi_memcpy / memmove / memset /
+memclr and their 4 / 8 forms, forwarding to its byte-loop memcpy / memmove / memset (reordering memset's (dest, n,
+c), supplying memclr's zero).  e2e/arm32-aeabi-mem-helpers.sh probes each helper under qemu and builds at -O0 and
+-O2 (checking the -O2 runtime object references __aeabi_memclr).  The bare-metal mode at -O2 then passes the
+805-test subset (1414/0) — except stdlib/debug/001_callers (tail calls, separate entry).  Adding a CI lane for it is
+a separate open entry.
+
 ### Calling-convention model moved out of native/common into package native/callconv — DONE (binate `858972a38`, 2026-10-01)
 
 `common.bni` sat at the 1000-line `.bni` cap, blocking register-allocator growth needed for the
