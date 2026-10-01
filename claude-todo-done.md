@@ -1,3 +1,14 @@
+### Calling-convention model moved out of native/common into package native/callconv — DONE (binate `858972a38`, 2026-10-01)
+
+`common.bni` sat at the 1000-line `.bni` cap, blocking register-allocator growth needed for the
+"elided aggregate load's address lives on the stack" item. CallConv + constructors, all ABI
+queries, C-ABI adaptation (multi-return coercion/sret, `__c_entry` thunk decision and
+register-normalization walk), ArgWords/arg alignment, and the type classifiers
+(IsAggregateTyp, IsFloatScalarTyp, FloatScalarIsI32, IsMultiReturnCall) moved to
+`pkg/binate/native/callconv` (`callconv.bni`, 397 lines); `common.bni` is now 613 lines.
+Mechanical rename across the three native backends, codegen and vm. Validated: native x64 and
+arm32-linux conformance at -O0/-O2, LLVM conformance, native self-compile fixpoint.
+
 ### The implicit managed→raw borrow silently drops element-level readonly — `var q *[]int = p` with `p @[]readonly int` compiles — DONE (binate `448fe484d`, 2026-09-30, work-3)
 
 `func h(p @[]readonly int) { var q *[]int = p; q[0] = 7 }` and `func k(p @readonly int) { var q *int = p; *q =
