@@ -46,6 +46,13 @@ A. LLVM backend parity with native: a bulk load that `AggLoadElidable` accepts i
    memory-backed members regardless.
 B. IR-level dead-store elimination for aggregate slots: a store (or zero-fill) into an alloca whose bytes are
    never read afterwards — SROA leftovers — is dropped.  Every backend and the VM benefit.
+   Status: implemented (work-1, 2026-09-30; not yet landed) — iropt dead-slot pass (-fdead-slot, on at -O1+, not
+   in the VM set since the VM does not run sroa), conformance 1464.  The review's `var x Big = *p; return x.n` is
+   now one field load on both backends (native aa64: frame 0x690 → 0x40 bytes, ~490 → ~25 instructions).
+   Measured: native aa64 bnc built -O2 with vs without the pass — __text 10,074,440 → 10,072,928 bytes (−1,512,
+   −0.015%; bnc's own code rarely has the pattern); both compilers produce identical output.
+   Possible refinement: a slot written only through address computations (`x.data[0] = 1` on a field slot) is
+   still kept — the pass counts any non-store use, GEPs included, as a read.
 C. Zero-fill then full overwrite: a zero-fill of a slot followed by a store of the whole slot, with no read of
    it between, drops the zero-fill.  IR-level, like B.
 D. Copy chains (load → private copy → temp slot → argument): revisit after A–C with measured -O2 IR; parts may
