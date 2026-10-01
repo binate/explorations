@@ -13,7 +13,7 @@ when every aggregate copy is fully unrolled — a function copying a 16 KB aggre
 instructions per copy) at -O1.  Fails loudly at build time.  Fix: branch relaxation in the aa64 emitter
 (or a loop for large aggregate copies, which the LLVM backend's per-leaf entry also wants).
 
-### An interface value as a generic type argument (`id[GI](g)`, `type GI = *Getter`) — native prints garbage, LLVM emits invalid IR — 🔴 OPEN (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
+### An interface value as a generic type argument (`id[GI](g)`, `type GI = *Getter`) — native prints garbage, LLVM emits invalid IR — 🟡 IN PROGRESS (claimed 2026-10-01, work-4/session; found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
 
 ```
 interface Getter { Get() int }
