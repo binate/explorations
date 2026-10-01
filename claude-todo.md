@@ -65,6 +65,21 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### Native AggLoadElidable's S-alloca rule may let an aggregate member be read after its source is overwritten — 🔴 OPEN, SUSPECTED (raised 2026-09-30, work-1, by two reviews of the LLVM bulk-load-in-place change; no failing program yet)
+
+`AggLoadElidable` (pkg/binate/native/common/common_aggload_elision.bn) accepts, under S-alloca, a load whose uses
+include an AGGREGATE-typed `OP_EXTRACT`.  Its own S-extract comment says the native backends lower such an
+extract to an address INTO the source, the actual read happening later at the extract's consumers — but the
+S-alloca check (no store to the source slot between the load and its LAST DIRECT USE) does not cover those later
+reads.  So `x := a; m := x.arr; a = b; use(m)` (a confined slot `a`, the member's consumer after the re-store)
+would read the overwritten bytes.  Probe programs written to that shape (scratchpad, several variants) ran
+correctly on native aa64 / x64-shaped IR at -O0 / -O2 — the IR passes never produced the shape — so no failing
+case is known.  The LLVM backend's use of the rule (emit_bulk_elide.bn) excludes loads with memory-backed bulk
+members, so it is not exposed.
+To do: construct the shape (IR-level unit test in native/common building the instructions directly, if source
+can't reach it), and if it fails, make S-alloca check the uses of aggregate-typed extracts too (or reject them,
+as S-extract does).
+
 ### REPL: a method or parameterized impl typed at the prompt is not checked for every instance of its type the program names — 🟡 IN PROGRESS MAJOR (claimed 2026-09-30, work-4/session — user: "let's land first and then do option B"; found by reviews of design B's per-instance checking, the REPL part of commit 5)
 
 Batch mode checks each named instance's methods and parameterized impls (gen.mono.check).  At the REPL, design B's commit 5 tracks which instances the program names (InstCheckState.Live, commitNamed) and re-checks those when a later prompt adds a method or impl (requeueTypeInstances).  Reviews found that tracking incomplete, so the REPL still accepts some such programs a batch compile rejects:
