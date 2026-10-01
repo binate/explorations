@@ -26270,3 +26270,16 @@ N=500 25.98M -> 22.98M instructions; loop 84 -> 70 instructions. Native x64/arm3
 conformance 3278/0, LLVM -O2 3277/1 (1301: the pre-existing clang -O2 hang, IR byte-identical with
 and without the pass), self-compile fixpoint. Review found the latent native elision gap filed as
 "Native aggregate-load elision: aggregate-typed extract read after its checked interval".
+
+## Native aggregate-load elision: reads through aliases are in the use range — DONE (2026-10-01, binate a3766314e)
+
+`AggLoadElidable` checked only the load's own uses, but on native an aggregate value is a pointer
+to its bytes, and an aggregate-typed OP_EXTRACT (address inside the source), OP_MANAGED_TO_RAW, or an
+aggregate OP_CAST / OP_BIT_CAST passes that pointer on; their consumers read the source later,
+outside the checked range, so a write in between went unchecked (S-alloca and S-adjacent shapes;
+S-extract already rejected aggregate extracts). Now `lastAliasUseIndex` follows aliases transitively,
+holding each to the read-only / same-block rules and extending the range; OP_COPY uses and uses
+earlier in the block are rejected. Unit tests (common_aggload_alias_test.bn) pin both unsafe shapes
+(accepted before the fix) and the alias kinds; not reproduced from source (tuple assignment copies
+RHS first). Native x64 -O0/-O2 and arm32-linux -O2 conformance 3327/0, self-compile fixpoint;
+compiling cmd/bnc gives byte-identical output before and after the review follow-ups.

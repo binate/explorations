@@ -1824,19 +1824,6 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   free_fn / trampoline calls with scalar-or-void results), but each is a silent miscompile if a
   new caller reaches it. Fix: share emitCall's argument placement, or assert the supported shapes
   loudly. Needs a test that pins whichever is chosen.
-- **Native aggregate-load elision: aggregate-typed extract read after its checked interval (latent)**
-  — 🟡 IN PROGRESS (claimed 2026-09-30; found in review of the extract-sinking pass; pre-existing).
-  `native/common/common_aggload_elision.bn`: the S-alloca and S-adjacent shapes accept any extract
-  as a read-only use (`lastReadOnlyUseIndex`), and only S-extract rejects aggregate-typed extracts.
-  An aggregate-typed extract lowers to an ADDRESS inside the load's source (aarch64 `emitExtract`
-  `Add` when `SpillHoldsAggregatePointer`; check x64/arm32), so its consumer reads the source later
-  than the extract — outside the (load, last use] interval the store/purity checks cover. Shape:
-  `ld = load A; e = extract(ld, k) /*aggregate*/; store A (or any writer); consume e` → the consume
-  reads the overwritten bytes (silent wrong value). Not reproduced: tuple assignment
-  (`a, b = y, a.inner` / `c, a = a.inner, y`) is correct on native and LLVM at -O0/-O2 (IR-gen copies
-  RHS first). Next: find whether IR-gen can produce the shape at all; either way close the analysis
-  gap (treat an aggregate-typed extract's uses as uses of the load, or reject aggregate-typed
-  extracts in every shape), with a unit test on AggLoadElidable.
 - **x64 `rt.MemZero`** (zeroing each `make_slice`) is a 4×-unrolled 8-byte store loop reloading its
   zero constants from 4 stack slots — 11.6% of native instructions; LLVM uses glibc `rep stosb`.
   Covered by the x64 MemZero/MemCopy item under native vectorization (A) (being worked on
