@@ -257,6 +257,15 @@ CHECK_TOOLS bnfmt/bnlint have the old parser, so bnc's own tree and hygiene-chec
 use these spellings until those are bumped.  The review's side note (parse errors print no position)
 is filed as its own MAJOR.
 
+### arm32 text assembler: `label+N` dropped the addend; trailing text ignored — DONE (binate `3d8297502`, 2026-09-30, work-2)
+
+`ldr r0, lbl+4` / `b lbl+4` assembled as `ldr r0, lbl` / `b lbl` (valid clang syntax, wrong word).  A label operand
+now takes a `+` / `-` addend (one number or a parenthesized expression, as on AArch64) into its fixup
+(arm32.LabelAddend / arm32.BAddend); every arm32 instruction rejects trailing text before emitting; the `, rrx`
+operand no longer returns its own token as the next one; `@` is an arm32 line comment; an unclosed `[r1, #4` or a
+dangling `[r1],` is an error.  Forms clang accepts that are now rejected rather than miscompiled are tracked in the
+todo ("forms clang accepts that are rejected").
+
 ### arm32 assembler: `ldr rX, label` overwrote itself; unpatchable fixups written silently — DONE (binate `7fd441827`, 2026-09-30, work-2)
 
 Both MAJORs (found by the review of the local-labels commit).  A label operand of LDR / LDRB / STR / STRB / LDRH /

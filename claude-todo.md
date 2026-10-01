@@ -104,19 +104,7 @@ suffix; clang: R_ARM_CALL).  Also a multi-term label addend (`lbl+4+4`, `lbl+2*2
 AArch64 (one number or a parenthesized expression) where clang reads one expression.  Each its own small fix in
 `asm/parse/arm32.bn` / `arm32_instr.bn` (+ encoder support where missing), goldens from clang.
 
-### arm32 text assembler: `label+N` drops the addend — `ldr r0, lbl+4`, `b lbl+4` assemble to a different word — 🟡 IN PROGRESS MAJOR (claimed 2026-09-30, work-2/session — user: "2. yes"; found 2026-09-30, work-2, by the review of the arm32 literal-load fix; pre-existing)
-
-`parseArm32Operand` (`pkg/binate/asm/parse/arm32.bn` ~250) returns `arm32.Label(name)` and leaves `+ 4` as the
-next token; the load / store / branch cases in `arm32_instr.bn` return without an end-of-line check, so the
-addend is silently dropped (the arm32 `Label` operand has no addend field).  clang: `lbl: .word 1` / `.word 2` /
-`ldr r0, lbl+4` is E51F000C, ours E51F0010 (loads `lbl`); `ldr r1, ext+4` has field -4 with R_ARM_LDR_PC_G0,
-ours -8; `b lbl+4` is EAFFFFFB, ours EAFFFFFA.  Valid clang syntax silently assembled wrong.  Fix: parse
-`ident [(+|-) expr]` into the label operand's addend and pass it to the fixup (the resolver and REL baking
-already fold `fix.Addend`, A-8 for REL); B / BL need the addend too; and the end-of-line check after every arm32
-instruction that the "text parser silently ignores anything after a complete instruction" note (below, with the
-x64 immediates) asks for — which also covers `add r0, r1, r2 junk`.
-
-### arm32 assembler: a same-section branch / literal load to a global or weak symbol is resolved in place — 🟡 IN PROGRESS (claimed 2026-09-30, work-2/session — user: "3. maybe match clang?"; found 2026-09-30, work-2, by the review of the arm32 literal-load fix; pre-existing for branches)
+### arm32 assembler: a same-section branch / literal load to a global or weak symbol is resolved in place — 🟡 IN PROGRESS (claimed 2026-09-30, work-2/session — user: "3. maybe match clang?", then "yes" to (a) relocate global / weak targets and (c) R_ARM_CALL for an unconditional BL, not (b) relocating every BL; found 2026-09-30, work-2, by the review of the arm32 literal-load fix; pre-existing for branches)
 
 `arm32.ResolveFixups` (`pkg/binate/asm/arm32/arm32_sys.bn`) resolves any same-section target in place; unlike
 the aarch64 and x64 resolvers it never asks `a.DisplacementFixed` (on ELF: only a local symbol's displacement is
