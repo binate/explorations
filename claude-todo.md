@@ -251,7 +251,7 @@ drops of it go through its dtor by name, and force-emit the dtor at completion. 
 user: the checker accepts completing a forward type with a NON-struct (`type F1` then `type F1 int` /
 `type F2 @[]char`, at the prompt and in files) — see "An opaque type completed with a non-struct type".
 
-### A type or interface name used as a value is accepted — `testing.Println(I)` crashes — 🔴 OPEN MAJOR (found 2026-09-30, work-6, review of interface / impl at the REPL prompt; reproduced, compiled and REPL; pre-existing)
+### A type or interface name used as a value is accepted — `testing.Println(I)` crashes — 🟡 IN PROGRESS (found 2026-09-30, work-6, review of interface / impl at the REPL prompt; reproduced, compiled and REPL; pre-existing; claimed 2026-10-01, work-3/session, self-drive)
 
 `interface I { M() }` then `testing.Println(I)` segfaults (a file program too); a struct type name
 prints `%!?(unknown)`.  The checker must reject a type or interface name where a value is required.
