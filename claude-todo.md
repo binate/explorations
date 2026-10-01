@@ -1799,6 +1799,12 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   free_fn / trampoline calls with scalar-or-void results), but each is a silent miscompile if a
   new caller reaches it. Fix: share emitCall's argument placement, or assert the supported shapes
   loudly. Needs a test that pins whichever is chosen.
+- **Native: an elided aggregate load's address lives on the stack, not in a register** — 🟡 IN
+  PROGRESS (claimed 2026-10-01). When `AggLoadElidable` lets a load alias its source, the load's
+  value is just the source address, but aggregates are never register-allocatable, so the address
+  is written to the load's spill slot and reloaded at every extract (record-churn: `arr[i]`'s
+  address stored and reloaded each iteration). Make an elided load's address an allocatable
+  pointer value on all three native backends.
 - **x64 `rt.MemZero`** (zeroing each `make_slice`) is a 4×-unrolled 8-byte store loop reloading its
   zero constants from 4 stack slots — 11.6% of native instructions; LLVM uses glibc `rep stosb`.
   Covered by the x64 MemZero/MemCopy item under native vectorization (A) (being worked on
