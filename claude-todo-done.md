@@ -1,3 +1,22 @@
+### VM function-value closure-record leaks, x++ / x-- and switch-case temp release, and once-per-call closure stores — DONE (binate `e8f712597`, `899fb8409`, `fba37e6c6`, `0211c3f76`, 2026-09-30, work-5)
+
+- **VM ClosureRec leaks (investigated: real).**  A raw `*func` built from a
+  function reference RefInc'd the callee's shared ClosureRec with no release; a
+  fresh managed function value passed to an @func parameter, discarded
+  (`_ = ident[int]`) or cast leaked one reference per evaluation.  The VM now
+  takes the reference only for a managed @func (`e8f712597`, which also carries
+  a REPL same-signature replacement's Vtable / ClosureRec / Handle over so a raw
+  `*func` built earlier stays valid), and every fresh managed OP_FUNC_VALUE is a
+  statement temporary (`fba37e6c6`); conformance 218, VM / REPL unit tests.
+- **`x++` / `x--` and switch case expressions (CRITICAL).**  Their statement
+  temporaries were released by a later statement, in a block the definition
+  did not dominate (LLVM rejected the program, native segfaulted, the VM
+  leaked); now each releases its own (`899fb8409`); conformance 1467.
+- **Speed-up:** a closure site in no loop stores its captures with init
+  semantics (`0211c3f76`).
+Open follow-up: native emits a dead null-checked release per function-reference
+argument (compiled data word is null) — the constant-branch-folding question.
+
 ### Boxing a named type defined over a struct (`type S2 S`) leaks the struct's managed fields — DONE (binate `7921d1b6e`, 2026-09-30, work-6)
 
 Slot 0 of the box's vtable named `__dtor_S2`, which is never emitted (only the struct's `__dtor_S` is), so

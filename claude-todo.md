@@ -5,22 +5,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### IR-gen: `x++` / `x--` and switch case expressions never release their statement temporaries — a later statement releases them in a block their definition does not dominate (LLVM rejects the program, native segfaults, the VM leaks) — 🟡 IN PROGRESS (claimed 2026-09-30, work-5; found by the review of the fresh-function-value-temp change)
-
-`genIncDec` (`gen_flow.bn`) never calls `emitTempCleanup`, and `genSwitch` evaluates
-each case expression with `genExpr` and never flushes its temps.  A temp left in
-`ctx.Temps` is released by the NEXT statement's cleanup, which can sit in a block
-the temp's definition does not dominate: `if c { a[len(make_slice(int, 1)) - 1]++ }`
-fails to compile under LLVM ("Instruction does not dominate all uses!") and
-segfaults natively on the path that skips the `if`; in a loop the VM releases only
-the last iteration's temp.  Pre-existing, but every function reference / generic
-instance / non-capturing literal passed as an argument is now a temp (the
-fresh-function-value-temp change), so `a[idx(add1, i)]++` in a loop and
-`case apply(add1, x) == 7:` with an empty or `break`-first body now hit it.  Fix:
-end `genIncDec` with `emitTempCleanup` (which also emits the SP_RESTORE it
-misses), and flush each case expression's temps in its compare block before the
-branch.
-
 ### native aa64: a conditional branch beyond ±1 MB is not relaxed — a very large function fails to assemble — 🔴 OPEN (found 2026-09-30, work-7, review of the exact aggregate-copy fix; pre-existing)
 
 "PC-relative reference to 'L_…phicrit.71' is out of range or misaligned": B.cond / CBZ reach ±1 MB and
@@ -152,18 +136,6 @@ bnc-0.0.16 (the pinned BUILDER) has the IR-gen defect fixed on main by `1f29d31e
 - assigning a variable to a `*any`.
 
 gen1 would get silently wrong code there, and gen1 compiles every test and gen2.  Examples: a loop body that never runs (the function returns early, with no error); `st.Top++` right after an `if` or a `for` does nothing.  An identifier `++` just before it doesn't help.  A statement that goes through expression evaluation first (`x.f = x.f + 1`, a declaration, a call) is fine, and so is one in a function's opening straight-line code.  Design B's instance stack (`pushInstWork` / `popInstWork`, binate `fe95d7de8`) keeps its `++` / `--` out of those positions; TODOs there mark it.  A 2026-09-30 scan of non-test code found no other field `++` / `--` (the only two are design B's), no `x := name` short-var, and no `*any` variable, parameter or field.  Clears when a BUILDER containing `1f29d31e9` is pinned (cut only when independently justified).
-
-### VM: does building a non-capturing raw `*func` value add a reference to the callee's shared ClosureRec that nothing releases? — 🟡 IN PROGRESS (claimed 2026-09-30, work-5; needs investigation; found 2026-09-30 by the review of the method-value / cast fixes, unverified)
-
-`BC_FUNC_VALUE` for a non-capturing function value (`vm_exec_funcref.bn`, `Src1 == -1`)
-RefIncs the callee's shared per-function ClosureRec so an `@func` value owns a
-reference, balanced by the value's scope-end RefDec.  A raw `*func` has no RefDec
-lifecycle, so if the same RefInc runs for a raw `*func` construction
-(`var f *func(int) int = add1` in a loop), the ClosureRec's refcount grows by one per
-evaluation and it is never freed — a leak (the record is per function, so bounded
-per function, but it never reaches zero).  Check with a VM unit test in the style
-of `TestCastFuncRefToManagedReleasesClosureRec` (vm_funcvalue_rec_leak_test.bn);
-if it leaks, skip the RefInc for a raw `*func` result type.
 
 ### Checker / IR-gen: a function literal cast to a type parameter gets no destination type — the instantiated cast borrows a freed heap closure (silent use-after-free) — 🔴 OPEN, BLOCKED on per-instantiation checking (design B, work-4) commit 6 (decided 2026-09-30: fix via per-instantiation checking; work-5 released its claim — design B is work-4's) (found 2026-09-30 by the review of the cast-operand hint fix)
 
