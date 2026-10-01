@@ -222,7 +222,7 @@ reproduce on `builder-comp_arm32_baremetal` with a large by-value struct return 
 object for `__aeabi_memcpy` references); if it reproduces, route those paths through the leaf-by-leaf
 helpers.
 
-### A REPL type defined after a forward declaration keeps a stale IR-gen type in types that used it — leak — 🔴 OPEN MAJOR (found 2026-09-30, work-6, review of interface / impl at the REPL prompt; reproduced; pre-existing)
+### A REPL type defined after a forward declaration keeps a stale IR-gen type in types that used it — leak — 🟡 IN PROGRESS (claimed 2026-09-30, work-6/session — user: "yes") (found 2026-09-30, work-6, review of interface / impl at the REPL prompt; reproduced; pre-existing)
 
 `type S5`, `type MPP @@S5`, `type S5 struct { p @Inner }`, then dropping an MPP value leaves Inner's
 refcount rising (1 → 2 → 3) — no impl involved; a box of one into a prompt interface leaks too.  MPP was
