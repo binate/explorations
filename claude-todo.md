@@ -49,7 +49,7 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### bnld binds a reference to a weak symbol to the referencing object's own copy, ignoring a strong definition elsewhere — silent wrong code — 🔴 OPEN MAJOR (found 2026-09-30, work-2, by the review of the arm32 global / weak relocation change; confirmed by reading; pre-existing, all arches)
+### bnld binds a reference to a weak symbol to the referencing object's own copy, ignoring a strong definition elsewhere — silent wrong code — 🟡 IN PROGRESS MAJOR (claimed 2026-09-30, work-2/session — user: "2. yes, go ahead and fix it now"; found 2026-09-30, work-2, by the review of the arm32 global / weak relocation change; confirmed by reading; pre-existing, all arches)
 
 `symbolAddr` (`pkg/binate/link/relocate.bn`) follows the symbol table only for an UNDEFINED symbol; a symbol
 defined in the referencing object (`SecIndex >= 0`) resolves to that object's copy whatever its binding.  So when
@@ -140,18 +140,6 @@ r2, lsl #2` (E6910102), `ldr r0, [r1], -r2`, `ldr r0, [r1, r2, rrx]` (E7910062),
 suffix; clang: R_ARM_CALL).  Also a multi-term label addend (`lbl+4+4`, `lbl+2*2`), rejected on arm32 as on
 AArch64 (one number or a parenthesized expression) where clang reads one expression.  Each its own small fix in
 `asm/parse/arm32.bn` / `arm32_instr.bn` (+ encoder support where missing), goldens from clang.
-
-### arm32 assembler: a same-section branch / literal load to a global or weak symbol is resolved in place — 🟡 IN PROGRESS (claimed 2026-09-30, work-2/session — user: "3. maybe match clang?", then "yes" to (a) relocate global / weak targets and (c) R_ARM_CALL for an unconditional BL, not (b) relocating every BL; found 2026-09-30, work-2, by the review of the arm32 literal-load fix; pre-existing for branches)
-
-`arm32.ResolveFixups` (`pkg/binate/asm/arm32/arm32_sys.bn`) resolves any same-section target in place; unlike
-the aarch64 and x64 resolvers it never asks `a.DisplacementFixed` (on ELF: only a local symbol's displacement is
-fixed).  clang emits a relocation for `b g` / `ldr r7, g` / `ldrh r9, g` when `g` is `.globl` or `.weak`
-(R_ARM_JUMP24 / R_ARM_LDR_PC_G0 / R_ARM_LDRS_PC_G0).  For a global in a static link the result is the same
-(different words from clang); for a `.weak` symbol overridden by a strong definition elsewhere, our branch / load
-still reaches the local weak copy — wrong code.  Native arm32's link-once weak functions are identical copies
-(unaffected).  Decision: gate in-place resolution on `DisplacementFixed` as aarch64 / x64 do — which turns
-native `bl` to same-object global functions into R_ARM_JUMP24 relocations (bnld and GNU ld handle them) — or
-keep resolving and accept the weak-override case.
 
 ### Until `BUILDER_VERSION` includes binate `1f29d31e9`, gen1 silently miscompiles some statements that open a block or follow a compound statement in BUILDER-compiled code — 🔴 OPEN MAJOR (constraint until the next BUILDER release; found 2026-09-30, work-4)
 

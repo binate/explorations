@@ -359,6 +359,15 @@ CHECK_TOOLS bnfmt/bnlint have the old parser, so bnc's own tree and hygiene-chec
 use these spellings until those are bumped.  The review's side note (parse errors print no position)
 is filed as its own MAJOR.
 
+### arm32 assembler: references to global / weak symbols relocated; R_ARM_CALL for BL — DONE (binate `5fb742841`, 2026-09-30, work-2)
+
+User: "maybe match clang?", then (a) + (c).  arm32.ResolveFixups resolves a same-section branch / literal load in
+place only for a local target; a global or weak one stays a relocation (as clang and the aarch64 / x64 resolvers
+leave it), fixing a `.weak` symbol overridden elsewhere still being reached locally.  The ELF writer emits
+R_ARM_CALL for an unconditional BL (B and conditional B / BL stay R_ARM_JUMP24).  Not adopted, by decision: clang's
+relocation of every BL, local included, for Thumb interworking.  BAddend rejects condition 15 (BLX).  The review
+found the bnld weak-binding MAJOR (tracked in the todo).
+
 ### arm32 text assembler: `label+N` dropped the addend; trailing text ignored — DONE (binate `3d8297502`, 2026-09-30, work-2)
 
 `ldr r0, lbl+4` / `b lbl+4` assembled as `ldr r0, lbl` / `b lbl` (valid clang syntax, wrong word).  A label operand
