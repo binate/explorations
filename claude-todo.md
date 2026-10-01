@@ -453,6 +453,18 @@ isAddressable arm; IR-gen's lvalue-address path for unsafe_index (the element ad
 for reads); §13 `expr.addressable` lists it; run tests for stores, `++`, a field store, `&unsafe_index(…)`
 and the array-of-a-call-result rejection, on every mode.
 
+### A universe-primitive method called through a pointer receives the address as its value — `p.String()` with `p *int` prints the address — 🔴 OPEN MAJOR (found 2026-10-01, work-7, review of the indirectly-imported-method fix; reproduced; pre-existing)
+
+`var x int = 5; var p *int = &x; p.String()` and `(*p).String()` print the address (every backend); with
+`p *bool` pointing at `false`, `p.String()` prints `true`; the generic form `func PStr[T lang.Stringer](p
+*T) @[]char { return (*p).String() }` at `PStr[int](&x)` does the same.  The method value `p.String`
+captures the value correctly.  Cause: applyReceiverConversion (irgen gen_method_recv.bn) loads a
+pointer receiver for a value-receiver method only when the method's receiver `isNamedTypeKind` (TYP_NAMED /
+TYP_STRUCT), so a universe primitive's (TYP_INT / TYP_FLOAT / TYP_BOOL) receiver gets the pointer.  Fix:
+load whenever the destination is a non-pointer value receiver (at least `|| irutil.IsUniversePrimitive`),
+and check the defer path's receiver conversion for the same gap.  Covered by conformance 1486
+(`.xfail.all`).
+
 ### Boxing a pointer to a type from a package the module does not import into an interface stores a null vtable — the call through it crashes — 🔴 OPEN MAJOR (found 2026-10-01, work-7, testing the indirectly-imported-method fix; reproduced; pre-existing)
 
 pkg/b: `interface Sizer { Size() int }`, `type St struct { n int }`, `impl *St : Sizer`; pkg/a: `interface Sz
