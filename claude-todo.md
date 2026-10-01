@@ -1891,6 +1891,11 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
     same constant multiplier (0x1000193) in registers because x64 `imul` by an immediate is not
     folded (`imul r32, r/m32, imm32` exists) — folding it frees most of the pool there; a larger
     home pool (RAX/RCX/RDX/R10/R11 are scratch-only; LLVM allocates all 15) is the structural fix.
+- **x64: multiply by a constant keeps the constant in a register** — 🟡 IN PROGRESS (claimed
+  2026-10-01). A non-power-of-two constant multiplier is materialized and homed (or spilled) instead
+  of riding `imul r, r/m, imm32`; record-churn's checksum loop holds 8 copies of 0x1000193 in
+  registers. Add OP_MUL to the x64 immediate fold (x64ImmFits + an emitter), keeping the
+  power-of-two/0/±1 strength reduction.
 - **x64 `rt.MemZero`** (zeroing each `make_slice`) is a 4×-unrolled 8-byte store loop reloading its
   zero constants from 4 stack slots — 11.6% of native instructions; LLVM uses glibc `rep stosb`.
   Covered by the x64 MemZero/MemCopy item under native vectorization (A) (being worked on
