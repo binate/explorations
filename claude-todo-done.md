@@ -1,3 +1,14 @@
+### x64: a constant multiplier rides `imul r, r/m, imm` — DONE (binate `3c40b4123`, 2026-10-01)
+
+OP_MUL joined the x64 immediate fold (`x64MulImm` / `emitMulImmFoldX64`, shared position check
+`fold.MulImmOperand`). uint32 (32-bit multiply) takes any multiplier as its low 32 bits; 64-bit
+multiplies take a sign-extended imm32; 0/±1/±2^k fold at any magnitude and keep the
+move/neg/shift strength reduction. record-churn's checksum loop: 73 → 67 instructions per
+iteration (8 multiplier registers freed); whole-program −0.09% at N=300 (that loop is cold — the
+hot mix loop has no constant multiplies). Validated: native x64 conformance -O0/-O2, self-compile
+fixpoint, adversarial review clean. aa64/arm32 have no multiply-by-immediate instruction, so this
+is x64-only.
+
 ### A forward-declared or opaque type may be defined as any type — REPL forward types no longer leak, a non-struct opaque export no longer panics IR-gen — DONE (binate `255d85be8` + `381214442`, 2026-10-01, work-6)
 
 User decision (2026-09-30): "Ideally (b)", then "Go with (b)" — a forward declaration `type X` may be
