@@ -1841,10 +1841,11 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
     address still displaces a lane, and its spill-cost (9 uses × weight) overstates the real cost
     of leaving it spilled (the scratch reload cache made it ~1 store + 3 reloads). The pricing
     change alone (address off): 798,634 (≈ neutral). Code parked locally (not landed).
-  - What would actually relieve pressure in these loops: the checksum loop holds 8 copies of the
-    same constant multiplier (0x1000193) in registers because x64 `imul` by an immediate is not
-    folded (`imul r32, r/m32, imm32` exists) — folding it frees most of the pool there; a larger
-    home pool (RAX/RCX/RDX/R10/R11 are scratch-only; LLVM allocates all 15) is the structural fix.
+  - The hot loop is the mix loop (N² iterations; the checksum and seeding loops run N times), and
+    its pressure is the 8 carry lanes + `i` + the address + the out GEP against a 9-register home
+    pool. The structural fix is a larger home pool (RAX/RCX/RDX/R10/R11 are scratch-only; LLVM
+    allocates all 15). (The x64 `imul`-immediate fold frees the checksum loop's 8 multiplier
+    registers, but that loop is cold.)
 - **x64: multiply by a constant keeps the constant in a register** — 🟡 IN PROGRESS (claimed
   2026-10-01). A non-power-of-two constant multiplier is materialized and homed (or spilled) instead
   of riding `imul r, r/m, imm32`; record-churn's checksum loop holds 8 copies of 0x1000193 in
