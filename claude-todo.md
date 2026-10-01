@@ -692,6 +692,22 @@ false — "not supported" — on a repeat; a decision for the user.)  releaseIma
 data, so a value of a recursive type can be released.  Needs a reproduction first (an interp unit test
 calling RunFuncTyped with a recursive-type parameter).
 
+### An opaque export whose `.bn` definition is not a struct miscompiles in its own package — `type H` in the `.bni`, `type H int` / `@func(int) int` / `@[]@[]char` in the `.bn` — 🔴 OPEN MAJOR (found 2026-10-01, work-7, fixing the recursive opaque-export rejection; reproduced; pre-existing)
+
+pkg/op.bni `type H` (forward), `func Mk(n int) @H`, `func Get(t @H) int`; pkg/op/op.bn defines H as a
+non-struct: `type H int` → IR-gen panics "cast between mismatched aggregate/scalar shapes reached codegen";
+`type H @func(int) int` → bnc crashes (index out of bounds); `type H @[]@[]char` → invalid LLVM IR
+(`extractvalue %bn_S…_H …, 1`: H laid out as an empty struct).  RegisterSelfTypes (irgen gen_self_types.bn
+~53) pre-registers every forward `type X` of the package's own `.bni` as an EMPTY STRUCT stamped
+opaque-exported ("whose full struct lives in the .bn"); a non-struct definition in the `.bn` registers a
+TypeAliases entry, but resolveTypeExpr consults the struct registry first, so H stays the empty struct.
+Fix (sketch): decide the entry's kind from the definition — the checker has the package's filled type —
+registering a named non-struct opaque export as a pending named entry (OpaqueExportPkg stamped) the `.bn`'s
+declaration completes; and extend the opaque-export dtor guarantee (an importer RefDecs `@op.H` through
+`op.__dtor_H`, emitManagedPtrRefDec's opaque arm) to non-struct types, whose dtor is the underlying's.
+Blocks the recursive opaque export (`type Tree` / `type Tree @[]Tree`), whose checker rejection is fixed
+on work-7 (conformance 1480 covers it end to end).
+
 ### The checker rejects `@op.Tree` when `op.Tree` is an opaque export whose `.bn` definition names itself (`type Tree @[]Tree`) — 🟡 IN PROGRESS (found 2026-09-30, work-7, review of the self-referential named types fix; reproduced; pre-existing; claimed 2026-10-01, work-7/session; user: "let's take on the first three")
 
 pkg/op.bni `type Tree` (forward), `func Mk() @Tree`; pkg/op/op.bn `type Tree @[]Tree`; main `op.Mk()` →
