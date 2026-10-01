@@ -567,7 +567,7 @@ needlessly expensive when the call doesn't touch the earlier value.  The spec ma
 a possible bnlint rule — e.g. flag an expression/statement that reads a managed GLOBAL (or a field/element of
 one) as an operand before a later operand that contains a call (any call can reassign a global).
 
-### A multi-value assignment into an interface-typed target never builds the interface value — 🔴 OPEN (found 2026-09-29, work-1, review of the evaluation-order change; pre-existing)
+### A multi-value assignment into an interface-typed target never builds the interface value — 🟡 IN PROGRESS (found 2026-09-29, work-1, review of the evaluation-order change; pre-existing; claimed 2026-10-01, work-3/session, self-drive)
 
 `iv, n = mkHello()` (mkHello returns `(@Hello, int)`, iv `@Greeter`): the extracted @Hello component is stored
 into the interface slot as-is.  Before the evaluation-order change it crashed at run time; with the shared
