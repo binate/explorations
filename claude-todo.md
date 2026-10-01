@@ -1290,6 +1290,27 @@ branch on a constant into a jump, remove unreachable blocks (fixing up phis).
 Measure per explorations/perf-optimization-guide.md (native aa64 / x64 / arm32
 disassembly first, then timings).
 
+### Native: a block that only jumps is not threaded — execution hops through two branches — 🔴 OPEN (found 2026-09-30, work-5, disassembling the fold-branch pass's output; pre-existing)
+
+In a loop that passes a function reference (`total = total + apply(twice, i)`), native aa64 at -O2 ends the
+loop body with `b X` where `X:` is just `b post` — two taken branches per iteration.  Without fold-branch the
+same hop is `b.eq X` → `X: b post`; with it, the release's continuation block is left holding only the jump.
+LLVM's CFG simplification threads such jumps and merges a block into its single predecessor; native emits
+the blocks as the IR has them.  Proposed fix, in iropt so every backend gets it: retarget a jump / branch
+whose target is a jump-only block to that block's target (rewriting phi entries in the final target), and
+merge a block into its single predecessor when that predecessor ends in an unconditional jump to it.  Native
+block layout could also place a jump's target as the fallthrough.  Check native x64 / arm32 output too.
+Measure per explorations/perf-optimization-guide.md.
+
+### Native: an unreachable return epilogue follows the function's last block — 🔴 OPEN (found 2026-09-30, work-5, disassembling the fold-branch pass's output; pre-existing)
+
+Native aa64 at -O2 emits, after the last block of `main` in the function-reference loop above (whose last
+instruction is a `b`), a second copy of the epilogue — callee-saved reloads, `add sp`, `ldp x29, x30`,
+`ret` — that nothing branches to.  Present with and without fold-branch.  Root cause not yet looked at
+(likely an implicit-return epilogue appended after the body whether or not the last block can fall
+through).  Code size only, never executed.  Fix: emit it only when the last block can fall through; check
+native x64 / arm32 for the same.
+
 ### IR-level optimizations for large-aggregate copies — shared by every backend — 🟡 IN PROGRESS (raised 2026-09-30, work-1; user decision: "This and other optimizations are what we need"; claimed 2026-09-30, work-1)
 
 The LLVM backend now carries a large aggregate (more than 16 scalar leaves) as memory and copies it with
