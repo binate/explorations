@@ -62,7 +62,7 @@ using the object's own definition only for BIND_LOCAL; add a two-object test (A:
 address-of; B: strong `w` — the patched references must land on B's `w`), and one with two weak copies (every
 reference lands on the survivor).
 
-### LLVM arm32 bare metal at -O1 and above fails to link: clang turns zeroing loops / zero stores into `__aeabi_memclr` calls — 🔴 OPEN (found 2026-09-30, work-1, running the aggregate-copy tests at -O2 on every mode; pre-existing)
+### LLVM arm32 bare metal at -O1 and above fails to link: clang turns zeroing loops / zero stores into `__aeabi_memclr` calls — 🟡 IN PROGRESS (found 2026-09-30, work-1, running the aggregate-copy tests at -O2 on every mode; pre-existing; claimed 2026-09-30, work-1 — user chose option (b), the asm helpers)
 
 `BINATE_FLAGS=-O2 conformance/run.sh builder-comp_arm32_baremetal <any test that prints>` fails to link:
 `ld.lld: error: undefined symbol: __aeabi_memclr` (and `__aeabi_memclr4` / `__aeabi_memclr8`), referenced from
