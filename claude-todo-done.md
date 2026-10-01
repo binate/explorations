@@ -1,3 +1,17 @@
+### bnld bound a reference to a weak symbol to the referencing object's own copy — DONE (binate `a58fd8e02`, 2026-10-01; found 2026-09-30 by the review of the arm32 global / weak relocation change)
+
+`symbolAddr` (`pkg/binate/link/relocate.bn`) followed the symbol table only for an undefined symbol, so a reference
+to a symbol the referencing object defined used that object's own copy: a strong definition elsewhere did not
+override a weak one for the defining object's own references, and link-once weak copies each kept their own address
+per object.  Now a weak symbol is resolved through `t.Lookup` whether or not the referencing object defines it (a
+defined strong global needs no lookup: Resolve rejects a second strong definition and lets a strong one replace a
+weak one, so it is always the table's own choice); a local symbol uses its own definition (`definedAddr`).  Under a
+scripted layout, a reference to a kept weak copy in an unplaced section now fails with the strict-orphan error, as
+GNU ld rejects a reference to a symbol defined in a discarded section.  Tests: `relocate_weak_test.bn` (weak then
+strong, strong then weak, two weak copies, an unplaced kept copy; all four fail on the old `symbolAddr`).  Validated
+with the link / asm / native unit tests and the seven bnld e2e scripts runnable on macOS arm64 (bnc-bnld-macos,
+bnld-macho-dynamic, bnld-arm32-baremetal / -script / -firmware, bnld-rawbin, bnld-higherhalf).
+
 ### LLVM arm32 bare metal at -O1 and above fails to link: clang turns zeroing loops / zero stores into `__aeabi_memclr` calls — DONE (binate `457365120`, 2026-10-01, work-1; found 2026-09-30 running the aggregate-copy tests at -O2 on every mode)
 
 `BINATE_FLAGS=-O2 conformance/run.sh builder-comp_arm32_baremetal <any test that prints>` fails to link:
