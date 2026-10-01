@@ -55,6 +55,12 @@ B. IR-level dead-store elimination for aggregate slots: a store (or zero-fill) i
    still kept — the pass counts any non-store use, GEPs included, as a read.
 C. Zero-fill then full overwrite: a zero-fill of a slot followed by a store of the whole slot, with no read of
    it between, drops the zero-fill.  IR-level, like B.
+   Status: DONE `bcec3508a` (2026-10-01) — iropt dead-store pass (-fdead-store, on at -O1+, not in the VM set):
+   within a block, a store to a confined slot that a later whole store overwrites unread is dropped, and an
+   OP_ALLOC whose first use is a whole store is marked ir.Instr.NoZeroInit (LLVM / aa64 / x64 / arm32 skip the
+   zero-fill; the VM ignores it).  Padding left unwritten is allowed (spec §21: contents unspecified).
+   Measured: native aa64 bnc built -O2 with vs without the pass — __text 10,193,708 → 9,559,112 bytes (−6.2%);
+   identical compiler output.  Conformance 1479.
 User decision 2026-09-30: after C, also (order mine): native should not copy a struct load nothing uses
 (AggLoadElidable refuses a load with no uses, so native still copies a struct whose fields are all dead — the
 LLVM backend already skips it, bulkMemUnused), and a general dead-code sweep for pure values (dead phis and
