@@ -65,6 +65,21 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### LLVM arm32 bare metal at -O1 and above fails to link: clang turns zeroing loops / zero stores into `__aeabi_memclr` calls — 🔴 OPEN (found 2026-09-30, work-1, running the aggregate-copy tests at -O2 on every mode; pre-existing)
+
+`BINATE_FLAGS=-O2 conformance/run.sh builder-comp_arm32_baremetal <any test that prints>` fails to link:
+`ld.lld: error: undefined symbol: __aeabi_memclr` (and `__aeabi_memclr4` / `__aeabi_memclr8`), referenced from
+pkg__builtins__rt.o — rt.MemZero's own byte loop, and the zero-fills in rtFormatInt / rtWriteInt /
+abortWithMessage.  At -O1+ clang's optimizer forms llvm.memset from a zeroing loop (loop-idiom) and from a run of
+zero stores (memcpyopt), and the ARM EABI backend lowers it to `__aeabi_memclr*`, which bare metal does not have
+(runtime/baremetal_arm32 has aeabi_{int,float}.s, no memory helpers).  `-ffreestanding` does not stop it here:
+bnc hands clang `.ll` files, whose functions carry no `"no-builtins"` attribute.  Independent of the bulk-copy
+work (fails with -fno-dead-slot too, and rt.MemZero's loop predates it).  No CI lane catches it: the -O2 workflow
+runs LLVM only on the host (builder-comp), not builder-comp_arm32_baremetal.
+Fix options (decide): (a) emit `"no-builtins"` on every function for a freestanding target, so clang forms no
+library call; (b) provide `__aeabi_memclr*` / `__aeabi_memset*` / `__aeabi_memcpy*` / `__aeabi_memmove*` in
+runtime/baremetal_arm32 (asm, C-free), as for the int / float helpers; and add the -O2 bare-metal lane to CI.
+
 ### REPL: a generic-receiver method typed at the prompt is not checked for every instance of its type the program names — 🟡 IN PROGRESS MAJOR (claimed 2026-09-30, work-4/session — user: "let's land first and then do option B"; found by reviews of design B's per-instance checking, the REPL part of commit 5)
 
 Batch mode checks each named instance's methods and parameterized impls (gen.mono.check).  At the REPL, design B's commit 5 tracks which instances the program names (InstCheckState.Live, commitNamed) and re-checks those when a later prompt adds a method (requeueTypeInstances).  An impl on a generic type is rejected at the prompt (rejectGenericImpls), so only methods arrive this way.  Reviews found that tracking incomplete, so the REPL still accepts some such programs a batch compile rejects:
