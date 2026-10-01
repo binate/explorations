@@ -200,9 +200,8 @@ Each commit leaves the tree green.
    cascades); every instance error is reported as a user error (no ICE classification of divergences yet).
    Review follow-ups folded in before landing: a depth-first stack (fan-out recursion bounded), per-instance
    coverage of parameterized impls (conformance 091–095), and REPL instance-check state (re-checked after a
-   failure, drained with tentative declarations, failures passed to namers).  The REPL's re-check of
-   instances for a method typed later is incomplete: claude-todo "REPL: a generic-receiver method typed at
-   the prompt …" (option B).
+   failure, drained with tentative declarations, failures passed to namers).  The REPL re-checks a
+   method typed at a later prompt for every instance the program reaches (binate `d69ea61bd`).
 6. IR-gen emits the clones; delete the `DEPENDENT` paths; missing records and constant failures become ICEs.
 7. `bit_cast` and cast checks in abstract bodies defer to the instance check; the IR-gen panics become ICEs.
 

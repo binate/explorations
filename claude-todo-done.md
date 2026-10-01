@@ -1,3 +1,18 @@
+### REPL: a generic-receiver method typed at the prompt was not checked for every instance of its type the program reaches — DONE (binate `d69ea61bd`, 2026-10-01, work-4)
+
+Batch mode checks each named instance's methods (gen.mono.check).  The REPL now re-checks a method typed at a
+later prompt for every instance the program reaches: the instances named by accepted declarations, statements
+and the loaded main file (`InstCheckState.Live`, counted in naming windows and undone with a rolled-back
+declaration), plus every instance reachable from those through the instances each check names
+(`InstCheckState.Deps`, held through raw pointers so namers and dependencies form no refcount cycle; a
+rolled-back re-check restores its Deps from a journal).  An instance not reached loses its passed check and
+its Deps, so naming it later checks it then.  A generic interface instance's method signatures and parents
+are walked to the struct instances they name, and when the depth limit drops queued checks, the instances
+that named them fail.  The user chose this ("1") over option B (check where IR-gen emits an instance's
+methods), which would have accepted different programs than batch mode (conf.implementation.timing) and
+missed instances IR-gen emits transitively.  Tests: `check_instance_live_test.bn` (REPL unit tests, each new
+one verified to fail without its fix), e2e REPL.
+
 ### A named non-struct type that names itself or another one was mis-typed in IR-gen — DONE (binate `7c0cfeaef`, with `6b9ec373d`, 2026-10-01, work-7)
 
 `type StateFn @func(int) StateFn`, `type Tree @[]Tree`, mutual groups (`type SA @[]SB; type SB @[]SA`, through
