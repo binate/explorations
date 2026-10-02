@@ -1,3 +1,14 @@
+### Forward-declared types: an alias cannot define one; §7.12 says a forward type may be defined as any named type — DONE (binate `c5bd7e52f`, docs `685313a`, 2026-10-01, work-6)
+
+User: "1. yes; 2. get a focused review of the proposed update and go ahead if the review comes back clean".
+The checker rejects an alias defining a forward-declared type ("type F is forward-declared; its definition
+cannot be an alias") at the prompt (redefinitionError, generics excluded — isSessionForwardType) and in a
+package (checkTypeRedeclaration, also inside a type group), replacing a file build's indirect signature
+mismatch; IR-gen's prompt alias path was removed as unreachable.  Spec §7.12: type.opaque.forward allows any
+named type as the full definition, and the new Constraint type.opaque.alias-rejection rejects an alias
+(the first review asked for the separate Constraint so the rule-ID extractor classifies it; re-review
+clean).  Tests: conformance spec/07-types/286, checker unit tests, REPL e2e case 71.
+
 ### `id[*Getter](g)` was rejected, and a bare interface (or generic interface instance) was accepted as a type — DONE (binate `4bb2b1906`, 2026-10-01, work-4)
 
 A type argument spelled in an expression position went through `typeArgFromExpr`, whose `*X` arm built a
