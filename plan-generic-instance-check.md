@@ -203,6 +203,32 @@ Each commit leaves the tree green.
    failure, drained with tentative declarations, failures passed to namers).  The REPL re-checks a
    method typed at a later prompt for every instance the program reaches (binate `d69ea61bd`).
 6. IR-gen emits the clones; delete the `DEPENDENT` paths; missing records and constant failures become ICEs.
+   **IN PROGRESS (2026-10-01, work-4).**  Implementation plan:
+   - *Checker keeps the checked clones.*  `checkInstanceBody` builds and drops its clone today.  Keep it on a
+     record per (generic function or method decl, checker type arguments): `InstanceBody{Decl, Args, Clone}`
+     in `InstanceState`, replaced when the instance is re-checked (REPL), kept only for a check that passed.
+     The struct clone `instantiateGenericDeclWithArgs` resolves fields from (`body`) is kept on
+     `GenericInstantiation.Clone`.  Accessors for IR-gen: the instance bodies of a decl, and the
+     instantiation clone of a generic type decl and its arguments.
+   - *Bridge between the two type worlds.*  IR-gen names an instance by its mangled name over its own types;
+     the checker keys on checker types.  For a decl d, IR-gen maps each record's arguments through
+     `irTypeFromChecker` + `canonicalTypeArgs` and compares `instantiationMangledName` with the name it is
+     emitting.  No reverse mapping is needed.
+   - *IR-gen emits the clone.*  `ensureInstantiated` and `emitInstantiatedMethod` build their synthetic decl
+     from the record's clone (Params / Results / Body) instead of the shared decl; `CurrentTypeParamNames`
+     stays (the clone's type expressions still spell `T`).  `ensureInstantiatedStruct` resolves fields from
+     the instantiation clone's TypeRef (its lengths are stamped).  With a checker and no record: ICE.
+     With no checker (irgen unit tests' `genFromSource`): the shared decl, as today.
+   - *Dependent values.*  In a clone nothing is DEPENDENT, so `exprConstIR`'s DEPENDENT fallback, the
+     unstamped-length `evalConstIR` in `gen_type_resolve.bn` and `constFromInitializer`'s DEPENDENT
+     evaluation become ICEs when a checker is present (evaluation stays for the no-checker test path).
+   - *What it fixes.*  Every `Checker.ExprType` read in an instance body is concrete: 1452 and the
+     pointer-bound `*any` borrow (both mis-boxed through the abstract `T`); 153 (`len` of a dependent array);
+     078 (dependent constants resolved by scope); 217 (a function literal under `cast(T, …)` takes the
+     instance's type: reading A — open spec question in claude-todo, raised to the user 2026-10-01).
+   - *Validation.*  First run conformance with the ICE to find instances IR-gen emits but the checker never
+     recorded (each one is a checker/IR-gen divergence to fix, not to fall back on), on LLVM, native aa64 and
+     the VM (`builder-comp-int`); then the generics subsets on every backend.
 7. `bit_cast` and cast checks in abstract bodies defer to the instance check; the IR-gen panics become ICEs.
 
 ## 9. Decisions you need to make
