@@ -54,6 +54,19 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### bnld folds absolute symbols into undefined ones — a weak absolute symbol links as 0 — 🔴 OPEN MAJOR (found 2026-10-01, work-2, listing assembler constants in the symbol table; awaiting a user decision)
+
+bnld's readers map an absolute symbol (ELF `SHN_ABS`, Mach-O `N_ABS`) to `SecIndex -1`, the undefined marker
+(`parse_elf.bn`: "SHN_ABS … is still folded into -1 here; the current writers emit none … model it explicitly
+if one is ever read"; `parse_macho.bn` likewise).  So a global absolute symbol in an input object — clang's
+`.globl G` + `G = 7`, which our assembler can now list too — is an unresolved import ("undefined symbol: G", or
+a dynamic import in a dynamic link), and a weak one (`.weak W` + `W = 1`) is a weak undefined reference that
+resolves to 0: a silent wrong value for any reference to it.  Fix: an `InputSymbol` absolute flag set by both
+readers, honoured wherever a definition is recognised (`resolve.bn` definitions and the undefined check,
+`archive_select.bn`, `dynlink.bn` imports, `builder_common.bn`, `relocate.bn` symbolAddr returning the value),
+with tests per reader.  Until then the text assembler rejects a global / weak number constant
+(`numberBindingRejected` in `asm/parse/parse_const.bn`); lift that once bnld reads absolute symbols.
+
 ### IR-gen registers `type X = struct { … }` as a distinct named struct, not an alias — one type, two identities; blocks design B commit 6 — 🔴 OPEN MAJOR (found 2026-10-01, work-4, review of design B commit 6; pre-existing; awaiting a user decision)
 
 An alias is the same type as its target (spec 07-types), and the checker resolves `Anon` in
