@@ -1,3 +1,45 @@
+### Upcasting an unset interface value kept it present on LLVM and the native backends — DONE (binate `f447a66af`, 2026-10-01, work-3)
+
+`var l @Loud; var g @Greeter = l` gave a `g` that tested `present`, and a call through it loaded from a
+near-null vtable instead of the nil-dispatch panic: the compiled OP_IFACE_UPCAST lowerings added the
+parent's slot offset to a null vtable.  Each now keeps a null vtable null (LLVM `select` with a
+non-`inbounds` GEP; aarch64 ADD + CMP + CSEL; x64 TEST/JZ over the ADD; arm32 CMP + ADDNE); the VM
+already did.  Conformance 1487 (all five backends); unit tests decode the aarch64/arm32 sequences.
+
+### Adding `readonly` below the outermost shared handle needs a readonly slot at every level between — DONE (binate `4fba20a91`, docs `cd4c0d9`, 2026-10-01, work-3)
+
+`@[]*char → @[]*readonly char` (and the same through `cast`) is rejected; `@[]*char → @[]readonly
+*readonly char`, readonly one level in, and by-value copies stay legal.  A level counts as readonly only
+when its slot type is (an array or struct with readonly elements or fields can be overwritten whole),
+arrays and anonymous structs share their container's level, and the managed → raw borrows follow the
+same rule.  `cast` applies it to the wrapper-peeled types (no laundering through a named type, either
+direction), checks two same-field structs field-wise (which also closed a readonly DROP through
+`cast(B, a)` between named structs), and names unsafe_cast only for a conversion that changes nothing
+but readonly.  Spec §8.1/§8.3/§8.5/§8.7.  Conformance 1485 (error routes), 1486 (accepted forms),
+check/readonly_add_test.bn.  Found by its review: slicing a readonly array yields a writable slice —
+its own MAJOR entry.
+
+### A multi-value assignment / `return f()` into an interface-typed target never built the interface value — DONE (binate `7094d6b0d`, 2026-10-01, work-3)
+
+genExprOrFuncRef's interface tail became convertToIfaceTarget, applied by coerceAssignValue to every
+assignment entry and per result by the multi-value `return f()` (which had the same defect); the box
+keeps the component's un-stripped checker type (AssignEntry.SrcTyp).  Conformance 1483 (LLVM, VM,
+native aa64/x64/arm32, refcounts checked) and 1484 (a value component is rejected for an interface
+target, §11.4).  Its review found the unset-upcast defect above.
+
+### A `.bni` `var` with no definition in the `.bn` is diagnosed — DONE (binate `26ef93dab`, 2026-10-01, work-3)
+
+The package's own compile reports each `.bni` var (plain, grouped, or with an initializer, §16.5) that
+none of its `.bn` files defines.  A package loaded with no `.bn` files is skipped — the loader reads an
+interpreter's injected / compiled-in packages from their `.bni` alone (Loader.InterfaceOnly) — so a
+genuinely all-`.bni` package declaring a var is still not caught (see the open entry).  Conformance 1481.
+
+### A type or interface name used as a value is rejected — DONE (binate `22a893267`, 2026-10-01, work-3)
+
+checkIdent and the package-member selector report "X is a type, not a value" / "X is an interface, not a
+value" (notAValue).  Conformance 1482 (interface, struct, named scalar, alias, qualified type, type
+parameter, function-value type).
+
 ### x64: a constant multiplier rides `imul r, r/m, imm` — DONE (binate `3c40b4123`, 2026-10-01)
 
 OP_MUL joined the x64 immediate fold (`x64MulImm` / `emitMulImmFoldX64`, shared position check

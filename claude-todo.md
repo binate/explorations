@@ -77,6 +77,16 @@ failure is stdlib/debug/001_callers (see "stdlib/debug/001_callers prints "short
 decision before a lane can go green (xfail markers are per mode, not per -O level).  Adding the lane is the user's
 call (CI wiring).
 
+### An all-`.bni` package that declares a `var` is not diagnosed — IR-gen panic / link failure for its importers — 🔴 OPEN (found 2026-10-01, work-3, while fixing the undefined-`.bni`-var check; pre-existing)
+
+The undefined-`.bni`-var check (check/check_decl_pass2.bn checkBniVarsDefined) skips a package loaded
+with no `.bn` files, because the loader also reads an interpreter's injected / compiled-in packages from
+their `.bni` alone (Loader.InterfaceOnly) — so the checker cannot tell "implemented elsewhere" from "no
+implementation".  A package that genuinely has only a `.bni` and declares `var X int` therefore compiles,
+and an importer reading X fails as the undefined-var case did.  Fix: have the loader tell the checker
+which packages are interface-only (or the reverse), and report a `var` in a non-interface-only package
+with no `.bn` files.
+
 ### Slicing a `readonly` array yields a writable slice — writes through readonly storage — 🔴 OPEN MAJOR (found 2026-10-01, work-3, review of the readonly-below-a-shared-handle fix; reproduced on builder-comp; pre-existing)
 
 ```
@@ -96,42 +106,6 @@ readonly struct.  Fix: a slice of an array reached through a readonly path gets 
 (`*[]readonly T`); error test for each route (readonly local, through a readonly pointer, through a
 readonly struct field) plus the positive `*[]readonly T` result.  No spec text covers slicing a
 readonly array yet — add it with the fix.
-
-### Checker: adding `readonly` below the outermost shared handle (`@[]*char → @[]*readonly char`) is accepted — a `*readonly` stored through the new handle reads back writable through the old — 🟡 IN PROGRESS MAJOR (found 2026-09-30 by the spec review of Ch.8's notes; reproduced 2026-09-30 on builder-comp; rule DECIDED 2026-09-30 by the user; claimed 2026-10-01, work-3/session, self-drive)
-
-```
-var a @[]*char = make_slice(*char, 1)
-var b @[]*readonly char = a      // accepted today
-var s *[]readonly char = "hi"
-b[0] = &s[0]                     // stores a *readonly char into the shared slot
-var p *char = a[0]               // reads it back through a, typed *char
-*p = 'X'                         // bus error: writes the literal's read-only byte
-```
-
-`AssignableTo` accepts adding `readonly` below the outermost level, and §8.5's leaf
-rule (which forbids only DROPPING readonly) allows the same retype through `cast`.
-`readonly` is a handle restriction, not `const`; the defect is that a writable handle
-to readonly storage comes out with no `unsafe_cast`.  The user: "Maybe we're being
-too liberal in our implicit slice conversions. This could presumably be solved by only
-allowing it if b were actually @[]readonly * readonly char, right?"
-
-Decided rule (the C++ qualification-conversion shape, `T** → const T* const*`):
-adding `readonly` at a level below the outermost shared handle is allowed only if
-every level between that handle and the added one is also `readonly` in the target.
-- `@[]*char → @[]readonly *readonly char`: OK (b's slots cannot be written).
-- `@[]*char → @[]*readonly char`: rejected.
-- `**char → *readonly *readonly char`: OK; `**char → **readonly char`: rejected.
-  Nested arrays/slices/pointers follow the same rule.
-- Adding readonly one level in (`@[]char → @[]readonly char`, `*T → *readonly T`)
-  is always OK.
-- By-value copies are exempt (`[2]*char → [2]*readonly char` copies into fresh
-  storage), but a pointer to such an array shares storage and needs the full rule.
-
-Fix: checker `AssignableTo` and `cast`'s aggregate retype
-(`pkg/binate/check/check_cast_safe.bn`), spec §8.3/§8.5, `.error` conformance tests
-for each route (the repro above as the negative case; the all-levels-readonly form as
-the positive case).  The separate entry "`cast` rejects a container retype that also
-adds element-level `readonly`" adds readonly one level in, which stays accepted.
 
 ### REPL: a generic method that parks, or is rolled back, stays callable on instances of its type named before it — 🔴 OPEN MAJOR (found 2026-09-30, work-4, reviewing design B's REPL instance checks; reproduced on main `6c3a92440` with a check unit-test probe; pre-existing)
 
@@ -265,12 +239,6 @@ definition (dropSupersededPending), so it is never retried, F stays opaque for t
 `var f F = 3` is rejected ("cannot use an opaque type by value") with no word that the definition was
 dropped.  A forward declaration should not supersede a parked definition of its name (it declares the same
 type), or the drop should be reported.
-
-### A type or interface name used as a value is accepted — `testing.Println(I)` crashes — 🟡 IN PROGRESS (found 2026-09-30, work-6, review of interface / impl at the REPL prompt; reproduced, compiled and REPL; pre-existing; claimed 2026-10-01, work-3/session, self-drive)
-
-`interface I { M() }` then `testing.Println(I)` segfaults (a file program too); a struct type name
-prints `%!?(unknown)`.  The checker must reject a type or interface name where a value is required.
-Needs a conformance `.error` test.
 
 ### Boxing a named managed function value into an interface panics — "no shim vtable for native interface method dispatch" — 🔴 OPEN (found 2026-09-30, work-6, review of interface / impl at the REPL prompt; reproduced, compiled and REPL; pre-existing)
 
@@ -615,36 +583,6 @@ needlessly expensive when the call doesn't touch the earlier value.  The spec ma
 a possible bnlint rule — e.g. flag an expression/statement that reads a managed GLOBAL (or a field/element of
 one) as an operand before a later operand that contains a call (any call can reassign a global).
 
-### Upcasting an unset interface value yields a present one on LLVM and the native backends — `present` lies, a call jumps through a bogus vtable — 🟡 IN PROGRESS MAJOR (found 2026-10-01, work-3, review of the multi-value interface fix; reproduced on builder-comp and native aa64; pre-existing; claimed 2026-10-01, work-3/session, self-drive)
-
-```
-interface Greeter { Greet() int }
-interface Loud : Greeter { Shout() int }
-var l @Loud                 // unset: {nil, nil}
-var g @Greeter = l          // OP_IFACE_UPCAST
-testing.Println(present(l), present(g))   // false true   (the VM: false false)
-```
-Same for raw `*Loud → *Greeter`, and for a comma-ok miss into an ancestor (`g, ok = a.(@Loud)`).
-The compiled `OP_IFACE_UPCAST` lowerings compute `vtable + offset*W` with no null check (codegen
-`emit_iface_upcast.bn`, aarch64 `aarch64_dispatch_value.bn`, x64 `x64_dispatch_value.bn`, arm32
-`arm32_iface_dispatch.bn`); a real parent's offset is >= 2 words, so `{nil, nil}` becomes `{nil, 0x10}`
-(0x8 on arm32).  `present` tests the vtable word, so it reports true, and `g.Greet()` loads from a low
-address (SIGSEGV; on bare-metal arm32 possibly a wild jump) instead of the `iface.dispatch.nil` panic.
-The VM passes the nil through (`vm_exec_iface.bn`).  Fix: keep a null vtable null in all four compiled
-lowerings; conformance test for an unset upcast (single assignment, raw and managed, and the comma-ok
-miss), on LLVM, the VM and the three native backends.
-
-### A multi-value assignment into an interface-typed target never builds the interface value — 🟡 IN PROGRESS (found 2026-09-29, work-1, review of the evaluation-order change; pre-existing; claimed 2026-10-01, work-3/session, self-drive)
-
-`iv, n = mkHello()` (mkHello returns `(@Hello, int)`, iv `@Greeter`): the extracted @Hello component is stored
-into the interface slot as-is.  Before the evaluation-order change it crashed at run time; with the shared
-assignment lowering (gen_assign_entry.bn) clang rejects the IR ("extractvalue operand must be aggregate").  A
-parallel or single assignment gets the interface construction from genExprOrFuncRef's target-type hint (it is
-driven by the right-hand AST expression — box / implicit borrow); a multi-value component is an extracted IR
-value with no expression, so there is no conversion to apply.  Fix: an IR-value-level concrete→interface
-construction (the value-producing half of genExprOrFuncRef's interface arms), applied in coerceAssignValue.
-Needs a conformance test (LLVM, VM, native).
-
 ### The LLVM backend lowers aggregate loads, copies and zero-fills one scalar leaf at a time — IR (and clang memory) grows with array length — 🟡 IN PROGRESS (found 2026-09-28, work-1, while fixing conformance 1301's whole-array load; pre-existing; claimed 2026-09-29, work-1; zero-fill + memory-to-memory copy DONE `a39d67d9f`; memory-backed values step 1 (bulk load stored as a whole) DONE `575fb43ee`; by-value arguments DONE `c97493379`; returns + sret call results DONE `352691b60` — the 100 KB pass/return program is 475 lines of IR, 0.2 s; extracts DONE `18ffbb48c`)
 
 Every aggregate memory operation in the LLVM backend decomposes per scalar leaf: a zero-fill is one GEP +
@@ -717,23 +655,6 @@ after the constant is not defined at all yet (the constant's dependency walk doe
 to the constants their array lengths name).  Fix: resolve a `.bni` variable a constant's `len` reads on
 demand, with the constants its array length names first.  Needs a multi-package conformance test (before
 and after the constant; the length from a later constant).
-
-### A `.bni` extern `var` with no definition in the `.bn` is not diagnosed — IR-gen internal error / link failure — 🟡 IN PROGRESS (found 2026-09-28, work-1, review of the instantiated interface-alias fix; pre-existing; claimed 2026-10-01, work-3/session, self-drive)
-
-`pkg/home.bni`: `var G int` (any type — scalar, interface, instantiated interface); `pkg/home/home.bn`
-assigns `G` but never declares it.  Spec `decl.var.extern` / §16 (`.bni` `var`): the `.bn` **must**
-define `X` with an identical type.  The checker accepts the missing definition; an importer reading
-`home.G` then panics "internal error: unresolved selector in IR-gen" (VM) or fails to link
-(`undefined _bn_F3_3_pkg8_builtins4_lang2_3_int3_Get` for an interface-typed one — the type fell to the
-int fallback).  With the `.bn` definition in place all of these work.  Fix: the checker rejects a `.bni`
-extern var the package's `.bn` files do not define (in the package's own compile, where the `.bn` files
-are available).  Needs an `.error` conformance test.
-Also (a reviewer of the in-place array-index change, reproduced by a second): an undefined `.bni` var
-produced invalid LLVM (`extractvalue i64`), and since that change reading `A[2]` of such an array panics
-in IR-gen.
-Also (found 2026-09-29, work-4, reviewing the constant-expression check): with `var Arr [4]int` only in
-`c.bni`, `func Get() int { return len(Arr) }` in `c.bn` reaches clang as invalid IR ("extractvalue operand
-must be aggregate type" in `pkg__c.ll`) instead of a diagnostic.
 
 ### REPL: a top-level `var` initialized with a function literal panics — "vm: function not found: main.__funclit_0" — 🔴 OPEN (found 2026-09-28, work-5, review of the REPL raw-slice-literal fix; pre-existing)
 
