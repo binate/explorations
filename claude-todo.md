@@ -1799,6 +1799,11 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
     pool. The structural fix is a larger home pool (RAX/RCX/RDX/R10/R11 are scratch-only; LLVM
     allocates all 15). (The x64 `imul`-immediate fold frees the checksum loop's 8 multiplier
     registers, but that loop is cold.)
+- **x64: enlarge the GP home pool** — 🟡 IN PROGRESS (scoping; claimed 2026-10-02). x64 homes 9
+  registers (RBX/R12–R15 callee-saved, RSI/RDI/R8/R9 caller-saved); R10/R11/RCX/RDX are the
+  per-instruction scratch pool, RAX is reserved, RBP is the frame pointer. LLVM allocates 15. The
+  record-churn mix loop needs ~11 at once and spills carry lanes. Scoping which lowerings depend on
+  each reserved register, to decide which can become homes.
 - **x64 `rt.MemZero`** (zeroing each `make_slice`) is a 4×-unrolled 8-byte store loop reloading its
   zero constants from 4 stack slots — 11.6% of native instructions; LLVM uses glibc `rep stosb`.
   Covered by the x64 MemZero/MemCopy item under native vectorization (A) (being worked on
