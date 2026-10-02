@@ -85,7 +85,7 @@ the SOURCE's kind directly, so an alias-typed source never matches.  Fix: resolv
 before those arms.  Blocks conformance `spec/10-functions/217_funclit_cast_type_param` (its `MF`
 instantiation casts an `MF` to `*func`), which design B commit 6 otherwise makes pass.
 
-### x64 text parser drops a label addend — `call lbl+4` assembles as `call lbl` — silent wrong code — 🔴 OPEN MAJOR (found 2026-10-01, work-2, probing clang for the aa64 constants item; awaiting a user decision)
+### x64 text parser drops a label addend — `call lbl+4` assembles as `call lbl` — silent wrong code — 🟡 IN PROGRESS MAJOR (claimed 2026-10-01, work-2/session — user: "you can fix the other bug, if it's convenient to do so"; found 2026-10-01, work-2, probing clang for the aa64 constants item)
 
 bnas `-arch x64` assembles `call lbl+4`, `jmp lbl+4` and `je lbl+4` as a branch to `lbl` (the `+4` is dropped
 without an error), accepts trailing text after the target (`call lbl junk`), and drops the displacement of a
@@ -153,9 +153,7 @@ The REPL would then call a method that was never emitted.  Cause: collectDecls e
 Loud, not wrong code: `ldr r0, [r1]!` (clang E5B10000), `ldr r0, [r1, r2, lsl #2]!` (E7B10102), `ldr r0, [r1],
 r2, lsl #2` (E6910102), `ldr r0, [r1], -r2`, `ldr r0, [r1, r2, rrx]` (E7910062), `ldm r0, {r1}^` (E8D00002),
 `mov r0, #255, #30` (E3A00FFF, the explicit-rotation immediate), `b .+8`, and `bl ext(PLT)` (the old `(PLT)`
-suffix; clang: R_ARM_CALL).  Also a multi-term label addend (`lbl+4+4`, `lbl+2*2`), rejected on arm32 as on
-AArch64 (one number or a parenthesized expression) where clang reads one expression — 🟡 IN PROGRESS with the
-aa64 constants item (claimed 2026-10-01; user: "2. yes").  Also (found 2026-10-01, work-2, probing constants): the
+suffix; clang: R_ARM_CALL).  Also (found 2026-10-01, work-2, probing constants): the
 shift instructions `lsl` / `lsr` / `asr` / `ror` (aliases of MOV with a shifted register; "unknown instruction"),
 `adr r0, label` / `adr r0, 8` (clang E28F0008), and immediates written without '#': `svc 5`, and `mov r0, 5`,
 which clang encodes as MOVW (E3000005), not MOV.  Each its own small fix in
@@ -909,9 +907,10 @@ TLBI / AT, all of DC / IC, DSB nXS, PRFM's SLC target, CLRBHB / PACM, every PSTA
 its leading literal alone — user: "The reject sounds good").  (8) `.`-leading names, numeric local labels and
 per-format temporary labels (plan item 3a) — landed `477048003` (2026-09-30).  (9) `name = expr` constants (plan
 item 3b), with multi-term label addends (`lbl+4+4`) on AArch64 and arm32 — 🟡 IN PROGRESS (claimed 2026-10-01;
-user: "1. yes. 2. yes."): numeric constants on every arch landed `1a31e768f` (2026-10-01); next the
-symbol-valued expressions (multi-term addends, aliases, `C = .`; the x64 label-addend MAJOR with them — user:
-"you can fix the other bug, if it's convenient to do so"), then constants and aliases in the symbol table.  Apple's legacy NEON syntax
+user: "1. yes. 2. yes."): numeric constants on every arch landed `1a31e768f`, symbol-valued expressions
+(multi-term addends on AArch64 / arm32, aliases, `C = .`) landed `f9acb7bb6` (2026-10-01); next the x64
+label-addend MAJOR (claimed; user: "you can fix the other bug, if it's convenient to do so"), then constants
+and aliases in the symbol table.  Apple's legacy NEON syntax
 (`dup.4s v0, w1`, `tbl.16b v0, {v1}, v3`), which clang
 accepts on every target, is not supported (user, 2026-09-28: "we don't need alternate syntax, unless there's
 a compelling reason (we've always tended to favor Intel/ARM syntax, I suppose)") — listed with the deliberate

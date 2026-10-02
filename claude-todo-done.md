@@ -1,3 +1,17 @@
+### aa64 / arm32 text assembler: a symbol plus numbers wherever a symbol is taken, aliases, `C = .` — DONE (binate `f9acb7bb6`, 2026-10-01; numeric constants before it: `1a31e768f`)
+
+The expression evaluator reads a symbol plus numbers in any order and parenthesized (`lbl+4+4`, `lbl+4*2`,
+`4+lbl`, `(lbl+4)`, `lbl+N*2`) wherever a symbol may stand: AArch64 branch / ADR / ADRP / literal-load / PRFM /
+page-offset operands, after `#` (`b #lbl`) and after a relocation qualifier (`:lo12:(lbl+8)`, `:lo12:.+8`),
+with the addends on both sides of an `@` specifier added up (`sym+4@PAGE+8` is sym+12, as clang); arm32 B / BL
+and literal loads (closing the arm32 "multi-term label addend" item of "forms clang accepts that are
+rejected").  `name = expr` takes aliases (`A = sym ± k`, redefinable, resolved at the definition) and `C = .`
+(a label made there).  Deliberate rejects: a label taking an alias's name (clang rebinds the alias's earlier
+uses to it), a difference of two locations (the label-differences family), `+` mixed with a shift (the
+Mach-O / ELF precedences differ).  A system operand name must be one plain name (`dmb #ish`, an alias of `ish`
+are rejected, as clang rejects them).  On Mach-O an alias is relocated as its target plus the addend (clang
+relocates against the alias symbol; same address).  Tests: parse_alias_test.bn, TestAliasArm32.
+
 ### IR-level aggregate-copy optimizations: field reads, dead stores, zero-fill, dead values — ✅ DONE (2026-10-01, work-1)
 
 Four of the five patterns in the todo entry "IR-level optimizations for large-aggregate copies" (copy chains
