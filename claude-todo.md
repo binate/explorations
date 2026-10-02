@@ -407,7 +407,7 @@ isAddressable arm; IR-gen's lvalue-address path for unsafe_index (the element ad
 for reads); §13 `expr.addressable` lists it; run tests for stores, `++`, a field store, `&unsafe_index(…)`
 and the array-of-a-call-result rejection, on every mode.
 
-### A universe-primitive method called through a pointer receives the address as its value — `p.String()` with `p *int` prints the address — 🔴 OPEN MAJOR (found 2026-10-01, work-7, review of the indirectly-imported-method fix; reproduced; pre-existing)
+### A universe-primitive method called through a pointer receives the address as its value — `p.String()` with `p *int` prints the address — 🟡 IN PROGRESS (MAJOR; found 2026-10-01, work-7, review of the indirectly-imported-method fix; reproduced; pre-existing; claimed 2026-10-01, work-7/session; user: "fix the 3 bugs now")
 
 `var x int = 5; var p *int = &x; p.String()` and `(*p).String()` print the address (every backend); with
 `p *bool` pointing at `false`, `p.String()` prints `true`; the generic form `func PStr[T lang.Stringer](p
@@ -416,10 +416,10 @@ captures the value correctly.  Cause: applyReceiverConversion (irgen gen_method_
 pointer receiver for a value-receiver method only when the method's receiver `isNamedTypeKind` (TYP_NAMED /
 TYP_STRUCT), so a universe primitive's (TYP_INT / TYP_FLOAT / TYP_BOOL) receiver gets the pointer.  Fix:
 load whenever the destination is a non-pointer value receiver (at least `|| irutil.IsUniversePrimitive`),
-and check the defer path's receiver conversion for the same gap.  Covered by conformance 1486
+and check the defer path's receiver conversion for the same gap.  Covered by conformance 1493
 (`.xfail.all`).
 
-### Boxing a pointer to a type from a package the module does not import into an interface stores a null vtable — the call through it crashes — 🔴 OPEN MAJOR (found 2026-10-01, work-7, testing the indirectly-imported-method fix; reproduced; pre-existing)
+### Boxing a pointer to a type from a package the module does not import into an interface stores a null vtable — the call through it crashes — 🟡 IN PROGRESS (MAJOR; found 2026-10-01, work-7, testing the indirectly-imported-method fix; reproduced; pre-existing; claimed 2026-10-01, work-7/session; user: "fix the 3 bugs now")
 
 pkg/b: `interface Sizer { Size() int }`, `type St struct { n int }`, `impl *St : Sizer`; pkg/a: `interface Sz
 = b.Sizer`, `func GetP(n int) *b.St`; main imports only a.  `var z *a.Sz = a.GetP(5); z.Size()` crashes
@@ -429,9 +429,9 @@ wrapAsIfaceValue's findImplVtableName finds no (pkg/b.St, pkg/b.Sizer) row (Regi
 to cover the transitive closure — why the row is missing needs investigation), and on a miss
 wrapAsIfaceValue returns nil, after which the caller stores the bare pointer as the interface value
 instead of failing.  Fix: find the row; and make a missing row for a non-`any` interface a hard IR-gen
-error, never a null vtable.  Covered by conformance 1484 (`.xfail.all`).
+error, never a null vtable.  Covered by conformance 1491 (`.xfail.all`).
 
-### native arm32: a closure or method value capturing an aggregate wider than 16 bytes fails to build — 🔴 OPEN (found 2026-10-01, work-7, testing the indirectly-imported-method fix; pre-existing)
+### native arm32: a closure or method value capturing an aggregate wider than 16 bytes fails to build — 🟡 IN PROGRESS (found 2026-10-01, work-7, testing the indirectly-imported-method fix; pre-existing; claimed 2026-10-01, work-7/session; user: "fix the 3 bugs now")
 
 `type Big struct { a, b, c, d, e int }` (20 bytes on arm32), `func (g Big) Sum() int`, `var f *func() int =
 g.Sum` — both native arm32 modes fail to compile: "closure func value with an indirect-large (>16-byte)
@@ -439,7 +439,7 @@ aggregate capture not implemented".  Such a capture is passed by address (Effect
 neither closure-shim capture-load path (arm32_closure_shim.bn's fast path, arm32_closure_shim_spill.bn)
 has a by-address load for it; plan-native-arm32.md left it fail-loud when Phase C completed.  Native aa64
 and x64 build and run it.  Fix: a by-address capture load (the capture's address in the closure record)
-on both paths.  Covered by conformance 1485 (xfail on both native arm32 modes).
+on both paths.  Covered by conformance 1492 (xfail on both native arm32 modes).
 
 ### A method value on a generic receiver written as `(*p).M`, `(&b).M`, `Box[int]{…}.M` or `a.(*Box[int]).M` fails to build — 🔴 OPEN (found 2026-09-30, work-7, review of the method-value fix; pre-existing)
 
@@ -669,46 +669,6 @@ params, if confirmed) on arm32 hard-float with a clear error + tests; (b) real �
 at the C boundary (back-filling the S-slot mask, `common_callconv_vfp.bn`) on both backends.  User's
 call which (and whether (a) first).  Needs a conformance test on `builder-comp_arm32_linux` /
 `builder-comp_native_arm32_linux` (qemu-arm user-mode is not installed on this host).
-
-### interp embedding API: marshalableType recurses forever on a recursive type — even `type Node struct { kids @[]Node }` — 🟡 IN PROGRESS (MAJOR; found 2026-09-30, work-7, recon for the self-referential named types fix; static finding, not yet reproduced; pre-existing; claimed 2026-10-01, work-7/session; user: "let's take on the first three")
-
-pkg/binate/interp runfunc_typed.bn ~230 marshalableType (via supportedParamType / supportedResultType /
-supportedResultMarshalType, reached from RunFuncTyped and CallIfaceMethod call_iface.bn) runs on CHECKER
-types, which are recursive on main: StripWrappers(named) → managed slice → marshalableType(Elem) → the same
-type, and struct → field → `@[]Self` → the struct, with no visited set — a stack overflow in the public
-embedding API for `type Tree @[]Tree`, `type A @[]B; type B @[]A`, or an ordinary recursive struct.
-Fix: carry the (type, allowIface) pairs being checked (by type pointer) and answer true on a repeat — the
-predicate only ANDs its parts' results, so a cycle adds no condition; allowIface must be in the key, or
-`struct R { i @I; kids @[]R }` would accept the iface field on the second visit.  (Alternatively answer
-false — "not supported" — on a repeat; a decision for the user.)  releaseImage / unmarshal walk the finite
-data, so a value of a recursive type can be released.  Needs a reproduction first (an interp unit test
-calling RunFuncTyped with a recursive-type parameter).
-
-### The checker rejects `@op.Tree` when `op.Tree` is an opaque export whose `.bn` definition names itself (`type Tree @[]Tree`) — 🟡 IN PROGRESS (found 2026-09-30, work-7, review of the self-referential named types fix; reproduced; pre-existing; claimed 2026-10-01, work-7/session; user: "let's take on the first three")
-
-pkg/op.bni `type Tree` (forward), `func Mk() @Tree`; pkg/op/op.bn `type Tree @[]Tree`; main `op.Mk()` →
-"cannot form a pointer to a type that embeds an opaque type by value".  pointeeEmbedsOpaque
-(check_opaque.bn) peels the pointee with peelFieldAccessBase — which also strips the opaque export itself,
-to `@[]op.Tree`, whose element is opaque to main — before its `!isOpaqueValueType(c, base)` escape test,
-which therefore never fires.  A non-recursive opaque export works.  Fix: return false when the pointee
-itself (before the named peel) is an opaque value type.  Needs a multi-package `.error`-free test.
-Also triggered (found 2026-10-01, work-6, review of the opaque-defined-as-any-type change; reproduced,
-pre-existing) by an opaque struct embedding another opaque type of its package by value: pkg/wo.bni `type
-A`, `type W`, `func MakeW() @W`; wo.bn `type A struct { v int }`, `type W struct { x A }`; main `var w @wo.W
-= wo.MakeW()` is rejected the same way (the peel reaches W's struct, which holds the opaque A).
-
-### A receiver whose type comes from a package the caller does not import directly: `defer x.M()` panics bnc; on LLVM a method value `x.M` references an undeclared symbol — 🟡 IN PROGRESS (MAJOR; found 2026-09-30, work-7, review of the named func-value methods fix; reproduced; pre-existing; claimed 2026-10-01, work-7/session; user: "let's take on the first three")
-
-pkg/b: `type Hook @func(int) int; func (h Hook) Apply(x int) int` (also a named struct `b.St`, a named int
-`b.Cnt`); pkg/a imports b, `func Get(n int) b.Hook`; main imports only pkg/a: `var h = a.Get(2)`.
-- `defer h.Apply(1)` → "defer of an unresolved method call" in bnc (LLVM, native) and bni: buildDeferMethod
-  (irgen gen_defer_build.bn) looks the method's signature up with lookupFuncSig, registered only for
-  directly imported packages; the direct call `h.Apply(1)` registers the extern on demand.
-- `var mv *func(int) int = h.Apply` → LLVM "use of undefined value '@bn_F2_3_pkg1_b2_4_Hook5_Apply'" (no
-  `declare` for the wrapper's target); native aa64 and the VM print the right answer.
-Fix: the defer and method-value paths register the method's extern signature on demand, as the direct
-method call does.  (The generic-instance defer ICE in the forwarder-audit entry's bullet was fixed by binate
-`9faa66906`.)  Needs multi-package conformance tests (named func, struct and int receivers).
 
 ### Per-instantiation checking of generic bodies (design B) — 🟡 IN PROGRESS (claimed 2026-09-28, work-4; user chose "B"; commits 1–5 landed, the last binate `fe95d7de8` 2026-09-30)
 Commits 4 (`f1554cbd6`: signatures resolved per instantiation, dependent-array identity) and 5

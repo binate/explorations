@@ -1,3 +1,24 @@
+### A method of a type from a package the module does not import directly: `defer x.M()` panicked bnc, a method value referenced an undeclared symbol, a plain call bound an argument-derived signature — DONE (binate `42298eaff`, 2026-10-01, work-7)
+
+ensureMethodSig (irgen gen_checker_type.bn) declares a method the module has no signature for — one of a
+type from a package it does not import directly, also a generic body's type argument from one — from the
+checker's signature (selectorMethod; a type-parameter receiver through the argument's named type), before
+the receiver and arguments are bound.  The plain-call, defer and method-value paths use it; the plain
+call's argument-derived fallback (no variadic packing, no value-receiver copy, no interface boxing, and
+inherited by a later defer / method value) is gone — a call with no signature either way panics.
+Conformance 1488, 1490.
+
+### interp embedding API: marshalableType recursed forever on a recursive type — DONE (binate `7b566452b`, 2026-10-01, work-7)
+
+marshalableType walks with an in-progress (type, allowIface) stack and accepts a repeat (every node is
+still checked once).  Unit test pkg/binate/interp/runfunc_marshal_recursive_test.bn.
+
+### The checker rejected `@op.Tree` for an opaque export whose definition names itself (`type Tree @[]Tree`) — DONE (binate `01161e393`, 2026-10-01, work-7)
+
+pointeeEmbedsOpaque stops at a pointee that is itself opaque in the importing package once a pointer has
+been peeled.  End-to-end use also needed work-6's `381214442` (an opaque export defined as a non-struct
+type).  Conformance 1489.
+
 ### Forward-declared types: an alias cannot define one; §7.12 says a forward type may be defined as any named type — DONE (binate `c5bd7e52f`, docs `685313a`, 2026-10-01, work-6)
 
 User: "1. yes; 2. get a focused review of the proposed update and go ahead if the review comes back clean".
