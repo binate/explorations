@@ -65,6 +65,12 @@ User decision 2026-09-30: after C, also (order mine): native should not copy a s
 (AggLoadElidable refuses a load with no uses, so native still copies a struct whose fields are all dead — the
 LLVM backend already skips it, bulkMemUnused), and a general dead-code sweep for pure values (dead phis and
 arithmetic left behind when their only consumer was a removed field).
+   Status: DONE `2946dfa98` (2026-10-01) — iropt dce pass (-fdce, on at -O1+, not in the VM set), after the last
+   check-removing pass (bce-redundant) and before licm.  Removes unused loads too (user decision 2026-10-01:
+   "unused loads should be deletable" — a bad pointer's read is not a defined panic), which also closes the
+   native gap: a struct copy whose fields are all dead is no longer made (the review's example: main's frame
+   0xb80 → 0x500 bytes, 507 → 221 instructions).  Measured: native aa64 bnc −76,408 bytes __text (−0.8%),
+   identical output.  Conformance 1494, 1495.
 D. Copy chains (load → private copy → temp slot → argument): revisit after A–C with measured -O2 IR; parts may
    already be gone.
 
