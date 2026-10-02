@@ -1212,14 +1212,11 @@ The LLVM backend now carries a large aggregate (more than 16 scalar leaves) as m
 rt.MemCopy / rt.MemZero (plan-llvm-bulk-aggregate-values.md), and the native backends copy aggregates too, so
 the copies the IR asks for are all executed — nothing downstream removes them (clang can't see through
 rt.MemCopy on bare metal, and the native backends run the IR's loads / stores as written).  Reviews of that
-work found these patterns in -O2 IR; each is an IR-level (iropt) transform so native benefits equally:
-- Field reads of a whole load: `extract(load p, i)` with no write between the load and the extract → load the
-  field from `p` directly (e.g. `var x Big = *p; return x.n` copies all of Big to read one field).
-- Dead aggregate stores: a store / copy into an alloca that is never read (SROA leftovers — `mkBig().n` at -O2
-  copies the 100-byte member into a slot nothing reads).
+work found these patterns in -O2 IR; each is an IR-level (iropt) transform so native benefits equally.
+Field reads of a whole load, dead aggregate stores, zero-fill-then-overwrite and dead values are done (see
+claude-todo-done.md and plan-aggregate-copy-opts.md); still open:
 - Copy chains: a value copied into a temporary only to be copied again (load → private copy → temp slot →
-  argument).
-- Zero-fill then full overwrite: `var x T` followed by `x = v` zero-fills x and then overwrites every byte.
+  argument).  Re-measure the -O2 IR first — the landed passes may have removed most of these.
 User direction (2026-09-30): the native backends are co-equal, so fixes must let native make the same
 optimizations — do them in the IR, not only by handing LLVM an intrinsic.  (On hosted targets the LLVM
 backend separately switches its bulk copies to llvm.memcpy / llvm.memset so clang can optimize them — a

@@ -1,3 +1,15 @@
+### IR-level aggregate-copy optimizations: field reads, dead stores, zero-fill, dead values — ✅ DONE (2026-10-01, work-1)
+
+Four of the five patterns in the todo entry "IR-level optimizations for large-aggregate copies" (copy chains
+remain open there); details and measurements in plan-aggregate-copy-opts.md.
+- Field reads of a whole load (`var x Big = *p; return x.n`): the LLVM backend reads the field in place
+  (emit_bulk_elide.bn, AggLoadElidable shared with native) — `8589029a6`.
+- Dead aggregate stores / slots nothing reads: iropt dead-slot pass — `79d72d01e`.
+- Zero-fill then full overwrite, and overwritten stores: iropt dead-store pass plus ir.Instr.NoZeroInit honoured
+  by all four backends — `bcec3508a`; native aa64 bnc __text −6.2%.
+- Values nothing uses (including unused loads, per the user: "unused loads should be deletable"): iropt dce
+  pass — `2946dfa98`; native aa64 bnc __text −0.8%; conformance 1494, 1495.
+
 ### A method of a type from a package the module does not import directly: `defer x.M()` panicked bnc, a method value referenced an undeclared symbol, a plain call bound an argument-derived signature — DONE (binate `42298eaff`, 2026-10-01, work-7)
 
 ensureMethodSig (irgen gen_checker_type.bn) declares a method the module has no signature for — one of a
