@@ -73,6 +73,44 @@ arithmetic left behind when their only consumer was a removed field).
    identical output.  Conformance 1494, 1495.
 D. Copy chains (load → private copy → temp slot → argument): revisit after A–C with measured -O2 IR; parts may
    already be gone.
+   Measured 2026-10-01 (after A–C and dce, on `2946dfa98`), -O2, `Big` = {n int; arr [100]int}; full-size
+   copies (c) and zero-fills (z) per function, native aa64 (-fno-inline) / LLVM arm32 bare metal; the last
+   column is the fewest the semantics need:
+   | shape | native | LLVM | min |
+   |---|---|---|---|
+   | `sum(b Big)` reads 3 fields (param slot) | 2c+1z | 1c+1z | 0 |
+   | `mk`: `var b Big; …; return b` | 2c+1z | 2c+1z | 1z (in the sret buffer) |
+   | `sum(*p)` | 1c | 1c | 1c |
+   | `var x Big = mk(k); return sum(x)` | 1c | 2c | 0 |
+   | `sum(mk(k))` | 0 | 0 | 0 |
+   | `return *p` | 2c | 2c | 1c |
+   | `var x Big = mk(k); return x` | 2c | 4c+1z | 0 |
+   | `forward(b Big) { return sum(b) }` | 2c+1z | 2c+1z | 0 |
+   | `var x = mk(k); var y = x; sum(y)` | 3c+1z | 3c+1z | 0 |
+   | `h.b = *p; sum(h.b)` | 2c | 3c | 1c |
+   | `sum(g)` (global) | 1c | 1c | 1c |
+   Native copies are fully unrolled (808 B = 202 instructions each).
+   Real code — static tally of cmd/bnc's -O2 IR (native aa64; throwaway instrumentation, 69,698 aggregate
+   loads / call results / param slots; bytes are static, not dynamic): loads passed as by-value arguments
+   ~750 KB static (load of a local → arg alone 2,752 sites > 64 B, 15.7%); by-value aggregate param slots
+   4,202 (203 KB; e.g. every `(cc CallConv)` method — 88 B); call result stored whole into a local ~5,600
+   (~170 KB); loads stored whole elsewhere ~4,000 (~560 KB, some necessary); `load → extracts` 22,867 (the
+   S-extract shape, not a chain).
+   Root of most of the table: nobody owns a by-value argument's copy.  The LLVM backend copies on BOTH
+   sides (the caller's `.bv` slot, then the callee's param slot); native callers may pass an aliasing
+   (elided) load by reference (AggLoadElidable accepts an OP_CALL argument use), so native callees must
+   copy (and do: incoming → value region → param slot, plus the slot's zero-fill).
+   Proposed (awaiting the user's decision on D1's convention):
+   - D1. Convention: the caller passes a >16-byte by-value aggregate in memory it OWNS for the call (a
+     fresh copy, or a temporary nothing reads afterwards — a call result, a load's private copy); the
+     callee uses that memory as the parameter's slot (no copy, no zero-fill).  Touches param lowering in
+     all four backends, native callers of elided loads, closure / func-value shims, the VM ↔ compiled
+     boundary and C-export trampolines.
+   - D2. Return-value placement at the call site: a call whose aggregate result is stored whole into a
+     confined local (or returned) gets that local (or the incoming sret buffer) as its result buffer — a
+     shared analysis marks the store, as NoZeroInit marks allocs; each backend honours the mark.
+   - D3. A local returned at every return lives in the sret buffer.
+   - D4. A confined local whose last use is a by-value argument is passed without a copy (needs D1).
 
 Each step: unit tests on the emitted IR / pass output, conformance on LLVM + LLVM arm32 bare metal + native aa64
 (and the VM for B / C), and a measurement per perf-optimization-guide.md (copy bytes in the native aa64
