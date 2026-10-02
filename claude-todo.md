@@ -64,8 +64,11 @@ a dynamic import in a dynamic link), and a weak one (`.weak W` + `W = 1`) is a w
 resolves to 0: a silent wrong value for any reference to it.  Fix: an `InputSymbol` absolute flag set by both
 readers, honoured wherever a definition is recognised (`resolve.bn` definitions and the undefined check,
 `archive_select.bn`, `dynlink.bn` imports, `builder_common.bn`, `relocate.bn` symbolAddr returning the value),
-with tests per reader.  Until then the text assembler rejects a global / weak number constant
-(`numberBindingRejected` in `asm/parse/parse_const.bn`); lift that once bnld reads absolute symbols.
+with tests per reader.  (The ELF reader used to reject an object whose absolute symbol's value was negative
+or past 32 bits — "ELF symbol value not representable" — which the assembler's local constants would trigger;
+it now reads such a value without keeping it, the symbol still folded into undefined.)  Until then the text
+assembler rejects a global / weak constant (`constantBindingRejected` in `asm/parse/parse_const.bn`); lift that
+for numbers once bnld reads absolute symbols.
 
 ### IR-gen registers `type X = struct { … }` as a distinct named struct, not an alias — one type, two identities; blocks design B commit 6 — 🔴 OPEN MAJOR (found 2026-10-01, work-4, review of design B commit 6; pre-existing; awaiting a user decision)
 
@@ -908,8 +911,16 @@ per-format temporary labels (plan item 3a) — landed `477048003` (2026-09-30). 
 item 3b), with multi-term label addends (`lbl+4+4`) on AArch64 and arm32 — 🟡 IN PROGRESS (claimed 2026-10-01;
 user: "1. yes. 2. yes."): numeric constants on every arch landed `1a31e768f`, symbol-valued expressions
 (multi-term addends on AArch64 / arm32, aliases, `C = .`) landed `f9acb7bb6`, the x64 label addends (the
-MAJOR "x64 text parser drops a label addend") landed `331b13ee4` (2026-10-01); next constants and aliases in
-the symbol table.  Apple's legacy NEON syntax
+MAJOR "x64 text parser drops a label addend") landed `331b13ee4` (2026-10-01); constants and aliases in the
+symbol table (local only) in review.  **Global / weak aliases** (`.weak W` + `W = f`): rejected
+(`constantBindingRejected`), because a reference to an alias takes its target when parsed (`nameValue`), so a
+weak alias's own uses would bypass it — clang relocates them against the alias (`R_AARCH64_CALL26 W`), letting a
+strong `W` elsewhere override it (the arm32 default-handler idiom: `.weak irq_handler`, `irq_handler =
+default_handler`, `bl irq_handler`).  To support them: a reference to an alias declared global / weak goes
+against the alias symbol (a relocation; the resolvers keep non-local targets as relocations), the binding must
+be known at the use (reject a `.global` / `.weak` after a use, as forward references are), and the writers list
+it.  Global / weak number constants wait on the bnld MAJOR "bnld folds absolute symbols into undefined ones".
+Apple's legacy NEON syntax
 (`dup.4s v0, w1`, `tbl.16b v0, {v1}, v3`), which clang
 accepts on every target, is not supported (user, 2026-09-28: "we don't need alternate syntax, unless there's
 a compelling reason (we've always tended to favor Intel/ARM syntax, I suppose)") — listed with the deliberate
