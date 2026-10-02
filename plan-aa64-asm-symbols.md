@@ -34,6 +34,15 @@ omits temporaries and relocates against new section symbols.
 
 ## 3b. `name = expr` constants
 
+Progress: numeric constants — redefinable, read in every expression on every arch, bare
+constants as AArch64 / x86-64 immediates and offsets, forward references rejected — ✅ landed
+`1a31e768f` (2026-10-01).  Deliberate rejects (clang accepts): a bare constant named like a
+condition or shift / extend (read as that name: `add x0, x1, eq`, `b eq`, `ldr x0, [x1], lsl`),
+a constant after a relocation qualifier (`:lo12:N`, `:got:N`), an x86-64 constant named like a
+register clang knows (`ss`, `ah`).  Next: symbol-valued expressions (`sym ± k` with multi-term
+addends on AArch64 / arm32 / x86-64, aliases `A = sym ± k`, `C = .`), then constants and aliases
+in the symbol table (local absolute symbols; global / weak constants, rejected until then).
+
 clang: `N = 5` may be redefined (`N = 6`; each use sees the value at that point); a constant is
 usable in every immediate, offset, data value and later definition, with or without `#` where the
 instruction takes an immediate (`add x6, x7, N`); constants are listed as local absolute symbols.

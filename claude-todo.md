@@ -1011,7 +1011,9 @@ TLBI / AT, all of DC / IC, DSB nXS, PRFM's SLC target, CLRBHB / PACM, every PSTA
 its leading literal alone — user: "The reject sounds good").  (8) `.`-leading names, numeric local labels and
 per-format temporary labels (plan item 3a) — landed `477048003` (2026-09-30).  (9) `name = expr` constants (plan
 item 3b), with multi-term label addends (`lbl+4+4`) on AArch64 and arm32 — 🟡 IN PROGRESS (claimed 2026-10-01;
-user: "1. yes. 2. yes.").  Apple's legacy NEON syntax
+user: "1. yes. 2. yes."): numeric constants on every arch landed `1a31e768f` (2026-10-01); next the
+symbol-valued expressions (multi-term addends, aliases, `C = .`; the x64 label-addend MAJOR with them — user:
+"you can fix the other bug, if it's convenient to do so"), then constants and aliases in the symbol table.  Apple's legacy NEON syntax
 (`dup.4s v0, w1`, `tbl.16b v0, {v1}, v3`), which clang
 accepts on every target, is not supported (user, 2026-09-28: "we don't need alternate syntax, unless there's
 a compelling reason (we've always tended to favor Intel/ARM syntax, I suppose)") — listed with the deliberate
