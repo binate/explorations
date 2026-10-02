@@ -1,3 +1,16 @@
+### `id[*Getter](g)` was rejected, and a bare interface (or generic interface instance) was accepted as a type — DONE (binate `4bb2b1906`, 2026-10-01, work-4)
+
+A type argument spelled in an expression position went through `typeArgFromExpr`, whose `*X` arm built a
+plain pointer even when X names an interface, so `id[*Getter](g)` failed with "cannot assign *main.Getter to
+*main.Getter" while `type GI = *Getter; id[GI](g)` was accepted.  It now builds the raw interface value
+(type.iface.value-spelling).  A bare interface as a type argument is rejected at the argument
+(iface.value.spelling), and a generic interface's instance is rejected as a type in every position
+(`var x G[int]` was accepted and lowered by IR-gen as an int slot); the legal positions (`*`/`@` operands,
+constraints, impl / extension clauses, interface aliases) resolve through `resolveTypeExprAllowInterface`.
+Each such mistake is reported once (no follow-on constraint miss or `Box[<error>]` instance).  Tests:
+`check_generic_typearg_test.bn`, conformance `spec/12-generics/099`, `100`; 1452 also uses the direct
+spelling (still expected-fail until design B commit 6 fixes IR-gen's borrow of a type-parameter value).
+
 ### Upcasting an unset interface value kept it present on LLVM and the native backends — DONE (binate `f447a66af`, 2026-10-01, work-3)
 
 `var l @Loud; var g @Greeter = l` gave a `g` that tested `present`, and a call through it loaded from a

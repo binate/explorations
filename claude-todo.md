@@ -31,9 +31,9 @@ func id[T any](x T) T { var y T = x; return y }
 Root cause (2026-10-01): IR-gen's implicit value-borrow in `genExprOrFuncRef` (gen_util.bn) decides from the checker's type of the source expression whether a value flowing into a raw `*Iface` slot is boxed by its address.  In a generic body that type is the abstract `T`, which `isBorrowableValueSource` treats as a value type, so it takes `&x`; `wrapAsIfaceValue` cannot box a `*T` and returns nil, and the fallback `val = lp` uses the ADDRESS as the value.  The instance's IR is `store y ← &x; return &y` with no loads, in every backend (the VM fails too).  `@Iface` targets are not affected (the borrow fires only for raw `*Iface`).
 - The same defect gives wrong results for a `T` bound to a plain pointer: in `func boxIt[T any](x T) int { var a *any = x; p, ok := a.(*W); … }`, `boxIt[*W](&w)` boxes `&x` rather than `x`, so the assertion fails (returns -1; the same code outside a generic gives 4).  Needs a conformance test.
 - General cause: IR-gen reads the checker's abstract types in generic bodies (31 `Checker.ExprType` sites in irgen).  Design B commit 6 (IR-gen reads each instance's checked clone) gives IR-gen the instance's concrete types at every such site; a narrow fix would map the type through `irTypeFromChecker` at the borrow sites (gen_util.bn, gen_defer_build.bn).
-- Checker, separate defect: `id[*Getter](g)` (the type argument spelled directly, not through an alias) is rejected with "cannot assign *main.Getter to *main.Getter": `typeArgFromExpr`'s `*X` arm (check_generic.bn) builds a plain pointer even when `X` is an interface, where `resolveTypeExpr` builds the interface value.  And `id[Getter]` (a bare interface) is accepted as a type argument, so the errors land inside the generic ("interface name `T` is not a type expression") instead of at the argument.
+- The checker's part (the directly spelled `id[*Getter](g)` was rejected) landed as binate `4bb2b1906`.  The IR-gen part is fixed by design B commit 6 (user 2026-10-01: "do 1 then commit 6"), in progress.
 
-Test: conformance 1452 (binate `3d026ea69`, expected-fail in every mode).
+Test: conformance 1452 (binate `3d026ea69`; since `4bb2b1906` it also instantiates with `*Getter` directly; expected-fail in every mode).
 
 ### Constraint calls through `impl *P` / `impl @M` give wrong results — needs a spec decision — 🔴 NEEDS DECISION (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
 
@@ -728,7 +728,7 @@ method call does.  (The generic-instance defer ICE in the forwarder-audit entry'
 Commits 4 (`f1554cbd6`: signatures resolved per instantiation, dependent-array identity) and 5
 (`fe95d7de8`: each instance's body, methods and parameterized impls checked with its type arguments bound)
 landed 2026-09-30.  Still to do:
-- commit 6: IR-gen reads each instance's checked clone instead of evaluating dependent values itself.  That
+- commit 6 — 🟡 IN PROGRESS (2026-10-01, work-4; user: "do 1 then commit 6"): IR-gen reads each instance's checked clone instead of evaluating dependent values itself.  That
   makes `len` of a dependent array a constant (conformance `spec/15-builtins/153_len_dependent_array_len`,
   xfail), and resolves a type-parameter-dependent constant's names by scope, not by last registration in
   `Module.Consts` (`spec/12-generics/078_dependent_const_names_in_scope`, xfail);
