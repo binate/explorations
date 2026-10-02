@@ -54,6 +54,22 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### A value whose type is an ALIAS of `@T` / `@[]T` / `@func` is not borrowed as the raw form — valid code rejected — 🔴 OPEN MAJOR (found 2026-10-01, work-4, while running design B commit 6's tests; pre-existing; awaiting a user decision)
+
+```
+type MF = @func(int) int
+var g MF = func(x int) int { return x + k }
+var h *func(int) int = g                    // "cannot assign MF to *func(int)int"
+var h2 *func(int) int = cast(*func(int) int, g)   // "cast does not support this conversion"
+```
+Same for `type MS = @[]int` → `*[]int` and `type MP = @int` → `*int`.  An alias is the same type, and
+`conv.managed-to-raw` (§8.4) makes the borrow implicit (and so also a `cast`, `conv.cast` part (1)).
+Root cause: the three managed-to-raw arms of `AssignableTo` (check/types_assignable.bn, `@T → *T`,
+`@[]T → *[]T`, `@func → *func`) resolve aliases on the destination (`ResolveAliasAndConst(dst)`) but test
+the SOURCE's kind directly, so an alias-typed source never matches.  Fix: resolve the source's alias
+before those arms.  Blocks conformance `spec/10-functions/217_funclit_cast_type_param` (its `MF`
+instantiation casts an `MF` to `*func`), which design B commit 6 otherwise makes pass.
+
 ### x64 text parser drops a label addend — `call lbl+4` assembles as `call lbl` — silent wrong code — 🔴 OPEN MAJOR (found 2026-10-01, work-2, probing clang for the aa64 constants item; awaiting a user decision)
 
 bnas `-arch x64` assembles `call lbl+4`, `jmp lbl+4` and `je lbl+4` as a branch to `lbl` (the `+4` is dropped
