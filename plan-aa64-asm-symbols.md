@@ -41,10 +41,9 @@ condition or shift / extend (read as that name: `add x0, x1, eq`, `b eq`, `ldr x
 a constant after a relocation qualifier (`:lo12:N`, `:got:N`), an x86-64 constant named like a
 register clang knows (`ss`, `ah`).  Symbol-valued expressions — `sym ± k` with multi-term
 addends on AArch64 / arm32, aliases `A = sym ± k`, `C = .` — ✅ landed `f9acb7bb6` (2026-10-01;
-deliberate rejects: a label taking an alias's name, a difference of two locations).  Next: the
-x86-64 label addends (the claude-todo MAJOR "x64 text parser drops a label addend"), then
-constants and aliases in the symbol table (local absolute symbols; global / weak constants,
-rejected until then).
+deliberate rejects: a label taking an alias's name, a difference of two locations).  The x86-64
+label addends — ✅ landed `331b13ee4` (2026-10-01).  Next: constants and aliases in the symbol
+table (local absolute symbols; global / weak constants, rejected until then).
 
 clang: `N = 5` may be redefined (`N = 6`; each use sees the value at that point); a constant is
 usable in every immediate, offset, data value and later definition, with or without `#` where the

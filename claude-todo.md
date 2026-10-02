@@ -85,20 +85,6 @@ the SOURCE's kind directly, so an alias-typed source never matches.  Fix: resolv
 before those arms.  Blocks conformance `spec/10-functions/217_funclit_cast_type_param` (its `MF`
 instantiation casts an `MF` to `*func`), which design B commit 6 otherwise makes pass.
 
-### x64 text parser drops a label addend — `call lbl+4` assembles as `call lbl` — silent wrong code — 🟡 IN PROGRESS MAJOR (claimed 2026-10-01, work-2/session — user: "you can fix the other bug, if it's convenient to do so"; found 2026-10-01, work-2, probing clang for the aa64 constants item)
-
-bnas `-arch x64` assembles `call lbl+4`, `jmp lbl+4` and `je lbl+4` as a branch to `lbl` (the `+4` is dropped
-without an error), accepts trailing text after the target (`call lbl junk`), and drops the displacement of a
-RIP-relative operand: `lea rax, [rip + lbl + 4]` / `mov rax, [rip + lbl + 8]` reference `lbl`, where clang
-references `lbl+4` / `lbl+8`.  Root cause: `parseX64Instruction`'s call / jmp / jcc branches take the target's
-name token and return without parsing the rest of the line (`x64_instr.bn`), and `parseX64MemOperand` adds a
-displacement after the RIP label to `disp`, which the RIP-label operand never uses (`x64.RipLabel(ripLabel)`,
-`x64.bn`).  Fix: carry an addend on x64 label operands and RIP-label operands (the encoder's fixup addend),
-parse the target as a symbol plus a constant expression (clang: `call lbl+4+4` → lbl+8, `call 4+lbl`), and
-require the end of the line after it; golden tests against clang.  Related: the claimed x64 text-parser entry
-(`emitModRM` wrong addresses, …) below, and the symbol-plus-constant expression values the aa64 constants item
-adds to `expr.bn`, which this parse would use.
-
 ### No CI lane runs the LLVM arm32 bare-metal mode at -O2 — 🔴 OPEN (raised 2026-09-30, work-1; awaiting a user decision)
 
 .github/workflows/conformance-o2.yml runs builder-comp (host LLVM) and the native modes at -O2, not
@@ -908,9 +894,9 @@ its leading literal alone — user: "The reject sounds good").  (8) `.`-leading 
 per-format temporary labels (plan item 3a) — landed `477048003` (2026-09-30).  (9) `name = expr` constants (plan
 item 3b), with multi-term label addends (`lbl+4+4`) on AArch64 and arm32 — 🟡 IN PROGRESS (claimed 2026-10-01;
 user: "1. yes. 2. yes."): numeric constants on every arch landed `1a31e768f`, symbol-valued expressions
-(multi-term addends on AArch64 / arm32, aliases, `C = .`) landed `f9acb7bb6` (2026-10-01); next the x64
-label-addend MAJOR (claimed; user: "you can fix the other bug, if it's convenient to do so"), then constants
-and aliases in the symbol table.  Apple's legacy NEON syntax
+(multi-term addends on AArch64 / arm32, aliases, `C = .`) landed `f9acb7bb6`, the x64 label addends (the
+MAJOR "x64 text parser drops a label addend") landed `331b13ee4` (2026-10-01); next constants and aliases in
+the symbol table.  Apple's legacy NEON syntax
 (`dup.4s v0, w1`, `tbl.16b v0, {v1}, v3`), which clang
 accepts on every target, is not supported (user, 2026-09-28: "we don't need alternate syntax, unless there's
 a compelling reason (we've always tended to favor Intel/ARM syntax, I suppose)") — listed with the deliberate
@@ -939,7 +925,8 @@ error aborts the file) but the same "a rejected line emits nothing" rule; `lineR
 checks bytes but not fixups.  And x64's Intel-syntax parser reads a '$'-leading
 operand (`call $foo`, `mov rax, $5`) as a symbol reference, where clang rejects it (the shared lexer takes
 '$' in names for AArch64 / arm32, where clang does; an undefined, undeclared symbol still fails at the end).  And
-aarch64 `bl sym@PLT` / `b sym@PLT` is accepted and the `@PLT` dropped (a plain branch fixup) on both formats:
+aarch64 `bl sym@PLT` / `b sym@PLT` — and x86-64 `call sym@PLT` / `jmp sym@PLT` / `jcc sym@PLT`, since
+`331b13ee4` — is accepted and the `@PLT` dropped (a plain branch fixup) on both formats:
 clang rejects `@PLT` on Mach-O ("invalid specifier"), and on ELF keeps a temporary target's own symbol for it
 (`R_AARCH64_CALL26 .Lg`, where we relocate against the section — the same linked result).  Fix: carry the
 specifier into the fixup (a PLT branch kind), which the Mach-O writer rejects and the ELF writer keeps against
@@ -1070,7 +1057,9 @@ operand's size from the register in the parser.  (iii) The text parser's `ParseE
 trailing `+ disp` into the scale (`[rax+r9*2+2]` → `[rax+4*r9]`).  (iv) `[rip + label]` is supported only by
 Mov/Lea (everything else rejects it); RIP-label forms followed by an immediate need a relocation that
 accounts for the trailing immediate.  (v) `x64_data_test.bn` ~61 has a "Pre-fix this" comment (not
-stand-alone).  **Fix:** as listed; golden bnas-vs-clang tests per form.
+stand-alone).  (vi) `ret imm16` (C2 iw, RET's stack-popping form) has no encoder or parser form: rejected
+(since `331b13ee4`, which rejects text after an instruction's operands; before, `ret 1` silently assembled as
+`ret`).  **Fix:** as listed; golden bnas-vs-clang tests per form.
 ### arm32 assembler: register-offset shifts, condition codes and register fields are silently masked — 🟡 CLAIMED, queued (found 2026-09-25 by the T6 b1 review; claimed 2026-09-25, work-4/session — assembler sweep after T6(b), before (c))
 
 (The data-processing Operand2 path — immediates, shifted registers, shift kinds/amounts — fails loud and

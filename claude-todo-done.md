@@ -1,3 +1,18 @@
+### x64 text parser dropped a label addend (`call lbl+4` → `call lbl`) and ignored trailing text — DONE (binate `331b13ee4`, 2026-10-01; MAJOR, found 2026-10-01 probing clang for the aa64 constants item)
+
+`call` / `jmp` / `jcc lbl+4` and `[rip + lbl + 4]` assembled as references to `lbl` (the branch paths took
+the target's name token and stopped; the RIP displacement went to a value the RIP-label operand never used),
+and every x64 instruction ignored text after its operands.  Now: encoder entry points JmpAddend / JccAddend /
+CallAddend / RipLabelAddend carry the addend into the fixup; targets and `[rip + expr]` are a symbol plus
+numbers (`lbl+4+4`, `4+lbl`, aliases; `@PLT` on a plain target); numbers, register names, `.` (not the
+location in Intel syntax), `jmp eax`, `call -lbl`, a GOTPCREL addend and anything before `rip` are rejected;
+every instruction ends at its last operand, checked before emitting.  The ELF writer emits R_X86_64_PC32, not
+PLT32, for a branch to an undefined symbol with an addend (as clang).  Mach-O inline addends verified by
+linking with ld64 (clang's SIGNED_1 / _4 for -1 / -4 links to the same address as our SIGNED).  Tests:
+x64_target_test.bn, elf_x64_addend_test.bn, macho_x64_addend_test.bn.  Remaining, unchanged: the scaled-
+index items of the claimed x64 text-parser entry (`[rax + rcx*8 + 16]` loses the 16, scale 3 encodes as 8,
+`[rcx*8]` without a base) and `ret imm16` (now rejected rather than silently `ret`).
+
 ### aa64 / arm32 text assembler: a symbol plus numbers wherever a symbol is taken, aliases, `C = .` — DONE (binate `f9acb7bb6`, 2026-10-01; numeric constants before it: `1a31e768f`)
 
 The expression evaluator reads a symbol plus numbers in any order and parenthesized (`lbl+4+4`, `lbl+4*2`,
