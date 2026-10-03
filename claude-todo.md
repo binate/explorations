@@ -104,7 +104,7 @@ and an importer reading X fails as the undefined-var case did.  Fix: have the lo
 which packages are interface-only (or the reverse), and report a `var` in a non-interface-only package
 with no `.bn` files.
 
-### Slicing a `readonly` array yields a writable slice — writes through readonly storage — 🔴 OPEN MAJOR (found 2026-10-01, work-3, review of the readonly-below-a-shared-handle fix; reproduced on builder-comp; pre-existing)
+### Slicing a `readonly` array yields a writable slice — writes through readonly storage — 🟡 IN PROGRESS MAJOR (found 2026-10-01, work-3, review of the readonly-below-a-shared-handle fix; reproduced on builder-comp; pre-existing; claimed 2026-10-02, work-3/session, self-drive)
 
 ```
 var r readonly [3]int
