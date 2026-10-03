@@ -44,9 +44,10 @@ addends on AArch64 / arm32, aliases `A = sym ± k`, `C = .` — ✅ landed `f9ac
 deliberate rejects: a label taking an alias's name, a difference of two locations).  The x86-64
 label addends — ✅ landed `331b13ee4` (2026-10-01).  Constants and aliases in the symbol table
 (a number as a local absolute symbol, an alias as a local symbol — an alt entry on Mach-O unless
-it is exactly an atom-starting symbol) — ✅ landed `63c3ba948` (2026-10-01).  Still rejected:
-global / weak constants (bnld reads absolute symbols as undefined — claude-todo MAJOR) and
-global / weak aliases (references would have to go through the alias symbol) — see claude-todo.
+it is exactly an atom-starting symbol) — ✅ landed `63c3ba948` (2026-10-01).  Global / weak
+number constants (listed as global / weak absolute symbols; bnld reads absolute symbols as
+definitions) — ✅ landed `bf00c139e` (2026-10-02).  Still rejected: global / weak aliases (references
+would have to go through the alias symbol) — see claude-todo.
 
 clang: `N = 5` may be redefined (`N = 6`; each use sees the value at that point); a constant is
 usable in every immediate, offset, data value and later definition, with or without `#` where the

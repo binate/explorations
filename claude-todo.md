@@ -54,22 +54,6 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### bnld folds absolute symbols into undefined ones — a weak absolute symbol links as 0 — 🟡 IN PROGRESS MAJOR (claimed 2026-10-02, work-2/session — user: "We can do 1 and 2 first, then 3."; found 2026-10-01, work-2, listing assembler constants in the symbol table)
-
-bnld's readers map an absolute symbol (ELF `SHN_ABS`, Mach-O `N_ABS`) to `SecIndex -1`, the undefined marker
-(`parse_elf.bn`: "SHN_ABS … is still folded into -1 here; the current writers emit none … model it explicitly
-if one is ever read"; `parse_macho.bn` likewise).  So a global absolute symbol in an input object — clang's
-`.globl G` + `G = 7`, which our assembler can now list too — is an unresolved import ("undefined symbol: G", or
-a dynamic import in a dynamic link), and a weak one (`.weak W` + `W = 1`) is a weak undefined reference that
-resolves to 0: a silent wrong value for any reference to it.  Fix: an `InputSymbol` absolute flag set by both
-readers, honoured wherever a definition is recognised (`resolve.bn` definitions and the undefined check,
-`archive_select.bn`, `dynlink.bn` imports, `builder_common.bn`, `relocate.bn` symbolAddr returning the value),
-with tests per reader.  (The ELF reader used to reject an object whose absolute symbol's value was negative
-or past 32 bits — "ELF symbol value not representable" — which the assembler's local constants would trigger;
-it now reads such a value without keeping it, the symbol still folded into undefined.)  Until then the text
-assembler rejects a global / weak constant (`constantBindingRejected` in `asm/parse/parse_const.bn`); lift that
-for numbers once bnld reads absolute symbols.
-
 ### IR-gen registers `type X = struct { … }` as a distinct named struct, not an alias — one type, two identities; blocks design B commit 6 — 🟡 IN PROGRESS (claimed 2026-10-02, work-4/session; user: "yes to both"; found 2026-10-01, work-4, review of design B commit 6; pre-existing)
 
 An alias is the same type as its target (spec 07-types), and the checker resolves `Anon` in
@@ -887,13 +871,13 @@ MAJOR "x64 text parser drops a label addend") landed `331b13ee4` (2026-10-01); c
 symbol table (local constants as absolute symbols, local aliases, alt entries) landed `63c3ba948`
 (2026-10-01).  Open from 3b — 🟡 IN PROGRESS after the bnld MAJOR (claimed 2026-10-02; user: "We can do 1
 and 2 first, then 3."): **Global / weak aliases** (`.weak W` + `W = f`): rejected
-(`constantBindingRejected`), because a reference to an alias takes its target when parsed (`nameValue`), so a
+(`aliasBindingRejected`), because a reference to an alias takes its target when parsed (`nameValue`), so a
 weak alias's own uses would bypass it — clang relocates them against the alias (`R_AARCH64_CALL26 W`), letting a
 strong `W` elsewhere override it (the arm32 default-handler idiom: `.weak irq_handler`, `irq_handler =
 default_handler`, `bl irq_handler`).  To support them: a reference to an alias declared global / weak goes
 against the alias symbol (a relocation; the resolvers keep non-local targets as relocations), the binding must
 be known at the use (reject a `.global` / `.weak` after a use, as forward references are), and the writers list
-it.  Global / weak number constants wait on the bnld MAJOR "bnld folds absolute symbols into undefined ones".
+it.  (Global / weak number constants landed `bf00c139e`.)
 Apple's legacy NEON syntax
 (`dup.4s v0, w1`, `tbl.16b v0, {v1}, v3`), which clang
 accepts on every target, is not supported (user, 2026-09-28: "we don't need alternate syntax, unless there's

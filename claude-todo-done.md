@@ -1,3 +1,17 @@
+### bnld folded absolute symbols into undefined ones — a weak absolute symbol linked as 0 — DONE (binate `bf00c139e`, 2026-10-02, work-2; MAJOR, found 2026-10-01 listing assembler constants in the symbol table)
+
+bnld's ELF and Mach-O readers mapped an absolute symbol (`SHN_ABS` / `N_ABS`) to the undefined marker, so a
+global absolute symbol was an unresolved import and a weak one resolved to 0.  `InputSymbol` now carries `Abs`
+/ `AbsValue` (the object's whole value), set by both readers, and every definition test counts it: Resolve,
+archive selection, dynamic imports, a common's superseding definition, and the relocator (a symbol's own
+absolute definition, a local one included, is its value).  In the dynamic Mach-O link (PIE, slid by dyld)
+an ABS64 word holding an absolute symbol is not rebased, a GOT load of one reads a __got slot holding the value
+(unbound, unrebased, as ld64), and a PC-relative reference to one is an error (as lld / GNU ld; ld64 links it
+against the unslid image).  The text assembler now accepts `.global` / `.weak`
+/ `.global_c` on a number constant (listed global / weak with its last value; uses still folded, as clang);
+global / weak aliases stay rejected (claude-todo, plan item 3b).  Verified against clang's ELF / Mach-O
+symbol tables and an ld64 link.
+
 ### A value whose type is an alias of `@T` / `@[]T` / `@func` was not borrowed as the raw form — valid code rejected — DONE (binate `6cd70a132`, 2026-10-02, work-4)
 
 With `type MF = @func(int) int`, both `var h *func(int) int = g` and `cast(*func(int) int, g)` were
