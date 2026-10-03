@@ -504,6 +504,29 @@ for bit_cast.  Whichever is chosen: spec §8.6 wording plus a conformance test. 
 `cast(*any, nil)` says the operand "does not satisfy the interface … raw `*T` cannot widen" — name nil
 instead (check/check_cast_safe.bn addCastRejectError).
 
+### A type naming an alias of a generic interface instantiation before the interfaces are collected keeps the alias's name — the upcast to it fails — 🔴 OPEN (found 2026-10-03, work-3, review of the interface-alias type fix; pre-existing)
+
+```
+var g *X                 // a global, or `type P = *X`, before the alias
+interface G[T any] { get() T }
+interface X = G[int]
+interface A : X { a() int }
+... var p P = a          // compiled: negative vtable slot offset; VM: "target vtable not found …X"
+```
+IR-gen builds an interface value type from its canonical interface (canonicalIfaceType, gen_iface_extends.bn
+— an alias `interface X = Y` names Y), but an alias of a generic INSTANTIATION is registered only as a stub
+until the interfaces are collected (registerIfaceStub / PendingIfaceAliasDecls), so a type alias, global or
+struct field resolved before that keeps `X`.  Covered by conformance 1506 (xfail.all).
+Completing the stub there (completeIfaceAliasChain, as canonicalTypeArg does) was tried and backed out: it
+instantiates G[int] during type-declaration registration, before a type alias G's methods name is registered,
+so the instance is cached with that method's type as `int` — conformance 1508 (`trip() TA`, TA declared after
+`type P = *X`) then miscompiles (SIGSEGV / wrong output); the `type Y = Box[*X]` path already has this hazard
+(canonicalTypeArgs).  Options: (a) order type declarations so that the names a generic interface's method
+signatures and extension clause use are registered before a declaration that names an alias of its
+instantiation (extend typeDeclDepNames) — but a method naming the declaration being registered (`self() P`)
+still sees `int`; (b) name the alias's canonical instance (its mangled name) without instantiating it during
+registration, leaving the instantiation to the interface pass.  (b) looks cleaner; needs a design check.
+
 ### `defer T.M(x)` — a deferred method EXPRESSION call — panics at run time ("unresolved selector in IR-gen") — 🔴 OPEN (found 2026-10-02, work-3, review of the alias method-expression fix; reproduced on builder-comp; pre-existing)
 
 ```
