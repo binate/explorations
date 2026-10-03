@@ -1121,7 +1121,7 @@ the spec makes undefined behavior (`bit_cast(*func() int, func…)`,
 where it rejects a valid program: the hint applies only on a signature match,
 which only makes the literal more assignable.
 
-### Checker: `cast` rejects a container retype that also adds element-level `readonly` — 🔴 OPEN (found 2026-09-30 by the review of the §8.5 status note; code reading, not run)
+### Checker: `cast` rejects a container retype that also adds element-level `readonly` — 🟡 IN PROGRESS (found 2026-09-30 by the review of the §8.5 status note; code reading, not run; claimed 2026-10-03, work-3/session, self-drive)
 
 `conv.cast.aggregate-retype` condition (2) forbids only DROPPING element-level
 `readonly`, so `cast(@[]readonly uint8, x)` with `x @[]int8` is a valid retype
