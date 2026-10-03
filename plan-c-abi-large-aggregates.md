@@ -76,8 +76,11 @@ step D's table.
   `callconv.CallConv.PassesIndirect`) — safe before callers own their copies, since nothing can write the
   caller's memory before those stores.  Native aa64 bnc __text 9,649,020 → 9,531,812 bytes (−1.21%)
   against a compiler built at `e051ce4b4`; `sum(b Big)` 2c+1z → 1c.  Conformance 1524.
-- Next: increment 1 proper — aa64 callers pass owned memory, then the param slot can be the incoming copy
-  (increment 5) on aa64; the x64 / arm32 C-ABI switches.
+- Order (user, 2026-10-03: "option 1 is fine"): the x64 switch, then arm32 (the actual C divergence), then
+  aa64 ownership + param slot in place (copies).  In progress: x64.
+  Local validation for x64: native `builder-comp_native_x64_darwin-…` and LLVM via
+  `BINATE_FLAGS="--target x86_64-darwin" ./conformance/run.sh builder-comp` (both run under Rosetta); full
+  runs on both, since a 32-byte managed-slice argument is >16 bytes on x64 (nearly every program).
 
 ## Open checks
 
