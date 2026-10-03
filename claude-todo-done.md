@@ -446,6 +446,8 @@ direction), checks two same-field structs field-wise (which also closed a readon
 but readonly.  Spec §8.1/§8.3/§8.5/§8.7.  Conformance 1485 (error routes), 1486 (accepted forms),
 check/readonly_add_test.bn.  Found by its review: slicing a readonly array yields a writable slice —
 its own MAJOR entry.
+Rule confirmed (user, 2026-10-03, asked to keep it, make it stricter — no readonly added below level 1 —
+or looser — undefined behaviour): "(a) sounds fine".
 
 ### A multi-value assignment / `return f()` into an interface-typed target never built the interface value — DONE (binate `7094d6b0d`, 2026-10-01, work-3)
 
