@@ -179,7 +179,7 @@ a conversion dispatched through the stale interface (wrong code).  These are rej
 a todo" — (b) being cross-kind shadowing, like type shadowing).  Shadowing them needs the same
 generation-distinct identity through the checker's and IR-gen's registries.
 
-### A generic type that names a type declared after it is broken at the REPL prompt — wrong size, IR-gen panic — 🔴 OPEN MAJOR (found 2026-09-29, work-6, review of the REPL forward-reference rework; reproduced; pre-existing)
+### A generic type that names a type declared after it is broken at the REPL prompt — wrong size, IR-gen panic — 🟡 IN PROGRESS (claimed 2026-10-03, work-6/session — user: "yes") (found 2026-09-29, work-6, review of the REPL forward-reference rework; reproduced; pre-existing)
 
 `type G[T any] struct { v T; w Missing }`, then `type Missing struct { a int; b int }`: `sizeof(G[int])`
 prints 8 (the same program as a file prints 24), and `var g G[int]` then `g.w.b = 7` panics "internal
