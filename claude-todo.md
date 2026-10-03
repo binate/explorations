@@ -206,7 +206,7 @@ value receiver (the probe's line for it was cut off by the runner's output limit
 backends not yet checked.  Needs a conformance test over raw and managed interfaces, `@`- and
 `*`-named receivers, and every backend.
 
-### A type-parameter assertion target (`x.(*T)`) is accepted although §11.12 says it is rejected — `f[@Node]` recovers a Node cell as `*(@Node)` — 🔴 NEEDS DECISION (found 2026-09-30, work-3, review of the alias-target checker fix; reproduced; pre-existing)
+### A type-parameter assertion target (`x.(*T)`) is accepted although §11.12 says it is rejected — `f[@Node]` recovers a Node cell as `*(@Node)` — 🔴 OPEN, DECIDED 2026-10-03 (found 2026-09-30, work-3, review of the alias-target checker fix; reproduced; pre-existing)
 
 `func f[T any](x @any) bool { _, ok := x.(*T); return ok }` with `var a @any = n` (n `@Node`) and
 `f[@Node](a)` compiles on builder-comp and prints `true`: the checker sees TYP_TYPE_PARAM (not in the
@@ -218,6 +218,7 @@ whose target names a type parameter is rejected at the generic declaration" — 
 it.  Decide: (a) reject a TYP_TYPE_PARAM target in assertTargetType now, with its own message (first
 check nothing in the tree or the conformance suite asserts on a type parameter), or (b) implement the
 Draft rule (per-instantiation checking — design B).
+Decision (user, 2026-10-03: "3, 5, 8, 9: go with your recs (though for 9 probably bnlint should complain about it)"): implement the Draft per-instantiation rule (§11.12 `iface.assert.typeparam`) — instance bodies are now checked per instance (gen.mono.check), so the instantiated target is checked as a concrete one; if that turns out larger than expected, reject a type-parameter target at the definition instead (with its own message).  Tests: `f[@Node]` recovering a Node cell as `*(@Node)` rejected or missed per the concrete rules; a valid instantiation recovering correctly.
 
 ### `@any` of a named managed pointer or function value (`type H @Node`, `type F @func() int`) never matches its own `case` — 🔴 NEEDS DECISION (split out 2026-09-30, work-3, from the named-owning-pointee entry; slices / arrays fixed in binate `02857f863`)
 
@@ -415,7 +416,7 @@ operand (a composite literal) to an interface, e.g. `func conv[T any]() T { retu
 compiler panic.  Fix: run the cast-safety rules on the substituted types when a generic body is
 instantiated (checker-side, before IR-gen), and turn the IR-gen panics into unreachable asserts.
 
-### Is `bit_cast(T, nil)` legal? Today the checker accepts it and LLVM emits invalid IR — 🔴 NEEDS DECISION (found 2026-10-02, work-3, review of the `cast(T, nil)` fix; pre-existing)
+### Is `bit_cast(T, nil)` legal? Today the checker accepts it and LLVM emits invalid IR — 🔴 OPEN, DECIDED 2026-10-03 (found 2026-10-02, work-3, review of the `cast(T, nil)` fix; pre-existing)
 
 The checker's bit_cast gate (check/check_c_interop.bn, ~:316-329) compares sizes, and the untyped nil has
 size `ptrSize` (types/layout.bn), so `bit_cast(*int, nil)`, `bit_cast(@T, nil)` and `bit_cast(int, nil)`
@@ -428,6 +429,7 @@ T's type first when T is nillable and reject otherwise; (c) define nil as a poin
 for bit_cast.  Whichever is chosen: spec §8.6 wording plus a conformance test.  Related, minor: a rejected
 `cast(*any, nil)` says the operand "does not satisfy the interface … raw `*T` cannot widen" — name nil
 instead (check/check_cast_safe.bn addCastRejectError).
+Decision (user, 2026-10-03: "3, 5, 8, 9: go with your recs (though for 9 probably bnlint should complain about it)"): option (a) — reject `bit_cast(T, nil)` in the checker (`cast(T, nil)` gives a nillable T its nil).  Spec §8.6 wording plus an error test; also name nil in the rejected `cast(*any, nil)` message.
 
 ### A type naming an alias of a generic interface instantiation before the interfaces are collected keeps the alias's name — the upcast to it fails — 🔴 OPEN (found 2026-10-03, work-3, review of the interface-alias type fix; pre-existing)
 
@@ -976,7 +978,7 @@ the spec makes undefined behavior (`bit_cast(*func() int, func…)`,
 where it rejects a valid program: the hint applies only on a signature match,
 which only makes the literal more assignable.
 
-### Should `unsafe_cast` convert a RAW interface value to a MANAGED one (`*I -> @I`, `*I -> @J`)? — 🔴 NEEDS DECISION (raised 2026-10-03, work-3, review of the unsafe_cast interface-widening change)
+### Should `unsafe_cast` convert a RAW interface value to a MANAGED one (`*I -> @I`, `*I -> @J`)? — 🔴 OPEN, DECIDED 2026-10-03 (raised 2026-10-03, work-3, review of the unsafe_cast interface-widening change)
 
 §8.7 lists `*T -> @T` (raw pointer -> managed pointer, asserting a management header at the pointee's
 `-2W`) among unsafe_cast's additions, but says nothing about interface values.  The checker today:
@@ -990,6 +992,7 @@ data word asserted to carry a header; a same-interface or widening vtable), lowe
 (c) leave as is.  Recommendation: (a) — §8.7's `*T -> @T` already sanctions the assertion, and (b) would
 take away an accepted conversion.  Whichever: the diagnostic for a rejected raw -> managed interface
 conversion should say that, not "recover a narrower interface".
+Decision (user, 2026-10-03: "3, 5, 8, 9: go with your recs (though for 9 probably bnlint should complain about it)"): option (a) — allow it, as the interface analogue of `*T -> @T` (the data word asserted to carry a management header; a same-interface or widening vtable), lowered through the upcast; `genIfaceUpcast`'s raw -> managed panic and the checker's "does not convert a raw interface value to a managed one" message (with its TODO) go.  Spec §8.7 bullet plus tests (identity and widening, refcount-neutral).
 
 ### A `readonly` interface-value source cannot widen — `var g @Getter = n` with `n readonly @Named` is rejected — 🔴 OPEN (found 2026-10-03, work-3, review of the unsafe_cast interface-widening change; reproduced; pre-existing)
 
@@ -1050,7 +1053,7 @@ AddMethod, which holds only for `.bn` methods.  An importer reads the `.bni` sig
 would be misread (pkg.bni.consistency).  Fix: compare a `.bni` method declaration with the receiver type's
 `.bn` method (signature) and with other `.bni` declarations of it (duplicate).  Needs error tests.
 
-### A doubled `expose "P"` in a forwarder's `.bni` is reported as `"P" redeclared in this block` — 🔴 NEEDS DECISION (minor; found 2026-10-03, work-3, review of the .bni duplicate-declaration check; pre-existing)
+### A doubled `expose "P"` in a forwarder's `.bni` is reported as `"P" redeclared in this block` — 🔴 OPEN, DECIDED 2026-10-03 (minor; found 2026-10-03, work-3, review of the .bni duplicate-declaration check; pre-existing)
 
 `checkDuplicateDecls` compares an `expose` declaration by its Name, which is the quoted package path, so a
 pure forwarder (merged == the `.bni`) with `expose "pkg/p"` twice gets `"pkg/p" redeclared in this block`,
@@ -1060,6 +1063,7 @@ with an `X: exposed by both …` message.  Decide: a doubled expose is (a) accep
 forward type declaration is), or (b) an error with an expose-specific message; then make
 `collectNamedDecls` skip `DECL_EXPOSE` and leave the policy to the expose code.  (The `.bni`
 duplicate-declaration check skips expose decls so as not to extend today's message to packages with a `.bn`.)
+Decision (user, 2026-10-03: "3, 5, 8, 9: go with your recs (though for 9 probably bnlint should complain about it)"): option (a) — a doubled expose is accepted (idempotent, as a repeated forward type declaration is); make `collectNamedDecls` skip `DECL_EXPOSE` so `checkDuplicateDecls` stops reporting it.  Add a bnlint rule flagging a doubled `expose` (a style finding, not a compiler diagnostic).  Spec `pkg.expose.conflict` wording to match.
 
 ### Opaque-type embedding gaps left by the declaration-site check — local types, nested pointees, function-value parameters — 🔴 OPEN (found 2026-10-03, work-3, review of the type-declaration opaque check; code reading; pre-existing)
 
