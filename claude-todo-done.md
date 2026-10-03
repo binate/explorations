@@ -1,3 +1,10 @@
+### Native allocator: per-register clobbers (x64 home pool, step 1) — DONE (binate `70e6b95de`, 2026-10-03)
+
+`RegClassDesc.RegClobbers` (optional, `present()`-tested) names per instruction the registers its
+lowering uses for itself; LinearScan keeps any value live at that instruction (operand, result,
+live-across) out of them on every pick path. Binary-searched per interval. No backend sets it yet;
+native x64 self-compile of cmd/bnc byte-identical before/after. See `plan-x64-home-pool.md`.
+
 ### native arm32: a closure or method value capturing an aggregate wider than 16 bytes failed to build — DONE (binate `4f3bee741`, 2026-10-03, work-7)
 
 AAPCS32 passes a >16-byte aggregate by address; the framed shim paths' capture loaders (scalar/void spill,

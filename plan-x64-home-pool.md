@@ -1,6 +1,8 @@
 # Plan: enlarge the x64 GP home pool
 
-Status: scoped 2026-10-02, not started. Tracked in `claude-todo.md` ("x64: enlarge the GP home pool").
+Status: step 1 (per-register clobbers in the shared allocator, `RegClassDesc.RegClobbers`) landed
+in binate `70e6b95de` (2026-10-03); no backend sets the hook yet. The hook receives the RegMap, so
+registers used by a folded instruction are named at its consumer. Steps 2–3 not started. Tracked in `claude-todo.md` ("x64: enlarge the GP home pool").
 
 ## Why
 
