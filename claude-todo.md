@@ -32,6 +32,42 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### A function literal's body inherits the borrowing position of the argument it sits in — a borrowed temporary dangles; silent wrong values — 🟡 IN PROGRESS MAJOR (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
+
+`checkFuncLit` (`pkg/binate/check/check_func_lit.bn`) saves and resets InLoopBody / InFunc / ExpectedFVType
+but not `BorrowPosKind`, which `checkBorrowingArg` (and the `:=` right-hand side, check_assign.bn) set to
+POS_BORROWING for the whole argument — so every return, assignment and store inside a function literal
+passed as an argument is treated as a borrowing position, and a value borrowed into a raw interface there
+(a statement temporary) is admitted though it outlives its statement (spec §11.4: a compile error).
+Reproduced: `var g *any; run(func() { g = 42 }); p := mk(func() *any { return 7 })` then printing g, p —
+LLVM `4362538048 1`, native `2 7` (should be compile errors: "cannot assign untyped int to *any").  Fix:
+save `BorrowPosKind` and reset it to POS_STORING in `checkFuncLit`, as `enterPackageDecl` does.  Needs an
+error test (return, assignment, field store inside a literal passed as an argument and as a `:=` value).
+
+### A package-level `var g *any = 42` borrows a temporary of the init function — it dangles once init returns — 🔴 NEEDS DECISION MAJOR (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
+
+`checkVarDecl` uses `checkBorrowingArg` for package-level vars too, so a value is borrowed into a package
+`*any` / `*I` var initializer; IR-gen enrolls the temporary as a `.borrow_temp` local of the init function.
+Reproduced: `var g *any = 42` then `testing.Println(g)` in main prints `1` on LLVM (42 on native, by luck).
+Spec `prog.init.vars` runs `var x T = e` as the assignment `x = e` (a storing position), while §11.4 says a
+var initializer's temporary lives as long as the binding.  Options: (a) a package-level var initializer is a
+STORING position — the value borrow is rejected ("cannot assign untyped int to *any"; write a `@any` or
+take a pointer to a package-level value); (b) give the temporary static lifetime (a hidden global per
+borrowed initializer).  Recommendation: (a) — no hidden storage, matches prog.init.vars.
+
+### A function NAME passed into `*any` compiles and boxes nothing — silent wrong value — 🔴 NEEDS DECISION MAJOR (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
+
+With `func add(a int, b int) int` and `func take(x *any) bool { return present(x) }`, `take(add)` compiles
+and returns false (LLVM and native), and `testing.Println(add)` prints nothing useful: the checker types
+`add` as TYP_FUNC, AssignableTo fails, but the raw-interface value borrow (canBorrowValueIntoRawIface)
+admits it (valuePtrSatisfies is true for `any`); IR-gen's borrow path evaluates the bare name through
+genExpr, which finds no local and returns the "unknown ident" zero placeholder, boxed under a TYP_FUNC
+identity.  A function reference decays to a function value only in a function-value slot (func.ref.decay),
+and `*any` is not one.  Options: (a) reject a function name borrowed into an interface value ("a function
+name is not a value here; take a function value (`f := add`) first"); (b) decay it to its `@func` default
+(`defaultType`) and box that.  Recommendation: (a) — no implicit function-value construction outside a
+function-value slot.  Either way: a conformance test, and the irgen fallback should fail loud.
+
 ### A `*T`-receiver method called directly on a managed temporary leaks the temporary — 🟡 IN PROGRESS (claimed 2026-10-03, work-4/session; user: "1. yes"; found 2026-10-02, work-4, review of design B commit 7; pre-existing)
 
 ```
