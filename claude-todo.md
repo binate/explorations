@@ -700,7 +700,7 @@ the checker's by-value walks (`embedsOpaqueByValueSeen`, `containsByValueTypePar
 types is walked as a tree (4^11 visits here).  Fix: memoize per named type, or stop at a named type whose
 answer is already known.  Needs a compile-time test that bounds it.
 
-### An interface alias named as a parent breaks the upcast — runtime panic / compiler ICE — 🔴 OPEN (found 2026-09-27, work-1, review of the checker forward-parent fix; pre-existing)
+### An interface alias named as a parent breaks the upcast — runtime panic / compiler ICE — 🟡 IN PROGRESS (found 2026-09-27, work-1, review of the checker forward-parent fix; pre-existing; claimed 2026-10-02, work-3/session, self-drive)
 
 `interface Y {…}; interface X = Y; interface A : X {…}` then `var x *X = a` (a `*A`): the checker
 accepts it, but IR-gen / the backends do not follow the alias when walking A's ancestors for the upcast —
