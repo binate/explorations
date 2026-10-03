@@ -32,6 +32,19 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### LLVM backend: a cast through a scratch slot allocas inside the loop body — the native stack grows every iteration until SIGSEGV — 🟡 IN PROGRESS MAJOR (found 2026-10-03, work-3, review of the cast leaf-rule widening; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
+
+`emitCast` (`pkg/binate/codegen/emit_cast.bn`) reinterprets a struct -> distinct-struct cast, or an array
+retype whose element LLVM types differ (`unsafe_cast([N]bool, a [N]int8)` is `[N x i8]` -> `[N x i1]`), by
+storing to a `%vN.crs = alloca` and loading it back as the target type.  The alloca is emitted where the
+cast is, and `OP_CAST` is not in the entry-block hoisting pass (`emitEntryAllocaDecls`,
+`emit_alloca_hoist.bn`), so in a loop it is a dynamic alloca that grows the stack every iteration — the
+per-iteration native-stack-leak class the loop-leak matrix covers.  Reported by the review (code reading):
+`for` 1e6 iterations of a `[16]bool -> [16]uint8` retype uses ~16 MB of stack and SIGSEGVs.  The
+container-retype widening of `cast` (bool -> 1-byte integer, named element <-> underlying, same-layout
+structs) makes plain `cast` reach it.  Fix: hoist the `.crs` slot (an `OP_CAST` case in
+`emitEntryAllocaDecls`; `emitCast` uses the hoisted slot), plus loop-leak matrix cells.
+
 ### A `*T`-receiver method called directly on a managed temporary leaks the temporary — 🔴 OPEN MAJOR (found 2026-10-02, work-4, review of design B commit 7; pre-existing; awaiting a user decision)
 
 ```
