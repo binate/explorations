@@ -240,7 +240,7 @@ reproduce on `builder-comp_arm32_baremetal` with a large by-value struct return 
 object for `__aeabi_memcpy` references); if it reproduces, route those paths through the leaf-by-leaf
 helpers.
 
-### Dropping a closure that captures a managed value at the REPL prompt panics — "vm: closure-struct dtor not found" — 🔴 OPEN MAJOR (found 2026-10-01, work-6, review of the opaque-defined-as-any-type change; reproduced; pre-existing)
+### Dropping a closure that captures a managed value at the REPL prompt panics — "vm: closure-struct dtor not found" — 🟡 IN PROGRESS (claimed 2026-10-02, work-6/session — user: "yes") (found 2026-10-01, work-6, review of the opaque-defined-as-any-type change; reproduced; pre-existing)
 
 At the prompt (fixture declaring `type Box struct { V int }`): `type F @func() int`, `var bx @Box =
 make(Box)`, `func mkF() F { var b @Box = bx; return func() int { return b.V + 7 } }`, `func run() { var f
