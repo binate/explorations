@@ -912,7 +912,8 @@ item 3b), with multi-term label addends (`lbl+4+4`) on AArch64 and arm32 — �
 user: "1. yes. 2. yes."): numeric constants on every arch landed `1a31e768f`, symbol-valued expressions
 (multi-term addends on AArch64 / arm32, aliases, `C = .`) landed `f9acb7bb6`, the x64 label addends (the
 MAJOR "x64 text parser drops a label addend") landed `331b13ee4` (2026-10-01); constants and aliases in the
-symbol table (local only) in review.  **Global / weak aliases** (`.weak W` + `W = f`): rejected
+symbol table (local constants as absolute symbols, local aliases, alt entries) landed `63c3ba948`
+(2026-10-01).  Open from 3b, awaiting the user's call: **Global / weak aliases** (`.weak W` + `W = f`): rejected
 (`constantBindingRejected`), because a reference to an alias takes its target when parsed (`nameValue`), so a
 weak alias's own uses would bypass it — clang relocates them against the alias (`R_AARCH64_CALL26 W`), letting a
 strong `W` elsewhere override it (the arm32 default-handler idiom: `.weak irq_handler`, `irq_handler =
