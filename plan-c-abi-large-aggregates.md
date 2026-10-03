@@ -67,6 +67,14 @@ Validation per increment: the native conformance mode of each arch touched (`bui
 e2e scripts, and the changed packages' unit tests; a copy-count measurement against plan-aggregate-copy-opts.md
 step D's table.
 
+## Progress
+
+- DONE `e051ce4b4` (2026-10-02): a parameter's slot skips its zero-fill (iropt dead-store marks it
+  NoZeroInit — its first use is the whole store of the incoming value), all backends.
+- Next: native callees use the incoming copy as the parameter's value when it is read only by the entry
+  store into the slot (`common.ParamRegionElidable`) — safe before callers own their copies, since nothing
+  can write the caller's memory before that store.
+
 ## Open checks
 
 - aa64 HFAs over 16 bytes (3-4 doubles) ride SIMD registers and are not in scope; the predicate must exclude
