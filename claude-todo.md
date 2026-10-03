@@ -610,17 +610,6 @@ the LLVM backend (as native does): a load MemCopies into a function-scoped temp 
 address; stores MemCopy from it, extracts GEP into it, by-value args / returns / call results / phis use
 the address — every codegen producer and consumer of aggregate values handles that form.
 
-### A `.bni` forward `type X` completed by a NON-struct `type X int` in the `.bn` — checker accepts, IR-gen internal error — 🔴 OPEN (found 2026-09-28, work-1, review of the named-type identity fix; pre-existing)
-
-`pkg/h.bni`: `type Handle` plus `func Make(v int) @Handle`; `pkg/h/h.bn`: `type Handle int`.  The
-checker accepts it; every backend then panics "internal error: cast between mismatched aggregate/scalar
-shapes reached codegen".  RegisterSelfTypes pre-registers every forward declaration as an empty opaque
-struct and resolveTypeExpr consults structs first.  **Needs a language decision:** spec §7.12
-(type.opaque.forward / single-source) describes the completion as `type Foo struct { … }` and doesn't
-say whether a non-struct definition may complete a forward declaration.  If it may, IR-gen must register
-the completion as the named type; if not, the checker must reject it.  Probe: a library as above, main
-does `var x @h.Handle = h.Make(21)` and calls a method on it.
-
 ### A `.bni` constant `len` of a `.bni` array variable has no constant value for an importer — valid code rejected — 🔴 OPEN (found 2026-09-29, work-4, review of the constant-expression check; reproduced; pre-existing)
 
 With `var Arr [4]int` and `const LArr = len(Arr)` in `a.bni`, an importer's `var x [a.LArr]int` fails with

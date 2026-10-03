@@ -1,3 +1,11 @@
+### A `.bni` forward `type X` completed by a NON-struct `type X int` in the `.bn` panicked IR-gen — DONE (binate `381214442` with `255d85be8`, docs `685313a`; confirmed 2026-10-02, work-3)
+
+The language decision the entry waited on was made with the opaque-defined-as-any-type change: spec §7.12
+(docs `685313a`) lets a forward-declared type's full definition be any named type, and IR-gen registers the
+completion as that type.  The entry's probe (`type Handle` in the `.bni`, `type Handle int` in the `.bn`,
+`h.Make(21).Get()` from main) prints 21; conformance 1480_xpkg_opaque_nonstruct_defs covers scalar and other
+non-struct definitions.
+
 ### aa64 / arm32 / x64 text assembler: global and weak aliases — DONE (binate `da8befa0a`, 2026-10-02, work-2; plan item 3b's last piece)
 
 An alias (`A = sym + k`) may be made global or weak by `.global` / `.weak` / `.global_c`, as clang allows: it is
