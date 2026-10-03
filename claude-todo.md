@@ -473,6 +473,20 @@ operand (a composite literal) to an interface, e.g. `func conv[T any]() T { retu
 compiler panic.  Fix: run the cast-safety rules on the substituted types when a generic body is
 instantiated (checker-side, before IR-gen), and turn the IR-gen panics into unreachable asserts.
 
+### Is `bit_cast(T, nil)` legal? Today the checker accepts it and LLVM emits invalid IR — 🔴 NEEDS DECISION (found 2026-10-02, work-3, review of the `cast(T, nil)` fix; pre-existing)
+
+The checker's bit_cast gate (check/check_c_interop.bn, ~:316-329) compares sizes, and the untyped nil has
+size `ptrSize` (types/layout.bn), so `bit_cast(*int, nil)`, `bit_cast(@T, nil)` and `bit_cast(int, nil)`
+are accepted; IR-gen then emits an OP_BIT_CAST from the untyped nil, which LLVM lowers as `inttoptr` of a
+pointer (`bit_cast(*int, nil)`; clang rejects it) or `add i64 %v, 0` on a pointer (`bit_cast(int, nil)`).
+§8.6 bit_cast compares sizeof(source), and the spec gives the untyped nil no size.
+Options: (a) reject `bit_cast(T, nil)` in the checker (recommended: `cast(T, nil)` already gives a nillable
+T its nil, and a nil reinterpreted as a non-pointer is never what the programmer means); (b) give the nil
+T's type first when T is nillable and reject otherwise; (c) define nil as a pointer-sized all-zero value
+for bit_cast.  Whichever is chosen: spec §8.6 wording plus a conformance test.  Related, minor: a rejected
+`cast(*any, nil)` says the operand "does not satisfy the interface … raw `*T` cannot widen" — name nil
+instead (check/check_cast_safe.bn addCastRejectError).
+
 ### bnfmt is not idempotent on a long string-literal call argument — formatting a formatted file changes it again — 🔴 OPEN (found 2026-10-02, work-3, formatting a unit test; reproduced with the CHECK_TOOLS bnfmt, bnc-0.0.17-pre1; pre-existing)
 
 ```
