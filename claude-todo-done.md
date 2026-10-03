@@ -1,3 +1,18 @@
+### interp: `RunFunc` / `RunFuncTyped` re-ran the package initializers on every call — package globals were reset between host calls — DONE (binate `51b8fba00`, 2026-10-02, work-5)
+
+Initialization is separate from calls (user decision 2026-09-30): `Init` runs the loaded packages'
+initializers at most once (guard `Interp.Initialized`, set before they run, as bn_init does); `Reinit`
+re-runs them (user, 2026-10-02: "we can land the re-run version" — it resets the globals that have an
+initializer; a global without one keeps its value, and a full zero-everything reset was not wanted now);
+`RunFunc` / `RunFuncTyped` only call and report a call before `Init`; an initializer fault is kept in
+`Interp.InitFault` and refuses calls until a `Reinit` completes; `RunFunc` reports run faults; `RunMain` is
+`Init` + `main.main`, so the interp's `main.__entry` and `irbuild.EmitMainEntry` are gone; bnld's `-driver`
+path and the two RunFuncTyped e2e hosts call `Init`.  Found by review and fixed in the same commit: a
+package-level raw-slice literal's backing stored its managed elements as init stores, leaking the old
+elements on every re-run of the initializers (each RunFunc / RunFuncTyped call before, Reinit after); now
+release-old stores.  Tests: `pkg/binate/interp/init_test.bn` (9 tests, incl. a Reinit leak check that fails
+with the old store), e2e `bnld-driver-linux`, `injected-iface-runfunc`, `runfunc-typed-forwarder`.
+
 ### x64 text parser dropped a label addend (`call lbl+4` → `call lbl`) and ignored trailing text — DONE (binate `331b13ee4`, 2026-10-01; MAJOR, found 2026-10-01 probing clang for the aa64 constants item)
 
 `call` / `jmp` / `jcc lbl+4` and `[rip + lbl + 4]` assembled as references to `lbl` (the branch paths took

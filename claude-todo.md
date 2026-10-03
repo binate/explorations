@@ -1154,21 +1154,6 @@ the spec makes undefined behavior (`bit_cast(*func() int, func…)`,
 where it rejects a valid program: the hint applies only on a signature match,
 which only makes the literal more assignable.
 
-### interp: `RunFunc` / `RunFuncTyped` re-run the package initializers (`main.__init_all`) on every call — package globals are reset between host calls — 🟡 IN PROGRESS (claimed 2026-10-01, work-5; DECIDED 2026-09-30; found 2026-09-30 by the review of the closure-site speed-up)
-
-`interp.RunFunc` (interp.bn) and `RunFuncTyped` (runfunc_typed.bn) call
-`main.__init_all` before every entered function (irbuild's comment says the VM runs
-it "before each entered function"), while compiled `bn_init` has a run-once guard.
-So a host calling `RunFunc` twice re-initializes every package global, discarding
-state from the first call — and every re-run initializer is a potential leak site
-(a managed global's old value is released by the plain `=`, but anything that
-assumes once-per-program storage, e.g. a package-level method value's static
-closure record stored with init semantics, is not).  Decided 2026-09-30 (user:
-both behaviors are plausible/useful — separate initialization from calls): an
-explicit, guarded `Init` (runs the package initializers once), `RunFunc` /
-`RunFuncTyped` that only call, and an optional explicit `Reinit` for a host that
-wants fresh globals.
-
 ### Checker: `cast` rejects a container retype that also adds element-level `readonly` — 🔴 OPEN (found 2026-09-30 by the review of the §8.5 status note; code reading, not run)
 
 `conv.cast.aggregate-retype` condition (2) forbids only DROPPING element-level
