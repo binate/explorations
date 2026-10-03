@@ -173,7 +173,7 @@ in practice; a fault if the copy ends at an unmapped page boundary).  Not yet co
 (start at the aa64 incoming-parameter spill and `common.ArgWords`); check x64 and arm32 for the same pattern.
 Fix if confirmed: copy exactly `SizeOf(T)` bytes (a byte / halfword tail after the whole words).
 
-### LLVM backend: `cast(*T, nil)` emits invalid IR — clang rejects the program — 🔴 OPEN (found 2026-09-30, work-1, by the review of the bulk by-value-argument change)
+### LLVM backend: `cast(*T, nil)` emits invalid IR — clang rejects the program — 🟡 IN PROGRESS (found 2026-09-30, work-1, by the review of the bulk by-value-argument change; claimed 2026-10-02, work-3/session, self-drive)
 
 `var p *uint8 = cast(*uint8, nil)` type-checks but the LLVM backend emits `%v0 = inttoptr i64 0 to i8*` then
 `%v1 = inttoptr i64 %v0 to i8*` — `%v0` is already a pointer, so clang fails: "'%v0' defined with type 'ptr'
