@@ -1111,6 +1111,14 @@ but as "cannot use an opaque type by value" (the placeholder looks opaque) inste
 without type arguments".  Fix: reject a bare generic name wherever a type is expected; the opaque message
 then no longer fires for it.  Needs error tests (`type X Box`, `type A [2]Box`, a field, a param).
 
+### `nil` is accepted into `*any` / `@any` — invalid code accepted — 🟡 IN PROGRESS (found 2026-10-03, work-3, while fixing bit_cast(T, nil); reproduced; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
+
+`var z *any = nil` compiles, while `var i @I = nil`, `j = nil` (j `*I`) and `cast(@I, nil)` are rejected:
+spec `type.nil.literal` says nil is "not assignable to slices or interface values".  Suspected cause:
+AssignableTo's interface arms (§8.1 case 7, "D is `*any`/`@any`") accept any source for `any`, and the nil
+arm (`return dst.IsNillable()`) returns before them only... — check the order; the `any` shortcut must not
+take the untyped nil.  Needs an error test (`*any` and `@any`, var init, assignment, argument, return).
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
