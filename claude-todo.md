@@ -85,22 +85,6 @@ generic instance".  Fix: register an alias of a struct literal through registerT
 registry, which interns the anonymous struct) and exclude `IsAlias` at every struct registration site
 (sweep the pattern repo-wide, including the REPL paths).  Repros: the commit 6 review's scratch t3/t5/t21.
 
-### A value whose type is an ALIAS of `@T` / `@[]T` / `@func` is not borrowed as the raw form — valid code rejected — 🟡 IN PROGRESS (claimed 2026-10-02, work-4/session; user: "yes to both"; found 2026-10-01, work-4, while running design B commit 6's tests; pre-existing)
-
-```
-type MF = @func(int) int
-var g MF = func(x int) int { return x + k }
-var h *func(int) int = g                    // "cannot assign MF to *func(int)int"
-var h2 *func(int) int = cast(*func(int) int, g)   // "cast does not support this conversion"
-```
-Same for `type MS = @[]int` → `*[]int` and `type MP = @int` → `*int`.  An alias is the same type, and
-`conv.managed-to-raw` (§8.4) makes the borrow implicit (and so also a `cast`, `conv.cast` part (1)).
-Root cause: the three managed-to-raw arms of `AssignableTo` (check/types_assignable.bn, `@T → *T`,
-`@[]T → *[]T`, `@func → *func`) resolve aliases on the destination (`ResolveAliasAndConst(dst)`) but test
-the SOURCE's kind directly, so an alias-typed source never matches.  Fix: resolve the source's alias
-before those arms.  Blocks conformance `spec/10-functions/217_funclit_cast_type_param` (its `MF`
-instantiation casts an `MF` to `*func`), which design B commit 6 otherwise makes pass.
-
 ### No CI lane runs the LLVM arm32 bare-metal mode at -O2 — 🔴 OPEN (raised 2026-09-30, work-1; awaiting a user decision)
 
 .github/workflows/conformance-o2.yml runs builder-comp (host LLVM) and the native modes at -O2, not
@@ -187,13 +171,13 @@ Test: `conformance/spec/10-functions/217_funclit_cast_type_param` (`.xfail.all`,
 landed `b3dbd9d35`).
 Fixed by design B's commit 6 (IR-gen emits the per-instance checked clone, whose
 literal carries the instance's type — `checkExprWithFVHint` sees `T` bound), not
-by commits 4-5 (they check a clone and drop it).  Open spec question (needs a
-user decision before commit 6 relies on it): is the type a function literal takes
-from a `cast` / `unsafe_cast` target containing a type parameter decided per
-instantiation (reading A: 217 prints `8 14`) or once, abstractly (reading B: the
-literal is the `@func` default and `cast(RF, …)` borrows a statement temporary —
-undefined behaviour)?  Settle with a line in `gen.mono.check`'s dependent list or
-in §10.9.
+by commits 4-5 (they check a clone and drop it).  Spec question DECIDED
+2026-10-02 — reading A, per instantiation (user: "Reading A sounds right and is
+intuitive"): the type a function literal takes from a `cast` / `unsafe_cast`
+target containing a type parameter is each instance's.  To do with commit 6: add
+that to `gen.mono.check`'s list of what depends on the instantiation (§10.9
+cross-reference).  The alias half of 217's failure (`cast(*func(int) int, g)` with
+`g` an `MF`) landed as binate `6cd70a132`.
 
 ### LLVM backend: a >16-byte `__c_call` aggregate argument's slot is smaller / less aligned than the ABI access made through it (undefined behaviour; can fault) — 🔴 OPEN (found 2026-09-30, work-1, by the review of the bulk by-value-argument change; pre-existing)
 

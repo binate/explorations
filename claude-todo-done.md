@@ -1,3 +1,13 @@
+### A value whose type is an alias of `@T` / `@[]T` / `@func` was not borrowed as the raw form — valid code rejected — DONE (binate `6cd70a132`, 2026-10-02, work-4)
+
+With `type MF = @func(int) int`, both `var h *func(int) int = g` and `cast(*func(int) int, g)` were
+rejected ("cannot assign MF to *func(int)int"), likewise an alias of `@[]int` → `*[]int` and of `@int` →
+`*int`, though an alias is the same type and `conv.managed-to-raw` makes the borrow implicit (so also a
+`cast`).  `AssignableTo`'s three managed-to-raw arms resolved the destination's alias but tested the
+source's kind directly; they now test the alias-resolved source.  Found while running design B commit 6's
+tests (it blocked conformance 217's `MF` instance).  Tests: `TestManagedAliasBorrowsAsRaw`, conformance
+`spec/08-conversions/024`.
+
 ### A universe-primitive method called through a pointer received the address as its value — `p.String()` with `p *int` printed the address — DONE (binate `5fa2db460`, 2026-10-02, work-7)
 
 applyReceiverConversion (irgen gen_method_recv.bn) loaded a pointer receiver for a value-receiver method
