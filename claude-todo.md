@@ -260,7 +260,7 @@ it.  Decide: (a) reject a TYP_TYPE_PARAM target in assertTargetType now, with it
 check nothing in the tree or the conformance suite asserts on a type parameter), or (b) implement the
 Draft rule (per-instantiation checking — design B).
 
-### A `.bni` may declare the same function twice — the later declaration silently wins — invalid code accepted (minor) — 🔴 OPEN (found 2026-09-30, work-3, splitting `ir.bni`; reproduced; pre-existing)
+### A `.bni` may declare the same function twice — the later declaration silently wins — invalid code accepted (minor) — 🟡 IN PROGRESS (found 2026-09-30, work-3, splitting `ir.bni`; reproduced; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
 
 `pkg/binate/ir.bni` declared NewModule, NewFunc, NewExternFunc, AddBlock, AddFaultPad and NewParam twice
 each (identical signatures, one copy per section) and nothing complained; removed in the ir.bni split.
