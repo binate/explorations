@@ -487,6 +487,21 @@ for bit_cast.  Whichever is chosen: spec §8.6 wording plus a conformance test. 
 `cast(*any, nil)` says the operand "does not satisfy the interface … raw `*T` cannot widen" — name nil
 instead (check/check_cast_safe.bn addCastRejectError).
 
+### `defer T.M(x)` — a deferred method EXPRESSION call — panics at run time ("unresolved selector in IR-gen") — 🔴 OPEN (found 2026-10-02, work-3, review of the alias method-expression fix; reproduced on builder-comp; pre-existing)
+
+```
+type Point struct { x int }
+func (p Point) Show() { testing.Println(p.x) }
+func main() { var p Point; p.x = 4; defer Point.Show(p) }   // runtime panic at the defer site
+```
+`classifyDeferShape` (irgen/gen_defer.bn, ~:207-217) finds no type on the selector's base `Point` (the
+checker's method-expression arm never checks the base ident), reads the selector's checker type — a
+function value — and classifies it DEFER_FUNCVAL; `storePassthruOp` then evaluates `Point.Show` with plain
+genExpr, which reaches genSelector's "unresolved selector" fallback.  The non-deferred `Point.Show(p)` works.
+Fix: classify a method-expression callee (the funcRefName / methodExprName path) as a direct call, or
+evaluate it through genExprOrFuncRef so it becomes a function value.  Needs a conformance test (direct
+type, alias, named scalar, a pointer-receiver method), all backends.
+
 ### bnfmt is not idempotent on a long string-literal call argument — formatting a formatted file changes it again — 🔴 OPEN (found 2026-10-02, work-3, formatting a unit test; reproduced with the CHECK_TOOLS bnfmt, bnc-0.0.17-pre1; pre-existing)
 
 ```
