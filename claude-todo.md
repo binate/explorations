@@ -447,7 +447,7 @@ for `cast` and `unsafe_cast` alike: `cast([2][4]uint8, a)` from `[2][4]int8` is 
 §8.5 (nesting), §8.7 / §21.6 (the bool assertion); checker (the constant-operand check; `cast`'s leaf
 rule recursing through nested containers, as checkUnsafeCastSet already does); tests.
 
-### A failed interface-target assertion names the target by its bare name — qualify it — 🔴 OPEN (follow-up to `53c0e5fd5`, 2026-09-28; user: "Improving the message with the qualified name would be better, but can be a follow-up.")
+### A failed interface-target assertion names the target by its bare name — qualify it — 🟡 IN PROGRESS (claimed 2026-10-03, work-3/session, self-drive; follow-up to `53c0e5fd5`, 2026-09-28; user: "Improving the message with the qualified name would be better, but can be a follow-up.")
 
 `x.(*Flyer)` failing prints `type assertion failed: main.Dog is not Flyer` (gen_assert_iface.bn uses the
 interface's bare `.Name`), while every other type in these messages — the dynamic type, a concrete target,
