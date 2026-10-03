@@ -236,7 +236,7 @@ the prompt never parks — its body is resolved only when instantiated — so it
 name, and something (the checker's instantiation or IR-gen's REPL type registration) then lays out the
 field of the later-declared type wrongly.  Root cause: unknown — needs investigation.
 
-### A REPL variable redefined with a different type keeps the old variable's value — 🔴 OPEN MAJOR (found 2026-09-29, work-6, review of the REPL forward-reference rework; reproduced; pre-existing)
+### A REPL variable redefined with a different type keeps the old variable's value — 🟡 IN PROGRESS (claimed 2026-10-02, work-6/session — user: "yes") (found 2026-09-29, work-6, review of the REPL forward-reference rework; reproduced; pre-existing)
 
 `var x int = 1`, `var x bool = true`, `testing.Println(x)` prints 1 (silent wrong value); redefining with
 the same type (`var q int = 1`, `var q int = 2`) prints 2.  Root cause: unknown — needs investigation
