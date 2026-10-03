@@ -100,17 +100,34 @@ D. Copy chains (load → private copy → temp slot → argument): revisit after
    sides (the caller's `.bv` slot, then the callee's param slot); native callers may pass an aliasing
    (elided) load by reference (AggLoadElidable accepts an OP_CALL argument use), so native callees must
    copy (and do: incoming → value region → param slot, plus the slot's zero-fill).
-   Proposed (awaiting the user's decision on D1's convention):
-   - D1. Convention: the caller passes a >16-byte by-value aggregate in memory it OWNS for the call (a
-     fresh copy, or a temporary nothing reads afterwards — a call result, a load's private copy); the
-     callee uses that memory as the parameter's slot (no copy, no zero-fill).  Touches param lowering in
-     all four backends, native callers of elided loads, closure / func-value shims, the VM ↔ compiled
-     boundary and C-export trampolines.
+   User constraints (2026-10-02): "There should be one ABI per platform (arch/OS); in particular, LLVM and
+   native MUST share the same ABI.  Also, compatibility with C is an important feature; passing large
+   structs by value should be compatible between Binate and C (anything else would be extremely
+   unfortunate and inconvenient)."  So no Binate-specific ownership convention: the C ABI already says who
+   owns a large by-value struct's memory — the callee, on all three (AAPCS64: the caller copies it to
+   memory it allocates and passes a pointer; SysV x86-64: MEMORY class, copied onto the stack; AAPCS32:
+   copied into r0-r3 + stack).
+   Finding (2026-10-02): today Binate's own convention for a >16-byte by-value aggregate is NOT the C ABI
+   on x64 or arm32 — both backends pass a plain pointer (LLVM `ptr`, native IndirectLargeAggregates; the
+   callconv comments say it was chosen to match what pkg/codegen emitted, "NOT textbook AAPCS"), while C
+   passes it by value; C interop goes through adapters (__c_call's ForCBoundary marshalling, the
+   `__centry.` / #[c_export] thunks).  On aa64 the shape matches C but the ownership does not: a native
+   caller may pass memory it still uses (an elided load), relying on every Binate callee copying.  LLVM
+   and native do agree with each other (mixed-producer programs depend on it).
+   Revised proposal (awaiting the user's decision):
+   - D1. Make Binate's ABI for a >16-byte by-value aggregate the platform C ABI, in both backends: on x64
+     and arm32 pass it the C way (SysV stack / AAPCS32 r0-r3 + stack) instead of a pointer, retiring the
+     adapters for this case; on aa64 keep the pointer but follow AAPCS64's rule (the caller passes a copy
+     it owns — or a temporary nothing reads afterwards — and the callee uses it in place).  Callees then
+     never copy their aggregate params.  An ABI change on x64 / arm32 (toward C) for Binate-to-Binate
+     calls: param + call lowering in all four backends, closure / func-value shims, the VM ↔ compiled
+     boundary, C-entry thunks, __c_call.
    - D2. Return-value placement at the call site: a call whose aggregate result is stored whole into a
      confined local (or returned) gets that local (or the incoming sret buffer) as its result buffer — a
      shared analysis marks the store, as NoZeroInit marks allocs; each backend honours the mark.
    - D3. A local returned at every return lives in the sret buffer.
-   - D4. A confined local whose last use is a by-value argument is passed without a copy (needs D1).
+   - D4. A confined local whose last use is a by-value argument is passed without a copy (needs D1; aa64
+     only — on x64 / arm32 the C ABI copies the value into the argument area regardless).
 
 Each step: unit tests on the emitted IR / pass output, conformance on LLVM + LLVM arm32 bare metal + native aa64
 (and the VM for B / C), and a measurement per perf-optimization-guide.md (copy bytes in the native aa64
