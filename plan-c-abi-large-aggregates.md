@@ -108,6 +108,20 @@ A >16-byte aggregate is SysV MEMORY class: bytes on the outgoing stack, no regis
 - Validation: full native x64 darwin + full LLVM x86_64-darwin (Rosetta), against baselines taken on
   `f347e953e`; aa64 subsets to confirm no change there; CI for Linux x64 (incl. the VM).
 
+x64 implementation notes (2026-10-03, not yet landed):
+- Once the classifiers agree, the only C-vs-internal divergence left on x64 is an adapted multi-value return
+  (C sret in RDI, internal register return), which shifts the C GP cursor by one; the #[c_export] thunk's
+  straddle cases stay reachable through it (the C-export thunk tests now build their divergence that way).
+  A 2-eightbyte "C-register / internal-memory" straddle (e.g. a slice) is no longer reachable — the
+  internal side can be at most one word ahead, with its GP file full.
+- An earlier note that the internal convention SSE-splits an SSE aggregate "regardless of XMM occupancy"
+  (a separate C divergence) was wrong: both sides use the same classifier; the comment described the
+  cursor-shift effect.  Nothing to file.
+- x64-only dead code removed with the switch: the closure shims' indirect-large capture branches,
+  emitAggregateArg's pointer branch, the param-prologue pointer copy, the __c_call ForCBoundary swap, the
+  c_export trampoline's byval branch and trigger.  ForCBoundary / CAbiIndirectLargeAggregates remain for
+  arm32 until its switch.
+
 ## Open checks
 
 - aa64 HFAs over 16 bytes (3-4 doubles) ride SIMD registers and are not in scope; the predicate must exclude
