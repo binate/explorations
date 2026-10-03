@@ -92,6 +92,17 @@ shift instructions `lsl` / `lsr` / `asr` / `ror` (aliases of MOV with a shifted 
 which clang encodes as MOVW (E3000005), not MOV.  Each its own small fix in
 `asm/parse/arm32.bn` / `arm32_instr.bn` (+ encoder support where missing), goldens from clang.
 
+### x86-64 text assembler: a call / jmp to a defined global or weak symbol is relocated R_X86_64_PC32, where clang uses R_X86_64_PLT32 — a shared-object link rejects it — 🟡 CLAIMED (2026-10-02, work-2/session — user: "(probably that bug should be tracked, and put on your list of things to fix)"; queued after plan item 3c; pre-existing, noted 2026-10-01, work-2)
+
+The ELF writer (`asm/elf/elf.bn`) chooses PLT32 only for an undefined target with a zero addend; clang relocates
+a call or jump to any non-local symbol — defined here or not, global or weak — with PLT32, which GNU ld and lld
+resolve directly in an executable and through the PLT in a shared object.  With PC32, a `-shared` link rejects
+the relocation against a preemptible symbol ("relocation R_X86_64_PC32 against symbol … can not be used when
+making a shared object").  Global / weak aliases (binate `da8befa0a`) reach it too.  Fix: choose PLT32 from the
+instruction (a call / jmp to a non-local symbol), checking clang for a call with an addend (`call A+2`) and for
+Mach-O x86-64, with tests pinned to clang's relocations; bnld already patches PLT32 as PC32 for a statically
+resolved symbol.
+
 ### Until `BUILDER_VERSION` includes binate `1f29d31e9`, gen1 silently miscompiles some statements that open a block or follow a compound statement in BUILDER-compiled code — 🔴 OPEN MAJOR (constraint until the next BUILDER release; found 2026-09-30, work-4)
 
 bnc-0.0.16 (the pinned BUILDER) has the IR-gen defect fixed on main by `1f29d31e9`.  So in cmd/bnc's cone (the packages the BUILDER compiles into gen1), these must not be the first statement of a loop / `if` / `else` / `case` body, nor the statement right after an `if` / `for` / `switch`:
@@ -809,20 +820,9 @@ TLBI / AT, all of DC / IC, DSB nXS, PRFM's SLC target, CLRBHB / PACM, every PSTA
 (2026-09-30; a DSB immediate past 15 written as an expression deliberately rejected, since clang reads it by
 its leading literal alone — user: "The reject sounds good").  (8) `.`-leading names, numeric local labels and
 per-format temporary labels (plan item 3a) — landed `477048003` (2026-09-30).  (9) `name = expr` constants (plan
-item 3b), with multi-term label addends (`lbl+4+4`) on AArch64 and arm32 — 🟡 IN PROGRESS (claimed 2026-10-01;
-user: "1. yes. 2. yes."): numeric constants on every arch landed `1a31e768f`, symbol-valued expressions
-(multi-term addends on AArch64 / arm32, aliases, `C = .`) landed `f9acb7bb6`, the x64 label addends (the
-MAJOR "x64 text parser drops a label addend") landed `331b13ee4` (2026-10-01); constants and aliases in the
-symbol table (local constants as absolute symbols, local aliases, alt entries) landed `63c3ba948`
-(2026-10-01).  Open from 3b — 🟡 IN PROGRESS after the bnld MAJOR (claimed 2026-10-02; user: "We can do 1
-and 2 first, then 3."): **Global / weak aliases** (`.weak W` + `W = f`): rejected
-(`aliasBindingRejected`), because a reference to an alias takes its target when parsed (`nameValue`), so a
-weak alias's own uses would bypass it — clang relocates them against the alias (`R_AARCH64_CALL26 W`), letting a
-strong `W` elsewhere override it (the arm32 default-handler idiom: `.weak irq_handler`, `irq_handler =
-default_handler`, `bl irq_handler`).  To support them: a reference to an alias declared global / weak goes
-against the alias symbol (a relocation; the resolvers keep non-local targets as relocations), the binding must
-be known at the use (reject a `.global` / `.weak` after a use, as forward references are), and the writers list
-it.  (Global / weak number constants landed `bf00c139e`.)
+item 3b) — complete: numeric constants `1a31e768f`, symbol-valued expressions (multi-term addends, aliases,
+`C = .`) `f9acb7bb6`, x64 label addends `331b13ee4`, constants in the symbol table `63c3ba948`, global / weak
+numbers `bf00c139e`, global / weak aliases `da8befa0a` (2026-10-02).
 Apple's legacy NEON syntax
 (`dup.4s v0, w1`, `tbl.16b v0, {v1}, v3`), which clang
 accepts on every target, is not supported (user, 2026-09-28: "we don't need alternate syntax, unless there's

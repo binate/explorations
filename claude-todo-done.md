@@ -1,3 +1,16 @@
+### aa64 / arm32 / x64 text assembler: global and weak aliases — DONE (binate `da8befa0a`, 2026-10-02, work-2; plan item 3b's last piece)
+
+An alias (`A = sym + k`) may be made global or weak by `.global` / `.weak` / `.global_c`, as clang allows: it is
+listed with that binding at its location, and each use goes through the alias's own symbol (on ELF a relocation
+against it, so a strong definition elsewhere overrides a weak one — the arm32 `.weak irq_handler` /
+`irq_handler = default_handler` idiom, tested end to end through bnld); a constant defined from it (`C = A`)
+takes its target.  On Mach-O a weak alias is always an alt entry (clang drops the weak binding instead), and the
+writer keeps a relocation against a listed alt entry rather than moving it to the atom's symbol; ld64 verified
+(alone the alias's code runs, a strong definition overrides it).  Deliberate rejects (clang accepts): a
+`.global` / `.weak` after a use of the alias's current definition, redefining a global / weak alias after a use,
+a global / weak alias of a symbol not defined here, and on Mach-O a weak alias at a section's start where no
+symbol starts an atom.
+
 ### Design B commit 6: IR-gen emits each generic instance from the checker's checked copy — DONE (binate `d938d91bb`, 2026-10-02, work-4)
 
 IR-gen emitted an instance from the shared generic declaration, whose annotations are the abstract body's,

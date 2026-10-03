@@ -46,8 +46,11 @@ label addends — ✅ landed `331b13ee4` (2026-10-01).  Constants and aliases in
 (a number as a local absolute symbol, an alias as a local symbol — an alt entry on Mach-O unless
 it is exactly an atom-starting symbol) — ✅ landed `63c3ba948` (2026-10-01).  Global / weak
 number constants (listed as global / weak absolute symbols; bnld reads absolute symbols as
-definitions) — ✅ landed `bf00c139e` (2026-10-02).  Still rejected: global / weak aliases (references
-would have to go through the alias symbol) — see claude-todo.
+definitions) — ✅ landed `bf00c139e` (2026-10-02).  Global / weak aliases (each use relocated
+against the alias; a weak one always an alt entry on Mach-O) — ✅ landed `da8befa0a` (2026-10-02);
+deliberate rejects: a `.global` / `.weak` after a use of the alias's current definition, a
+redefinition after a use, an alias of a symbol not defined here, and on Mach-O a weak alias at a
+section's start where no symbol starts an atom.  3b is complete.
 
 clang: `N = 5` may be redefined (`N = 6`; each use sees the value at that point); a constant is
 usable in every immediate, offset, data value and later definition, with or without `#` where the
