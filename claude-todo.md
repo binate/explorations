@@ -985,7 +985,7 @@ the spec makes undefined behavior (`bit_cast(*func() int, func…)`,
 where it rejects a valid program: the hint applies only on a signature match,
 which only makes the literal more assignable.
 
-### Should `unsafe_cast` convert a RAW interface value to a MANAGED one (`*I -> @I`, `*I -> @J`)? — 🔴 OPEN, DECIDED 2026-10-03 (raised 2026-10-03, work-3, review of the unsafe_cast interface-widening change)
+### Should `unsafe_cast` convert a RAW interface value to a MANAGED one (`*I -> @I`, `*I -> @J`)? — 🟡 IN PROGRESS, DECIDED 2026-10-03 (raised 2026-10-03, work-3, review of the unsafe_cast interface-widening change; claimed 2026-10-03, work-3/session, self-drive)
 
 §8.7 lists `*T -> @T` (raw pointer -> managed pointer, asserting a management header at the pointee's
 `-2W`) among unsafe_cast's additions, but says nothing about interface values.  The checker today:
