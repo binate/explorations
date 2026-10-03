@@ -71,9 +71,13 @@ step D's table.
 
 - DONE `e051ce4b4` (2026-10-02): a parameter's slot skips its zero-fill (iropt dead-store marks it
   NoZeroInit — its first use is the whole store of the incoming value), all backends.
-- Next: native callees use the incoming copy as the parameter's value when it is read only by the entry
-  store into the slot (`common.ParamRegionElidable`) — safe before callers own their copies, since nothing
-  can write the caller's memory before that store.
+- DONE `f347e953e` (2026-10-03): native callees use the incoming copy as the parameter's value when it is
+  read only by the entry stores into stack slots (`common.ParamRegionElidable`; shared
+  `callconv.CallConv.PassesIndirect`) — safe before callers own their copies, since nothing can write the
+  caller's memory before those stores.  Native aa64 bnc __text 9,649,020 → 9,531,812 bytes (−1.21%)
+  against a compiler built at `e051ce4b4`; `sum(b Big)` 2c+1z → 1c.  Conformance 1524.
+- Next: increment 1 proper — aa64 callers pass owned memory, then the param slot can be the incoming copy
+  (increment 5) on aa64; the x64 / arm32 C-ABI switches.
 
 ## Open checks
 
