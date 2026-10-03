@@ -458,7 +458,9 @@ unsafe_cast, a container retype, bit_cast, raw memory), is UB, listed in §21.6;
 backend has surprising behavior in its own way!" — sanctioned under UB.)  (2) The aggregate retype nests,
 for `cast` and `unsafe_cast` alike: `cast([2][4]uint8, a)` from `[2][4]int8` is accepted.  Work: spec
 §8.5 (nesting), §8.7 / §21.6 (the bool assertion); checker (the constant-operand check; `cast`'s leaf
-rule recursing through nested containers, as checkUnsafeCastSet already does); tests.
+rule recursing through nested containers, as checkUnsafeCastSet already does); tests.  When cast's leaf rule recurses,
+the "use unsafe_cast" rejection message (`addCastRejectError`, keyed on `isUnsafeAggregateLeafRetype`)
+stops firing for a nested retype on its own; its tests should then move a nested case to the accepted side.
 
 ### A failed interface-target assertion names the target by its bare name — qualify it — 🟡 IN PROGRESS (claimed 2026-10-03, work-3/session, self-drive; follow-up to `53c0e5fd5`, 2026-09-28; user: "Improving the message with the qualified name would be better, but can be a follow-up.")
 
@@ -1187,6 +1189,36 @@ the VM's `buildIfaceUpcastSuffixes`.  For a named interface-value type (`type IV
 offset silently stays 0 — correct today only because the checker admits a named interface-value type only
 as an identity (which never reaches the upcast).  A widening through a named interface-value type would
 misdispatch silently.  Fix: peel both types before reading the interface; add a unit test.
+
+### `cast(@[]uint8, mb)` with `mb @[]bool` lets cast-only code store a non-0/1 byte into bool storage through the shared backing — 🔴 NEEDS DECISION (raised 2026-10-03, work-3, review of the cast leaf-rule widening)
+
+§8.5's leaf rule (conv.cast.aggregate-retype) checks the element conversion in the FORWARD direction only:
+`bool -> uint8` is total and bit-preserving, so `@[]bool -> @[]uint8` / `*[]bool -> *[]int8` are casts (the
+spec names them; conformance 017 runs one).  But a slice retype shares the backing: `mu := cast(@[]uint8,
+mb); mu[0] = 2` then reads `mb[0]` as a bool holding 2 — undefined behaviour (decided 2026-09-30) reached
+with no unsafe_cast.  It is the aliasing argument §8.3 makes for readonly below a shared handle: the source
+handle sees whatever the new one writes, so the REVERSE conversion (`uint8 -> bool`, partial) is exercised
+too.  Arrays are copies and are unaffected.  Only bool is asymmetric among the leaf conversions (integers,
+named <-> underlying and same-layout structs are bit-preserving both ways).  Options: (a) for a slice
+retype, require the element conversion to be total both ways unless the destination element is readonly
+(`@[]bool -> @[]readonly uint8` stays a cast; `@[]bool -> @[]uint8` becomes unsafe_cast's); (b) keep the
+rule as written and list the write-through in §21.6 as how cast-only code can reach an invalid bool;
+(c) drop `bool -> byte` from the leaf rule entirely.  Recommendation: (a), which keeps cast free of
+undefined behaviour and mirrors the readonly rule.  The checker (`bitPreservingElem`,
+`pkg/binate/check/check_cast_retype.bn`) currently implements the rule as written.
+
+### Is a location of a named type over a `readonly` type readonly (`type R readonly int8`; `s[0] = v` with `s @[]R`)? — 🔴 NEEDS DECISION (raised 2026-10-03, work-3, reviews of the cast leaf-rule widening)
+
+`type R readonly int8` and `type RP readonly *readonly int` are accepted declarations, but the assignment
+checks (`IsReadonly`, which sees through aliases only) treat a location of type R or RP as writable:
+`s[0] = v` on `s @[]R` is accepted.  So the readonly in a named type's definition protects nothing at the
+named type's own level, while it IS seen one level in (`*readonly int` inside RP) and by the readonly-drop
+checks, which peel named types.  The cast container retype therefore reads a slot's readonly as assignment
+does (unpeeled), so a named-over-readonly destination guards nothing below a slice's handle.  Options:
+(a) a location of a named type over `readonly T` is readonly (IsReadonly peels named types; the cast slot
+guard then follows); (b) reject `readonly` at the top of a named type's definition (a readonly is a
+property of a location, not of a type's identity); (c) keep today's behaviour and say so in §7.11.
+Recommendation: (b) or (a) — today's mix is the worst of both.  Check §7.11 / §7.3 first.
 
 ## Performance
 
