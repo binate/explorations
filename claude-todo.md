@@ -1183,7 +1183,7 @@ merge a block into its single predecessor when that predecessor ends in an uncon
 block layout could also place a jump's target as the fallthrough.  Check native x64 / arm32 output too.
 Measure per explorations/perf-optimization-guide.md.
 
-### Native: an unreachable return epilogue follows the function's last block — 🔴 OPEN (found 2026-09-30, work-5, disassembling the fold-branch pass's output; pre-existing)
+### Native: an unreachable return epilogue follows the function's last block — 🟡 IN PROGRESS (claimed 2026-10-02, work-5; found 2026-09-30, work-5, disassembling the fold-branch pass's output; pre-existing)
 
 Native aa64 at -O2 emits, after the last block of `main` in the function-reference loop above (whose last
 instruction is a `b`), a second copy of the epilogue — callee-saved reloads, `add sp`, `ldp x29, x30`,
