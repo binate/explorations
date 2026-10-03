@@ -1237,6 +1237,22 @@ backend separately switches its bulk copies to llvm.memcpy / llvm.memset so clan
 regression fix, not a substitute for this entry.)
 Measure per explorations/perf-optimization-guide.md.
 
+### Binate's ABI for a >16-byte by-value aggregate is not the C ABI on x64 or arm32 — 🔴 OPEN (found 2026-10-02, work-1, measuring copy chains; pre-existing)
+
+Both backends pass a >16-byte by-value aggregate argument as a plain pointer on every target (LLVM `ptr`,
+native `IndirectLargeAggregates`), but the C ABI passes it by value on SysV x86-64 (MEMORY class, on the
+stack) and AAPCS32 (r0-r3 + stack).  C interop works only through adapters: __c_call marshals with
+`ForCBoundary`, and a Binate function handed to C goes through a `__centry.` / #[c_export] thunk.  On aa64
+the shape matches AAPCS64, but not its ownership rule (the caller passes a copy the callee owns): a native
+caller may pass memory it still uses (an elided load), relying on every Binate callee copying its param —
+so every callee copies (native twice, plus a zero-fill), and the LLVM caller also copies.  LLVM and
+native agree with each other.  User constraint (2026-10-02): "There should be one ABI per platform
+(arch/OS); in particular, LLVM and native MUST share the same ABI.  Also, compatibility with C is an
+important feature; passing large structs by value should be compatible between Binate and C (anything
+else would be extremely unfortunate and inconvenient)."  Fix: pass it the C way on x64 / arm32 and follow
+AAPCS64's ownership rule on aa64, in both backends; callees then use the incoming memory in place.
+Measurements and the copy optimizations that build on it: plan-aggregate-copy-opts.md step D (D1).
+
 ### Copying or releasing an array of managed elements is emitted unrolled, one sequence per element — code size grows with N — 🔴 OPEN (found 2026-09-28, work-6, review of the range-loop operand change; pre-existing)
 
 The copy of an array whose elements are managed (a retain per element) and its release (a release per
