@@ -1,3 +1,212 @@
+### LLVM backend: a cast through a scratch slot allocas inside the loop body — the native stack grows every iteration until SIGSEGV — DONE (binate `8f5e9ef42`, 2026-10-03, work-3, self-drive)
+
+`emitCast` (`pkg/binate/codegen/emit_cast.bn`) reinterprets a struct -> distinct-struct cast, or an array
+retype whose element LLVM types differ (`unsafe_cast([N]bool, a [N]int8)` is `[N x i8]` -> `[N x i1]`), by
+storing to a `%vN.crs = alloca` and loading it back as the target type.  The alloca is emitted where the
+cast is, and `OP_CAST` is not in the entry-block hoisting pass (`emitEntryAllocaDecls`,
+`emit_alloca_hoist.bn`), so in a loop it is a dynamic alloca that grows the stack every iteration — the
+per-iteration native-stack-leak class the loop-leak matrix covers.  Reported by the review (code reading):
+`for` 1e6 iterations of a `[16]bool -> [16]uint8` retype uses ~16 MB of stack and SIGSEGVs.  The
+container-retype widening of `cast` (bool -> 1-byte integer, named element <-> underlying, same-layout
+structs) makes plain `cast` reach it.  Fix: hoist the `.crs` slot (an `OP_CAST` case in
+`emitEntryAllocaDecls`; `emitCast` uses the hoisted slot), plus loop-leak matrix cells.
+
+Resolved by binate `8f5e9ef42`: the `.crs` slot is hoisted to the entry block (emitCastAllocDecl); loop-leak matrix cells cast-struct-retype / unsafe-cast-array-retype.
+
+### Slicing a `readonly` array yields a writable slice — writes through readonly storage — DONE (binate `bf2b7972e`, 2026-10-03, work-3, self-drive)
+
+```
+var r readonly [3]int
+var w *[]int = r[:]       // accepted
+w[0] = 7                  // r[0] is now 7
+var a [2]int
+var pa *(readonly [2]int) = &a
+var w2 *[]int = (*pa)[:]  // accepted; w2[1] = 9 writes a through the readonly view
+```
+`checkSliceExpr` (check/check_expr_access.bn, ~:141) strips the operand's wrappers and returns
+`MakeSliceType(xt.Elem)`, dropping the array's readonly; indexing keeps it (`baseConst` /
+`peelFieldAccessBase`), slicing does not.  It also defeats the readonly-below-a-shared-handle rule:
+`*(readonly [1]*readonly char)` is a sound target only while its slots cannot be written, but
+`(*ra)[:]` hands out a `*[]*readonly char` whose slots can.  Same for an array field reached through a
+readonly struct.  Fix: a slice of an array reached through a readonly path gets readonly elements
+(`*[]readonly T`); error test for each route (readonly local, through a readonly pointer, through a
+readonly struct field) plus the positive `*[]readonly T` result.  No spec text covers slicing a
+readonly array yet — add it with the fix.
+
+Resolved by binate `bf2b7972e`: slicing a readonly array yields `*[]readonly T`; docs `adf30c8` (§7.5, §13.9); conformance 1497.
+
+### LLVM backend: `cast(*T, nil)` emits invalid IR — clang rejects the program — DONE (binate `bc4ad969e`, 2026-10-03, work-3, self-drive)
+
+`var p *uint8 = cast(*uint8, nil)` type-checks but the LLVM backend emits `%v0 = inttoptr i64 0 to i8*` then
+`%v1 = inttoptr i64 %v0 to i8*` — `%v0` is already a pointer, so clang fails: "'%v0' defined with type 'ptr'
+but expected 'i64'".  A loud compile failure, not a miscompile.  Other backends / the VM not yet checked.
+Needs a conformance test (xfail on the failing modes) and a fix in the cast lowering (a pointer-typed nil
+source needs no `inttoptr`).
+
+Resolved by binate `bc4ad969e`: `cast(T, nil)` is T's nil (keeping a named T); conformance 1498.
+
+### A `.bni` may declare the same function twice — the later declaration silently wins — invalid code accepted (minor) — DONE (binate `c8c8bbb14`, 2026-10-03, work-3, self-drive)
+
+`pkg/binate/ir.bni` declared NewModule, NewFunc, NewExternFunc, AddBlock, AddFaultPad and NewParam twice
+each (identical signatures, one copy per section) and nothing complained; removed in the ir.bni split.
+With DIFFERENT signatures (`func F() int` then `func F(x int) int` in one `.bni`), the later one silently
+wins: the errors then land elsewhere — ".bn has 0 parameters but .bni declares 1" at the `.bn`, "wrong
+number of arguments" at a call written against the first — never at the duplicate.  A second declaration
+of a name in the same `.bni` should be a "declared twice" error at the second one (check what the spec's
+declaration rules say for `.bni` vs `.bn`; a `.bn` duplicate is presumably already rejected).  Needs an
+error test (identical and differing signatures, and a type / var / const declared twice).
+
+Resolved by binate `c8c8bbb14`: checkBniDuplicateDecls; it found and removed a duplicate `Utf8Bytes` in types.bni; conformance 1519, 1520.
+
+### A method expression through a type alias fails — `type Alias = Point; Alias.Get(p)` gives "undefined: Get" — valid code rejected — DONE (binate `3adac70bd`, 2026-10-03, work-3, self-drive)
+
+The method-expression branch of checkSelectorExpr (`check_expr_access.bn`, the SYM_TYPE arm: "Method
+expression: T.M where T is a named type") calls `LookupMethod` on the symbol's type without resolving the
+alias, so an alias of a named type finds no methods.  Fix: resolve the alias (types.ResolveAlias /
+StripWrappers as appropriate) before the lookup; check IR-gen's method-expression lowering resolves it the
+same way.  Needs a conformance test (value and call forms).
+
+Resolved by binate `3adac70bd`: the checker resolves the alias and IR-gen names the target type's method; conformance 1499–1503.
+
+### A field or element write through a readonly HANDLE is rejected although the pointee is mutable — valid code rejected — DONE (binate `08d49883c`, 2026-10-03, work-3, self-drive)
+
+§7.11 type.surface: `readonly *int` is a "read-only handle, mutable pointee", and
+type.readonly.object-dispatch lets a read-only handle (`readonly *Box`, `readonly @Box`) call any method.
+But checkSelectorExpr (check/check_expr_access.bn) treats a readonly handle as object-readonly:
+`var b readonly @Box = make(Box); b.y = 1` and `func f(p readonly *S) { p.a[0] = 1 }` are rejected,
+while `(*p).a[0] = 1` is accepted (the deref strips the handle's readonly) — and with the
+readonly-array slicing fix (not yet landed), `p.a[:]` of such a handle also yields `*[]readonly int`.  peelFieldAccessBase(xt) sets
+pathConst for a readonly wrapper around the POINTER, not only around the pointee.  The unit test
+TestCheckSelectorReadonlyFieldWriteRejected pins the current behaviour ("readonly is object-const"),
+against the spec.  Fix: only readonly on the reached OBJECT (the pointee, or a by-value struct) makes
+its fields const; update that test, add conformance coverage (field write, element write, slice, and
+method call through `readonly *S` / `readonly @S`, plus the still-rejected `*readonly S` forms).
+
+Resolved by binate `08d49883c`: a readonly on the handle stops at the indirection; docs `adf30c8` (§7.4); conformance 1510, 1511.
+
+### A cast through a generic struct whose type parameter appears in no field is not deferred to instantiation — valid code rejected — DONE (binate `d12a2a3a7`, 2026-10-03, work-3, self-drive)
+
+`type P[T any] struct { n int }; func g[T any](x @P[int]) @P[T] { return cast(@P[T], x) }` is rejected at the
+definition, though valid for T = int.  isTypeParamType / containsTypeParam (check/check_cast_safe.bn) calls
+StripWrappers first, which drops the TYP_NAMED wrapper carrying the instantiation's InstArgs, so a type
+parameter that only appears there is never seen.  Fix: check InstArgs on each named step before peeling.
+
+Resolved by binate `d12a2a3a7`: containsTypeParam looks at instantiation type arguments, interface values, function types and dependent array lengths, with one visited set; unsafe_cast's interface forms defer too; conformance 1517, 1518.
+
+### A failed interface-target assertion names the target by its bare name — qualify it — DONE (binate `c83621d5e`, 2026-10-03, work-3, self-drive)
+
+`x.(*Flyer)` failing prints `type assertion failed: main.Dog is not Flyer` (gen_assert_iface.bn uses the
+interface's bare `.Name`), while every other type in these messages — the dynamic type, a concrete target,
+an interface inside a composite (`*[]*pkg/b.P`) — prints qualified.  Print the target qualified
+(`<Pkg>.<Name>`) and update the tests that pin the bare form: conformance 1014 and the
+matrix/type-assert/iface/*/abort cells (generator `conformance/gen-type-assert-matrix.py`, whose comment
+documents the bare form).
+
+Resolved by binate `c83621d5e`: the target is named qualified; conformance 1513 and the type-assert matrix.
+
+### `defer T.M(x)` — a deferred method EXPRESSION call — panics at run time ("unresolved selector in IR-gen") — DONE (binate `237d4a377`, 2026-10-03, work-3, self-drive)
+
+```
+type Point struct { x int }
+func (p Point) Show() { testing.Println(p.x) }
+func main() { var p Point; p.x = 4; defer Point.Show(p) }   // runtime panic at the defer site
+```
+`classifyDeferShape` (irgen/gen_defer.bn, ~:207-217) finds no type on the selector's base `Point` (the
+checker's method-expression arm never checks the base ident), reads the selector's checker type — a
+function value — and classifies it DEFER_FUNCVAL; `storePassthruOp` then evaluates `Point.Show` with plain
+genExpr, which reaches genSelector's "unresolved selector" fallback.  The non-deferred `Point.Show(p)` works.
+Fix: classify a method-expression callee (the funcRefName / methodExprName path) as a direct call, or
+evaluate it through genExprOrFuncRef so it becomes a function value.  Needs a conformance test (direct
+type, alias, named scalar, a pointer-receiver method), all backends.
+
+Resolved by binate `237d4a377`: classified as a direct call; conformance 1512, 1514.
+
+### A `.bni` constant `len` of a `.bni` array variable has no constant value for an importer — valid code rejected — DONE (binate `656c1e71a`, 2026-10-03, work-3, self-drive)
+
+With `var Arr [4]int` and `const LArr = len(Arr)` in `a.bni`, an importer's `var x [a.LArr]int` fails with
+"array length must be a constant integer" (printing `a.LArr` gives 4, re-lowered at run time).  Cause: while
+the `.bni` scope is built, its variables are defined only in the package scope `s`, not in the build scope
+`c.Scope` that `checkerEnv.Len` reads, so the constant is recorded without a value; and a variable declared
+after the constant is not defined at all yet (the constant's dependency walk does not follow `len` operands
+to the constants their array lengths name).  Fix: resolve a `.bni` variable a constant's `len` reads on
+demand, with the constants its array length names first.  Needs a multi-package conformance test (before
+and after the constant; the length from a later constant).
+
+Resolved by binate `656c1e71a`: the .bni scope defines the vars a constant needs; conformance 1505, 1507, 1509.
+
+### An interface alias named as a parent breaks the upcast — runtime panic / compiler ICE — DONE (binate `58993b0d9`, 2026-10-03, work-3, self-drive)
+
+`interface Y {…}; interface X = Y; interface A : X {…}` then `var x *X = a` (a `*A`): the checker
+accepts it, but IR-gen / the backends do not follow the alias when walking A's ancestors for the upcast —
+VM "iface_upcast: target vtable not found: …_X", compiled "negative vtable slot offset (target not an
+ancestor of source)".  Fix: canonicalize an alias parent to its target when recording parents (IR-gen
+`collectInterfaceParents` / ParentNames) and at the upcast's target lookup.  Covered by conformance
+1321_iface_alias_parent_upcast (xfail.all, binate `b78c88f61`).
+
+Resolved by binate `58993b0d9`: canonicalIfaceType; conformance 1321 un-xfailed, 1504, 1508 (the generic-instantiation stub case stays open as its own entry, 1506 xfail).
+
+### An opaque type held by value inside an array is accepted at the declaration — DONE (binate `0ac8d0c06`, 2026-10-03, work-3, self-drive)
+
+The declaration-site value-embedding check (checkValueEmbedding → requireSizedType, check_decl.bn) walks
+only a struct declaration's TOP-LEVEL fields, so an opaque type held by value inside an array is accepted
+where the type is declared and rejected only at a use: `type Op` (forward / opaque) then `type A [2]Op`,
+`type _ [2]Op`, `type _ = [2]Op`, `type _ [3]struct { o Op }` all compile; `var c [2]Op` is rejected.  A
+type that can never be used is thus declarable, and a blank type (a compile-time validity assertion)
+passes although its type is invalid.  Fix: at the declaration, run requireSizedType over each non-forward,
+non-generic type declaration's whole resolved type (recursing into array elements and nested structs),
+and over the type checkBlankTypeDecl resolves.
+At the REPL prompt it leaks (found 2026-10-01, work-6, review of the opaque-defined-as-any-type change;
+reproduced): `type G3`, `type F3`, `type F3 [2]G3`, `type G3 @Inner`, then `var f @F3 = make(F3)` with both
+elements set to an `@Inner` leaves the Inner two references higher — F3's destructor is built while G3 is
+undefined, so it destroys nothing.  Rejecting the array declaration (as a struct field of an opaque type is)
+removes the case.
+
+Resolved by binate `0ac8d0c06`: every non-forward type declaration's definition goes through requireSizedType unless it is itself opaque; conformance 1521–1523.
+
+### The checker rejects spec-valid non-integer container retypes (`[N]bool → [N]uint8`, named ↔ underlying, same-layout named structs) — valid code rejected — DONE (binate `e731a31d0`, 2026-10-03, work-3, self-drive)
+
+`conv.cast.aggregate-retype`'s leaf rule admits any element conversion that is total and
+bit-preserving (`cast` equals `bit_cast` on every element); its note names `bool → int8` explicitly,
+and named ↔ underlying / two named types sharing one underlying are same-layout retypes "for any type"
+(§8.5).  The checker's `bitPreservingElem` (`pkg/binate/check/check_cast_safe.bn`) admits only
+identical elements or same-size integers, so every mode rejects, with "cast does not support this
+conversion": `[3]bool → [3]uint8` / `[3]int8`, `@[]bool → @[]uint8`, `[2]Celsius → [2]float64`
+(`type Celsius float64`), `[2]P → [2]struct{…}` (P's anonymous underlying), and `[2]P → [2]Q` (two
+named structs, one layout).  Controls accepted: `[2]MyInt → [2]int`, scalar `cast(Q, p)`.  Test:
+`conformance/spec/08-conversions/017_cast_aggregate_retype_leaf` (`.xfail.all`).  Fix: widen
+`bitPreservingElem` to the leaf rule — elements identical after peeling named/alias wrappers
+(`sameStructFields` for two named structs), plus `bool →` a 1-byte integer (NOT the reverse:
+`int8 → bool` is partial) — keeping the readonly and managed-element exclusions.  This WIDENS what the
+checker accepts (to match the spec), so confirm with the user before landing.  Codegen is ready: the
+LLVM backend reinterprets an array whose element LLVM types differ (`[N x i1]` → `[N x i8]`,
+`[N x %P]` → `[N x %Q]`) through a scratch slot (`89be70e05`, unit-tested); native and the VM get
+their first end-to-end check when 017 un-xfails.
+
+Resolved by binate `e731a31d0`: bitPreservingElem implements the leaf rule (slot-view readonly checks, struct pairs, bool -> byte), with `8f5e9ef42` hoisting the LLVM scratch slot it reaches; docs `adf30c8` (§8.5); conformance 017 un-xfailed.  Open follow-ups: the bool-slice aliasing and named-over-readonly NEEDS DECISION entries.
+
+### Checker: `cast` rejects a container retype that also adds element-level `readonly` — DONE (binate `67cb79358`, 2026-10-03, work-3, self-drive)
+
+`conv.cast.aggregate-retype` condition (2) forbids only DROPPING element-level
+`readonly`, so `cast(@[]readonly uint8, x)` with `x @[]int8` is a valid retype
+(bit-preserving leaf, readonly added).  `bitPreservingElem`
+(`pkg/binate/check/check_cast_safe.bn`) rejects a readonly change in either
+direction.  Accept the add; keep rejecting the drop.  Add a case to
+`conformance/spec/08-conversions/017_cast_aggregate_retype_leaf` or a new test.
+
+Resolved by binate `67cb79358`: the add is accepted under the shared-handle rule; conformance 1515.
+
+### Checker: `unsafe_cast` rejects every interface-to-interface conversion, including the identity and the widening `cast` accepts — `cast ⊆ unsafe_cast` does not hold — DONE (binate `499c48f05`, 2026-10-03, work-3, self-drive)
+
+`check_builtin.bn`'s UNSAFE_CAST `srcIface && dstIface` branch rejects all of them
+("unsafe_cast does not convert between interface values") — including
+`unsafe_cast(@I, x)` with `x @I` and a sub-interface → super-interface widening,
+both of which `cast` accepts (§8.1 case 7; IR-gen lowers it with
+`EmitIfaceUpcast`).  The one unit test (`TestCheckUnsafeCastIfaceToIfaceRejected`)
+uses two unrelated interfaces.  Fix: accept what `castSafeSetAllows` accepts there
+and lower it as `cast` does; keep rejecting a sub-interface recovery (needs a
+run-time vtable; conformance 1217).
+
+Resolved by binate `499c48f05`: accepts what cast accepts, lowered through genIfaceUpcast; docs `adf30c8` (§8.7); conformance spec/08-conversions/025.  Open: the raw -> managed NEEDS DECISION entry.
 ### A `.bni` forward `type X` completed by a NON-struct `type X int` in the `.bn` panicked IR-gen — DONE (binate `381214442` with `255d85be8`, docs `685313a`; confirmed 2026-10-02, work-3)
 
 The language decision the entry waited on was made with the opaque-defined-as-any-type change: spec §7.12
