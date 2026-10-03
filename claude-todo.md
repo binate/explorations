@@ -462,6 +462,18 @@ operand (a composite literal) to an interface, e.g. `func conv[T any]() T { retu
 compiler panic.  Fix: run the cast-safety rules on the substituted types when a generic body is
 instantiated (checker-side, before IR-gen), and turn the IR-gen panics into unreachable asserts.
 
+### bnfmt is not idempotent on a long string-literal call argument — formatting a formatted file changes it again — 🔴 OPEN (found 2026-10-02, work-3, formatting a unit test; reproduced with the CHECK_TOOLS bnfmt, bnc-0.0.17-pre1; pre-existing)
+
+```
+	if !rejectsSliceBinding("type Row [3]int\nfunc f() { var r readonly Row; var w *[]int = r[1:] }\n") {
+```
+Pass 1 splits the over-long literal at its `\n` into an adjacent-literal pair, continuing on the same
+line: `rejectsSliceBinding("type Row [3]int\n"` / `\t\t\t"func f() …\n") {`.  Pass 2 rewraps that
+into `rejectsSliceBinding(` / `\t\t\t"type Row [3]int\n"` / `\t\t\t\t\t"func f() …\n") {`; pass 3 is
+stable.  A formatter's output must be a fixed point: the bnfmt-format hygiene check then flags a file
+just written by `bnfmt -w`.  Fix: have the literal split produce the argument-list wrap pass 2 chooses
+(or make pass 2 accept pass 1's form); add a bnfmt unit test that formats twice and compares.
+
 ### The conformance runner has no compile-size / compile-memory guard — one pathological test can exhaust the machine — 🔴 OPEN (split out of the 1301 whole-array-load entry, 2026-09-28, work-1; user: "yes, keep the 1301 suggestion as its own todo")
 
 Conformance 1301 used to make clang -cc1 pass 4.5 GB RSS, and an unwatched `builder-comp-comp` run on
