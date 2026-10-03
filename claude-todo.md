@@ -734,6 +734,13 @@ rather than resolving it.  Fix: resolve every package-level declaration on deman
 types (for any use that needs their layout or methods), methods and impls — with one cycle stack, so the
 order of collection never matters.  Needs conformance tests for each of those forms and for cycles through
 them (`var v = F(); func F() [len(v)]int`, `type T [len(v)]int; var v = T{}`).
+The `.bni` scope build (buildScopeFromFile) has the same gap for NAMED TYPES: constants and variables are
+defined on demand (defineBniVarByName, work-3's `.bni` len fix), but a named type is resolved in declaration
+order, so (found 2026-10-03 by the review of that fix; valid code rejected, each rejected before it too)
+`const L = len(V); var V Buf; type Buf [4]int` → "not a constant expression"; `var V [S]int; type Size int;
+const S Size = 4` → "array length must be a constant integer" (S records NOT_CONST); `var V [S]uint8; type H
+struct{a int; b int}; const S = sizeof(H)` → S silently POISONED and V `[0]uint8` (only the package's own
+checkBniVarMatch then complains).
 
 ### Constant `sizeof` of a type built from repeated struct fields takes time exponential in the nesting depth — 🔴 OPEN (found 2026-09-29, work-4, review of design B commit 3; pre-existing)
 
