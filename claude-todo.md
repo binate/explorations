@@ -189,12 +189,6 @@ the prompt never parks — its body is resolved only when instantiated — so it
 name, and something (the checker's instantiation or IR-gen's REPL type registration) then lays out the
 field of the later-declared type wrongly.  Root cause: unknown — needs investigation.
 
-### A REPL variable redefined with a different type keeps the old variable's value — 🟡 IN PROGRESS (claimed 2026-10-02, work-6/session — user: "yes") (found 2026-09-29, work-6, review of the REPL forward-reference rework; reproduced; pre-existing)
-
-`var x int = 1`, `var x bool = true`, `testing.Println(x)` prints 1 (silent wrong value); redefining with
-the same type (`var q int = 1`, `var q int = 2`) prints 2.  Root cause: unknown — needs investigation
-(how a redefined variable's new global is materialized and found, and what its initializer writes).
-
 ### A value-receiver method of a named POINTER type called through an interface reads garbage — the receiver is the box cell, not the pointer in it — 🔴 OPEN (found 2026-09-30, work-3, fixing the `@any` named-owning-pointee identity; reproduced on LLVM and the VM; pre-existing)
 
 `type H @Node` with `func (h H) Get() int { return h.v }` and `impl H : Getter`: `h.Get()` returns the

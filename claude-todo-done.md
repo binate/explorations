@@ -1,3 +1,16 @@
+### A REPL variable redefined with a different type keeps the old variable's value — a variable redeclared at the prompt is now replaced (same type) or shadowed — DONE (binate `c030254cf`, 2026-10-03, work-6)
+
+Redeclaring a variable registered a second global of the same name; IR-gen and the VM resolve a global by
+name, first match first, so the new initializer wrote into the old storage (`var x int = 1; var x bool =
+true` printed 1; an @[]char redeclared as an int crashed the REPL).  Now per the REPL's redefinition design
+(claude-notes "Redefinition in the REPL"): the same type replaces the variable (same storage; the new
+initializer is assigned into it, releasing the old value, or it is reset to zero); anything else taking the
+name — a variable of another type, a constant, a function — shadows it (renamed to a hidden name in IR-gen
+and the VM, code already lowered keeps it, a warning; undone if the new declaration is not emitted).  Also
+through the retry path (RetriedDecl.PrevVar).  The review found the const/func-in-between case
+(`var q int; const q = 2; var q [4]int` → garbage), fixed, which also fixed `var q int = 1; const q = 2`
+reading 1.  Tests: REPL e2e case 74, repl / irgen / vm unit tests.
+
 ### Native: an unreachable return epilogue followed the function's last block — DONE (binate `1d160f207`, 2026-10-03, work-5)
 
 aarch64 / arm32 appended an epilogue + return after every function's last block (x64 whenever the last block
