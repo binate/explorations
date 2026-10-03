@@ -1,3 +1,14 @@
+### Native: an unreachable return epilogue followed the function's last block — DONE (binate `1d160f207`, 2026-10-03, work-5)
+
+aarch64 / arm32 appended an epilogue + return after every function's last block (x64 whenever the last block
+did not end in a return); every block reaching native emission ends in a terminator, so it was dead code.
+Removed; each function is now checked once (common.RequireTerminated: has blocks, each ends in a
+terminator — prints the function / block and panics on malformed IR), and a jump without a target or a
+branch missing a target / condition fails the compile instead of emitting nothing.  `__text` of cmd/bnc:
+aa64 −179,132 bytes (−1.85%), x64 −82,592 (−0.68%); arm32 `.text` of perf/002_many_funcs −8,464 (−1.84%)
+(same tree, old vs new emitters, 2026-10-02).  Review follow-up (user: "yes, I guess you should do the
+follow-up"): trap on OP_UNREACHABLE on aa64 / x64 as arm32 does — separate commit.
+
 ### LLVM backend: a cast through a scratch slot allocas inside the loop body — the native stack grows every iteration until SIGSEGV — DONE (binate `8f5e9ef42`, 2026-10-03, work-3, self-drive)
 
 `emitCast` (`pkg/binate/codegen/emit_cast.bn`) reinterprets a struct -> distinct-struct cast, or an array
