@@ -270,6 +270,20 @@ cross-package owning-box leak fix (which queues the declaring module's structura
 cross-package X case from a leak into the same crash, as the same-package case already is (user,
 2026-09-30: "I think the crash is ok *for now*"; landed as binate `e26352158`).
 
+### A field or element write through a readonly HANDLE is rejected although the pointee is mutable — valid code rejected — 🔴 OPEN (found 2026-10-02, work-3, review of the readonly-array slicing fix; pre-existing)
+
+§7.11 type.surface: `readonly *int` is a "read-only handle, mutable pointee", and
+type.readonly.object-dispatch lets a read-only handle (`readonly *Box`, `readonly @Box`) call any method.
+But checkSelectorExpr (check/check_expr_access.bn) treats a readonly handle as object-readonly:
+`var b readonly @Box = make(Box); b.y = 1` and `func f(p readonly *S) { p.a[0] = 1 }` are rejected,
+while `(*p).a[0] = 1` is accepted (the deref strips the handle's readonly) — and since 0c3bc8462-era
+slicing, `p.a[:]` of such a handle also yields `*[]readonly int`.  peelFieldAccessBase(xt) sets
+pathConst for a readonly wrapper around the POINTER, not only around the pointee.  The unit test
+TestCheckSelectorReadonlyFieldWriteRejected pins the current behaviour ("readonly is object-const"),
+against the spec.  Fix: only readonly on the reached OBJECT (the pointee, or a by-value struct) makes
+its fields const; update that test, add conformance coverage (field write, element write, slice, and
+method call through `readonly *S` / `readonly @S`, plus the still-rejected `*readonly S` forms).
+
 ### Spec decision: may a type assertion recover a MUTABLE pointer to a boxed `readonly` named value? — 🔴 NEEDS DECISION (raised 2026-09-29, work-3, review of the outer-readonly boxing fix)
 
 `var c readonly Celsius = 21; var x *any = &c; x.(*Celsius)` succeeds today (named boxes drop the outer
@@ -283,6 +297,9 @@ The same question for a POINTER box, reproduced 2026-09-30 (work-3, review of th
 dynamic type strips the pointee's readonly, so the "element readonly may be added but not dropped" rule
 cannot be enforced for pointer boxes (slice boxes keep element readonly in their identity, pointer boxes
 do not).
+A struct box too (2026-10-02, work-3, review of the readonly-array slicing fix): `var rs readonly S;
+var x *any = &rs; x.(*S).a[0] = 9` writes rs, as does `var ri readonly int; *(&ri as *any).(*int) = 7`
+(reproduced on builder-comp).
 
 ### Method values on non-addressable / read-only receivers, and the lifetime of an addressed composite literal — 🔴 OPEN, DECIDED 2026-09-30 (raised 2026-09-30, work-7, fixing the method-value-captures-a-copy bug)
 
