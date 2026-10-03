@@ -264,7 +264,7 @@ for any value type; `cast(@Node, h)` boxes the Node itself.  Same for a named ra
 `impl PS : I`).  Spec §11.4 / §11.12 wording to match; tests over `@`- and `*`-named types, raw and managed
 interfaces, `case` / assertion / dispatch, every backend.
 
-### Spec decision: may a type assertion recover a MUTABLE pointer to a boxed `readonly` named value? — 🔴 NEEDS DECISION (raised 2026-09-29, work-3, review of the outer-readonly boxing fix)
+### Spec decision: may a type assertion recover a MUTABLE pointer to a boxed `readonly` named value? — 🔴 OPEN, DECIDED 2026-10-03 (raised 2026-09-29, work-3, review of the outer-readonly boxing fix)
 
 `var c readonly Celsius = 21; var x *any = &c; x.(*Celsius)` succeeds today (named boxes drop the outer
 readonly), handing out a mutable `*Celsius` to readonly storage without `unsafe_cast`.  §11.12 iface.assert's
@@ -280,6 +280,17 @@ do not).
 A struct box too (2026-10-02, work-3, review of the readonly-array slicing fix): `var rs readonly S;
 var x *any = &rs; x.(*S).a[0] = 9` writes rs, as does `var ri readonly int; *(&ri as *any).(*int) = 7`
 (reproduced on builder-comp).
+Decision (user, 2026-10-03, on options (a) the box records its object's readonly and a recovery may add
+but not drop it / (b) reject boxing a pointer to a readonly object / (c) keep today's behaviour as undefined
+behaviour): "(a) sounds right".  So, on a box of a readonly object (`var x *any = &c`, `c readonly
+Celsius`; `@readonly Node -> @any`): `.(*readonly Celsius)` and the value copy `.(Celsius)` match;
+`.(*Celsius)` / `.(@Node)` miss (abort in the single-value form, ok = false in comma-ok); an interface
+target matches only if the static widening of a readonly object to it would be accepted (`.(*Setter)` with
+a mutating `Set` misses, an interface whose methods all take readonly receivers matches).  A mutable
+object's box behaves as today.  Probed 2026-10-03: `x.(*Celsius)` then `*p = 5` and `x.(*Setter).Set(9)`
+both write `c`, while `var s *Setter = &c` is rejected statically.  Work: a readonly variant of the box's
+type-info / vtable (LLVM, native, VM, interop), the assertion and type-switch match, spec §11.12 wording
+(drop "outer-readonly stripped" / "independent of any readonly" for the pointee), tests per backend.
 
 ### Method values on non-addressable / read-only receivers, and the lifetime of an addressed composite literal — 🔴 OPEN, DECIDED 2026-09-30 (raised 2026-09-30, work-7, fixing the method-value-captures-a-copy bug)
 
