@@ -1225,7 +1225,7 @@ backend separately switches its bulk copies to llvm.memcpy / llvm.memset so clan
 regression fix, not a substitute for this entry.)
 Measure per explorations/perf-optimization-guide.md.
 
-### Binate's ABI for a >16-byte by-value aggregate is not the C ABI on x64 or arm32 — 🔴 OPEN (found 2026-10-02, work-1, measuring copy chains; pre-existing)
+### Binate's ABI for a >16-byte by-value aggregate is not the C ABI on x64 or arm32 — 🟡 IN PROGRESS (found 2026-10-02, work-1, measuring copy chains; pre-existing; claimed 2026-10-02, work-1; user: "yes" to doing D1 as C-ABI conformance)
 
 Both backends pass a >16-byte by-value aggregate argument as a plain pointer on every target (LLVM `ptr`,
 native `IndirectLargeAggregates`), but the C ABI passes it by value on SysV x86-64 (MEMORY class, on the
