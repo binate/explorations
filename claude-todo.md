@@ -981,7 +981,7 @@ Each needs a test (xfail'd) + triage; grouped here so none is lost.
 - **Unverified:** the REPL (`repl/ir_imports.bn`) has no equivalent of `registerGenericBodyExternDeps`.
 - **Hazard:** `gen_type_resolve.bn:113,153,193` silently fall back to `TypInt()` on a registry miss.
 
-### The checker rejects spec-valid non-integer container retypes (`[N]bool → [N]uint8`, named ↔ underlying, same-layout named structs) — valid code rejected — 🔴 OPEN (found 2026-09-27, work-3, fixing the LLVM array-cast bug; pre-existing)
+### The checker rejects spec-valid non-integer container retypes (`[N]bool → [N]uint8`, named ↔ underlying, same-layout named structs) — valid code rejected — 🟡 IN PROGRESS (found 2026-09-27, work-3, fixing the LLVM array-cast bug; pre-existing; claimed 2026-10-03, work-3/session, self-drive — the widening to be confirmed with the user at landing)
 
 `conv.cast.aggregate-retype`'s leaf rule admits any element conversion that is total and
 bit-preserving (`cast` equals `bit_cast` on every element); its note names `bool → int8` explicitly,
