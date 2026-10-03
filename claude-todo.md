@@ -1154,6 +1154,40 @@ uses two unrelated interfaces.  Fix: accept what `castSafeSetAllows` accepts the
 and lower it as `cast` does; keep rejecting a sub-interface recovery (needs a
 run-time vtable; conformance 1217).
 
+### Should `unsafe_cast` convert a RAW interface value to a MANAGED one (`*I -> @I`, `*I -> @J`)? — 🔴 NEEDS DECISION (raised 2026-10-03, work-3, review of the unsafe_cast interface-widening change)
+
+§8.7 lists `*T -> @T` (raw pointer -> managed pointer, asserting a management header at the pointee's
+`-2W`) among unsafe_cast's additions, but says nothing about interface values.  The checker today:
+`unsafe_cast(@T, r)` with `r *I` (raw interface value -> managed CONCRETE pointer) is ACCEPTED — the
+narrowing branch puts no kind constraint on it — while `unsafe_cast(@I, r)` / `unsafe_cast(@J, r)` (raw
+interface value -> managed interface value) is REJECTED, with the interface-to-interface message (which
+advises a type assertion, and `x.(@J)` on a `*I` is itself forbidden by §11.12 `iface.assert.kind`).
+Options: (a) allow raw -> managed between interface values as the interface analogue of `*T -> @T` (the
+data word asserted to carry a header; a same-interface or widening vtable), lowering through the upcast;
+(b) reject it, and also reject `*I -> @T` for consistency, with a message that names the problem;
+(c) leave as is.  Recommendation: (a) — §8.7's `*T -> @T` already sanctions the assertion, and (b) would
+take away an accepted conversion.  Whichever: the diagnostic for a rejected raw -> managed interface
+conversion should say that, not "recover a narrower interface".
+
+### A `readonly` interface-value source cannot widen — `var g @Getter = n` with `n readonly @Named` is rejected — 🔴 OPEN (found 2026-10-03, work-3, review of the unsafe_cast interface-widening change; reproduced; pre-existing)
+
+With `interface Named : Getter`, `var n readonly @Named = t` then `var g @Getter = n` gives "cannot assign
+readonly @Named to @Getter", and `cast(@Getter, n)` gives "cast cannot recover a concrete type from an
+interface value" (the wrong diagnostic: it is a widening).  Suspected cause: `canAssignTo*InterfaceValue`
+resolves aliases but not an outermost `readonly` on the source, so the source is not recognized as an
+interface value.  Check the spec (§8.1 case 7 with §8.3's outermost-readonly adjustment) — a copy of a
+handle may drop its own outermost readonly — then fix assignment, cast and unsafe_cast together.  Needs a
+conformance test (assignment, cast, unsafe_cast; a widening and the identity).
+
+### `irbuild.EmitIfaceUpcast` reads the interface off `.Elem` without peeling a NAMED interface-value type — the slot offset stays 0 — 🔴 OPEN (latent; found 2026-10-03, work-3, review of the unsafe_cast interface-widening change)
+
+`EmitIfaceUpcast` (`pkg/binate/irbuild/ir_ops_iface.bn`) computes `IfaceUpcastSlotOffset` from
+`src.Typ.Elem` / `instr.Typ.Elem` without `types.StripWrappers`, unlike IR-gen's `convertToIfaceTarget` and
+the VM's `buildIfaceUpcastSuffixes`.  For a named interface-value type (`type IV @I`) `.Elem` is nil, so the
+offset silently stays 0 — correct today only because the checker admits a named interface-value type only
+as an identity (which never reaches the upcast).  A widening through a named interface-value type would
+misdispatch silently.  Fix: peel both types before reading the interface; add a unit test.
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
