@@ -1,3 +1,15 @@
+### IR-gen registered `type X = struct { … }` as a distinct named struct, not an alias — one type, two identities — DONE (binate `3e4529df4`, 2026-10-02, work-4)
+
+An alias is its target (type.alias.transparency) and the checker resolves `Anon` in
+`type Anon = struct { a int8; b int8 }` to the anonymous struct, but IR-gen's struct registration also
+registered the alias as the named struct `main.Anon`, so `g[Anon]` and `g[struct{…}]` were two instances
+with two symbols — and under design B commit 6 an internal error.  Every struct registration site (17, in
+modules, imports, self types and the REPL) now tests `isStructTypeDecl`, which excludes a non-generic
+alias; a generic alias of a struct literal (`type A[T any] = struct { … }`) stays a generic struct, as the
+checker checks it (generic aliases remain an open question).  Tests: `TestStructAliasIsAnonymousStruct`,
+`TestGenericStructAliasIsGenericStruct`, conformance `spec/07-types/287`, REPL e2e
+`tier2-type-struct-alias`.
+
 ### bnld folded absolute symbols into undefined ones — a weak absolute symbol linked as 0 — DONE (binate `bf00c139e`, 2026-10-02, work-2; MAJOR, found 2026-10-01 listing assembler constants in the symbol table)
 
 bnld's ELF and Mach-O readers mapped an absolute symbol (`SHN_ABS` / `N_ABS`) to the undefined marker, so a

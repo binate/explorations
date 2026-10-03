@@ -54,21 +54,6 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### IR-gen registers `type X = struct { … }` as a distinct named struct, not an alias — one type, two identities; blocks design B commit 6 — 🟡 IN PROGRESS (claimed 2026-10-02, work-4/session; user: "yes to both"; found 2026-10-01, work-4, review of design B commit 6; pre-existing)
-
-An alias is the same type as its target (spec 07-types), and the checker resolves `Anon` in
-`type Anon = struct { a int8; b int8 }` to the anonymous struct.  IR-gen's struct registration sites
-(gen_module.bn, gen_module_register.bn, gen_module_single.bn, gen_import.bn, gen_decl_order.bn — every
-`d.Kind == ast.DECL_TYPE && d.TypeRef.Kind == ast.TEXPR_STRUCT` test) do not exclude `d.IsAlias`, so the alias
-is registered as the named struct `main.Anon`.  Today `g[Anon]` and `g[struct{a int8; b int8}]` are two
-instances with two symbols (`bn_I1_4_main1_g1_N1_4_main4_Anon` vs `…_g1_S2_1_aN0_4_int8…`); assertions to a
-struct alias are rejected by the checker, so no wrong run-time result was found.  Under design B commit 6
-(IR-gen emits each instance from the checker's checked copy, matched by IR-gen's mangled name) the two
-identities no longer meet: `g[Anon]`, `Box[Anon]`, `g[*Anon]` hit "internal error: no checked copy of
-generic instance".  Fix: register an alias of a struct literal through registerTypeDeclEntry (the alias
-registry, which interns the anonymous struct) and exclude `IsAlias` at every struct registration site
-(sweep the pattern repo-wide, including the REPL paths).  Repros: the commit 6 review's scratch t3/t5/t21.
-
 ### No CI lane runs the LLVM arm32 bare-metal mode at -O2 — 🔴 OPEN (raised 2026-09-30, work-1; awaiting a user decision)
 
 .github/workflows/conformance-o2.yml runs builder-comp (host LLVM) and the native modes at -O2, not
