@@ -1220,6 +1220,27 @@ guard then follows); (b) reject `readonly` at the top of a named type's definiti
 property of a location, not of a type's identity); (c) keep today's behaviour and say so in §7.11.
 Recommendation: (b) or (a) — today's mix is the worst of both.  Check §7.11 / §7.3 first.
 
+### A `.bni` may declare the same METHOD twice — or differently from the `.bn` — and nothing compares them — 🔴 OPEN (found 2026-10-03, work-3, review of the .bni duplicate-declaration check; code reading; pre-existing)
+
+A `.bni` method declaration whose body is in the `.bn` is not prepended into the merged file (`sameFuncDecl`
+matches the `.bn` method, `pkg/binate/loader/loader_load.bn`), and `LoadPackageInterface` registers nothing
+for a non-generic method, so `func (t @T) M() int` declared twice in a `.bni`, or with a signature that
+differs from the `.bn` definition, passes unchecked; `checkDuplicateDecls`'s doc says methods are checked by
+AddMethod, which holds only for `.bn` methods.  An importer reads the `.bni` signature, so a divergent one
+would be misread (pkg.bni.consistency).  Fix: compare a `.bni` method declaration with the receiver type's
+`.bn` method (signature) and with other `.bni` declarations of it (duplicate).  Needs error tests.
+
+### A doubled `expose "P"` in a forwarder's `.bni` is reported as `"P" redeclared in this block` — 🔴 NEEDS DECISION (minor; found 2026-10-03, work-3, review of the .bni duplicate-declaration check; pre-existing)
+
+`checkDuplicateDecls` compares an `expose` declaration by its Name, which is the quoted package path, so a
+pure forwarder (merged == the `.bni`) with `expose "pkg/p"` twice gets `"pkg/p" redeclared in this block`,
+while `checkExposeCollisions` deliberately dedups a doubled expose and `collectDeclNames` skips expose decls
+("contributes no name of its own").  Read literally, `pkg.expose.conflict` makes a doubled expose an error
+with an `X: exposed by both …` message.  Decide: a doubled expose is (a) accepted (idempotent, as a repeated
+forward type declaration is), or (b) an error with an expose-specific message; then make
+`collectNamedDecls` skip `DECL_EXPOSE` and leave the policy to the expose code.  (The `.bni`
+duplicate-declaration check skips expose decls so as not to extend today's message to packages with a `.bn`.)
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
