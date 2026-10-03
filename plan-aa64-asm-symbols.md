@@ -83,6 +83,10 @@ Design: a per-section pending pool in the parser; LDR (literal) fixups to pool-e
 (temporary names); flush at `.ltorg` / `.pool` (new directives) and at end of file per section.
 The pool-distance limit (±1 MB) is the existing LD_PREL_LO19 fixup range check.
 
+Progress: the 4-byte absolute data word a W-register symbol entry needs (aarch64 FIX_ABS32: ELF
+R_AARCH64_ABS32, Mach-O 4-byte UNSIGNED; bnld patches and reads it) — ✅ landed `2a26ec4d9`
+(2026-10-03).  The pools themselves next.
+
 ## 3d. Relocation operators
 
 ELF: the MOVW group — `:abs_g0:` … `:abs_g3:`, `_nc`, `_s` (MOVZ / MOVN / MOVK), `:prel_g0:` …
