@@ -220,7 +220,7 @@ check nothing in the tree or the conformance suite asserts on a type parameter),
 Draft rule (per-instantiation checking — design B).
 Decision (user, 2026-10-03: "3, 5, 8, 9: go with your recs (though for 9 probably bnlint should complain about it)"): implement the Draft per-instantiation rule (§11.12 `iface.assert.typeparam`) — instance bodies are now checked per instance (gen.mono.check), so the instantiated target is checked as a concrete one; if that turns out larger than expected, reject a type-parameter target at the definition instead (with its own message).  Tests: `f[@Node]` recovering a Node cell as `*(@Node)` rejected or missed per the concrete rules; a valid instantiation recovering correctly.
 
-### `@any` of a named managed pointer or function value (`type H @Node`, `type F @func() int`) never matches its own `case` — 🔴 NEEDS DECISION (split out 2026-09-30, work-3, from the named-owning-pointee entry; slices / arrays fixed in binate `02857f863`)
+### `@any` of a named managed pointer or function value (`type H @Node`, `type F @func() int`) never matches its own `case` — 🔴 OPEN, DECIDED 2026-10-03 (split out 2026-09-30, work-3, from the named-owning-pointee entry; slices / arrays fixed in binate `02857f863`)
 
 `var a @any = box(h)` for `type H @Node` keys the box structurally (`rt.__nameless_<H>`) while `case @H:` /
 `a.(@H)` key on `main.H`, so the assertion misses.  It cannot simply key by name like a named slice: for a
@@ -251,6 +251,18 @@ boxed reads `len(*p)` as 0 then segfaults on drop.  Conformance 1469 covers both
 cross-package owning-box leak fix (which queues the declaring module's structural slot-0 dtor) turns the
 cross-package X case from a leak into the same crash, as the same-package case already is (user,
 2026-09-30: "I think the crash is ok *for now*"; landed as binate `e26352158`).
+Decision (user, 2026-10-03, on options (A) a named type is a value type for boxing / (B) a pointer-shaped
+named type is its own data word / (C) no methods or impls on a named pointer type): "I think (A) is right
+(that, or (C); the main argument for (C) is to try to reduce confusion, though it loses the uniformity of
+being able to define methods/impls on all named types)."  So: a box's data word always points to an object of
+its dynamic type, for every named type whatever its representation.  `box(h)` / `&h` (h of `type H @Node`)
+box an H cell or variable recorded as `H`; `.(@H)` / `.(*H)` recover it, `.(H)` copies the H out,
+`.(@Getter)` works; H's value-receiver methods dispatch through a thunk that loads the H from the cell (this
+fixes the MAJOR above, "A value-receiver method of a named POINTER type called through an interface reads
+garbage").  Widening a bare `h` (`var g @Getter = h`, `var a @any = h`) is rejected ("box a value first"), as
+for any value type; `cast(@Node, h)` boxes the Node itself.  Same for a named raw pointer type (`type PS *S`,
+`impl PS : I`).  Spec §11.4 / §11.12 wording to match; tests over `@`- and `*`-named types, raw and managed
+interfaces, `case` / assertion / dispatch, every backend.
 
 ### Spec decision: may a type assertion recover a MUTABLE pointer to a boxed `readonly` named value? — 🔴 NEEDS DECISION (raised 2026-09-29, work-3, review of the outer-readonly boxing fix)
 
