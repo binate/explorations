@@ -203,7 +203,8 @@ Each commit leaves the tree green.
    failure, drained with tentative declarations, failures passed to namers).  The REPL re-checks a
    method typed at a later prompt for every instance the program reaches (binate `d69ea61bd`).
 6. IR-gen emits the clones; delete the `DEPENDENT` paths; missing records and constant failures become ICEs.
-   **IN PROGRESS (2026-10-01, work-4).**  Implementation plan:
+   **LANDED (binate `d938d91bb`, 2026-10-02; prerequisites `4bb2b1906`, `6cd70a132`, `3e4529df4`; spec
+   docs `439407c`).**  Implementation plan, as built (the bridge names copies without lookups, memoized):
    - *Checker keeps the checked clones.*  `checkInstanceBody` builds and drops its clone today.  Keep it on a
      record per (generic function or method decl, checker type arguments): `InstanceBody{Decl, Args, Clone}`
      in `InstanceState`, replaced when the instance is re-checked (REPL), kept only for a check that passed.

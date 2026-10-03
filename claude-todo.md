@@ -13,28 +13,6 @@ when every aggregate copy is fully unrolled — a function copying a 16 KB aggre
 instructions per copy) at -O1.  Fails loudly at build time.  Fix: branch relaxation in the aa64 emitter
 (or a loop for large aggregate copies, which the LLVM backend's per-leaf entry also wants).
 
-### An interface value as a generic type argument (`id[GI](g)`, `type GI = *Getter`) — native prints garbage, LLVM emits invalid IR — 🟡 IN PROGRESS (claimed 2026-10-01, work-4/session; found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
-
-```
-interface Getter { Get() int }
-type W struct { n int }
-impl *W : Getter
-func (w *W) Get() int { return w.n }
-type GI = *Getter
-func id[T any](x T) T { var y T = x; return y }
-// main: var w W; w.n = 4; var g *Getter = &w
-//       var h *Getter = id[GI](g); testing.Println(h.Get())   // expect 4
-```
-- **Native aa64:** compiles and prints garbage (e.g. `6135964040`), a silent wrong result.
-- **LLVM:** clang rejects the IR: `ret i8* %v2` against a `%BnIfaceValue` result.
-
-Root cause (2026-10-01): IR-gen's implicit value-borrow in `genExprOrFuncRef` (gen_util.bn) decides from the checker's type of the source expression whether a value flowing into a raw `*Iface` slot is boxed by its address.  In a generic body that type is the abstract `T`, which `isBorrowableValueSource` treats as a value type, so it takes `&x`; `wrapAsIfaceValue` cannot box a `*T` and returns nil, and the fallback `val = lp` uses the ADDRESS as the value.  The instance's IR is `store y ← &x; return &y` with no loads, in every backend (the VM fails too).  `@Iface` targets are not affected (the borrow fires only for raw `*Iface`).
-- The same defect gives wrong results for a `T` bound to a plain pointer: in `func boxIt[T any](x T) int { var a *any = x; p, ok := a.(*W); … }`, `boxIt[*W](&w)` boxes `&x` rather than `x`, so the assertion fails (returns -1; the same code outside a generic gives 4).  Needs a conformance test.
-- General cause: IR-gen reads the checker's abstract types in generic bodies (31 `Checker.ExprType` sites in irgen).  Design B commit 6 (IR-gen reads each instance's checked clone) gives IR-gen the instance's concrete types at every such site; a narrow fix would map the type through `irTypeFromChecker` at the borrow sites (gen_util.bn, gen_defer_build.bn).
-- The checker's part (the directly spelled `id[*Getter](g)` was rejected) landed as binate `4bb2b1906`.  The IR-gen part is fixed by design B commit 6 (user 2026-10-01: "do 1 then commit 6"), in progress.
-
-Test: conformance 1452 (binate `3d026ea69`; since `4bb2b1906` it also instantiates with `*Getter` directly; expected-fail in every mode).
-
 ### Constraint calls through `impl *P` / `impl @M` give wrong results — needs a spec decision — 🔴 NEEDS DECISION (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
 
 ```
@@ -122,31 +100,6 @@ bnc-0.0.16 (the pinned BUILDER) has the IR-gen defect fixed on main by `1f29d31e
 - assigning a variable to a `*any`.
 
 gen1 would get silently wrong code there, and gen1 compiles every test and gen2.  Examples: a loop body that never runs (the function returns early, with no error); `st.Top++` right after an `if` or a `for` does nothing.  An identifier `++` just before it doesn't help.  A statement that goes through expression evaluation first (`x.f = x.f + 1`, a declaration, a call) is fine, and so is one in a function's opening straight-line code.  Design B's instance stack (`pushInstWork` / `popInstWork`, binate `fe95d7de8`) keeps its `++` / `--` out of those positions; TODOs there mark it.  A 2026-09-30 scan of non-test code found no other field `++` / `--` (the only two are design B's), no `x := name` short-var, and no `*any` variable, parameter or field.  Clears when a BUILDER containing `1f29d31e9` is pinned (cut only when independently justified).
-
-### Checker / IR-gen: a function literal cast to a type parameter gets no destination type — the instantiated cast borrows a freed heap closure (silent use-after-free) — 🔴 OPEN, BLOCKED on per-instantiation checking (design B, work-4) commit 6 (decided 2026-09-30: fix via per-instantiation checking; work-5 released its claim — design B is work-4's) (found 2026-09-30 by the review of the cast-operand hint fix)
-
-In a generic body, `var g = cast(T, func(x int) int { return x + k })` (or
-`unsafe_cast`) types the literal once, while `T` is still abstract, so
-`checkExprWithFVHint` installs no hint and the literal defaults to a heap
-`@func` statement temporary.  Instantiated with a raw `*func` type (`viaCast[RF]`,
-`type RF = *func(int) int`), the cast borrows that temporary past its statement
-and the result reads freed memory (LLVM / native print garbage, the VM panics).
-Instantiated with `@func` it is correct.  The literal's destination type is only
-known per instantiation, which is what §12.3 `gen.mono.check` (per-instantiation
-checking — specified, not yet implemented) covers.  Options: implement
-per-instantiation checking for this case, or an interim IR-gen rule that picks
-the literal's heap vs frame allocation from the substituted cast target.
-Test: `conformance/spec/10-functions/217_funclit_cast_type_param` (`.xfail.all`,
-landed `b3dbd9d35`).
-Fixed by design B's commit 6 (IR-gen emits the per-instance checked clone, whose
-literal carries the instance's type — `checkExprWithFVHint` sees `T` bound), not
-by commits 4-5 (they check a clone and drop it).  Spec question DECIDED
-2026-10-02 — reading A, per instantiation (user: "Reading A sounds right and is
-intuitive"): the type a function literal takes from a `cast` / `unsafe_cast`
-target containing a type parameter is each instance's.  To do with commit 6: add
-that to `gen.mono.check`'s list of what depends on the instantiation (§10.9
-cross-reference).  The alias half of 217's failure (`cast(*func(int) int, g)` with
-`g` an `MF`) landed as binate `6cd70a132`.
 
 ### LLVM backend: a >16-byte `__c_call` aggregate argument's slot is smaller / less aligned than the ABI access made through it (undefined behaviour; can fault) — 🔴 OPEN (found 2026-09-30, work-1, by the review of the bulk by-value-argument change; pre-existing)
 
@@ -621,19 +574,18 @@ at the C boundary (back-filling the S-slot mask, `common_callconv_vfp.bn`) on bo
 call which (and whether (a) first).  Needs a conformance test on `builder-comp_arm32_linux` /
 `builder-comp_native_arm32_linux` (qemu-arm user-mode is not installed on this host).
 
-### Per-instantiation checking of generic bodies (design B) — 🟡 IN PROGRESS (claimed 2026-09-28, work-4; user chose "B"; commits 1–5 landed, the last binate `fe95d7de8` 2026-09-30)
+### Per-instantiation checking of generic bodies (design B) — 🟡 IN PROGRESS (claimed 2026-09-28, work-4; user chose "B"; commits 1–6 landed, the last binate `d938d91bb` 2026-10-02)
 Commits 4 (`f1554cbd6`: signatures resolved per instantiation, dependent-array identity) and 5
 (`fe95d7de8`: each instance's body, methods and parameterized impls checked with its type arguments bound)
-landed 2026-09-30.  Still to do:
-- commit 6 — 🟡 IN PROGRESS (2026-10-01, work-4; user: "do 1 then commit 6"): IR-gen reads each instance's checked clone instead of evaluating dependent values itself.  That
-  makes `len` of a dependent array a constant (conformance `spec/15-builtins/153_len_dependent_array_len`,
-  xfail), and resolves a type-parameter-dependent constant's names by scope, not by last registration in
-  `Module.Consts` (`spec/12-generics/078_dependent_const_names_in_scope`, xfail);
-- commit 7: cast / `bit_cast` / type assertion per instance, including `iface.assert.typeparam`.
-Known gaps of commit 5, to decide: instances of a generic whose body this compilation never checked
-(interface-only imports under bni / bnlint) are skipped; an instance whose constraint check failed is
-still checked (possible cascades); and every instance error is reported as a user error (no ICE
-classification of divergences).
+landed 2026-09-30; commit 6 (`d938d91bb`: IR-gen emits each instance from the checker's checked copy)
+landed 2026-10-02.  Still to do:
+- commit 7: cast / `bit_cast` / type assertion per instance, including `iface.assert.typeparam`; and the
+  spec's `gen.mono.check` _Unenforced_ note, stale since commit 5 (instances are checked, polymorphic
+  recursion is bounded), needs rewriting to what is still unenforced.
+Known gaps of commit 5, to decide: bnlint (CheckPackageDecls) skips the instance checks of a dependency's
+generics, whose bodies it does not check (bni and bnc check them: an interface-only package's `.bni` is its
+merged file); an instance whose constraint check failed is still checked (possible cascades); and every
+instance error is reported as a user error (no ICE classification of divergences).
 Design and commit plan: `plan-constant-evaluator.md` ("Per-instantiation checking"),
 `plan-generic-instance-check.md`.
 

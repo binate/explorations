@@ -1,3 +1,37 @@
+### Design B commit 6: IR-gen emits each generic instance from the checker's checked copy — DONE (binate `d938d91bb`, 2026-10-02, work-4)
+
+IR-gen emitted an instance from the shared generic declaration, whose annotations are the abstract body's,
+so every `Checker.ExprType` read in an instance body saw the type parameter.  The checker now keeps each
+instance's checked copy (functions and generic-type methods; struct / interface instantiations' resolved
+copies), and IR-gen emits from it, matching a copy by naming its type arguments in IR-gen's types (no
+lookups or registration; memoized per module) and comparing mangled names; with a checker, an instance
+with no copy is an internal error, and so is a dependent constant or unstamped array length.  `len` of a
+dependent array is a dependent constant (usable in another dependent length).  Fixed: the interface-value
+type argument miscompile (conformance 1452; a value of a type parameter borrowed into a raw interface slot
+by its address — also a pointer-bound `T` into `*any`, new test 101), 153 (`len` of a dependent array), 078
+(dependent constants by scope), 217 (a function literal under `cast(T, …)` takes each instance's type —
+reading A, decided by the user; spec `gen.mono.check`, docs `439407c`).  Prerequisites landed first:
+binate `4bb2b1906` (`*I` as a type argument; a bare interface is not a type), `6cd70a132` (alias
+managed-to-raw borrow), `3e4529df4` (struct-alias identity).  Two adversarial reviews; their findings
+(the interface-instance path, quadratic matching that registered unused instances, an anonymous struct
+interned from placeholder fields — wrong code, test 102) fixed before landing.
+
+### An interface value as a generic type argument (`id[GI](g)`, `type GI = *Getter`) — native printed garbage, LLVM emitted invalid IR — DONE (binate `d938d91bb` with `4bb2b1906`, 2026-10-02, work-4)
+
+IR-gen's implicit value-borrow decided from the checker's abstract type `T` that the source was a value to
+box by address, so the instance stored and returned slots' addresses.  Fixed by design B commit 6 (IR-gen
+reads the instance's checked copy, where `T` is bound); the directly spelled `id[*Getter](g)`, which the
+checker rejected, by `4bb2b1906`.  Test: conformance 1452 (both spellings), 101.
+
+### A function literal cast to a type parameter got no destination type — the instantiated cast borrowed a freed heap closure (silent use-after-free) — DONE (binate `d938d91bb`, 2026-10-02, work-4)
+
+`cast(T, func(…) { … })` in a generic body typed the literal once, abstractly, so with `T` a raw `*func` the
+cast borrowed a heap statement temporary past its statement.  The user decided reading A ("Reading A sounds
+right and is intuitive"): the literal takes each instantiation's type, as design B commit 6 now does (the
+instance's checked copy sees `T` bound); spec `gen.mono.check` bullet, docs `439407c`.  The test's `MF`
+instance also needed the alias managed-to-raw borrow (`6cd70a132`).  Test: conformance
+`spec/10-functions/217_funclit_cast_type_param` (xfail removed).
+
 ### Boxing a pointer to a type from a package the module does not import into an interface stored a null vtable; so did boxing into another package's alias of `any` — DONE (binate `62a62dec2`, 2026-10-02, work-7)
 
 RegisterImports records direct imports' impls only, so wrapAsIfaceValue missed the (T, I) row and its
