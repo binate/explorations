@@ -70,7 +70,7 @@ it now reads such a value without keeping it, the symbol still folded into undef
 assembler rejects a global / weak constant (`constantBindingRejected` in `asm/parse/parse_const.bn`); lift that
 for numbers once bnld reads absolute symbols.
 
-### IR-gen registers `type X = struct { … }` as a distinct named struct, not an alias — one type, two identities; blocks design B commit 6 — 🔴 OPEN MAJOR (found 2026-10-01, work-4, review of design B commit 6; pre-existing; awaiting a user decision)
+### IR-gen registers `type X = struct { … }` as a distinct named struct, not an alias — one type, two identities; blocks design B commit 6 — 🟡 IN PROGRESS (claimed 2026-10-02, work-4/session; user: "yes to both"; found 2026-10-01, work-4, review of design B commit 6; pre-existing)
 
 An alias is the same type as its target (spec 07-types), and the checker resolves `Anon` in
 `type Anon = struct { a int8; b int8 }` to the anonymous struct.  IR-gen's struct registration sites
@@ -85,7 +85,7 @@ generic instance".  Fix: register an alias of a struct literal through registerT
 registry, which interns the anonymous struct) and exclude `IsAlias` at every struct registration site
 (sweep the pattern repo-wide, including the REPL paths).  Repros: the commit 6 review's scratch t3/t5/t21.
 
-### A value whose type is an ALIAS of `@T` / `@[]T` / `@func` is not borrowed as the raw form — valid code rejected — 🔴 OPEN MAJOR (found 2026-10-01, work-4, while running design B commit 6's tests; pre-existing; awaiting a user decision)
+### A value whose type is an ALIAS of `@T` / `@[]T` / `@func` is not borrowed as the raw form — valid code rejected — 🟡 IN PROGRESS (claimed 2026-10-02, work-4/session; user: "yes to both"; found 2026-10-01, work-4, while running design B commit 6's tests; pre-existing)
 
 ```
 type MF = @func(int) int
