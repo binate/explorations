@@ -191,7 +191,7 @@ and dependent-length identity needs a new rule).  Design B:
   deferred in abstract bodies (fixes dependent signatures); (4) worklist, depth limit, error context, type
   methods (per-instantiation errors); (5) IR-gen emits the clones, DEPENDENT paths deleted; (6) cast /
   `bit_cast` checks move from IR-gen to the instances; (7) spec text.  Detailed design:
-  `plan-generic-instance-check.md`.
+  `done/plan-generic-instance-check.md`.
 
 ## Commits
 

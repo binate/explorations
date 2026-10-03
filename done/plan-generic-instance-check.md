@@ -231,6 +231,8 @@ Each commit leaves the tree green.
      recorded (each one is a checker/IR-gen divergence to fix, not to fall back on), on LLVM, native aa64 and
      the VM (`builder-comp-int`); then the generics subsets on every backend.
 7. `bit_cast` and cast checks in abstract bodies defer to the instance check; the IR-gen panics become ICEs.
+   **LANDED (binate `ab98a0439`, 2026-10-03)**, with assertions through a type parameter checked per instance
+   (`iface.assert.typeparam`); spec docs `248a54b`.
 
 ## 9. Decisions you need to make
 

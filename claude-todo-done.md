@@ -1,3 +1,20 @@
+### Design B commit 7: an assertion or conversion through a type parameter is checked per instance — DONE (binate `ab98a0439`, 2026-10-03, work-4); per-instantiation checking (design B) complete
+
+An assertion or type-switch case whose target names a type parameter (`x.(T)`, `x.(*T)`, `x.(@T)`,
+`case *T:`) was rejected at the generic declaration; it is now deferred there and checked in each instance as
+the assertion the instance spells (`iface.assert.typeparam`): a bare `T` takes its recovery kind from the type
+argument (outermost `*` / `@` / interface value, a slice target, else by value); a written kind applies to
+the argument as written.  The binders an instance check defines are marked (`Symbol.IsTypeArg`).  IR-gen
+needed no change (the recovery kind comes from the resolved target type, in the instance's checked copy).
+`bit_cast`'s size check is deferred through a type parameter (`conv.typeparam`; cast / unsafe_cast were
+already deferred by concurrent work); IR-gen's conversion backstops report plain internal errors.  Spec:
+docs `248a54b` (Draft notes and §12.3 Unenforced paragraph removed).  One adversarial review (no wrong code;
+message / comment / test fixes folded in).  The review also found an older leak (a `*T`-receiver method on a
+managed temporary), raised separately with test `spec/18-memory/149` (binate `6e0993f9c`).  Tests:
+`check_assert_typeparam_test.bn`; conformance `spec/11-interfaces/092`–`094`, `spec/08-conversions/026`–`027`.
+Design B as a whole: commits 1–7 (`7aabeb8d6`, `a53adf5b3`, `82cd129ff`, `f1554cbd6`, `fe95d7de8`,
+`d938d91bb`, `ab98a0439`); plan `done/plan-generic-instance-check.md`.
+
 ### Native allocator: per-register clobbers (x64 home pool, step 1) — DONE (binate `70e6b95de`, 2026-10-03)
 
 `RegClassDesc.RegClobbers` (optional, `present()`-tested) names per instruction the registers its

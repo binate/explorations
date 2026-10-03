@@ -580,20 +580,17 @@ at the C boundary (back-filling the S-slot mask, `common_callconv_vfp.bn`) on bo
 call which (and whether (a) first).  Needs a conformance test on `builder-comp_arm32_linux` /
 `builder-comp_native_arm32_linux` (qemu-arm user-mode is not installed on this host).
 
-### Per-instantiation checking of generic bodies (design B) — 🟡 IN PROGRESS (claimed 2026-09-28, work-4; user chose "B"; commits 1–6 landed, the last binate `d938d91bb` 2026-10-02)
-Commits 4 (`f1554cbd6`: signatures resolved per instantiation, dependent-array identity) and 5
-(`fe95d7de8`: each instance's body, methods and parameterized impls checked with its type arguments bound)
-landed 2026-09-30; commit 6 (`d938d91bb`: IR-gen emits each instance from the checker's checked copy)
-landed 2026-10-02.  Still to do:
-- commit 7 — 🟡 IN PROGRESS (claimed 2026-10-02, work-4/session; user: "yes"): cast / `bit_cast` / type assertion per instance, including `iface.assert.typeparam`; and the
-  spec's `gen.mono.check` _Unenforced_ note, stale since commit 5 (instances are checked, polymorphic
-  recursion is bounded), needs rewriting to what is still unenforced.
-Known gaps of commit 5, to decide: bnlint (CheckPackageDecls) skips the instance checks of a dependency's
-generics, whose bodies it does not check (bni and bnc check them: an interface-only package's `.bni` is its
-merged file); an instance whose constraint check failed is still checked (possible cascades); and every
-instance error is reported as a user error (no ICE classification of divergences).
-Design and commit plan: `plan-constant-evaluator.md` ("Per-instantiation checking"),
-`plan-generic-instance-check.md`.
+### Per-instantiation checking (design B) follow-ups — 🔴 NEEDS DECISION (raised 2026-09-30 – 2026-10-02, work-4; design B itself is done, commits 1–7 landed)
+- bnlint (CheckPackageDecls) skips the instance checks of a dependency's generics, whose bodies it does not
+  check (bnc and bni check them: an interface-only package's `.bni` is its merged file).
+- An instance whose constraint check failed is still checked (possible cascades of errors).
+- Every instance error is reported as a user error (no ICE classification of a divergence between the
+  abstract check and an instance's).
+- `iface.assert.typeparam`: a bare assertion target `T` bound to a type argument whose outermost layer is
+  `readonly` (`as[readonly *Thing]`) is rejected ("makes it `readonly *Thing`, which is not an assertion
+  target"); the rule only says what an outermost `*` / `@` does, and `iface.assert.kind` calls a handle's
+  outer `readonly` freely choosable — should it read as `x.(*Thing)`?  (Asked 2026-10-02.)
+Plan (done): `done/plan-generic-instance-check.md`.
 
 ### Language feature: array-literal keys that depend on a type parameter — 🔴 OPEN (raised 2026-09-28, work-4)
 `[sizeof(T)]uint8{sizeof(T) - 1: 7}` (a key whose value depends on a type parameter) is rejected today
