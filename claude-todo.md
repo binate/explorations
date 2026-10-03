@@ -418,7 +418,7 @@ With `pkg/qa` declaring `var G int = 5`, `qa.G` reads 0 in the REPL — the modu
 imported packages' alike, at the initial load and on a mid-session import; `bni main.bn` gives 5.  The
 REPL does not call the packages' `__init` functions (or not the imported ones).  Needs an e2e/repl.sh case.
 
-### A cast through a generic struct whose type parameter appears in no field is not deferred to instantiation — valid code rejected — 🔴 OPEN (found 2026-09-30, work-7, review of the recursive-cast fix; pre-existing)
+### A cast through a generic struct whose type parameter appears in no field is not deferred to instantiation — valid code rejected — 🟡 IN PROGRESS (found 2026-09-30, work-7, review of the recursive-cast fix; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
 
 `type P[T any] struct { n int }; func g[T any](x @P[int]) @P[T] { return cast(@P[T], x) }` is rejected at the
 definition, though valid for T = int.  isTypeParamType / containsTypeParam (check/check_cast_safe.bn) calls
