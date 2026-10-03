@@ -82,6 +82,32 @@ step D's table.
   `BINATE_FLAGS="--target x86_64-darwin" ./conformance/run.sh builder-comp` (both run under Rosetta); full
   runs on both, since a 32-byte managed-slice argument is >16 bytes on x64 (nearly every program).
 
+## x64 design (recon 2026-10-03)
+
+A >16-byte aggregate is SysV MEMORY class: bytes on the outgoing stack, no register consumed.
+- Shared classifier `types.sysvArgConsumes`: its internal mode counts a >16 aggregate as one GP pointer;
+  C mode (`SysVArgInMemoryC`) counts no register.  Internal becomes the C behaviour (then the C variants,
+  `aggMemClassMaybeC`, `ForCBoundary`'s flip and `CAbiIndirectLargeAggregates` are redundant on x64).
+- LLVM: a >16 param / arg is `IsByvalParam` (types) everywhere; on x64 its spelling becomes
+  `ptr byval(<T>) align 8` (`writeByvalMemType`) instead of plain `ptr` — define lines and declarations
+  (`writeParamTypeLLVM`, emit.bn), call args (`writeByvalArgLLVM`; the OP_C_CALL-only x64 branch becomes
+  the rule), shim → underlying calls (`writeShimUnderlyingArg` / `writeShimArgRef`; no `tail` with a byval
+  arg), closure → body calls (`emitClosureCaptureLoads` / `writeClosureUnderlyingArgs`).  The callee still
+  receives a pointer (to its own stack copy), so IR-gen's `IsByvalParamRef` slot copy is unchanged.
+  C-export / `__centry.` thunks: the byval-param case disappears (`funcNeedsCEntryByvalParamThunk` is
+  false once `IndirectLargeAggregates == CAbiIndirectLargeAggregates`).
+- Native x64: `SysV_AMD64().IndirectLargeAggregates = false` (the MEMORY paths exist for ≤16 straddlers
+  and `__c_call`: `emitAggregateArg` word copy via RAX, the param stack-copy branch, CallStackBytes).
+- Func-value DISPATCH stays by-address for a >16 aggregate (one pointer word; Binate-internal, never seen
+  by C; the VM's packed slots and LLVM's `shimParamType` already agree): `isByAddressAggX64` must include
+  >16 aggregates once they are not `PassesIndirect`, so the native shims re-expand them onto the stack
+  (as they do for ≤16 MEMORY-class args); `EffectiveArgWords` must keep 1 for them.
+- Closure captures: the closure body takes a >16 capture as a MEMORY-class stack param; the native x64
+  closure shims' fast path is register-only (`isIndirectLargeCap_x64` LEA) — a >16 capture must route to
+  the spill variants that place stack args.
+- Validation: full native x64 darwin + full LLVM x86_64-darwin (Rosetta), against baselines taken on
+  `f347e953e`; aa64 subsets to confirm no change there; CI for Linux x64 (incl. the VM).
+
 ## Open checks
 
 - aa64 HFAs over 16 bytes (3-4 doubles) ride SIMD registers and are not in scope; the predicate must exclude
