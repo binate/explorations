@@ -230,7 +230,7 @@ of a name in the same `.bni` should be a "declared twice" error at the second on
 declaration rules say for `.bni` vs `.bn`; a `.bn` duplicate is presumably already rejected).  Needs an
 error test (identical and differing signatures, and a type / var / const declared twice).
 
-### A method expression through a type alias fails — `type Alias = Point; Alias.Get(p)` gives "undefined: Get" — valid code rejected — 🔴 OPEN (found 2026-10-01, work-3, review of the type-name-as-value check; reproduced; pre-existing)
+### A method expression through a type alias fails — `type Alias = Point; Alias.Get(p)` gives "undefined: Get" — valid code rejected — 🟡 IN PROGRESS (found 2026-10-01, work-3, review of the type-name-as-value check; reproduced; pre-existing; claimed 2026-10-02, work-3/session, self-drive)
 
 The method-expression branch of checkSelectorExpr (`check_expr_access.bn`, the SYM_TYPE arm: "Method
 expression: T.M where T is a named type") calls `LookupMethod` on the symbol's type without resolving the
