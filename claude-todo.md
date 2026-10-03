@@ -298,7 +298,7 @@ cross-package owning-box leak fix (which queues the declaring module's structura
 cross-package X case from a leak into the same crash, as the same-package case already is (user,
 2026-09-30: "I think the crash is ok *for now*"; landed as binate `e26352158`).
 
-### A field or element write through a readonly HANDLE is rejected although the pointee is mutable — valid code rejected — 🔴 OPEN (found 2026-10-02, work-3, review of the readonly-array slicing fix; pre-existing)
+### A field or element write through a readonly HANDLE is rejected although the pointee is mutable — valid code rejected — 🟡 IN PROGRESS (found 2026-10-02, work-3, review of the readonly-array slicing fix; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
 
 §7.11 type.surface: `readonly *int` is a "read-only handle, mutable pointee", and
 type.readonly.object-dispatch lets a read-only handle (`readonly *Box`, `readonly @Box`) call any method.
