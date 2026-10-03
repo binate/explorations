@@ -276,8 +276,8 @@ cross-package X case from a leak into the same crash, as the same-package case a
 type.readonly.object-dispatch lets a read-only handle (`readonly *Box`, `readonly @Box`) call any method.
 But checkSelectorExpr (check/check_expr_access.bn) treats a readonly handle as object-readonly:
 `var b readonly @Box = make(Box); b.y = 1` and `func f(p readonly *S) { p.a[0] = 1 }` are rejected,
-while `(*p).a[0] = 1` is accepted (the deref strips the handle's readonly) — and since 0c3bc8462-era
-slicing, `p.a[:]` of such a handle also yields `*[]readonly int`.  peelFieldAccessBase(xt) sets
+while `(*p).a[0] = 1` is accepted (the deref strips the handle's readonly) — and with the
+readonly-array slicing fix (not yet landed), `p.a[:]` of such a handle also yields `*[]readonly int`.  peelFieldAccessBase(xt) sets
 pathConst for a readonly wrapper around the POINTER, not only around the pointee.  The unit test
 TestCheckSelectorReadonlyFieldWriteRejected pins the current behaviour ("readonly is object-const"),
 against the spec.  Fix: only readonly on the reached OBJECT (the pointee, or a by-value struct) makes
