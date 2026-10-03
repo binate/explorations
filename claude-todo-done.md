@@ -1,3 +1,13 @@
+### native arm32: a closure or method value capturing an aggregate wider than 16 bytes failed to build — DONE (binate `4f3bee741`, 2026-10-03, work-7)
+
+AAPCS32 passes a >16-byte aggregate by address; the framed shim paths' capture loaders (scalar/void spill,
+sret spill, the pack core) now pass the capture's address in the closure struct — into its register, or
+through R4 to its outgoing stack word — at its classifier position, as aa64 does, and such a closure
+routes to them (the frameless fast paths' dense cursor counts value-words).  The callee copies a
+by-address value param, so writes do not reach the closure record (func.closure.capture).  Conformance
+1492 (every result shape, literals, 8-aligned pad, unaligned byte array); unit tests in
+arm32_closure_shim_indirect_test.bn.
+
 ### A REPL variable redefined with a different type keeps the old variable's value — a variable redeclared at the prompt is now replaced (same type) or shadowed — DONE (binate `c030254cf`, 2026-10-03, work-6)
 
 Redeclaring a variable registered a second global of the same name; IR-gen and the VM resolve a global by
