@@ -608,7 +608,7 @@ Commits 4 (`f1554cbd6`: signatures resolved per instantiation, dependent-array i
 (`fe95d7de8`: each instance's body, methods and parameterized impls checked with its type arguments bound)
 landed 2026-09-30; commit 6 (`d938d91bb`: IR-gen emits each instance from the checker's checked copy)
 landed 2026-10-02.  Still to do:
-- commit 7: cast / `bit_cast` / type assertion per instance, including `iface.assert.typeparam`; and the
+- commit 7 — 🟡 IN PROGRESS (claimed 2026-10-02, work-4/session; user: "yes"): cast / `bit_cast` / type assertion per instance, including `iface.assert.typeparam`; and the
   spec's `gen.mono.check` _Unenforced_ note, stale since commit 5 (instances are checked, polymorphic
   recursion is bounded), needs rewriting to what is still unenforced.
 Known gaps of commit 5, to decide: bnlint (CheckPackageDecls) skips the instance checks of a dependency's
