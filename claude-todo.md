@@ -340,7 +340,7 @@ isAddressable arm; IR-gen's lvalue-address path for unsafe_index (the element ad
 for reads); §13 `expr.addressable` lists it; run tests for stores, `++`, a field store, `&unsafe_index(…)`
 and the array-of-a-call-result rejection, on every mode.
 
-### A method value on a generic receiver written as `(*p).M`, `(&b).M`, `Box[int]{…}.M` or `a.(*Box[int]).M` fails to build — 🔴 OPEN (found 2026-09-30, work-7, review of the method-value fix; pre-existing)
+### A method value on a generic receiver written as `(*p).M`, `(&b).M`, `Box[int]{…}.M` or `a.(*Box[int]).M` fails to build — 🟡 IN PROGRESS (found 2026-09-30, work-7, review of the method-value fix; pre-existing; claimed 2026-10-03, work-7/session; user: "let's work on them per the self-drive instructions")
 
 With `type Box[T any] struct { n T }` and `func (b *Box[T]) Inc() int`: `(*pb).Inc`, `(*pb).Get`, `(&b).Inc`,
 `(&w.b).Inc`, `Box[int]{n: 3}.Inc` and `a.(*Box[int]).Inc` — native: undefined `…Box[int]3_Inc`; LLVM:
