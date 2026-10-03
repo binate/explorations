@@ -1241,6 +1241,28 @@ forward type declaration is), or (b) an error with an expose-specific message; t
 `collectNamedDecls` skip `DECL_EXPOSE` and leave the policy to the expose code.  (The `.bni`
 duplicate-declaration check skips expose decls so as not to extend today's message to packages with a `.bn`.)
 
+### Opaque-type embedding gaps left by the declaration-site check — local types, nested pointees, function-value parameters — 🔴 OPEN (found 2026-10-03, work-3, review of the type-declaration opaque check; code reading; pre-existing)
+
+With `type Op` opaque, all still compile (each is rejected only at a use, or not at all):
+(1) a type declared inside a function body gets no declaration-site check (collectTypeDecl /
+checkBlankTypeDecl; checkGroupDecl -> checkDecls ignores DECL_TYPE): `func f() { type _ [2]Op; type _
+struct { o Op } }` — so a local blank type, a validity assertion, passes with an invalid type;
+(2) `pointeeEmbedsOpaque` (`pkg/binate/check/check_opaque.bn`) looks only at the outermost pointer:
+`type X [2]*[2]Op`, `type X @[]*[2]Op`, `type X [1]struct { p *[2]Op }` and a struct field `a [1]*[2]Op`
+are accepted, while `type P *([2]Op)` and a field `p *[2]Op` are rejected;
+(3) a function-value type with an opaque by-value parameter or result (`type F *func(Op) int`, as a
+declaration or a field) is accepted, while `func f(o Op)` is rejected — check the spec whether a
+function-value TYPE needs its parameters sized before it is called.  Fix each with a test.
+
+### A bare generic type name with no type arguments is accepted in a type declaration (`type X Box`) — 🔴 OPEN (found 2026-10-03, work-3, review of the type-declaration opaque check; reproduced; pre-existing)
+
+With `type Box[T any] struct { v T }`, `type X Box` compiles silently: the bare name resolves to the
+generic's placeholder (no underlying), and `resolveNamedTypeExpr`'s IsGeneric check covers only exposed
+markers.  `type A [2]Box` was likewise accepted; since the declaration-site opaque check it is rejected,
+but as "cannot use an opaque type by value" (the placeholder looks opaque) instead of "generic type used
+without type arguments".  Fix: reject a bare generic name wherever a type is expected; the opaque message
+then no longer fires for it.  Needs error tests (`type X Box`, `type A [2]Box`, a field, a param).
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
