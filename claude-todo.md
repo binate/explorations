@@ -32,7 +32,7 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### A `*T`-receiver method called directly on a managed temporary leaks the temporary — 🔴 OPEN MAJOR (found 2026-10-02, work-4, review of design B commit 7; pre-existing; awaiting a user decision)
+### A `*T`-receiver method called directly on a managed temporary leaks the temporary — 🟡 IN PROGRESS (claimed 2026-10-03, work-4/session; user: "1. yes"; found 2026-10-02, work-4, review of design B commit 7; pre-existing)
 
 ```
 type Thing struct { n int }
