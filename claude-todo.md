@@ -88,6 +88,9 @@ shift instructions `lsl` / `lsr` / `asr` / `ror` (aliases of MOV with a shifted 
 `adr r0, label` / `adr r0, 8` (clang E28F0008), and immediates written without '#': `svc 5`, and `mov r0, 5`,
 which clang encodes as MOVW (E3000005), not MOV.  Each its own small fix in
 `asm/parse/arm32.bn` / `arm32_instr.bn` (+ encoder support where missing), goldens from clang.
+Also (found 2026-10-03, work-2, during the AArch64 literal pools): `ldr r0, =expr` and `.ltorg` /
+`.pool` — 🟡 IN PROGRESS (claimed 2026-10-03, work-2/session — user: "I guess we can do it now"),
+reusing the AArch64 pool table (`asm/parse/aarch64_pool.bn`).
 
 ### x86-64 text assembler: a call / jmp to a defined global or weak symbol is relocated R_X86_64_PC32, where clang uses R_X86_64_PLT32 — a shared-object link rejects it — 🟡 CLAIMED (2026-10-02, work-2/session — user: "(probably that bug should be tracked, and put on your list of things to fix)"; queued after plan item 3c; pre-existing, noted 2026-10-01, work-2)
 
