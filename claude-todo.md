@@ -1130,7 +1130,7 @@ which only makes the literal more assignable.
 direction.  Accept the add; keep rejecting the drop.  Add a case to
 `conformance/spec/08-conversions/017_cast_aggregate_retype_leaf` or a new test.
 
-### Checker: `unsafe_cast` rejects every interface-to-interface conversion, including the identity and the widening `cast` accepts — `cast ⊆ unsafe_cast` does not hold — 🔴 OPEN (found 2026-09-30 by the review of the §8.7 status note)
+### Checker: `unsafe_cast` rejects every interface-to-interface conversion, including the identity and the widening `cast` accepts — `cast ⊆ unsafe_cast` does not hold — 🟡 IN PROGRESS (found 2026-09-30 by the review of the §8.7 status note; claimed 2026-10-03, work-3/session, self-drive)
 
 `check_builtin.bn`'s UNSAFE_CAST `srcIface && dstIface` branch rejects all of them
 ("unsafe_cast does not convert between interface values") — including
