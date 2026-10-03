@@ -527,7 +527,7 @@ instantiation (extend typeDeclDepNames) — but a method naming the declaration 
 still sees `int`; (b) name the alias's canonical instance (its mangled name) without instantiating it during
 registration, leaving the instantiation to the interface pass.  (b) looks cleaner; needs a design check.
 
-### `defer T.M(x)` — a deferred method EXPRESSION call — panics at run time ("unresolved selector in IR-gen") — 🔴 OPEN (found 2026-10-02, work-3, review of the alias method-expression fix; reproduced on builder-comp; pre-existing)
+### `defer T.M(x)` — a deferred method EXPRESSION call — panics at run time ("unresolved selector in IR-gen") — 🟡 IN PROGRESS (found 2026-10-02, work-3, review of the alias method-expression fix; reproduced on builder-comp; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
 
 ```
 type Point struct { x int }
