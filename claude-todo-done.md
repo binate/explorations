@@ -1,3 +1,10 @@
+### A universe-primitive method called through a pointer received the address as its value — `p.String()` with `p *int` printed the address — DONE (binate `5fa2db460`, 2026-10-02, work-7)
+
+applyReceiverConversion (irgen gen_method_recv.bn) loaded a pointer receiver for a value-receiver method
+only when the method's receiver was a named type; it now loads for a universe-primitive receiver too.  The
+defer path converts through the same function.  Conformance 1493 (direct, `(*p)`, method value, bool,
+generic body).
+
 ### interp: `RunFunc` / `RunFuncTyped` re-ran the package initializers on every call — package globals were reset between host calls — DONE (binate `51b8fba00`, 2026-10-02, work-5)
 
 Initialization is separate from calls (user decision 2026-09-30): `Init` runs the loaded packages'
