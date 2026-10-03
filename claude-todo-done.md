@@ -1,3 +1,13 @@
+### Boxing a pointer to a type from a package the module does not import into an interface stored a null vtable; so did boxing into another package's alias of `any` — DONE (binate `62a62dec2`, 2026-10-02, work-7)
+
+RegisterImports records direct imports' impls only, so wrapAsIfaceValue missed the (T, I) row and its
+callers stored the bare pointer with a null vtable.  On a miss wrapAsIfaceValue now records the row
+(ensureImportedImplInfo — the checker accepted the box, so the impl exists and its package emits the
+vtable), and a remaining miss panics.  The review found a sibling: a box into another package's `interface
+A = any` was not recognized as an `any` box (isUniverseAny compared the raw name); isUniverseAny now
+resolves the alias through the module's interface registry, and ensureImportedImplInfo refuses a (T, any)
+row.  Conformance 1491, 1496.
+
 ### Dropping a closure that captures a managed value at the REPL prompt panics — "vm: closure-struct dtor not found" — DONE (binate `077478f61`, 2026-10-02, work-6)
 
 A function literal registered its closure struct in Module.Structs for the end-of-module dtor pass

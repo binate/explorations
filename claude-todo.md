@@ -382,18 +382,6 @@ isAddressable arm; IR-gen's lvalue-address path for unsafe_index (the element ad
 for reads); §13 `expr.addressable` lists it; run tests for stores, `++`, a field store, `&unsafe_index(…)`
 and the array-of-a-call-result rejection, on every mode.
 
-### Boxing a pointer to a type from a package the module does not import into an interface stores a null vtable — the call through it crashes — 🟡 IN PROGRESS (MAJOR; found 2026-10-01, work-7, testing the indirectly-imported-method fix; reproduced; pre-existing; claimed 2026-10-01, work-7/session; user: "fix the 3 bugs now")
-
-pkg/b: `interface Sizer { Size() int }`, `type St struct { n int }`, `impl *St : Sizer`; pkg/a: `interface Sz
-= b.Sizer`, `func GetP(n int) *b.St`; main imports only a.  `var z *a.Sz = a.GetP(5); z.Size()` crashes
-(LLVM, aa64, x64: segfault; VM: "call of nil interface value"; native arm32: hangs), and so does passing
-`a.GetP(5)` to a b method's `*b.Sizer` parameter.  The box holds the data pointer and a NULL vtable word:
-wrapAsIfaceValue's findImplVtableName finds no (pkg/b.St, pkg/b.Sizer) row (RegisterImportedImpls is meant
-to cover the transitive closure — why the row is missing needs investigation), and on a miss
-wrapAsIfaceValue returns nil, after which the caller stores the bare pointer as the interface value
-instead of failing.  Fix: find the row; and make a missing row for a non-`any` interface a hard IR-gen
-error, never a null vtable.  Covered by conformance 1491 (`.xfail.all`).
-
 ### native arm32: a closure or method value capturing an aggregate wider than 16 bytes fails to build — 🟡 IN PROGRESS (found 2026-10-01, work-7, testing the indirectly-imported-method fix; pre-existing; claimed 2026-10-01, work-7/session; user: "fix the 3 bugs now")
 
 `type Big struct { a, b, c, d, e int }` (20 bytes on arm32), `func (g Big) Sum() int`, `var f *func() int =
