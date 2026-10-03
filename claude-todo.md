@@ -54,7 +54,7 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### bnld folds absolute symbols into undefined ones — a weak absolute symbol links as 0 — 🔴 OPEN MAJOR (found 2026-10-01, work-2, listing assembler constants in the symbol table; awaiting a user decision)
+### bnld folds absolute symbols into undefined ones — a weak absolute symbol links as 0 — 🟡 IN PROGRESS MAJOR (claimed 2026-10-02, work-2/session — user: "We can do 1 and 2 first, then 3."; found 2026-10-01, work-2, listing assembler constants in the symbol table)
 
 bnld's readers map an absolute symbol (ELF `SHN_ABS`, Mach-O `N_ABS`) to `SecIndex -1`, the undefined marker
 (`parse_elf.bn`: "SHN_ABS … is still folded into -1 here; the current writers emit none … model it explicitly
@@ -913,7 +913,8 @@ user: "1. yes. 2. yes."): numeric constants on every arch landed `1a31e768f`, sy
 (multi-term addends on AArch64 / arm32, aliases, `C = .`) landed `f9acb7bb6`, the x64 label addends (the
 MAJOR "x64 text parser drops a label addend") landed `331b13ee4` (2026-10-01); constants and aliases in the
 symbol table (local constants as absolute symbols, local aliases, alt entries) landed `63c3ba948`
-(2026-10-01).  Open from 3b, awaiting the user's call: **Global / weak aliases** (`.weak W` + `W = f`): rejected
+(2026-10-01).  Open from 3b — 🟡 IN PROGRESS after the bnld MAJOR (claimed 2026-10-02; user: "We can do 1
+and 2 first, then 3."): **Global / weak aliases** (`.weak W` + `W = f`): rejected
 (`constantBindingRejected`), because a reference to an alias takes its target when parsed (`nameValue`), so a
 weak alias's own uses would bypass it — clang relocates them against the alias (`R_AARCH64_CALL26 W`), letting a
 strong `W` elsewhere override it (the arm32 default-handler idiom: `.weak irq_handler`, `irq_handler =
