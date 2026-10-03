@@ -1045,7 +1045,7 @@ it); arrays (copies) are unchanged.  Work: `bitPreservingElem` (`pkg/binate/chec
 `shared` case), spec §8.5 leaf-rule wording, conformance 017's writable bool-slice cases moved to readonly
 destinations / unsafe_cast, checker tests.
 
-### Is a location of a named type over a `readonly` type readonly (`type R readonly int8`; `s[0] = v` with `s @[]R`)? — 🔴 NEEDS DECISION (raised 2026-10-03, work-3, reviews of the cast leaf-rule widening)
+### Is a location of a named type over a `readonly` type readonly (`type R readonly int8`; `s[0] = v` with `s @[]R`)? — 🔴 OPEN, DECIDED 2026-10-03 (raised 2026-10-03, work-3, reviews of the cast leaf-rule widening)
 
 `type R readonly int8` and `type RP readonly *readonly int` are accepted declarations, but the assignment
 checks (`IsReadonly`, which sees through aliases only) treat a location of type R or RP as writable:
@@ -1057,6 +1057,18 @@ does (unpeeled), so a named-over-readonly destination guards nothing below a sli
 guard then follows); (b) reject `readonly` at the top of a named type's definition (a readonly is a
 property of a location, not of a type's identity); (c) keep today's behaviour and say so in §7.11.
 Recommendation: (b) or (a) — today's mix is the worst of both.  Check §7.11 / §7.3 first.
+Probed 2026-10-03 on main (`type RI readonly int8`, `RS readonly struct{a int}`, `RA readonly [2]int`, `RP
+readonly *int`): accepted — `x = 6` (x RI), `sl[0] = 3` (sl @[]RI), `s = t` (RS), `a = b` (RA), `p = &m` (RP),
+`*q = 9` (q *RI); rejected — `s.a = 3`, `a[0] = 1`; `var y readonly int8; y = 6` rejected.  No `.bn` / `.bni`
+in the tree declares such a type (only the cast retype tests' source strings).
+Decision (user, 2026-10-03): "(a) sounds right" — a location of a named type over `readonly T` is readonly,
+as an alias's already is: the readonly-location check (IsReadonly / isReadonlySlot) peels named-distinct
+wrappers (stopping at a pointer — readonly is shallow, so `*p = 7` with `p RP` stays legal).  Each accepted
+write above except `*p = 7` becomes an error.  The cast container retype's slot view (`slotView` /
+`isReadonlySlot`, `pkg/binate/check/check_cast_retype.bn`) follows through the same helper: `@[]RI -> @[]int8`
+becomes a drop (rejected), `@[]*int -> @[]RP` with `RP readonly *readonly int` becomes guarded (accepted) —
+update TestCastRetypeLeafRuleAccepted / RejectedUnsafe accordingly.  Spec §7.11 wording (a named type's
+top-level readonly marks its locations read-only), conformance tests for each row.
 
 ### A `.bni` may declare the same METHOD twice — or differently from the `.bn` — and nothing compares them — 🔴 OPEN (found 2026-10-03, work-3, review of the .bni duplicate-declaration check; code reading; pre-existing)
 
