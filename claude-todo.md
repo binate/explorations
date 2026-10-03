@@ -849,7 +849,7 @@ generic-instantiation entry above.)  (2) empty (opaque / forward) generic declar
 with no body) — consumers need the body to instantiate, so allow only as a same-package forward
 declaration, or reject?
 
-### An opaque type held by value inside an array is accepted at the declaration — 🔴 OPEN (found 2026-09-28, work-6, review of the blank-type-decl change; reproduced; pre-existing)
+### An opaque type held by value inside an array is accepted at the declaration — 🟡 IN PROGRESS (found 2026-09-28, work-6, review of the blank-type-decl change; reproduced; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
 
 The declaration-site value-embedding check (checkValueEmbedding → requireSizedType, check_decl.bn) walks
 only a struct declaration's TOP-LEVEL fields, so an opaque type held by value inside an array is accepted
