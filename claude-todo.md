@@ -610,7 +610,7 @@ the LLVM backend (as native does): a load MemCopies into a function-scoped temp 
 address; stores MemCopy from it, extracts GEP into it, by-value args / returns / call results / phis use
 the address — every codegen producer and consumer of aggregate values handles that form.
 
-### A `.bni` constant `len` of a `.bni` array variable has no constant value for an importer — valid code rejected — 🔴 OPEN (found 2026-09-29, work-4, review of the constant-expression check; reproduced; pre-existing)
+### A `.bni` constant `len` of a `.bni` array variable has no constant value for an importer — valid code rejected — 🟡 IN PROGRESS (found 2026-09-29, work-4, review of the constant-expression check; reproduced; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
 
 With `var Arr [4]int` and `const LArr = len(Arr)` in `a.bni`, an importer's `var x [a.LArr]int` fails with
 "array length must be a constant integer" (printing `a.LArr` gives 4, re-lowered at run time).  Cause: while
