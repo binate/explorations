@@ -1,3 +1,13 @@
+### Dropping a closure that captures a managed value at the REPL prompt panics — "vm: closure-struct dtor not found" — DONE (binate `077478f61`, 2026-10-02, work-6)
+
+A function literal registered its closure struct in Module.Structs for the end-of-module dtor pass
+(generateDtors), which never runs for a prompt body — only the pending drain (EnsureReplBodyHelpers) does —
+so releasing a closure created at the prompt found no destructor and the session died.
+registerClosureStructForCleanup now also queues the struct's dtor as pending
+(irbuild.RegisterModulePendingStructDtor); a file build's dtor pass skips the duplicate.  Tests: REPL e2e
+case 73 (closures in a variable initializer, a function body, a block, a raw func value, a method value),
+irgen and irbuild unit tests.
+
 ### IR-gen registered `type X = struct { … }` as a distinct named struct, not an alias — one type, two identities — DONE (binate `3e4529df4`, 2026-10-02, work-4)
 
 An alias is its target (type.alias.transparency) and the checker resolves `Anon` in
