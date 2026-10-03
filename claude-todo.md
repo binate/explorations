@@ -32,6 +32,23 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### A `*T`-receiver method called directly on a managed temporary leaks the temporary — 🔴 OPEN MAJOR (found 2026-10-02, work-4, review of design B commit 7; pre-existing; awaiting a user decision)
+
+```
+type Thing struct { n int }
+func (t *Thing) Get() int { return t.n }
+func id(t @Thing) @Thing { return t }
+// id(t).Get() — t's count grows by one per call
+```
+A call result is a managed statement temporary owning one reference (`mem.temporary`); a raw `*T`
+receiver borrows it (`mem.borrow-arg`), so the reference must still be released at the end of the
+statement.  It is not: `id(t).Get()` and `x.(@Thing).Get()` raise the count by one per call, on LLVM,
+native aa64 and the VM.  Binding the result first (`var u @Thing = id(t); u.Get()`) or a managed `@T`
+receiver does not leak, nor do a field read or an interface call.  Reachable through generics too
+(`x.(T).Get()` with `T = @Thing`).  Root cause unknown — likely the receiver-borrow path of a method call
+on a managed rvalue drops the temporary from the statement's cleanup.  Test: conformance
+`spec/18-memory/149_ptr_recv_method_on_managed_temp` (expected-fail in every mode).
+
 ### No CI lane runs the LLVM arm32 bare-metal mode at -O2 — 🔴 OPEN (raised 2026-09-30, work-1; awaiting a user decision)
 
 .github/workflows/conformance-o2.yml runs builder-comp (host LLVM) and the native modes at -O2, not
