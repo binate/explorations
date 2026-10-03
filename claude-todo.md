@@ -423,7 +423,7 @@ operand (a composite literal) to an interface, e.g. `func conv[T any]() T { retu
 compiler panic.  Fix: run the cast-safety rules on the substituted types when a generic body is
 instantiated (checker-side, before IR-gen), and turn the IR-gen panics into unreachable asserts.
 
-### Is `bit_cast(T, nil)` legal? Today the checker accepts it and LLVM emits invalid IR — 🔴 OPEN, DECIDED 2026-10-03 (found 2026-10-02, work-3, review of the `cast(T, nil)` fix; pre-existing)
+### Is `bit_cast(T, nil)` legal? Today the checker accepts it and LLVM emits invalid IR — 🟡 IN PROGRESS, DECIDED 2026-10-03 (found 2026-10-02, work-3, review of the `cast(T, nil)` fix; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
 
 The checker's bit_cast gate (check/check_c_interop.bn, ~:316-329) compares sizes, and the untyped nil has
 size `ptrSize` (types/layout.bn), so `bit_cast(*int, nil)`, `bit_cast(@T, nil)` and `bit_cast(int, nil)`
