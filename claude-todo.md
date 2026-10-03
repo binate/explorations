@@ -1020,7 +1020,7 @@ offset silently stays 0 — correct today only because the checker admits a name
 as an identity (which never reaches the upcast).  A widening through a named interface-value type would
 misdispatch silently.  Fix: peel both types before reading the interface; add a unit test.
 
-### `cast(@[]uint8, mb)` with `mb @[]bool` lets cast-only code store a non-0/1 byte into bool storage through the shared backing — 🔴 NEEDS DECISION (raised 2026-10-03, work-3, review of the cast leaf-rule widening)
+### `cast(@[]uint8, mb)` with `mb @[]bool` lets cast-only code store a non-0/1 byte into bool storage through the shared backing — 🔴 OPEN, DECIDED 2026-10-03 (raised 2026-10-03, work-3, review of the cast leaf-rule widening)
 
 §8.5's leaf rule (conv.cast.aggregate-retype) checks the element conversion in the FORWARD direction only:
 `bool -> uint8` is total and bit-preserving, so `@[]bool -> @[]uint8` / `*[]bool -> *[]int8` are casts (the
@@ -1036,6 +1036,14 @@ rule as written and list the write-through in §21.6 as how cast-only code can r
 (c) drop `bool -> byte` from the leaf rule entirely.  Recommendation: (a), which keeps cast free of
 undefined behaviour and mirrors the readonly rule.  The checker (`bitPreservingElem`,
 `pkg/binate/check/check_cast_retype.bn`) currently implements the rule as written.
+Probed 2026-10-03 on main: `u := cast(@[]uint8, b); u[0] = 2; x := b[0]` prints `x, !x, cast(int, x)` as
+`false true 0` on LLVM and `true true 2` on native aa64 (`x` and `!x` both true).
+Decision (user, 2026-10-03): "(a) sounds fine" — for a SLICE retype (raw or managed) the element conversion
+must be bit-preserving in both directions unless the destination element slot is readonly: `cast(@[]readonly
+uint8, b)` stays a cast, `cast(@[]uint8, b)` / `cast(*[]int8, rb)` become unsafe_cast's (the rejection names
+it); arrays (copies) are unchanged.  Work: `bitPreservingElem` (`pkg/binate/check/check_cast_retype.bn`, the
+`shared` case), spec §8.5 leaf-rule wording, conformance 017's writable bool-slice cases moved to readonly
+destinations / unsafe_cast, checker tests.
 
 ### Is a location of a named type over a `readonly` type readonly (`type R readonly int8`; `s[0] = v` with `s @[]R`)? — 🔴 NEEDS DECISION (raised 2026-10-03, work-3, reviews of the cast leaf-rule widening)
 
