@@ -1195,6 +1195,13 @@ quote numbers from this file (they go stale):**
   backends by static instruction/reload counting on a `--target` build, or on
   real hardware/CI.
 
+### asm/arm32: `Bkpt` / `Svc` silently truncate out-of-range immediates — 🟡 IN PROGRESS (claimed 2026-10-03, work-5; found by the review of binate `60bf17513`; user: "we should be consistent with the other assemblers")
+
+`Bkpt` masks its immediate to 16 bits and `Svc` to 24, so `bkpt #0x10000` assembles as `bkpt #0` with no
+diagnostic.  LLVM ("operand must be an immediate in the range [0,65535]" / "[0,0xffffff]") and GNU as
+("immediate value out of range" / "invalid swi expression") reject both; so do our aarch64 BRK / SVC and
+x64 `int imm8`.  Fix: set an assembler error and emit nothing outside 0..0xFFFF / 0..0xFFFFFF.
+
 ### Native: a block that only jumps is not threaded — execution hops through two branches — 🔴 OPEN (found 2026-09-30, work-5, disassembling the fold-branch pass's output; pre-existing)
 
 In a loop that passes a function reference (`total = total + apply(twice, i)`), native aa64 at -O2 ends the
