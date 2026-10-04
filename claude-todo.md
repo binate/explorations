@@ -243,13 +243,6 @@ shift instructions `lsl` / `lsr` / `asr` / `ror` (aliases of MOV with a shifted 
 `adr r0, label` / `adr r0, 8` (clang E28F0008), and immediates written without '#': `svc 5`, and `mov r0, 5`,
 which clang encodes as MOVW (E3000005), not MOV.  Each its own small fix in
 `asm/parse/arm32.bn` / `arm32_instr.bn` (+ encoder support where missing), goldens from clang.
-Also (found 2026-10-03, work-2, by the review of the arm32 literal pools; pre-existing) — 🟡 IN
-PROGRESS (claimed 2026-10-03, work-2/session — user: "we should reject the spurious s suffix, and reject
-movw/movt with pc destination"): an `s` suffix on a load / store is silently ignored — `ldrs r0, [r1]` / `ldrs r0, =1` assemble as `ldr`
-(`splitMnem` sets the flag, the load / store branches never read it), where clang rejects it ("instruction
-'ldr' can not set flags"); and the arm32 MOVW / MOVT encoders accept PC as Rd (`movw pc, #0x1234`, an
-UNPREDICTABLE encoding — clang accepts it too, but this assembler already rejects the AArch64 CONSTRAINED
-UNPREDICTABLE register choices clang takes).
 
 ### x86-64 text assembler: a call / jmp to a defined global or weak symbol is relocated R_X86_64_PC32, where clang uses R_X86_64_PLT32 — a shared-object link rejects it — 🟡 CLAIMED (2026-10-02, work-2/session — user: "(probably that bug should be tracked, and put on your list of things to fix)"; queued after plan item 3c; pre-existing, noted 2026-10-01, work-2)
 

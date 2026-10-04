@@ -1,3 +1,12 @@
+### arm32 text assembler: a spurious `s` suffix, and MOVW / MOVT into PC, rejected — DONE (binate `f213f022f`, 2026-10-03, work-2; user: "we should reject the spurious s suffix, and reject movw/movt with pc destination")
+
+An `s` on an instruction that cannot set the flags (load / store, compare, branch, MOVW, CLZ, NOP, PUSH / POP,
+…) was silently dropped; it is now clang's error ("instruction 'ldr' can not set flags, but 's' suffix
+specified").  The MOVW / MOVT encoders masked Rd to 4 bits (PC accepted, UNPREDICTABLE) and the immediate to 16
+bits (`movw r0, #0x10000` became `#0`); they now take R0..R14 and [0, 65535] (clang rejects `movt pc`, accepts
+`movw pc`).  The parser's immediate casts no longer truncate on a 32-bit-int host.  `arm32.bn`'s mnemonic
+splitting moved to `arm32_mnem.bn`.  Native arm32 bare-metal conformance 3403 / 0.
+
 ### Native: a pointer relabel (`@T` <-> `*T`) costs no instruction or frame slot — DONE (binate `b57238bbd`, 2026-10-03)
 
 A shared native pre-pass, forwardPointerRelabels (native/common), deletes every OP_CAST between pointers
