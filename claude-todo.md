@@ -286,7 +286,7 @@ the prompt never parks — its body is resolved only when instantiated — so it
 name, and something (the checker's instantiation or IR-gen's REPL type registration) then lays out the
 field of the later-declared type wrongly.  Root cause: unknown — needs investigation.
 
-### A value-receiver method of a named POINTER type called through an interface reads garbage — the receiver is the box cell, not the pointer in it — 🔴 OPEN (found 2026-09-30, work-3, fixing the `@any` named-owning-pointee identity; reproduced on LLVM and the VM; pre-existing)
+### A value-receiver method of a named POINTER type called through an interface reads garbage — the receiver is the box cell, not the pointer in it — 🟡 IN PROGRESS (claimed 2026-10-03, work-3/session, self-drive, with the named-pointer boxing fix; found 2026-09-30, work-3, fixing the `@any` named-owning-pointee identity; reproduced on LLVM and the VM; pre-existing)
 
 `type H @Node` with `func (h H) Get() int { return h.v }` and `impl H : Getter`: `h.Get()` returns the
 right value, but `var r *Getter = &h; r.Get()` and `var g @Getter = box(h); g.Get()` return garbage
@@ -297,7 +297,7 @@ value receiver (the probe's line for it was cut off by the runner's output limit
 backends not yet checked.  Needs a conformance test over raw and managed interfaces, `@`- and
 `*`-named receivers, and every backend.
 
-### `@any` of a named managed pointer or function value (`type H @Node`, `type F @func() int`) never matches its own `case` — 🔴 OPEN, DECIDED 2026-10-03 (split out 2026-09-30, work-3, from the named-owning-pointee entry; slices / arrays fixed in binate `02857f863`)
+### `@any` of a named managed pointer or function value (`type H @Node`, `type F @func() int`) never matches its own `case` — 🟡 IN PROGRESS, DECIDED 2026-10-03 (claimed 2026-10-03, work-3/session, self-drive; split out 2026-09-30, work-3, from the named-owning-pointee entry; slices / arrays fixed in binate `02857f863`)
 
 `var a @any = box(h)` for `type H @Node` keys the box structurally (`rt.__nameless_<H>`) while `case @H:` /
 `a.(@H)` key on `main.H`, so the assertion misses.  It cannot simply key by name like a named slice: for a
