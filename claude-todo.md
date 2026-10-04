@@ -244,6 +244,40 @@ allow it only as a same-package forward declaration, or reject it?  Recommendati
 (an alias names, it does not define); (2) a same-package forward declaration only, rejected in a `.bni`
 (an importer can never instantiate it).
 
+### An rvalue of a generic instance type borrowed into a raw `*any` / `*I` is typed with the checker's type — invalid IR (LLVM) / wrong dynamic type (native) — 🔴 OPEN MAJOR (found 2026-10-03, work-7, review of the non-struct generic types change; reproduced; pre-existing)
+
+wrapAsIfaceValue's value-borrow of a NON-addressable source (gen_util.bn, the materialize-a-temp branch)
+takes `srcT = ctx.Checker.ExprType(...)` and builds the box type from it without mapping it to IR-gen's type,
+so a generic instance's checker name leaks into the vtable: `type Counter[T any] int`,
+`testing.Println(c + 1)` fails clang (`@__ivt.bn_V1_4_main12_Counter[int]0_3_any`), and on native
+`show(mk())` (`mk() Pair[int]`, `show(x *any)`) takes a type switch's `default` instead of `case
+Pair[int]`.  A generic STRUCT instance fails the same way (`show(mkBox(1))`).  Fix: map srcT through
+irTypeFromChecker before defaultedBorrowType / MakePointerType; tests per backend.
+
+### `box(L)` of a composite literal of a NAMED array type is recorded as the plain array type — `.(N)` misses — 🔴 OPEN (found 2026-10-03, work-7, review of the non-struct generic types change; reproduced; pre-existing)
+
+`type PairN [2]int; var a @any = box(PairN{1, 2}); a.(PairN)` misses (generic or not): genCompositeLit
+builds the literal in an alloca of the PEELED array type, and box records that as the dynamic type.  (The
+address side was fixed with genCompositeAddr's relabel; box takes the value.)  Fix: box (and any value
+consumer that records a dynamic type) should take the literal's declared type; a test with `case PairN:`.
+
+### A generic-receiver impl of an interface that uses `Self` is rejected — no generic type can be a hashmap key — 🔴 OPEN (found 2026-10-03, work-7, review of the non-struct generic types change; reproduced; pre-existing)
+
+`type IdS[T any] struct {…}; func (a IdS[T]) Compare(other IdS[T]) int; impl IdS[T] : lang.Orderable`
+reports "method `Compare` has wrong signature", while the non-generic `impl IdS : lang.Orderable` is
+accepted: the abstract satisfaction check (gen.impl.generic-recv) substitutes `Self` with something other
+than the receiver's placeholder instantiation `IdS[T]`.  So `hashmap[IdS[int], V]` is impossible.  Fix in
+the abstract impl check's Self substitution; a test with a generic key type.
+
+### Generic named managed pointers (`type Own[T any] @T`) with their own impl now instantiate — the named-pointer boxing change must cover their impl rows too — 🔴 OPEN (note for the in-progress named-pointer boxing entry above; found 2026-10-03, work-7)
+
+Non-struct generic types (gen.instantiate.type) make `type Own[T any] @T; impl Own[T] : I` reachable.  Their
+impl rows are synthesized on demand by ensureGenericImplInfo (gen_generic_method.bn), which mirrors
+collectImplsFromDecl's choice for a named pointer (pointee value type and destructor) — so today a bare
+widening `var s @I = o` works and `box(o)` into `@I` crashes exactly as the non-generic case does.  Whatever
+the convention (A) change does to collectImplsFromDecl and the boxing paths must be done to
+ensureGenericImplInfo / boxedRecvType as well, with generic instances in its tests.
+
 ### A package-level `var g *any = 42` borrows a temporary of the init function — it dangles once init returns — 🔴 NEEDS DECISION MAJOR (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
 
 `checkVarDecl` uses `checkBorrowingArg` for package-level vars too, so a value is borrowed into a package
