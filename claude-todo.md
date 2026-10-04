@@ -364,7 +364,7 @@ both write `c`, while `var s *Setter = &c` is rejected statically.  Work: a read
 type-info / vtable (LLVM, native, VM, interop), the assertion and type-switch match, spec §11.12 wording
 (drop "outer-readonly stripped" / "independent of any readonly" for the pointee), tests per backend.
 
-### Method values on non-addressable / read-only receivers, and the lifetime of an addressed composite literal — 🔴 OPEN, DECIDED 2026-09-30 (raised 2026-09-30, work-7, fixing the method-value-captures-a-copy bug)
+### Method values on non-addressable / read-only receivers, and the lifetime of an addressed composite literal — 🟡 IN PROGRESS, DECIDED 2026-09-30 (raised 2026-09-30, work-7, fixing the method-value-captures-a-copy bug; claimed 2026-10-03, work-7/session; user: "let's work on them per the self-drive instructions")
 
 Decisions (user, 2026-09-30):
 1. A method value binds its receiver exactly as the call would: `x.M` is legal iff `x.M()` is, as far as
