@@ -61,6 +61,61 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### A value-borrow temporary is released on paths that never filled it, and overwritten without release when the borrow runs again in its scope — crash after a short-circuit; leak in a loop condition / post statement — 🔴 OPEN MAJOR (found 2026-10-03, work-3, review of the named-pointer boxing change; reproduced on main with a struct that holds a managed field; pre-existing)
+
+With `type W struct { p @Inner }`, `impl W : Getter` (value receiver), `func takeR(g *Getter) int`:
+`if n > 100 && takeR(mkW()) > 0 {}` with the right side not taken segfaults on LLVM at the enclosing
+scope's exit (native survives by luck of stack contents); `for i := 0; i < 3; i = i + takeR(mkW()) - 1000
+{}` leaks one `@Inner` reference per extra evaluation.  Cause: the non-addressable value-borrow path in
+gen_util.bn (2b) allocates the temporary in the CURRENT block with no nil-init, stores it with
+`isInit=true` (no release of a previous value), and enrolls it as a scope local (`.borrow_temp`), so the
+scope-exit cleanup runs on paths that never stored, and a re-evaluation before the scope exits drops the
+previous reference.  Spec §18.4 `mem.temporary` says a temporary is released at the end of its statement;
+only a `var` / `:=` initializer's borrow co-scopes with its binding (`iface.construct.value-borrow`).
+Proposed fix: an argument-position borrow is a statement temporary (released at the statement's end, which
+also covers a loop condition or post statement per evaluation — extend `emitTempRefDecs` to managed-scalar
+allocas), and only the initializer of an interface-typed `var` / `:=` is a scope temporary, allocated and
+nil-initialized at entry.  Reachable for named managed pointer values (`type H @Node`) since they are
+boxed as values.  Needs conformance tests over short-circuit, loop condition, post statement and var-init
+(each checked for leaks and crashes), every backend.
+
+### A nested value borrow inside a deferred call's argument takes another argument's pre-allocated defer slot — wrong value / use-after-free — 🔴 OPEN MAJOR (found 2026-10-03, work-3, review of the named-pointer boxing change; reproduced on main with a struct holding a managed field; pre-existing)
+
+`func run(c bool) { var h W = mkW(1); var h2 W = mkW(2); if c { defer show3(cnt(h), h2) }; h2 = mkW(20) }`
+with `func cnt(g *Getter) int`, `func show3(n int, b *Getter) { testing.Println("d", n, b.Get()) }` prints
+`d 1 0` (expected `d 1 2`; `defer show3(5, h2)` prints `d 5 2`).  Cause: while `SnapshotBorrows` is set,
+gen_util.bn's borrow path takes the next `ctx.DeferBorrowSlots` entry for ANY borrow it materialises, but
+the defer pre-pass (`deferArgBorrowVt`, gen_defer_build.bn) allocated slots only for the deferred call's
+top-level arguments — so `cnt(h)`'s nested borrow consumes h2's slot, and h2's snapshot falls back to a
+temporary released at the `if` block's exit (and a slot of another type would receive a mistyped store).
+Proposed fix: consume a pre-allocated slot only for the top-level operand being stored (record which
+argument expression owns the next slot), and evaluate nested argument expressions with SnapshotBorrows
+off so their borrows are ordinary statement temporaries.  Conformance test over nested borrows in deferred
+arguments (struct and named-pointer sources), every backend.
+
+### A field or element of a call result, borrowed into a raw interface, boxes a pointer into the statement's temporary — it dangles after the statement — 🔴 OPEN MAJOR (found 2026-10-03, work-3, review of the named-pointer boxing change; reproduced on main; pre-existing)
+
+`var r *Getter = mkHold(42).h` and `var q *Getter = mkHs(43)[1]` (a struct-returning call, a slice-returning
+call; `h` a value with a value-receiver impl of Getter), then later `r.Get()` / `q.Get()`: LLVM traps,
+native prints garbage on main (segfault with the named-pointer change).  The checker treats such a source as
+non-addressable, so a `var` initializer may borrow it only by materialising a temporary that co-scopes
+with the binding (`iface.construct.value-borrow` 2b); but genBorrowSourceAddr's selector / index arms
+(gen_borrow.bn) return a pointer INTO the call result's statement temporary and report it as the source's
+address (2a), so the box points into storage freed at the end of the statement.  Proposed fix: treat a
+selector or index whose base is not addressable (a call result, a composite literal's element through a
+call) as a value — the 2b path — so the borrowed copy lives as long as the binding.  Conformance test,
+every backend.
+
+### `unsafe_cast` narrowing to a `readonly` managed-pointer target loads through the data word — segfault — 🔴 OPEN MAJOR (found 2026-10-03, work-3, review of the named-pointer boxing change; reproduced on main; pre-existing)
+
+`var a @any = n` (n `@Node`), `var q readonly @Node = unsafe_cast(readonly @Node, a)`, `q.v` segfaults on
+LLVM and native (`unsafe_cast(AP, a)` with `type AP = @Node` works).  Cause: gen_assert.bn
+`emitRecoveredValue` tests `recoveredTyp.Kind` for TYP_POINTER / TYP_MANAGED_PTR without peeling
+`readonly`, so a `readonly @Node` target takes the value-recovery arm and LOADS through the data word.
+Proposed fix: classify the target through aliases and `readonly` only (`types.ResolveAliasAndConst`, not
+StripWrappers, which would also peel a named pointer `H` whose value recovery must load).  Conformance test
+over `readonly @T` / `readonly *T` / alias targets of `unsafe_cast` and the assertion forms, every backend.
+
 ### A method of a named interface-value type (`type X @J`, `func (x X) Len()`) called directly dispatches through J's vtable — silent wrong value — 🟡 IN PROGRESS MAJOR (found 2026-10-03, work-3, fixing the named-pointer boxing; reproduced on main `434f8bf1b`, LLVM and native; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
 
 With `interface J { Get() int }`, `type X @J`, `func (x X) Len() int { return cast(@J, x).Get() }`, `var x X =
