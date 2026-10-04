@@ -1,3 +1,11 @@
+### x86-64 text assembler: a call / jmp to a defined global or weak symbol was R_X86_64_PC32 where clang uses PLT32 — DONE (binate `9e2c7e695`, docs `1f5d85a`, 2026-10-04, work-2; user: "(probably that bug should be tracked, and put on your list of things to fix)")
+
+The ELF writer now emits R_X86_64_PLT32 for a call / jump / jcc rel32 to any symbol with no addend of its own —
+defined or not, global, weak or local (a local one against its section's symbol) — as clang does, and PC32 for
+one with an addend; the plainness is read before temporaries are retargeted.  Deliberate difference: an `=`
+alias with an offset (`E = ext + 8`, `call E`) is PC32 here, where clang emits PLT32 ext+4 (a PLT stub would
+misroute it).  The ABI doc's `abi.obj.reloc` rule updated to match.
+
 ### arm32 text assembler: a spurious `s` suffix, and MOVW / MOVT into PC, rejected — DONE (binate `f213f022f`, 2026-10-03, work-2; user: "we should reject the spurious s suffix, and reject movw/movt with pc destination")
 
 An `s` on an instruction that cannot set the flags (load / store, compare, branch, MOVW, CLZ, NOP, PUSH / POP,

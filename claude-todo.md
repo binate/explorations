@@ -301,17 +301,6 @@ shift instructions `lsl` / `lsr` / `asr` / `ror` (aliases of MOV with a shifted 
 which clang encodes as MOVW (E3000005), not MOV.  Each its own small fix in
 `asm/parse/arm32.bn` / `arm32_instr.bn` (+ encoder support where missing), goldens from clang.
 
-### x86-64 text assembler: a call / jmp to a defined global or weak symbol is relocated R_X86_64_PC32, where clang uses R_X86_64_PLT32 — a shared-object link rejects it — 🟡 CLAIMED (2026-10-02, work-2/session — user: "(probably that bug should be tracked, and put on your list of things to fix)"; queued after plan item 3c; pre-existing, noted 2026-10-01, work-2)
-
-The ELF writer (`asm/elf/elf.bn`) chooses PLT32 only for an undefined target with a zero addend; clang relocates
-a call or jump to any non-local symbol — defined here or not, global or weak — with PLT32, which GNU ld and lld
-resolve directly in an executable and through the PLT in a shared object.  With PC32, a `-shared` link rejects
-the relocation against a preemptible symbol ("relocation R_X86_64_PC32 against symbol … can not be used when
-making a shared object").  Global / weak aliases (binate `da8befa0a`) reach it too.  Fix: choose PLT32 from the
-instruction (a call / jmp to a non-local symbol), checking clang for a call with an addend (`call A+2`) and for
-Mach-O x86-64, with tests pinned to clang's relocations; bnld already patches PLT32 as PC32 for a statically
-resolved symbol.
-
 ### Until `BUILDER_VERSION` includes binate `1f29d31e9`, gen1 silently miscompiles some statements that open a block or follow a compound statement in BUILDER-compiled code — 🔴 OPEN MAJOR (constraint until the next BUILDER release; found 2026-09-30, work-4)
 
 bnc-0.0.16 (the pinned BUILDER) has the IR-gen defect fixed on main by `1f29d31e9`.  So in cmd/bnc's cone (the packages the BUILDER compiles into gen1), these must not be the first statement of a loop / `if` / `else` / `case` body, nor the statement right after an `if` / `for` / `switch`:
