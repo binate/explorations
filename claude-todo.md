@@ -5,6 +5,35 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
+### `box(p)` of a pointer variable that mem2reg resolves to `&x` boxes x's contents instead of the pointer — wrong code at -O1+, every backend — 🔴 OPEN CRITICAL (found 2026-10-03, work-4, review of the native pointer-relabel forwarding; reproduced on main `bf7ec37ca`, LLVM and native; pre-existing)
+
+Repro (segfaults at -O2 on `--backend llvm` and `--backend native`; prints `7 9` at -O0):
+
+```
+type S struct { a int; b int }
+func main() {
+	var x S
+	x.a = 7
+	x.b = 9
+	var p *S = &x
+	var b @(*S) = box(p)
+	var q *S = *b
+	testing.Println(q.a, q.b)
+}
+```
+
+Root cause: `OP_BOX` infers what it boxes from its OPERAND's opcode.  IR-gen's `box` arm (gen_builtin.bn) and every
+backend's box lowering (native `emitBox` in aarch64_emit.bn / x64_managed.bn / arm32_emit.bn, and the LLVM
+`emitBoxInstr`) read an `OP_ALLOC` operand as "box the slot's contents" (`TypeArg.SizeOf()` bytes copied from the
+slot) and any other operand as the value itself.  IR-gen emits `OP_BOX(load p)`; mem2reg then replaces the load of `p`
+with its reaching value, the alloca of `x`, so the box copies x's 16 bytes into a cell typed `@(*S)` and `*b` reads
+x's first word as a pointer.  Proposed fix: decide from the box's own element type (`ins.Typ`'s Elem — an aggregate
+element arrives by address, anything else, a pointer included, as the value), never from the operand's opcode; audit
+the other consumers that give an `OP_ALLOC` operand a meaning of its own.  The native relabel forwarding keeps a
+relabel of an alloca so it does not add a second route into this (a TODO there points here).  Test: the repro above
+as a conformance test, but conformance runs at -O0 by default and xfail markers do not distinguish -O levels, so it
+can only land with the fix (the -O2 lane, conformance-o2.yml, would catch it).
+
 ### native aa64: a conditional branch beyond ±1 MB is not relaxed — a very large function fails to assemble — 🔴 OPEN (found 2026-09-30, work-7, review of the exact aggregate-copy fix; pre-existing)
 
 "PC-relative reference to 'L_…phicrit.71' is out of range or misaligned": B.cond / CBZ reach ±1 MB and
