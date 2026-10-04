@@ -102,6 +102,20 @@ those a compile error (needs float constant evaluation in the check).  Recommend
 asserts things about a representation, and a float has none in common with `bool` (`1.0` is not the
 byte 1), so this is a lossy value conversion that `f != 0.0` already spells.
 
+### Is a read-only HANDLE (`readonly *T` / `readonly @T`) a method or impl receiver? — 🔴 NEEDS DECISION (found 2026-10-03, work-7, fixing the receiver one-pointer-level check)
+
+`func.method.receiver-kinds` says a receiver "takes exactly one of five kinds" (`*T`, `*readonly T`, `@T`,
+`@readonly T`, a value — plus `readonly T`), but the checker also accepts a read-only handle,
+`func (s readonly *St) M()` / `func (s readonly @St) M()`, and an impl over one: conformance 940 has
+`type AliasRO = readonly @Jar; impl AliasRO : Getter`, with its dispatch tested.  `func.method.impl-receiver`
+says "an `impl T : Iface` (and its `*T`/`@T`/`readonly` variants)", which does not settle it.  A handle's
+read-only-ness does not affect dispatch (`func.method.object-const`); inside the method it only makes the
+receiver variable unassignable.  Options: (a) accept them, and say in receiver-kinds that a `readonly` handle
+is the receiver parameter's own property (the method's kind is still `*T` / `@T`); (b) reject them as
+receiver-kinds reads today, and change 940's AliasRO case.  Recommendation: (a) — it is the same handle
+`readonly` any parameter may carry, harmless, and 940 shows it works end to end.  The receiver check that
+rejects a second pointer level (`**T`, `*@T`, `*readonly *T`) leaves these accepted pending the decision.
+
 ### A package-level `var g *any = 42` borrows a temporary of the init function — it dangles once init returns — 🔴 NEEDS DECISION MAJOR (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
 
 `checkVarDecl` uses `checkBorrowingArg` for package-level vars too, so a value is borrowed into a package
