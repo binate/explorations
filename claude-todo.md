@@ -839,7 +839,7 @@ the rest of a never-instantiated generic's fields and method signatures are stil
 declaration once abstractly at the declaration (its parameters held abstract, as generic functions'
 bodies are checked), independent of instantiation.
 
-### Support generic type declarations whose underlying type is not a struct (`type P[T any] [2]T`, `@func(T) bool`, …) — 🔴 OPEN (found 2026-09-29, work-4, probing the generic self-containment fix; direction decided 2026-09-30: support them, don't reject them)
+### Support generic type declarations whose underlying type is not a struct (`type P[T any] [2]T`, `@func(T) bool`, …) — 🟡 IN PROGRESS (found 2026-09-29, work-4, probing the generic self-containment fix; direction decided 2026-09-30: support them, don't reject them; claimed 2026-10-03, work-7/session; user: "let's work on them per the self-drive instructions")
 
 The checker accepts a generic `type` declaration of any underlying type (`type P[T any] [2]T`,
 `type Ptr[T any] *T`, `type Less[T any] @func(a T, b T) bool`), but instantiation fills in only a struct
