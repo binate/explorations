@@ -85,7 +85,9 @@ The pool-distance limit (±1 MB) is the existing LD_PREL_LO19 fixup range check.
 
 Progress: the 4-byte absolute data word a W-register symbol entry needs (aarch64 FIX_ABS32: ELF
 R_AARCH64_ABS32, Mach-O 4-byte UNSIGNED; bnld patches and reads it) — ✅ landed `2a26ec4d9`
-(2026-10-03).  The pools themselves next.
+(2026-10-03).  The pools — ✅ landed `14b65cb8b` (2026-10-03); deliberate rejects (clang accepts):
+an FP / SIMD destination, sharing an emitted entry beyond a load's reach, sharing across a Mach-O
+atom (and a pool in a later atom than its load, as any cross-atom literal load).  3c is complete.
 
 ## 3d. Relocation operators
 

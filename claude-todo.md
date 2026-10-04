@@ -806,7 +806,9 @@ its leading literal alone — user: "The reject sounds good").  (8) `.`-leading 
 per-format temporary labels (plan item 3a) — landed `477048003` (2026-09-30).  (9) `name = expr` constants (plan
 item 3b) — complete: numeric constants `1a31e768f`, symbol-valued expressions (multi-term addends, aliases,
 `C = .`) `f9acb7bb6`, x64 label addends `331b13ee4`, constants in the symbol table `63c3ba948`, global / weak
-numbers `bf00c139e`, global / weak aliases `da8befa0a` (2026-10-02).
+numbers `bf00c139e`, global / weak aliases `da8befa0a` (2026-10-02).  (10) literal pools (plan item 3c) —
+`ldr Wt|Xt, =expr`, `.ltorg` / `.pool` — landed `14b65cb8b` (2026-10-03; the 4-byte absolute data word a W entry
+needs, `2a26ec4d9`).
 Apple's legacy NEON syntax
 (`dup.4s v0, w1`, `tbl.16b v0, {v1}, v3`), which clang
 accepts on every target, is not supported (user, 2026-09-28: "we don't need alternate syntax, unless there's

@@ -1,3 +1,13 @@
+### aa64 text assembler: literal pools — `ldr Wt|Xt, =expr`, `.ltorg` / `.pool` — DONE (binate `14b65cb8b`, 2026-10-03, work-2; plan item 3c; the 4-byte absolute data word a W entry needs, `2a26ec4d9`)
+
+As clang: a one-chunk number is a MOVZ; anything else an entry of the register's size in its section's pool
+(numbers, or a symbol plus a number as an absolute word: R_AARCH64_ABS64 / ABS32, Mach-O UNSIGNED), shared by
+value or plain name, emitted at `.ltorg` / `.pool` and each section's end, aligned to its size.  `2a26ec4d9`
+added aarch64.FIX_ABS32 end to end (writers, bnld) and made AddFixup reject a non-pointer-sized generic fixup;
+the text assembler's word size now follows the arch.  Deliberate rejects: FP / SIMD destinations, sharing
+beyond a load's reach, sharing across a Mach-O atom (the review found two functions loading one number
+unassemblable on Mach-O before that).  arm32 `ldr rN, =` is the open follow-up (claude-todo, arm32 gap list).
+
 ### Design B commit 7: an assertion or conversion through a type parameter is checked per instance — DONE (binate `ab98a0439`, 2026-10-03, work-4); per-instantiation checking (design B) complete
 
 An assertion or type-switch case whose target names a type parameter (`x.(T)`, `x.(*T)`, `x.(@T)`,
