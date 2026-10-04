@@ -32,6 +32,16 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### `break` / `continue` inside a function literal compiles and does nothing — the statement silently disappears — 🟡 IN PROGRESS MAJOR (found 2026-10-03, work-3, review of the function-literal borrow-position fix; reproduced; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
+
+`for i := 0; i < 3; i++ { f := func() { break }; f(); n++ }` compiles and prints `n` = 3: `checkFuncLit`
+(`pkg/binate/check/check_func_lit.bn`) saves and resets InLoopBody and InFunc but not InLoop / InSwitch, so
+the "break outside loop or switch" check (check_stmt.bn) sees the enclosing loop's flags; the literal's body
+is generated in a fresh GenContext with nil BreakTo / ContinueTo, so gen_stmt emits nothing.  Spec §14.12:
+a compile error.  Fix: save and reset InLoop / InSwitch in `checkFuncLit`, as `enterPackageDecl` does; make
+IR-gen fail loud on a break / continue with no target.  Needs an error test (break, continue, inside a loop
+and a switch case, nested literal).
+
 ### A deferred call's variadic pack of `@T` into `...*T` does not retain the managed values — use-after-free — 🔴 OPEN MAJOR (found 2026-10-03, work-4, review of the *T-receiver leak fix; pre-existing)
 
 ```
@@ -69,7 +79,10 @@ Spec `prog.init.vars` runs `var x T = e` as the assignment `x = e` (a storing po
 var initializer's temporary lives as long as the binding.  Options: (a) a package-level var initializer is a
 STORING position — the value borrow is rejected ("cannot assign untyped int to *any"; write a `@any` or
 take a pointer to a package-level value); (b) give the temporary static lifetime (a hidden global per
-borrowed initializer).  Recommendation: (a) — no hidden storage, matches prog.init.vars.
+borrowed initializer).  Recommendation: (a) — no hidden storage, matches prog.init.vars.  (Note from the review that found it: IR-gen
+already gives package-lifetime storage to closure records (gen_vars.bn, `newPackageStaticSlot`) and raw-slice
+literal backings (gen_slice_lit.bn) built in `__init` for exactly this reason; option (b) would follow that
+pattern for the borrow temporary — still hidden storage, but an existing one.)
 
 ### A function NAME passed into `*any` compiles and boxes nothing — silent wrong value — 🔴 NEEDS DECISION MAJOR (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
 
