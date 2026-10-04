@@ -120,7 +120,7 @@ and an importer reading X fails as the undefined-var case did.  Fix: have the lo
 which packages are interface-only (or the reverse), and report a `var` in a non-interface-only package
 with no `.bn` files.
 
-### REPL: a generic method that parks, or is rolled back, stays callable on instances of its type named before it — 🔴 OPEN MAJOR (found 2026-09-30, work-4, reviewing design B's REPL instance checks; reproduced on main `6c3a92440` with a check unit-test probe; pre-existing)
+### REPL: a generic method that parks, or is rolled back, stays callable on instances of its type named before it — 🟡 IN PROGRESS (claimed 2026-10-03, work-6/session, with the generic-types-at-the-prompt fix) (found 2026-09-30, work-4, reviewing design B's REPL instance checks; reproduced on main `6c3a92440` with a check unit-test probe; pre-existing)
 
 ```
 type Box[T any] struct { v T }
@@ -406,7 +406,7 @@ Not only generic receivers: with `p *b.St` from a directly imported b, the metho
 (`pp **b.St`) is named from the checker's unqualified `St` and references `main.St.Show` — LLVM: an
 undefined symbol at link (found 2026-10-01, work-7).  The same arms fix it.
 
-### REPL: `b.v++` / `b.v += 1` on a top-level var of a generic struct type panics in IR-gen — 🔴 OPEN MAJOR (found 2026-09-30, work-7, review of the ++/-- addressability fix; pre-existing)
+### REPL: `b.v++` / `b.v += 1` on a top-level var of a generic struct type panics in IR-gen — 🟡 IN PROGRESS (claimed 2026-10-03, work-6/session, with the generic-types-at-the-prompt fix) (found 2026-09-30, work-7, review of the ++/-- addressability fix; pre-existing)
 
 At the prompt: `type B[T any] struct { v T }`, `var b B[int]`, then `b.v++` → "internal error: ++/-- target with
 no address in IR-gen"; `b.v += 1` → "selector assignment target with no address" (these were silently dropped
@@ -3210,7 +3210,7 @@ ship one that runs).
 
 ## REPL
 
-### Generic functions and methods of generic types declared at the REPL prompt panic when called — 🔴 OPEN MAJOR (found 2026-09-29, work-6, review of the REPL failed-prompt fix; reproduced 2026-09-30; pre-existing)
+### Generic functions and methods of generic types declared at the REPL prompt panic when called — 🟡 methods half IN PROGRESS (claimed 2026-10-03, work-6/session, with the generic-types-at-the-prompt fix); generic functions half 🔴 OPEN (found 2026-09-29, work-6, review of the REPL failed-prompt fix; reproduced 2026-09-30; pre-existing)
 
 `func id[T any](x T) T { return x }` then `testing.Println(id[int](3))` panics "vm: extern not found:
 main." (the call names an empty function).  `type Box[T any] struct { v T }`, `func (b *Box[T]) Get() T
