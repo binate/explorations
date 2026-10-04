@@ -1093,7 +1093,7 @@ offset silently stays 0 — correct today only because the checker admits a name
 as an identity (which never reaches the upcast).  A widening through a named interface-value type would
 misdispatch silently.  Fix: peel both types before reading the interface; add a unit test.
 
-### `cast(@[]uint8, mb)` with `mb @[]bool` lets cast-only code store a non-0/1 byte into bool storage through the shared backing — 🔴 OPEN, DECIDED 2026-10-03 (raised 2026-10-03, work-3, review of the cast leaf-rule widening)
+### `cast(@[]uint8, mb)` with `mb @[]bool` lets cast-only code store a non-0/1 byte into bool storage through the shared backing — 🟡 IN PROGRESS, DECIDED 2026-10-03 (raised 2026-10-03, work-3, review of the cast leaf-rule widening; claimed 2026-10-03, work-3/session, self-drive)
 
 §8.5's leaf rule (conv.cast.aggregate-retype) checks the element conversion in the FORWARD direction only:
 `bool -> uint8` is total and bit-preserving, so `@[]bool -> @[]uint8` / `*[]bool -> *[]int8` are casts (the
