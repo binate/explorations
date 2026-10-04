@@ -3241,6 +3241,13 @@ investigation.  Generic types, generic interfaces and generic-receiver impls dec
 package work (e2e tier5-box-generic-receiver-impl-instantiation).  Also (found 2026-09-30 reviewing
 interface / impl parking, reproduced): `type Cur[T any] struct { v T }`, `type CI = Cur[int]`, `var cc
 CI`, `cc.v = 4` panics IR-gen "selector assignment target with no address".
+Found 2026-10-03 (work-6, review of the generic-types-at-the-prompt fix): once prompt generic structs
+instantiate, a generic FUNCTION whose body uses one with its type parameter panics at its declaration —
+`type Cur[T any] struct { v T }`, `func gen[T any](x T) T { var c Cur[T]; c.v = x; return c.v }` →
+"internal error: no checked copy of generic type instance main.Cur__bn_inst__1_N0_3_int" (GenDecl
+generates the generic function eagerly with T as int; before the fix it panicked "selector assignment
+target with no address").  Same root cause as above: GenDecl must stash a generic function for
+instantiation at its call sites, as it now does a generic-receiver method.
 Found 2026-09-30 (work-7, building the checker→IR-gen type mapper): generic TYPE declarations typed at
 the prompt are not registered for instantiation either — the REPL lowers a `type` through GenTypeDecls,
 which never stashes a generic struct decl (stashGenericStructDecl), so every IR-gen instantiation of a
