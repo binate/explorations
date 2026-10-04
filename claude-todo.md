@@ -63,7 +63,7 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### VM: an interface-dispatch thunk forwards owned values to the method with no stack pre-check — a frame-push overflow leaks them — 🔴 OPEN MAJOR (found 2026-10-03, work-3, review of the named-pointer boxing change; code reading; pre-existing)
+### VM: an interface-dispatch thunk forwards owned values to the method with no stack pre-check — a frame-push overflow leaks them — 🟡 IN PROGRESS MAJOR (claimed 2026-10-04, work-3/session, self-drive; user: "2. sure."; found 2026-10-03, work-3, review of the named-pointer boxing change; code reading; pre-existing)
 
 genIvRecvThunk (irgen/gen_iv_thunk.bn) field-RefIncs a value-struct receiver in place (emitStructCopy on the
 box's object), RefIncs a receiver represented as a managed interface value (`type X @J`, added with the
@@ -78,7 +78,7 @@ plus a forward pad releasing the acquired receiver (struct-dtor the box object's
 in slots, as the wrapper's are, for the pad's loads); a VM unit test in the style of
 vm_methodvalue_overflow_test.bn.
 
-### A value-borrow temporary is released on paths that never filled it, and overwritten without release when the borrow runs again in its scope — crash after a short-circuit; leak in a loop condition / post statement — 🔴 OPEN MAJOR (found 2026-10-03, work-3, review of the named-pointer boxing change; reproduced on main with a struct that holds a managed field; pre-existing)
+### A value-borrow temporary is released on paths that never filled it, and overwritten without release when the borrow runs again in its scope — crash after a short-circuit; leak in a loop condition / post statement — 🟡 IN PROGRESS MAJOR (claimed 2026-10-04, work-3/session, self-drive; user: "2. sure."; found 2026-10-03, work-3, review of the named-pointer boxing change; reproduced on main with a struct that holds a managed field; pre-existing)
 
 With `type W struct { p @Inner }`, `impl W : Getter` (value receiver), `func takeR(g *Getter) int`:
 `if n > 100 && takeR(mkW()) > 0 {}` with the right side not taken segfaults on LLVM at the enclosing
@@ -96,7 +96,7 @@ nil-initialized at entry.  Reachable for named managed pointer values (`type H @
 boxed as values.  Needs conformance tests over short-circuit, loop condition, post statement and var-init
 (each checked for leaks and crashes), every backend.
 
-### A nested value borrow inside a deferred call's argument takes another argument's pre-allocated defer slot — wrong value / use-after-free — 🔴 OPEN MAJOR (found 2026-10-03, work-3, review of the named-pointer boxing change; reproduced on main with a struct holding a managed field; pre-existing)
+### A nested value borrow inside a deferred call's argument takes another argument's pre-allocated defer slot — wrong value / use-after-free — 🟡 IN PROGRESS MAJOR (claimed 2026-10-04, work-3/session, self-drive; user: "2. sure."; found 2026-10-03, work-3, review of the named-pointer boxing change; reproduced on main with a struct holding a managed field; pre-existing)
 
 `func run(c bool) { var h W = mkW(1); var h2 W = mkW(2); if c { defer show3(cnt(h), h2) }; h2 = mkW(20) }`
 with `func cnt(g *Getter) int`, `func show3(n int, b *Getter) { testing.Println("d", n, b.Get()) }` prints
@@ -446,8 +446,14 @@ for any value type; `cast(@Node, h)` boxes the Node itself.  Same for a named ra
 `impl PS : I`).  Spec §11.4 / §11.12 wording to match; tests over `@`- and `*`-named types, raw and managed
 interfaces, `case` / assertion / dispatch, every backend.
 Plan: `plan-named-pointer-boxing.md`.
+Further decisions (user, 2026-10-04), on the fmt rendering of a named pointer value (`fmt.Println(h)`, now
+`%!?(unknown)`: the box's dynamic type is H, a pointer kind, and a top-level TypeInfo carries no pointee):
+"1. &{7, 8} is better, I think." — render it as a pointer-typed struct field renders (`&{...}`), which needs a
+pointee description in the top-level TypeInfo; on value recovery `.(S)` for named slices, function values and
+interface values: "3. we can do it now."; on fixing the value-borrow temporary / deferred-slot / dispatch-thunk
+MAJORs before landing this: "2. sure."
 
-### Spec decision: may a type assertion recover a MUTABLE pointer to a boxed `readonly` named value? — 🔴 OPEN, DECIDED 2026-10-03 (raised 2026-09-29, work-3, review of the outer-readonly boxing fix)
+### Spec decision: may a type assertion recover a MUTABLE pointer to a boxed `readonly` named value? — 🟡 IN PROGRESS, DECIDED 2026-10-03 (claimed 2026-10-04, work-3/session, self-drive; raised 2026-09-29, work-3, review of the outer-readonly boxing fix)
 
 `var c readonly Celsius = 21; var x *any = &c; x.(*Celsius)` succeeds today (named boxes drop the outer
 readonly), handing out a mutable `*Celsius` to readonly storage without `unsafe_cast`.  §11.12 iface.assert's
@@ -474,7 +480,8 @@ object's box behaves as today.  Probed 2026-10-03: `x.(*Celsius)` then `*p = 5` 
 both write `c`, while `var s *Setter = &c` is rejected statically.  Work: a readonly variant of the box's
 type-info / vtable (LLVM, native, VM, interop), the assertion and type-switch match, spec §11.12 wording
 (drop "outer-readonly stripped" / "independent of any readonly" for the pointee), tests per backend.
-Plan: `plan-readonly-box-recovery.md` (its representation choice needs the user's decision first).
+Plan: `plan-readonly-box-recovery.md`.  Representation (user, 2026-10-04): "4. Maybe a second, readonly
+record?" — a second, readonly TypeInfo record per type (and readonly-variant vtables), not a vtable flag word.
 
 ### Method values on non-addressable / read-only receivers, and the lifetime of an addressed composite literal — 🟡 IN PROGRESS, DECIDED 2026-09-30 (raised 2026-09-30, work-7, fixing the method-value-captures-a-copy bug; claimed 2026-10-03, work-7/session; user: "let's work on them per the self-drive instructions")
 
