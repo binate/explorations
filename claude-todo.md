@@ -1150,7 +1150,7 @@ it); arrays (copies) are unchanged.  Work: `bitPreservingElem` (`pkg/binate/chec
 `shared` case), spec §8.5 leaf-rule wording, conformance 017's writable bool-slice cases moved to readonly
 destinations / unsafe_cast, checker tests.
 
-### Is a location of a named type over a `readonly` type readonly (`type R readonly int8`; `s[0] = v` with `s @[]R`)? — 🔴 OPEN, DECIDED 2026-10-03 (raised 2026-10-03, work-3, reviews of the cast leaf-rule widening)
+### Is a location of a named type over a `readonly` type readonly (`type R readonly int8`; `s[0] = v` with `s @[]R`)? — 🟡 IN PROGRESS, DECIDED 2026-10-03 (raised 2026-10-03, work-3, reviews of the cast leaf-rule widening; claimed 2026-10-03, work-3/session, self-drive)
 
 `type R readonly int8` and `type RP readonly *readonly int` are accepted declarations, but the assignment
 checks (`IsReadonly`, which sees through aliases only) treat a location of type R or RP as writable:
