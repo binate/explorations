@@ -457,7 +457,7 @@ With `pkg/qa` declaring `var G int = 5`, `qa.G` reads 0 in the REPL — the modu
 imported packages' alike, at the initial load and on a mid-session import; `bni main.bn` gives 5.  The
 REPL does not call the packages' `__init` functions (or not the imported ones).  Needs an e2e/repl.sh case.
 
-### A `bool` holding a byte other than 0 / 1 is undefined behaviour; the aggregate retype nests — 🔴 OPEN, DECIDED 2026-09-30 (found 2026-09-30, work-7, review of the unsafe_cast gate; pre-existing)
+### A `bool` holding a byte other than 0 / 1 is undefined behaviour; the aggregate retype nests — 🟡 IN PROGRESS, DECIDED 2026-09-30 (found 2026-09-30, work-7, review of the unsafe_cast gate; pre-existing; claimed 2026-10-03, work-7/session; user: "let's work on them per the self-drive instructions")
 
 §8.7 makes `int8 -> bool` an unsafe_cast direction ("a value outside {0, 1} is not a valid bool") but the spec
 says neither what the scalar conversion produces nor what using such a bool does, and Ch.21 has no entry.
