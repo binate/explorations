@@ -32,34 +32,6 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### A `switch` drops every case after a `default` that is not last — silent miscompile — 🟡 IN PROGRESS MAJOR (found 2026-10-03, work-3, review of the function-literal loop/switch fix; reproduced; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
-
-`switch x { default: println("d"); case 1: println("one") }` with x == 1 prints `d` (LLVM, reproduced):
-IR-gen's genSwitch (`pkg/binate/irgen/gen_flow.bn`) jumps to the `default` body when it reaches it and
-returns, so the cases after it are never tested.  Spec `stmt.switch.default` does not fix the default's
-position (genTypeSwitch already handles a default "regardless of position").  Fix: test every case first,
-then fall to the default.  Needs a conformance test (default first / middle / last; a type switch for
-comparison), every backend.
-
-### A nested `break` in a switch case escapes the missing-return check — the function falls off its end (undefined behaviour; native spins) — 🟡 IN PROGRESS MAJOR (found 2026-10-03, work-3, review of the function-literal loop/switch fix; reproduced; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
-
-`func f(x int) int { switch x { case 1: if x > 0 { break }; return 1; default: return 2 } }` compiles; `f(1)`
-reaches the fall-off (`EmitUnreachable`): LLVM printed nothing, native aa64 looped forever.  `caseTerminates`
-(`pkg/binate/check/check_terminates.bn`) rejects only a TOP-LEVEL `break` in a case.  Fix: a case terminates
-only if it contains no `break` targeting the switch (stmtContainsBreak, stopping at nested loops / switches /
-function literals); spec §14.14's switch bullet should say "no break targeting it", as its `for` bullet does.
-Needs an error test (nested in if / block, and a break inside a nested loop that does NOT count).
-
-### `break` / `continue` inside a function literal compiles and does nothing — the statement silently disappears — 🟡 IN PROGRESS MAJOR (found 2026-10-03, work-3, review of the function-literal borrow-position fix; reproduced; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
-
-`for i := 0; i < 3; i++ { f := func() { break }; f(); n++ }` compiles and prints `n` = 3: `checkFuncLit`
-(`pkg/binate/check/check_func_lit.bn`) saves and resets InLoopBody and InFunc but not InLoop / InSwitch, so
-the "break outside loop or switch" check (check_stmt.bn) sees the enclosing loop's flags; the literal's body
-is generated in a fresh GenContext with nil BreakTo / ContinueTo, so gen_stmt emits nothing.  Spec §14.12:
-a compile error.  Fix: save and reset InLoop / InSwitch in `checkFuncLit`, as `enterPackageDecl` does; make
-IR-gen fail loud on a break / continue with no target.  Needs an error test (break, continue, inside a loop
-and a switch case, nested literal).
-
 ### A deferred call's variadic pack of `@T` into `...*T` does not retain the managed values — use-after-free — 🔴 OPEN MAJOR (found 2026-10-03, work-4, review of the *T-receiver leak fix; pre-existing)
 
 ```
@@ -75,18 +47,6 @@ but individually packed trailing arguments go through `storeVariadicPackOp` / `e
 Fix: for a managed-to-raw pack element, retain the managed value in its own entry-depth managed slot (like the
 borrow slots, released after the deferred calls) and pack the borrow.  Test: conformance
 `spec/14-statements/176_defer_variadic_pack_managed_to_raw` (expected-fail in every mode).
-
-### A function literal's body inherits the borrowing position of the argument it sits in — a borrowed temporary dangles; silent wrong values — 🟡 IN PROGRESS MAJOR (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
-
-`checkFuncLit` (`pkg/binate/check/check_func_lit.bn`) saves and resets InLoopBody / InFunc / ExpectedFVType
-but not `BorrowPosKind`, which `checkBorrowingArg` (and the `:=` right-hand side, check_assign.bn) set to
-POS_BORROWING for the whole argument — so every return, assignment and store inside a function literal
-passed as an argument is treated as a borrowing position, and a value borrowed into a raw interface there
-(a statement temporary) is admitted though it outlives its statement (spec §11.4: a compile error).
-Reproduced: `var g *any; run(func() { g = 42 }); p := mk(func() *any { return 7 })` then printing g, p —
-LLVM `4362538048 1`, native `2 7` (should be compile errors: "cannot assign untyped int to *any").  Fix:
-save `BorrowPosKind` and reset it to POS_STORING in `checkFuncLit`, as `enterPackageDecl` does.  Needs an
-error test (return, assignment, field store inside a literal passed as an argument and as a `:=` value).
 
 ### `unsafe_cast(bool, <float>)` — is it a conversion at all?  A float constant outside {0, 1} compiles — 🔴 NEEDS DECISION (found 2026-10-03, work-7, review of the bool-constant check; reproduced)
 
@@ -557,21 +517,6 @@ operand (a composite literal) to an interface, e.g. `func conv[T any]() T { retu
 `conv[*Getter]()`).  A user program should get a positioned compile error naming the instantiation, not a
 compiler panic.  Fix: run the cast-safety rules on the substituted types when a generic body is
 instantiated (checker-side, before IR-gen), and turn the IR-gen panics into unreachable asserts.
-
-### Is `bit_cast(T, nil)` legal? Today the checker accepts it and LLVM emits invalid IR — 🟡 IN PROGRESS, DECIDED 2026-10-03 (found 2026-10-02, work-3, review of the `cast(T, nil)` fix; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
-
-The checker's bit_cast gate (check/check_c_interop.bn, ~:316-329) compares sizes, and the untyped nil has
-size `ptrSize` (types/layout.bn), so `bit_cast(*int, nil)`, `bit_cast(@T, nil)` and `bit_cast(int, nil)`
-are accepted; IR-gen then emits an OP_BIT_CAST from the untyped nil, which LLVM lowers as `inttoptr` of a
-pointer (`bit_cast(*int, nil)`; clang rejects it) or `add i64 %v, 0` on a pointer (`bit_cast(int, nil)`).
-§8.6 bit_cast compares sizeof(source), and the spec gives the untyped nil no size.
-Options: (a) reject `bit_cast(T, nil)` in the checker (recommended: `cast(T, nil)` already gives a nillable
-T its nil, and a nil reinterpreted as a non-pointer is never what the programmer means); (b) give the nil
-T's type first when T is nillable and reject otherwise; (c) define nil as a pointer-sized all-zero value
-for bit_cast.  Whichever is chosen: spec §8.6 wording plus a conformance test.  Related, minor: a rejected
-`cast(*any, nil)` says the operand "does not satisfy the interface … raw `*T` cannot widen" — name nil
-instead (check/check_cast_safe.bn addCastRejectError).
-Decision (user, 2026-10-03: "3, 5, 8, 9: go with your recs (though for 9 probably bnlint should complain about it)"): option (a) — reject `bit_cast(T, nil)` in the checker (`cast(T, nil)` gives a nillable T its nil).  Spec §8.6 wording plus an error test; also name nil in the rejected `cast(*any, nil)` message.
 
 ### A type naming an alias of a generic interface instantiation before the interfaces are collected keeps the alias's name — the upcast to it fails — 🔴 OPEN (found 2026-10-03, work-3, review of the interface-alias type fix; pre-existing)
 
@@ -1170,56 +1115,6 @@ offset silently stays 0 — correct today only because the checker admits a name
 as an identity (which never reaches the upcast).  A widening through a named interface-value type would
 misdispatch silently.  Fix: peel both types before reading the interface; add a unit test.
 
-### `cast(@[]uint8, mb)` with `mb @[]bool` lets cast-only code store a non-0/1 byte into bool storage through the shared backing — 🟡 IN PROGRESS, DECIDED 2026-10-03 (raised 2026-10-03, work-3, review of the cast leaf-rule widening; claimed 2026-10-03, work-3/session, self-drive)
-
-§8.5's leaf rule (conv.cast.aggregate-retype) checks the element conversion in the FORWARD direction only:
-`bool -> uint8` is total and bit-preserving, so `@[]bool -> @[]uint8` / `*[]bool -> *[]int8` are casts (the
-spec names them; conformance 017 runs one).  But a slice retype shares the backing: `mu := cast(@[]uint8,
-mb); mu[0] = 2` then reads `mb[0]` as a bool holding 2 — undefined behaviour (decided 2026-09-30) reached
-with no unsafe_cast.  It is the aliasing argument §8.3 makes for readonly below a shared handle: the source
-handle sees whatever the new one writes, so the REVERSE conversion (`uint8 -> bool`, partial) is exercised
-too.  Arrays are copies and are unaffected.  Only bool is asymmetric among the leaf conversions (integers,
-named <-> underlying and same-layout structs are bit-preserving both ways).  Options: (a) for a slice
-retype, require the element conversion to be total both ways unless the destination element is readonly
-(`@[]bool -> @[]readonly uint8` stays a cast; `@[]bool -> @[]uint8` becomes unsafe_cast's); (b) keep the
-rule as written and list the write-through in §21.6 as how cast-only code can reach an invalid bool;
-(c) drop `bool -> byte` from the leaf rule entirely.  Recommendation: (a), which keeps cast free of
-undefined behaviour and mirrors the readonly rule.  The checker (`bitPreservingElem`,
-`pkg/binate/check/check_cast_retype.bn`) currently implements the rule as written.
-Probed 2026-10-03 on main: `u := cast(@[]uint8, b); u[0] = 2; x := b[0]` prints `x, !x, cast(int, x)` as
-`false true 0` on LLVM and `true true 2` on native aa64 (`x` and `!x` both true).
-Decision (user, 2026-10-03): "(a) sounds fine" — for a SLICE retype (raw or managed) the element conversion
-must be bit-preserving in both directions unless the destination element slot is readonly: `cast(@[]readonly
-uint8, b)` stays a cast, `cast(@[]uint8, b)` / `cast(*[]int8, rb)` become unsafe_cast's (the rejection names
-it); arrays (copies) are unchanged.  Work: `bitPreservingElem` (`pkg/binate/check/check_cast_retype.bn`, the
-`shared` case), spec §8.5 leaf-rule wording, conformance 017's writable bool-slice cases moved to readonly
-destinations / unsafe_cast, checker tests.
-
-### Is a location of a named type over a `readonly` type readonly (`type R readonly int8`; `s[0] = v` with `s @[]R`)? — 🟡 IN PROGRESS, DECIDED 2026-10-03 (raised 2026-10-03, work-3, reviews of the cast leaf-rule widening; claimed 2026-10-03, work-3/session, self-drive)
-
-`type R readonly int8` and `type RP readonly *readonly int` are accepted declarations, but the assignment
-checks (`IsReadonly`, which sees through aliases only) treat a location of type R or RP as writable:
-`s[0] = v` on `s @[]R` is accepted.  So the readonly in a named type's definition protects nothing at the
-named type's own level, while it IS seen one level in (`*readonly int` inside RP) and by the readonly-drop
-checks, which peel named types.  The cast container retype therefore reads a slot's readonly as assignment
-does (unpeeled), so a named-over-readonly destination guards nothing below a slice's handle.  Options:
-(a) a location of a named type over `readonly T` is readonly (IsReadonly peels named types; the cast slot
-guard then follows); (b) reject `readonly` at the top of a named type's definition (a readonly is a
-property of a location, not of a type's identity); (c) keep today's behaviour and say so in §7.11.
-Recommendation: (b) or (a) — today's mix is the worst of both.  Check §7.11 / §7.3 first.
-Probed 2026-10-03 on main (`type RI readonly int8`, `RS readonly struct{a int}`, `RA readonly [2]int`, `RP
-readonly *int`): accepted — `x = 6` (x RI), `sl[0] = 3` (sl @[]RI), `s = t` (RS), `a = b` (RA), `p = &m` (RP),
-`*q = 9` (q *RI); rejected — `s.a = 3`, `a[0] = 1`; `var y readonly int8; y = 6` rejected.  No `.bn` / `.bni`
-in the tree declares such a type (only the cast retype tests' source strings).
-Decision (user, 2026-10-03): "(a) sounds right" — a location of a named type over `readonly T` is readonly,
-as an alias's already is: the readonly-location check (IsReadonly / isReadonlySlot) peels named-distinct
-wrappers (stopping at a pointer — readonly is shallow, so `*p = 7` with `p RP` stays legal).  Each accepted
-write above except `*p = 7` becomes an error.  The cast container retype's slot view (`slotView` /
-`isReadonlySlot`, `pkg/binate/check/check_cast_retype.bn`) follows through the same helper: `@[]RI -> @[]int8`
-becomes a drop (rejected), `@[]*int -> @[]RP` with `RP readonly *readonly int` becomes guarded (accepted) —
-update TestCastRetypeLeafRuleAccepted / RejectedUnsafe accordingly.  Spec §7.11 wording (a named type's
-top-level readonly marks its locations read-only), conformance tests for each row.
-
 ### A `.bni` may declare the same METHOD twice — or differently from the `.bn` — and nothing compares them — 🔴 OPEN (found 2026-10-03, work-3, review of the .bni duplicate-declaration check; code reading; pre-existing)
 
 A `.bni` method declaration whose body is in the `.bn` is not prepended into the merged file (`sameFuncDecl`
@@ -1229,18 +1124,6 @@ differs from the `.bn` definition, passes unchecked; `checkDuplicateDecls`'s doc
 AddMethod, which holds only for `.bn` methods.  An importer reads the `.bni` signature, so a divergent one
 would be misread (pkg.bni.consistency).  Fix: compare a `.bni` method declaration with the receiver type's
 `.bn` method (signature) and with other `.bni` declarations of it (duplicate).  Needs error tests.
-
-### A doubled `expose "P"` in a forwarder's `.bni` is reported as `"P" redeclared in this block` — 🟡 IN PROGRESS, DECIDED 2026-10-03 (minor; found 2026-10-03, work-3, review of the .bni duplicate-declaration check; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
-
-`checkDuplicateDecls` compares an `expose` declaration by its Name, which is the quoted package path, so a
-pure forwarder (merged == the `.bni`) with `expose "pkg/p"` twice gets `"pkg/p" redeclared in this block`,
-while `checkExposeCollisions` deliberately dedups a doubled expose and `collectDeclNames` skips expose decls
-("contributes no name of its own").  Read literally, `pkg.expose.conflict` makes a doubled expose an error
-with an `X: exposed by both …` message.  Decide: a doubled expose is (a) accepted (idempotent, as a repeated
-forward type declaration is), or (b) an error with an expose-specific message; then make
-`collectNamedDecls` skip `DECL_EXPOSE` and leave the policy to the expose code.  (The `.bni`
-duplicate-declaration check skips expose decls so as not to extend today's message to packages with a `.bn`.)
-Decision (user, 2026-10-03: "3, 5, 8, 9: go with your recs (though for 9 probably bnlint should complain about it)"): option (a) — a doubled expose is accepted (idempotent, as a repeated forward type declaration is); make `collectNamedDecls` skip `DECL_EXPOSE` so `checkDuplicateDecls` stops reporting it.  Add a bnlint rule flagging a doubled `expose` (a style finding, not a compiler diagnostic).  Spec `pkg.expose.conflict` wording to match.
 
 ### Opaque-type embedding gaps left by the declaration-site check — local types, nested pointees, function-value parameters — 🔴 OPEN (found 2026-10-03, work-3, review of the type-declaration opaque check; code reading; pre-existing)
 
@@ -1263,14 +1146,6 @@ markers.  `type A [2]Box` was likewise accepted; since the declaration-site opaq
 but as "cannot use an opaque type by value" (the placeholder looks opaque) instead of "generic type used
 without type arguments".  Fix: reject a bare generic name wherever a type is expected; the opaque message
 then no longer fires for it.  Needs error tests (`type X Box`, `type A [2]Box`, a field, a param).
-
-### `nil` is accepted into `*any` / `@any` — invalid code accepted — 🟡 IN PROGRESS (found 2026-10-03, work-3, while fixing bit_cast(T, nil); reproduced; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
-
-`var z *any = nil` compiles, while `var i @I = nil`, `j = nil` (j `*I`) and `cast(@I, nil)` are rejected:
-spec `type.nil.literal` says nil is "not assignable to slices or interface values".  Suspected cause:
-AssignableTo's interface arms (§8.1 case 7, "D is `*any`/`@any`") accept any source for `any`, and the nil
-arm (`return dst.IsNillable()`) returns before them only... — check the order; the `any` shortcut must not
-take the untyped nil.  Needs an error test (`*any` and `@any`, var init, assignment, argument, return).
 
 ### A `switch` with two `default` clauses is accepted — invalid code accepted — 🔴 OPEN (found 2026-10-03, work-3, review of the switch-default fix; code reading; pre-existing)
 

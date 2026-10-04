@@ -1,3 +1,137 @@
+### A `switch` drops every case after a `default` that is not last — silent miscompile — DONE (binate `2bf1971a7`, 2026-10-03, work-3)
+
+`switch x { default: println("d"); case 1: println("one") }` with x == 1 prints `d` (LLVM, reproduced):
+IR-gen's genSwitch (`pkg/binate/irgen/gen_flow.bn`) jumps to the `default` body when it reaches it and
+returns, so the cases after it are never tested.  Spec `stmt.switch.default` does not fix the default's
+position (genTypeSwitch already handles a default "regardless of position").  Fix: test every case first,
+then fall to the default.  Needs a conformance test (default first / middle / last; a type switch for
+comparison), every backend.
+Resolution (binate `2bf1971a7`): genSwitch builds the case chain without the default clause and branches to the default body only after every case misses, wherever the default is written.  Conformance 1532.
+
+### A nested `break` in a switch case escapes the missing-return check — the function falls off its end (undefined behaviour; native spins) — DONE (binate `434f8bf1b`, 2026-10-03, work-3)
+
+`func f(x int) int { switch x { case 1: if x > 0 { break }; return 1; default: return 2 } }` compiles; `f(1)`
+reaches the fall-off (`EmitUnreachable`): LLVM printed nothing, native aa64 looped forever.  `caseTerminates`
+(`pkg/binate/check/check_terminates.bn`) rejects only a TOP-LEVEL `break` in a case.  Fix: a case terminates
+only if it contains no `break` targeting the switch (stmtContainsBreak, stopping at nested loops / switches /
+function literals); spec §14.14's switch bullet should say "no break targeting it", as its `for` bullet does.
+Needs an error test (nested in if / block, and a break inside a nested loop that does NOT count).
+Resolution (binate `434f8bf1b`): caseTerminates (check_terminates.bn) treats a case containing a break that targets the switch (stmtContainsBreak: one nested in an `if` or block counts, one a nested loop or switch consumes does not) as non-terminating.  Conformance 1533, TestMissingReturnSwitchLoopBreakOk; spec §14.14 in docs `bdf282f`.
+
+### `break` / `continue` inside a function literal compiles and does nothing — the statement silently disappears — DONE (binate `ff65238c0`, 2026-10-03, work-3)
+
+`for i := 0; i < 3; i++ { f := func() { break }; f(); n++ }` compiles and prints `n` = 3: `checkFuncLit`
+(`pkg/binate/check/check_func_lit.bn`) saves and resets InLoopBody and InFunc but not InLoop / InSwitch, so
+the "break outside loop or switch" check (check_stmt.bn) sees the enclosing loop's flags; the literal's body
+is generated in a fresh GenContext with nil BreakTo / ContinueTo, so gen_stmt emits nothing.  Spec §14.12:
+a compile error.  Fix: save and reset InLoop / InSwitch in `checkFuncLit`, as `enterPackageDecl` does; make
+IR-gen fail loud on a break / continue with no target.  Needs an error test (break, continue, inside a loop
+and a switch case, nested literal).
+Resolution (binate `ff65238c0`): checkFuncLit saves and resets InLoop and InSwitch (InLoopBody merged into InLoop), so a break / continue in a literal's body is rejected; IR-gen panics if one reaches it with no target.  Conformance 1530, 1531; spec §14.12 in docs `bdf282f`.
+
+### A function literal's body inherits the borrowing position of the argument it sits in — a borrowed temporary dangles; silent wrong values — DONE (binate `c2dc98dd5`, 2026-10-03, work-3)
+
+`checkFuncLit` (`pkg/binate/check/check_func_lit.bn`) saves and resets InLoopBody / InFunc / ExpectedFVType
+but not `BorrowPosKind`, which `checkBorrowingArg` (and the `:=` right-hand side, check_assign.bn) set to
+POS_BORROWING for the whole argument — so every return, assignment and store inside a function literal
+passed as an argument is treated as a borrowing position, and a value borrowed into a raw interface there
+(a statement temporary) is admitted though it outlives its statement (spec §11.4: a compile error).
+Reproduced: `var g *any; run(func() { g = 42 }); p := mk(func() *any { return 7 })` then printing g, p —
+LLVM `4362538048 1`, native `2 7` (should be compile errors: "cannot assign untyped int to *any").  Fix:
+save `BorrowPosKind` and reset it to POS_STORING in `checkFuncLit`, as `enterPackageDecl` does.  Needs an
+error test (return, assignment, field store inside a literal passed as an argument and as a `:=` value).
+Resolution (binate `c2dc98dd5`): checkFuncLit saves BorrowPosKind and checks the body as POS_STORING; checkStmt's local var declaration arm marks its initializer POS_BORROWING.  Conformance 1527, 1529; TestCheckLocalVarInitIsBorrowing, TestReplBlockVarInitIsBorrowing.  The package-level var-init case stays open as its own NEEDS DECISION entry.
+
+### Is `bit_cast(T, nil)` legal? Today the checker accepts it and LLVM emits invalid IR — DONE (binate `e3e37ab55`, 2026-10-03, work-3)
+
+The checker's bit_cast gate (check/check_c_interop.bn, ~:316-329) compares sizes, and the untyped nil has
+size `ptrSize` (types/layout.bn), so `bit_cast(*int, nil)`, `bit_cast(@T, nil)` and `bit_cast(int, nil)`
+are accepted; IR-gen then emits an OP_BIT_CAST from the untyped nil, which LLVM lowers as `inttoptr` of a
+pointer (`bit_cast(*int, nil)`; clang rejects it) or `add i64 %v, 0` on a pointer (`bit_cast(int, nil)`).
+§8.6 bit_cast compares sizeof(source), and the spec gives the untyped nil no size.
+Options: (a) reject `bit_cast(T, nil)` in the checker (recommended: `cast(T, nil)` already gives a nillable
+T its nil, and a nil reinterpreted as a non-pointer is never what the programmer means); (b) give the nil
+T's type first when T is nillable and reject otherwise; (c) define nil as a pointer-sized all-zero value
+for bit_cast.  Whichever is chosen: spec §8.6 wording plus a conformance test.  Related, minor: a rejected
+`cast(*any, nil)` says the operand "does not satisfy the interface … raw `*T` cannot widen" — name nil
+instead (check/check_cast_safe.bn addCastRejectError).
+Decision (user, 2026-10-03: "3, 5, 8, 9: go with your recs (though for 9 probably bnlint should complain about it)"): option (a) — reject `bit_cast(T, nil)` in the checker (`cast(T, nil)` gives a nillable T its nil).  Spec §8.6 wording plus an error test; also name nil in the rejected `cast(*any, nil)` message.
+Resolution (binate `e3e37ab55`): Rejected: checkBitCastShapes reports "bit_cast cannot reinterpret nil" before the type-parameter deferral (also in generic bodies); IR-gen panics if one reaches it.  nilConversionMsg names the builtin in the cast / unsafe_cast nil messages.  TestCheckCastBitCastNil, conformance 1525; spec §8.6 / §15.3 in docs `bdf282f`.
+
+### `cast(@[]uint8, mb)` with `mb @[]bool` lets cast-only code store a non-0/1 byte into bool storage through the shared backing — DONE (binate `411abfc09`, 2026-10-03, work-3)
+
+§8.5's leaf rule (conv.cast.aggregate-retype) checks the element conversion in the FORWARD direction only:
+`bool -> uint8` is total and bit-preserving, so `@[]bool -> @[]uint8` / `*[]bool -> *[]int8` are casts (the
+spec names them; conformance 017 runs one).  But a slice retype shares the backing: `mu := cast(@[]uint8,
+mb); mu[0] = 2` then reads `mb[0]` as a bool holding 2 — undefined behaviour (decided 2026-09-30) reached
+with no unsafe_cast.  It is the aliasing argument §8.3 makes for readonly below a shared handle: the source
+handle sees whatever the new one writes, so the REVERSE conversion (`uint8 -> bool`, partial) is exercised
+too.  Arrays are copies and are unaffected.  Only bool is asymmetric among the leaf conversions (integers,
+named <-> underlying and same-layout structs are bit-preserving both ways).  Options: (a) for a slice
+retype, require the element conversion to be total both ways unless the destination element is readonly
+(`@[]bool -> @[]readonly uint8` stays a cast; `@[]bool -> @[]uint8` becomes unsafe_cast's); (b) keep the
+rule as written and list the write-through in §21.6 as how cast-only code can reach an invalid bool;
+(c) drop `bool -> byte` from the leaf rule entirely.  Recommendation: (a), which keeps cast free of
+undefined behaviour and mirrors the readonly rule.  The checker (`bitPreservingElem`,
+`pkg/binate/check/check_cast_retype.bn`) currently implements the rule as written.
+Probed 2026-10-03 on main: `u := cast(@[]uint8, b); u[0] = 2; x := b[0]` prints `x, !x, cast(int, x)` as
+`false true 0` on LLVM and `true true 2` on native aa64 (`x` and `!x` both true).
+Decision (user, 2026-10-03): "(a) sounds fine" — for a SLICE retype (raw or managed) the element conversion
+must be bit-preserving in both directions unless the destination element slot is readonly: `cast(@[]readonly
+uint8, b)` stays a cast, `cast(@[]uint8, b)` / `cast(*[]int8, rb)` become unsafe_cast's (the rejection names
+it); arrays (copies) are unchanged.  Work: `bitPreservingElem` (`pkg/binate/check/check_cast_retype.bn`, the
+`shared` case), spec §8.5 leaf-rule wording, conformance 017's writable bool-slice cases moved to readonly
+destinations / unsafe_cast, checker tests.
+Resolution (binate `411abfc09`): The bool-to-byte arm of the slice retype rule requires a readonly destination element when the backing is shared; an array retype (a copy) stays a cast.  Conformance 017 updated; spec §8.5 in docs `bdf282f`.
+
+### Is a location of a named type over a `readonly` type readonly (`type R readonly int8`; `s[0] = v` with `s @[]R`)? — DONE (binate `e200867b3`, 2026-10-03, work-3)
+
+`type R readonly int8` and `type RP readonly *readonly int` are accepted declarations, but the assignment
+checks (`IsReadonly`, which sees through aliases only) treat a location of type R or RP as writable:
+`s[0] = v` on `s @[]R` is accepted.  So the readonly in a named type's definition protects nothing at the
+named type's own level, while it IS seen one level in (`*readonly int` inside RP) and by the readonly-drop
+checks, which peel named types.  The cast container retype therefore reads a slot's readonly as assignment
+does (unpeeled), so a named-over-readonly destination guards nothing below a slice's handle.  Options:
+(a) a location of a named type over `readonly T` is readonly (IsReadonly peels named types; the cast slot
+guard then follows); (b) reject `readonly` at the top of a named type's definition (a readonly is a
+property of a location, not of a type's identity); (c) keep today's behaviour and say so in §7.11.
+Recommendation: (b) or (a) — today's mix is the worst of both.  Check §7.11 / §7.3 first.
+Probed 2026-10-03 on main (`type RI readonly int8`, `RS readonly struct{a int}`, `RA readonly [2]int`, `RP
+readonly *int`): accepted — `x = 6` (x RI), `sl[0] = 3` (sl @[]RI), `s = t` (RS), `a = b` (RA), `p = &m` (RP),
+`*q = 9` (q *RI); rejected — `s.a = 3`, `a[0] = 1`; `var y readonly int8; y = 6` rejected.  No `.bn` / `.bni`
+in the tree declares such a type (only the cast retype tests' source strings).
+Decision (user, 2026-10-03): "(a) sounds right" — a location of a named type over `readonly T` is readonly,
+as an alias's already is: the readonly-location check (IsReadonly / isReadonlySlot) peels named-distinct
+wrappers (stopping at a pointer — readonly is shallow, so `*p = 7` with `p RP` stays legal).  Each accepted
+write above except `*p = 7` becomes an error.  The cast container retype's slot view (`slotView` /
+`isReadonlySlot`, `pkg/binate/check/check_cast_retype.bn`) follows through the same helper: `@[]RI -> @[]int8`
+becomes a drop (rejected), `@[]*int -> @[]RP` with `RP readonly *readonly int` becomes guarded (accepted) —
+update TestCastRetypeLeafRuleAccepted / RejectedUnsafe accordingly.  Spec §7.11 wording (a named type's
+top-level readonly marks its locations read-only), conformance tests for each row.
+Resolution (binate `e200867b3`): types.IsReadonly peels named types (stopping at pointers), and isReadonlySlot uses it, so a location of `type RI readonly int8` is read-only and an `RP` handle cannot be rebound.  TestIsReadonly, TestCheckNamedOverReadonlyAllowed, conformance 1534 (and 1315 rewritten to initialize instead of assign); bnlint readonly-uninit follows.  Spec rule `type.readonly.named` (§7.11) in docs `bdf282f`.
+
+### A doubled `expose "P"` in a forwarder's `.bni` is reported as `"P" redeclared in this block` — DONE (binate `bcf90223e`, 2026-10-03, work-3)
+
+`checkDuplicateDecls` compares an `expose` declaration by its Name, which is the quoted package path, so a
+pure forwarder (merged == the `.bni`) with `expose "pkg/p"` twice gets `"pkg/p" redeclared in this block`,
+while `checkExposeCollisions` deliberately dedups a doubled expose and `collectDeclNames` skips expose decls
+("contributes no name of its own").  Read literally, `pkg.expose.conflict` makes a doubled expose an error
+with an `X: exposed by both …` message.  Decide: a doubled expose is (a) accepted (idempotent, as a repeated
+forward type declaration is), or (b) an error with an expose-specific message; then make
+`collectNamedDecls` skip `DECL_EXPOSE` and leave the policy to the expose code.  (The `.bni`
+duplicate-declaration check skips expose decls so as not to extend today's message to packages with a `.bn`.)
+Decision (user, 2026-10-03: "3, 5, 8, 9: go with your recs (though for 9 probably bnlint should complain about it)"): option (a) — a doubled expose is accepted (idempotent, as a repeated forward type declaration is); make `collectNamedDecls` skip `DECL_EXPOSE` so `checkDuplicateDecls` stops reporting it.  Add a bnlint rule flagging a doubled `expose` (a style finding, not a compiler diagnostic).  Spec `pkg.expose.conflict` wording to match.
+Resolution (binate `bcf90223e`): collectNamedDecls skips DECL_EXPOSE, so a repeated expose is idempotent; new bnlint rule `doubled-expose` (LintInterfaceFile) flags it.  Conformance 1528, doubled_expose_test.bn; spec §16 `pkg.expose.conflict` in docs `bdf282f`.  (Hygiene runs the pinned CHECK_TOOLS bnlint, so the rule runs there after the next tools bump.)
+
+### `nil` is accepted into `*any` / `@any` — invalid code accepted — DONE (binate `d5f192e37`, 2026-10-03, work-3)
+
+`var z *any = nil` compiles, while `var i @I = nil`, `j = nil` (j `*I`) and `cast(@I, nil)` are rejected:
+spec `type.nil.literal` says nil is "not assignable to slices or interface values".  Suspected cause:
+AssignableTo's interface arms (§8.1 case 7, "D is `*any`/`@any`") accept any source for `any`, and the nil
+arm (`return dst.IsNillable()`) returns before them only... — check the order; the `any` shortcut must not
+take the untyped nil.  Needs an error test (`*any` and `@any`, var init, assignment, argument, return).
+Resolution (binate `d5f192e37`): canBorrowValueIntoRawIface and IR-gen's isBorrowableValueSource exclude TYP_NIL, so nil is rejected into `*any` / `@any` as into any other interface value.  Conformance 1526.
+
 ### A type-parameter assertion target (`x.(*T)`) is accepted although §11.12 says it is rejected — `f[@Node]` recovers a Node cell as `*(@Node)` — DONE (binate `ab98a0439`, 2026-10-02, another session; confirmed 2026-10-03, work-3)
 
 `func f[T any](x @any) bool { _, ok := x.(*T); return ok }` with `var a @any = n` (n `@Node`) and
