@@ -340,6 +340,7 @@ garbage").  Widening a bare `h` (`var g @Getter = h`, `var a @any = h`) is rejec
 for any value type; `cast(@Node, h)` boxes the Node itself.  Same for a named raw pointer type (`type PS *S`,
 `impl PS : I`).  Spec §11.4 / §11.12 wording to match; tests over `@`- and `*`-named types, raw and managed
 interfaces, `case` / assertion / dispatch, every backend.
+Plan: `plan-named-pointer-boxing.md`.
 
 ### Spec decision: may a type assertion recover a MUTABLE pointer to a boxed `readonly` named value? — 🔴 OPEN, DECIDED 2026-10-03 (raised 2026-09-29, work-3, review of the outer-readonly boxing fix)
 
@@ -368,6 +369,7 @@ object's box behaves as today.  Probed 2026-10-03: `x.(*Celsius)` then `*p = 5` 
 both write `c`, while `var s *Setter = &c` is rejected statically.  Work: a readonly variant of the box's
 type-info / vtable (LLVM, native, VM, interop), the assertion and type-switch match, spec §11.12 wording
 (drop "outer-readonly stripped" / "independent of any readonly" for the pointee), tests per backend.
+Plan: `plan-readonly-box-recovery.md` (its representation choice needs the user's decision first).
 
 ### Method values on non-addressable / read-only receivers, and the lifetime of an addressed composite literal — 🟡 IN PROGRESS, DECIDED 2026-09-30 (raised 2026-09-30, work-7, fixing the method-value-captures-a-copy bug; claimed 2026-10-03, work-7/session; user: "let's work on them per the self-drive instructions")
 
