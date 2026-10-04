@@ -32,6 +32,22 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### A deferred call's variadic pack of `@T` into `...*T` does not retain the managed values — use-after-free — 🔴 OPEN MAJOR (found 2026-10-03, work-4, review of the *T-receiver leak fix; pre-existing)
+
+```
+func usev(ts ...*Thing) int { … }
+defer usev(mk(11), mk(12))     // the deferred call reads freed memory
+var a @Thing = mk(13); defer usev(a); a = mk(14)   // reads freed memory too
+```
+stmt.defer: operands are evaluated at the defer statement and retained until the call runs; a managed-to-raw
+operand's pre-conversion managed value is what is retained.  The defer machinery does that for a fixed or
+spread `@[]T` / `@T` argument and a method's `@T` receiver (`IsManagedToRaw`, binate fix for the receiver leak),
+but individually packed trailing arguments go through `storeVariadicPackOp` / `emitVariadicTailInto`
+(gen_defer_exit.bn), which converts each `@T` to `*T` into the raw `[N]*T` backing array, retaining nothing.
+Fix: for a managed-to-raw pack element, retain the managed value in its own entry-depth managed slot (like the
+borrow slots, released after the deferred calls) and pack the borrow.  Test: conformance
+`spec/14-statements/176_defer_variadic_pack_managed_to_raw` (expected-fail in every mode).
+
 ### A function literal's body inherits the borrowing position of the argument it sits in — a borrowed temporary dangles; silent wrong values — 🟡 IN PROGRESS MAJOR (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
 
 `checkFuncLit` (`pkg/binate/check/check_func_lit.bn`) saves and resets InLoopBody / InFunc / ExpectedFVType
