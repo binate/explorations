@@ -32,6 +32,20 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### A generic function instance calling an instance of itself (or one emitted while its body is) skips the by-value struct argument copy — use-after-free when the callee overwrites a managed field — 🔴 OPEN MAJOR (found 2026-10-04, work-6, reading ensureInstantiated while extending it for the REPL; reproduced on the VM; pre-existing)
+
+`func overwrite[T any](p P, x T, n int) int { if n == 0 { p.b = make(Box); return 0 }; return
+overwrite[T](p, x, n - 1) }` with `type P struct { b @Box }`: the recursive call passes `p` without the
+by-value copy (no RefInc of `p.b`), the deepest frame's `p.b = make(Box)` releases a reference it never
+took, and the caller's Box is freed while still referenced — the program's next prints are garbage
+(`%!?(unknown)`).  The non-generic equivalent is correct.  Cause: ensureInstantiated (irgen
+gen_generic.bn) registers an instance's FuncSig only AFTER genFunc emits its body, so a call to the
+instance from inside that body finds no FuncSig, and coerceArg skips the copy (needsStructCopy sees no
+parameter type) — the hazard emitInstantiatedMethod already avoids by registering the sig first.  Fix:
+register the sig, resolved from the instance's declaration, before generating the body.  Test:
+conformance spec/12-generics/103_recursive_instance_by_value_managed_arg (not yet landed).  Compiled
+backends not yet run; the cause is in IR-gen, so all are expected to fail.
+
 ### VM: an interface-dispatch thunk forwards owned values to the method with no stack pre-check — a frame-push overflow leaks them — 🟡 IN PROGRESS MAJOR (claimed 2026-10-04, work-3/session, self-drive; user: "2. sure."; found 2026-10-03, work-3, review of the named-pointer boxing change; code reading; pre-existing)
 
 genIvRecvThunk (irgen/gen_iv_thunk.bn) field-RefIncs a value-struct receiver in place (emitStructCopy on the
