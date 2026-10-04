@@ -1,3 +1,15 @@
+### x64: RCX and RDX are home registers (x64 home pool, step 2) — DONE (binate `6c0615b72`, 2026-10-04)
+
+`x64RegClobbers` declares per instruction which of RCX/RDX the lowering uses: none for
+branch/jump/bounds-check/constants/folded-count shifts/folded-away instructions; RDX for
+retention-safe ops except aggregate stores, non-SIB element GEPs and float compares; both for the
+rest. The emit loop bars undeclared ones from scratch (and drops values retained there) in
+functions homing them; `allocReg` fails loud on overflow. record-churn mix loop 63 → 47
+instructions/iteration, −10.2% instructions at N=300. Native self-compile user CPU unchanged within
+noise (59.49s vs 60.18s means, ±1s). Validated: native x64 conformance -O0/-O2, self-compile
+fixpoint, adversarial review (its three 4-scratch shapes fixed, with a test that fails without the
+fix).
+
 ### asm/arm32: `Bkpt` / `Svc` silently truncated out-of-range immediates — DONE (binate `8b5a7ed29`, 2026-10-03, work-5)
 
 Both now set an assembler error and emit nothing outside 0..0xFFFF / 0..0xFFFFFF, as LLVM and GNU as do
