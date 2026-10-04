@@ -32,6 +32,24 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### A `switch` drops every case after a `default` that is not last — silent miscompile — 🟡 IN PROGRESS MAJOR (found 2026-10-03, work-3, review of the function-literal loop/switch fix; reproduced; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
+
+`switch x { default: println("d"); case 1: println("one") }` with x == 1 prints `d` (LLVM, reproduced):
+IR-gen's genSwitch (`pkg/binate/irgen/gen_flow.bn`) jumps to the `default` body when it reaches it and
+returns, so the cases after it are never tested.  Spec `stmt.switch.default` does not fix the default's
+position (genTypeSwitch already handles a default "regardless of position").  Fix: test every case first,
+then fall to the default.  Needs a conformance test (default first / middle / last; a type switch for
+comparison), every backend.
+
+### A nested `break` in a switch case escapes the missing-return check — the function falls off its end (undefined behaviour; native spins) — 🟡 IN PROGRESS MAJOR (found 2026-10-03, work-3, review of the function-literal loop/switch fix; reproduced; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
+
+`func f(x int) int { switch x { case 1: if x > 0 { break }; return 1; default: return 2 } }` compiles; `f(1)`
+reaches the fall-off (`EmitUnreachable`): LLVM printed nothing, native aa64 looped forever.  `caseTerminates`
+(`pkg/binate/check/check_terminates.bn`) rejects only a TOP-LEVEL `break` in a case.  Fix: a case terminates
+only if it contains no `break` targeting the switch (stmtContainsBreak, stopping at nested loops / switches /
+function literals); spec §14.14's switch bullet should say "no break targeting it", as its `for` bullet does.
+Needs an error test (nested in if / block, and a break inside a nested loop that does NOT count).
+
 ### `break` / `continue` inside a function literal compiles and does nothing — the statement silently disappears — 🟡 IN PROGRESS MAJOR (found 2026-10-03, work-3, review of the function-literal borrow-position fix; reproduced; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
 
 `for i := 0; i < 3; i++ { f := func() { break }; f(); n++ }` compiles and prints `n` = 3: `checkFuncLit`
