@@ -1140,7 +1140,7 @@ AddMethod, which holds only for `.bn` methods.  An importer reads the `.bni` sig
 would be misread (pkg.bni.consistency).  Fix: compare a `.bni` method declaration with the receiver type's
 `.bn` method (signature) and with other `.bni` declarations of it (duplicate).  Needs error tests.
 
-### A doubled `expose "P"` in a forwarder's `.bni` is reported as `"P" redeclared in this block` — 🔴 OPEN, DECIDED 2026-10-03 (minor; found 2026-10-03, work-3, review of the .bni duplicate-declaration check; pre-existing)
+### A doubled `expose "P"` in a forwarder's `.bni` is reported as `"P" redeclared in this block` — 🟡 IN PROGRESS, DECIDED 2026-10-03 (minor; found 2026-10-03, work-3, review of the .bni duplicate-declaration check; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
 
 `checkDuplicateDecls` compares an `expose` declaration by its Name, which is the quoted package path, so a
 pure forwarder (merged == the `.bni`) with `expose "pkg/p"` twice gets `"pkg/p" redeclared in this block`,
