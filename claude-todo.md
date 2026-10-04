@@ -1115,6 +1115,18 @@ offset silently stays 0 — correct today only because the checker admits a name
 as an identity (which never reaches the upcast).  A widening through a named interface-value type would
 misdispatch silently.  Fix: peel both types before reading the interface; add a unit test.
 
+### An expose "diamond" (`expose "P"` plus `expose "Q"` where Q itself exposes P) is an "exposed by both" error — 🔴 NEEDS DECISION (raised 2026-10-03, work-3, review of binate `bcf90223e`; code reading)
+
+`checkExposeCollisions` (check/check_expose_collision.bn) compares the NAMES each expose surfaces, not the
+declarations they denote, so a forwarder with `expose "P"` and `expose "Q"`, where Q's `.bni` itself has
+`expose "P"`, reports every P name as "exposed by both `P` and `Q`" — although both paths reach the same
+declaration and the second re-exports nothing new.  `bcf90223e` made a repeated `expose` of the SAME package
+idempotent; this is the transitive case.  Spec `pkg.expose.conflict` (§16): "a name reachable through two
+expose declarations … is a compile error", amended for the same-package case only.  Decide: (a) keep it an
+error (the forwarder should drop the redundant `expose "P"`; a bnlint rule could say so), or (b) accept it
+when both paths denote the same declaration (compare the defining package and declaration, not the name),
+spec to match.  Needs a conformance test either way.
+
 ### A `.bni` may declare the same METHOD twice — or differently from the `.bn` — and nothing compares them — 🔴 OPEN (found 2026-10-03, work-3, review of the .bni duplicate-declaration check; code reading; pre-existing)
 
 A `.bni` method declaration whose body is in the `.bn` is not prepended into the merged file (`sameFuncDecl`
