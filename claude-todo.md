@@ -1227,6 +1227,14 @@ AssignableTo's interface arms (§8.1 case 7, "D is `*any`/`@any`") accept any so
 arm (`return dst.IsNillable()`) returns before them only... — check the order; the `any` shortcut must not
 take the untyped nil.  Needs an error test (`*any` and `@any`, var init, assignment, argument, return).
 
+### A `switch` with two `default` clauses is accepted — invalid code accepted — 🔴 OPEN (found 2026-10-03, work-3, review of the switch-default fix; code reading; pre-existing)
+
+`switch x { default: A; default: B }` (and a type switch with two) passes the parser, the checker and —
+literally — the spec, which never says a switch has at most one `default`.  Which one runs is an IR-gen
+accident (the last since the switch-default fix; the first before it).  Fix: spec `stmt.switch.default` — at
+most one default clause — and a checker error at the second ("multiple defaults in switch"), for expression
+and type switches; an error test.
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
