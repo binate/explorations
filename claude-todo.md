@@ -1297,7 +1297,7 @@ quote numbers from this file (they go stale):**
   backends by static instruction/reload counting on a `--target` build, or on
   real hardware/CI.
 
-### MAJOR: bce-loop removes a bounds check that must fault when the loop guard's arms are not a counted loop's — latent on main, made reachable by the thread-jumps pass — 🔴 OPEN (found 2026-10-04 by the review of the not-yet-landed thread-jumps pass, work-5)
+### MAJOR: bce-loop removes a bounds check that must fault when the loop guard's arms are not a counted loop's — latent on main, made reachable by the thread-jumps pass — 🟡 IN PROGRESS (claimed 2026-10-04, work-5; user: "yes, go ahead with the fix first"; found 2026-10-04 by the review of the not-yet-landed thread-jumps pass, work-5)
 
 `loopBCEEliminable` (pkg/binate/iropt/bce_loop.bn) drops a check on a header phi P when the check's
 block is dominated by the true target T of the header's `branch(lt P, L)`.  That proves P < L only if
