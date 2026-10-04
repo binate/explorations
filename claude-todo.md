@@ -1841,7 +1841,8 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   is written to the load's spill slot and reloaded at every extract (record-churn: `arr[i]`'s
   address stored and reloaded each iteration). Make an elided load's address an allocatable
   pointer value on all three native backends.
-  - **Investigated 2026-10-01 — not a net improvement as-is; awaiting a decision.** Implemented
+  - **🟡 Re-measuring (claimed 2026-10-04) on top of the x64 RCX/RDX homes (`6c0615b72`).**
+  - **Investigated 2026-10-01 — not a net improvement as-is.** Implemented
     (all three backends; set `AggAddrRegLoads` = elided loads whose every use is an extract's
     aggregate or a store's value, threaded into liveness and handleResult). record-churn N=50 x64
     instructions (callgrind): 797,726 → 830,672 (+4%). Root cause: register pressure. The x64 home
