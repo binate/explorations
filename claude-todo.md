@@ -1279,6 +1279,42 @@ quote numbers from this file (they go stale):**
   backends by static instruction/reload counting on a `--target` build, or on
   real hardware/CI.
 
+### MAJOR: bce-loop removes a bounds check that must fault when the loop guard's arms are not a counted loop's — latent on main, made reachable by the thread-jumps pass — 🔴 OPEN (found 2026-10-04 by the review of the not-yet-landed thread-jumps pass, work-5)
+
+`loopBCEEliminable` (pkg/binate/iropt/bce_loop.bn) drops a check on a header phi P when the check's
+block is dominated by the true target T of the header's `branch(lt P, L)`.  That proves P < L only if
+(1) T's only predecessor is the header (T != the false target F), and (2) F leaves the loop (otherwise P
+keeps stepping past L and, at int's width, wraps negative while `P < L` holds again).  IR-gen's loop shapes
+satisfy both, so it is unreachable on main; the thread-jumps pass breaks both: it merges a `for {}` body
+into its jump-only header (the header now ends in an in-body `if`), then threads that `if`'s true arm
+through an empty then-block into the block the else arm also reaches.  Repro (any compiled backend, -O1+,
+with thread-jumps):
+
+```
+func f(n int) int {
+	var a [10]int
+	var s int = 0
+	var i int = 0
+	for {
+		if i < 10 {
+		} else {
+			s = s + 1
+		}
+		s = s + a[i]
+		i++
+		if i > n { break }
+	}
+	return s
+}
+// f(12) must fault on a[10]; with the check dropped it reads past the array.
+```
+
+Proposed fix: make loopBCEEliminable check its preconditions — T != F, T's predecessors are exactly
+[header], and F is outside the header's natural loop — with bce_loop unit tests for both broken shapes and a
+conformance test of the program above expecting the bounds fault (meaningful at -O1+, i.e. the -O2 CI
+lane).  Land it before thread-jumps.  (The alternative — thread-jumps never merges into, or retargets the
+arms of, a loop header — only restores the invariant bce-loop relies on without checking.)
+
 ### Native: a block that only jumps is not threaded — execution hops through two branches — 🟡 IN PROGRESS (claimed 2026-10-03, work-5; found 2026-09-30, work-5, disassembling the fold-branch pass's output; pre-existing)
 
 In a loop that passes a function reference (`total = total + apply(twice, i)`), native aa64 at -O2 ends the
