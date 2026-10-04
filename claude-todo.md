@@ -378,7 +378,7 @@ every mode.
    (11-interfaces/090): it always dangles.  No tree code is affected (every `&T{…}` in pkg / cmd /
    conformance is a `var` initializer).
 
-### An `unsafe_index(c, i)` result is addressable exactly when `c[i]` is — 🔴 OPEN, DECIDED 2026-09-30 (raised 2026-09-30, work-7, review of the `(&x).f` selector fix)
+### An `unsafe_index(c, i)` result is addressable exactly when `c[i]` is — 🟡 IN PROGRESS, DECIDED 2026-09-30 (raised 2026-09-30, work-7, review of the `(&x).f` selector fix; claimed 2026-10-03, work-7/session; user: "let's work on them per the self-drive instructions")
 
 §15.6 describes `unsafe_index(c, i)` as "exactly `c[i]`" (without the bounds check), yet the checker
 treats its result as non-addressable: `unsafe_index(arr, 2).x = 5` and `unsafe_index(arr, 2).x++`
