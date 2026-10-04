@@ -189,6 +189,35 @@ initializer is a storing position, `var gq *P = &P{…}` is an error; else the l
 Recommendation: (1a) — the same "lives as long as what holds its address" rule as a `var` initializer,
 on an existing mechanism; (2) as decided below (no tree code has a package-level `&T{…}`).
 
+### `&` of a SLICE composite literal yields the slice value, not an address — and stores a 4-word header into an 8-byte slot — 🟡 IN PROGRESS CRITICAL (found 2026-10-03, work-7, review of the addressed-literal lifetime change; reproduced; pre-existing; claimed 2026-10-03, work-7/session, fixing with that change)
+
+`var pm *@[]int = &@[]int{5, 6}; len(*pm)` prints 0, `&(*[]readonly int{1, 2, 3, 4})` passed to a
+`**[]readonly int` parameter reads length 2, `var pr **[]readonly int = &(*[]readonly int{7, 8, 9});
+len(*pr)` prints 8 (LLVM).  genLValueAddr falls through to genExpr for a composite literal, which for a
+slice literal is the slice VALUE, used as an address; LLVM stores the managed header's 4 words into an
+8-byte `alloca i8*`, overwriting the stack beside it.  Fix (in the addressed-literal change): a slice
+literal's address is an alloca holding the value; a managed one addressed in a var initializer has its
+statement temporary's reference moved to that alloca's scope.  Test: conformance 1545 (the slice cases).
+
+### Is an ELEMENT of a managed-slice literal (`&@[]T{…}[i]`) part of the literal for the addressed-literal lifetime? — 🔴 NEEDS DECISION (found 2026-10-03, work-7, review of the addressed-literal lifetime change)
+
+expr.composite.lifetime keeps a composite literal addressed in a var / `:=` initializer alive with the
+binding, the address taken of the literal or of a field or element of it.  A managed-slice literal's
+elements live in its heap backing, owned by the literal's one reference — a statement temporary — so
+`var e *int = &@[]int{1, 2}[0]` reads freed memory after the statement.  Options: (a) yes — an element
+of a managed-slice literal counts as part of it: the literal (its reference) is co-scoped, and storing
+such an address is an error, as for an array literal's element; (b) no — the backing is a heap object,
+and `&@[]T{…}[i]` is like `&mk()[i]`, a pointer into a temporary's backing (user error, mem.raw-uaf).
+Recommendation: (a) — the literal is the only owner, and the spelling looks the same as for an array
+literal.  (A raw-slice literal `*[]readonly T{…}` has scope-bound backing already, §13.10.)
+
+### A grouped local `var ( … )` initializer is not a borrowing position — 🔴 OPEN (found 2026-10-03, work-7, review of the addressed-literal lifetime change; pre-existing)
+
+checkStmt marks a single local `var` initializer POS_BORROWING (§11.4: a var initializer is a borrowing
+position), but its DECL_GROUP arm calls checkGroupDecl without it, so `var ( o = Opts{Any: 44} )` rejects
+the value-borrow that `var o = Opts{Any: 44}` accepts.  Fix: set POS_BORROWING around a local group's var
+members (not its consts / types); a test of both spellings.
+
 ### A package-level `var g *any = 42` borrows a temporary of the init function — it dangles once init returns — 🔴 NEEDS DECISION MAJOR (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
 
 `checkVarDecl` uses `checkBorrowingArg` for package-level vars too, so a value is borrowed into a package
