@@ -1,3 +1,18 @@
+### `box` of an address boxed the variable's contents — wrong code on every backend — DONE (binate `f01bb8308`, 2026-10-04)
+
+`box(&x)` of a local and `box(&G)` of a global boxed the variable's CONTENTS (native / LLVM segfault or invalid
+IR `%v-1`, VM printed nothing — even at -O0), and at -O1+ `box(p)` of a pointer variable holding `&x` broke the same
+way once mem2reg replaced the load of p by the alloca of x.  Cause: IR-gen and every OP_BOX lowering read an
+OP_ALLOC operand as "box the slot's contents".  A type-based rule (slot type == boxed type) is unsound — a review
+found `type N *N`, whose `&x` is itself an N — so the fix makes OP_BOX always box its operand's VALUE (ir.BoxedType):
+IR-gen loads a struct / array composite literal's slot before boxing it (initIsAggregateValue, from the checker
+type), and the LLVM / native / VM lowerings lose their slot paths, size by the boxed type, and fail loud on a type
+mismatch or missing type.  The native relabel forwarding (binate `b57238bbd`) no longer keeps relabels of a stack
+slot.  arm32's managed-allocation lowerings moved to arm32_managed.bn.  Tests: conformance 1545 (address forms,
+-O2 routes, generics, `type N *N`), 1546 (composite literals copy), irgen / ir / native / VM unit tests.  Validated:
+the 83 box conformance tests on LLVM -O0/-O2 and the VM, box + cast + readonly subsets on native aa64 / x64 / arm32
+linux / arm32 bare-metal at -O0 and -O2 (266/266/266/264, 0 failed), two adversarial reviews.
+
 ### x86-64 text assembler: a call / jmp to a defined global or weak symbol was R_X86_64_PC32 where clang uses PLT32 — DONE (binate `9e2c7e695`, docs `1f5d85a`, 2026-10-04, work-2; user: "(probably that bug should be tracked, and put on your list of things to fix)")
 
 The ELF writer now emits R_X86_64_PLT32 for a call / jump / jcc rel32 to any symbol with no addend of its own —
