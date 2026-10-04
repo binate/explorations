@@ -170,11 +170,9 @@ shift instructions `lsl` / `lsr` / `asr` / `ror` (aliases of MOV with a shifted 
 `adr r0, label` / `adr r0, 8` (clang E28F0008), and immediates written without '#': `svc 5`, and `mov r0, 5`,
 which clang encodes as MOVW (E3000005), not MOV.  Each its own small fix in
 `asm/parse/arm32.bn` / `arm32_instr.bn` (+ encoder support where missing), goldens from clang.
-Also (found 2026-10-03, work-2, during the AArch64 literal pools): `ldr r0, =expr` and `.ltorg` /
-`.pool` — 🟡 IN PROGRESS (claimed 2026-10-03, work-2/session — user: "I guess we can do it now"),
-reusing the AArch64 pool table (`asm/parse/aarch64_pool.bn`).
-Also (found 2026-10-03, work-2, by the review of the arm32 literal pools; pre-existing, not yet decided):
-an `s` suffix on a load / store is silently ignored — `ldrs r0, [r1]` / `ldrs r0, =1` assemble as `ldr`
+Also (found 2026-10-03, work-2, by the review of the arm32 literal pools; pre-existing) — 🟡 IN
+PROGRESS (claimed 2026-10-03, work-2/session — user: "we should reject the spurious s suffix, and reject
+movw/movt with pc destination"): an `s` suffix on a load / store is silently ignored — `ldrs r0, [r1]` / `ldrs r0, =1` assemble as `ldr`
 (`splitMnem` sets the flag, the load / store branches never read it), where clang rejects it ("instruction
 'ldr' can not set flags"); and the arm32 MOVW / MOVT encoders accept PC as Rd (`movw pc, #0x1234`, an
 UNPREDICTABLE encoding — clang accepts it too, but this assembler already rejects the AArch64 CONSTRAINED

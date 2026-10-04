@@ -1,3 +1,12 @@
+### arm32 text assembler: literal pools — `ldr{cond} Rt, =expr`, `.ltorg` / `.pool` — DONE (binate `349ce1860`, 2026-10-03, work-2; on the AArch64 pool table, `14b65cb8b`)
+
+As clang for A32: a number is the first of MOV / MVN / MOVW that encodes it, with the load's condition —
+except into SP or PC, which always load it (MOVW into PC is UNPREDICTABLE; the review caught the first version
+emitting it); anything else is a 4-byte entry (R_ARM_ABS32 for a symbol, the addend in the word), shared only
+while pending, as clang's.  Deliberate reject (user: "the rejection sounds correct"): a number or a symbol's
+addend outside [-2^31, 2^32), where clang silently keeps the low 32 bits of an addend and of a number whose
+low 32 bits make a MOV / MVN.
+
 ### A `*T`-receiver method called directly on a managed temporary leaked it; defer did not retain a managed operand bound to `*T` — DONE (binate `6c2bd8a28`, 2026-10-03, work-4)
 
 `id(t).Get()` / `x.(@Thing).Get()` with a raw `*Thing` receiver leaked one reference per call on every backend
