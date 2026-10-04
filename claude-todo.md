@@ -106,7 +106,7 @@ selector or index whose base is not addressable (a call result, a composite lite
 call) as a value — the 2b path — so the borrowed copy lives as long as the binding.  Conformance test,
 every backend.
 
-### `unsafe_cast` narrowing to a `readonly` managed-pointer target loads through the data word — segfault — 🔴 OPEN MAJOR (found 2026-10-03, work-3, review of the named-pointer boxing change; reproduced on main; pre-existing)
+### `unsafe_cast` narrowing to a `readonly` managed-pointer target loads through the data word — segfault — 🟡 IN PROGRESS MAJOR (claimed 2026-10-04, work-4/session: same root cause as the readonly type-argument assertion — the recovery ignores an outer `readonly` — fixed with it; found 2026-10-03, work-3, review of the named-pointer boxing change; reproduced on main; pre-existing)
 
 `var a @any = n` (n `@Node`), `var q readonly @Node = unsafe_cast(readonly @Node, a)`, `q.v` segfaults on
 LLVM and native (`unsafe_cast(AP, a)` with `type AP = @Node` works).  Cause: gen_assert.bn
