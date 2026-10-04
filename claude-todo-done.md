@@ -1,3 +1,17 @@
+### A `*T`-receiver method called directly on a managed temporary leaked it; defer did not retain a managed operand bound to `*T` — DONE (binate `6c2bd8a28`, 2026-10-03, work-4)
+
+`id(t).Get()` / `x.(@Thing).Get()` with a raw `*Thing` receiver leaked one reference per call on every backend
+and the VM: applyReceiverConversion retyped the receiver value itself as `*T`, so the statement cleanup skipped
+the managed temporary.  The receiver is now passed as it is (as a managed argument to a raw parameter is).  The
+retyping had kept a deferred call's receiver alive only by leaking it; stmt.defer requires a managed-to-raw
+operand's managed value to be retained until the call runs, which the defer machinery did for `@[]T` only — an
+`@T` bound to a raw `*T` receiver or parameter was stored as the raw borrow (`defer use(mk(42))` read freed
+memory, pre-existing).  Such operands are now retained (`IsManagedToRaw` for pointers; the receiver's type taken
+from the value the receiver expression yields, so `(*pp).m()` / `(*mk()).m()` too).  The user approved the
+defer extension with the fix.  One adversarial review; its findings fixed (explicit-dereference receivers) or
+raised separately (the deferred variadic pack, todo + test 176; native relabel cost, todo).  Tests: conformance
+`spec/18-memory/149` (xfail removed), `spec/14-statements/175`.
+
 ### A `switch` drops every case after a `default` that is not last — silent miscompile — DONE (binate `2bf1971a7`, 2026-10-03, work-3)
 
 `switch x { default: println("d"); case 1: println("one") }` with x == 1 prints `d` (LLVM, reproduced):

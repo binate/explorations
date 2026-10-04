@@ -32,6 +32,17 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### Native: a pointer relabel (`OP_CAST` between a managed and a raw pointer) costs a register copy and a frame slot — 🟡 IN PROGRESS (claimed 2026-10-03, work-4/session; user: "yes, we should do that native fix")
+
+After inlining, mem2reg grounds a load of a raw `*T` parameter slot that received a managed `@T` with an
+`OP_CAST` relabel (mem2reg_apply.bn).  LLVM lowers it as a free bitcast; the native backends lower it as a
+register `mov` into a fresh register (aarch64_dispatch.bn's OP_CAST arm via emitCast), which also grows the
+frame.  A plain call passing a managed value to a raw parameter (`use(t)`) pays it today, and since binate
+`6c2bd8a28` so does a `*T` method on a managed receiver (`t.Get()`): on native aa64 -O2, 4 `mov`s and a 0x80
+frame where the old receiver path had 2 and 0x70.  A native↔LLVM gap: make the relabel free on all three
+native backends (alias the source's register / fold it before register allocation), measured as the per-call
+instruction count and frame size of `func f(t @Thing) int { return t.Get() + t.Get() }` and `use(t) + use(t)`.
+
 ### A deferred call's variadic pack of `@T` into `...*T` does not retain the managed values — use-after-free — 🔴 OPEN MAJOR (found 2026-10-03, work-4, review of the *T-receiver leak fix; pre-existing)
 
 ```
@@ -119,23 +130,6 @@ and `*any` is not one.  Options: (a) reject a function name borrowed into an int
 name is not a value here; take a function value (`f := add`) first"); (b) decay it to its `@func` default
 (`defaultType`) and box that.  Recommendation: (a) — no implicit function-value construction outside a
 function-value slot.  Either way: a conformance test, and the irgen fallback should fail loud.
-
-### A `*T`-receiver method called directly on a managed temporary leaks the temporary — 🟡 IN PROGRESS (claimed 2026-10-03, work-4/session; user: "1. yes"; found 2026-10-02, work-4, review of design B commit 7; pre-existing)
-
-```
-type Thing struct { n int }
-func (t *Thing) Get() int { return t.n }
-func id(t @Thing) @Thing { return t }
-// id(t).Get() — t's count grows by one per call
-```
-A call result is a managed statement temporary owning one reference (`mem.temporary`); a raw `*T`
-receiver borrows it (`mem.borrow-arg`), so the reference must still be released at the end of the
-statement.  It is not: `id(t).Get()` and `x.(@Thing).Get()` raise the count by one per call, on LLVM,
-native aa64 and the VM.  Binding the result first (`var u @Thing = id(t); u.Get()`) or a managed `@T`
-receiver does not leak, nor do a field read or an interface call.  Reachable through generics too
-(`x.(T).Get()` with `T = @Thing`).  Root cause unknown — likely the receiver-borrow path of a method call
-on a managed rvalue drops the temporary from the statement's cleanup.  Test: conformance
-`spec/18-memory/149_ptr_recv_method_on_managed_temp` (expected-fail in every mode).
 
 ### No CI lane runs the LLVM arm32 bare-metal mode at -O2 — 🔴 OPEN (raised 2026-09-30, work-1; awaiting a user decision)
 
