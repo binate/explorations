@@ -1,3 +1,8 @@
+### asm/arm32: `Bkpt` / `Svc` silently truncated out-of-range immediates — DONE (binate `8b5a7ed29`, 2026-10-03, work-5)
+
+Both now set an assembler error and emit nothing outside 0..0xFFFF / 0..0xFFFFFF, as LLVM and GNU as do
+(user: "we should be consistent with the other assemblers").  Tests at the encoder and through the parser.
+
 ### Generic types and methods declared at the REPL prompt were not instantiated — wrong sizes, IR-gen panics, `b.v++` panics — DONE (binate `d34cc0451`, 2026-10-03, work-6)
 
 A generic struct typed at the prompt was never stashed for instantiation, so every IR-gen use of an
