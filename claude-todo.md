@@ -1854,7 +1854,14 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   is written to the load's spill slot and reloaded at every extract (record-churn: `arr[i]`'s
   address stored and reloaded each iteration). Make an elided load's address an allocatable
   pointer value on all three native backends.
-  - **🟡 Re-measuring (claimed 2026-10-04) on top of the x64 RCX/RDX homes (`6c0615b72`).**
+  - **Re-measured 2026-10-04 on the x64 RCX/RDX homes + the non-SIB GEP fix — still a net loss; parked.**
+    record-churn N=300 x64: 7,263,549 → 8,253,016 instructions (+13.6%) with the address allocatable
+    (mix loop 56 → 67 instructions). The address takes R14 and three carry lanes spill (stack slot
+    store+reload each, plus latch copies). Root cause unchanged: the spill cost (9 uses × loop weight)
+    overstates what spilling the address costs (1 store + ~2 reloads, since the retention cache reuses
+    a reload across consecutive extracts). Copy-partner eviction pricing alone: neutral (+0.1%).
+    Revisit with a spill-cost model that accounts for retention reuse, or after RAX / RDX-in-hot-code
+    homes add registers.
   - **Investigated 2026-10-01 — not a net improvement as-is.** Implemented
     (all three backends; set `AggAddrRegLoads` = elided loads whose every use is an extract's
     aggregate or a store's value, threaded into liveness and handleResult). record-churn N=50 x64
