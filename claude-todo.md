@@ -116,6 +116,23 @@ receiver-kinds reads today, and change 940's AliasRO case.  Recommendation: (a) 
 `readonly` any parameter may carry, harmless, and 940 shows it works end to end.  The receiver check that
 rejects a second pointer level (`**T`, `*@T`, `*readonly *T`) leaves these accepted pending the decision.
 
+### A composite literal addressed in a `defer` (argument or receiver), or in a package-level `var` initializer, dangles — 🔴 NEEDS DECISION MAJOR (found 2026-10-03, work-7, planning the addressed-literal lifetime work; reproduced; pre-existing)
+
+The 2026-09-30 decisions settle an addressed composite literal in a local `var` / `:=` initializer (it lives
+as long as the binding) and in an assignment / `return` (a compile error), but not two more positions where
+the address outlives the statement.  Reproduced (LLVM), with `P{n int; name @[]char}`:
+(1) `defer show(&P{name: mk("arg")})` and `defer P{name: mk("recv")}.Show()` (`Show` a `*P` method) — the
+deferred calls print the bytes of later allocations: the literal is released at the end of the `defer`
+statement (`mem.temporary`: only the defer's evaluated values outlive it, and the value here is the
+address); (2) package-level `var gq *P = &P{n: 7, name: mk("global")}` — `gq.name` prints empty: the
+literal is storage of the init function, its field released at the end of that initializer.  Options:
+(1a) co-scope the literal with the deferred call (released at function exit, after it runs) — IR-gen
+already does this for a value-borrow temporary in a defer's operands (`DeferBorrowSlots`); (1b) reject it,
+like a store.  (2) follows the pending decision on `var g *any = 42` (the entry below): if a package-level
+initializer is a storing position, `var gq *P = &P{…}` is an error; else the literal needs static storage.
+Recommendation: (1a) — the same "lives as long as what holds its address" rule as a `var` initializer,
+on an existing mechanism; (2) as decided below (no tree code has a package-level `&T{…}`).
+
 ### A package-level `var g *any = 42` borrows a temporary of the init function — it dangles once init returns — 🔴 NEEDS DECISION MAJOR (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
 
 `checkVarDecl` uses `checkBorrowingArg` for package-level vars too, so a value is borrowed into a package
