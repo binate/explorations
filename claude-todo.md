@@ -213,7 +213,7 @@ allow it only as a same-package forward declaration, or reject it?  Recommendati
 (an alias names, it does not define); (2) a same-package forward declaration only, rejected in a `.bni`
 (an importer can never instantiate it).
 
-### An rvalue of a generic instance type borrowed into a raw `*any` / `*I` is typed with the checker's type — invalid IR (LLVM) / wrong dynamic type (native) — 🔴 OPEN MAJOR (found 2026-10-03, work-7, review of the non-struct generic types change; reproduced; pre-existing)
+### An rvalue of a generic instance type borrowed into a raw `*any` / `*I` is typed with the checker's type — invalid IR (LLVM) / wrong dynamic type (native) — 🟡 IN PROGRESS MAJOR (claimed 2026-10-04, work-3/session: the named-pointer boxing change makes a named pointer to a generic struct, passed by value as an argument, reach it on every backend; found 2026-10-03, work-7, review of the non-struct generic types change; reproduced; pre-existing)
 
 wrapAsIfaceValue's value-borrow of a NON-addressable source (gen_util.bn, the materialize-a-temp branch)
 takes `srcT = ctx.Checker.ExprType(...)` and builds the box type from it without mapping it to IR-gen's type,
