@@ -63,6 +63,21 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### VM: an interface-dispatch thunk forwards owned values to the method with no stack pre-check — a frame-push overflow leaks them — 🔴 OPEN MAJOR (found 2026-10-03, work-3, review of the named-pointer boxing change; code reading; pre-existing)
+
+genIvRecvThunk (irgen/gen_iv_thunk.bn) field-RefIncs a value-struct receiver in place (emitStructCopy on the
+box's object), RefIncs a receiver represented as a managed interface value (`type X @J`, added with the
+named-pointer boxing change — before it, such a dispatch crashed outright), and forwards the caller-delivered
+@Iface / managed-field-struct params by move — then calls the method with no OP_STACK_CHECK.  The dispatch
+site's OP_STACK_CHECK_IM covers only the thunk's own frame, so a recoverable VM stack overflow at the
+method's frame push (where the method never starts to release anything) leaks the receiver's acquired
+reference / field references and the moved params.  This is the gap the method-value wrapper had before
+binate `8ff97d2ab` (attachMethodValueForwardPad).  Proposed fix: EmitStackCheck(f.Name) before the forward
+plus a forward pad releasing the acquired receiver (struct-dtor the box object's fields once, or RefDec the
+@Iface receiver) and the moved params, as attachMethodValueForwardPad does (the thunk would need its params
+in slots, as the wrapper's are, for the pad's loads); a VM unit test in the style of
+vm_methodvalue_overflow_test.bn.
+
 ### A value-borrow temporary is released on paths that never filled it, and overwritten without release when the borrow runs again in its scope — crash after a short-circuit; leak in a loop condition / post statement — 🔴 OPEN MAJOR (found 2026-10-03, work-3, review of the named-pointer boxing change; reproduced on main with a struct that holds a managed field; pre-existing)
 
 With `type W struct { p @Inner }`, `impl W : Getter` (value receiver), `func takeR(g *Getter) int`:
