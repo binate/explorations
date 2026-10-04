@@ -768,6 +768,11 @@ call which (and whether (a) first).  Needs a conformance test on `builder-comp_a
   `readonly` (`as[readonly *Thing]`) is rejected ("makes it `readonly *Thing`, which is not an assertion
   target"); the rule only says what an outermost `*` / `@` does, and `iface.assert.kind` calls a handle's
   outer `readonly` freely choosable — should it read as `x.(*Thing)`?  (Asked 2026-10-02.)
+  DECIDED 2026-10-04 (user: "yes; also, probably there should be a bnlint check against as[readonly *Thing],
+  since anyone who writes it probably means as[*readonly Thing]."): accept it — peel aliases and an
+  outermost `readonly` before reading the recovery kind (also `x.(readonly T)` and value types), with the
+  rule text to match; plus a bnlint rule flagging a `readonly *T`-style type argument.  🟡 IN PROGRESS
+  (claimed 2026-10-04, work-4/session).
 Plan (done): `done/plan-generic-instance-check.md`.
 
 ### Language feature: array-literal keys that depend on a type parameter — 🔴 OPEN (raised 2026-09-28, work-4)
