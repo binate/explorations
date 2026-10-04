@@ -3338,7 +3338,7 @@ ship one that runs).
 
 ## REPL
 
-### Generic functions declared at the REPL prompt panic — 🔴 OPEN MAJOR (found 2026-09-29, work-6, review of the REPL failed-prompt fix; reproduced 2026-09-30 and 2026-10-03; pre-existing)
+### Generic functions declared at the REPL prompt panic — 🟡 IN PROGRESS (claimed 2026-10-04, work-6/session — user: "maybe do the generic-function half of item 4") (found 2026-09-29, work-6, review of the REPL failed-prompt fix; reproduced 2026-09-30 and 2026-10-03; pre-existing)
 
 `func id[T any](x T) T { return x }` then `testing.Println(id[int](3))` panics "vm: extern not found:
 main." (the call names an empty function), and a generic function whose body uses a prompt-declared
