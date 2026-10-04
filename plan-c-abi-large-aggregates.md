@@ -77,7 +77,18 @@ step D's table.
   caller's memory before those stores.  Native aa64 bnc __text 9,649,020 → 9,531,812 bytes (−1.21%)
   against a compiler built at `e051ce4b4`; `sum(b Big)` 2c+1z → 1c.  Conformance 1524.
 - Order (user, 2026-10-03: "option 1 is fine"): the x64 switch, then arm32 (the actual C divergence), then
-  aa64 ownership + param slot in place (copies).  In progress: x64.
+  aa64 ownership + param slot in place (copies).
+- DONE `dfde1e73a` (2026-10-04): x64 — a >16-byte by-value aggregate is SysV MEMORY class in both backends
+  (`ptr byval(<T>)`: `align 8` on definitions, the type's alignment at call sites); func-value dispatch
+  stays by-address and the shims lay it on the stack (spill routing whenever a call has a stack arg; the
+  closure spill shims stage incoming words); x64 pointer-form code deleted; C-export/__c_entry need no
+  adapter for it on x64.  Two reviews (3 critical native shim bugs, LLVM byval source alignment — all
+  fixed).  Validated: full native x64 darwin 3434/0, full LLVM x86_64-darwin 3430 + 4 per-arch-expectation
+  mismatches (build-constraint tests run under the host mode), -O2 subsets on x64/aa64/arm32, Linux x64 in
+  an amd64 Docker container (LLVM / native / VM subsets 713/713/712, vm+interp unit tests).  Conformance
+  1535.
+- Next: arm32 (AAPCS32 by-value split, both backends) — then ForCBoundary / CAbiIndirectLargeAggregates
+  can go.
   Local validation for x64: native `builder-comp_native_x64_darwin-…` and LLVM via
   `BINATE_FLAGS="--target x86_64-darwin" ./conformance/run.sh builder-comp` (both run under Rosetta); full
   runs on both, since a 32-byte managed-slice argument is >16 bytes on x64 (nearly every program).
