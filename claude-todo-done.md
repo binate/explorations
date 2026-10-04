@@ -1,3 +1,12 @@
+### x64: a non-SIB element GEP scales in its result register — DONE (binate `df75b805a`, 2026-10-04)
+
+The x64 RCX/RDX-homes review fix made non-SIB element GEPs (element size not 1/2/4/8) declare RCX
+and RDX (four scratch), which kept every value live at a GEP out of RCX: record-churn's `arr[i]`
+(32-byte records) put a carry lane back on the stack. Scaling the index in the result register
+(mov rd, idx; shl/imul rd; lea rd, [base + rd]) needs three scratch, so the GEP declares RDX only.
+record-churn N=300: 7,804,451 → 7,263,549 instructions (−6.9%). Validated: native x64 conformance
+-O0/-O2, self-compile fixpoint, adversarial review clean; exact-byte goldens vs clang.
+
 ### `box` of an address boxed the variable's contents — wrong code on every backend — DONE (binate `f01bb8308`, 2026-10-04)
 
 `box(&x)` of a local and `box(&G)` of a global boxed the variable's CONTENTS (native / LLVM segfault or invalid
