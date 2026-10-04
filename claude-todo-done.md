@@ -1,3 +1,33 @@
+### Generic types and methods declared at the REPL prompt were not instantiated — wrong sizes, IR-gen panics, `b.v++` panics — DONE (binate `d34cc0451`, 2026-10-03, work-6)
+
+A generic struct typed at the prompt was never stashed for instantiation, so every IR-gen use of an
+instance fell back to `int`: `type G[T any] struct { v T; w Missing }` (Missing declared after) gave
+`sizeof(G[int])` 8, field stores panicked ("selector assignment target with no address" / "unresolved
+selector"), `b.v++` on a global instance panicked, and a var inferred as an instance was refused.
+GenTypeDecls now stashes it; an instance needing destruction is queued for the prompt's helper drain,
+which names its dtor and copy in the generic's defining package (`vec.Vec[@Box]` works).  A generic
+method typed at the prompt was generated eagerly as an ordinary method (receiver as int; with the types
+instantiating it panicked on a missing checked copy); GenDecl now stashes it and its instances are
+emitted where used.  A redefinition re-emits the instances already emitted (irgen.ReemitGenericMethod:
+every new signature registered before any body; instances first emitted during it are new functions),
+replacing them on the same signature or shadowing them as one group (new vm.LowerFuncsShadow) with the
+warning.  One adversarial review: its two MAJOR findings in the shadow path (an unresolved extern
+panic; one instance calling another's stale body — 100 for 107) and the imported instance's copy panic
+were fixed before landing.  Tests: irgen gen_generic_method_inst_test / gen_repl_types_test, repl
+decl_generic_test, vm lower_shadow_test, e2e repl case 75.  The generic-FUNCTION half stays open
+("Generic functions declared at the REPL prompt panic").
+
+### REPL: a generic method that parked, failed or was redefined left the type's existing instances with the wrong method — DONE (binate `1d364ca6e`, 2026-10-03, work-6)
+
+The post-collection back-fill copies only missing methods onto a generic type's instances, so an
+incompatible redefinition left existing instances on the old signature (`cc.Get()` of the old shape
+checked, and ran the new body), and a generic method that parked or failed and was undone stayed on the
+instances back-filled before it (`_ = bx.Get()` accepted for a never-emitted method).  A generic method
+declared at the prompt now drops the method from the type's instances so the back-fill re-derives it, and
+undoDecl drops it again and re-runs the back-fill from the restored methods.  Tests: check
+check_generic_backfill_test (TestReplGenericMethodRedefinitionReachesInstances,
+TestReplUndoneGenericMethodLeavesInstances).
+
 ### Native: OP_UNREACHABLE emitted nothing on aarch64 / x64 — DONE (binate `60bf17513`, 2026-10-03, work-5)
 
 Now `brk #1` (aarch64) / `ud2` (x64), as arm32's `bkpt`: with nothing after a function's last block, a

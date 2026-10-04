@@ -160,16 +160,6 @@ and an importer reading X fails as the undefined-var case did.  Fix: have the lo
 which packages are interface-only (or the reverse), and report a `var` in a non-interface-only package
 with no `.bn` files.
 
-### REPL: a generic method that parks, or is rolled back, stays callable on instances of its type named before it — 🟡 IN PROGRESS (claimed 2026-10-03, work-6/session, with the generic-types-at-the-prompt fix) (found 2026-09-30, work-4, reviewing design B's REPL instance checks; reproduced on main `6c3a92440` with a check unit-test probe; pre-existing)
-
-```
-type Box[T any] struct { v T }
-var bx Box[int]
-func (b *Box[T]) Get() T { zz(); return b.v }   // parks on zz
-_ = bx.Get()                                     // accepted
-```
-The REPL would then call a method that was never emitted.  Cause: collectDecls ends with backfillInstantiationMethods, which copies the new method into every existing instance's method set (Box[int]).  Undoing the declaration (undoDecl / RollbackDecl, when it parks or fails) restores the placeholder's method set (restoreMethod) but not the instances'.  Fix: the undo must also remove the method from each instance it was copied into (record them in DeclRollback, or re-sync the instances' method sets after the undo).  Needs a check unit test (the probe above: `_ = bx.Get()` after the parked `Get` must be rejected, or park).
-
 ### arm32 text assembler: forms clang accepts that are rejected — 🔴 OPEN (found 2026-09-30, work-2, by the review of the arm32 label-addend fix; each used to be silently miscompiled, now an error)
 
 Loud, not wrong code: `ldr r0, [r1]!` (clang E5B10000), `ldr r0, [r1, r2, lsl #2]!` (E7B10102), `ldr r0, [r1],
@@ -277,16 +267,6 @@ a conversion dispatched through the stale interface (wrong code).  These are rej
 ("cannot redefine interface Sizer as a constant"; user: "(a) is fine for now, though maybe (b) should be
 a todo" — (b) being cross-kind shadowing, like type shadowing).  Shadowing them needs the same
 generation-distinct identity through the checker's and IR-gen's registries.
-
-### A generic type that names a type declared after it is broken at the REPL prompt — wrong size, IR-gen panic — 🟡 IN PROGRESS (claimed 2026-10-03, work-6/session — user: "yes") (found 2026-09-29, work-6, review of the REPL forward-reference rework; reproduced; pre-existing)
-
-`type G[T any] struct { v T; w Missing }`, then `type Missing struct { a int; b int }`: `sizeof(G[int])`
-prints 8 (the same program as a file prints 24), and `var g G[int]` then `g.w.b = 7` panics "internal
-error: unresolved selector in IR-gen", killing the REPL.  Instantiating before Missing is declared
-(`var g G[bool]` parks on Missing, then resolves) gives the same size 8.  A generic type declaration at
-the prompt never parks — its body is resolved only when instantiated — so it is accepted with a missing
-name, and something (the checker's instantiation or IR-gen's REPL type registration) then lays out the
-field of the later-declared type wrongly.  Root cause: unknown — needs investigation.
 
 ### A value-receiver method of a named POINTER type called through an interface reads garbage — the receiver is the box cell, not the pointer in it — 🟡 IN PROGRESS (claimed 2026-10-03, work-3/session, self-drive, with the named-pointer boxing fix; found 2026-09-30, work-3, fixing the `@any` named-owning-pointee identity; reproduced on LLVM and the VM; pre-existing)
 
@@ -449,14 +429,6 @@ resolved target).  Needs conformance cases (each shape, a generic `*T` and value
 Not only generic receivers: with `p *b.St` from a directly imported b, the method value `(*pp).Show`
 (`pp **b.St`) is named from the checker's unqualified `St` and references `main.St.Show` — LLVM: an
 undefined symbol at link (found 2026-10-01, work-7).  The same arms fix it.
-
-### REPL: `b.v++` / `b.v += 1` on a top-level var of a generic struct type panics in IR-gen — 🟡 IN PROGRESS (claimed 2026-10-03, work-6/session, with the generic-types-at-the-prompt fix) (found 2026-09-30, work-7, review of the ++/-- addressability fix; pre-existing)
-
-At the prompt: `type B[T any] struct { v T }`, `var b B[int]`, then `b.v++` → "internal error: ++/-- target with
-no address in IR-gen"; `b.v += 1` → "selector assignment target with no address" (these were silently dropped
-stores before the IR-gen selector fix made them loud).  The non-generic equivalent works, and so does the
-same code in a file.  Likely: the REPL global's IR-gen type for a generic instantiation is not the
-instantiated struct genSelectorPtr looks the field up in.  Needs an e2e/repl.sh case.
 
 ### REPL: package-variable initializers are not run — `qa.G` reads 0 — 🔴 OPEN (found 2026-09-30, work-7, review of the duplicate-import fix; pre-existing)
 
@@ -3205,34 +3177,29 @@ ship one that runs).
 
 ## REPL
 
-### Generic functions and methods of generic types declared at the REPL prompt panic when called — 🟡 methods half IN PROGRESS (claimed 2026-10-03, work-6/session, with the generic-types-at-the-prompt fix); generic functions half 🔴 OPEN (found 2026-09-29, work-6, review of the REPL failed-prompt fix; reproduced 2026-09-30; pre-existing)
+### Generic functions declared at the REPL prompt panic — 🔴 OPEN MAJOR (found 2026-09-29, work-6, review of the REPL failed-prompt fix; reproduced 2026-09-30 and 2026-10-03; pre-existing)
 
 `func id[T any](x T) T { return x }` then `testing.Println(id[int](3))` panics "vm: extern not found:
-main." (the call names an empty function).  `type Box[T any] struct { v T }`, `func (b *Box[T]) Get() T
-{ return b.v }`, `var bx Box[int]`, `testing.Println(bx.Get())` panics "vm: extern not found:
-pkg/builtins/lang.int.Get" (the receiver resolved as int).  irgen GenDecl lowers a generic function or
-method declaration as an ordinary one (genFunc / genMethod) instead of registering it for instantiation
-at its call sites, as GeneratePackage does (gc.GenericDecls, stashGeneric…).  Root cause: needs
-investigation.  Generic types, generic interfaces and generic-receiver impls declared in an imported
-package work (e2e tier5-box-generic-receiver-impl-instantiation).  Also (found 2026-09-30 reviewing
-interface / impl parking, reproduced): `type Cur[T any] struct { v T }`, `type CI = Cur[int]`, `var cc
-CI`, `cc.v = 4` panics IR-gen "selector assignment target with no address".
-Found 2026-10-03 (work-6, review of the generic-types-at-the-prompt fix): once prompt generic structs
-instantiate, a generic FUNCTION whose body uses one with its type parameter panics at its declaration —
-`type Cur[T any] struct { v T }`, `func gen[T any](x T) T { var c Cur[T]; c.v = x; return c.v }` →
-"internal error: no checked copy of generic type instance main.Cur__bn_inst__1_N0_3_int" (GenDecl
-generates the generic function eagerly with T as int; before the fix it panicked "selector assignment
-target with no address").  Same root cause as above: GenDecl must stash a generic function for
-instantiation at its call sites, as it now does a generic-receiver method.
-Found 2026-09-30 (work-7, building the checker→IR-gen type mapper): generic TYPE declarations typed at
-the prompt are not registered for instantiation either — the REPL lowers a `type` through GenTypeDecls,
-which never stashes a generic struct decl (stashGenericStructDecl), so every IR-gen instantiation of a
-prompt-declared generic type falls back to `int`: `type Box[T any] struct { v T }` then
-`func mk3() Box[int] { var x Box[int]; x.v = 7; return x }` panics "internal error: selector assignment
-target with no address in IR-gen"; a local, global or field of such a type is mis-typed, and a var
-inferred from one (`var a = mk()`) is refused ("var decl at the prompt requires an explicit type …") because
-the mapper finds no generic decl to instantiate.  Likely also the root cause of the `b.v++` entry
-("REPL: `b.v++` / `b.v += 1` on a top-level var of a generic struct type panics in IR-gen").
+main." (the call names an empty function), and a generic function whose body uses a prompt-declared
+generic struct with its type parameter panics at its declaration: `type Cur[T any] struct { v T }`,
+`func gen[T any](x T) T { var c Cur[T]; c.v = x; return c.v }` → "internal error: no checked copy of
+generic type instance main.Cur__bn_inst__1_N0_3_int".  irgen GenDecl generates a generic function
+eagerly as an ordinary one (T as int) instead of stashing it for instantiation at its call sites, as
+GeneratePackage does (gc.GenericDecls) — and as GenDecl now does a generic-receiver method (binate
+`d34cc0451`).  A redefinition then needs what a generic method's gets: the instances already emitted are
+emitted again (irgen.ReemitGenericMethod, repl lowerReplGenericMethod, vm.LowerFuncsShadow).
+
+### REPL: an incompatible redefinition of a generic method that a sibling still calls in the old shape — decide the rule — 🔴 OPEN (found 2026-10-03, work-6, review of the generic-methods-at-the-prompt fix; put to the user)
+
+`type Cur[T any] struct { v T }`, `func (c *Cur[T]) Get() T { return c.v }`, `func (c *Cur[T]) Twice() T
+{ return c.Get() }`, then `func (c *Cur[T]) Get(k int) int { return k }`: with an instance of Cur already
+emitted the redefinition is rejected (Twice's instance no longer checks); with none it is accepted with the
+shadow warning, and every later instance of Cur is rejected ("wrong number of arguments (in Cur[int].Twice
+…)").  A non-generic type's sibling keeps calling the shadowed method, but a generic type's future instances
+have no old method to call.  Proposed: reject the redefinition whenever a sibling no longer checks against
+it, instance or not.  Also to confirm: signatures are compared at the generic level, so `Get() T` →
+`Get() int` shadows even on `Cur[int]`, whose instantiated signatures match.
+
 ### REPL: remove process-global session state (multi-session blocker)
 - **Now owned by [`done/plan-embeddable-vm.md`](done/plan-embeddable-vm.md)** (scoped
   2026-06-16): the `ir` half below is increments 4–5 of that plan, which
