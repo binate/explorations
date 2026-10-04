@@ -7,6 +7,8 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ### `box(p)` of a pointer variable that mem2reg resolves to `&x` boxes x's contents instead of the pointer — wrong code at -O1+, every backend — 🟡 IN PROGRESS CRITICAL (claimed 2026-10-03, work-4/session; user: "then take the box bug next"; found 2026-10-03, work-4, review of the native pointer-relabel forwarding; reproduced on main `bf7ec37ca`, LLVM and native; pre-existing)
 
+Broader than the -O2 case (found while fixing it): `box(&x)` of a local segfaults at -O0 on LLVM and native and prints nothing on the VM, and `box(&G)` of a global emits invalid LLVM IR (`%v-1`), segfaults on native and prints nothing on the VM — IR-gen itself reads the alloca `&x` evaluates to as "box the slot's contents".  Fix in progress: IR-gen picks the boxed type from the argument's checker type (a pointer argument boxes the address), and every backend and the VM decide the box's source with a shared `ir.BoxReadsSlot` (the operand is a slot whose type is the boxed type), never the operand's opcode alone.
+
 Repro (segfaults at -O2 on `--backend llvm` and `--backend native`; prints `7 9` at -O0):
 
 ```
