@@ -292,20 +292,6 @@ value receiver (the probe's line for it was cut off by the runner's output limit
 backends not yet checked.  Needs a conformance test over raw and managed interfaces, `@`- and
 `*`-named receivers, and every backend.
 
-### A type-parameter assertion target (`x.(*T)`) is accepted although §11.12 says it is rejected — `f[@Node]` recovers a Node cell as `*(@Node)` — 🔴 OPEN, DECIDED 2026-10-03 (found 2026-09-30, work-3, review of the alias-target checker fix; reproduced; pre-existing)
-
-`func f[T any](x @any) bool { _, ok := x.(*T); return ok }` with `var a @any = n` (n `@Node`) and
-`f[@Node](a)` compiles on builder-comp and prints `true`: the checker sees TYP_TYPE_PARAM (not in the
-alias-target rejection list), checks the generic body once abstractly, and IR-gen builds the
-instantiated target `*(@Node)`, which typeInfoSymFor keys on `main.Node` — matching a plain `@Node` box and
-recovering its Node cell as a `*(@Node)` (the same type confusion the alias-target fix closed).  The spec
-(§11.12 `iface.assert.typeparam`, Draft) specifies per-instantiation semantics but says "Today an assertion
-whose target names a type parameter is rejected at the generic declaration" — the checker does not reject
-it.  Decide: (a) reject a TYP_TYPE_PARAM target in assertTargetType now, with its own message (first
-check nothing in the tree or the conformance suite asserts on a type parameter), or (b) implement the
-Draft rule (per-instantiation checking — design B).
-Decision (user, 2026-10-03: "3, 5, 8, 9: go with your recs (though for 9 probably bnlint should complain about it)"): implement the Draft per-instantiation rule (§11.12 `iface.assert.typeparam`) — instance bodies are now checked per instance (gen.mono.check), so the instantiated target is checked as a concrete one; if that turns out larger than expected, reject a type-parameter target at the definition instead (with its own message).  Tests: `f[@Node]` recovering a Node cell as `*(@Node)` rejected or missed per the concrete rules; a valid instantiation recovering correctly.
-
 ### `@any` of a named managed pointer or function value (`type H @Node`, `type F @func() int`) never matches its own `case` — 🔴 OPEN, DECIDED 2026-10-03 (split out 2026-09-30, work-3, from the named-owning-pointee entry; slices / arrays fixed in binate `02857f863`)
 
 `var a @any = box(h)` for `type H @Node` keys the box structurally (`rt.__nameless_<H>`) while `case @H:` /
