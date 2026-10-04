@@ -1074,7 +1074,7 @@ the spec makes undefined behavior (`bit_cast(*func() int, func…)`,
 where it rejects a valid program: the hint applies only on a signature match,
 which only makes the literal more assignable.
 
-### Should `unsafe_cast` convert a RAW interface value to a MANAGED one (`*I -> @I`, `*I -> @J`)? — 🟡 IN PROGRESS, DECIDED 2026-10-03 (raised 2026-10-03, work-3, review of the unsafe_cast interface-widening change; claimed 2026-10-03, work-3/session, self-drive)
+### Should `unsafe_cast` convert a RAW interface value to a MANAGED one (`*I -> @I`, `*I -> @J`)? — 🔴 OPEN, DECIDED 2026-10-03, BACK-BURNERED (raised 2026-10-03, work-3, review of the unsafe_cast interface-widening change)
 
 §8.7 lists `*T -> @T` (raw pointer -> managed pointer, asserting a management header at the pointee's
 `-2W`) among unsafe_cast's additions, but says nothing about interface values.  The checker today:
@@ -1089,6 +1089,22 @@ data word asserted to carry a header; a same-interface or widening vtable), lowe
 take away an accepted conversion.  Whichever: the diagnostic for a rejected raw -> managed interface
 conversion should say that, not "recover a narrower interface".
 Decision (user, 2026-10-03: "3, 5, 8, 9: go with your recs (though for 9 probably bnlint should complain about it)"): option (a) — allow it, as the interface analogue of `*T -> @T` (the data word asserted to carry a management header; a same-interface or widening vtable), lowered through the upcast; `genIfaceUpcast`'s raw -> managed panic and the checker's "does not convert a raw interface value to a managed one" message (with its TODO) go.  Spec §8.7 bullet plus tests (identity and widening, refcount-neutral).
+Back-burnered 2026-10-03 (work-3, self-drive): an implementation (checker branch, genIfaceUpcast taking
+"may assert managed", conformance spec/08-conversions 028) was written and reviewed, then withdrawn — not
+landed — because the assertion is unsound until a prerequisite exists.  (1) PREREQUISITE — a raw box's
+`(T, any)` / `(T, I)` vtable row leaves slot 0 (the owning dtor) null for a NAME-LESS pointee ("a raw iface
+borrows, slot 0 is never called", gen_iface.bn), and for an anonymous managed struct / managed func-value
+pointee no owning dtor is wired at all (a managed `@any` of one is an IR-gen panic, "FU4 Part B").  So
+`unsafe_cast(@any, r)` of a raw box of `@struct{ p @Inner }` produced a managed value whose drop freed the
+cell without releasing `p` — a leak, reproduced (refcount +1 on LLVM and native).  The dynamic type is not
+known statically, so the checker cannot exclude it: every box row must carry its owning slot-0 dtor (queue
+the body even for raw-only boxes; wire anonymous structs — `RegisterModulePendingDtor` /
+`boxSlot0DtorName` skip TYP_STRUCT with no name — and managed func values).  (2) The review also found a
+NAMED raw interface source (`type NB *B`; `unsafe_cast(@A, nb)`) accepted and miscompiled: the checker built
+the managed form from the peeled source (cast rejects a named source's widening), and
+`irbuild.EmitIfaceUpcast` reads `.Elem` without peeling, so the slot offset stayed 0 (LLVM / native crash;
+the VM peels and is right) — the checker must reject a named source unless the interfaces are identical, and
+EmitIfaceUpcast must peel (its own entry, "`irbuild.EmitIfaceUpcast` reads the interface off `.Elem`…").
 
 ### A `readonly` interface-value source cannot widen — `var g @Getter = n` with `n readonly @Named` is rejected — 🔴 OPEN (found 2026-10-03, work-3, review of the unsafe_cast interface-widening change; reproduced; pre-existing)
 
