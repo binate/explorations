@@ -88,6 +88,20 @@ LLVM `4362538048 1`, native `2 7` (should be compile errors: "cannot assign unty
 save `BorrowPosKind` and reset it to POS_STORING in `checkFuncLit`, as `enterPackageDecl` does.  Needs an
 error test (return, assignment, field store inside a literal passed as an argument and as a `:=` value).
 
+### `unsafe_cast(bool, <float>)` — is it a conversion at all?  A float constant outside {0, 1} compiles — 🔴 NEEDS DECISION (found 2026-10-03, work-7, review of the bool-constant check; reproduced)
+
+§8.5 says numeric → bool is not a `cast` and "requires `unsafe_cast`", so the spec admits
+`unsafe_cast(bool, f)` for a float `f` — but never says what it means: the 2026-09-30 bool decision is
+phrased for integers ("asserts `i` is 0 or 1"), and the compile-time check that rejects a constant
+outside {0, 1} sees only integer constants (constval does not fold floats).  Reproduced (LLVM):
+`unsafe_cast(bool, 2.5)` compiles and gives `false`, `unsafe_cast(bool, 1.0)` gives `true`, and a
+`float64` variable holding `3.0` gives `true`.  Options: (a) float → bool is not an `unsafe_cast`
+direction — reject it (write `f != 0.0`), reading §8.5's "numeric" as integer; (b) allow it as an
+assertion that the value is exactly `0.0` or `1.0` (undefined otherwise), with a constant float outside
+those a compile error (needs float constant evaluation in the check).  Recommendation: (a) — `unsafe_cast`
+asserts things about a representation, and a float has none in common with `bool` (`1.0` is not the
+byte 1), so this is a lossy value conversion that `f != 0.0` already spells.
+
 ### A package-level `var g *any = 42` borrows a temporary of the init function — it dangles once init returns — 🔴 NEEDS DECISION MAJOR (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
 
 `checkVarDecl` uses `checkBorrowingArg` for package-level vars too, so a value is borrowed into a package
