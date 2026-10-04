@@ -429,6 +429,18 @@ isAddressable arm; IR-gen's lvalue-address path for unsafe_index (the element ad
 for reads); §13 `expr.addressable` lists it; run tests for stores, `++`, a field store, `&unsafe_index(…)`
 and the array-of-a-call-result rejection, on every mode.
 
+### The checker accepts a method call / method value through more than one pointer level (`pp.M` with `pp **T` or `*@T`) — §10.6 forbids it; IR-gen miscompiles it silently — 🟡 IN PROGRESS (MAJOR; found 2026-10-03, work-7, review of the method-value receiver fix; reproduced; pre-existing; claimed 2026-10-03, work-7/session — self-drive)
+
+`func.method.auto-deref` (§10.6) looks through ONE pointer level and "does not chase multi-level
+indirection", but both the method-call and the method-value receiver resolution use
+`types.Type.ReceiverBaseNamed()`, which peels every pointer / managed / readonly level
+(check_method.bn, check_expr_access.bn).  So `pp.Peek` (value receiver, `pp **St`) compiles and prints a
+garbage number, `pm.Bump` (`pm *@St`) likewise; `pp.Inc` on `**Box[int]` panics IR-gen ("a method value on
+a generic instantiation has no IR-gen receiver type"); `pp.Show` on `**b.St` names `main.St.Show`.
+Fix: resolve the receiver through one pointer / managed level (plus alias / readonly), then require a
+named type, in both paths, so the program is a type error; `.error` conformance tests for `**T` and
+`*@T` receivers (call and method value).
+
 ### A method value on a generic receiver written as `(*p).M`, `(&b).M`, `Box[int]{…}.M` or `a.(*Box[int]).M` fails to build — 🟡 IN PROGRESS (found 2026-09-30, work-7, review of the method-value fix; pre-existing; claimed 2026-10-03, work-7/session; user: "let's work on them per the self-drive instructions")
 
 With `type Box[T any] struct { n T }` and `func (b *Box[T]) Inc() int`: `(*pb).Inc`, `(*pb).Get`, `(&b).Inc`,
