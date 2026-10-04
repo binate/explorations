@@ -32,6 +32,16 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### A method of a named interface-value type (`type X @J`, `func (x X) Len()`) called directly dispatches through J's vtable — silent wrong value — 🟡 IN PROGRESS MAJOR (found 2026-10-03, work-3, fixing the named-pointer boxing; reproduced on main `434f8bf1b`, LLVM and native; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
+
+With `interface J { Get() int }`, `type X @J`, `func (x X) Len() int { return cast(@J, x).Get() }`, `var x X =
+...; x.Len()` returns 0 (the box's `Get` is 4).  The checker resolves `x.Len` on X's own method set (a named
+type does not inherit J's methods, `type.named.methods-not-inherited`), but IR-gen's `isInterfaceMethodCall`
+(gen_iface_dispatch.bn) peels the receiver with `StripWrappers`, so X reads as `@J` and the call goes to J's
+vtable, where `Len` has no slot.  Fix: peel aliases and `readonly` only (as the checker's tryMethodCall does),
+for the receiver and the pointer-to-interface-value smoothing arm (`*X` / `@X`); test with direct calls on
+`X`, `*X` and `@X` receivers, raw and managed named interface values, every backend.
+
 ### Native: a pointer relabel (`OP_CAST` between a managed and a raw pointer) costs a register copy and a frame slot — 🟡 IN PROGRESS (claimed 2026-10-03, work-4/session; user: "yes, we should do that native fix")
 
 After inlining, mem2reg grounds a load of a raw `*T` parameter slot that received a managed `@T` with an
