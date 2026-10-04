@@ -1,3 +1,17 @@
+### Native: a pointer relabel (`@T` <-> `*T`) costs no instruction or frame slot — DONE (binate `b57238bbd`, 2026-10-03)
+
+A shared native pre-pass, forwardPointerRelabels (native/common), deletes every OP_CAST between pointers
+(raw or managed, either way) whose pointees are identical and rewrites its uses to read the operand; EmitObject
+runs it before EliminatePhis (forwarding after phi elimination reordered a loop's back-edge copies — a review
+finding, reproduced as a loop returning nil; pinned by a unit test and conformance
+regressions/relabel-loop-phi-copy-order).  A relabel of a stack slot's address stays, so the pass adds no route
+into the `box(p)`-of-`&x` bug (claude-todo.md; regressions/relabel-box-slot-address).  On native -O2 for
+`f(t @Thing) = t.Get()+t.Get()` and `use(t)+use(t)`: both relabel moves gone and the frame 16 bytes smaller on
+aa64 / x64 (0x80 -> 0x70) and arm32 (112 -> 96); a loop calling both retires 4 fewer instructions per
+iteration on aa64 (-4.8%, noise ~0.1%); the native self-compiled bnc has 12 fewer instructions on identical
+source.  Validated: native unit tests, conformance subsets at -O2 on aa64 / x64 / arm32 bare-metal / arm32
+linux (974/974/971/974, 0 failed), adversarial review.
+
 ### x64: RCX and RDX are home registers (x64 home pool, step 2) — DONE (binate `6c0615b72`, 2026-10-04)
 
 `x64RegClobbers` declares per instruction which of RCX/RDX the lowering uses: none for

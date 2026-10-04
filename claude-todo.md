@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### `box(p)` of a pointer variable that mem2reg resolves to `&x` boxes x's contents instead of the pointer — wrong code at -O1+, every backend — 🔴 OPEN CRITICAL (found 2026-10-03, work-4, review of the native pointer-relabel forwarding; reproduced on main `bf7ec37ca`, LLVM and native; pre-existing)
+### `box(p)` of a pointer variable that mem2reg resolves to `&x` boxes x's contents instead of the pointer — wrong code at -O1+, every backend — 🟡 IN PROGRESS CRITICAL (claimed 2026-10-03, work-4/session; user: "then take the box bug next"; found 2026-10-03, work-4, review of the native pointer-relabel forwarding; reproduced on main `bf7ec37ca`, LLVM and native; pre-existing)
 
 Repro (segfaults at -O2 on `--backend llvm` and `--backend native`; prints `7 9` at -O0):
 
@@ -125,17 +125,6 @@ type does not inherit J's methods, `type.named.methods-not-inherited`), but IR-g
 vtable, where `Len` has no slot.  Fix: peel aliases and `readonly` only (as the checker's tryMethodCall does),
 for the receiver and the pointer-to-interface-value smoothing arm (`*X` / `@X`); test with direct calls on
 `X`, `*X` and `@X` receivers, raw and managed named interface values, every backend.
-
-### Native: a pointer relabel (`OP_CAST` between a managed and a raw pointer) costs a register copy and a frame slot — 🟡 IN PROGRESS (claimed 2026-10-03, work-4/session; user: "yes, we should do that native fix")
-
-After inlining, mem2reg grounds a load of a raw `*T` parameter slot that received a managed `@T` with an
-`OP_CAST` relabel (mem2reg_apply.bn).  LLVM lowers it as a free bitcast; the native backends lower it as a
-register `mov` into a fresh register (aarch64_dispatch.bn's OP_CAST arm via emitCast), which also grows the
-frame.  A plain call passing a managed value to a raw parameter (`use(t)`) pays it today, and since binate
-`6c2bd8a28` so does a `*T` method on a managed receiver (`t.Get()`): on native aa64 -O2, 4 `mov`s and a 0x80
-frame where the old receiver path had 2 and 0x70.  A native↔LLVM gap: make the relabel free on all three
-native backends (alias the source's register / fold it before register allocation), measured as the per-call
-instruction count and frame size of `func f(t @Thing) int { return t.Get() + t.Get() }` and `use(t) + use(t)`.
 
 ### A deferred call's variadic pack of `@T` into `...*T` does not retain the managed values — use-after-free — 🔴 OPEN MAJOR (found 2026-10-03, work-4, review of the *T-receiver leak fix; pre-existing)
 
