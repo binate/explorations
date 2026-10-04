@@ -1,3 +1,10 @@
+### Native: OP_UNREACHABLE emitted nothing on aarch64 / x64 — DONE (binate `60bf17513`, 2026-10-03, work-5)
+
+Now `brk #1` (aarch64) / `ud2` (x64), as arm32's `bkpt`: with nothing after a function's last block, a
+call that should not return but did would have run into the next function.  New asm: aarch64 `Brk`, x64
+`Ud2` / `Int3` (+ `ud2` / `int3` in the x64 text parser).  Cost on natively compiled cmd/bnc: 100 sites,
+400 bytes (aa64) / 200 bytes (x64).
+
 ### arm32 text assembler: literal pools — `ldr{cond} Rt, =expr`, `.ltorg` / `.pool` — DONE (binate `349ce1860`, 2026-10-03, work-2; on the AArch64 pool table, `14b65cb8b`)
 
 As clang for A32: a number is the first of MOV / MVN / MOVW that encodes it, with the load's condition —

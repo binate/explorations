@@ -1195,13 +1195,6 @@ quote numbers from this file (they go stale):**
   backends by static instruction/reload counting on a `--target` build, or on
   real hardware/CI.
 
-### Native: OP_UNREACHABLE emits nothing on aarch64 / x64 — a noreturn call that returned would run into the next function — 🟡 IN PROGRESS (claimed 2026-10-03, work-5; raised by the review of binate `1d160f207`; user: "yes, I guess you should do the follow-up")
-
-arm32 lowers OP_UNREACHABLE to BKPT; aarch64 and x64 emit nothing.  With the trailing epilogue gone, a
-call that should not return (rt.Panic / Abort) but did would fall into the next function instead of
-hitting dead epilogue code.  Fix: trap (aarch64 `brk #1` via a new asm/aarch64 Brk wrapper over
-isa.ExceptionGen; x64 `ud2` via a new asm/x64 Ud2 encoder).  Costs 4 / 2 bytes per unreachable site.
-
 ### Native: a block that only jumps is not threaded — execution hops through two branches — 🔴 OPEN (found 2026-09-30, work-5, disassembling the fold-branch pass's output; pre-existing)
 
 In a loop that passes a function reference (`total = total + apply(twice, i)`), native aa64 at -O2 ends the
