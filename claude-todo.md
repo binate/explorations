@@ -1064,6 +1064,19 @@ x64 DONE `dfde1e73a` (2026-10-04) — SysV MEMORY class in both backends.  arm32
 (2026-10-04) — AAPCS32 by-value split in both backends (claude-todo-done.md).  Remaining: aa64's
 ownership rule; plan-c-abi-large-aggregates.md.
 
+### The native backends copy a large aggregate fully unrolled — code size grows with the aggregate, and since the C-ABI switch a large by-value argument is copied at every call site — 🟡 IN PROGRESS (claimed 2026-10-05, work-1/session — user: "let's do the native arm32 unrolling first, then the aarch64 ownership increment"; found 2026-10-04, work-1, review of the arm32 C-ABI switch, finding 5; pre-existing)
+
+- **arm32:** emitAggMemcpyArm32 copies an LDM/STM chunk then a word at a time, and a sub-word-aligned
+  aggregate a BYTE at a time (two instructions per byte); the by-value argument stack copies
+  (emitAggregateArg, the func-value / closure spill shims) are per-word, or four-instruction-per-byte
+  byte-wise.  A [5000]uint8 passed by value is tens of thousands of instructions per call site.
+- **aarch64 / x86-64:** emitAggMemcpyAarch64 / emitAggMemcpyX64 move 16 bytes per instruction pair,
+  still linear in the size; x86-64's >16-byte by-value arguments are also copied at each call site
+  since `dfde1e73a`.
+- LLVM emits a loop or a memcpy call above a size threshold (rt.MemCopy on bare metal).
+- **Plan:** above a size threshold, copy with a loop (constant code size) — arm32 first, then the
+  same for aarch64 / x86-64 (user to confirm).
+
 ### Copying or releasing an array of managed elements is emitted unrolled, one sequence per element — code size grows with N — 🔴 OPEN (found 2026-09-28, work-6, review of the range-loop operand change; pre-existing)
 
 The copy of an array whose elements are managed (a retain per element) and its release (a release per
