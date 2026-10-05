@@ -48,6 +48,19 @@ import loudly); patch with addend 0 when the target is a slot; `parse_macho` rej
 Natural part of bnld's static-GOT change (plan-aa64-asm-symbols.md 3d, (2b)), whose slots are keyed by
 (definition, addend).  Test: a dynamic link of a GOT reference with an addend to an import.
 
+### A value-borrow temporary inside a composite element of a deferred call's argument, in a nested block, is released when the block ends — the deferred call reads freed storage — 🔴 OPEN MAJOR (found 2026-10-05, work-3, review of the call-result field borrow fix; pre-existing)
+
+`if c { defer takeOpts(3, Opts{g: mkW(3)}) }` with `Opts{ g *Getter }` and `W` a value with a managed field
+and a value-receiver impl of Getter: the deferred call sees the borrowed W's field already released — wrong
+values on the VM and native (`1000` for `1003`), a trap on LLVM; also with `mkHold(4).w`.  At function top
+level it is correct.  Root cause: the defer pre-pass (deferArgBorrowVt, gen_defer_build.bn) pre-allocates
+entry-depth slots only for TOP-LEVEL arguments whose parameter is an interface, so a value-borrow temporary
+nested in a composite-literal element of a defer operand takes the "2b" var-initializer path in gen_util.bn
+and is enrolled as a `.borrow_temp` local of the enclosing block, released at that block's end — before the
+function exits and the deferred call runs.  Proposed fix: the pre-pass allocates an entry-depth slot for
+every value-borrow temporary in a defer's operands, nested ones included (in the order the operand
+evaluation reaches them).  Conformance 1566_defer_nested_composite_borrow (`.xfail.all`).
+
 ### A field or element of a call result, borrowed into a raw interface, boxes a pointer into the statement's temporary — it dangles after the statement — 🟡 IN PROGRESS MAJOR (claimed 2026-10-05, work-3/session; user: "then take on todo E?") (found 2026-10-03, work-3, review of the named-pointer boxing change; reproduced on main; pre-existing)
 
 `var r *Getter = mkHold(42).h` and `var q *Getter = mkHs(43)[1]` (a struct-returning call, a slice-returning
