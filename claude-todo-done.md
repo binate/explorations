@@ -1,3 +1,10 @@
+### Boxing a named managed function value into an interface panicked — "no shim vtable for native interface method dispatch" — DONE (fixed by binate `3cf3d8ab5`; test `feb8738da`, 2026-10-05, work-6)
+
+`type FV @func() int`, `impl *FV : Sizer`, a `*FV` boxed into `*Sizer`: fixed by `3cf3d8ab5` (a named
+function-value type is nominal), whose test covers a value-receiver impl only; conformance
+spec/11-interfaces/100_named_func_value_pointer_impl covers the pointer-receiver form (dispatch and an update
+through the interface; LLVM, native aa64, the VM).
+
 ### A deferred call's variadic pack of `@T` into `...*T` does not retain the managed values — use-after-free — DONE (binate `67c38b913`, 2026-10-05, work-4; found 2026-10-03, review of the *T-receiver leak fix)
 
 ```
