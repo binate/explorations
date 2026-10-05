@@ -32,6 +32,22 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### A call through a variable named like a generic function panics IR-gen — `f[0](5)` is taken for an instantiation — 🟡 IN PROGRESS MAJOR (claimed 2026-10-04, work-6/session, with the generic-functions-at-the-prompt work; found 2026-10-04, work-6, review of that work; reproduced in a file program; pre-existing)
+
+A local variable that shadows a generic function of the package — `func f[T any](x T) T`, then in a function
+`var f @[]*func(int) int = …; f[0](5)` — panics IR-gen ("internal error: no checked copy of generic instance
+main.f__bn_inst__1_N0_4_void"): genCall (gen_call.bn), deferGenericDecl (gen_defer.bn) and
+instantiatedCalleeResultType (gen_method_value_recv.bn) treat `name[…](…)` as an instantiation whenever
+lookupGenericDecl(name) finds a generic, where the value path (genericFuncInstanceName) first checks
+localValueBound.  At the REPL the same happens once a prompt generic's name is rebound to a variable.  Fix: the
+call, defer and result-type paths check localValueBound too.
+
+### A const-group member that parks shadows the variable of its name — silent wrong value at the REPL — 🟡 IN PROGRESS MAJOR (claimed 2026-10-04, work-6/session, with the generic-functions-at-the-prompt work; found 2026-10-04, work-6, review of that work; reproduced; pre-existing, from binate c030254cf)
+
+`var f int = 1`, then `const ( f = k; z = 1 )` (f parks on k, z resolves): `testing.Println(f, z)` prints `0 1`
+and `f = 4; testing.Println(f)` prints `0` — the group's shadow pass (repl shadowRebound) renames the variable
+`f` out of the way although the parked member binds nothing.  Fix: skip the members that park.
+
 ### A generic function instance calling an instance of itself (or one emitted while its body is) skips the by-value struct argument copy — use-after-free when the callee overwrites a managed field — 🟡 IN PROGRESS MAJOR (claimed 2026-10-04, work-6/session — user: "wait 5 minutes, then go ahead") (found 2026-10-04, work-6, reading ensureInstantiated while extending it for the REPL; reproduced on the VM; pre-existing)
 
 `func overwrite[T any](p P, x T, n int) int { if n == 0 { p.b = make(Box); return 0 }; return
