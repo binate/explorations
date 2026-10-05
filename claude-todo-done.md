@@ -1,3 +1,30 @@
+### A deferred call's variadic pack of `@T` into `...*T` does not retain the managed values — use-after-free — DONE (binate `67c38b913`, 2026-10-05, work-4; found 2026-10-03, review of the *T-receiver leak fix)
+
+```
+func usev(ts ...*Thing) int { … }
+defer usev(mk(11), mk(12))     // the deferred call reads freed memory
+var a @Thing = mk(13); defer usev(a); a = mk(14)   // reads freed memory too
+```
+stmt.defer: operands are evaluated at the defer statement and retained until the call runs; a managed-to-raw
+operand's pre-conversion managed value is what is retained.  The defer machinery does that for a fixed or
+spread `@[]T` / `@T` argument and a method's `@T` receiver (`IsManagedToRaw`, binate fix for the receiver leak),
+but individually packed trailing arguments go through `storeVariadicPackOp` / `emitVariadicTailInto`
+(gen_defer_exit.bn), which converts each `@T` to `*T` into the raw `[N]*T` backing array, retaining nothing.
+Fix: for a managed-to-raw pack element, retain the managed value in its own entry-depth managed slot (like the
+borrow slots, released after the deferred calls) and pack the borrow.  Test: conformance
+`spec/14-statements/176_defer_variadic_pack_managed_to_raw` (expected-fail in every mode).
+
+Resolution: each managed-to-raw pack element (`@T` into `...*T`, `@[]T` into `...*[]T`) gets an entry-depth
+managed retain slot (`DeferOperand.PackRetainSlots`), filled by `emitVariadicTailInto` before the element
+takes its raw borrow and released after the deferred calls (covered by the VM fault pads like the other defer
+slots).  `isManagedToRawBinding` is now the one classifier for fixed arguments and packed elements, and
+`deferSlotType` types managed-to-raw slots with IR-gen's type for the argument (a generic instance's or an
+opaque type's slot used to name a struct / destructor no module defines — this also fixed fixed arguments).
+Conformance 176 now passes in every mode (temporaries, locals, managed-slices, mixed elements, a fixed parameter
+before the pack, a method, a generic element type).  The review found two more of the same kind, landed as
+expected-fail tests in `02a9401e3` and tracked in claude-todo.md: `@I` into `*I` (177) and `@func` into `*func`
+(178); and `@T` boxed into a deferred `*any` / `*I` is a NEEDS DECISION entry.
+
 ### Spec decision: may a type assertion recover a MUTABLE pointer to a boxed `readonly` named value? — DONE (binate `f61cc22d5`, 2026-10-05, work-3)
 
 `var c readonly Celsius = 21; var x *any = &c; x.(*Celsius)` succeeds today (named boxes drop the outer

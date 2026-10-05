@@ -61,22 +61,6 @@ selector or index whose base is not addressable (a call result, a composite lite
 call) as a value — the 2b path — so the borrowed copy lives as long as the binding.  Conformance test,
 every backend.
 
-### A deferred call's variadic pack of `@T` into `...*T` does not retain the managed values — use-after-free — 🟡 IN PROGRESS MAJOR (claimed 2026-10-04, work-4/session — user: "let's take on the two MAJORs (that don't need a decision)"; found 2026-10-03, work-4, review of the *T-receiver leak fix; pre-existing)
-
-```
-func usev(ts ...*Thing) int { … }
-defer usev(mk(11), mk(12))     // the deferred call reads freed memory
-var a @Thing = mk(13); defer usev(a); a = mk(14)   // reads freed memory too
-```
-stmt.defer: operands are evaluated at the defer statement and retained until the call runs; a managed-to-raw
-operand's pre-conversion managed value is what is retained.  The defer machinery does that for a fixed or
-spread `@[]T` / `@T` argument and a method's `@T` receiver (`IsManagedToRaw`, binate fix for the receiver leak),
-but individually packed trailing arguments go through `storeVariadicPackOp` / `emitVariadicTailInto`
-(gen_defer_exit.bn), which converts each `@T` to `*T` into the raw `[N]*T` backing array, retaining nothing.
-Fix: for a managed-to-raw pack element, retain the managed value in its own entry-depth managed slot (like the
-borrow slots, released after the deferred calls) and pack the borrow.  Test: conformance
-`spec/14-statements/176_defer_variadic_pack_managed_to_raw` (expected-fail in every mode).
-
 ### A deferred call's `@I` argument bound to a `*I` parameter (fixed or packed) is not retained — use-after-free — 🟡 IN PROGRESS (claimed 2026-10-05, work-4) MAJOR (found 2026-10-04, work-4, fixing the deferred variadic pack UAF; reproduced on main, LLVM / native / VM; pre-existing)
 
 ```
