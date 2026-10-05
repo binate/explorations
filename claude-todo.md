@@ -46,53 +46,6 @@ register the sig, resolved from the instance's declaration, before generating th
 conformance spec/12-generics/103_recursive_instance_by_value_managed_arg (not yet landed).  Compiled
 backends not yet run; the cause is in IR-gen, so all are expected to fail.
 
-### VM: an interface-dispatch thunk forwards owned values to the method with no stack pre-check — a frame-push overflow leaks them — 🟡 IN PROGRESS MAJOR (claimed 2026-10-04, work-3/session, self-drive; user: "2. sure."; found 2026-10-03, work-3, review of the named-pointer boxing change; code reading; pre-existing)
-
-genIvRecvThunk (irgen/gen_iv_thunk.bn) field-RefIncs a value-struct receiver in place (emitStructCopy on the
-box's object), RefIncs a receiver represented as a managed interface value (`type X @J`, added with the
-named-pointer boxing change — before it, such a dispatch crashed outright), and forwards the caller-delivered
-@Iface / managed-field-struct params by move — then calls the method with no OP_STACK_CHECK.  The dispatch
-site's OP_STACK_CHECK_IM covers only the thunk's own frame, so a recoverable VM stack overflow at the
-method's frame push (where the method never starts to release anything) leaks the receiver's acquired
-reference / field references and the moved params.  This is the gap the method-value wrapper had before
-binate `8ff97d2ab` (attachMethodValueForwardPad).  Proposed fix: EmitStackCheck(f.Name) before the forward
-plus a forward pad releasing the acquired receiver (struct-dtor the box object's fields once, or RefDec the
-@Iface receiver) and the moved params, as attachMethodValueForwardPad does (the thunk would need its params
-in slots, as the wrapper's are, for the pad's loads); a VM unit test in the style of
-vm_methodvalue_overflow_test.bn.
-
-### A value-borrow temporary is released on paths that never filled it, and overwritten without release when the borrow runs again in its scope — crash after a short-circuit; leak in a loop condition / post statement — 🟡 IN PROGRESS MAJOR (claimed 2026-10-04, work-3/session, self-drive; user: "2. sure."; found 2026-10-03, work-3, review of the named-pointer boxing change; reproduced on main with a struct that holds a managed field; pre-existing)
-
-With `type W struct { p @Inner }`, `impl W : Getter` (value receiver), `func takeR(g *Getter) int`:
-`if n > 100 && takeR(mkW()) > 0 {}` with the right side not taken segfaults on LLVM at the enclosing
-scope's exit (native survives by luck of stack contents); `for i := 0; i < 3; i = i + takeR(mkW()) - 1000
-{}` leaks one `@Inner` reference per extra evaluation.  Cause: the non-addressable value-borrow path in
-gen_util.bn (2b) allocates the temporary in the CURRENT block with no nil-init, stores it with
-`isInit=true` (no release of a previous value), and enrolls it as a scope local (`.borrow_temp`), so the
-scope-exit cleanup runs on paths that never stored, and a re-evaluation before the scope exits drops the
-previous reference.  Spec §18.4 `mem.temporary` says a temporary is released at the end of its statement;
-only a `var` / `:=` initializer's borrow co-scopes with its binding (`iface.construct.value-borrow`).
-Proposed fix: an argument-position borrow is a statement temporary (released at the statement's end, which
-also covers a loop condition or post statement per evaluation — extend `emitTempRefDecs` to managed-scalar
-allocas), and only the initializer of an interface-typed `var` / `:=` is a scope temporary, allocated and
-nil-initialized at entry.  Reachable for named managed pointer values (`type H @Node`) since they are
-boxed as values.  Needs conformance tests over short-circuit, loop condition, post statement and var-init
-(each checked for leaks and crashes), every backend.
-
-### A nested value borrow inside a deferred call's argument takes another argument's pre-allocated defer slot — wrong value / use-after-free — 🟡 IN PROGRESS MAJOR (claimed 2026-10-04, work-3/session, self-drive; user: "2. sure."; found 2026-10-03, work-3, review of the named-pointer boxing change; reproduced on main with a struct holding a managed field; pre-existing)
-
-`func run(c bool) { var h W = mkW(1); var h2 W = mkW(2); if c { defer show3(cnt(h), h2) }; h2 = mkW(20) }`
-with `func cnt(g *Getter) int`, `func show3(n int, b *Getter) { testing.Println("d", n, b.Get()) }` prints
-`d 1 0` (expected `d 1 2`; `defer show3(5, h2)` prints `d 5 2`).  Cause: while `SnapshotBorrows` is set,
-gen_util.bn's borrow path takes the next `ctx.DeferBorrowSlots` entry for ANY borrow it materialises, but
-the defer pre-pass (`deferArgBorrowVt`, gen_defer_build.bn) allocated slots only for the deferred call's
-top-level arguments — so `cnt(h)`'s nested borrow consumes h2's slot, and h2's snapshot falls back to a
-temporary released at the `if` block's exit (and a slot of another type would receive a mistyped store).
-Proposed fix: consume a pre-allocated slot only for the top-level operand being stored (record which
-argument expression owns the next slot), and evaluate nested argument expressions with SnapshotBorrows
-off so their borrows are ordinary statement temporaries.  Conformance test over nested borrows in deferred
-arguments (struct and named-pointer sources), every backend.
-
 ### A field or element of a call result, borrowed into a raw interface, boxes a pointer into the statement's temporary — it dangles after the statement — 🔴 OPEN MAJOR (found 2026-10-03, work-3, review of the named-pointer boxing change; reproduced on main; pre-existing)
 
 `var r *Getter = mkHold(42).h` and `var q *Getter = mkHs(43)[1]` (a struct-returning call, a slice-returning
@@ -115,16 +68,6 @@ LLVM and native (`unsafe_cast(AP, a)` with `type AP = @Node` works).  Cause: gen
 Proposed fix: classify the target through aliases and `readonly` only (`types.ResolveAliasAndConst`, not
 StripWrappers, which would also peel a named pointer `H` whose value recovery must load).  Conformance test
 over `readonly @T` / `readonly *T` / alias targets of `unsafe_cast` and the assertion forms, every backend.
-
-### A method of a named interface-value type (`type X @J`, `func (x X) Len()`) called directly dispatches through J's vtable — silent wrong value — 🟡 IN PROGRESS MAJOR (found 2026-10-03, work-3, fixing the named-pointer boxing; reproduced on main `434f8bf1b`, LLVM and native; pre-existing; claimed 2026-10-03, work-3/session, self-drive)
-
-With `interface J { Get() int }`, `type X @J`, `func (x X) Len() int { return cast(@J, x).Get() }`, `var x X =
-...; x.Len()` returns 0 (the box's `Get` is 4).  The checker resolves `x.Len` on X's own method set (a named
-type does not inherit J's methods, `type.named.methods-not-inherited`), but IR-gen's `isInterfaceMethodCall`
-(gen_iface_dispatch.bn) peels the receiver with `StripWrappers`, so X reads as `@J` and the call goes to J's
-vtable, where `Len` has no slot.  Fix: peel aliases and `readonly` only (as the checker's tryMethodCall does),
-for the receiver and the pointer-to-interface-value smoothing arm (`*X` / `@X`); test with direct calls on
-`X`, `*X` and `@X` receivers, raw and managed named interface values, every backend.
 
 ### A deferred call's variadic pack of `@T` into `...*T` does not retain the managed values — use-after-free — 🔴 OPEN MAJOR (found 2026-10-03, work-4, review of the *T-receiver leak fix; pre-existing)
 
@@ -226,16 +169,6 @@ declaration with no body, `type L[T any]` (opaque / forward) — consumers need 
 allow it only as a same-package forward declaration, or reject it?  Recommendation: (1) yes, transparent
 (an alias names, it does not define); (2) a same-package forward declaration only, rejected in a `.bni`
 (an importer can never instantiate it).
-
-### An rvalue of a generic instance type borrowed into a raw `*any` / `*I` is typed with the checker's type — invalid IR (LLVM) / wrong dynamic type (native) — 🟡 IN PROGRESS MAJOR (claimed 2026-10-04, work-3/session: the named-pointer boxing change makes a named pointer to a generic struct, passed by value as an argument, reach it on every backend; found 2026-10-03, work-7, review of the non-struct generic types change; reproduced; pre-existing)
-
-wrapAsIfaceValue's value-borrow of a NON-addressable source (gen_util.bn, the materialize-a-temp branch)
-takes `srcT = ctx.Checker.ExprType(...)` and builds the box type from it without mapping it to IR-gen's type,
-so a generic instance's checker name leaks into the vtable: `type Counter[T any] int`,
-`testing.Println(c + 1)` fails clang (`@__ivt.bn_V1_4_main12_Counter[int]0_3_any`), and on native
-`show(mk())` (`mk() Pair[int]`, `show(x *any)`) takes a type switch's `default` instead of `case
-Pair[int]`.  A generic STRUCT instance fails the same way (`show(mkBox(1))`).  Fix: map srcT through
-irTypeFromChecker before defaultedBorrowType / MakePointerType; tests per backend.
 
 ### `box(L)` of a composite literal of a NAMED array type is recorded as the plain array type — `.(N)` misses — 🔴 OPEN (found 2026-10-03, work-7, review of the non-struct generic types change; reproduced; pre-existing)
 
@@ -396,68 +329,6 @@ a conversion dispatched through the stale interface (wrong code).  These are rej
 ("cannot redefine interface Sizer as a constant"; user: "(a) is fine for now, though maybe (b) should be
 a todo" — (b) being cross-kind shadowing, like type shadowing).  Shadowing them needs the same
 generation-distinct identity through the checker's and IR-gen's registries.
-
-### A value-receiver method of a named POINTER type called through an interface reads garbage — the receiver is the box cell, not the pointer in it — 🟡 IN PROGRESS (claimed 2026-10-03, work-3/session, self-drive, with the named-pointer boxing fix; found 2026-09-30, work-3, fixing the `@any` named-owning-pointee identity; reproduced on LLVM and the VM; pre-existing)
-
-`type H @Node` with `func (h H) Get() int { return h.v }` and `impl H : Getter`: `h.Get()` returns the
-right value, but `var r *Getter = &h; r.Get()` and `var g @Getter = box(h); g.Get()` return garbage
-(an address-sized number) — silent wrong value.  Looks like the interface dispatch passes the boxed
-cell's address as the receiver where the value receiver is the POINTER stored in the cell (a missing
-load for a receiver whose named type is itself a pointer).  Probably the same for `type P *Node` with a
-value receiver (the probe's line for it was cut off by the runner's output limit — check).  Native
-backends not yet checked.  Needs a conformance test over raw and managed interfaces, `@`- and
-`*`-named receivers, and every backend.
-
-### `@any` of a named managed pointer or function value (`type H @Node`, `type F @func() int`) never matches its own `case` — 🟡 IN PROGRESS, DECIDED 2026-10-03 (claimed 2026-10-03, work-3/session, self-drive; split out 2026-09-30, work-3, from the named-owning-pointee entry; slices / arrays fixed in binate `02857f863`)
-
-`var a @any = box(h)` for `type H @Node` keys the box structurally (`rt.__nameless_<H>`) while `case @H:` /
-`a.(@H)` key on `main.H`, so the assertion misses.  It cannot simply key by name like a named slice: for a
-named POINTER type the nominal identity `main.H` already means "the data word IS the H" (an own `impl H :
-I`: collectImplsFromDecl registers TypeInfo(main.H) with RecvTyp = Node, dispatch without a thunk), while
-`&h` / `box(h)` put a pointer to an H CELL in the data word — two layouts.  Keying `box(h)` by name made
-reflection / fmt misread it as a Node, let `a.(@Getter)` succeed and dispatch garbage, and `var gd @Getter
-= h; up.(@H)` hits and segfaults on deref (that last one on main already).  Decide the convention for
-boxing a named pointer type — which layout the data word carries, and which identity each spelling
-(`h`, `&h`, `box(h)`) gets — then fix `case @H:` together with the dispatch MAJOR above ("A value-receiver
-method of a named POINTER type called through an interface reads garbage"), which is the same root cause.
-(A named function value is no longer part of this: IR-gen keeps F nominal since binate `3cf3d8ab5`, and
-`case @F:` matches — conformance 1470.)  A managed box of a named RAW pointer with its own impl (`type PS *S`, `impl PS : I`)
-has the same layout conflict as H.  wrapAsIfaceValue / typeInfoSymFor carry TODOs pointing here.
-
-The conflict also corrupts memory on DROP (found 2026-09-30, work-6, review of the named-over-struct box
-leak fix; reproduced in the VM, pre-existing): the (H, I) row's slot 0 is the pointee's destructor — right
-for the own-impl layout (`var s @I = h`, the data word IS the H) — so dropping an `@H` boxed into `@I`
-(`var c @H = make(H); *c = node; var s @I = c`) runs Node's destructor on the H CELL, which holds only a
-pointer.  With `type S struct { n int; m int; p @Inner }`, `type MS @S`, `impl MS : Sizer`, the drop
-segfaults (exit 139).  Until the convention is decided, `@H` → `@I` should probably be rejected rather than
-corrupting memory — part of the same decision.
-
-Also a named managed INTERFACE value with its own impl (found 2026-09-30, work-7, adding coverage to the
-cross-package owning-box leak fix): `type X @J; impl X : Lener; var l @Lener = box(x)` dispatches right
-but dropping the box crashes (bus error) — same package on main; and `type PP @(@[]int); impl PP : Lener`
-boxed reads `len(*p)` as 0 then segfaults on drop.  Conformance 1469 covers both (xfail'd).  The
-cross-package owning-box leak fix (which queues the declaring module's structural slot-0 dtor) turns the
-cross-package X case from a leak into the same crash, as the same-package case already is (user,
-2026-09-30: "I think the crash is ok *for now*"; landed as binate `e26352158`).
-Decision (user, 2026-10-03, on options (A) a named type is a value type for boxing / (B) a pointer-shaped
-named type is its own data word / (C) no methods or impls on a named pointer type): "I think (A) is right
-(that, or (C); the main argument for (C) is to try to reduce confusion, though it loses the uniformity of
-being able to define methods/impls on all named types)."  So: a box's data word always points to an object of
-its dynamic type, for every named type whatever its representation.  `box(h)` / `&h` (h of `type H @Node`)
-box an H cell or variable recorded as `H`; `.(@H)` / `.(*H)` recover it, `.(H)` copies the H out,
-`.(@Getter)` works; H's value-receiver methods dispatch through a thunk that loads the H from the cell (this
-fixes the MAJOR above, "A value-receiver method of a named POINTER type called through an interface reads
-garbage").  Widening a bare `h` (`var g @Getter = h`, `var a @any = h`) is rejected ("box a value first"), as
-for any value type; `cast(@Node, h)` boxes the Node itself.  Same for a named raw pointer type (`type PS *S`,
-`impl PS : I`).  Spec §11.4 / §11.12 wording to match; tests over `@`- and `*`-named types, raw and managed
-interfaces, `case` / assertion / dispatch, every backend.
-Plan: `plan-named-pointer-boxing.md`.
-Further decisions (user, 2026-10-04), on the fmt rendering of a named pointer value (`fmt.Println(h)`, now
-`%!?(unknown)`: the box's dynamic type is H, a pointer kind, and a top-level TypeInfo carries no pointee):
-"1. &{7, 8} is better, I think." — render it as a pointer-typed struct field renders (`&{...}`), which needs a
-pointee description in the top-level TypeInfo; on value recovery `.(S)` for named slices, function values and
-interface values: "3. we can do it now."; on fixing the value-borrow temporary / deferred-slot / dispatch-thunk
-MAJORs before landing this: "2. sure."
 
 ### Spec decision: may a type assertion recover a MUTABLE pointer to a boxed `readonly` named value? — 🟡 IN PROGRESS, DECIDED 2026-10-03 (claimed 2026-10-04, work-3/session, self-drive; raised 2026-09-29, work-3, review of the outer-readonly boxing fix)
 
