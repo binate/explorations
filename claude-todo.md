@@ -175,7 +175,7 @@ argument, a receiver, a slice literal, a nested / conditional defer, a loop with
 rejected — no leak) on every backend.  Package-level (user, 2026-10-04, on the `var g *any = 42` entry: "(a)"):
 a package-level initializer is a storing position, so `var gq *P = &P{…}` is rejected — done with that entry.
 
-### Is an ELEMENT of a managed-slice literal (`&@[]T{…}[i]`) part of the literal for the addressed-literal lifetime? — 🔴 NEEDS DECISION (found 2026-10-03, work-7, review of the addressed-literal lifetime change)
+### Is an ELEMENT of a managed-slice literal (`&@[]T{…}[i]`) part of the literal for the addressed-literal lifetime? — 🔴 OPEN, DECIDED 2026-10-04 (found 2026-10-03, work-7, review of the addressed-literal lifetime change)
 
 expr.composite.lifetime keeps a composite literal addressed in a var / `:=` initializer alive with the
 binding, the address taken of the literal or of a field or element of it.  A managed-slice literal's
@@ -186,6 +186,13 @@ such an address is an error, as for an array literal's element; (b) no — the b
 and `&@[]T{…}[i]` is like `&mk()[i]`, a pointer into a temporary's backing (user error, mem.raw-uaf).
 Recommendation: (a) — the literal is the only owner, and the spelling looks the same as for an array
 literal.  (A raw-slice literal `*[]readonly T{…}` has scope-bound backing already, §13.10.)
+Decision (user, 2026-10-04): "(a)" — yes: an element of a managed-slice literal is part of it.  Work: the
+checker's literalRoot / noteAddressedLiteral treat an index into a managed-slice composite literal as addressing
+the literal (marking it, and rejecting a stored address — checkStoredLiteralAddr); IR-gen co-scopes the slice
+literal's temporary (its reference) with a var / := binding, as for the address of the literal itself
+(noteAddressedLit on the value temp — the slice value is a statement temp, not an alloca); spec §13
+expr.composite.lifetime / addr-store wording; tests (`var e *int = &@[]int{…}[0]` survives churn, no leak; a store
+of one rejected) on every backend.
 
 ### A grouped local `var ( … )` initializer is not a borrowing position — 🔴 OPEN (found 2026-10-03, work-7, review of the addressed-literal lifetime change; pre-existing)
 
