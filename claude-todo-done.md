@@ -1,3 +1,12 @@
+### A REPL forward declaration silently discarded a parked definition of the same name — DONE (binate `c536ed3b4`, 2026-10-05, work-6)
+
+`type F Y` (parked on Y), `type F`, `type Y int`: the forward declaration no longer supersedes the parked
+definition (forwardDeclKeepsDefinition), which fills F once retried.  Found with it: a declaration parked on a
+field of a forward-declared type (`p.n`, pending `F.n`) was never retried when F's definition provided the field
+— keyBound now takes a field of T's struct, reached as a field access reaches it (also through `type F Y` or a
+generic instance).  Tests: check TestForwardDeclKeepsParkedDefinition, TestPendingFieldOfForwardTypeRetried,
+TestPendingFieldThroughNamedUnderlyingRetried.
+
 ### A deferred call's `@I` argument bound to a `*I` parameter (fixed or packed) is not retained — use-after-free — DONE (binate `60bb50b4b`, 2026-10-05, work-4; found 2026-10-04 fixing the deferred variadic pack UAF)
 
 ```

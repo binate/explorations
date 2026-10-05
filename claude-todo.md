@@ -306,14 +306,6 @@ reproduce on `builder-comp_arm32_baremetal` with a large by-value struct return 
 object for `__aeabi_memcpy` references); if it reproduces, route those paths through the leaf-by-leaf
 helpers.
 
-### A REPL forward declaration silently discards a parked definition of the same name — 🟡 IN PROGRESS (claimed 2026-10-05, work-6/session — user: "then continue") (found 2026-10-01, work-6, review of the opaque-defined-as-any-type change; reproduced; pre-existing)
-
-`type F Y` (parks on Y), then `type F`, then `type Y int`: the forward declaration supersedes the parked
-definition (dropSupersededPending), so it is never retried, F stays opaque for the rest of the session, and
-`var f F = 3` is rejected ("cannot use an opaque type by value") with no word that the definition was
-dropped.  A forward declaration should not supersede a parked definition of its name (it declares the same
-type), or the drop should be reported.
-
 ### REPL redefinition of types and interfaces, and across kinds: shadowing (the design) is not implemented; such a redefinition is rejected meanwhile — 🔴 OPEN (found 2026-09-29, work-6, review of the REPL forward-reference plan; widened 2026-09-30)
 
 claude-notes.md ("Redefinition in the REPL") says an incompatible type redefinition shadows the old
