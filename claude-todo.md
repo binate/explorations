@@ -3245,6 +3245,19 @@ shadow warning, and every later instance of Cur is rejected ("wrong number of ar
 have no old method to call.  Proposed: reject the redefinition whenever a sibling no longer checks against
 it, instance or not.  Also to confirm: signatures are compared at the generic level, so `Get() T` →
 `Get() int` shadows even on `Cur[int]`, whose instantiated signatures match.
+The same question for generic FUNCTIONS (found 2026-10-04, work-6, review of generic functions at the prompt): a
+generic caller instantiated after its callee's name was rebound is checked against the current binding — `g[T]`
+calls `f[T]`; `f` is rebound to a non-generic function; `g[bool]` then fails ("T is a type, not a value … (in
+g[bool] …)"), and once a new generic `f` exists `g[bool]` calls it while `g[int]`, emitted before, keeps the old
+one.  Decide whether old generic bodies should see the binding they were declared against.
+
+### Is a constraint that names its own type parameter (`[T Eq[T]]`) legal? Today the checker reports "undefined: T" — 🔴 NEEDS DECISION (found 2026-10-04, work-6, review of generic functions at the prompt)
+
+`interface Eq[T any] { Same(o T) bool }`, `func f[T Eq[T]](x T) T { return x }`: a file reports "undefined: T"
+(at the prompt the declaration parks, pending T).  A constraint naming ANOTHER type parameter
+(`[K any, T Eq[K]]`) works, and spec §12 (gen.method.generic-recv) speaks of that case only.  Decide whether a
+self-referential constraint is legal (then fix the checker's scope for constraints) or rejected (then a clear
+diagnostic, and a spec rule).
 
 ### REPL: remove process-global session state (multi-session blocker)
 - **Now owned by [`done/plan-embeddable-vm.md`](done/plan-embeddable-vm.md)** (scoped
