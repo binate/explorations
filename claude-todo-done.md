@@ -1,3 +1,24 @@
+### Native: blocks that only jump were not threaded; jump threading + block merging in iropt — DONE (binate `789709df0` + `6576bd62c`, 2026-10-04, work-5)
+
+New iropt pass thread-jumps (after fold-branch, -O1+, not in the VM's set yet): retargets jumps / branch arms
+through jump-only blocks and through a block that branches on a phi constant along the edge (the short-circuit
+`&&` / `||` merge — `6576bd62c`, user: "Let's do (a)"), never into or past a loop header; merges each block whose
+only incoming edge is an unconditional jump into its predecessor.  Measured 2026-10-04 on native aa64
+(perf/ab-binaries.sh, 7 rounds): natively compiled bnc compiling itself, thread-jumps on vs off, instructions
+retired -5.03%, user CPU -8.18% (faster every round), __text -1.37% (jump-only threading + merging alone:
+-1.92% / -0.43%).  Found in review and fixed before landing: a use-after-free (dropped phis freed before the
+raw PhiEntry.Val rewrite — caught only by the native backends' terminator check, as a corrupted block).
+Fallthrough elision (a jump to the next block) stays with work-4's T6 native-peephole entry.
+
+### MAJOR: bce-loop dropped a bounds check when the loop guard's arms were not a counted loop's — DONE (binate `6d0a7723c`, 2026-10-04, work-5)
+
+loopBCEEliminable trusted "the guard's true target dominates the check" without requiring that target to be
+entered only from the header (and not be the header) and the false arm to leave the loop; IR-gen's shapes
+always satisfied that, the thread-jumps pass did not (a for {} body merged into its header, an in-body if's arm
+threaded), and the check was dropped with i reaching 10 on a [10]int.  Now checked; conformance 1547 (reads past
+the array without the fix at -O2) + bce_loop unit tests (each fails without its condition).  Lost on the way and
+recovered by `6576bd62c`: loop BCE for `&&` loop conditions.
+
 ### x64: a non-SIB element GEP scales in its result register — DONE (binate `df75b805a`, 2026-10-04)
 
 The x64 RCX/RDX-homes review fix made non-SIB element GEPs (element size not 1/2/4/8) declare RCX
