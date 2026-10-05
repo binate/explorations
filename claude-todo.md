@@ -1115,8 +1115,9 @@ ownership rule; plan-c-abi-large-aggregates.md.
   still linear in the size; x86-64's >16-byte by-value arguments are also copied at each call site
   since `dfde1e73a`.
 - LLVM emits a loop or a memcpy call above a size threshold (rt.MemCopy on bare metal).
-- **Plan:** above a size threshold, copy with a loop (constant code size) — arm32 first, then the
-  same for aarch64 / x86-64 (user to confirm).
+- arm32 DONE `01ee02873` (2026-10-05) — claude-todo-done.md.
+- **Next:** the same loops for aarch64 / x86-64 (user, 2026-10-05: "I guess we should do aa64 and
+  x64 before aa64 ownership, to try to keep parity").
 
 ### Copying or releasing an array of managed elements is emitted unrolled, one sequence per element — code size grows with N — 🔴 OPEN (found 2026-09-28, work-6, review of the range-loop operand change; pre-existing)
 

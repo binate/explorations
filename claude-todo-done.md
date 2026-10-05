@@ -1,3 +1,17 @@
+### Native arm32 copies and zero-fills a large aggregate with a loop — DONE (binate `01ee02873`, 2026-10-05)
+
+Part of "The native backends copy a large aggregate fully unrolled" (claude-todo.md; aa64 / x64 still
+open).  Past 64 bytes (16 byte by byte) a copy or zero-fill is a loop: emitAggCopyLoopArm32 (cursors
+from base + offset, an LDM/STM chunk of up to four words per iteration, else one word or byte per
+iteration) for aggregate loads / stores, sret returns, call-site stack parts and the callee's param
+copy; emitFrameZeroArm32 for allocas / nil aggregates; the spill shims copy a large stack part
+before the marshal with a two-word LDM loop through R4 / LR.  Loops branch back with a resolved
+displacement (new arm32.BOffset) so the function emitter keeps its register cache.  Text of
+conformance 1564 1.55 MB -> 146 KB, 1567 2.17 MB -> 157 KB.  New conformance 1566 (stack-part
+shapes) and 1567 (copying roles).  One adversarial review (no correctness defects; its performance
+findings — the LDM loop unreachable at the call / param / sret-field sites, a register-cache reset
+per loop — were fixed before landing).
+
 ### x64: integer retention-safe ops take at most two scratch registers (RDX freed in hot code) — DONE (binate `981151c9b`, 2026-10-05)
 
 Integer ops the retention cache flows through now declare neither RCX nor RDX in `x64RegClobbers`: an
