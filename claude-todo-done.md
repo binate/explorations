@@ -1,3 +1,34 @@
+### Spec decision: may a type assertion recover a MUTABLE pointer to a boxed `readonly` named value? — DONE (binate `f61cc22d5`, 2026-10-05, work-3)
+
+`var c readonly Celsius = 21; var x *any = &c; x.(*Celsius)` succeeds today (named boxes drop the outer
+readonly), handing out a mutable `*Celsius` to readonly storage without `unsafe_cast`.  §11.12 iface.assert's
+literal wording ("outer-`readonly` stripped") allows it, but iface.assert.kind ("element-level readonly may
+be added but not dropped") and type.readonly.drop say otherwise.  Decide which the spec means (and whether
+the dynamic type, or the recovery, should keep the readonly); then pin it with a test (conformance 1429 was
+deliberately limited to the handle-readonly `readonly @Box` case so as not to lock this in).
+The same question for a POINTER box, reproduced 2026-09-30 (work-3, review of the managed→raw borrow fix):
+`@readonly Node` boxed into `@any` and recovered with `.(@Node)` yields a writable `@Node` — the boxed
+dynamic type strips the pointee's readonly, so the "element readonly may be added but not dropped" rule
+cannot be enforced for pointer boxes (slice boxes keep element readonly in their identity, pointer boxes
+do not).
+A struct box too (2026-10-02, work-3, review of the readonly-array slicing fix): `var rs readonly S;
+var x *any = &rs; x.(*S).a[0] = 9` writes rs, as does `var ri readonly int; *(&ri as *any).(*int) = 7`
+(reproduced on builder-comp).
+Decision (user, 2026-10-03, on options (a) the box records its object's readonly and a recovery may add
+but not drop it / (b) reject boxing a pointer to a readonly object / (c) keep today's behaviour as undefined
+behaviour): "(a) sounds right".  So, on a box of a readonly object (`var x *any = &c`, `c readonly
+Celsius`; `@readonly Node -> @any`): `.(*readonly Celsius)` and the value copy `.(Celsius)` match;
+`.(*Celsius)` / `.(@Node)` miss (abort in the single-value form, ok = false in comma-ok); an interface
+target matches only if the static widening of a readonly object to it would be accepted (`.(*Setter)` with
+a mutating `Set` misses, an interface whose methods all take readonly receivers matches).  A mutable
+object's box behaves as today.  Probed 2026-10-03: `x.(*Celsius)` then `*p = 5` and `x.(*Setter).Set(9)`
+both write `c`, while `var s *Setter = &c` is rejected statically.  Work: a readonly variant of the box's
+type-info / vtable (LLVM, native, VM, interop), the assertion and type-switch match, spec §11.12 wording
+(drop "outer-readonly stripped" / "independent of any readonly" for the pointee), tests per backend.
+Plan: `plan-readonly-box-recovery.md`.  Representation (user, 2026-10-04): "4. Maybe a second, readonly
+record?" — a second, readonly TypeInfo record per type (and readonly-variant vtables), not a vtable flag word.
+Resolution (binate `f61cc22d5`; spec docs `967b211`): a box of a readonly object has its named type's readonly variant (`__readonly_T`, its own TypeInfo record and impl rows, the latter only for read-only-receiver impls) as its dynamic type, so `.(*T)` / `.(@T)` miss on it, `.(*readonly T)` / `.(@readonly T)` / `.(T)` match, and an interface target matches only through a read-only-receiver impl (spec iface.assert.readonly).  Conformance spec 11/097-099, 1565; unit tests in irgen, ir, irutil, repl.  Plan: done/plan-readonly-box-recovery.md.
+
 ### Native aarch64 split a ≤16-byte aggregate across x7 and the stack; LLVM split a first-class one — ABI mismatch with C (AAPCS64 C.13) — DONE (binate `6b953c33d`, 2026-10-05; docs `68b3585`)
 
 Found 2026-10-04 (work-1) checking a review finding on the arm32 C-ABI switch.  AAPCS64 never
