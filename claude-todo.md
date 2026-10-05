@@ -115,7 +115,7 @@ Fix: for a managed-to-raw pack element, retain the managed value in its own entr
 borrow slots, released after the deferred calls) and pack the borrow.  Test: conformance
 `spec/14-statements/176_defer_variadic_pack_managed_to_raw` (expected-fail in every mode).
 
-### `unsafe_cast(bool, <float>)` — is it a conversion at all?  A float constant outside {0, 1} compiles — 🔴 NEEDS DECISION (found 2026-10-03, work-7, review of the bool-constant check; reproduced)
+### `unsafe_cast(bool, <float>)` — is it a conversion at all?  A float constant outside {0, 1} compiles — 🔴 OPEN, DECIDED 2026-10-04 (found 2026-10-03, work-7, review of the bool-constant check; reproduced)
 
 §8.5 says numeric → bool is not a `cast` and "requires `unsafe_cast`", so the spec admits
 `unsafe_cast(bool, f)` for a float `f` — but never says what it means: the 2026-09-30 bool decision is
@@ -128,6 +128,9 @@ assertion that the value is exactly `0.0` or `1.0` (undefined otherwise), with a
 those a compile error (needs float constant evaluation in the check).  Recommendation: (a) — `unsafe_cast`
 asserts things about a representation, and a float has none in common with `bool` (`1.0` is not the
 byte 1), so this is a lossy value conversion that `f != 0.0` already spells.
+Decision (user, 2026-10-04): "(a)" — float → bool is not an `unsafe_cast` direction: the checker rejects it
+(write `f != 0.0`), and §8.5 / §8.7 say "integer" where they mean it.  Work: the check, a test (constant and
+variable float operands, a named float), the spec wording.
 
 ### Is a read-only HANDLE (`readonly *T` / `readonly @T`) a method or impl receiver? — 🔴 NEEDS DECISION (found 2026-10-03, work-7, fixing the receiver one-pointer-level check)
 
