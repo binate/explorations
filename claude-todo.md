@@ -722,7 +722,8 @@ item 3b) — complete: numeric constants `1a31e768f`, symbol-valued expressions 
 numbers `bf00c139e`, global / weak aliases `da8befa0a` (2026-10-02).  (10) literal pools (plan item 3c) —
 `ldr Wt|Xt, =expr`, `.ltorg` / `.pool` — landed `14b65cb8b` (2026-10-03; the 4-byte absolute data word a W entry
 needs, `2a26ec4d9`).  (11) the MOVW-group relocation operators (plan item 3d, first part) —
-`:abs_g*:` / `:prel_g*:` on MOVZ / MOVN / MOVK and `mov`, with bnld — landed `7010879cb` (2026-10-04).
+`:abs_g*:` / `:prel_g*:` on MOVZ / MOVN / MOVK and `mov`, with bnld — landed `7010879cb` (2026-10-04).  (12)
+`:pg_hi21_nc:` on ADRP, with bnld — landed `42f0697f2` (2026-10-04).
 Apple's legacy NEON syntax
 (`dup.4s v0, w1`, `tbl.16b v0, {v1}, v3`), which clang
 accepts on every target, is not supported (user, 2026-09-28: "we don't need alternate syntax, unless there's

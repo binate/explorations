@@ -123,7 +123,8 @@ the assembler (no SHF_TLS `T` flag, no STT_TLS / `%tls_object`) nor bnld (no PT_
 layout, no GOT in a static link) has; Mach-O TLV (`@TLVPPAGE` / `@TLVPPAGEOFF`, `__thread_vars` /
 `__thread_data` / `__thread_bss`) likewise.  Scope to be decided with the user.
 
-Order (2026-10-04): (1) `:pg_hi21_nc:` — assembler, ELF writer, bnld (unchecked ADR_PREL_PG_HI21).
+Order (2026-10-04): (1) `:pg_hi21_nc:` — assembler, ELF writer, bnld (unchecked ADR_PREL_PG_HI21) —
+✅ landed `42f0697f2` (2026-10-04).
 (2) The GOT family: `:gotpage_lo15:` (64-bit LDR / STR), GOT literal loads (`ldr Xt|Wt|St|Dt|Qt,
 :got:sym`, LDRSW, PRFM → GOT_LD_PREL19, as clang), an addend on any GOT reference (clang accepts
 `:got:sym+8`, `:got_lo12:sym+8` on ELF; we reject today), STR through `:got_lo12:` (clang accepts).

@@ -377,6 +377,13 @@ slot.  arm32's managed-allocation lowerings moved to arm32_managed.bn.  Tests: c
 the 83 box conformance tests on LLVM -O0/-O2 and the VM, box + cast + readonly subsets on native aa64 / x64 / arm32
 linux / arm32 bare-metal at -O0 and -O2 (266/266/266/264, 0 failed), two adversarial reviews.
 
+### aa64 text assembler: `:pg_hi21_nc:` (ADRP page with no overflow check) — DONE (binate `42f0697f2`, 2026-10-04, work-2; plan item 3d)
+
+ADRP takes clang's `:pg_hi21_nc:` (isa FIX_ADRP_HI21_NC, ELF R_AARCH64_ADR_PREL_PG_HI21_NC); Mach-O has no
+form (the writer's "ELF-only" error now names each such operator); bnld patches it as ADR_PREL_PG_HI21 minus
+the ±4 GiB check.  Deliberate rejects (clang accepts): a literal load or branch (clang drops the operator), a
+number after it (clang relocates against an absolute symbol, as `:got:N`).
+
 ### aa64 text assembler: MOVW-group relocation operators — `:abs_g0:` … `:abs_g3:` (`_nc`, `_s`), `:prel_g0:` … `:prel_g3:` (`_nc`) — DONE (binate `7010879cb`, 2026-10-04, work-2; plan item 3d, first part)
 
 clang's 17 operators on MOVZ / MOVN / MOVK (the chunk at its own shift; a W register G0 / G1 only; no explicit
