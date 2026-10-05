@@ -32,7 +32,7 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### A generic function instance calling an instance of itself (or one emitted while its body is) skips the by-value struct argument copy — use-after-free when the callee overwrites a managed field — 🔴 OPEN MAJOR (found 2026-10-04, work-6, reading ensureInstantiated while extending it for the REPL; reproduced on the VM; pre-existing)
+### A generic function instance calling an instance of itself (or one emitted while its body is) skips the by-value struct argument copy — use-after-free when the callee overwrites a managed field — 🟡 IN PROGRESS MAJOR (claimed 2026-10-04, work-6/session — user: "wait 5 minutes, then go ahead") (found 2026-10-04, work-6, reading ensureInstantiated while extending it for the REPL; reproduced on the VM; pre-existing)
 
 `func overwrite[T any](p P, x T, n int) int { if n == 0 { p.b = make(Box); return 0 }; return
 overwrite[T](p, x, n - 1) }` with `type P struct { b @Box }`: the recursive call passes `p` without the
