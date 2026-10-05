@@ -211,7 +211,7 @@ position), but its DECL_GROUP arm calls checkGroupDecl without it, so `var ( o =
 the value-borrow that `var o = Opts{Any: 44}` accepts.  Fix: set POS_BORROWING around a local group's var
 members (not its consts / types); a test of both spellings.
 
-### Generic ALIAS declarations and generic declarations with NO underlying type — 🔴 OPEN, (1) DECIDED 2026-10-04; (2) NEEDS DECISION (raised 2026-09-30 with the non-struct generic types entry; split out 2026-10-03, work-7, when non-struct generic types were implemented)
+### Generic ALIAS declarations and generic declarations with NO underlying type — 🔴 OPEN, DECIDED 2026-10-04/05 (raised 2026-09-30 with the non-struct generic types entry; split out 2026-10-03, work-7, when non-struct generic types were implemented)
 
 Non-struct generic type declarations now instantiate (gen.instantiate.type), but two forms are left as they
 were: (1) a generic ALIAS, `type L[T any] = Box[T]` — transparent substitution, so `L[int]` is identical to
@@ -222,8 +222,19 @@ allow it only as a same-package forward declaration, or reject it?  Recommendati
 (an alias names, it does not define); (2) a same-package forward declaration only, rejected in a `.bni`
 (an importer can never instantiate it).
 Decision (user, 2026-10-04) on (1): "yes" — a generic alias is transparent: `L[int]` is `Box[int]`.  On (2)
-the user asked "Isn't *L[T] still a useful thing?" — under discussion: an opaque generic type an importer holds
-only behind a pointer, as a non-generic opaque type is.
+the user asked "Isn't *L[T] still a useful thing?"; discussed 2026-10-05: `@L[T]` cannot be made usable without
+breaking separate compilation (a consumer cannot destroy an instantiation it cannot lay out), and `*L[T]` with T
+a type parameter gains nothing (a generic function over it needs its body in the .bni, which cannot touch an
+opaque `*L[T]`); the concrete case is a non-generic opaque type defined as a distinct type over the
+instantiation — `type Handle` in the .bni, `type Handle L[int]` in the .bn (an alias definition is rejected,
+type.opaque.alias-rejection; inside the package L's methods are reached with `bit_cast(*L[int], h)`, as §8.5
+keeps the pointer forms of named <-> underlying out of `cast`).  Decision (user, 2026-10-05) on (2): "yes, go
+ahead" — a generic type declaration with no underlying type is rejected, in a .bni, a .bn and at the REPL
+prompt; §7.12's "Opaque export is for non-generic types only in this version" becomes a rule, with the
+concrete-opaque pattern as the stated alternative.
+Work: (1) IR-gen / checker: instantiating a generic alias substitutes into its target (an instance of the
+target generic, identical to writing it), including across packages; (2) the checker rejects a bodiless generic
+declaration ("a generic type needs its definition: …"), a test each; spec §7.12 / §12 wording.
 
 ### `box(L)` of a composite literal of a NAMED array type is recorded as the plain array type — `.(N)` misses — 🔴 OPEN (found 2026-10-03, work-7, review of the non-struct generic types change; reproduced; pre-existing)
 
