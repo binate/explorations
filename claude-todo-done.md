@@ -1,3 +1,16 @@
+### x64: integer retention-safe ops take at most two scratch registers (RDX freed in hot code) — DONE (binate `981151c9b`, 2026-10-05)
+
+Integer ops the retention cache flows through now declare neither RCX nor RDX in `x64RegClobbers`: an
+unhomed result takes over an operand's reload register (`nextRegReusing`), operands already in pool
+registers are claimed before the instruction (`claimCachedOperands`), and the aggregate load
+(`x64_aggload.bn`) copies with its result register as the destination base and at most one source
+register. The VM-only ops x64 emits as no-ops (SP restore, nil check, stack checks) declare nothing:
+declaring RCX/RDX for them barred record-churn's loop-carried lanes (live across the statement-end SP
+restore) from the registers their phis took, which added copies to the loop. A survey build barring
+RCX/RDX everywhere found no instruction needing a third scratch over cmd/bnc and all conformance
+programs (-O2/-O0). record-churn N=300 7,058,556 → 6,875,766 instructions (−2.6%); native self-compile
+46.45s → 45.10s user CPU; native bnc text 17,641,897 → 17,620,617 bytes.
+
 ### Boxing a named managed function value into an interface panicked — "no shim vtable for native interface method dispatch" — DONE (fixed by binate `3cf3d8ab5`; test `feb8738da`, 2026-10-05, work-6)
 
 `type FV @func() int`, `impl *FV : Sizer`, a `*FV` boxed into `*Sizer`: fixed by `3cf3d8ab5` (a named
