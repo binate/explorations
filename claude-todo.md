@@ -171,7 +171,7 @@ position), but its DECL_GROUP arm calls checkGroupDecl without it, so `var ( o =
 the value-borrow that `var o = Opts{Any: 44}` accepts.  Fix: set POS_BORROWING around a local group's var
 members (not its consts / types); a test of both spellings.
 
-### Generic ALIAS declarations and generic declarations with NO underlying type — 🔴 NEEDS DECISION (raised 2026-09-30 with the non-struct generic types entry; split out 2026-10-03, work-7, when non-struct generic types were implemented)
+### Generic ALIAS declarations and generic declarations with NO underlying type — 🔴 OPEN, (1) DECIDED 2026-10-04; (2) NEEDS DECISION (raised 2026-09-30 with the non-struct generic types entry; split out 2026-10-03, work-7, when non-struct generic types were implemented)
 
 Non-struct generic type declarations now instantiate (gen.instantiate.type), but two forms are left as they
 were: (1) a generic ALIAS, `type L[T any] = Box[T]` — transparent substitution, so `L[int]` is identical to
@@ -181,6 +181,9 @@ declaration with no body, `type L[T any]` (opaque / forward) — consumers need 
 allow it only as a same-package forward declaration, or reject it?  Recommendation: (1) yes, transparent
 (an alias names, it does not define); (2) a same-package forward declaration only, rejected in a `.bni`
 (an importer can never instantiate it).
+Decision (user, 2026-10-04) on (1): "yes" — a generic alias is transparent: `L[int]` is `Box[int]`.  On (2)
+the user asked "Isn't *L[T] still a useful thing?" — under discussion: an opaque generic type an importer holds
+only behind a pointer, as a non-generic opaque type is.
 
 ### `box(L)` of a composite literal of a NAMED array type is recorded as the plain array type — `.(N)` misses — 🔴 OPEN (found 2026-10-03, work-7, review of the non-struct generic types change; reproduced; pre-existing)
 
