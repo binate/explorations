@@ -317,7 +317,7 @@ definition (dropSupersededPending), so it is never retried, F stays opaque for t
 dropped.  A forward declaration should not supersede a parked definition of its name (it declares the same
 type), or the drop should be reported.
 
-### Boxing a named managed function value into an interface panics — "no shim vtable for native interface method dispatch" — 🔴 OPEN (found 2026-09-30, work-6, review of interface / impl at the REPL prompt; reproduced, compiled and REPL; pre-existing)
+### Boxing a named managed function value into an interface panics — "no shim vtable for native interface method dispatch" — 🟡 IN PROGRESS (claimed 2026-10-04, work-6/session — user: "continue") (found 2026-09-30, work-6, review of interface / impl at the REPL prompt; reproduced, compiled and REPL; pre-existing)
 
 `type FV @func() int`, `func (f *FV) Size() int`, `impl *FV : Sizer`, boxing a `*FV` into `*Sizer` and
 calling `Size` panics in the VM "no shim vtable for native interface method dispatch" (a file program
