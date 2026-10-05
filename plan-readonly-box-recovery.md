@@ -23,22 +23,26 @@ covers the nominal (named) dynamic types and pointer boxes.
 ## Representation (decided: a second, readonly record — user, 2026-10-04)
 
 The readonly variant of a NAMED type T is a second receiver identity in T's package: the synthetic name
-`readonly[T]` (`readonly` is a keyword, so no user type can be named that; the bracket form is the one
-generic instances already use in symbols).  Everything keyed on a receiver identity then works unchanged:
-- its own TypeInfo record `__typeinfo.<pkg>.readonly[T]` — same size / align / kind / fields / element
+`__readonly_T` (irutil.ReadonlyVariantName; `__` names are reserved, so no user type can be named that — a
+bracket form `__readonly_T` was rejected because nameIsGenericInst and the symbol manglers read brackets as a
+generic instance).  The impl emitters name a row's method functions through ir.ImplMethodFuncName, which maps
+the variant back to T's methods.  Everything keyed on a receiver identity then works unchanged:
+- its own TypeInfo record `__typeinfo.<pkg>.__readonly_T` — same size / align / kind / fields / element
   words / dtor as T's (built from the same RecvTyp), display name `readonly <pkg>.T`;
-- its own ImplInfo rows `(readonly[T], I)` — same MethodFuncs (thunks included) and slot-0 dtor as
+- its own ImplInfo rows `(__readonly_T, I)` — same MethodFuncs (thunks included) and slot-0 dtor as
   `(T, I)` — so the vtable emitters (LLVM, native x3, VM), the satisfaction registry (CollectSatEntries,
   rt.SatLookup, the VM's lookupSatEntry), the package descriptors and the VM's name-based upcast suffix swap
   all handle it as just another receiver;
-- `(readonly[T], any)` rows via ensureAnyImplInfo at a readonly box site, like any `any` row.
+- `(__readonly_T, any)` rows via ensureAnyImplInfo at a readonly box site, like any `any` row.
 
-A row `(readonly[T], I)` exists only where a readonly object may reach I: the impl's receiver is a value or
-a pointer to readonly (`impl T : I`, `impl *readonly T : I` — what receiverAssignable admits for a readonly
-object).  Every site that appends an ImplInfo row (gen_impl.bn x2, gen_generic_method.bn x2,
-gen_impl_imported.bn x2, gen_iface_vtable.bn ensureImportedImplInfo, ensureAnyImplInfo) goes through one
-helper that also appends the readonly row for a readonly-compatible impl, ancestors included (so a
-readonly-variant concatenated vtable has the same layout, and upcasts keep the variant).  These rows are
+A row `(__readonly_T, I)` exists only where a readonly object may reach I: the impl binds a read-only
+receiver (`impl *readonly T : I`, `impl @readonly T : I`, `impl readonly T : I` — what receiverAssignable
+admits for a readonly object; a plain value receiver `impl T : I` is a mutable copy and does not qualify).
+As implemented: collectImplsFromDecl appends the variant rows (ancestors included, so a readonly-variant
+concatenated vtable has the same layout and upcasts keep the variant); a generic receiver's rows are minted
+on demand at the box site (ensureReadonlyVariantRows after ensureGenericImplInfo); a box of an imported
+type names the variant vtable through ensureImportedImplInfo, and ensureAnyImplInfo mints the
+`(__readonly_T, any)` row like any `any` row.  These rows are
 emitted by the impl's own package UNCONDITIONALLY (a box site elsewhere names the vtable by symbol, and an
 interface-target assertion on a readonly box needs the satisfaction entry), so each readonly-compatible impl
 costs one more vtable + satisfaction entry, and each such type one more record.
@@ -57,7 +61,7 @@ Matching: a mutable concrete target `.(*T)` / `.(@T)` compares slot 1 against `&
 readonly box misses); a readonly target `.(*readonly T)` / `.(@readonly T)` and the value copy `.(T)`
 compare against both records.  One helper builds the match for the expression, comma-ok and type-switch
 forms.  An interface target is the satisfaction lookup, unchanged: a readonly box finds only the
-`(readonly[T], J)` entries, whose sub-vtables keep the variant.
+`(__readonly_T, J)` entries, whose sub-vtables keep the variant.
 
 Alternative considered: a flag word in the vtable any-block.  It changes the vtable layout on every backend
 and the interop contract (§7.13.8), and still needs a satisfaction-side filter.
