@@ -132,7 +132,7 @@ Decision (user, 2026-10-04): "(a)" — float → bool is not an `unsafe_cast` di
 (write `f != 0.0`), and §8.5 / §8.7 say "integer" where they mean it.  Work: the check, a test (constant and
 variable float operands, a named float), the spec wording.
 
-### Is a read-only HANDLE (`readonly *T` / `readonly @T`) a method or impl receiver? — 🔴 NEEDS DECISION (found 2026-10-03, work-7, fixing the receiver one-pointer-level check)
+### Is a read-only HANDLE (`readonly *T` / `readonly @T`) a method or impl receiver? — 🔴 OPEN, DECIDED 2026-10-04 (found 2026-10-03, work-7, fixing the receiver one-pointer-level check)
 
 `func.method.receiver-kinds` says a receiver "takes exactly one of five kinds" (`*T`, `*readonly T`, `@T`,
 `@readonly T`, a value — plus `readonly T`), but the checker also accepts a read-only handle,
@@ -144,7 +144,11 @@ receiver variable unassignable.  Options: (a) accept them, and say in receiver-k
 is the receiver parameter's own property (the method's kind is still `*T` / `@T`); (b) reject them as
 receiver-kinds reads today, and change 940's AliasRO case.  Recommendation: (a) — it is the same handle
 `readonly` any parameter may carry, harmless, and 940 shows it works end to end.  The receiver check that
-rejects a second pointer level (`**T`, `*@T`, `*readonly *T`) leaves these accepted pending the decision.
+rejects a second pointer level (`**T`, `*@T`, `*readonly *T`) leaves these accepted.
+Decision (user, 2026-10-04): "(a) clearly" — accepted: a `readonly` handle is the receiver parameter's own
+property, and the method's kind is still `*T` / `@T`.  Work: spec func.method.receiver-kinds /
+func.method.impl-receiver wording, and a positive test of a `readonly *T` and a `readonly @T` method and impl
+(the code already accepts them).
 
 ### A composite literal addressed in a `defer` (argument or receiver), or in a package-level `var` initializer, dangles — 🔴 NEEDS DECISION MAJOR (found 2026-10-03, work-7, planning the addressed-literal lifetime work; reproduced; pre-existing)
 
