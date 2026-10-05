@@ -77,7 +77,7 @@ Fix: for a managed-to-raw pack element, retain the managed value in its own entr
 borrow slots, released after the deferred calls) and pack the borrow.  Test: conformance
 `spec/14-statements/176_defer_variadic_pack_managed_to_raw` (expected-fail in every mode).
 
-### A deferred call's `@I` argument bound to a `*I` parameter (fixed or packed) is not retained — use-after-free — 🔴 OPEN MAJOR (found 2026-10-04, work-4, fixing the deferred variadic pack UAF; reproduced on main, LLVM / native / VM; pre-existing)
+### A deferred call's `@I` argument bound to a `*I` parameter (fixed or packed) is not retained — use-after-free — 🟡 IN PROGRESS (claimed 2026-10-05, work-4) MAJOR (found 2026-10-04, work-4, fixing the deferred variadic pack UAF; reproduced on main, LLVM / native / VM; pre-existing)
 
 ```
 func use1(g *Getter) { … g.Get() … }
@@ -92,7 +92,7 @@ fine (the temporary lives to the statement's end).  Fix: extend isManagedToRawBi
 the raw interface value from the retained managed one at the call (deliverLoadedOp / the pack's element
 coercion).  Test: conformance `spec/14-statements/177_defer_managed_iface_to_raw` (expected-fail in every mode).
 
-### A deferred call's `@func` argument bound to a `*func` parameter (fixed or packed) is not retained — use-after-free — 🔴 OPEN MAJOR (found 2026-10-04, work-4, review of the deferred variadic pack fix; reproduced on main, LLVM / native; the VM panics "TrampolinePacked: data is not a VM closure record"; pre-existing)
+### A deferred call's `@func` argument bound to a `*func` parameter (fixed or packed) is not retained — use-after-free — 🟡 IN PROGRESS (claimed 2026-10-05, work-4) MAJOR (found 2026-10-04, work-4, review of the deferred variadic pack fix; reproduced on main, LLVM / native; the VM panics "TrampolinePacked: data is not a VM closure record"; pre-existing)
 
 `defer run1(mkF(11))` with `func run1(f *func() int)` and `mkF` returning a capturing `@func() int` reads freed
 memory (prints 0), as does `defer runv(mkF(12), mkF(13))` into `...*func() int`; direct calls are fine.  §8.4 lists
