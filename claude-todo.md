@@ -99,13 +99,30 @@ only `@T` / `@[]T`.  Fix: add managed func values to it, with a managed-to-raw f
 `spec/14-statements/178_defer_managed_func_to_raw` (expected-fail in every mode).  Same class as the `@I` → `*I`
 entry above; likely one change.
 
+### A deferred function-value call with a generic-interface-instance parameter fails to compile — 🔴 OPEN MAJOR (found 2026-10-05, work-4, review of the deferred `@I` → `*I` retention fix; pre-existing, reproduced with an older compiler too; LLVM / native / VM)
+
+`var fi @func(*Holder[int]) = …; defer fi(mkH(11))` (mkH returns `@Holder[int]`) panics in IR lowering:
+LLVM "emitIfaceUpcast: negative vtable slot offset (target not an ancestor of source)", native the aa64
+equivalent, the VM "iface_upcast: target vtable not found: __ivt…Holder[int]".  The direct call `fi(mkH(11))`
+works.  Root cause: `buildDeferFuncVal` (gen_defer_build.bn) takes the parameter types from the checker's
+function type without mapping them through `irTypeFromChecker`, so the target interface carries the checker's
+`Holder[int]` name while the argument carries IR-gen's mangled instance name, and the upcast between them finds
+no ancestor relation.  An imported generic interface (`*it.Iterator[int]`) and an `@Holder[int]` parameter fail
+the same way.  Fix: map the func value's parameter (and result) types through `irTypeFromChecker`, as the slot
+types are (`deferSlotType`).  Test: conformance `spec/14-statements/179_defer_funcval_generic_iface_param`
+(expected-fail in every mode).
+
 ### Does stmt.defer retain an `@T` boxed into a deferred `*I` / `*any` argument? — 🔴 NEEDS DECISION MAJOR (found 2026-10-04, work-4, review of the deferred variadic pack fix; reproduced on main, LLVM / native / VM; pre-existing)
 
 `defer run1(mk(11))` with `func run1(x *any)` and `mk` returning `@Thing`, and `defer runv(mk(12), mk(13))` into
 `...*any`, read freed memory (0); direct calls are fine.  §11.4 calls `@T` → `*I` a borrow, but stmt.defer's
 retention clause points at §8.4's managed-to-raw conversions, which do not list it (deferArgBorrowVt retains only
 VALUE sources boxed into an interface).  Decide whether stmt.defer retains the `@T` here (then: a retain slot like
-a managed-to-raw argument's, boxing the borrow from it — fixed and packed); if it does not, spec it.  Test to land
+a managed-to-raw argument's, boxing the borrow from it — fixed and packed); if it does not, spec it.
+Related wording: stmt.defer says "managed→raw conversion at the defer site (§8.4)", but §8.4 conv.managed-to-raw
+lists only `@T` → `*T`, `@[]T` → `*[]T`, `@func` → `*func`; §7.3 type.ptr.managed-to-raw also lists `@Iface` →
+`*Iface` (retained by the defer since the `@I` → `*I` fix), and `@T` → `*I` is §11.4 iface.construct.managed.
+The reference should name whichever set is decided.  Test to land
 with the decision (repro: the review probe, a `*any` analogue of `spec/14-statements/177`).
 
 ### `unsafe_cast(bool, <float>)` — is it a conversion at all?  A float constant outside {0, 1} compiles — 🔴 OPEN, DECIDED 2026-10-04 (found 2026-10-03, work-7, review of the bool-constant check; reproduced)
