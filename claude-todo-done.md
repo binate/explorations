@@ -414,6 +414,16 @@ slot.  arm32's managed-allocation lowerings moved to arm32_managed.bn.  Tests: c
 the 83 box conformance tests on LLVM -O0/-O2 and the VM, box + cast + readonly subsets on native aa64 / x64 / arm32
 linux / arm32 bare-metal at -O0 and -O2 (266/266/266/264, 0 failed), two adversarial reviews.
 
+### aa64 text assembler: GOT forms — `:gotpage_lo15:`, `:got:` literal loads, 8-byte GOT stores — DONE (binate `f38f50223`, 2026-10-04, work-2; plan item 3d)
+
+`:gotpage_lo15:` (ELF LD64_GOTPAGE_LO15) and `:got_lo12:` / `@GOTPAGEOFF` on every 8-byte transfer (LDR /
+STR of X or D, PRFM — the old claim that ELF clang rejects STR X there was wrong); a `:got:` literal load
+on every literal form (ELF GOT_LD_PREL19); both new kinds keep the label in an ELF object and have no
+Mach-O form.  Deliberate rejects: a GOT literal load to a same-section local is always a relocation (clang
+resolves `ldr x0, :got:f` into a load of f's bytes); `:got_lo12:` / `:gotpage_lo15:` / `:lo12:` on a
+literal load; a number after `:got:`; an addend on any GOT reference (kept; accepting it on ELF is an open
+question for the user).  bnld refuses the new forms loudly (test-pinned) until its static GOT lands.
+
 ### aa64 text assembler: `:pg_hi21_nc:` (ADRP page with no overflow check) — DONE (binate `42f0697f2`, 2026-10-04, work-2; plan item 3d)
 
 ADRP takes clang's `:pg_hi21_nc:` (isa FIX_ADRP_HI21_NC, ELF R_AARCH64_ADR_PREL_PG_HI21_NC); Mach-O has no

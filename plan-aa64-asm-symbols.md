@@ -125,6 +125,9 @@ layout, no GOT in a static link) has; Mach-O TLV (`@TLVPPAGE` / `@TLVPPAGEOFF`, 
 
 Order (2026-10-04): (1) `:pg_hi21_nc:` — assembler, ELF writer, bnld (unchecked ADR_PREL_PG_HI21) —
 ✅ landed `42f0697f2` (2026-10-04).
+(2a) The GOT forms in the assembler — ✅ landed `f38f50223` (2026-10-04); an addend on a GOT reference
+stays rejected (an existing deliberate reject — "Mach-O cannot represent" — accepting it on ELF is open
+for the user).  (2b) bnld's GOT, next.
 (2) The GOT family: `:gotpage_lo15:` (64-bit LDR / STR), GOT literal loads (`ldr Xt|Wt|St|Dt|Qt,
 :got:sym`, LDRSW, PRFM → GOT_LD_PREL19, as clang), an addend on any GOT reference (clang accepts
 `:got:sym+8`, `:got_lo12:sym+8` on ELF; we reject today), STR through `:got_lo12:` (clang accepts).
