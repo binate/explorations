@@ -48,7 +48,7 @@ import loudly); patch with addend 0 when the target is a slot; `parse_macho` rej
 Natural part of bnld's static-GOT change (plan-aa64-asm-symbols.md 3d, (2b)), whose slots are keyed by
 (definition, addend).  Test: a dynamic link of a GOT reference with an addend to an import.
 
-### A field or element of a call result, borrowed into a raw interface, boxes a pointer into the statement's temporary — it dangles after the statement — 🔴 OPEN MAJOR (found 2026-10-03, work-3, review of the named-pointer boxing change; reproduced on main; pre-existing)
+### A field or element of a call result, borrowed into a raw interface, boxes a pointer into the statement's temporary — it dangles after the statement — 🟡 IN PROGRESS MAJOR (claimed 2026-10-05, work-3/session; user: "then take on todo E?") (found 2026-10-03, work-3, review of the named-pointer boxing change; reproduced on main; pre-existing)
 
 `var r *Getter = mkHold(42).h` and `var q *Getter = mkHs(43)[1]` (a struct-returning call, a slice-returning
 call; `h` a value with a value-receiver impl of Getter), then later `r.Get()` / `q.Get()`: LLVM traps,
