@@ -56,36 +56,6 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
   split; add a C-interop e2e (a C function taking 7 ints + a 16-byte struct + an int, called
   through `__c_call` and calling back through `__c_entry`) on both backends.
 
-### A call through a variable named like a generic function panics IR-gen — `f[0](5)` is taken for an instantiation — 🟡 IN PROGRESS MAJOR (claimed 2026-10-04, work-6/session, with the generic-functions-at-the-prompt work; found 2026-10-04, work-6, review of that work; reproduced in a file program; pre-existing)
-
-A local variable that shadows a generic function of the package — `func f[T any](x T) T`, then in a function
-`var f @[]*func(int) int = …; f[0](5)` — panics IR-gen ("internal error: no checked copy of generic instance
-main.f__bn_inst__1_N0_4_void"): genCall (gen_call.bn), deferGenericDecl (gen_defer.bn) and
-instantiatedCalleeResultType (gen_method_value_recv.bn) treat `name[…](…)` as an instantiation whenever
-lookupGenericDecl(name) finds a generic, where the value path (genericFuncInstanceName) first checks
-localValueBound.  At the REPL the same happens once a prompt generic's name is rebound to a variable.  Fix: the
-call, defer and result-type paths check localValueBound too.
-
-### A const-group member that parks shadows the variable of its name — silent wrong value at the REPL — 🟡 IN PROGRESS MAJOR (claimed 2026-10-04, work-6/session, with the generic-functions-at-the-prompt work; found 2026-10-04, work-6, review of that work; reproduced; pre-existing, from binate c030254cf)
-
-`var f int = 1`, then `const ( f = k; z = 1 )` (f parks on k, z resolves): `testing.Println(f, z)` prints `0 1`
-and `f = 4; testing.Println(f)` prints `0` — the group's shadow pass (repl shadowRebound) renames the variable
-`f` out of the way although the parked member binds nothing.  Fix: skip the members that park.
-
-### A generic function instance calling an instance of itself (or one emitted while its body is) skips the by-value struct argument copy — use-after-free when the callee overwrites a managed field — 🟡 IN PROGRESS MAJOR (claimed 2026-10-04, work-6/session — user: "wait 5 minutes, then go ahead") (found 2026-10-04, work-6, reading ensureInstantiated while extending it for the REPL; reproduced on the VM; pre-existing)
-
-`func overwrite[T any](p P, x T, n int) int { if n == 0 { p.b = make(Box); return 0 }; return
-overwrite[T](p, x, n - 1) }` with `type P struct { b @Box }`: the recursive call passes `p` without the
-by-value copy (no RefInc of `p.b`), the deepest frame's `p.b = make(Box)` releases a reference it never
-took, and the caller's Box is freed while still referenced — the program's next prints are garbage
-(`%!?(unknown)`).  The non-generic equivalent is correct.  Cause: ensureInstantiated (irgen
-gen_generic.bn) registers an instance's FuncSig only AFTER genFunc emits its body, so a call to the
-instance from inside that body finds no FuncSig, and coerceArg skips the copy (needsStructCopy sees no
-parameter type) — the hazard emitInstantiatedMethod already avoids by registering the sig first.  Fix:
-register the sig, resolved from the instance's declaration, before generating the body.  Test:
-conformance spec/12-generics/103_recursive_instance_by_value_managed_arg (not yet landed).  Compiled
-backends not yet run; the cause is in IR-gen, so all are expected to fail.
-
 ### A field or element of a call result, borrowed into a raw interface, boxes a pointer into the statement's temporary — it dangles after the statement — 🔴 OPEN MAJOR (found 2026-10-03, work-3, review of the named-pointer boxing change; reproduced on main; pre-existing)
 
 `var r *Getter = mkHold(42).h` and `var q *Getter = mkHs(43)[1]` (a struct-returning call, a slice-returning
@@ -3082,18 +3052,6 @@ ship one that runs).
   § "Future: binary impl artifacts".
 
 ## REPL
-
-### Generic functions declared at the REPL prompt panic — 🟡 IN PROGRESS (claimed 2026-10-04, work-6/session — user: "maybe do the generic-function half of item 4") (found 2026-09-29, work-6, review of the REPL failed-prompt fix; reproduced 2026-09-30 and 2026-10-03; pre-existing)
-
-`func id[T any](x T) T { return x }` then `testing.Println(id[int](3))` panics "vm: extern not found:
-main." (the call names an empty function), and a generic function whose body uses a prompt-declared
-generic struct with its type parameter panics at its declaration: `type Cur[T any] struct { v T }`,
-`func gen[T any](x T) T { var c Cur[T]; c.v = x; return c.v }` → "internal error: no checked copy of
-generic type instance main.Cur__bn_inst__1_N0_3_int".  irgen GenDecl generates a generic function
-eagerly as an ordinary one (T as int) instead of stashing it for instantiation at its call sites, as
-GeneratePackage does (gc.GenericDecls) — and as GenDecl now does a generic-receiver method (binate
-`d34cc0451`).  A redefinition then needs what a generic method's gets: the instances already emitted are
-emitted again (irgen.ReemitGenericMethod, repl lowerReplGenericMethod, vm.LowerFuncsShadow).
 
 ### REPL: an incompatible redefinition of a generic method that a sibling still calls in the old shape — decide the rule — 🔴 OPEN (found 2026-10-03, work-6, review of the generic-methods-at-the-prompt fix; put to the user)
 
