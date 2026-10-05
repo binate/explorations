@@ -43,6 +43,17 @@ slot.  arm32's managed-allocation lowerings moved to arm32_managed.bn.  Tests: c
 the 83 box conformance tests on LLVM -O0/-O2 and the VM, box + cast + readonly subsets on native aa64 / x64 / arm32
 linux / arm32 bare-metal at -O0 and -O2 (266/266/266/264, 0 failed), two adversarial reviews.
 
+### aa64 text assembler: MOVW-group relocation operators — `:abs_g0:` … `:abs_g3:` (`_nc`, `_s`), `:prel_g0:` … `:prel_g3:` (`_nc`) — DONE (binate `7010879cb`, 2026-10-04, work-2; plan item 3d, first part)
+
+clang's 17 operators on MOVZ / MOVN / MOVK (the chunk at its own shift; a W register G0 / G1 only; no explicit
+`lsl`) and the `mov` alias (as clang: a MOVZ at shift 0 for any chunk and width); ELF R_AARCH64_MOVW_* and a
+Mach-O error ("ELF-only"); bnld patches all 17 per AAELF64 (range checks, the MOVZ <-> MOVN switch of the
+signed kinds).  Deliberate rejects (clang accepts): a number after the operator (clang folds it, as `:lo12:N`),
+and the operator on a branch / literal load / EXT / fixed-point conversion (clang silently drops it).  Open for
+the user: folding numbers after the operator (useful for building 64-bit constants chunk by chunk), rejecting
+G1–G3 on `mov`, and bnld's two ABI-over-lld choices (PREL `_NC` on a MOVZ / MOVN writes bits only; PREL_G3
+takes X's sign) — see plan-aa64-asm-symbols.md 3d.
+
 ### x86-64 text assembler: a call / jmp to a defined global or weak symbol was R_X86_64_PC32 where clang uses PLT32 — DONE (binate `9e2c7e695`, docs `1f5d85a`, 2026-10-04, work-2; user: "(probably that bug should be tracked, and put on your list of things to fix)")
 
 The ELF writer now emits R_X86_64_PLT32 for a call / jump / jcc rel32 to any symbol with no addend of its own —

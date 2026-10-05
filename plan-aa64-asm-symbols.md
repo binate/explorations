@@ -100,6 +100,29 @@ ELF: the MOVW group — `:abs_g0:` … `:abs_g3:`, `_nc`, `_s` (MOVZ / MOVN / MO
 Mach-O relocation mappings, and the resolver (none of these resolve at assembly time).  Likely
 two commits: MOVW, then TLS.
 
+Progress: the MOVW group — ✅ landed `7010879cb` (2026-10-04), with bnld patching all 17 relocations.
+Deliberate rejects (clang accepts): a number after the operator (clang folds `#:abs_g0:5`), the operator on
+a branch, a literal load, EXT and the fixed-point conversions (clang silently drops it there).  Open for the
+user (raised 2026-10-04, landed with the first option of each): (a) fold a number after a MOVW operator, as
+clang does, instead of rejecting it — the usual way to build a 64-bit constant chunk by chunk; (b) `mov Rd,
+#:abs_gN:sym` is clang's MOVZ at shift 0 for every chunk and width, or reject G1–G3 on `mov`; (c) bnld writes
+PREL `_NC` on a MOVZ / MOVN as bits only (AAELF64's text) where lld applies the sign switch, and takes
+PREL_G3's sign where lld always makes it MOVZ.
+
+The rest, enumerated from clang 21 (2026-10-04; ELF): `:pg_hi21_nc:` (ADRP, ADR_PREL_PG_HI21_NC),
+`:gotpage_lo15:` (64-bit LDR, LD64_GOTPAGE_LO15), GOT literal loads (`ldr x0, :got:sym` /
+`:got_lo12:` / `:gotpage_lo15:`, GOT_LD_PREL19; `:gottprel:`, TLSIE_LD_GOTTPREL_PREL19); TLS LE
+`:tprel_g2:` … `:tprel_g0_nc:` (MOV*), `:tprel_hi12:` / `:tprel_lo12:` / `:tprel_lo12_nc:` (ADD, and
+the lo12 forms on every LDR/STR size); TLS LD `:dtprel_*:` likewise; TLS IE `:gottprel:` (ADRP),
+`:gottprel_lo12:` (64-bit LDR), `:gottprel_g1:` / `:gottprel_g0_nc:` (MOV*); TLSDESC `:tlsdesc:` (ADRP),
+`:tlsdesc_lo12:` (ADD, 64-bit LDR) and `.tlsdesccall`; the PAuth ABI `:got_auth:` (ADRP, ADR, literal
+LDR), `:got_auth_lo12:` (ADD, LDR), `:tlsdesc_auth:` / `:tlsdesc_auth_lo12:`.  clang encodes a MOVZ
+with a non-`_nc` TLS G operator as a MOVN (the linker sets the opcode).  No `:tlsgd*:` / `:tlsld*:`
+(clang has none).  None of the TLS relocations works without TLS symbols and sections, which neither
+the assembler (no SHF_TLS `T` flag, no STT_TLS / `%tls_object`) nor bnld (no PT_TLS, no TP-relative
+layout, no GOT in a static link) has; Mach-O TLV (`@TLVPPAGE` / `@TLVPPAGEOFF`, `__thread_vars` /
+`__thread_data` / `__thread_bss`) likewise.  Scope to be decided with the user.
+
 ## Decisions (user, 2026-09-30 — each the recommended option)
 
 1. ELF temporaries: match clang — omit `.L…` and numeric-label instances from the ELF symbol table
