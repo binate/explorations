@@ -1912,8 +1912,10 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
     pool. The structural fix is a larger home pool (RAX/RCX/RDX/R10/R11 are scratch-only; LLVM
     allocates all 15). (The x64 `imul`-immediate fold frees the checksum loop's 8 multiplier
     registers, but that loop is cold.)
-- **x64: enlarge the GP home pool** — 🔵 OPEN (steps 1–2 landed: `70e6b95de`, `6c0615b72` — RCX/RDX
-  are homes, 11 GP homes; step 3, RAX as a home, awaits go-ahead). x64 homes 9
+- **x64: enlarge the GP home pool** — 🟡 IN PROGRESS (steps 1–2 landed: `70e6b95de`, `6c0615b72`,
+  `df75b805a` — RCX/RDX are homes, 11 GP homes). Claimed 2026-10-05: free RDX in hot code — make
+  the retention-safe lowerings take at most two scratch registers so they declare nothing.
+  Afterwards: RAX as a home. x64 homes 9
   registers; LLVM allocates 15; record-churn's mix loop needs ~11. Plan: make RCX/RDX/RAX
   caller-saved homes via per-register clobber positions in the shared allocator, keeping R10/R11
   as guaranteed scratch and RBP as the frame pointer. See `plan-x64-home-pool.md`.
