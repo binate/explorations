@@ -1,3 +1,24 @@
+### Native aarch64 split a ≤16-byte aggregate across x7 and the stack; LLVM split a first-class one — ABI mismatch with C (AAPCS64 C.13) — DONE (binate `6b953c33d`, 2026-10-05; docs `68b3585`)
+
+Found 2026-10-04 (work-1) checking a review finding on the arm32 C-ABI switch.  AAPCS64 never
+splits a composite argument: a ≤16-byte aggregate arriving with only x7 left goes wholly to the
+stack and closes the GP registers, so the next argument goes to the stack too.  Native split every
+aggregate kind (callconv AAPCS64 had SplitAggregates); our LLVM backend placed a struct / array
+(`[2 x i64]`) correctly but split a slice / iface-value / func-value (first-class `{ptr, i64}`)
+member by member.  Each backend agreed with itself, so pure-Binate programs passed; __c_call,
+#[c_export], __c_entry and mixed-backend builds misread the aggregate and everything after it.
+- Native: AAPCS64 SplitAggregates off; new StackArgClosesGpRegs (AAPCS32 C.6 / AAPCS64 C.13)
+  keys advanceNgrn's register close; aarch64 sites that handled a split now report one as a
+  classifier bug (regWordsAA64).
+- LLVM: a dummy `i64` ahead of a first-class two-word aggregate at that position, in every
+  direct-call argument / parameter list (definitions, declarations, calls, shims, the c_export
+  thunk, __c_call); position from types.Aapcs64ArgStraddles (cross-checked against the native
+  walk); none for Darwin variadics (codegen.SetTargetOSDarwin).
+- Tests: e2e/c-abi-agg-last-gp-reg.sh (clang C, both directions, both backends; segfaults on
+  both with the fix reverted), unit tests per site.  Validated: ABI conformance subset on native
+  aa64 self-compiled / aa64 LLVM / gen2 875/0, VM 870/0.
+- Docs: ABI Ch.2 no longer calls aarch64 a splitting convention.
+
 ### A generic function instance calling itself skipped the by-value struct argument copy — use-after-free; also a variadic self-call segfault and a deferred self-call panic — DONE (binate `a7afb2be9`, 2026-10-04, work-6)
 
 ensureInstantiated registered an instance's FuncSig only after generating its body, so a call to the instance

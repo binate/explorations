@@ -48,30 +48,6 @@ import loudly); patch with addend 0 when the target is a slot; `parse_macho` rej
 Natural part of bnld's static-GOT change (plan-aa64-asm-symbols.md 3d, (2b)), whose slots are keyed by
 (definition, addend).  Test: a dynamic link of a GOT reference with an addend to an import.
 
-### Native aarch64 splits a ≤16-byte aggregate across x7 and the stack; AAPCS64, clang and our LLVM backend put it wholly on the stack — ABI mismatch at C boundaries and between backends — 🟡 IN PROGRESS MAJOR (claimed 2026-10-04, work-1/session — user: "1"; found 2026-10-04, work-1, checking a review finding on the arm32 C-ABI switch; reproduced by probe; pre-existing)
-
-- **Symptom:** `callconv.AAPCS64()` has `SplitAggregates = true`, so `argRegWordsStackWords`
-  gives a 2-word aggregate arriving at NGRN 7 one register (x7) and one stack word, and the
-  following args shift up one stack word.  AAPCS64 C.13 never splits a composite: NGRN is set
-  to 8 and the whole aggregate goes to the stack.  clang does that, and so does our LLVM
-  backend, which spells the arg `[2 x i64]` (AArch64 allocates an array arg as a consecutive
-  block, all or nothing).  Probe: `take(7 x int, S16, int)` lowers to x0..x6, the S16 at
-  [sp] / [sp+8], the trailing int at [sp+16], x7 unused (`llc`, both aarch64-linux and
-  arm64-apple triples).
-- **Impact:** a pure-Binate program agrees with itself on each backend (both print the same),
-  but native aarch64 disagrees with C (`__c_call`, `#[c_export]`, `__c_entry`) and with
-  LLVM-compiled code (mixed-backend builds) for any ≤16-byte aggregate that arrives with
-  exactly one GP register left.
-- **Why the split is there:** conformance 337 (cross-package struct arg) dates from when the LLVM
-  backend passed a large struct as a first-class value, which LLVM splits per element; >16-byte
-  aggregates are now indirect on aarch64, so the split survives only for ≤16-byte ones, where
-  it is wrong.
-- **Proposed fix:** AAPCS64 should not split aggregates (`SplitAggregates = false` semantics for
-  aarch64, but keeping NGRN := 8 after a stack-bound composite, unlike SysV which leaves NGRN
-  unchanged); audit the aarch64 caller / callee / shim / closure walkers that assume the
-  split; add a C-interop e2e (a C function taking 7 ints + a 16-byte struct + an int, called
-  through `__c_call` and calling back through `__c_entry`) on both backends.
-
 ### A field or element of a call result, borrowed into a raw interface, boxes a pointer into the statement's temporary — it dangles after the statement — 🔴 OPEN MAJOR (found 2026-10-03, work-3, review of the named-pointer boxing change; reproduced on main; pre-existing)
 
 `var r *Getter = mkHold(42).h` and `var q *Getter = mkHs(43)[1]` (a struct-returning call, a slice-returning
