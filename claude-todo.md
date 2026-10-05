@@ -58,6 +58,15 @@ the same way.  Fix: map the func value's parameter (and result) types through `i
 types are (`deferSlotType`).  Test: conformance `spec/14-statements/179_defer_funcval_generic_iface_param`
 (expected-fail in every mode).
 
+### A deferred call of a function-value field through a pointer to the struct panics the compiler — 🔴 OPEN MAJOR (found 2026-10-05, work-4, review of the deferred func-value IR-typing fix; pre-existing; LLVM / native / VM)
+
+`defer t.f(3)` with `t` an `@T` or `*T` and `f` an `@func(int)` field panics "defer of an unresolved method
+call"; the direct call `t.f(1)` and `defer s.f(2)` with `s` a `T` value work.  Cause: `classifyDeferShape`
+(gen_defer.bn) checks `structFieldIsFuncValue` only when the receiver is itself a struct (`rb.Kind ==
+TYP_STRUCT`), so a pointer to a struct falls through to DEFER_METHOD.  Fix: look through one pointer level (of
+either kind) there, as `.` does.  Test: conformance `spec/14-statements/180_defer_funcval_field_through_pointer`
+(expected-fail in every mode).
+
 ### Does stmt.defer retain an `@T` boxed into a deferred `*I` / `*any` argument? — 🔴 NEEDS DECISION MAJOR (found 2026-10-04, work-4, review of the deferred variadic pack fix; reproduced on main, LLVM / native / VM; pre-existing)
 
 `defer run1(mk(11))` with `func run1(x *any)` and `mk` returning `@Thing`, and `defer runv(mk(12), mk(13))` into
@@ -68,7 +77,11 @@ a managed-to-raw argument's, boxing the borrow from it — fixed and packed); if
 Related wording: stmt.defer says "managed→raw conversion at the defer site (§8.4)", but §8.4 conv.managed-to-raw
 lists only `@T` → `*T`, `@[]T` → `*[]T`, `@func` → `*func`; §7.3 type.ptr.managed-to-raw also lists `@Iface` →
 `*Iface` (retained by the defer since the `@I` → `*I` fix), and `@T` → `*I` is §11.4 iface.construct.managed.
-The reference should name whichever set is decided.  Test to land
+The reference should name whichever set is decided.
+The same holds for deferred function-value calls: `var fh @func(*Getter) = …; defer fh(mk(2))` with `mk` returning
+`@Thing` reads a later temporary (prints 3 instead of 2) on LLVM / native / VM; the generic-interface form
+(`@func(*Holder[int])`) failed to compile before the func-value IR-typing fix and now reads freed memory the
+same way.  Test to land
 with the decision (repro: the review probe, a `*any` analogue of `spec/14-statements/177`).
 
 ### `unsafe_cast(bool, <float>)` — is it a conversion at all?  A float constant outside {0, 1} compiles — 🔴 OPEN, DECIDED 2026-10-04 (found 2026-10-03, work-7, review of the bool-constant check; reproduced)
