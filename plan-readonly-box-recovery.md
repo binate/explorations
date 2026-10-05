@@ -1,6 +1,6 @@
 # Plan: a box records its object's `readonly`; recovery may add it but not drop it
 
-Status: drafted 2026-10-03 (work-3).  Implements the user's decision (option (a)) on the claude-todo entry
+Status: drafted 2026-10-03, design refined 2026-10-04 (work-3; in progress).  Implements the user's decision (option (a)) on the claude-todo entry
 "Spec decision: may a type assertion recover a MUTABLE pointer to a boxed `readonly` named value?".
 
 ## The rule
@@ -20,24 +20,47 @@ the object's readonly.  On such a box:
 Slices already keep element readonly in their structural identity (`*[]readonly char` vs `*[]char`), so this
 covers the nominal (named) dynamic types and pointer boxes.
 
-## Representation (proposed)
+## Representation (decided: a second, readonly record — user, 2026-10-04)
 
-Keep the vtable layout.  Give each type that is ever boxed as a readonly object a second TypeInfo record,
-`__typeinfo.<T>` plus a readonly variant (a distinct mangled symbol, same 8-word layout, same dtor / size /
-fields, name `readonly <T>`), and a readonly-variant vtable per (T, I) row used by such boxes: a copy of the
-(T, I) vtable whose any-block slot 1 points at the readonly TypeInfo.  Identity stays an address compare:
+The readonly variant of a NAMED type T is a second receiver identity in T's package: the synthetic name
+`readonly[T]` (`readonly` is a keyword, so no user type can be named that; the bracket form is the one
+generic instances already use in symbols).  Everything keyed on a receiver identity then works unchanged:
+- its own TypeInfo record `__typeinfo.<pkg>.readonly[T]` — same size / align / kind / fields / element
+  words / dtor as T's (built from the same RecvTyp), display name `readonly <pkg>.T`;
+- its own ImplInfo rows `(readonly[T], I)` — same MethodFuncs (thunks included) and slot-0 dtor as
+  `(T, I)` — so the vtable emitters (LLVM, native x3, VM), the satisfaction registry (CollectSatEntries,
+  rt.SatLookup, the VM's lookupSatEntry), the package descriptors and the VM's name-based upcast suffix swap
+  all handle it as just another receiver;
+- `(readonly[T], any)` rows via ensureAnyImplInfo at a readonly box site, like any `any` row.
 
-- concrete mutable target `T`: compare slot 1 against `&__typeinfo.<T>` only (a readonly box misses);
-- concrete readonly target `readonly T` and the value copy: compare against either record (two compares);
-- interface target: the satisfaction registry (`CollectSatEntries` / `rt.SatLookup`, and the VM's own
-  `lookupSatEntry`) gets (readonly T, J) entries only for the impls whose methods all bind a read-only
-  receiver, pointing at the readonly-variant sub-vtables; the lookup itself is unchanged.
-- an upcast keeps the variant: a child→parent vtable offset inside a readonly-variant concatenated vtable
-  lands in its readonly-variant parent part (each variant vtable is a full copy of the concatenated layout).
+A row `(readonly[T], I)` exists only where a readonly object may reach I: the impl's receiver is a value or
+a pointer to readonly (`impl T : I`, `impl *readonly T : I` — what receiverAssignable admits for a readonly
+object).  Every site that appends an ImplInfo row (gen_impl.bn x2, gen_generic_method.bn x2,
+gen_impl_imported.bn x2, gen_iface_vtable.bn ensureImportedImplInfo, ensureAnyImplInfo) goes through one
+helper that also appends the readonly row for a readonly-compatible impl, ancestors included (so a
+readonly-variant concatenated vtable has the same layout, and upcasts keep the variant).  These rows are
+emitted by the impl's own package UNCONDITIONALLY (a box site elsewhere names the vtable by symbol, and an
+interface-target assertion on a readonly box needs the satisfaction entry), so each readonly-compatible impl
+costs one more vtable + satisfaction entry, and each such type one more record.
+
+Only named dynamic types get a variant.  A name-less type (slice, array, function value) is recovered by
+value (a copy — no write-through) and already keeps element readonly in its identity; a named type over a
+readonly type (`type RI readonly int8`) is readonly at its own outer level (`type.readonly.named`), so a
+recovered `*RI` already refuses writes.
+
+Box sites: the object is readonly when the boxed pointer's pointee is outer-`readonly` (after aliases) in the
+checker type the call site passes (srcExprTyp): `&c` with `c readonly T`, `@readonly T`, the value-borrow of
+a readonly variable, `box` of a readonly value.  Every wrapAsIfaceValue caller must pass srcExprTyp (a nil
+one would silently box a readonly object as mutable — make it fail loud for a named pointee).
+
+Matching: a mutable concrete target `.(*T)` / `.(@T)` compares slot 1 against `&__typeinfo.T` only (a
+readonly box misses); a readonly target `.(*readonly T)` / `.(@readonly T)` and the value copy `.(T)`
+compare against both records.  One helper builds the match for the expression, comma-ok and type-switch
+forms.  An interface target is the satisfaction lookup, unchanged: a readonly box finds only the
+`(readonly[T], J)` entries, whose sub-vtables keep the variant.
 
 Alternative considered: a flag word in the vtable any-block.  It changes the vtable layout on every backend
-and the interop contract (§7.13.8), and still needs a satisfaction-side filter, so the second record is the
-smaller change.  Raise this choice with the user before implementing.
+and the interop contract (§7.13.8), and still needs a satisfaction-side filter.
 
 ## Sites
 
