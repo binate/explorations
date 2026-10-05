@@ -150,7 +150,7 @@ property, and the method's kind is still `*T` / `@T`.  Work: spec func.method.re
 func.method.impl-receiver wording, and a positive test of a `readonly *T` and a `readonly @T` method and impl
 (the code already accepts them).
 
-### A composite literal addressed in a `defer` (argument or receiver), or in a package-level `var` initializer, dangles — 🔴 OPEN MAJOR, DEFER PART DECIDED 2026-10-04; package-level part NEEDS DECISION (found 2026-10-03, work-7, planning the addressed-literal lifetime work; reproduced; pre-existing)
+### A composite literal addressed in a `defer` (argument or receiver), or in a package-level `var` initializer, dangles — 🔴 OPEN MAJOR, DECIDED 2026-10-04 (found 2026-10-03, work-7, planning the addressed-literal lifetime work; reproduced; pre-existing)
 
 The 2026-09-30 decisions settle an addressed composite literal in a local `var` / `:=` initializer (it lives
 as long as the binding) and in an assignment / `return` (a compile error), but not two more positions where
@@ -172,7 +172,8 @@ released with the function's exit releases, as a defer's value-borrow temporarie
 Work: IR-gen (the defer pre-pass allocates an entry-depth slot per such literal; the defer statement's
 evaluation moves the literal there), spec §13 expr.composite.lifetime / §14.13 stmt.defer / §18.4, tests (an
 argument, a receiver, a slice literal, a nested / conditional defer, a loop without — defers in loops are
-rejected — no leak) on every backend.  The package-level part waits on the `var g *any = 42` decision.
+rejected — no leak) on every backend.  Package-level (user, 2026-10-04, on the `var g *any = 42` entry: "(a)"):
+a package-level initializer is a storing position, so `var gq *P = &P{…}` is rejected — done with that entry.
 
 ### Is an ELEMENT of a managed-slice literal (`&@[]T{…}[i]`) part of the literal for the addressed-literal lifetime? — 🔴 NEEDS DECISION (found 2026-10-03, work-7, review of the addressed-literal lifetime change)
 
@@ -219,7 +220,7 @@ accepted: the abstract satisfaction check (gen.impl.generic-recv) substitutes `S
 than the receiver's placeholder instantiation `IdS[T]`.  So `hashmap[IdS[int], V]` is impossible.  Fix in
 the abstract impl check's Self substitution; a test with a generic key type.
 
-### A package-level `var g *any = 42` borrows a temporary of the init function — it dangles once init returns — 🔴 NEEDS DECISION MAJOR (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
+### A package-level `var g *any = 42` borrows a temporary of the init function — it dangles once init returns — 🔴 OPEN MAJOR, DECIDED 2026-10-04 (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
 
 `checkVarDecl` uses `checkBorrowingArg` for package-level vars too, so a value is borrowed into a package
 `*any` / `*I` var initializer; IR-gen enrolls the temporary as a `.borrow_temp` local of the init function.
@@ -232,6 +233,12 @@ borrowed initializer).  Recommendation: (a) — no hidden storage, matches prog.
 already gives package-lifetime storage to closure records (gen_vars.bn, `newPackageStaticSlot`) and raw-slice
 literal backings (gen_slice_lit.bn) built in `__init` for exactly this reason; option (b) would follow that
 pattern for the borrow temporary — still hidden storage, but an existing one.)
+Decision (user, 2026-10-04): "(a)" — a package-level var initializer is a STORING position, as prog.init.vars
+says: a value borrow into a raw interface there is rejected, and so is storing the address of a composite
+literal (expr.composite.addr-store; the package-level half of the addressed-literal entry).  Work: checkVarDecl
+checks a package-level initializer at POS_STORING (not checkBorrowingArg) and applies checkStoredLiteralAddr to
+it; §11.4 / §13 / prog.init.vars wording; `.error` tests (`var g *any = 42`, `var gq *P = &P{…}`) — no tree code
+is affected (verify with a full build and lint).
 
 ### A function NAME passed into `*any` compiles and boxes nothing — silent wrong value — 🔴 NEEDS DECISION MAJOR (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
 
