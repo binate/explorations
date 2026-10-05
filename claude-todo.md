@@ -32,6 +32,22 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### bnld: a GOT reference with an addend to a dynamic import loads the wrong GOT slot — silent mis-link — 🔴 OPEN MAJOR (found 2026-10-04, work-2, designing bnld's static GOT; by code reading; pre-existing)
+
+**Symptom:** in a dynamic ELF link (`LinkDynElf`), `adrp x0, :got:environ+8` / `ldr x0, [x0,
+:got_lo12:environ+8]` from an object clang assembled (clang accepts a GOT addend on ELF) loads the slot
+8 bytes past environ's — another import's, or past the GOT — instead of a slot holding environ + 8.
+**Root cause:** the import is defined at its `.got` slot and Relocate keeps the load (gotImp), but
+`patchAArch64` still adds the relocation's addend to the slot address (`lo12(s + A) >> 3`, `page(s + A)`);
+AAELF64's G(GDAT(S+A)) is a slot holding S+A.  (The same arithmetic applies to the Mach-O PIE absolute-
+symbol slots, `t.AbsGot`, but a Mach-O object cannot carry a GOT addend: `parse_macho` maps GOT_LOAD_* with
+addend 0 — which itself silently DROPS a preceding ARM64_RELOC_ADDEND instead of rejecting it.)  Our own
+assembler rejects GOT addends, so only foreign objects reach it.
+**Fix:** a slot per (import, addend) with a GLOB_DAT carrying r_addend = A (or reject a GOT addend to an
+import loudly); patch with addend 0 when the target is a slot; `parse_macho` rejects ADDEND + GOT_LOAD.
+Natural part of bnld's static-GOT change (plan-aa64-asm-symbols.md 3d, (2b)), whose slots are keyed by
+(definition, addend).  Test: a dynamic link of a GOT reference with an addend to an import.
+
 ### Native aarch64 splits a ≤16-byte aggregate across x7 and the stack; AAPCS64, clang and our LLVM backend put it wholly on the stack — ABI mismatch at C boundaries and between backends — 🟡 IN PROGRESS MAJOR (claimed 2026-10-04, work-1/session — user: "1"; found 2026-10-04, work-1, checking a review finding on the arm32 C-ABI switch; reproduced by probe; pre-existing)
 
 - **Symptom:** `callconv.AAPCS64()` has `SplitAggregates = true`, so `argRegWordsStackWords`
