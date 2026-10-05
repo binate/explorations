@@ -99,16 +99,6 @@ selector or index whose base is not addressable (a call result, a composite lite
 call) as a value — the 2b path — so the borrowed copy lives as long as the binding.  Conformance test,
 every backend.
 
-### `unsafe_cast` narrowing to a `readonly` managed-pointer target loads through the data word — segfault — 🟡 IN PROGRESS MAJOR (claimed 2026-10-04, work-4/session: same root cause as the readonly type-argument assertion — the recovery ignores an outer `readonly` — fixed with it; found 2026-10-03, work-3, review of the named-pointer boxing change; reproduced on main; pre-existing)
-
-`var a @any = n` (n `@Node`), `var q readonly @Node = unsafe_cast(readonly @Node, a)`, `q.v` segfaults on
-LLVM and native (`unsafe_cast(AP, a)` with `type AP = @Node` works).  Cause: gen_assert.bn
-`emitRecoveredValue` tests `recoveredTyp.Kind` for TYP_POINTER / TYP_MANAGED_PTR without peeling
-`readonly`, so a `readonly @Node` target takes the value-recovery arm and LOADS through the data word.
-Proposed fix: classify the target through aliases and `readonly` only (`types.ResolveAliasAndConst`, not
-StripWrappers, which would also peel a named pointer `H` whose value recovery must load).  Conformance test
-over `readonly @T` / `readonly *T` / alias targets of `unsafe_cast` and the assertion forms, every backend.
-
 ### A deferred call's variadic pack of `@T` into `...*T` does not retain the managed values — use-after-free — 🔴 OPEN MAJOR (found 2026-10-03, work-4, review of the *T-receiver leak fix; pre-existing)
 
 ```
@@ -689,15 +679,6 @@ call which (and whether (a) first).  Needs a conformance test on `builder-comp_a
 - An instance whose constraint check failed is still checked (possible cascades of errors).
 - Every instance error is reported as a user error (no ICE classification of a divergence between the
   abstract check and an instance's).
-- `iface.assert.typeparam`: a bare assertion target `T` bound to a type argument whose outermost layer is
-  `readonly` (`as[readonly *Thing]`) is rejected ("makes it `readonly *Thing`, which is not an assertion
-  target"); the rule only says what an outermost `*` / `@` does, and `iface.assert.kind` calls a handle's
-  outer `readonly` freely choosable — should it read as `x.(*Thing)`?  (Asked 2026-10-02.)
-  DECIDED 2026-10-04 (user: "yes; also, probably there should be a bnlint check against as[readonly *Thing],
-  since anyone who writes it probably means as[*readonly Thing]."): accept it — peel aliases and an
-  outermost `readonly` before reading the recovery kind (also `x.(readonly T)` and value types), with the
-  rule text to match; plus a bnlint rule flagging a `readonly *T`-style type argument.  🟡 IN PROGRESS
-  (claimed 2026-10-04, work-4/session).
 Plan (done): `done/plan-generic-instance-check.md`.
 
 ### Language feature: array-literal keys that depend on a type parameter — 🔴 OPEN (raised 2026-09-28, work-4)

@@ -1,3 +1,21 @@
+### An assertion reads through a type argument's outer `readonly`; `unsafe_cast` to a `readonly` pointer target recovers the pointer — DONE (binate `3b69d439a`, bnlint rule `660d472db`, spec docs `2c1ae8a`, 2026-10-04)
+
+`as[readonly *Thing](a)` (a bare type-parameter target bound to a type argument with an outermost
+`readonly`) was rejected; user (2026-10-04): "yes; also, probably there should be a bnlint check against
+as[readonly *Thing], since anyone who writes it probably means as[*readonly Thing]."  The checker now reads
+through aliases and an outermost readonly: `readonly *Thing` recovers as `x.(*Thing)` into a read-only handle,
+`readonly @Thing` as `x.(@Thing)`, `readonly Celsius` by value, the recovered type keeping the readonly; a named
+type argument is not read through (`type P readonly *U` → `x.(P)`).  The written `x.(readonly T)` recovers the
+same way, and — user's decision on the review's F1 — a value recovery accepts `readonly` (`x.(readonly int)`).
+IR-gen classifies every recovery target by that shape (recoveryTarget: expression, comma-ok, type-switch cases,
+unsafe_cast narrowing), which also fixed the MAJOR `unsafe_cast(readonly @Node, a)` segfault (found 2026-10-03,
+work-3: the recovery loaded through the box's data word).  bnlint `readonly-handle-type-arg` flags a written
+`readonly *T` / `readonly @T` / `readonly *[]T` / `readonly @[]T` type argument (not already-readonly contents,
+interface values, or named types / aliases).  Spec iface.assert.typeparam updated.  Tests: check unit tests,
+conformance 1548 (unsafe_cast) and 1549 (assertions), lint unit tests.  Validated: an assertion / switch /
+unsafe_cast / readonly / generics conformance subset on LLVM, the VM, native aa64 / x64 / arm32 linux (615 each)
+and arm32 bare-metal (612), 0 failed; adversarial review.
+
 ### A value-receiver method of a named POINTER type called through an interface reads garbage — the receiver is the box cell, not the pointer in it — DONE (binate `43ec0b636`, 2026-10-04, work-3)
 
 `type H @Node` with `func (h H) Get() int { return h.v }` and `impl H : Getter`: `h.Get()` returns the
