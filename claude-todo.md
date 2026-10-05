@@ -150,7 +150,7 @@ property, and the method's kind is still `*T` / `@T`.  Work: spec func.method.re
 func.method.impl-receiver wording, and a positive test of a `readonly *T` and a `readonly @T` method and impl
 (the code already accepts them).
 
-### A composite literal addressed in a `defer` (argument or receiver), or in a package-level `var` initializer, dangles — 🔴 NEEDS DECISION MAJOR (found 2026-10-03, work-7, planning the addressed-literal lifetime work; reproduced; pre-existing)
+### A composite literal addressed in a `defer` (argument or receiver), or in a package-level `var` initializer, dangles — 🔴 OPEN MAJOR, DEFER PART DECIDED 2026-10-04; package-level part NEEDS DECISION (found 2026-10-03, work-7, planning the addressed-literal lifetime work; reproduced; pre-existing)
 
 The 2026-09-30 decisions settle an addressed composite literal in a local `var` / `:=` initializer (it lives
 as long as the binding) and in an assignment / `return` (a compile error), but not two more positions where
@@ -166,6 +166,13 @@ like a store.  (2) follows the pending decision on `var g *any = 42` (the entry 
 initializer is a storing position, `var gq *P = &P{…}` is an error; else the literal needs static storage.
 Recommendation: (1a) — the same "lives as long as what holds its address" rule as a `var` initializer,
 on an existing mechanism; (2) as decided below (no tree code has a package-level `&T{…}`).
+Decision (user, 2026-10-04), defer: "For defer: 1a." — a composite literal addressed in a `defer`'s operands or
+receiver (and a slice literal's address slot, genCompositeAddr) lives until the deferred call has run,
+released with the function's exit releases, as a defer's value-borrow temporaries are (DeferBorrowSlots).
+Work: IR-gen (the defer pre-pass allocates an entry-depth slot per such literal; the defer statement's
+evaluation moves the literal there), spec §13 expr.composite.lifetime / §14.13 stmt.defer / §18.4, tests (an
+argument, a receiver, a slice literal, a nested / conditional defer, a loop without — defers in loops are
+rejected — no leak) on every backend.  The package-level part waits on the `var g *any = 42` decision.
 
 ### Is an ELEMENT of a managed-slice literal (`&@[]T{…}[i]`) part of the literal for the addressed-literal lifetime? — 🔴 NEEDS DECISION (found 2026-10-03, work-7, review of the addressed-literal lifetime change)
 
