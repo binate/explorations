@@ -1,3 +1,17 @@
+### A field or element of a call result, borrowed into a raw interface, boxes a pointer into the statement's temporary — it dangles after the statement — DONE (binate `8b215395a`, 2026-10-05, work-3)
+
+`var r *Getter = mkHold(42).h` and `var q *Getter = mkHs(43)[1]` (a struct-returning call, a slice-returning
+call; `h` a value with a value-receiver impl of Getter), then later `r.Get()` / `q.Get()`: LLVM traps,
+native prints garbage on main (segfault with the named-pointer change).  The checker treats such a source as
+non-addressable, so a `var` initializer may borrow it only by materialising a temporary that co-scopes
+with the binding (`iface.construct.value-borrow` 2b); but genBorrowSourceAddr's selector / index arms
+(gen_borrow.bn) return a pointer INTO the call result's statement temporary and report it as the source's
+address (2a), so the box points into storage freed at the end of the statement.  Proposed fix: treat a
+selector or index whose base is not addressable (a call result, a composite literal's element through a
+call) as a value — the 2b path — so the borrowed copy lives as long as the binding.  Conformance test,
+every backend.
+Resolution (binate `8b215395a`): the checker marks a non-addressable value-borrow source (ast.Expr.BorrowTemp) and IR-gen borrows a temporary holding its value, co-scoped with a var binding (a statement temporary in an argument).  An element of a slice result (`mkHs(43)[1]`) is addressable through the shared backing, so its borrow is `&mkHs(43)[1]` under the raw use-after-free contract (mem.raw-uaf) — user error, not this bug.  Conformance spec 11/101; check unit test TestCheckMarksBorrowTemp.
+
 ### Native arm32 copies and zero-fills a large aggregate with a loop — DONE (binate `01ee02873`, 2026-10-05)
 
 Part of "The native backends copy a large aggregate fully unrolled" (claude-todo.md; aa64 / x64 still

@@ -43,20 +43,7 @@ nested in a composite-literal element of a defer operand takes the "2b" var-init
 and is enrolled as a `.borrow_temp` local of the enclosing block, released at that block's end — before the
 function exits and the deferred call runs.  Proposed fix: the pre-pass allocates an entry-depth slot for
 every value-borrow temporary in a defer's operands, nested ones included (in the order the operand
-evaluation reaches them).  Conformance 1566_defer_nested_composite_borrow (`.xfail.all`).
-
-### A field or element of a call result, borrowed into a raw interface, boxes a pointer into the statement's temporary — it dangles after the statement — 🟡 IN PROGRESS MAJOR (claimed 2026-10-05, work-3/session; user: "then take on todo E?") (found 2026-10-03, work-3, review of the named-pointer boxing change; reproduced on main; pre-existing)
-
-`var r *Getter = mkHold(42).h` and `var q *Getter = mkHs(43)[1]` (a struct-returning call, a slice-returning
-call; `h` a value with a value-receiver impl of Getter), then later `r.Get()` / `q.Get()`: LLVM traps,
-native prints garbage on main (segfault with the named-pointer change).  The checker treats such a source as
-non-addressable, so a `var` initializer may borrow it only by materialising a temporary that co-scopes
-with the binding (`iface.construct.value-borrow` 2b); but genBorrowSourceAddr's selector / index arms
-(gen_borrow.bn) return a pointer INTO the call result's statement temporary and report it as the source's
-address (2a), so the box points into storage freed at the end of the statement.  Proposed fix: treat a
-selector or index whose base is not addressable (a call result, a composite literal's element through a
-call) as a value — the 2b path — so the borrowed copy lives as long as the binding.  Conformance test,
-every backend.
+evaluation reaches them).  Conformance 1568_defer_nested_composite_borrow (`.xfail.all`).
 
 ### A deferred call's `@I` argument bound to a `*I` parameter (fixed or packed) is not retained — use-after-free — 🟡 IN PROGRESS (claimed 2026-10-05, work-4) MAJOR (found 2026-10-04, work-4, fixing the deferred variadic pack UAF; reproduced on main, LLVM / native / VM; pre-existing)
 
