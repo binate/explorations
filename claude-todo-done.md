@@ -1,3 +1,162 @@
+### A method value on a generic receiver written as `(*p).M`, `(&b).M`, `Box[int]{…}.M` or `a.(*Box[int]).M` fails to build — DONE (binate `550f28061`, 2026-10-04, work-7)
+
+With `type Box[T any] struct { n T }` and `func (b *Box[T]) Inc() int`: `(*pb).Inc`, `(*pb).Get`, `(&b).Inc`,
+`(&w.b).Inc`, `Box[int]{n: 3}.Inc` and `a.(*Box[int]).Inc` — native: undefined `…Box[int]3_Inc`; LLVM:
+invalid IR (`%bn_S…_Box[int]`); VM: "extern not found: main.Box[int].Inc".  methodValueRecvIRType
+(irgen gen_method_value_recv.bn) returns nil for a unary, composite-literal or type-assertion receiver, so
+the method is named from the checker's raw instantiation spelling.  Fix: arms for those shapes (`*P` → P's
+IR pointee, `&x` → a pointer to x's IR type, a composite literal → its resolved TypeRef, an assertion → its
+resolved target).  Needs conformance cases (each shape, a generic `*T` and value method).
+
+Not only generic receivers: with `p *b.St` from a directly imported b, the method value `(*pp).Show`
+(`pp **b.St`) is named from the checker's unqualified `St` and references `main.St.Show` — LLVM: an
+undefined symbol at link (found 2026-10-01, work-7).  The same arms fix it.
+Resolution (binate `550f28061`): a method value names the method of its receiver's type for every receiver shape — `(*p).M`, `(&b).M`, a composite literal, an assertion — on generic and plain receivers.  Tests: conformance 1550.
+
+### An `unsafe_index(c, i)` result is addressable exactly when `c[i]` is — DONE (binate `1d3a19624`, 2026-10-04, work-7)
+
+§15.6 describes `unsafe_index(c, i)` as "exactly `c[i]`" (without the bounds check), yet the checker
+treats its result as non-addressable: `unsafe_index(arr, 2).x = 5` and `unsafe_index(arr, 2).x++`
+(binate `aad5222aa`) are rejected, while `arr[2].x = 5` is accepted.  Decide which is meant — make the
+result addressable wherever `c[i]` is, or state in §15.6 that it is a value.
+Decision (user, 2026-09-30): addressable exactly when `c[i]` is — always for a slice or raw pointer, for
+an array iff the array operand is addressable — as "exactly `c[i]`" says.  Today there is no unchecked
+store at all (`unsafe_index(s, i) = v` is "cannot assign to a non-addressable value"; isAddressable,
+check_addr.bn, has no arm for it), so the bounds-check opt-out covers only reads.  Work: the checker's
+isAddressable arm; IR-gen's lvalue-address path for unsafe_index (the element address computation exists
+for reads); §13 `expr.addressable` lists it; run tests for stores, `++`, a field store, `&unsafe_index(…)`
+and the array-of-a-call-result rejection, on every mode.
+Resolution (binate `1d3a19624`): the checker lowers `unsafe_index(c, i)` to the index node `c[i]` marked Unchecked and checks it as an index (under unsafe_index's own collection rule), so every index rule and IR-gen lowering applies with the bounds and nil checks skipped.  Also in that commit: inside an imported generic body the consumer's own globals no longer shadow that package's generic functions or imports (bareGlobalIdx).  Spec §13 / §14 / §15.6 (docs `7390524`).  Tests: conformance 1554–1557, unit tests.
+
+### A `bool` holding a byte other than 0 / 1 is undefined behaviour; the aggregate retype nests — DONE (binate `e31cde3ba`, 2026-10-04, work-7)
+
+§8.7 makes `int8 -> bool` an unsafe_cast direction ("a value outside {0, 1} is not a valid bool") but the spec
+says neither what the scalar conversion produces nor what using such a bool does, and Ch.21 has no entry.
+`var i int8 = 2; b := unsafe_cast(bool, i)`, printed as `b, cast(int, b)`: LLVM `false 0`, native `true 2`,
+VM `false 2`; a retyped `@[]int8{2} -> @[]bool` element: LLVM `false 0 true` (b, int, !b), native `true 2
+true` (b and !b both true), VM `false 2 false`; constant `unsafe_cast(bool, 2)`: LLVM / VM false, native true.
+Decide: normalize at the conversion (any nonzero -> true), or make an invalid bool undefined behaviour
+(listed in Ch.21) — and reject a constant operand outside {0, 1} at compile time either way.
+Related (same review): a NESTED container retype (`[2][4]int8 -> [2][4]bool`, `@[]@[]int8 -> @[]@[]bool`) is
+accepted by unsafe_cast (its element retype applied in place, recursively) while `cast`'s leaf rule looks one
+level deep (`cast([2][4]uint8, a)` from `[2][4]int8` is rejected though total and bit-preserving) — state in
+§8.5 whether the aggregate retype nests.
+Decisions (user, 2026-09-30): (1) undefined behaviour — `unsafe_cast(bool, i)` asserts `i` is 0 or 1 (as
+`*T -> @T` asserts a header); using a bool object whose byte is not 0 / 1, however it got there (a scalar
+unsafe_cast, a container retype, bit_cast, raw memory), is UB, listed in §21.6; a CONSTANT operand outside
+{0, 1} (`unsafe_cast(bool, 2)`) is a compile error.  `i != 0` is the defined integer -> bool.  (User: "each
+backend has surprising behavior in its own way!" — sanctioned under UB.)  (2) The aggregate retype nests,
+for `cast` and `unsafe_cast` alike: `cast([2][4]uint8, a)` from `[2][4]int8` is accepted.  Work: spec
+§8.5 (nesting), §8.7 / §21.6 (the bool assertion); checker (the constant-operand check; `cast`'s leaf
+rule recursing through nested containers, as checkUnsafeCastSet already does); tests.  When cast's leaf rule recurses,
+the "use unsafe_cast" rejection message (`addCastRejectError`, keyed on `isUnsafeAggregateLeafRetype`)
+stops firing for a nested retype on its own; its tests should then move a nested case to the accepted side.
+Resolution (binate `e31cde3ba`): the aggregate retype nests, each level's elements held to the readonly rules of their depth; a constant other than 0 / 1 in `unsafe_cast(bool, k)` is an error (a float operand is a separate NEEDS DECISION entry).  Spec §8.5 / §8.7 / Ch.21 (docs `7390524`).  Tests: conformance 1558, 1559; unit tests.
+
+### The checker accepts a method call / method value through more than one pointer level (`pp.M` with `pp **T` or `*@T`) — §10.6 forbids it; IR-gen miscompiles it silently — DONE (binate `b8ef0e5c8`, 2026-10-04, work-7)
+
+`func.method.auto-deref` (§10.6) looks through ONE pointer level and "does not chase multi-level
+indirection", but both the method-call and the method-value receiver resolution use
+`types.Type.ReceiverBaseNamed()`, which peels every pointer / managed / readonly level
+(check_method.bn, check_expr_access.bn).  So `pp.Peek` (value receiver, `pp **St`) compiles and prints a
+garbage number, `pm.Bump` (`pm *@St`) likewise; `pp.Inc` on `**Box[int]` panics IR-gen ("a method value on
+a generic instantiation has no IR-gen receiver type"); `pp.Show` on `**b.St` names `main.St.Show`.
+Fix: resolve the receiver through one pointer / managed level (plus alias / readonly), then require a
+named type, in both paths, so the program is a type error; `.error` conformance tests for `**T` and
+`*@T` receivers (call and method value).
+Resolution (binate `b8ef0e5c8`): methodRecvBase looks through one pointer level only, for a call, a method value and its addressability check; a method or impl declared with a second pointer level is rejected (a read-only HANDLE receiver is a separate NEEDS DECISION entry).  Tests: conformance 1560, 1543; spec/10-functions/064 updated.
+
+### Method values on non-addressable / read-only receivers, and the lifetime of an addressed composite literal — DONE (binate `30601549a`, `5152496af`, 2026-10-04, work-7)
+
+Decisions (user, 2026-09-30):
+1. A method value binds its receiver exactly as the call would: `x.M` is legal iff `x.M()` is, as far as
+   the receiver goes.  The checker's method-value arm (check_expr_access.bn) applies none of the call's
+   receiver checks today; it must apply all of them: func.method.smoothing (an implicit `&` needs an
+   addressable receiver), `receiverAssignable` (a value / `*T` receiver cannot bind a `@T` method — that
+   would fabricate a reference), and func.method.object-const (a read-only object binds only a
+   read-only-receiver method).  Rejected by this, accepted today: `mk().Inc` (captured by value, and the
+   wrapper re-copies it per call, so `h := mk().Inc; h(); h()` gives 41, 41); `s.p.Inc` with
+   `s *readonly S` and `xs[0].Inc` with `xs *[]readonly P` (capture a copy); `var rp readonly P; rp.Inc`
+   (captures `&rp`, and `Inc` writes the read-only object).
+2. An addressed composite literal follows the `iface.construct.value-borrow` precedent (§11: a
+   materialized temporary in a `var` / `:=` initializer "co-scopes with the new binding"; conformance
+   11-interfaces/091).  In a `var` / `:=` initializer — `var q *P = &P{name: mk()}`, or `h := P{…}.Name`
+   with `func (p *P) Name()` — the literal lives as long as the new binding: its managed fields are
+   released at the end of the binding's scope, not the statement (no extra refcount operations; only the
+   release point moves).  Anywhere else the literal is a statement temporary, and a raw pointer to it used
+   after the statement is `mem.raw-uaf`.  Today the literal is always released at the statement's end, so
+   both examples read freed memory on a later `q.name` / `h()`.  The same rule settles
+   `var iv *any = P{name: mk()}`: value-borrow's text lists "a variable, field, or element" as addressable
+   and "a literal, an expression, or a call result" as not, while §13 `expr.addressable` makes a composite
+   literal addressable — the literal is co-scoped either way.
+   (A call `P{…}.Name()` is legal and safe: it runs within the statement.)
+
+Work: spec (§10b `func.method-value.capture` / §10 smoothing wording for method values; §13 / §18.4 the
+addressed-literal lifetime; §11 value-borrow's addressable list); checker (the method-value arm's
+receiver checks); IR-gen (enrol an addressed composite literal in a `var` / `:=` initializer for
+scope-end cleanup, as value-borrow's materialized temporaries are); `.error` and run conformance tests on
+every mode.
+
+3. (decided 2026-09-30, follow-up to 2) An addressed composite literal in a storing position that
+   outlives the statement — an assignment, a field / element store, a `return`: `q = &P{name: mk()}`,
+   `return &P{…}`, `s.h = P{…}.Name` — is a compile error, like value-borrow's store rule
+   (11-interfaces/090): it always dangles.  No tree code is affected (every `&T{…}` in pkg / cmd /
+   conformance is a `var` initializer).
+Resolution (binate `30601549a`, `5152496af`): a method value binds its receiver exactly as the call would (decision 1); a composite literal addressed in a var / := initializer lives as long as the binding, and an assignment or return storing a literal's address is an error (decisions 2, 3) — the store rule follows addresses through pointers, slices, conversions, `box`, method values, value-borrows and reads out of other literals.  Spec §10b func.method-value.receiver, §13 expr.composite.lifetime / expr.composite.addr-store, §11.4, §18.4 (docs `7390524`).  Tests: conformance 1544, 1551–1553, unit tests.  Left open as separate entries: an addressed literal in a `defer` or a package-level initializer, and an element of a managed-slice literal (both NEEDS DECISION).
+
+### `&` of a SLICE composite literal yields the slice value, not an address — and stores a 4-word header into an 8-byte slot — DONE (binate `5152496af`, 2026-10-04, work-7)
+
+`var pm *@[]int = &@[]int{5, 6}; len(*pm)` prints 0, `&(*[]readonly int{1, 2, 3, 4})` passed to a
+`**[]readonly int` parameter reads length 2, `var pr **[]readonly int = &(*[]readonly int{7, 8, 9});
+len(*pr)` prints 8 (LLVM).  genLValueAddr falls through to genExpr for a composite literal, which for a
+slice literal is the slice VALUE, used as an address; LLVM stores the managed header's 4 words into an
+8-byte `alloca i8*`, overwriting the stack beside it.  Fix (in the addressed-literal change): a slice
+literal's address is an alloca holding the value; a managed one addressed in a var initializer has its
+statement temporary's reference moved to that alloca's scope.  Test: conformance 1545 (the slice cases).
+Resolution (binate `5152496af`): genCompositeAddr — a slice literal's address is an alloca that owns its value (a fresh literal's reference moved in, a static one retained) and is the statement temporary, or co-scoped in a var initializer; a named literal's address keeps its name.  Tests: conformance 1551, 1553.
+
+### Support generic type declarations whose underlying type is not a struct (`type P[T any] [2]T`, `@func(T) bool`, …) — DONE (binate `7e54f8e64`, 2026-10-04, work-7)
+
+The checker accepts a generic `type` declaration of any underlying type (`type P[T any] [2]T`,
+`type Ptr[T any] *T`, `type Less[T any] @func(a T, b T) bool`), but instantiation fills in only a struct
+body (`populateInstantiatedStruct` in check, `ensureInstantiatedStruct` in IR-gen), so every
+instantiation stays an unfilled named type: `var p P[int32]` reports "cannot use an opaque type by
+value", `p[1]` "cannot index this type", and a declaration that is never used compiles silently.  Spec
+§12.1 `gen.typeparams` allows type parameters only on a function, struct or interface, but that wording
+recorded what the implementation handled when the chapter was written (2026-06-12): no design rationale
+excludes other forms (the design notes say "generic types AND functions"), and the grammar
+(`TypeSpec = identifier [ TypeParams ] TypeDef`) already admits them.  Decision (2026-09-30): support
+them rather than reject the declaration.
+
+Work:
+- Spec: widen `gen.typeparams` to a `type` declaration of any underlying type; define instantiation as
+  substituting the type arguments into the underlying type (a distinct named type per instantiation:
+  `P[int32]`, underlying `[2]int32`).
+- Checker: instantiate a non-struct generic declaration by resolving its underlying type with the
+  parameters bound and substituting (`substituteTypeParams`, check_generic.bn) — a generalization of
+  `populateInstantiatedStruct`.
+- IR-gen: naming/mangling of non-struct instantiations (the layout is the underlying type's); methods on
+  such types through the parameterized receiver (`gen.method.generic-recv`).
+- Tests: positive conformance tests (array, raw/managed pointer, slice, function-value underlyings;
+  methods; use from another package through a `.bni`) on every mode.
+
+Open questions for the user before the spec change: (1) generic aliases (`type L[T any] = Box[T]`) —
+transparent substitution, so `L[int]` is identical to `Box[int]`?  (Related: the imported-alias-of-a-
+generic-instantiation entry above.)  (2) empty (opaque / forward) generic declarations (`type L[T any]`
+with no body) — consumers need the body to instantiate, so allow only as a same-package forward
+declaration, or reject?
+Resolution (binate `7e54f8e64`): an instantiation is a distinct named type over the underlying type with the arguments substituted (gen.instantiate.type, docs `7390524`), in the checker and IR-gen, with methods, impls and declarations at the REPL prompt.  Tests: conformance 1561, 1562; check and repl unit tests.  The generic-alias and bodiless-declaration questions are a separate NEEDS DECISION entry.
+
+### Generic named managed pointers (`type Own[T any] @T`) with their own impl now instantiate — the named-pointer boxing change must cover their impl rows too — DONE (binate `7e54f8e64`, 2026-10-04, work-7)
+
+Non-struct generic types (gen.instantiate.type) make `type Own[T any] @T; impl Own[T] : I` reachable.  Their
+impl rows are synthesized on demand by ensureGenericImplInfo (gen_generic_method.bn), which mirrors
+collectImplsFromDecl's choice for a named pointer (pointee value type and destructor) — so today a bare
+widening `var s @I = o` works and `box(o)` into `@I` crashes exactly as the non-generic case does.  Whatever
+the convention (A) change does to collectImplsFromDecl and the boxing paths must be done to
+ensureGenericImplInfo / boxedRecvType as well, with generic instances in its tests.
+Resolution: the named-pointer boxing convention landed (binate `43ec0b636`), and the generic impl rows follow it (binate `7e54f8e64`: ensureGenericImplInfo gives a named instantiation the slot-0 destructor collectImplsFromDecl gives a named type; conformance 1561 boxes a generic named managed pointer).
+
 ### An assertion reads through a type argument's outer `readonly`; `unsafe_cast` to a `readonly` pointer target recovers the pointer — DONE (binate `3b69d439a`, bnlint rule `660d472db`, spec docs `2c1ae8a`, 2026-10-04)
 
 `as[readonly *Thing](a)` (a bare type-parameter target bound to a type argument with an outermost
