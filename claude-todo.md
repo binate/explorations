@@ -99,7 +99,7 @@ only `@T` / `@[]T`.  Fix: add managed func values to it, with a managed-to-raw f
 `spec/14-statements/178_defer_managed_func_to_raw` (expected-fail in every mode).  Same class as the `@I` → `*I`
 entry above; likely one change.
 
-### A deferred function-value call with a generic-interface-instance parameter fails to compile — 🔴 OPEN MAJOR (found 2026-10-05, work-4, review of the deferred `@I` → `*I` retention fix; pre-existing, reproduced with an older compiler too; LLVM / native / VM)
+### A deferred function-value call with a generic-interface-instance parameter fails to compile — 🟡 IN PROGRESS (claimed 2026-10-05, work-4) MAJOR (found 2026-10-05, work-4, review of the deferred `@I` → `*I` retention fix; pre-existing, reproduced with an older compiler too; LLVM / native / VM)
 
 `var fi @func(*Holder[int]) = …; defer fi(mkH(11))` (mkH returns `@Holder[int]`) panics in IR lowering:
 LLVM "emitIfaceUpcast: negative vtable slot offset (target not an ancestor of source)", native the aa64
