@@ -69,7 +69,7 @@ selector or index whose base is not addressable (a call result, a composite lite
 call) as a value — the 2b path — so the borrowed copy lives as long as the binding.  Conformance test,
 every backend.
 
-### A deferred call's variadic pack of `@T` into `...*T` does not retain the managed values — use-after-free — 🔴 OPEN MAJOR (found 2026-10-03, work-4, review of the *T-receiver leak fix; pre-existing)
+### A deferred call's variadic pack of `@T` into `...*T` does not retain the managed values — use-after-free — 🟡 IN PROGRESS MAJOR (claimed 2026-10-04, work-4/session — user: "let's take on the two MAJORs (that don't need a decision)"; found 2026-10-03, work-4, review of the *T-receiver leak fix; pre-existing)
 
 ```
 func usev(ts ...*Thing) int { … }
