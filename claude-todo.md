@@ -116,6 +116,25 @@ fine (the temporary lives to the statement's end).  Fix: extend isManagedToRawBi
 the raw interface value from the retained managed one at the call (deliverLoadedOp / the pack's element
 coercion).  Test: conformance `spec/14-statements/177_defer_managed_iface_to_raw` (expected-fail in every mode).
 
+### A deferred call's `@func` argument bound to a `*func` parameter (fixed or packed) is not retained — use-after-free — 🔴 OPEN MAJOR (found 2026-10-04, work-4, review of the deferred variadic pack fix; reproduced on main, LLVM / native; the VM panics "TrampolinePacked: data is not a VM closure record"; pre-existing)
+
+`defer run1(mkF(11))` with `func run1(f *func() int)` and `mkF` returning a capturing `@func() int` reads freed
+memory (prints 0), as does `defer runv(mkF(12), mkF(13))` into `...*func() int`; direct calls are fine.  §8.4 lists
+`@func(…)` → `*func(…)` as a managed-to-raw conversion, which stmt.defer retains; isManagedToRawBinding covers
+only `@T` / `@[]T`.  Fix: add managed func values to it, with a managed-to-raw func-value conversion at the call
+(deliverLoadedOp) and for the pack's element coercion.  Test: conformance
+`spec/14-statements/178_defer_managed_func_to_raw` (expected-fail in every mode).  Same class as the `@I` → `*I`
+entry below; likely one change.
+
+### Does stmt.defer retain an `@T` boxed into a deferred `*I` / `*any` argument? — 🔴 NEEDS DECISION MAJOR (found 2026-10-04, work-4, review of the deferred variadic pack fix; reproduced on main, LLVM / native / VM; pre-existing)
+
+`defer run1(mk(11))` with `func run1(x *any)` and `mk` returning `@Thing`, and `defer runv(mk(12), mk(13))` into
+`...*any`, read freed memory (0); direct calls are fine.  §11.4 calls `@T` → `*I` a borrow, but stmt.defer's
+retention clause points at §8.4's managed-to-raw conversions, which do not list it (deferArgBorrowVt retains only
+VALUE sources boxed into an interface).  Decide whether stmt.defer retains the `@T` here (then: a retain slot like
+a managed-to-raw argument's, boxing the borrow from it — fixed and packed); if it does not, spec it.  Test to land
+with the decision (repro: the review probe, a `*any` analogue of `spec/14-statements/177`).
+
 ### `unsafe_cast(bool, <float>)` — is it a conversion at all?  A float constant outside {0, 1} compiles — 🔴 OPEN, DECIDED 2026-10-04 (found 2026-10-03, work-7, review of the bool-constant check; reproduced)
 
 §8.5 says numeric → bool is not a `cast` and "requires `unsafe_cast`", so the spec admits
