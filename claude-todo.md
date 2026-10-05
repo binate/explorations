@@ -124,7 +124,7 @@ memory (prints 0), as does `defer runv(mkF(12), mkF(13))` into `...*func() int`;
 only `@T` / `@[]T`.  Fix: add managed func values to it, with a managed-to-raw func-value conversion at the call
 (deliverLoadedOp) and for the pack's element coercion.  Test: conformance
 `spec/14-statements/178_defer_managed_func_to_raw` (expected-fail in every mode).  Same class as the `@I` → `*I`
-entry below; likely one change.
+entry above; likely one change.
 
 ### Does stmt.defer retain an `@T` boxed into a deferred `*I` / `*any` argument? — 🔴 NEEDS DECISION MAJOR (found 2026-10-04, work-4, review of the deferred variadic pack fix; reproduced on main, LLVM / native / VM; pre-existing)
 
