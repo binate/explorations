@@ -32,7 +32,7 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### Native aarch64 splits a ≤16-byte aggregate across x7 and the stack; AAPCS64, clang and our LLVM backend put it wholly on the stack — ABI mismatch at C boundaries and between backends — 🔴 OPEN MAJOR (found 2026-10-04, work-1, checking a review finding on the arm32 C-ABI switch; reproduced by probe; pre-existing)
+### Native aarch64 splits a ≤16-byte aggregate across x7 and the stack; AAPCS64, clang and our LLVM backend put it wholly on the stack — ABI mismatch at C boundaries and between backends — 🟡 IN PROGRESS MAJOR (claimed 2026-10-04, work-1/session — user: "1"; found 2026-10-04, work-1, checking a review finding on the arm32 C-ABI switch; reproduced by probe; pre-existing)
 
 - **Symptom:** `callconv.AAPCS64()` has `SplitAggregates = true`, so `argRegWordsStackWords`
   gives a 2-word aggregate arriving at NGRN 7 one register (x7) and one stack word, and the
