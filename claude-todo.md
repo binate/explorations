@@ -45,31 +45,6 @@ function exits and the deferred call runs.  Proposed fix: the pre-pass allocates
 every value-borrow temporary in a defer's operands, nested ones included (in the order the operand
 evaluation reaches them).  Conformance 1568_defer_nested_composite_borrow (`.xfail.all`).
 
-### A deferred call's `@I` argument bound to a `*I` parameter (fixed or packed) is not retained — use-after-free — 🟡 IN PROGRESS (claimed 2026-10-05, work-4) MAJOR (found 2026-10-04, work-4, fixing the deferred variadic pack UAF; reproduced on main, LLVM / native / VM; pre-existing)
-
-```
-func use1(g *Getter) { … g.Get() … }
-defer use1(mkG(21))            // mkG returns @Getter: the deferred call reads freed memory (prints 0)
-defer usev(mkG(22), mkG(23))   // func usev(gs ...*Getter): same
-```
-stmt.defer retains a managed-to-raw operand's pre-conversion managed value; the defer machinery does so for
-`@T` → `*T` and `@[]T` → `*[]T` (isManagedToRawBinding / IsManagedToRaw, and for packed elements since the
-variadic-pack fix), but not for a managed interface value bound to a raw interface value: the argument is
-converted at the defer site and the managed temporary released at the defer statement's end.  A direct call is
-fine (the temporary lives to the statement's end).  Fix: extend isManagedToRawBinding to `@I` → `*I` and deliver
-the raw interface value from the retained managed one at the call (deliverLoadedOp / the pack's element
-coercion).  Test: conformance `spec/14-statements/177_defer_managed_iface_to_raw` (expected-fail in every mode).
-
-### A deferred call's `@func` argument bound to a `*func` parameter (fixed or packed) is not retained — use-after-free — 🟡 IN PROGRESS (claimed 2026-10-05, work-4) MAJOR (found 2026-10-04, work-4, review of the deferred variadic pack fix; reproduced on main, LLVM / native; the VM panics "TrampolinePacked: data is not a VM closure record"; pre-existing)
-
-`defer run1(mkF(11))` with `func run1(f *func() int)` and `mkF` returning a capturing `@func() int` reads freed
-memory (prints 0), as does `defer runv(mkF(12), mkF(13))` into `...*func() int`; direct calls are fine.  §8.4 lists
-`@func(…)` → `*func(…)` as a managed-to-raw conversion, which stmt.defer retains; isManagedToRawBinding covers
-only `@T` / `@[]T`.  Fix: add managed func values to it, with a managed-to-raw func-value conversion at the call
-(deliverLoadedOp) and for the pack's element coercion.  Test: conformance
-`spec/14-statements/178_defer_managed_func_to_raw` (expected-fail in every mode).  Same class as the `@I` → `*I`
-entry above; likely one change.
-
 ### A deferred function-value call with a generic-interface-instance parameter fails to compile — 🟡 IN PROGRESS (claimed 2026-10-05, work-4) MAJOR (found 2026-10-05, work-4, review of the deferred `@I` → `*I` retention fix; pre-existing, reproduced with an older compiler too; LLVM / native / VM)
 
 `var fi @func(*Holder[int]) = …; defer fi(mkH(11))` (mkH returns `@Holder[int]`) panics in IR lowering:
