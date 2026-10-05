@@ -32,7 +32,7 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### bnld: a GOT reference with an addend to a dynamic import loads the wrong GOT slot — silent mis-link — 🔴 OPEN MAJOR (found 2026-10-04, work-2, designing bnld's static GOT; by code reading; pre-existing)
+### bnld: a GOT reference with an addend to a dynamic import loads the wrong GOT slot — silent mis-link — 🟡 IN PROGRESS MAJOR (claimed 2026-10-05, work-2/session — user: "1 and 2: go with your recs; 3: all 4": fixed inside bnld's GOT change, with per-(import, addend) GLOB_DAT slots; found 2026-10-04, work-2, designing bnld's static GOT; by code reading; pre-existing)
 
 **Symptom:** in a dynamic ELF link (`LinkDynElf`), `adrp x0, :got:environ+8` / `ldr x0, [x0,
 :got_lo12:environ+8]` from an object clang assembled (clang accepts a GOT addend on ELF) loads the slot
