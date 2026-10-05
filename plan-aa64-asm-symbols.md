@@ -127,7 +127,7 @@ Order (2026-10-04): (1) `:pg_hi21_nc:` — assembler, ELF writer, bnld (unchecke
 ✅ landed `42f0697f2` (2026-10-04).
 (2a) The GOT forms in the assembler — ✅ landed `f38f50223` (2026-10-04); an addend on a GOT reference
 stays rejected (an existing deliberate reject — "Mach-O cannot represent" — accepting it on ELF is open
-for the user).  (2b) bnld's GOT — 🟡 IN PROGRESS (user, 2026-10-05: "1 and 2: go with your recs; 3:
+for the user).  (2b) bnld's GOT — ✅ landed `c645a568e` (2026-10-05; user: "1 and 2: go with your recs; 3:
 all 4"): all four drivers (static ELF, dynamic ELF, dynamic Mach-O with rebased slots, the scripted
 builder via a script-placed `.got`); the MAJOR import-addend bug (claude-todo) fixed inside it, with a
 GLOB_DAT per (import, addend).

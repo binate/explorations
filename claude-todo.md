@@ -32,22 +32,6 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### bnld: a GOT reference with an addend to a dynamic import loads the wrong GOT slot — silent mis-link — 🟡 IN PROGRESS MAJOR (claimed 2026-10-05, work-2/session — user: "1 and 2: go with your recs; 3: all 4": fixed inside bnld's GOT change, with per-(import, addend) GLOB_DAT slots; found 2026-10-04, work-2, designing bnld's static GOT; by code reading; pre-existing)
-
-**Symptom:** in a dynamic ELF link (`LinkDynElf`), `adrp x0, :got:environ+8` / `ldr x0, [x0,
-:got_lo12:environ+8]` from an object clang assembled (clang accepts a GOT addend on ELF) loads the slot
-8 bytes past environ's — another import's, or past the GOT — instead of a slot holding environ + 8.
-**Root cause:** the import is defined at its `.got` slot and Relocate keeps the load (gotImp), but
-`patchAArch64` still adds the relocation's addend to the slot address (`lo12(s + A) >> 3`, `page(s + A)`);
-AAELF64's G(GDAT(S+A)) is a slot holding S+A.  (The same arithmetic applies to the Mach-O PIE absolute-
-symbol slots, `t.AbsGot`, but a Mach-O object cannot carry a GOT addend: `parse_macho` maps GOT_LOAD_* with
-addend 0 — which itself silently DROPS a preceding ARM64_RELOC_ADDEND instead of rejecting it.)  Our own
-assembler rejects GOT addends, so only foreign objects reach it.
-**Fix:** a slot per (import, addend) with a GLOB_DAT carrying r_addend = A (or reject a GOT addend to an
-import loudly); patch with addend 0 when the target is a slot; `parse_macho` rejects ADDEND + GOT_LOAD.
-Natural part of bnld's static-GOT change (plan-aa64-asm-symbols.md 3d, (2b)), whose slots are keyed by
-(definition, addend).  Test: a dynamic link of a GOT reference with an addend to an import.
-
 ### A value-borrow temporary inside a composite element of a deferred call's argument, in a nested block, is released when the block ends — the deferred call reads freed storage — 🔴 OPEN MAJOR (found 2026-10-05, work-3, review of the call-result field borrow fix; pre-existing)
 
 `if c { defer takeOpts(3, Opts{g: mkW(3)}) }` with `Opts{ g *Getter }` and `W` a value with a managed field
@@ -726,8 +710,8 @@ numbers `bf00c139e`, global / weak aliases `da8befa0a` (2026-10-02).  (10) liter
 needs, `2a26ec4d9`).  (11) the MOVW-group relocation operators (plan item 3d, first part) —
 `:abs_g*:` / `:prel_g*:` on MOVZ / MOVN / MOVK and `mov`, with bnld — landed `7010879cb` (2026-10-04).  (12)
 `:pg_hi21_nc:` on ADRP, with bnld — landed `42f0697f2` (2026-10-04).  (13) the GOT forms (assembler):
-`:gotpage_lo15:`, `:got:` literal loads, 8-byte GOT stores — landed `f38f50223` (2026-10-04); bnld's
-static GOT is next.
+`:gotpage_lo15:`, `:got:` literal loads, 8-byte GOT stores — landed `f38f50223` (2026-10-04).  (14)
+bnld's linker-made GOT (all four drivers) — landed `c645a568e` (2026-10-05).
 Apple's legacy NEON syntax
 (`dup.4s v0, w1`, `tbl.16b v0, {v1}, v3`), which clang
 accepts on every target, is not supported (user, 2026-09-28: "we don't need alternate syntax, unless there's

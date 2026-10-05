@@ -527,6 +527,30 @@ slot.  arm32's managed-allocation lowerings moved to arm32_managed.bn.  Tests: c
 the 83 box conformance tests on LLVM -O0/-O2 and the VM, box + cast + readonly subsets on native aa64 / x64 / arm32
 linux / arm32 bare-metal at -O0 and -O2 (266/266/266/264, 0 failed), two adversarial reviews.
 
+### bnld: a GOT reference with an addend to a dynamic import loads the wrong GOT slot — silent mis-link — DONE (binate `c645a568e`, 2026-10-05) MAJOR (claimed 2026-10-05, work-2/session — user: "1 and 2: go with your recs; 3: all 4": fixed inside bnld's GOT change, with per-(import, addend) GLOB_DAT slots; found 2026-10-04, work-2, designing bnld's static GOT; by code reading; pre-existing)
+
+**Symptom:** in a dynamic ELF link (`LinkDynElf`), `adrp x0, :got:environ+8` / `ldr x0, [x0,
+:got_lo12:environ+8]` from an object clang assembled (clang accepts a GOT addend on ELF) loads the slot
+8 bytes past environ's — another import's, or past the GOT — instead of a slot holding environ + 8.
+**Root cause:** the import is defined at its `.got` slot and Relocate keeps the load (gotImp), but
+`patchAArch64` still adds the relocation's addend to the slot address (`lo12(s + A) >> 3`, `page(s + A)`);
+AAELF64's G(GDAT(S+A)) is a slot holding S+A.  (The same arithmetic applies to the Mach-O PIE absolute-
+symbol slots, `t.AbsGot`, but a Mach-O object cannot carry a GOT addend: `parse_macho` maps GOT_LOAD_* with
+addend 0 — which itself silently DROPS a preceding ARM64_RELOC_ADDEND instead of rejecting it.)  Our own
+assembler rejects GOT addends, so only foreign objects reach it.
+**Fix:** a slot per (import, addend) with a GLOB_DAT carrying r_addend = A (or reject a GOT addend to an
+import loudly); patch with addend 0 when the target is a slot; `parse_macho` rejects ADDEND + GOT_LOAD.
+Natural part of bnld's static-GOT change (plan-aa64-asm-symbols.md 3d, (2b)), whose slots are keyed by
+(definition, addend).  Test: a dynamic link of a GOT reference with an addend to an import.
+
+**Resolved** by binate `c645a568e` ("bnld: a linker-made GOT for AArch64 GOT references it cannot relax"):
+a GOT reference with an addend to an import gets its own `.got` slot with a GLOB_DAT carrying the addend; a
+reference reaching any slot carries no addend into it (an internal error otherwise); `parse_macho` rejects
+ADDEND + GOT_LOAD.  Verified at run time: clang's `:got:environ+8` linked dynamically by bnld reads
+&environ + 8 against glibc (binate-ci, aarch64).  The same commit gives bnld a linker-made GOT in all four
+drivers and fixes a pre-existing mis-link the review found: a local symbol named like a dynamic data import
+was treated as the import (its relaxable GOT pair kept loading).
+
 ### aa64 text assembler: GOT forms — `:gotpage_lo15:`, `:got:` literal loads, 8-byte GOT stores — DONE (binate `f38f50223`, 2026-10-04, work-2; plan item 3d)
 
 `:gotpage_lo15:` (ELF LD64_GOTPAGE_LO15) and `:got_lo12:` / `@GOTPAGEOFF` on every 8-byte transfer (LDR /
