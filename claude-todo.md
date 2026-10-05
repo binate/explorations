@@ -85,6 +85,21 @@ Fix: for a managed-to-raw pack element, retain the managed value in its own entr
 borrow slots, released after the deferred calls) and pack the borrow.  Test: conformance
 `spec/14-statements/176_defer_variadic_pack_managed_to_raw` (expected-fail in every mode).
 
+### A deferred call's `@I` argument bound to a `*I` parameter (fixed or packed) is not retained — use-after-free — 🔴 OPEN MAJOR (found 2026-10-04, work-4, fixing the deferred variadic pack UAF; reproduced on main, LLVM / native / VM; pre-existing)
+
+```
+func use1(g *Getter) { … g.Get() … }
+defer use1(mkG(21))            // mkG returns @Getter: the deferred call reads freed memory (prints 0)
+defer usev(mkG(22), mkG(23))   // func usev(gs ...*Getter): same
+```
+stmt.defer retains a managed-to-raw operand's pre-conversion managed value; the defer machinery does so for
+`@T` → `*T` and `@[]T` → `*[]T` (isManagedToRawBinding / IsManagedToRaw, and for packed elements since the
+variadic-pack fix), but not for a managed interface value bound to a raw interface value: the argument is
+converted at the defer site and the managed temporary released at the defer statement's end.  A direct call is
+fine (the temporary lives to the statement's end).  Fix: extend isManagedToRawBinding to `@I` → `*I` and deliver
+the raw interface value from the retained managed one at the call (deliverLoadedOp / the pack's element
+coercion).  Test: conformance `spec/14-statements/177_defer_managed_iface_to_raw` (expected-fail in every mode).
+
 ### `unsafe_cast(bool, <float>)` — is it a conversion at all?  A float constant outside {0, 1} compiles — 🔴 OPEN, DECIDED 2026-10-04 (found 2026-10-03, work-7, review of the bool-constant check; reproduced)
 
 §8.5 says numeric → bool is not a `cast` and "requires `unsafe_cast`", so the spec admits
