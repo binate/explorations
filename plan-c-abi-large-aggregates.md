@@ -87,8 +87,24 @@ step D's table.
   mismatches (build-constraint tests run under the host mode), -O2 subsets on x64/aa64/arm32, Linux x64 in
   an amd64 Docker container (LLVM / native / VM subsets 713/713/712, vm+interp unit tests).  Conformance
   1535.
-- Next: arm32 (AAPCS32 by-value split, both backends) — then ForCBoundary / CAbiIndirectLargeAggregates
-  can go.
+- DONE `e62af60cf` (2026-10-04): arm32 — AAPCS32 by-value split in both backends.  LLVM: `ptr byval(<T>)
+  align clamp(AlignOf, 4, 8)` (clang's AAPCS byval alignment); LLVM's ARM byval lowering loads the register
+  part with word loads whatever the `align`, so direct-call slots are declared that aligned and shims copy a
+  sub-word-aligned source to an aligned temporary (`_ra`) first; call result buffers (`.sret`/`.rb`/`.p`)
+  declared `align 8` as their sret spelling promised.  Native: IndirectLargeAggregates off on AAPCS32;
+  dispatch stays by-address, shims re-expand (byte-wise for a sub-word-aligned aggregate, on the framed
+  spill path; LR offset scratch for > 4 KiB aggregates); C-entry gather / indirect-large shim paths deleted;
+  ForCBoundary and CAbiIndirectLargeAggregates are gone.  Review fixes also: hard-float AAPCS32 C.5 (no split
+  once a VFP overflow has used the stack — native split, also for <=16-byte aggregates before this) and an
+  aa64 LLVM c_export retAdapt thunk that passed a >16-byte param's pointer-to-pointer.  Validated: ABI
+  subset (~880 tests) on arm32 bare metal LLVM/native 863/0, arm32-linux LLVM/native (Docker) 877/0, aa64
+  LLVM 877/0, x64 LLVM 877/0; e2e arm32-ffi-export (new C.5 cases, which fail without the fix) and
+  c-entry-byval-callback.  Conformance 1563, 1564.  Docs (spec §7.13.11, ABI Ch.1/2/4) corrected for x64 +
+  arm32 in docs `bc66e9f`.
+  Left for the user (review finding 5): native arm32 unrolls every aggregate copy (emitAggMemcpyArm32), and
+  the by-value switch moves the copy from the callee to each call site — a large array passed by value
+  costs code per call where LLVM emits a loop / memcpy.
+- Next: aa64 — AAPCS64's ownership rule (the callee owns the caller-made copy) and the param slot in place.
   Local validation for x64: native `builder-comp_native_x64_darwin-…` and LLVM via
   `BINATE_FLAGS="--target x86_64-darwin" ./conformance/run.sh builder-comp` (both run under Rosetta); full
   runs on both, since a 32-byte managed-slice argument is >16 bytes on x64 (nearly every program).

@@ -1,3 +1,24 @@
+### arm32 passes a >16-byte by-value aggregate the AAPCS32 C way (split r0-r3 + stack), in both backends — DONE (binate `e62af60cf`, 2026-10-04; docs `bc66e9f`)
+
+Part of "Binate's ABI for a >16-byte by-value aggregate" (claude-todo.md; x64 was `dfde1e73a`).  Both
+backends passed such an aggregate on arm32 as a pointer to a caller copy; C passes it by value.  Now LLVM
+spells it `ptr byval(<T>) align clamp(AlignOf, 4, 8)` and the native backend places it by value (AAPCS32
+IndirectLargeAggregates off), so #[c_export] / __c_entry / __c_call need no adaptation for it.  Details and
+validation: plan-c-abi-large-aggregates.md.  Found and fixed on the way:
+- **Strict-alignment fault (LLVM, new with the switch):** LLVM's ARM byval lowering loads the r0-r3 part
+  with word loads whatever the `align` says; a [20]uint8 capture at closure offset 1 hung conformance 1492
+  on bare metal.  Fixed by word-aligned call-site sources (aligned slots; `_ra` copies in shims).
+- **Call result buffers under-aligned (LLVM, pre-existing):** `.sret` / `.rb` / `.p` allocas were only as
+  aligned as their type while passed as `ptr sret(...) align 8`; now declared `align 8`.
+- **Hard-float AAPCS32 C.5 (native, pre-existing for <=16-byte aggregates):** after a float overflowed the
+  VFP bank to the stack, native still split an aggregate across the remaining core registers and the stack;
+  clang/LLVM put it wholly on the stack.  Fixed in the VFP walkers (vfpNoSplitAfterStack); e2e
+  arm32-ffi-export's new a32_vfpover / a32_vfpovermid cases fail without it.
+- **aa64 LLVM #[c_export] thunk (pre-existing):** a thunk that exists for its return adaptation spilled a
+  >16-byte param's incoming pointer and passed the spill slot (a pointer to a pointer).
+- **> 4 KiB aggregate through a native func-value shim (new with the switch, caught in review):** the
+  stack-word loop used an LDR immediate past 4095; now loads through an LR-held offset (conformance 1564).
+
 ### A method value on a generic receiver written as `(*p).M`, `(&b).M`, `Box[int]{…}.M` or `a.(*Box[int]).M` fails to build — DONE (binate `550f28061`, 2026-10-04, work-7)
 
 With `type Box[T any] struct { n T }` and `func (b *Box[T]) Inc() int`: `(*pb).Inc`, `(*pb).Get`, `(&b).Inc`,
