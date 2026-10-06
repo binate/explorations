@@ -54,7 +54,7 @@ TYP_STRUCT`), so a pointer to a struct falls through to DEFER_METHOD.  Fix: look
 either kind) there, as `.` does.  Test: conformance `spec/14-statements/180_defer_funcval_field_through_pointer`
 (expected-fail in every mode).
 
-### Returning a managed `@T` as a raw `*T` result leaks one block per call — 🔴 OPEN MAJOR (found 2026-10-05, work-4, review of the deferred func-value-field fix; pre-existing; LLVM / native / VM)
+### Returning a managed `@T` as a raw `*T` result leaks one block per call — 🟡 IN PROGRESS (claimed 2026-10-05, work-4) MAJOR (found 2026-10-05, work-4, review of the deferred func-value-field fix; pre-existing; LLVM / native / VM)
 
 `func fromParam(t @T) *T { return t }` (likewise a field `h.p`, a local, a package global) leaks one block per
 call: the return path takes a reference (a RefInc before `ret`, seen in the LLVM IR) as for a managed result, but
