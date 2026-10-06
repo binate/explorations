@@ -146,7 +146,12 @@ break); a GOT reference with an addend to a dynamic import is a GLOB_DAT with th
 
 ## 3e. Label differences
 
-🟡 IN PROGRESS (claimed 2026-10-05; user: "go ahead with label differences").  `l2 - l1` (with `.` on
+🟡 IN PROGRESS (claimed 2026-10-05; user: "go ahead with label differences").  Commit (1), fixed
+differences and the second pass, ✅ landed `9543677c8` (2026-10-06); commit (2) is next.  Two things in it
+differ from the design below, both raised with the user, who then said "go ahead" to land it: a fixed
+difference as an AArch64 PC-relative target (branch, ADR / ADRP, literal load) is rejected, since clang
+reads it there as an absolute address (`. + (l2 - l1)` is the offset); and a literal-pool value that is a
+difference is always an entry, shared only by loads of one constant definition (`=x`), as clang's.  `l2 - l1` (with `.` on
 either side, plus numbers and arithmetic) in a constant definition, an immediate and a data directive.
 
 clang 21 (probed 2026-10-05):

@@ -1,3 +1,14 @@
+### aa64 text assembler: label differences that fold — `l2 - l1` fixed at assembly is a number — DONE (binate `9543677c8`, 2026-10-06, work-2; plan-aa64-asm-symbols.md 3e, commit (1))
+
+A difference of two locations whose distance is fixed at assembly (one section on ELF and arm32, one atom on
+Mach-O, a temporary label belonging to the atom of the symbol defined before it) folds to a number wherever one
+is read: immediates, load / store offsets, data directives, constants, arithmetic.  A forward one takes a second
+full pass, which checks that every label landed where the first pass put it.  A literal-pool value that is a
+difference is always an entry, shared only by loads of one constant definition, as clang's; an AArch64
+PC-relative target rejects a difference (clang reads it there as an absolute address).  Reviewed twice;
+byte-for-byte against clang on the probe set.  Still open (the todo entry, plan 3e commit (2)): relocatable
+differences in data and plain symbols in data.
+
 ### A package-level `var g *any = 42` borrows a temporary of the init function — it dangles once init returns — DONE (binate `78c8b3475`, 2026-10-06, work-7)
 
 `checkVarDecl` uses `checkBorrowingArg` for package-level vars too, so a value is borrowed into a package
