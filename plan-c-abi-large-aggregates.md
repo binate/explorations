@@ -170,6 +170,13 @@ Refinement (2026-10-05, after recon for commit 2):
   SP + offset (every LookupAlloc consumer that addresses an alloca off SP must handle a slot with no
   frame offset), the store is skipped; LLVM: the slot is the incoming `ptr`.  x64 / arm32 in place is a
   separate decision (their callees own their incoming stack bytes; arm32 also has a register part).
+- Constraints from the commit-1 review (2026-10-05): what a caller hands over differs — native argument
+  regions are 8-rounded and 8-aligned, native `__shimP` copies 16-rounded, LLVM `.bv` / `.ap` / `__shimP`
+  allocas and C callers exactly SizeOf bytes at the type's own alignment — so a callee using the memory in
+  place must never touch bytes past SizeOf (no whole-word tail stores, no 8-byte zero-fill) nor assume
+  8-byte alignment.  The keep-copying exclusion keys on `IsClosure && pi < NumCaptureParams` (it covers
+  method-value wrappers, NumCaptureParams = 1).  Commit 1 is now binate `78f2f74a4` on work-1 (one shared
+  argument area per frame; an ID-less call passing such an argument fails loud).
 
 ## x64 design (recon 2026-10-03)
 
