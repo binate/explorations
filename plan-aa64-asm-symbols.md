@@ -186,7 +186,8 @@ Design (proposed):
 Commits: (1) evaluator + fixed differences, two-pass forward references (ELF, Mach-O same-atom);
 (2) relocatable differences in data (writers, bnld).
 
-Decisions for the user (asked 2026-10-05):
+Decided (user, 2026-10-05, each as below: (a) "Anywhere", (b) "Never fold", (c) "Second pass", (d)
+"Include") — plain symbols in data join commit (2).  The questions were:
 (a) immediates: a fixed difference wherever a number goes (recommended — one rule; a superset of
     clang, which rejects it in operands without a layout fixup), or only where clang takes it;
 (b) Mach-O: a difference across atoms is never folded — a relocation pair in data, an error in an
