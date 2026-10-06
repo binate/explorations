@@ -108,7 +108,7 @@ initializers do not run either (`var Count int = 50` reads 0 at the prompt).  Si
 needs investigation (where the REPL lowers a loaded package, and whether its init function is called).
 Test: `e2e/repl-pkg-var-init.sh` (startup and prompt imports), `.xfail` meanwhile.
 
-### `Self` at the end of a line is not followed by an inserted semicolon — an interface method returning `Self` does not parse — 🔴 NEEDS DECISION (found 2026-10-05, work-7, writing the test for the generic-receiver `Self` impl fix; pre-existing)
+### `Self` at the end of a line is not followed by an inserted semicolon — an interface method returning `Self` does not parse — 🔴 OPEN, DECIDED 2026-10-06 (found 2026-10-05, work-7, writing the test for the generic-receiver `Self` impl fix; pre-existing)
 
 `interface T { Copy() Self\n Same(o Self) bool }` fails to parse ("expected }, got IDENT" on the next line):
 lex.semicolon.insertion (§5.13) inserts a semicolon after an identifier and after the keywords `true`,
@@ -120,6 +120,9 @@ code that parses into code that does not.  Proposal: add `Self` to §5.13's list
 a type name it ends a line like an identifier; a lexer unit test, a bnfmt round-trip test and a conformance
 test of a `Self` result followed by another method.  The test for the `Self` impl fix (conformance
 `1583_generic_impl_self`) puts its `Self`-result method last meanwhile.
+Decision (user, 2026-10-06): "(a) sounds right" — add `Self` to §5.13's list and to token.TriggersASI.  Work: the
+lexer change, spec §5.13, a lexer unit test, a bnfmt round-trip test, a conformance test of a `Self`-result
+method followed by another method; 1583 can then use the natural order.
 
 ### A function NAME passed into `*any` compiles and boxes nothing — silent wrong value — 🔴 NEEDS DECISION MAJOR (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
 
