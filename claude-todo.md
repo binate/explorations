@@ -213,6 +213,17 @@ builds the literal in an alloca of the PEELED array type, and box records that a
 address side was fixed with genCompositeAddr's relabel; box takes the value.)  Fix: box (and any value
 consumer that records a dynamic type) should take the literal's declared type; a test with `case PairN:`.
 
+### `Self` at the end of a line is not followed by an inserted semicolon — an interface method returning `Self` does not parse — 🔴 NEEDS DECISION (found 2026-10-05, work-7, writing the test for the generic-receiver `Self` impl fix; pre-existing)
+
+`interface T { Copy() Self\n Same(o Self) bool }` fails to parse ("expected }, got IDENT" on the next line):
+lex.semicolon.insertion (§5.13) inserts a semicolon after an identifier and after the keywords `true`,
+`false`, `nil`, `break`, `continue`, `return`, but `Self` is a reserved keyword (lex.keywords.reserved), and
+the lexer (token.TriggersASI) follows the spec.  `Self` is the only keyword that can end a line as a type
+(an interface method's result), so every such method has to be written `Copy() (Self)` or end in `;`.
+Proposal: add `Self` to §5.13's list (and token.TriggersASI), as a type name it ends a line like an
+identifier; a lexer unit test and a conformance test of a `Self` result at the end of a line.  The test for
+the `Self` impl fix (conformance `1583_generic_impl_self`) spells the result `(Self)` meanwhile.
+
 ### A generic-receiver impl of an interface that uses `Self` is rejected — no generic type can be a hashmap key — 🟡 IN PROGRESS (found 2026-10-03, work-7, review of the non-struct generic types change; reproduced; pre-existing; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
 
 `type IdS[T any] struct {…}; func (a IdS[T]) Compare(other IdS[T]) int; impl IdS[T] : lang.Orderable`
