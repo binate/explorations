@@ -230,7 +230,9 @@ literal — the managed→raw conversion `var r *[]int = @[]int{20, 21}`, local 
 into the literal's backing, and today dangles (prints 0) like `var r *[]int = mk()`.  Options: (a) yes — the
 conversion addresses the literal (as sub-slicing an array literal does): co-scoped in a var initializer, an
 error when stored; (b) no — it is the managed→raw conversion of a temporary, user error (mem.raw-uaf), as for
-a call result.
+a call result.  The same question for one held in a literal's raw-slice field: with `type R struct { r *[]int }`,
+`p := &R{r: @[]int{1, 2}}.r[1]` dangles in a var initializer and `g = &R{r: @[]int{5, 6}}.r[1]` is accepted
+(managedSliceOwner follows managed-slice-typed bases only).
 
 ### The REPL never runs an imported package's initialization — its variables read 0 — 🔴 OPEN MAJOR (found 2026-10-05, work-7, fixing the REPL's generic-body dependency registration; pre-existing; reproduced on main)
 
