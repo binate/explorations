@@ -144,6 +144,58 @@ and none of its GOT references is relaxed (today each ADRP / LDR is relaxed on i
 break); a GOT reference with an addend to a dynamic import is a GLOB_DAT with that addend (slots per
 (import, addend)).  (3) TLS, scope pending.
 
+## 3e. Label differences
+
+🟡 IN PROGRESS (claimed 2026-10-05; user: "go ahead with label differences").  `l2 - l1` (with `.` on
+either side, plus numbers and arithmetic) in a constant definition, an immediate and a data directive.
+
+clang 21 (probed 2026-10-05):
+- ELF: a difference of two labels in one section folds to a number wherever a number goes — any
+  binding (global, weak), forward or backward, with arithmetic (`(l2 - l1) / 4`, `* 3 + 1`, `-(…)`),
+  across alignment padding; `D = l3 - l1` before the labels works.  In data, `sym - .` / `sym + k - .`
+  / `sym - l_here` (subtracting a location in the data's own section) is R_AARCH64_PREL16 / 32 / 64
+  (`.hword` / `.word` / `.quad`); `. - sym`, a difference across sections otherwise, and one with an
+  undefined symbol subtracted are errors.
+- Immediates: clang takes a difference only where the operand has a layout-time fixup — ADD / SUB /
+  CMP / CMN imm12, load / store offsets, `mov` (as MOVZ / MOVN, ±0xFFFF), branch targets (`b l1 +
+  (l3 - l2)`) — and rejects it (even with backward labels) in logical immediates, explicit MOVZ /
+  MOVK, TBZ bit numbers and the like.
+- Mach-O (`.subsections_via_symbols`): in data, a difference not fixed at assembly is an
+  ARM64_RELOC_SUBTRACTOR + UNSIGNED pair (4 or 8 bytes), even of two external symbols; in an
+  immediate it is an error ("unknown fixup").  clang folds a difference of two labels in different
+  atoms of one section when both precede the use, and emits the pair when they follow it — an
+  artifact: the linker may move atoms apart.
+
+Design (proposed):
+- The expression evaluator carries a difference (`Sym - Neg + Val`, either side possibly `.`).  It is a
+  number once both labels are placed and their distance is fixed — one section on ELF, one atom on
+  Mach-O (the rule PC-relative displacements already follow) — so it folds, and any arithmetic
+  applies; anywhere a number is read, such a difference may stand.
+- Forward references: AArch64 instructions and data directives have a size independent of the
+  values, so when the first pass meets a difference it cannot fold yet, the file is assembled a second
+  time with the first pass's label offsets (only then — a file with none is assembled once).  A full
+  second pass keeps redefined constants and numeric labels meaning what they meant on their line, which
+  re-parsing deferred lines at the end would not.  A size-determining operand (`.zero`, `.fill`
+  count, `.balign`) takes no forward difference.  The second pass checks every first-pass offset it
+  used against where the label landed.
+- Not fixed: in data, a relocation — ELF PREL16 / 32 / 64 when the subtracted location is in the
+  data's own section (else an error, as clang), Mach-O a SUBTRACTOR + UNSIGNED pair (4 / 8 bytes) —
+  for `sym - sym2 + k` only (arithmetic on it is an error); in an immediate, an error.
+- bnld: PREL16 / PREL64 (PREL32 exists) and Mach-O SUBTRACTOR pairs.
+
+Commits: (1) evaluator + fixed differences, two-pass forward references (ELF, Mach-O same-atom);
+(2) relocatable differences in data (writers, bnld).
+
+Decisions for the user (asked 2026-10-05):
+(a) immediates: a fixed difference wherever a number goes (recommended — one rule; a superset of
+    clang, which rejects it in operands without a layout fixup), or only where clang takes it;
+(b) Mach-O: a difference across atoms is never folded — a relocation pair in data, an error in an
+    immediate, even when clang folds it (backward labels) — recommended;
+(c) the two-pass mechanism for forward references (recommended), with forward differences rejected in
+    size-determining directives;
+(d) plain symbols in data directives (`.uint64 sym`, an absolute address: R_AARCH64_ABS64 / UNSIGNED),
+    which the dialect does not take today — in scope beside the relocatable differences?
+
 ## Decisions (user, 2026-09-30 — each the recommended option)
 
 1. ELF temporaries: match clang — omit `.L…` and numeric-label instances from the ELF symbol table
