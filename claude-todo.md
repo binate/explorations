@@ -213,6 +213,15 @@ builds the literal in an alloca of the PEELED array type, and box records that a
 address side was fixed with genCompositeAddr's relabel; box takes the value.)  Fix: box (and any value
 consumer that records a dynamic type) should take the literal's declared type; a test with `case PairN:`.
 
+### The REPL never runs an imported package's initialization — its variables read 0 — 🔴 OPEN MAJOR (found 2026-10-05, work-7, fixing the REPL's generic-body dependency registration; pre-existing; reproduced on main)
+
+At `bni --repl`, a package imported by the session's main file or at the prompt has its package-level
+variables zero: with `pkg/hv`'s `var V int = 2` and `var w int = 3` (V declared `var V int` in the .bni),
+`hv.V`, `hv.GetV()` (which returns V) and `hv.GetW()` all print 0, where `bni prog.bn` prints 2 and 3 —
+prog.init.vars never runs for the package in the REPL's VM.  Silent wrong values.  Root cause unknown —
+needs investigation (where the REPL lowers a loaded package, and whether its init function is called).
+Test: `e2e/repl-pkg-var-init.sh` (startup and prompt imports), `.xfail` meanwhile.
+
 ### `Self` at the end of a line is not followed by an inserted semicolon — an interface method returning `Self` does not parse — 🔴 NEEDS DECISION (found 2026-10-05, work-7, writing the test for the generic-receiver `Self` impl fix; pre-existing)
 
 `interface T { Copy() Self\n Same(o Self) bool }` fails to parse ("expected }, got IDENT" on the next line):
