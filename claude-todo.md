@@ -32,7 +32,7 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### A value-borrow temporary inside a composite element of a deferred call's argument, in a nested block, is released when the block ends — the deferred call reads freed storage — 🔴 OPEN MAJOR (found 2026-10-05, work-3, review of the call-result field borrow fix; pre-existing)
+### A value-borrow temporary inside a composite element of a deferred call's argument, in a nested block, is released when the block ends — the deferred call reads freed storage — 🟡 IN PROGRESS MAJOR (claimed 2026-10-05, work-3/session; user: "yes, go ahead") (found 2026-10-05, work-3, review of the call-result field borrow fix; pre-existing)
 
 `if c { defer takeOpts(3, Opts{g: mkW(3)}) }` with `Opts{ g *Getter }` and `W` a value with a managed field
 and a value-receiver impl of Getter: the deferred call sees the borrowed W's field already released — wrong
