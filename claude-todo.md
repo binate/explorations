@@ -306,6 +306,14 @@ Reported: the aa64 callee copies an IndirectLargeAggregates parameter as `common
 in practice; a fault if the copy ends at an unmapped page boundary).  Not yet confirmed against the code
 (start at the aa64 incoming-parameter spill and `common.ArgWords`); check x64 and arm32 for the same pattern.
 Fix if confirmed: copy exactly `SizeOf(T)` bytes (a byte / halfword tail after the whole words).
+**Update 2026-10-05 (work-1):** confirmed by reading the old aa64 incoming-parameter spill, and fixed there by
+binate `2fd5685fc` (the copy goes through emitAggCopyToAarch64 with `SizeOf(T)` bytes).  The callee spills on
+x64 and arm32 read the caller's argument area, whose slots their ABIs pad to whole words, so they are fine.
+Still to check: the func-value / closure spill shims' re-expansion of a BY-ADDRESS aggregate reads ArgWords
+whole words through the dispatch caller's pointer — x64 emitSpillByAddressAgg_x64 and the closure shims
+(R10 / R11 loops, now emitCopyLoopX64 with `8 * n` past 128 bytes), arm32's register words of a byte-wise
+aggregate — and a VM or LLVM-compiled dispatch caller's copy may be sized to the type itself (`[201]uint8`
+reads 208 bytes).
 
 ### LLVM backend: whole-aggregate load / store left in sret returns, call-site sret loads and zero-value construction — possible `__aeabi_memcpy` on ARM EABI — 🔴 OPEN (investigate; found 2026-09-29 by the review of the named-aggregate copy fix `d500a2af7`)
 
