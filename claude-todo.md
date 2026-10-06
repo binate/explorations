@@ -54,6 +54,30 @@ TYP_STRUCT`), so a pointer to a struct falls through to DEFER_METHOD.  Fix: look
 either kind) there, as `.` does.  Test: conformance `spec/14-statements/180_defer_funcval_field_through_pointer`
 (expected-fail in every mode).
 
+### Returning a managed `@T` as a raw `*T` result leaks one block per call — 🔴 OPEN MAJOR (found 2026-10-05, work-4, review of the deferred func-value-field fix; pre-existing; LLVM / native / VM)
+
+`func fromParam(t @T) *T { return t }` (likewise a field `h.p`, a local, a package global) leaks one block per
+call: the return path takes a reference (a RefInc before `ret`, seen in the LLVM IR) as for a managed result, but
+the result is a raw borrow (conv.managed-to-raw), so nothing ever releases it.  Returning a managed-slice as a raw
+slice does not leak, and copying into a `*T` local first (`var r *T = gt; return r`) does not either.  mem.return
+delivers an owning reference only for a MANAGED result.  Fix: the managed-to-raw return conversion must not
+acquire (find where the return path decides to RefInc and key it on the result type, not the operand's).  Test:
+conformance `spec/18-memory/150_return_managed_as_raw_takes_no_ref` (expected-fail in every mode).
+
+### A field and a same-named method: the checker resolves the method, IR-gen calls the field — wrong code — 🔴 OPEN MAJOR (found 2026-10-05, work-4, review of the deferred func-value-field fix; pre-existing; LLVM / native / VM)
+
+expr.member: "a field takes precedence over a same-named method" (and func.dispatch.routing (1)).  The checker's
+`tryMethodCall` looks methods up first: with a field `f @func(int, int)` and a method `(t *T) f(n int)`,
+`t.f(1, 2)` is rejected ("wrong number of arguments"), while `t.f(4)` type-checks against the method and IR-gen's
+direct call (`getSelectorType`) then calls the 2-parameter FIELD with one argument (garbage second argument).
+With opacity: an importer's `p.f(1)` on an opaque handle whose hidden field is named `f` must call the exported
+method `f` (the field is invisible), but IR-gen's direct call runs the hidden field (it has no opacity check).  A
+deferred call follows the checker (classifyDeferShape classifies by the checker's selector type), so it calls the
+method in both cases.  Fix: the checker resolves a visible field first, then methods; IR-gen's direct call takes
+the field only when the checker typed the selector as a function value.  Tests: conformance
+`spec/13-expressions/066_member_field_over_method` and `1572_call_method_hidden_same_name_field` (expected-fail
+in every mode); `1571_defer_method_hidden_same_name_field` passes and must keep passing.
+
 ### Does stmt.defer retain an `@T` boxed into a deferred `*I` / `*any` argument? — 🔴 NEEDS DECISION MAJOR (found 2026-10-04, work-4, review of the deferred variadic pack fix; reproduced on main, LLVM / native / VM; pre-existing)
 
 `defer run1(mk(11))` with `func run1(x *any)` and `mk` returning `@Thing`, and `defer runv(mk(12), mk(13))` into
