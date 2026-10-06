@@ -213,6 +213,25 @@ builds the literal in an alloca of the PEELED array type, and box records that a
 address side was fixed with genCompositeAddr's relabel; box takes the value.)  Fix: box (and any value
 consumer that records a dynamic type) should take the literal's declared type; a test with `case PairN:`.
 
+### A local `var ( … )` group outside the main package loses the function's local scope — 🟡 IN PROGRESS MAJOR (found 2026-10-05, review of the work-7 batch; pre-existing, reproduced on main; claimed 2026-10-05, work-7/session, self-drive)
+
+In a package other than main (file-scoped imports active), `func F() int { var x int = 10; var ( a = 1; b
+= a + x ); var y int = x + b; return y }` reports "undefined: x" twice: checkStmt's group arm calls
+checkGroupDecl → checkDecls, the package-level pass, which sets `c.Scope = scopeForFile(…)` for each member
+and never restores it — so the rest of the function loses its locals and the group's members are defined in
+the file scope.  Fix: a local group's members are checked as the single local declarations are, in the
+current scope; tests in a non-main package.
+
+### Is a raw-slice view of a managed-slice literal (`var r *[]int = @[]int{20, 21}`) part of the literal? — 🔴 NEEDS DECISION (found 2026-10-05, review of the work-7 batch; pre-existing)
+
+A managed-slice literal's element is part of the literal (decided 2026-10-04), so `&@[]int{…}[i]` in a var
+initializer keeps the literal alive with the binding and storing it is an error.  A raw-slice view of the
+literal — the managed→raw conversion `var r *[]int = @[]int{20, 21}`, local or package-level — also points
+into the literal's backing, and today dangles (prints 0) like `var r *[]int = mk()`.  Options: (a) yes — the
+conversion addresses the literal (as sub-slicing an array literal does): co-scoped in a var initializer, an
+error when stored; (b) no — it is the managed→raw conversion of a temporary, user error (mem.raw-uaf), as for
+a call result.
+
 ### The REPL never runs an imported package's initialization — its variables read 0 — 🔴 OPEN MAJOR (found 2026-10-05, work-7, fixing the REPL's generic-body dependency registration; pre-existing; reproduced on main)
 
 At `bni --repl`, a package imported by the session's main file or at the prompt has its package-level
