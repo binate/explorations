@@ -1,3 +1,21 @@
+### A deferred call of a function-value field through a pointer to the struct panics the compiler — DONE (binate `dd62a944a`, 2026-10-05, work-4; found 2026-10-05 in review of the deferred func-value IR-typing fix)
+
+`defer t.f(3)` with `t` an `@T` or `*T` and `f` an `@func(int)` field panics "defer of an unresolved method
+call"; the direct call `t.f(1)` and `defer s.f(2)` with `s` a `T` value work.  Cause: `classifyDeferShape`
+(gen_defer.bn) checks `structFieldIsFuncValue` only when the receiver is itself a struct (`rb.Kind ==
+TYP_STRUCT`), so a pointer to a struct falls through to DEFER_METHOD.  Fix: look through one pointer level (of
+either kind) there, as `.` does.  Test: conformance `spec/14-statements/180_defer_funcval_field_through_pointer`
+(expected-fail in every mode).
+
+Resolution: classifyDeferShape classifies a selector callee by the checker's type for the selector — a function
+value means a function-value field (on the struct or through a pointer) — instead of looking the field up in the
+receiver's struct type.  That also follows the checker where a method shares the field's name (a first version
+that looked through the pointer for the field turned an importer's deferred call of an exported method, whose
+same-named field is hidden, into an internal error; caught in review).  Tests: 180 (no longer expected-fail;
+also a field reassigned after the defer, a managed-to-raw argument through a raw pointer) and
+`1573_defer_method_hidden_same_name_field`.  The review found the `@T`-returned-as-`*T` leak and the
+field-vs-same-named-method bug (their own entries).
+
 ### A value-borrow temporary inside a composite element of a deferred call's argument, in a nested block, is released when the block ends — the deferred call reads freed storage — DONE (binate `7cc29fde3`, 2026-10-05, work-3)
 
 `if c { defer takeOpts(3, Opts{g: mkW(3)}) }` with `Opts{ g *Getter }` and `W` a value with a managed field

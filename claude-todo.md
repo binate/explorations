@@ -32,15 +32,6 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### A deferred call of a function-value field through a pointer to the struct panics the compiler — 🟡 IN PROGRESS (claimed 2026-10-05, work-4) MAJOR (found 2026-10-05, work-4, review of the deferred func-value IR-typing fix; pre-existing; LLVM / native / VM)
-
-`defer t.f(3)` with `t` an `@T` or `*T` and `f` an `@func(int)` field panics "defer of an unresolved method
-call"; the direct call `t.f(1)` and `defer s.f(2)` with `s` a `T` value work.  Cause: `classifyDeferShape`
-(gen_defer.bn) checks `structFieldIsFuncValue` only when the receiver is itself a struct (`rb.Kind ==
-TYP_STRUCT`), so a pointer to a struct falls through to DEFER_METHOD.  Fix: look through one pointer level (of
-either kind) there, as `.` does.  Test: conformance `spec/14-statements/180_defer_funcval_field_through_pointer`
-(expected-fail in every mode).
-
 ### Returning a managed `@T` as a raw `*T` result leaks one block per call — 🟡 IN PROGRESS (claimed 2026-10-05, work-4) MAJOR (found 2026-10-05, work-4, review of the deferred func-value-field fix; pre-existing; LLVM / native / VM)
 
 `func fromParam(t @T) *T { return t }` (likewise a field `h.p`, a local, a package global) leaks one block per
@@ -62,8 +53,8 @@ method `f` (the field is invisible), but IR-gen's direct call runs the hidden fi
 deferred call follows the checker (classifyDeferShape classifies by the checker's selector type), so it calls the
 method in both cases.  Fix: the checker resolves a visible field first, then methods; IR-gen's direct call takes
 the field only when the checker typed the selector as a function value.  Tests: conformance
-`spec/13-expressions/066_member_field_over_method` and `1572_call_method_hidden_same_name_field` (expected-fail
-in every mode); `1571_defer_method_hidden_same_name_field` passes and must keep passing.
+`spec/13-expressions/066_member_field_over_method` and `1574_call_method_hidden_same_name_field` (expected-fail
+in every mode); `1573_defer_method_hidden_same_name_field` passes and must keep passing.
 
 ### Does stmt.defer retain an `@T` boxed into a deferred `*I` / `*any` argument? — 🔴 NEEDS DECISION MAJOR (found 2026-10-04, work-4, review of the deferred variadic pack fix; reproduced on main, LLVM / native / VM; pre-existing)
 
