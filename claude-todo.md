@@ -32,19 +32,6 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### A value-borrow temporary inside a composite element of a deferred call's argument, in a nested block, is released when the block ends — the deferred call reads freed storage — 🟡 IN PROGRESS MAJOR (claimed 2026-10-05, work-3/session; user: "yes, go ahead") (found 2026-10-05, work-3, review of the call-result field borrow fix; pre-existing)
-
-`if c { defer takeOpts(3, Opts{g: mkW(3)}) }` with `Opts{ g *Getter }` and `W` a value with a managed field
-and a value-receiver impl of Getter: the deferred call sees the borrowed W's field already released — wrong
-values on the VM and native (`1000` for `1003`), a trap on LLVM; also with `mkHold(4).w`.  At function top
-level it is correct.  Root cause: the defer pre-pass (deferArgBorrowVt, gen_defer_build.bn) pre-allocates
-entry-depth slots only for TOP-LEVEL arguments whose parameter is an interface, so a value-borrow temporary
-nested in a composite-literal element of a defer operand takes the "2b" var-initializer path in gen_util.bn
-and is enrolled as a `.borrow_temp` local of the enclosing block, released at that block's end — before the
-function exits and the deferred call runs.  Proposed fix: the pre-pass allocates an entry-depth slot for
-every value-borrow temporary in a defer's operands, nested ones included (in the order the operand
-evaluation reaches them).  Conformance 1568_defer_nested_composite_borrow (`.xfail.all`).
-
 ### A deferred call of a function-value field through a pointer to the struct panics the compiler — 🟡 IN PROGRESS (claimed 2026-10-05, work-4) MAJOR (found 2026-10-05, work-4, review of the deferred func-value IR-typing fix; pre-existing; LLVM / native / VM)
 
 `defer t.f(3)` with `t` an `@T` or `*T` and `f` an `@func(int)` field panics "defer of an unresolved method

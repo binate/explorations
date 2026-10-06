@@ -1,3 +1,17 @@
+### A value-borrow temporary inside a composite element of a deferred call's argument, in a nested block, is released when the block ends — the deferred call reads freed storage — DONE (binate `7cc29fde3`, 2026-10-05, work-3)
+
+`if c { defer takeOpts(3, Opts{g: mkW(3)}) }` with `Opts{ g *Getter }` and `W` a value with a managed field
+and a value-receiver impl of Getter: the deferred call sees the borrowed W's field already released — wrong
+values on the VM and native (`1000` for `1003`), a trap on LLVM; also with `mkHold(4).w`.  At function top
+level it is correct.  Root cause: the defer pre-pass (deferArgBorrowVt, gen_defer_build.bn) pre-allocates
+entry-depth slots only for TOP-LEVEL arguments whose parameter is an interface, so a value-borrow temporary
+nested in a composite-literal element of a defer operand takes the "2b" var-initializer path in gen_util.bn
+and is enrolled as a `.borrow_temp` local of the enclosing block, released at that block's end — before the
+function exits and the deferred call runs.  Proposed fix: the pre-pass allocates an entry-depth slot for
+every value-borrow temporary in a defer's operands, nested ones included (in the order the operand
+evaluation reaches them).  Conformance 1568_defer_nested_composite_borrow (`.xfail.all`).
+Resolution (binate `7cc29fde3`): the defer pre-pass allocates an entry-depth slot for every value-borrow nested in an operand (an interface-typed composite-literal element anywhere in the receiver, callee, arguments, spread / variadic elements or a deferred panic's message), in store order, skipping call arguments (statement temporaries) and function literals; storing a defer's operands fails loudly on a managed borrow with no slot or a slot of another type.  Conformance 1568 (xfail removed), 1571, 1572.
+
 ### A `cast` / `unsafe_cast` / `bit_cast` that is invalid only once a generic type parameter is instantiated crashes IR-gen instead of getting a diagnostic — DONE (verified fixed 2026-10-05, work-7)
 
 check_cast_safe.bn `checkCastSafeSet` defers validation when a side is an abstract type parameter, and
