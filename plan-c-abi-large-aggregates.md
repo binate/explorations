@@ -105,7 +105,9 @@ step D's table.
   the by-value switch moves the copy from the callee to each call site — a large array passed by value
   costs code per call where LLVM emits a loop / memcpy.  Done on all three: past a size threshold a copy
   or zero-fill is a loop — arm32 `01ee02873`, aa64 `2fd5685fc`, x64 `f6b4cc81a`.
-- Next: aa64 — AAPCS64's ownership rule (the callee owns the caller-made copy) and the param slot in place.
+- DONE aa64 — AAPCS64's ownership rule and the param slot in place: `dfce07941`, `35a7a4f3b` (see the aa64
+  ownership design below).  Next: x64 / arm32 callees in place (the user's call), then
+  plan-aggregate-copy-opts.md D2 / D3 / D4.
   Local validation for x64: native `builder-comp_native_x64_darwin-…` and LLVM via
   `BINATE_FLAGS="--target x86_64-darwin" ./conformance/run.sh builder-comp` (both run under Rosetta); full
   runs on both, since a 32-byte managed-slice argument is >16 bytes on x64 (nearly every program).
@@ -177,13 +179,13 @@ Refinement (2026-10-05, after recon for commit 2):
   8-byte alignment.  The keep-copying exclusion keys on `IsClosure && pi < NumCaptureParams` (it covers
   method-value wrappers, NumCaptureParams = 1).  Commit 1 is now binate `78f2f74a4` on work-1 (one shared
   argument area per frame; an ID-less call passing such an argument fails loud).
-- Slot in place is binate `79c73bfc1` on work-1 (to land with `78f2f74a4`; user 2026-10-05: "let's do them
+- LANDED 2026-10-05 as binate `dfce07941` (callers own) and `35a7a4f3b` (slot in place; user: "let's do them
   together"): common.InPlaceParamSlots (user args only; the entry store is the param's only use; same size;
   slot unused before it) honoured natively (no region, the slot reads the param's spill slot; the store of
   the slot's own param skipped) and by LLVM aa64 (the slot's alloca becomes a zero GEP of the `ptr` param,
   no zero-fill, no entry copy).  Review follow-ups folded in: the store skip keys on the slot's own param;
   ParamRegionElidable removed (a PassesIndirect param never needs a region once callers own); comments that
-  said the callee copies updated.  Conformance 1575 (fails without caller copies via an elided whole-read
+  said the callee copies updated.  Conformance 1594 (fails without caller copies via an elided whole-read
   local).  x64 / arm32 callee-in-place not done — still the user's call.
 
 ## x64 design (recon 2026-10-03)

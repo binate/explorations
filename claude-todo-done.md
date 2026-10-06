@@ -1,3 +1,17 @@
+### aa64: a >16-byte by-value aggregate follows AAPCS64's ownership rule — the caller's copy is the callee's param slot — DONE (binate `dfce07941`, `35a7a4f3b`, 2026-10-05, work-1)
+
+Part of "Binate's ABI for a >16-byte by-value aggregate" (claude-todo.md).  `dfce07941`: every aa64 caller
+passes memory the call owns — natively a per-call argument region (one shared area per frame) unless the
+argument is a private copy used once in its block (the rule of LLVM's bulkArgDirect), for direct calls,
+__c_call, function pointers, function values and interface methods; `__shimP` (the VM's way into compiled
+code) copies in both backends.  Closure captures stay passed by reference into the closure record (the
+lifted body copies them).  `35a7a4f3b`: the param slot is the incoming copy when the entry store is the
+param's only use (common.InPlaceParamSlots) — natively no region (the slot reads the param's spill slot),
+LLVM a zero GEP of the `ptr` param; no zero-fill, no entry copy.  ParamRegionElidable removed.  A by-value
+`bump(q Q)` now writes q in place.  Conformance 1594 (callees write their param; fails without caller
+copies).  Validated: native aa64 / x64 / arm32 bare-metal, LLVM and VM subsets, C-interop e2e.  One review
+per commit (no correctness defects; follow-ups folded in).
+
 ### Returning a managed `@T` as a raw `*T` result leaks one block per call — DONE (binate `1fca458a1`, 2026-10-06, work-4; found 2026-10-05 in review of the deferred func-value-field fix)
 
 `func fromParam(t @T) *T { return t }` (likewise a field `h.p`, a local, a package global) leaks one block per

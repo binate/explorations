@@ -839,7 +839,7 @@ backend separately switches its bulk copies to llvm.memcpy / llvm.memset so clan
 regression fix, not a substitute for this entry.)
 Measure per explorations/perf-optimization-guide.md.
 
-### Binate's ABI for a >16-byte by-value aggregate: x64 and arm32 now pass it the C way; aa64 still lacks AAPCS64's ownership rule — 🟡 IN PROGRESS (found 2026-10-02, work-1, measuring copy chains; pre-existing; claimed 2026-10-02, work-1; user: "yes" to doing D1 as C-ABI conformance)
+### Binate's ABI for a >16-byte by-value aggregate: every target passes it the C way; x64 / arm32 callees still copy their incoming bytes — 🟡 IN PROGRESS (found 2026-10-02, work-1, measuring copy chains; pre-existing; claimed 2026-10-02, work-1; user: "yes" to doing D1 as C-ABI conformance)
 
 Both backends pass a >16-byte by-value aggregate argument as a plain pointer on every target (LLVM `ptr`,
 native `IndirectLargeAggregates`), but the C ABI passes it by value on SysV x86-64 (MEMORY class, on the
@@ -855,8 +855,12 @@ else would be extremely unfortunate and inconvenient)."  Fix: pass it the C way 
 AAPCS64's ownership rule on aa64, in both backends; callees then use the incoming memory in place.
 Measurements and the copy optimizations that build on it: plan-aggregate-copy-opts.md step D (D1).
 x64 DONE `dfde1e73a` (2026-10-04) — SysV MEMORY class in both backends.  arm32 DONE `e62af60cf`
-(2026-10-04) — AAPCS32 by-value split in both backends (claude-todo-done.md).  Remaining: aa64's
-ownership rule; plan-c-abi-large-aggregates.md.
+(2026-10-04) — AAPCS32 by-value split in both backends (claude-todo-done.md).  aa64 DONE `dfce07941` +
+`35a7a4f3b` (2026-10-05) — every caller passes a copy it owns, and the param slot is that copy, used in
+place (claude-todo-done.md).  Remaining: x64 / arm32 callees still copy their incoming bytes into the param
+slot, though the callee owns them there too (the SysV MEMORY area; the AAPCS32 stack part, plus a register
+part to store beside it) — to scope with the user.  Then plan-aggregate-copy-opts.md D2 / D3 / D4;
+plan-c-abi-large-aggregates.md.
 
 ### Copying or releasing an array of managed elements is emitted unrolled, one sequence per element — code size grows with N — 🔴 OPEN (found 2026-09-28, work-6, review of the range-loop operand change; pre-existing)
 
