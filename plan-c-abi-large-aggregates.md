@@ -177,6 +177,14 @@ Refinement (2026-10-05, after recon for commit 2):
   8-byte alignment.  The keep-copying exclusion keys on `IsClosure && pi < NumCaptureParams` (it covers
   method-value wrappers, NumCaptureParams = 1).  Commit 1 is now binate `78f2f74a4` on work-1 (one shared
   argument area per frame; an ID-less call passing such an argument fails loud).
+- Slot in place is binate `79c73bfc1` on work-1 (to land with `78f2f74a4`; user 2026-10-05: "let's do them
+  together"): common.InPlaceParamSlots (user args only; the entry store is the param's only use; same size;
+  slot unused before it) honoured natively (no region, the slot reads the param's spill slot; the store of
+  the slot's own param skipped) and by LLVM aa64 (the slot's alloca becomes a zero GEP of the `ptr` param,
+  no zero-fill, no entry copy).  Review follow-ups folded in: the store skip keys on the slot's own param;
+  ParamRegionElidable removed (a PassesIndirect param never needs a region once callers own); comments that
+  said the callee copies updated.  Conformance 1575 (fails without caller copies via an elided whole-read
+  local).  x64 / arm32 callee-in-place not done — still the user's call.
 
 ## x64 design (recon 2026-10-03)
 
