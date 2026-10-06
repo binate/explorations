@@ -237,7 +237,8 @@ a call result.
 At `bni --repl`, a package imported by the session's main file or at the prompt has its package-level
 variables zero: with `pkg/hv`'s `var V int = 2` and `var w int = 3` (V declared `var V int` in the .bni),
 `hv.V`, `hv.GetV()` (which returns V) and `hv.GetW()` all print 0, where `bni prog.bn` prints 2 and 3 —
-prog.init.vars never runs for the package in the REPL's VM.  Silent wrong values.  Root cause unknown —
+prog.init.vars never runs for the package in the REPL's VM.  The main fixture file's own package-level
+initializers do not run either (`var Count int = 50` reads 0 at the prompt).  Silent wrong values.  Root cause unknown —
 needs investigation (where the REPL lowers a loaded package, and whether its init function is called).
 Test: `e2e/repl-pkg-var-init.sh` (startup and prompt imports), `.xfail` meanwhile.
 
