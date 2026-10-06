@@ -1620,12 +1620,25 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
     pool. The structural fix is a larger home pool (RAX/RCX/RDX/R10/R11 are scratch-only; LLVM
     allocates all 15). (The x64 `imul`-immediate fold frees the checksum loop's 8 multiplier
     registers, but that loop is cold.)
-- **x64: enlarge the GP home pool** — 🔵 OPEN: only step 3, RAX as a home, remains (steps 1–2 and
-  freeing RDX in hot code landed: `70e6b95de`, `6c0615b72`, `df75b805a`, `981151c9b` — RCX/RDX are
-  homes, 11 GP homes, and integer retention-safe ops declare neither). x64 homes 9
+- **x64: enlarge the GP home pool** — 🟡 IN PROGRESS: step 3, RAX as a home (claimed 2026-10-06).
+  Steps 1–2 and freeing RDX in hot code landed: `70e6b95de`, `6c0615b72`, `df75b805a`, `981151c9b` —
+  RCX/RDX are homes, 11 GP homes, and integer retention-safe ops declare neither. x64 homes 9
   registers; LLVM allocates 15; record-churn's mix loop needs ~11. Plan: make RCX/RDX/RAX
   caller-saved homes via per-register clobber positions in the shared allocator, keeping R10/R11
   as guaranteed scratch and RBP as the frame pointer. See `plan-x64-home-pool.md`.
+- **native allocator: a tie hint is lost when the first-allocated partner takes a register the
+  other cannot use** — 🔵 OPEN. `LinearScan` (`native/common/regalloc_linear_scan.bn`) honours a tie
+  (`pickPartner`) only if the partner's register is eligible for the later interval; nothing steers
+  the FIRST-allocated interval toward a register its partners can also take. Seen in record-churn's
+  mix loop while freeing RDX (fixed there by `981151c9b`, which stopped native no-ops declaring
+  RCX/RDX): lane phi `v842` (live only in the loop header) took RCX, but its update `v391 = add v689
+  v842` was live across an instruction declaring RCX/RDX (an `sp_restore`), so it could not share
+  RCX — the hint failed and the loop gained a two-address copy and a back-edge copy (+2 instructions
+  per iteration, record-churn +2.5%). Any per-register clobber (`RegClobbers`, also callee/caller
+  spans) can split a tie this way. Possible fixes: when picking a free register for an interval with
+  tie partners, prefer one eligible for the partners' intervals too (they are known up front); or
+  allocate tie groups together. Reproduce: `rc/main.bn`-style loop with a value carried across a
+  statement end and a declared clobber inside the loop body.
 - **x64 `rt.MemZero`** (zeroing each `make_slice`) is a 4×-unrolled 8-byte store loop reloading its
   zero constants from 4 stack slots — 11.6% of native instructions; LLVM uses glibc `rep stosb`.
   Covered by the x64 MemZero/MemCopy item under native vectorization (A) (being worked on
