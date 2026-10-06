@@ -5,6 +5,19 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
+### x86-64 text assembler: `[reg - a + b]` negates the whole `a + b` — silent wrong displacement — 🔴 OPEN CRITICAL (found 2026-10-05, work-2, review of the label-differences change; reproduced against clang; pre-existing)
+
+**Symptom:** `mov rax, qword [rbx - 8 + 4]` assembles to displacement −12 (`48 8b 43 f4`) and `[rbx - 8 - 4]`
+to −4; clang gives −4 and −12.  Silent wrong code for hand-written x86-64 assembly through bnas (the native
+x64 backend uses the encoders directly; the tree has no x86-64 `.s` files today).
+**Root cause:** the memory-operand parser (`pkg/binate/asm/parse/x64.bn`, the TOK_MINUS case near :259) hands
+everything after the `-` to ParseExpr and subtracts the result, so the minus applies to the whole remaining
+expression rather than to its first term.
+**Fix:** negate only the first term (parse the displacement as one expression starting at the sign — or
+parse a unary-minus term and continue the additive chain); add golden tests against clang (`- a + b`,
+`- a - b`, `+ a - b`, with constants and parentheses).
+**Test:** to be added with the fix (a unit test pinning clang's displacements).
+
 ### native aa64: a conditional branch beyond ±1 MB is not relaxed — a very large function fails to assemble — 🔴 OPEN (found 2026-09-30, work-7, review of the exact aggregate-copy fix; pre-existing)
 
 "PC-relative reference to 'L_…phicrit.71' is out of range or misaligned": B.cond / CBZ reach ±1 MB and
