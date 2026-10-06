@@ -45,20 +45,7 @@ function exits and the deferred call runs.  Proposed fix: the pre-pass allocates
 every value-borrow temporary in a defer's operands, nested ones included (in the order the operand
 evaluation reaches them).  Conformance 1568_defer_nested_composite_borrow (`.xfail.all`).
 
-### A deferred function-value call with a generic-interface-instance parameter fails to compile — 🟡 IN PROGRESS (claimed 2026-10-05, work-4) MAJOR (found 2026-10-05, work-4, review of the deferred `@I` → `*I` retention fix; pre-existing, reproduced with an older compiler too; LLVM / native / VM)
-
-`var fi @func(*Holder[int]) = …; defer fi(mkH(11))` (mkH returns `@Holder[int]`) panics in IR lowering:
-LLVM "emitIfaceUpcast: negative vtable slot offset (target not an ancestor of source)", native the aa64
-equivalent, the VM "iface_upcast: target vtable not found: __ivt…Holder[int]".  The direct call `fi(mkH(11))`
-works.  Root cause: `buildDeferFuncVal` (gen_defer_build.bn) takes the parameter types from the checker's
-function type without mapping them through `irTypeFromChecker`, so the target interface carries the checker's
-`Holder[int]` name while the argument carries IR-gen's mangled instance name, and the upcast between them finds
-no ancestor relation.  An imported generic interface (`*it.Iterator[int]`) and an `@Holder[int]` parameter fail
-the same way.  Fix: map the func value's parameter (and result) types through `irTypeFromChecker`, as the slot
-types are (`deferSlotType`).  Test: conformance `spec/14-statements/179_defer_funcval_generic_iface_param`
-(expected-fail in every mode).
-
-### A deferred call of a function-value field through a pointer to the struct panics the compiler — 🔴 OPEN MAJOR (found 2026-10-05, work-4, review of the deferred func-value IR-typing fix; pre-existing; LLVM / native / VM)
+### A deferred call of a function-value field through a pointer to the struct panics the compiler — 🟡 IN PROGRESS (claimed 2026-10-05, work-4) MAJOR (found 2026-10-05, work-4, review of the deferred func-value IR-typing fix; pre-existing; LLVM / native / VM)
 
 `defer t.f(3)` with `t` an `@T` or `*T` and `f` an `@func(int)` field panics "defer of an unresolved method
 call"; the direct call `t.f(1)` and `defer s.f(2)` with `s` a `T` value work.  Cause: `classifyDeferShape`

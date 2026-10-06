@@ -1,3 +1,25 @@
+### A deferred function-value call with a generic-interface-instance parameter fails to compile — DONE (binate `75eb7eee1`, 2026-10-05, work-4; found 2026-10-05 in review of the deferred `@I` → `*I` retention fix)
+
+`var fi @func(*Holder[int]) = …; defer fi(mkH(11))` (mkH returns `@Holder[int]`) panics in IR lowering:
+LLVM "emitIfaceUpcast: negative vtable slot offset (target not an ancestor of source)", native the aa64
+equivalent, the VM "iface_upcast: target vtable not found: __ivt…Holder[int]".  The direct call `fi(mkH(11))`
+works.  Root cause: `buildDeferFuncVal` (gen_defer_build.bn) takes the parameter types from the checker's
+function type without mapping them through `irTypeFromChecker`, so the target interface carries the checker's
+`Holder[int]` name while the argument carries IR-gen's mangled instance name, and the upcast between them finds
+no ancestor relation.  An imported generic interface (`*it.Iterator[int]`) and an `@Holder[int]` parameter fail
+the same way.  Fix: map the func value's parameter (and result) types through `irTypeFromChecker`, as the slot
+types are (`deferSlotType`).  Test: conformance `spec/14-statements/179_defer_funcval_generic_iface_param`
+(expected-fail in every mode).
+
+Resolution: buildDeferFuncVal types the function value as IR-gen does (`deferSlotType`, as the operand slots
+are) and takes the parameter and result types from that.  Besides generic interface instances, this also fixed
+generic structs in the signature (clang rejected the checker-named LLVM type) and imported opaque types (a
+destructor handle no module defined).  Tests: `spec/14-statements/179_defer_funcval_generic_signature` (renamed
+from `179_defer_funcval_generic_iface_param`; generic-interface args for raw fixed / packed and managed params,
+a generic-interface result, generic structs by value and as a managed result) and
+`1570_defer_funcval_xpkg_signature` (imported opaque type and generic interface instance).  The review found the
+deferred function-value-field-through-a-pointer panic (test 180, its own entry).
+
 ### Native aarch64 / x86-64 copy and zero-fill a large aggregate with a loop — DONE (binate `2fd5685fc` aa64, `f6b4cc81a` x64, 2026-10-05)
 
 Closes "The native backends copy a large aggregate fully unrolled" (found 2026-10-04, review of the
