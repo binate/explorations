@@ -86,133 +86,6 @@ The same holds for deferred function-value calls: `var fh @func(*Getter) = …; 
 same way.  Test to land
 with the decision (repro: the review probe, a `*any` analogue of `spec/14-statements/177`).
 
-### `unsafe_cast(bool, <float>)` — is it a conversion at all?  A float constant outside {0, 1} compiles — 🟡 IN PROGRESS, DECIDED 2026-10-04 (found 2026-10-03, work-7, review of the bool-constant check; reproduced; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
-
-§8.5 says numeric → bool is not a `cast` and "requires `unsafe_cast`", so the spec admits
-`unsafe_cast(bool, f)` for a float `f` — but never says what it means: the 2026-09-30 bool decision is
-phrased for integers ("asserts `i` is 0 or 1"), and the compile-time check that rejects a constant
-outside {0, 1} sees only integer constants (constval does not fold floats).  Reproduced (LLVM):
-`unsafe_cast(bool, 2.5)` compiles and gives `false`, `unsafe_cast(bool, 1.0)` gives `true`, and a
-`float64` variable holding `3.0` gives `true`.  Options: (a) float → bool is not an `unsafe_cast`
-direction — reject it (write `f != 0.0`), reading §8.5's "numeric" as integer; (b) allow it as an
-assertion that the value is exactly `0.0` or `1.0` (undefined otherwise), with a constant float outside
-those a compile error (needs float constant evaluation in the check).  Recommendation: (a) — `unsafe_cast`
-asserts things about a representation, and a float has none in common with `bool` (`1.0` is not the
-byte 1), so this is a lossy value conversion that `f != 0.0` already spells.
-Decision (user, 2026-10-04): "(a)" — float → bool is not an `unsafe_cast` direction: the checker rejects it
-(write `f != 0.0`), and §8.5 / §8.7 say "integer" where they mean it.  Work: the check, a test (constant and
-variable float operands, a named float), the spec wording.
-
-### Is a read-only HANDLE (`readonly *T` / `readonly @T`) a method or impl receiver? — 🟡 IN PROGRESS, DECIDED 2026-10-04 (found 2026-10-03, work-7, fixing the receiver one-pointer-level check; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
-
-`func.method.receiver-kinds` says a receiver "takes exactly one of five kinds" (`*T`, `*readonly T`, `@T`,
-`@readonly T`, a value — plus `readonly T`), but the checker also accepts a read-only handle,
-`func (s readonly *St) M()` / `func (s readonly @St) M()`, and an impl over one: conformance 940 has
-`type AliasRO = readonly @Jar; impl AliasRO : Getter`, with its dispatch tested.  `func.method.impl-receiver`
-says "an `impl T : Iface` (and its `*T`/`@T`/`readonly` variants)", which does not settle it.  A handle's
-read-only-ness does not affect dispatch (`func.method.object-const`); inside the method it only makes the
-receiver variable unassignable.  Options: (a) accept them, and say in receiver-kinds that a `readonly` handle
-is the receiver parameter's own property (the method's kind is still `*T` / `@T`); (b) reject them as
-receiver-kinds reads today, and change 940's AliasRO case.  Recommendation: (a) — it is the same handle
-`readonly` any parameter may carry, harmless, and 940 shows it works end to end.  The receiver check that
-rejects a second pointer level (`**T`, `*@T`, `*readonly *T`) leaves these accepted.
-Decision (user, 2026-10-04): "(a) clearly" — accepted: a `readonly` handle is the receiver parameter's own
-property, and the method's kind is still `*T` / `@T`.  Work: spec func.method.receiver-kinds /
-func.method.impl-receiver wording, and a positive test of a `readonly *T` and a `readonly @T` method and impl
-(the code already accepts them).
-
-### A composite literal addressed in a `defer` (argument or receiver), or in a package-level `var` initializer, dangles — 🟡 IN PROGRESS MAJOR, DECIDED 2026-10-04 (found 2026-10-03, work-7, planning the addressed-literal lifetime work; reproduced; pre-existing; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
-
-The 2026-09-30 decisions settle an addressed composite literal in a local `var` / `:=` initializer (it lives
-as long as the binding) and in an assignment / `return` (a compile error), but not two more positions where
-the address outlives the statement.  Reproduced (LLVM), with `P{n int; name @[]char}`:
-(1) `defer show(&P{name: mk("arg")})` and `defer P{name: mk("recv")}.Show()` (`Show` a `*P` method) — the
-deferred calls print the bytes of later allocations: the literal is released at the end of the `defer`
-statement (`mem.temporary`: only the defer's evaluated values outlive it, and the value here is the
-address); (2) package-level `var gq *P = &P{n: 7, name: mk("global")}` — `gq.name` prints empty: the
-literal is storage of the init function, its field released at the end of that initializer.  Options:
-(1a) co-scope the literal with the deferred call (released at function exit, after it runs) — IR-gen
-already does this for a value-borrow temporary in a defer's operands (`DeferBorrowSlots`); (1b) reject it,
-like a store.  (2) follows the pending decision on `var g *any = 42` (the entry below): if a package-level
-initializer is a storing position, `var gq *P = &P{…}` is an error; else the literal needs static storage.
-Recommendation: (1a) — the same "lives as long as what holds its address" rule as a `var` initializer,
-on an existing mechanism; (2) as decided below (no tree code has a package-level `&T{…}`).
-Decision (user, 2026-10-04), defer: "For defer: 1a." — a composite literal addressed in a `defer`'s operands or
-receiver (and a slice literal's address slot, genCompositeAddr) lives until the deferred call has run,
-released with the function's exit releases, as a defer's value-borrow temporaries are (DeferBorrowSlots).
-Work: IR-gen (the defer pre-pass allocates an entry-depth slot per such literal; the defer statement's
-evaluation moves the literal there), spec §13 expr.composite.lifetime / §14.13 stmt.defer / §18.4, tests (an
-argument, a receiver, a slice literal, a nested / conditional defer, a loop without — defers in loops are
-rejected — no leak) on every backend.  Package-level (user, 2026-10-04, on the `var g *any = 42` entry: "(a)"):
-a package-level initializer is a storing position, so `var gq *P = &P{…}` is rejected — done with that entry.
-
-### Is an ELEMENT of a managed-slice literal (`&@[]T{…}[i]`) part of the literal for the addressed-literal lifetime? — 🟡 IN PROGRESS, DECIDED 2026-10-04 (found 2026-10-03, work-7, review of the addressed-literal lifetime change; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
-
-expr.composite.lifetime keeps a composite literal addressed in a var / `:=` initializer alive with the
-binding, the address taken of the literal or of a field or element of it.  A managed-slice literal's
-elements live in its heap backing, owned by the literal's one reference — a statement temporary — so
-`var e *int = &@[]int{1, 2}[0]` reads freed memory after the statement.  Options: (a) yes — an element
-of a managed-slice literal counts as part of it: the literal (its reference) is co-scoped, and storing
-such an address is an error, as for an array literal's element; (b) no — the backing is a heap object,
-and `&@[]T{…}[i]` is like `&mk()[i]`, a pointer into a temporary's backing (user error, mem.raw-uaf).
-Recommendation: (a) — the literal is the only owner, and the spelling looks the same as for an array
-literal.  (A raw-slice literal `*[]readonly T{…}` has scope-bound backing already, §13.10.)
-Decision (user, 2026-10-04): "(a)" — yes: an element of a managed-slice literal is part of it.  Work: the
-checker's literalRoot / noteAddressedLiteral treat an index into a managed-slice composite literal as addressing
-the literal (marking it, and rejecting a stored address — checkStoredLiteralAddr); IR-gen co-scopes the slice
-literal's temporary (its reference) with a var / := binding, as for the address of the literal itself
-(noteAddressedLit on the value temp — the slice value is a statement temp, not an alloca); spec §13
-expr.composite.lifetime / addr-store wording; tests (`var e *int = &@[]int{…}[0]` survives churn, no leak; a store
-of one rejected) on every backend.
-
-### A grouped local `var ( … )` initializer is not a borrowing position — 🟡 IN PROGRESS (found 2026-10-03, work-7, review of the addressed-literal lifetime change; pre-existing; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
-
-checkStmt marks a single local `var` initializer POS_BORROWING (§11.4: a var initializer is a borrowing
-position), but its DECL_GROUP arm calls checkGroupDecl without it, so `var ( o = Opts{Any: 44} )` rejects
-the value-borrow that `var o = Opts{Any: 44}` accepts.  Fix: set POS_BORROWING around a local group's var
-members (not its consts / types); a test of both spellings.
-
-### Generic ALIAS declarations and generic declarations with NO underlying type — 🟡 IN PROGRESS, DECIDED 2026-10-04/05 (raised 2026-09-30 with the non-struct generic types entry; split out 2026-10-03, work-7, when non-struct generic types were implemented; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
-
-Non-struct generic type declarations now instantiate (gen.instantiate.type), but two forms are left as they
-were: (1) a generic ALIAS, `type L[T any] = Box[T]` — transparent substitution, so `L[int]` is identical to
-`Box[int]`?  (Related: the imported-alias-of-a-generic-instantiation entry.)  Today a generic alias over a
-struct body is treated as a generic struct; one over a named generic is not instantiated.  (2) a generic
-declaration with no body, `type L[T any]` (opaque / forward) — consumers need the body to instantiate, so
-allow it only as a same-package forward declaration, or reject it?  Recommendation: (1) yes, transparent
-(an alias names, it does not define); (2) a same-package forward declaration only, rejected in a `.bni`
-(an importer can never instantiate it).
-Decision (user, 2026-10-04) on (1): "yes" — a generic alias is transparent: `L[int]` is `Box[int]`.  On (2)
-the user asked "Isn't *L[T] still a useful thing?"; discussed 2026-10-05: `@L[T]` cannot be made usable without
-breaking separate compilation (a consumer cannot destroy an instantiation it cannot lay out), and `*L[T]` with T
-a type parameter gains nothing (a generic function over it needs its body in the .bni, which cannot touch an
-opaque `*L[T]`); the concrete case is a non-generic opaque type defined as a distinct type over the
-instantiation — `type Handle` in the .bni, `type Handle L[int]` in the .bn (an alias definition is rejected,
-type.opaque.alias-rejection; inside the package L's methods are reached with `bit_cast(*L[int], h)`, as §8.5
-keeps the pointer forms of named <-> underlying out of `cast`).  Decision (user, 2026-10-05) on (2): "yes, go
-ahead" — a generic type declaration with no underlying type is rejected, in a .bni, a .bn and at the REPL
-prompt; §7.12's "Opaque export is for non-generic types only in this version" becomes a rule, with the
-concrete-opaque pattern as the stated alternative.
-Work: (1) IR-gen / checker: instantiating a generic alias substitutes into its target (an instance of the
-target generic, identical to writing it), including across packages; (2) the checker rejects a bodiless generic
-declaration ("a generic type needs its definition: …"), a test each; spec §7.12 / §12 wording.
-
-### `box(L)` of a composite literal of a NAMED array type is recorded as the plain array type — `.(N)` misses — 🟡 IN PROGRESS (found 2026-10-03, work-7, review of the non-struct generic types change; reproduced; pre-existing; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
-
-`type PairN [2]int; var a @any = box(PairN{1, 2}); a.(PairN)` misses (generic or not): genCompositeLit
-builds the literal in an alloca of the PEELED array type, and box records that as the dynamic type.  (The
-address side was fixed with genCompositeAddr's relabel; box takes the value.)  Fix: box (and any value
-consumer that records a dynamic type) should take the literal's declared type; a test with `case PairN:`.
-
-### A local `var ( … )` group outside the main package loses the function's local scope — 🟡 IN PROGRESS MAJOR (found 2026-10-05, review of the work-7 batch; pre-existing, reproduced on main; claimed 2026-10-05, work-7/session, self-drive)
-
-In a package other than main (file-scoped imports active), `func F() int { var x int = 10; var ( a = 1; b
-= a + x ); var y int = x + b; return y }` reports "undefined: x" twice: checkStmt's group arm calls
-checkGroupDecl → checkDecls, the package-level pass, which sets `c.Scope = scopeForFile(…)` for each member
-and never restores it — so the rest of the function loses its locals and the group's members are defined in
-the file scope.  Fix: a local group's members are checked as the single local declarations are, in the
-current scope; tests in a non-main package.
-
 ### Is a raw-slice view of a managed-slice literal (`var r *[]int = @[]int{20, 21}`) part of the literal? — 🔴 NEEDS DECISION (found 2026-10-05, review of the work-7 batch; pre-existing)
 
 A managed-slice literal's element is part of the literal (decided 2026-10-04), so `&@[]int{…}[i]` in a var
@@ -247,34 +120,6 @@ code that parses into code that does not.  Proposal: add `Self` to §5.13's list
 a type name it ends a line like an identifier; a lexer unit test, a bnfmt round-trip test and a conformance
 test of a `Self` result followed by another method.  The test for the `Self` impl fix (conformance
 `1583_generic_impl_self`) puts its `Self`-result method last meanwhile.
-
-### A generic-receiver impl of an interface that uses `Self` is rejected — no generic type can be a hashmap key — 🟡 IN PROGRESS (found 2026-10-03, work-7, review of the non-struct generic types change; reproduced; pre-existing; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
-
-`type IdS[T any] struct {…}; func (a IdS[T]) Compare(other IdS[T]) int; impl IdS[T] : lang.Orderable`
-reports "method `Compare` has wrong signature", while the non-generic `impl IdS : lang.Orderable` is
-accepted: the abstract satisfaction check (gen.impl.generic-recv) substitutes `Self` with something other
-than the receiver's placeholder instantiation `IdS[T]`.  So `hashmap[IdS[int], V]` is impossible.  Fix in
-the abstract impl check's Self substitution; a test with a generic key type.
-
-### A package-level `var g *any = 42` borrows a temporary of the init function — it dangles once init returns — 🟡 IN PROGRESS MAJOR, DECIDED 2026-10-04 (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
-
-`checkVarDecl` uses `checkBorrowingArg` for package-level vars too, so a value is borrowed into a package
-`*any` / `*I` var initializer; IR-gen enrolls the temporary as a `.borrow_temp` local of the init function.
-Reproduced: `var g *any = 42` then `testing.Println(g)` in main prints `1` on LLVM (42 on native, by luck).
-Spec `prog.init.vars` runs `var x T = e` as the assignment `x = e` (a storing position), while §11.4 says a
-var initializer's temporary lives as long as the binding.  Options: (a) a package-level var initializer is a
-STORING position — the value borrow is rejected ("cannot assign untyped int to *any"; write a `@any` or
-take a pointer to a package-level value); (b) give the temporary static lifetime (a hidden global per
-borrowed initializer).  Recommendation: (a) — no hidden storage, matches prog.init.vars.  (Note from the review that found it: IR-gen
-already gives package-lifetime storage to closure records (gen_vars.bn, `newPackageStaticSlot`) and raw-slice
-literal backings (gen_slice_lit.bn) built in `__init` for exactly this reason; option (b) would follow that
-pattern for the borrow temporary — still hidden storage, but an existing one.)
-Decision (user, 2026-10-04): "(a)" — a package-level var initializer is a STORING position, as prog.init.vars
-says: a value borrow into a raw interface there is rejected, and so is storing the address of a composite
-literal (expr.composite.addr-store; the package-level half of the addressed-literal entry).  Work: checkVarDecl
-checks a package-level initializer at POS_STORING (not checkBorrowingArg) and applies checkStoredLiteralAddr to
-it; §11.4 / §13 / prog.init.vars wording; `.error` tests (`var g *any = 42`, `var gq *P = &P{…}`) — no tree code
-is affected (verify with a full build and lint).
 
 ### A function NAME passed into `*any` compiles and boxes nothing — silent wrong value — 🔴 NEEDS DECISION MAJOR (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
 
@@ -616,41 +461,6 @@ the checker's by-value walks (`embedsOpaqueByValueSeen`, `containsByValueTypePar
 types is walked as a tree (4^11 visits here).  Fix: memoize per named type, or stop at a named type whose
 answer is already known.  Needs a compile-time test that bounds it.
 
-### IR-gen silently lowers an unresolved identifier to the constant 0 — 🟡 IN PROGRESS (found 2026-09-27, work-1, review of the bare-name precedence fix; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
-
-`genExpr`'s `EXPR_IDENT` arm (`gen_expr.bn` ~:125, "Unknown ident — return a zero placeholder") emits
-`0` for a name that is neither a local, a global nor a const.  The checker has already accepted the
-program, so reaching it means an IR-gen resolution gap — and the result is silent wrong code instead of a
-diagnosable failure (a generic body reading a transitively-reached package's global read 0 until
-RegisterGenericBodyDeps registered those).  Fix: make the miss loud — an ICE at IR-gen time, or the same
-runtime internal-error panic `genSelector`'s fallback emits — after auditing which legitimate idents (if
-any) still reach it.  A sibling fallback: `lookupBareConst` / `bareGlobalIdx` (`gen_bare_name.bn`) fall
-back to the consuming module's same-named const/global when the defining package's is not registered —
-e.g. an imported const that neither folds nor has a checker stamp is dropped by
-`registerImportConstsAndVars`, so a generic body's bare read of it binds the consumer's.  The principled
-guard is "the defining package declares this name" (the checker's package scope), not "it is registered".
-
-### A generic struct / interface that is never instantiated is never checked — invalid declarations accepted — 🟡 IN PROGRESS (found 2026-09-28, work-6, review of the declared-type-param change; pre-existing; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
-
-A generic type's fields (and a generic interface's method signatures) are resolved only when it is
-instantiated (populateInstantiatedStruct / populateInstantiatedInterface), so an uninstantiated one is
-never checked: `type Box[T any] struct { x Undefined }` (or `x _` with a blank `_` parameter) compiles
-without a diagnostic as long as nothing uses `Box[…]`.  Done in part (binate `285d7faab`, docs `f0d69c6`): each generic struct's
-instantiation with its own type parameters is now built at its declaration, which rejects one that holds
-itself by value (spec `type.named.value-acyclic`) or whose fields grow without bound (`gen.mono.instances`);
-the rest of a never-instantiated generic's fields and method signatures are still unchecked.  Fix: check each generic type / interface
-declaration once abstractly at the declaration (its parameters held abstract, as generic functions'
-bodies are checked), independent of instantiation.
-
-### Bugs found reviewing the identity refactor (pre-existing) — 🟡 IN PROGRESS (found 2026-09-27, work-1; reproduced by the reviewer; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
-
-- **`defer` of a method on an interface keys on the checker's SHORT package name:** (title kept — the
-  TODO in `gen_defer_build.bn` cites it.)  Interface types now carry their full package path (`53c0e5fd5`),
-  so an explicitly aliased import and a non-main package's own interface work; what remains: a deferred
-  call through a GENERIC interface instance (`@gen.Holder[int]`) still misses ("defer of an unresolved
-  interface method") — the checker names the instance differently than IR-gen.  Fix: compute the identity
-  from the receiver's IR type, as `genInterfaceMethodCall` does.
-
 ### aa64 text assembler: clang-valid instruction families still rejected (completeness) — 🟡 IN PROGRESS (listed 2026-09-26; claimed 2026-09-27, work-2/session; user: "Next, after this lands", then "yes"; landing family by family)
 
 Loud rejections, not mis-assembly, but the assembler is meant to be comprehensive: exclusive / acquire-
@@ -722,17 +532,6 @@ clang rejects `@PLT` on Mach-O ("invalid specifier"), and on ELF keeps a tempora
 (`R_AARCH64_CALL26 .Lg`, where we relocate against the section — the same linked result).  Fix: carry the
 specifier into the fixup (a PLT branch kind), which the Mach-O writer rejects and the ELF writer keeps against
 the label (found 2026-09-30 by the review of the local-labels commit).
-
-### The REPL never runs the generic-body dependency registration — 🟡 IN PROGRESS (found 2026-09-27, work-1; the indirect-package type registration half landed in binate `1ec1766ce`; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
-
-bnc and the interp driver register, for every package a monomorphized generic body may reach without the
-consumer importing it, its func externs, consts and vars (`registerGenericBodyExternDeps` →
-`irgen.RegisterGenericBodyDeps`); the REPL (`pkg/binate/repl/ir_imports.bn`, initial load and mid-session
-import) never does: a prompt-level instantiation of `g.Outer[int]` whose body calls `h.Inner` (h never
-imported at the prompt) lacks h's signatures (a struct-returning call lowers as a scalar), consts and vars.
-`RegisterGenericBodyDeps` always adds extern Funcs, which the live session module must not get
-mid-session (its func index space mirrors the VM's) — it needs a signatures-only mode, as
-`RegisterImportFuncSigs` has.  Add an `e2e/repl.sh` case.
 
 ### Loud miscompiles / wrong rejections found by the forwarder audit (not forwarder-specific) — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1; agents' repros, not yet independently re-verified)
 
