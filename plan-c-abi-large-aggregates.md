@@ -103,7 +103,8 @@ step D's table.
   arm32 in docs `bc66e9f`.
   Left for the user (review finding 5): native arm32 unrolls every aggregate copy (emitAggMemcpyArm32), and
   the by-value switch moves the copy from the callee to each call site — a large array passed by value
-  costs code per call where LLVM emits a loop / memcpy.
+  costs code per call where LLVM emits a loop / memcpy.  Done on all three: past a size threshold a copy
+  or zero-fill is a loop — arm32 `01ee02873`, aa64 `2fd5685fc`, x64 `f6b4cc81a`.
 - Next: aa64 — AAPCS64's ownership rule (the callee owns the caller-made copy) and the param slot in place.
   Local validation for x64: native `builder-comp_native_x64_darwin-…` and LLVM via
   `BINATE_FLAGS="--target x86_64-darwin" ./conformance/run.sh builder-comp` (both run under Rosetta); full

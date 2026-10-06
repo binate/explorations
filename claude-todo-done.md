@@ -1,3 +1,19 @@
+### Native aarch64 / x86-64 copy and zero-fill a large aggregate with a loop — DONE (binate `2fd5685fc` aa64, `f6b4cc81a` x64, 2026-10-05)
+
+Closes "The native backends copy a large aggregate fully unrolled" (found 2026-10-04, review of the
+arm32 C-ABI switch; arm32 landed in `01ee02873`).  Past 128 bytes a copy or zero-fill is a loop.
+aa64: 32 bytes per iteration, a post-indexed LDP / STP of Q16 / Q17 on claimed cursors, the leftover
+bytes re-copied as the last 32; zero-fill two STP XZR, XZR per iteration; the callee's by-reference
+param copy now copies exactly SizeOf bytes; new aarch64.BcondOffset and the other offset branches.
+x64: 32 bytes per iteration through XMM14 / XMM15, base + index + displacement on both sides so only
+the index register is needed (tmpGP, the load's result register, a claimed scratch, or RAX in the
+call / param / shim / c_export trampoline paths); new x64.JccOffset / JmpOffset.  Conformance 1564's
+main: 60 KB -> 3.9 KB on aa64, 98 KB -> 4.4 KB on x64.  New conformance 1569 (every shim shape past
+128 bytes; a 201-byte array between fields, copied exactly).  One review per backend, no correctness
+defects; follow-ups folded in (clang goldens for the aa64 loops, a loop-index precondition on x64).
+The x64 encoder's memory-operand defects the x64 review also noted (RSP as index, odd scales, an index
+with no base, displacement truncation) are tracked under "x64 assembler / text parser: `emitModRM` …".
+
 ### A REPL forward declaration silently discarded a parked definition of the same name — DONE (binate `c536ed3b4`, 2026-10-05, work-6)
 
 `type F Y` (parked on Y), `type F`, `type Y int`: the forward declaration no longer supersedes the parked
