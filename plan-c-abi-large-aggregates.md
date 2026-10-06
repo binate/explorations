@@ -110,6 +110,49 @@ step D's table.
   `BINATE_FLAGS="--target x86_64-darwin" ./conformance/run.sh builder-comp` (both run under Rosetta); full
   runs on both, since a 32-byte managed-slice argument is >16 bytes on x64 (nearly every program).
 
+## aa64 ownership design (recon 2026-10-05)
+
+Who passes a >16-byte by-value aggregate (PassesIndirect: >16, not an HFA) on aa64 today, and whether the
+memory is owned by the call:
+- LLVM direct call / __c_call: the `.bv<i>` slot, or the value's private copy when bulkArgDirect (single
+  use, same block) — owned.  LLVM func-value / interface call: the `.ap<i>` slot or bulkArgDirect — owned.
+- LLVM closure shim: a capture is passed as `%cap<i>_ptr`, a pointer INTO the closure struct — not owned
+  (a callee writing in place would change the capture for every later call).
+- LLVM / native `__shim`: forwards the dispatch caller's pointer — owned iff the dispatch caller owns.
+- `__shimP` (VM -> compiled, both backends): forwards pointers into the VM's own storage — not owned.
+- Native direct call, interface call, func-value dispatch, and __c_call (emitAggregateArg,
+  aarch64_call_indirect.bn, the shim-arg marshal): pass getOperand(arg) — the value's region, which is
+  owned only when the value is a private copy nothing reads afterwards.  An elided load
+  (AggLoadElidable, which refuses only OP_C_CALL uses) aliases its source; an OP_EXTRACT points into its
+  aggregate; an OP_PARAM is the callee's own incoming memory; a value with a second use is read again.
+- Native closure shims (isIndirectLargeCapAA64): pass a pointer into the closure struct — not owned.
+
+So every callee copies (native: into the param region unless ParamRegionElidable, then `store slot,
+param` again; LLVM: memcpy into the param alloca).
+
+Commits (each keeps LLVM and native on one ABI — a copying callee accepts an owning caller):
+1. Callers own, both backends; callees still copy.
+   - Native: a shared predicate (common) mirroring bulkArgDirect — the argument is a value with a private
+     region of its own (a materialized OP_LOAD, an aggregate call result, ...), the call is its only use,
+     and in its block; otherwise PlanFrame reserves a per-call argument region, the call copies the value
+     into it (the copy loop past 128 bytes) and passes that.  AggLoadElidable refuses a load used as such
+     an argument (as for OP_C_CALL), so a single-use load materializes once and is passed directly.
+   - Native closure shims copy a >16 capture into the shim frame; native `__shimP` copies each >16
+     aggregate the VM passes.
+   - LLVM closure shims copy a >16 capture into a shim alloca; LLVM `__shimP` copies too.
+   (May land as a native and an LLVM commit — each is compatible on its own.)
+2. Callees in place, both backends: native aa64 uses the incoming pointer as the param's value region
+   (no copy; ParamRegionElidable's entry-only condition no longer needed); LLVM aa64 drops the
+   IsByvalParamRef memcpy.  Needs 1 everywhere first.
+3. Param slot in place: the param's slot IS the incoming memory — no `store slot, param` copy, no
+   zero-fill (an IR mark from a shared predicate, honoured by each backend).  On x64 / arm32 the callee
+   already owns its incoming stack bytes (SysV MEMORY / AAPCS32 stack part), so the same mark lets their
+   callees use them in place too (arm32 needs the register part stored next to the stack part) — to be
+   scoped with the user when 3 starts.
+Validation per commit: native aa64 + LLVM (`builder-comp`) conformance subsets, `builder-comp-int` (the
+VM boundary), C-interop e2e, changed packages' unit tests; copy counts against plan-aggregate-copy-opts.md
+step D.
+
 ## x64 design (recon 2026-10-03)
 
 A >16-byte aggregate is SysV MEMORY class: bytes on the outgoing stack, no register consumed.
