@@ -1,3 +1,23 @@
+### Returning a managed `@T` as a raw `*T` result leaks one block per call — DONE (binate `1fca458a1`, 2026-10-06, work-4; found 2026-10-05 in review of the deferred func-value-field fix)
+
+`func fromParam(t @T) *T { return t }` (likewise a field `h.p`, a local, a package global) leaks one block per
+call: the return path takes a reference (a RefInc before `ret`, seen in the LLVM IR) as for a managed result, but
+the result is a raw borrow (conv.managed-to-raw), so nothing ever releases it.  Returning a managed-slice as a raw
+slice does not leak, and copying into a `*T` local first (`var r *T = gt; return r`) does not either.  mem.return
+delivers an owning reference only for a MANAGED result.  Fix: the managed-to-raw return conversion must not
+acquire (find where the return path decides to RefInc and key it on the result type, not the operand's).  Test:
+conformance `spec/18-memory/150_return_managed_as_raw_takes_no_ref` (expected-fail in every mode).
+
+Resolution: genReturnStmt's ownership loop takes no reference for a managed value returned for a non-managed
+result (`isRawBorrowResult`: `@T` for `*T`, `@func` for `*func`; a managed-slice or interface value returned raw
+is converted to its raw form first and never leaked).  A fresh `@func` returned as `*func` is no longer moved out of
+the statement's cleanup either.  A whole-tree LLVM IR diff (87 packages, old vs new) changed only two iropt inliner
+functions (`remapBlock`, `clonePadTarget`), which had leaked one `ir.Block` per inlined edge in the compiler itself;
+nothing relied on the extra reference.  Code like `func f() *T { return make(T) }` now returns a dangling pointer
+(mem.raw-uaf, programmer error) instead of a leaked live one; no bnlint rule reports it yet.  Test:
+`spec/18-memory/150_return_managed_as_raw_takes_no_ref` (parameter, field, local, global, multi-value component
+direct and via a returned call, generic function, method through an interface, `@func` → `*func`).
+
 ### aa64 text assembler: label differences that fold — `l2 - l1` fixed at assembly is a number — DONE (binate `9543677c8`, 2026-10-06, work-2; plan-aa64-asm-symbols.md 3e, commit (1))
 
 A difference of two locations whose distance is fixed at assembly (one section on ELF and arm32, one atom on

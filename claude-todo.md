@@ -45,16 +45,6 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### Returning a managed `@T` as a raw `*T` result leaks one block per call — 🟡 IN PROGRESS (claimed 2026-10-05, work-4) MAJOR (found 2026-10-05, work-4, review of the deferred func-value-field fix; pre-existing; LLVM / native / VM)
-
-`func fromParam(t @T) *T { return t }` (likewise a field `h.p`, a local, a package global) leaks one block per
-call: the return path takes a reference (a RefInc before `ret`, seen in the LLVM IR) as for a managed result, but
-the result is a raw borrow (conv.managed-to-raw), so nothing ever releases it.  Returning a managed-slice as a raw
-slice does not leak, and copying into a `*T` local first (`var r *T = gt; return r`) does not either.  mem.return
-delivers an owning reference only for a MANAGED result.  Fix: the managed-to-raw return conversion must not
-acquire (find where the return path decides to RefInc and key it on the result type, not the operand's).  Test:
-conformance `spec/18-memory/150_return_managed_as_raw_takes_no_ref` (expected-fail in every mode).
-
 ### A field and a same-named method: the checker resolves the method, IR-gen calls the field — wrong code — 🔴 OPEN MAJOR (found 2026-10-05, work-4, review of the deferred func-value-field fix; pre-existing; LLVM / native / VM)
 
 expr.member: "a field takes precedence over a same-named method" (and func.dispatch.routing (1)).  The checker's
