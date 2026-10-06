@@ -1,3 +1,54 @@
+### A `cast` / `unsafe_cast` / `bit_cast` that is invalid only once a generic type parameter is instantiated crashes IR-gen instead of getting a diagnostic — DONE (verified fixed 2026-10-05, work-7)
+
+check_cast_safe.bn `checkCastSafeSet` defers validation when a side is an abstract type parameter, and
+nothing re-checks the conversion per instantiation; IR-gen's backstops then `panic` ("internal error: …
+reached codegen via a generic type parameter", in gen_builtin.bn / gen_cast_value.bn: narrowing an
+interface, mismatched aggregate shapes, different-size slices / bit_cast, and widening a VALUE
+operand (a composite literal) to an interface, e.g. `func conv[T any]() T { return cast(T, Thing{x: 42}) }` called as
+`conv[*Getter]()`).  A user program should get a positioned compile error naming the instantiation, not a
+compiler panic.  Fix: run the cast-safety rules on the substituted types when a generic body is
+instantiated (checker-side, before IR-gen), and turn the IR-gen panics into unreachable asserts.
+Resolution: fixed on main by per-instance checking of conversions through a type parameter (binate `ab98a0439`); verified 2026-10-05 (work-7) on main `85fcda9cb`: `conv[*Getter]()` and a `bit_cast` size mismatch at an instantiation report positioned errors naming the instantiation.
+
+### REPL: a top-level `var` initialized with a function literal panics — "vm: function not found: main.__funclit_0" — DONE (verified fixed 2026-10-05, work-7)
+
+At the REPL prompt, `var f *func() int = func() int { return 7 }` panics `vm: function not found:
+main.__funclit_0` (before and after `1000f6105`).  runReplVarInit (repl/decl.bn) lowers the var-init
+synthetic and the dtor/copy helpers EnsureReplBodyHelpers adds, but not the lifted `__funclit_<N>` the
+initializer's func literal produced.  Likely fix: lower every function the generation appended to the
+module (as the file-load path and the statement path do), not just the helpers; add an e2e/repl.sh case.
+Resolution: no longer reproduces; verified 2026-10-05 (work-7) with bni built from main `85fcda9cb`: `var f *func() int = func() int { return 7 }` then `testing.Println(f())` at the prompt prints 7.
+
+### An imported package's alias of a generic instantiation (its OWN generic or a THIRD package's) resolves to `int` in IR-gen — DONE (verified fixed 2026-10-05, work-7)
+
+pkg/home has `type VI = bx.Box[int]` (bx another package's generic): `RegisterStructTypes`
+(`gen_module_register.bn` ~:117-123) resolves the alias before the generic decl is stashed (later, in
+`registerImportsImpl` pass 1, `gen_import.bn` ~:152), so the entry is the `TypInt()` fallback; the correct
+entry appended later (`registerImportFieldsAndFuncs`) is shadowed because `lookupTypeAlias` returns the
+first match.  Effects: `var v home.VI; v.Get()` → undefined `…lang.int.Get` (LLVM/native) / VM
+"unresolved selector in IR-gen"; `impl *home.VI : I` keys on (pkg/home, VI) (native link failure).  A
+local `type LV = bx.Box[int]` works.  Fix: stash generic type decls before aliases are resolved, and/or
+replace a stale entry instead of appending a second one.
+
+Not limited to a THIRD package's generic (widened 2026-09-27, work-6, review of the generic-method
+param-shadowing fix; reproduced): an alias of the package's OWN generic fails the same way —
+`type IntBox = Box[int]` in `home.bni` (with `Box[T]` and `func (b *Box[U]) Val() U` in the same
+`.bni`), then `var b home.IntBox; b.Val()` in main → link failure (undefined `…lang…int…Val`), with or
+without a `home.bn`.  The checker accepts it; the failure is IR-gen's.
+Resolution: no longer reproduces; verified 2026-10-05 (work-7) on main `85fcda9cb`: `type VI = bx.Box[int]` and `type IntOwn = Own[int]` in an imported .bni, with `v.Get()` / `o.Val()` in main, print the right values.
+
+### A package-level NON-type declaration named like a predeclared type (`func uint16()`) shadows it only after its own position — invalid code accepted in one order — DONE (verified fixed 2026-10-05, work-7)
+
+`type N2 uint16; const c2 N2 = 5; func uint16() {}` is accepted, while the same declarations with
+`func uint16() {}` first give "uint16 is not a type".  A package-level name is visible throughout the
+package, so both orders must be rejected.  **Root cause:** only type declarations are pre-registered
+(preRegisterTypeNames); a func / var / const of a predeclared type's name enters the package scope
+only when collectDeclsBody reaches it, so earlier type references (and the scalar pre-fill) resolve
+the name to the universe type.  **Fix:** pre-register (or at least reserve) every package-level name
+before any type expression is resolved, so a non-type declaration shadows the predeclared type from
+the start.  **Test:** checker unit test for both orders (with the fix).
+Resolution: no longer reproduces; verified 2026-10-05 (work-7) on main `85fcda9cb`: both orders of `type N2 uint16; const c2 N2 = 5; func uint16() {}` report "uint16 is not a type".
+
 ### A deferred function-value call with a generic-interface-instance parameter fails to compile — DONE (binate `75eb7eee1`, 2026-10-05, work-4; found 2026-10-05 in review of the deferred `@I` → `*I` retention fix)
 
 `var fi @func(*Holder[int]) = …; defer fi(mkH(11))` (mkH returns `@Holder[int]`) panics in IR lowering:

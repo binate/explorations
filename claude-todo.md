@@ -71,7 +71,7 @@ The same holds for deferred function-value calls: `var fh @func(*Getter) = …; 
 same way.  Test to land
 with the decision (repro: the review probe, a `*any` analogue of `spec/14-statements/177`).
 
-### `unsafe_cast(bool, <float>)` — is it a conversion at all?  A float constant outside {0, 1} compiles — 🔴 OPEN, DECIDED 2026-10-04 (found 2026-10-03, work-7, review of the bool-constant check; reproduced)
+### `unsafe_cast(bool, <float>)` — is it a conversion at all?  A float constant outside {0, 1} compiles — 🟡 IN PROGRESS, DECIDED 2026-10-04 (found 2026-10-03, work-7, review of the bool-constant check; reproduced; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
 
 §8.5 says numeric → bool is not a `cast` and "requires `unsafe_cast`", so the spec admits
 `unsafe_cast(bool, f)` for a float `f` — but never says what it means: the 2026-09-30 bool decision is
@@ -88,7 +88,7 @@ Decision (user, 2026-10-04): "(a)" — float → bool is not an `unsafe_cast` di
 (write `f != 0.0`), and §8.5 / §8.7 say "integer" where they mean it.  Work: the check, a test (constant and
 variable float operands, a named float), the spec wording.
 
-### Is a read-only HANDLE (`readonly *T` / `readonly @T`) a method or impl receiver? — 🔴 OPEN, DECIDED 2026-10-04 (found 2026-10-03, work-7, fixing the receiver one-pointer-level check)
+### Is a read-only HANDLE (`readonly *T` / `readonly @T`) a method or impl receiver? — 🟡 IN PROGRESS, DECIDED 2026-10-04 (found 2026-10-03, work-7, fixing the receiver one-pointer-level check; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
 
 `func.method.receiver-kinds` says a receiver "takes exactly one of five kinds" (`*T`, `*readonly T`, `@T`,
 `@readonly T`, a value — plus `readonly T`), but the checker also accepts a read-only handle,
@@ -106,7 +106,7 @@ property, and the method's kind is still `*T` / `@T`.  Work: spec func.method.re
 func.method.impl-receiver wording, and a positive test of a `readonly *T` and a `readonly @T` method and impl
 (the code already accepts them).
 
-### A composite literal addressed in a `defer` (argument or receiver), or in a package-level `var` initializer, dangles — 🔴 OPEN MAJOR, DECIDED 2026-10-04 (found 2026-10-03, work-7, planning the addressed-literal lifetime work; reproduced; pre-existing)
+### A composite literal addressed in a `defer` (argument or receiver), or in a package-level `var` initializer, dangles — 🟡 IN PROGRESS MAJOR, DECIDED 2026-10-04 (found 2026-10-03, work-7, planning the addressed-literal lifetime work; reproduced; pre-existing; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
 
 The 2026-09-30 decisions settle an addressed composite literal in a local `var` / `:=` initializer (it lives
 as long as the binding) and in an assignment / `return` (a compile error), but not two more positions where
@@ -131,7 +131,7 @@ argument, a receiver, a slice literal, a nested / conditional defer, a loop with
 rejected — no leak) on every backend.  Package-level (user, 2026-10-04, on the `var g *any = 42` entry: "(a)"):
 a package-level initializer is a storing position, so `var gq *P = &P{…}` is rejected — done with that entry.
 
-### Is an ELEMENT of a managed-slice literal (`&@[]T{…}[i]`) part of the literal for the addressed-literal lifetime? — 🔴 OPEN, DECIDED 2026-10-04 (found 2026-10-03, work-7, review of the addressed-literal lifetime change)
+### Is an ELEMENT of a managed-slice literal (`&@[]T{…}[i]`) part of the literal for the addressed-literal lifetime? — 🟡 IN PROGRESS, DECIDED 2026-10-04 (found 2026-10-03, work-7, review of the addressed-literal lifetime change; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
 
 expr.composite.lifetime keeps a composite literal addressed in a var / `:=` initializer alive with the
 binding, the address taken of the literal or of a field or element of it.  A managed-slice literal's
@@ -150,14 +150,14 @@ literal's temporary (its reference) with a var / := binding, as for the address 
 expr.composite.lifetime / addr-store wording; tests (`var e *int = &@[]int{…}[0]` survives churn, no leak; a store
 of one rejected) on every backend.
 
-### A grouped local `var ( … )` initializer is not a borrowing position — 🔴 OPEN (found 2026-10-03, work-7, review of the addressed-literal lifetime change; pre-existing)
+### A grouped local `var ( … )` initializer is not a borrowing position — 🟡 IN PROGRESS (found 2026-10-03, work-7, review of the addressed-literal lifetime change; pre-existing; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
 
 checkStmt marks a single local `var` initializer POS_BORROWING (§11.4: a var initializer is a borrowing
 position), but its DECL_GROUP arm calls checkGroupDecl without it, so `var ( o = Opts{Any: 44} )` rejects
 the value-borrow that `var o = Opts{Any: 44}` accepts.  Fix: set POS_BORROWING around a local group's var
 members (not its consts / types); a test of both spellings.
 
-### Generic ALIAS declarations and generic declarations with NO underlying type — 🔴 OPEN, DECIDED 2026-10-04/05 (raised 2026-09-30 with the non-struct generic types entry; split out 2026-10-03, work-7, when non-struct generic types were implemented)
+### Generic ALIAS declarations and generic declarations with NO underlying type — 🟡 IN PROGRESS, DECIDED 2026-10-04/05 (raised 2026-09-30 with the non-struct generic types entry; split out 2026-10-03, work-7, when non-struct generic types were implemented; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
 
 Non-struct generic type declarations now instantiate (gen.instantiate.type), but two forms are left as they
 were: (1) a generic ALIAS, `type L[T any] = Box[T]` — transparent substitution, so `L[int]` is identical to
@@ -182,14 +182,14 @@ Work: (1) IR-gen / checker: instantiating a generic alias substitutes into its t
 target generic, identical to writing it), including across packages; (2) the checker rejects a bodiless generic
 declaration ("a generic type needs its definition: …"), a test each; spec §7.12 / §12 wording.
 
-### `box(L)` of a composite literal of a NAMED array type is recorded as the plain array type — `.(N)` misses — 🔴 OPEN (found 2026-10-03, work-7, review of the non-struct generic types change; reproduced; pre-existing)
+### `box(L)` of a composite literal of a NAMED array type is recorded as the plain array type — `.(N)` misses — 🟡 IN PROGRESS (found 2026-10-03, work-7, review of the non-struct generic types change; reproduced; pre-existing; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
 
 `type PairN [2]int; var a @any = box(PairN{1, 2}); a.(PairN)` misses (generic or not): genCompositeLit
 builds the literal in an alloca of the PEELED array type, and box records that as the dynamic type.  (The
 address side was fixed with genCompositeAddr's relabel; box takes the value.)  Fix: box (and any value
 consumer that records a dynamic type) should take the literal's declared type; a test with `case PairN:`.
 
-### A generic-receiver impl of an interface that uses `Self` is rejected — no generic type can be a hashmap key — 🔴 OPEN (found 2026-10-03, work-7, review of the non-struct generic types change; reproduced; pre-existing)
+### A generic-receiver impl of an interface that uses `Self` is rejected — no generic type can be a hashmap key — 🟡 IN PROGRESS (found 2026-10-03, work-7, review of the non-struct generic types change; reproduced; pre-existing; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
 
 `type IdS[T any] struct {…}; func (a IdS[T]) Compare(other IdS[T]) int; impl IdS[T] : lang.Orderable`
 reports "method `Compare` has wrong signature", while the non-generic `impl IdS : lang.Orderable` is
@@ -197,7 +197,7 @@ accepted: the abstract satisfaction check (gen.impl.generic-recv) substitutes `S
 than the receiver's placeholder instantiation `IdS[T]`.  So `hashmap[IdS[int], V]` is impossible.  Fix in
 the abstract impl check's Self substitution; a test with a generic key type.
 
-### A package-level `var g *any = 42` borrows a temporary of the init function — it dangles once init returns — 🔴 OPEN MAJOR, DECIDED 2026-10-04 (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
+### A package-level `var g *any = 42` borrows a temporary of the init function — it dangles once init returns — 🟡 IN PROGRESS MAJOR, DECIDED 2026-10-04 (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
 
 `checkVarDecl` uses `checkBorrowingArg` for package-level vars too, so a value is borrowed into a package
 `*any` / `*I` var initializer; IR-gen enrolls the temporary as a `.borrow_temp` local of the init function.
@@ -339,17 +339,6 @@ With `pkg/qa` declaring `var G int = 5`, `qa.G` reads 0 in the REPL — the modu
 imported packages' alike, at the initial load and on a mid-session import; `bni main.bn` gives 5.  The
 REPL does not call the packages' `__init` functions (or not the imported ones).  Needs an e2e/repl.sh case.
 
-### A package-level NON-type declaration named like a predeclared type (`func uint16()`) shadows it only after its own position — invalid code accepted in one order — 🔴 OPEN (found 2026-09-28, work-5, review of the named-scalar-constants fix; pre-existing)
-
-`type N2 uint16; const c2 N2 = 5; func uint16() {}` is accepted, while the same declarations with
-`func uint16() {}` first give "uint16 is not a type".  A package-level name is visible throughout the
-package, so both orders must be rejected.  **Root cause:** only type declarations are pre-registered
-(preRegisterTypeNames); a func / var / const of a predeclared type's name enters the package scope
-only when collectDeclsBody reaches it, so earlier type references (and the scalar pre-fill) resolve
-the name to the universe type.  **Fix:** pre-register (or at least reserve) every package-level name
-before any type expression is resolved, so a non-type declaration shadows the predeclared type from
-the start.  **Test:** checker unit test for both orders (with the fix).
-
 ### A deferred method call on a receiver whose instantiation has an array argument sized by a type parameter panics — "defer of an unresolved method call" — 🔴 OPEN (found 2026-09-30, work-7, review of the checker→IR-gen type mapper; user chose to track it separately)
 
 `func F[T any](x T) { var b Box[[sizeof(T)]uint8]; defer b.Mark(3) }`, `F[int32](5)`: bnc panics; the
@@ -361,17 +350,6 @@ dependent array type (an opaque AST pointer, like InstDecl) and IR-gen evaluates
 instantiation — careful: evaluating `sizeof(T)` resolves T by NAME, the binder-name hazard
 bindTypeParams notes; or, for a local receiver, resolve the type from its declaration's written type
 (the entry pre-pass would have to find the declaration in the body).  Needs a conformance test.
-
-### A `cast` / `unsafe_cast` / `bit_cast` that is invalid only once a generic type parameter is instantiated crashes IR-gen instead of getting a diagnostic — 🔴 OPEN (found 2026-09-28, work-5, review of the composite-literal cast fix; pre-existing design gap)
-
-check_cast_safe.bn `checkCastSafeSet` defers validation when a side is an abstract type parameter, and
-nothing re-checks the conversion per instantiation; IR-gen's backstops then `panic` ("internal error: …
-reached codegen via a generic type parameter", in gen_builtin.bn / gen_cast_value.bn: narrowing an
-interface, mismatched aggregate shapes, different-size slices / bit_cast, and widening a VALUE
-operand (a composite literal) to an interface, e.g. `func conv[T any]() T { return cast(T, Thing{x: 42}) }` called as
-`conv[*Getter]()`).  A user program should get a positioned compile error naming the instantiation, not a
-compiler panic.  Fix: run the cast-safety rules on the substituted types when a generic body is
-instantiated (checker-side, before IR-gen), and turn the IR-gen panics into unreachable asserts.
 
 ### A type naming an alias of a generic interface instantiation before the interfaces are collected keeps the alias's name — the upcast to it fails — 🔴 OPEN (found 2026-10-03, work-3, review of the interface-alias type fix; pre-existing)
 
@@ -487,14 +465,6 @@ the LLVM backend (as native does): a load MemCopies into a function-scoped temp 
 address; stores MemCopy from it, extracts GEP into it, by-value args / returns / call results / phis use
 the address — every codegen producer and consumer of aggregate values handles that form.
 
-### REPL: a top-level `var` initialized with a function literal panics — "vm: function not found: main.__funclit_0" — 🔴 OPEN (found 2026-09-28, work-5, review of the REPL raw-slice-literal fix; pre-existing)
-
-At the REPL prompt, `var f *func() int = func() int { return 7 }` panics `vm: function not found:
-main.__funclit_0` (before and after `1000f6105`).  runReplVarInit (repl/decl.bn) lowers the var-init
-synthetic and the dtor/copy helpers EnsureReplBodyHelpers adds, but not the lifted `__funclit_<N>` the
-initializer's func literal produced.  Likely fix: lower every function the generation appended to the
-module (as the file-load path and the statement path do), not just the helpers; add an e2e/repl.sh case.
-
 ### arm32 hard-float: a homogeneous-float-aggregate `__c_call` ARGUMENT is passed in GP registers — C reads garbage from `s0…` — 🔴 OPEN (found 2026-09-27, work-3, stale-ABI-comment sweep)
 
 On `--target arm32-linux` (FLOAT_ABI_HARD) `HfaAggregates` stays false, so a float-only named struct /
@@ -587,7 +557,7 @@ the checker's by-value walks (`embedsOpaqueByValueSeen`, `containsByValueTypePar
 types is walked as a tree (4^11 visits here).  Fix: memoize per named type, or stop at a named type whose
 answer is already known.  Needs a compile-time test that bounds it.
 
-### IR-gen silently lowers an unresolved identifier to the constant 0 — 🔴 OPEN (found 2026-09-27, work-1, review of the bare-name precedence fix)
+### IR-gen silently lowers an unresolved identifier to the constant 0 — 🟡 IN PROGRESS (found 2026-09-27, work-1, review of the bare-name precedence fix; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
 
 `genExpr`'s `EXPR_IDENT` arm (`gen_expr.bn` ~:125, "Unknown ident — return a zero placeholder") emits
 `0` for a name that is neither a local, a global nor a const.  The checker has already accepted the
@@ -601,24 +571,7 @@ e.g. an imported const that neither folds nor has a checker stamp is dropped by
 `registerImportConstsAndVars`, so a generic body's bare read of it binds the consumer's.  The principled
 guard is "the defining package declares this name" (the checker's package scope), not "it is registered".
 
-### An imported package's alias of a generic instantiation (its OWN generic or a THIRD package's) resolves to `int` in IR-gen — 🔴 OPEN (found 2026-09-27, work-1, review of the alias-receiver fix; reproduced by the reviewer, pre-existing; widened 2026-09-27, work-6)
-
-pkg/home has `type VI = bx.Box[int]` (bx another package's generic): `RegisterStructTypes`
-(`gen_module_register.bn` ~:117-123) resolves the alias before the generic decl is stashed (later, in
-`registerImportsImpl` pass 1, `gen_import.bn` ~:152), so the entry is the `TypInt()` fallback; the correct
-entry appended later (`registerImportFieldsAndFuncs`) is shadowed because `lookupTypeAlias` returns the
-first match.  Effects: `var v home.VI; v.Get()` → undefined `…lang.int.Get` (LLVM/native) / VM
-"unresolved selector in IR-gen"; `impl *home.VI : I` keys on (pkg/home, VI) (native link failure).  A
-local `type LV = bx.Box[int]` works.  Fix: stash generic type decls before aliases are resolved, and/or
-replace a stale entry instead of appending a second one.
-
-Not limited to a THIRD package's generic (widened 2026-09-27, work-6, review of the generic-method
-param-shadowing fix; reproduced): an alias of the package's OWN generic fails the same way —
-`type IntBox = Box[int]` in `home.bni` (with `Box[T]` and `func (b *Box[U]) Val() U` in the same
-`.bni`), then `var b home.IntBox; b.Val()` in main → link failure (undefined `…lang…int…Val`), with or
-without a `home.bn`.  The checker accepts it; the failure is IR-gen's.
-
-### A generic struct / interface that is never instantiated is never checked — invalid declarations accepted — 🔴 OPEN (found 2026-09-28, work-6, review of the declared-type-param change; pre-existing)
+### A generic struct / interface that is never instantiated is never checked — invalid declarations accepted — 🟡 IN PROGRESS (found 2026-09-28, work-6, review of the declared-type-param change; pre-existing; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
 
 A generic type's fields (and a generic interface's method signatures) are resolved only when it is
 instantiated (populateInstantiatedStruct / populateInstantiatedInterface), so an uninstantiated one is
@@ -630,7 +583,7 @@ the rest of a never-instantiated generic's fields and method signatures are stil
 declaration once abstractly at the declaration (its parameters held abstract, as generic functions'
 bodies are checked), independent of instantiation.
 
-### Bugs found reviewing the identity refactor (pre-existing) — 🔴 OPEN (found 2026-09-27, work-1; reproduced by the reviewer)
+### Bugs found reviewing the identity refactor (pre-existing) — 🟡 IN PROGRESS (found 2026-09-27, work-1; reproduced by the reviewer; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
 
 - **`defer` of a method on an interface keys on the checker's SHORT package name:** (title kept — the
   TODO in `gen_defer_build.bn` cites it.)  Interface types now carry their full package path (`53c0e5fd5`),
@@ -711,7 +664,7 @@ clang rejects `@PLT` on Mach-O ("invalid specifier"), and on ELF keeps a tempora
 specifier into the fixup (a PLT branch kind), which the Mach-O writer rejects and the ELF writer keeps against
 the label (found 2026-09-30 by the review of the local-labels commit).
 
-### The REPL never runs the generic-body dependency registration — 🔴 OPEN (found 2026-09-27, work-1; the indirect-package type registration half landed in binate `1ec1766ce`)
+### The REPL never runs the generic-body dependency registration — 🟡 IN PROGRESS (found 2026-09-27, work-1; the indirect-package type registration half landed in binate `1ec1766ce`; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
 
 bnc and the interp driver register, for every package a monomorphized generic body may reach without the
 consumer importing it, its func externs, consts and vars (`registerGenericBodyExternDeps` →
