@@ -153,6 +153,24 @@ Validation per commit: native aa64 + LLVM (`builder-comp`) conformance subsets, 
 VM boundary), C-interop e2e, changed packages' unit tests; copy counts against plan-aggregate-copy-opts.md
 step D.
 
+Refinement (2026-10-05, after recon for commit 2):
+- Closure captures stay as they are: a lifted closure body is only ever reached through its own closure
+  shim (no pass calls one directly), so capture params keep being copied by the body and the shims keep
+  passing a pointer into the closure record.  Only user arguments follow the in-place rule.
+- The VM reaches compiled code only through `__shimP` (func values and extern bindings both use
+  call_packed), so copying there covers the VM.
+- Commit 1 (callers own) is binate `725599b96` on work-1, not yet landed.
+- Commit 2 as written is nearly a no-op: the native prologue copy into a param region is already skipped
+  when the param's only use is its entry store (ParamRegionElidable, the common case), and LLVM aa64 has
+  no separate prologue copy — its callee copy IS the `store slot, param` (lowered to a memcpy).  The
+  copy that remains on both backends is that slot store, so commits 2 and 3 merge: the param's slot is
+  the incoming memory (no store, no zero-fill) when the param is a PassesIndirect / IsByvalParam user
+  argument whose only use is the entry store into its slot.  One shared predicate (both backends must
+  agree on which slots are in place); native: the slot's OP_ALLOC yields the incoming pointer instead of
+  SP + offset (every LookupAlloc consumer that addresses an alloca off SP must handle a slot with no
+  frame offset), the store is skipped; LLVM: the slot is the incoming `ptr`.  x64 / arm32 in place is a
+  separate decision (their callees own their incoming stack bytes; arm32 also has a register part).
+
 ## x64 design (recon 2026-10-03)
 
 A >16-byte aggregate is SysV MEMORY class: bytes on the outgoing stack, no register consumed.
