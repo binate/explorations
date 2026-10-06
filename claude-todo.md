@@ -693,7 +693,8 @@ CFP / DVP / CPP / COSP RCTX, BRB, TRCIT, TLBIP, SMSTART / SMSTOP), SVE/SVE2(.1),
 system registers: `sysRegByName` knows ~70 of the hundreds clang names (the generic
 `s<op0>_<op1>_c<n>_c<m>_<op2>` form reaches any); and label differences — `l2 - l1` in a constant
 definition, an immediate (`#(l2 - l1)`) or a data directive (`.uint32 l2 - l1`), which clang evaluates at
-layout — none supported today (user, 2026-09-30: its own family on this list).  Newer LLVM only (Apple clang 21 rejects them; take them
+layout — none supported today (user, 2026-09-30: its own family on this list) — 🟡 IN PROGRESS (claimed
+2026-10-05, work-2/session; user: "go ahead with label differences"; plan-aa64-asm-symbols.md 3e).  Newer LLVM only (Apple clang 21 rejects them; take them
 when the reference clang does): FEAT_TLBID's optional Xt on the broadcast TLBI operations, DC GBVA / ZGBVA.
 **Also open (found by reviews, 2026-09-29):** outside the instruction parsers a rejected
 line can still emit: a data directive with trailing text or a later bad value (`.ascii "ab" x`, `.uint32 1
