@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### x86-64 text assembler: `[reg - a + b]` negates the whole `a + b` — silent wrong displacement — 🔴 OPEN CRITICAL (found 2026-10-05, work-2, review of the label-differences change; reproduced against clang; pre-existing)
+### x86-64 text assembler: `[reg - a + b]` negates the whole `a + b` — silent wrong displacement — 🟡 IN PROGRESS CRITICAL (claimed 2026-10-06, work-2/session; user: "x64 bug first (Recommended)"; found 2026-10-05, work-2, review of the label-differences change; reproduced against clang; pre-existing)
 
 **Symptom:** `mov rax, qword [rbx - 8 + 4]` assembles to displacement −12 (`48 8b 43 f4`) and `[rbx - 8 - 4]`
 to −4; clang gives −4 and −12.  Silent wrong code for hand-written x86-64 assembly through bnas (the native
