@@ -219,10 +219,12 @@ consumer that records a dynamic type) should take the literal's declared type; a
 lex.semicolon.insertion (§5.13) inserts a semicolon after an identifier and after the keywords `true`,
 `false`, `nil`, `break`, `continue`, `return`, but `Self` is a reserved keyword (lex.keywords.reserved), and
 the lexer (token.TriggersASI) follows the spec.  `Self` is the only keyword that can end a line as a type
-(an interface method's result), so every such method has to be written `Copy() (Self)` or end in `;`.
-Proposal: add `Self` to §5.13's list (and token.TriggersASI), as a type name it ends a line like an
-identifier; a lexer unit test and a conformance test of a `Self` result at the end of a line.  The test for
-the `Self` impl fix (conformance `1583_generic_impl_self`) spells the result `(Self)` meanwhile.
+(an interface method's result), so such a method must come last in the interface, or be written
+`Copy() (Self)` or end in `;` — and bnfmt rewrites `Copy() (Self)` to `Copy() Self`, so formatting turns
+code that parses into code that does not.  Proposal: add `Self` to §5.13's list (and token.TriggersASI): as
+a type name it ends a line like an identifier; a lexer unit test, a bnfmt round-trip test and a conformance
+test of a `Self` result followed by another method.  The test for the `Self` impl fix (conformance
+`1583_generic_impl_self`) puts its `Self`-result method last meanwhile.
 
 ### A generic-receiver impl of an interface that uses `Self` is rejected — no generic type can be a hashmap key — 🟡 IN PROGRESS (found 2026-10-03, work-7, review of the non-struct generic types change; reproduced; pre-existing; claimed 2026-10-05, work-7/session, self-drive; user: "yes, go ahead, but please also take on some older MAJORs in the batch too")
 
