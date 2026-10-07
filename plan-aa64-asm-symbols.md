@@ -253,7 +253,11 @@ Design:
 Commits (series):
 - (2.0) link: per-arch patchers out of relocate.bn (437 lines) — a pure move.  ✅ landed `42942da63`.
 - (2.1) absolute data: kinds, parser, both writers, arm32 bake, bnld ELF ABS kinds; Mach-O UNSIGNED.
-- (2.2) PC-relative data on ELF: `sym - .`, `sym - l`, external minuend; bnld PREL / REL32 / PCn.
+- (2.2) PC-relative data on ELF: `sym - .`, `sym - l`, external minuend; bnld PREL / REL32 / PCn.  Also
+  (review of (2.1)): `ext - l1 + l2` and `ext - . + l2` — clang folds the fixed `l2 - l1` (ELF `ext+4`,
+  Mach-O too); the left-to-right evaluator builds `ext - l1` first and fails ("not a label defined
+  anywhere" for a declared external) — re-associate a location added to a difference whose subtrahend
+  it is a fixed distance from.
 - (2.3) Mach-O differences: Sub field, SUBTRACTOR pairs (arm64 and x86-64 writers), bnld arm64 pairs.
 
 ## Decisions (user, 2026-09-30 — each the recommended option)
