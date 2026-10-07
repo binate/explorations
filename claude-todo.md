@@ -84,6 +84,14 @@ The same holds for deferred function-value calls: `var fh @func(*Getter) = …; 
 same way.  Test to land
 with the decision (repro: the review probe, a `*any` analogue of `spec/14-statements/177`).
 
+### bnfmt: an empty statement in a block prints a blank line — `g();;` gains a line the source does not have — 🔴 OPEN (found 2026-10-07, work-7, review of the written-`;` lexer fix; pre-existing)
+
+printStmt prints nothing for an STMT_EMPTY, but printBlockMulti (pkg/binate/format/print_stmt.bn, near :88) still
+writes the newline and indentation before it, so `func f() {\n\tg();;\n\th()\n}` formats as `\tg()\n\n\th()` — a
+blank line that is not in the source.  (Before the lexer stopped inserting a second semicolon after a written one,
+every line-ending `;` in a block did this.)  **To do:** skip empty statements in the block printer's separator
+logic; a format golden test with `;;` in a block and at its end.
+
 ### Lexer: a newline after a written `;` inserts a second semicolon — `var a int;` then a declaration on the next line does not parse — 🟡 IN PROGRESS (found 2026-10-07, work-7, review of the REPL code-unit fix; pre-existing; claimed 2026-10-07, work-7/session; user: "takes do 1 now")
 
 lex.semicolon.insertion (§5.13) inserts a semicolon at a newline only after an identifier, a literal, the listed
