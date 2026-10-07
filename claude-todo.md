@@ -212,18 +212,6 @@ whole words through the dispatch caller's pointer — x64 emitSpillByAddressAgg_
 aggregate — and a VM or LLVM-compiled dispatch caller's copy may be sized to the type itself (`[201]uint8`
 reads 208 bytes).
 
-### LLVM backend: whole-aggregate load / store left in sret returns, call-site sret loads and zero-value construction — possible `__aeabi_memcpy` on ARM EABI — 🟡 IN PROGRESS (claimed 2026-10-07, work-3/session, self-drive) (investigate; found 2026-09-29 by the review of the named-aggregate copy fix `d500a2af7`)
-
-codegen lowers an aggregate OP_LOAD / OP_STORE leaf by leaf (emit_copy_ssa{,_load}.bn) because LLVM's ARM
-EABI backend may lower a whole-aggregate `load <T>` / `store <T>` to `__aeabi_memcpy`, a C-library call
-bare metal does not have.  Other paths still emit whole-aggregate forms: a by-value struct RETURN writes
-`store %W %v, ptr %v.retbuf`, the call site reads `load %W, ptr %v.sret`, and a zero value built field by
-field is then loaded as `%vN = load %T, ptr %vN.a`.  Nothing has been observed (conformance on LLVM arm32
-baremetal passes), but large enough aggregates on these paths may hit the memcpy lowering.  **To do:**
-reproduce on `builder-comp_arm32_baremetal` with a large by-value struct return / zero value (check the
-object for `__aeabi_memcpy` references); if it reproduces, route those paths through the leaf-by-leaf
-helpers.
-
 ### REPL redefinition of types and interfaces, and across kinds: shadowing (the design) is not implemented; such a redefinition is rejected meanwhile — 🔴 OPEN (found 2026-09-29, work-6, review of the REPL forward-reference plan; widened 2026-09-30)
 
 claude-notes.md ("Redefinition in the REPL") says an incompatible type redefinition shadows the old

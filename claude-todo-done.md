@@ -1,3 +1,26 @@
+### LLVM backend: whole-aggregate load / store left in sret returns, call-site sret loads and zero-value construction — possible `__aeabi_memcpy` on ARM EABI — RESOLVED — does not reproduce (2026-10-07, work-3) (found 2026-09-29 by the review of the named-aggregate copy fix `d500a2af7`)
+
+codegen lowers an aggregate OP_LOAD / OP_STORE leaf by leaf (emit_copy_ssa{,_load}.bn) because LLVM's ARM
+EABI backend may lower a whole-aggregate `load <T>` / `store <T>` to `__aeabi_memcpy`, a C-library call
+bare metal does not have.  Other paths still emit whole-aggregate forms: a by-value struct RETURN writes
+`store %W %v, ptr %v.retbuf`, the call site reads `load %W, ptr %v.sret`, and a zero value built field by
+field is then loaded as `%vN = load %T, ptr %vN.a`.  Nothing has been observed (conformance on LLVM arm32
+baremetal passes), but large enough aggregates on these paths may hit the memcpy lowering.  **To do:**
+reproduce on `builder-comp_arm32_baremetal` with a large by-value struct return / zero value (check the
+object for `__aeabi_memcpy` references); if it reproduces, route those paths through the leaf-by-leaf
+helpers.
+
+**Resolved — does not reproduce** (checked 2026-10-07 with the tree at binate `42942da63` plus unlanded
+work that does not touch codegen).  Since binate `a39d67d9f` an aggregate of more than 16 scalar leaves
+(`bulkLeafThreshold`, `pkg/binate/codegen/emit_copy.bn`) is zero-filled / copied by one `rt.MemZero` /
+`rt.MemCopy` call on bare metal — the sret return copy, the call-site copy and the zero value included — so
+the whole-aggregate `load` / `store` forms remain only for at most 16 leaves.  The largest such case, a
+`struct { a [15]int64; b int64 }` (128 bytes) returned by value, passed by value and zero-initialized,
+compiled for `--target arm32-baremetal` at -O0, -O1 and -O2, references no `__aeabi_memcpy` (nor
+`__aeabi_memclr` / `memcpy`): LLVM expands those small aggregate moves element by element.  Larger
+probes (`[40]int32` and `[400]int32` fields, 164 / 1604 bytes) go through `rt.MemCopy` / `rt.MemZero`
+throughout.
+
 ### x86-64 operands: `~` right after a unary operator rejected — clang's Intel syntax misreads it — DONE (binate `b5e3029e2`, 2026-10-06, work-2; user: "Reject it (Recommended)")
 
 clang's Intel-syntax operand parser misreads a unary operator directly followed by `~` in most places (`1 + -~8`
