@@ -5,14 +5,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### native aa64: a conditional branch beyond ±1 MB is not relaxed — a very large function fails to assemble — 🟡 IN PROGRESS (claimed 2026-10-07, work-3/session, self-drive) (found 2026-09-30, work-7, review of the exact aggregate-copy fix; pre-existing)
-
-"PC-relative reference to 'L_…phicrit.71' is out of range or misaligned": B.cond / CBZ reach ±1 MB and
-the backend does not relax an out-of-range one (invert the condition around an unconditional B).  Reached
-when every aggregate copy is fully unrolled — a function copying a 16 KB aggregate a few times (about 4K
-instructions per copy) at -O1.  Fails loudly at build time.  Fix: branch relaxation in the aa64 emitter
-(or a loop for large aggregate copies, which the LLVM backend's per-leaf entry also wants).
-
 ### Constraint calls through `impl *P` / `impl @M` give wrong results — needs a spec decision — 🔴 NEEDS DECISION (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
 
 ```
@@ -149,27 +141,6 @@ failure is stdlib/debug/001_callers (see "stdlib/debug/001_callers prints "short
 decision before a lane can go green (xfail markers are per mode, not per -O level).  Adding the lane is the user's
 call (CI wiring).
 
-### An all-`.bni` package that declares a `var` is not diagnosed — IR-gen panic / link failure for its importers — 🟡 IN PROGRESS (claimed 2026-10-07, work-3/session, self-drive) (found 2026-10-01, work-3, while fixing the undefined-`.bni`-var check; pre-existing)
-
-The undefined-`.bni`-var check (check/check_decl_pass2.bn checkBniVarsDefined) skips a package loaded
-with no `.bn` files, because the loader also reads an interpreter's injected / compiled-in packages from
-their `.bni` alone (Loader.InterfaceOnly) — so the checker cannot tell "implemented elsewhere" from "no
-implementation".  A package that genuinely has only a `.bni` and declares `var X int` therefore compiles,
-and an importer reading X fails as the undefined-var case did.  Fix: have the loader tell the checker
-which packages are interface-only (or the reverse), and report a `var` in a non-interface-only package
-with no `.bn` files.
-
-### arm32 text assembler: forms clang accepts that are rejected — 🟡 IN PROGRESS (claimed 2026-10-07, work-3/session, self-drive) (found 2026-09-30, work-2, by the review of the arm32 label-addend fix; each used to be silently miscompiled, now an error)
-
-Loud, not wrong code: `ldr r0, [r1]!` (clang E5B10000), `ldr r0, [r1, r2, lsl #2]!` (E7B10102), `ldr r0, [r1],
-r2, lsl #2` (E6910102), `ldr r0, [r1], -r2`, `ldr r0, [r1, r2, rrx]` (E7910062), `ldm r0, {r1}^` (E8D00002),
-`mov r0, #255, #30` (E3A00FFF, the explicit-rotation immediate), `b .+8`, and `bl ext(PLT)` (the old `(PLT)`
-suffix; clang: R_ARM_CALL).  Also (found 2026-10-01, work-2, probing constants): the
-shift instructions `lsl` / `lsr` / `asr` / `ror` (aliases of MOV with a shifted register; "unknown instruction"),
-`adr r0, label` / `adr r0, 8` (clang E28F0008), and immediates written without '#': `svc 5`, and `mov r0, 5`,
-which clang encodes as MOVW (E3000005), not MOV.  Each its own small fix in
-`asm/parse/arm32.bn` / `arm32_instr.bn` (+ encoder support where missing), goldens from clang.
-
 ### Until `BUILDER_VERSION` includes binate `1f29d31e9`, gen1 silently miscompiles some statements that open a block or follow a compound statement in BUILDER-compiled code — 🔴 OPEN MAJOR (constraint until the next BUILDER release; found 2026-09-30, work-4)
 
 bnc-0.0.16 (the pinned BUILDER) has the IR-gen defect fixed on main by `1f29d31e9`.  So in cmd/bnc's cone (the packages the BUILDER compiles into gen1), these must not be the first statement of a loop / `if` / `else` / `case` body, nor the statement right after an `if` / `for` / `switch`:
@@ -178,30 +149,6 @@ bnc-0.0.16 (the pinned BUILDER) has the IR-gen defect fixed on main by `1f29d31e
 - assigning a variable to a `*any`.
 
 gen1 would get silently wrong code there, and gen1 compiles every test and gen2.  Examples: a loop body that never runs (the function returns early, with no error); `st.Top++` right after an `if` or a `for` does nothing.  An identifier `++` just before it doesn't help.  A statement that goes through expression evaluation first (`x.f = x.f + 1`, a declaration, a call) is fine, and so is one in a function's opening straight-line code.  Design B's instance stack (`pushInstWork` / `popInstWork`, binate `fe95d7de8`) keeps its `++` / `--` out of those positions; TODOs there mark it.  A 2026-09-30 scan of non-test code found no other field `++` / `--` (the only two are design B's), no `x := name` short-var, and no `*any` variable, parameter or field.  Clears when a BUILDER containing `1f29d31e9` is pinned (cut only when independently justified).
-
-### Native x64: a by-value aggregate argument is read as whole 8-byte words, up to 7 bytes past its end (aa64 and arm32 checked: exact) — 🟡 IN PROGRESS (claimed 2026-10-07, work-3/session, self-drive) (reported 2026-09-30 for aa64 by the review of the bulk by-value-argument change; checked 2026-10-07, work-3)
-
-Reported for aa64 (the callee copying an IndirectLargeAggregates parameter as `ArgWords(T) * 8` bytes, so a
-100-byte `[100]uint8` reads 104 bytes from the caller's copy).  Checked 2026-10-07: **not so on aa64** — the
-callee stores the incoming pointer and copies nothing, and the caller's copy (`emitArgCopiesAA64` →
-`emitAggCopyToAarch64`) moves exactly `SizeOf()` bytes (its tail re-copies the last bytes inside the bounds).
-**arm32 is exact too**: a type aligned to the word has a size that is a multiple of it, and a less-aligned
-one is loaded byte-wise (`aggNeedsBytewiseArm32`).  **x64 over-reads**: `emitAggregateArg`
-(`native/x64/x64_call.bn`) loads `ArgWords(T)` whole 8-byte words from the argument's storage, in the register
-path and the MEMORY path (and its copy loop copies `8 * nWords` bytes), so an aggregate whose size is not a
-multiple of 8 — `[100]uint8`, `struct { a, b, c int32 }` — is read up to 7 bytes past its end: harmless when
-the source is a stack region (rounded up to 8 by PlanFrame), a fault if a global or heap object ends at an
-unmapped page.  Fix: load the last, partial word by its exact bytes (as arm32's byte-wise load does) and copy
-`SizeOf()` bytes to the stack; check the x64 closure-shim and SSE-aggregate argument paths for the same.
-Fix if confirmed: copy exactly `SizeOf(T)` bytes (a byte / halfword tail after the whole words).
-**Update 2026-10-05 (work-1):** confirmed by reading the old aa64 incoming-parameter spill, and fixed there by
-binate `2fd5685fc` (the copy goes through emitAggCopyToAarch64 with `SizeOf(T)` bytes).  The callee spills on
-x64 and arm32 read the caller's argument area, whose slots their ABIs pad to whole words, so they are fine.
-Still to check: the func-value / closure spill shims' re-expansion of a BY-ADDRESS aggregate reads ArgWords
-whole words through the dispatch caller's pointer — x64 emitSpillByAddressAgg_x64 and the closure shims
-(R10 / R11 loops, now emitCopyLoopX64 with `8 * n` past 128 bytes), arm32's register words of a byte-wise
-aggregate — and a VM or LLVM-compiled dispatch caller's copy may be sized to the type itself (`[201]uint8`
-reads 208 bytes).
 
 ### REPL redefinition of types and interfaces, and across kinds: shadowing (the design) is not implemented; such a redefinition is rejected meanwhile — 🔴 OPEN (found 2026-09-29, work-6, review of the REPL forward-reference plan; widened 2026-09-30)
 
@@ -221,18 +168,6 @@ a conversion dispatched through the stale interface (wrong code).  These are rej
 ("cannot redefine interface Sizer as a constant"; user: "(a) is fine for now, though maybe (b) should be
 a todo" — (b) being cross-kind shadowing, like type shadowing).  Shadowing them needs the same
 generation-distinct identity through the checker's and IR-gen's registries.
-
-### A deferred method call on a receiver whose instantiation has an array argument sized by a type parameter panics — "defer of an unresolved method call" — 🔴 OPEN (found 2026-09-30, work-7, review of the checker→IR-gen type mapper; user chose to track it separately)
-
-`func F[T any](x T) { var b Box[[sizeof(T)]uint8]; defer b.Mark(3) }`, `F[int32](5)`: bnc panics; the
-same call without `defer` compiles and runs.  The defer path names the method from the receiver's
-checker type mapped to IR-gen's (irTypeFromChecker — defer sites are built at function entry, before any
-local exists), and the checker's `[sizeof(T)]uint8` has no length (ArrayLenDependent, placeholder 0), so
-the receiver's type has no IR-gen form.  Fix options: the checker records the length expression on a
-dependent array type (an opaque AST pointer, like InstDecl) and IR-gen evaluates it under the current
-instantiation — careful: evaluating `sizeof(T)` resolves T by NAME, the binder-name hazard
-bindTypeParams notes; or, for a local receiver, resolve the type from its declaration's written type
-(the entry pre-pass would have to find the declaration in the body).  Needs a conformance test.
 
 ### A type naming an alias of a generic interface instantiation before the interfaces are collected keeps the alias's name — the upcast to it fails — 🔴 OPEN (found 2026-10-03, work-3, review of the interface-alias type fix; pre-existing)
 
@@ -256,18 +191,6 @@ signatures and extension clause use are registered before a declaration that nam
 instantiation (extend typeDeclDepNames) — but a method naming the declaration being registered (`self() P`)
 still sees `int`; (b) name the alias's canonical instance (its mangled name) without instantiating it during
 registration, leaving the instantiation to the interface pass.  (b) looks cleaner; needs a design check.
-
-### bnfmt is not idempotent on a long string-literal call argument — formatting a formatted file changes it again — 🟡 IN PROGRESS (claimed 2026-10-07, work-3/session, self-drive) (found 2026-10-02, work-3, formatting a unit test; reproduced with the CHECK_TOOLS bnfmt, bnc-0.0.17-pre1; pre-existing)
-
-```
-	if !rejectsSliceBinding("type Row [3]int\nfunc f() { var r readonly Row; var w *[]int = r[1:] }\n") {
-```
-Pass 1 splits the over-long literal at its `\n` into an adjacent-literal pair, continuing on the same
-line: `rejectsSliceBinding("type Row [3]int\n"` / `\t\t\t"func f() …\n") {`.  Pass 2 rewraps that
-into `rejectsSliceBinding(` / `\t\t\t"type Row [3]int\n"` / `\t\t\t\t\t"func f() …\n") {`; pass 3 is
-stable.  A formatter's output must be a fixed point: the bnfmt-format hygiene check then flags a file
-just written by `bnfmt -w`.  Fix: have the literal split produce the argument-list wrap pass 2 chooses
-(or make pass 2 accept pass 1's form); add a bnfmt unit test that formats twice and compares.
 
 ### The conformance runner has no compile-size / compile-memory guard — one pathological test can exhaust the machine — 🔴 OPEN (split out of the 1301 whole-array-load entry, 2026-09-28, work-1; user: "yes, keep the 1301 suggestion as its own todo")
 
@@ -404,13 +327,7 @@ T, so one always fails; Binate has no compile-time `if`.  The user accepted the 
 recommendation: limitation + this todo).  Open questions if pursued: which conditions count as constant
 for an instantiation, `&&` / `||`, `switch`, and whether the skipped branch is still checked abstractly.
 
-### Constant-evaluator leftovers — 🟡 IN PROGRESS (claimed 2026-10-06, work-3/session, self-drive) (found 2026-09-28 by the review of constant-evaluator step 2; pre-existing)
-- `const F float64 = cast(float64, 5)` fails in clang: both the old and new compiler emit invalid LLVM IR.
-- `const S2 = sizeof([G2]uint8)` naming a const-group member declared later is rejected ("array length
-  must be a constant integer"): the dependency walk (`collectConstDeps`) does not look into type
-  arguments.  `const S = sizeof(T)` with `type T` declared later is rejected as opaque by both compilers.
-- After `undefined: Undef` in a constant initializer, a follow-on "arithmetic op requires numeric
-  operands" is reported for the same expression.
+### Constant-evaluator leftover — REPL: a const group's shared initializer re-checked per bare member — 🔴 OPEN (unverified; found 2026-09-28 by the review of constant-evaluator step 2; pre-existing; the entry's other bullets done 2026-10-07)
 - REPL: `checkGroupDeclTentative` still re-checks a const group's shared initializer for its bare members,
   which restamps it; IR-gen reads the checker's per-declaration values now, so this may be harmless.  Not
   verified.
@@ -433,15 +350,6 @@ order, so (found 2026-10-03 by the review of that fix; valid code rejected, each
 const S Size = 4` → "array length must be a constant integer" (S records NOT_CONST); `var V [S]uint8; type H
 struct{a int; b int}; const S = sizeof(H)` → S silently POISONED and V `[0]uint8` (only the package's own
 checkBniVarMatch then complains).
-
-### Constant `sizeof` of a type built from repeated struct fields takes time exponential in the nesting depth — 🟡 IN PROGRESS (claimed 2026-10-06, work-3/session, self-drive) (found 2026-09-29, work-4, review of design B commit 3; pre-existing)
-
-Eleven levels of `type Ln struct { f0 Ln-1; f1 Ln-1; f2 Ln-1; f3 Ln-1 }` and `const S = sizeof(L11)` in a
-function take 8.6s of user time to compile (36s with a gen1 bnc of 2026-09-26).  Cause not confirmed:
-the checker's by-value walks (`embedsOpaqueByValueSeen`, `containsByValueTypeParam`,
-`layoutDependsOnTypeParam`) recurse into every field of every named type with no memo, so a DAG of named
-types is walked as a tree (4^11 visits here).  Fix: memoize per named type, or stop at a named type whose
-answer is already known.  Needs a compile-time test that bounds it.
 
 ### aa64 text assembler: clang-valid instruction families still rejected (completeness) — 🟡 IN PROGRESS (listed 2026-09-26; claimed 2026-09-27, work-2/session; user: "Next, after this lands", then "yes"; landing family by family)
 
@@ -640,39 +548,12 @@ r2, rrx #3` all assemble (a mistyped extra operand is dropped); the arm32 `, rrx
 `rrx` token itself as the next token instead of advancing past it (harmless only because trailing tokens
 are ignored).  Fix together: an end-of-line check after every instruction.
 
-### native: folded-away values still get PlanFrame slots; several dispatcher cases silently drop an instruction on an unresolved operand — 🟡 PARTLY CLAIMED (found 2026-09-25; the PlanFrame-slot part rides the T6 LinearScan step, work-4; the dispatcher silent-return part 🟡 IN PROGRESS (claimed 2026-10-07, work-3/session, self-drive))
+### native: folded-away values still get PlanFrame slots — 🟡 IN PROGRESS (rides the T6 LinearScan step, work-4) (found 2026-09-25; the dispatcher silent-return part DONE binate `d9e2d82b3`, see the done log)
 
-(`getOperand` fails loud on any fold-flagged id since `f0a7f78fe`, see done log.)  Still open: (a) `PlanFrame`
+(`getOperand` fails loud on any fold-flagged id since `f0a7f78fe`, see done log.)  Still open: `PlanFrame`
 reserves a slot for every value, folded-away ones included (`native/common/common.bn` ~162, ~222) — wasted
 frame space (visible in the arm32 managed-slice destructor loops: the frame stays `sub sp,#128` after the
-folded constant's slot went unused); fixed together with dropping folded values from LinearScan.  (b) Per-op
-dispatcher cases (`OP_COPY`, `OP_MANAGED_TO_RAW`, `OP_BIT_CAST`, `OP_CAST`, ~15 more `if … < 0 { return }`
-sites across the three backends) silently emit nothing on an unresolved operand instead of failing loud like
-the dispatch tail — a dropped `OP_COPY` leaves a phi stale.  **Fix:** replace the silent returns with
-`a.SetError("<op>: unresolved operand")`.
-
-### Checker: the function-literal destination hint leaks into operands that are not destinations (`bit_cast`, `box`, a callee) — 🟡 IN PROGRESS (claimed 2026-10-07, work-3/session, self-drive) (MINOR; found 2026-09-30 by the spec review of the function-value destination rules)
-
-`checkExprWithFVHint` installs `c.ExpectedFVType` for its whole destination
-expression, and only `checkExprWithFVHint`, `checkFuncLit` (for its body) and
-`check_decl_batch` ever clear it; an operand checked with plain `checkExpr`
-inside that expression inherits the outer destination.  So in
-`var p *func() = bit_cast(*func(), func() {…x…})` the literal becomes a `*func`
-frame closure, though `func.lit.inferred-default` says a `bit_cast` operand is
-not a destination (it gets the `@func` default); likewise a `box` operand and a
-callee expression.  The effect is benign (code the spec says dangles works), but
-the checker diverges from the spec.  Proposed fix: clear the hint (check with
-`checkExprWithFVHint(c, x, nil)`) for every operand that is not itself a
-destination — the `bit_cast` / `box` operands, callees, index / selector bases,
-binary / unary operands.
-Observable effect (checked 2026-09-30): the checker ACCEPTS a program the spec
-rejects — `type Fn *func() int; var f Fn = *box(func() int { return k })` (the
-boxed literal should be the `@func` default, and `@func` is not implicitly
-assignable to the nominal `Fn`; likewise an `MFn` over `@func`) — and programs
-the spec makes undefined behavior (`bit_cast(*func() int, func…)`,
-`*box(func…)` into a `*func`, each with a capture) happen to work.  No case found
-where it rejects a valid program: the hint applies only on a signature match,
-which only makes the literal more assignable.
+folded constant's slot went unused); fixed together with dropping folded values from LinearScan.
 
 ### Should `unsafe_cast` convert a RAW interface value to a MANAGED one (`*I -> @I`, `*I -> @J`)? — 🔴 OPEN, DECIDED 2026-10-03, BACK-BURNERED (raised 2026-10-03, work-3, review of the unsafe_cast interface-widening change)
 
@@ -763,15 +644,6 @@ are accepted, while `type P *([2]Op)` and a field `p *[2]Op` are rejected;
 declaration or a field) is accepted, while `func f(o Op)` is rejected — check the spec whether a
 function-value TYPE needs its parameters sized before it is called.  Fix each with a test.
 
-### A bare generic type name with no type arguments is accepted in a type declaration (`type X Box`) — 🟡 IN PROGRESS (claimed 2026-10-07, work-3/session, self-drive) (found 2026-10-03, work-3, review of the type-declaration opaque check; reproduced; pre-existing)
-
-With `type Box[T any] struct { v T }`, `type X Box` compiles silently: the bare name resolves to the
-generic's placeholder (no underlying), and `resolveNamedTypeExpr`'s IsGeneric check covers only exposed
-markers.  `type A [2]Box` was likewise accepted; since the declaration-site opaque check it is rejected,
-but as "cannot use an opaque type by value" (the placeholder looks opaque) instead of "generic type used
-without type arguments".  Fix: reject a bare generic name wherever a type is expected; the opaque message
-then no longer fires for it.  Needs error tests (`type X Box`, `type A [2]Box`, a field, a param).
-
 ### A `switch` with two `default` clauses is accepted — invalid code accepted — 🔴 OPEN (found 2026-10-03, work-3, review of the switch-default fix; code reading; pre-existing)
 
 `switch x { default: A; default: B }` (and a type switch with two) passes the parser, the checker and —
@@ -779,6 +651,13 @@ literally — the spec, which never says a switch has at most one `default`.  Wh
 accident (the last since the switch-default fix; the first before it).  Fix: spec `stmt.switch.default` — at
 most one default clause — and a checker error at the second ("multiple defaults in switch"), for expression
 and type switches; an error test.
+
+### A forward `type Box` followed by a generic `type Box[T any] …` in one package is accepted — 🔴 OPEN (found 2026-10-07, work-3, review of the bare-generic-name check; pre-existing)
+
+Both the current and the previous compiler accept a package declaring `type Box` (forward) and then
+`type Box[T any] struct { v T }`: the forward placeholder is filled by the generic's registration, as if they
+were one declaration.  Probably a redeclaration error (a forward declaration names a non-generic type).
+Needs an error test.
 
 ## Performance
 
@@ -1394,15 +1273,6 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   scalar or nothing.  Fix as on x64: share `emitCall`'s argument placement and fail loud on an aggregate result
   (arm32 already does — it shares `emitCallArg` with `emitCall`).
 
-- **x64 `emitCallIndirect` diverges from `emitCall` (latent)** — 🟡 IN PROGRESS (claimed 2026-10-07, work-3/session, self-drive) (found 2026-09-29 in review of
-  the x64 caller-saved-homes work; pre-existing). `pkg/binate/native/x64/x64_call_indirect.bn`
-  `emitCallIndirect`: (a) no sret shift in `argTypes`, so for a big aggregate / big multi-return
-  result the post-loop `LEA RDI` overwrites arg 0; (b) floats beyond XMM7 are silently dropped (no
-  stack overflow path); (c) SSE aggregates go down the GP `emitAggregateArg` path, so a pure-SSE
-  aggregate is placed nowhere. Probably unreachable today (OP_CALL_INDIRECT is used for dtor /
-  free_fn / trampoline calls with scalar-or-void results), but each is a silent miscompile if a
-  new caller reaches it. Fix: share emitCall's argument placement, or assert the supported shapes
-  loudly. Needs a test that pins whichever is chosen.
 - **Native: an elided aggregate load's address lives on the stack, not in a register** — 🟡 IN
   PROGRESS (claimed 2026-10-01). When `AggLoadElidable` lets a load alias its source, the load's
   value is just the source address, but aggregates are never register-allocatable, so the address
@@ -2287,21 +2157,6 @@ first line.  Measuring the fill decision the same way changes the layout of ~20+
 it needs a decision on which multi-line elements it applies to (function literals only?) and a reformat of
 the tree in step with the CHECK_TOOLS bnfmt.
 
-### bnfmt moves comments inside a function literal — 🟡 IN PROGRESS (claimed 2026-10-06, work-3/session, self-drive) (found 2026-09-28, review of the bnfmt defer fix)
-
-`printFuncLit` (`pkg/binate/format/print_stmt.bn`) prints the literal's body with no comment cursor, so a
-comment inside a function literal's body — or trailing the line that opens a multi-line literal — is
-re-emitted on its own line before the next statement instead of in place.  Nothing is lost, but the comment
-moves, e.g. in the common `defer func() { // why\n ... }()` pattern.  Fix: thread the comment cursor into the
-literal's body like printBlock does for statement blocks.
-
-### bnfmt prints `for ;; {` with a double space — 🟡 IN PROGRESS (claimed 2026-10-06, work-3/session, self-drive) (found 2026-09-28, review of the bnfmt defer fix)
-
-`printFor` (`pkg/binate/format/print_stmt.bn`) emits the separator space before an absent post statement,
-so `for ;; {` becomes `for ; ;  {` and `for ; i < n; {` becomes `for ; i < n;  {`.  The output reparses the
-same and is stable, but not canonical; the for-clause tests compare tokens only, so they miss it.  Fix the
-spacing and add a byte-exact test.
-
 ## bnlint rules, unused-entity checks & lint skips
 
 ### bnlint: flag a pointer-receiver method value on a composite literal (`S{…}.PGet`) — 🔴 OPEN (proposed 2026-09-30 by the review of the method-value fixes; decided: add later)
@@ -2340,17 +2195,6 @@ is released at the end of the statement and `h` dangles (user error per the
 memory-management rules — the compiler does not extend the temporary).  Flag a
 `*func` variable / field / element initialized or assigned from an `@func`-typed call
 result or cast that is not otherwise owned.
-
-### bnlint: `func-value-escape` and `managed-func-raw-capture` do not look inside composite literals — 🟡 IN PROGRESS (claimed 2026-10-06, work-3/session, self-drive) (MINOR; found 2026-09-29 by code reading in the review of the composite-literal function-literal hint fix, not run)
-
-`func-value-escape` flags only a bare function literal in `return` position, so
-`return H{g: func(x int) int { return x + k }}` — a frame-owned `*func` closure
-escaping through the returned struct — is not flagged.  `walkExprFuncLits`
-(`pkg/binate/lint/func_value_escape.bn`) never descends into a composite
-literal's `Elems`, so `managed-func-raw-capture` misses an `MFn` / `@func`
-composite element that captures a raw pointer.  Proposed fix: walk
-`Elems[i].Value`, and apply the return check to `*func`-typed composite elements
-recursively.
 
 ### Raw-slice escape: decide whether a BROADER best-effort escape lint is wanted — 🟡 NEEDS DECISION
 The original framing ("demote the raw-slice escape TYPE ERROR to a linter rule")
@@ -2626,16 +2470,6 @@ page is remapped read-only).  This is a new object-writer feature
 urgency (no current miscompile; the writable placement is safe, just unhardened).
 
 ## Testing: harness, runners & conformance coverage
-
-### `os.RemoveAll` is path-based — a concurrent directory→symlink swap mid-walk can make it delete outside the tree — 🟡 IN PROGRESS (claimed 2026-10-06, work-3/session, self-drive) (found 2026-09-28, review of `6b1044949`)
-
-`RemoveAll` walks by name (`Lstat`, then `ReadDir` / `Remove` on `path/...`), so another process that can
-write into the tree can replace a subdirectory with a symbolic link between the `Lstat` and the later
-calls, and the walk then deletes through the link (the class of Rust's CVE-2022-21658 `remove_dir_all`).
-Documented as a limitation in `os.bni` (fine for its current users: private 0700 `MkdirTemp` dirs).  A
-race-free walk needs directory-fd-relative calls that `pkg/std/os/sys` lacks: `openat(O_NOFOLLOW |
-O_DIRECTORY)`, `fdopendir`, `unlinkat(AT_REMOVEDIR)` (and an `fstatat(AT_SYMLINK_NOFOLLOW)`), on every
-hosted target.
 
 ### Conformance harness: `pkg0.testing` `--test`-only rules are not conformance-testable
 
