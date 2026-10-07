@@ -63,7 +63,7 @@ The same holds for deferred function-value calls: `var fh @func(*Getter) = …; 
 same way.  Test to land
 with the decision (repro: the review probe, a `*any` analogue of `spec/14-statements/177`).
 
-### Is a raw-slice view of a managed-slice literal (`var r *[]int = @[]int{20, 21}`) part of the literal? — 🔴 OPEN, DECIDED 2026-10-06 (found 2026-10-05, review of the work-7 batch; pre-existing)
+### Is a raw-slice view of a managed-slice literal (`var r *[]int = @[]int{20, 21}`) part of the literal? — 🟡 IN PROGRESS, DECIDED 2026-10-06 (found 2026-10-05, review of the work-7 batch; pre-existing; claimed 2026-10-06, work-7/session, self-drive; user: "yes, go ahead")
 
 A managed-slice literal's element is part of the literal (decided 2026-10-04), so `&@[]int{…}[i]` in a var
 initializer keeps the literal alive with the binding and storing it is an error.  A raw-slice view of the
@@ -80,7 +80,7 @@ element of one) is an error (expr.composite.addr-store).  Work: the checker (hel
 conversion of a managed-slice literal as holding an address into it, so it is marked and a store rejected), IR-gen
 (the literal built in its slot, managedSliceLitSlot, so it is co-scoped), spec §13, tests on every backend.
 
-### The REPL never runs an imported package's initialization — its variables read 0 — 🔴 OPEN MAJOR (found 2026-10-05, work-7, fixing the REPL's generic-body dependency registration; pre-existing; reproduced on main)
+### The REPL never runs an imported package's initialization — its variables read 0 — 🟡 IN PROGRESS MAJOR (found 2026-10-05, work-7, fixing the REPL's generic-body dependency registration; pre-existing; reproduced on main; claimed 2026-10-06, work-7/session, self-drive; user: "yes, go ahead")
 
 At `bni --repl`, a package imported by the session's main file or at the prompt has its package-level
 variables zero: with `pkg/hv`'s `var V int = 2` and `var w int = 3` (V declared `var V int` in the .bni),
@@ -90,7 +90,7 @@ initializers do not run either (`var Count int = 50` reads 0 at the prompt).  Si
 needs investigation (where the REPL lowers a loaded package, and whether its init function is called).
 Test: `e2e/repl-pkg-var-init.sh` (startup and prompt imports), `.xfail` meanwhile.
 
-### `Self` at the end of a line is not followed by an inserted semicolon — an interface method returning `Self` does not parse — 🔴 OPEN, DECIDED 2026-10-06 (found 2026-10-05, work-7, writing the test for the generic-receiver `Self` impl fix; pre-existing)
+### `Self` at the end of a line is not followed by an inserted semicolon — an interface method returning `Self` does not parse — 🟡 IN PROGRESS, DECIDED 2026-10-06 (found 2026-10-05, work-7, writing the test for the generic-receiver `Self` impl fix; pre-existing; claimed 2026-10-06, work-7/session, self-drive; user: "yes, go ahead")
 
 `interface T { Copy() Self\n Same(o Self) bool }` fails to parse ("expected }, got IDENT" on the next line):
 lex.semicolon.insertion (§5.13) inserts a semicolon after an identifier and after the keywords `true`,
