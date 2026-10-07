@@ -667,34 +667,15 @@ Field reads of a whole load, dead aggregate stores, zero-fill-then-overwrite and
 claude-todo-done.md and plan-aggregate-copy-opts.md); still open:
 - Copy chains: a value copied into a temporary only to be copied again (load → private copy → temp slot →
   argument).  Re-measure the -O2 IR first — the landed passes may have removed most of these.
+- plan-aggregate-copy-opts.md D2 / D3 / D4 — a call's aggregate result placed in its destination, a local
+  returned at every return living in the sret buffer, a last-use local passed by value without a copy.  Their
+  prerequisite D1 (by-value aggregates the platform C way, callees using their incoming bytes in place) is
+  done (claude-todo-done.md; done/plan-c-abi-large-aggregates.md).
 User direction (2026-09-30): the native backends are co-equal, so fixes must let native make the same
 optimizations — do them in the IR, not only by handing LLVM an intrinsic.  (On hosted targets the LLVM
 backend separately switches its bulk copies to llvm.memcpy / llvm.memset so clang can optimize them — a
 regression fix, not a substitute for this entry.)
 Measure per explorations/perf-optimization-guide.md.
-
-### Binate's ABI for a >16-byte by-value aggregate: every target passes it the C way; x64 / arm32 callees still copy their incoming bytes — 🟡 IN PROGRESS (found 2026-10-02, work-1, measuring copy chains; pre-existing; claimed 2026-10-02, work-1; user: "yes" to doing D1 as C-ABI conformance)
-
-Both backends pass a >16-byte by-value aggregate argument as a plain pointer on every target (LLVM `ptr`,
-native `IndirectLargeAggregates`), but the C ABI passes it by value on SysV x86-64 (MEMORY class, on the
-stack) and AAPCS32 (r0-r3 + stack).  C interop works only through adapters: __c_call marshals with
-`ForCBoundary`, and a Binate function handed to C goes through a `__centry.` / #[c_export] thunk.  On aa64
-the shape matches AAPCS64, but not its ownership rule (the caller passes a copy the callee owns): a native
-caller may pass memory it still uses (an elided load), relying on every Binate callee copying its param —
-so every callee copies (native twice, plus a zero-fill), and the LLVM caller also copies.  LLVM and
-native agree with each other.  User constraint (2026-10-02): "There should be one ABI per platform
-(arch/OS); in particular, LLVM and native MUST share the same ABI.  Also, compatibility with C is an
-important feature; passing large structs by value should be compatible between Binate and C (anything
-else would be extremely unfortunate and inconvenient)."  Fix: pass it the C way on x64 / arm32 and follow
-AAPCS64's ownership rule on aa64, in both backends; callees then use the incoming memory in place.
-Measurements and the copy optimizations that build on it: plan-aggregate-copy-opts.md step D (D1).
-x64 DONE `dfde1e73a` (2026-10-04) — SysV MEMORY class in both backends.  arm32 DONE `e62af60cf`
-(2026-10-04) — AAPCS32 by-value split in both backends (claude-todo-done.md).  aa64 DONE `dfce07941` +
-`35a7a4f3b` (2026-10-05) — every caller passes a copy it owns, and the param slot is that copy, used in
-place (claude-todo-done.md).  Remaining: x64 / arm32 callees still copy their incoming bytes into the param
-slot, though the callee owns them there too (the SysV MEMORY area; the AAPCS32 stack part, plus a register
-part to store beside it) — IN PROGRESS (claimed 2026-10-06, work-1; user: "yes, x64 and arm32 using them
-in place would be better").  Then plan-aggregate-copy-opts.md D2 / D3 / D4; plan-c-abi-large-aggregates.md.
 
 ### LLVM backend: a store of a large aggregate value is split into one store per element — code size grows with N — 🔴 OPEN (found 2026-09-28, work-6, review of the range-loop operand change; re-scoped 2026-10-06, work-3)
 

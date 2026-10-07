@@ -1,6 +1,6 @@
 # Plan: pass >16-byte by-value aggregates per the platform C ABI (both backends)
 
-Status: IN PROGRESS (work-1, 2026-10-02).  Todo entry: "Binate's ABI for a >16-byte by-value aggregate is not
+Status: DONE (2026-10-07; last piece binate `2e5cec867`).  Was IN PROGRESS from 2026-10-02 (work-1).  Todo entry: "Binate's ABI for a >16-byte by-value aggregate is not
 the C ABI on x64 or arm32".  Step D1 of plan-aggregate-copy-opts.md (whose copy measurements motivated it).
 
 User constraints (2026-10-02): "There should be one ABI per platform (arch/OS); in particular, LLVM and native
@@ -108,6 +108,10 @@ step D's table.
 - DONE aa64 — AAPCS64's ownership rule and the param slot in place: `dfce07941`, `35a7a4f3b` (see the aa64
   ownership design below).  Next: x64 / arm32 callees in place (the user's call), then
   plan-aggregate-copy-opts.md D2 / D3 / D4.
+- DONE `2e5cec867` (2026-10-07): x64 / arm32 (and aa64 stack-passed) callees use their incoming bytes in
+  place, both backends — on arm32 a split aggregate's register part is stored by the prologue right below its
+  stack part (the split save area).  Closure captures too, unless passed as a pointer into the closure record.
+  Conformance 1605.  Next: plan-aggregate-copy-opts.md D2 / D3 / D4.
   Local validation for x64: native `builder-comp_native_x64_darwin-…` and LLVM via
   `BINATE_FLAGS="--target x86_64-darwin" ./conformance/run.sh builder-comp` (both run under Rosetta); full
   runs on both, since a 32-byte managed-slice argument is >16 bytes on x64 (nearly every program).

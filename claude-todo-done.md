@@ -514,6 +514,24 @@ index / >32-bit displacement.  Tests: x64_mem_test.bn in parse and asm/x64 (clan
 in 4 instructions match clang byte for byte.  Raised with the user, undecided: 32-bit addressing (now rejected),
 `-~8` (clang's Intel parser computes it wrongly), absolute `[lbl]` (unsupported, as before).
 
+### x64 / arm32 (and aa64 stack-passed) by-value aggregate parameters use their incoming bytes in place — DONE (binate `2e5cec867`, 2026-10-07, work-1)
+
+Last piece of "Binate's ABI for a >16-byte by-value aggregate" (D1 of plan-aggregate-copy-opts.md;
+done/plan-c-abi-large-aggregates.md), which is now done: x64 `dfde1e73a`, arm32 `e62af60cf`, aa64 `dfce07941` /
+`35a7a4f3b` (entries nearby).  A by-value aggregate whose bytes arrive in memory the callee owns — SysV MEMORY
+class, an AAPCS32 aggregate on the stack or split across r0-r3 and the stack, an AAPCS64 one of at most 16 bytes
+or an HFA once its registers run out — is the parameter's value (common.paramInCallerMemory: no region) and,
+when the entry store is its only use, its slot.  arm32: the prologue stores a split aggregate's register part
+right below its stack part, in a split save area reserved before `push {fp, lr}` (RegMap.SplitSaveBytes); the
+epilogue pops {fp, lr}, releases it and returns with `bx lr`.  LLVM: the in-place slot covers every
+IsByvalParam parameter (the x64 / arm32 `byval` copy).  A closure's capture is in place too, except one passed
+as a pointer into the closure record (aa64 over 16 bytes; IsCaptureParam).  Conformance 1605; unit tests for
+PlanFrame, the arm32 split save area's prologue and epilogue, and the LLVM slot on all three targets.
+Validated on the ~935-test aggregate subset: native aa64 / x64 / arm32 bare metal / arm32 Linux, LLVM aa64 /
+x64 / arm32 bare metal / arm32 Linux, the VM; C-interop e2e.  One review (no correctness defects; follow-ups
+folded in).  The landing rebase met `d9e2d82b3` (native lookups fail loud on a missing region): the prologues
+now pick the in-place path from the argument's classification before requiring a region.
+
 ### aa64: a >16-byte by-value aggregate follows AAPCS64's ownership rule — the caller's copy is the callee's param slot — DONE (binate `dfce07941`, `35a7a4f3b`, 2026-10-05, work-1)
 
 Part of "Binate's ABI for a >16-byte by-value aggregate" (claude-todo.md).  `dfce07941`: every aa64 caller

@@ -122,6 +122,8 @@ D. Copy chains (load → private copy → temp slot → argument): revisit after
      never copy their aggregate params.  An ABI change on x64 / arm32 (toward C) for Binate-to-Binate
      calls: param + call lowering in all four backends, closure / func-value shims, the VM ↔ compiled
      boundary, C-entry thunks, __c_call.
+     DONE (2026-10-07): x64 `dfde1e73a`, arm32 `e62af60cf`, aa64 `dfce07941` / `35a7a4f3b`, callees in place
+     on every target `2e5cec867` — done/plan-c-abi-large-aggregates.md.
    - D2. Return-value placement at the call site: a call whose aggregate result is stored whole into a
      confined local (or returned) gets that local (or the incoming sret buffer) as its result buffer — a
      shared analysis marks the store, as NoZeroInit marks allocs; each backend honours the mark.
