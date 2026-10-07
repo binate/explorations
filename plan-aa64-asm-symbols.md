@@ -146,7 +146,8 @@ break); a GOT reference with an addend to a dynamic import is a GLOB_DAT with th
 
 ## 3e. Label differences
 
-🟡 IN PROGRESS (claimed 2026-10-05; user: "go ahead with label differences").  Commit (1), fixed
+✅ DONE (2026-10-07; claimed 2026-10-05, user: "go ahead with label differences"): `9543677c8`,
+`42942da63`, `6081d76ae`, `9d0d7e4be`, `a3fcc5313`.  Commit (1), fixed
 differences and the second pass, ✅ landed `9543677c8` (2026-10-06); commit (2) is next.  Two things in it
 differ from the design below, both raised with the user, who then said "go ahead" to land it: a fixed
 difference as an AArch64 PC-relative target (branch, ADR / ADRP, literal load) is rejected, since clang
@@ -261,7 +262,8 @@ Commits (series):
   Mach-O too); the left-to-right evaluator builds `ext - l1` first and fails ("not a label defined
   anywhere" for a declared external) — re-associate a location added to a difference whose subtrahend
   it is a fixed distance from.
-- (2.3) Mach-O differences: Sub field, SUBTRACTOR pairs (arm64 and x86-64 writers), bnld arm64 pairs.
+- (2.3) Mach-O differences: Sub field, SUBTRACTOR pairs (arm64 and x86-64 writers), bnld arm64 pairs.  ✅
+  landed `a3fcc5313`.
 
 ## Decisions (user, 2026-09-30 — each the recommended option)
 

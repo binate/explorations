@@ -1,3 +1,16 @@
+### aa64 text assembler: label differences — relocatable data on all three architectures — DONE (binate `9543677c8`, `42942da63`, `6081d76ae`, `9d0d7e4be`, `a3fcc5313`, 2026-10-05..07, work-2; plan-aa64-asm-symbols.md 3e)
+
+`l2 - l1` and its kin, from the completeness list (user, 2026-09-30: its own family).  A difference fixed at
+assembly folds to a number anywhere (`9543677c8`, with a second assembly pass for forward labels).  Data
+directives take relocatable values on AArch64, arm32 and x86-64 (user, 2026-10-06: "All three"): a symbol
+plus a number as an absolute data relocation, ELF and Mach-O (`6081d76ae`); a difference not fixed at
+assembly as an ELF PC-relative one, `sym - .` / `sym - l` / an external minuend, with `ext - l1 + l2`
+reassociated (`9d0d7e4be`); on Mach-O a SUBTRACTOR + UNSIGNED pair, external symbols on arm64 (`a3fcc5313`).
+bnld links each (`42942da63` split its patchers first).  Bytes and relocations match clang's on all five
+targets (but for ELF named-local labels, which clang relocates against the section symbol); relative
+pointers link and run under ld64 and bnld.  Still open, put to the user: `.int32 sym` as R_X86_64_32S vs
+R_X86_64_32 (clang's `.long`), and ELF section symbols for named locals.
+
 ### REPL: a unit with several top-level declarations evaluates only the first — the rest is silently dropped — DONE (binate `c3ffd3459`, 2026-10-07, work-7) MAJOR (found 2026-10-06, work-7, writing the REPL stale-fault test; pre-existing; claimed 2026-10-06, work-7/session; user: "yes")
 
 `Execute("var a [3]int\nvar i int = 5\n")` declares `a` only: the next turn's `a[i]` reports `undefined: i`.
