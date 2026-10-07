@@ -202,6 +202,60 @@ Decided (user, 2026-10-05, each as below: (a) "Anywhere", (b) "Never fold", (c) 
 (d) plain symbols in data directives (`.uint64 sym`, an absolute address: R_AARCH64_ABS64 / UNSIGNED),
     which the dialect does not take today — in scope beside the relocatable differences?
 
+### 3e commit (2): relocatable data — design (2026-10-06)
+
+Scope (user, 2026-10-06: "All three (Recommended)"): data directives (`.uint8/16/32/64`, `.int8..64`) take a
+symbol plus a number and a difference, on AArch64, arm32 and x86-64, ELF and Mach-O, with bnld support.
+Immediates keep rejecting an unfixed difference.
+
+clang 21 (probed 2026-10-06):
+- ELF absolute: AArch64 ABS16/32/64 (1-byte: error); arm32 ABS8/16/32 (8-byte: error); x86-64 8/16/32/64
+  (`.long sym` is R_X86_64_32).
+- ELF `sym - .` / `sym - l` with l in the datum's own section: AArch64 PREL16/32/64; arm32 REL32 only
+  (2-byte: error); x86-64 PC8/16/32/64.  A subtrahend in another section: "Cannot represent a difference
+  across sections"; `. - sym`: an error; the minuend may be undefined (`ext - .`).
+- Mach-O: absolute data is UNSIGNED, clang emitting 2- and 4-byte ones too (x86-64 included); a difference
+  is a SUBTRACTOR (subtrahend's atom base) + UNSIGNED (minuend) pair, `sym - .` against the atom holding `.`
+  (`ltmp1`); x86-64 rejects an undefined minuend in a difference, arm64 takes it.
+- A same-section difference folds even for a weak or global symbol (clang does too) — the landed fold is
+  right.
+
+Design:
+- asm core: arch-neutral data fixup kinds in `asm` (the writers import only `asm`): absolute 8/16/32/64 bits,
+  32-bit signed absolute (x86-64 `.int32` → R_X86_64_32S; `.uint32` → R_X86_64_32, as clang's `.long`),
+  PC-relative 8/16/32/64 bits.  `Fixup` gains `Sub` (the subtrahend label) and `Relocation` `SubSymbol` (-1
+  when none, set explicitly); Finalize resolves it (undefined: error), CheckTemporaryLabels and
+  usedAsSymbol scan it.
+- parser (a new file beside parse_directive.bn): a data expression entry keeping Sym / Dot / Neg / NegDot.
+  A number is emitted as today.  `sym + k` (and `. + k` via dotLabel) is an absolute fixup.  A difference
+  `sym - loc + k`: on Mach-O a `Sub` fixup (the pair); otherwise (ELF, arm32, unknown format) the subtrahend
+  must lie in the datum's section — a PC-relative fixup against sym with addend k + (P - loc), else the
+  clang error; `. - sym` is rejected on ELF.  An external minuend (`ext - .`) is pending on the first pass
+  and, on the second, a declared-but-undefined symbol becomes the relocation's symbol (today it is "not a
+  label defined anywhere").  Sizes no relocation exists for are rejected with a clear message (per arch and
+  format); the addend must fit the host `int` (intFits).
+- ELF writer: map the new kinds per machine; x86-64 data PC32 must not get the instruction -4
+  (`elfRelocAddend` keys on the reloc type today — key it on the fixup kind); a relocation carrying a
+  SubSymbol is an error (backstop).  arm32 (REL): the resolver's bake filter and `bakeRelAddend` learn the
+  data kinds with their widths (1/2/4 bytes), REL32 outside `isPcRelFixup`.
+- Mach-O writer: map the new kinds (r_length per size); a Sub relocation is two entries — SUBTRACTOR then
+  UNSIGNED, same address and length; `retargetTemporaryRelocs` retargets the subtrahend too, with the
+  opposite sign on the addend; `machoRelocLength` must cover every new 8-byte kind (it defaults to 4).
+- bnld: `InputReloc` gains `SubSymIndex` (-1 none).  ELF: the new types in elfconst and the patchers
+  (AArch64 ABS16 / PREL16 / PREL64; arm32 REL32 / ABS16 / ABS8 with a width-aware field read and bounds
+  check; x86-64 32 / 32S / 16 / 8 / PC8 / PC16 / PC64), isPcRelativeReloc.  arm64 Mach-O: pair SUBTRACTOR +
+  UNSIGNED into one reloc of a bnld-internal difference kind (S - B + A), checked by classifyImports
+  (subtrahend an import: error) and the PIE checks; a 1- / 2-byte UNSIGNED is an error (no rebase);
+  "absolute-pointer rebase site outside __DATA" becomes a real diagnostic.  x86-64 Mach-O: bnld reads no
+  x86-64 Mach-O relocation at all today (LinkDynMacho is arm64-only) — the writer side is verified against
+  clang's objects; linking it is a separate, larger item, not this series.
+
+Commits (series):
+- (2.0) link: per-arch patchers out of relocate.bn (437 lines) — a pure move.
+- (2.1) absolute data: kinds, parser, both writers, arm32 bake, bnld ELF ABS kinds; Mach-O UNSIGNED.
+- (2.2) PC-relative data on ELF: `sym - .`, `sym - l`, external minuend; bnld PREL / REL32 / PCn.
+- (2.3) Mach-O differences: Sub field, SUBTRACTOR pairs (arm64 and x86-64 writers), bnld arm64 pairs.
+
 ## Decisions (user, 2026-09-30 — each the recommended option)
 
 1. ELF temporaries: match clang — omit `.L…` and numeric-label instances from the ELF symbol table
