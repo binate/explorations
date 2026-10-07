@@ -179,23 +179,6 @@ bnc-0.0.16 (the pinned BUILDER) has the IR-gen defect fixed on main by `1f29d31e
 
 gen1 would get silently wrong code there, and gen1 compiles every test and gen2.  Examples: a loop body that never runs (the function returns early, with no error); `st.Top++` right after an `if` or a `for` does nothing.  An identifier `++` just before it doesn't help.  A statement that goes through expression evaluation first (`x.f = x.f + 1`, a declaration, a call) is fine, and so is one in a function's opening straight-line code.  Design B's instance stack (`pushInstWork` / `popInstWork`, binate `fe95d7de8`) keeps its `++` / `--` out of those positions; TODOs there mark it.  A 2026-09-30 scan of non-test code found no other field `++` / `--` (the only two are design B's), no `x := name` short-var, and no `*any` variable, parameter or field.  Clears when a BUILDER containing `1f29d31e9` is pinned (cut only when independently justified).
 
-### LLVM backend: a >16-byte `__c_call` aggregate argument's slot is smaller / less aligned than the ABI access made through it (undefined behaviour; can fault) — 🔴 OPEN (found 2026-09-30, work-1, by the review of the bulk by-value-argument change; pre-existing)
-
-The by-value slot a `__c_call` argument is passed through is `alloca <T>` with no explicit alignment, but:
-- arm32 (AAPCS32): writeByvalArgPreamble loads the coerced words from it — for `[17]uint8`,
-  `load [5 x i32], ptr <slot>` from `alloca [17 x i8]`: 3 bytes past the slot, and the load's implied 4-byte
-  alignment exceeds the slot's 1 (an `ldm` from a misaligned address faults).
-- x64: writeByvalArgLLVM passes it `ptr byval(<T>) align 8`, claiming 8-byte alignment the alloca doesn't have.
-The slot is `%v<call>.bv<i>`, or (since the bulk by-value change) a memory-backed argument's `%v<ID>.m`, which
-has the same shape.  Found reading emitted IR (`--target arm32-linux` for the arm32 case); no test shows a
-failure yet.
-Fix: give each slot the size and alignment the ABI access needs — allocate the coerced `[N x iW]` (as the
-`.agA<i>` coercion slot already does) or round the slot up, and emit `align` ≥ the alignment the load / byval
-claims; the same for a `.m` slot passed to a `__c_call`.  Add an IR-level unit test for each target.
-Same class, internal calls too (found by the review of the bulk-returns change): on arm32 every sret call site
-passes `ptr sret(<T>) align 8` on its `.sret` alloca, whose natural alignment is 4 for e.g. `[64 x i32]` — a
-false alignment claim.  Fix it with the rest (emit the claimed alignment on the slot's alloca).
-
 ### Native aa64: a by-value aggregate parameter passed indirectly may be copied as whole 8-byte words, reading past the caller's copy — 🔴 OPEN, UNCONFIRMED (reported 2026-09-30 by the review of the bulk by-value-argument change)
 
 Reported: the aa64 callee copies an IndirectLargeAggregates parameter as `common.ArgWords(T) * 8` bytes, so a

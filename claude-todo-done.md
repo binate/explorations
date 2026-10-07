@@ -1,3 +1,29 @@
+### LLVM backend: a >16-byte `__c_call` aggregate argument's slot is smaller / less aligned than the ABI access made through it (undefined behaviour; can fault) — DONE (binate `e62af60cf` / `dfde1e73a`; closed 2026-10-07, work-3) (found 2026-09-30, work-1, by the review of the bulk by-value-argument change; pre-existing)
+
+The by-value slot a `__c_call` argument is passed through is `alloca <T>` with no explicit alignment, but:
+- arm32 (AAPCS32): writeByvalArgPreamble loads the coerced words from it — for `[17]uint8`,
+  `load [5 x i32], ptr <slot>` from `alloca [17 x i8]`: 3 bytes past the slot, and the load's implied 4-byte
+  alignment exceeds the slot's 1 (an `ldm` from a misaligned address faults).
+- x64: writeByvalArgLLVM passes it `ptr byval(<T>) align 8`, claiming 8-byte alignment the alloca doesn't have.
+The slot is `%v<call>.bv<i>`, or (since the bulk by-value change) a memory-backed argument's `%v<ID>.m`, which
+has the same shape.  Found reading emitted IR (`--target arm32-linux` for the arm32 case); no test shows a
+failure yet.
+Fix: give each slot the size and alignment the ABI access needs — allocate the coerced `[N x iW]` (as the
+`.agA<i>` coercion slot already does) or round the slot up, and emit `align` ≥ the alignment the load / byval
+claims; the same for a `.m` slot passed to a `__c_call`.  Add an IR-level unit test for each target.
+Same class, internal calls too (found by the review of the bulk-returns change): on arm32 every sret call site
+passes `ptr sret(<T>) align 8` on its `.sret` alloca, whose natural alignment is 4 for e.g. `[64 x i32]` — a
+false alignment claim.  Fix it with the rest (emit the claimed alignment on the slot's alloca).
+
+**Resolved** by binate `e62af60cf` ("arm32: pass a >16-byte by-value aggregate the AAPCS32 C way (split
+r0-r3 + stack)") and `dfde1e73a` ("x64: pass a >16-byte by-value aggregate the SysV C way (MEMORY class)"),
+which left this entry open; checked 2026-10-07.  On arm32 a by-value slot is word-aligned (`alloca <T>, align
+4`, matching `byval(<T>) align 4`) and a call's `.sret` buffer is `align 8`, as its sret pointer promises; a
+func-value shim's incoming pointer and an unaligned capture field are copied to an aligned temporary first
+(codegen `TestEmitByvalCallSiteAlignArm32`).  On x64 a `__c_call`'s `.m` slot is passed `byval(<T>) align 1`,
+its own alignment, and internal calls are pinned by `TestEmitByvalCallSiteAlignX64`.  A <=16-byte argument
+goes through the `.agA<i>` coercion slot, sized and aligned for the coerced words.
+
 ### LLVM backend: whole-aggregate load / store left in sret returns, call-site sret loads and zero-value construction — possible `__aeabi_memcpy` on ARM EABI — RESOLVED — does not reproduce (2026-10-07, work-3) (found 2026-09-29 by the review of the named-aggregate copy fix `d500a2af7`)
 
 codegen lowers an aggregate OP_LOAD / OP_STORE leaf by leaf (emit_copy_ssa{,_load}.bn) because LLVM's ARM
