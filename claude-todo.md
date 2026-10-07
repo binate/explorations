@@ -98,6 +98,13 @@ element of one) is an error (expr.composite.addr-store).  Work: the checker (hel
 conversion of a managed-slice literal as holding an address into it, so it is marked and a store rejected), IR-gen
 (the literal built in its slot, managedSliceLitSlot, so it is co-scoped), spec §13, tests on every backend.
 
+### The REPL reports a turn's fault again on a later turn that runs no code — 🟡 IN PROGRESS (found 2026-10-06, work-7, review of the REPL package-initialization fix; pre-existing; claimed 2026-10-06, work-7/session, self-drive; user: "yes, go ahead")
+
+After a turn faults (`runtime error: …`) the VM keeps `VM_STATUS_FAULTED`, and resets it only when it next
+runs code (`CallFunc` / `Run`), so a later turn that runs none (a `func` or `type` declaration) is mapped by
+`finishTurn` to EXEC_ERROR carrying the old FaultMsg.  **Fix:** clear a faulted status at the start of each
+turn (`resetTurnOutput`), leaving a suspended or broken one alone; unit test in `repl/step_test.bn`.
+
 ### The REPL never runs an imported package's initialization — its variables read 0 — 🟡 IN PROGRESS MAJOR (found 2026-10-05, work-7, fixing the REPL's generic-body dependency registration; pre-existing; reproduced on main; claimed 2026-10-06, work-7/session, self-drive; user: "yes, go ahead")
 
 At `bni --repl`, a package imported by the session's main file or at the prompt has its package-level
