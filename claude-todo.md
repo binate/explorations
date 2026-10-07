@@ -84,7 +84,7 @@ The same holds for deferred function-value calls: `var fh @func(*Getter) = …; 
 same way.  Test to land
 with the decision (repro: the review probe, a `*any` analogue of `spec/14-statements/177`).
 
-### Lexer: a newline after a written `;` inserts a second semicolon — `var a int;` then a declaration on the next line does not parse — 🔴 OPEN (found 2026-10-07, work-7, review of the REPL code-unit fix; pre-existing)
+### Lexer: a newline after a written `;` inserts a second semicolon — `var a int;` then a declaration on the next line does not parse — 🟡 IN PROGRESS (found 2026-10-07, work-7, review of the REPL code-unit fix; pre-existing; claimed 2026-10-07, work-7/session; user: "takes do 1 now")
 
 lex.semicolon.insertion (§5.13) inserts a semicolon at a newline only after an identifier, a literal, the listed
 keywords, `++`, `--`, `)`, `]` or `}` — "an explicit `;` is always a statement terminator".  The lexer
