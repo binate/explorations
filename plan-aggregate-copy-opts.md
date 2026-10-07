@@ -140,6 +140,10 @@ D. Copy chains (load → private copy → temp slot → argument): revisit after
      Native: PlanFrame gives the call the slot's region, so every call path writes there, and the store
      emits nothing.  LLVM: the call's result memory is the slot's alloca instead of `.sret`, and the store
      emits nothing.  The return case (the incoming sret buffer as the call's) follows as a second commit.
+     Status: the slot case DONE `9fe09deb6` (2026-10-07) — conformance 1606 / 1607; a local declared before a
+     loop is placed too (the slot's OP_ALLOC need only not sit between the call and the store, unless
+     NoZeroInit); LLVM honours it for direct sret calls only (other LLVM calls keep their copy).  -O2 native
+     aa64: `var x Big = mk(k); use x` frame 0x6a0 → 0x370, no copy.  Next: the return case.
    - D3. A local returned at every return lives in the sret buffer.
    - D4. A confined local whose last use is a by-value argument is passed without a copy (needs D1; aa64
      only — on x64 / arm32 the C ABI copies the value into the argument area regardless).

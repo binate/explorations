@@ -514,6 +514,23 @@ index / >32-bit displacement.  Tests: x64_mem_test.bn in parse and asm/x64 (clan
 in 4 instructions match clang byte for byte.  Raised with the user, undecided: 32-bit addressing (now rejected),
 `-~8` (clang's Intel parser computes it wrongly), absolute `[lbl]` (unsupported, as before).
 
+### A call's aggregate result stored into a local is written there directly — DONE (binate `9fe09deb6`, 2026-10-07, work-1)
+
+Part of "IR-level optimizations for large-aggregate copies" (claude-todo.md; plan-aggregate-copy-opts.md D2,
+first half).  common.CallResultSlots (emit-time, shared by both backends) maps a call to the stack slot its
+result is stored whole into, when the result's only use is that store in the call's block, the slot's address
+never leaves the function (only load / store addresses and field / element pointer bases), nothing between the
+call and the store references the slot or a value computed from it, and the slot's OP_ALLOC is not between them
+unless NoZeroInit; parameter slots, in-place parameter slots and globals are left alone.  Native: PlanFrame
+gives the call the slot's region (every call kind, sret or register return) and the store emits nothing.
+LLVM: a direct sret call passes the slot's alloca (declared `align 8`), with no `.sret` buffer, load or store.
+-O2 native aa64 `var x Big = mk(k); use x`: frame 0x6a0 → 0x370, the 808-byte copy gone.  Conformance 1606,
+1607 (the review's probes); unit tests.  Validated: aggregate subset at -O2 on native aa64 / x64 / arm32 bare
+metal / arm32 Linux and LLVM aa64 / x64 / arm32 bare metal, at -O0 on native and LLVM aa64 and the VM; e2e.  One
+review (no correctness defects; it found the loop case unplaced and 1606 overstating coverage — both fixed).
+A slip caught by a disassembly diff before committing: a store to a package global (value ID -1) matched a
+"no slot" -1 and was dropped.
+
 ### x64 / arm32 (and aa64 stack-passed) by-value aggregate parameters use their incoming bytes in place — DONE (binate `2e5cec867`, 2026-10-07, work-1)
 
 Last piece of "Binate's ABI for a >16-byte by-value aggregate" (D1 of plan-aggregate-copy-opts.md;
