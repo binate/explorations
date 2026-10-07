@@ -354,7 +354,7 @@ the LLVM backend (as native does): a load MemCopies into a function-scoped temp 
 address; stores MemCopy from it, extracts GEP into it, by-value args / returns / call results / phis use
 the address — every codegen producer and consumer of aggregate values handles that form.
 
-### arm32 hard-float: a homogeneous-float-aggregate `__c_call` ARGUMENT is passed in GP registers — C reads garbage from `s0…` — 🔴 OPEN (found 2026-09-27, work-3, stale-ABI-comment sweep)
+### arm32 hard-float: a homogeneous-float-aggregate `__c_call` ARGUMENT is passed in GP registers — C reads garbage from `s0…` — 🔴 NEEDS DECISION (found 2026-09-27, work-3, stale-ABI-comment sweep)
 
 On `--target arm32-linux` (FLOAT_ABI_HARD) `HfaAggregates` stays false, so a float-only named struct /
 array rides the GP-coerced path — self-consistent between Binate's own native and LLVM sides, but NOT
@@ -373,6 +373,9 @@ params, if confirmed) on arm32 hard-float with a clear error + tests; (b) real �
 at the C boundary (back-filling the S-slot mask, `common_callconv_vfp.bn`) on both backends.  User's
 call which (and whether (a) first).  Needs a conformance test on `builder-comp_arm32_linux` /
 `builder-comp_native_arm32_linux` (qemu-arm user-mode is not installed on this host).
+Recommendation (work-3, 2026-10-06, self-drive triage): (b), AAPCS-VFP HFA passing at the C boundary on
+both backends — C interop on bare metal and Linux is where this matters, and (a) only turns a wrong value
+into a refusal.  Needs the user's call on (a) first or (b) directly.
 
 ### Per-instantiation checking (design B) follow-ups — 🔴 NEEDS DECISION (raised 2026-09-30 – 2026-10-02, work-4; design B itself is done, commits 1–7 landed)
 - bnlint (CheckPackageDecls) skips the instance checks of a dependency's generics, whose bodies it does not
@@ -1847,7 +1850,7 @@ unwind; nil-deref N1–N3 last, `de9a7c05`); see claude-todo-done.md and
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
-### Baremetal console output is unwired — `os.Stdout` is an empty `@File`, so `fmt` is silent; make it PLUGGABLE — 🟡 OPEN (found 2026-09-18)
+### Baremetal console output is unwired — `os.Stdout` is an empty `@File`, so `fmt` is silent; make it PLUGGABLE — 🔴 NEEDS DECISION (found 2026-09-18)
 
 On bare metal, `impls/stdlib/pkg/std/os/os_baremetal.bn` defines `os.Stdout` /
 `os.Stderr` as EMPTY `@File` handles ("a bare-metal target has no standard
@@ -1880,6 +1883,10 @@ existing target gating does), or a runtime-registered writer the crt0 / board
 init installs?  Support both semihosting and a real UART.  Once wired, the
 `--test` runner's fmt output becomes visible on baremetal (exit-code-only runs
 become name+message diagnostics).
+Recommendation (work-3, 2026-10-06, self-drive triage): a runtime-registered console writer that the
+board / crt0 installs (semihosting by default under `qemu -semihosting`), with `os.Stdout` / `os.Stderr`
+writing through it — one image can then target several boards.  Needs the user's call on the questions
+above.
 
 ### `data_pkg_descriptor.bn` header/slice-width conflation — 🟢 LOW (non-urgent cleanup)
 The `GetTarget().IntSize` "footgun" was a MISDIAGNOSIS and the native-accessor header reads
