@@ -98,6 +98,19 @@ The same holds for deferred function-value calls: `var fh @func(*Getter) = …; 
 same way.  Test to land
 with the decision (repro: the review probe, a `*any` analogue of `spec/14-statements/177`).
 
+### Lexer: a newline after a written `;` inserts a second semicolon — `var a int;` then a declaration on the next line does not parse — 🔴 OPEN (found 2026-10-07, work-7, review of the REPL code-unit fix; pre-existing)
+
+lex.semicolon.insertion (§5.13) inserts a semicolon at a newline only after an identifier, a literal, the listed
+keywords, `++`, `--`, `)`, `]` or `}` — "an explicit `;` is always a statement terminator".  The lexer
+(pkg/binate/lexer/lexer.bn, the end of its next-token function: `if tok.Typ != token.SEMICOLON { l.lastTok =
+tok.Typ }`) does not record a written `;` as the last token, so the token before it decides insertion at the
+following newline (or end of input): `X;\nY` lexes as `X ; ; Y`.  Inside a block that is a harmless empty
+statement; at the top level of a .bn file `var a int;` followed by `var b int` is rejected ("expected
+declaration"), as is a line-ending `;` inside a `var ( … )` group.  (The REPL's code units skip empty entries,
+so they are unaffected.)  **To do:** record a written `;` as the last token; lexer tests for `;` + newline and
+`;` + end of input; a parser test of a top-level declaration ending in `;`; check that bnfmt's output does not
+change for sources with line-ending semicolons.
+
 ### REPL: a fault in one of several initializers a declaration runs is lost — the turn reports EXEC_OK and the variable stays 0 — 🟡 IN PROGRESS MAJOR (found 2026-10-06, work-7, review of the REPL code-unit fix; pre-existing; reproduced; claimed 2026-10-07, work-7/session; user: "take on the lost-fault fix now")
 
 The REPL reports a turn's fault from the VM's status after the turn (finishTurn), but every `CallByVMFunc`
