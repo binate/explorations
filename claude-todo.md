@@ -763,7 +763,7 @@ are accepted, while `type P *([2]Op)` and a field `p *[2]Op` are rejected;
 declaration or a field) is accepted, while `func f(o Op)` is rejected — check the spec whether a
 function-value TYPE needs its parameters sized before it is called.  Fix each with a test.
 
-### A bare generic type name with no type arguments is accepted in a type declaration (`type X Box`) — 🔴 OPEN (found 2026-10-03, work-3, review of the type-declaration opaque check; reproduced; pre-existing)
+### A bare generic type name with no type arguments is accepted in a type declaration (`type X Box`) — 🟡 IN PROGRESS (claimed 2026-10-07, work-3/session, self-drive) (found 2026-10-03, work-3, review of the type-declaration opaque check; reproduced; pre-existing)
 
 With `type Box[T any] struct { v T }`, `type X Box` compiles silently: the bare name resolves to the
 generic's placeholder (no underlying), and `resolveNamedTypeExpr`'s IsGeneric check covers only exposed
