@@ -45,7 +45,7 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### A field and a same-named method: the checker resolves the method, IR-gen calls the field — wrong code — 🔴 OPEN MAJOR (found 2026-10-05, work-4, review of the deferred func-value-field fix; pre-existing; LLVM / native / VM)
+### A field and a same-named method: the checker resolves the method, IR-gen calls the field — wrong code — 🟡 IN PROGRESS (claimed 2026-10-06, work-4) MAJOR (found 2026-10-05, work-4, review of the deferred func-value-field fix; pre-existing; LLVM / native / VM)
 
 expr.member: "a field takes precedence over a same-named method" (and func.dispatch.routing (1)).  The checker's
 `tryMethodCall` looks methods up first: with a field `f @func(int, int)` and a method `(t *T) f(n int)`,
