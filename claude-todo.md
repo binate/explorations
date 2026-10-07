@@ -407,7 +407,7 @@ T, so one always fails; Binate has no compile-time `if`.  The user accepted the 
 recommendation: limitation + this todo).  Open questions if pursued: which conditions count as constant
 for an instantiation, `&&` / `||`, `switch`, and whether the skipped branch is still checked abstractly.
 
-### Constant-evaluator leftovers — 🔴 OPEN (found 2026-09-28 by the review of constant-evaluator step 2; pre-existing)
+### Constant-evaluator leftovers — 🟡 IN PROGRESS (claimed 2026-10-06, work-3/session, self-drive) (found 2026-09-28 by the review of constant-evaluator step 2; pre-existing)
 - `const F float64 = cast(float64, 5)` fails in clang: both the old and new compiler emit invalid LLVM IR.
 - `const S2 = sizeof([G2]uint8)` naming a const-group member declared later is rejected ("array length
   must be a constant integer"): the dependency walk (`collectConstDeps`) does not look into type
