@@ -79,7 +79,7 @@ destructor no module defines — LLVM "use of undefined value '@__handle.bn_F1_4
 undefined symbol at link, the VM "function not found: main.__dtor_3Foo" at exit.  A non-opaque imported type
 works.  Likely cause: the method-value closure's destructor is named from the receiver type's name as written in
 the importing package instead of the opaque type's owning package (whose module emits `__dtor_Foo` for an opaque
-export).  Test: conformance `1594_method_value_xpkg_opaque_receiver` (expected-fail in every mode).
+export).  Test: conformance `1604_method_value_xpkg_opaque_receiver` (expected-fail in every mode).
 
 ### Does stmt.defer retain an `@T` boxed into a deferred `*I` / `*any` argument? — 🔴 NEEDS DECISION MAJOR (found 2026-10-04, work-4, review of the deferred variadic pack fix; reproduced on main, LLVM / native / VM; pre-existing)
 
