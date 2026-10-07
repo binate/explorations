@@ -149,7 +149,7 @@ failure is stdlib/debug/001_callers (see "stdlib/debug/001_callers prints "short
 decision before a lane can go green (xfail markers are per mode, not per -O level).  Adding the lane is the user's
 call (CI wiring).
 
-### An all-`.bni` package that declares a `var` is not diagnosed — IR-gen panic / link failure for its importers — 🔴 OPEN (found 2026-10-01, work-3, while fixing the undefined-`.bni`-var check; pre-existing)
+### An all-`.bni` package that declares a `var` is not diagnosed — IR-gen panic / link failure for its importers — 🟡 IN PROGRESS (claimed 2026-10-07, work-3/session, self-drive) (found 2026-10-01, work-3, while fixing the undefined-`.bni`-var check; pre-existing)
 
 The undefined-`.bni`-var check (check/check_decl_pass2.bn checkBniVarsDefined) skips a package loaded
 with no `.bn` files, because the loader also reads an interpreter's injected / compiled-in packages from
