@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### native aa64: a conditional branch beyond ±1 MB is not relaxed — a very large function fails to assemble — 🔴 OPEN (found 2026-09-30, work-7, review of the exact aggregate-copy fix; pre-existing)
+### native aa64: a conditional branch beyond ±1 MB is not relaxed — a very large function fails to assemble — 🟡 IN PROGRESS (claimed 2026-10-07, work-3/session, self-drive) (found 2026-09-30, work-7, review of the exact aggregate-copy fix; pre-existing)
 
 "PC-relative reference to 'L_…phicrit.71' is out of range or misaligned": B.cond / CBZ reach ±1 MB and
 the backend does not relax an out-of-range one (invert the condition around an unconditional B).  Reached
