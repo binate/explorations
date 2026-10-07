@@ -1,3 +1,93 @@
+### Is a raw-slice view of a managed-slice literal (`var r *[]int = @[]int{20, 21}`) part of the literal? — DONE (binate `7542e16fc`, docs `685c43a`, 2026-10-06, work-7) DECIDED 2026-10-06 (found 2026-10-05, review of the work-7 batch; pre-existing; claimed 2026-10-06, work-7/session, self-drive; user: "yes, go ahead")
+
+A managed-slice literal's element is part of the literal (decided 2026-10-04), so `&@[]int{…}[i]` in a var
+initializer keeps the literal alive with the binding and storing it is an error.  A raw-slice view of the
+literal — the managed→raw conversion `var r *[]int = @[]int{20, 21}`, local or package-level — also points
+into the literal's backing, and today dangles (prints 0) like `var r *[]int = mk()`.  Options: (a) yes — the
+conversion addresses the literal (as sub-slicing an array literal does): co-scoped in a var initializer, an
+error when stored; (b) no — it is the managed→raw conversion of a temporary, user error (mem.raw-uaf), as for
+a call result.  The same question for one held in a literal's raw-slice field: with `type R struct { r *[]int }`,
+`p := &R{r: @[]int{1, 2}}.r[1]` dangles in a var initializer and `g = &R{r: @[]int{5, 6}}.r[1]` is accepted
+(managedSliceOwner follows managed-slice-typed bases only).
+Decision (user, 2026-10-06): "(a)" — the managed→raw conversion of a managed-slice literal addresses it: in a var
+/ := initializer the literal lives as long as the binding; storing such a view (directly, through a raw field, an
+element of one) is an error (expr.composite.addr-store).  Work: the checker (heldLiteral / literalRoot treat the
+conversion of a managed-slice literal as holding an address into it, so it is marked and a store rejected), IR-gen
+(the literal built in its slot, managedSliceLitSlot, so it is co-scoped), spec §13, tests on every backend.
+
+**Resolved** by binate `7542e16fc` ("check: a raw-slice view of a managed-slice literal is part of the
+literal").  The checker records a managed→raw conversion of a managed-slice literal — implicit, by `cast` or by
+`unsafe_cast` — as a view of it (noteLiteralView), which marks the literal addressed, so IR-gen builds it in its
+slot (co-scoped with a var / := binding, as for `&`), and heldLiteral treats the view as holding an address into
+the literal, so storing it — directly, into a raw field, or an element of one — is an error.  A view of an empty
+literal (`g = @[]int{}`) is rejected the same way.  Spec §13 expr.composite.lifetime / addr-store and §8.4's
+Provisional note (docs `685c43a`).  Tests: conformance 1595_complit_mslice_raw_view,
+1596_err_complit_mslice_raw_view_store, TestManagedSliceLiteralRawView.
+
+### The REPL reports a turn's fault again on a later turn that runs no code — DONE (binate `e5b8a417b`, 2026-10-06, work-7) (found 2026-10-06, work-7, review of the REPL package-initialization fix; pre-existing; claimed 2026-10-06, work-7/session, self-drive; user: "yes, go ahead")
+
+After a turn faults (`runtime error: …`) the VM keeps `VM_STATUS_FAULTED`, and resets it only when it next
+runs code (`CallFunc` / `Run`), so a later turn that runs none (a `func` or `type` declaration) is mapped by
+`finishTurn` to EXEC_ERROR carrying the old FaultMsg.  **Fix:** clear a faulted status at the start of each
+turn (`resetTurnOutput`), leaving a suspended or broken one alone; unit test in `repl/step_test.bn`.
+
+**Resolved** by binate `e5b8a417b` ("repl: a turn's fault is not reported again by a later turn"):
+resetTurnOutput clears a faulted status at the start of each turn, leaving a suspended or broken one.  Tests:
+TestFaultNotReportedByLaterTurn (fails without the fix), TestResetTurnOutputKeepsSuspended.
+
+### The REPL never runs an imported package's initialization — its variables read 0 — DONE (binate `88b8b723c`, 2026-10-06, work-7) MAJOR (found 2026-10-05, work-7, fixing the REPL's generic-body dependency registration; pre-existing; reproduced on main; claimed 2026-10-06, work-7/session, self-drive; user: "yes, go ahead")
+
+At `bni --repl`, a package imported by the session's main file or at the prompt has its package-level
+variables zero: with `pkg/hv`'s `var V int = 2` and `var w int = 3` (V declared `var V int` in the .bni),
+`hv.V`, `hv.GetV()` (which returns V) and `hv.GetW()` all print 0, where `bni prog.bn` prints 2 and 3 —
+prog.init.vars never runs for the package in the REPL's VM.  The main fixture file's own package-level
+initializers do not run either (`var Count int = 50` reads 0 at the prompt).  Silent wrong values.  Root cause unknown —
+needs investigation (where the REPL lowers a loaded package, and whether its init function is called).
+Test: `e2e/repl-pkg-var-init.sh` (startup and prompt imports), `.xfail` meanwhile.
+
+**Resolved** by binate `88b8b723c` ("repl: run package initialization at startup and on a prompt
+import").  Root cause: the REPL lowered every loaded package's module, the main file's included, but never
+called their `<pkg>.__init` functions.  NewKernel now runs them once lowered, dependencies first, then the main
+file's; a fault is a setup error ("package initialization faulted: …").  A prompt import runs the initializers
+of the packages it lowered, in dependency order; a package whose initializer faults is reported ("initialization
+of package P faulted: …") and not imported (FailedPkgs), nor is a package that imports it, and the import's
+other packages are initialized.  An initializer the VM does not know is an internal error.  The "package not
+imported" error now reads "failed type-checking or initialization".  Tests: e2e/repl-pkg-var-init.sh (expected-fail
+marker removed; startup and prompt imports, the main file's initializer, a faulting dependency beside an
+independent package, a fault at startup), TestPkgInitName.  Also resolves the older duplicate entry "REPL:
+package-variable initializers are not run".
+
+### `Self` at the end of a line is not followed by an inserted semicolon — an interface method returning `Self` does not parse — DONE (binate `6e0194015`, docs `685c43a`, 2026-10-06, work-7) DECIDED 2026-10-06 (found 2026-10-05, work-7, writing the test for the generic-receiver `Self` impl fix; pre-existing; claimed 2026-10-06, work-7/session, self-drive; user: "yes, go ahead")
+
+`interface T { Copy() Self\n Same(o Self) bool }` fails to parse ("expected }, got IDENT" on the next line):
+lex.semicolon.insertion (§5.13) inserts a semicolon after an identifier and after the keywords `true`,
+`false`, `nil`, `break`, `continue`, `return`, but `Self` is a reserved keyword (lex.keywords.reserved), and
+the lexer (token.TriggersASI) follows the spec.  `Self` is the only keyword that can end a line as a type
+(an interface method's result), so such a method must come last in the interface, or be written
+`Copy() (Self)` or end in `;` — and bnfmt rewrites `Copy() (Self)` to `Copy() Self`, so formatting turns
+code that parses into code that does not.  Proposal: add `Self` to §5.13's list (and token.TriggersASI): as
+a type name it ends a line like an identifier; a lexer unit test, a bnfmt round-trip test and a conformance
+test of a `Self` result followed by another method.  The test for the `Self` impl fix (conformance
+`1583_generic_impl_self`) puts its `Self`-result method last meanwhile.
+Decision (user, 2026-10-06): "(a) sounds right" — add `Self` to §5.13's list and to token.TriggersASI.  Work: the
+lexer change, spec §5.13, a lexer unit test, a bnfmt round-trip test, a conformance test of a `Self`-result
+method followed by another method; 1583 can then use the natural order.
+
+**Resolved** by binate `6e0194015` ("lexer: a semicolon is inserted after `Self` at the end of a line"):
+token.TriggersASI includes SELF.  Spec §5.13 and the grammar's ASI comment / Annex A (docs `685c43a`).  The
+tree's own sources cannot use the form until the pinned CHECK_TOOLS (bnlint, bnfmt) have the change, nor
+cmd/bnc's packages until the pinned BUILDER does.  Tests: TestASIAfterSelf, TestTriggersASI,
+TestFormatSelfResultLine; conformance 1583_generic_impl_self puts its `Self`-result method first.
+
+### REPL: package-variable initializers are not run — `qa.G` reads 0 — DONE (binate `88b8b723c`, 2026-10-06, work-7) (found 2026-09-30, work-7, review of the duplicate-import fix; pre-existing)
+
+With `pkg/qa` declaring `var G int = 5`, `qa.G` reads 0 in the REPL — the module's own package-level vars and
+imported packages' alike, at the initial load and on a mid-session import; `bni main.bn` gives 5.  The
+REPL does not call the packages' `__init` functions (or not the imported ones).  Needs an e2e/repl.sh case.
+
+**Resolved** by binate `88b8b723c` (duplicate of "The REPL never runs an imported package's
+initialization"; see that entry).
+
 ### x86-64 text assembler: `[reg - a + b]` negates the whole `a + b` — silent wrong displacement — DONE (binate `c361a10e8`, 2026-10-06, work-2) CRITICAL (user: "x64 bug first (Recommended)"; found 2026-10-05, work-2, review of the label-differences change; reproduced against clang; pre-existing)
 
 **Symptom:** `mov rax, qword [rbx - 8 + 4]` assembles to displacement −12 (`48 8b 43 f4`) and `[rbx - 8 - 4]`

@@ -81,23 +81,6 @@ The same holds for deferred function-value calls: `var fh @func(*Getter) = …; 
 same way.  Test to land
 with the decision (repro: the review probe, a `*any` analogue of `spec/14-statements/177`).
 
-### Is a raw-slice view of a managed-slice literal (`var r *[]int = @[]int{20, 21}`) part of the literal? — 🟡 IN PROGRESS, DECIDED 2026-10-06 (found 2026-10-05, review of the work-7 batch; pre-existing; claimed 2026-10-06, work-7/session, self-drive; user: "yes, go ahead")
-
-A managed-slice literal's element is part of the literal (decided 2026-10-04), so `&@[]int{…}[i]` in a var
-initializer keeps the literal alive with the binding and storing it is an error.  A raw-slice view of the
-literal — the managed→raw conversion `var r *[]int = @[]int{20, 21}`, local or package-level — also points
-into the literal's backing, and today dangles (prints 0) like `var r *[]int = mk()`.  Options: (a) yes — the
-conversion addresses the literal (as sub-slicing an array literal does): co-scoped in a var initializer, an
-error when stored; (b) no — it is the managed→raw conversion of a temporary, user error (mem.raw-uaf), as for
-a call result.  The same question for one held in a literal's raw-slice field: with `type R struct { r *[]int }`,
-`p := &R{r: @[]int{1, 2}}.r[1]` dangles in a var initializer and `g = &R{r: @[]int{5, 6}}.r[1]` is accepted
-(managedSliceOwner follows managed-slice-typed bases only).
-Decision (user, 2026-10-06): "(a)" — the managed→raw conversion of a managed-slice literal addresses it: in a var
-/ := initializer the literal lives as long as the binding; storing such a view (directly, through a raw field, an
-element of one) is an error (expr.composite.addr-store).  Work: the checker (heldLiteral / literalRoot treat the
-conversion of a managed-slice literal as holding an address into it, so it is marked and a store rejected), IR-gen
-(the literal built in its slot, managedSliceLitSlot, so it is co-scoped), spec §13, tests on every backend.
-
 ### REPL: a unit with several top-level declarations evaluates only the first — the rest is silently dropped — 🔴 OPEN MAJOR (found 2026-10-06, work-7, writing the REPL stale-fault test; pre-existing)
 
 `Execute("var a [3]int\nvar i int = 5\n")` declares `a` only: the next turn's `a[i]` reports `undefined: i`.
@@ -106,39 +89,6 @@ unit, with no diagnostic.  The line driver (RunReadLoop) hands over one line at 
 there, but `Execute` is the kernel API for whole-cell drivers.  Check `evalReplImport` and a declaration
 followed by statements the same way.  **To do:** evaluate every declaration of the unit in order (or reject
 the leftover input loudly); a repl unit test with two declarations in one `Execute`.
-
-### The REPL reports a turn's fault again on a later turn that runs no code — 🟡 IN PROGRESS (found 2026-10-06, work-7, review of the REPL package-initialization fix; pre-existing; claimed 2026-10-06, work-7/session, self-drive; user: "yes, go ahead")
-
-After a turn faults (`runtime error: …`) the VM keeps `VM_STATUS_FAULTED`, and resets it only when it next
-runs code (`CallFunc` / `Run`), so a later turn that runs none (a `func` or `type` declaration) is mapped by
-`finishTurn` to EXEC_ERROR carrying the old FaultMsg.  **Fix:** clear a faulted status at the start of each
-turn (`resetTurnOutput`), leaving a suspended or broken one alone; unit test in `repl/step_test.bn`.
-
-### The REPL never runs an imported package's initialization — its variables read 0 — 🟡 IN PROGRESS MAJOR (found 2026-10-05, work-7, fixing the REPL's generic-body dependency registration; pre-existing; reproduced on main; claimed 2026-10-06, work-7/session, self-drive; user: "yes, go ahead")
-
-At `bni --repl`, a package imported by the session's main file or at the prompt has its package-level
-variables zero: with `pkg/hv`'s `var V int = 2` and `var w int = 3` (V declared `var V int` in the .bni),
-`hv.V`, `hv.GetV()` (which returns V) and `hv.GetW()` all print 0, where `bni prog.bn` prints 2 and 3 —
-prog.init.vars never runs for the package in the REPL's VM.  The main fixture file's own package-level
-initializers do not run either (`var Count int = 50` reads 0 at the prompt).  Silent wrong values.  Root cause unknown —
-needs investigation (where the REPL lowers a loaded package, and whether its init function is called).
-Test: `e2e/repl-pkg-var-init.sh` (startup and prompt imports), `.xfail` meanwhile.
-
-### `Self` at the end of a line is not followed by an inserted semicolon — an interface method returning `Self` does not parse — 🟡 IN PROGRESS, DECIDED 2026-10-06 (found 2026-10-05, work-7, writing the test for the generic-receiver `Self` impl fix; pre-existing; claimed 2026-10-06, work-7/session, self-drive; user: "yes, go ahead")
-
-`interface T { Copy() Self\n Same(o Self) bool }` fails to parse ("expected }, got IDENT" on the next line):
-lex.semicolon.insertion (§5.13) inserts a semicolon after an identifier and after the keywords `true`,
-`false`, `nil`, `break`, `continue`, `return`, but `Self` is a reserved keyword (lex.keywords.reserved), and
-the lexer (token.TriggersASI) follows the spec.  `Self` is the only keyword that can end a line as a type
-(an interface method's result), so such a method must come last in the interface, or be written
-`Copy() (Self)` or end in `;` — and bnfmt rewrites `Copy() (Self)` to `Copy() Self`, so formatting turns
-code that parses into code that does not.  Proposal: add `Self` to §5.13's list (and token.TriggersASI): as
-a type name it ends a line like an identifier; a lexer unit test, a bnfmt round-trip test and a conformance
-test of a `Self` result followed by another method.  The test for the `Self` impl fix (conformance
-`1583_generic_impl_self`) puts its `Self`-result method last meanwhile.
-Decision (user, 2026-10-06): "(a) sounds right" — add `Self` to §5.13's list and to token.TriggersASI.  Work: the
-lexer change, spec §5.13, a lexer unit test, a bnfmt round-trip test, a conformance test of a `Self`-result
-method followed by another method; 1583 can then use the natural order.
 
 ### A function NAME passed into `*any` compiles and boxes nothing — silent wrong value — 🔴 NEEDS DECISION MAJOR (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
 
@@ -255,12 +205,6 @@ a conversion dispatched through the stale interface (wrong code).  These are rej
 ("cannot redefine interface Sizer as a constant"; user: "(a) is fine for now, though maybe (b) should be
 a todo" — (b) being cross-kind shadowing, like type shadowing).  Shadowing them needs the same
 generation-distinct identity through the checker's and IR-gen's registries.
-
-### REPL: package-variable initializers are not run — `qa.G` reads 0 — 🔴 OPEN (found 2026-09-30, work-7, review of the duplicate-import fix; pre-existing)
-
-With `pkg/qa` declaring `var G int = 5`, `qa.G` reads 0 in the REPL — the module's own package-level vars and
-imported packages' alike, at the initial load and on a mid-session import; `bni main.bn` gives 5.  The
-REPL does not call the packages' `__init` functions (or not the imported ones).  Needs an e2e/repl.sh case.
 
 ### A deferred method call on a receiver whose instantiation has an array argument sized by a type parameter panics — "defer of an unresolved method call" — 🔴 OPEN (found 2026-09-30, work-7, review of the checker→IR-gen type mapper; user chose to track it separately)
 
