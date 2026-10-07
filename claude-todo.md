@@ -875,8 +875,8 @@ x64 DONE `dfde1e73a` (2026-10-04) — SysV MEMORY class in both backends.  arm32
 `35a7a4f3b` (2026-10-05) — every caller passes a copy it owns, and the param slot is that copy, used in
 place (claude-todo-done.md).  Remaining: x64 / arm32 callees still copy their incoming bytes into the param
 slot, though the callee owns them there too (the SysV MEMORY area; the AAPCS32 stack part, plus a register
-part to store beside it) — to scope with the user.  Then plan-aggregate-copy-opts.md D2 / D3 / D4;
-plan-c-abi-large-aggregates.md.
+part to store beside it) — IN PROGRESS (claimed 2026-10-06, work-1; user: "yes, x64 and arm32 using them
+in place would be better").  Then plan-aggregate-copy-opts.md D2 / D3 / D4; plan-c-abi-large-aggregates.md.
 
 ### Copying or releasing an array of managed elements is emitted unrolled, one sequence per element — code size grows with N — 🔴 OPEN (found 2026-09-28, work-6, review of the range-loop operand change; pre-existing)
 
