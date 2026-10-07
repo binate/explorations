@@ -81,7 +81,7 @@ The same holds for deferred function-value calls: `var fh @func(*Getter) = …; 
 same way.  Test to land
 with the decision (repro: the review probe, a `*any` analogue of `spec/14-statements/177`).
 
-### REPL: a unit with several top-level declarations evaluates only the first — the rest is silently dropped — 🔴 OPEN MAJOR (found 2026-10-06, work-7, writing the REPL stale-fault test; pre-existing)
+### REPL: a unit with several top-level declarations evaluates only the first — the rest is silently dropped — 🟡 IN PROGRESS MAJOR (found 2026-10-06, work-7, writing the REPL stale-fault test; pre-existing; claimed 2026-10-06, work-7/session; user: "yes")
 
 `Execute("var a [3]int\nvar i int = 5\n")` declares `a` only: the next turn's `a[i]` reports `undefined: i`.
 `evalReplDecl` (repl/decl_group.bn) parses ONE declaration (`ParseTopLevelDecl`) and ignores the rest of the
