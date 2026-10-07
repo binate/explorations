@@ -32,6 +32,21 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### An imported float const-expression is re-lowered against the IMPORTER's imports — silent wrong value — 🔴 OPEN MAJOR (found 2026-10-07, work-3, review of the float-conversion constant fix; pre-existing)
+
+A floating-point constant expression is stored as its AST (CONST_EXPR) and re-lowered at each use.  For an
+imported package's constant, `genImportedConstExpr` (`pkg/binate/irgen/gen_expr.bn`) sets only
+`CurrentImportPkg`, so a name in the initializer that is one of the DEFINING file's imports (`a.A`, a type
+`a.Meters`) resolves against the USE site's imports.  With `pkg/fc.bni` importing `pkg/a` and declaring
+`const X float64 = a.A * 2.0` / `const M a.Meters = cast(a.Meters, 7) * 1.5`:
+- an importer with no `a`: native/VM ICE "unresolved selector", LLVM emits ill-typed IR (`i64` used as `double`);
+- an importer that binds `a` to another package (`import a "pkg/b"`): native aa64 and the VM print the OTHER
+  package's `A` (`2005 0`, want `30 105`) — and `cast(a.Meters, …)` falls back to int, since `resolveTypeExpr`
+  returns `TypInt` for a type it cannot resolve.
+Fix: install the defining file's imports while re-lowering (as `registerImportConstsAndVars` does, via
+`beginDeclImports` / `di.use`), and make `resolveTypeExpr`'s silent `TypInt` fallback an internal error.
+Test: `conformance/1599_xpkg_const_expr_own_import` (`.xfail.all`).
+
 ### bnld input readers: three silent mis-reads — `.init_array` dropped, a 64-bit addend truncated on a 32-bit host, malformed relocation sections skipped — 🔴 OPEN MAJOR (found 2026-10-06, work-2, mapping bnld for relocatable data; confirmed by reading; pre-existing)
 
 1. **Only SHF_ALLOC PROGBITS / NOBITS sections are kept** (`pkg/binate/link/parse_elf.bn` ~288-298): an
