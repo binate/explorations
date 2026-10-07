@@ -98,6 +98,15 @@ element of one) is an error (expr.composite.addr-store).  Work: the checker (hel
 conversion of a managed-slice literal as holding an address into it, so it is marked and a store rejected), IR-gen
 (the literal built in its slot, managedSliceLitSlot, so it is co-scoped), spec §13, tests on every backend.
 
+### REPL: a unit with several top-level declarations evaluates only the first — the rest is silently dropped — 🔴 OPEN MAJOR (found 2026-10-06, work-7, writing the REPL stale-fault test; pre-existing)
+
+`Execute("var a [3]int\nvar i int = 5\n")` declares `a` only: the next turn's `a[i]` reports `undefined: i`.
+`evalReplDecl` (repl/decl_group.bn) parses ONE declaration (`ParseTopLevelDecl`) and ignores the rest of the
+unit, with no diagnostic.  The line driver (RunReadLoop) hands over one line at a time, so it rarely shows
+there, but `Execute` is the kernel API for whole-cell drivers.  Check `evalReplImport` and a declaration
+followed by statements the same way.  **To do:** evaluate every declaration of the unit in order (or reject
+the leftover input loudly); a repl unit test with two declarations in one `Execute`.
+
 ### The REPL reports a turn's fault again on a later turn that runs no code — 🟡 IN PROGRESS (found 2026-10-06, work-7, review of the REPL package-initialization fix; pre-existing; claimed 2026-10-06, work-7/session, self-drive; user: "yes, go ahead")
 
 After a turn faults (`runtime error: …`) the VM keeps `VM_STATUS_FAULTED`, and resets it only when it next
