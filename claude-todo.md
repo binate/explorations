@@ -63,7 +63,7 @@ The same holds for deferred function-value calls: `var fh @func(*Getter) = …; 
 same way.  Test to land
 with the decision (repro: the review probe, a `*any` analogue of `spec/14-statements/177`).
 
-### Is a raw-slice view of a managed-slice literal (`var r *[]int = @[]int{20, 21}`) part of the literal? — 🔴 NEEDS DECISION (found 2026-10-05, review of the work-7 batch; pre-existing)
+### Is a raw-slice view of a managed-slice literal (`var r *[]int = @[]int{20, 21}`) part of the literal? — 🔴 OPEN, DECIDED 2026-10-06 (found 2026-10-05, review of the work-7 batch; pre-existing)
 
 A managed-slice literal's element is part of the literal (decided 2026-10-04), so `&@[]int{…}[i]` in a var
 initializer keeps the literal alive with the binding and storing it is an error.  A raw-slice view of the
@@ -74,6 +74,11 @@ error when stored; (b) no — it is the managed→raw conversion of a temporary,
 a call result.  The same question for one held in a literal's raw-slice field: with `type R struct { r *[]int }`,
 `p := &R{r: @[]int{1, 2}}.r[1]` dangles in a var initializer and `g = &R{r: @[]int{5, 6}}.r[1]` is accepted
 (managedSliceOwner follows managed-slice-typed bases only).
+Decision (user, 2026-10-06): "(a)" — the managed→raw conversion of a managed-slice literal addresses it: in a var
+/ := initializer the literal lives as long as the binding; storing such a view (directly, through a raw field, an
+element of one) is an error (expr.composite.addr-store).  Work: the checker (heldLiteral / literalRoot treat the
+conversion of a managed-slice literal as holding an address into it, so it is marked and a store rejected), IR-gen
+(the literal built in its slot, managedSliceLitSlot, so it is co-scoped), spec §13, tests on every backend.
 
 ### The REPL never runs an imported package's initialization — its variables read 0 — 🔴 OPEN MAJOR (found 2026-10-05, work-7, fixing the REPL's generic-body dependency registration; pre-existing; reproduced on main)
 
