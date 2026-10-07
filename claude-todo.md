@@ -32,6 +32,24 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### bnld input readers: three silent mis-reads — `.init_array` dropped, a 64-bit addend truncated on a 32-bit host, malformed relocation sections skipped — 🔴 OPEN MAJOR (found 2026-10-06, work-2, mapping bnld for relocatable data; confirmed by reading; pre-existing)
+
+1. **Only SHF_ALLOC PROGBITS / NOBITS sections are kept** (`pkg/binate/link/parse_elf.bn` ~288-298): an
+   SHT_INIT_ARRAY / FINI_ARRAY / PREINIT_ARRAY section (a C object's `__attribute__((constructor))`, C++ static
+   initializers) and `.ARM.exidx` are dropped with their relocations, so constructors silently never run; and a
+   symbol defined in a dropped section is read as undefined (SecIndex -1), which `chosenDef` (`symaddr.bn` ~35)
+   then binds by name to an unrelated global, or resolves to 0 (a local is not reported by Resolve).  Only
+   third-party objects reach it (the asm ELF writer makes every section ALLOC PROGBITS / NOBITS).  Fix: keep the
+   array sections (and lay them out with `__init_array_start` / `_end` and the dynamic tags), and make a reference
+   to a symbol in a section bnld drops an error.
+2. **A 64-bit addend is truncated on an ILP32 host**: `InputReloc.Addend` is `int`; `relAddend`
+   (`parse_elf.bn` ~157, `cast(int, u64(...))`) and Mach-O's 8-byte UNSIGNED (`parse_macho.bn` ~81) keep the low
+   32 bits when bnld runs on arm32.  Fix: carry the addend as int64 (InputReloc and the patchers), or reject one
+   that does not fit.
+3. **A relocation section with a bad sh_entsize / size is skipped** (`parse_elf.bn` ~179, ~193 `continue`): its
+   relocations are silently not applied.  Fix: an error.
+**Test:** to be added with each fix (an object built by clang for 1, a hand-made ELF for 2 and 3).
+
 ### A field and a same-named method: the checker resolves the method, IR-gen calls the field — wrong code — 🟡 IN PROGRESS (claimed 2026-10-06, work-4) MAJOR (found 2026-10-05, work-4, review of the deferred func-value-field fix; pre-existing; LLVM / native / VM)
 
 expr.member: "a field takes precedence over a same-named method" (and func.dispatch.routing (1)).  The checker's
