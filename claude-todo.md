@@ -746,6 +746,9 @@ differs from the `.bn` definition, passes unchecked; `checkDuplicateDecls`'s doc
 AddMethod, which holds only for `.bn` methods.  An importer reads the `.bni` signature, so a divergent one
 would be misread (pkg.bni.consistency).  Fix: compare a `.bni` method declaration with the receiver type's
 `.bn` method (signature) and with other `.bni` declarations of it (duplicate).  Needs error tests.
+A live instance (seen 2026-10-07, work-3): `pkg/binate/check.bni` declares `CheckPackage(path, merged)` and
+`CheckPackageDecls(path, merged)`, while the `.bn` methods, and every caller (cmd/bnc, cmd/bnlint, interp,
+repl), take `(path, merged, files, bni)`.
 
 ### Opaque-type embedding gaps left by the declaration-site check — local types, nested pointees, function-value parameters — 🔴 OPEN (found 2026-10-03, work-3, review of the type-declaration opaque check; code reading; pre-existing)
 
