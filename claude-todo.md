@@ -98,7 +98,7 @@ The same holds for deferred function-value calls: `var fh @func(*Getter) = …; 
 same way.  Test to land
 with the decision (repro: the review probe, a `*any` analogue of `spec/14-statements/177`).
 
-### REPL: a fault in one of several initializers a declaration runs is lost — the turn reports EXEC_OK and the variable stays 0 — 🔴 OPEN MAJOR (found 2026-10-06, work-7, review of the REPL code-unit fix; pre-existing; reproduced)
+### REPL: a fault in one of several initializers a declaration runs is lost — the turn reports EXEC_OK and the variable stays 0 — 🟡 IN PROGRESS MAJOR (found 2026-10-06, work-7, review of the REPL code-unit fix; pre-existing; reproduced; claimed 2026-10-07, work-7/session; user: "take on the lost-fault fix now")
 
 The REPL reports a turn's fault from the VM's status after the turn (finishTurn), but every `CallByVMFunc`
 clears the status and FaultMsg, so a fault in one call is lost when the same entry makes another.  An entry
