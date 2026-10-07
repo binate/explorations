@@ -2535,6 +2535,14 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
 
 ## Codegen & backend (non-func-value)
 
+- **Native backends: per-op guards on a malformed instruction silently emit nothing** — 🔵 OPEN (found
+  2026-10-07, work-3, while making unresolved operands and slots fail loud).  About 70 `if len(ins.Args) < N {
+  return }` and 11 `TypeArg == nil` / `Typ == nil { return }` guards across `pkg/binate/native/{x64,aarch64,arm32}`
+  drop the instruction without a word when an op arrives with too few operands or no type.  The IR verifier
+  (`pkg/binate/irbuild/verify.bn`) checks block structure, phi ownership and constant ranges but not operand
+  counts, so nothing proves those inputs impossible.  Fix: check each op's operand count and required types in
+  the verifier (then the guards are dead and can go), or make each guard record `a.SetError`.
+
 - **Native aa64 rejects a struct field at an offset of 16 MiB or more** — 🔵 OPEN (found 2026-10-07, work-3,
   review of the repeated-struct layout fix).  `type Big struct { pad [20000000]uint8; x int }` with `g.x = 7` /
   `p.x` fails to compile on `--backend native` (aarch64): "ADD/SUB immediate out of range (0..0xFFFFFF);
