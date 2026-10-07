@@ -2218,6 +2218,19 @@ Found: adversarial review of the opaque-export dtor fix.
 
 ## bnfmt (self-hosted formatter)
 
+### bnfmt packs a later argument that is a multi-line function literal by its whole text — a commented literal breaks onto a continuation line — 🟢 LOW (found 2026-10-06, work-3, fixing the function-literal comment placement)
+
+`fillExprList` (`pkg/binate/format/print_wrap.bn`) decides whether a non-first argument stays on the
+current line from `len(exprSingleLine(elem))`, the length of its whole rendering.  For a multi-line function
+literal only the first line (`func() {`) shares the line, so a literal whose body holds a few comment lines
+measures too long: `register("…", 123456789, func() { // c` formats as `register("…", 123456789,` then the
+literal on a `+2` continuation line, where the same literal without the comment stays on the call's line.
+Valid and idempotent, not canonical.  The first-argument decision (`wrapOpenerAlone`) already measures by the
+first line.  Measuring the fill decision the same way changes the layout of ~20+ files in the tree
+(cross-line strings and other multi-line elements, e.g. `pkg/binate/asm/parse/*.bn`, `cmd/bnc/main.bn`), so
+it needs a decision on which multi-line elements it applies to (function literals only?) and a reformat of
+the tree in step with the CHECK_TOOLS bnfmt.
+
 ### bnfmt moves comments inside a function literal — 🟡 IN PROGRESS (claimed 2026-10-06, work-3/session, self-drive) (found 2026-09-28, review of the bnfmt defer fix)
 
 `printFuncLit` (`pkg/binate/format/print_stmt.bn`) prints the literal's body with no comment cursor, so a
