@@ -64,6 +64,16 @@ the field only when the checker typed the selector as a function value.  Tests: 
 `spec/13-expressions/066_member_field_over_method` and `1574_call_method_hidden_same_name_field` (expected-fail
 in every mode); `1573_defer_method_hidden_same_name_field` passes and must keep passing.
 
+### A method value of an imported opaque type names its destructor in the wrong package — 🔴 OPEN MAJOR (found 2026-10-06, work-4, review of the field-over-method fix; pre-existing; LLVM / native / VM)
+
+`var p @opq.Foo = opq.New(); var g *func(int) = p.g` (Foo opaque — `type Foo` in opq.bni, its layout in opq.bn;
+`g` has an `@Foo` receiver) fails to build: the method value's capture is released through `main.__dtor_Foo`, a
+destructor no module defines — LLVM "use of undefined value '@__handle.bn_F1_4_main1_11___dtor_3Foo'", native an
+undefined symbol at link, the VM "function not found: main.__dtor_3Foo" at exit.  A non-opaque imported type
+works.  Likely cause: the method-value closure's destructor is named from the receiver type's name as written in
+the importing package instead of the opaque type's owning package (whose module emits `__dtor_Foo` for an opaque
+export).  Test: conformance `1594_method_value_xpkg_opaque_receiver` (expected-fail in every mode).
+
 ### Does stmt.defer retain an `@T` boxed into a deferred `*I` / `*any` argument? — 🔴 NEEDS DECISION MAJOR (found 2026-10-04, work-4, review of the deferred variadic pack fix; reproduced on main, LLVM / native / VM; pre-existing)
 
 `defer run1(mk(11))` with `func run1(x *any)` and `mk` returning `@Thing`, and `defer runv(mk(12), mk(13))` into
