@@ -179,12 +179,20 @@ bnc-0.0.16 (the pinned BUILDER) has the IR-gen defect fixed on main by `1f29d31e
 
 gen1 would get silently wrong code there, and gen1 compiles every test and gen2.  Examples: a loop body that never runs (the function returns early, with no error); `st.Top++` right after an `if` or a `for` does nothing.  An identifier `++` just before it doesn't help.  A statement that goes through expression evaluation first (`x.f = x.f + 1`, a declaration, a call) is fine, and so is one in a function's opening straight-line code.  Design B's instance stack (`pushInstWork` / `popInstWork`, binate `fe95d7de8`) keeps its `++` / `--` out of those positions; TODOs there mark it.  A 2026-09-30 scan of non-test code found no other field `++` / `--` (the only two are design B's), no `x := name` short-var, and no `*any` variable, parameter or field.  Clears when a BUILDER containing `1f29d31e9` is pinned (cut only when independently justified).
 
-### Native aa64: a by-value aggregate parameter passed indirectly may be copied as whole 8-byte words, reading past the caller's copy — 🔴 OPEN, UNCONFIRMED (reported 2026-09-30 by the review of the bulk by-value-argument change)
+### Native x64: a by-value aggregate argument is read as whole 8-byte words, up to 7 bytes past its end (aa64 and arm32 checked: exact) — 🟡 IN PROGRESS (claimed 2026-10-07, work-3/session, self-drive) (reported 2026-09-30 for aa64 by the review of the bulk by-value-argument change; checked 2026-10-07, work-3)
 
-Reported: the aa64 callee copies an IndirectLargeAggregates parameter as `common.ArgWords(T) * 8` bytes, so a
-100-byte `[100]uint8` parameter reads 104 bytes from the caller's copy — past its end (harmless on the stack
-in practice; a fault if the copy ends at an unmapped page boundary).  Not yet confirmed against the code
-(start at the aa64 incoming-parameter spill and `common.ArgWords`); check x64 and arm32 for the same pattern.
+Reported for aa64 (the callee copying an IndirectLargeAggregates parameter as `ArgWords(T) * 8` bytes, so a
+100-byte `[100]uint8` reads 104 bytes from the caller's copy).  Checked 2026-10-07: **not so on aa64** — the
+callee stores the incoming pointer and copies nothing, and the caller's copy (`emitArgCopiesAA64` →
+`emitAggCopyToAarch64`) moves exactly `SizeOf()` bytes (its tail re-copies the last bytes inside the bounds).
+**arm32 is exact too**: a type aligned to the word has a size that is a multiple of it, and a less-aligned
+one is loaded byte-wise (`aggNeedsBytewiseArm32`).  **x64 over-reads**: `emitAggregateArg`
+(`native/x64/x64_call.bn`) loads `ArgWords(T)` whole 8-byte words from the argument's storage, in the register
+path and the MEMORY path (and its copy loop copies `8 * nWords` bytes), so an aggregate whose size is not a
+multiple of 8 — `[100]uint8`, `struct { a, b, c int32 }` — is read up to 7 bytes past its end: harmless when
+the source is a stack region (rounded up to 8 by PlanFrame), a fault if a global or heap object ends at an
+unmapped page.  Fix: load the last, partial word by its exact bytes (as arm32's byte-wise load does) and copy
+`SizeOf()` bytes to the stack; check the x64 closure-shim and SSE-aggregate argument paths for the same.
 Fix if confirmed: copy exactly `SizeOf(T)` bytes (a byte / halfword tail after the whole words).
 **Update 2026-10-05 (work-1):** confirmed by reading the old aa64 incoming-parameter spill, and fixed there by
 binate `2fd5685fc` (the copy goes through emitAggCopyToAarch64 with `SizeOf(T)` bytes).  The callee spills on
