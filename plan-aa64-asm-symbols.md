@@ -251,7 +251,7 @@ Design:
   clang's objects; linking it is a separate, larger item, not this series.
 
 Commits (series):
-- (2.0) link: per-arch patchers out of relocate.bn (437 lines) — a pure move.
+- (2.0) link: per-arch patchers out of relocate.bn (437 lines) — a pure move.  ✅ landed `42942da63`.
 - (2.1) absolute data: kinds, parser, both writers, arm32 bake, bnld ELF ABS kinds; Mach-O UNSIGNED.
 - (2.2) PC-relative data on ELF: `sym - .`, `sym - l`, external minuend; bnld PREL / REL32 / PCn.
 - (2.3) Mach-O differences: Sub field, SUBTRACTOR pairs (arm64 and x86-64 writers), bnld arm64 pairs.
