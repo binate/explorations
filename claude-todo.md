@@ -2585,7 +2585,7 @@ urgency (no current miscompile; the writable placement is safe, just unhardened)
 
 ## Testing: harness, runners & conformance coverage
 
-### `os.RemoveAll` is path-based — a concurrent directory→symlink swap mid-walk can make it delete outside the tree — 🟢 LOW (found 2026-09-28, review of `6b1044949`)
+### `os.RemoveAll` is path-based — a concurrent directory→symlink swap mid-walk can make it delete outside the tree — 🟡 IN PROGRESS (claimed 2026-10-06, work-3/session, self-drive) (found 2026-09-28, review of `6b1044949`)
 
 `RemoveAll` walks by name (`Lstat`, then `ReadDir` / `Remove` on `path/...`), so another process that can
 write into the tree can replace a subdirectory with a symbolic link between the `Lstat` and the later
