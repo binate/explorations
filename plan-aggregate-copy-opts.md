@@ -127,6 +127,19 @@ D. Copy chains (load → private copy → temp slot → argument): revisit after
    - D2. Return-value placement at the call site: a call whose aggregate result is stored whole into a
      confined local (or returned) gets that local (or the incoming sret buffer) as its result buffer — a
      shared analysis marks the store, as NoZeroInit marks allocs; each backend honours the mark.
+     Design (2026-10-07, work-1; recon on `2e5cec867`).  -O2 IR of `var x Big = mk(k); use x.n`: the call's
+     result goes to a temporary (`.sret` / a native region) and a whole OP_STORE copies it into x's slot;
+     `return mk(k)` copies the temporary into the incoming sret buffer.  An emit-time shared analysis in
+     native/common (like InPlaceParamSlots — no IR field, every -O level) maps a call to the slot its result
+     is stored into when: the result's only use is that whole store, in the call's block; the slot is a stack
+     OP_ALLOC (not a parameter's, not a global) of the result's size whose address never leaves the
+     function (used only as a load / store address or the base of field / element pointers that are, in
+     turn); nothing between the call and the store references the slot or a value derived from it (an
+     elided load of the slot aliases it — AggLoadElidable assumes the store is the slot's writer); and the
+     slot's OP_ALLOC precedes the call or is NoZeroInit (its zero-fill must not land after the result).
+     Native: PlanFrame gives the call the slot's region, so every call path writes there, and the store
+     emits nothing.  LLVM: the call's result memory is the slot's alloca instead of `.sret`, and the store
+     emits nothing.  The return case (the incoming sret buffer as the call's) follows as a second commit.
    - D3. A local returned at every return lives in the sret buffer.
    - D4. A confined local whose last use is a by-value argument is passed without a copy (needs D1; aa64
      only — on x64 / arm32 the C ABI copies the value into the argument area regardless).
