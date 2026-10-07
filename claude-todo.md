@@ -257,7 +257,7 @@ instantiation (extend typeDeclDepNames) — but a method naming the declaration 
 still sees `int`; (b) name the alias's canonical instance (its mangled name) without instantiating it during
 registration, leaving the instantiation to the interface pass.  (b) looks cleaner; needs a design check.
 
-### bnfmt is not idempotent on a long string-literal call argument — formatting a formatted file changes it again — 🔴 OPEN (found 2026-10-02, work-3, formatting a unit test; reproduced with the CHECK_TOOLS bnfmt, bnc-0.0.17-pre1; pre-existing)
+### bnfmt is not idempotent on a long string-literal call argument — formatting a formatted file changes it again — 🟡 IN PROGRESS (claimed 2026-10-07, work-3/session, self-drive) (found 2026-10-02, work-3, formatting a unit test; reproduced with the CHECK_TOOLS bnfmt, bnc-0.0.17-pre1; pre-existing)
 
 ```
 	if !rejectsSliceBinding("type Row [3]int\nfunc f() { var r readonly Row; var w *[]int = r[1:] }\n") {
