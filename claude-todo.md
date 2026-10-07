@@ -844,15 +844,25 @@ slot, though the callee owns them there too (the SysV MEMORY area; the AAPCS32 s
 part to store beside it) — IN PROGRESS (claimed 2026-10-06, work-1; user: "yes, x64 and arm32 using them
 in place would be better").  Then plan-aggregate-copy-opts.md D2 / D3 / D4; plan-c-abi-large-aggregates.md.
 
-### Copying or releasing an array of managed elements is emitted unrolled, one sequence per element — code size grows with N — 🟡 IN PROGRESS (claimed 2026-10-06, work-3/session, self-drive) (found 2026-09-28, work-6, review of the range-loop operand change; pre-existing)
+### LLVM backend: a store of a large aggregate value is split into one store per element — code size grows with N — 🔴 OPEN (found 2026-09-28, work-6, review of the range-loop operand change; re-scoped 2026-10-06, work-3)
 
-The copy of an array whose elements are managed (a retain per element) and its release (a release per
-element) are emitted inline for every element: a local `var tmp [8000]@Box` alone takes a native
-binary from 169 KB to 466 KB.  A range loop now copies its array operand into a hidden local
-(`stmt.for.in.operand`), so each loop over a `[N]@T` array pays it: one loop over `[8000]@Box` gives
-532 KB, three loops 1.23 MB, against 169 KB for an index loop.  The N retains and N releases are
-required; emitting them unrolled is a codegen choice.  Fix: emit a loop over the elements (in IR-gen's
-struct/array copy and destructor helpers) once N passes a small threshold.
+Originally: copying or releasing an array of managed elements was emitted unrolled, one sequence per
+element (`var tmp [8000]@Box` took a native binary from 169 KB to 466 KB).  The retains / releases are loops
+(the `__copy_arrN_…` / `__dtor_arrN_…` helpers), and the native backends now copy and zero-fill a large
+aggregate with a loop (binate `01ee02873` arm32, `2fd5685fc` aarch64, `f6b4cc81a` x64): checked 2026-10-06,
+`[8000]@Box` copied and ranged over three times gives 170 KB native, the same as `[8]@Box`.
+
+What remains is LLVM-only: the same program is 522 KB on LLVM (142 KB for `[8]@Box`), because
+`emitAggregateStoreFromSSAInstr` (`codegen/emit_copy_ssa.bn`) writes an aggregate SSA value (an OP_LOAD of
+the whole array) to memory with one `extractvalue` + GEP + `store` per leaf: 8000 of each in `main` for one
+copy (and for the zero-value construction `memset` + `load` + split store).  It is split that way to avoid
+`store <T>` (LLVM's ARM EABI lowering may call `__aeabi_memcpy`), and `extractvalue` takes only constant
+indices, so the split cannot be a loop while the value is an SSA aggregate.  Fix options: lower a large
+aggregate OP_LOAD to an alloca'd copy made with a loop (the value then lives by address, as on native),
+which every consumer of an aggregate value must then accept; or copy OP_LOAD→OP_STORE pairs pointer to
+pointer when nothing writes memory between them.  Related: "LLVM backend: whole-aggregate load / store left
+in sret returns …".  Unclaimed 2026-10-06 (work-3): a refactor of how the LLVM backend holds aggregate
+values, not a self-contained fix.
 
 ### Standing: decide each new IR pass's VM membership in [vm-pass-set.md](vm-pass-set.md)
 
