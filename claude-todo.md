@@ -844,7 +844,7 @@ slot, though the callee owns them there too (the SysV MEMORY area; the AAPCS32 s
 part to store beside it) — IN PROGRESS (claimed 2026-10-06, work-1; user: "yes, x64 and arm32 using them
 in place would be better").  Then plan-aggregate-copy-opts.md D2 / D3 / D4; plan-c-abi-large-aggregates.md.
 
-### Copying or releasing an array of managed elements is emitted unrolled, one sequence per element — code size grows with N — 🔴 OPEN (found 2026-09-28, work-6, review of the range-loop operand change; pre-existing)
+### Copying or releasing an array of managed elements is emitted unrolled, one sequence per element — code size grows with N — 🟡 IN PROGRESS (claimed 2026-10-06, work-3/session, self-drive) (found 2026-09-28, work-6, review of the range-loop operand change; pre-existing)
 
 The copy of an array whose elements are managed (a retain per element) and its release (a release per
 element) are emitted inline for every element: a local `var tmp [8000]@Box` alone takes a native
