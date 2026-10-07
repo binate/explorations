@@ -2315,7 +2315,7 @@ memory-management rules — the compiler does not extend the temporary).  Flag a
 `*func` variable / field / element initialized or assigned from an `@func`-typed call
 result or cast that is not otherwise owned.
 
-### bnlint: `func-value-escape` and `managed-func-raw-capture` do not look inside composite literals — 🔴 OPEN (MINOR; found 2026-09-29 by code reading in the review of the composite-literal function-literal hint fix, not run)
+### bnlint: `func-value-escape` and `managed-func-raw-capture` do not look inside composite literals — 🟡 IN PROGRESS (claimed 2026-10-06, work-3/session, self-drive) (MINOR; found 2026-09-29 by code reading in the review of the composite-literal function-literal hint fix, not run)
 
 `func-value-escape` flags only a bare function literal in `return` position, so
 `return H{g: func(x int) int { return x + k }}` — a frame-owned `*func` closure
