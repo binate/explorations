@@ -159,7 +159,7 @@ and an importer reading X fails as the undefined-var case did.  Fix: have the lo
 which packages are interface-only (or the reverse), and report a `var` in a non-interface-only package
 with no `.bn` files.
 
-### arm32 text assembler: forms clang accepts that are rejected — 🔴 OPEN (found 2026-09-30, work-2, by the review of the arm32 label-addend fix; each used to be silently miscompiled, now an error)
+### arm32 text assembler: forms clang accepts that are rejected — 🟡 IN PROGRESS (claimed 2026-10-07, work-3/session, self-drive) (found 2026-09-30, work-2, by the review of the arm32 label-addend fix; each used to be silently miscompiled, now an error)
 
 Loud, not wrong code: `ldr r0, [r1]!` (clang E5B10000), `ldr r0, [r1, r2, lsl #2]!` (E7B10102), `ldr r0, [r1],
 r2, lsl #2` (E6910102), `ldr r0, [r1], -r2`, `ldr r0, [r1, r2, rrx]` (E7910062), `ldm r0, {r1}^` (E8D00002),
