@@ -592,27 +592,17 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### x64 assembler / text parser: `emitModRM` addresses the wrong location for some memory shapes, operand sizes unchecked, `[base+idx*scale+disp]` misparsed — 🟡 CLAIMED, queued (found 2026-09-25; claimed 2026-09-25, work-4/session — assembler sweep after T6(b), before (c))
-**Also (2026-09-26, found by the aa64 batch review, work-2/session):** the displacement parse after a `-`
-negates the whole rest of the expression — `mov eax, [rbp - 8 + 4]` encodes disp -12 (`8b 45 f4`), clang
--4; same greedy-`ParseExpr` root as the scale case (`[rcx*2 + 8]` → scale 10, encoded `(%rdi,%rcx,8)`).
-The shared `expr.bn` is being made clang-faithful in the aa64 batch (ambiguous precedence mixes
-rejected, logical `>>`), which changes what these greedy calls see.
-
+### x64 assembler / text parser: operand sizes unchecked (`mov [rax], ecx` is an 8-byte store), RIP-label forms, `ret imm16` — 🟡 CLAIMED, queued (found 2026-09-25; claimed 2026-09-25, work-4/session — assembler sweep after T6(b), before (c))
 (REX.X/REX.B, RIP-label operand size, operand-kind validation, per-width immediate ranges incl. the imm8-only
-paths, and SZ16 imm16 landed in `d35da4a89`, see done log.)  Still open, all silent: (i) `emitModRM` wrong
-addresses — a memory operand with no base but an index (`MemIdx(-1, RCX, 8, 16)`, which the parser builds
-from `[rcx*8 + 16]`) encodes `[rdi + rcx*8 + 0x10]` (clang `48 8b 04 cd 10000000`); index=RSP is dropped
-(`[rax+rsp]` → `[rax+riz]`); scale 3 encodes as 8; a displacement beyond int32 truncates (same unbounded
-frame/field-offset callers); and an operand with neither base nor index (`MemDisp`, which the parser builds
-from `[5]`) encodes RIP-relative `[rip + 5]` (`48 8b 05 05000000`), where clang encodes the absolute address
-(`48 8b 04 25 05000000`) — found 2026-10-01, work-2.  (ii) Operand SIZES are not validated: mixed register/memory or register/register
+paths, and SZ16 imm16 landed in `d35da4a89`, see done log; `emitModRM`'s wrong addresses — no base with an
+index, an RSP index, scale 3, a displacement beyond 32 bits, `[5]` encoded RIP-relative — and the text parser's
+greedy displacement / scale parse (`[rbp - 8 + 4]`, `[rax+r9*2+2]`) were fixed by binate `c361a10e8`, see done
+log.)  Still open, all silent: (ii) Operand SIZES are not validated: mixed register/memory or register/register
 sizes encode at one operand's width (`Mov(Mem SZ64, Reg SZ32)` → `48 89 08`, a 64-bit store; clang rejects
 `mov qword ptr [rax], ecx`), non-SZ sizes encode as 32-bit ops, and the parser defaults an unsized `[rax]` to
 SZ64 so `mov [rax], ecx` is an 8-byte store — fix by requiring matching SZ sizes in emitALU/Test/Mov/
 emitUnaryRM/emitShift (every native call site already passes matching sizes) and inferring an unsized memory
-operand's size from the register in the parser.  (iii) The text parser's `ParseExpr` after `*` consumes a
-trailing `+ disp` into the scale (`[rax+r9*2+2]` → `[rax+4*r9]`).  (iv) `[rip + label]` is supported only by
+operand's size from the register in the parser.  (iv) `[rip + label]` is supported only by
 Mov/Lea (everything else rejects it); RIP-label forms followed by an immediate need a relocation that
 accounts for the trailing immediate.  (v) `x64_data_test.bn` ~61 has a "Pre-fix this" comment (not
 stand-alone).  (vi) `ret imm16` (C2 iw, RET's stack-popping form) has no encoder or parser form: rejected
@@ -2185,7 +2175,10 @@ on linux/arm64.  Also landed `ldr xt, [xn, #:lo12:label]` (LDST64 lo12, `7419309
 ADRP+LDR loads a datum too.  Still narrower than the encoder on the aa64 side: only
 the GOT `:got:`/`:got_lo12:` operands remain absent from the text parser (the native
 backend emits those via the library, not text asm; and bnld rejects GOT relocs — a
-hermetic linker — so there is no consumer for them yet).
+hermetic linker — so there is no consumer for them yet).  Also wanted on the x64 side (user, 2026-10-06):
+32-bit addressing in memory operands (`[eax]`, `[ebx + ecx*4]`, clang's 0x67 address-size prefix; rejected
+since `c361a10e8`) — "Support it, later", after the label-difference work; and absolute symbol addressing
+(`mov rax, [lbl]`, clang R_X86_64_32S; only `[rip + lbl]` is supported) — "Add to completeness list".
 
 ## bnld (self-hosted linker)
 
