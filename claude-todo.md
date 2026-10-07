@@ -1778,6 +1778,25 @@ closed-source `{facade.bni, bundle.a}` whose internal packages the consumer neve
   (e.g. link the whole archive / an inclusion manifest), not rely on satfrag edges as a
   side-channel. (This property was already "asserted-but-unverified" — no test ever exercised
   it — so nothing tested regressed; but the future mode must not assume it.)
+- **A consumer compiling against a library's `.bni` alone** (seen 2026-10-07, work-3, while
+  making a `.bni`-only package's vars extern): the consumer's module for the `.bni`-only package
+  still defines that package's descriptor symbols (`__pkgname`, `__pkg_info`, `__pkg_funcs`,
+  `__pkg_globals`, `__Package`, `__pkg_satfrag` — emit_pkg_descriptor.bn), duplicating the
+  library object's; and its `bn_init` never calls the library's `__init` (`HasPackageInit` is
+  false for the consumer's module), so the library's var initializers do not run.  Linking
+  `main.o` + the consumer's other objects + the library's object, leaving out the consumer's
+  module for the package, works today (a shared var reads the library's value).
+
+### VM: a package variable nothing defines aborts the process instead of failing the load — 🔴 OPEN (MINOR; found 2026-10-07, work-3, review of the `.bni`-only extern-var fix)
+
+Lowering a global reference with no storage (a `.bni`-only package's var with no implementation)
+stops with `vmPanic("vm: nothing in the program defines the package variable …")`, which aborts
+the host: a REPL session that imports such a package and reads the var dies, and an embedder's
+`LoadProgram` / `LoadCallable` (errors as values) aborts instead of returning an error.  (It used
+to skip the reference silently, leaving the instruction reading an unrelated register.)  Fix:
+collect unresolved globals during lowering as load errors (`LowerModule` reports them,
+`LoadProgram` returns them), and have the REPL report one without ending the session.  Covered
+by e2e/bni-only-var-undefined.sh for bni's exit; needs a REPL / LoadProgram test.
 
 ### Package descriptors — Phase C (richer metadata) + VM extern auto-enumeration remain
 
