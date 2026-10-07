@@ -1,3 +1,27 @@
+### x86-64 text assembler: `[reg - a + b]` negates the whole `a + b` — silent wrong displacement — DONE (binate `c361a10e8`, 2026-10-06, work-2) CRITICAL (user: "x64 bug first (Recommended)"; found 2026-10-05, work-2, review of the label-differences change; reproduced against clang; pre-existing)
+
+**Symptom:** `mov rax, qword [rbx - 8 + 4]` assembles to displacement −12 (`48 8b 43 f4`) and `[rbx - 8 - 4]`
+to −4; clang gives −4 and −12.  Silent wrong code for hand-written x86-64 assembly through bnas (the native
+x64 backend uses the encoders directly; the tree has no x86-64 `.s` files today).
+**Root cause:** the memory-operand parser (`pkg/binate/asm/parse/x64.bn`, the TOK_MINUS case near :259) hands
+everything after the `-` to ParseExpr and subtracts the result, so the minus applies to the whole remaining
+expression rather than to its first term.
+**Fix:** negate only the first term (parse the displacement as one expression starting at the sign — or
+parse a unary-minus term and continue the additive chain); add golden tests against clang (`- a + b`,
+`- a - b`, `+ a - b`, with constants and parentheses).
+**Test:** to be added with the fix (a unit test pinning clang's displacements).
+
+**Resolved** by binate `c361a10e8` ("asm/x64: memory operands as a sum of signed terms — no silently wrong
+displacement, scale or index").  The same parser flaw (everything after a `+`, `-` or `*` handed to the expression
+evaluator) and the encoder's unchecked operands gave more silent wrong code, all fixed together: `[rbx + rcx*4 + 4]`
+scale 8 and no displacement, `[rbx + rcx*2 - 1]` scale 1, `[r12 + r13*8 + 0x100]` no displacement, `[rbx + rcx +
+rdx]` the index replaced, `[eax]` / `[rbx + ecx]` through rax / rcx, `[rbx + rcx*3]` scale 8, `[rbx + rsp]` the index
+dropped, `[rsp*2]` / `[rcx*2 + 8]` / `[rbx*2]` through rdi, `[8]` RIP-relative.  The operand is now a sum of signed
+terms (parse/x64_mem.bn); the encoder gained MemAbs and a no-base MemIdx and rejects a bad base / index / scale / RSP
+index / >32-bit displacement.  Tests: x64_mem_test.bn in parse and asm/x64 (clang's bytes); ~2100 generated operands
+in 4 instructions match clang byte for byte.  Raised with the user, undecided: 32-bit addressing (now rejected),
+`-~8` (clang's Intel parser computes it wrongly), absolute `[lbl]` (unsupported, as before).
+
 ### aa64: a >16-byte by-value aggregate follows AAPCS64's ownership rule — the caller's copy is the callee's param slot — DONE (binate `dfce07941`, `35a7a4f3b`, 2026-10-05, work-1)
 
 Part of "Binate's ABI for a >16-byte by-value aggregate" (claude-todo.md).  `dfce07941`: every aa64 caller
