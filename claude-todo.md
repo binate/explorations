@@ -57,20 +57,6 @@ Test: `conformance/1599_xpkg_const_expr_own_import` (`.xfail.all`).
    relocations are silently not applied.  Fix: an error.
 **Test:** to be added with each fix (an object built by clang for 1, a hand-made ELF for 2 and 3).
 
-### A field and a same-named method: the checker resolves the method, IR-gen calls the field — wrong code — 🟡 IN PROGRESS (claimed 2026-10-06, work-4) MAJOR (found 2026-10-05, work-4, review of the deferred func-value-field fix; pre-existing; LLVM / native / VM)
-
-expr.member: "a field takes precedence over a same-named method" (and func.dispatch.routing (1)).  The checker's
-`tryMethodCall` looks methods up first: with a field `f @func(int, int)` and a method `(t *T) f(n int)`,
-`t.f(1, 2)` is rejected ("wrong number of arguments"), while `t.f(4)` type-checks against the method and IR-gen's
-direct call (`getSelectorType`) then calls the 2-parameter FIELD with one argument (garbage second argument).
-With opacity: an importer's `p.f(1)` on an opaque handle whose hidden field is named `f` must call the exported
-method `f` (the field is invisible), but IR-gen's direct call runs the hidden field (it has no opacity check).  A
-deferred call follows the checker (classifyDeferShape classifies by the checker's selector type), so it calls the
-method in both cases.  Fix: the checker resolves a visible field first, then methods; IR-gen's direct call takes
-the field only when the checker typed the selector as a function value.  Tests: conformance
-`spec/13-expressions/066_member_field_over_method` and `1574_call_method_hidden_same_name_field` (expected-fail
-in every mode); `1573_defer_method_hidden_same_name_field` passes and must keep passing.
-
 ### A method value of an imported opaque type names its destructor in the wrong package — 🔴 OPEN MAJOR (found 2026-10-06, work-4, review of the field-over-method fix; pre-existing; LLVM / native / VM)
 
 `var p @opq.Foo = opq.New(); var g *func(int) = p.g` (Foo opaque — `type Foo` in opq.bni, its layout in opq.bn;

@@ -1,3 +1,31 @@
+### A field and a same-named method: the checker resolves the method, IR-gen calls the field — wrong code — DONE (binate `522b464b0`, 2026-10-07, work-4; found 2026-10-05 in review of the deferred func-value-field fix)
+
+expr.member: "a field takes precedence over a same-named method" (and func.dispatch.routing (1)).  The checker's
+`tryMethodCall` looks methods up first: with a field `f @func(int, int)` and a method `(t *T) f(n int)`,
+`t.f(1, 2)` is rejected ("wrong number of arguments"), while `t.f(4)` type-checks against the method and IR-gen's
+direct call (`getSelectorType`) then calls the 2-parameter FIELD with one argument (garbage second argument).
+With opacity: an importer's `p.f(1)` on an opaque handle whose hidden field is named `f` must call the exported
+method `f` (the field is invisible), but IR-gen's direct call runs the hidden field (it has no opacity check).  A
+deferred call follows the checker (classifyDeferShape classifies by the checker's selector type), so it calls the
+method in both cases.  Fix: the checker resolves a visible field first, then methods; IR-gen's direct call takes
+the field only when the checker typed the selector as a function value.  Tests: conformance
+`spec/13-expressions/066_member_field_over_method` and `1574_call_method_hidden_same_name_field` (expected-fail
+in every mode); `1573_defer_method_hidden_same_name_field` passes and must keep passing.
+
+Resolution: the checker's tryMethodCall gives way to a struct field of the name visible here (hasVisibleField, over
+the selectorFieldBase peel checkSelectorExpr now shares; an opaque type's field hidden from the package shadows
+nothing), and check_addr's addressability / method-value checks apply the same visibility (an importer could
+assign to or take the address of a hidden same-named field).  A call through a type parameter's constraint stays the
+type argument's method in every instance (gen.mono.constraint-call): the abstract check marks the selector
+`ViaConstraint`, a clone keeps it, the instance check skips field precedence (a first version broke generic code
+whose type argument had a same-named field; caught in review).  The checker marks a field selector `FieldSel`;
+IR-gen's isMethodValueSelector honours it and genCall takes the function-value-field path only when the checker
+did not resolve a method.  Following the spec rejected tree code: native/common's `RegMap` exported both a field
+`FrameSize` and a method `FrameSize()` — the user chose to follow the spec, so the backends read the field and the
+accessor is gone; tests 050 / 052 renamed a field that clashed with their method.  Tests: 066, 1574 (no longer
+expected-fail), 067, 107 (constraint calls), 1603 (assign / address of a hidden field), check unit tests.  The
+review also found the method value of an imported opaque type bug (its own entry, test 1604).
+
 ### native aa64: a conditional branch beyond ±1 MB is not relaxed — a very large function fails to assemble — DONE (binate `ae49a28b0`; closed 2026-10-07, work-3) (found 2026-09-30, work-7, review of the exact aggregate-copy fix; pre-existing)
 
 "PC-relative reference to 'L_…phicrit.71' is out of range or misaligned": B.cond / CBZ reach ±1 MB and
