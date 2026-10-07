@@ -212,7 +212,7 @@ whole words through the dispatch caller's pointer — x64 emitSpillByAddressAgg_
 aggregate — and a VM or LLVM-compiled dispatch caller's copy may be sized to the type itself (`[201]uint8`
 reads 208 bytes).
 
-### LLVM backend: whole-aggregate load / store left in sret returns, call-site sret loads and zero-value construction — possible `__aeabi_memcpy` on ARM EABI — 🔴 OPEN (investigate; found 2026-09-29 by the review of the named-aggregate copy fix `d500a2af7`)
+### LLVM backend: whole-aggregate load / store left in sret returns, call-site sret loads and zero-value construction — possible `__aeabi_memcpy` on ARM EABI — 🟡 IN PROGRESS (claimed 2026-10-07, work-3/session, self-drive) (investigate; found 2026-09-29 by the review of the named-aggregate copy fix `d500a2af7`)
 
 codegen lowers an aggregate OP_LOAD / OP_STORE leaf by leaf (emit_copy_ssa{,_load}.bn) because LLVM's ARM
 EABI backend may lower a whole-aggregate `load <T>` / `store <T>` to `__aeabi_memcpy`, a C-library call
