@@ -1,3 +1,11 @@
+### x86-64 operands: `~` right after a unary operator rejected — clang's Intel syntax misreads it — DONE (binate `b5e3029e2`, 2026-10-06, work-2; user: "Reject it (Recommended)")
+
+clang's Intel-syntax operand parser misreads a unary operator directly followed by `~` in most places (`1 + -~8`
+is -10 to it, `[rbx + -~8]` rbx - 9; `-~8` and `~ ~1` crash it), where the evaluator computed the right value.
+In x86-64 instruction operands (Parser.IntelOperands) such a `~` is now an error, a memory operand's leading
+sign included; a `~` after a binary operator, parenthesized, `~-8`, x86 directives and AArch64 / arm32 operands
+are unchanged (clang reads them right).  Found by review of the memory-operand fix (`c361a10e8`).
+
 ### Is a raw-slice view of a managed-slice literal (`var r *[]int = @[]int{20, 21}`) part of the literal? — DONE (binate `7542e16fc`, docs `685c43a`, 2026-10-06, work-7) DECIDED 2026-10-06 (found 2026-10-05, review of the work-7 batch; pre-existing; claimed 2026-10-06, work-7/session, self-drive; user: "yes, go ahead")
 
 A managed-slice literal's element is part of the literal (decided 2026-10-04), so `&@[]int{…}[i]` in a var
