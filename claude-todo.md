@@ -440,7 +440,7 @@ const S Size = 4` → "array length must be a constant integer" (S records NOT_C
 struct{a int; b int}; const S = sizeof(H)` → S silently POISONED and V `[0]uint8` (only the package's own
 checkBniVarMatch then complains).
 
-### Constant `sizeof` of a type built from repeated struct fields takes time exponential in the nesting depth — 🔴 OPEN (found 2026-09-29, work-4, review of design B commit 3; pre-existing)
+### Constant `sizeof` of a type built from repeated struct fields takes time exponential in the nesting depth — 🟡 IN PROGRESS (claimed 2026-10-06, work-3/session, self-drive) (found 2026-09-29, work-4, review of design B commit 3; pre-existing)
 
 Eleven levels of `type Ln struct { f0 Ln-1; f1 Ln-1; f2 Ln-1; f3 Ln-1 }` and `const S = sizeof(L11)` in a
 function take 8.6s of user time to compile (36s with a gen1 bnc of 2026-09-26).  Cause not confirmed:
