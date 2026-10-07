@@ -661,7 +661,7 @@ r2, rrx #3` all assemble (a mistyped extra operand is dropped); the arm32 `, rrx
 `rrx` token itself as the next token instead of advancing past it (harmless only because trailing tokens
 are ignored).  Fix together: an end-of-line check after every instruction.
 
-### native: folded-away values still get PlanFrame slots; several dispatcher cases silently drop an instruction on an unresolved operand — 🟡 PARTLY CLAIMED (found 2026-09-25; the PlanFrame-slot part rides the T6 LinearScan step, work-4; the dispatcher silent-return part stays 🔴 OPEN)
+### native: folded-away values still get PlanFrame slots; several dispatcher cases silently drop an instruction on an unresolved operand — 🟡 PARTLY CLAIMED (found 2026-09-25; the PlanFrame-slot part rides the T6 LinearScan step, work-4; the dispatcher silent-return part 🟡 IN PROGRESS (claimed 2026-10-07, work-3/session, self-drive))
 
 (`getOperand` fails loud on any fold-flagged id since `f0a7f78fe`, see done log.)  Still open: (a) `PlanFrame`
 reserves a slot for every value, folded-away ones included (`native/common/common.bn` ~162, ~222) — wasted
