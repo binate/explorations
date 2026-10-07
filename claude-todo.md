@@ -1402,7 +1402,7 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   backends are far from C (which uses `sqrtsd`). A hardware sqrt (per-arch asm or an intrinsic the
   backends lower) is the large lever for n-body; the loop's native codegen (spilled loop-carried
   values, shift counts reloaded into `cl` from stack slots) is the gap lever.
-- **x64 `emitCallIndirect` diverges from `emitCall` (latent)** — 🔵 OPEN (found 2026-09-29 in review of
+- **x64 `emitCallIndirect` diverges from `emitCall` (latent)** — 🟡 IN PROGRESS (claimed 2026-10-07, work-3/session, self-drive) (found 2026-09-29 in review of
   the x64 caller-saved-homes work; pre-existing). `pkg/binate/native/x64/x64_call_indirect.bn`
   `emitCallIndirect`: (a) no sret shift in `argTypes`, so for a big aggregate / big multi-return
   result the post-loop `LEA RDI` overwrites arg 0; (b) floats beyond XMM7 are silently dropped (no
