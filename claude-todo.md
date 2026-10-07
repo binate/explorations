@@ -1381,6 +1381,16 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   backends are far from C (which uses `sqrtsd`). A hardware sqrt (per-arch asm or an intrinsic the
   backends lower) is the large lever for n-body; the loop's native codegen (spilled loop-carried
   values, shift counts reloaded into `cl` from stack slots) is the gap lever.
+- **aarch64 `emitCallIndirect` diverges from `emitCall` (latent)** — 🔵 OPEN (found 2026-10-07, work-3, by the
+  review of the x64 counterpart's fix).  `pkg/binate/native/aarch64/aarch64_call_indirect.bn` `emitCallIndirect`
+  keeps its own argument loop: a float past D7 is dropped (`if nsrn < 8`, no stack store — the slot is reserved
+  but never written), an HFA goes down the GP path (`emitCall` handles HFAs), stack arguments are always stored
+  8 bytes wide, and it keeps sret / aggregate / multi-return collect paths that cannot work (PlanFrame gives
+  OP_CALL_INDIRECT no data region; they now fail loud through `NeedAlloc`).  Unreachable from real programs:
+  OP_CALL_INDIRECT lowers only the `_call_shim_*` intrinsics, whose arguments are words and whose result is a
+  scalar or nothing.  Fix as on x64: share `emitCall`'s argument placement and fail loud on an aggregate result
+  (arm32 already does — it shares `emitCallArg` with `emitCall`).
+
 - **x64 `emitCallIndirect` diverges from `emitCall` (latent)** — 🟡 IN PROGRESS (claimed 2026-10-07, work-3/session, self-drive) (found 2026-09-29 in review of
   the x64 caller-saved-homes work; pre-existing). `pkg/binate/native/x64/x64_call_indirect.bn`
   `emitCallIndirect`: (a) no sret shift in `argTypes`, so for a big aggregate / big multi-return
