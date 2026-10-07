@@ -2218,6 +2218,19 @@ Found: adversarial review of the opaque-export dtor fix.
 
 ## bnfmt (self-hosted formatter)
 
+### bnfmt indents a function literal's body from column 0 inside a composite literal element (and a case label) — 🟢 LOW (found 2026-10-06, work-3, review of the function-literal comment fix; pre-existing)
+
+`printCompositeElems` (`pkg/binate/format/print_wrap.bn`) renders each element into a fresh builder, where
+`currentLineIndent` is 0, so a function literal as an element's value indents its body from column 0:
+inside a function, `var s = S{f: func() { g() }}` with a multi-line body prints as
+`	var s = S{f: func() {
+	g()
+}}` (body and closing brace at the wrong depth).  Idempotent but
+mis-indented.  Other lists rendered from pre-built element strings (case labels via `caseLabelStrs`,
+`printStrList` callers) likely share it.  Also pre-existing: a comment between a literal's parameters
+(`func(a int, // c`) moves below the statement, with an extra blank line after it.  Fix: render the
+elements with the enclosing indent (or print function-literal elements directly into the target builder).
+
 ### bnfmt packs a later argument that is a multi-line function literal by its whole text — a commented literal breaks onto a continuation line — 🟢 LOW (found 2026-10-06, work-3, fixing the function-literal comment placement)
 
 `fillExprList` (`pkg/binate/format/print_wrap.bn`) decides whether a non-first argument stays on the
