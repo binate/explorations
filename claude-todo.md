@@ -2218,7 +2218,7 @@ Found: adversarial review of the opaque-export dtor fix.
 
 ## bnfmt (self-hosted formatter)
 
-### bnfmt moves comments inside a function literal — 🟢 LOW (found 2026-09-28, review of the bnfmt defer fix)
+### bnfmt moves comments inside a function literal — 🟡 IN PROGRESS (claimed 2026-10-06, work-3/session, self-drive) (found 2026-09-28, review of the bnfmt defer fix)
 
 `printFuncLit` (`pkg/binate/format/print_stmt.bn`) prints the literal's body with no comment cursor, so a
 comment inside a function literal's body — or trailing the line that opens a multi-line literal — is
