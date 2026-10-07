@@ -97,27 +97,6 @@ so they are unaffected.)  **To do:** record a written `;` as the last token; lex
 `;` + end of input; a parser test of a top-level declaration ending in `;`; check that bnfmt's output does not
 change for sources with line-ending semicolons.
 
-### REPL: a fault in one of several initializers a declaration runs is lost — the turn reports EXEC_OK and the variable stays 0 — 🟡 IN PROGRESS MAJOR (found 2026-10-06, work-7, review of the REPL code-unit fix; pre-existing; reproduced; claimed 2026-10-07, work-7/session; user: "take on the lost-fault fix now")
-
-The REPL reports a turn's fault from the VM's status after the turn (finishTurn), but every `CallByVMFunc`
-clears the status and FaultMsg, so a fault in one call is lost when the same entry makes another.  An entry
-makes several: a `var ( … )` group runs each member's initializer (evalReplDecl, promptDeclUnits), and a
-declaration that completes parked ones runs their initializers after its own (retryPending →
-emitResolvedGroup → initReplVar).  Reproduced (repl unit-test probe): with `var arr [2]int` and `var k int =
-5`, `var ( b int = arr[k]; c int = 1 )` returns EXEC_OK with no diagnostic; so does `var w int = arr[k]` after
-a parked `var z int = w + 1`.  **Fix:** report a fault when the call that raised it returns (one place every
-REPL VM call goes through), not from the status at the turn's end; then the code-unit fix's rule "an entry
-that faults ends the unit" can use it.  Tests: the two probes as repl unit tests.
-
-### REPL: a unit with several top-level declarations evaluates only the first — the rest is silently dropped — 🟡 IN PROGRESS MAJOR (found 2026-10-06, work-7, writing the REPL stale-fault test; pre-existing; claimed 2026-10-06, work-7/session; user: "yes")
-
-`Execute("var a [3]int\nvar i int = 5\n")` declares `a` only: the next turn's `a[i]` reports `undefined: i`.
-`evalReplDecl` (repl/decl_group.bn) parses ONE declaration (`ParseTopLevelDecl`) and ignores the rest of the
-unit, with no diagnostic.  The line driver (RunReadLoop) hands over one line at a time, so it rarely shows
-there, but `Execute` is the kernel API for whole-cell drivers.  Check `evalReplImport` and a declaration
-followed by statements the same way.  **To do:** evaluate every declaration of the unit in order (or reject
-the leftover input loudly); a repl unit test with two declarations in one `Execute`.
-
 ### A function NAME passed into `*any` compiles and boxes nothing — silent wrong value — 🔴 NEEDS DECISION MAJOR (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
 
 With `func add(a int, b int) int` and `func take(x *any) bool { return present(x) }`, `take(add)` compiles

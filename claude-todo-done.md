@@ -1,3 +1,44 @@
+### REPL: a unit with several top-level declarations evaluates only the first — the rest is silently dropped — DONE (binate `c3ffd3459`, 2026-10-07, work-7) MAJOR (found 2026-10-06, work-7, writing the REPL stale-fault test; pre-existing; claimed 2026-10-06, work-7/session; user: "yes")
+
+`Execute("var a [3]int\nvar i int = 5\n")` declares `a` only: the next turn's `a[i]` reports `undefined: i`.
+`evalReplDecl` (repl/decl_group.bn) parses ONE declaration (`ParseTopLevelDecl`) and ignores the rest of the
+unit, with no diagnostic.  The line driver (RunReadLoop) hands over one line at a time, so it rarely shows
+there, but `Execute` is the kernel API for whole-cell drivers.  Check `evalReplImport` and a declaration
+followed by statements the same way.  **To do:** evaluate every declaration of the unit in order (or reject
+the leftover input loudly); a repl unit test with two declarations in one `Execute`.
+
+**Resolved** by binate `c3ffd3459` ("repl: evaluate every entry of a code unit"): evalReplLine parses the
+whole unit into entries (repl/unit.bn) — imports, top-level declarations, then at most one statement run, which
+extends to the unit's end (a `var` among statements stays a local of the run) — and evaluates them in order.  A
+parse error runs nothing; an entry's own failure (a declaration that fails to check or whose initializer faults,
+an import with an error, an interruption) ends the unit, but errors of parked declarations an entry lets resolve
+do not.  Parser: EndReplEntry (several semicolons in a row are empty entries), REPL entry points moved to
+parser/parse_repl.bn.  A turn now starts from a clean VM status — any status, not only a fault as `e5b8a417b`
+did (user: "I think that's fine").  An immediately-called function literal after a declaration is now a parse
+error (it was dropped; user: "That sounds fine, though perhaps somewhat surprising").  Tests: parse_repl_test.bn,
+unit_test.bn, TestInterruptNotReportedByLaterTurn, e2e/repl.sh unit-several-entries and
+unit-failed-import-ends-unit.
+
+### REPL: a fault in one of several initializers a declaration runs is lost — the turn reports EXEC_OK and the variable stays 0 — DONE (binate `c2a5c04a6`, 2026-10-07, work-7) MAJOR (found 2026-10-06, work-7, review of the REPL code-unit fix; pre-existing; reproduced; claimed 2026-10-07, work-7/session; user: "take on the lost-fault fix now")
+
+The REPL reports a turn's fault from the VM's status after the turn (finishTurn), but every `CallByVMFunc`
+clears the status and FaultMsg, so a fault in one call is lost when the same entry makes another.  An entry
+makes several: a `var ( … )` group runs each member's initializer (evalReplDecl, promptDeclUnits), and a
+declaration that completes parked ones runs their initializers after its own (retryPending →
+emitResolvedGroup → initReplVar).  Reproduced (repl unit-test probe): with `var arr [2]int` and `var k int =
+5`, `var ( b int = arr[k]; c int = 1 )` returns EXEC_OK with no diagnostic; so does `var w int = arr[k]` after
+a parked `var z int = w + 1`.  **Fix:** report a fault when the call that raised it returns (one place every
+REPL VM call goes through), not from the status at the turn's end; then the code-unit fix's rule "an entry
+that faults ends the unit" can use it.  Tests: the two probes as repl unit tests.
+
+**Resolved** by binate `c2a5c04a6` ("repl: report a fault as the call that raised it returns"): every REPL
+VM call at a turn goes through callTurnCode, which reports a fault as the call returns and clears the status; an
+interruption stays in the status and the turn runs no more code (a prompt import's interrupted package and the
+ones after it are not imported).  The declaration path reports whether a declaration itself was evaluated, and a
+var group member that fails ends the group.  Tests: TestFaultInVarGroupReported,
+TestFaultBeforeResolvedParkedReported, TestInterruptEndsTurnCode, TestVarGroupMemberFailureEndsGroup.  Not
+done (raised with the user): a fault's diagnostic does not name the variable whose initializer raised it.
+
 ### A field and a same-named method: the checker resolves the method, IR-gen calls the field — wrong code — DONE (binate `522b464b0`, 2026-10-07, work-4; found 2026-10-05 in review of the deferred func-value-field fix)
 
 expr.member: "a field takes precedence over a same-named method" (and func.dispatch.routing (1)).  The checker's
