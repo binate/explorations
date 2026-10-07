@@ -2226,7 +2226,7 @@ re-emitted on its own line before the next statement instead of in place.  Nothi
 moves, e.g. in the common `defer func() { // why\n ... }()` pattern.  Fix: thread the comment cursor into the
 literal's body like printBlock does for statement blocks.
 
-### bnfmt prints `for ;; {` with a double space — 🟢 LOW (found 2026-09-28, review of the bnfmt defer fix)
+### bnfmt prints `for ;; {` with a double space — 🟡 IN PROGRESS (claimed 2026-10-06, work-3/session, self-drive) (found 2026-09-28, review of the bnfmt defer fix)
 
 `printFor` (`pkg/binate/format/print_stmt.bn`) emits the separator space before an absent post statement,
 so `for ;; {` becomes `for ; ;  {` and `for ; i < n; {` becomes `for ; i < n;  {`.  The output reparses the
