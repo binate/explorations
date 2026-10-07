@@ -2196,7 +2196,9 @@ backend emits those via the library, not text asm; and bnld rejects GOT relocs �
 hermetic linker — so there is no consumer for them yet).  Also wanted on the x64 side (user, 2026-10-06):
 32-bit addressing in memory operands (`[eax]`, `[ebx + ecx*4]`, clang's 0x67 address-size prefix; rejected
 since `c361a10e8`) — "Support it, later", after the label-difference work; and absolute symbol addressing
-(`mov rax, [lbl]`, clang R_X86_64_32S; only `[rip + lbl]` is supported) — "Add to completeness list".
+(`mov rax, [lbl]`, clang R_X86_64_32S; only `[rip + lbl]` is supported) — "Add to completeness list".  An
+immediate starts only at a digit or `-` (`parseX64Operand`, `pkg/binate/asm/parse/x64.bn`), so `mov eax, ~8`,
+`mov eax, ~(~1)` and `mov eax, (1 + 2)` are rejected where clang takes them (found 2026-10-06 by review).
 
 ## bnld (self-hosted linker)
 
