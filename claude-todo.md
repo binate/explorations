@@ -348,7 +348,7 @@ T, so one always fails; Binate has no compile-time `if`.  The user accepted the 
 recommendation: limitation + this todo).  Open questions if pursued: which conditions count as constant
 for an instantiation, `&&` / `||`, `switch`, and whether the skipped branch is still checked abstractly.
 
-### Constant-evaluator leftover — REPL: a const group's shared initializer re-checked per bare member — 🔴 OPEN (unverified; found 2026-09-28 by the review of constant-evaluator step 2; pre-existing; the entry's other bullets done 2026-10-07)
+### Constant-evaluator leftover — REPL: a const group's shared initializer re-checked per bare member — 🟡 IN PROGRESS (claimed 2026-10-10, work-7/session, self-drive; unverified; found 2026-09-28 by the review of constant-evaluator step 2; pre-existing; the entry's other bullets done 2026-10-07)
 - REPL: `checkGroupDeclTentative` still re-checks a const group's shared initializer for its bare members,
   which restamps it; IR-gen reads the checker's per-declaration values now, so this may be harmless.  Not
   verified.
