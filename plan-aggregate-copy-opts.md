@@ -176,6 +176,20 @@ D. Copy chains (load → private copy → temp slot → argument): revisit after
      region, so placeCallResults falls back), where LLVM passes `%v.retbuf` to the call.
    - D4. A confined local whose last use is a by-value argument is passed without a copy (needs D1; aa64
      only — on x64 / arm32 the C ABI copies the value into the argument area regardless).
+     Design (2026-10-10, work-1; recon on `69d6dcf57`).  -O2 `var x Big = mk(k); x.n++; return sum(x)`: the
+     load of x copies it (native: into the load's region, which argOwnsRegion then passes as the call-owned
+     argument; LLVM: into `.m`, which bulkArgDirect passes) — one 808-byte copy.  Shared emit-time analysis
+     (native/common LastUseArgLoads): an aggregate OP_LOAD of a stack slot S (not a global; parameter slots
+     allowed) whose only use is a by-value argument of a call in its block may alias S when S is dead after the
+     call: S's address never leaves f (slotReach — pointers into S are only load / store addresses and field /
+     element bases); every instruction touching S (an operand among S and its derived pointers) is in the
+     call's block, none between the load and the call or after the call; and each execution of the block
+     re-initializes S before touching it (S's OP_ALLOC — zero-filled, or NoZeroInit with a whole store first —
+     is in the block before the first touch, or the first touch is a whole store of S).  Native: such a load
+     gets no region (aliases S) and argOwnsRegion treats it as owned, so on aa64 the call passes S's address
+     (the callee may write it: S is dead); on x64 / arm32 the argument-area copy reads S directly (one copy
+     fewer there too).  LLVM: the load reads S in place (no `.m`), and bulkArgDirect passes S for a memory-
+     backed (bulk) value; first-class (≤ 16-leaf) aggregates keep their SSA load and `.bv` slot.
 
 Each step: unit tests on the emitted IR / pass output, conformance on LLVM + LLVM arm32 bare metal + native aa64
 (and the VM for B / C), and a measurement per perf-optimization-guide.md (copy bytes in the native aa64
