@@ -679,7 +679,7 @@ accident (the last since the switch-default fix; the first before it).  Fix: spe
 most one default clause — and a checker error at the second ("multiple defaults in switch"), for expression
 and type switches; an error test.
 
-### A forward `type Box` followed by a generic `type Box[T any] …` in one package is accepted — 🔴 OPEN (found 2026-10-07, work-3, review of the bare-generic-name check; pre-existing)
+### A forward `type Box` followed by a generic `type Box[T any] …` in one package is accepted — 🟡 IN PROGRESS (found 2026-10-07, work-3, review of the bare-generic-name check; pre-existing; claimed 2026-10-10, work-7/session, self-drive — the spec settles it: §12 gen.decl.definition / §7.12 "a generic type has no forward declaration")
 
 Both the current and the previous compiler accept a package declaring `type Box` (forward) and then
 `type Box[T any] struct { v T }`: the forward placeholder is filled by the generic's registration, as if they
