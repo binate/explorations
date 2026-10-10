@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### The 32-bit-host unit lane (`builder-comp_arm32_linux`) is red on main: bnc / bnas do not compile for a 32-bit host, and 15 more packages fail — 🔴 OPEN CRITICAL (found 2026-10-09, work-2, validating the bnld int64-addend change on that lane; pre-existing — CI red since at least 2026-10-07)
+### The 32-bit-host unit lane (`builder-comp_arm32_linux`) is red on main: bnc / bnas do not compile for a 32-bit host, and 15 more packages fail — 🟡 IN PROGRESS (claimed 2026-10-10, work-2; user: "1. yes" — items 1 and 2; item 3 stays open) CRITICAL (found 2026-10-09, work-2, validating the bnld int64-addend change on that lane; pre-existing — CI red since at least 2026-10-07)
 
 CI run 38020771564 (unit tests, main), job `test (builder-comp_arm32_linux)`: 66 passed, 17 failed; reproduced
 locally in the `binate-ci` image (`scripts/unittest/run.sh builder-comp_arm32_linux pkg/binate/link`).
