@@ -649,6 +649,24 @@ A live instance (seen 2026-10-07, work-3): `pkg/binate/check.bni` declares `Chec
 `CheckPackageDecls(path, merged)`, while the `.bn` methods, and every caller (cmd/bnc, cmd/bnlint, interp,
 repl), take `(path, merged, files, bni)`.
 
+### Should a function-value type's parameters and results be held to the opaque rules? — 🔴 NEEDS DECISION (raised 2026-10-03, work-3, review of the type-declaration opaque check; split out 2026-10-10, work-7)
+
+With `type Op` opaque, a function declaration's by-value opaque parameter or result is rejected (`func f(o
+Op)`: "cannot use an opaque type by value"), and so is one pointing to a type that embeds an opaque type by
+value (`func f(p *([2]Op))`), but a function-value TYPE with the same signature is accepted, as a
+declaration, a field or a parameter: `type F *func(Op) int`, `@func() Op`, `*func(*([2]Op))`.  The checker
+never enters a function type (`embedsOpaqueByValue`, `pointeeEmbedsOpaque` and `nestedPointerEmbedsOpaque`
+in `pkg/binate/check/check_opaque.bn` all stop at one).  Such a function value can never be called with an
+opaque argument (no `Op` value can be formed), but a call through `@func() Op` would form one, and IR-gen
+would need the result's layout.  The spec is silent: §7.9 says nothing on parameter types, §7.12 lists
+only `make`/`make_slice`/`sizeof`/`alignof` and field access, and the pointer-to-opaque-embedding rule the
+checker enforces is not written down at all.  Options: (a) hold a function-value type's parameters and
+results to the rules a function declaration's are held to (reject `*func(Op) int` where it is written);
+(b) accept the type and reject only a call through it that would form an opaque value (`f()` on an
+`@func() Op`).  Recommendation: (a) — one rule for every signature, the error where the bad type is
+written, and no function value that can never be called; write the rule (with the pointer rule) into
+§7.12.
+
 ### `.bni` and `.bn` definitions of a generic type's method are never compared — 🔴 OPEN (found 2026-10-10, work-7, review of the `.bni` method consistency check; code reading; pre-existing)
 
 A method of a generic type may be defined in the `.bni` (with its body) and also in the `.bn` (conformance 162
@@ -671,9 +689,11 @@ struct { o Op } }` — so a local blank type, a validity assertion, passes with 
 (2) `pointeeEmbedsOpaque` (`pkg/binate/check/check_opaque.bn`) looks only at the outermost pointer:
 `type X [2]*[2]Op`, `type X @[]*[2]Op`, `type X [1]struct { p *[2]Op }` and a struct field `a [1]*[2]Op`
 are accepted, while `type P *([2]Op)` and a field `p *[2]Op` are rejected;
-(3) a function-value type with an opaque by-value parameter or result (`type F *func(Op) int`, as a
-declaration or a field) is accepted, while `func f(o Op)` is rejected — check the spec whether a
-function-value TYPE needs its parameters sized before it is called.  Fix each with a test.
+(3) a function-value type with an opaque by-value parameter or result — split out as its own NEEDS
+DECISION entry, "Should a function-value type's parameters and results be held to the opaque rules".
+Fix each with a test.  Status (2026-10-10, work-7): (1) is already rejected — a type declaration in a
+function body is an error ("type declarations must be at package level", stmt.no-local-type); (2) fixed on
+work-7 (`nestedPointerEmbedsOpaque`, conformance 1616), not yet landed.
 
 ### A generic instantiated with an opaque type argument IS its `int` instance — a `@PBox[Opaque]` passes `.(@PBox[int])` — 🔴 OPEN MAJOR (found 2026-10-10, work-7, while fixing the nested opaque-pointee gap; reproduced on LLVM, native aa64 and the VM; pre-existing)
 
