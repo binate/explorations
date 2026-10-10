@@ -628,6 +628,17 @@ are accepted, while `type P *([2]Op)` and a field `p *[2]Op` are rejected;
 declaration or a field) is accepted, while `func f(o Op)` is rejected — check the spec whether a
 function-value TYPE needs its parameters sized before it is called.  Fix each with a test.
 
+### Loader: a package with one `.bn` file gets the `.bni`'s imports (and declarations) merged into that file's own AST — its file scope sees imports it does not write — 🔴 OPEN (found 2026-10-09, work-7, review of the imported float const-expression fix; code reading; pre-existing)
+
+`pkg/binate/loader/loader_load.bn` builds the merged file as `merged = files[0]` when there is one `.bn` (a fresh
+`MergeFiles(files)` otherwise), then merges the `.bni` into `merged` — appending the `.bni`'s imports to
+`merged.Imports` and prepending its declarations — so `Package.Files[0]`, which the checker's per-file scopes and
+IR-gen's per-file import overlays use as that file's OWN imports, gains the `.bni`'s.  With `p.bni` importing
+`pkg/a` and a single `p/p.bn` importing nothing, `func F() int { return a.N }` in p.bn type-checks (imports are
+file-scoped, so it should not); add a second `.bn` and the same code is rejected.  **To do:** build a fresh merged
+file for the one-file case too (copy files[0]'s imports and declarations), so no source file's AST is mutated; an
+error test (the one-file package above) and a check that existing packages still build (some may rely on it).
+
 ### A `switch` with two `default` clauses is accepted — invalid code accepted — 🔴 OPEN (found 2026-10-03, work-3, review of the switch-default fix; code reading; pre-existing)
 
 `switch x { default: A; default: B }` (and a type switch with two) passes the parser, the checker and —
