@@ -647,6 +647,19 @@ A live instance (seen 2026-10-07, work-3): `pkg/binate/check.bni` declares `Chec
 `CheckPackageDecls(path, merged)`, while the `.bn` methods, and every caller (cmd/bnc, cmd/bnlint, interp,
 repl), take `(path, merged, files, bni)`.
 
+### `.bni` and `.bn` definitions of a generic type's method are never compared — 🔴 OPEN (found 2026-10-10, work-7, review of the `.bni` method consistency check; code reading; pre-existing)
+
+A method of a generic type may be defined in the `.bni` (with its body) and also in the `.bn` (conformance 162
+does exactly that).  The loader's `sameFuncDecl` pairs the two by name and receiver base name and drops the
+`.bni` copy from the merged file, so the package itself (checker, IR-gen, bnc importers through the merged
+file) uses the `.bn` version, while `LoadPackageInterface`'s `recordGenericMethod` records the `.bni`
+version for importers that read the interface.  `checkBniMethodDecls` (`pkg/binate/check/check_bni_methods.bn`)
+skips generic-receiver methods, so `func (b @Box[T]) Get() T` in the `.bni` and `func (b @Box[T]) Get() int`
+in the `.bn` pass unchecked and the two kinds of importer see different signatures (pkg.bni.consistency).
+Fix: compare the pair, matching the two declarations' type parameters up (by position) before comparing the
+receiver and signature; or decide that a generic method is defined in exactly one of the two files and
+reject a second definition.  The skip carries a `// TODO:` pointing here.
+
 ### Opaque-type embedding gaps left by the declaration-site check — local types, nested pointees, function-value parameters — 🟡 IN PROGRESS (found 2026-10-03, work-3, review of the type-declaration opaque check; code reading; pre-existing; claimed 2026-10-10, work-7/session, self-drive)
 
 With `type Op` opaque, all still compile (each is rejected only at a use, or not at all):
