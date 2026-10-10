@@ -59,28 +59,6 @@ the exposure.  Fix: spell the define line's alignment from T (its AlignOf, as by
 arguments) — at least for functions a C caller can reach; reproduce first with an e2e C caller passing a
 4-aligned, not 8-aligned, buffer to a #[c_export] function returning a struct of int32s, on arm32.
 
-### An imported float const-expression is re-lowered against the IMPORTER's imports — silent wrong value — 🟡 IN PROGRESS MAJOR (found 2026-10-07, work-3, review of the float-conversion constant fix; pre-existing; claimed 2026-10-09, work-7/session, self-drive)
-
-A floating-point constant expression is stored as its AST (CONST_EXPR) and re-lowered at each use.  For an
-imported package's constant, `genImportedConstExpr` (`pkg/binate/irgen/gen_expr.bn`) sets only
-`CurrentImportPkg`, so a name in the initializer that is one of the DEFINING file's imports (`a.A`, a type
-`a.Meters`) resolves against the USE site's imports.  With `pkg/fc.bni` importing `pkg/a` and declaring
-`const X float64 = a.A * 2.0` / `const M a.Meters = cast(a.Meters, 7) * 1.5`:
-- an importer with no `a`: native/VM ICE "unresolved selector", LLVM emits ill-typed IR (`i64` used as `double`);
-- an importer that binds `a` to another package (`import a "pkg/b"`): native aa64 and the VM print the OTHER
-  package's `A` (`2005 0`, want `30 105`) — and `cast(a.Meters, …)` falls back to int, since `resolveTypeExpr`
-  returns `TypInt` for a type it cannot resolve.
-Fix: install the defining file's imports while re-lowering (as `registerImportConstsAndVars` does, via
-`beginDeclImports` / `di.use`), and make `resolveTypeExpr`'s silent `TypInt` fallback an internal error.
-Test: `conformance/1599_xpkg_const_expr_own_import` (`.xfail.all`).
-Progress (work-7, 2026-10-10): the re-lowering fix is done on work-7 (not yet landed).  The fallback half was
-tried and backed out: with resolveTypeExpr's three `TypInt` fallbacks (a qualified miss, a bare miss, an
-uninstantiable TEXPR_INSTANTIATE) made internal errors, the full LLVM conformance suite passes (3555/0), but
-building pkg/binate/interp and pkg/binate/repl panics ("cannot resolve the type entries" — interp/externs.bn
-`entries[i].descriptor`, which IR-gen evidently probes as a generic instantiation `entries[i]` and reads the int
-fallback as "not a type"), and the irgen and vm unit tests abort.  So callers use resolveTypeExpr as a "does
-this name a type?" probe; those need a non-panicking lookup before the fallback can become an error.
-
 ### bnld input readers: three silent mis-reads — `.init_array` dropped, a 64-bit addend truncated on a 32-bit host, malformed relocation sections skipped — 🟡 IN PROGRESS (claimed 2026-10-09, work-2; user: "bnld reader MAJOR") MAJOR (found 2026-10-06, work-2, mapping bnld for relocatable data; confirmed by reading; pre-existing)
 
 1. **Only SHF_ALLOC PROGBITS / NOBITS sections are kept** (`pkg/binate/link/parse_elf.bn` ~288-298): an
@@ -348,11 +326,6 @@ T, so one always fails; Binate has no compile-time `if`.  The user accepted the 
 recommendation: limitation + this todo).  Open questions if pursued: which conditions count as constant
 for an instantiation, `&&` / `||`, `switch`, and whether the skipped branch is still checked abstractly.
 
-### Constant-evaluator leftover — REPL: a const group's shared initializer re-checked per bare member — 🟡 IN PROGRESS (claimed 2026-10-10, work-7/session, self-drive; unverified; found 2026-09-28 by the review of constant-evaluator step 2; pre-existing; the entry's other bullets done 2026-10-07)
-- REPL: `checkGroupDeclTentative` still re-checks a const group's shared initializer for its bare members,
-  which restamps it; IR-gen reads the checker's per-declaration values now, so this may be harmless.  Not
-  verified.
-
 ### Resolve every package-level declaration on demand (a full demand-driven resolver) — 🔴 OPEN (raised 2026-09-29, work-4, review of the package-constant fix; user chose to track it: "go with your rec")
 
 The package-constant fix resolves constants after collection and, on first read, the constants, types (for a
@@ -605,25 +578,6 @@ the managed form from the peeled source (cast rejects a named source's widening)
 the VM peels and is right) — the checker must reject a named source unless the interfaces are identical, and
 EmitIfaceUpcast must peel (its own entry, "`irbuild.EmitIfaceUpcast` reads the interface off `.Elem`…").
 
-### A `readonly` interface-value source cannot widen — `var g @Getter = n` with `n readonly @Named` is rejected — 🟡 IN PROGRESS (found 2026-10-03, work-3, review of the unsafe_cast interface-widening change; reproduced; pre-existing; claimed 2026-10-09, work-7/session, self-drive)
-
-With `interface Named : Getter`, `var n readonly @Named = t` then `var g @Getter = n` gives "cannot assign
-readonly @Named to @Getter", and `cast(@Getter, n)` gives "cast cannot recover a concrete type from an
-interface value" (the wrong diagnostic: it is a widening).  Suspected cause: `canAssignTo*InterfaceValue`
-resolves aliases but not an outermost `readonly` on the source, so the source is not recognized as an
-interface value.  Check the spec (§8.1 case 7 with §8.3's outermost-readonly adjustment) — a copy of a
-handle may drop its own outermost readonly — then fix assignment, cast and unsafe_cast together.  Needs a
-conformance test (assignment, cast, unsafe_cast; a widening and the identity).
-
-### `irbuild.EmitIfaceUpcast` reads the interface off `.Elem` without peeling a NAMED interface-value type — the slot offset stays 0 — 🟡 IN PROGRESS (latent; found 2026-10-03, work-3, review of the unsafe_cast interface-widening change; claimed 2026-10-09, work-7/session, self-drive; user: "self-drive on all open MAJORs that don't need a decision")
-
-`EmitIfaceUpcast` (`pkg/binate/irbuild/ir_ops_iface.bn`) computes `IfaceUpcastSlotOffset` from
-`src.Typ.Elem` / `instr.Typ.Elem` without `types.StripWrappers`, unlike IR-gen's `convertToIfaceTarget` and
-the VM's `buildIfaceUpcastSuffixes`.  For a named interface-value type (`type IV @I`) `.Elem` is nil, so the
-offset silently stays 0 — correct today only because the checker admits a named interface-value type only
-as an identity (which never reaches the upcast).  A widening through a named interface-value type would
-misdispatch silently.  Fix: peel both types before reading the interface; add a unit test.
-
 ### An expose "diamond" (`expose "P"` plus `expose "Q"` where Q itself exposes P) is an "exposed by both" error — 🔴 NEEDS DECISION (raised 2026-10-03, work-3, review of binate `bcf90223e`; code reading)
 
 `checkExposeCollisions` (check/check_expose_collision.bn) compares the NAMES each expose surfaces, not the
@@ -635,19 +589,6 @@ expose declarations … is a compile error", amended for the same-package case o
 error (the forwarder should drop the redundant `expose "P"`; a bnlint rule could say so), or (b) accept it
 when both paths denote the same declaration (compare the defining package and declaration, not the name),
 spec to match.  Needs a conformance test either way.
-
-### A `.bni` may declare the same METHOD twice — or differently from the `.bn` — and nothing compares them — 🟡 IN PROGRESS (found 2026-10-03, work-3, review of the .bni duplicate-declaration check; code reading; pre-existing; claimed 2026-10-09, work-7/session, self-drive)
-
-A `.bni` method declaration whose body is in the `.bn` is not prepended into the merged file (`sameFuncDecl`
-matches the `.bn` method, `pkg/binate/loader/loader_load.bn`), and `LoadPackageInterface` registers nothing
-for a non-generic method, so `func (t @T) M() int` declared twice in a `.bni`, or with a signature that
-differs from the `.bn` definition, passes unchecked; `checkDuplicateDecls`'s doc says methods are checked by
-AddMethod, which holds only for `.bn` methods.  An importer reads the `.bni` signature, so a divergent one
-would be misread (pkg.bni.consistency).  Fix: compare a `.bni` method declaration with the receiver type's
-`.bn` method (signature) and with other `.bni` declarations of it (duplicate).  Needs error tests.
-A live instance (seen 2026-10-07, work-3): `pkg/binate/check.bni` declares `CheckPackage(path, merged)` and
-`CheckPackageDecls(path, merged)`, while the `.bn` methods, and every caller (cmd/bnc, cmd/bnlint, interp,
-repl), take `(path, merged, files, bni)`.
 
 ### A `.bni` method declaration may name a type only the `.bn` declares — the interface is not self-contained — 🔴 OPEN (found 2026-10-10, work-7, review of the `.bni` method consistency check; code reading; pre-existing)
 
@@ -711,21 +652,6 @@ Fix: compare the pair, matching the two declarations' type parameters up (by pos
 receiver and signature; or decide that a generic method is defined in exactly one of the two files and
 reject a second definition.  The skip carries a `// TODO:` pointing here.
 
-### Opaque-type embedding gaps left by the declaration-site check — local types, nested pointees, function-value parameters — 🟡 IN PROGRESS (found 2026-10-03, work-3, review of the type-declaration opaque check; code reading; pre-existing; claimed 2026-10-10, work-7/session, self-drive)
-
-With `type Op` opaque, all still compile (each is rejected only at a use, or not at all):
-(1) a type declared inside a function body gets no declaration-site check (collectTypeDecl /
-checkBlankTypeDecl; checkGroupDecl -> checkDecls ignores DECL_TYPE): `func f() { type _ [2]Op; type _
-struct { o Op } }` — so a local blank type, a validity assertion, passes with an invalid type;
-(2) `pointeeEmbedsOpaque` (`pkg/binate/check/check_opaque.bn`) looks only at the outermost pointer:
-`type X [2]*[2]Op`, `type X @[]*[2]Op`, `type X [1]struct { p *[2]Op }` and a struct field `a [1]*[2]Op`
-are accepted, while `type P *([2]Op)` and a field `p *[2]Op` are rejected;
-(3) a function-value type with an opaque by-value parameter or result — split out as its own NEEDS
-DECISION entry, "Should a function-value type's parameters and results be held to the opaque rules".
-Fix each with a test.  Status (2026-10-10, work-7): (1) is already rejected — a type declaration in a
-function body is an error ("type declarations must be at package level", stmt.no-local-type); (2) fixed on
-work-7 (`nestedPointerEmbedsOpaque`, conformance 1616), not yet landed.
-
 ### A generic instantiated with an opaque type argument IS its `int` instance — a `@PBox[Opaque]` passes `.(@PBox[int])` — 🔴 OPEN MAJOR (found 2026-10-10, work-7, while fixing the nested opaque-pointee gap; reproduced on LLVM, native aa64 and the VM; pre-existing)
 
 IR-gen's `resolveTypeExpr` (`pkg/binate/irgen/gen_type_resolve.bn`) has no case for a forward-declared
@@ -742,6 +668,13 @@ keeps its identity (the box takes its type from the checker).  Fix: resolve an o
 named type of its own (its qualified name, no layout — the checker rejects every by-value use) so an
 instance mangles it as itself; and make the `TypInt()` fallbacks fail loud rather than silently yield
 `int`.
+The fallbacks: making resolveTypeExpr's three `TypInt` fallbacks (a qualified miss, a bare miss, an
+uninstantiable TEXPR_INSTANTIATE) internal errors was tried (2026-10-10, work-7, with the float
+const-expression fix) and backed out: the full LLVM conformance suite passed (3555/0), but building
+pkg/binate/interp and pkg/binate/repl panicked ("cannot resolve the type entries" — interp/externs.bn
+`entries[i].descriptor`, which IR-gen probes as a generic instantiation `entries[i]` and reads the int fallback
+as "not a type"), and the irgen and vm unit tests aborted.  So callers use resolveTypeExpr as a "does this name
+a type?" probe; those need a non-panicking lookup before the fallback can become an error.
 
 ### Loader: a package with one `.bn` file gets the `.bni`'s imports (and declarations) merged into that file's own AST — its file scope sees imports it does not write — 🔴 OPEN (found 2026-10-09, work-7, review of the imported float const-expression fix; code reading; pre-existing)
 
@@ -761,13 +694,6 @@ literally — the spec, which never says a switch has at most one `default`.  Wh
 accident (the last since the switch-default fix; the first before it).  Fix: spec `stmt.switch.default` — at
 most one default clause — and a checker error at the second ("multiple defaults in switch"), for expression
 and type switches; an error test.
-
-### A forward `type Box` followed by a generic `type Box[T any] …` in one package is accepted — 🟡 IN PROGRESS (found 2026-10-07, work-3, review of the bare-generic-name check; pre-existing; claimed 2026-10-10, work-7/session, self-drive — the spec settles it: §12 gen.decl.definition / §7.12 "a generic type has no forward declaration")
-
-Both the current and the previous compiler accept a package declaring `type Box` (forward) and then
-`type Box[T any] struct { v T }`: the forward placeholder is filled by the generic's registration, as if they
-were one declaration.  Probably a redeclaration error (a forward declaration names a non-generic type).
-Needs an error test.
 
 ### Language feature (design): an annotation that keeps a function's frame from being optimized away — 🔴 OPEN, DESIGN (raised 2026-10-09 by the user, closing the debug.Callers -O2 entry: "As a todo, we can perhaps ponder an annotation that prevents the eliminiation of certain frames.")
 

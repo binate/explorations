@@ -1,3 +1,123 @@
+### `irbuild.EmitIfaceUpcast` reads the interface off `.Elem` without peeling a NAMED interface-value type — the slot offset stays 0 — DONE (binate `760305a57`, 2026-10-10, work-7)
+
+`EmitIfaceUpcast` (`pkg/binate/irbuild/ir_ops_iface.bn`) computes `IfaceUpcastSlotOffset` from
+`src.Typ.Elem` / `instr.Typ.Elem` without `types.StripWrappers`, unlike IR-gen's `convertToIfaceTarget` and
+the VM's `buildIfaceUpcastSuffixes`.  For a named interface-value type (`type IV @I`) `.Elem` is nil, so the
+offset silently stays 0 — correct today only because the checker admits a named interface-value type only
+as an identity (which never reaches the upcast).  A widening through a named interface-value type would
+misdispatch silently.  Fix: peel both types before reading the interface; add a unit test.
+
+Resolution: EmitIfaceUpcast reads the source and destination interfaces through `types.StripWrappers`, so a
+named interface-value type, as the source or the result, upcasts with the right slot offset.  Test:
+TestEmitIfaceUpcastNamedSource.
+
+### An imported float const-expression is re-lowered against the IMPORTER's imports — silent wrong value — DONE (binate `c70869b40`, 2026-10-10, work-7)
+
+A floating-point constant expression is stored as its AST (CONST_EXPR) and re-lowered at each use.  For an
+imported package's constant, `genImportedConstExpr` (`pkg/binate/irgen/gen_expr.bn`) sets only
+`CurrentImportPkg`, so a name in the initializer that is one of the DEFINING file's imports (`a.A`, a type
+`a.Meters`) resolves against the USE site's imports.  With `pkg/fc.bni` importing `pkg/a` and declaring
+`const X float64 = a.A * 2.0` / `const M a.Meters = cast(a.Meters, 7) * 1.5`:
+- an importer with no `a`: native/VM ICE "unresolved selector", LLVM emits ill-typed IR (`i64` used as `double`);
+- an importer that binds `a` to another package (`import a "pkg/b"`): native aa64 and the VM print the OTHER
+  package's `A` (`2005 0`, want `30 105`) — and `cast(a.Meters, …)` falls back to int, since `resolveTypeExpr`
+  returns `TypInt` for a type it cannot resolve.
+Fix: install the defining file's imports while re-lowering (as `registerImportConstsAndVars` does, via
+`beginDeclImports` / `di.use`), and make `resolveTypeExpr`'s silent `TypInt` fallback an internal error.
+Test: `conformance/1599_xpkg_const_expr_own_import` (`.xfail.all`).
+
+Resolution: stashConstExpr records the import-alias map in force where the constant is declared
+(ModuleConst.ImportNames / ImportPaths), and every read of a package-level one re-lowers it under that map
+(genDeclaredConstExpr).  The drivers also register the imports of a package whose interface constants a
+consumer re-lowers (irgen.ReLoweredAtConsumer, transitively through the constants they name, bare group
+members included).  Tests: conformance 1599 (expected-fail removed), 1620_xpkg_const_expr_indirect_import,
+1613_const_expr_other_file; e2e repl tier5-imported-const-expr-own-import and
+tier5-const-expr-keeps-its-binding; TestDeclaredConstExprUsesItsImports, TestReLoweredAtConsumer.  The
+fallback half (resolveTypeExpr's `TypInt` fallbacks as internal errors) stays open, with the notes from the
+backed-out attempt, in the MAJOR "A generic instantiated with an opaque type argument IS its `int` instance".
+
+### A `readonly` interface-value source cannot widen — `var g @Getter = n` with `n readonly @Named` is rejected — DONE (binate `7d1f03e8d`, 2026-10-10, work-7)
+
+With `interface Named : Getter`, `var n readonly @Named = t` then `var g @Getter = n` gives "cannot assign
+readonly @Named to @Getter", and `cast(@Getter, n)` gives "cast cannot recover a concrete type from an
+interface value" (the wrong diagnostic: it is a widening).  Suspected cause: `canAssignTo*InterfaceValue`
+resolves aliases but not an outermost `readonly` on the source, so the source is not recognized as an
+interface value.  Check the spec (§8.1 case 7 with §8.3's outermost-readonly adjustment) — a copy of a
+handle may drop its own outermost readonly — then fix assignment, cast and unsafe_cast together.  Needs a
+conformance test (assignment, cast, unsafe_cast; a widening and the identity).
+
+Resolution: the interface assignability helpers, AssignableTo's borrow arms and named-distinct arm, and
+canBorrowValueIntoRawIface peel the outermost readonly (types.ResolveAliasAndConst); element-level readonly
+is still compared.  Tests: TestReadonlyIfaceValueWidens, TestReadonlyPeelRejectsTheRest,
+TestReadonlyNamedCrossing, TestReadonlyNamedCrossingRejects; conformance 1614_iface_value_readonly_widen.
+
+### A `.bni` may declare the same METHOD twice — or differently from the `.bn` — and nothing compares them — DONE (binate `53942e44d`, 2026-10-10, work-7)
+
+A `.bni` method declaration whose body is in the `.bn` is not prepended into the merged file (`sameFuncDecl`
+matches the `.bn` method, `pkg/binate/loader/loader_load.bn`), and `LoadPackageInterface` registers nothing
+for a non-generic method, so `func (t @T) M() int` declared twice in a `.bni`, or with a signature that
+differs from the `.bn` definition, passes unchecked; `checkDuplicateDecls`'s doc says methods are checked by
+AddMethod, which holds only for `.bn` methods.  An importer reads the `.bni` signature, so a divergent one
+would be misread (pkg.bni.consistency).  Fix: compare a `.bni` method declaration with the receiver type's
+`.bn` method (signature) and with other `.bni` declarations of it (duplicate).  Needs error tests.
+A live instance (seen 2026-10-07, work-3): `pkg/binate/check.bni` declares `CheckPackage(path, merged)` and
+`CheckPackageDecls(path, merged)`, while the `.bn` methods, and every caller (cmd/bnc, cmd/bnlint, interp,
+repl), take `(path, merged, files, bni)`.
+
+Resolution: checkBniMethodDecls (check_bni_methods.bn) checks each `.bni` method the `.bn` defines — a second
+declaration, type parameters, the receiver (resolveMethodReceiver), and the signature through
+checkBniSigMatch (check_bni_sig.bn, shared with free functions; a type already reported is not compared
+again).  The three stale declarations it found are fixed (check.bni CheckPackage / CheckPackageDecls,
+callconv.bni's `*V` functions, vmdata.bni's duplicate Hash / Equal).  Tests: check_bni_methods_test.bn,
+check_bni_sig_test.bn; conformance 1615_err_bni_method_mismatch.  Still open: "`.bni` and `.bn` definitions
+of a generic type's method are never compared", and "A `.bni` method declaration may name a type only the
+`.bn` declares".
+
+### Opaque-type embedding gaps left by the declaration-site check — local types, nested pointees, function-value parameters — DONE (binate `ac24af7d3`, 2026-10-10, work-7)
+
+With `type Op` opaque, all still compile (each is rejected only at a use, or not at all):
+(1) a type declared inside a function body gets no declaration-site check (collectTypeDecl /
+checkBlankTypeDecl; checkGroupDecl -> checkDecls ignores DECL_TYPE): `func f() { type _ [2]Op; type _
+struct { o Op } }` — so a local blank type, a validity assertion, passes with an invalid type;
+(2) `pointeeEmbedsOpaque` (`pkg/binate/check/check_opaque.bn`) looks only at the outermost pointer:
+`type X [2]*[2]Op`, `type X @[]*[2]Op`, `type X [1]struct { p *[2]Op }` and a struct field `a [1]*[2]Op`
+are accepted, while `type P *([2]Op)` and a field `p *[2]Op` are rejected;
+(3) a function-value type with an opaque by-value parameter or result — split out as its own NEEDS
+DECISION entry, "Should a function-value type's parameters and results be held to the opaque rules".
+Fix each with a test.  Status (2026-10-10, work-7): (1) is already rejected — a type declaration in a
+function body is an error ("type declarations must be at package level", stmt.no-local-type); (2) fixed on
+work-7 (`nestedPointerEmbedsOpaque`, conformance 1616), not yet landed.
+
+Resolution: (1) was already rejected (stmt.no-local-type).  (2) nestedPointerEmbedsOpaque (check_opaque.bn)
+applies the pointer rule at every pointer among a type's parts, entering a generic instance in a view that
+counts only a type with no definition anywhere, and recording the types it enters.  Tests:
+TestCheckOpaqueNestedPointeeRejected / Ok, TestCheckOpaqueAliasDagWalkedOnce; conformance
+1616_err_opaque_nested_pointee, 1619_xpkg_opaque_export_generic_field.  (3) is the NEEDS DECISION entry
+"Should a function-value type's parameters and results be held to the opaque rules?".
+
+### A forward `type Box` followed by a generic `type Box[T any] …` in one package is accepted — DONE (binate `a4f1610d8`, 2026-10-10, work-7)
+
+Both the current and the previous compiler accept a package declaring `type Box` (forward) and then
+`type Box[T any] struct { v T }`: the forward placeholder is filled by the generic's registration, as if they
+were one declaration.  Probably a redeclaration error (a forward declaration names a non-generic type).
+Needs an error test.
+
+Resolution: checkTypeRedeclFrom reports a generic type declaring a forward-declared name, in either order and
+within a type group; at the prompt redefinitionError reports it in both orders, and a forward declaration
+over a session's interface or variable.  A bodiless generic is not counted as a forward declaration.  Tests:
+TestCheckForwardTypeGenericDefinitionErrors, TestCheckBodilessGenericNotForward,
+TestReplForwardTypeGenericRejected, TestReplForwardTypeOverOtherKind; conformance
+1618_err_forward_generic_type.
+
+### Constant-evaluator leftover — REPL: a const group's shared initializer re-checked per bare member — DONE (binate `0a9a26253`, 2026-10-10, work-7)
+- REPL: `checkGroupDeclTentative` still re-checks a const group's shared initializer for its bare members,
+  which restamps it; IR-gen reads the checker's per-declaration values now, so this may be harmless.  Not
+  verified.
+
+Resolution: verified harmless — IR-gen reads the checker's per-declaration values, so bare members get their
+own values at the REPL (untyped and typed groups, an expression over iota, bare members after a later
+explicit value).  Pinned by the e2e/repl.sh case const-group-bare-members-iota.
+
 ### A method value of a `readonly *T` handle method taken from an addressable value crashes — DONE (binate `d37664ae9`, 2026-10-09, work-4; found 2026-10-09 in review of the opaque method-value fix)
 
 `var t T; …; var f *func(int) = t.hpro; f(1)` with `func (r readonly *T) hpro(n int)` segfaults (exit 139) in every
