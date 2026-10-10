@@ -1,3 +1,24 @@
+### x64: RAX as a caller-saved home, behind -fx64-rax-home (off by default) — DONE (binate `edeabc7d1`, 2026-10-10)
+
+Step 3 of `plan-x64-home-pool.md`. With `-fx64-rax-home`, RAX joins the caller-saved GP home pool
+(filled last); every op outside the retention-safe set declares RAX in `x64RegClobbers`, and float
+conversions declare RAX and RDX. The switch is threaded explicitly: `CLIArgs.NativeOpts`
+(`native.Options{X64RaxHome}`) → `compileModuleVia` → `native.EmitObject` → `x64.Options{RaxHome}` →
+`x64Emitter` → `emitFunc` → `x64GpClassDesc`. Default-off codegen is byte-identical to the previous main
+(checked on cmd/bnc -O2/-O0 and all 8 benchmarks). A survey build that counted every RAX reference while
+emitting each instruction found, over cmd/bnc and all conformance at -O2/-O0, only bounds checks touching
+RAX undeclared (their noreturn failure path). Conformance 3545/0 in all four of off/on × -O0/-O2; ON and
+OFF self-compile fixpoints.
+
+Why off by default: on this x86 host the native self-compile ran 0.21% fewer instructions but ~1.3% more
+user time (about 56 paired runs, averaged over code and stack placements). The extra time is in
+`livenessFixpoint`/`blockLiveBefore` with unchanged instruction counts and identical code in
+`blockLiveBefore`; cache misses and simulated branch mispredictions do not explain it, and no hardware
+counters are available here. Benchmarks (instructions / user time): record-churn −2.94% / +2.3% (0.24 s
+run, noisy), fannkuch-redux −0.00% / −12.7%, n-body +0.42% / −1.9%, richards +0.05% / −1.0%,
+binary-trees +0.66% / +3.2%, mandelbrot −0.00% / +5.3%, spectral-norm −0.00% / +0.5%. The open
+follow-up is the code-placement policy entry in `claude-todo.md`.
+
 ### stdlib/debug/001_callers prints "short" at -O2 on LLVM arm32 bare metal — tail calls lose their frames — DONE (binate `2d3a40539`; closed 2026-10-09, work-3) (found 2026-09-30, work-1, once bare-metal -O2 builds linked)
 
 `BINATE_FLAGS=-O2 conformance/run.sh builder-comp_arm32_baremetal stdlib/debug/001_callers` prints `short`:

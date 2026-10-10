@@ -2,7 +2,7 @@
 
 Status: step 1 (per-register clobbers in the shared allocator, `RegClassDesc.RegClobbers`) landed
 in binate `70e6b95de` (2026-10-03); no backend sets the hook yet. The hook receives the RegMap, so
-registers used by a folded instruction are named at its consumer. Step 2 (RCX/RDX homes) landed in binate `6c0615b72` (2026-10-04): Freeing RDX in hot code landed in binate `981151c9b` (2026-10-05): integer retention-safe ops take at most two scratch registers and declare neither RCX nor RDX. Step 3 (RAX) not started. Tracked in `claude-todo.md` ("x64: enlarge the GP home pool").
+registers used by a folded instruction are named at its consumer. Step 2 (RCX/RDX homes) landed in binate `6c0615b72` (2026-10-04). Freeing RDX in hot code landed in binate `981151c9b` (2026-10-05): integer retention-safe ops take at most two scratch registers and declare neither RCX nor RDX. Step 3 (RAX) landed in binate `edeabc7d1` (2026-10-10) behind `-fx64-rax-home`, off by default until the native backend's code-placement sensitivity is addressed (see `claude-todo.md`). The landed steps are recorded in `claude-todo-done.md`; the code-placement follow-up is tracked in `claude-todo.md`.
 
 ## Why
 

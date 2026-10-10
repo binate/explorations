@@ -1282,16 +1282,20 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
     pool. The structural fix is a larger home pool (RAX/RCX/RDX/R10/R11 are scratch-only; LLVM
     allocates all 15). (The x64 `imul`-immediate fold frees the checksum loop's 8 multiplier
     registers, but that loop is cold.)
-- **x64: enlarge the GP home pool** — 🟡 IN PROGRESS: step 3, RAX as a home (claimed 2026-10-06).
-  Implemented and validated (not landed): record-churn −2.7% and self-compile −0.21% instructions,
-  but self-compile user time +1.7% — traced to code placement, not RAX (`blockLiveBefore` is
-  byte-identical, same instruction count, 12.5% slower at a different address). Investigating the
-  native backend's placement sensitivity first, then re-measuring with placement controlled.
-  Steps 1–2 and freeing RDX in hot code landed: `70e6b95de`, `6c0615b72`, `df75b805a`, `981151c9b` —
-  RCX/RDX are homes, 11 GP homes, and integer retention-safe ops declare neither. x64 homes 9
-  registers; LLVM allocates 15; record-churn's mix loop needs ~11. Plan: make RCX/RDX/RAX
-  caller-saved homes via per-register clobber positions in the shared allocator, keeping R10/R11
-  as guaranteed scratch and RBP as the frame pointer. See `plan-x64-home-pool.md`.
+- **x64 code placement: give the native backend a deliberate loop/function alignment policy** —
+  🟡 IN PROGRESS (claimed 2026-10-10). Identical machine code runs at very different speeds depending
+  on where it lands: `blockLiveBefore` (byte-identical, same instruction count) is 12.5% slower in one
+  native bnc build than another; fannkuch-redux is 12.7% faster with identical instruction counts,
+  and the one visible difference is that its inner loop (0x5f bytes, 16-byte-aligned header) spans
+  3 instead of 4 32-byte fetch windows (hypothesis, not yet tested). Today functions and loop headers are 16-byte aligned (`X64_FUNC_ALIGN`/`X64_LOOP_ALIGN`,
+  LLVM's generic x86-64 values). Per-pair self-compile timing varies ±1–3 s (2–6%) with code
+  placement (per-function padding) and stack placement (environment size), which makes A/B results
+  of ~1% unreadable. First test: does aligning small hot loop headers to 32/64 bytes (when the pad is
+  small) make the base fannkuch build match the faster one? This VM exposes no hardware counters
+  (no cycles / front-end stall events), only cpu-clock sampling (`perf` from
+  linux-tools-6.8.0-31). Blocks the decision on turning `-fx64-rax-home` on by default (see the done
+  entry for `edeabc7d1`): on this Xeon it ran −0.21% instructions but ~+1.3% user time on the native
+  self-compile, and mixed benchmark results.
 - **native allocator: a tie hint is lost when the first-allocated partner takes a register the
   other cannot use** — 🔵 OPEN. `LinearScan` (`native/common/regalloc_linear_scan.bn`) honours a tie
   (`pickPartner`) only if the partner's register is eligible for the later interval; nothing steers
