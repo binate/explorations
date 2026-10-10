@@ -1,3 +1,17 @@
+### bnld input readers: malformed / undecodable relocation sections and non-relocatable inputs rejected — DONE (binate `590b898a9`, 2026-10-09)
+
+Item 3 of the MAJOR "bnld input readers: three silent mis-reads" (items 1 and 2 still open in claude-todo.md).
+The ELF reader skipped a relocation section with sh_entsize below its type's entry size (zero included), read
+only the whole entries of one whose sh_size was not a multiple of it, read one whose sh_info named no section
+(or a symbol / string / relocation table) against "no section", and skipped one in an encoding it does not
+decode (CREL from clang's `-Wa,--crel`, RELR, Android's packed forms) — each leaving relocations silently
+unapplied.  All are now errors naming the defect (`relocSectionError`, `relocTypeUndecoded`).  Found while
+doing it: an executable or `.so` given as an input object was read as relocatable (its addresses taken as
+section offsets) — e_type other than ET_REL is now rejected; and a rejected archive member now reports the
+reader's reason.  Tests: `relocSectionChecks` on an ELF64 RELA and an ELF32 REL object (fail on the old reader),
+`TestReadObjectRejectsNonRelocatable`, `TestReadArchiveBadMemberReason`.  Checked that clang C objects (`-g`,
+`-ffunction-sections`, `-O0` / `-O1`) still link on x86-64, aarch64 and arm32.
+
 ### x64: RAX as a caller-saved home, behind -fx64-rax-home (off by default) — DONE (binate `edeabc7d1`, 2026-10-10)
 
 Step 3 of `plan-x64-home-pool.md`. With `-fx64-rax-home`, RAX joins the caller-saved GP home pool

@@ -62,14 +62,17 @@ Test: `conformance/1599_xpkg_const_expr_own_import` (`.xfail.all`).
    then binds by name to an unrelated global, or resolves to 0 (a local is not reported by Resolve).  Only
    third-party objects reach it (the asm ELF writer makes every section ALLOC PROGBITS / NOBITS).  Fix: keep the
    array sections (and lay them out with `__init_array_start` / `_end` and the dynamic tags), and make a reference
-   to a symbol in a section bnld drops an error.
+   to a symbol in a section bnld drops an error.  Relocations against such a section (`.rela.init_array`,
+   `.rel.ARM.exidx`, x86-64's `.rela.eh_frame` — clang types `.eh_frame` SHT_X86_64_UNWIND there, PROGBITS on
+   aarch64) are read against "no section" and not applied.  **Mach-O has the same gap** (found 2026-10-09):
+   `parse_macho.bn` reads `__DATA,__mod_init_func` (S_MOD_INIT_FUNC_POINTERS) as plain data and the output
+   section loses the type, so dyld never runs the initializers either.
 2. **A 64-bit addend is truncated on an ILP32 host**: `InputReloc.Addend` is `int`; `relAddend`
    (`parse_elf.bn` ~157, `cast(int, u64(...))`) and Mach-O's 8-byte UNSIGNED (`parse_macho.bn` ~81) keep the low
    32 bits when bnld runs on arm32.  Fix: carry the addend as int64 (InputReloc and the patchers), or reject one
    that does not fit.
-3. **A relocation section with a bad sh_entsize / size is skipped** (`parse_elf.bn` ~179, ~193 `continue`): its
-   relocations are silently not applied.  Fix: an error.
-**Test:** to be added with each fix (an object built by clang for 1, a hand-made ELF for 2 and 3).
+(3, malformed relocation sections, is done — binate `590b898a9`; see claude-todo-done.md.)
+**Test:** to be added with each fix (an object built by clang for 1, a hand-made ELF for 2).
 
 ### A method value of a `readonly *T` handle method taken from an addressable value crashes — 🟡 IN PROGRESS (claimed 2026-10-09, work-4) MAJOR (found 2026-10-09, work-4, review of the opaque method-value fix; pre-existing; LLVM / native / VM)
 
