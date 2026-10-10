@@ -1,3 +1,19 @@
+### A method value of a `readonly *T` handle method taken from an addressable value crashes — DONE (binate `d37664ae9`, 2026-10-09, work-4; found 2026-10-09 in review of the opaque method-value fix)
+
+`var t T; …; var f *func(int) = t.hpro; f(1)` with `func (r readonly *T) hpro(n int)` segfaults (exit 139) in every
+mode; the call `t.hpro(1)` and the method value through a pointer (`pt.hpro`) work.  Cause: `methodValueBridge`
+(gen_method_value_recv.bn) classifies the ADDR bridge (capture `&t`) only when the captured form's Kind is
+TYP_POINTER; a `readonly *T` handle is TYP_READONLY over the pointer, so it falls through to MVBRIDGE_OTHER and the
+struct VALUE is stored into the pointer-typed capture field.  Fix: classify the captured form with the handle's own
+`readonly` peeled (it is shallow — a read-only handle to a mutable T).  Test: conformance
+`spec/10-functions/220_method_value_readonly_handle_from_value` (expected-fail in every mode).
+
+Resolution: methodValueBridge classifies the captured receiver form with its outer `readonly` read through
+(types.ResolveAliasAndConst — readonly is shallow; a method receiver is never an alias) for the address, load and
+bitcast bridges.  Test 220 (no longer expected-fail): the address capture of a local, a field, an array element and a
+generic instance (later writes seen by the call), plus `*readonly T` / `readonly T` / `readonly *T`-from-`@T` (worked
+before) and no leak.  The review's 296-program receiver × method matrix changed only the formerly crashing cases.
+
 ### bnld input readers: malformed / undecodable relocation sections and non-relocatable inputs rejected — DONE (binate `590b898a9`, 2026-10-09)
 
 Item 3 of the MAJOR "bnld input readers: three silent mis-reads" (items 1 and 2 still open in claude-todo.md).

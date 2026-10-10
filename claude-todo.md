@@ -74,16 +74,6 @@ Test: `conformance/1599_xpkg_const_expr_own_import` (`.xfail.all`).
 (3, malformed relocation sections, is done — binate `590b898a9`; see claude-todo-done.md.)
 **Test:** to be added with each fix (an object built by clang for 1, a hand-made ELF for 2).
 
-### A method value of a `readonly *T` handle method taken from an addressable value crashes — 🟡 IN PROGRESS (claimed 2026-10-09, work-4) MAJOR (found 2026-10-09, work-4, review of the opaque method-value fix; pre-existing; LLVM / native / VM)
-
-`var t T; …; var f *func(int) = t.hpro; f(1)` with `func (r readonly *T) hpro(n int)` segfaults (exit 139) in every
-mode; the call `t.hpro(1)` and the method value through a pointer (`pt.hpro`) work.  Cause: `methodValueBridge`
-(gen_method_value_recv.bn) classifies the ADDR bridge (capture `&t`) only when the captured form's Kind is
-TYP_POINTER; a `readonly *T` handle is TYP_READONLY over the pointer, so it falls through to MVBRIDGE_OTHER and the
-struct VALUE is stored into the pointer-typed capture field.  Fix: classify the captured form with the handle's own
-`readonly` peeled (it is shallow — a read-only handle to a mutable T).  Test: conformance
-`spec/10-functions/220_method_value_readonly_handle_from_value` (expected-fail in every mode).
-
 ### One method's value taken in two modules fails to link: duplicate wrapper symbol — 🟡 IN PROGRESS (claimed 2026-10-09, work-4) MAJOR (found 2026-10-09, work-4, review of the opaque method-value fix; pre-existing; LLVM / native — the VM is fine)
 
 Taking `s.v` in package gl (the method's own package) and again in main fails the link: "duplicate symbol
