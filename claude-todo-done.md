@@ -1,3 +1,21 @@
+### stdlib/debug/001_callers prints "short" at -O2 on LLVM arm32 bare metal — tail calls lose their frames — DONE (binate `2d3a40539`; closed 2026-10-09, work-3) (found 2026-09-30, work-1, once bare-metal -O2 builds linked)
+
+`BINATE_FLAGS=-O2 conformance/run.sh builder-comp_arm32_baremetal stdlib/debug/001_callers` prints `short`:
+debug.Callers sees fewer than 3 frames above c3.  c1 -> c2 -> c3 are all tail calls (`return c2(into)`), which the
+LLVM arm32 backend makes sibling calls at -O2, so their frames are gone; the test passes at -O2 on the host LLVM
+lane and at -O0 everywhere.  Not visible before because no bare-metal program linked at -O1+ (fixed with the
+AEABI memory helpers).  Decide what debug.Callers promises under optimization: keep tail callers' frames
+(emit `"disable-tail-calls"="true"`, as frame-pointer="all" already keeps frame pointers), or let the test
+accept fewer frames at -O1+.  No CI lane runs LLVM bare metal at -O2 yet.
+
+Resolved (user: "I don't think there are any promises", then "Let's do 1"): debug.Callers promises no
+particular frames.  Measured 2026-10-09: at -O2 LLVM makes c1 -> c2 -> c3 sibling calls on EVERY target
+(aa64 host, x64 Linux, arm32 Linux and bare metal — identical `b` tails), and native -O2 loses frames to
+inlining (host: 4 frames vs 7 at -O0); the test passed elsewhere only because the frames above main (a
+hosted startup chain) made up its floor of 3.  The test now asserts one recorded frame; it passes in all
+eight modes at the default level and -O2.  Follow-up design idea (an annotation that keeps a frame) in
+claude-todo.
+
 ### A method value of an imported opaque type names its destructor in the wrong package — DONE (binate `d9ebbff1d`, 2026-10-09, work-4; found 2026-10-06 in review of the field-over-method fix)
 
 `var p @opq.Foo = opq.New(); var g *func(int) = p.g` (Foo opaque — `type Foo` in opq.bni, its layout in opq.bn;
