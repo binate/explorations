@@ -57,7 +57,7 @@ Test: `conformance/1599_xpkg_const_expr_own_import` (`.xfail.all`).
    relocations are silently not applied.  Fix: an error.
 **Test:** to be added with each fix (an object built by clang for 1, a hand-made ELF for 2 and 3).
 
-### A method value of an imported opaque type names its destructor in the wrong package — 🔴 OPEN MAJOR (found 2026-10-06, work-4, review of the field-over-method fix; pre-existing; LLVM / native / VM)
+### A method value of an imported opaque type names its destructor in the wrong package — 🟡 IN PROGRESS (claimed 2026-10-09, work-4) MAJOR (found 2026-10-06, work-4, review of the field-over-method fix; pre-existing; LLVM / native / VM)
 
 `var p @opq.Foo = opq.New(); var g *func(int) = p.g` (Foo opaque — `type Foo` in opq.bni, its layout in opq.bn;
 `g` has an `@Foo` receiver) fails to build: the method value's capture is released through `main.__dtor_Foo`, a
