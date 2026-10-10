@@ -38,7 +38,7 @@ the exposure.  Fix: spell the define line's alignment from T (its AlignOf, as by
 arguments) — at least for functions a C caller can reach; reproduce first with an e2e C caller passing a
 4-aligned, not 8-aligned, buffer to a #[c_export] function returning a struct of int32s, on arm32.
 
-### An imported float const-expression is re-lowered against the IMPORTER's imports — silent wrong value — 🔴 OPEN MAJOR (found 2026-10-07, work-3, review of the float-conversion constant fix; pre-existing)
+### An imported float const-expression is re-lowered against the IMPORTER's imports — silent wrong value — 🟡 IN PROGRESS MAJOR (found 2026-10-07, work-3, review of the float-conversion constant fix; pre-existing; claimed 2026-10-09, work-7/session, self-drive)
 
 A floating-point constant expression is stored as its AST (CONST_EXPR) and re-lowered at each use.  For an
 imported package's constant, `genImportedConstExpr` (`pkg/binate/irgen/gen_expr.bn`) sets only
