@@ -647,7 +647,7 @@ A live instance (seen 2026-10-07, work-3): `pkg/binate/check.bni` declares `Chec
 `CheckPackageDecls(path, merged)`, while the `.bn` methods, and every caller (cmd/bnc, cmd/bnlint, interp,
 repl), take `(path, merged, files, bni)`.
 
-### Opaque-type embedding gaps left by the declaration-site check — local types, nested pointees, function-value parameters — 🔴 OPEN (found 2026-10-03, work-3, review of the type-declaration opaque check; code reading; pre-existing)
+### Opaque-type embedding gaps left by the declaration-site check — local types, nested pointees, function-value parameters — 🟡 IN PROGRESS (found 2026-10-03, work-3, review of the type-declaration opaque check; code reading; pre-existing; claimed 2026-10-10, work-7/session, self-drive)
 
 With `type Op` opaque, all still compile (each is rejected only at a use, or not at all):
 (1) a type declared inside a function body gets no declaration-site check (collectTypeDecl /
