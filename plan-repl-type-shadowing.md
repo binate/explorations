@@ -1,6 +1,9 @@
 # Plan: type and interface shadowing at the REPL prompt
 
-Status: DRAFT for discussion (2026-10-09, work-6).  Todo entry: "REPL redefinition of types and
+Status: DRAFT for discussion (2026-10-09, work-6).  User decisions (2026-10-09): semantics 2, 3, 4 and 5
+below as proposed ("2/3/4/5 sound fine"); 6 — distinguish an old and a new T in diagnostics: "ideally,
+yes"; generic types IN scope ("7: yes").  Approach A vs B: an adversarial review first (user: "get an
+adversarial review of approach A vs B").  Todo entry: "REPL redefinition of types and
 interfaces, and across kinds: shadowing (the design) is not implemented".
 
 ## Goal
