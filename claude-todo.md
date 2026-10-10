@@ -5,6 +5,27 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
+### The 32-bit-host unit lane (`builder-comp_arm32_linux`) is red on main: bnc / bnas do not compile for a 32-bit host, and 15 more packages fail — 🔴 OPEN CRITICAL (found 2026-10-09, work-2, validating the bnld int64-addend change on that lane; pre-existing — CI red since at least 2026-10-07)
+
+CI run 38020771564 (unit tests, main), job `test (builder-comp_arm32_linux)`: 66 passed, 17 failed; reproduced
+locally in the `binate-ci` image (`scripts/unittest/run.sh builder-comp_arm32_linux pkg/binate/link`).
+1. **Production code — bnc and bnas cannot be built for an arm32 host.**  `pkg/binate/asm/macho/macho_reloc.bn`
+   ~160 and ~167 compare an `int` addend with `4294967295` (a 4-byte field's unsigned range); on a 32-bit host the
+   untyped constant does not fit `int` ("mismatched types int and untyped int").  cmd/bnc and cmd/bnas import
+   asm/macho.  Introduced by binate `2a26ec4d9` (line ~167, 2026-10-03) and `6081d76ae` (line ~160, 2026-10-06),
+   both work-2.  Fix: compare as int64; and decide whether asm's `Fixup` / `Relocation` addend should be int64 as
+   bnld's `InputReloc.Addend` is becoming (an `int` addend cannot pass 2^31 - 1 on such a host).
+2. **Test code that assumes a 64-bit `int`** (untyped constants that overflow a 32-bit one): asm/aarch64/isa
+   `ctrl_test.bn` (4), asm/elf `elf_call26_test.bn` (1), asm/macho `macho_reloc_test.bn` (3), asm/x64
+   `x64_branch_test.bn` (2), link `dynmacho_abs_test.bn` (2), `relocate_abs32_test.bn` (1),
+   `relocate_arm32_adr_test.bn` (1).
+3. **Test failures — needs investigation; may be the compiler leaking the HOST's `int` width, not test bugs:**
+   check `TestShortVarIntMinAccepted`, `TestShortVarInt64MaxAccepted`, `TestCheckAllowHighBitUnsignedConstShiftCount`
+   ("cannot assign untyped int to int / uint"); types `TestLayoutRepeatedStructDag` ("size should be 8 * 4^20",
+   past 2^31); irgen `TestGenCastIntLitAtTargetWidth`; iropt `TestMem2regGroundsLooserType`,
+   `TestMem2regNoGroundMatchingType`; native `TestShiftImmOperandInRange`.  The other failing packages
+   (asm/parse, asm/assemble, native/aarch64, native/x64, native/fold) may fail only through item 1's import.
+
 ### Constraint calls through `impl *P` / `impl @M` give wrong results — needs a spec decision — 🔴 NEEDS DECISION (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
 
 ```
