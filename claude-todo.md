@@ -581,7 +581,7 @@ interface value.  Check the spec (§8.1 case 7 with §8.3's outermost-readonly a
 handle may drop its own outermost readonly — then fix assignment, cast and unsafe_cast together.  Needs a
 conformance test (assignment, cast, unsafe_cast; a widening and the identity).
 
-### `irbuild.EmitIfaceUpcast` reads the interface off `.Elem` without peeling a NAMED interface-value type — the slot offset stays 0 — 🔴 OPEN (latent; found 2026-10-03, work-3, review of the unsafe_cast interface-widening change)
+### `irbuild.EmitIfaceUpcast` reads the interface off `.Elem` without peeling a NAMED interface-value type — the slot offset stays 0 — 🟡 IN PROGRESS (latent; found 2026-10-03, work-3, review of the unsafe_cast interface-widening change; claimed 2026-10-09, work-7/session, self-drive; user: "self-drive on all open MAJORs that don't need a decision")
 
 `EmitIfaceUpcast` (`pkg/binate/irbuild/ir_ops_iface.bn`) computes `IfaceUpcastSlotOffset` from
 `src.Typ.Elem` / `instr.Typ.Elem` without `types.StripWrappers`, unlike IR-gen's `convertToIfaceTarget` and
