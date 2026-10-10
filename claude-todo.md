@@ -81,7 +81,7 @@ struct VALUE is stored into the pointer-typed capture field.  Fix: classify the 
 `readonly` peeled (it is shallow — a read-only handle to a mutable T).  Test: conformance
 `spec/10-functions/220_method_value_readonly_handle_from_value` (expected-fail in every mode).
 
-### One method's value taken in two modules fails to link: duplicate wrapper symbol — 🔴 OPEN MAJOR (found 2026-10-09, work-4, review of the opaque method-value fix; pre-existing; LLVM / native — the VM is fine)
+### One method's value taken in two modules fails to link: duplicate wrapper symbol — 🟡 IN PROGRESS (claimed 2026-10-09, work-4) MAJOR (found 2026-10-09, work-4, review of the opaque method-value fix; pre-existing; LLVM / native — the VM is fine)
 
 Taking `s.v` in package gl (the method's own package) and again in main fails the link: "duplicate symbol
 '_bn_F2_3_pkg2_gl2_1_S14_v__methodval_v'"; likewise two importers.  The method-value wrapper (synthMethodValueWrapper,
