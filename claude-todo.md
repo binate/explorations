@@ -662,6 +662,19 @@ Both the current and the previous compiler accept a package declaring `type Box`
 were one declaration.  Probably a redeclaration error (a forward declaration names a non-generic type).
 Needs an error test.
 
+### Language feature (design): an annotation that keeps a function's frame from being optimized away — 🔴 OPEN, DESIGN (raised 2026-10-09 by the user, closing the debug.Callers -O2 entry: "As a todo, we can perhaps ponder an annotation that prevents the eliminiation of certain frames.")
+
+`debug.Callers` promises no particular frames: at -O1 and above LLVM makes a tail call a sibling call on
+every target (the caller's frame is gone before the callee runs), and the native inliner folds small
+callees into their callers.  A program that wants a frame to show up in a captured stack (a stack-trace
+anchor, a debugging helper) has no way to ask for it.  Ponder an annotation on a function declaration
+that keeps its frame: the function is never inlined into a caller, and its calls are never made sibling
+calls (in LLVM, roughly `noinline` plus `"disable-tail-calls"="true"`; natively, an inliner exclusion —
+the native backends make no sibling calls today).  Open questions: the spelling (the existing `#[…]`
+annotations: `#[build]`, `#[c_export]`); whether it constrains the function's own calls, its callers'
+inlining of it, or both; what the VM does (its frames are never removed); and whether `debug.Callers`
+should then promise those frames.
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
