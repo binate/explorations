@@ -1,3 +1,16 @@
+### Termination analysis — does a trailing empty statement make a block non-terminating? — DECIDED, no change (decided 2026-10-09; raised 2026-10-07, work-7, writing the bnfmt empty-statement fix)
+
+stmt.terminating (§14.14) says a block terminates iff its **last** statement does, and stmt.empty (§14.2) makes an
+empty statement an ordinary statement — so `func f() int { return 1;; }` (or a case ending `return 1;;`) is
+"missing return", as the checker (check/check_terminates.bn) implements.  bnfmt drops empty statements, so it turns
+that rejected function into `return 1`, which compiles.  Options: (a) keep the rule as written (a written `;;`
+before `}` is the user's to remove); (b) make the analysis use the last non-empty statement (the spec rule and the
+checker change together).  Nothing written in the tree depends on it.
+
+**Decided** (user, 2026-10-09): "(a) sounds right" — keep stmt.terminating as written: a block terminates iff
+its last statement does, an empty statement included, so a trailing `;;` before `}` makes a value-returning
+function "missing return" (the user removes the stray `;`).  The checker already implements this; nothing changes.
+
 ### bnfmt: an empty statement in a block prints a blank line — `g();;` gains a line the source does not have — DONE (binate `ac44aeb2d`, 2026-10-09, work-7) (found 2026-10-07, work-7, review of the written-`;` lexer fix; pre-existing; claimed 2026-10-09, work-7/session; user: "Let's take on all the open things")
 
 printStmt prints nothing for an STMT_EMPTY, but printBlockMulti (pkg/binate/format/print_stmt.bn, near :88) still

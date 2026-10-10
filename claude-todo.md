@@ -2329,15 +2329,6 @@ language extension, not a bug fix.
 - Before implementing: decide whether we want it at all. Arguments for: matches reader expectations from Go, lets users avoid duplicated bodies across related cases. Arguments against: rarely needed in practice, adds a new keyword for a small ergonomic win, forces the type checker to recognize terminators beyond `return`/`panic` (termination analysis already inspects case bodies for bare `break`).
 - Likely a decline unless a concrete use case comes up, but worth capturing as a live option.
 
-### Termination analysis — does a trailing empty statement make a block non-terminating? — 🔴 NEEDS DECISION (raised 2026-10-07, work-7, writing the bnfmt empty-statement fix)
-
-stmt.terminating (§14.14) says a block terminates iff its **last** statement does, and stmt.empty (§14.2) makes an
-empty statement an ordinary statement — so `func f() int { return 1;; }` (or a case ending `return 1;;`) is
-"missing return", as the checker (check/check_terminates.bn) implements.  bnfmt drops empty statements, so it turns
-that rejected function into `return 1`, which compiles.  Options: (a) keep the rule as written (a written `;;`
-before `}` is the user's to remove); (b) make the analysis use the last non-empty statement (the spec rule and the
-checker change together).  Nothing written in the tree depends on it.
-
 ### Termination analysis — labeled break
 - Missing-return check (test 245) uses Go-style termination analysis simplified: RETURN terminates; `panic(...)` terminates; BLOCK terminates if last stmt does; IF terminates if both branches do; FOR with no condition and no `break` in body terminates; SWITCH with default and all cases terminating (no break) terminates.
 - **Labeled break**: Binate currently has no labels. If/when we add them, termination analysis needs to track labels — a `break L` inside a nested for doesn't break the inner for (contrary to the current "any break disqualifies enclosing for/switch" rule). Revisit when labels are on the table.
