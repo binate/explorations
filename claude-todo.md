@@ -1549,7 +1549,7 @@ so each comment stands on its own (Comments Stand Alone). Deferred follow-ups:
    with the corresponding spec reference rather than deleted. Any such
    references left un-stripped by the sweep are tracked here.
 
-### stdlib/debug/001_callers prints "short" at -O2 on LLVM arm32 bare metal — tail calls lose their frames — 🔴 NEEDS DECISION (found 2026-09-30, work-1, once bare-metal -O2 builds linked; 2026-10-07 work-3: needs the user's call on what debug.Callers promises under optimization, below)
+### stdlib/debug/001_callers prints "short" at -O2 on LLVM arm32 bare metal — tail calls lose their frames — 🟡 IN PROGRESS (claimed 2026-10-09, work-3/session; user, on what debug.Callers promises under optimization: "I don't think there are any promises", then "Let's do 1" — the test asserts only the capture frame) (found 2026-09-30, work-1, once bare-metal -O2 builds linked)
 
 `BINATE_FLAGS=-O2 conformance/run.sh builder-comp_arm32_baremetal stdlib/debug/001_callers` prints `short`:
 debug.Callers sees fewer than 3 frames above c3.  c1 -> c2 -> c3 are all tail calls (`return c2(into)`), which the
