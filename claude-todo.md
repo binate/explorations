@@ -657,15 +657,15 @@ value (`func f(p *([2]Op))`), but a function-value TYPE with the same signature 
 declaration, a field or a parameter: `type F *func(Op) int`, `@func() Op`, `*func(*([2]Op))`.  The checker
 never enters a function type (`embedsOpaqueByValue`, `pointeeEmbedsOpaque` and `nestedPointerEmbedsOpaque`
 in `pkg/binate/check/check_opaque.bn` all stop at one).  Such a function value can never be called with an
-opaque argument (no `Op` value can be formed), but a call through `@func() Op` would form one, and IR-gen
-would need the result's layout.  The spec is silent: §7.9 says nothing on parameter types, §7.12 lists
+opaque argument (no `Op` value can be formed), and a call through `@func() Op` is rejected at the call (the
+call result is held to the by-value rule), so the type is unusable but harmless.  The spec is silent: §7.9 says nothing on parameter types, §7.12 lists
 only `make`/`make_slice`/`sizeof`/`alignof` and field access, and the pointer-to-opaque-embedding rule the
 checker enforces is not written down at all.  Options: (a) hold a function-value type's parameters and
 results to the rules a function declaration's are held to (reject `*func(Op) int` where it is written);
-(b) accept the type and reject only a call through it that would form an opaque value (`f()` on an
-`@func() Op`).  Recommendation: (a) — one rule for every signature, the error where the bad type is
-written, and no function value that can never be called; write the rule (with the pointer rule) into
-§7.12.
+(b) keep today's behaviour: accept the type, reject a call through it that would form an opaque value
+(`g()` on an `@func() Op`), and spec that.  Recommendation: (a) — one rule for every signature, the error
+where the bad type is written, and no function value that can never be called; write the rule (with the
+pointer rule) into §7.12.
 
 ### `.bni` and `.bn` definitions of a generic type's method are never compared — 🔴 OPEN (found 2026-10-10, work-7, review of the `.bni` method consistency check; code reading; pre-existing)
 
