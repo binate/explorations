@@ -53,7 +53,7 @@ Fix: install the defining file's imports while re-lowering (as `registerImportCo
 `beginDeclImports` / `di.use`), and make `resolveTypeExpr`'s silent `TypInt` fallback an internal error.
 Test: `conformance/1599_xpkg_const_expr_own_import` (`.xfail.all`).
 
-### bnld input readers: three silent mis-reads — `.init_array` dropped, a 64-bit addend truncated on a 32-bit host, malformed relocation sections skipped — 🔴 OPEN MAJOR (found 2026-10-06, work-2, mapping bnld for relocatable data; confirmed by reading; pre-existing)
+### bnld input readers: three silent mis-reads — `.init_array` dropped, a 64-bit addend truncated on a 32-bit host, malformed relocation sections skipped — 🟡 IN PROGRESS (claimed 2026-10-09, work-2; user: "bnld reader MAJOR") MAJOR (found 2026-10-06, work-2, mapping bnld for relocatable data; confirmed by reading; pre-existing)
 
 1. **Only SHF_ALLOC PROGBITS / NOBITS sections are kept** (`pkg/binate/link/parse_elf.bn` ~288-298): an
    SHT_INIT_ARRAY / FINI_ARRAY / PREINIT_ARRAY section (a C object's `__attribute__((constructor))`, C++ static

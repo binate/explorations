@@ -101,13 +101,13 @@ Mach-O relocation mappings, and the resolver (none of these resolve at assembly 
 two commits: MOVW, then TLS.
 
 Progress: the MOVW group — ✅ landed `7010879cb` (2026-10-04), with bnld patching all 17 relocations.
-Deliberate rejects (clang accepts): a number after the operator (clang folds `#:abs_g0:5`), the operator on
-a branch, a literal load, EXT and the fixed-point conversions (clang silently drops it there).  Open for the
-user (raised 2026-10-04, landed with the first option of each): (a) fold a number after a MOVW operator, as
-clang does, instead of rejecting it — the usual way to build a 64-bit constant chunk by chunk; (b) `mov Rd,
-#:abs_gN:sym` is clang's MOVZ at shift 0 for every chunk and width, or reject G1–G3 on `mov`; (c) bnld writes
-PREL `_NC` on a MOVZ / MOVN as bits only (AAELF64's text) where lld applies the sign switch, and takes
-PREL_G3's sign where lld always makes it MOVZ.
+Deliberate rejects (clang accepts): the operator on a branch, a literal load, EXT and the fixed-point
+conversions (clang silently drops it there).  Decided (user, 2026-10-09): (a) a number after a MOVW operator
+is folded to its chunk, as clang does (`#:abs_g1:0x12345678` is 0x1234; a checked kind still checks the
+number's range) — rejected today, to do; (b) `mov Rd, #:abs_gN:sym` stays clang's MOVZ at shift 0 for every
+chunk and width, as landed; (c) bnld follows lld, not AAELF64's text: PREL `_NC` on a MOVZ / MOVN switches
+the opcode by the bit above the chunk (X sign-extended from there), and PREL_G3 is always a MOVZ of the top
+chunk — to do.
 
 The rest, enumerated from clang 21 (2026-10-04; ELF): `:pg_hi21_nc:` (ADRP, ADR_PREL_PG_HI21_NC),
 `:gotpage_lo15:` (64-bit LDR, LD64_GOTPAGE_LO15), GOT literal loads (`ldr x0, :got:sym` /
@@ -121,13 +121,19 @@ with a non-`_nc` TLS G operator as a MOVN (the linker sets the opcode).  No `:tl
 (clang has none).  None of the TLS relocations works without TLS symbols and sections, which neither
 the assembler (no SHF_TLS `T` flag, no STT_TLS / `%tls_object`) nor bnld (no PT_TLS, no TP-relative
 layout, no GOT in a static link) has; Mach-O TLV (`@TLVPPAGE` / `@TLVPPAGEOFF`, `__thread_vars` /
-`__thread_data` / `__thread_bss`) likewise.  Scope to be decided with the user.
+`__thread_data` / `__thread_bss`) likewise.  Scope (user, 2026-10-09: "All, staged"): the whole of it as a
+series — TLS sections and symbols plus every operator in the assembler and both writers (verified against
+clang), then bnld: PT_TLS / thread-pointer layout and LE / IE / TLSDESC resolution in static and dynamic ELF
+links, and Mach-O TLV.  The PAuth `_auth` operators (user, 2026-10-09: "Assembler side"): the operators and
+their R_AARCH64_AUTH_* relocations in the assembler and ELF writer, verified against clang (the TLSDESC ones
+with the TLS series); bnld rejects AUTH relocations loudly, since only a PAuth-aware loader can complete them.
 
 Order (2026-10-04): (1) `:pg_hi21_nc:` — assembler, ELF writer, bnld (unchecked ADR_PREL_PG_HI21) —
 ✅ landed `42f0697f2` (2026-10-04).
 (2a) The GOT forms in the assembler — ✅ landed `f38f50223` (2026-10-04); an addend on a GOT reference
-stays rejected (an existing deliberate reject — "Mach-O cannot represent" — accepting it on ELF is open
-for the user).  (2b) bnld's GOT — ✅ landed `c645a568e` (2026-10-05; user: "1 and 2: go with your recs; 3:
+is rejected today — user, 2026-10-09 ("Accept on ELF"): accept it on ELF as clang does (bnld already gives
+each (symbol, addend) its own slot holding S + A, AAELF64's GDAT(S+A)), Mach-O keeps rejecting it as clang
+does — to do.  (2b) bnld's GOT — ✅ landed `c645a568e` (2026-10-05; user: "1 and 2: go with your recs; 3:
 all 4"): all four drivers (static ELF, dynamic ELF, dynamic Mach-O with rebased slots, the scripted
 builder via a script-placed `.got`); the MAJOR import-addend bug (claude-todo) fixed inside it, with a
 GLOB_DAT per (import, addend).
@@ -142,7 +148,7 @@ the one `.got` beside the import slots (so `:gotpage_lo15:` has one GOT page); a
 references cannot be relaxed (a literal load, `:gotpage_lo15:`, a STR through `:got_lo12:`) gets a slot
 and none of its GOT references is relaxed (today each ADRP / LDR is relaxed on its own, which a STR would
 break); a GOT reference with an addend to a dynamic import is a GLOB_DAT with that addend (slots per
-(import, addend)).  (3) TLS, scope pending.
+(import, addend)).  (3) TLS — all of it, staged (above).
 
 ## 3e. Label differences
 
@@ -254,8 +260,11 @@ Design:
 Commits (series):
 - (2.0) link: per-arch patchers out of relocate.bn (437 lines) — a pure move.  ✅ landed `42942da63`.
 - (2.1) absolute data: kinds, parser, both writers, arm32 bake, bnld ELF ABS kinds; Mach-O UNSIGNED.  ✅ landed
-  `6081d76ae`.  Open questions put to the user: `.int32 sym` → R_X86_64_32S (vs R_X86_64_32 as clang's
-  `.long`), and an ELF reference to a named local label against its section symbol, as clang's.
+  `6081d76ae`.  Decided (user, 2026-10-09): `.int32 sym` keeps R_X86_64_32S ("Keep 32S"; `.uint32 sym` is
+  R_X86_64_32); an ELF reference to a named local label goes against its section symbol plus offset, as
+  clang's ("Match clang") — to do: every local symbol defined in a section, with the temporaries' per-type
+  rules (every non-GOT type on AArch64 and x86-64, only R_ARM_ABS32 on arm32), checked by targeted
+  conformance on all three architectures, since the native backends' objects change too.
 - (2.2) PC-relative data on ELF: `sym - .`, `sym - l`, external minuend; bnld PREL / REL32 / PCn.  ✅ landed
   `9d0d7e4be` (with the re-association below).  Also
   (review of (2.1)): `ext - l1 + l2` and `ext - . + l2` — clang folds the fixed `l2 - l1` (ELF `ext+4`,
@@ -264,6 +273,13 @@ Commits (series):
   it is a fixed distance from.
 - (2.3) Mach-O differences: Sub field, SUBTRACTOR pairs (arm64 and x86-64 writers), bnld arm64 pairs.  ✅
   landed `a3fcc5313`.
+
+## Remaining work (decided 2026-10-09)
+
+The bnld input-reader MAJOR (claude-todo) comes first (user, 2026-10-09: "bnld reader MAJOR"); the order of
+the rest is open.  (1) Fold a number after a MOVW operator (3d (a)).  (2) bnld's PREL `_NC` on MOVZ / MOVN
+and PREL_G3 as lld (3d (c)).  (3) GOT addends on ELF (3d (2a)).  (4) ELF named locals against the section
+symbol (3e (2.1)).  (5) TLS, staged (3d).  (6) The PAuth `_auth` operators, assembler side (3d).
 
 ## Decisions (user, 2026-09-30 — each the recommended option)
 
