@@ -84,7 +84,22 @@ The same holds for deferred function-value calls: `var fh @func(*Getter) = …; 
 same way.  Test to land
 with the decision (repro: the review probe, a `*any` analogue of `spec/14-statements/177`).
 
-### bnfmt: an empty statement in a block prints a blank line — `g();;` gains a line the source does not have — 🔴 OPEN (found 2026-10-07, work-7, review of the written-`;` lexer fix; pre-existing)
+### REPL: a fault in a variable's initializer does not name the variable — 🟡 IN PROGRESS (found 2026-10-07, work-7, review of the REPL lost-fault fix; pre-existing; claimed 2026-10-09, work-7/session; user: "naming the variable seems like a good idea")
+
+A fault in an initializer the REPL runs is reported as the VM's bare message (`runtime error: index out of bounds:
+5 (len 2)`).  Since a code unit stops on an entry's own fault but not on that of a parked declaration the entry
+lets resolve, the two read the same and the user cannot tell which variable faulted.  A prompt import's package
+initializer already names its package ("initialization of package P faulted: …").  **To do:** name the variable
+(or group member) whose initializer faulted; unit tests for an entry's own and a resolved parked declaration's.
+
+### REPL: a suspended or broken turn does not advance the turn counter — the next statement turn reuses its `__repl_<n>` — 🟡 IN PROGRESS (found 2026-10-06, work-7, review of the REPL code-unit fix; pre-existing, latent: nothing in the tree arms an interrupt poll; claimed 2026-10-09, work-7/session; user: "Let's take on all the open things")
+
+finishTurn advances s.Counter only for a turn that is neither suspended nor broken, but a new turn never resumes
+an interrupted one (the VM starts each call afresh), so the next turn's statement run is generated under the
+interrupted turn's name `__repl_<n>` again.  **To do:** decide what an interrupted turn's index is (it ran: it
+should advance), fix finishTurn, and test a statement turn after a suspended / broken one.
+
+### bnfmt: an empty statement in a block prints a blank line — `g();;` gains a line the source does not have — 🟡 IN PROGRESS (found 2026-10-07, work-7, review of the written-`;` lexer fix; pre-existing; claimed 2026-10-09, work-7/session; user: "Let's take on all the open things")
 
 printStmt prints nothing for an STMT_EMPTY, but printBlockMulti (pkg/binate/format/print_stmt.bn, near :88) still
 writes the newline and indentation before it, so `func f() {\n\tg();;\n\th()\n}` formats as `\tg()\n\n\th()` — a
