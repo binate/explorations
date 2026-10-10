@@ -571,7 +571,7 @@ the managed form from the peeled source (cast rejects a named source's widening)
 the VM peels and is right) — the checker must reject a named source unless the interfaces are identical, and
 EmitIfaceUpcast must peel (its own entry, "`irbuild.EmitIfaceUpcast` reads the interface off `.Elem`…").
 
-### A `readonly` interface-value source cannot widen — `var g @Getter = n` with `n readonly @Named` is rejected — 🔴 OPEN (found 2026-10-03, work-3, review of the unsafe_cast interface-widening change; reproduced; pre-existing)
+### A `readonly` interface-value source cannot widen — `var g @Getter = n` with `n readonly @Named` is rejected — 🟡 IN PROGRESS (found 2026-10-03, work-3, review of the unsafe_cast interface-widening change; reproduced; pre-existing; claimed 2026-10-09, work-7/session, self-drive)
 
 With `interface Named : Getter`, `var n readonly @Named = t` then `var g @Getter = n` gives "cannot assign
 readonly @Named to @Getter", and `cast(@Getter, n)` gives "cast cannot recover a concrete type from an
