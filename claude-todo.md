@@ -602,7 +602,7 @@ error (the forwarder should drop the redundant `expose "P"`; a bnlint rule could
 when both paths denote the same declaration (compare the defining package and declaration, not the name),
 spec to match.  Needs a conformance test either way.
 
-### A `.bni` may declare the same METHOD twice — or differently from the `.bn` — and nothing compares them — 🔴 OPEN (found 2026-10-03, work-3, review of the .bni duplicate-declaration check; code reading; pre-existing)
+### A `.bni` may declare the same METHOD twice — or differently from the `.bn` — and nothing compares them — 🟡 IN PROGRESS (found 2026-10-03, work-3, review of the .bni duplicate-declaration check; code reading; pre-existing; claimed 2026-10-09, work-7/session, self-drive)
 
 A `.bni` method declaration whose body is in the `.bn` is not prepended into the merged file (`sameFuncDecl`
 matches the `.bn` method, `pkg/binate/loader/loader_load.bn`), and `LoadPackageInterface` registers nothing
