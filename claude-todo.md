@@ -73,6 +73,13 @@ imported package's constant, `genImportedConstExpr` (`pkg/binate/irgen/gen_expr.
 Fix: install the defining file's imports while re-lowering (as `registerImportConstsAndVars` does, via
 `beginDeclImports` / `di.use`), and make `resolveTypeExpr`'s silent `TypInt` fallback an internal error.
 Test: `conformance/1599_xpkg_const_expr_own_import` (`.xfail.all`).
+Progress (work-7, 2026-10-10): the re-lowering fix is done on work-7 (not yet landed).  The fallback half was
+tried and backed out: with resolveTypeExpr's three `TypInt` fallbacks (a qualified miss, a bare miss, an
+uninstantiable TEXPR_INSTANTIATE) made internal errors, the full LLVM conformance suite passes (3555/0), but
+building pkg/binate/interp and pkg/binate/repl panics ("cannot resolve the type entries" — interp/externs.bn
+`entries[i].descriptor`, which IR-gen evidently probes as a generic instantiation `entries[i]` and reads the int
+fallback as "not a type"), and the irgen and vm unit tests abort.  So callers use resolveTypeExpr as a "does
+this name a type?" probe; those need a non-panicking lookup before the fallback can become an error.
 
 ### bnld input readers: three silent mis-reads — `.init_array` dropped, a 64-bit addend truncated on a 32-bit host, malformed relocation sections skipped — 🟡 IN PROGRESS (claimed 2026-10-09, work-2; user: "bnld reader MAJOR") MAJOR (found 2026-10-06, work-2, mapping bnld for relocatable data; confirmed by reading; pre-existing)
 
