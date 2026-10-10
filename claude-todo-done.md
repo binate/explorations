@@ -1504,7 +1504,7 @@ load for a receiver whose named type is itself a pointer).  Probably the same fo
 value receiver (the probe's line for it was cut off by the runner's output limit — check).  Native
 backends not yet checked.  Needs a conformance test over raw and managed interfaces, `@`- and
 `*`-named receivers, and every backend.
-Resolution (binate `43ec0b636`): A named pointer type is boxed as a value (`box(h)` / `&h` / the implicit borrow of a bare `h`), so the box points at an H and H's value-receiver methods dispatch through the deref thunk.  Conformance spec 11/095, 1542, 1469.
+Resolution (binate `43ec0b636`): A named pointer type is boxed as a value (`box(h)` / `&h` / the implicit borrow of a bare `h`), so the box points at an H and H's value-receiver methods dispatch through the deref thunk.  Conformance spec 11/095, 1542, 1469.  The managed `@H` → `@I` drop that corrupted memory (below) is covered by conformance spec 11/102 (binate `d76586baa`, 2026-10-09, work-6).
 
 ### `@any` of a named managed pointer or function value (`type H @Node`, `type F @func() int`) never matches its own `case` — DONE (binate `43ec0b636`, 2026-10-04, work-3)
 
