@@ -24,22 +24,6 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### Native arm32 fails to compile a field access at a large offset in a by-value aggregate parameter used in place — 🟡 IN PROGRESS (claimed 2026-10-09, work-1; user: "yes, go ahead with that") MAJOR (found 2026-10-09, work-1, review of the D3 returned-local change; regression from binate `2e5cec867`; native arm32 only)
-
-`type Far struct { pad [70]int32; h int16; sb int8; pad2 [1100]int32; w int32 }`, `func g(p Far) int { return
-cast(int, p.h) + ... }` fails to build on native arm32 (bare metal and Linux): `arm32: LDRH/STRH/LDRSB/LDRSH
-immediate offset out of range (magnitude must fit 255)` (a word / byte access past 4095 fails the same way).
-LLVM arm32 and native aa64 / x64 build and run it.  Cause: `2e5cec867` made a stack-passed by-value aggregate
-parameter's slot its incoming bytes (no frame region).  common_field_gep_fuse.bn:103 skips the arm32 offset
-bound for any OP_ALLOC base, on the premise that the fused emitter folds the address SP-relative and puts an
-out-of-range offset in IP; a slot with no region instead takes arm32_fused_mem.bn's register-base path (load
-:92-95, store :140-142), which hands the raw field offset to emitScalarLoad / emitScalarStore, and the encoder
-rejects it.  Before `2e5cec867` the slot had a region, so this compiled.  The unlanded D3 change (a returned
-local kept in the caller's buffer, also no region) hits it the same way.  Fix: in the arm32 fused emitters'
-no-region path, materialize an out-of-range offset in IP as the region path does (the 64-bit and float paths
-already go through fusedFieldAddr); test with a conformance case of far fields in an in-place parameter and in a
-returned local, on native arm32.  Repro: review_d3/v1/d1far.bn-style program above.
-
 ### The LLVM backend declares a function's own sret parameter `align 8` whatever the result's alignment; a C caller's buffer may be less aligned — 🔴 OPEN (found 2026-10-09, work-1, review of the returned-local change; pre-existing; plausible, not yet reproduced)
 
 A function returning through sret is defined `define void @f(ptr sret(%T) align 8 %v.retbuf, ...)`

@@ -607,6 +607,16 @@ index / >32-bit displacement.  Tests: x64_mem_test.bn in parse and asm/x64 (clan
 in 4 instructions match clang byte for byte.  Raised with the user, undecided: 32-bit addressing (now rejected),
 `-~8` (clang's Intel parser computes it wrongly), absolute `[lbl]` (unsupported, as before).
 
+### Native arm32 failed to compile a far field access in a by-value aggregate parameter used in place — DONE (binate `8a7b95ecc`, 2026-10-09, work-1; MAJOR regression from `2e5cec867`)
+
+`func g(p Far) int { return cast(int, p.h) }` with p.h 280 bytes into a by-value struct failed to build on
+native arm32 (`LDRH/STRH/LDRSB/LDRSH immediate offset out of range`): since `2e5cec867` an in-place parameter's
+slot has no frame region, and arm32's fused single-word field load / store sent such an alloca base down the
+register-base path with the raw (unbounded) field offset.  The fused paths now put base + offset in IP past
+smallImm, as the region path did; the float / 64-bit paths already did.  Found by the review of the
+returned-local change (D3), whose local in the caller's buffer takes the same path.  Conformance 1611 (fails
+before the fix on native arm32); validated on native arm32 bare metal (-O0 / -O2) and Linux (-O2).
+
 ### `return f()` hands the caller's result buffer to the call — DONE (binate `3c18f42d4`, 2026-10-09, work-1)
 
 Second half of plan-aggregate-copy-opts.md D2.  A function returning one aggregate through its caller's sret
