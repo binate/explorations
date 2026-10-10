@@ -1,3 +1,42 @@
+### bnfmt: an empty statement in a block prints a blank line — `g();;` gains a line the source does not have — DONE (binate `ac44aeb2d`, 2026-10-09, work-7) (found 2026-10-07, work-7, review of the written-`;` lexer fix; pre-existing; claimed 2026-10-09, work-7/session; user: "Let's take on all the open things")
+
+printStmt prints nothing for an STMT_EMPTY, but printBlockMulti (pkg/binate/format/print_stmt.bn, near :88) still
+writes the newline and indentation before it, so `func f() {\n\tg();;\n\th()\n}` formats as `\tg()\n\n\th()` — a
+blank line that is not in the source.  (Before the lexer stopped inserting a second semicolon after a written one,
+every line-ending `;` in a block did this.)  **To do:** skip empty statements in the block printer's separator
+logic; a format golden test with `;;` in a block and at its end.
+
+**Resolved** by binate `ac44aeb2d` ("format: an empty statement prints as nothing — no blank line, no `; `"):
+the block and case-body printers print the statements printedStmts returns — all but the empty ones — so a written
+`;;` gets no line or `; ` of its own and a block of nothing but `;` prints `{}`; a line holding only `;` between
+statements formats as a blank line (the source's vertical spacing).  Test: TestFormatEmptyStatementsDropped.
+Raised with the user, undecided: under §14.14 as written a trailing empty statement makes a block non-terminating
+(`return 1;;` ending a function is "missing return"), and bnfmt's output for it (`return 1`) compiles.
+
+### REPL: a fault in a variable's initializer does not name the variable — DONE (binate `a32e01428`, 2026-10-09, work-7) (found 2026-10-07, work-7, review of the REPL lost-fault fix; pre-existing; claimed 2026-10-09, work-7/session; user: "naming the variable seems like a good idea")
+
+A fault in an initializer the REPL runs is reported as the VM's bare message (`runtime error: index out of bounds:
+5 (len 2)`).  Since a code unit stops on an entry's own fault but not on that of a parked declaration the entry
+lets resolve, the two read the same and the user cannot tell which variable faulted.  A prompt import's package
+initializer already names its package ("initialization of package P faulted: …").  **To do:** name the variable
+(or group member) whose initializer faulted; unit tests for an entry's own and a resolved parked declaration's.
+
+**Resolved** by binate `a32e01428` ("repl: a fault in a variable's initializer names the variable"):
+callTurnCode leads a fault's diagnostic with a prefix; a variable's initializer (or zero reset) reports
+"initialization of variable x faulted: …", a statement's own fault the bare message.  Tests: the REPL fault tests
+check the prefix; TestUnitEvaluatesEveryDeclaration checks a statement's fault has none.
+
+### REPL: a suspended or broken turn does not advance the turn counter — the next statement turn reuses its `__repl_<n>` — DONE (binate `26b21bd5c`, 2026-10-09, work-7) (found 2026-10-06, work-7, review of the REPL code-unit fix; pre-existing, latent: nothing in the tree arms an interrupt poll; claimed 2026-10-09, work-7/session; user: "Let's take on all the open things")
+
+finishTurn advances s.Counter only for a turn that is neither suspended nor broken, but a new turn never resumes
+an interrupted one (the VM starts each call afresh), so the next turn's statement run is generated under the
+interrupted turn's name `__repl_<n>` again.  **To do:** decide what an interrupted turn's index is (it ran: it
+should advance), fix finishTurn, and test a statement turn after a suspended / broken one.
+
+**Resolved** by binate `26b21bd5c` ("repl: a suspended or broken turn takes its turn index"): finishTurn
+advances the counter for every turn — an interrupted turn uses up its index, so a future resume must continue it
+under that index rather than advance again (user approved landing).  Test: TestInterruptedTurnAdvancesCounter.
+
 ### Lexer: a newline after a written `;` inserts a second semicolon — `var a int;` then a declaration on the next line does not parse — DONE (binate `4ac680998`, 2026-10-09, work-7) (found 2026-10-07, work-7, review of the REPL code-unit fix; pre-existing; claimed 2026-10-07, work-7/session; user: "takes do 1 now")
 
 lex.semicolon.insertion (§5.13) inserts a semicolon at a newline only after an identifier, a literal, the listed
