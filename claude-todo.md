@@ -112,6 +112,17 @@ linkage like the function-value shims, on LLVM and in both native emitters, or n
 conformance `1610_method_value_two_modules` (expected-fail in every mode; the VM passes, so the marker is per
 compiled mode).
 
+### A method value of a generic instance whose method signature names the instance fails to build on LLVM — 🔴 OPEN MAJOR (found 2026-10-10, work-4, review of the link-once method-value wrapper; pre-existing; LLVM only — native and the VM are right)
+
+`func (b Box[T]) gx(y Box[T]) Box[T]`; `var g *func(Box[int]) Box[int] = b.gx` fails in clang: "expected '=' after
+name" at `%bn_S1_4_main1_8_Box[int] = type …`.  synthMethodValueWrapper (gen_method_value_wrapper.bn) takes the
+wrapper's parameter and result types straight from the checker's method signature (`m.FuncType`); only the
+receiver is remapped to IR-gen's type (remapCapturedBaseToIR), so a parameter or result naming the instance keeps
+the checker's raw `Box[int]` spelling, which the LLVM emitter turns into an invalid identifier.  Fix: map the
+wrapper's parameter and result types through irTypeFromChecker (in the instance's context).  The method-EXPRESSION
+variant is a separate entry.  Test: conformance `spec/10-functions/221_method_value_generic_self_param`
+(expected-fail on the LLVM modes).
+
 ### Does stmt.defer retain an `@T` boxed into a deferred `*I` / `*any` argument? — 🔴 NEEDS DECISION MAJOR (found 2026-10-04, work-4, review of the deferred variadic pack fix; reproduced on main, LLVM / native / VM; pre-existing)
 
 `defer run1(mk(11))` with `func run1(x *any)` and `mk` returning `@Thing`, and `defer runv(mk(12), mk(13))` into
