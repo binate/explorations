@@ -152,6 +152,23 @@ D. Copy chains (load → private copy → temp slot → argument): revisit after
      ownership handling gives the value a second use — so managed-slice / interface-value returns still copy
      (on arm32 nearly every such return is sret).
    - D3. A local returned at every return lives in the sret buffer.
+     Design (2026-10-09, work-1; recon on `3c18f42d4`).  -O2 `mk`: `var b Big; b.n = k; ...; return b` —
+     native zero-fills b's region, copies b into the load's region, then that into the caller's buffer (two
+     808-byte copies; the load is not elided: b is reached through field pointers); LLVM zero-fills, copies
+     into `.m`, then into `%v.retbuf`.  Shared emit-time analysis (native/common RetbufLocal): f has one
+     aggregate result; every OP_RETURN returns, as its one value, a whole OP_LOAD of the same plain stack slot
+     S (the result's size), in the return's block, the load's only use; nothing between such a load and its
+     return references S or a value computed from it; S's address never leaves f (slotReach); S is not a slot
+     that may be a parameter's incoming copy.  Honoured when f returns through a buffer.  Native: S gets no
+     region and its spill slot is SretSlotOff (holding the incoming pointer), so every address use goes
+     through getOperand as for an in-place parameter slot; its zero-fill goes through that pointer and covers
+     exactly SizeOf bytes (the caller's buffer may be exactly the struct's size — a frame region's 8-rounding
+     must not leak into it); the returned loads get no region (emitAggLoad's no-region path aliases S) and the
+     return copies nothing.  A call stored into S keeps copying natively (S has no region, so
+     placeCallResults falls back).  LLVM: S's alloca is `getelementptr i8, ptr %v.retbuf, i64 0`, the returned
+     load is not emitted, and the return is `ret void`.  Safe because the caller's buffer is private to the
+     call (a temporary, a non-escaping local per CallResultSlots, the caller's own incoming buffer per
+     ReturnedCallResults; a C caller's sret buffer may be written by the callee at any time — clang's NRVO).
    - D4. A confined local whose last use is a by-value argument is passed without a copy (needs D1; aa64
      only — on x64 / arm32 the C ABI copies the value into the argument area regardless).
 
