@@ -83,7 +83,7 @@ works.  Likely cause: the method-value closure's destructor is named from the re
 the importing package instead of the opaque type's owning package (whose module emits `__dtor_Foo` for an opaque
 export).  Test: conformance `1604_method_value_xpkg_opaque_receiver` (expected-fail in every mode).
 
-### A method value of a `readonly *T` handle method taken from an addressable value crashes — 🔴 OPEN MAJOR (found 2026-10-09, work-4, review of the opaque method-value fix; pre-existing; LLVM / native / VM)
+### A method value of a `readonly *T` handle method taken from an addressable value crashes — 🟡 IN PROGRESS (claimed 2026-10-09, work-4) MAJOR (found 2026-10-09, work-4, review of the opaque method-value fix; pre-existing; LLVM / native / VM)
 
 `var t T; …; var f *func(int) = t.hpro; f(1)` with `func (r readonly *T) hpro(n int)` segfaults (exit 139) in every
 mode; the call `t.hpro(1)` and the method value through a pointer (`pt.hpro`) work.  Cause: `methodValueBridge`
