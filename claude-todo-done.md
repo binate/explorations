@@ -1,3 +1,21 @@
+### A method value of an imported opaque type names its destructor in the wrong package — DONE (binate `d9ebbff1d`, 2026-10-09, work-4; found 2026-10-06 in review of the field-over-method fix)
+
+`var p @opq.Foo = opq.New(); var g *func(int) = p.g` (Foo opaque — `type Foo` in opq.bni, its layout in opq.bn;
+`g` has an `@Foo` receiver) fails to build: the method value's capture is released through `main.__dtor_Foo`, a
+destructor no module defines — LLVM "use of undefined value '@__handle.bn_F1_4_main1_11___dtor_3Foo'", native an
+undefined symbol at link, the VM "function not found: main.__dtor_3Foo" at exit.  A non-opaque imported type
+works.  Likely cause: the method-value closure's destructor is named from the receiver type's name as written in
+the importing package instead of the opaque type's owning package (whose module emits `__dtor_Foo` for an opaque
+export).  Test: conformance `1604_method_value_xpkg_opaque_receiver` (expected-fail in every mode).
+
+Resolution: remapCapturedBaseToIR swaps every named base of the captured receiver type for the receiver's IR-gen
+base (it used to only for a generic instantiation), keeping every pointer / managed / readonly wrapper
+(withNamedBase — the old rebuild kept only an outermost `*` / `@`).  That also fixed method values of read-only handle
+methods on a generic instance (captured the struct by value) and of a distinct named type over a generic instance
+(LLVM type named `Box[int]`).  Tests: 1604 (no longer expected-fail; `@Foo` / `*Foo` receivers, a loop, no leak) and
+`spec/10-functions/219_method_value_generic_handle_receivers`.  The review found the readonly-handle-from-a-value
+crash (220) and the duplicate method-value wrapper across modules (1610) — their own entries.
+
 ### Termination analysis — does a trailing empty statement make a block non-terminating? — DECIDED, no change (decided 2026-10-09; raised 2026-10-07, work-7, writing the bnfmt empty-statement fix)
 
 stmt.terminating (§14.14) says a block terminates iff its **last** statement does, and stmt.empty (§14.2) makes an

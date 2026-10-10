@@ -87,16 +87,6 @@ Test: `conformance/1599_xpkg_const_expr_own_import` (`.xfail.all`).
    relocations are silently not applied.  Fix: an error.
 **Test:** to be added with each fix (an object built by clang for 1, a hand-made ELF for 2 and 3).
 
-### A method value of an imported opaque type names its destructor in the wrong package — 🟡 IN PROGRESS (claimed 2026-10-09, work-4) MAJOR (found 2026-10-06, work-4, review of the field-over-method fix; pre-existing; LLVM / native / VM)
-
-`var p @opq.Foo = opq.New(); var g *func(int) = p.g` (Foo opaque — `type Foo` in opq.bni, its layout in opq.bn;
-`g` has an `@Foo` receiver) fails to build: the method value's capture is released through `main.__dtor_Foo`, a
-destructor no module defines — LLVM "use of undefined value '@__handle.bn_F1_4_main1_11___dtor_3Foo'", native an
-undefined symbol at link, the VM "function not found: main.__dtor_3Foo" at exit.  A non-opaque imported type
-works.  Likely cause: the method-value closure's destructor is named from the receiver type's name as written in
-the importing package instead of the opaque type's owning package (whose module emits `__dtor_Foo` for an opaque
-export).  Test: conformance `1604_method_value_xpkg_opaque_receiver` (expected-fail in every mode).
-
 ### A method value of a `readonly *T` handle method taken from an addressable value crashes — 🟡 IN PROGRESS (claimed 2026-10-09, work-4) MAJOR (found 2026-10-09, work-4, review of the opaque method-value fix; pre-existing; LLVM / native / VM)
 
 `var t T; …; var f *func(int) = t.hpro; f(1)` with `func (r readonly *T) hpro(n int)` segfaults (exit 139) in every
@@ -114,7 +104,7 @@ Taking `s.v` in package gl (the method's own package) and again in main fails th
 named from the method's qualified name + the captured form) is emitted as a strong definition in every module that
 takes the value.  Fix: give the wrapper (and its closure struct's per-module pieces, if any) weak / linkonce_odr
 linkage like the function-value shims, on LLVM and in both native emitters, or name it per module.  Test:
-conformance `1605_method_value_two_modules` (expected-fail in every mode; the VM passes, so the marker is per
+conformance `1610_method_value_two_modules` (expected-fail in every mode; the VM passes, so the marker is per
 compiled mode).
 
 ### Does stmt.defer retain an `@T` boxed into a deferred `*I` / `*any` argument? — 🔴 NEEDS DECISION MAJOR (found 2026-10-04, work-4, review of the deferred variadic pack fix; reproduced on main, LLVM / native / VM; pre-existing)
