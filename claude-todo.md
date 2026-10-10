@@ -486,6 +486,8 @@ Each needs a test (xfail'd) + triage; grouped here so none is lost.
   defines `__Package`, `__pkg_info`, `__pkg_funcs`, `__pkg_satfrag` and `__ifaceid` copies.
 - **Unverified:** the REPL (`repl/ir_imports.bn`) has no equivalent of `registerGenericBodyExternDeps`.
 - **Hazard:** `gen_type_resolve.bn:113,153,193` silently fall back to `TypInt()` on a registry miss.
+  An opaque type argument reaches it and gives a wrong result (2026-10-10): see the entry "A generic
+  instantiated with an opaque type argument IS its `int` instance".
 
 ### Compile time is superlinear in function size — iropt mem2reg, the native allocator/liveness passes, and the compiler-wide copy-per-append `slices.Append` — 🔴 OPEN (found 2026-09-27)
 
@@ -672,6 +674,23 @@ are accepted, while `type P *([2]Op)` and a field `p *[2]Op` are rejected;
 (3) a function-value type with an opaque by-value parameter or result (`type F *func(Op) int`, as a
 declaration or a field) is accepted, while `func f(o Op)` is rejected — check the spec whether a
 function-value TYPE needs its parameters sized before it is called.  Fix each with a test.
+
+### A generic instantiated with an opaque type argument IS its `int` instance — a `@PBox[Opaque]` passes `.(@PBox[int])` — 🔴 OPEN MAJOR (found 2026-10-10, work-7, while fixing the nested opaque-pointee gap; reproduced on LLVM, native aa64 and the VM; pre-existing)
+
+IR-gen's `resolveTypeExpr` (`pkg/binate/irgen/gen_type_resolve.bn`) has no case for a forward-declared
+(opaque) type: `Opaque` is no registered struct, alias or predeclared type, so it reaches the silent
+`types.TypInt()` fallback (the "Hazard" bullet of the forwarder-audit entry).  A generic instance's type
+arguments are resolved through it, so `PBox[Opaque]` (`type PBox[T any] struct { p *T; n int }`, legal: T
+only behind a pointer) gets the mangled name, struct type and type identity of `PBox[int]`
+(`main.PBox__bn_inst__1_N0_3_int`): a `@PBox[Opaque]` held in an `@any` passes an assertion to
+`@PBox[int]` — conformance `1617_generic_opaque_arg_identity` prints `true true 7` for `false true 7`
+(xfailed on every mode).  A generic whose fields do not use T (`type Box[T any] struct { n int }`)
+instantiated with an opaque type crashes the compiler instead ("internal error: no checked copy of
+generic type instance main.Box__bn_inst__1_N0_3_int").  A non-generic `*Opaque` boxed into an `@any`
+keeps its identity (the box takes its type from the checker).  Fix: resolve an opaque type in IR-gen to a
+named type of its own (its qualified name, no layout — the checker rejects every by-value use) so an
+instance mangles it as itself; and make the `TypInt()` fallbacks fail loud rather than silently yield
+`int`.
 
 ### Loader: a package with one `.bn` file gets the `.bni`'s imports (and declarations) merged into that file's own AST — its file scope sees imports it does not write — 🔴 OPEN (found 2026-10-09, work-7, review of the imported float const-expression fix; code reading; pre-existing)
 
