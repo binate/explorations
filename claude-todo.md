@@ -652,7 +652,7 @@ Fix: compare the pair, matching the two declarations' type parameters up (by pos
 receiver and signature; or decide that a generic method is defined in exactly one of the two files and
 reject a second definition.  The skip carries a `// TODO:` pointing here.
 
-### A generic instantiated with an opaque type argument IS its `int` instance — a `@PBox[Opaque]` passes `.(@PBox[int])` — 🔴 OPEN MAJOR (found 2026-10-10, work-7, while fixing the nested opaque-pointee gap; reproduced on LLVM, native aa64 and the VM; pre-existing)
+### A generic instantiated with an opaque type argument IS its `int` instance — a `@PBox[Opaque]` passes `.(@PBox[int])` — 🟡 IN PROGRESS MAJOR (found 2026-10-10, work-7, while fixing the nested opaque-pointee gap; reproduced on LLVM, native aa64 and the VM; pre-existing; claimed 2026-10-10, work-7/session — user: "yes, go ahead" (both parts: register .bn forward types in IR-gen, then make the TypInt fallbacks fail loud))
 
 IR-gen's `resolveTypeExpr` (`pkg/binate/irgen/gen_type_resolve.bn`) has no case for a forward-declared
 (opaque) type: `Opaque` is no registered struct, alias or predeclared type, so it reaches the silent
