@@ -1243,6 +1243,16 @@ func foo[T ComparableStringer, U any](a T, b U) { ... }
 
 **Type checking**: generic body checked once against the constraint. Instantiation only verifies the concrete type satisfies the constraint.
 
+**Function literals at a type-parameter destination — DECIDED 2026-10-09.** A function literal cast to a type
+parameter (`cast(T, func…)`, `unsafe_cast(T, func…)`) takes each instantiation's type for `T` (§12.3
+`gen.mono.check`, §10.9 `func.lit.inferred-default`; binate `d938d91bb`, the user's "Reading A").  An
+*implicit* destination of type `T` — `var g T = func…`, `return func…` from a function returning `T`, an
+argument for a `T` parameter — stays checked once against the abstract `T`, so it is rejected (`@func(…)` is
+not assignable to `T`).  Typing it per instantiation would move the error from the generic's author to whoever
+instantiates it (no constraint can say "`T` is a `func(int) int` type"), and make an implicit conversion's
+validity depend on the type argument, for nothing the explicit `cast(T, func…)` does not already do.  User:
+"ok, that seems reasonable".
+
 **No generic methods on types** (like Go). Use generic free functions instead. **(SUPERSEDED — see next.)**
 
 **Methods on generic types + parameterized-receiver impls — DECIDED 2026-07-05 (spec'd, impl pending)**: relaxes the over-broad `gen.no-generic-methods`, which conflated two distinct things:
