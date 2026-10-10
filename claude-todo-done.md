@@ -537,6 +537,19 @@ index / >32-bit displacement.  Tests: x64_mem_test.bn in parse and asm/x64 (clan
 in 4 instructions match clang byte for byte.  Raised with the user, undecided: 32-bit addressing (now rejected),
 `-~8` (clang's Intel parser computes it wrongly), absolute `[lbl]` (unsupported, as before).
 
+### `return f()` hands the caller's result buffer to the call — DONE (binate `3c18f42d4`, 2026-10-09, work-1)
+
+Second half of plan-aggregate-copy-opts.md D2.  A function returning one aggregate through its caller's sret
+buffer that returns a direct call's result as is (the result's only use, same block, same size) passes its
+buffer on: common.ReturnedCallResults; each backend checks that the function and the call both return through a
+buffer (natively FuncReturnsBigAggregate / CallReturnsBigAggregate; LLVM needsSret / lookupIsSret).  Native:
+X8 / RDI / R0 loaded from SretSlotOff, the call's value is that pointer, no region, no copy at the return (x64
+and arm32 still return the pointer in RAX / R0).  LLVM: the call passes `%v.retbuf`, no `.sret` alloca or load,
+`ret void`.  -O2 native aa64 `passOn`: frame 0x340 → 0x20, the 808-byte copy gone.  Conformance 1608, 1609 (the
+review's probes); unit tests.  Validated: aggregate subset at -O2 and -O0 on native aa64 / x64 / arm32 bare metal,
+-O2 on native arm32 Linux and LLVM aa64 / x64 / arm32 bare metal, -O0 on LLVM aa64 and the VM; e2e.  One review
+(no miscompile; its coverage findings — an inlined defer case, more shapes — folded in).
+
 ### A call's aggregate result stored into a local is written there directly — DONE (binate `9fe09deb6`, 2026-10-07, work-1)
 
 Part of "IR-level optimizations for large-aggregate copies" (claude-todo.md; plan-aggregate-copy-opts.md D2,

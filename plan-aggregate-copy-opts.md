@@ -143,7 +143,14 @@ D. Copy chains (load → private copy → temp slot → argument): revisit after
      Status: the slot case DONE `9fe09deb6` (2026-10-07) — conformance 1606 / 1607; a local declared before a
      loop is placed too (the slot's OP_ALLOC need only not sit between the call and the store, unless
      NoZeroInit); LLVM honours it for direct sret calls only (other LLVM calls keep their copy).  -O2 native
-     aa64: `var x Big = mk(k); use x` frame 0x6a0 → 0x370, no copy.  Next: the return case.
+     aa64: `var x Big = mk(k); use x` frame 0x6a0 → 0x370, no copy.
+     The return case DONE `3c18f42d4` (2026-10-09) — common.ReturnedCallResults: a direct call whose result is
+     the function's one aggregate result, returned as is in the call's block, gets the incoming sret buffer
+     (natively X8 / RDI / R0 loaded from SretSlotOff, no region, no copy at the return; LLVM passes
+     `%v.retbuf`).  -O2 native aa64 `passOn`: frame 0x340 → 0x20, no copy.  Conformance 1608 / 1609.
+     Not covered (review observation, user's call): results with managed fields never qualify — their
+     ownership handling gives the value a second use — so managed-slice / interface-value returns still copy
+     (on arm32 nearly every such return is sret).
    - D3. A local returned at every return lives in the sret buffer.
    - D4. A confined local whose last use is a by-value argument is passed without a copy (needs D1; aa64
      only — on x64 / arm32 the C ABI copies the value into the argument area regardless).
