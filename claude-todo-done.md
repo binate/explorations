@@ -1,3 +1,26 @@
+### Lexer: a newline after a written `;` inserts a second semicolon — `var a int;` then a declaration on the next line does not parse — DONE (binate `4ac680998`, 2026-10-09, work-7) (found 2026-10-07, work-7, review of the REPL code-unit fix; pre-existing; claimed 2026-10-07, work-7/session; user: "takes do 1 now")
+
+lex.semicolon.insertion (§5.13) inserts a semicolon at a newline only after an identifier, a literal, the listed
+keywords, `++`, `--`, `)`, `]` or `}` — "an explicit `;` is always a statement terminator".  The lexer
+(pkg/binate/lexer/lexer.bn, the end of its next-token function: `if tok.Typ != token.SEMICOLON { l.lastTok =
+tok.Typ }`) does not record a written `;` as the last token, so the token before it decides insertion at the
+following newline (or end of input): `X;\nY` lexes as `X ; ; Y`.  Inside a block that is a harmless empty
+statement; at the top level of a .bn file `var a int;` followed by `var b int` is rejected ("expected
+declaration"), as is a line-ending `;` inside a `var ( … )` group.  (The REPL's code units skip empty entries,
+so they are unaffected.)  **To do:** record a written `;` as the last token; lexer tests for `;` + newline and
+`;` + end of input; a parser test of a top-level declaration ending in `;`; check that bnfmt's output does not
+change for sources with line-ending semicolons.
+
+**Resolved** by binate `4ac680998` ("lexer: no semicolon is inserted after a written `;`"): a written `;` is
+recorded as the last token like any other.  Besides the rejected top-level / group / struct / interface lines, the
+doubled semicolon made a function or case ending in `return x;` fail with "missing return", made bnfmt print a blank
+line where the `;` was, and turned `for i := 0;` then `i++ {` into `for i := 0; ; i++` (now a parse error); the
+three-clause header written one clause per line now parses.  No source in the tree ends a line with `;`.  Tests:
+TestNoASIAfterWrittenSemicolon, TestParseFileLineEndingSemicolons, TestParseForHeaderMissingClause,
+TestParseBniLineEndingSemicolons, TestFormatLineEndingSemicolons; conformance
+spec/05-lexical/191_asi_no_insert_after_semicolon.  The pre-existing bnfmt blank line for a written `;;` in a block
+is its own entry ("bnfmt: an empty statement in a block prints a blank line").
+
 ### aa64 text assembler: label differences — relocatable data on all three architectures — DONE (binate `9543677c8`, `42942da63`, `6081d76ae`, `9d0d7e4be`, `a3fcc5313`, 2026-10-05..07, work-2; plan-aa64-asm-symbols.md 3e)
 
 `l2 - l1` and its kin, from the completeness list (user, 2026-09-30: its own family).  A difference fixed at

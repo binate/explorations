@@ -92,19 +92,6 @@ blank line that is not in the source.  (Before the lexer stopped inserting a sec
 every line-ending `;` in a block did this.)  **To do:** skip empty statements in the block printer's separator
 logic; a format golden test with `;;` in a block and at its end.
 
-### Lexer: a newline after a written `;` inserts a second semicolon — `var a int;` then a declaration on the next line does not parse — 🟡 IN PROGRESS (found 2026-10-07, work-7, review of the REPL code-unit fix; pre-existing; claimed 2026-10-07, work-7/session; user: "takes do 1 now")
-
-lex.semicolon.insertion (§5.13) inserts a semicolon at a newline only after an identifier, a literal, the listed
-keywords, `++`, `--`, `)`, `]` or `}` — "an explicit `;` is always a statement terminator".  The lexer
-(pkg/binate/lexer/lexer.bn, the end of its next-token function: `if tok.Typ != token.SEMICOLON { l.lastTok =
-tok.Typ }`) does not record a written `;` as the last token, so the token before it decides insertion at the
-following newline (or end of input): `X;\nY` lexes as `X ; ; Y`.  Inside a block that is a harmless empty
-statement; at the top level of a .bn file `var a int;` followed by `var b int` is rejected ("expected
-declaration"), as is a line-ending `;` inside a `var ( … )` group.  (The REPL's code units skip empty entries,
-so they are unaffected.)  **To do:** record a written `;` as the last token; lexer tests for `;` + newline and
-`;` + end of input; a parser test of a top-level declaration ending in `;`; check that bnfmt's output does not
-change for sources with line-ending semicolons.
-
 ### A function NAME passed into `*any` compiles and boxes nothing — silent wrong value — 🔴 NEEDS DECISION MAJOR (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
 
 With `func add(a int, b int) int` and `func take(x *any) bool { return present(x) }`, `take(add)` compiles
