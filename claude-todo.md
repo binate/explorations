@@ -24,7 +24,7 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### Native arm32 fails to compile a field access at a large offset in a by-value aggregate parameter used in place — 🔴 OPEN MAJOR (found 2026-10-09, work-1, review of the D3 returned-local change; regression from binate `2e5cec867`; native arm32 only)
+### Native arm32 fails to compile a field access at a large offset in a by-value aggregate parameter used in place — 🟡 IN PROGRESS (claimed 2026-10-09, work-1; user: "yes, go ahead with that") MAJOR (found 2026-10-09, work-1, review of the D3 returned-local change; regression from binate `2e5cec867`; native arm32 only)
 
 `type Far struct { pad [70]int32; h int16; sb int8; pad2 [1100]int32; w int32 }`, `func g(p Far) int { return
 cast(int, p.h) + ... }` fails to build on native arm32 (bare metal and Linux): `arm32: LDRH/STRH/LDRSB/LDRSH
@@ -39,6 +39,20 @@ local kept in the caller's buffer, also no region) hits it the same way.  Fix: i
 no-region path, materialize an out-of-range offset in IP as the region path does (the 64-bit and float paths
 already go through fusedFieldAddr); test with a conformance case of far fields in an in-place parameter and in a
 returned local, on native arm32.  Repro: review_d3/v1/d1far.bn-style program above.
+
+### The LLVM backend declares a function's own sret parameter `align 8` whatever the result's alignment; a C caller's buffer may be less aligned — 🔴 OPEN (found 2026-10-09, work-1, review of the returned-local change; pre-existing; plausible, not yet reproduced)
+
+A function returning through sret is defined `define void @f(ptr sret(%T) align 8 %v.retbuf, ...)`
+(emit_debug.bn), promising LLVM an 8-aligned buffer for every T.  Binate callers keep that promise (an LLVM
+`.sret` buffer is declared `align 8` by writeResultBufAlign; native frame regions are 8-aligned), but a C caller
+reaching the function through #[c_export] — the alias, or an __c_entry thunk, hands a single sret aggregate's
+C pointer straight through — aligns its buffer only to alignof(T): 4 for a struct of int32s, 1 for a char array.
+LLVM may then access the buffer with instructions that need 8-byte alignment (LDRD / STRD, NEON on arm32, which
+fault on a strict-alignment target).  The native backends assume nothing.  The return-time copy into the buffer
+relied on it already; the returned-local change (a local living in the buffer for the whole function) widens
+the exposure.  Fix: spell the define line's alignment from T (its AlignOf, as byvalArgAlign does for by-value
+arguments) — at least for functions a C caller can reach; reproduce first with an e2e C caller passing a
+4-aligned, not 8-aligned, buffer to a #[c_export] function returning a struct of int32s, on arm32.
 
 ### An imported float const-expression is re-lowered against the IMPORTER's imports — silent wrong value — 🔴 OPEN MAJOR (found 2026-10-07, work-3, review of the float-conversion constant fix; pre-existing)
 
