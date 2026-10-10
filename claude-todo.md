@@ -649,6 +649,27 @@ A live instance (seen 2026-10-07, work-3): `pkg/binate/check.bni` declares `Chec
 `CheckPackageDecls(path, merged)`, while the `.bn` methods, and every caller (cmd/bnc, cmd/bnlint, interp,
 repl), take `(path, merged, files, bni)`.
 
+### A `.bni` method declaration may name a type only the `.bn` declares — the interface is not self-contained — 🔴 OPEN (found 2026-10-10, work-7, review of the `.bni` method consistency check; code reading; pre-existing)
+
+A package can ship as its `.bni` plus a compiled library (§16.5.1), so every `.bni` declaration must resolve
+from the `.bni` alone.  `.bni` free functions do (`buildScopeFromFile` resolves them against the interface's
+own declarations and imports), but `.bni` methods do not: the `.bni` file scope (`addFileScope(c, bni,
+pkgScope)` in `checkPackageImpl`) chains to the package scope, which holds the `.bn`'s private
+declarations.  So with `type hidden struct { x int }` only in the `.bn`, `.bni` methods `func (t *T) Use(p
+@hidden)` and `func (h *hidden) M()` are accepted — both the ones the `.bn` defines (checked by
+`checkBniMethodDecls`) and extern ones (prepended into merged, collected by `collectMethodDecl`) — and a
+`.bni` method may name a generic type only the `.bn` declares (`*priv[int]`), through the generic stash's
+`curPkgPath` fallback.  A program reading only the interface (an interface-only load) would fail on them.
+No tree `.bni` does this today (a sweep of the 462 non-generic `.bni` methods found none).  An attempted
+fix that resolved only the `.bn`-defined methods in a copy of the surface was reverted: it covered neither
+the extern methods nor the generics, and the surface copies drop constant values, so a `[N]int` in a `.bni`
+method signature compared as `[0]int`.  Proposed root fix: chain the `.bni` file scope to the interface
+surface (its own declarations with their constant values, its imports, the universe) rather than to the
+package scope, so every `.bni` declaration — methods, extern methods, impls — resolves as the interface
+does, and key the generic lookups for `.bni` declarations on the interface's own generics.  Care: file
+scopes delegate `Define` to their parent (`DelegateDefine`), and the prepended `.bni` declarations are
+defined through them.
+
 ### Should a function-value type's parameters and results be held to the opaque rules? — 🔴 NEEDS DECISION (raised 2026-10-03, work-3, review of the type-declaration opaque check; split out 2026-10-10, work-7)
 
 With `type Op` opaque, a function declaration's by-value opaque parameter or result is rejected (`func f(o
@@ -666,6 +687,16 @@ results to the rules a function declaration's are held to (reject `*func(Op) int
 (`g()` on an `@func() Op`), and spec that.  Recommendation: (a) — one rule for every signature, the error
 where the bad type is written, and no function value that can never be called; write the rule (with the
 pointer rule) into §7.12.
+Related, for the same write-up: inside a generic instance the checker counts only a type with no
+definition anywhere as opaque (`nestedPointerEmbedsOpaque`), so that another package's `Cell[int]` with a
+field `*([2]Box)` over its own opaque export `Box` stays legal in an importer — but the instance view also
+covers parts that come from the importer's own type arguments: `PBox[[2]a.Box]` (`type PBox[T any] struct
+{ p *T }`) is accepted in an importer while `*([2]a.Box)` written there directly is rejected.  Not an IR-gen
+hazard (a.Box's layout is filled in a whole-program build; pure opaque types are caught in both views).
+Options: judge the parts that come from the type arguments in the importer's view (needs the generic's
+structure walked with its type parameters marked), or accept it and spec that a cross-package opaque
+export is opaque only in what the importing package writes itself.
+
 
 ### `.bni` and `.bn` definitions of a generic type's method are never compared — 🔴 OPEN (found 2026-10-10, work-7, review of the `.bni` method consistency check; code reading; pre-existing)
 
