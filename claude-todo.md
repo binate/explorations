@@ -67,6 +67,26 @@ works.  Likely cause: the method-value closure's destructor is named from the re
 the importing package instead of the opaque type's owning package (whose module emits `__dtor_Foo` for an opaque
 export).  Test: conformance `1604_method_value_xpkg_opaque_receiver` (expected-fail in every mode).
 
+### A method value of a `readonly *T` handle method taken from an addressable value crashes — 🔴 OPEN MAJOR (found 2026-10-09, work-4, review of the opaque method-value fix; pre-existing; LLVM / native / VM)
+
+`var t T; …; var f *func(int) = t.hpro; f(1)` with `func (r readonly *T) hpro(n int)` segfaults (exit 139) in every
+mode; the call `t.hpro(1)` and the method value through a pointer (`pt.hpro`) work.  Cause: `methodValueBridge`
+(gen_method_value_recv.bn) classifies the ADDR bridge (capture `&t`) only when the captured form's Kind is
+TYP_POINTER; a `readonly *T` handle is TYP_READONLY over the pointer, so it falls through to MVBRIDGE_OTHER and the
+struct VALUE is stored into the pointer-typed capture field.  Fix: classify the captured form with the handle's own
+`readonly` peeled (it is shallow — a read-only handle to a mutable T).  Test: conformance
+`spec/10-functions/220_method_value_readonly_handle_from_value` (expected-fail in every mode).
+
+### One method's value taken in two modules fails to link: duplicate wrapper symbol — 🔴 OPEN MAJOR (found 2026-10-09, work-4, review of the opaque method-value fix; pre-existing; LLVM / native — the VM is fine)
+
+Taking `s.v` in package gl (the method's own package) and again in main fails the link: "duplicate symbol
+'_bn_F2_3_pkg2_gl2_1_S14_v__methodval_v'"; likewise two importers.  The method-value wrapper (synthMethodValueWrapper,
+named from the method's qualified name + the captured form) is emitted as a strong definition in every module that
+takes the value.  Fix: give the wrapper (and its closure struct's per-module pieces, if any) weak / linkonce_odr
+linkage like the function-value shims, on LLVM and in both native emitters, or name it per module.  Test:
+conformance `1605_method_value_two_modules` (expected-fail in every mode; the VM passes, so the marker is per
+compiled mode).
+
 ### Does stmt.defer retain an `@T` boxed into a deferred `*I` / `*any` argument? — 🔴 NEEDS DECISION MAJOR (found 2026-10-04, work-4, review of the deferred variadic pack fix; reproduced on main, LLVM / native / VM; pre-existing)
 
 `defer run1(mk(11))` with `func run1(x *any)` and `mk` returning `@Thing`, and `defer runv(mk(12), mk(13))` into
