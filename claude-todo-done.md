@@ -678,6 +678,20 @@ index / >32-bit displacement.  Tests: x64_mem_test.bn in parse and asm/x64 (clan
 in 4 instructions match clang byte for byte.  Raised with the user, undecided: 32-bit addressing (now rejected),
 `-~8` (clang's Intel parser computes it wrongly), absolute `[lbl]` (unsupported, as before).
 
+### A local returned at every return is built in the caller's buffer — DONE (binate `69d6dcf57`, 2026-10-10, work-1)
+
+plan-aggregate-copy-opts.md D3.  common.RetbufLocal: f has one aggregate result; every return returns a whole
+load (only use, same block) of the same non-escaping stack slot of the result's size, with nothing between the
+load and its return referencing the slot; not an in-place parameter slot.  Honoured when f returns through a
+buffer.  Native: the slot has no region, its spill slot is SretSlotOff (the buffer pointer) so address uses go
+through getOperand; its zero-fill goes through the pointer, exactly SizeOf bytes (emitZeroAtAarch64 /
+emitZeroAtX64 with aggcopy.TailPieces tails; emitZeroThroughArm32, byte by byte for a type aligned below a word);
+the returned loads alias it and the return copies nothing.  LLVM: the slot is `getelementptr i8, ptr %v.retbuf,
+i64 0`, the returned loads are skipped, `ret void`.  -O2 native aa64 `mk`: frame 0x6a0 → 0x50, two 808-byte
+copies gone.  Conformance 1612; unit tests.  Validated: aggregate subset at -O2 and -O0 on native aa64 / x64 /
+arm32 bare metal, -O2 on native arm32 Linux and LLVM aa64 / x64 / arm32 bare metal, -O0 on LLVM aa64 and the VM;
+e2e.  One review: found the arm32 far-field regression (fixed first, `8a7b95ecc`) and test gaps (folded in).
+
 ### Native arm32 failed to compile a far field access in a by-value aggregate parameter used in place — DONE (binate `8a7b95ecc`, 2026-10-09, work-1; MAJOR regression from `2e5cec867`)
 
 `func g(p Far) int { return cast(int, p.h) }` with p.h 280 bytes into a by-value struct failed to build on
