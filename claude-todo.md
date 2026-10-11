@@ -117,7 +117,7 @@ whose call-result arm takes the checker's type of the call — a generic instanc
 the field lookup then misses (lookupStructIdx by the raw name).  Test: conformance
 `spec/13-expressions/068_call_field_of_generic_call_result` (expected-fail in every mode).
 
-### Calling a function value returned by a call with a generic-instance argument fails to build on LLVM — 🔴 OPEN MAJOR (found 2026-10-10, work-4, review of the method-value wrapper IR-signature fix; pre-existing; LLVM only — native and the VM are right)
+### Calling a function value returned by a call with a generic-instance argument fails to build on LLVM — 🟡 IN PROGRESS (claimed 2026-10-10, work-4) MAJOR (found 2026-10-10, work-4, review of the method-value wrapper IR-signature fix; pre-existing; LLVM only — native and the VM are right)
 
 `func getf() *func(Node[int]) int`; `getf()(a)` with `Node[T]` holding a managed field fails in clang: "expected '='
 after name" at `%bn_S1_4_main1_9_Node[int]` — the by-value argument copy calls `__copy_9Node[int]`, named from the
