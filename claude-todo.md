@@ -718,8 +718,12 @@ claude-todo-done.md and plan-aggregate-copy-opts.md); still open:
   argument).  Re-measure the -O2 IR first — the landed passes may have removed most of these.
 - plan-aggregate-copy-opts.md D1-D4 are done (D1 `dfde1e73a` / `e62af60cf` / `dfce07941` / `35a7a4f3b` /
   `2e5cec867`; D2 `9fe09deb6` / `3c18f42d4`; D3 `69d6dcf57`, its native follow-up `d304bed5f`; D4
-  `11375988e`).  Left: re-measure the plan's D table on -O2 IR; and one gap put to the user — results with
-  managed fields never qualify for D2's `return f()` (their ownership handling adds uses).  Their
+  `11375988e`).  Left: re-measure the plan's D table on -O2 IR; and results with managed references (`@[]T`,
+  interface values, structs with managed fields) never qualify for D2's placement — `return f()` nor `var x R =
+  f()`: IR-gen copies the call result into its destination (an acquire) and releases the statement temporary at
+  the statement's end, so the result has uses besides the store / return.  User's decision (2026-10-10, "(a)"):
+  IR-gen moves the expiring call-result temporary into the destination (spec §18.6 `mem.move`) — IN PROGRESS
+  (claimed 2026-10-10, work-1).  Their
   prerequisite D1 (by-value aggregates the platform C way, callees using their incoming bytes in place) is
   done (claude-todo-done.md; done/plan-c-abi-large-aggregates.md).
 User direction (2026-09-30): the native backends are co-equal, so fixes must let native make the same
