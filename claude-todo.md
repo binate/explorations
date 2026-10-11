@@ -69,7 +69,22 @@ arguments) — at least for functions a C caller can reach; reproduce first with
    section loses the type, so dyld never runs the initializers either.
 (2, 64-bit addends on a 32-bit host, and 3, malformed relocation sections, are done — binate `ec27fce79`,
 `590b898a9`; see claude-todo-done.md.)
+**Scope of 1 (user, 2026-10-10: "ELF + Mach-O, all"):** a short series, ELF first — the ELF init / fini / preinit
+arrays in every driver (laid out with lld's `.init_array.N` priority sort; `__init_array_start` / `_end` and the
+fini / preinit pairs; DT_INIT_ARRAY / DT_INIT_ARRAYSZ and the fini / preinit tags in a dynamic link, which is what
+runs them, since bnld's `_start` passes `init = 0` to `__libc_start_main`); an error for a reference from a kept
+section to a symbol in a section bnld drops; and Mach-O `__mod_init_func` / `__mod_term_func` kept as such in the
+output so dyld runs them.  The unwind tables are their own item ("bnld: unwind tables").
 **Test:** an object built by clang, with the fix.
+
+### bnld: unwind tables — x86-64 `.eh_frame` and arm32 `.ARM.exidx` are dropped — 🔴 OPEN (found 2026-10-09, work-2, scoping the bnld reader MAJOR; user 2026-10-10: "Support both, own item")
+
+bnld's ELF reader keeps only SHF_ALLOC PROGBITS / NOBITS sections, so clang's x86-64 `.eh_frame` (typed
+SHT_X86_64_UNWIND there; PROGBITS on aarch64, where it is kept) and arm32's `.ARM.exidx` (SHT_ARM_EXIDX) are
+dropped with their relocations: a bnld-linked program cannot unwind through C code (C++ exceptions, backtraces);
+nothing else changes.  Do: keep x86-64 `.eh_frame` as data, as aarch64's is; implement `.ARM.exidx` — entries
+sorted by the code they describe, an EXIDX_CANTUNWIND terminator, `__exidx_start` / `__exidx_end`, and a
+PT_ARM_EXIDX segment — as lld does.  After the init-array series (the bnld reader MAJOR's item 1).
 
 ### A method value of a generic instance whose method signature names the instance fails to build on LLVM — 🟡 IN PROGRESS (claimed 2026-10-10, work-4) MAJOR (found 2026-10-10, work-4, review of the link-once method-value wrapper; pre-existing; LLVM only — native and the VM are right)
 
