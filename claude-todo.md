@@ -78,6 +78,16 @@ output so dyld runs them.  The unwind tables are their own item ("bnld: unwind t
 Plan: `plan-bnld-init-arrays.md`.
 **Test:** an object built by clang, with the fix.
 
+### asm ELF writer: a section's type and flags come from its name, ignoring the flags it was created with — 🔴 OPEN (found 2026-10-10, work-2, writing bnld reader test fixtures; latent)
+
+`elfSectFlags` / `elfSectType` (`pkg/binate/asm/elf/elf_util.bn`) derive sh_flags / sh_type from the section
+name alone (text, data, rodata, rodata_relro, bss); any other name is written SHF_ALLOC PROGBITS, so
+`a.SetSection("foo", asm.SF_READ | asm.SF_WRITE | asm.SF_EXEC)` yields a read-only data section — the writable /
+executable flags vanish silently.  Latent: the text assembler's `.section` takes only the standard names, and
+every in-tree caller passing explicit flags uses one of them.  Fix: write sh_flags from the section's Flags
+(SF_READ → SHF_ALLOC, SF_WRITE → SHF_WRITE, SF_EXEC → SHF_EXECINSTR) and keep the name only for the type (bss
+→ NOBITS); check the Mach-O writer for the same.
+
 ### bnld: unwind tables — x86-64 `.eh_frame` and arm32 `.ARM.exidx` are dropped — 🔴 OPEN (found 2026-10-09, work-2, scoping the bnld reader MAJOR; user 2026-10-10: "Support both, own item")
 
 bnld's ELF reader keeps only SHF_ALLOC PROGBITS / NOBITS sections, so clang's x86-64 `.eh_frame` (typed
