@@ -98,7 +98,10 @@ nothing else changes.  Do: keep x86-64 `.eh_frame` as data, as aarch64's is; imp
 sorted by the code they describe, an EXIDX_CANTUNWIND terminator, `__exidx_start` / `__exidx_end`, and a
 PT_ARM_EXIDX segment — as lld does.  After the init-array series (the bnld reader MAJOR's item 1).
 
-### Does stmt.defer retain an `@T` boxed into a deferred `*I` / `*any` argument? — 🔴 NEEDS DECISION MAJOR (found 2026-10-04, work-4, review of the deferred variadic pack fix; reproduced on main, LLVM / native / VM; pre-existing)
+### Does stmt.defer retain an `@T` boxed into a deferred `*I` / `*any` argument? — 🟡 IN PROGRESS (claimed 2026-10-10, work-4) MAJOR — DECIDED 2026-10-10: retain it (found 2026-10-04, work-4, review of the deferred variadic pack fix; reproduced on main, LLVM / native / VM; pre-existing)
+
+Decision (user, 2026-10-10): keep it alive — "I think that deferred statements should be as if one captured all
+managed variables that are used in the statement".
 
 `defer run1(mk(11))` with `func run1(x *any)` and `mk` returning `@Thing`, and `defer runv(mk(12), mk(13))` into
 `...*any`, read freed memory (0); direct calls are fine.  §11.4 calls `@T` → `*I` a borrow, but stmt.defer's
