@@ -1,3 +1,39 @@
+### A generic instantiated with an opaque type argument IS its `int` instance — a `@PBox[Opaque]` passes `.(@PBox[int])` — DONE (binate `81ca5f253`, 2026-10-10, work-7)
+
+IR-gen's `resolveTypeExpr` (`pkg/binate/irgen/gen_type_resolve.bn`) has no case for a forward-declared
+(opaque) type: `Opaque` is no registered struct, alias or predeclared type, so it reaches the silent
+`types.TypInt()` fallback (the "Hazard" bullet of the forwarder-audit entry).  A generic instance's type
+arguments are resolved through it, so `PBox[Opaque]` (`type PBox[T any] struct { p *T; n int }`, legal: T
+only behind a pointer) gets the mangled name, struct type and type identity of `PBox[int]`
+(`main.PBox__bn_inst__1_N0_3_int`): a `@PBox[Opaque]` held in an `@any` passes an assertion to
+`@PBox[int]` — conformance `1617_generic_opaque_arg_identity` prints `true true 7` for `false true 7`
+(xfailed on every mode).  A generic whose fields do not use T (`type Box[T any] struct { n int }`)
+instantiated with an opaque type crashes the compiler instead ("internal error: no checked copy of
+generic type instance main.Box__bn_inst__1_N0_3_int").  A non-generic `*Opaque` boxed into an `@any`
+keeps its identity (the box takes its type from the checker).  Fix: resolve an opaque type in IR-gen to a
+named type of its own (its qualified name, no layout — the checker rejects every by-value use) so an
+instance mangles it as itself; and make the `TypInt()` fallbacks fail loud rather than silently yield
+`int`.
+The fallbacks: making resolveTypeExpr's three `TypInt` fallbacks (a qualified miss, a bare miss, an
+uninstantiable TEXPR_INSTANTIATE) internal errors was tried (2026-10-10, work-7, with the float
+const-expression fix) and backed out: the full LLVM conformance suite passed (3555/0), but building
+pkg/binate/interp and pkg/binate/repl panicked ("cannot resolve the type entries" — interp/externs.bn
+`entries[i].descriptor`, which IR-gen probes as a generic instantiation `entries[i]` and reads the int fallback
+as "not a type"), and the irgen and vm unit tests aborted.  So callers use resolveTypeExpr as a "does this name
+a type?" probe; those need a non-panicking lookup before the fallback can become an error.
+
+Resolution: registerUndefinedForwardTypes (gen_typedecl.bn) registers, in GeneratePackage and GenModule, each
+forward type of the package's own `.bn` that nothing defines as a named type with no underlying, left pending so
+a later REPL prompt definition fills it in place; the import pre-pass already did this for every other case.
+resolveTypeExpr's three `TypInt` fallbacks are internal errors (unresolvedTypeMsg).  The callers that probed
+through them — an ambiguous `X[...]` (method-expression base or index) — ask genericInstanceName, which resolves
+only a head that names a generic type and no variable in scope binds; GenModule skips generic struct
+declarations; six unit tests that leaned on the fallback were fixed.  This also retires the forwarder-audit
+entry's "Hazard" bullet (the silent `TypInt()` fallbacks).  Tests: TestUndefinedForwardTypeArgIsItsOwnInstance,
+TestGenericInstanceName, TestGenModuleSkipsGenericStructDecl; conformance 1617 (expected-fail removed), 1621
+(shadowing locals); e2e/repl.sh file-forward-type-defined-at-prompt.  Found in review and left open: "A managed
+`@X` of a type nothing defines drops through a never-defined `__dtor_X`" (test 1622).
+
 ### `irbuild.EmitIfaceUpcast` reads the interface off `.Elem` without peeling a NAMED interface-value type — the slot offset stays 0 — DONE (binate `760305a57`, 2026-10-10, work-7)
 
 `EmitIfaceUpcast` (`pkg/binate/irbuild/ir_ops_iface.bn`) computes `IfaceUpcastSlotOffset` from
