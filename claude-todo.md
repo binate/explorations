@@ -2140,7 +2140,7 @@ nothing currently reaches the reject (the only section-relative relocs are in th
 unwind sections), so this stays parked until a real clang/LLVM object needs a
 section-relative reloc in a KEPT section.
 
-### A managed `@X` of a type nothing defines drops through a never-defined `__dtor_X` — 🔴 OPEN (noted 2026-09-03 as latent; reachable, 2026-10-10, work-7, review of the opaque-type-argument fix; reproduced on LLVM, native aa64 and the VM; pre-existing)
+### A managed `@X` of a type nothing defines drops through a never-defined `__dtor_X` — 🟡 IN PROGRESS (noted 2026-09-03 as latent; reachable, 2026-10-10, work-7, review of the opaque-type-argument fix; reproduced on LLVM, native aa64 and the VM; pre-existing; claimed 2026-10-10, work-7/session — decided: a link error IS the right failure (the dtor belongs to whoever defines X; a checker rule is impossible from a `.bni`-only view); fix LLVM to declare the dtor handle extern (a link error, as native gives, not invalid IR), and make main consistent (stamp its undefined forward types so `@X` drops through `main.__dtor_X`); user: "both")
 
 Reachable today in a non-main package: with `type X` in a package's `.bn` and no definition anywhere,
 `var p @X = nil` in that package fails on every mode — LLVM: "use of undefined value
