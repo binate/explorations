@@ -906,7 +906,7 @@ joins RetbufCalls: it passes the saved incoming buffer pointer in X8 / RDI / R0,
 copies nothing — as LLVM passes `%v.retbuf`.  Indirect, function-value and interface-method calls and register
 returns keep a temporary.  Also: a returned load of the local that AggLoadElidable had already left without a
 region was not recorded in RetbufLoads, so its return copied the buffer onto itself; every returned load is now
-recorded.  -O2 native aa64 `fill` (`var b Big = mk(k); b.arr[29] += 100; return b`): frame 0x160 → 0x70, no
+recorded (unit test `ed244916c`).  -O2 native aa64 `fill` (`var b Big = mk(k); b.arr[29] += 100; return b`): frame 0x160 → 0x70, no
 copy.  Conformance 1624 (also a function value and an interface method stored into the local); unit tests.
 PlanFrame then moved, unchanged, into common_plan_frame.bn (`4760a781a`; common.bn was at 468 of 500 lines).
 Validated: aggregate subset at -O2 on native aa64 / x64 / arm32 bare metal; 1612 / 1623 / 1624 at -O0 there and
