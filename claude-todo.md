@@ -98,18 +98,7 @@ nothing else changes.  Do: keep x86-64 `.eh_frame` as data, as aarch64's is; imp
 sorted by the code they describe, an EXIDX_CANTUNWIND terminator, `__exidx_start` / `__exidx_end`, and a
 PT_ARM_EXIDX segment — as lld does.  After the init-array series (the bnld reader MAJOR's item 1).
 
-### A method value of a generic instance whose method signature names the instance fails to build on LLVM — 🟡 IN PROGRESS (claimed 2026-10-10, work-4) MAJOR (found 2026-10-10, work-4, review of the link-once method-value wrapper; pre-existing; LLVM only — native and the VM are right)
-
-`func (b Box[T]) gx(y Box[T]) Box[T]`; `var g *func(Box[int]) Box[int] = b.gx` fails in clang: "expected '=' after
-name" at `%bn_S1_4_main1_8_Box[int] = type …`.  synthMethodValueWrapper (gen_method_value_wrapper.bn) takes the
-wrapper's parameter and result types straight from the checker's method signature (`m.FuncType`); only the
-receiver is remapped to IR-gen's type (remapCapturedBaseToIR), so a parameter or result naming the instance keeps
-the checker's raw `Box[int]` spelling, which the LLVM emitter turns into an invalid identifier.  Fix: map the
-wrapper's parameter and result types through irTypeFromChecker (in the instance's context).  The method-EXPRESSION
-variant is a separate entry.  Test: conformance `spec/10-functions/221_method_value_generic_self_param`
-(expected-fail on the LLVM modes).
-
-### Calling through a field of a generic-instance call result panics the compiler — 🔴 OPEN MAJOR (found 2026-10-10, work-4, review of the method-value wrapper IR-signature fix; pre-existing; LLVM / native / VM)
+### Calling through a field of a generic-instance call result panics the compiler — 🟡 IN PROGRESS (claimed 2026-10-10, work-4) MAJOR (found 2026-10-10, work-4, review of the method-value wrapper IR-signature fix; pre-existing; LLVM / native / VM)
 
 `idb(ys).x.Show()` (idb returns `Box[*Shower]`, x a `*Shower`) and `idf(yf).x(41)` (x an `@func(int) int`) panic
 "call of an unresolved method" in every mode; the same shape through a variable (`var r = idf(yf); r.x(41)`) or on a

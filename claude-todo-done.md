@@ -1,3 +1,22 @@
+### A method value of a generic instance whose method signature names the instance fails to build on LLVM — DONE (binate `3983ffffb`, 2026-10-10, work-4; found 2026-10-10 in review of the link-once method-value wrapper)
+
+`func (b Box[T]) gx(y Box[T]) Box[T]`; `var g *func(Box[int]) Box[int] = b.gx` fails in clang: "expected '=' after
+name" at `%bn_S1_4_main1_8_Box[int] = type …`.  synthMethodValueWrapper (gen_method_value_wrapper.bn) takes the
+wrapper's parameter and result types straight from the checker's method signature (`m.FuncType`); only the
+receiver is remapped to IR-gen's type (remapCapturedBaseToIR), so a parameter or result naming the instance keeps
+the checker's raw `Box[int]` spelling, which the LLVM emitter turns into an invalid identifier.  Fix: map the
+wrapper's parameter and result types through irTypeFromChecker (in the instance's context).  The method-EXPRESSION
+variant is a separate entry.  Test: conformance `spec/10-functions/221_method_value_generic_self_param`
+(expected-fail on the LLVM modes).
+
+Resolution: genMethodValue maps the method's signature to IR-gen's types (methodValueMethodIR, through
+irTypeFromChecker, as ensureMethodSig maps the method's own) for the wrapper and the value's type.  Test 221 (no
+markers needed — an LLVM-only marker would have been inherited by native arm32 and XPASSed): the instance as a
+parameter / result / pointer / variadic element / one of several results, an inferred method value, inside a
+generic body and a method of the same generic type, a non-generic receiver naming an instance.  The review found
+the call-through-a-field-of-a-generic-call-result crash (068) and the LLVM call-result callee with a generic
+argument — their own entries.
+
 ### 32-bit host: bnc / bnas build there; the assembler's fixup addends are int64 — DONE (binate `be193de5e`, 2026-10-10)
 
 Items 1 and 2 of the CRITICAL "The 32-bit-host unit lane (`builder-comp_arm32_linux`) is red on main" (item 3, the
