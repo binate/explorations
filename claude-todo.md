@@ -5,26 +5,20 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### The 32-bit-host unit lane (`builder-comp_arm32_linux`) is red on main: bnc / bnas do not compile for a 32-bit host, and 15 more packages fail — 🟡 IN PROGRESS (claimed 2026-10-10, work-2; user: "1. yes" — items 1 and 2; item 3 stays open) CRITICAL (found 2026-10-09, work-2, validating the bnld int64-addend change on that lane; pre-existing — CI red since at least 2026-10-07)
+### The 32-bit-host unit lane (`builder-comp_arm32_linux`) still fails in check / types / irgen / iropt / native: the compiler may use the HOST's `int` width for target values — 🔴 OPEN CRITICAL (found 2026-10-09, work-2, validating the bnld int64-addend change on that lane; pre-existing)
 
-CI run 38020771564 (unit tests, main), job `test (builder-comp_arm32_linux)`: 66 passed, 17 failed; reproduced
-locally in the `binate-ci` image (`scripts/unittest/run.sh builder-comp_arm32_linux pkg/binate/link`).
-1. **Production code — bnc and bnas cannot be built for an arm32 host.**  `pkg/binate/asm/macho/macho_reloc.bn`
-   ~160 and ~167 compare an `int` addend with `4294967295` (a 4-byte field's unsigned range); on a 32-bit host the
-   untyped constant does not fit `int` ("mismatched types int and untyped int").  cmd/bnc and cmd/bnas import
-   asm/macho.  Introduced by binate `2a26ec4d9` (line ~167, 2026-10-03) and `6081d76ae` (line ~160, 2026-10-06),
-   both work-2.  Fix: compare as int64; and decide whether asm's `Fixup` / `Relocation` addend should be int64 as
-   bnld's `InputReloc.Addend` is becoming (an `int` addend cannot pass 2^31 - 1 on such a host).
-2. **Test code that assumes a 64-bit `int`** (untyped constants that overflow a 32-bit one): asm/aarch64/isa
-   `ctrl_test.bn` (4), asm/elf `elf_call26_test.bn` (1), asm/macho `macho_reloc_test.bn` (3), asm/x64
-   `x64_branch_test.bn` (2), link `dynmacho_abs_test.bn` (2), `relocate_abs32_test.bn` (1),
-   `relocate_arm32_adr_test.bn` (1).
-3. **Test failures — needs investigation; may be the compiler leaking the HOST's `int` width, not test bugs:**
-   check `TestShortVarIntMinAccepted`, `TestShortVarInt64MaxAccepted`, `TestCheckAllowHighBitUnsignedConstShiftCount`
-   ("cannot assign untyped int to int / uint"); types `TestLayoutRepeatedStructDag` ("size should be 8 * 4^20",
-   past 2^31); irgen `TestGenCastIntLitAtTargetWidth`; iropt `TestMem2regGroundsLooserType`,
-   `TestMem2regNoGroundMatchingType`; native `TestShiftImmOperandInRange`.  The other failing packages
-   (asm/parse, asm/assemble, native/aarch64, native/x64, native/fold) may fail only through item 1's import.
+The build break (bnc / bnas did not compile for a 32-bit host) and the assembler / linker test code that assumed a
+64-bit `int` are fixed (binate `be193de5e`, `ec27fce79`; see claude-todo-done.md): every asm package, link,
+cmd/bnc and cmd/bnas pass the lane.  Still failing there (CI run 38020771564, and locally in the `binate-ci` image
+with `scripts/unittest/run.sh builder-comp_arm32_linux <pkg>`) — needs investigation; may be the compiler leaking
+the host's `int` width, not test bugs: check `TestShortVarIntMinAccepted`, `TestShortVarInt64MaxAccepted`,
+`TestCheckAllowHighBitUnsignedConstShiftCount` ("cannot assign untyped int to int / uint"); types
+`TestLayoutRepeatedStructDag` ("size should be 8 * 4^20", past 2^31); irgen `TestGenCastIntLitAtTargetWidth`;
+iropt `TestMem2regGroundsLooserType`, `TestMem2regNoGroundMatchingType`; native/fold `TestShiftImmOperandInRange`
+("int >> 63 must fold at wordBytes 8"); native/aarch64 `TestEmitFuncFoldsImmediateOperands` ("the unfoldable
+constant 5000 must be materialized once (movz #5000)" — visible since the native package compiles there).
+Related: `irdata.DataTerm.Addend` (`pkg/binate/irdata.bni`) is `int`, so a data pointer's addend past 2^31 cannot
+be carried when a 32-bit host compiles for a 64-bit target.
 
 ### Constraint calls through `impl *P` / `impl @M` give wrong results — needs a spec decision — 🔴 NEEDS DECISION (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
 
@@ -73,12 +67,9 @@ arguments) — at least for functions a C caller can reach; reproduce first with
    aarch64) are read against "no section" and not applied.  **Mach-O has the same gap** (found 2026-10-09):
    `parse_macho.bn` reads `__DATA,__mod_init_func` (S_MOD_INIT_FUNC_POINTERS) as plain data and the output
    section loses the type, so dyld never runs the initializers either.
-2. **A 64-bit addend is truncated on an ILP32 host**: `InputReloc.Addend` is `int`; `relAddend`
-   (`parse_elf.bn` ~157, `cast(int, u64(...))`) and Mach-O's 8-byte UNSIGNED (`parse_macho.bn` ~81) keep the low
-   32 bits when bnld runs on arm32.  Fix: carry the addend as int64 (InputReloc and the patchers), or reject one
-   that does not fit.
-(3, malformed relocation sections, is done — binate `590b898a9`; see claude-todo-done.md.)
-**Test:** to be added with each fix (an object built by clang for 1, a hand-made ELF for 2).
+(2, 64-bit addends on a 32-bit host, and 3, malformed relocation sections, are done — binate `ec27fce79`,
+`590b898a9`; see claude-todo-done.md.)
+**Test:** an object built by clang, with the fix.
 
 ### A method value of a generic instance whose method signature names the instance fails to build on LLVM — 🟡 IN PROGRESS (claimed 2026-10-10, work-4) MAJOR (found 2026-10-10, work-4, review of the link-once method-value wrapper; pre-existing; LLVM only — native and the VM are right)
 

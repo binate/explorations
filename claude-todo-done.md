@@ -1,3 +1,29 @@
+### 32-bit host: bnc / bnas build there; the assembler's fixup addends are int64 — DONE (binate `be193de5e`, 2026-10-10)
+
+Items 1 and 2 of the CRITICAL "The 32-bit-host unit lane (`builder-comp_arm32_linux`) is red on main" (item 3, the
+compiler possibly using the host's `int` width, stays open in claude-todo.md).  `asm/macho`'s addend range checks
+compared an `int` with 4294967295, a constant a 32-bit `int` cannot hold, so asm/macho — and cmd/bnc / cmd/bnas —
+did not compile for an arm32 host (introduced by `2a26ec4d9`, `6081d76ae`).  User ("Make asm int64"): asm's
+`Fixup` / `Relocation` addend, `AddFixup` / `AddDiffFixup` and every API recording an addend into a fixup (the
+aarch64 isa label forms and `PCRelOffset`, x64 `Jmp/Jcc/CallAddend` and `RipLabelAddend` — its addend now in the
+operand's int64 `Imm` — arm32 `Adr` / `BAddend`) are int64; resolvers range-check in int64 before narrowing; the
+ELF / Mach-O writers carry int64 (Mach-O's inline bake held it in a `uint`); the parser passes its int64 values
+through.  Found and fixed on the way, all silent on a 32-bit host: x64 immediates went through
+`x64.Imm(cast(int, v))` (`and rcx, 0x100000000` assembled as `and rcx, 0`); x64 INT / IMUL immediates, an arm32
+`b .+N`, an alias's addend used as a location and an alias's offset are range-checked before narrowing; arm32's
+4-byte addend bakes now reject a value past a 32-bit word.  Test code with 64-bit-only constants retyped.  Lane:
+every asm package, link, cmd/bnc, cmd/bnas pass; native conformance subsets (aa64 / x64 / arm32) green.
+
+### bnld input readers: relocation addends are int64 on every host — DONE (binate `ec27fce79`, 2026-10-10)
+
+Item 2 of the MAJOR "bnld input readers" (item 1, dropped `.init_array`-type sections, still open in
+claude-todo.md).  `InputReloc.Addend` and `GotSlot.Addend` were `int`, so on an arm32 host the ELF64 RELA reader
+and the Mach-O 8-byte UNSIGNED / DIFF64 readers kept only the low 32 bits of a 64-bit target's addend (a silently
+wrong address; GOT slots for sym + A and sym + A + 2^32 collided).  Now int64 from the readers through every
+patcher, the GOT key and the GLOB_DAT r_addend.  Tests (filesystem-free, in `ilp32_addr_test.bn`):
+`TestILP32RelAddend64`, `TestILP32MachoAddend64`, `TestILP32Abs64AddendOver4GB`, `TestILP32GotSlotAddend64` — run
+and pass on the 32-bit lane.
+
 ### One method's value taken in two modules fails to link: duplicate wrapper symbol — DONE (binate `2ef37a63c`, 2026-10-10, work-4; found 2026-10-09 in review of the opaque method-value fix)
 
 Taking `s.v` in package gl (the method's own package) and again in main fails the link: "duplicate symbol
