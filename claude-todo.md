@@ -89,7 +89,10 @@ name alone (text, data, rodata, rodata_relro, bss); any other name is written SH
 executable flags vanish silently.  Latent: the text assembler's `.section` takes only the standard names, and
 every in-tree caller passing explicit flags uses one of them.  Fix: write sh_flags from the section's Flags
 (SF_READ → SHF_ALLOC, SF_WRITE → SHF_WRITE, SF_EXEC → SHF_EXECINSTR) and keep the name only for the type (bss
-→ NOBITS); check the Mach-O writer for the same.
+→ NOBITS); check the Mach-O writer for the same.  The type has the same gap: a section named `init_array` /
+`fini_array` / `preinit_array` made through the API is written PROGBITS, where GNU as and clang give the
+SHT_INIT_ARRAY / FINI_ARRAY / PREINIT_ARRAY type bnld places and checks arrays by (found by the review of the
+scripted-builder array commit).
 
 ### bnld: unwind tables — x86-64 `.eh_frame` and arm32 `.ARM.exidx` are dropped — 🔴 OPEN (found 2026-10-09, work-2, scoping the bnld reader MAJOR; user 2026-10-10: "Support both, own item")
 
