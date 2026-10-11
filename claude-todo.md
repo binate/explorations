@@ -98,24 +98,6 @@ nothing else changes.  Do: keep x86-64 `.eh_frame` as data, as aarch64's is; imp
 sorted by the code they describe, an EXIDX_CANTUNWIND terminator, `__exidx_start` / `__exidx_end`, and a
 PT_ARM_EXIDX segment — as lld does.  After the init-array series (the bnld reader MAJOR's item 1).
 
-### Calling through a field of a generic-instance call result panics the compiler — 🟡 IN PROGRESS (claimed 2026-10-10, work-4) MAJOR (found 2026-10-10, work-4, review of the method-value wrapper IR-signature fix; pre-existing; LLVM / native / VM)
-
-`idb(ys).x.Show()` (idb returns `Box[*Shower]`, x a `*Shower`) and `idf(yf).x(41)` (x an `@func(int) int`) panic
-"call of an unresolved method" in every mode; the same shape through a variable (`var r = idf(yf); r.x(41)`) or on a
-non-generic struct works.  Likely: the call routing resolves the callee selector's base type with getSelectorType,
-whose call-result arm takes the checker's type of the call — a generic instance with the checker's raw name — and
-the field lookup then misses (lookupStructIdx by the raw name).  Test: conformance
-`spec/13-expressions/068_call_field_of_generic_call_result` (expected-fail in every mode).
-
-### Calling a function value returned by a call with a generic-instance argument fails to build on LLVM — 🟡 IN PROGRESS (claimed 2026-10-10, work-4) MAJOR (found 2026-10-10, work-4, review of the method-value wrapper IR-signature fix; pre-existing; LLVM only — native and the VM are right)
-
-`func getf() *func(Node[int]) int`; `getf()(a)` with `Node[T]` holding a managed field fails in clang: "expected '='
-after name" at `%bn_S1_4_main1_9_Node[int]` — the by-value argument copy calls `__copy_9Node[int]`, named from the
-checker's raw spelling.  A variable or index callee works, and so does an instance with no managed fields.  Fix:
-type the call-result callee's signature with IR-gen's types (irTypeFromChecker) before the argument delivery.  No
-test yet: an LLVM-only expected-fail marker cannot be written here — a native arm32 mode inherits its LLVM
-sibling's markers (run.sh OVERRIDE_MODE) and would report an XPASS; repro `getf()(a)` above.
-
 ### Does stmt.defer retain an `@T` boxed into a deferred `*I` / `*any` argument? — 🔴 NEEDS DECISION MAJOR (found 2026-10-04, work-4, review of the deferred variadic pack fix; reproduced on main, LLVM / native / VM; pre-existing)
 
 `defer run1(mk(11))` with `func run1(x *any)` and `mk` returning `@Thing`, and `defer runv(mk(12), mk(13))` into

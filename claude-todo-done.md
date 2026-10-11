@@ -1,3 +1,29 @@
+### Calling through a field of a generic-instance call result panics the compiler — DONE (binate `307c82e76`, 2026-10-10, work-4; found 2026-10-10 in review of the method-value wrapper IR-signature fix)
+
+`idb(ys).x.Show()` (idb returns `Box[*Shower]`, x a `*Shower`) and `idf(yf).x(41)` (x an `@func(int) int`) panic
+"call of an unresolved method" in every mode; the same shape through a variable (`var r = idf(yf); r.x(41)`) or on a
+non-generic struct works.  Likely: the call routing resolves the callee selector's base type with getSelectorType,
+whose call-result arm takes the checker's type of the call — a generic instance with the checker's raw name — and
+the field lookup then misses (lookupStructIdx by the raw name).  Test: conformance
+`spec/13-expressions/068_call_field_of_generic_call_result` (expected-fail in every mode).
+
+### Calling a function value returned by a call with a generic-instance argument fails to build on LLVM — DONE (binate `307c82e76`, 2026-10-10, work-4; found 2026-10-10 in review of the method-value wrapper IR-signature fix)
+
+`func getf() *func(Node[int]) int`; `getf()(a)` with `Node[T]` holding a managed field fails in clang: "expected '='
+after name" at `%bn_S1_4_main1_9_Node[int]` — the by-value argument copy calls `__copy_9Node[int]`, named from the
+checker's raw spelling.  A variable or index callee works, and so does an instance with no managed fields.  Fix:
+type the call-result callee's signature with IR-gen's types (irTypeFromChecker) before the argument delivery.  No
+test yet: an LLVM-only expected-fail marker cannot be written here — a native arm32 mode inherits its LLVM
+sibling's markers (run.sh OVERRIDE_MODE) and would report an XPASS; repro `getf()(a)` above.
+
+Resolution (both entries, one commit — one cause): IR-gen consulted the checker's type of a call result without
+mapping it to IR-gen's types, so a generic instance kept its raw spelling.  checkerExprIRType (irTypeFromChecker;
+the checker's own type when it does not map) is now used in genCall's three expression-callee paths (function
+literal, call result, name-less callee), getSelectorType's call-result and builtin arms, getIndexElemType's and
+indexExprType's call-result arms, and genIndexPtr's checker-type fallbacks.  The review found the index paths
+(`mkSl()[1].x` aborting, `mkSl()[1].y = 9` panicking the compiler) — folded in.  Tests: 222 (call-result /
+literal / deref callee with a generic argument), 068 (no longer expected-fail), 069 (indexed generic call results).
+
 ### A method value of a generic instance whose method signature names the instance fails to build on LLVM — DONE (binate `3983ffffb`, 2026-10-10, work-4; found 2026-10-10 in review of the link-once method-value wrapper)
 
 `func (b Box[T]) gx(y Box[T]) Box[T]`; `var g *func(Box[int]) Box[int] = b.gx` fails in clang: "expected '=' after
