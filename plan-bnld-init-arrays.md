@@ -36,7 +36,11 @@ their own todo item ("bnld: unwind tables"; user: "Support both, own item").
 
 ## Series
 
-1. **Reader.**  Keep ALLOC SHT_INIT_ARRAY / FINI_ARRAY / PREINIT_ARRAY sections (type kept, flags read + write).
+1. ✅ landed binate `541fabde3` (2026-10-10).  Also, from its review: clang's arm32 array entries are
+   R_ARM_TARGET1, now patched as ABS32 (lld's / GNU ld's arm-linux default); a rejection is the object's
+   `Rejected`, so an archive member fails a link only if the link pulls it in (`ReadArchive` still rejects one);
+   reader errors name the input.  (The array keeps its input flags; layout places it by type in (2).)
+   **Reader.**  Keep ALLOC SHT_INIT_ARRAY / FINI_ARRAY / PREINIT_ARRAY sections (type kept, flags read + write).
    Reject an input `.ctors*` / `.dtors*` section ("bnld does not run .ctors / .dtors; build with
    -fuse-init-array").  Reject a relocation in a kept section whose symbol is defined in a section the reader
    drops, and a global / weak symbol defined in a dropped *allocatable* section (a debug section's symbols are
