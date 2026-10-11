@@ -1,3 +1,22 @@
+### One method's value taken in two modules fails to link: duplicate wrapper symbol — DONE (binate `2ef37a63c`, 2026-10-10, work-4; found 2026-10-09 in review of the opaque method-value fix)
+
+Taking `s.v` in package gl (the method's own package) and again in main fails the link: "duplicate symbol
+'_bn_F2_3_pkg2_gl2_1_S14_v__methodval_v'"; likewise two importers.  The method-value wrapper (synthMethodValueWrapper,
+named from the method's qualified name + the captured form) is emitted as a strong definition in every module that
+takes the value.  Fix: give the wrapper (and its closure struct's per-module pieces, if any) weak / linkonce_odr
+linkage like the function-value shims, on LLVM and in both native emitters, or name it per module.  Test:
+conformance `1610_method_value_two_modules` (expected-fail in every mode; the VM passes, so the marker is per
+compiled mode).
+
+Resolution: synthMethodValueWrapper marks the wrapper IsLinkOnce (LLVM `weak_odr` in its own COMDAT, a weak
+definition natively), like struct dtors / copy helpers.  That exposed a native crash: the native function-value
+passes pre-register every link-once function's (handle, vtable, shim) triple with a signature built from ALL its
+params — a closure's capture params wrongly included — so the first call through any method value crashed on
+native; aarch64 / x64 / arm32 now use the shared `common.FuncValueTypeOf` (capture params left out).  Test 1610
+(no longer expected-fail): value / opaque `@O` / generic-instance receivers, float / multi-result / variadic
+signatures and `int.String`, each taken in three modules, no leak.  The review found the generic method value with
+the instance in its signature (LLVM) — its own entry, test 221.
+
 ### A generic instantiated with an opaque type argument IS its `int` instance — a `@PBox[Opaque]` passes `.(@PBox[int])` — DONE (binate `81ca5f253`, 2026-10-10, work-7)
 
 IR-gen's `resolveTypeExpr` (`pkg/binate/irgen/gen_type_resolve.bn`) has no case for a forward-declared

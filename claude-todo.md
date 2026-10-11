@@ -80,17 +80,7 @@ arguments) — at least for functions a C caller can reach; reproduce first with
 (3, malformed relocation sections, is done — binate `590b898a9`; see claude-todo-done.md.)
 **Test:** to be added with each fix (an object built by clang for 1, a hand-made ELF for 2).
 
-### One method's value taken in two modules fails to link: duplicate wrapper symbol — 🟡 IN PROGRESS (claimed 2026-10-09, work-4) MAJOR (found 2026-10-09, work-4, review of the opaque method-value fix; pre-existing; LLVM / native — the VM is fine)
-
-Taking `s.v` in package gl (the method's own package) and again in main fails the link: "duplicate symbol
-'_bn_F2_3_pkg2_gl2_1_S14_v__methodval_v'"; likewise two importers.  The method-value wrapper (synthMethodValueWrapper,
-named from the method's qualified name + the captured form) is emitted as a strong definition in every module that
-takes the value.  Fix: give the wrapper (and its closure struct's per-module pieces, if any) weak / linkonce_odr
-linkage like the function-value shims, on LLVM and in both native emitters, or name it per module.  Test:
-conformance `1610_method_value_two_modules` (expected-fail in every mode; the VM passes, so the marker is per
-compiled mode).
-
-### A method value of a generic instance whose method signature names the instance fails to build on LLVM — 🔴 OPEN MAJOR (found 2026-10-10, work-4, review of the link-once method-value wrapper; pre-existing; LLVM only — native and the VM are right)
+### A method value of a generic instance whose method signature names the instance fails to build on LLVM — 🟡 IN PROGRESS (claimed 2026-10-10, work-4) MAJOR (found 2026-10-10, work-4, review of the link-once method-value wrapper; pre-existing; LLVM only — native and the VM are right)
 
 `func (b Box[T]) gx(y Box[T]) Box[T]`; `var g *func(Box[int]) Box[int] = b.gx` fails in clang: "expected '=' after
 name" at `%bn_S1_4_main1_8_Box[int] = type …`.  synthMethodValueWrapper (gen_method_value_wrapper.bn) takes the
