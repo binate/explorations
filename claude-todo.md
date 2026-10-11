@@ -2141,7 +2141,22 @@ nothing currently reaches the reject (the only section-relative relocs are in th
 unwind sections), so this stays parked until a real clang/LLVM object needs a
 section-relative reloc in a KEPT section.
 
-### opaque-export of an external-C managed type would call a never-defined dtor — 🟡 LATENT (noted 2026-09-03)
+### A managed `@X` of a type nothing defines drops through a never-defined `__dtor_X` — 🔴 OPEN (noted 2026-09-03 as latent; reachable, 2026-10-10, work-7, review of the opaque-type-argument fix; reproduced on LLVM, native aa64 and the VM; pre-existing)
+
+Reachable today in a non-main package: with `type X` in a package's `.bn` and no definition anywhere,
+`var p @X = nil` in that package fails on every mode — LLVM: "use of undefined value
+`@__handle.bn_F2_3_pkg1_q1_9___dtor_1X`"; native: undefined symbol at link; VM: "function not found:
+pkg/q.__dtor_1X".  The import pre-pass (`registerStructTypesFlat`'s forward-declaration branch,
+`gen_module_register.bn`) walks every package of `ldr.Order`, the one being compiled included, and registers
+the package's own undefined forward type stamped opaque-exported, so the drop RefDecs through `<pkg>.__dtor_X`;
+`generateOpaqueNamedDtors` skips a type with no definition, so nothing defines it.  In `main` the same type is
+registered unstamped (`registerUndefinedForwardTypes`) and the drop is a plain RefDec.  Test:
+`conformance/1622_xpkg_private_forward_type_drop` (`.xfail.all`).  Options: register a package's OWN undefined
+forward types unstamped in the pre-pass, as in main (only another package's, read from its `.bni` alone, needs
+the stamp); or emit a no-op `__dtor_X` for an own opaque type with no definition (an `@X` of it can only be nil
+or come from outside Binate); or have the checker reject a managed `@X` of a type defined nowhere.
+The original note, for the `.bni` variant:
+
 
 **Latent — not reachable today.** The opaque-export dtor guarantee (landed b02ca1fff /
 f7c7495e5: a package force-emits a public `__dtor_X` for a `.bni` forward-declared type,
