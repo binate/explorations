@@ -879,6 +879,22 @@ index / >32-bit displacement.  Tests: x64_mem_test.bn in parse and asm/x64 (clan
 in 4 instructions match clang byte for byte.  Raised with the user, undecided: 32-bit addressing (now rejected),
 `-~8` (clang's Intel parser computes it wrongly), absolute `[lbl]` (unsupported, as before).
 
+### A local passed by value at its last use is passed without a copy — DONE (binate `11375988e`, 2026-10-10, work-1)
+
+plan-aggregate-copy-opts.md D4.  common.LastUseArgLoads: an aggregate load of a stack slot S (parameter slots
+included) whose only use is a by-value argument of a call in its block reads S in place when S is dead after the
+call — S's address never leaves f; every instruction touching S (an operand among S, its derived pointers, the
+aggregate loads through them and what passes those on) is in the call's block, none between the load and the
+call or after it; and each execution of the block sets S before touching it.  Native: the load gets no region and
+argOwnsRegion treats it as owned (aa64 passes S itself; x64 / arm32 copy from S into the argument area).  LLVM:
+the memory-backed load reads S in place, bulkArgDirect passes S, S's alloca aligned for byval.  -O2 native aa64
+`lastUse`: frame 0x6a0 → 0x370, no copy.  Conformance 1623 (every callee writes its parameter); unit tests.  The
+review caught a silent miscompile in the first version (an earlier aggregate load of S used after the call:
+`h(x, clobber(x))`, `return x, clobber(x)`, `y, r = x, clobber(x)` printed 10031 for 31 on aa64), an arm32 LLVM
+byval alignment gap, and an over-broad first fix — all fixed with tests that fail without them.  Validated:
+aggregate subset at -O2 and -O0 on native aa64 / x64 / arm32 bare metal, -O2 on native arm32 Linux and LLVM aa64 /
+x64 / arm32 bare metal, -O0 on LLVM aa64 and the VM; e2e.
+
 ### A local returned at every return is built in the caller's buffer — DONE (binate `69d6dcf57`, 2026-10-10, work-1)
 
 plan-aggregate-copy-opts.md D3.  common.RetbufLocal: f has one aggregate result; every return returns a whole

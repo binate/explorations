@@ -190,6 +190,12 @@ D. Copy chains (load → private copy → temp slot → argument): revisit after
      (the callee may write it: S is dead); on x64 / arm32 the argument-area copy reads S directly (one copy
      fewer there too).  LLVM: the load reads S in place (no `.m`), and bulkArgDirect passes S for a memory-
      backed (bulk) value; first-class (≤ 16-leaf) aggregates keep their SSA load and `.bv` slot.
+     Status: DONE `11375988e` (2026-10-10) — conformance 1623; -O2 native aa64 `lastUse`: frame 0x6a0 → 0x370,
+     the 808-byte copy gone; LLVM passes x's alloca.  The review found the first version's liveness check missed
+     an earlier aggregate load of S used after the call (`h(x, clobber(x))`, `return x, clobber(x)`, `y, r = x,
+     clobber(x)` — a silent miscompile on aa64), now counted as touching S (aggregate loads through S's pointers
+     and what passes them on — not a call's own result, so `y := transform(x)` still qualifies), and that a
+     slot passed in place on arm32 LLVM must be aligned for byval (writeByvalSlotAlign).
 
 Each step: unit tests on the emitted IR / pass output, conformance on LLVM + LLVM arm32 bare metal + native aa64
 (and the VM for B / C), and a measurement per perf-optimization-guide.md (copy bytes in the native aa64

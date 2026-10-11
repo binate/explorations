@@ -697,9 +697,11 @@ Field reads of a whole load, dead aggregate stores, zero-fill-then-overwrite and
 claude-todo-done.md and plan-aggregate-copy-opts.md); still open:
 - Copy chains: a value copied into a temporary only to be copied again (load → private copy → temp slot →
   argument).  Re-measure the -O2 IR first — the landed passes may have removed most of these.
-- plan-aggregate-copy-opts.md D4 — a last-use local passed by value without a copy (D2, a call's aggregate
-  result placed in its destination, is done: `9fe09deb6`, `3c18f42d4`; D3, a local returned at every return
-  living in the sret buffer: `69d6dcf57`).  Their
+- plan-aggregate-copy-opts.md D1-D4 are done (D1 `dfde1e73a` / `e62af60cf` / `dfce07941` / `35a7a4f3b` /
+  `2e5cec867`; D2 `9fe09deb6` / `3c18f42d4`; D3 `69d6dcf57`; D4 `11375988e`).  Left: re-measure the plan's D
+  table on -O2 IR; and two gaps put to the user — natively a call stored into the local D3 keeps in the
+  caller's buffer goes through a temporary and a copy (LLVM writes the buffer directly), and results with
+  managed fields never qualify for D2's `return f()` (their ownership handling adds uses).  Their
   prerequisite D1 (by-value aggregates the platform C way, callees using their incoming bytes in place) is
   done (claude-todo-done.md; done/plan-c-abi-large-aggregates.md).
 User direction (2026-09-30): the native backends are co-equal, so fixes must let native make the same
