@@ -76,7 +76,9 @@ runs them, since bnld's `_start` passes `init = 0` to `__libc_start_main`); an e
 section to a symbol in a section bnld drops; and Mach-O `__mod_init_func` / `__mod_term_func` kept as such in the
 output so dyld runs them.  The unwind tables are their own item ("bnld: unwind tables").
 Plan: `plan-bnld-init-arrays.md`.  Progress: step 1 (the reader keeps the arrays; .ctors and references into
-dropped sections rejected; arm32 R_ARM_TARGET1) landed `541fabde3`; step 2 (layout, symbols, dynamic tags) next.
+dropped sections rejected; arm32 R_ARM_TARGET1) landed `541fabde3`; step 2 (array layout, bracketing symbols,
+dynamic tags, bnc's hosted `_start` init walker — constructors now run in a dynamic ELF link) landed
+`147bca034`; step 3 (scripted builder) next, then 4 (Mach-O).
 **Test:** an object built by clang, with the fix.
 
 ### asm ELF writer: a section's type and flags come from its name, ignoring the flags it was created with — 🔴 OPEN (found 2026-10-10, work-2, writing bnld reader test fixtures; latent)

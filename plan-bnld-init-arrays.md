@@ -46,7 +46,12 @@ their own todo item ("bnld: unwind tables"; user: "Support both, own item").
    drops, and a global / weak symbol defined in a dropped *allocatable* section (a debug section's symbols are
    local and referenced only from debug relocations, which stay unapplied).  Until (2) lands the kept arrays are
    laid out as ordinary data (still not run): (1) and (2) land together or (2) first.
-2. **Layout, symbols, ELF drivers.**  Output kinds `.preinit_array`, `.init_array`, `.fini_array` in the
+2. ✅ landed binate `147bca034` (2026-10-10).  Also, from its review: bnc's hosted ELF `_start` passes an `init`
+   that walks `__init_array_start..__init_array_end` (glibc before 2.34 runs only that — ld.so skips the
+   executable's own DT_INIT_ARRAY — and bnld writes no symbol versions, so a binary would load there and skip its
+   constructors; 2.34+ runs a non-null init instead of DT_INIT_ARRAY, so they run once either way).  e2e `ctors`
+   ran on aarch64 and x86-64 Linux.
+   **Layout, symbols, ELF drivers.**  Output kinds `.preinit_array`, `.init_array`, `.fini_array` in the
    writable group before `.data` (lld's order); within `.init_array` / `.fini_array`, inputs sorted by the
    priority suffix (`.init_array.N`, ascending; no suffix = 65536, lld's default), stable.  Linker-defined
    `__{preinit,init,fini}_array_{start,end}` (AbsSym, as `_GLOBAL_OFFSET_TABLE_`) when referenced, start = end
