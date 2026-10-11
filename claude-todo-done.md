@@ -879,6 +879,20 @@ index / >32-bit displacement.  Tests: x64_mem_test.bn in parse and asm/x64 (clan
 in 4 instructions match clang byte for byte.  Raised with the user, undecided: 32-bit addressing (now rejected),
 `-~8` (clang's Intel parser computes it wrongly), absolute `[lbl]` (unsupported, as before).
 
+### A call stored into the local kept in the caller's buffer writes the buffer natively — DONE (binate `d304bed5f`, 2026-10-10, work-1)
+
+plan-aggregate-copy-opts.md D3's native follow-up.  When a function keeps a returned local in its caller's buffer
+(RetbufLocal), a direct call returning through a buffer whose result CallResultSlots places into that local now
+joins RetbufCalls: it passes the saved incoming buffer pointer in X8 / RDI / R0, has no region, and its store
+copies nothing — as LLVM passes `%v.retbuf`.  Indirect, function-value and interface-method calls and register
+returns keep a temporary.  Also: a returned load of the local that AggLoadElidable had already left without a
+region was not recorded in RetbufLoads, so its return copied the buffer onto itself; every returned load is now
+recorded.  -O2 native aa64 `fill` (`var b Big = mk(k); b.arr[29] += 100; return b`): frame 0x160 → 0x70, no
+copy.  Conformance 1624 (also a function value and an interface method stored into the local); unit tests.
+PlanFrame then moved, unchanged, into common_plan_frame.bn (`4760a781a`; common.bn was at 468 of 500 lines).
+Validated: aggregate subset at -O2 on native aa64 / x64 / arm32 bare metal; 1612 / 1623 / 1624 at -O0 there and
+at -O2 / -O0 on native arm32 Linux (Docker); e2e (C-ABI aggregate tests).
+
 ### A local passed by value at its last use is passed without a copy — DONE (binate `11375988e`, 2026-10-10, work-1)
 
 plan-aggregate-copy-opts.md D4.  common.LastUseArgLoads: an aggregate load of a stack slot S (parameter slots

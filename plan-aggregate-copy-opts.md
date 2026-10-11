@@ -164,16 +164,16 @@ D. Copy chains (load → private copy → temp slot → argument): revisit after
      through getOperand as for an in-place parameter slot; its zero-fill goes through that pointer and covers
      exactly SizeOf bytes (the caller's buffer may be exactly the struct's size — a frame region's 8-rounding
      must not leak into it); the returned loads get no region (emitAggLoad's no-region path aliases S) and the
-     return copies nothing.  A call stored into S keeps copying natively (S has no region, so
-     placeCallResults falls back).  LLVM: S's alloca is `getelementptr i8, ptr %v.retbuf, i64 0`, the returned
+     return copies nothing.  A direct call returning through a buffer whose result is stored into S passes the
+     incoming buffer on (it joins RetbufCalls; any other call keeps a temporary).  LLVM: S's alloca is `getelementptr i8, ptr %v.retbuf, i64 0`, the returned
      load is not emitted, and the return is `ret void`.  Safe because the caller's buffer is private to the
      call (a temporary, a non-escaping local per CallResultSlots, the caller's own incoming buffer per
      ReturnedCallResults; a C caller's sret buffer may be written by the callee at any time — clang's NRVO).
      Status: DONE `69d6dcf57` (2026-10-10) — conformance 1612; -O2 native aa64 `mk`: frame 0x6a0 → 0x50, both
      808-byte copies gone.  Its review found a native arm32 regression from `2e5cec867` (a far field of a slot with
-     no region failed to assemble), fixed first as `8a7b95ecc`.  Open (user's call): natively a call whose result
-     is stored into the local kept in the buffer still goes through a temporary and an exact copy (the slot has no
-     region, so placeCallResults falls back), where LLVM passes `%v.retbuf` to the call.
+     no region failed to assemble), fixed first as `8a7b95ecc`.  Native follow-up DONE `d304bed5f` (2026-10-10): a
+     direct call returning through a buffer whose result is stored into the local kept in the buffer passes the
+     incoming buffer on, as LLVM passes `%v.retbuf`; -O2 native aa64 `fill`: frame 0x160 → 0x70; conformance 1624.
    - D4. A confined local whose last use is a by-value argument is passed without a copy (needs D1; aa64
      only — on x64 / arm32 the C ABI copies the value into the argument area regardless).
      Design (2026-10-10, work-1; recon on `69d6dcf57`).  -O2 `var x Big = mk(k); x.n++; return sum(x)`: the
