@@ -75,6 +75,7 @@ fini / preinit pairs; DT_INIT_ARRAY / DT_INIT_ARRAYSZ and the fini / preinit tag
 runs them, since bnld's `_start` passes `init = 0` to `__libc_start_main`); an error for a reference from a kept
 section to a symbol in a section bnld drops; and Mach-O `__mod_init_func` / `__mod_term_func` kept as such in the
 output so dyld runs them.  The unwind tables are their own item ("bnld: unwind tables").
+Plan: `plan-bnld-init-arrays.md`.
 **Test:** an object built by clang, with the fix.
 
 ### bnld: unwind tables — x86-64 `.eh_frame` and arm32 `.ARM.exidx` are dropped — 🔴 OPEN (found 2026-10-09, work-2, scoping the bnld reader MAJOR; user 2026-10-10: "Support both, own item")
