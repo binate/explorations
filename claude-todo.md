@@ -105,6 +105,23 @@ PT_ARM_EXIDX segment — as lld does.  After the init-array series (the bnld rea
 Decision (user, 2026-10-10): keep it alive — "I think that deferred statements should be as if one captured all
 managed variables that are used in the statement".
 
+Status 2026-10-10: the `@T` → `*I` / `*any` retention (fixed argument, `...*any` / `...*I` pack, interface-method /
+function-value / method callees) is implemented and validated, not yet landed (test spec/14-statements/182).  Still
+open under this decision:
+- (a) A managed-to-raw borrow NESTED in a composite-literal operand is not retained: `defer show(Opts{a: mkT(42)})`
+  (`a *any`) and `defer showP(PP{p: mkT(42)})` (`p *Thing`) read freed memory (0) on LLVM and native aa64; the
+  direct calls are fine.  Pre-existing.  allocNestedDeferBorrowSlots (gen_defer_build.bn) pre-allocates slots only
+  for value-borrows nested in a composite literal, not for managed-to-raw conversions.  Found by the review of the
+  `@T` → `*I` fix (probe pc.bn).
+- (b) A raw pointer DERIVED from a managed local is not kept alive: `var x @T = mk(); defer readp(&x.y); x = mk()`
+  reads freed memory, as do `&s[1]` of a managed-slice local and a pointer-receiver call on a value field (`defer
+  x.inner.Show()`, an implicit `&x.inner`); a package-level `@T` (`defer readp(&g.y); g = …`) the same (LLVM
+  probe).  `defer reads(s[1:3])` is fine (the subslice is managed, so retained).  stmt.defer now calls these the
+  programmer's responsibility (§18.7 mem.raw-uaf).  The decision's "as if one captured all managed variables used
+  in the statement" would retain each managed local named in the statement; closures capture only locals
+  (func.closure.captured), so a package-level variable would stay the programmer's.  Needs the exact rule decided
+  before implementing and speccing.
+
 `defer run1(mk(11))` with `func run1(x *any)` and `mk` returning `@Thing`, and `defer runv(mk(12), mk(13))` into
 `...*any`, read freed memory (0); direct calls are fine.  §11.4 calls `@T` → `*I` a borrow, but stmt.defer's
 retention clause points at §8.4's managed-to-raw conversions, which do not list it (deferArgBorrowVt retains only
@@ -119,6 +136,20 @@ The same holds for deferred function-value calls: `var fh @func(*Getter) = …; 
 (`@func(*Holder[int])`) failed to compile before the func-value IR-typing fix and now reads freed memory the
 same way.  Test to land
 with the decision (repro: the review probe, a `*any` analogue of `spec/14-statements/177`).
+
+### A managed pointer to an interface value (`@(*I)` / `@(@I)`) passed for a raw `*any` miscompiles — 🔴 NEEDS DECISION MAJOR (found 2026-10-10, work-4, review of the deferred `@T` → `*I` fix; reproduced; pre-existing)
+
+`useAny(mkIG(1))`, with `mkIG` returning `@(*Getter)` (or `@(@Getter)`) and `func useAny(a *any)`, compiles and
+segfaults at run time on LLVM and native aa64: wrapAsIfaceValue (gen_iface.bn) returns nil for an interface-value
+pointee (isBoxableNamelessType, gen_iface_nameless.bn, has no interface-value case), and convertToIfaceTarget
+(gen_util.bn) then passes the bare pointer on as if it were the interface value.  Deferred (`defer
+useAny(mkIG(1))`), the compiler fails loud instead (borrowRetainedIface: "a deferred managed pointer bound to a raw
+interface parameter has no box").  The semantics need deciding first: §11.12 makes the dynamic type the boxed type
+with its `*`/`@` stripped, here `*Getter`, an interface-value type, and no assertion target obviously recovers it
+(`.(*Getter)` is an interface target).  Either define the box (a structural identity, like the other name-less
+pointees, and the target that recovers it) or have the checker reject a pointer-to-interface-value source for an
+interface value.  Either way convertToIfaceTarget's silent fallback on a nil box should fail loud, and a
+conformance test lands with the decision (repro: review probe pe.bn).
 
 ### A function NAME passed into `*any` compiles and boxes nothing — silent wrong value — 🔴 NEEDS DECISION MAJOR (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
 
