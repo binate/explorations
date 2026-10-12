@@ -35,7 +35,10 @@ only each library's SONAME; libc.so.6 is named without being read at all.
    `parse_macho_syms.bn`.  The assembler has no visibility directives (todo "asm: no symbol-visibility directives").
    **Visibility.**  The ELF reader records STV_HIDDEN / STV_INTERNAL (InputSymbol gains a `Hidden` mark; the
    Mach-O reader marks N_PEXT private externs).  Nothing exports yet, so no behavior change beyond the mark.
-2. **Library search and symbols, fail loud.**  Read a shared object's dynamic symbols (SHT_DYNSYM + its string
+2. ✅ landed binate `03bd0bf25` (2026-10-12).  Also, from its review: a definition under a hidden symbol version
+   (.gnu.version) is not a library name (lld's rule); cmd/bnld's `-l` search skips another machine's `.so`; bnc's
+   `--sysroot` is an error without `--linker bnld`.  First consumer: a common is exported only if a library names it.
+   **Library search and symbols, fail loud.**  Read a shared object's dynamic symbols (SHT_DYNSYM + its string
    table; defined vs undefined, binding); find each needed library — libc.so.6 and the `-l` ones — in the given
    directories or, by default, under a sysroot (`/` unless given): `<sysroot>/{lib,usr/lib}/<multiarch triple>`,
    then `{lib64,usr/lib64,lib,usr/lib}`, skipping a file of another machine (as GNU ld does).  A needed library
