@@ -760,12 +760,14 @@ claude-todo-done.md and plan-aggregate-copy-opts.md); still open:
   argument).  Re-measure the -O2 IR first — the landed passes may have removed most of these.
 - plan-aggregate-copy-opts.md D1-D4 are done (D1 `dfde1e73a` / `e62af60cf` / `dfce07941` / `35a7a4f3b` /
   `2e5cec867`; D2 `9fe09deb6` / `3c18f42d4`; D3 `69d6dcf57`, its native follow-up `d304bed5f`; D4
-  `11375988e`).  Left: re-measure the plan's D table on -O2 IR; and results with managed references (`@[]T`,
-  interface values, structs with managed fields) never qualify for D2's placement — `return f()` nor `var x R =
-  f()`: IR-gen copies the call result into its destination (an acquire) and releases the statement temporary at
-  the statement's end, so the result has uses besides the store / return.  User's decision (2026-10-10, "(a)"):
-  IR-gen moves the expiring call-result temporary into the destination (spec §18.6 `mem.move`) — IN PROGRESS
-  (claimed 2026-10-10, work-1).  Their
+  `11375988e`; managed results' moves `d7f5734a2`).  Left: re-measure the plan's D table on -O2 IR; and a
+  variable initialized from a call whose result has managed references (`var r R = mk()`) still goes through
+  a temporary and a copy: its slot is named in fault pads (which only the VM runs), so the dead-store pass does
+  not mark it NoZeroInit (its zero-fill lands after the call) and slotReachPtr treats the pad mention as an
+  escape (CallResultSlots rejects it).  User's decision (2026-10-11): land the move first, then this fix —
+  ignore fault pads in the dead-store pass's NoZeroInit marking (the VM's pass set leaves the pass out and
+  zeroes aggregate slots regardless) and in native/common's emit-time slot analyses (the compiled backends
+  emit no pads) — IN PROGRESS (claimed 2026-10-11, work-1).  Their
   prerequisite D1 (by-value aggregates the platform C way, callees using their incoming bytes in place) is
   done (claude-todo-done.md; done/plan-c-abi-large-aggregates.md).
 User direction (2026-09-30): the native backends are co-equal, so fixes must let native make the same

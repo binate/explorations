@@ -979,6 +979,25 @@ index / >32-bit displacement.  Tests: x64_mem_test.bn in parse and asm/x64 (clan
 in 4 instructions match clang byte for byte.  Raised with the user, undecided: 32-bit addressing (now rejected),
 `-~8` (clang's Intel parser computes it wrongly), absolute `[lbl]` (unsupported, as before).
 
+### A call's fresh result with managed references is moved into the return or slot that keeps it — DONE (binate `d7f5734a2`, 2026-10-11, work-1)
+
+User's decision (2026-10-10, "(a)") on D2's gap for managed results.  IR-gen copied a call result into its
+destination (an acquire: RefInc, or a struct copy RefIncing each managed field) and released the statement temp
+at the statement's end, so the result had uses besides its store / return and D2 never placed it.  Now a fresh
+value is MOVED (spec §18.6 mem.move): at a return every managed kind takes emitAcquireManagedScalar's
+move-or-retain decision (fresh @T / @[]T moved, as @func / @Iface already were); a struct / array call result
+still in ctx.Temps (isFreshManagedAggregate) is moved by emitStoreManagedSlot (variable, assignment, field,
+array element, pointer store, composite-literal field) and by acquireAggregateValue (return, slice element,
+managed-slice literal element); @T / @[]T results of @func-value and interface-method calls count as fresh.
+Parallel / multi-value assignment and by-value arguments unchanged.  -O2: `return mk(k)` of a struct with an
+@[]int field, or of an @[]int, passes the caller's buffer to mk with no copy, RefInc or RefDec.  Review: no
+defects; its nits (stale comments; slice element / literal sites not moving) fixed.  Tests: irgen unit tests,
+VM fault tests (a recoverable fault after a move releases the value once), conformance 1626 (refcount balance
+over every shape).  Spec §18.5's implementation note updated (docs `6c5c95a`).  Validated: unit tests (irgen,
+vm, codegen, interp, native/*); managed-value subset on LLVM aa64, VM, native aa64; 1626 + D2 tests on native
+x64 / arm32 bare metal / arm32 Linux and LLVM arm32.  Still open: variable initialization from such a call is
+not placed (fault-pad conservatism; claude-todo.md).
+
 ### A call stored into the local kept in the caller's buffer writes the buffer natively — DONE (binate `d304bed5f`, 2026-10-10, work-1)
 
 plan-aggregate-copy-opts.md D3's native follow-up.  When a function keeps a returned local in its caller's buffer
