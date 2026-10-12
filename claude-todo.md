@@ -2128,6 +2128,16 @@ after it lands; interim runner is a from-tree `bni`).
 
 ## bnas (self-hosted assembler)
 
+### asm: no symbol-visibility directives — `.hidden` / `.internal` / `.protected` (ELF), `.private_extern` (Mach-O) — 🔴 OPEN (found 2026-10-12, work-2, adding symbol visibility to bnld's readers; latent)
+
+The text assembler's parser has no visibility directive and neither object writer sets ELF `st_other` or Mach-O
+`N_PEXT`, so every global it writes has default visibility; clang emits `.hidden sym` (and `.private_extern _sym`
+on Darwin) for `__attribute__((visibility("hidden")))` and for `-fvisibility=hidden` code, so such clang assembly
+cannot be assembled faithfully.  bnld now reads visibility (InputSymbol.Hidden — a hidden definition is never
+exported), and its tests patch `st_other` / `n_type` bytes for want of the directives.  Fix: parse the four ELF
+directives and `.private_extern` (each takes a symbol list), keep a per-symbol visibility in the assembler, write
+it to `st_other` (ELF32 / ELF64) and `N_PEXT` (Mach-O), with parser and writer tests checked against clang.
+
 ### bnas x64 → ELF: typical integer programs LANDED; SSE/exotic-addressing remain — 🟡 PARTIAL
 `bnas -arch x64` → ELF64 landed (`d7e924a2c`): the CLI wiring
 (`x64.ResolveFixups` + `elf.WriteX86_64`) plus the x64 text-parser essentials real
