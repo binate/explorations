@@ -1061,7 +1061,7 @@ With D1–D4 and their follow-ups landed, 7 of the 11 shapes are at the minimum 
 (the param slot, `mk`, `sum(*p)`, a call into a local passed on, `sum(mk(k))`, a local returned from a call,
 `forward`); `sum(g)` too.  Left: `return *p` and `h.b = *p` (a large load from an unknown source copied first —
 S-adjacent's 16-byte overlap cap) and `var y = x` (SROA's per-field split through a temporary slot); see the plan
-and claude-todo.md.  Measured with perf/agg-copy-table.sh (a probe + a count script; not yet landed).
+and claude-todo.md.  Measured with perf/agg-copy-table.sh (a probe + a count script; `2e852d3be`).
 
 ### AggLoadElidable, argument copies and in-place parameters ignore fault pads — DONE (binate `27728fce5`, 2026-10-12, work-1)
 

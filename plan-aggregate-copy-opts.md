@@ -91,7 +91,7 @@ D. Copy chains (load → private copy → temp slot → argument): revisit after
    | `sum(g)` (global) | 1c | 1c | 1c |
    Native copies are fully unrolled (808 B = 202 instructions each).
    Re-measured 2026-10-12 on `27728fce5` (D1–D4 and their follow-ups landed) with perf/agg-copy-table.sh
-   (not yet landed): native aa64 counts the disassembly's copy / zero-fill loops; LLVM arm32
+   (`2e852d3be`): native aa64 counts the disassembly's copy / zero-fill loops; LLVM arm32
    bare metal counts the rt.MemCopy / rt.MemZero calls in the IR bnc emits (the C ABI's by-value argument
    copy into r0-r3 + stack, from LLVM's `byval` lowering, not counted); both -O2 -fno-inline:
    | shape | native | LLVM | min |
