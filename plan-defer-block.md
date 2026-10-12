@@ -1,6 +1,6 @@
 # Plan: `defer { … }` — a block run at scope exit, reading live variables
 
-Status: PROPOSED 2026-10-12 (work-4), awaiting the user's review.  Supersedes the eager, function-scoped
+Status: ACCEPTED 2026-10-12 (work-4); plan review pending.  Supersedes the eager, function-scoped
 `defer <call>` of `proposal-defer.md` (spec §14.13 as of docs `0cc5657`).
 
 ## Decision (user, 2026-10-11 / 2026-10-12)
@@ -154,7 +154,8 @@ checks; error tests for `stmt.defer.block` (return / escaping break / continue) 
 retention tests 176–183 keep their programs; their expected outputs change where they reassign a local after
 the defer (now read live).
 
-## Open points for the user
+## Decided points
 
-- The CHECK_TOOLS pre-release in step 2.
-- Whether a `defer` inside a deferred block is allowed (proposed: yes, by the general rule) or rejected.
+- The CHECK_TOOLS pre-release in step 2: "yes, a CHECK_TOOLS pre-release is fine" (user, 2026-10-12).
+- A `defer` inside a deferred block is allowed: "yes, a defer inside a defer is fine (we can't ban it from
+  functions called by the contents of the defer, so not allowing it is just silly)" (user, 2026-10-12).
