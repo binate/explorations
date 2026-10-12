@@ -104,16 +104,6 @@ x.inner.Show()`) reading freed memory — disappears with it, as do the spec-rev
 (docs `0cc5657`).  Plan: `plan-defer-block.md` (semantics, draft spec text, implementation, the CHECK_TOOLS
 transition).
 
-### unsafe_cast's unchecked interface narrowing: targets = what `x.(K T)` can name; `cast`'s interface-narrowing diagnostic — 🟡 IN PROGRESS (claimed 2026-10-12, work-5; user decision 2026-10-12: "yes")
-
-Decided: `unsafe_cast` from an interface value to a concrete target recovers what the checked `x.(K T)`
-would, without the check — targets a type assertion can name (a named concrete type or a slice type; an
-array, anonymous struct or function type is an error, as in an assertion), recovery kinds per §11.12's
-kind table, plus `*I -> @T` (the narrowing composed with `*T -> @T`'s header assertion).  Today the checker
-accepts every non-interface target (`@any -> [2]int` compiles).  Also: `cast(@B, x)` with `x @A` (an
-interface narrowing) suggests `unsafe_cast`, which rejects exactly that — an interface target should point
-to `x.(J)` only.  Spec §8.7 bullet (docs `9d87a92` narrowed it to concrete targets) to follow the rule.
-
 ### A C-style `for` init variable stays visible after the loop in IR-gen — silent wrong value — 🟡 IN PROGRESS (claimed 2026-10-12, work-4) MAJOR (found 2026-10-12, work-4, review of plan-defer-block.md; reproduced LLVM / native aa64 / VM; pre-existing)
 
 `var i int = 10; for i := 0; i < 3; i++ {}; testing.Println(i)` prints 3 on every mode; it must print 10.

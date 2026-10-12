@@ -1,3 +1,13 @@
+### unsafe_cast's unchecked interface narrowing accepted any target; cast's narrowing diagnostics — DONE (binate `579f10fbf`, docs `9d87a92` + `df01b3b`, 2026-10-12, work-5)
+
+Decided (user, 2026-10-12): the narrowing is the checked `x.(K T)` without its check — targets an assertion
+can name (a pointer to, or a value of, a named type, or a `*[]T` / `@[]T` slice), any recovery kind, plus
+`*I -> @T`; an array, anonymous struct, function type or pointer to one is an error (`@any -> [2]int` used to
+compile).  Interface -> interface stays rejected (docs `9d87a92`: §8.7 now says so, with why).  cast's
+messages for an interface operand now name the alternative that works (`x.(J)` for a narrower interface; a
+raw -> managed interface value said as such; unnameable targets say what can be recovered).  Tests:
+conformance spec/08-conversions 028-030, check_unsafe_cast_narrow_test.bn.
+
 ### A `.bni` declaration may name only what the `.bni` declares (pkg.bni.self-contained) — DONE (binate `cc8aa0e9e`, docs `69a7cb9`, 2026-10-12, work-7)
 
 The package's own compile checked its `.bni` methods, impls, constants and generic bodies in the `.bni`'s file
