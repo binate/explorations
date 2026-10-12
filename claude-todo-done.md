@@ -1,3 +1,29 @@
+### bnld input readers: init / fini / preinit arrays kept and run, ELF and Mach-O — DONE (binate `541fabde3`, `147bca034`, `3544cc306`, `4e6f0f2ab`, 2026-10-11, work-2)
+
+Item 1 of the MAJOR "bnld input readers: three silent mis-reads" (items 2 and 3 have their own entries), the last
+open one.  bnld's ELF reader kept only SHF_ALLOC PROGBITS / NOBITS sections, so a C object's `.init_array` /
+`.fini_array` / `.preinit_array` were dropped with their relocations and constructors never ran, and a symbol
+defined in a dropped section read as undefined; the Mach-O reader read `__mod_init_func` as plain data and the
+dynamic Mach-O writer wrote no section records, so dyld never ran it either.  Scope (user, 2026-10-10: "ELF +
+Mach-O, all"), four steps (plan: `done/plan-bnld-init-arrays.md`):
+- `541fabde3`: the reader keeps the three arrays; `.ctors` / `.dtors` and a reference into a section the reader
+  drops are rejected (the object's `Rejected`, so an archive member fails only if the link pulls it in); arm32
+  `R_ARM_TARGET1` is patched as ABS32.
+- `147bca034`: layout places the arrays in the writable group before `.data`, `.init_array.N` / `.fini_array.N`
+  sorted by priority; `__{preinit,init,fini}_array_{start,end}` are defined when referenced; a dynamic ELF link
+  writes the DT_INIT_ARRAY / FINI_ARRAY / PREINIT_ARRAY tags; bnc's hosted `_start` passes an init that walks the
+  init array (glibc before 2.34 skips the executable's DT_INIT_ARRAY).  e2e `ctors` on aarch64 and x86-64 Linux.
+- `3544cc306`: the scripted builder places the arrays (`PlaceInitFiniArrays()` / `InitFiniArrays()`), `Place`
+  sorts matched arrays by priority, and Finish rejects an unplaced array with contents; the drivers place them.
+  e2e: a baremetal arm32 image's C constructor runs under qemu.
+- `4e6f0f2ab`: Mach-O `__mod_init_func` / `__mod_term_func` come out as typed section records in `__DATA`;
+  `___dso_handle` is defined as the Mach-O header; layout-defined symbols carry an Image mark, so a
+  position-independent link classifies them consistently.  e2e: a clang C program's prioritized constructors and
+  its destructor run on macOS.
+Unwind tables stay open as their own item ("bnld: unwind tables").  Logged along the way: the whole-link drivers
+do not allocate common symbols (MAJOR); `__mh_execute_header` is undefined, and llvm-objdump rejects the rebase
+table of a bnld dynamic Mach-O (both minor).
+
 ### stmt.defer retains an `@T` boxed into a deferred `*I` / `*any` argument — DONE (binate `d356c8e7d`, docs `0cc5657`, 2026-10-11, work-4)
 
 `defer run1(mk(11))` with `func run1(x *any)` and `mk` returning `@Thing`, a `...*any` pack, and the same through
@@ -116,8 +142,8 @@ every asm package, link, cmd/bnc, cmd/bnas pass; native conformance subsets (aa6
 
 ### bnld input readers: relocation addends are int64 on every host — DONE (binate `ec27fce79`, 2026-10-10)
 
-Item 2 of the MAJOR "bnld input readers" (item 1, dropped `.init_array`-type sections, still open in
-claude-todo.md).  `InputReloc.Addend` and `GotSlot.Addend` were `int`, so on an arm32 host the ELF64 RELA reader
+Item 2 of the MAJOR "bnld input readers" (item 1, dropped `.init_array`-type sections, has its own
+entry).  `InputReloc.Addend` and `GotSlot.Addend` were `int`, so on an arm32 host the ELF64 RELA reader
 and the Mach-O 8-byte UNSIGNED / DIFF64 readers kept only the low 32 bits of a 64-bit target's addend (a silently
 wrong address; GOT slots for sym + A and sym + A + 2^32 collided).  Now int64 from the readers through every
 patcher, the GOT key and the GLOB_DAT r_addend.  Tests (filesystem-free, in `ilp32_addr_test.bn`):
@@ -317,7 +343,7 @@ before) and no leak.  The review's 296-program receiver × method matrix changed
 
 ### bnld input readers: malformed / undecodable relocation sections and non-relocatable inputs rejected — DONE (binate `590b898a9`, 2026-10-09)
 
-Item 3 of the MAJOR "bnld input readers: three silent mis-reads" (items 1 and 2 still open in claude-todo.md).
+Item 3 of the MAJOR "bnld input readers: three silent mis-reads" (items 1 and 2 have their own entries).
 The ELF reader skipped a relocation section with sh_entsize below its type's entry size (zero included), read
 only the whole entries of one whose sh_size was not a multiple of it, read one whose sh_info named no section
 (or a symbol / string / relocation table) against "no section", and skipped one in an encoding it does not

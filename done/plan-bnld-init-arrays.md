@@ -1,6 +1,6 @@
 # Plan: bnld runs constructors — init / fini arrays (ELF) and __mod_init_func (Mach-O)
 
-Item 1 of the claude-todo MAJOR "bnld input readers" (claimed 2026-10-09, work-2).  Scope (user, 2026-10-10:
+Item 1 of the claude-todo MAJOR "bnld input readers" (claimed 2026-10-09, work-2; all four steps landed by 2026-10-11).  Scope (user, 2026-10-10:
 "ELF + Mach-O, all"): a short series, ELF first.  Unwind tables (x86-64 `.eh_frame`, arm32 `.ARM.exidx`) are
 their own todo item ("bnld: unwind tables"; user: "Support both, own item").
 
@@ -67,7 +67,11 @@ their own todo item ("bnld: unwind tables"; user: "Support both, own item").
    **Scripted builder.**  An input init / fini / preinit array the script does not place is an error (its
    constructors would silently not run); the script places it and may define the bracketing symbols with
    SymbolAtDot.  Check the drivers in `drivers/`.
-4. **Mach-O.**  The reader keeps a section's S_MOD_INIT_FUNC_POINTERS / S_MOD_TERM_FUNC_POINTERS type; layout
+4. ✅ landed binate `4e6f0f2ab` (2026-10-11).  Also: `___dso_handle` (which clang's destructor registration
+   names) is defined as the Mach-O header; from its review, layout-defined symbols carry an Image mark, so
+   applyDiff, both rebase-site checks and pieAbsoluteTarget agree on which ones move with a position-independent
+   image.  e2e `ctors` in bnld-macho-dynamic.sh runs on this host.
+   **Mach-O.**  The reader keeps a section's S_MOD_INIT_FUNC_POINTERS / S_MOD_TERM_FUNC_POINTERS type; layout
    gives each its own output section in the writable group; the dynamic Mach-O writer emits `section_64` records
    for them in `__DATA` with that type (the pointers are rebased like other absolute pointers there).  e2e: a
    bnld-linked macOS program with a C constructor (runs on this host).

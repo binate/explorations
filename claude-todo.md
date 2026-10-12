@@ -66,35 +66,6 @@ layout (a .bss-like output piece, each common at its alignment, the largest size
 definition winning — as builder_common.bn does) for ELF and Mach-O inputs; check the Mach-O reader marks them
 Common.  Test: a unit test per format and an e2e with `int x;` in C.
 
-### bnld input readers: three silent mis-reads — `.init_array` dropped, a 64-bit addend truncated on a 32-bit host, malformed relocation sections skipped — 🟡 IN PROGRESS (claimed 2026-10-09, work-2; user: "bnld reader MAJOR") MAJOR (found 2026-10-06, work-2, mapping bnld for relocatable data; confirmed by reading; pre-existing)
-
-1. **Only SHF_ALLOC PROGBITS / NOBITS sections are kept** (`pkg/binate/link/parse_elf.bn` ~288-298): an
-   SHT_INIT_ARRAY / FINI_ARRAY / PREINIT_ARRAY section (a C object's `__attribute__((constructor))`, C++ static
-   initializers) and `.ARM.exidx` are dropped with their relocations, so constructors silently never run; and a
-   symbol defined in a dropped section is read as undefined (SecIndex -1), which `chosenDef` (`symaddr.bn` ~35)
-   then binds by name to an unrelated global, or resolves to 0 (a local is not reported by Resolve).  Only
-   third-party objects reach it (the asm ELF writer makes every section ALLOC PROGBITS / NOBITS).  Fix: keep the
-   array sections (and lay them out with `__init_array_start` / `_end` and the dynamic tags), and make a reference
-   to a symbol in a section bnld drops an error.  Relocations against such a section (`.rela.init_array`,
-   `.rel.ARM.exidx`, x86-64's `.rela.eh_frame` — clang types `.eh_frame` SHT_X86_64_UNWIND there, PROGBITS on
-   aarch64) are read against "no section" and not applied.  **Mach-O has the same gap** (found 2026-10-09):
-   `parse_macho.bn` reads `__DATA,__mod_init_func` (S_MOD_INIT_FUNC_POINTERS) as plain data and the output
-   section loses the type, so dyld never runs the initializers either.
-(2, 64-bit addends on a 32-bit host, and 3, malformed relocation sections, are done — binate `ec27fce79`,
-`590b898a9`; see claude-todo-done.md.)
-**Scope of 1 (user, 2026-10-10: "ELF + Mach-O, all"):** a short series, ELF first — the ELF init / fini / preinit
-arrays in every driver (laid out with lld's `.init_array.N` priority sort; `__init_array_start` / `_end` and the
-fini / preinit pairs; DT_INIT_ARRAY / DT_INIT_ARRAYSZ and the fini / preinit tags in a dynamic link, which is what
-runs them, since bnld's `_start` passes `init = 0` to `__libc_start_main`); an error for a reference from a kept
-section to a symbol in a section bnld drops; and Mach-O `__mod_init_func` / `__mod_term_func` kept as such in the
-output so dyld runs them.  The unwind tables are their own item ("bnld: unwind tables").
-Plan: `plan-bnld-init-arrays.md`.  Progress: step 1 (the reader keeps the arrays; .ctors and references into
-dropped sections rejected; arm32 R_ARM_TARGET1) landed `541fabde3`; step 2 (array layout, bracketing symbols,
-dynamic tags, bnc's hosted `_start` init walker — constructors now run in a dynamic ELF link) landed
-`147bca034`; step 3 (scripted builder: PlaceInitFiniArrays, priority-sorted Place, unplaced arrays rejected,
-the drivers place them) landed `3544cc306`; step 4 (Mach-O `__mod_init_func`) next.
-**Test:** an object built by clang, with the fix.
-
 ### asm ELF writer: a section's type and flags come from its name, ignoring the flags it was created with — 🔴 OPEN (found 2026-10-10, work-2, writing bnld reader test fixtures; latent)
 
 `elfSectFlags` / `elfSectType` (`pkg/binate/asm/elf/elf_util.bn`) derive sh_flags / sh_type from the section
@@ -115,7 +86,7 @@ SHT_X86_64_UNWIND there; PROGBITS on aarch64, where it is kept) and arm32's `.AR
 dropped with their relocations: a bnld-linked program cannot unwind through C code (C++ exceptions, backtraces);
 nothing else changes.  Do: keep x86-64 `.eh_frame` as data, as aarch64's is; implement `.ARM.exidx` — entries
 sorted by the code they describe, an EXIDX_CANTUNWIND terminator, `__exidx_start` / `__exidx_end`, and a
-PT_ARM_EXIDX segment — as lld does.  After the init-array series (the bnld reader MAJOR's item 1).
+PT_ARM_EXIDX segment — as lld does.
 
 ### Deferred calls: borrows nested in a composite-literal operand, and raw pointers derived from managed locals — 🟡 IN PROGRESS (claimed 2026-10-10, work-4) MAJOR — (a) to fix next; (b) NEEDS DECISION on the exact rule (found 2026-10-10, work-4, review of the deferred `@T` → `*I` fix; pre-existing)
 
