@@ -2185,7 +2185,7 @@ only when no object defines the name, so the weak definition would still win.  F
 linker-made commons object's `.bss` (as `commons.bn` builds it, global definitions that replace a weak one) instead
 of synthesizing layout-defined symbols, and add a builder test where the weak definition loses.
 
-### bnld archive selection ignores the needed shared libraries' undefined references — 🔴 OPEN (minor; found 2026-10-12, work-2, review of the dynamic-ELF exports change; pre-existing)
+### bnld archive selection ignores the needed shared libraries' undefined references — 🟡 IN PROGRESS (claimed 2026-10-12, work-2; user: "yes") (minor; found 2026-10-12, work-2, review of the dynamic-ELF exports change; pre-existing)
 
 A dynamic ELF link pulls an archive member only for an undefined reference in the objects it already includes,
 not for one a needed shared library makes, so a member defining a name only a `-l` shared library references is
