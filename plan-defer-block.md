@@ -1,6 +1,6 @@
 # Plan: `defer { … }` — a block run at scope exit, reading live variables
 
-Status: ACCEPTED 2026-10-12 (work-4); plan review pending.  Supersedes the eager, function-scoped
+Status: ACCEPTED 2026-10-12 (work-4); plan review folded in 2026-10-12; transition order pending the user.  Supersedes the eager, function-scoped
 `defer <call>` of `proposal-defer.md` (spec §14.13 as of docs `0cc5657`).
 
 ## Decision (user, 2026-10-11 / 2026-10-12)
@@ -94,68 +94,128 @@ defer __x();" (2026-10-11) — superseded by "no copy" above.
 >
 > `stmt.defer.no-abort` — (unchanged, "deferred calls" → "deferred blocks").
 
-Knock-on spec edits: §18.4 `mem.temporary` and §9.7 `decl.scope.statement` lose their defer exceptions;
-§18.4 `mem.scope-exit` gains "after the block's deferred blocks have run (§14.13)" and its note's "deferred
-calls are sequenced before the function-exit releases" becomes per block; §13 `expr.composite.lifetime` loses
-its defer case; §14.12's `break` / `continue` paragraph drops the `stmt.defer.no-loop` cross-reference; §10.3's
-pack note is correct again as written; Annex A regenerated (`docs/scripts/gen-annex-a.py`); `rule-ids.txt`:
-`stmt.defer.call` and `stmt.defer.no-loop` retired, `stmt.defer.block` added; Go-difference notes (Annex D)
-updated.  `explorations/claude-notes.md` and `proposal-defer.md` (marked superseded) follow.
+Spec gaps the draft must close (plan review, 2026-10-12): a `stmt.for.scope` rule in §14.9 — the C-style init
+variable is scoped to the `for` statement (one variable per loop), the body is a block per iteration that exits
+(deferred blocks, then releases) before the post statement, range variables enclose the body and are released
+after the body's deferred blocks; the type-switch binder belongs to its case's scope (§11.12 / §14.10); a case
+clause body counts as "the block" for a defer (it is not a `Block` in the grammar); "scheduled during this
+execution of the block"; "every variable the deferred code can name is live" (parameters are not in a block);
+the return statement's own temporaries are released after the results' acquire and before the deferred blocks;
+a defer statement is never terminating, even `defer { panic(…) }` (§14.14); the rationale gives the user's
+reason (consistency with `if` / `for`, which require a block); §14.12 cites `stmt.defer.block`.
+
+Knock-on spec and doc edits: `binate.ebnf` (DeferStmt; canonical — Annex A is generated from it with
+`docs/scripts/gen-annex-a.py`) and the grammar comment in §14 (`14-statements.md`); §14.1 `stmt.block` ("On
+exit, a block releases…"); §18.4 `mem.temporary` and §9.7 `decl.scope.statement` lose their defer exceptions;
+§18.4 `mem.scope-exit` gains "after the block's deferred blocks have run (§14.13)", and its note changes — user
+code (an outer block's deferred blocks) now runs between blocks' releases, only within one block is the order
+unobservable; §13 `expr.composite.lifetime` loses its defer case; §10.3 `func.call.value`; §10b
+`func.closure.allocation`; §14.15 `stmt.absences`; the §21 implementation-defined table row; `00-index.md`;
+`docs/guide.md` and `docs/overview.md`; the examples repo's `files/README.md`; `explorations/differences-with-go.md`
+(still says "No defer") — the Go-difference notes live there, not in Annex D.  `rule-ids.txt` is generated
+(`docs/scripts/extract-rule-ids.py`); binate's vendored copy `scripts/spec-coverage/rule-ids.txt` must be
+re-vendored (it has drifted).  Retire `stmt.defer.call` / `stmt.defer.no-loop`, add `stmt.defer.block` and
+`stmt.for.scope`.  `explorations/claude-notes.md` and `proposal-defer.md` (marked superseded) follow.
 
 ## Implementation
 
-- Grammar / parser / AST: `defer` + Block; the AST's defer statement holds the block.  Hint for the call form.
-  ast clone, bnfmt printing, bnlint's AST walkers.
-- Checker: check the block in place (normal scoping); enforce `stmt.defer.block`; drop `stmt.defer.call` and
-  `stmt.defer.no-loop`.
-- IR-gen: delete the eager machinery — the defer pre-pass and its entry-depth operand / borrow / retain /
+Prerequisite: the `for` init-variable scoping bug (todo "A C-style `for` init variable stays visible after the
+loop in IR-gen") — the `for` statement needs its own IR-gen scope before a scope stack can be built on it.
+
+- Grammar / parser / AST: `defer` + Block, the block stored in `Stmt.Body` (so the generic walkers —
+  `walkStmtRefs`, `luStmt`, func_value_escape, readonly_handle_type_arg — descend into it for free, and the AST
+  field-pin test is untouched); ast clone, bnfmt printing.  The call form's hint lands in transition step 4.
+- Checker: check the block in place (normal scoping); save and clear InLoop / InSwitch on entering it (as
+  `check_func_lit.bn` does) and add a flag rejecting `return` (`stmt.defer.block`); drop `stmt.defer.call` and
+  `stmt.defer.no-loop`; `collectVarDepsStmt` walks the deferred block (the init-order todo).
+- bnlint walkers that dispatch on statement kind must descend into the block: `lint.bn` lintStmt,
+  `iface_borrow_escape.bn` escWalkStmt (escapes would be missed), `borrowable_char_param.bn` pcWalkStmt (could
+  wrongly suggest `readonly`).
+- IR-gen, deleting the eager machinery — the defer pre-pass and its entry-depth operand / borrow / retain /
   backing / literal slots, the armed flags, the operand roles and shapes, the deferred-call stack pre-check,
-  SnapshotBorrows / DeferBorrowSlots, genCompositeElem's defer arm (about 1,500 lines in `gen_defer*.bn` plus
-  ~27 hooks elsewhere).  Add per-block pending-defer lists: a defer statement appends (block AST + the
-  ctx.Vars length at that point) to the current block's list and emits nothing; each block-exit point — the
-  fall-through end, `break`, `continue`, `return` — emits, for each block it leaves (innermost first), that
-  block's pending deferred blocks in reverse order, then that block's releases.  A deferred block is generated
-  with ctx.Vars truncated to its recorded length (so a later inner shadow is not seen) and restored afterwards.
-- Code size: a deferred block is generated once per exit edge of its block.  Generating one AST more than
-  once must be safe: audit IR-gen state keyed by AST identity (`same`) — func-literal lifting (FuncLitCounter
-  gives each copy its own lifted function: correct, duplicated), AddressedLits / deferLitSlot (deleted),
-  checker stamps IR-gen mutates.  A shared per-block cleanup chain can bound duplication later; not needed
-  first.
-- VM / native / LLVM backends: nothing new (deferred code is ordinary code).  Fault pads: deferred blocks never
-  run on a fault (`no-abort`), pads release as now.
-- BUILDER: cmd/bnc's non-test cone has no `defer` today; after this lands it must not use `defer` until the
+  SnapshotBorrows / DeferBorrowSlots, genCompositeElem's defer arm, genBlockEx's skipFalloffCleanup and
+  genFunc's hasDefers epilogue (about 1,500 lines in `gen_defer*.bn` plus ~27 hooks) — and adding:
+  - A scope stack: one entry per IR-gen scope (genBlockEx, genCaseBody, genTypeSwitchCaseBody, genForIn's
+    per-iteration body, the `for` statement's own scope, and the hidden scopes — for-in operand / header
+    temporaries, range variables, the type-switch scrutinee), each with its ctx.Vars start and its pending
+    deferred blocks.  A defer statement appends (its block, the ctx.Vars length then) to the innermost entry and
+    emits nothing.  `break` / `continue` record the target's stack depth instead of BreakVarLen /
+    ContinueVarLen (which release flat today); every exit — fall-through end, `break`, `continue`, `return` —
+    walks the stack innermost first, emitting each entry's deferred blocks (last first) and then that entry's
+    releases, on a copy, popping as it goes.
+  - Name lookup apart from the live set: while a deferred block is generated, ctx.Vars is
+    `Vars[:L_defer]` plus `Vars[L_defer:entryEnd]` re-entered under unspellable hidden names (as
+    `.typeswitch.scrutinee` is) — invisible to lookup, still live for the fault pads (`emitPadCleanup` releases
+    all of ctx.Vars) — with the already-exited inner entries dropped; restored afterwards.  (Plain truncation
+    would leak the live later locals on a VM fault inside deferred code.)
+  - Return edges with pending deferred blocks: acquire (or move) each result; store it in a fresh frame slot
+    registered as a hidden live entry (so a fault pad in the deferred code releases it); release the return
+    statement's remaining temporaries with no OP_SP_RESTORE and clear the statement state (Temps, StmtGrewSP,
+    AddressedLits, CurBlock); run the deferred blocks; reload the results, drop the hidden entries, EmitReturn.
+    This reverses gen_return.bn's current order (deferred calls before the acquire), which was safe only
+    because eager deferred calls could not see the return operands — and it keeps return values that live on the
+    VM stack (aggregate call results, OP_IFACE_VALUE, literal copies) from being clobbered by the deferred
+    code's own stack growth and SP restores.
+  - A deferred block that ends in a terminator (`panic`) ends its exit edge: the remaining deferred blocks,
+    releases and the jump / return are skipped.  BreakTo / ContinueTo are nil while deferred code is generated,
+    so an escaping jump fails loud.
+  - Closure sites: a deferred block is generated once per exit edge, so the lifted function and the frame
+    closure record of each func-literal / method-value site are memoized per source site within a function —
+    `func.closure.allocation` requires one record per site per frame, re-snapshotted per evaluation (a loop body
+    whose deferred `saved = func() int { return i }` runs via `continue` in iteration 0 and by falling through
+    in iteration 1 must give `saved()` = 1).  Generating the same AST more than once is otherwise safe (generic
+    bodies already do; IR-gen mutates no shared AST node).
+- VM / native / LLVM backends: nothing new (deferred code is ordinary code).
+- BUILDER: no `defer` anywhere in non-test code; after this lands, cmd/bnc's cone must not use `defer` until the
   pinned BUILDER parses the block form (a constraint, not a reason to cut one).
 
-## Transition (the pinned CHECK_TOOLS bnlint / bnfmt parse the tree's `pkg/` and `cmd/` files)
+## Transition (the pinned CHECK_TOOLS bnlint / bnfmt parse `pkg/`, `cmd/`, `impls/`, `ifaces/`)
 
-`scripts/hygiene/lint.sh` (bnlint `--tests`) and `bnfmt-format.sh` use the CHECK_TOOLS_VERSION tools
-(`bnc-0.0.17-pre1`), whose parser rejects `defer { … }`.  `conformance/` is not bnfmt-checked or linted.  The
-tree's 229 defers are all in unit tests under `pkg/` / `cmd/`, all at function top level (222 are `defer
-os.RemoveAll(dir)`), so their meaning is the same under both forms; none is in non-test code or `examples/`.
+`scripts/hygiene/lint.sh` (bnlint `--tests`; `pkg/`, `cmd/`, every `impls` / `ifaces` package) and
+`bnfmt-format.sh` (`pkg cmd impls ifaces perf examples runtime`) use the CHECK_TOOLS_VERSION tools
+(`bnc-0.0.17-pre1`), whose parser rejects `defer { … }` ("expected expression").  `conformance/` is neither
+formatted nor linted.  The tree has 259 defers, all in `_test.bn` files at function top level, none reassigning
+its operand later (pkg 225, cmd 4, impls 30; 222 are `defer os.RemoveAll(dir)`), so they mean the same under the
+eager and the new semantics; there are none in non-test code, e2e, perf, runtime or examples.
 
-1. Land the block form with its new semantics beside the old call form (the parser accepts both; the old form
-   keeps its current implementation), with the new conformance tests and the spec text.  Nothing in `pkg/` /
-   `cmd/` uses the block form yet, so hygiene stays green.
-2. A CHECK_TOOLS pre-release whose bnlint / bnfmt parse `defer { … }` (the user's call — a release cut), and
-   the CHECK_TOOLS_VERSION bump.
-3. Migrate the 229 unit-test defers and the 81 conformance files to the block form (expected outputs updated
-   where they pinned eager evaluation or function-scoped timing — 9 files have a defer in a nested block;
-   `1248_defer_in_loop` becomes a per-iteration test).
-4. Remove the call form (syntax error + hint) and delete the eager machinery.
+Running the two forms side by side with different semantics is hazardous (plan review): at a `return` the old
+calls run before the result acquire and the new blocks after it, and an old-form defer inside a new-form block
+inside a loop passes the no-loop check.  So:
+
+1. The call form becomes sugar for `defer { <call> }` with the new semantics; the eager machinery is deleted;
+   the 81 conformance files move to the block form (expected outputs updated where they pinned eager evaluation
+   or function-scoped timing — 9 have a defer in a nested block, 7 in an `if`, `1248_defer_in_loop` in a loop;
+   `.error` files 1248 / 1249 pin the old messages); the spec lands with a note that the call form is accepted
+   until step 4.
+2. A CHECK_TOOLS pre-release whose bnlint / bnfmt parse `defer { … }`, and the CHECK_TOOLS_VERSION bump.
+3. Migrate the 259 unit-test defers to the block form.
+4. Reject the call form (syntax error + hint).
 
 ## Tests
 
 New conformance tests (spec/14-statements): each exit kind (fall-through, `break`, `continue`, `return` through
-nested blocks, switch case), LIFO within a block and innermost-first across blocks with the releases between,
-per-iteration defers in `for`, live reads and writes (a write visible after the inner block), a return value
-the deferred block cannot change, a raw borrow that is live at exit, a deferred block with a nested defer and a
-function literal emitted at several exits, unexecuted defers not run, `no-abort` (a panic runs none), leak
-checks; error tests for `stmt.defer.block` (return / escaping break / continue) and the call-form hint.  The
-retention tests 176–183 keep their programs; their expected outputs change where they reassign a local after
-the defer (now read live).
+nested blocks, a switch case, a for-in loop, a type switch), LIFO within a block and innermost-first across
+blocks with the releases between, per-iteration defers in `for` (including one writing the loop counter), live
+reads and writes (a write visible after the inner block), a shadow declared later in the same block and the
+for-init shadow, a range variable and a type-switch binder used in deferred blocks, a return value the deferred
+block cannot change, a VM `return` of a stack-resident aggregate with deferred code that grows the stack, a
+recoverable VM fault inside a deferred block with leak accounting, a deferred block ending in `panic`, a nested
+defer, the closure-site / exit-edge case above, unexecuted defers not run, `no-abort` (a panic runs none), an
+IIFE package-variable initializer whose deferred code reads a later variable (init order), leak checks; error
+tests for `stmt.defer.block` (return / escaping break / continue) and the call-form hint.  The retention tests
+176–183 keep their programs; expected outputs change where they reassign a local after the defer (now read
+live).  `scripts/hygiene/test-coverage.whitelist` loses its `gen_defer*` entries.
 
 ## Decided points
 
 - The CHECK_TOOLS pre-release in step 2: "yes, a CHECK_TOOLS pre-release is fine" (user, 2026-10-12).
 - A `defer` inside a deferred block is allowed: "yes, a defer inside a defer is fine (we can't ban it from
   functions called by the contents of the defer, so not allowing it is just silly)" (user, 2026-10-12).
+
+## Open points for the user (2026-10-12)
+
+- The transition order above: the old call spelling takes the new semantics in step 1 (the alternative —
+  both forms side by side with different semantics — is hazardous, see Transition).
+- The REPL: immediate mode already runs each entry as a synthetic function, so `{ defer { … } }` typed at the
+  prompt is well-defined.  Proposed: keep rejecting a `defer` at the prompt's top level (it would run at once,
+  at the end of that entry) and allow it in nested blocks.
