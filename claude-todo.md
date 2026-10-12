@@ -114,6 +114,15 @@ Fix: give the `for` statement its own IR-gen scope — release the init variable
 them.  Needs a conformance test (a shadowed outer variable read after the loop; also a managed init variable,
 for the release).  The defer redesign (plan-defer-block.md) depends on correct IR-gen scoping.
 
+### A C-style `for` with init / post but no condition is not terminating to the checker — 🔴 OPEN MINOR (found 2026-10-12, work-4, writing the for-init scoping test; pre-existing)
+
+§14.14 `stmt.terminating` counts "a `for` with no condition and no `break` targeting it" as terminating, but
+check/check_terminates.bn also requires no init and no post statement (`if s.Init != nil || s.Post != nil
+{ return false }`), so `func f() int { for p := mk(); ; p.n++ { if p.n == 3 { return p.n } } }` is rejected
+with "missing return".  Either the checker drops the init / post condition (the spec's wording, and Go's rule)
+or the spec's parenthetical "(an unconditional `for { … }` infinite loop)" becomes the rule.  Needs a
+conformance test either way.
+
 ### `:=` in a C-style `for` post statement: compiler crash, wrong binding, leak — 🔴 NEEDS DECISION MAJOR (found 2026-10-12, work-4, review of the for-init scoping fix; reproduced; pre-existing)
 
 The checker checks the post statement before the body (check/check_stmt.bn), so a variable a post `:=`
