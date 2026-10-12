@@ -169,6 +169,14 @@ loop in IR-gen") — the `for` statement needs its own IR-gen scope before a sco
 - BUILDER: no `defer` anywhere in non-test code; after this lands, cmd/bnc's cone must not use `defer` until the
   pinned BUILDER parses the block form (a constraint, not a reason to cut one).
 
+## Progress
+
+- 2026-10-12: the prerequisite `for` init-variable scoping fix landed (binate `968151459`).
+- 2026-10-12: the IR-gen scope stack landed (binate `01b5a0091`): ctx.Scopes (gen_scope.bn) records every open
+  scope — blocks and constructs' own variables — and `break` / `continue` release the scopes they leave innermost
+  first (emitLeaveScopes); genFunc fails loud on a scope left open.  No behaviour change.  Next: the semantic
+  switch (step 1 below) — pending deferred blocks on these scopes, emitted at every exit.
+
 ## Transition (the pinned CHECK_TOOLS bnlint / bnfmt parse `pkg/`, `cmd/`, `impls/`, `ifaces/`)
 
 `scripts/hygiene/lint.sh` (bnlint `--tests`; `pkg/`, `cmd/`, every `impls` / `ifaces` package) and
