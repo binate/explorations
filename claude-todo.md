@@ -39,7 +39,7 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### bnld dynamic ELF exports none of the program's definitions: a definition does not interpose a needed library's — 🔴 OPEN MAJOR (found 2026-10-12, work-2, review of the commons fix; pre-existing)
+### bnld dynamic ELF exports none of the program's definitions: a definition does not interpose a needed library's — 🟡 IN PROGRESS (claimed 2026-10-12, work-2; user: "Probably we should read .dynsym") MAJOR (found 2026-10-12, work-2, review of the commons fix; pre-existing)
 
 A dynamic ELF executable's .dynsym holds only its imports and its commons (binate `80279f202`), so a
 program definition of a name a needed library also defines and uses stays private: `int optind;` built with the
