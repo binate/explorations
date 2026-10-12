@@ -111,8 +111,9 @@ D. Copy chains (load → private copy → temp slot → argument): revisit after
    - `return *p`, `h.b = *p`: a large load from an unknown source is copied into a private region first —
      AggLoadElidable's S-adjacent rule stops at 16 bytes, since an elided copy of more interleaves loads and
      stores, wrong if the destination overlaps the source.  A return's destination (the caller's result
-     buffer, noalias) cannot overlap, so a load whose last use is the return could be elided at any size;
-     a store would need an overlap-safe large copy (memmove-style direction) in the copy emitters.
+     buffer, noalias) cannot overlap, so a load whose last use is the return could be elided at any size —
+     done `45e8b6537` (2026-10-12; retDeref 2c → 1c on both); a store would need an overlap-safe large
+     copy (memmove-style direction) in the copy emitters.
    - `var y = x`: SROA splits the whole-struct copy into per-field copies and moves the [100]int field
      through a temporary slot (the two copies are its 800 bytes, not Big's 808), and y's first use is then
      a field store, so the dead-store pass keeps y's zero-fill.

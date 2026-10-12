@@ -1055,6 +1055,20 @@ index / >32-bit displacement.  Tests: x64_mem_test.bn in parse and asm/x64 (clan
 in 4 instructions match clang byte for byte.  Raised with the user, undecided: 32-bit addressing (now rejected),
 `-~8` (clang's Intel parser computes it wrongly), absolute `[lbl]` (unsupported, as before).
 
+### A wide load returned whole reads its source in place — DONE (binate `45e8b6537`, 2026-10-12, work-1)
+
+First of the D table's remaining causes (user: "go with your rec").  AggLoadElidable's S-adjacent rule (an
+unknown source, only pure instructions to the last use) stops at 16 bytes for overlap's sake; a load whose only
+use is the OP_RETURN returning it as f's one result (returnedWhole) now takes no cap — the return reads it into
+registers or copies it into the caller's result buffer, and no result buffer is reachable by the callee (a fresh
+temporary, a non-escaping placed local, the caller's own incoming buffer passed on, a C caller's sret).
+`return *p` copies once (agg-copy-table retDeref 2c → 1c, native aa64 and LLVM arm32).  Review: no correctness
+defects (every buffer provider, VM / thunks / C callers, the copy on all four backends; probes A/B-identical on
+five targets); its nits fixed.  Tests: unit tests; conformance 1628 (sources: local, heap, array element, global,
+field; `x = get(&x)`, `h.b = get(&h.b)`; 20 / 24-byte (4-aligned) / 4×float64 results; a managed field).
+Validated: native/common, codegen, native/* unit tests; managed-value subset on LLVM aa64, native aa64 / x64 /
+arm32 bare metal / arm32 Linux; C-ABI e2e; 1628 on every mode.
+
 ### plan-aggregate-copy-opts.md's D table re-measured — DONE (2026-10-12, work-1, on binate `27728fce5`)
 
 With D1–D4 and their follow-ups landed, 7 of the 11 shapes are at the minimum on native aa64 and LLVM arm32
