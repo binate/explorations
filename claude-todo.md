@@ -113,6 +113,24 @@ accepts every non-interface target (`@any -> [2]int` compiles).  Also: `cast(@B,
 interface narrowing) suggests `unsafe_cast`, which rejects exactly that — an interface target should point
 to `x.(J)` only.  Spec §8.7 bullet (docs `9d87a92` narrowed it to concrete targets) to follow the rule.
 
+### A C-style `for` init variable stays visible after the loop in IR-gen — silent wrong value — 🔴 OPEN MAJOR (found 2026-10-12, work-4, review of plan-defer-block.md; reproduced LLVM / native aa64 / VM; pre-existing)
+
+`var i int = 10; for i := 0; i < 3; i++ {}; testing.Println(i)` prints 3 on every mode; it must print 10.
+genFor (irgen/gen_flow.bn) declares the init variable into the enclosing block's ctx.Vars and never truncates
+it, while the checker scopes it to the `for` statement (check/check_stmt.bn pushes / pops a scope around it);
+lookupVar (gen_vars.bn) searches by name, most recent first, so a later use of the outer `i` reads the loop's.
+Fix: give the `for` statement its own IR-gen scope — release the init variables at the loop's exit and pop
+them.  Needs a conformance test (a shadowed outer variable read after the loop; also a managed init variable,
+for the release).  The defer redesign (plan-defer-block.md) depends on correct IR-gen scoping.
+
+### Package-variable init order ignores reads inside a deferred call — silent wrong value — 🔴 OPEN MAJOR (found 2026-10-12, work-4, review of plan-defer-block.md; reproduced; pre-existing)
+
+`var a int = func() int { defer show(b); return 1 }()` followed by `var b int = seven()` prints "deferred
+sees b = 0" (a plain `show(b)` prints 7): collectVarDepsStmt (check/check_var_resolve.bn) has no STMT_DEFER
+arm, so the dependency on `b` is missed and `a` initializes first (§17.2).  Fix: walk the deferred code.  The
+defer redesign (plan-defer-block.md) must cover it — the deferred block is walked like any block — and its
+test (an IIFE initializer whose deferred code reads a later variable) belongs with that work.
+
 ### `len` of an array composite literal fails to compile — 🔴 OPEN MAJOR (found 2026-10-11, work-4, review of the deferred composite-element fix; reproduced; pre-existing)
 
 `var n int = len([2]int{1, 2})` fails to compile on LLVM (`extractvalue operand must be aggregate type`) and
