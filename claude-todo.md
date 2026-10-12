@@ -2144,6 +2144,25 @@ immediate starts only at a digit or `-` (`parseX64Operand`, `pkg/binate/asm/pars
 
 ## bnld (self-hosted linker)
 
+### bnld dynamic Mach-O: `__mh_execute_header` is not defined — 🔴 OPEN (minor; found 2026-10-11, work-2, review of the Mach-O constructors change; pre-existing)
+
+ld64 defines `__mh_execute_header` (C `_mh_execute_header`) as the executable's Mach-O header — the address
+bnld gives `___dso_handle` (`LinkDynMacho`, `machoDynHeaderAddr`).  bnld does not define it, so a reference
+becomes a dynamic import dyld cannot bind (a load failure) or, for a direct ADRP reference, a link error.  Fix:
+define it in `LinkDynMacho` as `___dso_handle` is (`referencedNotDefined` → `withImageSym` → `setAbsValue` to the
+header address), with a unit test alongside `TestLinkDynMachoInitFuncAndDsoHandle`.
+
+### bnld dynamic Mach-O: llvm-objdump rejects the rebase table ("bad segIndex (too large)") — 🔴 OPEN (minor, tools only; found 2026-10-11, work-2, review of the Mach-O constructors change; pre-existing)
+
+`llvm-objdump --macho --rebase` on a bnld-linked dynamic Mach-O stops with "truncated or malformed object (for
+REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB bad segIndex (too large) for opcode at: 0x1)", though dyld loads and
+rebases the same binary correctly (e2e `bnld-macho-dynamic.sh`).  Cause unknown.  One difference from ld64's
+output: bnld's dynamic writer (`EmitDynMachoExec`) writes `section_64` records only for `__mod_init_func` /
+`__mod_term_func`, none for `__TEXT`'s `__text` / `__stubs` / `__const` or `__DATA`'s `__data` / `__got` /
+`__bss`, where ld64 writes one per section.  Fix: find the check in llvm's MachOObjectFile that fails, then make
+the output satisfy it (most likely a record per output section, as ld64 writes, which also lets otool / lldb
+name the sections of bnld output).
+
 ### bnld's Mach-O reader has no general section-relative (non-extern) reloc support — 🟢 ENHANCEMENT
 
 `parse_macho` resolves only EXTERN (symbol-indexed) relocations; a non-extern
