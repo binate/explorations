@@ -1,3 +1,17 @@
+### stmt.defer retains an `@T` boxed into a deferred `*I` / `*any` argument — DONE (binate `d356c8e7d`, docs `0cc5657`, 2026-10-11, work-4)
+
+`defer run1(mk(11))` with `func run1(x *any)` and `mk` returning `@Thing`, a `...*any` pack, and the same through
+function-value / interface-method / method callees read freed memory: the `@T` was boxed into the raw interface at
+the defer statement and released at its end.  Decision (user, 2026-10-10): keep it alive — "I think that deferred
+statements should be as if one captured all managed variables that are used in the statement".  isManagedToRawBinding
+classifies an `@T` (aliases / `readonly` read through; a named type over `@T` stays a value-borrow) bound to a raw
+interface parameter or variadic element as managed-to-raw; the slot holds the `@T` and borrowRetainedIface boxes it
+at the call, in emitDeferRun's materialization phase; the operand records its checker type (DeferOperand.ArgTyp)
+for the box's `readonly` / name-less identity, and a packed element passes its own.  stmt.defer's retention clause
+now names these borrows (docs `0cc5657`).  Test: spec/14-statements/182_defer_managed_ptr_to_raw_iface.  The
+review's other findings stay open in claude-todo.md (composite-literal-nested borrows, derived raw pointers,
+`@(*I)` into `*any`).
+
 ### A managed `@X` of a type nothing defines drops through a never-defined `__dtor_X` — DONE (binate `9235b2aa6`, 2026-10-11, work-7)
 
 Reachable today in a non-main package: with `type X` in a package's `.bn` and no definition anywhere,

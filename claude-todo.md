@@ -117,42 +117,23 @@ nothing else changes.  Do: keep x86-64 `.eh_frame` as data, as aarch64's is; imp
 sorted by the code they describe, an EXIDX_CANTUNWIND terminator, `__exidx_start` / `__exidx_end`, and a
 PT_ARM_EXIDX segment — as lld does.  After the init-array series (the bnld reader MAJOR's item 1).
 
-### Does stmt.defer retain an `@T` boxed into a deferred `*I` / `*any` argument? — 🟡 IN PROGRESS (claimed 2026-10-10, work-4) MAJOR — DECIDED 2026-10-10: retain it (found 2026-10-04, work-4, review of the deferred variadic pack fix; reproduced on main, LLVM / native / VM; pre-existing)
+### Deferred calls: borrows nested in a composite-literal operand, and raw pointers derived from managed locals — 🟡 IN PROGRESS (claimed 2026-10-10, work-4) MAJOR — (a) to fix next; (b) NEEDS DECISION on the exact rule (found 2026-10-10, work-4, review of the deferred `@T` → `*I` fix; pre-existing)
 
-Decision (user, 2026-10-10): keep it alive — "I think that deferred statements should be as if one captured all
-managed variables that are used in the statement".
-
-Status 2026-10-10: the `@T` → `*I` / `*any` retention (fixed argument, `...*any` / `...*I` pack, interface-method /
-function-value / method callees) is implemented and validated, not yet landed (test spec/14-statements/182).  Still
-open under this decision:
+Decision (user, 2026-10-10, on the deferred `@T` → `*I` question, landed as binate `d356c8e7d`): keep it alive —
+"I think that deferred statements should be as if one captured all managed variables that are used in the
+statement".  Still open under it:
 - (a) A managed-to-raw borrow NESTED in a composite-literal operand is not retained: `defer show(Opts{a: mkT(42)})`
   (`a *any`) and `defer showP(PP{p: mkT(42)})` (`p *Thing`) read freed memory (0) on LLVM and native aa64; the
-  direct calls are fine.  Pre-existing.  allocNestedDeferBorrowSlots (gen_defer_build.bn) pre-allocates slots only
-  for value-borrows nested in a composite literal, not for managed-to-raw conversions.  Found by the review of the
-  `@T` → `*I` fix (probe pc.bn).
+  direct calls are fine.  allocNestedDeferBorrowSlots (gen_defer_build.bn) pre-allocates slots only for
+  value-borrows nested in a composite literal, not for managed-to-raw conversions.  Repro: review probe pc.bn.
 - (b) A raw pointer DERIVED from a managed local is not kept alive: `var x @T = mk(); defer readp(&x.y); x = mk()`
   reads freed memory, as do `&s[1]` of a managed-slice local and a pointer-receiver call on a value field (`defer
   x.inner.Show()`, an implicit `&x.inner`); a package-level `@T` (`defer readp(&g.y); g = …`) the same (LLVM
   probe).  `defer reads(s[1:3])` is fine (the subslice is managed, so retained).  stmt.defer now calls these the
   programmer's responsibility (§18.7 mem.raw-uaf).  The decision's "as if one captured all managed variables used
   in the statement" would retain each managed local named in the statement; closures capture only locals
-  (func.closure.captured), so a package-level variable would stay the programmer's.  Needs the exact rule decided
-  before implementing and speccing.
-
-`defer run1(mk(11))` with `func run1(x *any)` and `mk` returning `@Thing`, and `defer runv(mk(12), mk(13))` into
-`...*any`, read freed memory (0); direct calls are fine.  §11.4 calls `@T` → `*I` a borrow, but stmt.defer's
-retention clause points at §8.4's managed-to-raw conversions, which do not list it (deferArgBorrowVt retains only
-VALUE sources boxed into an interface).  Decide whether stmt.defer retains the `@T` here (then: a retain slot like
-a managed-to-raw argument's, boxing the borrow from it — fixed and packed); if it does not, spec it.
-Related wording: stmt.defer says "managed→raw conversion at the defer site (§8.4)", but §8.4 conv.managed-to-raw
-lists only `@T` → `*T`, `@[]T` → `*[]T`, `@func` → `*func`; §7.3 type.ptr.managed-to-raw also lists `@Iface` →
-`*Iface` (retained by the defer since the `@I` → `*I` fix), and `@T` → `*I` is §11.4 iface.construct.managed.
-The reference should name whichever set is decided.
-The same holds for deferred function-value calls: `var fh @func(*Getter) = …; defer fh(mk(2))` with `mk` returning
-`@Thing` reads a later temporary (prints 3 instead of 2) on LLVM / native / VM; the generic-interface form
-(`@func(*Holder[int])`) failed to compile before the func-value IR-typing fix and now reads freed memory the
-same way.  Test to land
-with the decision (repro: the review probe, a `*any` analogue of `spec/14-statements/177`).
+  (func.closure.captured), so a package-level variable would stay the programmer's.  Asked (2026-10-11): that
+  rule?  And are struct / array locals with managed fields retained too, as a closure copies them?
 
 ### A managed pointer to an interface value (`@(*I)` / `@(@I)`) passed for a raw `*any` miscompiles — 🔴 NEEDS DECISION MAJOR (found 2026-10-10, work-4, review of the deferred `@T` → `*I` fix; reproduced; pre-existing)
 
