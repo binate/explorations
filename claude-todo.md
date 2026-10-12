@@ -623,7 +623,7 @@ error (the forwarder should drop the redundant `expose "P"`; a bnlint rule could
 when both paths denote the same declaration (compare the defining package and declaration, not the name),
 spec to match.  Needs a conformance test either way.
 
-### A `.bni` method declaration may name a type only the `.bn` declares — the interface is not self-contained — 🔴 OPEN (found 2026-10-10, work-7, review of the `.bni` method consistency check; code reading; pre-existing)
+### A `.bni` method declaration may name a type only the `.bn` declares — the interface is not self-contained — 🟡 IN PROGRESS (found 2026-10-10, work-7, review of the `.bni` method consistency check; code reading; pre-existing; claimed 2026-10-11, work-7/session — user: "Yes, .bni declarations should resolve against the interface alone")
 
 A package can ship as its `.bni` plus a compiled library (§16.5.1), so every `.bni` declaration must resolve
 from the `.bni` alone.  `.bni` free functions do (`buildScopeFromFile` resolves them against the interface's
