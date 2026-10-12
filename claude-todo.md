@@ -53,6 +53,19 @@ the exposure.  Fix: spell the define line's alignment from T (its AlignOf, as by
 arguments) — at least for functions a C caller can reach; reproduce first with an e2e C caller passing a
 4-aligned, not 8-aligned, buffer to a #[c_export] function returning a struct of int32s, on arm32.
 
+### bnld whole-link drivers do not allocate common symbols (C tentative definitions): they become dynamic imports — 🔴 OPEN MAJOR (found 2026-10-11, work-2, testing Mach-O constructors; pre-existing)
+
+A C tentative definition (`int order;`) is a common symbol — Mach-O N_UNDF with a size, ELF SHN_COMMON; clang still
+emits them on Darwin by default (on Linux only with `-fcommon`, or from older compilers).  Only the scripted builder
+places commons (`*(COMMON)`, builder_common.bn); the whole-link drivers (`Layout` via `Link`, `LinkDynElf`, the
+dynamic Mach-O driver) never allocate one, so its definition is lost: in a dynamic link the symbol becomes an
+import (dyld: `Symbol not found: _order … Expected in: libSystem.B.dylib` at launch; ld.so likewise), in a static
+ELF link an undefined symbol.  Repro (macOS): `clang -c -O0 -target arm64-apple-macos11 c.c` with `int order;` and
+a `main` using it, `bnld -target macos-arm64 -dynamic -e _main c.o`, run.  Fix: allocate commons in the whole-link
+layout (a .bss-like output piece, each common at its alignment, the largest size among same-named commons, a real
+definition winning — as builder_common.bn does) for ELF and Mach-O inputs; check the Mach-O reader marks them
+Common.  Test: a unit test per format and an e2e with `int x;` in C.
+
 ### bnld input readers: three silent mis-reads — `.init_array` dropped, a 64-bit addend truncated on a 32-bit host, malformed relocation sections skipped — 🟡 IN PROGRESS (claimed 2026-10-09, work-2; user: "bnld reader MAJOR") MAJOR (found 2026-10-06, work-2, mapping bnld for relocatable data; confirmed by reading; pre-existing)
 
 1. **Only SHF_ALLOC PROGBITS / NOBITS sections are kept** (`pkg/binate/link/parse_elf.bn` ~288-298): an
