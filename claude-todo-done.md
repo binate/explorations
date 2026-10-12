@@ -1,3 +1,15 @@
+### A deferred call retains a managed value borrowed as a raw composite-literal element — DONE (binate `347ed253d`, 2026-10-11, work-4)
+
+`defer show(Opts{a: mkT(1)})` with `a *any` — and a `*T`, `*Getter`, `*[]int` or `*func` element from an `@T`,
+`@I`, `@[]int` or `@func` — read freed memory: the element's managed value was a statement temporary of the defer
+statement.  Under the 2026-10-10 decision (keep it alive), the defer pre-pass allocates a retain slot per such
+element on the borrow-snapshot cursor (maybeAllocDeferElemRetainSlot), and the five composite-element sites
+evaluate through genCompositeElem, which moves or copies the managed value into the slot while a defer's operands
+are stored (outside a nested call's arguments).  Test: spec/14-statements/183_defer_composite_elem_managed_to_raw
+(fields of each raw kind, nested literals, arrays and slice literals, pack and spread, receivers, a func-value
+callee read from a literal, a conditional defer, a literal in a nested call's arguments, a generic struct).
+Found by the review of the deferred `@T` → `*I` fix (binate `d356c8e7d`).
+
 ### bnld input readers: init / fini / preinit arrays kept and run, ELF and Mach-O — DONE (binate `541fabde3`, `147bca034`, `3544cc306`, `4e6f0f2ab`, 2026-10-11, work-2)
 
 Item 1 of the MAJOR "bnld input readers: three silent mis-reads" (items 2 and 3 have their own entries), the last

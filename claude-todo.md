@@ -88,23 +88,20 @@ nothing else changes.  Do: keep x86-64 `.eh_frame` as data, as aarch64's is; imp
 sorted by the code they describe, an EXIDX_CANTUNWIND terminator, `__exidx_start` / `__exidx_end`, and a
 PT_ARM_EXIDX segment — as lld does.
 
-### Deferred calls: borrows nested in a composite-literal operand, and raw pointers derived from managed locals — 🟡 IN PROGRESS (claimed 2026-10-10, work-4) MAJOR — (a) to fix next; (b) NEEDS DECISION on the exact rule (found 2026-10-10, work-4, review of the deferred `@T` → `*I` fix; pre-existing)
+### Deferred calls: raw pointers derived from managed locals (`defer readp(&x.y); x = mk()`) — 🟡 IN PROGRESS (claimed 2026-10-10, work-4) MAJOR — ruled 2026-10-11; evaluation-time question pending (found 2026-10-10, work-4, review of the deferred `@T` → `*I` fix; pre-existing)
 
-Decision (user, 2026-10-10, on the deferred `@T` → `*I` question, landed as binate `d356c8e7d`): keep it alive —
-"I think that deferred statements should be as if one captured all managed variables that are used in the
-statement".  Still open under it:
-- (a) A managed-to-raw borrow NESTED in a composite-literal operand is not retained: `defer show(Opts{a: mkT(42)})`
-  (`a *any`) and `defer showP(PP{p: mkT(42)})` (`p *Thing`) read freed memory (0) on LLVM and native aa64; the
-  direct calls are fine.  allocNestedDeferBorrowSlots (gen_defer_build.bn) pre-allocates slots only for
-  value-borrows nested in a composite literal, not for managed-to-raw conversions.  Repro: review probe pc.bn.
-- (b) A raw pointer DERIVED from a managed local is not kept alive: `var x @T = mk(); defer readp(&x.y); x = mk()`
-  reads freed memory, as do `&s[1]` of a managed-slice local and a pointer-receiver call on a value field (`defer
-  x.inner.Show()`, an implicit `&x.inner`); a package-level `@T` (`defer readp(&g.y); g = …`) the same (LLVM
-  probe).  `defer reads(s[1:3])` is fine (the subslice is managed, so retained).  stmt.defer now calls these the
-  programmer's responsibility (§18.7 mem.raw-uaf).  The decision's "as if one captured all managed variables used
-  in the statement" would retain each managed local named in the statement; closures capture only locals
-  (func.closure.captured), so a package-level variable would stay the programmer's.  Asked (2026-10-11): that
-  rule?  And are struct / array locals with managed fields retained too, as a closure copies them?
+A raw pointer DERIVED from a managed local is not kept alive: `var x @T = mk(); defer readp(&x.y); x = mk()` reads
+freed memory, as do `&s[1]` of a managed-slice local and a pointer-receiver call on a value field (`defer
+x.inner.Show()`, an implicit `&x.inner`); a package-level `@T` (`defer readp(&g.y); g = …`) the same (LLVM probe).
+`defer reads(s[1:3])` is fine (the subslice is managed, so retained).  stmt.defer now calls these the programmer's
+responsibility (§18.7 mem.raw-uaf).
+Ruling (user, 2026-10-11): "defer <stuff>; should be equivalent to __x := @func() { <stuff> }; defer __x();".
+Pending: read literally that evaluates the operands at exit over by-value snapshots of the locals the statement
+names, while stmt.defer (and proposal-defer.md) evaluate them eagerly at the defer statement — they differ for a
+call with side effects in an operand, a read through a pointer, a package-level variable, `&v.y` of a value
+local.  Asked whether the equivalence is literal (lazy evaluation) or about lifetime only (eager evaluation plus
+retaining every managed local the statement names); the spec review of the stmt.defer wording lists the
+differences.
 
 ### `len` of an array composite literal fails to compile — 🔴 OPEN MAJOR (found 2026-10-11, work-4, review of the deferred composite-element fix; reproduced; pre-existing)
 
