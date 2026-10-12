@@ -457,7 +457,7 @@ Each needs a test (xfail'd) + triage; grouped here so none is lost.
   work-7) A bare exposed CONSTANT there crashes the compiler: `const m int = N * 2` in the aggregator's `.bn`
   (N from the exposed package) → `panic: internal error: IR generation cannot evaluate a constant the type
   checker accepted`.  The `.bni` side (a `.bni` method or constant naming an exposed member bare) is rejected
-  by the `.bni` interface-view change, not yet landed (spec tests 16-packages/111, 112).
+  since binate `cc8aa0e9e` (spec tests 16-packages/111, 112).
 - **The `.bn` checker rejects a forward-referenced interface parent** (`interface LSub : LBase` before
   `LBase` → "undefined: LBase"), violating `decl.order.forward` (the `.bni` scope builder accepts it).
 - **`impl *home.Box[T] : Peeker[T]` in a third package is rejected** ("cannot define methods or impls
@@ -602,27 +602,6 @@ error (the forwarder should drop the redundant `expose "P"`; a bnlint rule could
 when both paths denote the same declaration (compare the defining package and declaration, not the name),
 spec to match.  Needs a conformance test either way.
 
-### A `.bni` method declaration may name a type only the `.bn` declares — the interface is not self-contained — 🟡 IN PROGRESS (found 2026-10-10, work-7, review of the `.bni` method consistency check; code reading; pre-existing; claimed 2026-10-11, work-7/session — user: "Yes, .bni declarations should resolve against the interface alone"; constants too — decided (b): a .bni constant may name only constants the .bni declares, not .bn-private ones; §16.5's "sibling constants" bullet to be clarified)
-
-A package can ship as its `.bni` plus a compiled library (§16.5.1), so every `.bni` declaration must resolve
-from the `.bni` alone.  `.bni` free functions do (`buildScopeFromFile` resolves them against the interface's
-own declarations and imports), but `.bni` methods do not: the `.bni` file scope (`addFileScope(c, bni,
-pkgScope)` in `checkPackageImpl`) chains to the package scope, which holds the `.bn`'s private
-declarations.  So with `type hidden struct { x int }` only in the `.bn`, `.bni` methods `func (t *T) Use(p
-@hidden)` and `func (h *hidden) M()` are accepted — both the ones the `.bn` defines (checked by
-`checkBniMethodDecls`) and extern ones (prepended into merged, collected by `collectMethodDecl`) — and a
-`.bni` method may name a generic type only the `.bn` declares (`*priv[int]`), through the generic stash's
-`curPkgPath` fallback.  A program reading only the interface (an interface-only load) would fail on them.
-No tree `.bni` does this today (a sweep of the 462 non-generic `.bni` methods found none).  An attempted
-fix that resolved only the `.bn`-defined methods in a copy of the surface was reverted: it covered neither
-the extern methods nor the generics, and the surface copies drop constant values, so a `[N]int` in a `.bni`
-method signature compared as `[0]int`.  Proposed root fix: chain the `.bni` file scope to the interface
-surface (its own declarations with their constant values, its imports, the universe) rather than to the
-package scope, so every `.bni` declaration — methods, extern methods, impls — resolves as the interface
-does, and key the generic lookups for `.bni` declarations on the interface's own generics.  Care: file
-scopes delegate `Define` to their parent (`DelegateDefine`), and the prepended `.bni` declarations are
-defined through them.
-
 ### Another package's `.bn`-only generic type or interface is reachable by its qualified name (`q.priv[int]`) — 🔴 OPEN (found 2026-10-11, work-7, review of the `.bni` interface-view change; reproduced with a scratch program; pre-existing)
 
 pkg.export (§16.4): a name only a `.bn` declares is package-private, and a cross-package reference to it is
@@ -635,8 +614,8 @@ keyed on the package path), which holds every generic the package declares, `.bn
 asks whether the referring package can see it.  An interface-only load (`LoadPackageInterface`) would reject
 the program, so whether it compiles depends on how q is built.  Fix: for a head in another package, require
 the stashed declaration to be one that package's `.bni` declares (`declaredInBni`, as the interface view
-already does for an unqualified head), or its sole surface when it has no `.bni`.  To do: an error test for
-each form (type, interface), expected-fail until fixed.
+already does for an unqualified head), or its sole surface when it has no `.bni`.  Covered by spec tests
+16-packages/109 (type) and 110 (interface), expected-fail (binate `6295b5c56`).
 
 ### Do importers and `.bni` generic bodies see a `.bn`-only method, or an opaque type's fields? — 🔴 NEEDS DECISION (found 2026-10-11, work-7, review of the `.bni` interface-view change; reproduced with scratch programs; pre-existing)
 

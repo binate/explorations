@@ -1,3 +1,24 @@
+### A `.bni` declaration may name only what the `.bni` declares (pkg.bni.self-contained) — DONE (binate `cc8aa0e9e`, docs `69a7cb9`, 2026-10-12, work-7)
+
+The package's own compile checked its `.bni` methods, impls, constants and generic bodies in the `.bni`'s file
+scope, which chained to the package scope, so they could name a `.bn`-only declaration (and a `.bn`-only generic
+type, through the generic stash's current-package fallback) — fine for the package itself, unresolvable for a
+program that has only the interface.  User: "Yes, .bni declarations should resolve against the interface alone";
+constants (b): a `.bni` constant may name only constants the `.bni` declares.  Now the `.bni` file scope sees the
+package scope only through `Scope.ParentNames` (the interface's own names, less the members an `expose`
+injected; any other name resolves in the universe — also in a REPL session, whose package scopes sit on the
+session's scope), `Scope.InterfaceView` holds generic heads in the `.bni` file scope and in
+`buildScopeFromFile`'s scope (where generic bodies resolve) to the same view, and IR-gen's `ReLoweredAtConsumer`
+looks at the interface's constants alone.  A `.bni` method or constant naming an exposed member bare is rejected
+too (the constant had crashed IR-gen).  Spec: new constraint pkg.bni.self-contained — names resolved in scope;
+member selection and opaque layout left to other rules; dual-defined generics marked unenforced — with §16.5's
+const bullet, §9.6 `decl.scope.levels`, §16.4 `pkg.export` and `pkg.expose.surface` updated (user: "spec rule:
+keep it, but get a review of it").  Tests: `pkg/binate/check/bni_view_test.bn`; spec tests 16-packages/104-108
+and 111-113; conformance 1627; 1620's sibling-constant cases rewritten with the whole chain in the interface.
+Left open in their own entries: the qualified `.bn`-only generic head (MAJOR; expected-fail 109/110, binate
+`6295b5c56`); member access and opaque layout in `.bni`s (NEEDS DECISION; user: "methods/fields: let's do it
+separately"); a dual-defined generic's `.bni` copy; REPL mid-session package scopes.
+
 ### bnld whole-link drivers allocate common symbols (C tentative definitions) — DONE (binate `80279f202`, 2026-10-12, work-2)
 
 A C tentative definition (`int x;` — ELF SHN_COMMON, a Mach-O external N_UNDF with a size; clang's default on
