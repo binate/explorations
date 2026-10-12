@@ -39,6 +39,20 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### bnld dynamic ELF exports none of the program's definitions: a definition does not interpose a needed library's — 🔴 OPEN MAJOR (found 2026-10-12, work-2, review of the commons fix; pre-existing)
+
+A dynamic ELF executable's .dynsym holds only its imports (and, once the commons fix lands, its commons), so a
+program definition of a name a needed library also defines and uses stays private: `int optind;` built with the
+default `-fno-common` (a .bss definition) gives libc's getopt and main two different variables (the e2e `optc`
+program exits 39, not 42), and a program's own `malloc` / `free` does not replace libc's for libc's internal calls
+— mismatched allocators, silently.  lld exports any executable definition that a linked shared library defines
+or references; GNU ld likewise exports what a shared library references (and copy-relocates data the program
+uses from one).  bnld reads only the needed libraries' SONAMEs, not their symbols.  Fix options: read the needed
+libraries' .dynsym (libc.so.6 is named without a path — needs a sysroot / search path) and export each program
+definition a library defines or references, as lld does; or export every global definition (`--export-dynamic`),
+which needs no library input but exports far more (startup lookup cost, interposition of names no library uses).
+Test: `optc` without `-fcommon`, and a program-defined `malloc` that libc's own calls must reach.
+
 ### The LLVM backend declares a function's own sret parameter `align 8` whatever the result's alignment; a C caller's buffer may be less aligned — 🔴 OPEN (found 2026-10-09, work-1, review of the returned-local change; pre-existing; plausible, not yet reproduced)
 
 A function returning through sret is defined `define void @f(ptr sret(%T) align 8 %v.retbuf, ...)`
