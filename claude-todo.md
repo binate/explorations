@@ -763,7 +763,8 @@ claude-todo-done.md and plan-aggregate-copy-opts.md); still open:
 - plan-aggregate-copy-opts.md D1-D4 are done (D1 `dfde1e73a` / `e62af60cf` / `dfce07941` / `35a7a4f3b` /
   `2e5cec867`; D2 `9fe09deb6` / `3c18f42d4`; D3 `69d6dcf57`, its native follow-up `d304bed5f`; D4
   `11375988e`; managed results' moves `d7f5734a2`; fault pads left out of NoZeroInit and every emit-time
-  analysis `04930fe7e` / `27728fce5`).  Left: re-measure the plan's D table on -O2 IR.  Their
+  analysis `04930fe7e` / `27728fce5`).  Left: re-measure the plan's D table on -O2 IR — IN PROGRESS
+  (claimed 2026-10-12, work-1).  Their
   prerequisite D1 (by-value aggregates the platform C way, callees using their incoming bytes in place) is
   done (claude-todo-done.md; done/plan-c-abi-large-aggregates.md).
 User direction (2026-09-30): the native backends are co-equal, so fixes must let native make the same
