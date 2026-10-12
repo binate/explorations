@@ -452,7 +452,11 @@ Each needs a test (xfail'd) + triage; grouped here so none is lost.
   user's call.
 - **An aggregator's own `.bn` sees its exposed names bare** (`check/checker.bn:199-212` copies the
   injected symbols into the implementation scope), violating `pkg.expose.surface`: `MakePoint(4, 5)`
-  inside the aggregator's `.bn` checks, then IR-gen mangles it as the aggregator's → undefined.
+  inside the aggregator's `.bn` checks, then IR-gen mangles it as the aggregator's → undefined.  (2026-10-11,
+  work-7) A bare exposed CONSTANT there crashes the compiler: `const m int = N * 2` in the aggregator's `.bn`
+  (N from the exposed package) → `panic: internal error: IR generation cannot evaluate a constant the type
+  checker accepted`.  The `.bni` side (a `.bni` method or constant naming an exposed member bare) is rejected
+  by the `.bni` interface-view change, not yet landed (spec tests 16-packages/111, 112).
 - **The `.bn` checker rejects a forward-referenced interface parent** (`interface LSub : LBase` before
   `LBase` → "undefined: LBase"), violating `decl.order.forward` (the `.bni` scope builder accepts it).
 - **`impl *home.Box[T] : Peeker[T]` in a third package is rejected** ("cannot define methods or impls
@@ -646,6 +650,14 @@ not held to the interface.  Each of these compiles in a batch build:
 3. A `.bni` generic body reads a field of a type the `.bni` declares opaque (`type T` in q.bni, `type T struct {
    v int }` in q.bn, `return t.v`), while `q.Make().v` in an importer is rejected (`cannot access field on this
    type`, pkg.bni.opaque).
+4. A package's own `.bni` uses the layout of a type it declares opaque: `type Foo` in q.bni (`type Foo struct {
+   x int }` in q.bn) with `type S struct { f Foo }` or `const Z uint = sizeof(Foo)` in q.bni compiles (scratch
+   probe), though an importer reading only the interface can lay out neither (the same-package check skips the
+   opaque rules: `isCrossPkgOpaqueExport` is false for the package itself).
+5. (A reviewer's code reading, not reproduced.)  A `.bni` generic body that converts to an interface through an
+   `impl` only the `.bn` declares (`iface.construct.visible-impl`) has case 1's problem.
+The spec text of pkg.bni.self-contained leaves all of these to other rules (its `_Note._`: it governs names
+resolved in scope, not member selection or what an opaque type permits).
 Options: (a) a method is visible to importers iff the `.bni` declares it (pkg.export covers methods; spec it),
 and a `.bni` generic body sees a type's members as an importer does — the `.bni`'s methods only, and no fields
 of a type the `.bni` declares opaque; (b) a method is visible wherever its type is, which interface-only
