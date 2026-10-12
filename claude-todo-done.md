@@ -1,3 +1,26 @@
+### bnld dynamic ELF exports the definitions its needed libraries name — DONE (binate `d7d6ce938`, `03bd0bf25`, `41223d9a2`, 2026-10-12, work-2)
+
+A dynamic ELF executable's .dynsym held only its imports (and its commons), so a program definition of a name a
+needed library defines and uses stayed private: `int optind;` (default `-fno-common`) gave libc's getopt and
+main two variables, and a program's own malloc / free did not receive libc's internal calls.  Decisions (user,
+2026-10-12): read the needed libraries' .dynsym ("Probably we should read .dynsym"), as lld does; fail loud when
+a needed library cannot be found ("Fail loud").  Three steps (plan: `done/plan-bnld-dynsym-exports.md`):
+- `d7d6ce938`: the readers record symbol visibility (InputSymbol.Hidden: ELF STV_HIDDEN / STV_INTERNAL, Mach-O
+  N_PEXT); a hidden name is neither exported nor imported.
+- `03bd0bf25`: LinkDynElf finds libc.so.6 (the `-l` file with that SONAME, else the library directories:
+  `-L`, then a distribution's under `--sysroot`) and reads each needed library's .dynsym through its section
+  headers (hidden-version definitions excluded); a missing, unreadable or foreign library is an error.
+  cmd/bnld and bnc gain `--sysroot`; cmd/bnld's `-l` search skips another machine's `.so`.  e2e:
+  `scripts/lib/linux-libc-sysroot.sh` provides a sysroot (the host's, or libc.so.6 copied out of the Debian image
+  where Docker may be used); the four Linux dynamic-link scripts SKIP a target without one, so the macOS CI lane
+  no longer link-checks Linux dynamic ELF.
+- `41223d9a2`: every global or weak program definition (section or absolute, commons included) whose name a
+  needed library defines or references is exported, with its binding, size, type, address and section index.
+  e2e `optd` (getopt and main share a defined optind) and `mymalloc` (libc's strdup allocates through the
+  program's malloc) on aarch64 and x86-64.
+Logged along the way: the assembler has no visibility directives; archive selection ignores the libraries'
+undefined references.
+
 ### unsafe_cast's unchecked interface narrowing accepted any target; cast's narrowing diagnostics — DONE (binate `579f10fbf`, docs `9d87a92` + `df01b3b`, 2026-10-12, work-5)
 
 Decided (user, 2026-10-12): the narrowing is the checked `x.(K T)` without its check — targets an assertion

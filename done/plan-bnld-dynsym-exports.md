@@ -1,6 +1,7 @@
 # Plan: bnld dynamic ELF exports the definitions its needed libraries define or reference
 
-The claude-todo MAJOR "bnld dynamic ELF exports none of the program's definitions" (claimed 2026-10-12, work-2).
+The claude-todo MAJOR "bnld dynamic ELF exports none of the program's definitions" (claimed 2026-10-12, work-2;
+all three steps landed 2026-10-12).
 Decisions (user, 2026-10-12): read the needed libraries' `.dynsym` ("Probably we should read .dynsym"), as lld
 does; when a needed library cannot be found, fail loud ("Fail loud") rather than guess.
 
@@ -49,7 +50,10 @@ only each library's SONAME; libc.so.6 is named without being read at all.
    (the Linux CI lane, or BINATE_E2E_DOCKER=1 locally) — and SKIPs the dynamic link where neither is available
    (the macOS CI lane, which then no longer link-checks Linux dynamic ELF; the Linux lane still links and runs
    both targets).
-3. **Exports.**  Export each global, non-hidden program definition (commons included) whose name a needed
+3. ✅ landed binate `41223d9a2` (2026-10-12).  Also, from its review: the archive-selection gap for the
+   libraries' undefined references is logged (todo "bnld archive selection ignores the needed shared libraries'
+   undefined references").
+   **Exports.**  Export each global, non-hidden program definition (commons included) whose name a needed
    library defines or references, typed from its section (STT_FUNC for code, STT_OBJECT for data) — replacing
    "export every common".  Tests: unit (a synthesized libc defining `optind` and `malloc`); e2e `optc` without
    `-fcommon`, and a program whose own malloc / calloc / realloc / free must receive libc's internal calls
