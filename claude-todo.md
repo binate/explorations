@@ -693,6 +693,13 @@ in the `.bn` pass unchecked and the two kinds of importer see different signatur
 Fix: compare the pair, matching the two declarations' type parameters up (by position) before comparing the
 receiver and signature; or decide that a generic method is defined in exactly one of the two files and
 reject a second definition.  The skip carries a `// TODO:` pointing here.
+Related (2026-10-11, review of the `.bni` interface-view change): the dropped `.bni` copy is not checked
+at all, so it is not held to pkg.bni.self-contained either — `func (b @Box[T]) Get() @hidden` in the `.bni`,
+with `hidden` only in the `.bn` and the same `Get` in the `.bn`, compiles, and an interface-only importer
+fails on `undefined: hidden`.  The same holds for a generic free function defined in both files: the
+`.bni` body (`return helper() * 2`, `helper` only in the `.bn`) is never checked.  Defining a generic in
+exactly one of the two files closes both; comparing the pair must also check the `.bni` copy in the
+interface view.
 
 ### Loader: a package with one `.bn` file gets the `.bni`'s imports (and declarations) merged into that file's own AST — its file scope sees imports it does not write — 🔴 OPEN (found 2026-10-09, work-7, review of the imported float const-expression fix; code reading; pre-existing)
 
@@ -2820,6 +2827,20 @@ ship one that runs).
   § "Future: binary impl artifacts".
 
 ## REPL
+
+### REPL: a package imported mid-session is checked on top of the session's scope, so it sees names declared at the prompt — 🔴 OPEN (found 2026-10-11, work-7, review of the `.bni` interface-view change; confirmed with a checker-level probe; pre-existing)
+
+`CheckMainPersistent` leaves `c.Scope` at the session's scope, and a mid-session import
+(`pkg/binate/repl/mid_session_import.bn`) then calls `LoadPackageInterface` and `CheckPackage`, which build
+the package's scopes on `c.Scope`: `checkPackageImpl`'s package scope and `buildScopeFromFile`'s temp scope
+(commented "on top of universe") both sit on the session's scope.  So the imported package's `.bn`, and its
+interface's generic bodies, resolve a name they neither declare nor import to one typed at the prompt: with
+`type secret …` declared in the session, `func f(x @secret) { }` in the package's `.bn` is accepted (a probe
+with the session scope simulated in a checker unit test), though the package does not compile on its own.
+The `.bni` file scope's ParentNames filter already falls through to the universe, not the session's scope.
+Fix: build a package's scopes on the universe (the outermost scope), not on `c.Scope`, in both places; a
+checker unit test with a simulated session scope (as `TestBniViewSkipsSessionScope` does), and an e2e repl
+case that imports such a package mid-session.
 
 ### REPL: an incompatible redefinition of a generic method that a sibling still calls in the old shape — decide the rule — 🔴 OPEN (found 2026-10-03, work-6, review of the generic-methods-at-the-prompt fix; put to the user)
 
