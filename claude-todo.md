@@ -53,7 +53,7 @@ the exposure.  Fix: spell the define line's alignment from T (its AlignOf, as by
 arguments) — at least for functions a C caller can reach; reproduce first with an e2e C caller passing a
 4-aligned, not 8-aligned, buffer to a #[c_export] function returning a struct of int32s, on arm32.
 
-### bnld whole-link drivers do not allocate common symbols (C tentative definitions): they become dynamic imports — 🔴 OPEN MAJOR (found 2026-10-11, work-2, testing Mach-O constructors; pre-existing)
+### bnld whole-link drivers do not allocate common symbols (C tentative definitions): they become dynamic imports — 🟡 IN PROGRESS (claimed 2026-10-11, work-2; user: "yes") MAJOR (found 2026-10-11, work-2, testing Mach-O constructors; pre-existing)
 
 A C tentative definition (`int order;`) is a common symbol — Mach-O N_UNDF with a size, ELF SHN_COMMON; clang still
 emits them on Darwin by default (on Linux only with `-fcommon`, or from older compilers).  Only the scripted builder
