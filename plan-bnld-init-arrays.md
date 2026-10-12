@@ -59,7 +59,12 @@ their own todo item ("bnld: unwind tables"; user: "Support both, own item").
    DT_INIT_ARRAY / DT_INIT_ARRAYSZ (25 / 27), DT_FINI_ARRAY / DT_FINI_ARRAYSZ (26 / 28) for each non-empty array.
    Tests: layout / symbol unit tests; an e2e dynamic link (linux-x64 and linux-aarch64, the latter runnable here
    in the `binate-ci` image) of a clang C object with a constructor and a destructor, checking both run.
-3. **Scripted builder.**  An input init / fini / preinit array the script does not place is an error (its
+3. ✅ landed binate `3544cc306` (2026-10-11): `LayoutBuilder.PlaceInitFiniArrays()` (and the `InitFiniArrays()`
+   script item) places the three arrays, start symbols aligned for their entries; `Place` sorts matched init /
+   fini arrays by priority; Finish rejects an unplaced array; baremetal-arm, firmware-arm, higherhalf, staticelf
+   and script-arm place them (rawbin's boot sector does not — an object with a constructor fails there).  e2e: a
+   baremetal arm32 image whose `_start` walks the array prints "COK" under qemu.
+   **Scripted builder.**  An input init / fini / preinit array the script does not place is an error (its
    constructors would silently not run); the script places it and may define the bracketing symbols with
    SymbolAtDot.  Check the drivers in `drivers/`.
 4. **Mach-O.**  The reader keeps a section's S_MOD_INIT_FUNC_POINTERS / S_MOD_TERM_FUNC_POINTERS type; layout
