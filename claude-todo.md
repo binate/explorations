@@ -104,6 +104,16 @@ local.  Asked whether the equivalence is literal (lazy evaluation) or about life
 retaining every managed local the statement names); the spec review of the stmt.defer wording lists the
 differences.
 
+### unsafe_cast's unchecked interface narrowing: targets = what `x.(K T)` can name; `cast`'s interface-narrowing diagnostic — 🟡 IN PROGRESS (claimed 2026-10-12, work-5; user decision 2026-10-12: "yes")
+
+Decided: `unsafe_cast` from an interface value to a concrete target recovers what the checked `x.(K T)`
+would, without the check — targets a type assertion can name (a named concrete type or a slice type; an
+array, anonymous struct or function type is an error, as in an assertion), recovery kinds per §11.12's
+kind table, plus `*I -> @T` (the narrowing composed with `*T -> @T`'s header assertion).  Today the checker
+accepts every non-interface target (`@any -> [2]int` compiles).  Also: `cast(@B, x)` with `x @A` (an
+interface narrowing) suggests `unsafe_cast`, which rejects exactly that — an interface target should point
+to `x.(J)` only.  Spec §8.7 bullet (docs `9d87a92` narrowed it to concrete targets) to follow the rule.
+
 ### `len` of an array composite literal fails to compile — 🔴 OPEN MAJOR (found 2026-10-11, work-4, review of the deferred composite-element fix; reproduced; pre-existing)
 
 `var n int = len([2]int{1, 2})` fails to compile on LLVM (`extractvalue operand must be aggregate type`) and
