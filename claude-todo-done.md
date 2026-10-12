@@ -1017,6 +1017,23 @@ index / >32-bit displacement.  Tests: x64_mem_test.bn in parse and asm/x64 (clan
 in 4 instructions match clang byte for byte.  Raised with the user, undecided: 32-bit addressing (now rejected),
 `-~8` (clang's Intel parser computes it wrongly), absolute `[lbl]` (unsupported, as before).
 
+### Fault pads do not stop NoZeroInit or a slot's placement — DONE (binate `04930fe7e`, 2026-10-11, work-1)
+
+Follow-up to the managed-result moves (user's decision 2026-10-11: land the move, then this).  Every local
+holding a managed value is named in fault pads (which release it on a fault), and only the VM runs pads.  The
+dead-store pass now marks such a slot NoZeroInit when its first use is a whole store (its stores stay: a fault
+between two writes would see a dropped one; the VM never reads the mark, zeroing aggregate slots at OP_ALLOC
+regardless); native/common's D analyses — valueUseCounts, slotReachPtr (CallResultSlots, ReturnedCallResults,
+RetbufLocal) and D4's slotDeadAfterLoad / slotAliases — leave pads out (the native and LLVM backends both use
+them; neither emits pads).  -O2 `var r R = mk(k)` of a struct with managed fields passes r's slot to mk (native
+aa64 `add x8, sp, #0x20; bl mk`), no zero-fill, no copy.  Review: no defects (nothing compiled runs pads, the
+VM never reads the mark, the new marks and the analyses sound; probes balanced on LLVM / native aa64 / x64 /
+arm32 at -O2, -O2 -fno-inline, -O0).  Tests: dead-store unit test (a pad-named slot is NoZeroInit), unit tests
+that a pad no longer blocks CallResultSlots / LastUseArgLoads / RetbufLocal.  Validated: iropt, native/*,
+codegen unit tests; managed-value subset on LLVM aa64 and native aa64 / x64 / arm32 bare metal; D tests +
+1626 on native arm32 Linux; C-ABI e2e; after rebasing onto the defer retain slots (`347ed253d`), the defer
+tests on LLVM and native aa64.
+
 ### A call's fresh result with managed references is moved into the return or slot that keeps it — DONE (binate `d7f5734a2`, 2026-10-11, work-1)
 
 User's decision (2026-10-10, "(a)") on D2's gap for managed results.  IR-gen copied a call result into its

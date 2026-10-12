@@ -149,9 +149,8 @@ D. Copy chains (load → private copy → temp slot → argument): revisit after
      (natively X8 / RDI / R0 loaded from SretSlotOff, no region, no copy at the return; LLVM passes
      `%v.retbuf`).  -O2 native aa64 `passOn`: frame 0x340 → 0x20, no copy.  Conformance 1608 / 1609.
      Results with managed references: IR-gen now moves a fresh call result into its return or slot
-     (`d7f5734a2`, 2026-10-11), so `return f()` of one is placed; a variable initialized from one is not yet
-     (its slot is named in fault pads, which the dead-store pass and the slot analyses treat conservatively —
-     claimed in claude-todo.md).
+     (`d7f5734a2`, 2026-10-11), so `return f()` of one is placed; and with fault pads left out of NoZeroInit
+     and the slot analyses (`04930fe7e`), so is a variable initialized from one.
    - D3. A local returned at every return lives in the sret buffer.
      Design (2026-10-09, work-1; recon on `3c18f42d4`).  -O2 `mk`: `var b Big; b.n = k; ...; return b` —
      native zero-fills b's region, copies b into the load's region, then that into the caller's buffer (two
