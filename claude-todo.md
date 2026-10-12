@@ -797,7 +797,8 @@ claude-todo-done.md and plan-aggregate-copy-opts.md); still open:
   private region first — AggLoadElidable's S-adjacent rule stops at 16 bytes for overlap's sake; a return
   into the caller's (noalias) buffer cannot overlap, a store needs an overlap-safe large copy.  The return
   case is done (`45e8b6537`); the store case is still to be decided.  (2) SROA moves a whole-struct copy's aggregate field through a temporary slot and leaves the
-  destination's zero-fill (`var y = x`) — still to be decided.  Measured with perf/agg-copy-table.sh
+  destination's zero-fill (`var y = x`) — IN PROGRESS (claimed 2026-10-12, work-1; user: "yes" to doing it
+  next).  Measured with perf/agg-copy-table.sh
   (`2e852d3be`).  Their
   prerequisite D1 (by-value aggregates the platform C way, callees using their incoming bytes in place) is
   done (claude-todo-done.md; done/plan-c-abi-large-aggregates.md).
