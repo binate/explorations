@@ -618,6 +618,41 @@ does, and key the generic lookups for `.bni` declarations on the interface's own
 scopes delegate `Define` to their parent (`DelegateDefine`), and the prepended `.bni` declarations are
 defined through them.
 
+### Another package's `.bn`-only generic type or interface is reachable by its qualified name (`q.priv[int]`) — 🔴 OPEN (found 2026-10-11, work-7, review of the `.bni` interface-view change; reproduced with a scratch program; pre-existing)
+
+pkg.export (§16.4): a name only a `.bn` declares is package-private, and a cross-package reference to it is
+"undefined".  That holds for a non-generic type (`q.priv` from main: `undefined: priv`) and for a generic
+function (`q.twice[int](3)`: `undefined: twice`), but a generic type or interface that only q's `.bn` declares
+resolves from another package: `var p @q.priv[int] = make(q.priv[int])` compiles and runs, and `var g
+@q.Getter[int]` is accepted.  The checker finds a generic head by name in its generic stash
+(`lookupGenericHead` in `pkg/binate/check/bni_view.bn`, then `lookupGenericTypeDecl` / `lookupGenericIfaceDecl`
+keyed on the package path), which holds every generic the package declares, `.bn` ones included, and nothing
+asks whether the referring package can see it.  An interface-only load (`LoadPackageInterface`) would reject
+the program, so whether it compiles depends on how q is built.  Fix: for a head in another package, require
+the stashed declaration to be one that package's `.bni` declares (`declaredInBni`, as the interface view
+already does for an unqualified head), or its sole surface when it has no `.bni`.  To do: an error test for
+each form (type, interface), expected-fail until fixed.
+
+### Do importers and `.bni` generic bodies see a `.bn`-only method, or an opaque type's fields? — 🔴 NEEDS DECISION (found 2026-10-11, work-7, review of the `.bni` interface-view change; reproduced with scratch programs; pre-existing)
+
+The interface view (pkg.bni.self-contained) governs the names a `.bni` declaration resolves; member access is
+not held to the interface.  Each of these compiles in a batch build:
+1. An importer calls a method that only q's `.bn` declares, on a type q's `.bni` declares (`type T struct { v
+   int }` in q.bni, `func (t @T) dbl() int` in q.bn, `t.dbl()` in main).  An interface-only load of q does not
+   know `dbl`, so the same program fails when q ships as interface plus library.  The spec does not say whether
+   a method is covered by pkg.export (§16.4: visible to importers iff the `.bni` declares it).
+2. A `.bni` generic body calls such a method (`func Twice[E any](t @T) int { return t.dbl() }`).  It is
+   monomorphized in the importer, so it has case 1's problem.
+3. A `.bni` generic body reads a field of a type the `.bni` declares opaque (`type T` in q.bni, `type T struct {
+   v int }` in q.bn, `return t.v`), while `q.Make().v` in an importer is rejected (`cannot access field on this
+   type`, pkg.bni.opaque).
+Options: (a) a method is visible to importers iff the `.bni` declares it (pkg.export covers methods; spec it),
+and a `.bni` generic body sees a type's members as an importer does — the `.bni`'s methods only, and no fields
+of a type the `.bni` declares opaque; (b) a method is visible wherever its type is, which interface-only
+distribution can honour only if the `.bni` declares every method of every type it exports (no `.bn`-only
+methods on an exported type), plus case 3 rejected.  Recommendation: (a): it is what an interface-only build
+already does, keeps private helper methods possible, and makes cases 1-3 compile the same however q is built.
+
 ### Should a function-value type's parameters and results be held to the opaque rules? — 🔴 NEEDS DECISION (raised 2026-10-03, work-3, review of the type-declaration opaque check; split out 2026-10-10, work-7)
 
 With `type Op` opaque, a function declaration's by-value opaque parameter or result is rejected (`func f(o
