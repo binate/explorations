@@ -89,20 +89,16 @@ nothing else changes.  Do: keep x86-64 `.eh_frame` as data, as aarch64's is; imp
 sorted by the code they describe, an EXIDX_CANTUNWIND terminator, `__exidx_start` / `__exidx_end`, and a
 PT_ARM_EXIDX segment — as lld does.
 
-### Deferred calls: raw pointers derived from managed locals (`defer readp(&x.y); x = mk()`) — 🟡 IN PROGRESS (claimed 2026-10-10, work-4) MAJOR — ruled 2026-10-11; evaluation-time question pending (found 2026-10-10, work-4, review of the deferred `@T` → `*I` fix; pre-existing)
+### `defer { … }`: a block run at scope exit, reading live variables — 🟡 IN PROGRESS (claimed 2026-10-12, work-4) — plan proposed, awaiting review (`plan-defer-block.md`)
 
-A raw pointer DERIVED from a managed local is not kept alive: `var x @T = mk(); defer readp(&x.y); x = mk()` reads
-freed memory, as do `&s[1]` of a managed-slice local and a pointer-receiver call on a value field (`defer
-x.inner.Show()`, an implicit `&x.inner`); a package-level `@T` (`defer readp(&g.y); g = …`) the same (LLVM probe).
-`defer reads(s[1:3])` is fine (the subslice is managed, so retained).  stmt.defer now calls these the programmer's
-responsibility (§18.7 mem.raw-uaf).
-Ruling (user, 2026-10-11): "defer <stuff>; should be equivalent to __x := @func() { <stuff> }; defer __x();".
-Pending: read literally that evaluates the operands at exit over by-value snapshots of the locals the statement
-names, while stmt.defer (and proposal-defer.md) evaluate them eagerly at the defer statement — they differ for a
-call with side effects in an operand, a read through a pointer, a package-level variable, `&v.y` of a value
-local.  Asked whether the equivalence is literal (lazy evaluation) or about lifetime only (eager evaluation plus
-retaining every managed local the statement names); the spec review of the stmt.defer wording lists the
-differences.
+Decided (user, 2026-10-11 / 2026-10-12): stray from Go — the deferred code is evaluated when it runs, at the exit
+of the enclosing block, reading the variables as they are then ("scope exit with no copy sounds fine; it's a
+lot simpler"), and a block is required ("it distinguishes it from Go, which is important, *and* it's
+consistent with other control flow").  Replaces the eager, function-scoped `defer <call>`; that model's open
+problem — a raw pointer derived from a managed local (`defer readp(&x.y); x = mk()`, `&s[1]`, `defer
+x.inner.Show()`) reading freed memory — disappears with it, as do the spec-review findings on the eager wording
+(docs `0cc5657`).  Plan: `plan-defer-block.md` (semantics, draft spec text, implementation, the CHECK_TOOLS
+transition).
 
 ### unsafe_cast's unchecked interface narrowing: targets = what `x.(K T)` can name; `cast`'s interface-narrowing diagnostic — 🟡 IN PROGRESS (claimed 2026-10-12, work-5; user decision 2026-10-12: "yes")
 
