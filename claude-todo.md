@@ -2168,6 +2168,26 @@ immediate starts only at a digit or `-` (`parseX64Operand`, `pkg/binate/asm/pars
 
 ## bnld (self-hosted linker)
 
+### bnld scripted builder: a weak definition supersedes a common, unlike GNU ld / lld — 🔴 OPEN (minor; found 2026-10-11, work-2, review of the commons fix; pre-existing)
+
+`builder_common.bn`'s `hasRealDef` counts a BIND_WEAK definition as superseding a common, so a scripted link of
+`int w;` (a common) and `__attribute__((weak)) int w = 5;` skips allocating w and binds it to 5; GNU ld and lld
+allocate the common in both input orders (w = 0), and so do bnld's whole-link drivers (`commons.bn`, ELF rule) — the
+same ELF objects give different values depending on which bnld driver links them.  Changing `hasRealDef` alone is not
+enough: the builder defines an allocated common as a layout-defined symbol (`setAbs`), and Resolve consults those
+only when no object defines the name, so the weak definition would still win.  Fix: have `*(COMMON)` place a
+linker-made commons object's `.bss` (as `commons.bn` builds it, global definitions that replace a weak one) instead
+of synthesizing layout-defined symbols, and add a builder test where the weak definition loses.
+
+### bnld archive selection: a common pulls in a member that defines the name weakly or as a function — 🔴 OPEN (minor; found 2026-10-11, work-2, review of the commons fix; pre-existing)
+
+`archive_select.bn`'s `objRefsUndefinedGlobal` counts a common as a strong undefined reference, so `int x;` in an
+included object pulls an archive member that defines x — strongly (as GNU ld does; lld pulls none for a common),
+weakly or as a function (neither does).  With a function member, x then resolves to the function and the program
+reads its instructions as data; with a weak member, the member's other contents (definitions, constructors) are
+linked in for nothing.  Fix: decide which rule to follow — GNU ld's (pull only for a global data definition) or
+lld's (a common never pulls a member) — and add an archive_select test with a common.
+
 ### bnld dynamic Mach-O: `__mh_execute_header` is not defined — 🔴 OPEN (minor; found 2026-10-11, work-2, review of the Mach-O constructors change; pre-existing)
 
 ld64 defines `__mh_execute_header` (C `_mh_execute_header`) as the executable's Mach-O header — the address
