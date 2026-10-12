@@ -113,7 +113,7 @@ accepts every non-interface target (`@any -> [2]int` compiles).  Also: `cast(@B,
 interface narrowing) suggests `unsafe_cast`, which rejects exactly that — an interface target should point
 to `x.(J)` only.  Spec §8.7 bullet (docs `9d87a92` narrowed it to concrete targets) to follow the rule.
 
-### A C-style `for` init variable stays visible after the loop in IR-gen — silent wrong value — 🔴 OPEN MAJOR (found 2026-10-12, work-4, review of plan-defer-block.md; reproduced LLVM / native aa64 / VM; pre-existing)
+### A C-style `for` init variable stays visible after the loop in IR-gen — silent wrong value — 🟡 IN PROGRESS (claimed 2026-10-12, work-4) MAJOR (found 2026-10-12, work-4, review of plan-defer-block.md; reproduced LLVM / native aa64 / VM; pre-existing)
 
 `var i int = 10; for i := 0; i < 3; i++ {}; testing.Println(i)` prints 3 on every mode; it must print 10.
 genFor (irgen/gen_flow.bn) declares the init variable into the enclosing block's ctx.Vars and never truncates

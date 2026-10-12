@@ -1,6 +1,6 @@
 # Plan: `defer { … }` — a block run at scope exit, reading live variables
 
-Status: ACCEPTED 2026-10-12 (work-4); plan review folded in 2026-10-12; transition order pending the user.  Supersedes the eager, function-scoped
+Status: ACCEPTED 2026-10-12 (work-4); plan review folded in 2026-10-12; transition order and REPL decided 2026-10-12.  Supersedes the eager, function-scoped
 `defer <call>` of `proposal-defer.md` (spec §14.13 as of docs `0cc5657`).
 
 ## Decision (user, 2026-10-11 / 2026-10-12)
@@ -212,10 +212,6 @@ live).  `scripts/hygiene/test-coverage.whitelist` loses its `gen_defer*` entries
 - A `defer` inside a deferred block is allowed: "yes, a defer inside a defer is fine (we can't ban it from
   functions called by the contents of the defer, so not allowing it is just silly)" (user, 2026-10-12).
 
-## Open points for the user (2026-10-12)
-
-- The transition order above: the old call spelling takes the new semantics in step 1 (the alternative —
-  both forms side by side with different semantics — is hazardous, see Transition).
-- The REPL: immediate mode already runs each entry as a synthetic function, so `{ defer { … } }` typed at the
-  prompt is well-defined.  Proposed: keep rejecting a `defer` at the prompt's top level (it would run at once,
-  at the end of that entry) and allow it in nested blocks.
+- The transition order above — the old call spelling takes the new semantics in step 1 — and the REPL (keep
+  rejecting a `defer` at the prompt's top level, allow it in nested blocks typed at the prompt): "that seems
+  fine" (user, 2026-10-12).
