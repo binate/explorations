@@ -41,7 +41,7 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ### bnld dynamic ELF exports none of the program's definitions: a definition does not interpose a needed library's — 🔴 OPEN MAJOR (found 2026-10-12, work-2, review of the commons fix; pre-existing)
 
-A dynamic ELF executable's .dynsym holds only its imports (and, once the commons fix lands, its commons), so a
+A dynamic ELF executable's .dynsym holds only its imports and its commons (binate `80279f202`), so a
 program definition of a name a needed library also defines and uses stays private: `int optind;` built with the
 default `-fno-common` (a .bss definition) gives libc's getopt and main two different variables (the e2e `optc`
 program exits 39, not 42), and a program's own `malloc` / `free` does not replace libc's for libc's internal calls
@@ -66,19 +66,6 @@ relied on it already; the returned-local change (a local living in the buffer fo
 the exposure.  Fix: spell the define line's alignment from T (its AlignOf, as byvalArgAlign does for by-value
 arguments) — at least for functions a C caller can reach; reproduce first with an e2e C caller passing a
 4-aligned, not 8-aligned, buffer to a #[c_export] function returning a struct of int32s, on arm32.
-
-### bnld whole-link drivers do not allocate common symbols (C tentative definitions): they become dynamic imports — 🟡 IN PROGRESS (claimed 2026-10-11, work-2; user: "yes") MAJOR (found 2026-10-11, work-2, testing Mach-O constructors; pre-existing)
-
-A C tentative definition (`int order;`) is a common symbol — Mach-O N_UNDF with a size, ELF SHN_COMMON; clang still
-emits them on Darwin by default (on Linux only with `-fcommon`, or from older compilers).  Only the scripted builder
-places commons (`*(COMMON)`, builder_common.bn); the whole-link drivers (`Layout` via `Link`, `LinkDynElf`, the
-dynamic Mach-O driver) never allocate one, so its definition is lost: in a dynamic link the symbol becomes an
-import (dyld: `Symbol not found: _order … Expected in: libSystem.B.dylib` at launch; ld.so likewise), in a static
-ELF link an undefined symbol.  Repro (macOS): `clang -c -O0 -target arm64-apple-macos11 c.c` with `int order;` and
-a `main` using it, `bnld -target macos-arm64 -dynamic -e _main c.o`, run.  Fix: allocate commons in the whole-link
-layout (a .bss-like output piece, each common at its alignment, the largest size among same-named commons, a real
-definition winning — as builder_common.bn does) for ELF and Mach-O inputs; check the Mach-O reader marks them
-Common.  Test: a unit test per format and an e2e with `int x;` in C.
 
 ### asm ELF writer: a section's type and flags come from its name, ignoring the flags it was created with — 🔴 OPEN (found 2026-10-10, work-2, writing bnld reader test fixtures; latent)
 

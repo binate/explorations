@@ -1,3 +1,20 @@
+### bnld whole-link drivers allocate common symbols (C tentative definitions) — DONE (binate `80279f202`, 2026-10-12, work-2)
+
+A C tentative definition (`int x;` — ELF SHN_COMMON, a Mach-O external N_UNDF with a size; clang's default on
+Darwin, `-fcommon` elsewhere) was allocated only by the scripted builder's `*(COMMON)`; Link, LinkDynElf and
+LinkDynMacho lost it — a dynamic link imported the name (dyld: "Symbol not found: _x … Expected in:
+libSystem.B.dylib"), a static link reported it undefined — and the Mach-O reader did not mark commons.  Now the
+three drivers add a linker-made object (`commons.bn`) defining each common in a NOBITS `.bss` (same-named commons
+merged to the largest size and alignment; a zero-size one gets a byte).  A strong definition supersedes a common;
+a weak one loses to it on ELF (GNU ld, lld — checked) and wins on Mach-O (ld64 — checked).  A dynamic ELF exports
+its commons in .dynsym (`dynlink_exports.bn`), so libc's getopt and the program share a common `optind`, as lld
+links it; a dynamic Mach-O keeps a private copy, as ld64 does.  The Mach-O reader marks commons, taking an
+alignment field of 0 as ld64 does (the next power of two at or above the size, at most 2^15 — measured).  Tests:
+commons_test.bn, dynlink_exports_test.bn, and the e2e cases `comm` (all three dynamic scripts) and `optc` (both
+ELF).  Two reviews; their remaining findings are open in claude-todo.md: bnld's dynamic ELF exports none of the
+program's other definitions (MAJOR), the scripted builder's weak-versus-common rule, and archive selection
+pulling members for commons.
+
 ### A deferred call retains a managed value borrowed as a raw composite-literal element — DONE (binate `347ed253d`, 2026-10-11, work-4)
 
 `defer show(Opts{a: mkT(1)})` with `a *any` — and a `*T`, `*Getter`, `*[]int` or `*func` element from an `@T`,
