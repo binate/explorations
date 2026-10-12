@@ -86,16 +86,6 @@ x.inner.Show()`) reading freed memory — disappears with it, as do the spec-rev
 (docs `0cc5657`).  Plan: `plan-defer-block.md` (semantics, draft spec text, implementation, the CHECK_TOOLS
 transition).
 
-### A C-style `for` init variable stays visible after the loop in IR-gen — silent wrong value — 🟡 IN PROGRESS (claimed 2026-10-12, work-4) MAJOR (found 2026-10-12, work-4, review of plan-defer-block.md; reproduced LLVM / native aa64 / VM; pre-existing)
-
-`var i int = 10; for i := 0; i < 3; i++ {}; testing.Println(i)` prints 3 on every mode; it must print 10.
-genFor (irgen/gen_flow.bn) declares the init variable into the enclosing block's ctx.Vars and never truncates
-it, while the checker scopes it to the `for` statement (check/check_stmt.bn pushes / pops a scope around it);
-lookupVar (gen_vars.bn) searches by name, most recent first, so a later use of the outer `i` reads the loop's.
-Fix: give the `for` statement its own IR-gen scope — release the init variables at the loop's exit and pop
-them.  Needs a conformance test (a shadowed outer variable read after the loop; also a managed init variable,
-for the release).  The defer redesign (plan-defer-block.md) depends on correct IR-gen scoping.
-
 ### A C-style `for` with init / post but no condition is not terminating to the checker — 🔴 OPEN MINOR (found 2026-10-12, work-4, writing the for-init scoping test; pre-existing)
 
 §14.14 `stmt.terminating` counts "a `for` with no condition and no `break` targeting it" as terminating, but

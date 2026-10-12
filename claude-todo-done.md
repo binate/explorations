@@ -1,3 +1,15 @@
+### A C-style `for` init variable stays visible after the loop in IR-gen — silent wrong value — DONE (binate `968151459`, 2026-10-12, work-4)
+
+`var i int = 10; for i := 0; i < 3; i++ {}; testing.Println(i)` printed 3 on every backend: genFor left the init
+variable in the enclosing block's ctx.Vars, while the checker scopes it to the `for` statement.  genFor now
+records the variable count before the init statement and, at the loop's exit block (false condition or
+`break`), releases the init variables and drops them; a `return` releases them with every local.  Test:
+spec/14-statements/184_for_init_scope (shadowed int / managed outer variables, nested loops, managed init
+variables — pointer, managed-slice, struct with a managed field — released at exit by condition / break /
+return, live across continue).  Storage created in the loop header (a raw-slice literal's backing assigned to
+an outer variable) now also ends with the loop; that, and the init variable's scope, go into the planned
+`stmt.for.scope` rule (plan-defer-block.md).  Found by the review of plan-defer-block.md.
+
 ### bnld dynamic ELF exports the definitions its needed libraries name — DONE (binate `d7d6ce938`, `03bd0bf25`, `41223d9a2`, 2026-10-12, work-2)
 
 A dynamic ELF executable's .dynsym held only its imports (and its commons), so a program definition of a name a
