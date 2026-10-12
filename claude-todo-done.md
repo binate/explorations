@@ -1017,6 +1017,21 @@ index / >32-bit displacement.  Tests: x64_mem_test.bn in parse and asm/x64 (clan
 in 4 instructions match clang byte for byte.  Raised with the user, undecided: 32-bit addressing (now rejected),
 `-~8` (clang's Intel parser computes it wrongly), absolute `[lbl]` (unsupported, as before).
 
+### AggLoadElidable, argument copies and in-place parameters ignore fault pads — DONE (binate `27728fce5`, 2026-10-12, work-1)
+
+The user-requested follow-up to `04930fe7e`: the remaining native/common emit-time analyses that took a fault
+pad's mention for a use or an escape — AggLoadElidable (a load used in a pad; a stack-slot source named in one),
+the argument-copy analysis (a pad's use of an argument), InPlaceParamSlots (a pad's use of a parameter) — leave
+pads out; all three serve only the native and LLVM backends, which emit none.  Nearly every managed-slice /
+interface / func-value local or parameter is named in some pad, so the stack-slot elision rule and in-place
+parameters now reach most of them: on native aa64 -O2 a `fmt.Println(12345)` program changes in 24 functions
+(__text 119332 → 118516 bytes, same output), e.g. lang.formatUint64 reads its local slice in place for the return
+(frame 0xc0 → 0xa0); no -O2 LLVM IR changed across 347 sampled conformance programs.  Review: no correctness
+defects (every pad release has a normal-path counterpart the analyses see); its test gap (the confinement change
+unpinned), two comments and the message's understated scope fixed.  Tests: four unit tests, each failing without
+its part.  Validated: native/common, codegen, native/* unit tests; managed-value subset on LLVM aa64, native aa64
+/ x64 / arm32 bare metal / arm32 Linux (Docker); C-ABI e2e.
+
 ### Fault pads do not stop NoZeroInit or a slot's placement — DONE (binate `04930fe7e`, 2026-10-11, work-1)
 
 Follow-up to the managed-result moves (user's decision 2026-10-11: land the move, then this).  Every local
