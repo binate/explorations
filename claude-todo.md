@@ -763,8 +763,12 @@ claude-todo-done.md and plan-aggregate-copy-opts.md); still open:
 - plan-aggregate-copy-opts.md D1-D4 are done (D1 `dfde1e73a` / `e62af60cf` / `dfce07941` / `35a7a4f3b` /
   `2e5cec867`; D2 `9fe09deb6` / `3c18f42d4`; D3 `69d6dcf57`, its native follow-up `d304bed5f`; D4
   `11375988e`; managed results' moves `d7f5734a2`; fault pads left out of NoZeroInit and every emit-time
-  analysis `04930fe7e` / `27728fce5`).  Left: re-measure the plan's D table on -O2 IR — IN PROGRESS
-  (claimed 2026-10-12, work-1).  Their
+  analysis `04930fe7e` / `27728fce5`).  The D table, re-measured 2026-10-12 (plan-aggregate-copy-opts.md D),
+  leaves two causes, awaiting the user's decision: (1) a large load from an unknown source (`return *p`,
+  `h.b = *p`) copies into a private region first — AggLoadElidable's S-adjacent rule stops at 16 bytes for
+  overlap's sake; a return into the caller's (noalias) buffer cannot overlap, a store needs an overlap-safe
+  large copy; (2) SROA moves a whole-struct copy's aggregate field through a temporary slot and leaves the
+  destination's zero-fill (`var y = x`).  The measuring script perf/agg-copy-table.sh is not landed yet.  Their
   prerequisite D1 (by-value aggregates the platform C way, callees using their incoming bytes in place) is
   done (claude-todo-done.md; done/plan-c-abi-large-aggregates.md).
 User direction (2026-09-30): the native backends are co-equal, so fixes must let native make the same

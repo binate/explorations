@@ -90,6 +90,32 @@ D. Copy chains (load → private copy → temp slot → argument): revisit after
    | `h.b = *p; sum(h.b)` | 2c | 3c | 1c |
    | `sum(g)` (global) | 1c | 1c | 1c |
    Native copies are fully unrolled (808 B = 202 instructions each).
+   Re-measured 2026-10-12 on `27728fce5` (D1–D4 and their follow-ups landed) with perf/agg-copy-table.sh
+   (not yet landed): native aa64 counts the disassembly's copy / zero-fill loops; LLVM arm32
+   bare metal counts the rt.MemCopy / rt.MemZero calls in the IR bnc emits (the C ABI's by-value argument
+   copy into r0-r3 + stack, from LLVM's `byval` lowering, not counted); both -O2 -fno-inline:
+   | shape | native | LLVM | min |
+   |---|---|---|---|
+   | `sum(b Big)` reads 3 fields (param slot) | 0 | 0 | 0 |
+   | `mk`: `var b Big; …; return b` | 1z | 1z | 1z |
+   | `sum(*p)` | 1c | 1c | 1c |
+   | `var x Big = mk(k); return sum(x)` | 0 | 0 | 0 |
+   | `sum(mk(k))` | 0 | 0 | 0 |
+   | `return *p` | 2c | 2c | 1c |
+   | `var x Big = mk(k); return x` | 0 | 0 | 0 |
+   | `forward(b Big) { return sum(b) }` | 0 | 0 | 0 |
+   | `var x = mk(k); var y = x; sum(y)` | 2c+1z | 2c+1z | 0 |
+   | `h.b = *p; sum(h.b)` | 3c | 3c | 2c (the callee owns its argument's copy since D1) |
+   | `sum(g)` (global) | 1c | 1c | 1c |
+   Native copies are now 32-byte `ldp q`/`stp q` loops.  Two causes remain:
+   - `return *p`, `h.b = *p`: a large load from an unknown source is copied into a private region first —
+     AggLoadElidable's S-adjacent rule stops at 16 bytes, since an elided copy of more interleaves loads and
+     stores, wrong if the destination overlaps the source.  A return's destination (the caller's result
+     buffer, noalias) cannot overlap, so a load whose last use is the return could be elided at any size;
+     a store would need an overlap-safe large copy (memmove-style direction) in the copy emitters.
+   - `var y = x`: SROA splits the whole-struct copy into per-field copies and moves the [100]int field
+     through a temporary slot (the two copies are its 800 bytes, not Big's 808), and y's first use is then
+     a field store, so the dead-store pass keeps y's zero-fill.
    Real code — static tally of cmd/bnc's -O2 IR (native aa64; throwaway instrumentation, 69,698 aggregate
    loads / call results / param slots; bytes are static, not dynamic): loads passed as by-value arguments
    ~750 KB static (load of a local → arg alone 2,752 sites > 64 B, 15.7%); by-value aggregate param slots

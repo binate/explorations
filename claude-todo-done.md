@@ -1055,6 +1055,14 @@ index / >32-bit displacement.  Tests: x64_mem_test.bn in parse and asm/x64 (clan
 in 4 instructions match clang byte for byte.  Raised with the user, undecided: 32-bit addressing (now rejected),
 `-~8` (clang's Intel parser computes it wrongly), absolute `[lbl]` (unsupported, as before).
 
+### plan-aggregate-copy-opts.md's D table re-measured — DONE (2026-10-12, work-1, on binate `27728fce5`)
+
+With D1–D4 and their follow-ups landed, 7 of the 11 shapes are at the minimum on native aa64 and LLVM arm32
+(the param slot, `mk`, `sum(*p)`, a call into a local passed on, `sum(mk(k))`, a local returned from a call,
+`forward`); `sum(g)` too.  Left: `return *p` and `h.b = *p` (a large load from an unknown source copied first —
+S-adjacent's 16-byte overlap cap) and `var y = x` (SROA's per-field split through a temporary slot); see the plan
+and claude-todo.md.  Measured with perf/agg-copy-table.sh (a probe + a count script; not yet landed).
+
 ### AggLoadElidable, argument copies and in-place parameters ignore fault pads — DONE (binate `27728fce5`, 2026-10-12, work-1)
 
 The user-requested follow-up to `04930fe7e`: the remaining native/common emit-time analyses that took a fault
