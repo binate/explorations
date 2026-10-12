@@ -805,10 +805,13 @@ claude-todo-done.md and plan-aggregate-copy-opts.md); still open:
   leaves two causes: (1) a large load from an unknown source (`return *p`, `h.b = *p`) copies into a
   private region first — AggLoadElidable's S-adjacent rule stops at 16 bytes for overlap's sake; a return
   into the caller's (noalias) buffer cannot overlap, a store needs an overlap-safe large copy.  The return
-  case is done (`45e8b6537`); the store case is still to be decided.  (2) SROA moves a whole-struct copy's aggregate field through a temporary slot and leaves the
-  destination's zero-fill (`var y = x`) — IN PROGRESS (claimed 2026-10-12, work-1; user: "yes" to doing it
-  next).  Measured with perf/agg-copy-table.sh
-  (`2e852d3be`).  Their
+  case is done (`45e8b6537`); the store case is still to be decided.  (2) SROA's copy-out split of a struct
+  only copied whole — done (`dc0df663a`).  Left from it, still to be decided: a local struct whose field is
+  also read on its own (`var x Big = mk(k); t := x.n; var y Big = x`) still copies twice — the whole copy's
+  load of x is not read in place, AggLoadElidable's S-alloca rule wanting a slot used only by whole loads and
+  stores (a field pointer only ever read through could be admitted), and SROA, which splits x for the field
+  read, then loses the call's placement into x and leaves y's zero-fill.  Measured with
+  perf/agg-copy-table.sh (`2e852d3be`).  Their
   prerequisite D1 (by-value aggregates the platform C way, callees using their incoming bytes in place) is
   done (claude-todo-done.md; done/plan-c-abi-large-aggregates.md).
 User direction (2026-09-30): the native backends are co-equal, so fixes must let native make the same

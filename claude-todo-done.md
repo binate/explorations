@@ -1065,6 +1065,21 @@ index / >32-bit displacement.  Tests: x64_mem_test.bn in parse and asm/x64 (clan
 in 4 instructions match clang byte for byte.  Raised with the user, undecided: 32-bit addressing (now rejected),
 `-~8` (clang's Intel parser computes it wrongly), absolute `[lbl]` (unsupported, as before).
 
+### SROA's copy-out split needs a field to gain from it — DONE (binate `dc0df663a`, 2026-10-12, work-1)
+
+The D table's second remaining cause.  The copy-out rewrite (`*p = s` → per-field stores so s can be
+scalar-replaced) fired for any struct otherwise eligible, even one only stored and copied whole whose fields
+stay slots after a split (an array, a float or wider-than-word int, a raw slice): `var x Big = mk(k); var y =
+x; sum(y)` lost the call's placement into x, copied the [100]int field twice through x's field slot and kept y's
+zero-fill.  copyOutsUnpin now also requires every field to end up in a register (structFieldsAllScalarize: a
+word-or-narrower int, bool, pointer, or a struct of such) or a field that does (fieldGainsFromSplit) accessed on
+its own.  copyThen 2c+1z → 1c (native aa64, LLVM arm32); a struct only copied out whole: {x,y,z float64} 34 → 28
+and {n int; s *[]int} 45 → 37 instructions (native aa64), {a,b int64} 52 → 21 (native arm32); cmd/bnc's code
+unchanged.  Review: no correctness problems; its finding (floats / wide ints / raw slices and array-field
+extracts still let the split through) tightened the gate.  Tests: five iropt unit tests.  Validated: iropt,
+codegen, native/* unit tests; managed-value + array subset on LLVM aa64, native aa64 / x64 / arm32 bare metal /
+arm32 Linux.  Left (claude-todo.md): a struct whose field is also read still copies twice.
+
 ### A wide load returned whole reads its source in place — DONE (binate `45e8b6537`, 2026-10-12, work-1)
 
 First of the D table's remaining causes (user: "go with your rec").  AggLoadElidable's S-adjacent rule (an

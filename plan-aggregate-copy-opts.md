@@ -116,7 +116,8 @@ D. Copy chains (load → private copy → temp slot → argument): revisit after
      copy (memmove-style direction) in the copy emitters.
    - `var y = x`: SROA splits the whole-struct copy into per-field copies and moves the [100]int field
      through a temporary slot (the two copies are its 800 bytes, not Big's 808), and y's first use is then
-     a field store, so the dead-store pass keeps y's zero-fill.
+     a field store, so the dead-store pass keeps y's zero-fill — done `dc0df663a` (2026-10-12): the copy-out
+     split now needs a field that gains from it; copyThen 2c+1z → 1c on both.
    Real code — static tally of cmd/bnc's -O2 IR (native aa64; throwaway instrumentation, 69,698 aggregate
    loads / call results / param slots; bytes are static, not dynamic): loads passed as by-value arguments
    ~750 KB static (load of a local → arg alone 2,752 sites > 64 B, 15.7%); by-value aggregate param slots
