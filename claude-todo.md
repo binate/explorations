@@ -114,6 +114,17 @@ Fix: give the `for` statement its own IR-gen scope — release the init variable
 them.  Needs a conformance test (a shadowed outer variable read after the loop; also a managed init variable,
 for the release).  The defer redesign (plan-defer-block.md) depends on correct IR-gen scoping.
 
+### `:=` in a C-style `for` post statement: compiler crash, wrong binding, leak — 🔴 NEEDS DECISION MAJOR (found 2026-10-12, work-4, review of the for-init scoping fix; reproduced; pre-existing)
+
+The checker checks the post statement before the body (check/check_stmt.bn), so a variable a post `:=`
+declares is in scope in the body; genFor generates the body before the post statement, so IR-gen cannot see it.
+`for i := 0; i < 3; q := i { … q … }` panics ("internal error: unresolved identifier q in IR-gen"); with an
+outer `j`, a body's `j` is typed as the post-declared one but reads the outer one; a managed post `:=` leaks one
+block per post execution but the last.  §14.9 calls the post slot a simple statement, which admits `:=`, and
+says nothing more.  Decide: reject a declaration in the post statement (recommended — the variable would exist
+only from the second iteration on; Go rejects it too) or give it a meaning.  Then a conformance test (error or
+behaviour) and the checker / IR-gen change.  Review probes: scratchpad review3/p3–p6.
+
 ### Package-variable init order ignores reads inside a deferred call — silent wrong value — 🔴 OPEN MAJOR (found 2026-10-12, work-4, review of plan-defer-block.md; reproduced; pre-existing)
 
 `var a int = func() int { defer show(b); return 1 }()` followed by `var b int = seven()` prints "deferred
