@@ -1,3 +1,44 @@
+### A managed `@X` of a type nothing defines drops through a never-defined `__dtor_X` — DONE (binate `9235b2aa6`, 2026-10-11, work-7)
+
+Reachable today in a non-main package: with `type X` in a package's `.bn` and no definition anywhere,
+`var p @X = nil` in that package fails on every mode — LLVM: "use of undefined value
+`@__handle.bn_F2_3_pkg1_q1_9___dtor_1X`"; native: undefined symbol at link; VM: "function not found:
+pkg/q.__dtor_1X".  The import pre-pass (`registerStructTypesFlat`'s forward-declaration branch,
+`gen_module_register.bn`) walks every package of `ldr.Order`, the one being compiled included, and registers
+the package's own undefined forward type stamped opaque-exported, so the drop RefDecs through `<pkg>.__dtor_X`;
+`generateOpaqueNamedDtors` skips a type with no definition, so nothing defines it.  In `main` the same type is
+registered unstamped (`registerUndefinedForwardTypes`) and the drop is a plain RefDec.  Test:
+`conformance/1622_xpkg_private_forward_type_drop` (`.xfail.all`).  Options: register a package's OWN undefined
+forward types unstamped in the pre-pass, as in main (only another package's, read from its `.bni` alone, needs
+the stamp); or emit a no-op `__dtor_X` for an own opaque type with no definition (an `@X` of it can only be nil
+or come from outside Binate); or have the checker reject a managed `@X` of a type defined nowhere.
+The original note, for the `.bni` variant:
+
+
+**Latent — not reachable today.** The opaque-export dtor guarantee (landed b02ca1fff /
+f7c7495e5: a package force-emits a public `__dtor_X` for a `.bni` forward-declared type,
+and an importer's opaque `@X` drop RefDecs through it) assumes the defining package actually
+BUILDS + LINKS that dtor.  A `.bni` that forward-declares `type X` with NO `.bn` body and NO
+in-tree provider — held as `@X` and dropped — would emit a call to an undefined
+`pkg.__dtor_X`.  Cannot arise now: every shipped opaque forward-decl has a `.bn` body, and a
+managed `@X` (refcount-headered) cannot name a purely-external C/asm allocation (those are
+`*X`, not `@X`).  Only relevant if external-C opaque MANAGED types are ever introduced —
+then the checker should require an in-tree/linked dtor for an opaque-exported managed type.
+Found: adversarial review of the opaque-export dtor fix.
+
+Resolution (decided: a link error naming the missing `__dtor_X` is the right failure — the destructor is for
+whatever defines X to supply, and a checker rule cannot decide it from a `.bni`-only view):
+generateOpaqueNamedDtors declares a module's own undefined opaque type's destructor extern, as another
+package's, so LLVM fails at link like native (no more invalid IR) and the VM reports the function not found
+when the release runs; registerUndefinedForwardTypes stamps main's undefined forward types, so main behaves as
+every other package.  A type's interface rows and type info carry its destructor too, so boxing even a raw
+`*X` into an interface needs X defined at link (decided: accept, as across packages already).  In a REPL
+session (GenCtx.ReplSession) the file's undefined forward types get the placeholder destructor a prompt's
+forward type gets, replaced by a later definition — which also fixed a leak: the file's code released a
+prompt-defined value with no destructor.  Tests: conformance 1622_err_xpkg_undefined_forward_type_drop,
+1625_err_undefined_forward_type_drop; e2e/repl.sh file-forward-type-defined-at-prompt and
+file-forward-type-dtor-replaced; TestGenerateOpaqueNamedDtorsSkipsAndDeclares.
+
 ### Calling through a field of a generic-instance call result panics the compiler — DONE (binate `307c82e76`, 2026-10-10, work-4; found 2026-10-10 in review of the method-value wrapper IR-signature fix)
 
 `idb(ys).x.Show()` (idb returns `Box[*Shower]`, x a `*Shower`) and `idf(yf).x(41)` (x an `@func(int) int`) panic

@@ -2155,33 +2155,14 @@ nothing currently reaches the reject (the only section-relative relocs are in th
 unwind sections), so this stays parked until a real clang/LLVM object needs a
 section-relative reloc in a KEPT section.
 
-### A managed `@X` of a type nothing defines drops through a never-defined `__dtor_X` — 🟡 IN PROGRESS (noted 2026-09-03 as latent; reachable, 2026-10-10, work-7, review of the opaque-type-argument fix; reproduced on LLVM, native aa64 and the VM; pre-existing; claimed 2026-10-10, work-7/session — decided: a link error IS the right failure (the dtor belongs to whoever defines X; a checker rule is impossible from a `.bni`-only view); fix LLVM to declare the dtor handle extern (a link error, as native gives, not invalid IR), and make main consistent (stamp its undefined forward types so `@X` drops through `main.__dtor_X`); user: "both")
+### `@F` with `type F X` over a type nothing defines drops with a plain release — no link error — 🔴 OPEN (minor; found 2026-10-10, work-7, review of the undefined-`__dtor_X` fix; code reading; pre-existing)
 
-Reachable today in a non-main package: with `type X` in a package's `.bn` and no definition anywhere,
-`var p @X = nil` in that package fails on every mode — LLVM: "use of undefined value
-`@__handle.bn_F2_3_pkg1_q1_9___dtor_1X`"; native: undefined symbol at link; VM: "function not found:
-pkg/q.__dtor_1X".  The import pre-pass (`registerStructTypesFlat`'s forward-declaration branch,
-`gen_module_register.bn`) walks every package of `ldr.Order`, the one being compiled included, and registers
-the package's own undefined forward type stamped opaque-exported, so the drop RefDecs through `<pkg>.__dtor_X`;
-`generateOpaqueNamedDtors` skips a type with no definition, so nothing defines it.  In `main` the same type is
-registered unstamped (`registerUndefinedForwardTypes`) and the drop is a plain RefDec.  Test:
-`conformance/1622_xpkg_private_forward_type_drop` (`.xfail.all`).  Options: register a package's OWN undefined
-forward types unstamped in the pre-pass, as in main (only another package's, read from its `.bni` alone, needs
-the stamp); or emit a no-op `__dtor_X` for an own opaque type with no definition (an `@X` of it can only be nil
-or come from outside Binate); or have the checker reject a managed `@X` of a type defined nowhere.
-The original note, for the `.bni` variant:
-
-
-**Latent — not reachable today.** The opaque-export dtor guarantee (landed b02ca1fff /
-f7c7495e5: a package force-emits a public `__dtor_X` for a `.bni` forward-declared type,
-and an importer's opaque `@X` drop RefDecs through it) assumes the defining package actually
-BUILDS + LINKS that dtor.  A `.bni` that forward-declares `type X` with NO `.bn` body and NO
-in-tree provider — held as `@X` and dropped — would emit a call to an undefined
-`pkg.__dtor_X`.  Cannot arise now: every shipped opaque forward-decl has a `.bn` body, and a
-managed `@X` (refcount-headered) cannot name a purely-external C/asm allocation (those are
-`*X`, not `@X`).  Only relevant if external-C opaque MANAGED types are ever introduced —
-then the checker should require an in-tree/linked dtor for an opaque-exported managed type.
-Found: adversarial review of the opaque-export dtor fix.
+An `@X` of a type nothing defines fails to link, naming `__dtor_X` (binate `9235b2aa6`), but a distinct type
+over it does not: with `type X; type F X`, `var p @F = nil` drops through EmitManagedPtrRefDec's plain RefDec —
+its opaque arm matches only an unpeeled stamped pointee (F is not stamped, and StripWrappers(F) is X, which no
+arm matches) — so the program compiles, links and runs.  Harmless as long as such an `@F` can only be nil, but
+inconsistent with `@X`.  Fix: route a named type whose underlying is an opaque type through that type's
+destructor (or give F a destructor that calls X's).
 
 ## bnfmt (self-hosted formatter)
 
