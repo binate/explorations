@@ -52,6 +52,9 @@ libraries' .dynsym (libc.so.6 is named without a path — needs a sysroot / sear
 definition a library defines or references, as lld does; or export every global definition (`--export-dynamic`),
 which needs no library input but exports far more (startup lookup cost, interposition of names no library uses).
 Test: `optc` without `-fcommon`, and a program-defined `malloc` that libc's own calls must reach.
+Plan: `plan-bnld-dynsym-exports.md` (user: read .dynsym; "Fail loud" when a needed library is missing).  Progress:
+step 1 (symbol visibility; hidden commons not exported, hidden references not imported) landed `d7d6ce938`;
+step 2 (find and read the needed libraries, fail loud) next.
 
 ### The LLVM backend declares a function's own sret parameter `align 8` whatever the result's alignment; a C caller's buffer may be less aligned — 🔴 OPEN (found 2026-10-09, work-1, review of the returned-local change; pre-existing; plausible, not yet reproduced)
 

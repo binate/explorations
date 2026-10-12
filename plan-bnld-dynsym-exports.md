@@ -30,7 +30,10 @@ only each library's SONAME; libc.so.6 is named without being read at all.
 
 ## Series
 
-1. **Visibility.**  The ELF reader records STV_HIDDEN / STV_INTERNAL (InputSymbol gains a `Hidden` mark; the
+1. ✅ landed binate `d7d6ce938` (2026-10-12).  Also, from its review: collectImports leaves out a name some
+   object references as hidden (it must resolve inside the image); the Mach-O symbol loop moved to
+   `parse_macho_syms.bn`.  The assembler has no visibility directives (todo "asm: no symbol-visibility directives").
+   **Visibility.**  The ELF reader records STV_HIDDEN / STV_INTERNAL (InputSymbol gains a `Hidden` mark; the
    Mach-O reader marks N_PEXT private externs).  Nothing exports yet, so no behavior change beyond the mark.
 2. **Library search and symbols, fail loud.**  Read a shared object's dynamic symbols (SHT_DYNSYM + its string
    table; defined vs undefined, binding); find each needed library — libc.so.6 and the `-l` ones — in the given
