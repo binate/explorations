@@ -1359,7 +1359,7 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
     pool. The structural fix is a larger home pool (RAX/RCX/RDX/R10/R11 are scratch-only; LLVM
     allocates all 15). (The x64 `imul`-immediate fold frees the checksum loop's 8 multiplier
     registers, but that loop is cold.)
-- **x64 code placement: give the native backend a deliberate loop/function alignment policy** —
+- **native code placement (x64, aarch64, arm32): deliberate loop/function placement policies** — plan: `plan-native-code-placement.md` (tooling T2-T5, then block layout, then policies; open decisions listed there) —
   🟡 IN PROGRESS (claimed 2026-10-10). Identical machine code runs at very different speeds depending
   on where it lands: `blockLiveBefore` (byte-identical, same instruction count) is 12.5% slower in one
   native bnc build than another; fannkuch-redux is 12.7% faster with identical instruction counts,
@@ -1373,6 +1373,10 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   linux-tools-6.8.0-31). Blocks the decision on turning `-fx64-rax-home` on by default (see the done
   entry for `edeabc7d1`): on this Xeon it ran −0.21% instructions but ~+1.3% user time on the native
   self-compile, and mixed benchmark results.
+- **LOW: assembler has no arm32 UDF encoder or parser; aarch64 UDF is reachable only through
+  `asm/aarch64/isa.ExceptionGen` and the text parser** — 🔵 OPEN. Comprehensive-assembler rule: add an
+  arm32 `Udf` encoder + parser and a public aarch64 `Udf`. Found while designing placement filler
+  (which uses BRK/BKPT instead).
 - **native allocator: a tie hint is lost when the first-allocated partner takes a register the
   other cannot use** — 🔵 OPEN. `LinearScan` (`native/common/regalloc_linear_scan.bn`) honours a tie
   (`pickPartner`) only if the partner's register is eligible for the later interval; nothing steers
