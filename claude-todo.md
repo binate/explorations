@@ -342,7 +342,7 @@ the LLVM backend (as native does): a load MemCopies into a function-scoped temp 
 address; stores MemCopy from it, extracts GEP into it, by-value args / returns / call results / phis use
 the address — every codegen producer and consumer of aggregate values handles that form.
 
-### arm32 hard-float: a homogeneous-float-aggregate `__c_call` ARGUMENT is passed in GP registers — C reads garbage from `s0…` — 🔴 NEEDS DECISION (found 2026-09-27, work-3, stale-ABI-comment sweep)
+### arm32 hard-float: a homogeneous-float-aggregate `__c_call` ARGUMENT is passed in GP registers — C reads garbage from `s0…` — 🟡 IN PROGRESS (claimed 2026-10-13, work-3/session; decided 2026-10-13, user: "1" = make AAPCS-VFP HFA passing Binate's own arm32-linux convention, lifting ABI deviation (4) / §4.7; no interim rejection) (found 2026-09-27, work-3, stale-ABI-comment sweep)
 
 On `--target arm32-linux` (FLOAT_ABI_HARD) `HfaAggregates` stays false, so a float-only named struct /
 array rides the GP-coerced path — self-consistent between Binate's own native and LLVM sides, but NOT
