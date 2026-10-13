@@ -1,88 +1,125 @@
-# Plan: IR-gen takes its types from the checker — one name resolver
+# Plan: IR-gen takes its names' meanings from the checker — one resolver
 
-Status: DRAFT for review (2026-10-12, work-6).  User: "What's the *right* thing to do, regardless of
-effort" → this; "yes (and get it reviewed)".  Prerequisite for REPL type / interface shadowing
-(plan-repl-type-shadowing.md, approach B), which then becomes a checker-only change plus a display name.
+Status: REVISED after adversarial review (2026-10-12, work-6).  User: "What's the *right* thing to do,
+regardless of effort" → this; "yes (and get it reviewed)".  Prerequisite for REPL type / interface
+shadowing (plan-repl-type-shadowing.md, approach B).  Open questions for the user at the end.
 
 ## Problem
 
-IR-gen resolves type NAMES from the AST a second time, in parallel with the checker, with its own scopes:
-`resolveTypeExpr` (82 calls in 38 files), ~81 name-keyed registry lookups (lookupStructIdx,
-lookupGenericTypeDecl[Pkg], definingPkgType, bareIfacePkg, ifaceTypeForName, …), a type-parameter
-substitution context (CurrentTypeParamNames / Types / Owner / Args, ~9 files), the defining file's import
-overlay for generic bodies and the CurrentImportPkg precedence rules (121 sites), and `TypInt()`
-fallbacks that silently turn a type it cannot resolve into `int`.  When the two resolvers disagree the
-result is usually a silent miscompile.  Recent instances of the class:
-- a consumer's same-named declaration or global capturing an imported generic body's names
-  (`df56f73cd`; the bareGlobalIdx fallback fixed in `1d3a19624`);
-- the defer pre-pass not seeing locals the checker knew about (`91e8867e7`);
-- a prompt generic struct IR-gen had not registered becoming `int` (wrong size; item 3, `d34cc0451`);
-- generic bodies needing the defining file's imports overlaid, because IR-gen re-resolves names the checker
-  already resolved in the right scope.
+IR-gen resolves names from the AST a second time, in parallel with the checker, with its own scopes:
+- TYPE names: `resolveTypeExpr` (82 calls in 38 files), ~81 name-keyed registry lookups, a type-parameter
+  substitution context (CurrentTypeParamNames / Types / Owner / Args), `TypInt()` fallbacks that turn a
+  type it cannot resolve into `int`;
+- VALUE names: `CurrentImportPkg` precedence (101 sites: funcRefName, namesFunction, const lookups,
+  bareGlobalIdx, methodExprName, moduleNamesInScope, instantiationHead), the defining file's import overlay
+  for generic bodies (overlayFileImports), RegisterGenericBodyDeps, local-scope tracking for shadowing.
+When the two resolvers disagree the result is usually a silent miscompile.  Recent instances:
+`df56f73cd` and `1d3a19624` (a consumer's names capturing an imported generic body's — value names),
+`91e8867e7` (the defer pre-pass not seeing locals — value names), `d34cc0451` (an unregistered prompt
+generic struct becoming `int` — type names).
 
 ## Goal
 
-The checker is the single authority on what a name means.  IR-gen maps the checker's resolved types
-(irTypeFromChecker, which exists: instances, named types, structs, function types, tuples, arrays, type
-parameters by owner / position) and keys its registries by the checker's declarations / types, never
-re-resolving a name.  With a checker attached, a type IR-gen cannot map is an internal error, never `int`.
+The checker is the single authority on what a name means — a type name or a value name.  IR-gen maps the
+checker's types (irTypeFromChecker) and the checker's recorded resolution of each identifier / selector,
+keys its registries by the checker's type identity, and derives emitted names from that identity (symbol
+mangling stays name-based: it is the cross-module and runtime contract).  With a checker attached, a name
+IR-gen cannot map is an internal error, never `int`.
 
-What legitimately stays name-based: symbol mangling (function, helper, method, vtable, typeinfo names),
-derived from the identity names the checker's types carry.
+## What the review verified
 
-## Invariants to verify first (stage 0)
+- One checker per compilation in every driver that runs IR-gen (bnc compile / library / test / --pkg,
+  the bnc --test runner, bni test, interp, the REPL incl. mid-session imports); `mod.Checker` is set before
+  RegisterImports.  No production IR-gen runs without a checker (GenModule is test-only; the 47
+  `Checker == nil` branches in irgen are test paths).
+- Instance copies are separate (CloneDecl shares no nodes): function / generic-method bodies, struct fields,
+  interface method sets and parents, generic alias targets are each resolved on their own copy.
+- Precedent: TypeExpr.LenVal is already a checker stamp IR-gen requires under a checker.
+- irTypeFromChecker already runs on every instance's type arguments (matchInstanceCopy, naming mode).
 
-- One checker per compilation, holding every package IR-gen reads types from: bnc typecheckAll /
-  typecheckPackages (one Checker, LoadPackageInterface + CheckPackage per package, then main) — VERIFIED;
-  interp TypecheckAll; the REPL session and mid-session imports; bnc library and test modes; the bni test
-  runner; bnlint (does not run IR-gen).  Any driver with several checkers needs a common type table first.
-- Every TypeExpr IR-gen reads was resolved by that checker: declarations and bodies of the compiled
-  packages; imported `.bni` declarations (LoadPackageInterface); generic instances emitted from the
-  checker's checked copies (instanceCopy / typeInstanceCopy) — the copies, not the abstract declaration;
-  function literals' signatures.  TypeExprs IR-gen SYNTHESIZES (gen_generic.bn: exprToTypeExpr, building a
-  type argument from an expression) must take the checker's resolution of the source expression
-  (Expr.ResolvedTypeID) instead.
+## Stages (each lands green; byte-identical IR across the corpus where a stage claims no change)
 
-## Stages (each lands green)
+0. **Audits, no behaviour change.**  Define the stamp: "the type the syntax denotes in its scope" (not a
+   context result — a recovery type, an inferred length, a Self substitution).  Audit the 59 raw checker-type
+   reads in irgen (ExprType / PackageType used unmapped as IR types, e.g. registerImportVarExtern,
+   reflectPackageStructType).  Assert-and-run whether bindTypeParams / CurrentTypeParamOwner are still
+   reached for function bodies (they predate checked-copy emission, `d938d91bb`).
+1. **Checker records.**
+   - `TypeExpr.ResolvedTypeID` stamped at every resolution, including the piecewise sites:
+     `[...]T` composite heads (checkCompositeLit infers the length without resolveTypeExpr), assertion /
+     type-switch targets (IR-gen should take the assertion Expr's recovered type instead), impl interface
+     refs (resolveImplInterfaceRef), interface parents (resolveInterfaceExtension), interface-alias targets,
+     and write-back from the copies WithNamedBlankBinders makes (receivers / impl receivers with `_`
+     binders); cleared by the clone functions (as LenVal is); re-set on REPL re-checks.
+   - A DENOTED-TYPE record on type-denoting Exprs (type args written as expressions, `T.M` / `Box[int].M`
+     bases, `pkg.T` selectors) — separate from Expr.ResolvedTypeID, which is a value's type.
+   - A type-vs-value classification for IR-gen's probe sites (typeArgExprToType on the X of `X.M` / `X[...]`,
+     isInterfaceTypeExpr, methodExprName, lookupStructIdx used as a type-or-not test).
+   - A walk test: every TypeExpr in checked ASTs stamped; no TYP_TYPE_PARAM in instance copies.
+   - Storage: a dedicated TypeExpr table (or reuse an id), not ever-growing ExprTypes.
+2. **Complete the mapper.**  Memoized by checker Type pointer; registers lazily and self-sufficiently from
+   the checker type (fields, method sets, parents) so ordering cannot leave it nil; the opaque rule
+   (OpaqueExportPkg against the current module — the checker's Type is shared between a `.bni` forward and
+   the `.bn` definition, its Underlying filled in place); a Self rule (TYP_SELF maps to nil today; the IR
+   interface registry resolves TEXPR_SELF to void); generic declarations by identity
+   (irInstantiationFromChecker re-looks a generic up by d.Name).  Instruction-level typing choices stay out
+   of scope (StripConstForIR, a named func value's OP_FUNC_VALUE at the bare type, untyped constants).
+3. **Differential, behind a flag.**  Compute the mapped side in pure naming mode (GenCtx.NamingInstances —
+   no registration, no `__anon_N` counter advance) and compare identity strings (kind + MangleTypeArg-style
+   identity incl. readonly), not objects.  Run on the conformance corpus, the self-compile and the REPL e2e,
+   on one 64-bit and one 32-bit target (LenVal / sizeof are target-dependent).  Triage each disagreement:
+   mapper gap, stamp gap, or legacy bug — a legacy bug gets a test and a todo and is fixed by the switch, not
+   patched in the resolver that is being deleted.  Expected (legit) differences: Self, parameterized-impl
+   type parameters (stage 5), registration-order gaps.
+4. **Switch, by site class.**  Declarations first: var / global types (existing Decl.ResolvedTypeID),
+   signatures, struct fields from checker types (removes the several copies of field resolution).  Then
+   expressions: assertions and composite literals from their Expr types.  The remaining TypInt() fallbacks
+   become internal errors.
+5. **Registries keyed by checker identity, names from it.**  Key by checker Type identity (a pointer memo) —
+   not by Decl (opaque types have two Decls for one Type, instances none).  NAME things from the checker's
+   identity, not `d.Name` (registerTypeDeclEntry, methodQualName's receiver text, dtor / copy helpers, impl
+   rows, typeinfo) — else a shadowed T still collides on `main.T` symbols.  Impl rows from the checker's
+   impls with checker substitution (parameterized impls are not instance copies: mintGenericImplRows resolves
+   the abstract impl's interface args by name today); interface method sets from checker types.  Keep name
+   indexes for the by-name consumers: the VM's runtime vtable / typeinfo lookup (BC_IFACE_VALUE,
+   BC_DATA_SYM_ADDR, swapIfaceSuffix), LowerOneFunc's same-name replacement, interp FindInterfaceMethodSlot,
+   injected-package RegisterPackageVtables / RegisterPackageSatEntries, FuncSig callee lookup, separate
+   `bnc --pkg` builds.
+6. **Value-name resolution.**  The checker records what each identifier / selector Expr resolves to (local,
+   parameter, global, constant, function, package, method expression); IR-gen uses it; then delete
+   CurrentImportPkg-as-resolution, the import overlay for generic bodies, RegisterGenericBodyDeps and the
+   bare-name precedence rules.  (Coordinate with plan-constant-evaluator.md, which targets IR-gen's own
+   constant evaluator and its CurrentImportPkg const lookup.)
+7. **Delete the legacy and no-checker paths; convert the tests.**  ~84 irgen test files build IR without a
+   checker (223 genFromSource calls in 44 files, 56 genFromSourcePkg in 17, 42 files building GenCtx by
+   hand), plus GenModule(nil) helpers in codegen and the native iface tests; many are white-box tests of
+   internals this deletes.
+8. **REPL type / interface shadowing** (plan-repl-type-shadowing.md).
 
-1. **The checker stamps TypeExprs.**  Add `TypeExpr.ResolvedTypeID` (Expr and Decl have one) and set it at
-   every resolution (resolveTypeExpr and its variants: resolveNamedTypeExpr, typeArgOrInterfaceFromExpr,
-   the method-expression base, instantiation heads, receivers, impl receivers and interface refs).  A
-   checker unit test walks checked ASTs (including instance copies) and asserts every TypeExpr is stamped.
-   No behaviour change.
-2. **Differential IR-gen.**  `resolveTypeExpr` computes BOTH the stamp's mapping and the legacy result,
-   asserts they agree (an internal error naming both, under a checker), and returns the legacy one.  Run
-   the whole conformance suite on every mode, the unit tests and the self-compile (gen1 → gen2): each
-   disagreement is a legacy-resolver bug or a mapping gap; fix each at its root (the mapper, or the
-   checker's stamp) before going on.  This stage is the safety net — the switch in stage 3 changes only
-   what we have seen agree.
-3. **Switch.**  `resolveTypeExpr` returns the stamp's mapping when a checker is attached (a missing stamp is
-   an internal error; no `TypInt()` fallback); the legacy path remains only without a checker.
-4. **Registries by declaration.**  Struct / alias / interface registration and the generic stashes key on
-   the checker's declaration and type identity (the decl's ResolvedTypeID), not `d.Name`; method receivers,
-   impl rows, method expressions and generic-method association use the checker's resolution; the
-   name-keyed lookups that remain become lookups by identity name taken from a checker type.
-5. **Delete the second resolver.**  The type-parameter substitution context, the import overlay for generic
-   bodies and the bare-name precedence rules that only served name resolution go; IR-gen's unit tests run
-   through the checker (55 files generate IR without one today); the no-checker path is deleted.
-6. **REPL type / interface shadowing** (plan-repl-type-shadowing.md) on top: a shadowing definition gets a
-   fresh internal identity in the checker; IR-gen follows by construction.
+## Constraints / risks
 
-## Validation
+- IR-gen drivers must fully check every dependency: imported `.bni` generic types / interfaces,
+  generic-receiver methods and impls are stamped only because every driver runs CheckPackage on each
+  dependency (whose merged file reuses the `.bni` Decl pointers) — a permanent constraint on any future
+  interface-only separate compilation.
+- REPL stamp staleness: parked / tentative re-checks re-stamp only the nodes they re-resolve — clear at
+  re-check, or tag stamps with a generation.
+- Performance: registerExprType never reuses an id; TypeExprs are re-resolved often (LoadPackageInterface
+  plus CheckPackage, generic-alias clones per use).  On the IR side, memoize by checker Type pointer.
+- Coordination: plan-defer-block.md (accepted 2026-10-12) rewrites the defer pre-pass; stages 2–6 touch 38+
+  files other sessions edit.
+- BUILDER: no new language features needed.
 
-Stages 2–3 change how every compile resolves types: full conformance on LLVM, native aa64, native x64,
-native arm32 (baremetal and linux), the VM; the self-compile; the unit tests of every package that runs
-source through IR-gen (irgen, codegen, vm, native/*, interp, repl).  Stages 1, 4, 5: the affected packages'
-unit tests, targeted conformance, the self-compile.  Each stage gets an adversarial review before landing.
+## Open questions for the user
 
-## Risks / questions for the review
-
-- irTypeFromChecker completeness: named-distinct non-struct types, opaque types, readonly wrappers,
-  variadic function types, named function values (nominal since `3cf3d8ab5`), generic interfaces,
-  ArrayLenDependent arrays (nil today — only in abstract bodies?), untyped constants (default types), where
-  IR-gen deliberately differs from the checker (e.g. a func-value OP built at the bare type while the
-  variable keeps the named one).
-- IR-gen code paths that run with NO checker in production (not only tests)?
-- Performance: a mapping per TypeExpr resolution (cache by checker Type).
-- BUILDER: irgen and check are BUILDER-compiled; no new language features needed.
-- The differential stage's cost: two resolutions per TypeExpr, only during the transition.
+1. Value-name resolution (stage 6) in this plan?  Without it the one-resolver goal and the overlay /
+   precedence deletions are unreachable; with it the work roughly doubles.
+2. The differential (stage 3): a flag used during the transition, or an always-on internal error?  For
+   how long?
+3. What a Self-typed parameter is in the IR interface registry.
+4. Map struct and interface INSTANCES directly from the checker's instance type (dropping
+   typeInstanceCopy for types; method bodies still need their copies)?
+5. White-box no-checker tests of deleted internals: delete, or rewrite?
+6. Accept "IR-gen drivers must fully check every dependency" as permanent?
+7. (From plan-repl-type-shadowing.md) REPL late binding: a generic or a parked declaration resolved after a
+   shadow sees the new type.
