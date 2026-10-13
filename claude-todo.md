@@ -611,21 +611,6 @@ error (the forwarder should drop the redundant `expose "P"`; a bnlint rule could
 when both paths denote the same declaration (compare the defining package and declaration, not the name),
 spec to match.  Needs a conformance test either way.
 
-### Another package's `.bn`-only generic type or interface is reachable by its qualified name (`q.priv[int]`) — 🟡 IN PROGRESS (claimed 2026-10-12, work-7/session — user: "self-drive #1 and #2, and #4 (only one definition should be allowed)"; found 2026-10-11, work-7, review of the `.bni` interface-view change; reproduced with a scratch program; pre-existing)
-
-pkg.export (§16.4): a name only a `.bn` declares is package-private, and a cross-package reference to it is
-"undefined".  That holds for a non-generic type (`q.priv` from main: `undefined: priv`) and for a generic
-function (`q.twice[int](3)`: `undefined: twice`), but a generic type or interface that only q's `.bn` declares
-resolves from another package: `var p @q.priv[int] = make(q.priv[int])` compiles and runs, and `var g
-@q.Getter[int]` is accepted.  The checker finds a generic head by name in its generic stash
-(`lookupGenericHead` in `pkg/binate/check/bni_view.bn`, then `lookupGenericTypeDecl` / `lookupGenericIfaceDecl`
-keyed on the package path), which holds every generic the package declares, `.bn` ones included, and nothing
-asks whether the referring package can see it.  An interface-only load (`LoadPackageInterface`) would reject
-the program, so whether it compiles depends on how q is built.  Fix: for a head in another package, require
-the stashed declaration to be one that package's `.bni` declares (`declaredInBni`, as the interface view
-already does for an unqualified head), or its sole surface when it has no `.bni`.  Covered by spec tests
-16-packages/109 (type) and 110 (interface), expected-fail (binate `6295b5c56`).
-
 ### Do importers and `.bni` generic bodies see a `.bn`-only method, or an opaque type's fields? — 🟠 BACK-BURNERED, blocked on a decision (see the end of the entry; claimed 2026-10-12, work-7/session — user: "self-drive #1 and #2, and #4 (only one definition should be allowed)"; taken as option (a), the recommendation, and said so to the user; found 2026-10-11, work-7, review of the `.bni` interface-view change; reproduced with scratch programs; pre-existing)
 
 The interface view (pkg.bni.self-contained) governs the names a `.bni` declaration resolves; member access is
@@ -701,26 +686,6 @@ Options: judge the parts that come from the type arguments in the importer's vie
 structure walked with its type parameters marked), or accept it and spec that a cross-package opaque
 export is opaque only in what the importing package writes itself.
 
-
-### `.bni` and `.bn` definitions of a generic type's method are never compared — 🟡 IN PROGRESS (claimed 2026-10-12, work-7/session — user: "self-drive #1 and #2, and #4 (only one definition should be allowed)": a generic function or generic type's method defined in both the `.bni` and the `.bn` is an error; found 2026-10-10, work-7, review of the `.bni` method consistency check; code reading; pre-existing)
-
-A method of a generic type may be defined in the `.bni` (with its body) and also in the `.bn` (conformance 162
-does exactly that).  The loader's `sameFuncDecl` pairs the two by name and receiver base name and drops the
-`.bni` copy from the merged file, so the package itself (checker, IR-gen, bnc importers through the merged
-file) uses the `.bn` version, while `LoadPackageInterface`'s `recordGenericMethod` records the `.bni`
-version for importers that read the interface.  `checkBniMethodDecls` (`pkg/binate/check/check_bni_methods.bn`)
-skips generic-receiver methods, so `func (b @Box[T]) Get() T` in the `.bni` and `func (b @Box[T]) Get() int`
-in the `.bn` pass unchecked and the two kinds of importer see different signatures (pkg.bni.consistency).
-Fix: compare the pair, matching the two declarations' type parameters up (by position) before comparing the
-receiver and signature; or decide that a generic method is defined in exactly one of the two files and
-reject a second definition.  The skip carries a `// TODO:` pointing here.
-Related (2026-10-11, review of the `.bni` interface-view change): the dropped `.bni` copy is not checked
-at all, so it is not held to pkg.bni.self-contained either — `func (b @Box[T]) Get() @hidden` in the `.bni`,
-with `hidden` only in the `.bn` and the same `Get` in the `.bn`, compiles, and an interface-only importer
-fails on `undefined: hidden`.  The same holds for a generic free function defined in both files: the
-`.bni` body (`return helper() * 2`, `helper` only in the `.bn`) is never checked.  Defining a generic in
-exactly one of the two files closes both; comparing the pair must also check the `.bni` copy in the
-interface view.
 
 ### Loader: a package with one `.bn` file gets the `.bni`'s imports (and declarations) merged into that file's own AST — its file scope sees imports it does not write — 🔴 OPEN (found 2026-10-09, work-7, review of the imported float const-expression fix; code reading; pre-existing)
 

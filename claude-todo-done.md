@@ -1,3 +1,27 @@
+### Another package's `.bn`-only generic type or interface is undefined there — DONE (binate `892ada4ce`, 2026-10-12, work-7)
+
+pkg.export: a name only a package's `.bn` declares is package-private.  A generic type or interface head
+(`lib.Box[int]`) was found by name in the checker's generic stash, which holds `.bn` generics too, so a
+`.bn`-only generic was reachable cross-package, or not, depending on whether its package was built from source.
+Now `lookupGenericHead` refuses a head in another package whose surface is its `.bni` (`PkgEntry.Interface`)
+unless the `.bni` declares it (`hiddenFromImporters`); a package with no `.bni` keeps its `.bn` as its surface.
+From the review: `expose` likewise leaves such generics out of the markers it injects and the names its
+collision check counts — a forwarder's own `Hidden` was rejected as colliding with the exposed package's
+private generic `Hidden[T]`.  Tests: `TestQualifiedGenericHeadExportedOnly`; spec tests 16-packages/109 and 110
+(no longer expected-fail) and 115; conformance 1632_xpkg_expose_private_generic.
+
+### A generic is defined in the `.bni` or the `.bn`, never both — DONE (binate `6011e599d`, docs `1a397ed`, 2026-10-12, work-7)
+
+User: "#4 (only one definition should be allowed)".  The loader paired a `.bni` generic with a `.bn` one of the
+same name (and receiver base) and silently kept the `.bn`'s, so the `.bni`'s copy was never checked — and a
+generic function defined in both crashed IR-gen (`internal error: no checked copy of generic instance`).
+`checkBniMethodDecls` now reports a `.bni` generic the loader left out of the merged file (`generic function
+Twice is defined in both the .bni and the .bn`; `method Get of generic type Box is …`), in place of the TODO
+that skipped generic-receiver methods; the `.bni` copy, then the only one, is checked in the interface view.
+New spec constraint `pkg.bni.generic.once`, and `pkg.bni.self-contained`'s `_Unenforced:_` note on such generics
+is dropped.  Conformance 162 (the pairing must not match two generic types' same-named methods) now defines
+`Box.Get` only in the `.bn`.  Tests: `TestBniGenericDefinedOnce`; spec test 16-packages/114.
+
 ### Float locals promoted to SSA; native backends copy float phis register to register — DONE (binate `f6c82064d`, 2026-10-12, work-5)
 
 mem2reg left every float local in its stack slot: `isScalarPromotableType` excluded `TYP_FLOAT` because
