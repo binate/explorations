@@ -99,7 +99,7 @@ alignment, not its raw FieldOffset — `#[c_export]` of `(int32, P)` (`P = {x,y 
 is right.  Same whole-store in the C-sret (retAdapt) path.  Fix in the same commit: reinterpret
 field-by-field (emitScatterFlatValue) into a slot of raw size + one word.
 
-### An int64 index on a 32-bit target is bounds-checked and addressed by its low word — silent wrong store — 🔴 OPEN MAJOR (found 2026-10-13, work-5, review of int64 SSA promotion; reproduced; pre-existing)
+### An int64 index on a 32-bit target is bounds-checked and addressed by its low word — silent wrong store — 🟡 IN PROGRESS MAJOR (found 2026-10-13, work-5, review of int64 SSA promotion; reproduced; pre-existing; claimed 2026-10-13, work-5/session)
 
 IR-gen widens an index narrower than `int` (`genIntOperand`) but passes a WIDER one through as is, so on a
 32-bit target an int64 / uint64 index reaches OP_BOUNDS_CHECK and the element GEP as a 64-bit value that
