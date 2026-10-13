@@ -590,7 +590,7 @@ error (the forwarder should drop the redundant `expose "P"`; a bnlint rule could
 when both paths denote the same declaration (compare the defining package and declaration, not the name),
 spec to match.  Needs a conformance test either way.
 
-### Another package's `.bn`-only generic type or interface is reachable by its qualified name (`q.priv[int]`) — 🔴 OPEN (found 2026-10-11, work-7, review of the `.bni` interface-view change; reproduced with a scratch program; pre-existing)
+### Another package's `.bn`-only generic type or interface is reachable by its qualified name (`q.priv[int]`) — 🟡 IN PROGRESS (claimed 2026-10-12, work-7/session — user: "self-drive #1 and #2, and #4 (only one definition should be allowed)"; found 2026-10-11, work-7, review of the `.bni` interface-view change; reproduced with a scratch program; pre-existing)
 
 pkg.export (§16.4): a name only a `.bn` declares is package-private, and a cross-package reference to it is
 "undefined".  That holds for a non-generic type (`q.priv` from main: `undefined: priv`) and for a generic
@@ -605,7 +605,7 @@ the stashed declaration to be one that package's `.bni` declares (`declaredInBni
 already does for an unqualified head), or its sole surface when it has no `.bni`.  Covered by spec tests
 16-packages/109 (type) and 110 (interface), expected-fail (binate `6295b5c56`).
 
-### Do importers and `.bni` generic bodies see a `.bn`-only method, or an opaque type's fields? — 🔴 NEEDS DECISION (found 2026-10-11, work-7, review of the `.bni` interface-view change; reproduced with scratch programs; pre-existing)
+### Do importers and `.bni` generic bodies see a `.bn`-only method, or an opaque type's fields? — 🟡 IN PROGRESS (claimed 2026-10-12, work-7/session — user: "self-drive #1 and #2, and #4 (only one definition should be allowed)"; taken as option (a), the recommendation, and said so to the user; found 2026-10-11, work-7, review of the `.bni` interface-view change; reproduced with scratch programs; pre-existing)
 
 The interface view (pkg.bni.self-contained) governs the names a `.bni` declaration resolves; member access is
 not held to the interface.  Each of these compiles in a batch build:
@@ -661,7 +661,7 @@ structure walked with its type parameters marked), or accept it and spec that a 
 export is opaque only in what the importing package writes itself.
 
 
-### `.bni` and `.bn` definitions of a generic type's method are never compared — 🔴 OPEN (found 2026-10-10, work-7, review of the `.bni` method consistency check; code reading; pre-existing)
+### `.bni` and `.bn` definitions of a generic type's method are never compared — 🟡 IN PROGRESS (claimed 2026-10-12, work-7/session — user: "self-drive #1 and #2, and #4 (only one definition should be allowed)": a generic function or generic type's method defined in both the `.bni` and the `.bn` is an error; found 2026-10-10, work-7, review of the `.bni` method consistency check; code reading; pre-existing)
 
 A method of a generic type may be defined in the `.bni` (with its body) and also in the `.bn` (conformance 162
 does exactly that).  The loader's `sameFuncDecl` pairs the two by name and receiver base name and drops the
