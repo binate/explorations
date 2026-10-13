@@ -176,6 +176,9 @@ loop in IR-gen") — the `for` statement needs its own IR-gen scope before a sco
   scope — blocks and constructs' own variables — and `break` / `continue` release the scopes they leave innermost
   first (emitLeaveScopes); genFunc fails loud on a scope left open.  No behaviour change.  Next: the semantic
   switch (step 1 below) — pending deferred blocks on these scopes, emitted at every exit.
+- 2026-10-12: step 1, the semantic switch, landed (binate `b576ece21`, docs `9cfcb6d`).  Also fixed: the package-variable
+  init-order bug (a deferred block's reads are walked) and the "defer of an unresolved method call" ICE (the
+  call form is generated as a block).  Next: step 2, the CHECK_TOOLS pre-release.
 
 ## Transition (the pinned CHECK_TOOLS bnlint / bnfmt parse `pkg/`, `cmd/`, `impls/`, `ifaces/`)
 

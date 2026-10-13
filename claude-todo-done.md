@@ -1,3 +1,34 @@
+### `defer { … }` step 1: the semantic switch — DONE (binate `b576ece21`, docs `9cfcb6d`, 2026-10-12, work-4)
+
+`defer` takes a block, evaluated when it runs — at the exit of the innermost enclosing block (fall-through,
+`break`, `continue`, `return`), reading the variables as they are then; LIFO per block, innermost block first,
+before the block's releases; per iteration in a loop; a deferred block may not `return` or `break` / `continue`
+out of itself; no defer at the REPL prompt's top level.  The call form is sugar for `defer { <call> }`.  IR-gen
+schedules each defer on the open scope (gen_scope.bn) and emits it at every exit; the function-scoped machinery
+(gen_defer_build / gen_defer_exit / gen_defer_lit, the pre-pass, the snapshots, the defer epilogue) is deleted.
+Spec §14.13 rewritten (stmt.defer.block, stmt.defer.repl, stmt.for.scope new; stmt.defer.no-loop gone).  Tests:
+conformance 186–191 plus the migrated defer tests.  Steps 2–4 (CHECK_TOOLS pre-release, the 259 unit-test defers,
+rejecting the call form) stay open in claude-todo.md; plan: `plan-defer-block.md`.
+
+### ICE `defer of an unresolved method call` for a deferred method call on a generic instance or through a pointer to an imported variable — DONE (binate `b576ece21`, 2026-10-12, work-4) (a bullet of work-1's 2026-09-26 forwarder-audit entry, marked fixed there)
+
+`defer x.M()` with `x` a generic instance (local, or of an imported generic type) and `var p = &home.V; defer
+p.Inc()` panicked IR-gen (reproduced on BUILDER bnc-0.0.16).  The `defer { … }` change generates the call form
+as `defer { <call> }`, so the callee resolves as an ordinary call's.  Test: conformance
+`spec/14-statements/191_defer_method_generic_imported` (every mode).
+
+### Package-variable init order ignores reads inside a deferred call — silent wrong value — DONE (binate `b576ece21`, 2026-10-12, work-4) (found 2026-10-12, work-4, review of plan-defer-block.md)
+
+`var a int = func() int { defer show(b); return 1 }()` followed by `var b int = seven()` prints "deferred
+sees b = 0" (a plain `show(b)` prints 7): collectVarDepsStmt (check/check_var_resolve.bn) has no STMT_DEFER
+arm, so the dependency on `b` is missed and `a` initializes first (§17.2).  Fix: walk the deferred code.  The
+defer redesign (plan-defer-block.md) must cover it — the deferred block is walked like any block — and its
+test (an IIFE initializer whose deferred code reads a later variable) belongs with that work.
+
+Resolution: collectVarDepsStmt walks a defer statement's block (or its call shorthand) like any block, as part of
+the `defer { … }` change (binate `b576ece21`).  Test: conformance `spec/14-statements/187_defer_block_live_variables`
+(an IIFE initializer whose deferred block reads a later package variable).
+
 ### bnld archive selection pulls the members a dynamic link's shared libraries need — DONE (binate `d20cf18b7`, 2026-10-12, work-2)
 
 A dynamic ELF link pulled an archive member only for an object's own undefined reference, so a member defining a

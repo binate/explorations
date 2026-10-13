@@ -75,7 +75,7 @@ nothing else changes.  Do: keep x86-64 `.eh_frame` as data, as aarch64's is; imp
 sorted by the code they describe, an EXIDX_CANTUNWIND terminator, `__exidx_start` / `__exidx_end`, and a
 PT_ARM_EXIDX segment — as lld does.
 
-### `defer { … }`: a block run at scope exit, reading live variables — 🟡 IN PROGRESS (claimed 2026-10-12, work-4) — plan accepted; prerequisites landed (`968151459`, `01b5a0091`); step 1, the semantic switch, implemented and in validation, not yet landed (`plan-defer-block.md`)
+### `defer { … }`: a block run at scope exit, reading live variables — 🟡 IN PROGRESS (claimed 2026-10-12, work-4) — step 1, the semantic switch, landed (binate `b576ece21`, docs `9cfcb6d`); next: step 2, the CHECK_TOOLS pre-release (approved), then step 3, migrating the 259 unit-test defers, and step 4, rejecting the call form (`plan-defer-block.md`)
 
 Decided (user, 2026-10-11 / 2026-10-12): stray from Go — the deferred code is evaluated when it runs, at the exit
 of the enclosing block, reading the variables as they are then ("scope exit with no copy sounds fine; it's a
@@ -85,6 +85,17 @@ problem — a raw pointer derived from a managed local (`defer readp(&x.y); x = 
 x.inner.Show()`) reading freed memory — disappears with it, as do the spec-review findings on the eager wording
 (docs `0cc5657`).  Plan: `plan-defer-block.md` (semantics, draft spec text, implementation, the CHECK_TOOLS
 transition).
+
+### Spec gap: when are a compound statement's header temporaries released? — 🔴 NEEDS DECISION (found 2026-10-12, work-4, spec review of the `defer { … }` change; pre-existing)
+
+§9.7 says a statement's temporaries last "until the end of that statement", but the review's probe shows a
+`switch` tag's temporaries released before the case body runs: a deferred block in the case body sees
+`switch asNamed(d).name()`'s temporary already released (observable with `rt.Refcount`).  For a compound
+statement, "the end of the statement" would keep them alive through the whole body.  Decide — the review
+suggests pinning that `if` conditions' and `switch` tags' temporaries are released before the selected body
+runs, which matches the compiler for `switch` (unverified for `if`) — and give the `for` condition and post
+statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
+a conformance test.
 
 ### A C-style `for` with init / post but no condition is not terminating to the checker — 🔴 OPEN MINOR (found 2026-10-12, work-4, writing the for-init scoping test; pre-existing)
 
@@ -105,14 +116,6 @@ block per post execution but the last.  §14.9 calls the post slot a simple stat
 says nothing more.  Decide: reject a declaration in the post statement (recommended — the variable would exist
 only from the second iteration on; Go rejects it too) or give it a meaning.  Then a conformance test (error or
 behaviour) and the checker / IR-gen change.  Review probes: scratchpad review3/p3–p6.
-
-### Package-variable init order ignores reads inside a deferred call — silent wrong value — 🔴 OPEN MAJOR (found 2026-10-12, work-4, review of plan-defer-block.md; reproduced; pre-existing)
-
-`var a int = func() int { defer show(b); return 1 }()` followed by `var b int = seven()` prints "deferred
-sees b = 0" (a plain `show(b)` prints 7): collectVarDepsStmt (check/check_var_resolve.bn) has no STMT_DEFER
-arm, so the dependency on `b` is missed and `a` initializes first (§17.2).  Fix: walk the deferred code.  The
-defer redesign (plan-defer-block.md) must cover it — the deferred block is walked like any block — and its
-test (an IIFE initializer whose deferred code reads a later variable) belongs with that work.
 
 ### `len` of an array composite literal fails to compile — 🔴 OPEN MAJOR (found 2026-10-11, work-4, review of the deferred composite-element fix; reproduced; pre-existing)
 
@@ -444,7 +447,9 @@ Each needs a test (xfail'd) + triage; grouped here so none is lost.
   registers a non-direct package's consts/vars.
 - **Method value bound to a pointer-receiver method of a generic struct local** (`var mg = b.Get`,
   `func (b *Box[T]) Get()`) → SIGSEGV in LLVM, native and VM (non-generic works).
-- **ICE `defer of an unresolved method call`** (`gen_defer_build.bn:168`) for `defer x.M()` with x a
+- ✅ FIXED (binate `b576ece21`, 2026-10-12, work-4 — the call form is now generated as `defer { <call> }`, so its
+  callee resolves as an ordinary call's; conformance `spec/14-statements/191_defer_method_generic_imported`)
+  **ICE `defer of an unresolved method call`** (`gen_defer_build.bn:168`) for `defer x.M()` with x a
   generic instance (local or cross-package), and for `var p = &home.S; defer p.Inc()`.
 - **Cross-package non-generic method expression drops the receiver in the checker:**
   `home.S.Sum(s)` → "wrong number of arguments"; `*func(home.S) int = home.S.Sum` → "cannot assign

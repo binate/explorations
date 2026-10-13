@@ -96,8 +96,12 @@ authoritative rationale in `claude-notes.md` (short) and
   are built-in). Users define their own.
 - **No `panic` / `recover` as a general control-flow mechanism.** `panic`
   exists for "should never happen" abort; there's no `recover`.
-- **No `defer`.** Destructors (dtors run at scope exit) handle the common
-  cleanup case; RAII-style.
+- **`defer` takes a block, run at the enclosing block's exit and evaluated
+  then.** `defer { … }` runs when the block it is in exits (fall-through,
+  `break`, `continue` or `return`), reading the variables as they are then;
+  Go's `defer f(x)` evaluates `f` and `x` at the defer statement and runs at
+  function exit.  A defer in a loop body runs every iteration.  Deferred
+  blocks never run on a panic (there is no `recover`).
 
 ## Concurrency
 
