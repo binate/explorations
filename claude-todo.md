@@ -2169,15 +2169,6 @@ only when no object defines the name, so the weak definition would still win.  F
 linker-made commons object's `.bss` (as `commons.bn` builds it, global definitions that replace a weak one) instead
 of synthesizing layout-defined symbols, and add a builder test where the weak definition loses.
 
-### bnld archive selection: a common pulls in a member that defines the name weakly or as a function — 🟡 IN PROGRESS (claimed 2026-10-12, work-2; user chose lld's rule — a common never pulls a member: "yes") (minor; found 2026-10-11, work-2, review of the commons fix; pre-existing)
-
-`archive_select.bn`'s `objRefsUndefinedGlobal` counts a common as a strong undefined reference, so `int x;` in an
-included object pulls an archive member that defines x — strongly (as GNU ld does; lld pulls none for a common),
-weakly or as a function (neither does).  With a function member, x then resolves to the function and the program
-reads its instructions as data; with a weak member, the member's other contents (definitions, constructors) are
-linked in for nothing.  Fix: decide which rule to follow — GNU ld's (pull only for a global data definition) or
-lld's (a common never pulls a member) — and add an archive_select test with a common.
-
 ### bnld dynamic Mach-O: `__mh_execute_header` is not defined — 🔴 OPEN (minor; found 2026-10-11, work-2, review of the Mach-O constructors change; pre-existing)
 
 ld64 defines `__mh_execute_header` (C `_mh_execute_header`) as the executable's Mach-O header — the address

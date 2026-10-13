@@ -1,3 +1,15 @@
+### bnld archive selection treats a common as a definition, as lld does — DONE (binate `6bc13cf60`, 2026-10-12, work-2)
+
+Archive selection counted a common (`int x;`) as a strong undefined reference and not as a definition: it pulled
+a member for a common (even one defining the name weakly or as a function), let another object's reference to a
+common's name pull a strong definition over it, and never pulled a member defining a name only as a common (the
+reference stayed undefined).  Decision (user, 2026-10-12): lld's rule.  Measured with ld.lld: a common never
+pulls a member; it satisfies another object's reference, in either object order; a member defining a name only
+as a common is pulled for a strong reference.  `symDefines` now counts a common for objDefinesSym and
+memberResolvesUndefined, and objRefsUndefinedGlobal no longer counts one.  Tests: TestSelectMembersCommons,
+TestLinkPullsCommonMember.  bnld's selection ignores input order, so it acts like lld with every archive after
+every object (an archive before the object holding the common can differ from lld).
+
 ### `defer { … }` step 1: the semantic switch — DONE (binate `b576ece21`, docs `9cfcb6d`, 2026-10-12, work-4)
 
 `defer` takes a block, evaluated when it runs — at the exit of the innermost enclosing block (fall-through,
