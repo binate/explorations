@@ -2154,7 +2154,7 @@ only when no object defines the name, so the weak definition would still win.  F
 linker-made commons object's `.bss` (as `commons.bn` builds it, global definitions that replace a weak one) instead
 of synthesizing layout-defined symbols, and add a builder test where the weak definition loses.
 
-### bnld archive selection: a common pulls in a member that defines the name weakly or as a function — 🔴 OPEN (minor; found 2026-10-11, work-2, review of the commons fix; pre-existing)
+### bnld archive selection: a common pulls in a member that defines the name weakly or as a function — 🟡 IN PROGRESS (claimed 2026-10-12, work-2; user chose lld's rule — a common never pulls a member: "yes") (minor; found 2026-10-11, work-2, review of the commons fix; pre-existing)
 
 `archive_select.bn`'s `objRefsUndefinedGlobal` counts a common as a strong undefined reference, so `int x;` in an
 included object pulls an archive member that defines x — strongly (as GNU ld does; lld pulls none for a common),
