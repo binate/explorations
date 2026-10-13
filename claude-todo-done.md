@@ -1234,6 +1234,20 @@ index / >32-bit displacement.  Tests: x64_mem_test.bn in parse and asm/x64 (clan
 in 4 instructions match clang byte for byte.  Raised with the user, undecided: 32-bit addressing (now rejected),
 `-~8` (clang's Intel parser computes it wrongly), absolute `[lbl]` (unsupported, as before).
 
+### SROA keeps a struct stored from a call whole if its slot fields are large — DONE (binate `f85ed73b1`, 2026-10-12, work-1)
+
+The SROA side of the field-read shape (`var x Big = mk(k); t := x.n; var y Big = x`): the copy-out split still
+fired for a struct whose field is read on its own, though its array field then had to be copied in from the call's
+buffer (no CallResultSlots placement into a split struct) and the copy-out destination kept its zero-fill — 2
+copies + 1 zero-fill at -O2.  copyOutsUnpin now leaves a struct whole when a whole store of a call's result goes
+into it (wholeStoreOfCallResult, every call op incl. OP_C_CALL) and its fields that stay slots hold more than 16
+bytes (slotFieldBytes) — up to that, the copy is about a register pair, which a couple of register-kept field
+reads repay.  The shape now makes 1 copy; a struct with just a float or a raw slice beside its ints still splits;
+cmd/bnc's code unchanged.  Review: no correctness problem; its finding (the first, coarser gate pinned small-float
+/ raw-slice structs, losing register promotion in loops; OP_C_CALL missing) fixed.  Tests: iropt unit tests.
+Validated: iropt, codegen, native/* unit tests; managed-value + array subset on LLVM aa64, native aa64, native
+arm32 bare metal.
+
 ### A slot read through its fields stays confined for AggLoadElidable — DONE (binate `f37af4e28`, 2026-10-12, work-1)
 
 AggLoadElidable's S-alloca rule (a whole load of a confined stack slot reads it in place, any size) admitted only
