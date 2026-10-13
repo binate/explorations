@@ -98,6 +98,12 @@ alignment, not its raw FieldOffset — `#[c_export]` of `(int32, P)` (`P = {x,y 
 `{ i32, [1 x i64] }` puts P at 8, C expects 4) makes C read `7 1 8` (want `7 8 9`) on aa64 LLVM; native
 is right.  Same whole-store in the C-sret (retAdapt) path.  Fix in the same commit: reinterpret
 field-by-field (emitScatterFlatValue) into a slot of raw size + one word.
+Fourth symptom, native aa64 only, NOT HFA-specific (found 2026-10-13 by review of the fix): the aa64
+c_export trampoline (aarch64_cexport_retadapt.bn) treats every non-SRET kind as COERCE, but aa64 does reach
+COERCE_FROM_SRET — `#[c_export] func M9() (int8 × 9)`: a 9-byte C struct (x0/x1), nine GP words
+internally (> 8 → sret).  The trampoline calls the body with X8 = whatever the C caller left, then reads
+x0/x1 the body never set: SIGSEGV (LLVM, which has `coerceFromSret`, prints `1 … 9`).  Fix in the same
+commit: X8 = a local buffer before the call, then reload clang's words from it; e2e case in ffi-export.sh.
 
 ### An int64 index on a 32-bit target is bounds-checked and addressed by its low word — silent wrong store — 🟡 IN PROGRESS MAJOR (found 2026-10-13, work-5, review of int64 SSA promotion; reproduced; pre-existing; claimed 2026-10-13, work-5/session)
 
