@@ -6775,7 +6775,7 @@ TWO open dependencies (tracked in claude-todo.md):
   gap (b): managed-pointer strict-aliasing (TBAA) soundness" entry. Revert if ruled not-TBAA.
 ### native FP-register homes (aarch64) — stop round-tripping float scalars through GP slots — ✅ aarch64 DONE (2026-09-21, work-5)
 
-The top native↔LLVM lever from the fasta/richards analysis (`plan-native-fp-register-homes.md`).
+The top native↔LLVM lever from the fasta/richards analysis (`done/plan-native-fp-register-homes.md`).
 The aarch64 backend now homes float SSA values in D-registers instead of round-tripping every
 float op through a GP spill slot (fmov→gpr→str→ldr→gpr→fmov per op).  Landed in five commits:
 

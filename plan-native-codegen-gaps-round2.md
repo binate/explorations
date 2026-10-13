@@ -8,7 +8,7 @@ generally), so they're consolidated here rather than split per-benchmark.
 
 The native backend is THE backend; LLVM is the reference. All tracks below are
 non-FP (FP-scalar register homes are tracked separately in
-`plan-native-fp-register-homes.md`). Known-REFUTED, do NOT propose: raising the
+`done/plan-native-fp-register-homes.md`). Known-REFUTED, do NOT propose: raising the
 inline threshold (net-negative on native), interval splitting / "home MORE values"
 (regressed ~3.5%) — see `claude-todo.md` `### Native codegen quality`.
 
