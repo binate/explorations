@@ -622,7 +622,7 @@ the stashed declaration to be one that package's `.bni` declares (`declaredInBni
 already does for an unqualified head), or its sole surface when it has no `.bni`.  Covered by spec tests
 16-packages/109 (type) and 110 (interface), expected-fail (binate `6295b5c56`).
 
-### Do importers and `.bni` generic bodies see a `.bn`-only method, or an opaque type's fields? — 🟡 IN PROGRESS (claimed 2026-10-12, work-7/session — user: "self-drive #1 and #2, and #4 (only one definition should be allowed)"; taken as option (a), the recommendation, and said so to the user; found 2026-10-11, work-7, review of the `.bni` interface-view change; reproduced with scratch programs; pre-existing)
+### Do importers and `.bni` generic bodies see a `.bn`-only method, or an opaque type's fields? — 🟠 BACK-BURNERED, blocked on a decision (see the end of the entry; claimed 2026-10-12, work-7/session — user: "self-drive #1 and #2, and #4 (only one definition should be allowed)"; taken as option (a), the recommendation, and said so to the user; found 2026-10-11, work-7, review of the `.bni` interface-view change; reproduced with scratch programs; pre-existing)
 
 The interface view (pkg.bni.self-contained) governs the names a `.bni` declaration resolves; member access is
 not held to the interface.  Each of these compiles in a batch build:
@@ -649,6 +649,26 @@ of a type the `.bni` declares opaque; (b) a method is visible wherever its type 
 distribution can honour only if the `.bni` declares every method of every type it exports (no `.bn`-only
 methods on an exported type), plus case 3 rejected.  Recommendation: (a): it is what an interface-only build
 already does, keeps private helper methods possible, and makes cases 1-3 compile the same however q is built.
+**Back-burnered 2026-10-12 (work-7): option (a) is implemented but not landed — blocked on
+`pkg/binate/types.bni`'s 1000-line cap.**  The implementation marks a method private (`types.Method.PrivatePkg`)
+when its package has a `.bni` that does not declare it; hides it from selection (calls, method values, method
+expressions, address-of) outside the package and in the package's own `.bni` view (`lookupVisibleMethod`); lets
+the package's own impls bind it (an impl records its package, as the impl-satisfaction pass runs under whatever
+package is current); and counts an opaque export as opaque in its own package's `.bni` view
+(`opaqueExportHiddenHere`), which covers cases 3 and 4.  Case 5 was not reached.  Applying it to the tree means
+declaring in each `.bni` every method another package calls: in the toolchain, `types.Type` (AddMethod,
+PointerElem, IsScalar, IsSlice, SetOrAppendMethod, IdenticalStrict, IsNillable, SigString, IsPointer),
+`native/callconv.CallConv` (StackArgStoreSize, StackArgNaturalSize, PassesSseInRegs), `native/common.RegMap`
+(AllocateFpRegisters, IsDirty, ClearDirty, MarkDirty), `asm.Assembler.SetGlobalC`,
+`check.Checker.ExposeTestFunc`, `interp.Interp` (SetEmitNilChecks, SetOptConfig), `vm.VM.LowerNewImpls` and
+`ir.Module` (AddTypeDef, CollectStrings); and `pkg/builtins/lang`'s 39 methods on the universe types (String,
+Compare, Hash, …), which `lang.bni` does not declare.  With those, `lint.sh --from-source` passes, but
+`types.bni` grows from 995 to 1089 lines, and `scripts/hygiene/file-length.sh` says a `.bni` over the cap means
+"decompose the package".  Decide: split `pkg/binate/types` (peel a cohesive concern into an acyclic
+sub-package), raise the cap for it, or another approach.  Spec text for (a) is drafted: `pkg.export` gains a
+sentence on methods, `pkg.bni.self-contained` a paragraph on selectors (replacing its note), §7.12
+`type.opaque.field-rejection` a clause on the package's own `.bni`, and `pkg.bni.generic.once` the sentence
+that a generic only the `.bn` defines is package-private.
 
 ### Should a function-value type's parameters and results be held to the opaque rules? — 🔴 NEEDS DECISION (raised 2026-10-03, work-3, review of the type-declaration opaque check; split out 2026-10-10, work-7)
 
