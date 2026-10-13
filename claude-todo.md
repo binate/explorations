@@ -643,7 +643,7 @@ error (the forwarder should drop the redundant `expose "P"`; a bnlint rule could
 when both paths denote the same declaration (compare the defining package and declaration, not the name),
 spec to match.  Needs a conformance test either way.
 
-### Do importers and `.bni` generic bodies see a `.bn`-only method, or an opaque type's fields? — 🟠 BACK-BURNERED, blocked on a decision (see the end of the entry; claimed 2026-10-12, work-7/session — user: "self-drive #1 and #2, and #4 (only one definition should be allowed)"; taken as option (a), the recommendation, and said so to the user; found 2026-10-11, work-7, review of the `.bni` interface-view change; reproduced with scratch programs; pre-existing)
+### Do importers and `.bni` generic bodies see a `.bn`-only method, or an opaque type's fields? — 🟡 IN PROGRESS (unblocked 2026-10-13 — user: "We need to split types.bni"; claimed 2026-10-12, work-7/session — user: "self-drive #1 and #2, and #4 (only one definition should be allowed)"; taken as option (a), the recommendation, and said so to the user; found 2026-10-11, work-7, review of the `.bni` interface-view change; reproduced with scratch programs; pre-existing)
 
 The interface view (pkg.bni.self-contained) governs the names a `.bni` declaration resolves; member access is
 not held to the interface.  Each of these compiles in a batch build:
