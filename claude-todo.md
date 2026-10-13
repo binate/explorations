@@ -2132,7 +2132,7 @@ after it lands; interim runner is a from-tree `bni`).
 
 ## bnas (self-hosted assembler)
 
-### asm: no symbol-visibility directives — `.hidden` / `.internal` / `.protected` (ELF), `.private_extern` (Mach-O) — 🔴 OPEN (found 2026-10-12, work-2, adding symbol visibility to bnld's readers; latent)
+### asm: no symbol-visibility directives — `.hidden` / `.internal` / `.protected` (ELF), `.private_extern` (Mach-O) — 🟡 IN PROGRESS (claimed 2026-10-13, work-2; user: "yes") (found 2026-10-12, work-2, adding symbol visibility to bnld's readers; latent)
 
 The text assembler's parser has no visibility directive and neither object writer sets ELF `st_other` or Mach-O
 `N_PEXT`, so every global it writes has default visibility; clang emits `.hidden sym` (and `.private_extern _sym`
