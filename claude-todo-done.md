@@ -1,3 +1,60 @@
+### native FP-register homes — x64 + arm32 ports and follow-ups — DONE (binate `945129d67` `6daae4f1a` `1ca914edc` 2026-09-21; `f72d23dbd` `bcb4e21eb` 2026-09-22; work-5)
+
+The x64 and arm32 ports of the native FP-register homes (float SSA values home in FP registers
+instead of round-tripping through GP slots; the aarch64 port is the entry "native FP-register
+homes (aarch64)" further down), plus the follow-ups that landed.  The follow-ups still open stay
+in claude-todo.md ("native FP-register homes — follow-ups").
+
+- **x64 port** (`945129d67`): XMM8..13 (SysV has NO callee-saved XMM, so all XMM homes
+  are caller-saved; call-spanning floats spill).  f32 IS homed.  Native x64 conformance 3047/0.
+- **arm32 port** (`6daae4f1a`): callee-saved VFP D8..D15, hard-float (AAPCS-VFP) only;
+  soft-float unchanged (empty FP descriptor).  f64-only at first (f32 homing followed in `f72d23dbd`, next item).
+  builder-comp_native_arm32_linux conformance 3047/0, arm32 unit 395/0.  arm32 speed not directly
+  measurable on the dev box (qemu not cycle-accurate); compute-path win verified structurally
+  (per-access VMOV round-trip gone from the disassembly).  Both x64+arm32 got clean adversarial
+  reviews (no correctness bug).
+- **arm32 f32-homing** (`f72d23dbd`).  arm32 now homes f32 in the low S-view of its
+  callee-saved D-register home (D8..D15), reaching full f32+f64 FP-home parity.  `nextReg` hands out
+  a GP scratch for an FP home (NOT the D-home number, which a GP encoder mis-encodes to r15/PC) and
+  `handleResult` VMOVs it into the S-view; `getFloatOperandF32` + the arith/cast/compare emitters
+  compute straight into the S-home (the f32 analogue of the f64 Stage-3 — `635_float32_arith`'s main
+  dropped 49→15 VMOVs); `unhomeF32Values` deleted.  Full native_arm32_linux conformance 3048/0;
+  adversarial review clean (all 8 vectors, incl. the f64→f32 Sd⊂Dm narrow aliasing).
+  RESOLVED the two "latent gaps": (1) arm32 `nextReg` fixed as above; `getOperand`'s FP-home branch
+  (low-single read) is now correctly the live f32-consumer path.  (2) aarch64's `nextReg` needs NO
+  change — it returns the D-home for an FP home, which is correct THERE because aarch64 producers
+  dispatch on `isFpReg(rd)` and use FP instructions (Fldr_s / Fmov / the arith's `if isFpReg` path);
+  arm32's bug was specific to its GP-compute model (the review conflated the two).  Confirmed by the
+  green aarch64 f32-homing conformance and the adversarial reviewer.
+- **hard-float unit coverage** (`bcb4e21eb`).  Added two arm32 hard-float unit tests
+  exercising the D-home marshalling directly (homed float64 call-return VMOVs D0→home;
+  homed float64 param VMOVs its CPRC reg→home), plus conformance 1280 (>8 float64 params read in a
+  loop).  CORRECTION: an earlier note claimed the overflow-HOMED param branch was "nearly
+  unreachable … correct defensive code".  Both parts were wrong: it is reachable at -O1/-O2 (1280
+  fails there) and it loads a float64 with VLDR.32 — fixed by `e0863ecbf` (the done entry "native arm32 hard-float:
+  an FP-homed OVERFLOWED float64 param is loaded with VLDR.32").
+- **x64 f32 upper-bits comment** (`bcb4e21eb`).  Reworded x64_float.bn's two Movapd
+  comments to state the f32 upper bits may be dirty but no consumer reads them (rather than claim a
+  clean-upper invariant that isn't maintained).  Left x64_regmap.bn:189 (its `Movd` genuinely
+  upper-zeroes — accurate).  The follow-on note "x64 `emitFusedFieldStore` stores a homed float via
+  the GP bridge" turned out MOOT as stated — `fieldAccessFusable` excludes floats on every backend, so
+  no float ever reaches the fused field store.  (The float field fold itself landed on all three
+  backends later — the done entry "float struct-field fold on all three native backends".)
+- **aarch64: fold float array-element addressing** (`1ca914edc`).  A float `a[i]` load/store now
+  folds its address into a scaled register-offset FP load/store straight into the D-home
+  (`ldr d31,[x23,x5,lsl #3]`); new asm FldrRegScaled_d/_s + FstrRegScaled_d/_s, the shared
+  element-fold analysis gained an `allowFloat` gate (aarch64-only; x64/arm32 unaffected — they
+  don't fold element GEPs), the emitter dispatches on the FP-home class.  Measured fasta N=25M
+  (instructions retired, byte-identical output): 1.06% fewer.  Native aa64 conformance 3047/0;
+  adversarial review clean.  (Only the ELEMENT fold; the field fold for floats — via
+  FusableFieldGeps — is a separate smaller item, left untouched.)
+- **aarch64: home loop-invariant float constants** — SUBSUMED by the FP-homes work (the pre-FP-homes premise
+  is obsolete).  Investigated on mandelbrot post-FP-homes: loop-invariant consts (2.0, 4.0) now
+  materialize ONCE at function entry (`mov x9,#0x4000000000000000; fmov d11,x9`) and are HOMED in
+  callee-saved D8..D15 — the inner loop reads `fmul d29,d15,d28` from the const home, no per-use
+  re-materialization.  The residual FP gap is a different problem — the open "FP register pressure /
+  spill-cost priority" follow-up in claude-todo.md.
+
 ### A C-style `for` init variable stays visible after the loop in IR-gen — silent wrong value — DONE (binate `968151459`, 2026-10-12, work-4)
 
 `var i int = 10; for i := 0; i < 3; i++ {}; testing.Println(i)` printed 3 on every backend: genFor left the init
