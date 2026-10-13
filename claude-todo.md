@@ -39,6 +39,28 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### aa64: a multi-return tuple with an HFA field is returned in FP registers by LLVM-compiled code, in GP registers by native — native<->LLVM calls read garbage — 🔴 OPEN MAJOR (found 2026-10-13, work-3, arm32 HFA mapping; reproduced)
+
+`func Pair(a float32) (V2f, int32)` with `type V2f struct { x float32; y float32 }`: built all-LLVM or
+all-native it prints `1.500000 2.500000 7`; with the defining package compiled by LLVM (`bnc --pkg pkg/dep`)
+and main by `--backend native -c`, linked together, it prints `9.809089e-45 0.000000 0`; the reverse prints
+`1.500000 8.502378e-41 1069547520`.  Silent wrong values whenever native- and LLVM-compiled packages call
+each other directly (both are supported in one program).  Repro: scratchpad `mrhfa/` layout — dep.bni +
+dep/dep.bn + main.bn above; `bnc --pkg pkg/dep --build-dir llvm`, `bnc --backend native -c main.bn
+--build-dir nat`, `clang -o mixed $(ls nat/*.o | grep -v pkg__dep.o) llvm/dep.o`.
+Root cause: ABI §2.7 (`abi.cc.multi-return`) — a non-float field fills GP return registers, only a
+float-SCALAR field uses the float file; native aa64 and callconv `MultiReturnTupleNeedsSret` follow that.
+Codegen's per-field spelling `writeFlatMemberLLTy` (emit_multiret_coerce.bn) writes `aggCoerceLLTy`, whose
+HFA branch (`types.HfaInSimd()`, aa64-only) spells the field `[N x float]`, so LLVM returns it in s0/s1 —
+contradicting writeFlatMemberLLTy's own doc (`[N x iW]`).  x64 and arm32 do not take the HFA branch today;
+the arm32 HFA flip (plan-arm32-hfa.md stage 4) would extend the mismatch to arm32 if this is not fixed first.
+Fix: the tuple-field spelling uses the GP-word form for an HFA field on every arch (writeFlatMemberLLTy,
+and every site that shares it: multiReturnCoercedLLTy, the shims, the C-entry tuple adapters); a
+codegen unit test pinning `{ [1 x i64], i32 }`-style spelling for an HFA tuple field on aa64.
+Test: nothing checks native<->LLVM agreement today (conformance compiles every package with one backend);
+a mixed-backend e2e (separate compilation, both directions) is plan-arm32-hfa.md stage 0, with this case
+expected-fail until the fix.
+
 ### An int64 index on a 32-bit target is bounds-checked and addressed by its low word — silent wrong store — 🔴 OPEN MAJOR (found 2026-10-13, work-5, review of int64 SSA promotion; reproduced; pre-existing)
 
 IR-gen widens an index narrower than `int` (`genIntOperand`) but passes a WIDER one through as is, so on a
