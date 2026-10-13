@@ -75,7 +75,7 @@ nothing else changes.  Do: keep x86-64 `.eh_frame` as data, as aarch64's is; imp
 sorted by the code they describe, an EXIDX_CANTUNWIND terminator, `__exidx_start` / `__exidx_end`, and a
 PT_ARM_EXIDX segment — as lld does.
 
-### `defer { … }`: a block run at scope exit, reading live variables — 🟡 IN PROGRESS (claimed 2026-10-12, work-4) — step 1, the semantic switch, landed (binate `b576ece21`, docs `9cfcb6d`); next: step 2, the CHECK_TOOLS pre-release (approved), then step 3, migrating the 259 unit-test defers, and step 4, rejecting the call form (`plan-defer-block.md`)
+### `defer { … }`: a block run at scope exit, reading live variables — 🟡 IN PROGRESS (claimed 2026-10-12, work-4) — step 1, the semantic switch, landed (binate `b576ece21`, docs `9cfcb6d`); step 2 in progress: `bnc-0.0.17-pre2` tagged (binate `f85ed73b1`; VERSION bumped to pre3 in `41c96547d`), its release workflow running, then the CHECK_TOOLS_VERSION bump (the tree-built bnlint and bnfmt are clean on the tree); then step 3, migrating the 259 unit-test defers, and step 4, rejecting the call form (`plan-defer-block.md`)
 
 Decided (user, 2026-10-11 / 2026-10-12): stray from Go — the deferred code is evaluated when it runs, at the exit
 of the enclosing block, reading the variables as they are then ("scope exit with no copy sounds fine; it's a

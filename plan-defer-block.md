@@ -179,6 +179,9 @@ loop in IR-gen") — the `for` statement needs its own IR-gen scope before a sco
 - 2026-10-12: step 1, the semantic switch, landed (binate `b576ece21`, docs `9cfcb6d`).  Also fixed: the package-variable
   init-order bug (a deferred block's reads are walked) and the "defer of an unresolved method call" ICE (the
   call form is generated as a block).  Next: step 2, the CHECK_TOOLS pre-release.
+- 2026-10-12: step 2 started: VERSION bumped to `bnc-0.0.17-pre3` (binate `41c96547d`) and its parent `f85ed73b1`
+  tagged `bnc-0.0.17-pre2`; the release workflow builds the bundles.  Then CHECK_TOOLS_VERSION -> pre2 (bnlint and
+  bnfmt built from the tree are clean on it, so no source fixes are expected).
 
 ## Transition (the pinned CHECK_TOOLS bnlint / bnfmt parse `pkg/`, `cmd/`, `impls/`, `ifaces/`)
 
