@@ -1,3 +1,35 @@
+### arm32 assembler: register-offset memory shifts and operand registers, clang's immediate aliases — DONE (binate `889e56d0f`, `b26005483`; recorded 2026-10-12, work-4)
+
+Two parts of the 2026-09-25 "arm32 assembler … silently masked" entry: (a) `MemSReg` masked `ShAmt & 0x1f` and
+`Shift & 3` (RRX became LSL, `lsl #32` became `lsl #0`) — register-offset loads and stores now encode their shift
+through the fail-loud `encodeImmShift` and validate their registers (`memRegsOk`), `889e56d0f`; (d) the text parser
+rejected `add r0, r1, #-4` / `cmp r1, #-1` where clang substitutes `sub` / `cmn` — `arm32_alias.bn`, `b26005483`.
+The condition-code and branch / multiply register masking stay open in claude-todo.md.
+
+### Text assemblers truncate 64-bit immediates on a 32-bit host; the assemble path hides encoder errors — DONE (binate `be193de5e`, `b26005483`, `e864bdbed`, `0df814a41`, `331b13ee4`, `3d8297502`; recorded 2026-10-12, work-4)
+**Overlap note (2026-09-25, work-2/session):** the aa64 text-assembler fix (landed `0df814a41`)
+deletes `asm/parse/aarch64.bn`; the new aa64 parser carries operand immediates as int64 (a value narrowed to the host `int`, e.g. an address offset,
+is range-checked, never truncated) and checks
+end-of-line after every aa64 instruction, and the shared `parse.bn` `ParseLine` now reports an
+encoder's `ErrorMsg` with file:line (the `parse_file.bn` stop-at-first-error and the x64/arm32 parts are
+untouched).
+
+`asm/parse/aarch64.bn` ~125 and `asm/parse/x64.bn` ~258 / `x64_instr.bn` ~39, ~137 build immediates with
+`Imm(cast(int, result.Val))`, truncating the int64 value on a 32-bit host (arm32 hosts are first-class).
+`asm/assemble/assemble.bn` ~53 reports only a generic "assembly failed" (no message, no line) for an encoder
+`SetError`, and `parse_file.bn` ~40 keeps parsing after an encoder error (checks only the parser's own flag),
+so the fail-loud fixes above would surface without context.  **Fix:** keep immediates 64-bit to the encoder
+(`ImmU64`-style), propagate the assembler's error message with the source line, stop at the first error.
+Also (T6 b1 parse-stage finding): on all three arches the text parser silently ignores anything after a
+complete instruction — `add x0, x1, x2 junk`, `add rax, rcx junk`, `add r0, r1, r2 junk`, `add r0, r1,
+r2, rrx #3` all assemble (a mistyped extra operand is dropped); the arm32 `, rrx` operand path returns the
+`rrx` token itself as the next token instead of advancing past it (harmless only because trailing tokens
+are ignored).  Fix together: an end-of-line check after every instruction.
+Resolved by later commits (re-checked 2026-10-12): x64 immediates reach the encoder as int64 (`x64.Imm64`,
+`be193de5e`), arm32's are range-checked on a narrow host (`arm32ImmOf`, `b26005483`); `assemble.bn` reports the
+encoder's message (`assemblerError`, `e864bdbed`); the file parser stops at the first error (`0df814a41`); and every
+arch's text parser rejects text after an instruction (`331b13ee4` x64, `3d8297502` arm32, `0df814a41` aa64).
+
 ### native FP-register homes — x64 + arm32 ports and follow-ups — DONE (binate `945129d67` `6daae4f1a` `1ca914edc` 2026-09-21; `f72d23dbd` `bcb4e21eb` 2026-09-22; work-5)
 
 The x64 and arm32 ports of the native FP-register homes (float SSA values home in FP registers

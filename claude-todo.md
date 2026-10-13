@@ -75,7 +75,7 @@ nothing else changes.  Do: keep x86-64 `.eh_frame` as data, as aarch64's is; imp
 sorted by the code they describe, an EXIDX_CANTUNWIND terminator, `__exidx_start` / `__exidx_end`, and a
 PT_ARM_EXIDX segment — as lld does.
 
-### `defer { … }`: a block run at scope exit, reading live variables — 🟡 IN PROGRESS (claimed 2026-10-12, work-4) — plan proposed, awaiting review (`plan-defer-block.md`)
+### `defer { … }`: a block run at scope exit, reading live variables — 🟡 IN PROGRESS (claimed 2026-10-12, work-4) — plan accepted; prerequisites landed (`968151459`, `01b5a0091`); step 1, the semantic switch, implemented and in validation, not yet landed (`plan-defer-block.md`)
 
 Decided (user, 2026-10-11 / 2026-10-12): stray from Go — the deferred code is evaluated when it runs, at the exit
 of the enclosing block, reading the variables as they are then ("scope exit with no copy sounds fine; it's a
@@ -510,7 +510,10 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### x64 assembler / text parser: operand sizes unchecked (`mov [rax], ecx` is an 8-byte store), RIP-label forms, `ret imm16` — 🟡 CLAIMED, queued (found 2026-09-25; claimed 2026-09-25, work-4/session — assembler sweep after T6(b), before (c))
+### x64 assembler / text parser: operand sizes unchecked (`mov [rax], ecx` is an 8-byte store), RIP-label forms, `ret imm16` — 🔴 OPEN, unclaimed (found 2026-09-25; work-4's 2026-09-25 claim released 2026-10-12 — nobody is on it)
+Re-checked 2026-10-12: (ii), (v) and (vi) below are still open (emitALU encodes at one operand's size,
+`operandSize`, with no match check; the "Pre-fix this" comment is still in `x64_data_test.bn`; no `ret imm16`
+form); (iv) was not re-checked.
 (REX.X/REX.B, RIP-label operand size, operand-kind validation, per-width immediate ranges incl. the imm8-only
 paths, and SZ16 imm16 landed in `d35da4a89`, see done log; `emitModRM`'s wrong addresses — no base with an
 index, an RSP index, scale 3, a displacement beyond 32 bits, `[5]` encoded RIP-relative — and the text parser's
@@ -526,42 +529,17 @@ accounts for the trailing immediate.  (v) `x64_data_test.bn` ~61 has a "Pre-fix 
 stand-alone).  (vi) `ret imm16` (C2 iw, RET's stack-popping form) has no encoder or parser form: rejected
 (since `331b13ee4`, which rejects text after an instruction's operands; before, `ret 1` silently assembled as
 `ret`).  **Fix:** as listed; golden bnas-vs-clang tests per form.
-### arm32 assembler: register-offset shifts, condition codes and register fields are silently masked — 🟡 CLAIMED, queued (found 2026-09-25 by the T6 b1 review; claimed 2026-09-25, work-4/session — assembler sweep after T6(b), before (c))
+### arm32 assembler: condition codes and some register fields are silently masked — 🔴 OPEN, unclaimed (found 2026-09-25 by the T6 b1 review; work-4's 2026-09-25 claim released 2026-10-12 — nobody is on it)
 
-(The data-processing Operand2 path — immediates, shifted registers, shift kinds/amounts — fails loud and
-clang-faithful since `54592d56d`, see done log.)  Still silent, all confirmed by probe vs clang: (a) `MemSReg`
-(`arm32_mem.bn` ~84-93, LDR/STR register offset) masks `ShAmt & 0x1f` and `Shift & 3`: RRX becomes LSL
-(`ldr r0,[r1,r2,rrx]` → `e7910002`, clang `e7910062`), `lsl #32` becomes `lsl #0`, `lsr #0` becomes
-`lsr #32` (clang: plain register); the text parser also only accepts `[Rn, Rm, shift #n]`, not `, rrx`.
-(b) `condBits` masks `cond & 0xf` for every encoder: cond 16 silently becomes EQ, cond 15 lands in the
-unconditional space (a different instruction).  (c) Register numbers are masked `& 0xf` in the memory,
-multiply/branch, MOVW/MOVT and VFP core-transfer encoders.  (d) Text parser alias selection differs from
-clang: `add r0, r1, #-4` (clang: `sub r0, r1, #4`), `cmp r1, #-1` (clang: `cmn r1, #1`) are rejected
-rather than substituted.  **Fix:** reuse the Operand2 path's `isCoreReg` / shift-amount validation in every
-encoder; validate `cond` in `condBits`; add the clang alias substitutions in the parser; golden
-bnas-vs-clang tests.
+(The Operand2 path, register-offset memory shifts and operand registers, and the clang alias substitutions are
+fail-loud / clang-faithful since `54592d56d`, `889e56d0f` and `b26005483`, see the done log.)  Still silent,
+re-checked 2026-10-12: (b) `condBits` (`arm32.bn`) masks `cond & 0xf` for every encoder: cond 16 silently
+becomes EQ, cond 15 lands in the unconditional space (a different instruction).  (c) `Bx`, `Blx`, `Mul` and
+`Mla` (`arm32_branch.bn`) mask register numbers `& 0xf` with no validation (MOVW/MOVT and the VFP core
+transfers were not re-checked).  **Fix:** validate `cond` in `condBits`; reuse `isCoreReg` in those encoders;
+golden bnas-vs-clang tests.
 
-### Text assemblers truncate 64-bit immediates on a 32-bit host; the assemble path hides encoder errors — 🟡 CLAIMED, queued (found 2026-09-25; claimed 2026-09-25, work-4/session — assembler sweep after T6(b), before (c))
-**Overlap note (2026-09-25, work-2/session):** the aa64 text-assembler fix (landed `0df814a41`)
-deletes `asm/parse/aarch64.bn`; the new aa64 parser carries operand immediates as int64 (a value narrowed to the host `int`, e.g. an address offset,
-is range-checked, never truncated) and checks
-end-of-line after every aa64 instruction, and the shared `parse.bn` `ParseLine` now reports an
-encoder's `ErrorMsg` with file:line (the `parse_file.bn` stop-at-first-error and the x64/arm32 parts are
-untouched).
-
-`asm/parse/aarch64.bn` ~125 and `asm/parse/x64.bn` ~258 / `x64_instr.bn` ~39, ~137 build immediates with
-`Imm(cast(int, result.Val))`, truncating the int64 value on a 32-bit host (arm32 hosts are first-class).
-`asm/assemble/assemble.bn` ~53 reports only a generic "assembly failed" (no message, no line) for an encoder
-`SetError`, and `parse_file.bn` ~40 keeps parsing after an encoder error (checks only the parser's own flag),
-so the fail-loud fixes above would surface without context.  **Fix:** keep immediates 64-bit to the encoder
-(`ImmU64`-style), propagate the assembler's error message with the source line, stop at the first error.
-Also (T6 b1 parse-stage finding): on all three arches the text parser silently ignores anything after a
-complete instruction — `add x0, x1, x2 junk`, `add rax, rcx junk`, `add r0, r1, r2 junk`, `add r0, r1,
-r2, rrx #3` all assemble (a mistyped extra operand is dropped); the arm32 `, rrx` operand path returns the
-`rrx` token itself as the next token instead of advancing past it (harmless only because trailing tokens
-are ignored).  Fix together: an end-of-line check after every instruction.
-
-### native: folded-away values still get PlanFrame slots — 🟡 IN PROGRESS (rides the T6 LinearScan step, work-4) (found 2026-09-25; the dispatcher silent-return part DONE binate `d9e2d82b3`, see the done log)
+### native: folded-away values still get PlanFrame slots — 🔴 OPEN, unclaimed (work-4's claim, riding the T6 LinearScan step, released 2026-10-12) (found 2026-09-25; the dispatcher silent-return part DONE binate `d9e2d82b3`, see the done log)
 
 (`getOperand` fails loud on any fold-flagged id since `f0a7f78fe`, see done log.)  Still open: `PlanFrame`
 reserves a slot for every value, folded-away ones included (`native/common/common.bn` ~162, ~222) — wasted
@@ -918,8 +896,8 @@ CORRECTION 2026-09-08):
    stores scalars to the stack ~30× more (153 vs 5) — it homes only 10 values
    (callee-saved; `CallerSaved` EMPTY) vs LLVM's ~27-register file; plus a large
    aggregate/slice-header-copy component (SROA, work-1).
-   🟡 IN PROGRESS — **caller-saved homes in the ARG BANK X0–X7 via parallel-move
-   (Stage 5d)**, claimed 2026-09-18, work-4/temp-4.
+   ✅ LANDED — **caller-saved homes in the ARG BANK X0–X7 via parallel-move
+   (Stage 5d)** (`4eed9523a`, with the `spansClobber` fix `348cb15aa` and cleanups `9099f9c0a`).
    **UPDATE 2026-09-19:** arg-bank homes committed (`temp-4` `6bf481432`, rebased onto
    current main incl. the guards refactor + the DivCheck/BoundsCheck parallel-move port).
    The native self-compile hang that blocked it was **root-caused + FIXED** — it was a
@@ -1165,7 +1143,7 @@ iropt win, ✅ LANDED `2fa428d8b` (2026-09-21) — but a NO-OP on richards/fannk
   descending-induction `i < j` BCE (for loops where `j`'s start genuinely IS `< len`) is sound and
   buildable but doesn't help fannkuch, and on managed slices is blocked behind the in-flight
   managed-slice length-coalescing. `iropt/bce_loop.bn`.
-- **T6 — native peephole + regalloc polish — 🟡 IN PROGRESS (claimed 2026-09-21, work-4/session).** dead-load elim, drop branch-to-fallthrough,
+- **T6 — native peephole + regalloc polish — 🔴 OPEN, unclaimed (work-4's 2026-09-21 claim released 2026-10-12; (a) and (b) done).** dead-load elim, drop branch-to-fallthrough,
   phi-copy coalescing, small-const immediates, don't-home register-resident params, right-size leaf
   frames. `aarch64_emit.bn`, `native/common/regalloc_*.bn`, `common.bn`. NOTE: coalescing / home-fewer
   is the OPPOSITE of the refuted home-more — validate against the interval-splitting regression.
@@ -1199,8 +1177,8 @@ iropt win, ✅ LANDED `2fa428d8b` (2026-09-21) — but a NO-OP on richards/fannk
     excludes int64 pair-add).  Shared analysis reused; per-backend helpers in x64_fold.bn /
     arm32_fold.bn.  Native conformance x64 3048/0, arm32 3002/0; unit x64 316 / arm32 405; x64 disasm
     confirms `addq $0x1` fires.  (b) AND/OR/EOR logical-immediate folding — ✅ DONE `b2aa6d919` (see done
-    log; the follow-ups in the plan below stay with this session); (c) phi-copy coalescing (the bigger
-    007 lever — regalloc-core, regression risk) — 🔵 OPEN, queued after (b) by the same session.**
+    log); (c) phi-copy coalescing (the bigger 007 lever — regalloc-core, regression risk) — 🔵 OPEN,
+    unclaimed.**
   - **Plan (decided 2026-09-25):** (b1 ✅ `96b39fd89`/`54592d56d`/`d35da4a89`) fail-loud fixes for the encoders on the fold's path; (b2 ✅ `f0a7f78fe`) replace the
     per-kind compare/add folds with ONE `fold.ImmOperandConsts(f, fits)` analysis + one `FoldedImm` flag
     (per-backend predicate + shared encoding helpers; uniform width guards) and make `getOperand` fail loud on
@@ -1216,7 +1194,8 @@ iropt win, ✅ LANDED `2fa428d8b` (2026-09-21) — but a NO-OP on richards/fannk
       logical ops, so an exclusive-use rule suffices for (b).  The aa64 tst-fold's AND operand is a constant
       in 55 of 71 cases (53 bitmask-encodable) — the tst path must emit `tst a, #k` once those constants
       fold.  Biggest non-encodable group: XOR with all-ones (→ MVN / NOT).
-    - **Folded values still take part in LinearScan** — 🟡 CLAIMED, queued after (b), before (c) (work-4)
+    - **Folded values still take part in LinearScan** — 🔴 OPEN, unclaimed (work-4's claim released 2026-10-12;
+      re-checked then: intervals are still built for every id, a folded one only skipped when homes are recorded)
       (`native/common/regalloc_scan.bn` ~321-355; intervals
       built for every id, fold flags only consulted after assignment): a folded constant can hold a pool
       register it never uses for its whole interval — shown on aa64: one shared add-folded constant (10 uses
