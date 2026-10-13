@@ -2178,7 +2178,7 @@ immediate starts only at a digit or `-` (`parseX64Operand`, `pkg/binate/asm/pars
 
 ## bnld (self-hosted linker)
 
-### bnld scripted builder: a weak definition supersedes a common, unlike GNU ld / lld — 🔴 OPEN (minor; found 2026-10-11, work-2, review of the commons fix; pre-existing)
+### bnld scripted builder: a weak definition supersedes a common, unlike GNU ld / lld — 🟡 IN PROGRESS (claimed 2026-10-12, work-2; user: "yes") (minor; found 2026-10-11, work-2, review of the commons fix; pre-existing)
 
 `builder_common.bn`'s `hasRealDef` counts a BIND_WEAK definition as superseding a common, so a scripted link of
 `int w;` (a common) and `__attribute__((weak)) int w = 5;` skips allocating w and binds it to 5; GNU ld and lld
