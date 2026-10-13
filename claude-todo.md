@@ -1050,7 +1050,7 @@ entry.  Remaining follow-ups (each re-checked against main `01b5a0091`, 2026-10-
   aarch64 X9–X15 study found such a partition capped at ~2–3 homes, so measure arm32's scratch
   high-water first.
 
-### Float locals are never promoted to SSA — every loop-carried float lives in a stack slot — 🔵 OPEN (found 2026-10-12)
+### Float locals are never promoted to SSA — every loop-carried float lives in a stack slot — 🟡 IN PROGRESS (found 2026-10-12; claimed 2026-10-12, work-5/session)
 
 Found re-checking mandelbrot's inner loop on main `01b5a0091` (benchmarks `bench/mandelbrot`, native
 aa64 `-O2`).  Zr/Zi/Tr/Ti stay `alloca double` slots through `-O2`: the optimized IR (`--emit-llvm -O2`)
