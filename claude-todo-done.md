@@ -1,3 +1,17 @@
+### bnld scripted builder: a common beats a weak definition, as in GNU ld / lld — DONE (binate `19d21dd1a`, 2026-10-13, work-2)
+
+The builder's `*(COMMON)` synthesized each common as a layout-defined symbol and skipped any name with a global
+or weak definition, so a scripted link of `int w;` and a weak `w = 5` gave 5 where GNU ld, lld and bnld's
+whole-link drivers give 0 (and Resolve consults layout-defined symbols only when no object defines a name, so an
+allocated common would still have lost).  The first `*(COMMON)` placement now builds the linker-made commons
+object the whole-link drivers use (commons.bn, ELF rule), adds it to the inputs and places its section (COMMON).
+From its review: a script's own definition of a common's name still wins in either order, as a GNU ld / lld
+assignment does — one made before the placement gets the common no storage (commonObjectExcept), one made after
+it (every declarative script's AbsSyms) drops the common's definition at resolve time — so a C
+`volatile uint32_t UART0_DR;` keeps resolving to the device address the script gives it.  Tests: the builder
+commons tests check resolution; TestPlaceCommonWeakDefLoses, TestPlaceCommonLaterScriptDefinitionWins,
+TestPlaceCommonErrorIsReported.
+
 ### A load stored whole is read in place at any size on native, its store copying as memmove does — DONE (binate `0d0a2d966`, 2026-10-13, work-1)
 
 The store case's second step, native half (user: "3 sounds good, but we can start with 2 (then do 1 later),
