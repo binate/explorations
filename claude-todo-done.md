@@ -1,3 +1,17 @@
+### bnld archive selection pulls the members a dynamic link's shared libraries need — DONE (binate `d20cf18b7`, 2026-10-12, work-2)
+
+A dynamic ELF link pulled an archive member only for an object's own undefined reference, so a member defining a
+name only a `-l` shared library references was left out and the program failed at load (lld extracts and exports
+it).  readDynSymbolNames now returns a library's names, definitions and strong undefined references (libSymbols);
+neededLibs keeps a reference only if no needed library defines the name; LinkDynElf hands them to
+selectMembersFor, and the pulled definition is exported.  From its review: an undefined reference bound to a
+symbol version (index 2 or more — every strong reference libc makes, to ld.so's `__stack_chk_guard@GLIBC_2.17`,
+`_dl_argv@GLIBC_PRIVATE`, ...) counts for neither archive pulls nor exports, as in lld and GNU ld; counting it would
+pull an archive's `__stack_chk_guard` and bind libc's stack canary to the program's constant.  Tests:
+TestReadDynSymbolNames, TestMergeLibSymbols, TestSelectMembersForLibraryRefs,
+TestLinkDynElfPullsMemberForLibraryRef.  The selection drops a reference any needed library defines, which equals
+lld's and GNU ld's result when the shared libraries precede the archives (bnld keeps no command-line order).
+
 ### arm32 assembler: register-offset memory shifts and operand registers, clang's immediate aliases — DONE (binate `889e56d0f`, `b26005483`; recorded 2026-10-12, work-4)
 
 Two parts of the 2026-09-25 "arm32 assembler … silently masked" entry: (a) `MemSReg` masked `ShAmt & 0x1f` and

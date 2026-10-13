@@ -2153,17 +2153,6 @@ only when no object defines the name, so the weak definition would still win.  F
 linker-made commons object's `.bss` (as `commons.bn` builds it, global definitions that replace a weak one) instead
 of synthesizing layout-defined symbols, and add a builder test where the weak definition loses.
 
-### bnld archive selection ignores the needed shared libraries' undefined references — 🟡 IN PROGRESS (claimed 2026-10-12, work-2; user: "yes") (minor; found 2026-10-12, work-2, review of the dynamic-ELF exports change; pre-existing)
-
-A dynamic ELF link pulls an archive member only for an undefined reference in the objects it already includes,
-not for one a needed shared library makes, so a member defining a name only a `-l` shared library references is
-never linked in (and never exported).  lld extracts it and exports the definition: with libplugin.so calling
-the undefined `host_log` and libhost.a's host.o defining it, lld links host.o and exports host_log; bnld leaves
-it out and the program fails at load (DF_BIND_NOW: undefined symbol).  bnld now reads each needed library's
-.dynsym (`neededLibs`, libsearch.bn) but keeps only a flat name list.  Fix: have neededLibs also return the
-undefined (non-weak) names, and make `selectMembers` treat them as references to satisfy; test with a fake
-.so whose .dynsym references a name an archive member defines.
-
 ### bnld archive selection: a common pulls in a member that defines the name weakly or as a function — 🔴 OPEN (minor; found 2026-10-11, work-2, review of the commons fix; pre-existing)
 
 `archive_select.bn`'s `objRefsUndefinedGlobal` counts a common as a strong undefined reference, so `int x;` in an
