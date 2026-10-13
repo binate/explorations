@@ -71,6 +71,13 @@ true and HFA fields ride GP on both backends) is presumably broken today too —
 landed first: a new adapt kind (C-HFA tuple with a non-float-scalar field) — the entry stores the internal
 result at its field offsets and reloads the members into s0../d0.. — in callconv, codegen's c_export thunk,
 and the native aa64 / arm32 trampolines; e2e coverage in ffi-export.sh (+ arm32-ffi-export.sh).
+Third symptom, LLVM only, NOT HFA-specific (found 2026-10-13, same probe): codegen's c_export thunk
+(emit_cexport_thunk.bn) reinterprets the internal return with a WHOLE-STRUCT `store <flat> %r` into the
+coercion slot / the C sret buffer, but the flat boundary type places a coerced struct field at its LLVM
+alignment, not its raw FieldOffset — `#[c_export]` of `(int32, P)` (`P = {x,y int32}`; flat
+`{ i32, [1 x i64] }` puts P at 8, C expects 4) makes C read `7 1 8` (want `7 8 9`) on aa64 LLVM; native
+is right.  Same whole-store in the C-sret (retAdapt) path.  Fix in the same commit: reinterpret
+field-by-field (emitScatterFlatValue) into a slot of raw size + one word.
 
 ### An int64 index on a 32-bit target is bounds-checked and addressed by its low word — silent wrong store — 🔴 OPEN MAJOR (found 2026-10-13, work-5, review of int64 SSA promotion; reproduced; pre-existing)
 
