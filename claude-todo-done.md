@@ -1,3 +1,21 @@
+### int64 / uint64 locals promoted to SSA on 32-bit targets — DONE (binate `a6d15e3bd`, 2026-10-13, work-5)
+
+mem2reg promoted an int slot only up to the target word, and `EliminatePhis` panicked on a wider int phi,
+so on arm32 every int64 / uint64 local stayed in its stack slot.  `isScalarPromotableType` now admits an
+int of any width and `assertScalarPhi` accepts a wide int phi — each backend already copies a 64-bit
+value as a pair on a 32-bit target (native arm32's `emitCopy` from the float-promotion commit
+`f6c82064d`; the VM's BC_MOV64; LLVM's i64 phi).  SROA's `fieldNeedsZeroConstInit` (always false once
+every scalar promotes) was removed.  64-bit targets are unchanged.
+
+Native arm32, static instruction counts at -O2 against the float-promotion compiler (arm32 is not timed
+here): the int64 conformance test's main.o −8% (fib64's loop body 30 → 18), pkg/std/math −4.9%,
+math/big −1.6%, fmt −1.0%, strconv −0.9%; no object grew.  Validated: iropt / native arm32 unit tests;
+~1000 int64-using conformance tests at -O2 on native arm32 baremetal, native arm32-linux hard-float and
+the LLVM arm32 cross mode; one-lens adversarial review (no defect in the change).  Test: conformance
+1634 (renumbered from 1632 at landing).  The review found two pre-existing MAJOR bugs, both logged: the
+int64 index checked by its low word on 32-bit targets (test 1633, binate `4a3f26099`), and loop BCE
+comparing an unsigned bound as signed — which this change extends to uint64 loops on arm32.
+
 ### bnld scripted builder: a common beats a weak definition, as in GNU ld / lld — DONE (binate `19d21dd1a`, 2026-10-13, work-2)
 
 The builder's `*(COMMON)` synthesized each common as a layout-defined symbol and skipped any name with a global

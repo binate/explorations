@@ -47,7 +47,8 @@ the lowerings treat as one word.  `var a [3]int; var i int64 = 4294967297; a[i] 
 trap; instead native arm32 and the VM on an arm32 host check and address the low word (1) and store to
 `a[1]` (prints 7), and the LLVM arm32 modes fail to compile (`emitBoundsCheckInline` prints the i64 index
 as `i32`: "'%v4' defined with type 'i64' but expected 'i32'").  The 64-bit modes trap as required, and it
-fails at -O0 too.  Test: conformance 1633 (`1633_err_int64_index_32bit`), xfail'd on the five arm32 modes.
+fails at -O0 too.  Test: conformance 1633 (`1633_err_int64_index_32bit`, binate `4a3f26099`), xfail'd on
+the five arm32 modes.
 Fix in IR-gen, once for every backend: check an index wider than `int` against the length as a 64-bit
 value (or range-check it, then narrow) before the bounds check and the GEP see it.  Slice bounds and
 `make_slice` lengths need the same treatment — check them while there.
@@ -65,7 +66,7 @@ with a bnc built from main `01b5a0091` (native aa64 and LLVM, so it predates any
 
 At -O0 it traps (`index out of bounds: 3 (len 3)`); at -O2 native aa64 prints 6 and LLVM prints 0 — the
 loop reads past the array.  On 32-bit targets the same now reaches uint64 inductions once 64-bit locals are
-promoted (the int64-promotion commit): before it a uint64 local stayed in memory there and the index was
+promoted (binate `a6d15e3bd`): before it a uint64 local stayed in memory there and the index was
 a load, which `bce_loop` never matched.  Fix: for an unsigned guard compare the constants unsigned (or
 refuse a negative `IntVal`), and audit `bce_const` / `bce_redundant` for the same signed compare.  Test:
 an `.error` conformance test fails only at -O1+, and an `.xfail.<mode>` cannot say "-O2 only", so add it
@@ -1096,19 +1097,6 @@ main `01b5a0091`, 2026-10-12):
   four times.  Re-checked after float promotion (binate `f6c82064d`): the inner loop is now all registers,
   but the after-loop `Tr + Ti <= 4.0` still re-materializes its 4.0 from a GP slot (`ldr x9,[sp,#0x310];
   fmov d17,x9; fcmp`) while the loop condition's 4.0 sits in d14.  iropt has no CSE pass.
-
-### int64 / uint64 locals are never promoted to SSA on 32-bit targets — 🟡 IN PROGRESS (claimed 2026-10-12, work-5/session)
-
-mem2reg promotes an int slot only up to the target word (`isScalarPromotableType`: `Width <=
-TypInt().Width`), and `EliminatePhis` panics on a wider int phi, so on arm32 every int64 / uint64 local
-stays in its stack slot, with a load / store per access.  Float locals got the same treatment until
-binate `f6c82064d` (done log: "Float locals promoted to SSA"); that commit already gave native arm32 an
-OP_COPY that moves a 64-bit value as both words (`emitCopy`, arm32_copy.bn), and the VM copies a 64-bit
-scalar as a pair on a 32-bit host (BC_MOV64).  Remaining: admit ints wider than the word in
-`isScalarPromotableType` and `assertScalarPhi`, check the iropt passes that may now see int64 phis on
-a 32-bit target (bce_loop / bce_redundant induction recognition, div_check_elim, simplify), add tests
-(iropt on a stamped 32-bit target; a conformance test with loop-carried int64 / uint64 locals), and
-validate on native arm32 (baremetal and linux), the LLVM arm32 cross modes and the VM.
 
 ### native↔LLVM gap round 2 — richards/fannkuch next levers (see plan-native-codegen-gaps-round2.md) — 🔵 OPEN
 
