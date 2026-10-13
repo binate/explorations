@@ -52,7 +52,7 @@ Fix in IR-gen, once for every backend: check an index wider than `int` against t
 value (or range-check it, then narrow) before the bounds check and the GEP see it.  Slice bounds and
 `make_slice` lengths need the same treatment — check them while there.
 
-### Loop bounds-check elimination compares an unsigned loop bound as signed — a uint64 bound ≥ 2^63 drops the check (silent out-of-bounds access) at -O1+ — 🔴 OPEN MAJOR (found 2026-10-13, work-5, review of int64 SSA promotion; reproduced; pre-existing)
+### Loop bounds-check elimination compares an unsigned loop bound as signed — a uint64 bound ≥ 2^63 drops the check (silent out-of-bounds access) at -O1+ — 🟡 IN PROGRESS MAJOR (found 2026-10-13, work-5, review of int64 SSA promotion; reproduced; pre-existing; claimed 2026-10-13, work-5/session)
 
 `bce_loop` judges a guarded index in range when the loop guard `P < L` has a constant `L` no larger than
 the length — but `lengthProvablyLE` compares the constants as signed int64 `IntVal`s, and
