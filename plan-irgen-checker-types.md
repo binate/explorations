@@ -71,6 +71,14 @@ IR-gen cannot map is an internal error, never `int`.
    mapper gap, stamp gap, or legacy bug — a legacy bug gets a test and a todo and is fixed by the switch, not
    patched in the resolver that is being deleted.  Expected (legit) differences: Self, parameterized-impl
    type parameters (stage 5), registration-order gaps.
+   One registration-order gap is a live bug the switch must fix (decided 2026-10-12, user: "yes" — no patch
+   to the legacy resolver): an alias of a generic interface instantiation (`interface X = G[int]`) is an
+   IR-gen stub until the interfaces are collected, so a type alias / global / field naming X before then
+   keeps the alias name and the upcast to it fails — an internal error at build ("negative vtable slot
+   offset"), "target vtable not found" in the VM; conformance `1506_iface_generic_alias_upcast`
+   (`.xfail.all`, drop it when stage 4/5 lands).  The checker already resolves X to the instance (an
+   interface alias is another symbol for the target's Type).  `1508_iface_generic_alias_type_order` is the
+   guard: instantiating the generic early under the legacy resolver turned a later type alias into `int`.
 4. **Switch, by site class.**  Declarations first: var / global types (existing Decl.ResolvedTypeID),
    signatures, struct fields from checker types (removes the several copies of field resolution).  Then
    expressions: assertions and composite literals from their Expr types.  The remaining TypInt() fallbacks

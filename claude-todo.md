@@ -204,7 +204,7 @@ a conversion dispatched through the stale interface (wrong code).  These are rej
 a todo" — (b) being cross-kind shadowing, like type shadowing).  Shadowing them needs the same
 generation-distinct identity through the checker's and IR-gen's registries.
 
-### A type naming an alias of a generic interface instantiation before the interfaces are collected keeps the alias's name — the upcast to it fails — 🔴 OPEN (found 2026-10-03, work-3, review of the interface-alias type fix; pre-existing)
+### A type naming an alias of a generic interface instantiation before the interfaces are collected keeps the alias's name — the upcast to it fails — 🔴 OPEN, FIXED BY plan-irgen-checker-types.md (no separate fix; decided 2026-10-12, user: "yes") (found 2026-10-03, work-3, review of the interface-alias type fix; pre-existing)
 
 ```
 var g *X                 // a global, or `type P = *X`, before the alias
@@ -226,6 +226,10 @@ signatures and extension clause use are registered before a declaration that nam
 instantiation (extend typeDeclDepNames) — but a method naming the declaration being registered (`self() P`)
 still sees `int`; (b) name the alias's canonical instance (its mangled name) without instantiating it during
 registration, leaving the instantiation to the interface pass.  (b) looks cleaner; needs a design check.
+Decided 2026-10-12: neither — both patch IR-gen's own resolver, which plan-irgen-checker-types.md replaces
+with the checker's types (the checker already resolves X to the G[int] instance in any declaration order);
+(b)'s instance name depends on canonical type arguments that can hit the same ordering problem.  The plan's
+stage 3 lists this case; it fails loudly meanwhile (build-time internal error, VM "target vtable not found").
 
 ### The conformance runner has no compile-size / compile-memory guard — one pathological test can exhaust the machine — 🔴 OPEN (split out of the 1301 whole-array-load entry, 2026-09-28, work-1; user: "yes, keep the 1301 suggestion as its own todo")
 
