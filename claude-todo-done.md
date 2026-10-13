@@ -1,3 +1,34 @@
+### Float locals promoted to SSA; native backends copy float phis register to register — DONE (binate `f6c82064d`, 2026-10-12, work-5)
+
+mem2reg left every float local in its stack slot: `isScalarPromotableType` excluded `TYP_FLOAT` because
+`EliminatePhis` had no float phi lowering (the 2026-08-27 Phase 2a restriction, which predated the FP
+homes).  A loop-carried float took a load and a store per access on the native backends and the VM — the
+LLVM path hid it, since clang promotes the allocas itself.  Found while re-checking the FP-homes
+follow-up "FP register pressure": mandelbrot's Zr/Zi/Tr/Ti were not register-allocator spills but
+unpromoted slots (10 `ldr d` + 4 `str d` per inner-loop iteration, with D18..D26 unused).
+
+The change: `isScalarPromotableType` admits floats (SROA's float fields promote too); a load or store
+that reads a slot's bits as another kind of value (float vs non-float, or another float width) keeps
+the slot in memory (`accessReinterpretsSlot`), since grounding would apply a numeric cast where memory
+semantics are a bit reinterpretation; an untyped float constant stored into a float64 slot is accepted,
+and a load it reaches becomes a typed copy of the constant.  `EliminatePhis` accepts float phis.
+Native OP_COPY: aarch64 / x64 move a float between FP homes directly (fmov / movapd); arm32 got
+`emitCopy` (VMOV.F64 between D-homes; a 64-bit value copied as both words).
+
+Measured (native aa64, instructions retired, median of 5 interleaved rounds): mandelbrot N=1000 −43.4%
+(user CPU 0.24 s → 0.06 s; the inner loop is now seven FP ops in registers); spectral-norm N=1000 −2.6%
+(user CPU −43%); n-body and fasta within the A/A noise (their hot loops are byte-identical).  Validated:
+unit tests (iropt, native, vm, codegen, interp, irgen) and ~2700 conformance tests at -O2 on LLVM,
+native aa64 / x64 / arm32 baremetal / arm32 linux hard-float, and the VM (LLVM's only failures, 1622 /
+1625, fail without the change too — logged in the todo); two-lens adversarial review (no miscompile).  Test: conformance 1630.  Rebased over the concurrent SROA copy-out size cap
+(`f85ed73b1`), whose small-slot-field test now uses a 16-byte array field (a float no longer stays a
+slot).
+
+The follow-up "spill-cost priority for loop-carried values" (raised from the same loop) is SUPERSEDED:
+its premise was those spilled loop-carried values, and after promotion they live in caller-saved FP
+homes with no spill.  The float-constant CSE item stays open in the FP-homes follow-ups entry; the
+int64-on-32-bit-targets half of the same restriction has its own todo entry.
+
 ### A load stored whole is read in place up to a per-arch register budget — DONE (binate `0bf631ebd`, 2026-10-12, work-1)
 
 The store case's first step (the D table's `h.b = *p` cause; user: "3 sounds good, but we can start with 2 (then

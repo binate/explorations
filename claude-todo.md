@@ -1057,8 +1057,9 @@ Float SSA values home in FP registers on all three native backends (aarch64 D8..
 x64 XMM8..13, arm32 hard-float D8..D15 including f32 S-views).  The ports and the finished
 follow-ups are in claude-todo-done.md ("native FP-register homes (aarch64)" and "native
 FP-register homes — x64 + arm32 ports and follow-ups").  The mandelbrot loop-carried-float slot
-traffic once listed here as an "FP register pressure" item is not register pressure — see the next
-entry.  Remaining follow-ups (each re-checked against main `01b5a0091`, 2026-10-12):
+traffic once listed here as an "FP register pressure" item was unpromoted float locals, fixed by binate
+`f6c82064d` (done log: "Float locals promoted to SSA").  Remaining follow-ups (each re-checked against
+main `01b5a0091`, 2026-10-12):
 
 - **arm32: fold int64/uint64 struct-field addressing** — 🔵 OPEN (a 2026-09-26 claim, work-5, released
   2026-10-12: no code was written; the design below stands).  Still true on main: FusableFieldGeps
@@ -1087,43 +1088,24 @@ entry.  Remaining follow-ups (each re-checked against main `01b5a0091`, 2026-10-
   the callee-saved bank — is also the ONLY scratch pool.  Homing there means partitioning it; the
   aarch64 X9–X15 study found such a partition capped at ~2–3 homes, so measure arm32's scratch
   high-water first.
+- **CSE float constants** — 🔵 OPEN.  Each float literal is its own OP_CONST_FLOAT, so equal
+  constants take separate homes or slots: mandelbrot's `main` has 2.0 three times, 4.0 twice and 0.0
+  four times.  Re-checked after float promotion (binate `f6c82064d`): the inner loop is now all registers,
+  but the after-loop `Tr + Ti <= 4.0` still re-materializes its 4.0 from a GP slot (`ldr x9,[sp,#0x310];
+  fmov d17,x9; fcmp`) while the loop condition's 4.0 sits in d14.  iropt has no CSE pass.
 
-### Float locals are never promoted to SSA — every loop-carried float lives in a stack slot — 🟡 IN PROGRESS (found 2026-10-12; claimed 2026-10-12, work-5/session)
+### int64 / uint64 locals are never promoted to SSA on 32-bit targets — 🟡 IN PROGRESS (claimed 2026-10-12, work-5/session)
 
-Found re-checking mandelbrot's inner loop on main `01b5a0091` (benchmarks `bench/mandelbrot`, native
-aa64 `-O2`).  Zr/Zi/Tr/Ti stay `alloca double` slots through `-O2`: the optimized IR (`--emit-llvm -O2`)
-loads and stores them at every use (`store %v181 -> Zr; %v182 = load Zr; %v183 = load Zr; fmul`), and
-native aa64 emits exactly that — 10 `ldr d` + 4 `str d` per inner-loop iteration, e.g. `str
-d27,[sp,#0x648]` followed by two `ldr` of the same slot — while the caller-saved FP homes D18..D26 go
-unused in the whole function.  The register allocator never sees these values; they are memory.
-
-Cause: mem2reg promotes only int (at most the target word) / bool / raw-pointer allocas.
-`isScalarPromotableType` (iropt/sroa_transform.bn, shared with SROA's field split) excludes `TYP_FLOAT`
-because `EliminatePhis` lowers only one-word int/bool/pointer phis and panics on any other — the mem2reg
-Phase 2a restriction (`ea7687188`, 2026-08-27), which predates the FP homes.  So no float local is
-promoted, on any backend at any `-O` level.  The LLVM path hides it (clang's own mem2reg promotes the
-allocas); the native backends and the VM pay a load/store per access.  Likely a large part of the FP
-benchmarks' native/LLVM gap (mandelbrot 4.25×, spectral-norm 7.01×, n-body 3.42× in the x64 table
-above all keep float accumulators in locals) — to be confirmed by measurement.
-
-Fix scope: (1) `EliminatePhis` lowers a float phi to float OP_COPYs — a float64 on a 32-bit target is
-two words (soft-float arm32 slots), so "one word" does not hold there; check every consumer's float
-OP_COPY: the VM and native aarch64/x64/arm32 (home↔home, home↔slot, slot↔slot; arm32 hard- and
-soft-float).  (2) Admit `TYP_FLOAT` in `isScalarPromotableType` (this also changes which SROA fields
-promote; `makeZeroConst` already has the float case).  (3) The same one-word restriction keeps
-int64/uint64 locals in memory on arm32 (an int wider than the word) — the same fix shape, a two-word
-phi copy.  Validate on all three native backends and the VM; measure mandelbrot / spectral-norm /
-n-body.
-
-Found in the same loop; re-measure after promotion before acting (promotion changes the register
-pressure completely):
-- **CSE float constants.**  mandelbrot's `main` has 2.0 three times (`%v137` `%v147` `%v170`), 4.0
-  twice and 0.0 four times, each a separate OP_CONST_FLOAT and so a separate home or slot: the loop
-  condition's 4.0 is homed in d14, while the after-loop 4.0 is spilled to a GP slot and re-materialized
-  at its use (`ldr x9,[sp,#0x310]; fmov d17,x9; fcmp`).  iropt has no CSE pass.
-- **Spill-cost priority for loop-carried values.**  A loop-carried value costs a reload AND a store per
-  iteration; check that computeSpillCosts counts the store.  This only matters once such values are SSA
-  values the allocator sees.
+mem2reg promotes an int slot only up to the target word (`isScalarPromotableType`: `Width <=
+TypInt().Width`), and `EliminatePhis` panics on a wider int phi, so on arm32 every int64 / uint64 local
+stays in its stack slot, with a load / store per access.  Float locals got the same treatment until
+binate `f6c82064d` (done log: "Float locals promoted to SSA"); that commit already gave native arm32 an
+OP_COPY that moves a 64-bit value as both words (`emitCopy`, arm32_copy.bn), and the VM copies a 64-bit
+scalar as a pair on a 32-bit host (BC_MOV64).  Remaining: admit ints wider than the word in
+`isScalarPromotableType` and `assertScalarPhi`, check the iropt passes that may now see int64 phis on
+a 32-bit target (bce_loop / bce_redundant induction recognition, div_check_elim, simplify), add tests
+(iropt on a stamped 32-bit target; a conformance test with loop-carried int64 / uint64 locals), and
+validate on native arm32 (baremetal and linux), the LLVM arm32 cross modes and the VM.
 
 ### native↔LLVM gap round 2 — richards/fannkuch next levers (see plan-native-codegen-gaps-round2.md) — 🔵 OPEN
 
