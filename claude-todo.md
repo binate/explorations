@@ -772,7 +772,10 @@ claude-todo-done.md and plan-aggregate-copy-opts.md); still open:
   leaves two causes: (1) a large load from an unknown source (`return *p`, `h.b = *p`) copies into a
   private region first — AggLoadElidable's S-adjacent rule stops at 16 bytes for overlap's sake; a return
   into the caller's (noalias) buffer cannot overlap, a store needs an overlap-safe large copy.  The return
-  case is done (`45e8b6537`); the store case — IN PROGRESS (claimed 2026-10-12, work-1; user: "yes").  (2) SROA's copy-out split of a struct
+  case is done (`45e8b6537`); the store case — IN PROGRESS (claimed 2026-10-12, work-1).  User (2026-10-12):
+  both, in two steps — first a load whose one use is a whole store elided up to a per-arch register budget
+  (load-all-then-store, branch-free; native backends; 281 of the 316 cmd/bnc functions a cap-free hack changes),
+  then a memmove-style (direction-checking) copy for larger ones and memmove in the LLVM backend.  (2) SROA's copy-out split of a struct
   only copied whole — done (`dc0df663a`); a struct whose field is also read on its own (`t := x.n; var y = x`)
   copies once too (`f37af4e28`, `f85ed73b1`).  Measured with perf/agg-copy-table.sh (`2e852d3be`).  Their
   prerequisite D1 (by-value aggregates the platform C way, callees using their incoming bytes in place) is
