@@ -60,6 +60,17 @@ codegen unit test pinning `{ [1 x i64], i32 }`-style spelling for an HFA tuple f
 Test: nothing checks native<->LLVM agreement today (conformance compiles every package with one backend);
 a mixed-backend e2e (separate compilation, both directions) is plan-arm32-hfa.md stage 0, with this case
 expected-fail until the fix.
+Second symptom, same root (found 2026-10-13 while scoping the fix): a `#[c_export]` returning a tuple
+that C sees as an HFA but that has a struct/array FIELD — `(V2d, float64)`, `(float64, V2d)` with
+`V2d = {x,y float64}`, C `struct { struct V2d v; double z; }` → d0..d2 — is a plain alias
+(callconv `CExportMultiReturnAdaptKind` → NONE, "the internal FCA already matches clang"), true only when
+every field is a float SCALAR.  Native aa64 today: C reads `3.5 0.0 0.0` / `4.5 -303.0 0.3` (want `1.5 2.5
+3.5` / `4.5 5.5 6.5`); LLVM aa64 is right only because of the `[N x float]` field spelling above, so fixing
+that spelling alone would break it.  Arm32 hard-float (where `CMultiReturnTupleReturnsHfaInFpRegs` is also
+true and HFA fields ride GP on both backends) is presumably broken today too — to verify in Docker.  Fix,
+landed first: a new adapt kind (C-HFA tuple with a non-float-scalar field) — the entry stores the internal
+result at its field offsets and reloads the members into s0../d0.. — in callconv, codegen's c_export thunk,
+and the native aa64 / arm32 trampolines; e2e coverage in ffi-export.sh (+ arm32-ffi-export.sh).
 
 ### An int64 index on a 32-bit target is bounds-checked and addressed by its low word — silent wrong store — 🔴 OPEN MAJOR (found 2026-10-13, work-5, review of int64 SSA promotion; reproduced; pre-existing)
 
