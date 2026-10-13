@@ -1189,6 +1189,24 @@ index / >32-bit displacement.  Tests: x64_mem_test.bn in parse and asm/x64 (clan
 in 4 instructions match clang byte for byte.  Raised with the user, undecided: 32-bit addressing (now rejected),
 `-~8` (clang's Intel parser computes it wrongly), absolute `[lbl]` (unsupported, as before).
 
+### A slot read through its fields stays confined for AggLoadElidable — DONE (binate `f37af4e28`, 2026-10-12, work-1)
+
+AggLoadElidable's S-alloca rule (a whole load of a confined stack slot reads it in place, any size) admitted only
+whole loads / stores of the slot, so a slot whose field was read on its own (`x.n`, `x.arr[i]`) kept every whole
+load copying first.  allocaAddrConfinedToLoadStore now also admits field / element pointers of the slot (through
+others) whose every use is a load address — they write none of it; a store through one, a call / phi / cast
+taking one still unconfines; a derived pointer it cannot track fails closed (also in extendSlotReach).  Native
+aa64 -O2: cmd/bnc (same source, compiler with vs without) — 534 functions change, 23,185 fewer instructions,
+__text −92,740 bytes (−1.0%; e.g. types.SetTarget no longer copies its 48-byte parameter before `target = info`).
+PlanFrame now asks instrHasDataRegion once per instruction (was up to five times, each re-running
+AggLoadElidable), so a native build of cmd/bnc takes ~5% less user CPU (the first version was ~5% slower).  The
+D-table field-read shape copies once only with SROA off (SROA's split remains; claude-todo.md).  Review: no
+miscompile found (every writer traced — callee-owned in-place args, D2/D3 placements, LLVM consumer; ~20 probe
+functions A/B-identical on four targets); fail-closed + test nit fixed.  Tests: unit tests; conformance 1629.
+Validated: native/common, codegen, native/* unit tests; managed-value + array subset on LLVM aa64, native aa64
+/ x64 / arm32 bare metal / arm32 Linux; C-ABI e2e; native aa64 + LLVM aa64 again after rebasing onto irgen's
+per-scope releases.
+
 ### SROA's copy-out split needs a field to gain from it — DONE (binate `dc0df663a`, 2026-10-12, work-1)
 
 The D table's second remaining cause.  The copy-out rewrite (`*p = s` → per-field stores so s can be
