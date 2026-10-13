@@ -39,6 +39,26 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### LLVM func-value / closure shims write past the caller's retbuf for a multi-return tuple whose struct field word-rounds — 🔴 OPEN MAJOR (found 2026-10-13, work-3, scoping the aa64 tuple HFA fix; IR-confirmed; pre-existing)
+
+ABI abi/03 (dispatch seam): "the callee writes exactly the natural size through [retbuf] ... Space beyond
+the natural size ... is not writable" (non-VM callers allocate exactly the natural size).  The LLVM
+shims reinterpret a coerced register-returned tuple into `%retbuf` with emitScatterFlatValue
+(emit_multiret_coerce.bn), which stores each struct/array field as its whole `[N x iW]` coerced form.  A
+field whose size is not a word multiple then writes up to W-1 bytes past its raw extent — past the
+retbuf when it is the last field.  Concrete (aa64, LLVM): `func mk(x int32) (int32, S3)` with
+`S3 = {a,b,c int32}` called through a `*func` value — the caller allocates `%v4.rb = alloca <{ i32, %S3 }>`
+(16 bytes) and `__shim.…mk` does `store [2 x i64] %shim.se1, ptr (%retbuf + 4)` → bytes 16..19 written
+past the buffer (silent stack corruption; heap when the caller is the VM, which pads only to 8).  The
+probe still prints the right values (the clobber lands in alignment slack), so no test sees it.  Same
+store in the capturing-closure shim (emit_funcvals_closure.bn) and every arch that coerces tuple fields
+(aa64, x64, arm32).  Fix: the shims scatter into a local slot of raw size + one word and copy exactly the
+natural size into `%retbuf` (emitMemCopy) — the same shape as the c_export thunk fix in the tuple-HFA
+entry below.  Test: a conformance case that cannot pass with the overrun (e.g. a retbuf followed by a
+canary the caller checks — needs a way to observe the caller's adjacent bytes; or a unit test pinning the
+shim's IR: no store wider than the natural size reaches `%retbuf`).  Blocks the tuple-HFA GP-spelling
+change, which would extend it to odd-count float32 HFA fields (`(int32, V3f)`, `(int32, V1f)`).
+
 ### aa64: a multi-return tuple with an HFA field is returned in FP registers by LLVM-compiled code, in GP registers by native — native<->LLVM calls read garbage — 🟡 IN PROGRESS (claimed 2026-10-13, work-3/session; user: "yes" = fix now, as plan-arm32-hfa.md stages 0-1) MAJOR (found 2026-10-13, work-3, arm32 HFA mapping; reproduced)
 
 `func Pair(a float32) (V2f, int32)` with `type V2f struct { x float32; y float32 }`: built all-LLVM or
