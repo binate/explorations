@@ -2201,6 +2201,21 @@ nothing currently reaches the reject (the only section-relative relocs are in th
 unwind sections), so this stays parked until a real clang/LLVM object needs a
 section-relative reloc in a KEPT section.
 
+### CI's -O2 conformance lane is red on main: 1622 / 1625 (an `@X` of a type nothing defines) link at -O2 on the LLVM backend — 🔴 OPEN (MAJOR: CI red; found 2026-10-12, work-5, while validating float promotion)
+
+`1625_err_undefined_forward_type_drop` and `1622_err_xpkg_undefined_forward_type_drop` (added with binate
+`9235b2aa6`) expect the program to fail to link, naming `__dtor_X`.  At `-O2` on the LLVM backend they
+compile, link and exit 0 ("an .error test must fail"): the only `@X` is a nil that is never released
+through `__dtor_X` once the optimizer has run, so nothing references the missing destructor.  The native
+modes still fail as expected at `-O2` (aa64 / x64 / arm32 locally), and every mode passes at `-O0`.
+Reproduced with a bnc built from main `01b5a0091` (`bnc -O2 conformance/1625_...bn` exits 0); CI's
+"Conformance tests (-O2)" workflow has failed on these two tests in every run since `9235b2aa6`
+(builder-comp shards 1/3 and 2/3, e.g. run 38321700421 on `01b5a0091`).  Not caused by any optimizer
+change in flight — the base compiler behaves the same.  Open question for the fix: whether the language
+requires such a program to be rejected (then the rejection cannot rest on a reference the optimizer may
+delete — check-time or a kept reference), or whether the tests should pin the behaviour only where the
+release survives.
+
 ### `@F` with `type F X` over a type nothing defines drops with a plain release — no link error — 🔴 OPEN (minor; found 2026-10-10, work-7, review of the undefined-`__dtor_X` fix; code reading; pre-existing)
 
 An `@X` of a type nothing defines fails to link, naming `__dtor_X` (binate `9235b2aa6`), but a distinct type
