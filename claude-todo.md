@@ -39,7 +39,7 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### aa64: a multi-return tuple with an HFA field is returned in FP registers by LLVM-compiled code, in GP registers by native — native<->LLVM calls read garbage — 🔴 OPEN MAJOR (found 2026-10-13, work-3, arm32 HFA mapping; reproduced)
+### aa64: a multi-return tuple with an HFA field is returned in FP registers by LLVM-compiled code, in GP registers by native — native<->LLVM calls read garbage — 🟡 IN PROGRESS (claimed 2026-10-13, work-3/session; user: "yes" = fix now, as plan-arm32-hfa.md stages 0-1) MAJOR (found 2026-10-13, work-3, arm32 HFA mapping; reproduced)
 
 `func Pair(a float32) (V2f, int32)` with `type V2f struct { x float32; y float32 }`: built all-LLVM or
 all-native it prints `1.500000 2.500000 7`; with the defining package compiled by LLVM (`bnc --pkg pkg/dep`)
