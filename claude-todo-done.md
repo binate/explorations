@@ -1,3 +1,24 @@
+### A load stored whole is read in place at any size on native, its store copying as memmove does — DONE (binate `0d0a2d966`, 2026-10-13, work-1)
+
+The store case's second step, native half (user: "3 sounds good, but we can start with 2 (then do 1 later),
+right?", then "yes" to starting 1).  common.AggLoadElision classifies an aggregate load as copied, read in place,
+or read in place by a whole store whose destination may overlap the source (AGG_LOAD_IN_PLACE_OVERLAPPING, any
+size, for a backend whose store copies it as memmove does).  Native frame planning records those loads
+(RegMap.InPlaceOverlapping), and emitStructCopy copies their stores overlap-safely at every size: loading all
+first up to 64 bytes (aa64 / x64), 48 (hard-float arm32) or 16 (soft-float), beyond that
+emitAggMemmove{Aarch64,X64,Arm32} — dst - src compared (unsigned) with the size, then an ascending or a
+descending loop, the bytes the loop leaves over read before it (aa64 / x64) or copied word by word after it
+(arm32, LDMDB / STMDB going down), the branches emitted with measured displacements (no fixup).
+CallConv.SafeCopyBytes went.  D table `h.b = *p` 3c → 2c on native aa64 (count.py counts a two-direction copy
+once); cmd/bnc native aa64: 87 functions change, 448 fewer instructions, __text −1,792 bytes.  Review: one
+CRITICAL defect, fixed before landing — arm32's emitStructCopy sent every copy past 64 bytes to its plain loop
+ahead of the overlap check; also fixed: a flag-set fallback, and tests through emitStructCopy (arm32's fails
+without the fix), PlanFrame's flag, a self-copy and a global store in conformance.  Tests: unit tests (the
+classification at 32 / 808 bytes; each backend's direction branch decoded; emitStructCopy flagged and not);
+conformance 1631 (72- to 812-byte overlapping stores both ways, a 36-byte shift, onto itself, into a global).
+Validated: callconv, native/common, codegen, native/* unit tests; managed-value subset + 1631 on LLVM aa64,
+native aa64 / x64 / arm32 bare metal / arm32 Linux; C-ABI e2e.
+
 ### Another package's `.bn`-only generic type or interface is undefined there — DONE (binate `892ada4ce`, 2026-10-12, work-7)
 
 pkg.export: a name only a package's `.bn` declares is package-private.  A generic type or interface head
