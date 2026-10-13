@@ -1,3 +1,21 @@
+### A load stored whole is read in place up to a per-arch register budget — DONE (binate `0bf631ebd`, 2026-10-12, work-1)
+
+The store case's first step (the D table's `h.b = *p` cause; user: "3 sounds good, but we can start with 2 (then
+do 1 later), right?").  The native copy helpers load an aggregate whole before storing any of it up to callconv's
+new SafeCopyBytes — 64 bytes on aarch64 (V16, V17, V6, V7) and x86-64 (XMM14, XMM15, XMM6, XMM7), 48 on
+hard-float arm32 (D2..D7), 16 on soft-float arm32 (core registers) — and frame planning (AggLoadElidableWithin)
+elides the private copy of a load whose one use is a whole OP_STORE (storedWhole) up to it.  Each helper panics
+if a word-aligned copy within the budget would take its interleaved path.  The LLVM backend keeps the 16-byte
+cap.  The aarch64 copy primitives moved into aarch64_aggmemcpy.bn.  cmd/bnc (native aa64 -O2, same source
+compiled with and without): 711 functions change, 5,373 fewer instructions, __text −21,492 bytes.  Review: no
+clobber, encoding or soundness defects (every caller of the copy helpers, value homes against the copy
+registers, storedWhole's uses and window); its findings fixed (the budget tied to the emitters by the panic,
+two stale comments, 20- / 36-byte and chunk-offset tests, a test's target restore).  Tests: unit tests (every
+size up to the budget loads its source first, aarch64 and arm32 hard- / soft-float; the vector and D-register
+chunks and offsets); conformance 1631 (20- to 64-byte overlapping stores both ways; a store into a field).
+Validated: callconv, native/common, codegen, native/* unit tests; managed-value subset + 1631 on LLVM aa64,
+native aa64 / x64 / arm32 bare metal / arm32 Linux; C-ABI e2e.
+
 ### bnld archive selection treats a common as a definition, as lld does — DONE (binate `6bc13cf60`, 2026-10-12, work-2)
 
 Archive selection counted a common (`int x;`) as a strong undefined reference and not as a definition: it pulled

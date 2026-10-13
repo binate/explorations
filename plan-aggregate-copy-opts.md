@@ -113,7 +113,9 @@ D. Copy chains (load → private copy → temp slot → argument): revisit after
      stores, wrong if the destination overlaps the source.  A return's destination (the caller's result
      buffer, noalias) cannot overlap, so a load whose last use is the return could be elided at any size —
      done `45e8b6537` (2026-10-12; retDeref 2c → 1c on both); a store would need an overlap-safe large
-     copy (memmove-style direction) in the copy emitters.
+     copy (memmove-style direction) in the copy emitters.  Up to a per-arch register budget (64 bytes
+     aa64 / x64, 48 hard-float arm32, 16 soft-float) a native store now reads its source in place, loading
+     it whole before storing any (`0bf631ebd`, 2026-10-12); Big's 808 bytes wait on the memmove-style step.
    - `var y = x`: SROA splits the whole-struct copy into per-field copies and moves the [100]int field
      through a temporary slot (the two copies are its 800 bytes, not Big's 808), and y's first use is then
      a field store, so the dead-store pass keeps y's zero-fill — done `dc0df663a` (2026-10-12): the copy-out
