@@ -816,14 +816,9 @@ claude-todo-done.md and plan-aggregate-copy-opts.md); still open:
   leaves two causes: (1) a large load from an unknown source (`return *p`, `h.b = *p`) copies into a
   private region first — AggLoadElidable's S-adjacent rule stops at 16 bytes for overlap's sake; a return
   into the caller's (noalias) buffer cannot overlap, a store needs an overlap-safe large copy.  The return
-  case is done (`45e8b6537`); the store case — IN PROGRESS (claimed 2026-10-12, work-1), in two steps (user,
-  2026-10-12).  The first is done (`0bf631ebd`): native elides a load whose one use is a whole store up to
-  callconv's SafeCopyBytes (64 bytes aa64 / x64, 48 hard-float arm32, 16 soft-float), copying it
-  load-all-then-store.  The second's native half is done (`0d0a2d966`): such a load is read in place at any
-  size (AGG_LOAD_IN_PLACE_OVERLAPPING) and its store copies as memmove does, picking its direction at run time;
-  the D table's `h.b = *p` row (Big, 808 bytes) is 2c on native aa64, its minimum.  Still open: memmove in the
-  LLVM backend (llvm.memmove hosted, a new rt.MemMove on bare metal; LLVM keeps the 16-byte cap until then, and
-  its `h.b = *p` is still 3c).  (2) SROA's copy-out split of a struct
+  case is done (`45e8b6537`), and so is the store case (`0bf631ebd`, `0d0a2d966`, `987685d08`): a load stored
+  whole reads its source in place at any size, the store copying as memmove does (claude-todo-done.md); `h.b =
+  *p` is 2c on both backends, its minimum.  (2) SROA's copy-out split of a struct
   only copied whole — done (`dc0df663a`); a struct whose field is also read on its own (`t := x.n; var y = x`)
   copies once too (`f37af4e28`, `f85ed73b1`).  Measured with perf/agg-copy-table.sh (`2e852d3be`).  Their
   prerequisite D1 (by-value aggregates the platform C way, callees using their incoming bytes in place) is

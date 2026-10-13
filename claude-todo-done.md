@@ -1,3 +1,19 @@
+### A load stored whole is read in place at any size on LLVM too, its store a memmove — DONE (binate `987685d08`, 2026-10-13, work-1)
+
+The store case's last piece.  The LLVM backend's memory-backed loads ask common.AggLoadElision (now
+unconditional — its overlapSafeStores parameter went, and so did the plain yes / no AggLoadElidable, which left
+out that such a store must copy as memmove does); a load read in place by a whole store whose destination may
+overlap the source (curBulkOverlapping) is stored with llvm.memmove hosted, rt.MemMove on bare metal.  rt.MemMove
+(rt_memmove.bn, declared in rt.bni) copies front to back (copyForward, MemCopy's body factored out) when dst
+starts below src or at or past its end, else back to front (copyBackward, word-wise through the aligned middle).
+D table `h.b = *p` 3c → 2c on LLVM arm32 bare metal — every shape now matches native aa64 (count.py counts
+rt.MemMove calls as copies); cmd/bnc hosted LLVM aa64: 9 functions change, 12 fewer instructions (clang already
+merged most such copies).  Review: no defects; its points taken (AggLoadElidable removed, MemMove tested to 80
+bytes, the i32 intrinsic spelling tested).  Not covered: `var x Big = *p` — IR-gen's OP_ALLOC for x lies between
+the load and the store, and is rightly not counted as writing nothing.  Validated: rt, codegen, native/common,
+native/* unit tests; managed-value subset + 1631 on LLVM aa64, LLVM arm32 bare metal (rt.MemMove), native aa64,
+VM, LLVM arm32 Linux; C-ABI e2e.
+
 ### int64 / uint64 locals promoted to SSA on 32-bit targets — DONE (binate `a6d15e3bd`, 2026-10-13, work-5)
 
 mem2reg promoted an int slot only up to the target word, and `EliminatePhis` panicked on a wider int phi,

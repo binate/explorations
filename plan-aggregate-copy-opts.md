@@ -117,7 +117,7 @@ D. Copy chains (load → private copy → temp slot → argument): revisit after
      aa64 / x64, 48 hard-float arm32, 16 soft-float) a native store now reads its source in place, loading
      it whole before storing any (`0bf631ebd`, 2026-10-12); past that it reads it in place too, the store
      picking its direction at run time as memmove does (`0d0a2d966`, 2026-10-13: field 3c → 2c on native
-     aa64).  LLVM's copy (llvm.memmove / rt.MemMove) is next.
+     aa64), and on LLVM with llvm.memmove / rt.MemMove (`987685d08`: field 3c → 2c on LLVM arm32).
    - `var y = x`: SROA splits the whole-struct copy into per-field copies and moves the [100]int field
      through a temporary slot (the two copies are its 800 bytes, not Big's 808), and y's first use is then
      a field store, so the dead-store pass keeps y's zero-fill — done `dc0df663a` (2026-10-12): the copy-out
