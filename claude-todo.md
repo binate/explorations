@@ -756,8 +756,8 @@ claude-todo-done.md and plan-aggregate-copy-opts.md); still open:
   private region first — AggLoadElidable's S-adjacent rule stops at 16 bytes for overlap's sake; a return
   into the caller's (noalias) buffer cannot overlap, a store needs an overlap-safe large copy.  The return
   case is done (`45e8b6537`); the store case is still to be decided.  (2) SROA's copy-out split of a struct
-  only copied whole — done (`dc0df663a`).  Left from it, still to be decided: a local struct whose field is
-  also read on its own (`var x Big = mk(k); t := x.n; var y Big = x`) still copies twice at -O2 — SROA splits
+  only copied whole — done (`dc0df663a`).  Left from it — IN PROGRESS (claimed 2026-10-12, work-1; user:
+  "yes" to the SROA cost check): a local struct whose field is also read on its own (`var x Big = mk(k); t := x.n; var y Big = x`) still copies twice at -O2 — SROA splits
   x for the field read, which loses the call's placement into x (an array field copied in from the call's
   buffer) and leaves y's zero-fill; a split of a struct with a field that stays a slot needs a cost check
   against those copies.  (With SROA off it now copies once: AggLoadElidable admits field pointers only ever
