@@ -1,3 +1,28 @@
+### `#[c_export]` / `__c_entry` multi-value returns: FP-HFA tuples with a struct field, raw-offset field layout, aa64 internal-sret — DONE (binate `56911b098`, 2026-10-13, work-3)
+
+Four C-boundary defects in the entry that adapts Binate's internal multi-value return to the platform C
+struct return, found while scoping the aa64 tuple-HFA field fix (open entry in claude-todo.md):
+- An FP-HFA tuple with a struct / array field (aa64 `(V2d, float64)`, `(float32, V2f)`; arm32 hard-float the
+  same) was a plain alias, but the internal convention returns the struct field in GP registers: native aa64
+  handed C `3.5 0.0 0.0` for `{1.5, 2.5}, 3.5`.  callconv `CMultiReturnTupleInRegCoerced` now repacks it;
+  the LLVM thunk returns `[N x float|double]`, the native aa64 / arm32 trampolines reload the members into
+  FP registers.  arm32 hard-float `(D3, float64)` — sret internally, registers in C — had the LLVM thunk
+  emit invalid IR and native segfault; the arm32 trampoline now handles COERCE_FROM_SRET (a local buffer
+  in r0, arguments shifted one register).
+- Native aa64 treated every kind but SRET as COERCE, but nine int8s (9 C bytes in x0/x1, nine internal GP
+  words → sret) are COERCE_FROM_SRET: the body wrote through the caller's X8 (SIGSEGV).  X8 is now a local
+  buffer.  Found by the review of the fix.
+- LLVM: the thunk stored the flat boundary return whole, which places a coerced struct field at its LLVM
+  alignment — `(int32, P)` with `P = {x, y int32}` read `7 1 8` in C.  Fields are now laid out one by one at
+  their raw offsets (emitScatterFlatValue) in a slot of size + one word.
+- LLVM: the C-sret path's whole store also wrote past the caller's buffer when a field word-rounds; exactly
+  the tuple's size is now copied from the slot.
+Tests: callconv kind tests (aa64, arm32 hard and soft, aa64 int8 x 9), codegen thunk tests
+(emit_cexport_retadapt_test.bn), e2e/ffi-export.sh (struct-field, HFA-field and nine-int8 tuples, direct and
+via __c_entry), e2e/arm32-ffi-export.sh (arm32 hard-float HFA-field tuples incl. arguments across the sret
+shift and an array field at offset 1; now also on the LLVM backend).  Validated: those unit tests, both e2e
+(arm32 under qemu in binate-ci, both backends), hygiene; the new tests fail on the pre-fix source.
+
 ### asm: symbol-visibility directives — `.hidden` / `.internal` / `.protected` (ELF), `.private_extern` (Mach-O) — DONE (binate `311b04c57`, 2026-10-13, work-2)
 
 asm.Symbol has a Visibility (VIS_DEFAULT / INTERNAL / HIDDEN / PROTECTED, ELF's st_other values) and

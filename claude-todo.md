@@ -80,30 +80,9 @@ codegen unit test pinning `{ [1 x i64], i32 }`-style spelling for an HFA tuple f
 Test: nothing checks native<->LLVM agreement today (conformance compiles every package with one backend);
 a mixed-backend e2e (separate compilation, both directions) is plan-arm32-hfa.md stage 0, with this case
 expected-fail until the fix.
-Second symptom, same root (found 2026-10-13 while scoping the fix): a `#[c_export]` returning a tuple
-that C sees as an HFA but that has a struct/array FIELD — `(V2d, float64)`, `(float64, V2d)` with
-`V2d = {x,y float64}`, C `struct { struct V2d v; double z; }` → d0..d2 — is a plain alias
-(callconv `CExportMultiReturnAdaptKind` → NONE, "the internal FCA already matches clang"), true only when
-every field is a float SCALAR.  Native aa64 today: C reads `3.5 0.0 0.0` / `4.5 -303.0 0.3` (want `1.5 2.5
-3.5` / `4.5 5.5 6.5`); LLVM aa64 is right only because of the `[N x float]` field spelling above, so fixing
-that spelling alone would break it.  Arm32 hard-float (where `CMultiReturnTupleReturnsHfaInFpRegs` is also
-true and HFA fields ride GP on both backends) is presumably broken today too — to verify in Docker.  Fix,
-landed first: a new adapt kind (C-HFA tuple with a non-float-scalar field) — the entry stores the internal
-result at its field offsets and reloads the members into s0../d0.. — in callconv, codegen's c_export thunk,
-and the native aa64 / arm32 trampolines; e2e coverage in ffi-export.sh (+ arm32-ffi-export.sh).
-Third symptom, LLVM only, NOT HFA-specific (found 2026-10-13, same probe): codegen's c_export thunk
-(emit_cexport_thunk.bn) reinterprets the internal return with a WHOLE-STRUCT `store <flat> %r` into the
-coercion slot / the C sret buffer, but the flat boundary type places a coerced struct field at its LLVM
-alignment, not its raw FieldOffset — `#[c_export]` of `(int32, P)` (`P = {x,y int32}`; flat
-`{ i32, [1 x i64] }` puts P at 8, C expects 4) makes C read `7 1 8` (want `7 8 9`) on aa64 LLVM; native
-is right.  Same whole-store in the C-sret (retAdapt) path.  Fix in the same commit: reinterpret
-field-by-field (emitScatterFlatValue) into a slot of raw size + one word.
-Fourth symptom, native aa64 only, NOT HFA-specific (found 2026-10-13 by review of the fix): the aa64
-c_export trampoline (aarch64_cexport_retadapt.bn) treats every non-SRET kind as COERCE, but aa64 does reach
-COERCE_FROM_SRET — `#[c_export] func M9() (int8 × 9)`: a 9-byte C struct (x0/x1), nine GP words
-internally (> 8 → sret).  The trampoline calls the body with X8 = whatever the C caller left, then reads
-x0/x1 the body never set: SIGSEGV (LLVM, which has `coerceFromSret`, prints `1 … 9`).  Fix in the same
-commit: X8 = a local buffer before the call, then reload clang's words from it; e2e case in ffi-export.sh.
+The C-boundary side — a `#[c_export]` / `__c_entry` returning such a tuple — is done (binate `56911b098`,
+claude-todo-done.md), so the spelling fix no longer changes what C sees.  Before this lands: fix the shim
+retbuf overrun (MAJOR entry above), which the GP spelling would extend to `(int32, V3f)`-style tuples.
 
 ### An int64 index on a 32-bit target is bounds-checked and addressed by its low word — silent wrong store — 🟡 IN PROGRESS MAJOR (found 2026-10-13, work-5, review of int64 SSA promotion; reproduced; pre-existing; claimed 2026-10-13, work-5/session)
 
