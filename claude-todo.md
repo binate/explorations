@@ -125,6 +125,33 @@ is word-aligned; through the #[c_export] trampoline's CRET_ADAPT_SRET path the b
 a fault on strict-alignment bare metal.  Fix with the rest: decide by the buffer's guaranteed alignment
 (AlignOf of the tuple / result), not offset parity alone.
 
+### asm: binding changes between `.local` / `.global` / `.weak` accepted silently where clang rejects them — 🟡 IN PROGRESS (claimed 2026-10-13, work-2; user: "Let's do both") (found 2026-10-13, review of the visibility directives)
+
+The text assembler's `.local` does nothing, and `.global` after `.weak` keeps the symbol weak, so on ELF
+`.global x` / `.local x` leaves x global, `.local x` / `.global x` makes it global, and `.weak x` / `.global x`
+leaves it weak — clang rejects all three ("x changed binding to STB_LOCAL" / "STB_GLOBAL"); `.weak` after
+either is a warning there and makes the symbol weak.  On Mach-O clang has no `.local` ("unknown directive"),
+and `.weak_definition` with `.globl` is fine in either order.  Fix: in the parser, reject the ELF binding
+changes clang rejects, reject `.local` on Mach-O, and require the object format where the rule depends on it.
+
+### link tests: visibility set by patching st_other / n_type bytes instead of the assembler's SetVisibility — 🟡 IN PROGRESS (claimed 2026-10-13, work-2; user: "Let's do both")
+
+TestReadElfSymbolVisibility, TestLinkDynElfHiddenCommonNotExported and TestReadMachoPrivateExtern build their
+objects with the assembler, then patch the visibility bytes, written before asm.Symbol had a Visibility
+(binate `311b04c57`).  Use asm.SetVisibility instead; the stab entry in the Mach-O test stays patched (no
+assembler writes stabs), and so do the commons (see the `.comm` entry below).
+
+### asm: no common symbols — `.comm` / `.lcomm` (ELF), `.comm` (Mach-O) — 🔴 OPEN (found 2026-10-13, work-2, scoping the link-test visibility cleanup; latent)
+
+The assembler cannot define a common symbol: no `.comm` / `.lcomm` directive, no common in asm.Symbol, and
+neither writer emits SHN_COMMON (ELF) or an external N_UNDF with a size (Mach-O).  clang emits `.comm` for
+tentative definitions under -fcommon (and `.lcomm` / `.local` + `.comm` for static ones), so such assembly
+cannot be assembled; bnld's common tests patch SHN_COMMON into assembled objects (elfPatchCommon) for want of
+it.  Fix: a common in asm.Symbol (size and alignment), `.comm name, size[, align]` and `.lcomm` in the parser
+(clang's alignment rules per format: ELF byte alignment, Mach-O power of two), and the writers' encodings
+(ELF st_shndx SHN_COMMON with st_value the alignment; Mach-O n_type N_UNDF|N_EXT, n_value the size,
+GET_COMM_ALIGN in n_desc; `.lcomm` a local in .bss / a zerofill section), with tests against clang.
+
 ### asm ELF writer: a section's type and flags come from its name, ignoring the flags it was created with — 🔴 OPEN (found 2026-10-10, work-2, writing bnld reader test fixtures; latent)
 
 `elfSectFlags` / `elfSectType` (`pkg/binate/asm/elf/elf_util.bn`) derive sh_flags / sh_type from the section
