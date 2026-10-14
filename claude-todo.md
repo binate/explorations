@@ -96,7 +96,7 @@ is word-aligned; through the #[c_export] trampoline's CRET_ADAPT_SRET path the b
 a fault on strict-alignment bare metal.  Fix with the rest: decide by the buffer's guaranteed alignment
 (AlignOf of the tuple / result), not offset parity alone.
 
-### asm: no common symbols — `.comm` / `.lcomm` (ELF), `.comm` (Mach-O) — 🔴 OPEN (found 2026-10-13, work-2, scoping the link-test visibility cleanup; latent)
+### asm: no common symbols — `.comm` / `.lcomm` (ELF), `.comm` (Mach-O) — 🟡 IN PROGRESS (claimed 2026-10-13, work-2; user: "go ahead with that") (found 2026-10-13, work-2, scoping the link-test visibility cleanup; latent)
 
 The assembler cannot define a common symbol: no `.comm` / `.lcomm` directive, no common in asm.Symbol, and
 neither writer emits SHN_COMMON (ELF) or an external N_UNDF with a size (Mach-O).  clang emits `.comm` for
