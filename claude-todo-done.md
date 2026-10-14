@@ -1,3 +1,21 @@
+### An int64 / uint64 index on a 32-bit target was bounds-checked and addressed by its low word — DONE (binate `e59425657`, 2026-10-13, work-5)
+
+IR-gen passed an index wider than `int` through as is, so on arm32 an int64 / uint64 index reached
+OP_BOUNDS_CHECK and the element GEP as a 64-bit value the lowerings treated as one word: `a[i] = 7` with
+`i = 2^32 + 1` stored to `a[1]` on native arm32 and the VM on an arm32 host, and LLVM arm32 emitted invalid
+IR.  Now the bounds check takes a wide index whole on every lowering — LLVM compares in i64 against the
+sign-extended length; native arm32 `emitBoundsCheck64` does `cmp hi, #0; cmpeq lo, len; blo ok`; the VM's
+BC_BOUNDS_CHECK reads the register pair when its Aux is set — and the fail path calls a new
+`rt.BoundsFail64(index int64, length int)`, which reports the full index.  The irbuild helper `NarrowToInt`,
+used by `EmitGetElemPtr` and `EmitSliceExpr`, narrows an index or slice bound to int after its check.  64-bit
+targets are unchanged.  Tests: conformance 1633 (its five arm32 xfails removed) and 1635 (its two LLVM arm32
+xfails, the same bug, removed); 1636-1641 (in-range wide indexes, a wide slice hi and lo, a negative int64
+index, a managed-slice index, a uint64 index of 2^63); unit tests in types, irbuild, codegen, native/arm32
+and the runtime.  Validated on the six local modes, native and LLVM arm32 bare metal at -O2, and the three
+arm32-linux modes in Docker, plus the int64-using conformance subset at -O2 on native arm32 bare metal and
+linux and LLVM arm32 bare metal.  `make_slice` lengths have the same problem and need a spec decision (the
+NEEDS DECISION entry in claude-todo.md).
+
 ### Func-value / closure shims write exactly the result's size through the retbuf (LLVM, native arm32) — DONE (binate `fef9a097b`, 2026-10-13, work-3)
 
 abi/03 lets a shim write exactly the result's natural size through the caller's retbuf.  LLVM shims stored a

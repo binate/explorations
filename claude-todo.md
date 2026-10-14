@@ -77,20 +77,6 @@ The C-boundary side — a `#[c_export]` / `__c_entry` returning such a tuple —
 claude-todo-done.md), so the spelling fix no longer changes what C sees; the shims' retbuf overrun, which it
 would have extended to `(int32, V3f)`-style tuples, is fixed too (binate `fef9a097b`).
 
-### An int64 index on a 32-bit target is bounds-checked and addressed by its low word — silent wrong store — 🟡 IN PROGRESS MAJOR (found 2026-10-13, work-5, review of int64 SSA promotion; reproduced; pre-existing; claimed 2026-10-13, work-5/session)
-
-IR-gen widens an index narrower than `int` (`genIntOperand`) but passes a WIDER one through as is, so on a
-32-bit target an int64 / uint64 index reaches OP_BOUNDS_CHECK and the element GEP as a 64-bit value that
-the lowerings treat as one word.  `var a [3]int; var i int64 = 4294967297; a[i] = 7` (2^32 + 1) must
-trap; instead native arm32 and the VM on an arm32 host check and address the low word (1) and store to
-`a[1]` (prints 7), and the LLVM arm32 modes fail to compile (`emitBoundsCheckInline` prints the i64 index
-as `i32`: "'%v4' defined with type 'i64' but expected 'i32'").  The 64-bit modes trap as required, and it
-fails at -O0 too.  Test: conformance 1633 (`1633_err_int64_index_32bit`, binate `4a3f26099`), xfail'd on
-the five arm32 modes.
-Fix in IR-gen, once for every backend: check an index wider than `int` against the length as a 64-bit
-value (or range-check it, then narrow) before the bounds check and the GEP see it.  Slice bounds and
-`make_slice` lengths need the same treatment — check them while there.
-
 ### The LLVM backend's same-width float cast turns -0.0 into +0.0 — silent wrong value — 🔴 OPEN MAJOR (found 2026-10-12, work-5, review of float SSA promotion; reproduced; pre-existing)
 
 `emitCast` (codegen/emit_cast.bn ~131) lowers a same-width float-to-float OP_CAST as `fadd <ty> %x, 0.0`,
