@@ -60,7 +60,7 @@ length must be a constant integer"), though `len` of an array is an `int` consta
 `lc.P` as a value works (3).  The `.bni` scope evaluates an imported constant's initializer without checking it
 (defineBniConst), and the evaluator's `len` (`checkerEnv.Len`, check/check_constval.bn) finds the type only of a
 checked argument (`ResolvedTypeID`), a variable it names, or a string literal — an unchecked composite literal
-has none, so the constant is NOT_CONST.  Test: conformance 1653 (`.xfail.all`).  Fix direction: let `Len` type an
+has none, so the constant is NOT_CONST.  Test: conformance 1655 (`.xfail.all`).  Fix direction: let `Len` type an
 array composite literal from its type expression (`env.Type(e.TypeRef)`, resolved at the current iota) when it
 has no checked type — or check the initializer of an imported constant whose value needs a type the evaluator
 cannot find.
