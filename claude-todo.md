@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### The 32-bit-host unit lane (`builder-comp_arm32_linux`) still fails in check / types / irgen / iropt / native: the compiler may use the HOST's `int` width for target values — 🔴 OPEN CRITICAL (found 2026-10-09, work-2, validating the bnld int64-addend change on that lane; pre-existing)
+### The 32-bit-host unit lane (`builder-comp_arm32_linux`) still fails in check / types / irgen / iropt / native: the compiler may use the HOST's `int` width for target values — 🟡 IN PROGRESS CRITICAL (claimed 2026-10-13, work-1; found 2026-10-09, work-2, validating the bnld int64-addend change on that lane; pre-existing)
 
 The build break (bnc / bnas did not compile for a 32-bit host) and the assembler / linker test code that assumed a
 64-bit `int` are fixed (binate `be193de5e`, `ec27fce79`; see claude-todo-done.md): every asm package, link,
