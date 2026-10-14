@@ -14,7 +14,8 @@ outside an instance); all fixed with tests that fail without the fix.  Run-time 
 `x.(J)` should respect the privacy too, the user first said "they should respect privacy", then, shown that a
 value of a type only a `.bn` declares (e.g. `errors.New`'s) could then never be asserted to an interface
 outside its package and that `fmt`'s Stringer check would ignore such impls, chose "See every impl at run
-time": an assertion consults every impl in the program, as it already did.  §11.12 says so (docs `73c9d5c`).
+time": an assertion consults every impl in the program, as it already did.  §11.12 says so (docs `73c9d5c`);
+conformance spec/11 104 pins it (binate `99dce33dd`).
 
 ### Native: a func-value / interface call's by-address argument (float aggregate, zero-size aggregate) under-reserved the outgoing area — the call overwrote the caller's frame — DONE (binate `d9e9ac2cd`, 2026-10-14, work-3)
 
