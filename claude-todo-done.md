@@ -1,3 +1,22 @@
+### asm: symbol-visibility directives — `.hidden` / `.internal` / `.protected` (ELF), `.private_extern` (Mach-O) — DONE (binate `311b04c57`, 2026-10-13, work-2)
+
+asm.Symbol has a Visibility (VIS_DEFAULT / INTERNAL / HIDDEN / PROTECTED, ELF's st_other values) and
+Assembler.SetVisibility (the symbol must already be in the table).  The ELF writers (ELF64, ELF32) write it as
+st_other, a local's included, as clang does; the Mach-O writer marks a hidden external N_PEXT and rejects internal
+and protected.  The parser takes `.hidden` / `.internal` / `.protected` (ELF only) and `.private_extern` (Mach-O
+only), each with a comma list; each format's directives are errors in the other, and they need the object format
+known.  `.private_extern` makes the symbol global and hidden.  The ELF directives are applied in Finish, after
+the constants are listed: a label keeps its binding, the last directive wins, and a name never defined is entered
+as an undefined global (as clang lists it) — but not a temporary label, an unlisted alias, or a name `.local`
+declared (clang writes that as an undefined local no linker resolves; here a reference to it is an error).
+Deliberate differences from clang: an empty list is an error, as an empty `.global` is (clang takes both as doing
+nothing).  Checked against clang by assembling the same symbols with bnas and clang: symbol tables match on ELF
+aarch64 / x86-64 / arm32 and Mach-O aarch64 / x86-64.  Review: no critical or major defects; its points taken
+(the `.local` case, tests for a second-pass difference against a hidden external, an alias used before
+`.private_extern`, a `.global_c` and an absolute private external).  Not done: `.global x` then `.local x` leaves
+x global where clang errors "changed binding to STB_LOCAL" (older than this change; raised, not logged).
+Validated: pkg/binate/asm* unit tests; hygiene.
+
 ### A load stored whole is read in place at any size on LLVM too, its store a memmove — DONE (binate `987685d08`, 2026-10-13, work-1)
 
 The store case's last piece.  The LLVM backend's memory-backed loads ask common.AggLoadElision (now
