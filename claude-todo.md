@@ -39,6 +39,19 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### `make_slice` with an int64 / uint64 length on a 32-bit target passes one word — wrong length or invalid IR — 🔴 NEEDS DECISION MAJOR (found 2026-10-13, work-5, fixing the int64-index bug; pre-existing)
+
+The same class as the int64-index bug: IR-gen's `genIntOperand` widens a length narrower than int but passes
+a wider one through, so `make_slice(T, n)` with an int64 / uint64 `n` on arm32 hands the runtime's
+`MakeManagedSlice(…, n int)` a 64-bit value.  LLVM arm32 emits invalid IR (seen: `call …MakeManagedSlice(…,
+i32 %v2)` with `%v2` an i64); native arm32 and the VM on an arm32 host pass the low word (by code reading),
+so `make_slice(int, 4294967298)` would make a 2-element slice silently.  The fix needs a spec decision:
+§15 defines only a negative `n` as a trap ("make_slice with negative length"); a length that does not fit
+int on the target is not covered.  Options: trap it (a new message, or the negative-length one extended to
+"length out of range"), or define it otherwise.  Then IR-gen checks a wide length before narrowing it, as
+the int64-index fix does for bounds checks.  Found while fixing the int64-index bug (conformance 1633),
+whose todo entry flagged make_slice lengths to check.
+
 ### LLVM func-value / closure shims write past the caller's retbuf for a multi-return tuple whose struct field word-rounds — 🟡 IN PROGRESS (claimed 2026-10-13, work-3/session; user: "yes" = fix before the tuple-HFA GP spelling) MAJOR (found 2026-10-13, work-3, scoping the aa64 tuple HFA fix; IR-confirmed; pre-existing)
 
 ABI abi/03 (dispatch seam): "the callee writes exactly the natural size through [retbuf] ... Space beyond
