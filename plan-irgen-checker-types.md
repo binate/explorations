@@ -130,7 +130,24 @@ IR-gen cannot map is an internal error, never `int`.
 
 ## Open questions for the user
 
-3. What a Self-typed parameter is in the IR interface registry — under investigation (user: "investigate 3
-   more deeply").
+3. What a Self-typed parameter is in the IR interface registry — investigated (2026-10-13), PROPOSAL awaiting
+   the user:
+   - Facts.  A method whose signature mentions `Self` is object-unsafe (spec iface.self.object-safety): the
+     checker rejects calling it through an interface value (check_method.bn), also through a type parameter
+     bound to an interface type (`eqv[*Eq]`: "does not satisfy constraint" and "uses `Self` and cannot be
+     called through an interface value").  The IR registry's method signatures (MethodParamsFlat /
+     MethodResultsFlat) are read only by IR-gen: registry construction (collectInterfaceFromDecl), generic
+     interface instances (ensureInstantiatedInterface) and dispatch (genInterfaceMethodCall /
+     findInterfaceMethodFromBase).  The VM, LLVM codegen and the native backends read interface method
+     NAMES only (IfaceOwnMethodNames, for slot numbering).  So a Self method's signature is never consumed
+     for code generation; today's `TypVoid()` (resolveTypeExpr's fall-through for TEXPR_SELF) is inert, but
+     a wrong representation, and it would read as a mismatch in the differential.
+   - Proposal.  Self stays Self: the registry holds `TYP_SELF` (already in pkg/binate/types, unused by
+     IR-gen today); the mapper maps it structurally (`*Self`, `@[]Self`, `*func(Self) int`, results); generic
+     interface instances keep it (Self is not a type parameter); interface dispatch asserts the method it
+     lowers mentions no `TYP_SELF` (an internal error — unreachable under the checker's rule, so the
+     invariant is loud in IR-gen too).  The legacy resolver switches TEXPR_SELF to `TYP_SELF` in stage 1 so
+     the differential sees no Self mismatch.  Rejected alternative: storing no signature for an
+     object-unsafe method (a per-method flag) — a second representation of what `TYP_SELF` already says.
 7. (From plan-repl-type-shadowing.md) REPL late binding: a generic or a parked declaration resolved after a
    shadow sees the new type.
