@@ -141,6 +141,14 @@ relied on it already; the returned-local change (a local living in the buffer fo
 the exposure.  Fix: spell the define line's alignment from T (its AlignOf, as byvalArgAlign does for by-value
 arguments) — at least for functions a C caller can reach; reproduce first with an e2e C caller passing a
 4-aligned, not 8-aligned, buffer to a #[c_export] function returning a struct of int32s, on arm32.
+Same assumption elsewhere (found 2026-10-13, review of the shim retbuf exact-size fix): the LLVM func-value /
+closure shims forward `%retbuf` as `ptr sret(...) align 8` (emit_funcvals_shim.bn, emit_funcvals_closure.bn) —
+abi/03 promises the retbuf only AlignOf; every current dispatch caller 8-aligns it, so latent.  Native arm32
+storeMultiRetGpFieldArm32 picks word (STR / STRH) vs byte stores by the field offset's parity, assuming the base
+is word-aligned; through the #[c_export] trampoline's CRET_ADAPT_SRET path the base is the C caller's buffer, so a
+1-aligned tuple such as `(int8, [3]int8, [3]int8)` (C sret, 7 bytes) at an odd address gets unaligned stores —
+a fault on strict-alignment bare metal.  Fix with the rest: decide by the buffer's guaranteed alignment
+(AlignOf of the tuple / result), not offset parity alone.
 
 ### asm ELF writer: a section's type and flags come from its name, ignoring the flags it was created with — 🔴 OPEN (found 2026-10-10, work-2, writing bnld reader test fixtures; latent)
 
