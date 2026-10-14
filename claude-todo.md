@@ -36,23 +36,6 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### A const member with iota only inside a type expression takes the last member's value — silent wrong constant — 🟡 IN PROGRESS MAJOR (claimed 2026-10-14, work-1; user: "yes, do it next"; found 2026-10-14, work-1, review of the bare-member iota fix; reproduced; pre-existing)
-
-A const-group member whose initializer mentions iota only inside a type expression (an array length) gets the
-LAST member's length, on every backend: `const ( A float64 = cast(float64, sizeof([iota + 1]int64)); B; C )` is
-24 24 24 (not 8 16 24), and `const ( LA int = len([iota + 2]int8{}); LB )` is 2 2 (not 2 3) — an integer
-constant wrong at check time.  (`const ( IA = sizeof([iota + 1]int64); IB; IC )` is right: the checker resolves
-the type at each iota (checkerEnv.Type) and IR-gen emits the checker's value.)  Root cause: a bare member is
-evaluated on the explicit member's shared AST.  (1) Resolving `[iota + 1]int64` records the length on the shared
-`TypeExpr` (`LenVal` / `LenKnown`, check/resolve_type.bn), so the last member's evaluation wins, and IR-gen
-trusts `LenVal` (irgen/gen_type_resolve.bn) when it re-lowers the stashed float expression — for the explicit
-member A too.  (2) `checkerEnv.Len` (check/check_constval.bn) reads the array type from `e.ResolvedTypeID`,
-recorded when the explicit member was checked.  (3) `mentionsIota` / `substituteIota` look only at expression
-operands, not into `TypeRef`, so such a member gets no per-member checked copy.  Test: conformance 1651
-(`.xfail.all`).  Fix direction: evaluate a bare member whose initializer mentions iota anywhere (type expressions
-included) on its own checked copy at its iota, leaving the explicit member's nodes untouched, and make
-`mentionsIota` / `substituteIota` descend into type expressions.
-
 ### An imported constant that is `len` of an array literal is not a constant to the importer — 🔴 OPEN (found 2026-10-14, work-1, writing the cross-package test for the iota-in-type-expression fix; reproduced; pre-existing)
 
 `const P int = len([3]int8{})` in a package's `.bni`: an importer's `var a [lc.P]int8` is rejected ("array

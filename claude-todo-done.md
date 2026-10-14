@@ -1,3 +1,17 @@
+### A const member with iota only inside a type expression takes the last member's value — DONE (binate `cc6790dd2`, test `1deee1395`; 2026-10-14, work-1) (found 2026-10-14, work-1, review of the bare-member iota fix; pre-existing)
+
+A bare const-group member was evaluated on the explicit member's nodes, whose recorded values depend on iota
+where it shapes a type: `cast(float64, sizeof([iota + 1]int64))` was 24 24 24 (the length stamped on the shared
+`TypeExpr.LenVal`, which IR-gen trusts), `len([iota + 2]int8{})` 2 2 and `len([...]int8{iota: 1})` 1 1 1 (`len`
+read the explicit member's checked type), a bare member's out-of-bounds key compiled and its negative length
+was reported inside the explicit member's initializer.  `cc6790dd2`: a bare member whose initializer has iota in
+a type expression or a composite literal is checked and evaluated on its own copy at its iota (RepeatedInit),
+its errors claimed for it (claimErrors: reported once at the member; an error in a declaration checked on the way
+stays put); the `.bni` scope and the REPL copy it too; the code moved to check/check_const_bare.bn.  Conformance
+1651 (no longer xfail), 1654, 1656; unit tests in check_const_bare_test.bn, bni_scope_const_test.bn,
+repl/decl_test.bn.  Found on the way, tracked separately: an imported constant that is `len` of an array literal
+is not a constant to the importer (conformance 1655, `28d50f8cf`), and bnfmt's column-0 `)` for a local group.
+
 ### An `impl` only a package's `.bn` declares is private to the package — DONE (binate `e7dc58048`, docs `75802e5`, 2026-10-14, work-7)
 
 The user chose (a), as for methods: an impl is visible to importers iff the package's `.bni` declares it.  The
