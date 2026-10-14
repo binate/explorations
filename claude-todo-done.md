@@ -1,3 +1,15 @@
+### asm: the binding changes clang rejects — `.local` / `.global` / `.weak` — DONE (binate `897dd3aca`, 2026-10-13, work-2)
+
+The parser's `.local` did nothing and `.global` after `.weak` kept the symbol weak, so on ELF `.global x` /
+`.local x`, `.local x` / `.global x` and `.weak x` / `.global x` were accepted where clang rejects them.
+bindingChangeOk (pkg/binate/asm/parse/parse_binding.bn, with the `.local` name record) applies clang's rules: on
+ELF `.local` may not follow `.global` or `.weak`, nor `.global` / `.global_c` follow `.local` or `.weak`; `.weak`
+may follow either and makes the symbol weak (clang warns).  On Mach-O `.global` may follow `.weak` (it stays
+weak) and `.local` is an error (clang: "unknown directive").  With the object format not yet known, `.local` and
+`.global` after `.weak` are errors.  The assembler API (SetGlobal keeping WEAK, which the native backend relies
+on) is unchanged.  Review: no defects; its points taken (a `.global_c` case, the from-weak diagnostic for
+`.local` / `.weak` / `.global`).  Validated: asm/parse and asm/assemble unit tests; hygiene.
+
 ### bnc --x-copy-stats: a tally of the aggregate copies native aarch64 code makes — DONE (binate `ddd1e1f4c`, 2026-10-13, work-1)
 
 The "re-measure the -O2 IR" step of the large-aggregate copy entry (user: "Go with the stats flag in bnc; we'll

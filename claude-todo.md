@@ -127,15 +127,6 @@ is word-aligned; through the #[c_export] trampoline's CRET_ADAPT_SRET path the b
 a fault on strict-alignment bare metal.  Fix with the rest: decide by the buffer's guaranteed alignment
 (AlignOf of the tuple / result), not offset parity alone.
 
-### asm: binding changes between `.local` / `.global` / `.weak` accepted silently where clang rejects them — 🟡 IN PROGRESS (claimed 2026-10-13, work-2; user: "Let's do both") (found 2026-10-13, review of the visibility directives)
-
-The text assembler's `.local` does nothing, and `.global` after `.weak` keeps the symbol weak, so on ELF
-`.global x` / `.local x` leaves x global, `.local x` / `.global x` makes it global, and `.weak x` / `.global x`
-leaves it weak — clang rejects all three ("x changed binding to STB_LOCAL" / "STB_GLOBAL"); `.weak` after
-either is a warning there and makes the symbol weak.  On Mach-O clang has no `.local` ("unknown directive"),
-and `.weak_definition` with `.globl` is fine in either order.  Fix: in the parser, reject the ELF binding
-changes clang rejects, reject `.local` on Mach-O, and require the object format where the rule depends on it.
-
 ### link tests: visibility set by patching st_other / n_type bytes instead of the assembler's SetVisibility — 🟡 IN PROGRESS (claimed 2026-10-13, work-2; user: "Let's do both")
 
 TestReadElfSymbolVisibility, TestLinkDynElfHiddenCommonNotExported and TestReadMachoPrivateExtern build their
