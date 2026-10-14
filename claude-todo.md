@@ -2234,6 +2234,20 @@ destructor (or give F a destructor that calls X's).
 
 ## bnfmt (self-hosted formatter)
 
+### bnfmt moves the comments inside a directly called function literal above its statement — 🔴 OPEN (found 2026-10-13, work-4, step 4 of the `defer { … }` plan; pre-existing)
+
+`printStmts` (`pkg/binate/format/print_stmt.bn:116`) emits a statement's leading comments up to
+`stmts[i].Pos`.  An expression statement's Pos is its expression's (`parse_stmt.bn`), and a call's is its
+`(` (`parseCallExpr`, `pkg/binate/parser/parse_postfix.bn`).  In `func() { // why` … `g() // t` … `}()`
+the `(` follows the literal's body, so every comment inside the literal is printed as a leading comment of
+the statement: above it, with a blank line where each was, and the trailing comment off its line.
+`run(func() { … })` is unaffected, as was the old `defer func() { … }()` (its Pos was the `defer`).  Likely
+the same for any statement whose first expression is a postfix chain on a multi-line operand (a method call
+on a multi-line composite literal, …).  Comments are moved, not lost.  Test: `TestCommentsFuncLitInPlace`
+(`pkg/binate/format/print_funclit_comments_test.bn`), which fails once the `defer { … }` step-4 commit (not
+yet landed) drops the `defer` from its literal.  Fix: emit a statement's leading comments up to its
+leftmost token (descending the postfix chain's X), in bnfmt.
+
 ### bnfmt indents a function literal's body from column 0 inside a composite literal element (and a case label) — 🟢 LOW (found 2026-10-06, work-3, review of the function-literal comment fix; pre-existing)
 
 `printCompositeElems` (`pkg/binate/format/print_wrap.bn`) renders each element into a fresh builder, where
