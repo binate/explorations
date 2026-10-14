@@ -1,3 +1,22 @@
+### asm: common symbols — `.comm` / `.lcomm` — DONE (binate `819372258`, link tests `75ad1611c`, 2026-10-14, work-2)
+
+asm.Symbol has Common / CommonAlign, Size (ELF st_size) and Object (STT_OBJECT); Assembler.DefineCommon declares a
+common and DefineLocalCommon defines a zero-filled object in bss (local unless SetGlobal / SetWeak bound it).  The
+ELF writers write a common as clang does (STT_OBJECT, SHN_COMMON, value the alignment, size the size) and every
+symbol's size / object type; the Mach-O writer writes an external N_UNDF with n_value the size and the alignment's
+exponent in n_desc (N_PEXT when hidden, N_WEAK_DEF when weak), fails on an alignment over 2^15, and no longer pads
+the file to a zero-fill section's alignment.  The parser takes `.comm` / `.lcomm` with clang's per-format rules (ELF
+`.comm` alignment in bytes, Mach-O an exponent, ELF `.lcomm` none and local binding; `.local` + `.comm` a local
+common; Mach-O `.globl` / `.private_extern` with `.lcomm` a global object), records each local common's Mach-O atom
+(a difference between two is a relocation pair, as clang writes it), gives an alias a local common's type and size,
+and caps a local common as `.zero` is capped.  Deliberate errors where clang quietly replaces a definition: a label
+after `.comm`, `.lcomm` after `.comm`, `.comm` of a constant, a Mach-O common redeclared with another size, an ELF
+`.lcomm` of a global / weak name; also a Mach-O exponent < 0 or > 62, and `.lcomm` / an alignment with the object
+format unknown.  bnas output matches clang's symbol tables on ELF aarch64 / x86-64 / arm32 and Mach-O aarch64 /
+x86-64.  The link tests now make their commons with DefineCommon (the patch helpers are gone).  Review: one major
+(Mach-O `.lcomm` differences folded) and its minors fixed before landing.  Found here and logged separately: the
+ELF writer's 16-byte minimum section alignment.  Validated: pkg/binate/asm* and link unit tests; hygiene.
+
 ### A negative literal narrowed to a typed int inside a package constant evaluates to 0 — DONE (binate `6c0d90f8d`, `6e5365beb`; 2026-10-14, work-1) (found 2026-10-13, work-1, review of the parseIntLit int64 change; pre-existing)
 
 A float constant's expression is stashed and re-lowered at each read, iota substituted by the member's value.

@@ -116,17 +116,6 @@ is word-aligned; through the #[c_export] trampoline's CRET_ADAPT_SRET path the b
 a fault on strict-alignment bare metal.  Fix with the rest: decide by the buffer's guaranteed alignment
 (AlignOf of the tuple / result), not offset parity alone.
 
-### asm: no common symbols — `.comm` / `.lcomm` (ELF), `.comm` (Mach-O) — 🟡 IN PROGRESS (claimed 2026-10-13, work-2; user: "go ahead with that") (found 2026-10-13, work-2, scoping the link-test visibility cleanup; latent)
-
-The assembler cannot define a common symbol: no `.comm` / `.lcomm` directive, no common in asm.Symbol, and
-neither writer emits SHN_COMMON (ELF) or an external N_UNDF with a size (Mach-O).  clang emits `.comm` for
-tentative definitions under -fcommon (and `.lcomm` / `.local` + `.comm` for static ones), so such assembly
-cannot be assembled; bnld's common tests patch SHN_COMMON into assembled objects (elfPatchCommon) for want of
-it.  Fix: a common in asm.Symbol (size and alignment), `.comm name, size[, align]` and `.lcomm` in the parser
-(clang's alignment rules per format: ELF byte alignment, Mach-O power of two), and the writers' encodings
-(ELF st_shndx SHN_COMMON with st_value the alignment; Mach-O n_type N_UNDF|N_EXT, n_value the size,
-GET_COMM_ALIGN in n_desc; `.lcomm` a local in .bss / a zerofill section), with tests against clang.
-
 ### asm ELF writer: every section's sh_addralign is at least 16, where clang's is its contents' alignment — 🔴 OPEN (found 2026-10-14, work-2, comparing bnas `.lcomm` output with clang's; latent)
 
 `elf.Write` (pkg/binate/asm/elf/elf.bn, the data-section layout loop) gives each section sh_addralign
