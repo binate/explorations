@@ -39,7 +39,7 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### LLVM func-value / closure shims write past the caller's retbuf for a multi-return tuple whose struct field word-rounds — 🔴 OPEN MAJOR (found 2026-10-13, work-3, scoping the aa64 tuple HFA fix; IR-confirmed; pre-existing)
+### LLVM func-value / closure shims write past the caller's retbuf for a multi-return tuple whose struct field word-rounds — 🟡 IN PROGRESS (claimed 2026-10-13, work-3/session; user: "yes" = fix before the tuple-HFA GP spelling) MAJOR (found 2026-10-13, work-3, scoping the aa64 tuple HFA fix; IR-confirmed; pre-existing)
 
 ABI abi/03 (dispatch seam): "the callee writes exactly the natural size through [retbuf] ... Space beyond
 the natural size ... is not writable" (non-VM callers allocate exactly the natural size).  The LLVM
