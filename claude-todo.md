@@ -52,21 +52,7 @@ an aggregate seam argument as the pointer slot it is (`shimDispatchArgTypes`: a 
 `*uint8`); also exact for GP aggregates, which it over-reserved.  Must land before the arm32 HFA switch, which
 would make arm32 hard-float the same.
 
-### A negative literal narrowed to a typed int inside a package constant evaluates to 0 — silent wrong value — 🟡 IN PROGRESS MAJOR (claimed 2026-10-13, work-1; user: "do the new MAJOR first"; found 2026-10-13, work-1, review of the parseIntLit int64 change; reproduced; pre-existing)
-
-Landed (binate `6c0d90f8d`): substituteIota copies only the nodes on a path to an iota (any other subtree keeps
-the checker's type IDs), and exprIntLitValue's fallback reads `-N` through the negation and fails loud on a node
-with no literal text — `cast(float64, cast(int8, -1))`, `(0 - 7) / 2`, `(0 - 16) >> 2` and a `-iota` member are
-right (conformance 1646).  Still open — the same root cause on the path to an iota: a node there is a copy with
-no type ID, so untyped arithmetic over iota in a float constant runs at run time as unsigned host-width
-arithmetic: `const ( X float64 = cast(float64, iota - 5); Y )` is +1.8e19 on LLVM, `(iota - 7) / 2` and
-`(iota - 16) >> 2` garbage everywhere, and on arm32 `cast(float64, cast(int64, iota - 1))` 4294967295.0.  Fix
-(in progress): the checker checks a clone of a bare member's repeated initializer at the member's iota (errors
-muted — the evaluation reports the member's own) and records it per member, the REPL's tentative group path the
-same; IR-gen takes that clone for a bare member (package, local and imported .bni groups), and substituteIota
-keeps type IDs on its copies (every stashed expression then having been checked at its own iota).
-
-### A const member with iota only inside a type expression takes the last member's value — silent wrong constant — 🔴 OPEN MAJOR (found 2026-10-14, work-1, review of the bare-member iota fix; reproduced; pre-existing)
+### A const member with iota only inside a type expression takes the last member's value — silent wrong constant — 🟡 IN PROGRESS MAJOR (claimed 2026-10-14, work-1; user: "yes, do it next"; found 2026-10-14, work-1, review of the bare-member iota fix; reproduced; pre-existing)
 
 A const-group member whose initializer mentions iota only inside a type expression (an array length) gets the
 LAST member's length, on every backend: `const ( A float64 = cast(float64, sizeof([iota + 1]int64)); B; C )` is

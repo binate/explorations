@@ -1,3 +1,19 @@
+### A negative literal narrowed to a typed int inside a package constant evaluates to 0 — DONE (binate `6c0d90f8d`, `6e5365beb`; 2026-10-14, work-1) (found 2026-10-13, work-1, review of the parseIntLit int64 change; pre-existing)
+
+A float constant's expression is stashed and re-lowered at each read, iota substituted by the member's value.
+The re-lowered copies had no checker type IDs, so untyped arithmetic in them missed its folded value:
+`cast(float64, cast(int8, -1))` read 0, and over iota, untyped arithmetic in a float constant ran at run time as
+unsigned host-width arithmetic (`cast(float64, iota - 5)` +1.8e19 on LLVM, `(iota - 7) / 2` and `(iota - 16) >>
+2` garbage everywhere, `cast(float64, cast(int64, iota - 1))` 4294967295.0 on arm32).  `6c0d90f8d`:
+substituteIota copies only the nodes on a path to an iota, and exprIntLitValue's fallback reads `-N` through the
+negation (conformance 1646).  `6e5365beb`: the checker checks a copy of a bare member's repeated initializer at
+the member's iota — before the member's name is defined, only when its value is not an integer constant — and
+records it (Checker.RepeatedInit); the copy's errors are the member's own, so a bare member's division by zero
+or int8 overflow behind a float operand, which used to compile, is rejected; the REPL's tentative group path
+makes the same copy; IR-gen lowers that copy for a bare member (package, local and imported .bni groups), and
+substituteIota keeps type IDs (conformance 1647–1650).  The review found an older bug in the same code — iota
+inside a type expression — tracked separately in claude-todo.md (conformance 1651).
+
 ### `defer { … }`: a block run at scope exit, reading live variables — DONE (binate `b576ece21`, `279990cbe`, `550800e0b`, `2640d2b68`, `f9551eddf`; docs `9cfcb6d`, `321a548`; 2026-10-14, work-4)
 
 Decided (user, 2026-10-11 / 2026-10-12): stray from Go — the deferred code is evaluated when it runs, at the exit
