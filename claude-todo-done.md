@@ -1,3 +1,15 @@
+### x86-64 `#[c_export]` / `__c_entry` of a tuple with an SSE-class struct field was a mismatched plain alias — DONE (binate `47c39b280`, 2026-10-13, work-3)
+
+C returns an SSE eightbyte in XMM; the internal convention returns a struct / array field in GP (ABI §2.7), but
+callconv.CMultiReturnTupleInRegCoerced's x86-64 reasoning covered only float scalar fields, so `(V2, int64)`
+was a plain alias: C read `1.5 0.0 <garbage>` (LLVM) / `0.0 0.0 <garbage>` (native).  New trigger
+tupleSseOverlapsAggregateField repacks when a C SSE eightbyte overlaps a struct / array field; the LLVM thunk
+returns clang's SSE form and the native x64 trampoline already reloaded SSE eightbytes into XMM.  Tests:
+callconv kinds, a codegen thunk test (both orders), ffi-export.sh `(FfiVec2, int64)` / `(int64, FfiVec2)` direct
+and via __c_entry — passing on aa64 and on x86-64 (`--target x86_64-darwin` under Rosetta, both backends).
+A review's suspected anonymous-struct tuple-field mismatch was probed and is not a bug (synthesized names make
+it a coerced kind; native <-> LLVM agree on aa64 and x86-64).
+
 ### link tests: symbol visibility set with asm.SetVisibility, not patched bytes — DONE (binate `0ec09f4d0`, 2026-10-13, work-2)
 
 TestReadElfSymbolVisibility, TestLinkDynElfHiddenCommonNotExported and TestReadMachoPrivateExtern now call

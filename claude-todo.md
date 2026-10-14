@@ -49,22 +49,6 @@ and the fallback stops returning 0 for a node with no literal text (handle UNARY
 loud).  Test: a conformance test with the fix (both constants above, a uint / int64 variant, and a named const
 used in a typed context).
 
-### x86-64 `#[c_export]` / `__c_entry` of a tuple with an SSE-class STRUCT field is a plain alias, but C and the internal convention place it differently — 🟡 IN PROGRESS (claimed 2026-10-13, work-3/session; user: "yes") MAJOR (found 2026-10-13, work-3, review follow-up of the aa64 tuple HFA fix; reproduced on both backends)
-
-`#[c_export] func Mvl() (V2, int64)` with `V2 = {x, y float32}`: C's `struct { struct V2 v; long l; }` returns
-v (an SSE eightbyte) in XMM0 and l in RAX; the internal convention (ABI §2.7) returns the struct field v in GP
-— RAX, then l in RDX — on both backends.  callconv `CExportMultiReturnAdaptKind` says NONE (plain alias):
-`CMultiReturnTupleInRegCoerced`'s x86-64 reasoning ("each float eightbyte rides XMM under BOTH conventions") holds
-only for float SCALAR fields.  Built with `--target x86_64-darwin`, run under Rosetta, C reads `1.5 0.0
-<garbage>` (LLVM) / `0.0 0.0 <garbage>` (native); want `1.5 2.5 7`.  aa64 is right (its classifier repacks
-any non-HFA tuple with a float component, and FP-HFA tuples since binate `56911b098`).
-Fix: on x86-64, a register-returned tuple needs COERCE when any SSE eightbyte of its C classification
-(SysVClassify) overlaps a struct / array field (internally GP); the LLVM thunk's coerced form is already the
-SSE eightbyte form (writeCMultiReturnCoercedType → sysvReturnLLTy); check the native x64 trampoline's COERCE
-reload puts SSE eightbytes in XMM.  Test: ffi-export.sh `(FfiVec2, int64)` and `(int64, FfiVec2)` cases (they
-also cover aa64, where the LLVM plain alias was wrong until the tuple GP-spelling fix); the x86-64 path only
-runs on the Linux CI runner or locally via `--target x86_64-darwin` + Rosetta.
-
 ### `make_slice` with an int64 / uint64 length on a 32-bit target passes one word — wrong length or invalid IR — 🔴 NEEDS DECISION MAJOR (found 2026-10-13, work-5, fixing the int64-index bug; pre-existing)
 
 The same class as the int64-index bug: IR-gen's `genIntOperand` widens a length narrower than int but passes
