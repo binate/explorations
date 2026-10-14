@@ -187,6 +187,10 @@ loop in IR-gen") — the `for` statement needs its own IR-gen scope before a sco
   cmd 5, impls 30; every one a one-line `defer <call>` at a `_test.bn` function's top level), plus 9 call-form
   defers in unit tests' embedded source that use it only to exercise semantics (vm 8, irgen 1).  The tests of
   the call form itself (parser, format, check) change in step 4.
+- 2026-10-13: step 3 landed (binate `550800e0b`): the 279 defers and the 9 embedded-source deferred calls use the
+  block form.  Six call-form defers landed concurrently on main (3 in `pkg/binate/irbuild/narrow_test.bn`, 3 in
+  `pkg/binate/native/arm32/arm32_bounds64_test.bn`); a follow-up migrates them.  Until step 4 rejects the call
+  form, other sessions keep writing it.  Next: step 4.
 
 ## Transition (the pinned CHECK_TOOLS bnlint / bnfmt parse `pkg/`, `cmd/`, `impls/`, `ifaces/`)
 
