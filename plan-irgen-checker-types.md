@@ -118,16 +118,19 @@ IR-gen cannot map is an internal error, never `int`.
   files other sessions edit.
 - BUILDER: no new language features needed.
 
+## Decisions (user, 2026-10-13: "Go with your recs (for 1/2/4/5/6), and investigate 3 more deeply")
+
+1. Value-name resolution (stage 6) IS in this plan.
+2. The differential (stage 3) is a flag used during the transition, removed in stage 7.
+4. Struct and interface INSTANCES map directly from the checker's instance type (typeInstanceCopy dropped
+   for types; method bodies keep their checked copies).
+5. White-box no-checker tests of deleted internals are deleted; behavioural ones are rewritten to run the
+   checker.
+6. "IR-gen drivers must fully check every dependency" is accepted as permanent.
+
 ## Open questions for the user
 
-1. Value-name resolution (stage 6) in this plan?  Without it the one-resolver goal and the overlay /
-   precedence deletions are unreachable; with it the work roughly doubles.
-2. The differential (stage 3): a flag used during the transition, or an always-on internal error?  For
-   how long?
-3. What a Self-typed parameter is in the IR interface registry.
-4. Map struct and interface INSTANCES directly from the checker's instance type (dropping
-   typeInstanceCopy for types; method bodies still need their copies)?
-5. White-box no-checker tests of deleted internals: delete, or rewrite?
-6. Accept "IR-gen drivers must fully check every dependency" as permanent?
+3. What a Self-typed parameter is in the IR interface registry — under investigation (user: "investigate 3
+   more deeply").
 7. (From plan-repl-type-shadowing.md) REPL late binding: a generic or a parked declaration resolved after a
    shadow sees the new type.
