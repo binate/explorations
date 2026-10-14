@@ -71,6 +71,11 @@ entry below.  Test: a conformance case that cannot pass with the overrun (e.g. a
 canary the caller checks — needs a way to observe the caller's adjacent bytes; or a unit test pinning the
 shim's IR: no store wider than the natural size reaches `%retbuf`).  Blocks the tuple-HFA GP-spelling
 change, which would extend it to odd-count float32 HFA fields (`(int32, V3f)`, `(int32, V1f)`).
+Also (found 2026-10-13 scoping the fix): the LLVM shims' single coerced aggregate result is stored whole too
+(`[2 x i64]` for a 12-byte struct on aa64); and native arm32 overruns the same way — a word-aligned aggregate
+tuple field is stored in whole words (storeMultiRetGpFieldArm32; `(int8, int8, int8, int8, [3]int8)` writes
+byte 7 of a 7-byte tuple), and the pack shims store a 1-3-byte aggregate result with `STR R0, [R4]`.  Native
+aa64 / x64 already store exactly (emitStoreRegWordAarch64 / emitStoreRegWordX64).  Fixing all of these.
 
 ### aa64: a multi-return tuple with an HFA field is returned in FP registers by LLVM-compiled code, in GP registers by native — native<->LLVM calls read garbage — 🟡 IN PROGRESS (claimed 2026-10-13, work-3/session; user: "yes" = fix now, as plan-arm32-hfa.md stages 0-1) MAJOR (found 2026-10-13, work-3, arm32 HFA mapping; reproduced)
 
