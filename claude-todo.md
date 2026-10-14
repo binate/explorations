@@ -98,25 +98,6 @@ Fix in IR-gen, once for every backend: check an index wider than `int` against t
 value (or range-check it, then narrow) before the bounds check and the GEP see it.  Slice bounds and
 `make_slice` lengths need the same treatment — check them while there.
 
-### Loop bounds-check elimination compares an unsigned loop bound as signed — a uint64 bound ≥ 2^63 drops the check (silent out-of-bounds access) at -O1+ — 🟡 IN PROGRESS MAJOR (found 2026-10-13, work-5, review of int64 SSA promotion; reproduced; pre-existing; claimed 2026-10-13, work-5/session)
-
-`bce_loop` judges a guarded index in range when the loop guard `P < L` has a constant `L` no larger than
-the length — but `lengthProvablyLE` compares the constants as signed int64 `IntVal`s, and
-`loopBCEEliminable` accepts the `OP_LT` whatever the operands' signedness.  A uint64 bound ≥ 2^63 is
-stored with a negative `IntVal`, so it is judged ≤ the length and the bounds check is deleted.  Reproduced
-with a bnc built from main `01b5a0091` (native aa64 and LLVM, so it predates any change in flight):
-
-    var arr [3]int  (filled 1, 2, 3); var s int = 0
-    for u := cast(uint64, 0); u < 18446744073709551615; u++ { s = s + arr[u]; if u == 5 { break } }
-
-At -O0 it traps (`index out of bounds: 3 (len 3)`); at -O2 native aa64 prints 6 and LLVM prints 0 — the
-loop reads past the array.  On 32-bit targets the same now reaches uint64 inductions once 64-bit locals are
-promoted (binate `a6d15e3bd`): before it a uint64 local stayed in memory there and the index was
-a load, which `bce_loop` never matched.  Fix: for an unsigned guard compare the constants unsigned (or
-refuse a negative `IntVal`), and audit `bce_const` / `bce_redundant` for the same signed compare.  Test:
-an `.error` conformance test fails only at -O1+, and an `.xfail.<mode>` cannot say "-O2 only", so add it
-with the fix, plus an iropt unit test of `loopBCEEliminable` on an unsigned guard.
-
 ### The LLVM backend's same-width float cast turns -0.0 into +0.0 — silent wrong value — 🔴 OPEN MAJOR (found 2026-10-12, work-5, review of float SSA promotion; reproduced; pre-existing)
 
 `emitCast` (codegen/emit_cast.bn ~131) lowers a same-width float-to-float OP_CAST as `fadd <ty> %x, 0.0`,

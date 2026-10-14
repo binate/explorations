@@ -1,3 +1,19 @@
+### Loop bounds-check elimination compared an unsigned loop bound as signed — DONE (binate `8be875356`, 2026-10-13, work-5)
+
+`bce_loop` dropped the check on an induction variable P guarded by `P < L` when the constant L was no
+larger than the array's length, comparing the constants as signed IntVals — but an unsigned P's guard
+compares unsigned, so a uint64 bound of 2^63 or more (negative IntVal) passed as "<= the length" and the
+check went while the guard let P run past the array: `for u := cast(uint64, 0); u < 18446744073709551615;
+u++ { s = s + arr[u] }` over a [3]int read past the end at -O2 (native aa64 printed 6, LLVM 0) instead of
+trapping.  Pre-existing on 64-bit targets; int64 promotion (`a6d15e3bd`) extended it to uint64 loops on
+arm32.  Found by the review of the int64 promotion.  Fix: `guardBoundValue` reads the bound at the
+guard's type, an unsigned bound counting only in canonical form (zero-extended, non-negative, within the
+width) — a 64-bit bound of 2^63 or more and any non-canonical narrow constant keep the check.  The
+constant-index and redundant-check passes already compare constants correctly.  Tests: iropt unit tests;
+conformance 1635 (traps at every -O level; xfail'd on the two LLVM arm32 modes, which reject a 64-bit
+index on a 32-bit target — the int64-index bug, conformance 1633).  Both the unit tests and 1635 fail on
+the pre-fix code.
+
 ### `#[c_export]` / `__c_entry` multi-value returns: FP-HFA tuples with a struct field, raw-offset field layout, aa64 internal-sret — DONE (binate `56911b098`, 2026-10-13, work-3)
 
 Four C-boundary defects in the entry that adapts Binate's internal multi-value return to the platform C
