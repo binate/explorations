@@ -841,8 +841,15 @@ rt.MemCopy on bare metal, and the native backends run the IR's loads / stores as
 work found these patterns in -O2 IR; each is an IR-level (iropt) transform so native benefits equally.
 Field reads of a whole load, dead aggregate stores, zero-fill-then-overwrite and dead values are done (see
 claude-todo-done.md and plan-aggregate-copy-opts.md); still open:
-- Copy chains: a value copied into a temporary only to be copied again (load → private copy → temp slot →
-  argument).  Re-measure the -O2 IR first — the landed passes may have removed most of these.
+- Copy chains: a value copied into a temporary only to be copied again.  Re-measured 2026-10-13 with bnc's
+  experimental `--x-copy-stats` (`ddd1e1f4c`; table in plan-aggregate-copy-opts.md D): cmd/bnc native aa64
+  makes 51,482 aggregate copies (3.4 MB static), 5,399 of them chains (604 KB: a load's own copy stored 3,187,
+  passed to a call 1,258, returned 954); call results stored whole 9,700 (600 KB); loads copied and then
+  passed to a call 5,832 (665 KB).  Two rows suggest a missed in-place read, to check: 2,650 copied loads of
+  exactly 32 bytes with "one other use", and 1,553 copied loads read only by extracts (S-extract's shape).
+  User order (2026-10-13): this entry's `var x Big = *p` (the OP_ALLOC between the load and the store keeps
+  the load copied) and then copy propagation for `var y = x` (copyThen) come after the CRITICAL 32-bit-host
+  entry and the MAJORs.
 - plan-aggregate-copy-opts.md D1-D4 are done (D1 `dfde1e73a` / `e62af60cf` / `dfce07941` / `35a7a4f3b` /
   `2e5cec867`; D2 `9fe09deb6` / `3c18f42d4`; D3 `69d6dcf57`, its native follow-up `d304bed5f`; D4
   `11375988e`; managed results' moves `d7f5734a2`; fault pads left out of NoZeroInit and every emit-time

@@ -1,3 +1,16 @@
+### bnc --x-copy-stats: a tally of the aggregate copies native aarch64 code makes — DONE (binate `ddd1e1f4c`, 2026-10-13, work-1)
+
+The "re-measure the -O2 IR" step of the large-aggregate copy entry (user: "Go with the stats flag in bnc; we'll
+see if we want to maintain it in the long run", named `--x-copy-stats` at the user's suggestion).  With
+`--backend native`, bnc prints to stderr a table of the copies the aarch64 backend emits through its
+memory-to-memory copy helpers, by kind (load into its own region, store, argument, return, shim), by where the
+value comes from — or, for a load, what reads its copy — and by size.  common.CountAggCopy is a no-op unless
+common.SetCopyStats turned it on; PlanFrame records what reads each aggregate load (LoadConsumers) only then.
+x64 / arm32 are not counted.  Review: two classification bugs fixed (parameters by OP_PARAM; an indirect call's
+callee is no argument), the flag rejected with --test / --library / --emit-llvm (which do not report), the
+report on stderr, and the header naming what is not counted.  cmd/bnc: 51,482 copies (3.4 MB), copy chains
+5,399 (604 KB) — table in plan-aggregate-copy-opts.md D.
+
 ### An int64 / uint64 index on a 32-bit target was bounds-checked and addressed by its low word — DONE (binate `e59425657`, 2026-10-13, work-5)
 
 IR-gen passed an index wider than `int` through as is, so on arm32 an int64 / uint64 index reached

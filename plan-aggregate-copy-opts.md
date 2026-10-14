@@ -128,6 +128,37 @@ D. Copy chains (load → private copy → temp slot → argument): revisit after
    4,202 (203 KB; e.g. every `(cc CallConv)` method — 88 B); call result stored whole into a local ~5,600
    (~170 KB); loads stored whole elsewhere ~4,000 (~560 KB, some necessary); `load → extracts` 22,867 (the
    S-extract shape, not a chain).
+   Re-measured 2026-10-13, after D1-D4 and the load / store / return work, with bnc's experimental
+   `--x-copy-stats` (binate `ddd1e1f4c`: the copies through the native aarch64 copy helpers, static, per
+   module; register moves of aggregates <= 16 bytes and HFAs, shim word shuffles, #[c_export] return
+   repacks and rt.Box are not counted) — cmd/bnc, native aa64 -O2:
+```
+     copy    of / read as                 count       bytes    <=16   17-64  65-256    >256
+     load    stored whole                  1817      409864      53     884     596     284
+     load    passed to a call              5832      664946     488    2391    2677     276
+     load    returned                       108        3856       3     105       0       0
+     load    read by extracts only         1553       49872       2    1551       0       0
+     load    several uses                  7131      197360    4462    2384     263      22
+     load    one other use                 2650       84800       0    2650       0       0
+     store   load read in place            3953      262578     198    2910     822      23
+     store   load with its own copy        3187      497160     179    1798     899     311
+     store   call result                   9700      599672      99    5498    4054      49
+     store   by-value parameter            2182       34805    2182       0       0       0
+     store   extracted member              1467       98880     129    1198     115      25
+     store   other                         3213      119704     780    2191     234       8
+     arg     load read in place            3191      135008       0    2686     505       0
+     arg     load with its own copy        1258       40312       0    1257       1       0
+     arg     call result                    421       13472       0     421       0       0
+     arg     other                          558       17856       0     558       0       0
+     return  load read in place            1199       57920       1    1146      52       0
+     return  load with its own copy         954       66304       4     710     223      17
+     return  call result                    141       11664       0      57      84       0
+     return  extracted member               108        9544       0      84      22       2
+     return  other                          249        7952       1     248       0       0
+     shim    other                          610       31744       0     440     167       3
+     total                                51482     3415273    8581   31167   10714    1020
+```
+   A store / arg / return of a "load with its own copy" is a copy chain: 5,399 copies, 604 KB.
    Root of most of the table: nobody owns a by-value argument's copy.  The LLVM backend copies on BOTH
    sides (the caller's `.bv` slot, then the callee's param slot); native callers may pass an aliasing
    (elided) load by reference (AggLoadElidable accepts an OP_CALL argument use), so native callees must
