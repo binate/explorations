@@ -39,6 +39,19 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### A negative literal narrowed to a typed int inside a package constant evaluates to 0 — silent wrong value — 🔴 OPEN MAJOR (found 2026-10-13, work-1, review of the parseIntLit int64 change; reproduced; pre-existing)
+
+`const F float64 = cast(float64, cast(int8, -1))` is 0, not -1, and `const G = cast(float64, cast(int8, -3)) *
+2.0` is 0, not -6 — LLVM and native aa64, -O0 and -O2, bnc built from main `ddd1e1f4c`; the same expression
+computed at run time is right, and iota constants (`A int8 = -1 - iota`) are right.  Root cause (read, matches
+the repro): stashConstExpr's substituteIota (irgen gen_const_fold.bn) copies a constant's expression into new
+nodes with ResolvedTypeID 0; at a use, genIntLitWithHint accepts the `-1` (isIntConstLit) and exprIntLitValue,
+with no type ID to read the checker's bignum from, falls back to parseIntLit(e.Name) — and an EXPR_UNARY's Name
+is empty, so 0.  Fix: substituteIota keeps each copied node's ResolvedTypeID (so the checker's value is used),
+and the fallback stops returning 0 for a node with no literal text (handle UNARY(MINUS, INT_LIT), else fail
+loud).  Test: a conformance test with the fix (both constants above, a uint / int64 variant, and a named const
+used in a typed context).
+
 ### x86-64 `#[c_export]` / `__c_entry` of a tuple with an SSE-class STRUCT field is a plain alias, but C and the internal convention place it differently — 🟡 IN PROGRESS (claimed 2026-10-13, work-3/session; user: "yes") MAJOR (found 2026-10-13, work-3, review follow-up of the aa64 tuple HFA fix; reproduced on both backends)
 
 `#[c_export] func Mvl() (V2, int64)` with `V2 = {x, y float32}`: C's `struct { struct V2 v; long l; }` returns
