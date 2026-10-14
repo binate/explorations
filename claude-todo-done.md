@@ -1,3 +1,18 @@
+### An `impl` only a package's `.bn` declares is private to the package — DONE (binate `e7dc58048`, docs `75802e5`, 2026-10-14, work-7)
+
+The user chose (a), as for methods: an impl is visible to importers iff the package's `.bni` declares it.  The
+checker gives an impl in a `.bn` of a package with a `.bni` an `Impl.PrivatePkg`; converting to an interface
+value and checking a constraint consult only the impls visible from the use's view (its package, `.bn` or
+`.bni`, or every impl inside a generic instance, whose type arguments were checked where it was instantiated).
+Deferred constraint checks carry the view of the instantiation, and the "constraints checked" latch is per
+view.  Both errors note "the matching impl is private to package P".  `lang`'s 39 impls on the built-in types
+moved into `lang.bni`; twelve conformance tests' importer-used impls moved into their `.bni`, and spec/16 099
+was rewritten.  Tests: check `impl_private_test.bn` (6), conformance 1653, spec/11 103, spec/12 108, spec/16
+121.  The review found a false rejection (a constraint naming an earlier type parameter was checked in the
+generic's package) and two holes (a generic alias's target and a generic interface's parents, unchecked
+outside an instance); all fixed with tests that fail without the fix.  Run-time assertions through such an
+impl remain open in `claude-todo.md`.
+
 ### Native: a func-value / interface call's by-address argument (float aggregate, zero-size aggregate) under-reserved the outgoing area — the call overwrote the caller's frame — DONE (binate `d9e9ac2cd`, 2026-10-14, work-3)
 
 The dispatch seam passes an aggregate not passed indirectly as ONE pointer slot; PlanFrame sized it from

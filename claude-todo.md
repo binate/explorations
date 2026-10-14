@@ -650,21 +650,19 @@ error (the forwarder should drop the redundant `expose "P"`; a bnlint rule could
 when both paths denote the same declaration (compare the defining package and declaration, not the name),
 spec to match.  Needs a conformance test either way.
 
-### An `impl` only a package's `.bn` declares is visible to importers only in a batch build — 🟡 IN PROGRESS (claimed 2026-10-14, work-7/session — user: "For case 5, I think (a) is correct, so work on that."; split out 2026-10-13, work-7, from the method-privacy entry, whose case 5 it was; pre-existing)
+### Run-time interface assertions ignore `impl` privacy: `x.(J)` succeeds through an `impl` private to another package's `.bn` — 🟡 IN PROGRESS (claimed 2026-10-14, work-7/session — user, on §11.12: "they should respect privacy"; the rest of the `.bn`-only impl entry, whose static rule landed as binate `e7dc58048`)
 
-An importer may build an interface value through an `impl` that only the defining package's `.bn` declares:
-conformance 585 (`impl @Impl : Boxer` in `shape/shape.bn`, `var b @shape.Boxer = shape.New()` in main) and 383
-(`impl *Holder : greeter.Tagged` in `hello/hello.bn`) do.  `iface.construct.visible-impl` (§11.8) asks for a
-matching impl "in the current package or transitively imported" and does not say whether a `.bn`-only impl
-counts.  A batch build sees it; an interface-only load of the package (its `.bni` alone) does not, so the same
-program fails to compile when the package ships as interface plus library -- the problem methods had before
-`pkg.export` covered them (binate `fb5a00a04`).  A `.bni` generic body that converts through such an impl has
-it too, since it is monomorphized in the importer.  A parameterized-receiver impl (`impl *Cursor[T] :
-Iterator[T]`) in a `.bn` that an importer instantiates also needs the `.bn`'s generic method bodies, which are
-package-private (`pkg.bni.generic.once`) and absent from an interface-only build.  Decide: (a) an impl is visible to importers iff the `.bni` declares it, like methods (spec it; move the
-impls importers rely on -- 585, 383 and any in the tree -- into their `.bni` files); or (b) `.bn` impls stay
-visible to importers, and a library carries what an importer needs to use them (for a parameterized impl, its
-`.bn` generic bodies).
+An `impl` only a package's `.bn` declares is private to that `.bn` (§16.4 `pkg.export`, docs `75802e5`): the
+checker no longer lets another package, or the package's own `.bni`, build an interface value or satisfy a
+constraint through it.  A type assertion or type-switch case with an interface target `J` still consults the
+program-wide satisfaction registry, so in another package (or in a `.bni` generic body) it succeeds through
+such an impl -- against §11.12 `iface.assert` ("has a visible `impl … : J`").  User decision (2026-10-14):
+run-time assertions respect privacy.  To do: say in §11.12 where "visible" is judged (the assertion as
+written: its package, and `.bn` or `.bni`; a generic body's assertion is written in its declaring file), and
+implement it on every path -- LLVM and native registries, the VM, and interpreted code asserting on compiled
+values.  One shape: keep private impls out of the program-wide registry, and have an assertion in the impl's
+own package's `.bn` also try that package's private impls.  Tests: across packages (an importer misses, the
+own package hits, comma-ok), a type switch, and a private impl of a descendant of `J`.
 
 ### Should a function-value type's parameters and results be held to the opaque rules? — 🔴 NEEDS DECISION (raised 2026-10-03, work-3, review of the type-declaration opaque check; split out 2026-10-10, work-7)
 
