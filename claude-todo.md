@@ -53,6 +53,18 @@ operands, not into `TypeRef`, so such a member gets no per-member checked copy. 
 included) on its own checked copy at its iota, leaving the explicit member's nodes untouched, and make
 `mentionsIota` / `substituteIota` descend into type expressions.
 
+### An imported constant that is `len` of an array literal is not a constant to the importer — 🔴 OPEN (found 2026-10-14, work-1, writing the cross-package test for the iota-in-type-expression fix; reproduced; pre-existing)
+
+`const P int = len([3]int8{})` in a package's `.bni`: an importer's `var a [lc.P]int8` is rejected ("array
+length must be a constant integer"), though `len` of an array is an `int` constant (spec builtin.len); reading
+`lc.P` as a value works (3).  The `.bni` scope evaluates an imported constant's initializer without checking it
+(defineBniConst), and the evaluator's `len` (`checkerEnv.Len`, check/check_constval.bn) finds the type only of a
+checked argument (`ResolvedTypeID`), a variable it names, or a string literal — an unchecked composite literal
+has none, so the constant is NOT_CONST.  Test: conformance 1653 (`.xfail.all`).  Fix direction: let `Len` type an
+array composite literal from its type expression (`env.Type(e.TypeRef)`, resolved at the current iota) when it
+has no checked type — or check the initializer of an imported constant whose value needs a type the evaluator
+cannot find.
+
 ### `make_slice` with an int64 / uint64 length on a 32-bit target passes one word — wrong length or invalid IR — 🔴 NEEDS DECISION MAJOR (found 2026-10-13, work-5, fixing the int64-index bug; pre-existing)
 
 The same class as the int64-index bug: IR-gen's `genIntOperand` widens a length narrower than int but passes
