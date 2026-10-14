@@ -2218,7 +2218,7 @@ destructor (or give F a destructor that calls X's).
 
 ## bnfmt (self-hosted formatter)
 
-### bnfmt moves the comments inside a directly called function literal above its statement — 🔴 OPEN (found 2026-10-13, work-4, step 4 of the `defer { … }` plan; pre-existing)
+### bnfmt moves the comments inside a directly called function literal above its statement — 🟡 IN PROGRESS (claimed 2026-10-13, work-4) (found 2026-10-13, work-4, step 4 of the `defer { … }` plan; pre-existing)
 
 `printStmts` (`pkg/binate/format/print_stmt.bn:116`) emits a statement's leading comments up to
 `stmts[i].Pos`.  An expression statement's Pos is its expression's (`parse_stmt.bn`), and a call's is its
