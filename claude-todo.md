@@ -653,53 +653,21 @@ error (the forwarder should drop the redundant `expose "P"`; a bnlint rule could
 when both paths denote the same declaration (compare the defining package and declaration, not the name),
 spec to match.  Needs a conformance test either way.
 
-### Do importers and `.bni` generic bodies see a `.bn`-only method, or an opaque type's fields? — 🟡 IN PROGRESS (unblocked 2026-10-13 — user: "We need to split types.bni"; a `.bni` impl binds only methods the `.bni` declares, a `.bn` impl may bind private ones — user: ".bni impl: .bni methods only (Recommended)"; claimed 2026-10-12, work-7/session — user: "self-drive #1 and #2, and #4 (only one definition should be allowed)"; taken as option (a), the recommendation, and said so to the user; found 2026-10-11, work-7, review of the `.bni` interface-view change; reproduced with scratch programs; pre-existing)
+### An `impl` only a package's `.bn` declares is visible to importers only in a batch build — 🔴 NEEDS DECISION (split out 2026-10-13, work-7, from the method-privacy entry, whose case 5 it was; pre-existing)
 
-The interface view (pkg.bni.self-contained) governs the names a `.bni` declaration resolves; member access is
-not held to the interface.  Each of these compiles in a batch build:
-1. An importer calls a method that only q's `.bn` declares, on a type q's `.bni` declares (`type T struct { v
-   int }` in q.bni, `func (t @T) dbl() int` in q.bn, `t.dbl()` in main).  An interface-only load of q does not
-   know `dbl`, so the same program fails when q ships as interface plus library.  The spec does not say whether
-   a method is covered by pkg.export (§16.4: visible to importers iff the `.bni` declares it).
-2. A `.bni` generic body calls such a method (`func Twice[E any](t @T) int { return t.dbl() }`).  It is
-   monomorphized in the importer, so it has case 1's problem.
-3. A `.bni` generic body reads a field of a type the `.bni` declares opaque (`type T` in q.bni, `type T struct {
-   v int }` in q.bn, `return t.v`), while `q.Make().v` in an importer is rejected (`cannot access field on this
-   type`, pkg.bni.opaque).
-4. A package's own `.bni` uses the layout of a type it declares opaque: `type Foo` in q.bni (`type Foo struct {
-   x int }` in q.bn) with `type S struct { f Foo }` or `const Z uint = sizeof(Foo)` in q.bni compiles (scratch
-   probe), though an importer reading only the interface can lay out neither (the same-package check skips the
-   opaque rules: `isCrossPkgOpaqueExport` is false for the package itself).
-5. (A reviewer's code reading, not reproduced.)  A `.bni` generic body that converts to an interface through an
-   `impl` only the `.bn` declares (`iface.construct.visible-impl`) has case 1's problem.
-The spec text of pkg.bni.self-contained leaves all of these to other rules (its `_Note._`: it governs names
-resolved in scope, not member selection or what an opaque type permits).
-Options: (a) a method is visible to importers iff the `.bni` declares it (pkg.export covers methods; spec it),
-and a `.bni` generic body sees a type's members as an importer does — the `.bni`'s methods only, and no fields
-of a type the `.bni` declares opaque; (b) a method is visible wherever its type is, which interface-only
-distribution can honour only if the `.bni` declares every method of every type it exports (no `.bn`-only
-methods on an exported type), plus case 3 rejected.  Recommendation: (a): it is what an interface-only build
-already does, keeps private helper methods possible, and makes cases 1-3 compile the same however q is built.
-**Back-burnered 2026-10-12 (work-7): option (a) is implemented but not landed — blocked on
-`pkg/binate/types.bni`'s 1000-line cap.**  The implementation marks a method private (`types.Method.PrivatePkg`)
-when its package has a `.bni` that does not declare it; hides it from selection (calls, method values, method
-expressions, address-of) outside the package and in the package's own `.bni` view (`lookupVisibleMethod`); lets
-the package's own impls bind it (an impl records its package, as the impl-satisfaction pass runs under whatever
-package is current); and counts an opaque export as opaque in its own package's `.bni` view
-(`opaqueExportHiddenHere`), which covers cases 3 and 4.  Case 5 was not reached.  Applying it to the tree means
-declaring in each `.bni` every method another package calls: in the toolchain, `types.Type` (AddMethod,
-PointerElem, IsScalar, IsSlice, SetOrAppendMethod, IdenticalStrict, IsNillable, SigString, IsPointer),
-`native/callconv.CallConv` (StackArgStoreSize, StackArgNaturalSize, PassesSseInRegs), `native/common.RegMap`
-(AllocateFpRegisters, IsDirty, ClearDirty, MarkDirty), `asm.Assembler.SetGlobalC`,
-`check.Checker.ExposeTestFunc`, `interp.Interp` (SetEmitNilChecks, SetOptConfig), `vm.VM.LowerNewImpls` and
-`ir.Module` (AddTypeDef, CollectStrings); and `pkg/builtins/lang`'s 39 methods on the universe types (String,
-Compare, Hash, …), which `lang.bni` does not declare.  With those, `lint.sh --from-source` passes, but
-`types.bni` grows from 995 to 1089 lines, and `scripts/hygiene/file-length.sh` says a `.bni` over the cap means
-"decompose the package".  Decide: split `pkg/binate/types` (peel a cohesive concern into an acyclic
-sub-package), raise the cap for it, or another approach.  Spec text for (a) is drafted: `pkg.export` gains a
-sentence on methods, `pkg.bni.self-contained` a paragraph on selectors (replacing its note), §7.12
-`type.opaque.field-rejection` a clause on the package's own `.bni`, and `pkg.bni.generic.once` the sentence
-that a generic only the `.bn` defines is package-private.
+An importer may build an interface value through an `impl` that only the defining package's `.bn` declares:
+conformance 585 (`impl @Impl : Boxer` in `shape/shape.bn`, `var b @shape.Boxer = shape.New()` in main) and 383
+(`impl *Holder : greeter.Tagged` in `hello/hello.bn`) do.  `iface.construct.visible-impl` (§11.8) asks for a
+matching impl "in the current package or transitively imported" and does not say whether a `.bn`-only impl
+counts.  A batch build sees it; an interface-only load of the package (its `.bni` alone) does not, so the same
+program fails to compile when the package ships as interface plus library -- the problem methods had before
+`pkg.export` covered them (binate `fb5a00a04`).  A `.bni` generic body that converts through such an impl has
+it too, since it is monomorphized in the importer.  A parameterized-receiver impl (`impl *Cursor[T] :
+Iterator[T]`) in a `.bn` that an importer instantiates also needs the `.bn`'s generic method bodies, which are
+package-private (`pkg.bni.generic.once`) and absent from an interface-only build.  Decide: (a) an impl is visible to importers iff the `.bni` declares it, like methods (spec it; move the
+impls importers rely on -- 585, 383 and any in the tree -- into their `.bni` files); or (b) `.bn` impls stay
+visible to importers, and a library carries what an importer needs to use them (for a parameterized impl, its
+`.bn` generic bodies).
 
 ### Should a function-value type's parameters and results be held to the opaque rules? — 🔴 NEEDS DECISION (raised 2026-10-03, work-3, review of the type-declaration opaque check; split out 2026-10-10, work-7)
 

@@ -1,3 +1,23 @@
+### A method only a package's `.bn` declares is private to the package; a `.bni` sees its package as an importer does — DONE (binate `fb5a00a04`, docs `5bf01bb`, 2026-10-13, work-7)
+
+Before: an importer, or a `.bni` generic body (monomorphized in the importer), could call a method only the
+`.bn` declared, and a package's `.bni` could read the fields or use the layout of a type it declares opaque, so
+such programs compiled in a batch build but not when the package shipped as interface plus library.  Option (a)
+(user: "self-drive #1 and #2, and #4 (only one definition should be allowed)"): `types.Method.PrivatePkg` marks a
+method only the `.bn` of a package with a `.bni` declares; `lookupVisibleMethod` hides it from calls, method
+values, method expressions and `&t.m` outside its package and in the package's own `.bni` view (a call through a
+type parameter's constraint is not gated); `lookupImplMethod` lets only that `.bn`'s impls bind it -- another
+package's impl, or an impl in the `.bni`, gets "missing method" (user: ".bni impl: .bni methods only
+(Recommended)"); `opaqueExportHiddenHere` holds the package's own `.bni` to its opaque declarations.  The tree's
+`.bni` files now declare every method another package calls (types, callconv, common, asm, check, interp, vm,
+ir, and lang's 39 universe-type methods), which needed the types split first (binate `8414f534c`; user: "We
+need to split types.bni").  Spec: `pkg.export` covers methods, `pkg.bni.self-contained` covers selectors and
+impls in the `.bni`, `type.opaque.field-rejection` (§7.12) the package's own `.bni`, `pkg.bni.generic.once` a
+`.bn`-only generic.  Tests: unit `TestPrivateMethodHiddenFromImporters`, `TestPrivateMethodImpls`,
+`TestBniViewMembers`; spec/16-packages 116-120; conformance 1645_xpkg_impl_private_method; 854 and 988 now
+declare in their `.bni` the methods their `.bni` impls bind.  Case 5 (an importer converting through a
+`.bn`-only impl) is its own open entry.
+
 ### x86-64 `#[c_export]` / `__c_entry` of a tuple with an SSE-class struct field was a mismatched plain alias — DONE (binate `47c39b280`, 2026-10-13, work-3)
 
 C returns an SSE eightbyte in XMM; the internal convention returns a struct / array field in GP (ABI §2.7), but
