@@ -9,16 +9,13 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 The build break (bnc / bnas did not compile for a 32-bit host) and the assembler / linker test code that assumed a
 64-bit `int` are fixed (binate `be193de5e`, `ec27fce79`; see claude-todo-done.md): every asm package, link,
-cmd/bnc and cmd/bnas pass the lane.  Still failing there (CI run 38020771564, and locally in the `binate-ci` image
-with `scripts/unittest/run.sh builder-comp_arm32_linux <pkg>`) — needs investigation; may be the compiler leaking
-the host's `int` width, not test bugs: check `TestShortVarIntMinAccepted`, `TestShortVarInt64MaxAccepted`,
-`TestCheckAllowHighBitUnsignedConstShiftCount` ("cannot assign untyped int to int / uint"); types
-`TestLayoutRepeatedStructDag` ("size should be 8 * 4^20", past 2^31); irgen `TestGenCastIntLitAtTargetWidth`;
-iropt `TestMem2regGroundsLooserType`, `TestMem2regNoGroundMatchingType`; native/fold `TestShiftImmOperandInRange`
-("int >> 63 must fold at wordBytes 8"); native/aarch64 `TestEmitFuncFoldsImmediateOperands` ("the unfoldable
-constant 5000 must be materialized once (movz #5000)" — visible since the native package compiles there).
-Related: `irdata.DataTerm.Addend` (`pkg/binate/irdata.bni`) is `int`, so a data pointer's addend past 2^31 cannot
-be carried when a 32-bit host compiles for a 64-bit target.
+cmd/bnc and cmd/bnas pass the lane.  The tests that assumed a 64-bit host (check, native/fold, native/aarch64,
+iropt, irgen) are fixed too (binate `49ab9be56`; claude-todo-done.md).  Still open: type layout is host `int`, so
+`TestLayoutRepeatedStructDag` (a 2^43-byte struct) fails on the lane, a 32-bit host silently wraps any type of
+2 GB or more for a 64-bit target, and nothing rejects a type whose size overflows int64 on any host; also
+`irdata.DataTerm.Addend` is `int`.  User decision (2026-10-13): "int64 layout seems right" — plan-int64-layout.md
+(staged: types + check with fail-loud narrowing at callers, then irgen / irdata, LLVM codegen, native, VM).  Order
+(user, 2026-10-13): after the negative-constant MAJOR.
 
 ### Constraint calls through `impl *P` / `impl @M` give wrong results — needs a spec decision — 🔴 NEEDS DECISION (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
 
@@ -39,7 +36,7 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### A negative literal narrowed to a typed int inside a package constant evaluates to 0 — silent wrong value — 🔴 OPEN MAJOR (found 2026-10-13, work-1, review of the parseIntLit int64 change; reproduced; pre-existing)
+### A negative literal narrowed to a typed int inside a package constant evaluates to 0 — silent wrong value — 🟡 IN PROGRESS MAJOR (claimed 2026-10-13, work-1; user: "do the new MAJOR first"; found 2026-10-13, work-1, review of the parseIntLit int64 change; reproduced; pre-existing)
 
 `const F float64 = cast(float64, cast(int8, -1))` is 0, not -1, and `const G = cast(float64, cast(int8, -3)) *
 2.0` is 0, not -6 — LLVM and native aa64, -O0 and -O2, bnc built from main `ddd1e1f4c`; the same expression

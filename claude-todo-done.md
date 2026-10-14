@@ -1,3 +1,17 @@
+### The 32-bit-host unit lane's test failures that were tests assuming a 64-bit host — DONE (binate `49ab9be56`, 2026-10-13, work-1)
+
+Part of the 32-bit-host CRITICAL (which stays open for int64 layout).  types' default target is the host, so on
+the lane (ILP32) tests that left it unset and expected a 64-bit `int` failed while the compiler was right for its
+target: check (`x := 0x7FFFFFFFFFFFFFFF`, `-0x8000000000000000`, `const n uint = 0xFFFFFFFFFFFFFFFF` — now
+checked against a 64-bit target, checkSrcLP64), native/fold (`int >> 63` — the test sets the 64-bit target its
+word size implies), native/aarch64 (the test decoded instruction words in an `int`, negative for bit 31 on a
+32-bit host — int64 now), iropt (arrayFieldStruct's `[4]int` is 16 bytes on ILP32, under SROA's cap — `[4]int64`
+now), irgen (TestGenCastIntLitAtTargetWidth ran on a nil checker; now a 32-bit target through the type-checked
+path).  parseIntLit, IR-gen's no-checker literal fallback, parses into int64; ModuleGlobal.Init, a truncated copy
+of a global's integer initializer nothing read, is gone.  The two mem2reg tests the entry listed already passed.
+Its review found the negative-constant MAJOR (claude-todo.md).  Validated on the lane in the binate-ci image (only
+TestLayoutRepeatedStructDag left) and on this host.
+
 ### aa64: a multi-value tuple's HFA field returned in FP registers by LLVM, GP by native — native<->LLVM calls read garbage — DONE (binate `928bae828`, 2026-10-13, work-3)
 
 ABI §2.7 returns a tuple's struct / array field in GP registers (only a float SCALAR field uses the float
