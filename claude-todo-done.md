@@ -14,7 +14,8 @@ ir, and lang's 39 universe-type methods), which needed the types split first (bi
 need to split types.bni").  Spec: `pkg.export` covers methods, `pkg.bni.self-contained` covers selectors and
 impls in the `.bni`, `type.opaque.field-rejection` (§7.12) the package's own `.bni`, `pkg.bni.generic.once` a
 `.bn`-only generic.  Tests: unit `TestPrivateMethodHiddenFromImporters`, `TestPrivateMethodImpls`,
-`TestBniViewMembers`; spec/16-packages 116-120; conformance 1645_xpkg_impl_private_method; 854 and 988 now
+`TestBniViewMembers`, `TestPrivateMethodViaConstraint` (binate `8efedf5cb`: a call through a constraint is not
+gated); spec/16-packages 116-120; conformance 1645_xpkg_impl_private_method; 854 and 988 now
 declare in their `.bni` the methods their `.bni` impls bind.  Case 5 (an importer converting through a
 `.bn`-only impl) is its own open entry.
 
