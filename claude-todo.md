@@ -68,31 +68,6 @@ int on the target is not covered.  Options: trap it (a new message, or the negat
 the int64-index fix does for bounds checks.  Found while fixing the int64-index bug (conformance 1633),
 whose todo entry flagged make_slice lengths to check.
 
-### aa64: a multi-return tuple with an HFA field is returned in FP registers by LLVM-compiled code, in GP registers by native — native<->LLVM calls read garbage — 🟡 IN PROGRESS (claimed 2026-10-13, work-3/session; user: "yes" = fix now, as plan-arm32-hfa.md stages 0-1) MAJOR (found 2026-10-13, work-3, arm32 HFA mapping; reproduced)
-
-`func Pair(a float32) (V2f, int32)` with `type V2f struct { x float32; y float32 }`: built all-LLVM or
-all-native it prints `1.500000 2.500000 7`; with the defining package compiled by LLVM (`bnc --pkg pkg/dep`)
-and main by `--backend native -c`, linked together, it prints `9.809089e-45 0.000000 0`; the reverse prints
-`1.500000 8.502378e-41 1069547520`.  Silent wrong values whenever native- and LLVM-compiled packages call
-each other directly (both are supported in one program).  Repro: scratchpad `mrhfa/` layout — dep.bni +
-dep/dep.bn + main.bn above; `bnc --pkg pkg/dep --build-dir llvm`, `bnc --backend native -c main.bn
---build-dir nat`, `clang -o mixed $(ls nat/*.o | grep -v pkg__dep.o) llvm/dep.o`.
-Root cause: ABI §2.7 (`abi.cc.multi-return`) — a non-float field fills GP return registers, only a
-float-SCALAR field uses the float file; native aa64 and callconv `MultiReturnTupleNeedsSret` follow that.
-Codegen's per-field spelling `writeFlatMemberLLTy` (emit_multiret_coerce.bn) writes `aggCoerceLLTy`, whose
-HFA branch (`types.HfaInSimd()`, aa64-only) spells the field `[N x float]`, so LLVM returns it in s0/s1 —
-contradicting writeFlatMemberLLTy's own doc (`[N x iW]`).  x64 and arm32 do not take the HFA branch today;
-the arm32 HFA flip (plan-arm32-hfa.md stage 4) would extend the mismatch to arm32 if this is not fixed first.
-Fix: the tuple-field spelling uses the GP-word form for an HFA field on every arch (writeFlatMemberLLTy,
-and every site that shares it: multiReturnCoercedLLTy, the shims, the C-entry tuple adapters); a
-codegen unit test pinning `{ [1 x i64], i32 }`-style spelling for an HFA tuple field on aa64.
-Test: nothing checks native<->LLVM agreement today (conformance compiles every package with one backend);
-a mixed-backend e2e (separate compilation, both directions) is plan-arm32-hfa.md stage 0, with this case
-expected-fail until the fix.
-The C-boundary side — a `#[c_export]` / `__c_entry` returning such a tuple — is done (binate `56911b098`,
-claude-todo-done.md), so the spelling fix no longer changes what C sees; the shims' retbuf overrun, which it
-would have extended to `(int32, V3f)`-style tuples, is fixed too (binate `fef9a097b`).
-
 ### The LLVM backend's same-width float cast turns -0.0 into +0.0 — silent wrong value — 🔴 OPEN MAJOR (found 2026-10-12, work-5, review of float SSA promotion; reproduced; pre-existing)
 
 `emitCast` (codegen/emit_cast.bn ~131) lowers a same-width float-to-float OP_CAST as `fadd <ty> %x, 0.0`,

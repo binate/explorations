@@ -1,3 +1,17 @@
+### aa64: a multi-value tuple's HFA field returned in FP registers by LLVM, GP by native — native<->LLVM calls read garbage — DONE (binate `928bae828`, 2026-10-13, work-3)
+
+ABI §2.7 returns a tuple's struct / array field in GP registers (only a float SCALAR field uses the float
+registers); native and callconv did, but codegen's writeFlatMemberLLTy spelled an HFA field with aggCoerceLLTy's
+aa64 `[N x float]` form, so LLVM returned it in s0/d0...  Separately compiled native and LLVM packages calling
+each other got garbage (`(V2f, int32)` read `9.809089e-45 0.000000 0`); an LLVM aa64 #[c_export] plain alias of
+`(V2f, int64)` handed C s0/s1 + x0.  writeFlatMemberLLTy now uses aggCoerceGpLLTy (the GP `[N x iW]` form) for
+every struct / array field; only aa64 changed.  New e2e/mixed-backend-calls.sh (one package compiled by each
+backend, both ways; tuples with struct / array fields 8-32 bytes, five fields, single HFA results / args, func
+value with the shim on either side, closure, interface) fails with the old spelling and passes with the fix, on
+aa64 and x86-64 (Rosetta).  ABI §2.7 now says so explicitly (docs `9ddec55`).  Prerequisites landed first:
+the c_export FP-HFA-tuple / raw-offset fixes (binate `56911b098`) and the shim retbuf exact-size stores
+(`fef9a097b`).  Plan: plan-arm32-hfa.md stages 0-1.
+
 ### asm: the binding changes clang rejects — `.local` / `.global` / `.weak` — DONE (binate `897dd3aca`, 2026-10-13, work-2)
 
 The parser's `.local` did nothing and `.global` after `.weak` kept the symbol weak, so on ELF `.global x` /
