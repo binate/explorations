@@ -36,6 +36,22 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### Native aa64 / x86-64: a func-value / interface call whose float aggregate's pointer slot goes to the stack under-reserves the outgoing-argument area — the call overwrites the caller's frame — 🔴 OPEN MAJOR (found 2026-10-13, work-3, plan-arm32-hfa.md stage 2 check; reproduced, disassembled)
+
+The dispatch seam (abi/03 §3.3) passes an aggregate argument as ONE pointer slot.  PlanFrame sizes a
+func-value / iface call's outgoing area from `shimDispatchArgTypes` (native/common/common_call.bn), which
+keeps an aggregate argument's real type; `CallStackBytes` then counts an aarch64 HFA (HfaAggregates) / x86-64
+SSE aggregate (SseAggregates) as FP-register-passed — 0 stack bytes — while its pointer slot actually follows
+the GP slots and goes to the stack once they run out (aa64: [data] + 7 ints + D2; x86-64: [data] + 5 ints +
+D2; iface: one more receiver slot).  A caller whose only calls are such calls reserves nothing, and the
+emitter's `str x9, [sp]` overwrites whatever PlanFrame put at [sp]: at -O2 on aa64 the saved x28 (SIGSEGV in
+the caller's caller), at the default level the spilled callee pointer.  conformance/1645 (each caller makes
+two such calls): native aa64 prints `368` for `1104` at the default level, garbage at -O2; native x86-64
+(Rosetta) is right at the default level, `368` at -O2.  LLVM is right (it lays out its own frame).  Fix: size
+an aggregate seam argument as the pointer slot it is (`shimDispatchArgTypes`: a non-zero-size aggregate →
+`*uint8`); also exact for GP aggregates, which it over-reserved.  Must land before the arm32 HFA switch, which
+would make arm32 hard-float the same.
+
 ### A negative literal narrowed to a typed int inside a package constant evaluates to 0 — silent wrong value — 🟡 IN PROGRESS MAJOR (claimed 2026-10-13, work-1; user: "do the new MAJOR first"; found 2026-10-13, work-1, review of the parseIntLit int64 change; reproduced; pre-existing)
 
 `const F float64 = cast(float64, cast(int8, -1))` is 0, not -1, and `const G = cast(float64, cast(int8, -3)) *
