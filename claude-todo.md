@@ -2227,6 +2227,19 @@ on a multi-line composite literal, …).  Comments are moved, not lost.  Test: `
 yet landed) drops the `defer` from its literal.  Fix: emit a statement's leading comments up to its
 leftmost token (descending the postfix chain's X), in bnfmt.
 
+### bnfmt lays out the argument list after a directly called function literal as if its `(` were alone — 🟢 LOW (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
+
+`printCall` / `printIndex` (`pkg/binate/format/print_expr.bn`) pass `headLine(e.X)`, the head's Pos line,
+as the list's opener line.  For `func(v int) {` … `}(x)` that is the `func` line, while `(` and `x` are on
+the `}` line, so `printArgList` (`print_wrap.bn`) takes the opener as alone and prints `}(` with `x` on a +2
+continuation line.  The opener's line is the `(`'s (`e.Pos.Line`).  Likewise `printArgList` reads the first
+and last elements' lines from their Pos, so a first argument `func() { … }()` counts as starting on its last
+line.  (The statement-level form of this, `stmtStartPos` / `exprStartPos`, is fixed.)  Changing the opener
+line also changes calls whose head spans lines another way (a chain split after `.`: `x.` / `f(a)`), so check
+the layout of bnfmt-format.sh's roots under it first.  Related, a comment inside a multi-line left operand
+but outside any function literal (`a.b(x, // c` / `y).c = 1`) is printed before the next statement — the
+fallback for a comment no node places, as for the same comment on a right-hand side.
+
 ### bnfmt indents a function literal's body from column 0 inside a composite literal element (and a case label) — 🟢 LOW (found 2026-10-06, work-3, review of the function-literal comment fix; pre-existing)
 
 `printCompositeElems` (`pkg/binate/format/print_wrap.bn`) renders each element into a fresh builder, where
