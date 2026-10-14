@@ -39,7 +39,7 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### x86-64 `#[c_export]` / `__c_entry` of a tuple with an SSE-class STRUCT field is a plain alias, but C and the internal convention place it differently — 🔴 OPEN MAJOR (found 2026-10-13, work-3, review follow-up of the aa64 tuple HFA fix; reproduced on both backends)
+### x86-64 `#[c_export]` / `__c_entry` of a tuple with an SSE-class STRUCT field is a plain alias, but C and the internal convention place it differently — 🟡 IN PROGRESS (claimed 2026-10-13, work-3/session; user: "yes") MAJOR (found 2026-10-13, work-3, review follow-up of the aa64 tuple HFA fix; reproduced on both backends)
 
 `#[c_export] func Mvl() (V2, int64)` with `V2 = {x, y float32}`: C's `struct { struct V2 v; long l; }` returns
 v (an SSE eightbyte) in XMM0 and l in RAX; the internal convention (ABI §2.7) returns the struct field v in GP
