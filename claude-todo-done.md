@@ -1,3 +1,17 @@
+### Func-value / closure shims write exactly the result's size through the retbuf (LLVM, native arm32) — DONE (binate `fef9a097b`, 2026-10-13, work-3)
+
+abi/03 lets a shim write exactly the result's natural size through the caller's retbuf.  LLVM shims stored a
+coerced result straight into it — a tuple's coerced struct field as whole `[N x iW]` words (`(int32, S3)`: 16
+bytes at offset 4 of a 16-byte buffer), a single coerced aggregate whole (`[2 x i64]` for a 12-byte struct) —
+and native arm32 stored a word-aligned aggregate tuple field in whole words and a 1-3-byte pack-shim result
+with `STR R0`.  Now: emitShimCoercedResultToRetbuf (slot, then emitFieldwiseCopy leaf by leaf; the c_export
+thunk's C-sret copy also leaf by leaf instead of a memcpy) and emitStoreRegBytesArm32 (exact 1-4 bytes).
+Native aa64 / x64 were already exact.  No test saw the overrun; codegen + native arm32 unit tests now pin the
+exact stores (they fail on the old code).  Validated: the func-value / closure / multi-return conformance
+subset (298 tests) on LLVM aa64, LLVM + native arm32 bare metal, LLVM + native arm32-linux (Docker); the xm*
+e2e, ffi-export.sh, arm32-ffi-export.sh (both backends); hygiene.  The remaining alignment assumption (a buffer
+only AlignOf-aligned) is in the sret `align 8` entry in claude-todo.md.
+
 ### Loop bounds-check elimination compared an unsigned loop bound as signed — DONE (binate `8be875356`, 2026-10-13, work-5)
 
 `bce_loop` dropped the check on an induction variable P guarded by `P < L` when the constant L was no

@@ -52,31 +52,6 @@ int on the target is not covered.  Options: trap it (a new message, or the negat
 the int64-index fix does for bounds checks.  Found while fixing the int64-index bug (conformance 1633),
 whose todo entry flagged make_slice lengths to check.
 
-### LLVM func-value / closure shims write past the caller's retbuf for a multi-return tuple whose struct field word-rounds — 🟡 IN PROGRESS (claimed 2026-10-13, work-3/session; user: "yes" = fix before the tuple-HFA GP spelling) MAJOR (found 2026-10-13, work-3, scoping the aa64 tuple HFA fix; IR-confirmed; pre-existing)
-
-ABI abi/03 (dispatch seam): "the callee writes exactly the natural size through [retbuf] ... Space beyond
-the natural size ... is not writable" (non-VM callers allocate exactly the natural size).  The LLVM
-shims reinterpret a coerced register-returned tuple into `%retbuf` with emitScatterFlatValue
-(emit_multiret_coerce.bn), which stores each struct/array field as its whole `[N x iW]` coerced form.  A
-field whose size is not a word multiple then writes up to W-1 bytes past its raw extent — past the
-retbuf when it is the last field.  Concrete (aa64, LLVM): `func mk(x int32) (int32, S3)` with
-`S3 = {a,b,c int32}` called through a `*func` value — the caller allocates `%v4.rb = alloca <{ i32, %S3 }>`
-(16 bytes) and `__shim.…mk` does `store [2 x i64] %shim.se1, ptr (%retbuf + 4)` → bytes 16..19 written
-past the buffer (silent stack corruption; heap when the caller is the VM, which pads only to 8).  The
-probe still prints the right values (the clobber lands in alignment slack), so no test sees it.  Same
-store in the capturing-closure shim (emit_funcvals_closure.bn) and every arch that coerces tuple fields
-(aa64, x64, arm32).  Fix: the shims scatter into a local slot of raw size + one word and copy exactly the
-natural size into `%retbuf` (emitMemCopy) — the same shape as the c_export thunk fix in the tuple-HFA
-entry below.  Test: a conformance case that cannot pass with the overrun (e.g. a retbuf followed by a
-canary the caller checks — needs a way to observe the caller's adjacent bytes; or a unit test pinning the
-shim's IR: no store wider than the natural size reaches `%retbuf`).  Blocks the tuple-HFA GP-spelling
-change, which would extend it to odd-count float32 HFA fields (`(int32, V3f)`, `(int32, V1f)`).
-Also (found 2026-10-13 scoping the fix): the LLVM shims' single coerced aggregate result is stored whole too
-(`[2 x i64]` for a 12-byte struct on aa64); and native arm32 overruns the same way — a word-aligned aggregate
-tuple field is stored in whole words (storeMultiRetGpFieldArm32; `(int8, int8, int8, int8, [3]int8)` writes
-byte 7 of a 7-byte tuple), and the pack shims store a 1-3-byte aggregate result with `STR R0, [R4]`.  Native
-aa64 / x64 already store exactly (emitStoreRegWordAarch64 / emitStoreRegWordX64).  Fixing all of these.
-
 ### aa64: a multi-return tuple with an HFA field is returned in FP registers by LLVM-compiled code, in GP registers by native — native<->LLVM calls read garbage — 🟡 IN PROGRESS (claimed 2026-10-13, work-3/session; user: "yes" = fix now, as plan-arm32-hfa.md stages 0-1) MAJOR (found 2026-10-13, work-3, arm32 HFA mapping; reproduced)
 
 `func Pair(a float32) (V2f, int32)` with `type V2f struct { x float32; y float32 }`: built all-LLVM or
@@ -99,8 +74,8 @@ Test: nothing checks native<->LLVM agreement today (conformance compiles every p
 a mixed-backend e2e (separate compilation, both directions) is plan-arm32-hfa.md stage 0, with this case
 expected-fail until the fix.
 The C-boundary side — a `#[c_export]` / `__c_entry` returning such a tuple — is done (binate `56911b098`,
-claude-todo-done.md), so the spelling fix no longer changes what C sees.  Before this lands: fix the shim
-retbuf overrun (MAJOR entry above), which the GP spelling would extend to `(int32, V3f)`-style tuples.
+claude-todo-done.md), so the spelling fix no longer changes what C sees; the shims' retbuf overrun, which it
+would have extended to `(int32, V3f)`-style tuples, is fixed too (binate `fef9a097b`).
 
 ### An int64 index on a 32-bit target is bounds-checked and addressed by its low word — silent wrong store — 🟡 IN PROGRESS MAJOR (found 2026-10-13, work-5, review of int64 SSA promotion; reproduced; pre-existing; claimed 2026-10-13, work-5/session)
 
