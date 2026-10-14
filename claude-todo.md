@@ -123,6 +123,17 @@ it.  Fix: a common in asm.Symbol (size and alignment), `.comm name, size[, align
 (ELF st_shndx SHN_COMMON with st_value the alignment; Mach-O n_type N_UNDF|N_EXT, n_value the size,
 GET_COMM_ALIGN in n_desc; `.lcomm` a local in .bss / a zerofill section), with tests against clang.
 
+### asm ELF writer: every section's sh_addralign is at least 16, where clang's is its contents' alignment — 🔴 OPEN (found 2026-10-14, work-2, comparing bnas `.lcomm` output with clang's; latent)
+
+`elf.Write` (pkg/binate/asm/elf/elf.bn, the data-section layout loop) gives each section sh_addralign
+max(16, Section.Align), so a `.text` of AArch64 or arm32 code is 16-aligned where clang writes 4, a `.data` of
+bytes 16 where clang writes 1, and a `.bss` whose largest `.lcomm` / `.balign` asks 8 is 16 where clang writes 8.
+Harmless to correctness (over-alignment) but not clang's output, and it pads every linked section.  Before
+lowering it: find whether anything relies on the 16-byte minimum without asking for it (native backends'
+constant pools or data loaded with 16-byte accesses, the runtime's `.s` files) — those must request their
+alignment with `.balign` / `.p2align` / Align — then use Section.Align (at least the instruction size for
+code, as clang's 4 for AArch64 / ARM, 1 for x86-64 text without `.p2align`).
+
 ### asm ELF writer: a section's type and flags come from its name, ignoring the flags it was created with — 🔴 OPEN (found 2026-10-10, work-2, writing bnld reader test fixtures; latent)
 
 `elfSectFlags` / `elfSectType` (`pkg/binate/asm/elf/elf_util.bn`) derive sh_flags / sh_type from the section
