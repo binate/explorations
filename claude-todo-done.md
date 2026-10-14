@@ -1,3 +1,16 @@
+### Native: a func-value / interface call's by-address argument (float aggregate, zero-size aggregate) under-reserved the outgoing area — the call overwrote the caller's frame — DONE (binate `d9e9ac2cd`, 2026-10-14, work-3)
+
+The dispatch seam passes an aggregate not passed indirectly as ONE pointer slot; PlanFrame sized it from
+shimDispatchArgTypes by its real type — no stack for an aarch64 HFA / x86-64 SSE aggregate (counted as float-register
+passed), no slot at all for a zero-size aggregate — while its pointer slot followed the core-register slots onto
+the stack.  A caller whose only calls were such calls reserved nothing: at -O2 on aa64 the call overwrote the
+saved x28 (a crash in the caller's caller), at the default level the spilled callee pointer.  Now sized by the
+backends' own by-address predicate (AggCoercedInReg, or an aggregate not PassesIndirect) — exact; also covers
+arm32 hard-float HFAs of any size once HFA passing is switched on.  Found checking plan-arm32-hfa.md stage 2;
+the zero-size and arm32 cases came from the review.  Tests: 4 native/common planner tests, conformance/1652
+(renumbered twice by concurrent landings); the func-value / closure / interface / HFA / slice subset passes on
+native aa64, arm32 bare metal, x86-64 darwin (Rosetta) and arm32-linux.
+
 ### asm: common symbols — `.comm` / `.lcomm` — DONE (binate `819372258`, link tests `75ad1611c`, 2026-10-14, work-2)
 
 asm.Symbol has Common / CommonAlign, Size (ELF st_size) and Object (STT_OBJECT); Assembler.DefineCommon declares a
