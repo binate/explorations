@@ -54,16 +54,17 @@ would make arm32 hard-float the same.
 
 ### A negative literal narrowed to a typed int inside a package constant evaluates to 0 — silent wrong value — 🟡 IN PROGRESS MAJOR (claimed 2026-10-13, work-1; user: "do the new MAJOR first"; found 2026-10-13, work-1, review of the parseIntLit int64 change; reproduced; pre-existing)
 
-`const F float64 = cast(float64, cast(int8, -1))` is 0, not -1, and `const G = cast(float64, cast(int8, -3)) *
-2.0` is 0, not -6 — LLVM and native aa64, -O0 and -O2, bnc built from main `ddd1e1f4c`; the same expression
-computed at run time is right, and iota constants (`A int8 = -1 - iota`) are right.  Root cause (read, matches
-the repro): stashConstExpr's substituteIota (irgen gen_const_fold.bn) copies a constant's expression into new
-nodes with ResolvedTypeID 0; at a use, genIntLitWithHint accepts the `-1` (isIntConstLit) and exprIntLitValue,
-with no type ID to read the checker's bignum from, falls back to parseIntLit(e.Name) — and an EXPR_UNARY's Name
-is empty, so 0.  Fix: substituteIota keeps each copied node's ResolvedTypeID (so the checker's value is used),
-and the fallback stops returning 0 for a node with no literal text (handle UNARY(MINUS, INT_LIT), else fail
-loud).  Test: a conformance test with the fix (both constants above, a uint / int64 variant, and a named const
-used in a typed context).
+Landed (binate `6c0d90f8d`): substituteIota copies only the nodes on a path to an iota (any other subtree keeps
+the checker's type IDs), and exprIntLitValue's fallback reads `-N` through the negation and fails loud on a node
+with no literal text — `cast(float64, cast(int8, -1))`, `(0 - 7) / 2`, `(0 - 16) >> 2` and a `-iota` member are
+right (conformance 1646).  Still open — the same root cause on the path to an iota: a node there is a copy with
+no type ID, so untyped arithmetic over iota in a float constant runs at run time as unsigned host-width
+arithmetic: `const ( X float64 = cast(float64, iota - 5); Y )` is +1.8e19 on LLVM, `(iota - 7) / 2` and
+`(iota - 16) >> 2` garbage everywhere, and on arm32 `cast(float64, cast(int64, iota - 1))` 4294967295.0.  Fix
+(in progress): the checker checks a clone of a bare member's repeated initializer at the member's iota (errors
+muted — the evaluation reports the member's own) and records it per member, the REPL's tentative group path the
+same; IR-gen takes that clone for a bare member (package, local and imported .bni groups), and substituteIota
+keeps type IDs on its copies (every stashed expression then having been checked at its own iota).
 
 ### `make_slice` with an int64 / uint64 length on a 32-bit target passes one word — wrong length or invalid IR — 🔴 NEEDS DECISION MAJOR (found 2026-10-13, work-5, fixing the int64-index bug; pre-existing)
 
