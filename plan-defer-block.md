@@ -182,12 +182,17 @@ loop in IR-gen") — the `for` statement needs its own IR-gen scope before a sco
 - 2026-10-12: step 2 started: VERSION bumped to `bnc-0.0.17-pre3` (binate `41c96547d`) and its parent `f85ed73b1`
   tagged `bnc-0.0.17-pre2`; the release workflow builds the bundles.  Then CHECK_TOOLS_VERSION -> pre2 (bnlint and
   bnfmt built from the tree are clean on it, so no source fixes are expected).
+- 2026-10-13: step 2 landed: `bnc-0.0.17-pre2` released; CHECK_TOOLS_VERSION -> pre2 (binate `279990cbe`), so
+  hygiene's bnlint and bnfmt parse `defer { … }`.  Next: step 3.  The tree now has 279 defer statements (pkg 244,
+  cmd 5, impls 30; every one a one-line `defer <call>` at a `_test.bn` function's top level), plus 9 call-form
+  defers in unit tests' embedded source that use it only to exercise semantics (vm 8, irgen 1).  The tests of
+  the call form itself (parser, format, check) change in step 4.
 
 ## Transition (the pinned CHECK_TOOLS bnlint / bnfmt parse `pkg/`, `cmd/`, `impls/`, `ifaces/`)
 
 `scripts/hygiene/lint.sh` (bnlint `--tests`; `pkg/`, `cmd/`, every `impls` / `ifaces` package) and
 `bnfmt-format.sh` (`pkg cmd impls ifaces perf examples runtime`) use the CHECK_TOOLS_VERSION tools
-(`bnc-0.0.17-pre1`), whose parser rejects `defer { … }` ("expected expression").  `conformance/` is neither
+(`bnc-0.0.17-pre1` until step 2), whose parser rejects `defer { … }` ("expected expression").  `conformance/` is neither
 formatted nor linted.  The tree has 259 defers, all in `_test.bn` files at function top level, none reassigning
 its operand later (pkg 225, cmd 4, impls 30; 222 are `defer os.RemoveAll(dir)`), so they mean the same under the
 eager and the new semantics; there are none in non-test code, e2e, perf, runtime or examples.
