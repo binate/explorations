@@ -1,6 +1,6 @@
 # Plan: `defer { … }` — a block run at scope exit, reading live variables
 
-Status: ACCEPTED 2026-10-12 (work-4); plan review folded in 2026-10-12; transition order and REPL decided 2026-10-12.  Supersedes the eager, function-scoped
+Status: DONE 2026-10-14 (work-4): all four steps landed (status log below).  Accepted 2026-10-12; plan review folded in 2026-10-12; transition order and REPL decided 2026-10-12.  Supersedes the eager, function-scoped
 `defer <call>` of `proposal-defer.md` (spec §14.13 as of docs `0cc5657`).
 
 ## Decision (user, 2026-10-11 / 2026-10-12)
@@ -193,6 +193,10 @@ loop in IR-gen") — the `for` statement needs its own IR-gen scope before a sco
   form, other sessions keep writing it.  Next: step 4.
 - 2026-10-13: the six landed (binate `2640d2b68`); no defer statement outside conformance/ uses the call form.
   Step 4 started.
+- 2026-10-14: step 4 landed (binate `f9551eddf`, docs `321a548`): `defer f()` is a syntax error, "defer requires
+  a block: `defer { f() }`", reported at the operand; `stmt.defer.call` and the shorthand's handling are gone.
+  The landing found a bnfmt bug the old `defer func() { … }()` test had hidden (fixed first, binate `6056ca670`).
+  Done.
 
 ## Transition (the pinned CHECK_TOOLS bnlint / bnfmt parse `pkg/`, `cmd/`, `impls/`, `ifaces/`)
 

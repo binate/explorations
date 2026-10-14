@@ -114,7 +114,7 @@ IR-gen cannot map is an internal error, never `int`.
   re-check, or tag stamps with a generation.
 - Performance: registerExprType never reuses an id; TypeExprs are re-resolved often (LoadPackageInterface
   plus CheckPackage, generic-alias clones per use).  On the IR side, memoize by checker Type pointer.
-- Coordination: plan-defer-block.md (accepted 2026-10-12) rewrites the defer pre-pass; stages 2–6 touch 38+
+- Coordination: done/plan-defer-block.md (accepted 2026-10-12) rewrites the defer pre-pass; stages 2–6 touch 38+
   files other sessions edit.
 - BUILDER: no new language features needed.
 

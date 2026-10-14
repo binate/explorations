@@ -157,17 +157,6 @@ nothing else changes.  Do: keep x86-64 `.eh_frame` as data, as aarch64's is; imp
 sorted by the code they describe, an EXIDX_CANTUNWIND terminator, `__exidx_start` / `__exidx_end`, and a
 PT_ARM_EXIDX segment — as lld does.
 
-### `defer { … }`: a block run at scope exit, reading live variables — 🟡 IN PROGRESS (claimed 2026-10-12, work-4) — step 1, the semantic switch, landed (binate `b576ece21`, docs `9cfcb6d`); step 2 landed (`bnc-0.0.17-pre2` released from binate `f85ed73b1`; CHECK_TOOLS_VERSION -> pre2 in binate `279990cbe`); step 3 landed (binate `550800e0b`, and `2640d2b68` for 6 call-form defers that landed concurrently: no defer outside conformance/ uses the call form); step 4 in progress: rejecting the call form (`plan-defer-block.md`)
-
-Decided (user, 2026-10-11 / 2026-10-12): stray from Go — the deferred code is evaluated when it runs, at the exit
-of the enclosing block, reading the variables as they are then ("scope exit with no copy sounds fine; it's a
-lot simpler"), and a block is required ("it distinguishes it from Go, which is important, *and* it's
-consistent with other control flow").  Replaces the eager, function-scoped `defer <call>`; that model's open
-problem — a raw pointer derived from a managed local (`defer readp(&x.y); x = mk()`, `&s[1]`, `defer
-x.inner.Show()`) reading freed memory — disappears with it, as do the spec-review findings on the eager wording
-(docs `0cc5657`).  Plan: `plan-defer-block.md` (semantics, draft spec text, implementation, the CHECK_TOOLS
-transition).
-
 ### Spec gap: when are a compound statement's header temporaries released? — 🔴 NEEDS DECISION (found 2026-10-12, work-4, spec review of the `defer { … }` change; pre-existing)
 
 §9.7 says a statement's temporaries last "until the end of that statement", but the review's probe shows a
@@ -1556,6 +1545,14 @@ resolving.  Every non-BUILDER-tree consumer already imports the new paths.  Rema
 
 ## Documentation hygiene
 
+### examples/files/README.md says "There is no `defer`" — 🟢 LOW (found 2026-10-12, work-4, `defer { … }` step 1)
+
+`examples/files/README.md:56`: "every open in the tour has a matching close. There is no `defer`;
+deterministic release is the language's answer".  Binate has `defer` (the examples' pinned `bnc-0.0.16` has
+the call form `defer f()`; `bnc-0.0.17-pre2` and later have `defer { … }`), so the sentence is wrong whichever
+version it describes.  Fix with the examples' next bnc bump: say the tour closes each file explicitly (or use
+`defer { f.Close() }` once the pin carries the block form).
+
 ### Language spec doesn't state the package-path syntax the toolchain enforces — 🟢 minor, needs a decision (found 2026-09-27, work-3)
 
 §16.2/§16.3 define a package path only as a `string_literal` (the package clause / import path), but
@@ -2213,20 +2210,6 @@ inconsistent with `@X`.  Fix: route a named type whose underlying is an opaque t
 destructor (or give F a destructor that calls X's).
 
 ## bnfmt (self-hosted formatter)
-
-### bnfmt moves the comments inside a directly called function literal above its statement — 🟡 IN PROGRESS (claimed 2026-10-13, work-4) (found 2026-10-13, work-4, step 4 of the `defer { … }` plan; pre-existing)
-
-`printStmts` (`pkg/binate/format/print_stmt.bn:116`) emits a statement's leading comments up to
-`stmts[i].Pos`.  An expression statement's Pos is its expression's (`parse_stmt.bn`), and a call's is its
-`(` (`parseCallExpr`, `pkg/binate/parser/parse_postfix.bn`).  In `func() { // why` … `g() // t` … `}()`
-the `(` follows the literal's body, so every comment inside the literal is printed as a leading comment of
-the statement: above it, with a blank line where each was, and the trailing comment off its line.
-`run(func() { … })` is unaffected, as was the old `defer func() { … }()` (its Pos was the `defer`).  Likely
-the same for any statement whose first expression is a postfix chain on a multi-line operand (a method call
-on a multi-line composite literal, …).  Comments are moved, not lost.  Test: `TestCommentsFuncLitInPlace`
-(`pkg/binate/format/print_funclit_comments_test.bn`), which fails once the `defer { … }` step-4 commit (not
-yet landed) drops the `defer` from its literal.  Fix: emit a statement's leading comments up to its
-leftmost token (descending the postfix chain's X), in bnfmt.
 
 ### bnfmt lays out the argument list after a directly called function literal as if its `(` were alone — 🟢 LOW (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
 

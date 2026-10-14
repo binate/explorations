@@ -1,3 +1,44 @@
+### `defer { … }`: a block run at scope exit, reading live variables — DONE (binate `b576ece21`, `279990cbe`, `550800e0b`, `2640d2b68`, `f9551eddf`; docs `9cfcb6d`, `321a548`; 2026-10-14, work-4)
+
+Decided (user, 2026-10-11 / 2026-10-12): stray from Go — the deferred code is evaluated when it runs, at the exit
+of the enclosing block, reading the variables as they are then ("scope exit with no copy sounds fine; it's a
+lot simpler"), and a block is required ("it distinguishes it from Go, which is important, *and* it's
+consistent with other control flow").  Replaces the eager, function-scoped `defer <call>`; that model's open
+problem — a raw pointer derived from a managed local (`defer readp(&x.y); x = mk()`, `&s[1]`, `defer
+x.inner.Show()`) reading freed memory — disappears with it, as do the spec-review findings on the eager wording
+(docs `0cc5657`).  Plan: `done/plan-defer-block.md` (semantics, draft spec text, implementation, the CHECK_TOOLS
+transition).
+
+Landed in four steps: the semantic switch, the call form kept as sugar for `defer { <call> }` (binate
+`b576ece21`, docs `9cfcb6d`); the `bnc-0.0.17-pre2` pre-release (tagged on binate `f85ed73b1`) and
+CHECK_TOOLS_VERSION -> pre2 (binate `279990cbe`), so hygiene's bnlint and bnfmt parse the block form; the
+tree's unit-test defers in the block form (binate `550800e0b`, and `2640d2b68` for six that landed
+meanwhile); the call form rejected, `defer f()` a syntax error with the hint "defer requires a block:
+`defer { f() }`" (binate `f9551eddf`, docs `321a548`, which also retired `stmt.defer.call`).  Found on the
+way: bnfmt moved the comments inside a directly called function literal above its statement (fixed, binate
+`6056ca670`).  Still open in claude-todo.md: the header-temporaries spec gap, bnfmt's argument list after
+a directly called function literal, and the examples README's "There is no `defer`".
+
+### bnfmt moves the comments inside a directly called function literal above its statement — DONE (binate `6056ca670`, 2026-10-14, work-4) (found 2026-10-13, work-4, step 4 of the `defer { … }` plan; pre-existing)
+
+`printStmts` (`pkg/binate/format/print_stmt.bn:116`) emits a statement's leading comments up to
+`stmts[i].Pos`.  An expression statement's Pos is its expression's (`parse_stmt.bn`), and a call's is its
+`(` (`parseCallExpr`, `pkg/binate/parser/parse_postfix.bn`).  In `func() { // why` … `g() // t` … `}()`
+the `(` follows the literal's body, so every comment inside the literal is printed as a leading comment of
+the statement: above it, with a blank line where each was, and the trailing comment off its line.
+`run(func() { … })` is unaffected, as was the old `defer func() { … }()` (its Pos was the `defer`).  Likely
+the same for any statement whose first expression is a postfix chain on a multi-line operand (a method call
+on a multi-line composite literal, …).  Comments are moved, not lost.  Test: `TestCommentsFuncLitInPlace`
+(`pkg/binate/format/print_funclit_comments_test.bn`), once the `defer` is dropped from its literal.  Fix: emit a statement's leading comments up to its
+leftmost token (descending the postfix chain's X), in bnfmt.
+
+Fixed: `stmtStartPos` / `exprStartPos` (`pkg/binate/format/print_comments.bn`) give a statement's first token
+(through the call, selector, index, slice, type-assertion and binary nodes whose Pos is their operator's),
+used by the block and case-body printers, the case-on-the-label-line check and the long-line marker check;
+a grouped var / const member's start (`memberStartPos`) is its value's first token the same way.  The
+blank line the operator's Pos also added before a directly called multi-line literal is gone.  Tests:
+`TestCommentsFuncLitInPlace`, `TestFuncLitCalledDirectly`, `print_stmt_start_test.bn`.
+
 ### A method only a package's `.bn` declares is private to the package; a `.bni` sees its package as an importer does — DONE (binate `fb5a00a04`, docs `5bf01bb`, 2026-10-13, work-7)
 
 Before: an importer, or a `.bni` generic body (monomorphized in the importer), could call a method only the
@@ -348,7 +389,7 @@ schedules each defer on the open scope (gen_scope.bn) and emits it at every exit
 (gen_defer_build / gen_defer_exit / gen_defer_lit, the pre-pass, the snapshots, the defer epilogue) is deleted.
 Spec §14.13 rewritten (stmt.defer.block, stmt.defer.repl, stmt.for.scope new; stmt.defer.no-loop gone).  Tests:
 conformance 186–191 plus the migrated defer tests.  Steps 2–4 (CHECK_TOOLS pre-release, the 259 unit-test defers,
-rejecting the call form) stay open in claude-todo.md; plan: `plan-defer-block.md`.
+rejecting the call form) stay open in claude-todo.md; plan: `done/plan-defer-block.md`.
 
 ### ICE `defer of an unresolved method call` for a deferred method call on a generic instance or through a pointer to an imported variable — DONE (binate `b576ece21`, 2026-10-12, work-4) (a bullet of work-1's 2026-09-26 forwarder-audit entry, marked fixed there)
 
@@ -357,12 +398,12 @@ p.Inc()` panicked IR-gen (reproduced on BUILDER bnc-0.0.16).  The `defer { … }
 as `defer { <call> }`, so the callee resolves as an ordinary call's.  Test: conformance
 `spec/14-statements/191_defer_method_generic_imported` (every mode).
 
-### Package-variable init order ignores reads inside a deferred call — silent wrong value — DONE (binate `b576ece21`, 2026-10-12, work-4) (found 2026-10-12, work-4, review of plan-defer-block.md)
+### Package-variable init order ignores reads inside a deferred call — silent wrong value — DONE (binate `b576ece21`, 2026-10-12, work-4) (found 2026-10-12, work-4, review of done/plan-defer-block.md)
 
 `var a int = func() int { defer show(b); return 1 }()` followed by `var b int = seven()` prints "deferred
 sees b = 0" (a plain `show(b)` prints 7): collectVarDepsStmt (check/check_var_resolve.bn) has no STMT_DEFER
 arm, so the dependency on `b` is missed and `a` initializes first (§17.2).  Fix: walk the deferred code.  The
-defer redesign (plan-defer-block.md) must cover it — the deferred block is walked like any block — and its
+defer redesign (done/plan-defer-block.md) must cover it — the deferred block is walked like any block — and its
 test (an IIFE initializer whose deferred code reads a later variable) belongs with that work.
 
 Resolution: collectVarDepsStmt walks a defer statement's block (or its call shorthand) like any block, as part of
@@ -482,7 +523,7 @@ spec/14-statements/184_for_init_scope (shadowed int / managed outer variables, n
 variables — pointer, managed-slice, struct with a managed field — released at exit by condition / break /
 return, live across continue).  Storage created in the loop header (a raw-slice literal's backing assigned to
 an outer variable) now also ends with the loop; that, and the init variable's scope, go into the planned
-`stmt.for.scope` rule (plan-defer-block.md).  Found by the review of plan-defer-block.md.
+`stmt.for.scope` rule (done/plan-defer-block.md).  Found by the review of done/plan-defer-block.md.
 
 ### bnld dynamic ELF exports the definitions its needed libraries name — DONE (binate `d7d6ce938`, `03bd0bf25`, `41223d9a2`, 2026-10-12, work-2)
 
