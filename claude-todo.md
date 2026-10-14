@@ -558,13 +558,6 @@ Each needs a test (xfail'd) + triage; grouped here so none is lost.
   (`gen_impl.bn:133,347`, `gen_iface_registry.bn:166`; check the universe first like
   `isInterfaceTypeExpr`, `gen_iface.bn:73-80`) — or should the checker reject it?  Spec is silent:
   user's call.
-- **An aggregator's own `.bn` sees its exposed names bare** (`check/checker.bn:199-212` copies the
-  injected symbols into the implementation scope), violating `pkg.expose.surface`: `MakePoint(4, 5)`
-  inside the aggregator's `.bn` checks, then IR-gen mangles it as the aggregator's → undefined.  (2026-10-11,
-  work-7) A bare exposed CONSTANT there crashes the compiler: `const m int = N * 2` in the aggregator's `.bn`
-  (N from the exposed package) → `panic: internal error: IR generation cannot evaluate a constant the type
-  checker accepted`.  The `.bni` side (a `.bni` method or constant naming an exposed member bare) is rejected
-  since binate `cc8aa0e9e` (spec tests 16-packages/111, 112).
 - **The `.bn` checker rejects a forward-referenced interface parent** (`interface LSub : LBase` before
   `LBase` → "undefined: LBase"), violating `decl.order.forward` (the `.bni` scope builder accepts it).
 - **`impl *home.Box[T] : Peeker[T]` in a third package is rejected** ("cannot define methods or impls
@@ -580,6 +573,17 @@ Each needs a test (xfail'd) + triage; grouped here so none is lost.
 - **Spec mismatch:** `pkg.expose.dep` says a pure forwarder emits no code/storage, but its object
   defines `__Package`, `__pkg_info`, `__pkg_funcs`, `__pkg_satfrag` and `__ifaceid` copies.
 - **Unverified:** the REPL (`repl/ir_imports.bn`) has no equivalent of `registerGenericBodyExternDeps`.
+
+### An aggregator's own `.bn` sees its exposed names bare; a bare exposed constant there crashes IR-gen — 🟡 IN PROGRESS (claimed 2026-10-14, work-7/session — user: "Then let's work on the IR-gen crash."; split out of the forwarder-audit entry above, claimed by work-1; found 2026-09-26, work-1)
+
+`check/checker.bn:199-212` copies the injected (exposed) symbols into the aggregator's implementation scope,
+violating `pkg.expose.surface` (an `expose` extends only the aggregator's surface, not its own scope):
+`MakePoint(4, 5)` inside the aggregator's `.bn` checks, then IR-gen mangles it as the aggregator's →
+undefined.  (2026-10-11, work-7) A bare exposed CONSTANT there crashes the compiler: `const m int = N * 2` in
+the aggregator's `.bn` (N from the exposed package) → `panic: internal error: IR generation cannot evaluate a
+constant the type checker accepted`.  The `.bni` side (a `.bni` method or constant naming an exposed member
+bare) is rejected since binate `cc8aa0e9e` (spec tests 16-packages/111, 112).  Fix: keep exposed names out
+of the aggregator's own scope, so both are "undefined" (the aggregator writes an ordinary import to use P).
 
 ### Compile time is superlinear in function size — iropt mem2reg, the native allocator/liveness passes, and the compiler-wide copy-per-append `slices.Append` — 🔴 OPEN (found 2026-09-27)
 
