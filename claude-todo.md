@@ -66,6 +66,23 @@ muted — the evaluation reports the member's own) and records it per member, th
 same; IR-gen takes that clone for a bare member (package, local and imported .bni groups), and substituteIota
 keeps type IDs on its copies (every stashed expression then having been checked at its own iota).
 
+### A const member with iota only inside a type expression takes the last member's value — silent wrong constant — 🔴 OPEN MAJOR (found 2026-10-14, work-1, review of the bare-member iota fix; reproduced; pre-existing)
+
+A const-group member whose initializer mentions iota only inside a type expression (an array length) gets the
+LAST member's length, on every backend: `const ( A float64 = cast(float64, sizeof([iota + 1]int64)); B; C )` is
+24 24 24 (not 8 16 24), and `const ( LA int = len([iota + 2]int8{}); LB )` is 2 2 (not 2 3) — an integer
+constant wrong at check time.  (`const ( IA = sizeof([iota + 1]int64); IB; IC )` is right: the checker resolves
+the type at each iota (checkerEnv.Type) and IR-gen emits the checker's value.)  Root cause: a bare member is
+evaluated on the explicit member's shared AST.  (1) Resolving `[iota + 1]int64` records the length on the shared
+`TypeExpr` (`LenVal` / `LenKnown`, check/resolve_type.bn), so the last member's evaluation wins, and IR-gen
+trusts `LenVal` (irgen/gen_type_resolve.bn) when it re-lowers the stashed float expression — for the explicit
+member A too.  (2) `checkerEnv.Len` (check/check_constval.bn) reads the array type from `e.ResolvedTypeID`,
+recorded when the explicit member was checked.  (3) `mentionsIota` / `substituteIota` look only at expression
+operands, not into `TypeRef`, so such a member gets no per-member checked copy.  Test: conformance 1651
+(`.xfail.all`).  Fix direction: evaluate a bare member whose initializer mentions iota anywhere (type expressions
+included) on its own checked copy at its iota, leaving the explicit member's nodes untouched, and make
+`mentionsIota` / `substituteIota` descend into type expressions.
+
 ### `make_slice` with an int64 / uint64 length on a 32-bit target passes one word — wrong length or invalid IR — 🔴 NEEDS DECISION MAJOR (found 2026-10-13, work-5, fixing the int64-index bug; pre-existing)
 
 The same class as the int64-index bug: IR-gen's `genIntOperand` widens a length narrower than int but passes
