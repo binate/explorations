@@ -191,6 +191,8 @@ loop in IR-gen") — the `for` statement needs its own IR-gen scope before a sco
   block form.  Six call-form defers landed concurrently on main (3 in `pkg/binate/irbuild/narrow_test.bn`, 3 in
   `pkg/binate/native/arm32/arm32_bounds64_test.bn`); a follow-up migrates them.  Until step 4 rejects the call
   form, other sessions keep writing it.  Next: step 4.
+- 2026-10-13: the six landed (binate `2640d2b68`); no defer statement outside conformance/ uses the call form.
+  Step 4 started.
 
 ## Transition (the pinned CHECK_TOOLS bnlint / bnfmt parse `pkg/`, `cmd/`, `impls/`, `ifaces/`)
 

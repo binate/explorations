@@ -142,7 +142,7 @@ nothing else changes.  Do: keep x86-64 `.eh_frame` as data, as aarch64's is; imp
 sorted by the code they describe, an EXIDX_CANTUNWIND terminator, `__exidx_start` / `__exidx_end`, and a
 PT_ARM_EXIDX segment — as lld does.
 
-### `defer { … }`: a block run at scope exit, reading live variables — 🟡 IN PROGRESS (claimed 2026-10-12, work-4) — step 1, the semantic switch, landed (binate `b576ece21`, docs `9cfcb6d`); step 2 landed (`bnc-0.0.17-pre2` released from binate `f85ed73b1`; CHECK_TOOLS_VERSION -> pre2 in binate `279990cbe`); step 3 landed (binate `550800e0b`: 279 unit-test defers in the block form), except 6 call-form defers that landed concurrently (`pkg/binate/irbuild/narrow_test.bn`, `pkg/binate/native/arm32/arm32_bounds64_test.bn`), migrated in a follow-up; then step 4, rejecting the call form, which stops new ones (`plan-defer-block.md`)
+### `defer { … }`: a block run at scope exit, reading live variables — 🟡 IN PROGRESS (claimed 2026-10-12, work-4) — step 1, the semantic switch, landed (binate `b576ece21`, docs `9cfcb6d`); step 2 landed (`bnc-0.0.17-pre2` released from binate `f85ed73b1`; CHECK_TOOLS_VERSION -> pre2 in binate `279990cbe`); step 3 landed (binate `550800e0b`, and `2640d2b68` for 6 call-form defers that landed concurrently: no defer outside conformance/ uses the call form); step 4 in progress: rejecting the call form (`plan-defer-block.md`)
 
 Decided (user, 2026-10-11 / 2026-10-12): stray from Go — the deferred code is evaluated when it runs, at the exit
 of the enclosing block, reading the variables as they are then ("scope exit with no copy sounds fine; it's a
