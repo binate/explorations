@@ -36,7 +36,7 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### Native aa64 / x86-64: a func-value / interface call whose float aggregate's pointer slot goes to the stack under-reserves the outgoing-argument area — the call overwrites the caller's frame — 🔴 OPEN MAJOR (found 2026-10-13, work-3, plan-arm32-hfa.md stage 2 check; reproduced, disassembled)
+### Native aa64 / x86-64: a func-value / interface call whose float aggregate's pointer slot goes to the stack under-reserves the outgoing-argument area — the call overwrites the caller's frame — 🟡 IN PROGRESS (claimed 2026-10-14, work-3/session; user: "yes, fix it now") MAJOR (found 2026-10-13, work-3, plan-arm32-hfa.md stage 2 check; reproduced, disassembled)
 
 The dispatch seam (abi/03 §3.3) passes an aggregate argument as ONE pointer slot.  PlanFrame sizes a
 func-value / iface call's outgoing area from `shimDispatchArgTypes` (native/common/common_call.bn), which
