@@ -662,20 +662,6 @@ error (the forwarder should drop the redundant `expose "P"`; a bnlint rule could
 when both paths denote the same declaration (compare the defining package and declaration, not the name),
 spec to match.  Needs a conformance test either way.
 
-### Run-time interface assertions ignore `impl` privacy: `x.(J)` succeeds through an `impl` private to another package's `.bn` — 🟡 IN PROGRESS (claimed 2026-10-14, work-7/session — user, on §11.12: "they should respect privacy"; the rest of the `.bn`-only impl entry, whose static rule landed as binate `e7dc58048`)
-
-An `impl` only a package's `.bn` declares is private to that `.bn` (§16.4 `pkg.export`, docs `75802e5`): the
-checker no longer lets another package, or the package's own `.bni`, build an interface value or satisfy a
-constraint through it.  A type assertion or type-switch case with an interface target `J` still consults the
-program-wide satisfaction registry, so in another package (or in a `.bni` generic body) it succeeds through
-such an impl -- against §11.12 `iface.assert` ("has a visible `impl … : J`").  User decision (2026-10-14):
-run-time assertions respect privacy.  To do: say in §11.12 where "visible" is judged (the assertion as
-written: its package, and `.bn` or `.bni`; a generic body's assertion is written in its declaring file), and
-implement it on every path -- LLVM and native registries, the VM, and interpreted code asserting on compiled
-values.  One shape: keep private impls out of the program-wide registry, and have an assertion in the impl's
-own package's `.bn` also try that package's private impls.  Tests: across packages (an importer misses, the
-own package hits, comma-ok), a type switch, and a private impl of a descendant of `J`.
-
 ### Should a function-value type's parameters and results be held to the opaque rules? — 🔴 NEEDS DECISION (raised 2026-10-03, work-3, review of the type-declaration opaque check; split out 2026-10-10, work-7)
 
 With `type Op` opaque, a function declaration's by-value opaque parameter or result is rejected (`func f(o

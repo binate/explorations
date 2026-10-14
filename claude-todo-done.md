@@ -10,8 +10,11 @@ moved into `lang.bni`; twelve conformance tests' importer-used impls moved into 
 was rewritten.  Tests: check `impl_private_test.bn` (6), conformance 1653, spec/11 103, spec/12 108, spec/16
 121.  The review found a false rejection (a constraint naming an earlier type parameter was checked in the
 generic's package) and two holes (a generic alias's target and a generic interface's parents, unchecked
-outside an instance); all fixed with tests that fail without the fix.  Run-time assertions through such an
-impl remain open in `claude-todo.md`.
+outside an instance); all fixed with tests that fail without the fix.  Run-time assertions: asked whether
+`x.(J)` should respect the privacy too, the user first said "they should respect privacy", then, shown that a
+value of a type only a `.bn` declares (e.g. `errors.New`'s) could then never be asserted to an interface
+outside its package and that `fmt`'s Stringer check would ignore such impls, chose "See every impl at run
+time": an assertion consults every impl in the program, as it already did.  §11.12 says so (docs `73c9d5c`).
 
 ### Native: a func-value / interface call's by-address argument (float aggregate, zero-size aggregate) under-reserved the outgoing area — the call overwrote the caller's frame — DONE (binate `d9e9ac2cd`, 2026-10-14, work-3)
 
