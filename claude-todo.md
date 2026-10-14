@@ -112,13 +112,6 @@ is word-aligned; through the #[c_export] trampoline's CRET_ADAPT_SRET path the b
 a fault on strict-alignment bare metal.  Fix with the rest: decide by the buffer's guaranteed alignment
 (AlignOf of the tuple / result), not offset parity alone.
 
-### link tests: visibility set by patching st_other / n_type bytes instead of the assembler's SetVisibility — 🟡 IN PROGRESS (claimed 2026-10-13, work-2; user: "Let's do both")
-
-TestReadElfSymbolVisibility, TestLinkDynElfHiddenCommonNotExported and TestReadMachoPrivateExtern build their
-objects with the assembler, then patch the visibility bytes, written before asm.Symbol had a Visibility
-(binate `311b04c57`).  Use asm.SetVisibility instead; the stab entry in the Mach-O test stays patched (no
-assembler writes stabs), and so do the commons (see the `.comm` entry below).
-
 ### asm: no common symbols — `.comm` / `.lcomm` (ELF), `.comm` (Mach-O) — 🔴 OPEN (found 2026-10-13, work-2, scoping the link-test visibility cleanup; latent)
 
 The assembler cannot define a common symbol: no `.comm` / `.lcomm` directive, no common in asm.Symbol, and

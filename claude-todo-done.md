@@ -1,3 +1,11 @@
+### link tests: symbol visibility set with asm.SetVisibility, not patched bytes — DONE (binate `0ec09f4d0`, 2026-10-13, work-2)
+
+TestReadElfSymbolVisibility, TestLinkDynElfHiddenCommonNotExported and TestReadMachoPrivateExtern now call
+asm.SetVisibility, so the assembler's ELF and Mach-O writers produce the visibility bnld's readers read (written
+before asm.Symbol had a visibility, they patched st_other / n_type).  The Mach-O test still patches its stab entry
+(no assembler writes stabs), and the commons are still patched in (the assembler has no `.comm`, an open todo).
+Test-only change; validated: link unit tests (331); hygiene.
+
 ### The 32-bit-host unit lane's test failures that were tests assuming a 64-bit host — DONE (binate `49ab9be56`, 2026-10-13, work-1)
 
 Part of the 32-bit-host CRITICAL (which stays open for int64 layout).  types' default target is the host, so on
