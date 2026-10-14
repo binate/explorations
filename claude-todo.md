@@ -680,7 +680,7 @@ error (the forwarder should drop the redundant `expose "P"`; a bnlint rule could
 when both paths denote the same declaration (compare the defining package and declaration, not the name),
 spec to match.  Needs a conformance test either way.
 
-### An `impl` only a package's `.bn` declares is visible to importers only in a batch build — 🔴 NEEDS DECISION (split out 2026-10-13, work-7, from the method-privacy entry, whose case 5 it was; pre-existing)
+### An `impl` only a package's `.bn` declares is visible to importers only in a batch build — 🟡 IN PROGRESS (claimed 2026-10-14, work-7/session — user: "For case 5, I think (a) is correct, so work on that."; split out 2026-10-13, work-7, from the method-privacy entry, whose case 5 it was; pre-existing)
 
 An importer may build an interface value through an `impl` that only the defining package's `.bn` declares:
 conformance 585 (`impl @Impl : Boxer` in `shape/shape.bn`, `var b @shape.Boxer = shape.New()` in main) and 383
