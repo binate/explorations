@@ -1,10 +1,10 @@
 # Plan: AAPCS-VFP HFA passing as Binate's own arm32-linux convention
 
-Status: stages 0, 1 and 2 DONE (binate `928bae828` mixed-backend e2e + tuple fix, `95a10dac9` conformance
+Status: stages 0-3 DONE (binate `928bae828` mixed-backend e2e + tuple fix, `95a10dac9` conformance
 1642-1644; 2026-10-13; stage 2 binate `cbbf1cf65`, the callconv HFA placement, inert; 2026-10-14);
-stage 3 in progress — the direct call / param / return emitters landed as binate `0c96052ab`,
-the func-value shims as `7b6eab741`, the closure shims as `c32d006d8` (2026-10-14; the C-export
-trampoline remains); stages 4-5 open.  Drafted 2026-10-13, work-3.  User decision (2026-10-13): "1" — on arm32-linux (hard-float,
+stage 3, the native arm32 emitters, inert — direct call / param / return binate `0c96052ab`, the
+func-value shims `7b6eab741`, the closure shims `c32d006d8`, the C-export trampoline `6114f67e9`;
+2026-10-14); stages 4-5 open.  Drafted 2026-10-13, work-3.  User decision (2026-10-13): "1" — on arm32-linux (hard-float,
 `types.Arm32HardFloat()`), a homogeneous float aggregate (HFA: a named struct / array of 1-4 same-width
 float32 or float64 members, nested ones flattened) is passed and returned by the AAPCS-VFP rules in
 Binate's own calling convention, on both backends — lifting ABI deviation (4) (docs/abi/02 §2.1, 04 §4.7)
