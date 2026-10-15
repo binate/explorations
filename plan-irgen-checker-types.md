@@ -60,8 +60,8 @@ IR-gen cannot map is an internal error, never `int`.
 2. **Complete the mapper.**  Memoized by checker Type pointer; registers lazily and self-sufficiently from
    the checker type (fields, method sets, parents) so ordering cannot leave it nil; the opaque rule
    (OpaqueExportPkg against the current module — the checker's Type is shared between a `.bni` forward and
-   the `.bn` definition, its Underlying filled in place); a Self rule (TYP_SELF maps to nil today; the IR
-   interface registry resolves TEXPR_SELF to void); generic declarations by identity
+   the `.bn` definition, its Underlying filled in place); TYP_SELF is an internal
+   error (decision 3); generic declarations by identity
    (irInstantiationFromChecker re-looks a generic up by d.Name).  Instruction-level typing choices stay out
    of scope (StripConstForIR, a named func value's OP_FUNC_VALUE at the bare type, untyped constants).
 3. **Differential, behind a flag.**  Compute the mapped side in pure naming mode (GenCtx.NamingInstances —
@@ -69,7 +69,7 @@ IR-gen cannot map is an internal error, never `int`.
    identity incl. readonly), not objects.  Run on the conformance corpus, the self-compile and the REPL e2e,
    on one 64-bit and one 32-bit target (LenVal / sizeof are target-dependent).  Triage each disagreement:
    mapper gap, stamp gap, or legacy bug — a legacy bug gets a test and a todo and is fixed by the switch, not
-   patched in the resolver that is being deleted.  Expected (legit) differences: Self, parameterized-impl
+   patched in the resolver that is being deleted.  Expected (legit) differences: parameterized-impl
    type parameters (stage 5), registration-order gaps.
    One registration-order gap is a live bug the switch must fix (decided 2026-10-12, user: "yes" — no patch
    to the legacy resolver): an alias of a generic interface instantiation (`interface X = G[int]`) is an
@@ -122,6 +122,12 @@ IR-gen cannot map is an internal error, never `int`.
 
 1. Value-name resolution (stage 6) IS in this plan.
 2. The differential (stage 3) is a flag used during the transition, removed in stage 7.
+3. (User 2026-10-14: "2: Switching sounds fine.")  Interface method signatures come from the checker at the
+   dispatch site: genInterfaceMethodCall maps the method's FuncType from the interface type of `sel.X`;
+   interp.CallIfaceMethod looks it up through its checker and returns an error for a `Self`-using method.  The
+   IR interface registry keeps names, parents and aliases only, so `TYP_SELF` never enters IR and the mapper
+   treats it as an internal error.  Proposed order: lands with the checker fix for `Self` in struct types and
+   type arguments (MAJOR todo entry; user 2026-10-14: "1: (a)" — support them), before stage 0.
 4. Struct and interface INSTANCES map directly from the checker's instance type (typeInstanceCopy dropped
    for types; method bodies keep their checked copies).
 5. White-box no-checker tests of deleted internals are deleted; behavioural ones are rewritten to run the
@@ -130,8 +136,7 @@ IR-gen cannot map is an internal error, never `int`.
 
 ## Open questions for the user
 
-3. What a Self-typed parameter is in the IR interface registry — investigated (2026-10-13), PROPOSAL awaiting
-   the user:
+3. What a Self-typed parameter is in the IR interface registry — DECIDED 2026-10-14 (Decisions 3); history:
    - Facts.  A method whose signature mentions `Self` is object-unsafe (spec iface.self.object-safety): the
      checker rejects calling it through an interface value (check_method.bn), also through a type parameter
      bound to an interface type (`eqv[*Eq]`: "does not satisfy constraint" and "uses `Self` and cannot be
@@ -162,6 +167,7 @@ IR-gen cannot map is an internal error, never `int`.
      names, parents and aliases in the registry — the only signature readers are in irgen
      (gen_iface_registry, gen_generic_type_inst, gen_iface_dispatch).  Then IR-gen maps only signatures the
      checker accepted as object-safe, `TYP_SELF` never enters IR (the mapper treats it as an internal error),
-     and (d) is not needed.  My recommendation: this alternative, after the checker fix.  Awaiting the user.
+     and (d) is not needed.  My recommendation: this alternative, after the checker fix.  User (2026-10-14):
+     "2: Switching sounds fine."
 7. (From plan-repl-type-shadowing.md) REPL late binding: a generic or a parked declaration resolved after a
    shadow sees the new type.
