@@ -1,3 +1,16 @@
+### `Self` inside an anonymous struct or a generic type argument escaped the checker's Self rules — DONE (binate `8846250ac`, 2026-10-14, work-6) (the IR-gen part is still open: claude-todo.md, "IR-gen crashes on an interface declaring a method with `Self` in a type argument")
+
+The checker's `typeContainsSelf` / `substituteSelf` did not look inside a struct type's fields, a generic
+instance's type arguments or an interface value's interface: `Mk() struct { x Self }` was callable through a
+`*I` (and `s.x` then had type `Self` in ordinary code), and no impl could satisfy such a method.  User decision
+(2026-10-14): "1: (a)" — support `Self` inside struct types and type arguments (spec `iface.self`: composite
+types).  `8846250ac`: `types.MentionsSelf` / `FuncMentionsSelf` walk every place a signature can carry `Self`
+and back the object-safety gate; `substituteSelf` walks the same places, re-instantiates a generic instance
+through the shared cache, and keeps a dependent array length dependent (found in review: a generic-receiver impl
+of `M(a *([sizeof(T)]Self))` was rejected).  Tests: conformance 1657–1660; unit tests in
+types/types_self_test.bn and check/check_self_test.bn.  Review filed a separate decision: `Self` as a type
+argument never satisfies a constraint (claude-todo.md).
+
 ### An aggregator's own `.bn` saw its exposed names bare; a bare exposed constant there crashed IR-gen — DONE (binate `c9f26ac91`, 2026-10-14, work-7)
 
 `checkPackageImpl` copied every symbol of the package's `.bni` scope into the `.bn`'s, including the members an

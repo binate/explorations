@@ -42,29 +42,18 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 - **Triggers:** e.g. a variadic C function returning a struct over the sret cutoff (4 bytes on ILP32, 16 on LP64), or one taking an `int8` / `int16` / `bool` / `uint8` / `uint16` before `...`, or a >16-byte struct before `...` (byval on x86-64 / arm32).  Nothing in conformance or e2e exercised these until `e2e/arm32-c-hfa.sh` (`bn_vret`: a variadic call returning a 16-byte HFA, sret under AAPCS-VFP's base standard) on the arm32 HFA switch.
 - **Fix:** write bare types in the call's explicit signature — `ptr` for the sret pointer and for a byval param, no `signext` / `zeroext` — keeping the attributes on the arguments and the `declare`.  A codegen unit test on the call line (sret, narrow fixed param, byval fixed param), plus the e2e above for the end-to-end check.
 
-### `Self` inside an anonymous struct or a generic type argument escapes the checker's Self rules; IR-gen crashes on the declaration — 🟡 IN PROGRESS MAJOR (claimed 2026-10-14, work-6; found 2026-10-14, work-6, review of the IR-gen `Self` proposal, plan-irgen-checker-types.md question 3; pre-existing)
+### IR-gen crashes on an interface declaring a method with `Self` in a type argument; interp's host call skips object safety — 🟡 IN PROGRESS MAJOR (claimed 2026-10-14, work-6; found 2026-10-14, work-6, review of the IR-gen `Self` proposal, plan-irgen-checker-types.md question 3; pre-existing)
 
-The checker's `typeContainsSelf` and `substituteSelf` (check/check_self.bn) do not look inside a struct type's
-fields, a generic instance's type arguments or an interface value's interface, while `AllowSelf` is on for the
-whole method signature (check_interface.bn).  Seen with bni built from main `e59425657`:
-- `interface I { Mk(b *Box[Self]) int }` (or `N() *G[Self]`, `G` a generic interface), with no call at all:
-  `panic: internal error: no checked copy of generic type instance main.Box__bn_inst__1_N0_4_void` — IR-gen
-  resolves `Self` to void while building its interface registry and instantiates `Box[void]`.
-- `interface I { Mk() struct { x Self } }`: `e.Mk()` through a `*I` is accepted (object safety misses it) and
-  runs; `s.x` then has type `Self` in ordinary code.
-- Such an interface cannot be implemented: `func (p *P) Mk() struct { x P }` is "method `Mk` has wrong
-  signature".
-- `interp.CallIfaceMethod` (interp/call_iface.bn) applies no object-safety rule: a host can call `Same(o Self)`
-  with an argument of any type (`Self` resolves to void, whose size passes `supportedParamType`).
-
-Spec `iface.self` allows `Self` in parameter and result types "including inside composite types such as
-`*Self`, `@[]Self`, `(Self, Self)`"; it neither lists nor excludes struct types or type arguments.  User
-decision (2026-10-14): "1: (a)" — support them: both walks cover struct fields, type arguments and interface
-instances, substitution re-instantiates `Box[R]`, and object safety sees them.  One types-level "mentions Self"
-predicate is shared by the checker's gate and interp, and `CallIfaceMethod` returns an error for a `Self`-using
-method.  IR-gen side (plan-irgen-checker-types.md decision 3, user 2026-10-14): a dispatched method's signature
-comes from the checker at the call site and the IR interface registry stores none, which removes registry
-construction's `Box[void]` instantiation.
+`interface I { Mk(b *Box[Self]) int }` (or `N() *G[Self]`, `G` a generic interface, or `Mk() St[Self]` with
+`type St[T any] = struct { x T; n int }`), with no call at all: `panic: internal error: no checked copy of
+generic type instance main.Box__bn_inst__1_N0_4_void` — IR-gen resolves `Self` to void while building its
+interface registry (collectInterfaceFromDecl, ensureInstantiatedInterface) and instantiates `Box[void]`.
+`interp.CallIfaceMethod` (interp/call_iface.bn) applies no object-safety rule: a host can call `Same(o Self)`
+with an argument of any type (`Self` resolves to void, whose size passes `supportedParamType`).  Fix
+(plan-irgen-checker-types.md decision 3, user 2026-10-14): a dispatched method's signature comes from the
+checker at the call site and the IR interface registry stores none; `CallIfaceMethod` takes the method from the
+receiver's interface type (a checker type) and returns an error when `types.FuncMentionsSelf`.  The checker side
+is done (binate `8846250ac`, claude-todo-done.md).
 
 ### An imported constant that is `len` of an array literal is not a constant to the importer — 🔴 OPEN (found 2026-10-14, work-1, writing the cross-package test for the iota-in-type-expression fix; reproduced; pre-existing)
 
