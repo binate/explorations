@@ -36,6 +36,29 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### `Self` inside an anonymous struct or a generic type argument escapes the checker's Self rules; IR-gen crashes on the declaration — 🔴 NEEDS DECISION MAJOR (found 2026-10-14, work-6, review of the IR-gen `Self` proposal, plan-irgen-checker-types.md question 3; pre-existing)
+
+The checker's `typeContainsSelf` and `substituteSelf` (check/check_self.bn) do not look inside a struct type's
+fields, a generic instance's type arguments or an interface value's interface, while `AllowSelf` is on for the
+whole method signature (check_interface.bn).  Seen with bni built from main `e59425657`:
+- `interface I { Mk(b *Box[Self]) int }` (or `N() *G[Self]`, `G` a generic interface), with no call at all:
+  `panic: internal error: no checked copy of generic type instance main.Box__bn_inst__1_N0_4_void` — IR-gen
+  resolves `Self` to void while building its interface registry and instantiates `Box[void]`.
+- `interface I { Mk() struct { x Self } }`: `e.Mk()` through a `*I` is accepted (object safety misses it) and
+  runs; `s.x` then has type `Self` in ordinary code.
+- Such an interface cannot be implemented: `func (p *P) Mk() struct { x P }` is "method `Mk` has wrong
+  signature".
+- `interp.CallIfaceMethod` (interp/call_iface.bn) applies no object-safety rule: a host can call `Same(o Self)`
+  with an argument of any type (`Self` resolves to void, whose size passes `supportedParamType`).
+
+Spec `iface.self` allows `Self` in parameter and result types "including inside composite types such as
+`*Self`, `@[]Self`, `(Self, Self)`"; it neither lists nor excludes struct types or type arguments.  Decision
+needed: (a) support them — both walks cover struct fields, type arguments and interface instances,
+substitution re-instantiates `Box[R]`, and object safety sees them; or (b) reject `Self` inside a struct type or
+a type argument (a spec change).  Either way: one types-level "mentions Self" predicate shared by the checker's
+gate, IR-gen and interp, and `CallIfaceMethod` returns an error for a `Self`-using method.  Tests follow the
+decision (their expected results depend on it).
+
 ### An imported constant that is `len` of an array literal is not a constant to the importer — 🔴 OPEN (found 2026-10-14, work-1, writing the cross-package test for the iota-in-type-expression fix; reproduced; pre-existing)
 
 `const P int = len([3]int8{})` in a package's `.bni`: an importer's `var a [lc.P]int8` is rejected ("array
