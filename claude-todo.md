@@ -472,7 +472,8 @@ referenced (lookupConst has no callers) — these four 🟡 IN PROGRESS (claimed
 user: "yes"; plan and open decisions in `plan-aa64-asm-symbols.md`).  Each family: isa encoder (if missing) +
 parser + golden lines from clang.
 
-**Now (work-2, 2026-10-14; user: "let's do 1-4"):** items (1)-(4) of the plan's remaining work — fold a
+**Now (work-2, 2026-10-14; user: "let's do 1-4"; item (3) then dropped, user: keep rejecting GOT addends since
+GNU ld, ld.lld and the ABI text disagree on their meaning):** items (1)-(4) of the plan's remaining work — fold a
 number after a MOVW operator, bnld's PREL `_NC` / PREL_G3 as lld, GOT addends on ELF, ELF named locals against
 the section symbol — one landed commit each.
 

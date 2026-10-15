@@ -134,7 +134,10 @@ Order (2026-10-04): (1) `:pg_hi21_nc:` — assembler, ELF writer, bnld (unchecke
 (2a) The GOT forms in the assembler — ✅ landed `f38f50223` (2026-10-04); an addend on a GOT reference
 is rejected today — user, 2026-10-09 ("Accept on ELF"): accept it on ELF as clang does (bnld already gives
 each (symbol, addend) its own slot holding S + A, AAELF64's GDAT(S+A)), Mach-O keeps rejecting it as clang
-does — to do.  (2b) bnld's GOT — ✅ landed `c645a568e` (2026-10-05; user: "1 and 2: go with your recs; 3:
+does — superseded (user, 2026-10-14: keep rejecting): the linkers disagree on what the relocation means — bnld
+and the ABI text a slot holding S + A, GNU ld 2.42 the symbol's own slot (the addend dropped), ld.lld the
+symbol's slot address plus A (the next slot; a `:got_lo12:w+4` load fails with "improper alignment") — so the
+source would not say what it links to; the reject stays, with that reason in the code.  (2b) bnld's GOT — ✅ landed `c645a568e` (2026-10-05; user: "1 and 2: go with your recs; 3:
 all 4"): all four drivers (static ELF, dynamic ELF, dynamic Mach-O with rebased slots, the scripted
 builder via a script-placed `.got`); the MAJOR import-addend bug (claude-todo) fixed inside it, with a
 GLOB_DAT per (import, addend).
@@ -279,7 +282,7 @@ Commits (series):
 
 The bnld input-reader MAJOR (claude-todo) comes first (user, 2026-10-09: "bnld reader MAJOR"); the order of
 the rest is open.  (1) Fold a number after a MOVW operator (3d (a)) — ✅ landed `6da46c766`.  (2) bnld's PREL `_NC` on MOVZ / MOVN
-and PREL_G3 as lld (3d (c)) — ✅ landed `fc29977b9`.  (3) GOT addends on ELF (3d (2a)).  (4) ELF named locals against the section
+and PREL_G3 as lld (3d (c)) — ✅ landed `fc29977b9`.  (3) GOT addends on ELF (3d (2a)) — not done: keep rejecting (user, 2026-10-14; see 3d (2a)).  (4) ELF named locals against the section
 symbol (3e (2.1)).  (5) TLS, staged (3d).  (6) The PAuth `_auth` operators, assembler side (3d).
 
 ## Decisions (user, 2026-09-30 — each the recommended option)
