@@ -426,6 +426,10 @@ referenced (lookupConst has no callers) — these four 🟡 IN PROGRESS (claimed
 user: "yes"; plan and open decisions in `plan-aa64-asm-symbols.md`).  Each family: isa encoder (if missing) +
 parser + golden lines from clang.
 
+**Now (work-2, 2026-10-14; user: "let's do 1-4"):** items (1)-(4) of the plan's remaining work — fold a
+number after a MOVW operator, bnld's PREL `_NC` / PREL_G3 as lld, GOT addends on ELF, ELF named locals against
+the section symbol — one landed commit each.
+
 **Progress (work-2):** family by family, one reviewed commit each.  (1) exclusive / ordered loads and
 stores — LDXR…STLXP, LDAR/STLR, LDLAR/STLLR, LDAPR, LDAPUR/STLUR incl. the RCPC3 SIMD&FP forms — landed
 `920be83aa` (2026-09-27; LDXP/LDAXP Rt == Rt2 deliberately rejected, unlike clang).  (2) the rest of FEAT_LRCPC3's loads/stores — LDIAPP / STILP,
