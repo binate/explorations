@@ -36,6 +36,12 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### A variadic `__c_call` with an sret result, a fixed narrow-int param or a fixed byval param does not compile on the LLVM backend — 🔴 OPEN MAJOR (found 2026-10-14, work-3, review of the arm32 HFA switch; confirmed with clang; pre-existing, every target)
+
+- **Symptom:** codegen writes the call of a variadic `__c_call` with an explicit function type, `call <ret> (<sig>, ...) @sym(<args>)`, and spells `<sig>` with parameter ATTRIBUTES — `ptr sret(<T>) align 8` for an sret result (`emit_ccall.bn`, the variadic branch of the call emitter), and whatever `writeCCallParamType` adds for a fixed param: `signext` / `zeroext` (`writeCAbiParamExtAttr`) and `ptr byval(<T>) align 8` for a byval one.  LLVM's IR parser rejects any attribute in a function type: `error: argument attributes invalid in function type` (confirmed: `clang --target=arm-linux-gnueabihf -c` on `call void (ptr sret(%T) align 8, i32, ...) @vmk(ptr sret(%T) align 8 %r, i32 1, double 1.5)`; the same with a bare `(ptr, i32, ...)` signature compiles).  So the LLVM backend fails to compile such a call — a hard error, not a miscompile.  The `declare` line may carry the attributes; only the call's explicit type may not.
+- **Triggers:** e.g. a variadic C function returning a struct over the sret cutoff (4 bytes on ILP32, 16 on LP64), or one taking an `int8` / `int16` / `bool` / `uint8` / `uint16` before `...`, or a >16-byte struct before `...` (byval on x86-64 / arm32).  Nothing in conformance or e2e exercised these until `e2e/arm32-c-hfa.sh` (`bn_vret`: a variadic call returning a 16-byte HFA, sret under AAPCS-VFP's base standard) on the arm32 HFA switch.
+- **Fix:** write bare types in the call's explicit signature — `ptr` for the sret pointer and for a byval param, no `signext` / `zeroext` — keeping the attributes on the arguments and the `declare`.  A codegen unit test on the call line (sret, narrow fixed param, byval fixed param), plus the e2e above for the end-to-end check.
+
 ### `Self` inside an anonymous struct or a generic type argument escapes the checker's Self rules; IR-gen crashes on the declaration — 🟡 IN PROGRESS MAJOR (claimed 2026-10-14, work-6; found 2026-10-14, work-6, review of the IR-gen `Self` proposal, plan-irgen-checker-types.md question 3; pre-existing)
 
 The checker's `typeContainsSelf` and `substituteSelf` (check/check_self.bn) do not look inside a struct type's
