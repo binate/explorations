@@ -26,49 +26,76 @@ int64) is a checker error, never a silent wrap.
 ## Design
 
 Revised 2026-10-14 (user: "You can do the new int64 API, but get that idea reviewed"): a new int64 layout API
-alongside the existing `int` one, so each call site moves once, in its layer's stage — instead of stage 1 giving
-every caller an explicit narrowing that stages 2-5 then rewrite.
+alongside the existing `int` one, so each call site moves once, in its layer's stage.  Then revised after the
+design review (2026-10-14), with two user decisions: the largest type is the target's `int` maximum ("Target int
+max"), and a too-large aggregate the compiler builds is a checker error ("Checker error").
+
+Spec (docs, stage 1):
+- §7.13, a new rule (`type.layout.max-size`): a type's size shall not exceed the target `int`'s maximum
+  (2^31-1 bytes on a 32-bit target, 2^63-1 on a 64-bit one) — consistent with `len` returning `int` and with C
+  compilers' PTRDIFF_MAX limit; forming a larger type is a compile-time error.
+- §7.5 `type.array.form`: the length fits the target's `int` (it is what `len` returns).
+- §21.4 / `conf.implementation.limits`: the combined size of a function's results, and of a closure's captures,
+  must fit the same limit (the implementation builds an aggregate of them); a function's frame too.
 
 types (stage 1):
-- Layout is computed in int64: `ArrayLen` int64, `layoutSize` int64, the internal sizeOf / fieldOffset /
-  structLayoutOf / structLayout int64.  `AlignOf()` stays `int` (a small power of two).
-- The layout arithmetic (an array's length times its element size; a struct's running offset, padding and
-  field sizes) is overflow-checked: a size past int64 is `SIZE_TOO_LARGE` (-1), and an aggregate with such a
-  part is too large itself.
-- New accessors: `t.Size() int64` (`SIZE_TOO_LARGE` for a type too large for int64) and `t.Offset(index)
-  int64`; `FieldLayout.Offset` / `Size` / `PaddingBefore` become int64 (9 non-test callers, converted in stage 1);
-  `MakeArrayType(elem, n int64)`.
-- The existing `SizeOf() int`, `FieldOffset(i) int` and `TrailingPadding() int` stay during the transition and
-  return the int64 value narrowed to the host `int`, panicking ("internal error: … does not fit the host int")
-  when it does not fit (the sentinel included).  On a 64-bit host every type the checker accepts fits, so
-  behaviour there is unchanged; a 32-bit host fails loud, never silently, until its caller's layer moves.
-- `types.HostInt(v int64) int`: the explicit narrowing (same loud failure), for `ArrayLen` readers outside
-  types / check in stage 1, and later for the bounded uses (frame offsets, encodable immediates, VM memory).
+- Layout is computed in int64 (`ArrayLen`, `layoutSize`, the internal sizeOf / fieldOffset / structLayoutOf /
+  structLayout).  `AlignOf()` stays `int`.  The internal recursion calls the internal int64 functions, never the
+  public accessors (which would narrow or fail partway through a large type).
+- Every add, multiply and align-up goes through helpers that saturate to an internal "too large" sentinel and
+  pass it through, with the checks written without int64 division (`a > LIMIT - b`, `n > LIMIT / size` with
+  `size` the element size — an int64 division is a libgcc call on an arm32 host).  The limit is the target's
+  object-size maximum (the target `int`'s), not int64's, so a built aggregate past it is caught too.
+- Public int64 accessors `Size()`, `Offset(i)`, and `StructLayout()`'s `FieldLayout` fields (int64) panic
+  ("internal error: type too large …") on a too-large type — never return the sentinel (callers compare sizes
+  with `<= 0`, `> 16` and would read -1 as small or empty).  A non-panicking `SizeIfFits(t) (int64, bool)`
+  for the checker, constval's sizeof folding (not-fits: an error, not a value), and the checker's ABI / cast
+  / C-interop queries.
+- The transitional `SizeOf() int`, `FieldOffset(i) int`, `TrailingPadding() int` fail loud unless the WHOLE
+  type fits the host's `int` (for a field query, the containing struct), so a caller's sum of parts of one
+  object cannot wrap silently; `ArrayLenHost()` likewise checks the whole array.  `HostInt(v int64)` only for
+  values that are host memory (the VM).
+- `ast.TypeExpr.LenVal` and `ast.Element.KeyVal` become int64 in stage 1 (the checker stamps them).
+- Shared records (FieldLayout, irdata.DataTerm / TypeInfoDesc / FieldInfoDesc, LenVal) force their consumers
+  in later layers to change in the stage that changes the record; "each call site moves once" holds for the
+  accessor methods.
 
 check (stage 1):
-- An array length must fit the TARGET's `int` (`len` of an array is an `int`), not the host's.
-- "type is too large": a type whose size exceeds the target's `int` maximum (the largest object the target can
-  index; int64's for a 64-bit target), or overflows int64, is an error where a type is formed from source — an
-  array type, a struct type once its fields are resolved, a generic instance's types (resolved on its checked
-  copy).  So every type that reaches layout from a checked program fits; the sentinel reaching a backend is a
-  compiler bug.
-- `sizeof` / `alignof` folding uses `Size()` (bignum.FromInt64), not the host-int `SizeOf()`.
+- An array length must fit the TARGET's `int` (evalArrayLen; composite-literal keys and `[...]` inferred lengths
+  too — int64, not `constHostInt`).
+- checkArrayLit's duplicate-index set is bounded by the element count, not the length (today it allocates a
+  byte per element: claude-todo.md "The checker allocates a byte per element").
+- "type is too large" (SizeIfFits) where a value's type is required after collection — requireSizedType /
+  checkValueEmbedding (vars, fields, params, results, composite literals, make, generic populate), sizeof /
+  alignof operands, and a pointee whose size is used (unsafe_index strides by it); not at a type's first
+  resolution, where a forward-declared named type is still a placeholder.  A generic instance's types are
+  resolved on its checked copy, so substitution is covered there.
+- The combined size of a function's results and of a closure's captures (the aggregates IR-gen builds).
+
+Later layers: `types/abi` (the ABI classification, used by check, codegen and native) and mangling (an array
+length is part of a mangled name: WriteInt64) move in stage 2; irdata's type-info records too.  Frames and data
+sections accumulate with overflow checks bounded by the TARGET, reported as a compile error (not `HostInt`,
+which would make acceptance depend on the host).  Native data emission writes zero-fill into host memory
+(`asm.Fill`, `Section.Len int`), so a > 2 GB global on a 32-bit host needs asm / elf / macho / link to carry
+bss sizes without materializing them — part of stage 4, needed by stage 6's end-to-end test.
 
 ## Stages (each a commit that keeps everything green)
 
-1. types + check as above; `ArrayLen` readers elsewhere narrow through `HostInt`.  TestLayoutRepeatedStructDag
-   uses `Size()` and passes on the 32-bit lane.  Tests: an oversized type rejected on every host (array,
-   struct, nested, generic instance); a 2^43-byte struct laid out on any host; the narrowing accessors fail loud.
-2. ir / irgen / irbuild / irdata / iropt move to `Size()` / `Offset()`: sizeof / alignof constants, field and
-   element offsets (GEP), copy and zero-fill sizes, `DataZero` and `DataTerm.Addend` int64.
+1. Spec + types + check as above.  TestLayoutRepeatedStructDag uses `Size()` and passes on the 32-bit lane.
+   Tests: an oversized type rejected on every host (sizes past int64), and at the 2^31 boundary for a 32-bit
+   target; a 2^43-byte struct laid out on any host; results / captures too large; `[1 << 40]int8{}` checks in
+   bounded memory.  (A panic is not unit-testable — `TestResult` only — so "fails loud" is tested through the
+   non-panicking predicates.)
+2. ir / irgen / irbuild / irdata / iropt / irutil / mangle / types/abi move to the int64 API: sizeof / alignof
+   constants, field and element offsets (GEP), copy and zero-fill sizes, `DataZero` and `DataTerm.Addend`,
+   type-info records.
 3. LLVM codegen: sizes and offsets in the emitted IR (allocas, GEPs, memcpy / memset / memmove, data).
-4. Native backends (common, callconv, fold, aarch64, x64, arm32): data sizes, copy and zero-fill lengths and
-   loop counts, offsets past 32 bits (materialized with the 64-bit constant paths); a frame stays bounded
-   (`HostInt` with a loud error).
+4. Native backends (common, callconv, fold, aarch64, x64, arm32) and asm / elf / macho / link: data sizes,
+   copy and zero-fill lengths and loop counts, offsets past 32 bits, bss without materialized zero bytes; a
+   frame past the target's limit is a compile error.
 5. VM / interp: VM memory is host memory, so its layout narrows at allocation (`HostInt`), failing loud.
-6. Remove `SizeOf()` / `FieldOffset()` / `TrailingPadding()`'s int forms (any caller left moves to the int64 API
-   or an explicit `HostInt`); end to end on the 32-bit lane: a program with a > 2 GB type for a 64-bit target
-   compiles through both backends (compile-only, LLVM IR / object inspection).
+6. Remove the int forms of `SizeOf()` / `FieldOffset()` / `TrailingPadding()` / `ArrayLenHost()`; end to end
+   on the 32-bit lane: a program with a > 2 GB type for a 64-bit target compiles through both backends.
 
 Call sites today (non-test): native ~235 (aarch64 65, arm32 63, x64 55, common 30, callconv 14, fold 8),
 codegen 60, types 55, vm 32, irgen 30, check 22, interp 12, ir 8, others ~15.
