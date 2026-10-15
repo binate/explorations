@@ -36,7 +36,7 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### `Self` inside an anonymous struct or a generic type argument escapes the checker's Self rules; IR-gen crashes on the declaration — 🔴 OPEN MAJOR (found 2026-10-14, work-6, review of the IR-gen `Self` proposal, plan-irgen-checker-types.md question 3; pre-existing)
+### `Self` inside an anonymous struct or a generic type argument escapes the checker's Self rules; IR-gen crashes on the declaration — 🟡 IN PROGRESS MAJOR (claimed 2026-10-14, work-6; found 2026-10-14, work-6, review of the IR-gen `Self` proposal, plan-irgen-checker-types.md question 3; pre-existing)
 
 The checker's `typeContainsSelf` and `substituteSelf` (check/check_self.bn) do not look inside a struct type's
 fields, a generic instance's type arguments or an interface value's interface, while `AllowSelf` is on for the
@@ -2875,6 +2875,10 @@ generic caller instantiated after its callee's name was rebound is checked again
 calls `f[T]`; `f` is rebound to a non-generic function; `g[bool]` then fails ("T is a type, not a value … (in
 g[bool] …)"), and once a new generic `f` exists `g[bool]` calls it while `g[int]`, emitted before, keeps the old
 one.  Decide whether old generic bodies should see the binding they were declared against.
+User (2026-10-14), to (B) for generics with parked declarations unchanged: "That sounds good".  They do: a generic's names (type and value)
+resolve where it was declared, and an instance reuses the declaration-time check's records
+(plan-irgen-checker-types.md decision 7).  For generic METHODS that suggests replacing the proposal above: a
+sibling keeps calling the old (shadowed) method, which stays instantiable — to confirm with the user.
 
 ### Is a constraint that names its own type parameter (`[T Eq[T]]`) legal? Today the checker reports "undefined: T" — 🔴 NEEDS DECISION (found 2026-10-04, work-6, review of generic functions at the prompt)
 

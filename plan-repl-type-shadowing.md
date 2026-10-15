@@ -142,7 +142,9 @@ or be stripped to `main.T` (indistinguishable) — DECISION.
 - Late binding: a generic declared before the shadow but first instantiated after resolves T to the NEW
   type (its signature and body resolve in the live session scope); a parked declaration resolves T when
   retried.  Consistent with records (no corruption), but not "existing code keeps the old type" — DECISION
-  (relates to the open "generic bodies after a rebinding" question).
+  (relates to the open "generic bodies after a rebinding" question).  User (2026-10-14), to (B) for generics with parked declarations unchanged: "That sounds good".  A generic
+  resolves its names (type and value) where it was declared — instances reuse the declaration-time check's
+  records; a parked declaration resolves when it completes (plan-irgen-checker-types.md decision 7).
 - The identical-redefinition comparator must compare modulo self / mutual references (`type T struct {
   next @T }`, groups).
 - Audit the places that treat `__` names as compiler-generated (isInjectableStructDtor,

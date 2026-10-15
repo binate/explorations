@@ -133,6 +133,11 @@ IR-gen cannot map is an internal error, never `int`.
 5. White-box no-checker tests of deleted internals are deleted; behavioural ones are rewritten to run the
    checker.
 6. "IR-gen drivers must fully check every dependency" is accepted as permanent.
+7. User (2026-10-14), to (B) for generics with parked declarations unchanged: "That sounds good".  A generic's names — type
+   names and value names — mean what they meant where it was declared: an instance reuses the checker's records
+   from the generic's declaration-time check, never the live session scope, so a generic declared before a REPL
+   shadow keeps the old T (as a non-generic function, already compiled against it, does).  A parked declaration
+   was never accepted, so it resolves when it completes and sees the new T.
 
 ## Open questions for the user
 
@@ -169,5 +174,4 @@ IR-gen cannot map is an internal error, never `int`.
      checker accepted as object-safe, `TYP_SELF` never enters IR (the mapper treats it as an internal error),
      and (d) is not needed.  My recommendation: this alternative, after the checker fix.  User (2026-10-14):
      "2: Switching sounds fine."
-7. (From plan-repl-type-shadowing.md) REPL late binding: a generic or a parked declaration resolved after a
-   shadow sees the new type.
+7. REPL late binding (from plan-repl-type-shadowing.md) — DECIDED 2026-10-14 (Decisions 7).
