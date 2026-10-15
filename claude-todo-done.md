@@ -1,3 +1,19 @@
+### An aggregator's own `.bn` saw its exposed names bare; a bare exposed constant there crashed IR-gen — DONE (binate `c9f26ac91`, 2026-10-14, work-7)
+
+`checkPackageImpl` copied every symbol of the package's `.bni` scope into the `.bn`'s, including the members an
+`expose` injected (HomePkg set), against `pkg.expose.surface`.  In the aggregator's `.bn`, a bare exposed constant
+passed the checker and crashed IR-gen ("IR generation cannot evaluate a constant the type checker accepted"); a
+bare exposed function was mangled as the aggregator's own and failed at link; a `.bn`-only name equal to an
+exposed one was reported as an expose collision (`pkg.expose.conflict`: private names never collide), and a
+`.bn`-only func or var of that name was checked against the exposed member's signature or type.  The copy now
+skips injected members (a bare use is "undefined"), and `checkExposeCollisions` takes the package's own names
+from its `.bni`.  No aggregator in the tree has a `.bn`.  Tests: check `TestExposedNamesNotInOwnScope`,
+`TestExposeNoCollisionWithPrivateName`; conformance spec/16 122 (bare exposed const), 123 (a private func with an
+exposed func's name and another signature, plus an ordinary import).  Review: no defects; its suggestion (a
+different signature in 123, so it also pins the scope skip) was taken.  The two unqualified exposed-generic-marker
+checks this left unreachable (`resolve_type.bn`, `check_scalar_prefill.bn`) are removed separately (user:
+"yes, you should remove them").
+
 ### A const member with iota only inside a type expression takes the last member's value — DONE (binate `cc6790dd2`, test `1deee1395`; 2026-10-14, work-1) (found 2026-10-14, work-1, review of the bare-member iota fix; pre-existing)
 
 A bare const-group member was evaluated on the explicit member's nodes, whose recorded values depend on iota
