@@ -2897,6 +2897,17 @@ resolve where it was declared, and an instance reuses the declaration-time check
 (plan-irgen-checker-types.md decision 7).  For generic METHODS that suggests replacing the proposal above: a
 sibling keeps calling the old (shadowed) method, which stays instantiable — to confirm with the user.
 
+### `Self` as a type argument never satisfies a constraint, even one the interface extends — 🔴 NEEDS DECISION (found 2026-10-14, work-6, review of the checker fix for `Self` inside struct types / type arguments; pre-existing)
+
+`type OBox[T lang.Orderable] struct { v T }`, `interface I : lang.Orderable { Put(b *OBox[Self]) int }`: the
+declaration reports "type argument Self does not satisfy constraint Orderable", though every type implementing I
+implements Orderable; the same with an empty-interface constraint.  So `Box[Self]` works only with an
+unconstrained generic.  At the declaration Self is known only to implement I (and its parents), so the
+consistent rule would treat it as a type parameter bounded by I: Self satisfies C iff I is or extends C
+(typeSatisfiesConstraint's TYP_TYPE_PARAM arm, check/check_generic.bn); at the impl the implementing type's own
+`OBox[P]` is checked as written.  Decide whether to adopt that rule (a spec addition under iface.self) or keep
+rejecting.
+
 ### Is a constraint that names its own type parameter (`[T Eq[T]]`) legal? Today the checker reports "undefined: T" — 🔴 NEEDS DECISION (found 2026-10-04, work-6, review of generic functions at the prompt)
 
 `interface Eq[T any] { Same(o T) bool }`, `func f[T Eq[T]](x T) T { return x }`: a file reports "undefined: T"
