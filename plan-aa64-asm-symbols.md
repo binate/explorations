@@ -104,7 +104,8 @@ Progress: the MOVW group — ✅ landed `7010879cb` (2026-10-04), with bnld patc
 Deliberate rejects (clang accepts): the operator on a branch, a literal load, EXT and the fixed-point
 conversions (clang silently drops it there).  Decided (user, 2026-10-09): (a) a number after a MOVW operator
 is folded to its chunk, as clang does (`#:abs_g1:0x12345678` is 0x1234; a checked kind still checks the
-number's range) — rejected today, to do; (b) `mov Rd, #:abs_gN:sym` stays clang's MOVZ at shift 0 for every
+number's range) — ✅ landed `6da46c766` (2026-10-14), with clang's signed bounds, a lone difference
+constant folded, and a negative signed number on MOVK rejected; (b) `mov Rd, #:abs_gN:sym` stays clang's MOVZ at shift 0 for every
 chunk and width, as landed; (c) bnld follows lld, not AAELF64's text: PREL `_NC` on a MOVZ / MOVN switches
 the opcode by the bit above the chunk (X sign-extended from there), and PREL_G3 is always a MOVZ of the top
 chunk — to do.
@@ -277,7 +278,7 @@ Commits (series):
 ## Remaining work (decided 2026-10-09)
 
 The bnld input-reader MAJOR (claude-todo) comes first (user, 2026-10-09: "bnld reader MAJOR"); the order of
-the rest is open.  (1) Fold a number after a MOVW operator (3d (a)).  (2) bnld's PREL `_NC` on MOVZ / MOVN
+the rest is open.  (1) Fold a number after a MOVW operator (3d (a)) — ✅ landed `6da46c766`.  (2) bnld's PREL `_NC` on MOVZ / MOVN
 and PREL_G3 as lld (3d (c)).  (3) GOT addends on ELF (3d (2a)).  (4) ELF named locals against the section
 symbol (3e (2.1)).  (5) TLS, staged (3d).  (6) The PAuth `_auth` operators, assembler side (3d).
 
