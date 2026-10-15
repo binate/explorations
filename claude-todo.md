@@ -71,6 +71,15 @@ array composite literal from its type expression (`env.Type(e.TypeRef)`, resolve
 has no checked type — or check the initializer of an imported constant whose value needs a type the evaluator
 cannot find.
 
+### The checker allocates a byte per element to check an array literal — `[1 << 40]T{}` exhausts memory — 🔴 OPEN (found 2026-10-14, work-1, review of the int64-layout plan; reproduced; pre-existing)
+
+checkArrayLit (check/check_expr_composite.bn) builds its duplicate-index set as `make_slice(bool, at.ArrayLen)`,
+so checking a literal costs memory in its array's length, not its element count: `[1 << 30]int8{}` takes the
+compiler to 1.08 GB RSS (2^26: 79 MB; 2^20: 32 MB), and `[1 << 40]int8{}` — a valid empty literal — asks for a
+terabyte.  Fix: a seen-set bounded by the number of elements (sorted indices, or a hash set), which the int64
+layout change needs anyway (a length past the host's `int`).  No conformance test yet: one big enough to show
+it would exhaust the runner's memory until the fix lands; the fix's test can use `[1 << 40]int8{}`.
+
 ### `make_slice` with an int64 / uint64 length on a 32-bit target passes one word — wrong length or invalid IR — 🔴 NEEDS DECISION MAJOR (found 2026-10-13, work-5, fixing the int64-index bug; pre-existing)
 
 The same class as the int64-index bug: IR-gen's `genIntOperand` widens a length narrower than int but passes
@@ -362,6 +371,13 @@ is 900k lines of IR, 382 s and 3.8 GB to compile.  Decided (user, 2026-09-29: "D
 the LLVM backend (as native does): a load MemCopies into a function-scoped temp and the value is its
 address; stores MemCopy from it, extracts GEP into it, by-value args / returns / call results / phis use
 the address — every codegen producer and consumer of aggregate values handles that form.
+
+Also (found 2026-10-14, work-1, review of the int64-layout plan; reproduced with a scratch bnc): emitCopyRec /
+emitZeroRec iterate an array's elements even when an element has no leaves, so a struct copy holding
+`[1 << n]E` with `E` an empty struct emits nothing yet takes time linear in the length — 2^22: 2 s, 2^26: 31 s
+(LLVM only; native aa64 0.05 s), so `[1 << 40]E` hangs the compiler.  Skip an array whose element has no
+leaves (or zero size) before the loop.  The VM's `vm_iface_crossmode.bn` has a similar per-element loop (not
+reproduced).
 
 ### arm32 hard-float: a homogeneous-float-aggregate `__c_call` ARGUMENT is passed in GP registers — C reads garbage from `s0…` — 🟡 IN PROGRESS (claimed 2026-10-13, work-3/session; decided 2026-10-13, user: "1" = make AAPCS-VFP HFA passing Binate's own arm32-linux convention, lifting ABI deviation (4) / §4.7; no interim rejection) (found 2026-09-27, work-3, stale-ABI-comment sweep)
 
