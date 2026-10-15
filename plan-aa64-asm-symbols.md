@@ -108,7 +108,7 @@ number's range) — ✅ landed `6da46c766` (2026-10-14), with clang's signed bou
 constant folded, and a negative signed number on MOVK rejected; (b) `mov Rd, #:abs_gN:sym` stays clang's MOVZ at shift 0 for every
 chunk and width, as landed; (c) bnld follows lld, not AAELF64's text: PREL `_NC` on a MOVZ / MOVN switches
 the opcode by the bit above the chunk (X sign-extended from there), and PREL_G3 is always a MOVZ of the top
-chunk — to do.
+chunk — ✅ landed `fc29977b9` (2026-10-14; verified against ld.lld).
 
 The rest, enumerated from clang 21 (2026-10-04; ELF): `:pg_hi21_nc:` (ADRP, ADR_PREL_PG_HI21_NC),
 `:gotpage_lo15:` (64-bit LDR, LD64_GOTPAGE_LO15), GOT literal loads (`ldr x0, :got:sym` /
@@ -279,7 +279,7 @@ Commits (series):
 
 The bnld input-reader MAJOR (claude-todo) comes first (user, 2026-10-09: "bnld reader MAJOR"); the order of
 the rest is open.  (1) Fold a number after a MOVW operator (3d (a)) — ✅ landed `6da46c766`.  (2) bnld's PREL `_NC` on MOVZ / MOVN
-and PREL_G3 as lld (3d (c)).  (3) GOT addends on ELF (3d (2a)).  (4) ELF named locals against the section
+and PREL_G3 as lld (3d (c)) — ✅ landed `fc29977b9`.  (3) GOT addends on ELF (3d (2a)).  (4) ELF named locals against the section
 symbol (3e (2.1)).  (5) TLS, staged (3d).  (6) The PAuth `_auth` operators, assembler side (3d).
 
 ## Decisions (user, 2026-09-30 — each the recommended option)

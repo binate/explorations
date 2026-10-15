@@ -494,7 +494,8 @@ needs, `2a26ec4d9`).  (11) the MOVW-group relocation operators (plan item 3d, fi
 `:pg_hi21_nc:` on ADRP, with bnld — landed `42f0697f2` (2026-10-04).  (13) the GOT forms (assembler):
 `:gotpage_lo15:`, `:got:` literal loads, 8-byte GOT stores — landed `f38f50223` (2026-10-04).  (14)
 bnld's linker-made GOT (all four drivers) — landed `c645a568e` (2026-10-05).  (15) a number after an absolute
-MOVW operator folded as clang does (plan remaining (1)) — landed `6da46c766` (2026-10-14).
+MOVW operator folded as clang does (plan remaining (1)) — landed `6da46c766` (2026-10-14).  (16) bnld's MOVW
+PREL `_NC` / PREL_G3 opcodes as lld (plan remaining (2)) — landed `fc29977b9` (2026-10-14).
 Apple's legacy NEON syntax
 (`dup.4s v0, w1`, `tbl.16b v0, {v1}, v3`), which clang
 accepts on every target, is not supported (user, 2026-09-28: "we don't need alternate syntax, unless there's
