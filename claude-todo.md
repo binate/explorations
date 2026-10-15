@@ -1356,6 +1356,11 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   linux-tools-6.8.0-31). Blocks the decision on turning `-fx64-rax-home` on by default (see the done
   entry for `edeabc7d1`): on this Xeon it ran −0.21% instructions but ~+1.3% user time on the native
   self-compile, and mixed benchmark results.
+- **LOW: `bnc --build-dir <dir>` with a nonexistent `<dir>` reports only "native backend failed to emit
+  object (arch=...)"** — 🔵 OPEN. Each object write fails because the directory is missing, but the
+  message names neither the path nor the cause (seen 2026-10-15 while validating the placement tooling;
+  the conformance/perf scripts create the directory first, so they never hit it). Either create the
+  directory or report the failed path and errno; add a cmd/bnc test.
 - **LOW: assembler has no arm32 UDF encoder or parser; aarch64 UDF is reachable only through
   `asm/aarch64/isa.ExceptionGen` and the text parser** — 🔵 OPEN. Comprehensive-assembler rule: add an
   arm32 `Udf` encoder + parser and a public aarch64 `Udf`. Found while designing placement filler
