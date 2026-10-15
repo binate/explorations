@@ -1,3 +1,15 @@
+### The interpreter loads `pkg/builtins/lang` interface-only, like the other injected builtins — DONE (binate `6560c5a2a`, 2026-10-14, work-7)
+
+`lang` was the one injected package the interpreter loaded in full (run path and `--test` runner), because the
+checker needed its primitive methods and impls, then only in its `.bn`.  Since the `.bn`-only-impls-are-private
+change moved them all into `lang.bni`, and an interface-only package is checked from its `.bni`, the exception
+was dropped (user: "yes, look into it", then "yes" to making the change).  Also fixed stale docs that said
+`lang` is not injected / is lowered in the VM.  Review: a second unit test still expecting the exception and a
+stale doc copy in `vm.bni`, both fixed before landing.  Left open: the REPL still loads `lang` in full and
+lowers it while also injecting it (duplicate vtable / satentry registration since `54e6c0c7`) — asked the
+user; and the force-load ordering bug the review found, logged in `claude-todo.md` ("A primitive's method in a
+package that doesn't import `lang` is rejected …").
+
 ### `Self` inside an anonymous struct or a generic type argument escaped the checker's Self rules — DONE (binate `8846250ac`, 2026-10-14, work-6) (the IR-gen part is still open: claude-todo.md, "IR-gen crashes on an interface declaring a method with `Self` in a type argument")
 
 The checker's `typeContainsSelf` / `substituteSelf` did not look inside a struct type's fields, a generic
