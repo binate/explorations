@@ -149,5 +149,19 @@ IR-gen cannot map is an internal error, never `int`.
      invariant is loud in IR-gen too).  The legacy resolver switches TEXPR_SELF to `TYP_SELF` in stage 1 so
      the differential sees no Self mismatch.  Rejected alternative: storing no signature for an
      object-unsafe method (a per-method flag) — a second representation of what `TYP_SELF` already says.
+   - User (2026-10-14): "I think the proposal is ok, but get a focused review of it".  Review (2026-10-14):
+     two premises are false.  (i) The checker's rule does not make the dispatch assertion unreachable:
+     `typeContainsSelf` / `substituteSelf` miss `Self` inside a struct type and inside type arguments, so
+     `Mk() struct { x Self }` is callable through `*I` (MAJOR todo entry "`Self` inside an anonymous struct or a
+     generic type argument escapes the checker's Self rules").  (ii) Today's void is not inert: declaring
+     `Mk(b *Box[Self]) int` crashes IR-gen (registry construction instantiates `Box[void]`); under the proposal
+     it would instantiate `Box[Self]` and emit its helpers.  Missed consumer: interp.CallIfaceMethod →
+     FindInterfaceMethodSlot reads the signatures (a host API, so an assertion there must be an error).
+     Alternative the reviewer raised: take a dispatched method's signature from the checker at the call site
+     (the interface type of `sel.X`, mapped by irTypeFromChecker; interp through its checker) and store only
+     names, parents and aliases in the registry — the only signature readers are in irgen
+     (gen_iface_registry, gen_generic_type_inst, gen_iface_dispatch).  Then IR-gen maps only signatures the
+     checker accepted as object-safe, `TYP_SELF` never enters IR (the mapper treats it as an internal error),
+     and (d) is not needed.  My recommendation: this alternative, after the checker fix.  Awaiting the user.
 7. (From plan-repl-type-shadowing.md) REPL late binding: a generic or a parked declaration resolved after a
    shadow sees the new type.
