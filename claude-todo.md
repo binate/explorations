@@ -2757,7 +2757,7 @@ to assert the path appears in the rendered message.
 
 ## Package management & search paths
 
-### A primitive's method in a package that doesn't import `lang` is rejected unless something else loads `lang` first — 🔴 OPEN (found 2026-10-14, work-7, review of the lang interface-only change; pre-existing)
+### A primitive's method in a package that doesn't import `lang` is rejected unless something else loads `lang` first — 🟡 IN PROGRESS (claimed 2026-10-15, work-7/session — user: "1. yes, let's do that"; found 2026-10-14, work-7, review of the lang interface-only change; pre-existing)
 
 `pkg0.lang.force-load` (spec §20): a program may call a primitive's canonical method without importing
 `pkg/builtins/lang`.  But `bnc` (`ensureRuntimeDepsLoaded`, after `LoadRoot`) and `bni` (`EnsureLangLoaded`,
