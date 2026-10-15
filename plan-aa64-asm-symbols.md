@@ -137,7 +137,8 @@ each (symbol, addend) its own slot holding S + A, AAELF64's GDAT(S+A)), Mach-O k
 does — superseded (user, 2026-10-14: keep rejecting): the linkers disagree on what the relocation means — bnld
 and the ABI text a slot holding S + A, GNU ld 2.42 the symbol's own slot (the addend dropped), ld.lld the
 symbol's slot address plus A (the next slot; a `:got_lo12:w+4` load fails with "improper alignment") — so the
-source would not say what it links to; the reject stays, with that reason in the code.  (2b) bnld's GOT — ✅ landed `c645a568e` (2026-10-05; user: "1 and 2: go with your recs; 3:
+source would not say what it links to; the reject stays, with that reason in the code (`e2f00beb6`; the
+accepting change is archived on the binate branch `archive/20261014-asm-got-slot-addends-on-elf`).  (2b) bnld's GOT — ✅ landed `c645a568e` (2026-10-05; user: "1 and 2: go with your recs; 3:
 all 4"): all four drivers (static ELF, dynamic ELF, dynamic Mach-O with rebased slots, the scripted
 builder via a script-placed `.got`); the MAJOR import-addend bug (claude-todo) fixed inside it, with a
 GLOB_DAT per (import, addend).
