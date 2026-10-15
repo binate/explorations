@@ -1,5 +1,5 @@
 # Plan: native code placement (x64, aarch64, arm32)
-Status: tooling designed (2026-10-12), not started; waiting on the user decisions listed at the end. Tracked in `claude-todo.md` ("native code placement").
+Status: tooling designed (2026-10-12); decisions taken 2026-10-15 (below); tooling commit 1 next. Tracked in `claude-todo.md` ("native code placement").
 ## Why
 
 Identical machine code runs at very different speeds depending on where it lands, on the x86 test host
@@ -321,17 +321,21 @@ Measurement tooling lands first (user: yes), because both steps are judged with 
   - layout.py --compare between seeded builds shows phase shifts matching placehash.
   - fannkuch's 0x5f-byte inner loop spans 3 windows at header phase 0 mod 32 and 4 at phase 16 (T4 must show exactly this).
 
-## Open decisions (asked 2026-10-12)
+## Decisions (user, 2026-10-12 and 2026-10-15)
 
-- Fall-through elision vs work-4's T6 claim: reassign, split, or wait.
-- JCC-erratum mitigation default: on, behind a target-tuning switch, or opt-in only (recommended:
-  opt-in switch first, default decided from data).
-- Text-size budget for a default policy (suggested: at most ~1%; larger only with a speedup beyond its
-  confidence interval), plus hidden per-site max-skip knobs; padding off in a future size mode.
-- Selection rule, fixed before measuring (proposed: lowest geometric-mean time over the 8 benchmarks +
-  native self-compile across >= 40 randomized placements; no workload slower beyond its 95% CI; within
-  the size budget; ties broken by smaller placement spread, then smaller code; otherwise keep base).
-- Tooling: phase mode as the default placement mode (vs literal shift filler); ASLR off for timed runs;
-  tooling under binate/perf/placement; -fnative-place-* without --backend native is an error.
-- aarch64/arm32 timing hardware: without an arm64 host or real arm32 hardware, their policies can only be
-  judged statically (qemu timing is meaningless).
+- Order: block layout, then placement policies; measurement tooling lands first, hidden (not in
+  printUsage, not in --list-opt-passes, not wired into CI).
+- Fall-through elision: work-4 released T6 on 2026-10-12; this plan takes "drop branch-to-fallthrough"
+  (claimed in T6) as part of block layout, on all three native backends.
+- JCC-erratum mitigation: an opt-in switch first; the default is decided from data.
+- Text-size budget for a default policy: at most ~1% text growth, more only with a speedup beyond its
+  confidence interval; per-site max-skip knobs as hidden switches; padding off in a future size mode.
+- Selection rule (fixed before measuring): lowest geometric-mean time over the 8 benchmarks + the native
+  self-compile across >= 40 randomized placements; no workload slower beyond its 95% CI; within the size
+  budget; ties broken by smaller placement spread, then smaller code; otherwise keep the current policy.
+- Tooling: phase mode is the default placement mode (literal shift filler as an option); timed runs with
+  ASLR off by default; tooling in binate/perf/placement; -fnative-place-* without --backend native is an
+  error.
+- Hardware: most work happens on an aa64 machine, so aarch64 timing is available there (this session is
+  on x86 and owns the x64 measurements). No arm32 hardware is readily available: arm32 policies are judged
+  with the static report only.
