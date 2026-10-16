@@ -1,3 +1,20 @@
+### A package relying on a force-loaded `lang` or `reflect` without importing it was rejected unless something else loaded it first — DONE (binate `5ac7c2c8e`, 2026-10-15, work-7)
+
+`pkg0.lang.force-load` (a primitive's method, `x.String()`) and `pkg0.reflect.accessor` (`__Package()`) let any
+package rely on lang / reflect without importing them, but bnc, bni and the REPL force-loaded both after the root
+package and its imports, and `loader.computeOrder` orders by insertion and import edges only — so a non-main
+package relying on either was checked first and rejected ("cannot access field on this type" / "undefined:
+__Package"), unless a package reached earlier imported them (testing's `.bn` does, which hid it under bnc when
+main imported testing first; bni loads testing interface-only).  bnlint force-loaded neither.  Fix: the loader's
+`ImplicitDeps` / `LoadImplicitDep`, ordered before every other package; all four tools force-load lang and reflect
+through it.  That exposed a latent process-wide state bug — checking lang attaches its methods to the primitive
+singletons, so a second checker in one process (bnlint's own tests) reported them redeclared — fixed by
+`types.ResetPrimitiveMethods` in `NewChecker` (user's choice over leaving bnlint out; including reflect was also
+the user's choice).  Tests: loader `TestImplicitDepOrderedFirst`, types `TestResetPrimitiveMethods`, bnlint
+`TestLintPackagesPrimitiveMethod`, conformance spec/20-tier0 029 (lang) and 030 (reflect), each failing without
+its part of the fix.  Review: three failing bnlint tests and the reflect gap in the first round; stale test
+comments and a test-only duplicate of the reset in the second, all fixed before landing.
+
 ### The LLVM backend's same-width float cast turns -0.0 into +0.0 — silent wrong value — DONE (binate `51823eaba`, `742abb735`; 2026-10-15, work-1) (found 2026-10-12, work-5, review of float SSA promotion)
 
 A same-width float-to-float cast (and a named float type's, and mem2reg's identity cast of a promoted float load)

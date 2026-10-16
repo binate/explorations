@@ -2688,22 +2688,6 @@ to assert the path appears in the rendered message.
 
 ## Package management & search paths
 
-### A primitive's method in a package that doesn't import `lang` is rejected unless something else loads `lang` first — 🟡 IN PROGRESS (claimed 2026-10-15, work-7/session — user: "1. yes, let's do that"; found 2026-10-14, work-7, review of the lang interface-only change; pre-existing)
-
-`pkg0.lang.force-load` (spec §20): a program may call a primitive's canonical method without importing
-`pkg/builtins/lang`.  But `bnc` (`ensureRuntimeDepsLoaded`, after `LoadRoot`) and `bni` (`EnsureLangLoaded`,
-after `LoadRoot` / the `-test` imports) force-load `lang` after the root packages, and `loader.computeOrder`
-orders packages by insertion and import edges only — so a package that calls `x.String()` on an `int` without
-importing `lang` is checked before `lang` is, and is rejected: `cannot access field on this type`.  A main
-file works (it is checked last), and so does any program where a package the loader loads in full imports
-`lang` first (`testing`'s `.bn` does, so `bnc` accepts a program whose main imports `testing`; `bni` loads
-`testing` interface-only, and its `.bni` does not import `lang`, so `bni` rejects the same program).  Probe:
-`main` imports only `pkg/probe3`, whose `.bn` is `func Name(x int) @[]char { return x.String() }` — rejected by
-both `bnc` and `bni`.  Fix: order the force-loaded packages before everything that may rely on them (load them
-before the root, or give every package an implicit order edge to `lang`, as IR-gen already gives every module
-an import edge — `appendLangImport`).  Needs a conformance test (a sub-package calling a primitive's method,
-main importing nothing else) — none covers a non-main package today (spec/20-tier0 009 is main-only).
-
 ### A deployed toolchain finds no packages of its own — which blocks `#!` scripts — 🟡 OPEN (2026-08-02)
 
 `bni` and `bnc` have no default search path at all.  A released bundle's
