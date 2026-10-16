@@ -70,7 +70,7 @@ int on the target is not covered.  Options: trap it (a new message, or the negat
 the int64-index fix does for bounds checks.  Found while fixing the int64-index bug (conformance 1633),
 whose todo entry flagged make_slice lengths to check.
 
-### The LLVM backend's same-width float cast turns -0.0 into +0.0 — silent wrong value — 🔴 OPEN MAJOR (found 2026-10-12, work-5, review of float SSA promotion; reproduced; pre-existing)
+### The LLVM backend's same-width float cast turns -0.0 into +0.0 — silent wrong value — 🟡 IN PROGRESS MAJOR (claimed 2026-10-15, work-1; user: "MAJORs first"; found 2026-10-12, work-5, review of float SSA promotion; reproduced; pre-existing)
 
 `emitCast` (codegen/emit_cast.bn ~131) lowers a same-width float-to-float OP_CAST as `fadd <ty> %x, 0.0`,
 and the same-representation float `bit_cast` path (~364) does the same.  `x + (+0.0)` is not an identity
