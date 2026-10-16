@@ -57,7 +57,7 @@ array composite literal from its type expression (`env.Type(e.TypeRef)`, resolve
 has no checked type — or check the initializer of an imported constant whose value needs a type the evaluator
 cannot find.
 
-### `make_slice` with an int64 / uint64 length on a 32-bit target passes one word — wrong length or invalid IR — 🔴 NEEDS DECISION MAJOR (found 2026-10-13, work-5, fixing the int64-index bug; pre-existing)
+### `make_slice` with an int64 / uint64 length on a 32-bit target passes one word — wrong length or invalid IR — 🔴 OPEN MAJOR (decided 2026-10-15, user: trap at run time — "Trap at run time (Recommended)": the negative-length trap extended to "length out of range"; found 2026-10-13, work-5, fixing the int64-index bug; pre-existing)
 
 The same class as the int64-index bug: IR-gen's `genIntOperand` widens a length narrower than int but passes
 a wider one through, so `make_slice(T, n)` with an int64 / uint64 `n` on arm32 hands the runtime's
@@ -157,7 +157,7 @@ with "missing return".  Either the checker drops the init / post condition (the 
 or the spec's parenthetical "(an unconditional `for { … }` infinite loop)" becomes the rule.  Needs a
 conformance test either way.
 
-### `:=` in a C-style `for` post statement: compiler crash, wrong binding, leak — 🔴 NEEDS DECISION MAJOR (found 2026-10-12, work-4, review of the for-init scoping fix; reproduced; pre-existing)
+### `:=` in a C-style `for` post statement: compiler crash, wrong binding, leak — 🔴 OPEN MAJOR (decided 2026-10-15, user: reject it — "Reject it (Recommended)"; found 2026-10-12, work-4, review of the for-init scoping fix; reproduced; pre-existing)
 
 The checker checks the post statement before the body (check/check_stmt.bn), so a variable a post `:=`
 declares is in scope in the body; genFor generates the body before the post statement, so IR-gen cannot see it.
@@ -179,7 +179,7 @@ literal is storage).  Fix: fold `len` on the operand's checker type when it is a
 part of its type), or recognise the literal's storage as genSliceExpr now does.  Needs a conformance test
 (expected-fail on the compiled modes).
 
-### A managed pointer to an interface value (`@(*I)` / `@(@I)`) passed for a raw `*any` miscompiles — 🔴 NEEDS DECISION MAJOR (found 2026-10-10, work-4, review of the deferred `@T` → `*I` fix; reproduced; pre-existing)
+### A managed pointer to an interface value (`@(*I)` / `@(@I)`) passed for a raw `*any` miscompiles — 🔴 NEEDS DECISION MAJOR (user 2026-10-15: "I suspect we should define the box, but get the idea reviewed for feasibility and consistency; rejecting it seems ... artificial?"; found 2026-10-10, work-4, review of the deferred `@T` → `*I` fix; reproduced; pre-existing)
 
 `useAny(mkIG(1))`, with `mkIG` returning `@(*Getter)` (or `@(@Getter)`) and `func useAny(a *any)`, compiles and
 segfaults at run time on LLVM and native aa64: wrapAsIfaceValue (gen_iface.bn) returns nil for an interface-value
@@ -193,7 +193,7 @@ pointees, and the target that recovers it) or have the checker reject a pointer-
 interface value.  Either way convertToIfaceTarget's silent fallback on a nil box should fail loud, and a
 conformance test lands with the decision (repro: review probe pe.bn).
 
-### A function NAME passed into `*any` compiles and boxes nothing — silent wrong value — 🔴 NEEDS DECISION MAJOR (found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
+### A function NAME passed into `*any` compiles and boxes nothing — silent wrong value — 🔴 NEEDS DECISION MAJOR (user 2026-10-15: "possibly we could reject, but get this reviewed versus decay to @func and box"; found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
 
 With `func add(a int, b int) int` and `func take(x *any) bool { return present(x) }`, `take(add)` compiles
 and returns false (LLVM and native), and `testing.Println(add)` prints nothing useful: the checker types
