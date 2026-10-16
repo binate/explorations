@@ -34,17 +34,6 @@ iropt / irutil / mangle / types/abi to the int64 accessors; 3 LLVM codegen; 4 na
 macho / link (bss without materialized zero bytes; a frame past the target's limit a compile error); 5 VM /
 interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the 32-bit lane.
 
-### Native arm32 hard-float reads a variadic `__c_call`'s float result from s0 / d0 instead of r0 / r0:r1 — silent wrong value — 🟡 IN PROGRESS MAJOR (claimed 2026-10-15, work-3; user: "yes" to fixing it now; found 2026-10-15, work-3, e2e/arm32-c-hfa.sh on the arm32 HFA switch; disassembled; pre-existing)
-
-- **Symptom:** AAPCS-VFP passes AND returns everything of a variadic call by the base standard, so a variadic C function returning `float` / `double` returns it in r0 / r0:r1.  Native arm32's `emitCallReturn` takes its hard-float scalar-float branch (`abi.Arm32HardFloat() && IsFloatScalarTyp(ins.Typ)` -> `emitCallReturnFloatHard`, `vstr` / `vmov` from s0 / d0) for every call, variadic or not, so the caller reads whatever was left in s0 / d0.  Seen in `e2e/arm32-c-hfa.sh`: `c_vtail(int, ...)` / `c_vfixed(D2, int, ...)` return `double`; `bn_vtail` read 8.0000019 (want 38176.5), `bn_vfixed` 6.5 — the first member of its own D2 argument, still in d0 (want 731.5).  The disassembly shows the arguments placed correctly (base standard: r0, r1-r2, stack) and `vmov.f64 d15, d0` after the `bl`.  LLVM is right (a vararg call uses the base AAPCS convention for the return too).
-- **Fix:** in `emitCallReturn`, skip the VFP branch for a variadic `__c_call` (`ins.Op == OP_C_CALL && ins.CVariadic`) under `VariadicFloatInGp`, so the result is collected from r0 / r0:r1 like soft-float — the mirror of `emitCallArg`'s `!callIsVariadic` gate on the VFP argument peel; check the other result paths (func-value shims never see a variadic call).  A native arm32 unit test (a variadic `__c_call` returning float32 / float64 stores r0 / r0:r1), and the e2e above.
-
-### A variadic `__c_call` with an sret result, a fixed narrow-int param or a fixed byval param does not compile on the LLVM backend — 🟡 IN PROGRESS MAJOR (claimed 2026-10-15, work-3; user: "yes" to fixing it now; found 2026-10-14, work-3, review of the arm32 HFA switch; confirmed with clang; pre-existing, every target)
-
-- **Symptom:** codegen writes the call of a variadic `__c_call` with an explicit function type, `call <ret> (<sig>, ...) @sym(<args>)`, and spells `<sig>` with parameter ATTRIBUTES — `ptr sret(<T>) align 8` for an sret result (`emit_ccall.bn`, the variadic branch of the call emitter), and whatever `writeCCallParamType` adds for a fixed param: `signext` / `zeroext` (`writeCAbiParamExtAttr`) and `ptr byval(<T>) align 8` for a byval one.  LLVM's IR parser rejects any attribute in a function type: `error: argument attributes invalid in function type` (confirmed: `clang --target=arm-linux-gnueabihf -c` on `call void (ptr sret(%T) align 8, i32, ...) @vmk(ptr sret(%T) align 8 %r, i32 1, double 1.5)`; the same with a bare `(ptr, i32, ...)` signature compiles).  So the LLVM backend fails to compile such a call — a hard error, not a miscompile.  The `declare` line may carry the attributes; only the call's explicit type may not.
-- **Triggers:** e.g. a variadic C function returning a struct over the sret cutoff (4 bytes on ILP32, 16 on LP64), or one taking an `int8` / `int16` / `bool` / `uint8` / `uint16` before `...`, or a >16-byte struct before `...` (byval on x86-64 / arm32).  Nothing in conformance or e2e exercised these until `e2e/arm32-c-hfa.sh` (`bn_vret`: a variadic call returning a 16-byte HFA, sret under AAPCS-VFP's base standard) on the arm32 HFA switch.
-- **Fix:** write bare types in the call's explicit signature — `ptr` for the sret pointer and for a byval param, no `signext` / `zeroext` — keeping the attributes on the arguments and the `declare`.  A codegen unit test on the call line (sret, narrow fixed param, byval fixed param), plus the e2e above for the end-to-end check.
-
 ### An imported constant that is `len` of an array literal is not a constant to the importer — 🔴 OPEN (found 2026-10-14, work-1, writing the cross-package test for the iota-in-type-expression fix; reproduced; pre-existing)
 
 `const P int = len([3]int8{})` in a package's `.bni`: an importer's `var a [lc.P]int8` is rejected ("array
@@ -355,29 +344,6 @@ emitZeroRec iterate an array's elements even when an element has no leaves, so a
 (LLVM only; native aa64 0.05 s), so `[1 << 40]E` hangs the compiler.  Skip an array whose element has no
 leaves (or zero size) before the loop.  The VM's `vm_iface_crossmode.bn` has a similar per-element loop (not
 reproduced).
-
-### arm32 hard-float: a homogeneous-float-aggregate `__c_call` ARGUMENT is passed in GP registers — C reads garbage from `s0…` — 🟡 IN PROGRESS (claimed 2026-10-13, work-3/session; decided 2026-10-13, user: "1" = make AAPCS-VFP HFA passing Binate's own arm32-linux convention, lifting ABI deviation (4) / §4.7; no interim rejection) (found 2026-09-27, work-3, stale-ABI-comment sweep)
-
-On `--target arm32-linux` (FLOAT_ABI_HARD) `HfaAggregates` stays false, so a float-only named struct /
-array rides the GP-coerced path — self-consistent between Binate's own native and LLVM sides, but NOT
-what a hard-float C callee expects: AAPCS-VFP passes a 1-4 member HFA in VFP registers.  Evidence
-(compile-only, clang `--target=arm-linux-gnueabihf -mfloat-abi=hard -O2`): for
-`type V2 struct { x float32; y float32 }` and `__c_call("sum_v2", float32, v)`, the LLVM backend
-declares `float @sum_v2([2 x i32])` and the caller loads 1.5f/2.5f into `r0`/`r1`, while the C
-`float sum_v2(struct V2 v) { return v.x + v.y; }` compiles to `vadd.f32 s0, s0, s1` — it reads `s0`/`s1`.
-Silent wrong values.  The checker already REJECTS the return side for exactly this reason
-(`check_c_interop.bn`: "__c_call return of a homogeneous-float aggregate is not yet supported on arm32
-hard-float"); the argument side has no check.  The native arm32 hard-float backend takes the same
-GP-coerced path (not separately verified — no qemu-arm here).  Likely the same mismatch in reverse for
-C calling Binate (`#[c_export]` / `__c_entry`) with an HFA parameter — unverified.  Fix options: (a)
-interim, matching the return-side policy — reject an HFA `__c_call` argument (and `#[c_export]` HFA
-params, if confirmed) on arm32 hard-float with a clear error + tests; (b) real — AAPCS-VFP HFA passing
-at the C boundary (back-filling the S-slot mask, `common_callconv_vfp.bn`) on both backends.  User's
-call which (and whether (a) first).  Needs a conformance test on `builder-comp_arm32_linux` /
-`builder-comp_native_arm32_linux` (qemu-arm user-mode is not installed on this host).
-Recommendation (work-3, 2026-10-06, self-drive triage): (b), AAPCS-VFP HFA passing at the C boundary on
-both backends — C interop on bare metal and Linux is where this matters, and (a) only turns a wrong value
-into a refusal.  Needs the user's call on (a) first or (b) directly.
 
 ### Per-instantiation checking (design B) follow-ups — 🔴 NEEDS DECISION (raised 2026-09-30 – 2026-10-02, work-4; design B itself is done, commits 1–7 landed)
 - bnlint (CheckPackageDecls) skips the instance checks of a dependency's generics, whose bodies it does not

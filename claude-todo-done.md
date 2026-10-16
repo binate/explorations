@@ -1,3 +1,43 @@
+### arm32 hard-float passes and returns HFAs in VFP registers, on both backends — DONE (binate `cb5bdfae1`, docs `0b10307`, 2026-10-15, work-3)
+
+On arm32-linux (AAPCS-VFP) a homogeneous float aggregate (a struct / array of 1-4 float32 or 1-4 float64)
+used to ride the GP path on both backends — self-consistent, but a `__c_call` / `#[c_export]` HFA crossed the
+C boundary in the wrong registers, and the checker rejected a `__c_call` HFA return (ABI deviation (4) /
+§4.7).  Per the user's decision (2026-10-13, "1": make AAPCS-VFP HFA passing Binate's own arm32-linux
+convention, no interim rejection), plan-arm32-hfa.md, in stages:
+- prerequisites found on the way: `928bae828` (LLVM spelled a tuple's HFA field in FP registers, native in
+  GP — aa64 mixed-backend mismatch; plus e2e/mixed-backend-calls.sh), `56911b098` / `47c39b280` (c_export
+  tuple repacks), `fef9a097b` (shims wrote past the retbuf), `d9e9ac2cd` (dispatch outgoing-area
+  under-reservation), and the conformance tests `95a10dac9` (1642-1644);
+- inert pieces: `cbbf1cf65` callconv (an HFA as one VFP co-processor register candidate, variadic base
+  standard, tuple fields scalar-only), then the native arm32 emitters — `0c96052ab` direct call / param /
+  return, `7b6eab741` func-value shims, `c32d006d8` closure shims, `6114f67e9` the C-export trampoline;
+- the switch `cb5bdfae1`: the shared gate HfaInFpRegs (= aa64 || arm32 hard-float) drives codegen's
+  `[N x float]` spelling and the sret / byval exemptions and sets AAPCS32().HfaAggregates; a variadic
+  `__c_call` keeps the base standard on the LLVM side too (abi.HfaGpView); the checker rejection is gone.
+  e2e/arm32-c-hfa.sh (C <-> Binate HFAs, both backends, qemu) and an arm32-linux mode for the mixed-backend
+  e2e (e2e/arm32-mixed-backend-calls.sh).  Validated: full arm32-linux conformance on both backends.
+- docs `0b10307`: §4.7 and deviation (4) deleted, the rule stated in abi/02 §2.5 / §2.6 / §2.8 / §2.9.
+The switch's e2e found two pre-existing bugs, fixed first (below).
+
+### Native arm32 hard-float read a variadic `__c_call`'s float result from s0 / d0 — DONE (binate `476259743`, 2026-10-15, work-3)
+
+AAPCS-VFP returns a variadic call's float result by the base standard, in r0 / r0:r1; native's
+`emitCallReturn` read s0 / d0 for every call — a silent wrong value (e2e/arm32-c-hfa.sh's variadic checks
+read stale d0, once the caller's own HFA argument).  A variadic `__c_call` under VariadicFloatInGp now
+collects it from the core registers (`emitCallReturnFloatCoreHard`: stored to the slot or moved into its FP
+home).  Tests: arm32_call_variadic_ret_test.bn (float64 / float32, homed and not, fixed-call controls).
+
+### A variadic `__c_call` with an sret result / narrow fixed param / byval fixed param did not compile on the LLVM backend — DONE (binate `8cbcb6cd6`, 2026-10-15, work-3)
+
+The call line's explicit function type carried parameter attributes (`ptr sret(<T>) align 8`, `signext`,
+`ptr byval(<T>)`), which LLVM rejects ("argument attributes invalid in function type") — every target.  The
+signature now has bare types (writeCCallSigParamType); the arguments and the declare keep the attributes.
+Review found the signature's position list also left out the sret pointer, so on x86-64 a later aggregate
+could be `[2 x i64]` in the signature but `ptr byval` as the argument — fixed in the same commit (the list
+leads with the sret pointer, as the declare's does).  Tests: emit_ccall_varsig_test.bn (x86-64, arm32, the
+x86-64 sret shift); runtime: e2e/arm32-c-hfa.sh's variadic sret HFA on the LLVM leg.
+
 ### IR-gen crashed on an interface declaring a method with `Self` in a type argument; interp's host call skipped object safety — DONE (binate `6d96f6927`, 2026-10-15, work-6; the checker part is `8846250ac`, below)
 
 `interface I { Put(b *Box[Self]) int }` (or `*G[Self]`, `St[Self]` for a generic alias of a struct), with no
