@@ -1,3 +1,10 @@
+### `len` of an array composite literal fails to compile — DONE (binate `6c3a0cede`, 2026-10-15, work-1) (found 2026-10-11, work-4, review of the deferred composite-element fix)
+
+`len([2]int{1, 2})` failed on LLVM and native: an array composite literal lowers to its storage (a pointer), so
+genBuiltin's len arm saw no array and read a slice length.  It now folds from the checker's type of the operand
+(checkedArrayType; a dependent length there is an internal error).  Conformance 1665 (literal forms, a generic
+instance, side effects kept, managed elements released).
+
 ### A package relying on a force-loaded `lang` or `reflect` without importing it was rejected unless something else loaded it first — DONE (binate `5ac7c2c8e`, 2026-10-15, work-7)
 
 `pkg0.lang.force-load` (a primitive's method, `x.String()`) and `pkg0.reflect.accessor` (`__Package()`) let any

@@ -160,17 +160,6 @@ says nothing more.  Decide: reject a declaration in the post statement (recommen
 only from the second iteration on; Go rejects it too) or give it a meaning.  Then a conformance test (error or
 behaviour) and the checker / IR-gen change.  Review probes: scratchpad review3/p3–p6.
 
-### `len` of an array composite literal fails to compile — 🟡 IN PROGRESS MAJOR (claimed 2026-10-15, work-1; user: "MAJORs first"; found 2026-10-11, work-4, review of the deferred composite-element fix; reproduced; pre-existing)
-
-`var n int = len([2]int{1, 2})` fails to compile on LLVM (`extractvalue operand must be aggregate type`) and
-native aa64 (`OP_EXTRACT: value v… has no spill slot`); the VM prints 2.  genBuiltin's `len` arm
-(irgen/gen_builtin.bn) folds an array operand to a constant only when the operand's IR type is TYP_ARRAY, but
-genExpr of an array composite literal returns the literal's alloca (a pointer to the array), so it falls through
-to EmitSliceLen on a pointer.  The same class as the sub-sliced array literal fixed in `a0ea51604` (a composite
-literal is storage).  Fix: fold `len` on the operand's checker type when it is an array (an array's length is
-part of its type), or recognise the literal's storage as genSliceExpr now does.  Needs a conformance test
-(expected-fail on the compiled modes).
-
 ### A managed pointer to an interface value (`@(*I)` / `@(@I)`) passed for a raw `*any` miscompiles — 🔴 NEEDS DECISION MAJOR (user 2026-10-15: "I suspect we should define the box, but get the idea reviewed for feasibility and consistency; rejecting it seems ... artificial?"; found 2026-10-10, work-4, review of the deferred `@T` → `*I` fix; reproduced; pre-existing)
 
 `useAny(mkIG(1))`, with `mkIG` returning `@(*Getter)` (or `@(@Getter)`) and `func useAny(a *any)`, compiles and
