@@ -59,18 +59,6 @@ int on the target is not covered.  Options: trap it (a new message, or the negat
 the int64-index fix does for bounds checks.  Found while fixing the int64-index bug (conformance 1633),
 whose todo entry flagged make_slice lengths to check.
 
-### The LLVM backend's same-width float cast turns -0.0 into +0.0 — silent wrong value — 🟡 IN PROGRESS MAJOR (claimed 2026-10-15, work-1; user: "MAJORs first"; found 2026-10-12, work-5, review of float SSA promotion; reproduced; pre-existing)
-
-`emitCast` (codegen/emit_cast.bn ~131) lowers a same-width float-to-float OP_CAST as `fadd <ty> %x, 0.0`,
-and the same-representation float `bit_cast` path (~364) does the same.  `x + (+0.0)` is not an identity
-for `x = -0.0` (the sum is +0.0), so the sign is lost.  Reproduced with a bnc built from main `01b5a0091`:
-`var z float64 = 0.0; z = -z; type Temp float64; t := cast(Temp, z)` — `bit_cast(int64, t)` prints 0 on
-the LLVM backend and -9223372036854775808 on native (and `cast(float64, z)` / `cast(float32, w)` the same);
-a `-0.0` literal and a readonly-to-plain copy are not affected (no cast is emitted).  Fix: an exact identity
-— `fadd %x, -0.0` is IEEE-exact except that it quiets a signalling NaN, so a bit-preserving form (a
-`bitcast` to the same type, or `select i1 true, %x, %x`) is closer to what the native backends and the VM
-do (a plain move).  Needs a conformance test (xfail on the LLVM modes until fixed).
-
 ### The LLVM backend declares a function's own sret parameter `align 8` whatever the result's alignment; a C caller's buffer may be less aligned — 🔴 OPEN (found 2026-10-09, work-1, review of the returned-local change; pre-existing; plausible, not yet reproduced)
 
 A function returning through sret is defined `define void @f(ptr sret(%T) align 8 %v.retbuf, ...)`

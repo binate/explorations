@@ -1,3 +1,12 @@
+### The LLVM backend's same-width float cast turns -0.0 into +0.0 — silent wrong value — DONE (binate `51823eaba`, `742abb735`; 2026-10-15, work-1) (found 2026-10-12, work-5, review of float SSA promotion)
+
+A same-width float-to-float cast (and a named float type's, and mem2reg's identity cast of a promoted float load)
+and a float-to-float bit_cast were `fadd X, 0.0`, and a float constant `fadd 0.0, <literal>`; -0.0 + +0.0 is
++0.0, so all of them turned a negative zero positive on LLVM (`const NZ float64 = -0.0` too).  `51823eaba`: the
+casts are `select i1 true, X, X`, a constant adds -0.0 (conformance 1663).  The review found `const A float64 =
+-.5` (a negated literal starting with its point) emitting invalid IR — normalizeFloatLiteral now keeps a leading
+sign (`742abb735`, conformance 1664).
+
 ### arm32 hard-float passes and returns HFAs in VFP registers, on both backends — DONE (binate `cb5bdfae1`, docs `0b10307`, 2026-10-15, work-3)
 
 On arm32-linux (AAPCS-VFP) a homogeneous float aggregate (a struct / array of 1-4 float32 or 1-4 float64)
