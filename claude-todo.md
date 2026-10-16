@@ -81,22 +81,6 @@ is word-aligned; through the #[c_export] trampoline's CRET_ADAPT_SRET path the b
 a fault on strict-alignment bare metal.  Fix with the rest: decide by the buffer's guaranteed alignment
 (AlignOf of the tuple / result), not offset parity alone.
 
-### asm ELF writer: every section's sh_addralign is at least 16, where clang's is its contents' alignment — 🟡 IN PROGRESS (claimed 2026-10-15, work-2; user: "wait 4 minutes, then go ahead; then continue") (found 2026-10-14, work-2, comparing bnas `.lcomm` output with clang's)
-
-`elf.Write` (pkg/binate/asm/elf/elf.bn, the data-section layout loop) gives each section sh_addralign
-max(16, Section.Align), so a `.text` of AArch64 or arm32 code is 16-aligned where clang writes 4, a `.data` of
-bytes 16 where clang writes 1, and a `.bss` whose largest `.lcomm` / `.balign` asks 8 is 16 where clang writes 8.
-Not clang's output, it pads every linked section, and it is NOT harmless for an init / fini / preinit array
-or a note: the padding a linker puts between two objects' pieces of such a section becomes a null array entry
-(glibc and musl call every entry: a crash at startup) or a malformed note.  The review of the section-flags
-change linked two clang objects whose `.init_array` aligns were 8 and 16 with ld.lld and got `c1, 0, c2`;
-bnld's `placeInKind` (link/layout.bn) pads the same way.  Arrays made through the asm API are SHT_INIT_ARRAY
-now, so this is reachable whenever such an array is linked with crtbegin, a C object or a second object.  Before
-lowering it: find whether anything relies on the 16-byte minimum without asking for it (native backends'
-constant pools or data loaded with 16-byte accesses, the runtime's `.s` files) — those must request their
-alignment with `.balign` / `.p2align` / Align — then use Section.Align (at least the instruction size for
-code, as clang's 4 for AArch64 / ARM, 1 for x86-64 text without `.p2align`).
-
 ### asm Mach-O writer: init / fini / preinit arrays are rejected — map them to `__mod_init_func` / `__mod_term_func`? — 🔴 NEEDS DECISION (found 2026-10-15, work-2, review of the section-flags change)
 
 The Mach-O writer (`machoSectionsOk`, pkg/binate/asm/macho/macho_sect.bn) rejects a section named

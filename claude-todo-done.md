@@ -1,3 +1,17 @@
+### asm ELF writer: every section's sh_addralign was at least 16, where clang's is its contents' alignment — DONE (binate `bd4ee00c5`, 2026-10-15, work-2) (found 2026-10-14, work-2, comparing bnas `.lcomm` output with clang's)
+
+Not only unfaithful: the padding a linker puts between two objects' pieces of an over-aligned init / fini array
+or note is a null array entry (the C runtime calls it) or a malformed note — found by the review of the
+section-flags change (ld.lld linked two init arrays into `c1, 0, c2`).  `elfSectAlign` (asm/elf/elf_util.bn) now
+gives Section.Align at clang's minimum (4 for text on every machine and for any other executable section on
+AArch64, else 1), and an A64 / A32 instruction raises its section's Align to 4 (`Assembler.MinAlign`, called by
+the aarch64 / isa / arm32 instruction emitters), as GNU as aligns a section holding code — clang leaves a
+non-exec code section 1-aligned.  Nothing relied on the old minimum unasked (data globals request theirs; x86-64
+AlignNops records its 16; pools Align their entries; the `.s` files are text).  Tests: per-machine alignments
+and file offsets (elf_layout_test), two-object init arrays through bnld on AArch64 and laid out on arm32.
+Follow-ups logged: the Mach-O writer's own name-based minimums; the firmware-arm driver's unaligned boundary
+symbols.
+
 ### asm ELF writer: a section's type and flags came from its name, ignoring the flags it was created with — DONE (binate `0a8e27fab`, 2026-10-15, work-2) (found 2026-10-10, work-2, writing bnld reader test fixtures)
 
 The ELF writer derived sh_flags / sh_type from the section name alone, so an API section with another name was
