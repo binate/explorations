@@ -86,7 +86,12 @@ a fault on strict-alignment bare metal.  Fix with the rest: decide by the buffer
 `elf.Write` (pkg/binate/asm/elf/elf.bn, the data-section layout loop) gives each section sh_addralign
 max(16, Section.Align), so a `.text` of AArch64 or arm32 code is 16-aligned where clang writes 4, a `.data` of
 bytes 16 where clang writes 1, and a `.bss` whose largest `.lcomm` / `.balign` asks 8 is 16 where clang writes 8.
-Harmless to correctness (over-alignment) but not clang's output, and it pads every linked section.  Before
+Not clang's output, it pads every linked section, and it is NOT harmless for an init / fini / preinit array
+or a note: the padding a linker puts between two objects' pieces of such a section becomes a null array entry
+(glibc and musl call every entry: a crash at startup) or a malformed note.  The review of the section-flags
+change linked two clang objects whose `.init_array` aligns were 8 and 16 with ld.lld and got `c1, 0, c2`;
+bnld's `placeInKind` (link/layout.bn) pads the same way.  Arrays made through the asm API are SHT_INIT_ARRAY
+now, so this is reachable whenever such an array is linked with crtbegin, a C object or a second object.  Before
 lowering it: find whether anything relies on the 16-byte minimum without asking for it (native backends'
 constant pools or data loaded with 16-byte accesses, the runtime's `.s` files) — those must request their
 alignment with `.balign` / `.p2align` / Align — then use Section.Align (at least the instruction size for
@@ -104,6 +109,16 @@ every in-tree caller passing explicit flags uses one of them.  Fix: write sh_fla
 `fini_array` / `preinit_array` made through the API is written PROGBITS, where GNU as and clang give the
 SHT_INIT_ARRAY / FINI_ARRAY / PREINIT_ARRAY type bnld places and checks arrays by (found by the review of the
 scripted-builder array commit).
+
+### asm Mach-O writer: init / fini / preinit arrays are rejected — map them to `__mod_init_func` / `__mod_term_func`? — 🔴 NEEDS DECISION (found 2026-10-15, work-2, review of the section-flags change)
+
+The Mach-O writer (`machoSectionsOk`, pkg/binate/asm/macho/macho_sect.bn) rejects a section named
+init_array / fini_array / preinit_array (alone or with a "." suffix): written as an ordinary `__DATA` section,
+as it was before, its functions would silently never run.  The Mach-O equivalent of an init array is
+`__DATA,__mod_init_func` (S_MOD_INIT_FUNC_POINTERS), of a fini array `__mod_term_func`
+(S_MOD_TERM_FUNC_POINTERS); preinit arrays and priority suffixes (`init_array.N`) have none.  Decide: map
+init_array / fini_array to them (and keep rejecting preinit and suffixed arrays), or keep rejecting.  Also
+open: note sections (note*) — SHT_NOTE on ELF — are ordinary sections on Mach-O, which has no notes.
 
 ### bnld: unwind tables — x86-64 `.eh_frame` and arm32 `.ARM.exidx` are dropped — 🔴 OPEN (found 2026-10-09, work-2, scoping the bnld reader MAJOR; user 2026-10-10: "Support both, own item")
 
@@ -391,7 +406,9 @@ Loud rejections, not mis-assembly, but the assembler is meant to be comprehensiv
 release loads and stores (LDXR/STXR/LDAXR/STLXR/LDXP/STXP/LDAR/STLR/LDAPR/LDLAR/LDAPUR/STLUR), LSE
 atomics (LDADD*/STADD/SWP/CAS/CASP), LDTR/STTR*, LDRAA/LDRAB, NEON LD1/ST1/LD1R and NEON / FP arithmetic
 text forms, CRC32*, PACGA/XPACI, CFINV/RMIF/SETF8, TLBI/AT, the `:abs_g*:` and TLS relocation
-operators, `.L` / numeric local labels, literal pools (`ldr =imm`, deliberately rejected today); and `name = expr` constants, which are defined but can't be
+operators (with them, thread-local sections: `asm.SetSection` rejects the names tdata / tbss, which clang makes
+SHF_TLS, until a section flag can mark one thread-local — ELF SHF_TLS, Mach-O `__thread_data` /
+`__thread_bss` with the thread-local section types), `.L` / numeric local labels, literal pools (`ldr =imm`, deliberately rejected today); and `name = expr` constants, which are defined but can't be
 referenced (lookupConst has no callers) — these four 🟡 IN PROGRESS (claimed 2026-09-30, work-2/session;
 user: "yes"; plan and open decisions in `plan-aa64-asm-symbols.md`).  Each family: isa encoder (if missing) +
 parser + golden lines from clang.
