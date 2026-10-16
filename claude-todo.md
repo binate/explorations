@@ -107,6 +107,24 @@ as it was before, its functions would silently never run.  The Mach-O equivalent
 init_array / fini_array to them (and keep rejecting preinit and suffixed arrays), or keep rejecting.  Also
 open: note sections (note*) — SHT_NOTE on ELF — are ordinary sections on Mach-O, which has no notes.
 
+### asm Mach-O writer: section alignment minimums by name (8 for data / bss / relro, 4 otherwise), where clang's is the contents' — 🔴 OPEN (found 2026-10-15, work-2, review of the ELF alignment change; latent)
+
+`machoSectAlign` (pkg/binate/asm/macho/macho_sect.bn) gives `__data` / `__bss` / relro 2^3 and every other section
+2^2, and `sectionAlignment` (macho_layout.bn) places each section on at least 8, where clang's hand-written-asm
+objects give `__text`, `__data` and `__const` 2^0 unless `.p2align` asks (probed in the review).  The ELF writer
+now uses the contents' alignment (Section.Align, which instructions raise to 4) with clang's minimums; Mach-O
+should match clang the same way.  Before lowering it, check what relies on it without asking: the comments name
+64-bit globals in `__data` and ARM64_RELOC_UNSIGNED slots ld requires 8-aligned — native data globals request
+their alignment (EmitDataGlobal), so find anything else.  No null-entry hazard here (Mach-O rejects arrays).
+
+### bnld firmware-arm driver: `_sdata` / `_edata` / `__bss_start` / `__bss_end` are not word-aligned — 🔴 OPEN (found 2026-10-15, work-2, review of the ELF alignment change; latent: the driver is structure-checked, not booted)
+
+`drivers/firmware-arm.bn` defines the data / bss boundary symbols at dot with no `AlignDot(4)`, but a startup
+routine copies `.data` and zeroes `.bss` a word at a time between them.  The start symbols were 16-aligned only
+because the asm ELF writer over-aligned every section (no longer: a byte-only `.data` is 1-aligned, as clang's);
+the end symbols never were.  `runtime/baremetal_arm32/baremetal.ld` aligns them (`ALIGN(4)`).  Fix: align dot to
+4 before each boundary symbol, and check the driver's symbol values in its builder unit test.
+
 ### bnld: unwind tables — x86-64 `.eh_frame` and arm32 `.ARM.exidx` are dropped — 🔴 OPEN (found 2026-10-09, work-2, scoping the bnld reader MAJOR; user 2026-10-10: "Support both, own item")
 
 bnld's ELF reader keeps only SHF_ALLOC PROGBITS / NOBITS sections, so clang's x86-64 `.eh_frame` (typed
