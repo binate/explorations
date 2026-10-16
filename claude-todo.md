@@ -619,7 +619,7 @@ error (the forwarder should drop the redundant `expose "P"`; a bnlint rule could
 when both paths denote the same declaration (compare the defining package and declaration, not the name),
 spec to match.  Needs a conformance test either way.
 
-### Should a function-value type's parameters and results be held to the opaque rules? — 🔴 NEEDS DECISION (raised 2026-10-03, work-3, review of the type-declaration opaque check; split out 2026-10-10, work-7)
+### A function-value type's parameters and results are not held to the opaque rules; an instance's type-argument parts are judged in the generic's view — 🔴 OPEN, DECIDED 2026-10-15 (raised 2026-10-03, work-3, review of the type-declaration opaque check; split out 2026-10-10, work-7)
 
 With `type Op` opaque, a function declaration's by-value opaque parameter or result is rejected (`func f(o
 Op)`: "cannot use an opaque type by value"), and so is one pointing to a type that embeds an opaque type by
@@ -645,6 +645,10 @@ hazard (a.Box's layout is filled in a whole-program build; pure opaque types are
 Options: judge the parts that come from the type arguments in the importer's view (needs the generic's
 structure walked with its type parameters marked), or accept it and spec that a cross-package opaque
 export is opaque only in what the importing package writes itself.
+**Decided 2026-10-15 (user):** "(a) Same rule" — reject a function-value type whose parameters or results
+break the rules a function declaration's are held to, where it is written, and write that rule, with the
+pointer-to-opaque-embedding rule, into §7.12; and "Importer's view" — judge the parts of an instance that come
+from its type arguments in the importer's view, so `PBox[[2]a.Box]` is rejected like `*([2]a.Box)`.
 
 
 ### Loader: a package with one `.bn` file gets the `.bni`'s imports (and declarations) merged into that file's own AST — its file scope sees imports it does not write — 🔴 OPEN (found 2026-10-09, work-7, review of the imported float const-expression fix; code reading; pre-existing)
