@@ -2109,7 +2109,7 @@ nothing currently reaches the reject (the only section-relative relocs are in th
 unwind sections), so this stays parked until a real clang/LLVM object needs a
 section-relative reloc in a KEPT section.
 
-### CI's -O2 conformance lane is red on main: 1622 / 1625 (an `@X` of a type nothing defines) link at -O2 on the LLVM backend — 🔴 OPEN (MAJOR: CI red; found 2026-10-12, work-5, while validating float promotion)
+### CI's -O2 conformance lane is red on main: 1622 / 1625 (an `@X` of a type nothing defines) link at -O2 on the LLVM backend — 🟡 IN PROGRESS (claimed 2026-10-15, work-5/session) (MAJOR: CI red; found 2026-10-12, work-5, while validating float promotion)
 
 `1625_err_undefined_forward_type_drop` and `1622_err_xpkg_undefined_forward_type_drop` (added with binate
 `9235b2aa6`) expect the program to fail to link, naming `__dtor_X`.  At `-O2` on the LLVM backend they
