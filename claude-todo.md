@@ -149,7 +149,7 @@ with "missing return".  Either the checker drops the init / post condition (the 
 or the spec's parenthetical "(an unconditional `for { … }` infinite loop)" becomes the rule.  Needs a
 conformance test either way.
 
-### `:=` in a C-style `for` post statement: compiler crash, wrong binding, leak — 🔴 OPEN MAJOR (decided 2026-10-15, user: reject it — "Reject it (Recommended)"; found 2026-10-12, work-4, review of the for-init scoping fix; reproduced; pre-existing)
+### `:=` in a C-style `for` post statement: compiler crash, wrong binding, leak — 🟡 IN PROGRESS MAJOR (claimed 2026-10-15, work-1; decided 2026-10-15, user: reject it — "Reject it (Recommended)"; found 2026-10-12, work-4, review of the for-init scoping fix; reproduced; pre-existing)
 
 The checker checks the post statement before the body (check/check_stmt.bn), so a variable a post `:=`
 declares is in scope in the body; genFor generates the body before the post statement, so IR-gen cannot see it.
