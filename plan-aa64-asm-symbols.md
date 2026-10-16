@@ -267,9 +267,10 @@ Commits (series):
 - (2.1) absolute data: kinds, parser, both writers, arm32 bake, bnld ELF ABS kinds; Mach-O UNSIGNED.  ✅ landed
   `6081d76ae`.  Decided (user, 2026-10-09): `.int32 sym` keeps R_X86_64_32S ("Keep 32S"; `.uint32 sym` is
   R_X86_64_32); an ELF reference to a named local label goes against its section symbol plus offset, as
-  clang's ("Match clang") — to do: every local symbol defined in a section, with the temporaries' per-type
-  rules (every non-GOT type on AArch64 and x86-64, only R_ARM_ABS32 on arm32), checked by targeted
-  conformance on all three architectures, since the native backends' objects change too.
+  clang's ("Match clang") — ✅ landed `fbb62a67a` (2026-10-15): every local symbol defined in a section, with
+  the temporaries' per-type rules (every non-GOT type on AArch64 and x86-64, only R_ARM_ABS32 on arm32);
+  212 conformance tests on native ELF arm32 bare metal / arm32 Linux / aa64 Linux / x64 Linux (x64 in an
+  amd64 container built from the binate-ci recipe).
 - (2.2) PC-relative data on ELF: `sym - .`, `sym - l`, external minuend; bnld PREL / REL32 / PCn.  ✅ landed
   `9d0d7e4be` (with the re-association below).  Also
   (review of (2.1)): `ext - l1 + l2` and `ext - . + l2` — clang folds the fixed `l2 - l1` (ELF `ext+4`,
@@ -284,7 +285,7 @@ Commits (series):
 The bnld input-reader MAJOR (claude-todo) comes first (user, 2026-10-09: "bnld reader MAJOR"); the order of
 the rest is open.  (1) Fold a number after a MOVW operator (3d (a)) — ✅ landed `6da46c766`.  (2) bnld's PREL `_NC` on MOVZ / MOVN
 and PREL_G3 as lld (3d (c)) — ✅ landed `fc29977b9`.  (3) GOT addends on ELF (3d (2a)) — not done: keep rejecting (user, 2026-10-14; see 3d (2a)).  (4) ELF named locals against the section
-symbol (3e (2.1)).  (5) TLS, staged (3d).  (6) The PAuth `_auth` operators, assembler side (3d).
+symbol (3e (2.1)) — ✅ landed `fbb62a67a`.  (5) TLS, staged (3d).  (6) The PAuth `_auth` operators, assembler side (3d).
 
 ## Decisions (user, 2026-09-30 — each the recommended option)
 

@@ -442,11 +442,6 @@ referenced (lookupConst has no callers) — these four 🟡 IN PROGRESS (claimed
 user: "yes"; plan and open decisions in `plan-aa64-asm-symbols.md`).  Each family: isa encoder (if missing) +
 parser + golden lines from clang.
 
-**Now (work-2, 2026-10-14; user: "let's do 1-4"; item (3) then dropped, user: keep rejecting GOT addends since
-GNU ld, ld.lld and the ABI text disagree on their meaning):** items (1)-(4) of the plan's remaining work — fold a
-number after a MOVW operator, bnld's PREL `_NC` / PREL_G3 as lld, GOT addends on ELF, ELF named locals against
-the section symbol — one landed commit each.
-
 **Progress (work-2):** family by family, one reviewed commit each.  (1) exclusive / ordered loads and
 stores — LDXR…STLXP, LDAR/STLR, LDLAR/STLLR, LDAPR, LDAPUR/STLUR incl. the RCPC3 SIMD&FP forms — landed
 `920be83aa` (2026-09-27; LDXP/LDAXP Rt == Rt2 deliberately rejected, unlike clang).  (2) the rest of FEAT_LRCPC3's loads/stores — LDIAPP / STILP,
@@ -472,7 +467,9 @@ needs, `2a26ec4d9`).  (11) the MOVW-group relocation operators (plan item 3d, fi
 `:gotpage_lo15:`, `:got:` literal loads, 8-byte GOT stores — landed `f38f50223` (2026-10-04).  (14)
 bnld's linker-made GOT (all four drivers) — landed `c645a568e` (2026-10-05).  (15) a number after an absolute
 MOVW operator folded as clang does (plan remaining (1)) — landed `6da46c766` (2026-10-14).  (16) bnld's MOVW
-PREL `_NC` / PREL_G3 opcodes as lld (plan remaining (2)) — landed `fc29977b9` (2026-10-14).
+PREL `_NC` / PREL_G3 opcodes as lld (plan remaining (2)) — landed `fc29977b9` (2026-10-14).  (17) ELF
+relocations against named locals made against the section symbol, as clang's (plan remaining (4)) — landed
+`fbb62a67a` (2026-10-15); plan remaining (3), GOT addends on ELF, dropped (user 2026-10-14: keep rejecting).
 Apple's legacy NEON syntax
 (`dup.4s v0, w1`, `tbl.16b v0, {v1}, v3`), which clang
 accepts on every target, is not supported (user, 2026-09-28: "we don't need alternate syntax, unless there's
