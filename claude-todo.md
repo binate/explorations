@@ -603,7 +603,7 @@ error (the forwarder should drop the redundant `expose "P"`; a bnlint rule could
 when both paths denote the same declaration (compare the defining package and declaration, not the name),
 spec to match.  Needs a conformance test either way.
 
-### A function-value type's parameters and results are not held to the opaque rules; an instance's type-argument parts are judged in the generic's view — 🔴 OPEN, DECIDED 2026-10-15 (raised 2026-10-03, work-3, review of the type-declaration opaque check; split out 2026-10-10, work-7)
+### A function-value type's parameters and results are not held to the opaque rules; an instance's type-argument parts are judged in the generic's view — 🟡 IN PROGRESS (claimed 2026-10-15, work-7/session — user: "let's actually *fix* these leftovers, one-by-one; you can start with the two we've gone over"; DECIDED 2026-10-15; raised 2026-10-03, work-3, review of the type-declaration opaque check; split out 2026-10-10, work-7)
 
 With `type Op` opaque, a function declaration's by-value opaque parameter or result is rejected (`func f(o
 Op)`: "cannot use an opaque type by value"), and so is one pointing to a type that embeds an opaque type by
