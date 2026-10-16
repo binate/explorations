@@ -24,7 +24,7 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
-### int64 layout, stages 2-6: IR, LLVM codegen, native backends, VM — a 32-bit-hosted compiler fails loud on a > 2 GB type for a 64-bit target until they carry int64 — 🟡 IN PROGRESS (claimed 2026-10-15, work-1; the CRITICAL's continuation, plan-int64-layout.md)
+### int64 layout, stages 2-6: IR, LLVM codegen, native backends, VM — a 32-bit-hosted compiler fails loud on a > 2 GB type for a 64-bit target until they carry int64 — 🟡 PAUSED (claimed 2026-10-15, work-1; user 2026-10-15: "MAJORs first, then back"; the CRITICAL's continuation, plan-int64-layout.md)
 
 Stage 1 landed (binate `56c30e545`, docs `dc6444c`): types lays out in int64 and the checker rejects a type too
 large for the target; the rest of the compiler still narrows to the host's int through the transitional
