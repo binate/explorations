@@ -121,6 +121,16 @@ evaluated at the end), ELF st_info / st_size from them, the native backends and 
 their functions' type explicitly so the inference can go; on Mach-O, which has neither directive, reject them as
 clang does.  Thread-local and indirect-function types belong with the TLS / IFUNC work.
 
+### bnld: an input symbol's ELF type is ignored — an IFUNC or TLS symbol, or a GNU_UNIQUE binding, is linked as an ordinary one — 🔴 OPEN (found 2026-10-15, work-2, scoping asm `.type`; latent)
+
+bnld's ELF reader (`readSymbols`, pkg/binate/link/parse_elf.bn) keeps st_info's binding and drops its type, so a
+symbol typed STT_GNU_IFUNC (`__attribute__((ifunc))`, glibc's static string functions) is linked as a plain
+function — a call reaches the resolver, not the function it returns — and an STT_TLS symbol as a plain address,
+both silently.  A binding of STB_GNU_UNIQUE (10) is none of local / global / weak.  Do: reject these inputs with an
+error naming the symbol until bnld implements them (IFUNC: an IRELATIVE relocation in a static link, or the
+symbol's type kept in a dynamic one; TLS: with the TLS work; unique: as global, as ld.lld does).  The asm can
+produce an IFUNC symbol once `.type` lands.
+
 ### bnld: unwind tables — x86-64 `.eh_frame` and arm32 `.ARM.exidx` are dropped — 🔴 OPEN (found 2026-10-09, work-2, scoping the bnld reader MAJOR; user 2026-10-10: "Support both, own item")
 
 bnld's ELF reader keeps only SHF_ALLOC PROGBITS / NOBITS sections, so clang's x86-64 `.eh_frame` (typed
