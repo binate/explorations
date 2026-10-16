@@ -39,7 +39,7 @@ IR-gen cannot map is an internal error, never `int`.
 
 ## Stages (each lands green; byte-identical IR across the corpus where a stage claims no change)
 
-0. **Audits, no behaviour change.**  Define the stamp: "the type the syntax denotes in its scope" (not a
+0. **Audits, no behaviour change** — DONE 2026-10-15, results under "Stage 0 results".  Define the stamp: "the type the syntax denotes in its scope" (not a
    context result — a recovery type, an inferred length, a Self substitution).  Audit the 59 raw checker-type
    reads in irgen (ExprType / PackageType used unmapped as IR types, e.g. registerImportVarExtern,
    reflectPackageStructType).  Assert-and-run whether bindTypeParams / CurrentTypeParamOwner are still
@@ -103,6 +103,65 @@ IR-gen cannot map is an internal error, never `int`.
    hand), plus GenModule(nil) helpers in codegen and the native iface tests; many are white-box tests of
    internals this deletes.
 8. **REPL type / interface shadowing** (plan-repl-type-shadowing.md).
+
+## Stage 0 results (2026-10-15, work-6)
+
+### The stamp
+
+`TypeExpr.ResolvedTypeID` records the type the type expression DENOTES in the scope it is written in — what the
+checker's resolveTypeExpr returns for it there — and nothing a use site derives from it:
+- `Self` in an interface method signature stamps `TYP_SELF` (substitution happens at impls and constraint calls,
+  never on the syntax).
+- `readonly` is kept (IR-gen strips it where IR types need that, StripConstForIR).
+- A type parameter in a generic declaration stamps the `TYP_TYPE_PARAM`; the instance's copy stamps the argument
+  (clones clear stamps, so an instance never inherits the abstract one).  A length that depends on a type
+  parameter is dependent in the declaration and concrete in an instance's copy.
+- Context results are NOT stamps — IR-gen reads them from the Expr that has them: the length `[...]T` gets from its
+  literal (the composite literal's type), the type an assertion or a type-switch case recovers (the assertion
+  Expr's type), an error-recovery type (never reaches IR-gen: errors stop compilation).
+- A type written as an EXPRESSION (a type argument parsed as an Expr, the `T` of `T.M`, `pkg.T`) gets the
+  separate denoted-type record of stage 1, not Expr.ResolvedTypeID, which stays a value's type.
+
+### Raw checker-type reads in IR-gen
+
+37 direct reads (`Checker.ExprType` / `PackageType`) plus 18 calls of five wrappers.  Classes:
+- **Query only** (a kind, a flag, a constant stamp, a length, a method lookup; no type flows into IR): genBinary's
+  negative-constant test, gen_constval `Len` / `stampedConstValue`, isManagedFuncValueLit, instantiationHead,
+  isMethodCallSel, isMethodValueSelector (×2), genMethodValue's method lookup, initIsAggregateValue,
+  opaqueDefinedAsStruct, exprIntLitValue, tryFoldOversizedConst, isUntypedIntConst, genExprOrFuncRef (×2),
+  emitUntypedIntConst, isInterfaceMethodCall, selectorMethod / methodRecvCheckerType.  These stay: the checker
+  is the authority they ask.
+- **Mapped** (irTypeFromChecker): declareMethodExprTarget / ensureMethodSig, resolveGlobalVarType,
+  methodValueRecvIRType, getIndexElemType, ifaceCallMethodType, and checkerExprIRType's 9 callers (gen_call ×3,
+  gen_index_ptr ×2, gen_selector_type ×2, gen_slice ×2) — but checkerExprIRType falls back to the RAW checker
+  type when the mapping fails.
+- **Box identity** (the checker type kept beside the IR type for `readonly` and qualification, merged by
+  mergeQualifiedReadonly after bindTypeParams): wrapAsIfaceValue's / convertToIfaceTarget's / coerceAssignValue's
+  source type — genCastBuiltin (×2), genDecl, genExprOrFuncRef's convert, parallel and multi assignment
+  (multiValueComponentType), multi-value return.  A complete mapper (readonly kept, names qualified) replaces the
+  merge with the mapped type.
+- **Raw as an IR type** (the stage 4 work list; each becomes mapped, its fallback an internal error):
+  - genUnary: a named-int checker type as OP_NEG's type;
+  - checkedIntType (genBinary shift, the shift builtin): a named-int checker type as the shift's type / hint;
+  - resolveCaptureTypes: the checker's type as a closure capture's field type (a "defensive fallback");
+  - reflectPackageStructType: the checker's `reflect.Package` struct as an IR struct;
+  - registerImportVarExtern: the checker's type as an imported extern global's type;
+  - checkedArrayType's callers (arrayBaseElemPtr, genIndexPtr, genSlice): the checker array type when the base
+    has no IR array type;
+  - checkerExprIRType's raw fallback (above).
+
+### Is the type-parameter context still reached?
+
+Neither is, with a checker attached.  Temporary panics in bindTypeParams and in irTypeFromChecker's
+`TYP_TYPE_PARAM` branch (firing whenever a type parameter reached either with a checker) never fired across the
+full VM-mode conformance suite (builder-comp-int, 3635 passed), the irgen / repl / interp unit tests, the
+self-compile of bni (the conformance runner's compiled interpreter) and of bnc (build-bnc.sh stage 2), nor on a
+probe boxing `*T` and `**[]readonly T` inside generic instances.  An instance's body is emitted from the checker's
+checked copy, whose types are concrete; without a checker there is no checker type to bind.  So bindTypeParams
+(and its stated reason, "IR-gen emits an instantiated generic body with the checker types recorded for the
+generic definition") is dead, as are the mapper's type-parameter branch and GenCtx.CurrentTypeParamOwner / Args,
+read only by those two.  The 23 tests the VM mode skips (compiled-only: C interop and the like) were not covered.
+Follow-up: delete them, the mapper's branch becoming an internal error (a separate commit).
 
 ## Constraints / risks
 
