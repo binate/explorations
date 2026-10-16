@@ -145,7 +145,7 @@ says nothing more.  Decide: reject a declaration in the post statement (recommen
 only from the second iteration on; Go rejects it too) or give it a meaning.  Then a conformance test (error or
 behaviour) and the checker / IR-gen change.  Review probes: scratchpad review3/p3–p6.
 
-### `len` of an array composite literal fails to compile — 🔴 OPEN MAJOR (found 2026-10-11, work-4, review of the deferred composite-element fix; reproduced; pre-existing)
+### `len` of an array composite literal fails to compile — 🟡 IN PROGRESS MAJOR (claimed 2026-10-15, work-1; user: "MAJORs first"; found 2026-10-11, work-4, review of the deferred composite-element fix; reproduced; pre-existing)
 
 `var n int = len([2]int{1, 2})` fails to compile on LLVM (`extractvalue operand must be aggregate type`) and
 native aa64 (`OP_EXTRACT: value v… has no spill slot`); the VM prints 2.  genBuiltin's `len` arm
