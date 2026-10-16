@@ -92,7 +92,7 @@ constant pools or data loaded with 16-byte accesses, the runtime's `.s` files) �
 alignment with `.balign` / `.p2align` / Align — then use Section.Align (at least the instruction size for
 code, as clang's 4 for AArch64 / ARM, 1 for x86-64 text without `.p2align`).
 
-### asm ELF writer: a section's type and flags come from its name, ignoring the flags it was created with — 🔴 OPEN (found 2026-10-10, work-2, writing bnld reader test fixtures; latent)
+### asm ELF writer: a section's type and flags come from its name, ignoring the flags it was created with — 🟡 IN PROGRESS (claimed 2026-10-15, work-2; user: "let's continue with the items on the list") (found 2026-10-10, work-2, writing bnld reader test fixtures; latent)
 
 `elfSectFlags` / `elfSectType` (`pkg/binate/asm/elf/elf_util.bn`) derive sh_flags / sh_type from the section
 name alone (text, data, rodata, rodata_relro, bss); any other name is written SHF_ALLOC PROGBITS, so
