@@ -81,7 +81,7 @@ is word-aligned; through the #[c_export] trampoline's CRET_ADAPT_SRET path the b
 a fault on strict-alignment bare metal.  Fix with the rest: decide by the buffer's guaranteed alignment
 (AlignOf of the tuple / result), not offset parity alone.
 
-### asm ELF writer: every section's sh_addralign is at least 16, where clang's is its contents' alignment — 🔴 OPEN (found 2026-10-14, work-2, comparing bnas `.lcomm` output with clang's; latent)
+### asm ELF writer: every section's sh_addralign is at least 16, where clang's is its contents' alignment — 🟡 IN PROGRESS (claimed 2026-10-15, work-2; user: "wait 4 minutes, then go ahead; then continue") (found 2026-10-14, work-2, comparing bnas `.lcomm` output with clang's)
 
 `elf.Write` (pkg/binate/asm/elf/elf.bn, the data-section layout loop) gives each section sh_addralign
 max(16, Section.Align), so a `.text` of AArch64 or arm32 code is 16-aligned where clang writes 4, a `.data` of
@@ -96,19 +96,6 @@ lowering it: find whether anything relies on the 16-byte minimum without asking 
 constant pools or data loaded with 16-byte accesses, the runtime's `.s` files) — those must request their
 alignment with `.balign` / `.p2align` / Align — then use Section.Align (at least the instruction size for
 code, as clang's 4 for AArch64 / ARM, 1 for x86-64 text without `.p2align`).
-
-### asm ELF writer: a section's type and flags come from its name, ignoring the flags it was created with — 🟡 IN PROGRESS (claimed 2026-10-15, work-2; user: "let's continue with the items on the list") (found 2026-10-10, work-2, writing bnld reader test fixtures; latent)
-
-`elfSectFlags` / `elfSectType` (`pkg/binate/asm/elf/elf_util.bn`) derive sh_flags / sh_type from the section
-name alone (text, data, rodata, rodata_relro, bss); any other name is written SHF_ALLOC PROGBITS, so
-`a.SetSection("foo", asm.SF_READ | asm.SF_WRITE | asm.SF_EXEC)` yields a read-only data section — the writable /
-executable flags vanish silently.  Latent: the text assembler's `.section` takes only the standard names, and
-every in-tree caller passing explicit flags uses one of them.  Fix: write sh_flags from the section's Flags
-(SF_READ → SHF_ALLOC, SF_WRITE → SHF_WRITE, SF_EXEC → SHF_EXECINSTR) and keep the name only for the type (bss
-→ NOBITS); check the Mach-O writer for the same.  The type has the same gap: a section named `init_array` /
-`fini_array` / `preinit_array` made through the API is written PROGBITS, where GNU as and clang give the
-SHT_INIT_ARRAY / FINI_ARRAY / PREINIT_ARRAY type bnld places and checks arrays by (found by the review of the
-scripted-builder array commit).
 
 ### asm Mach-O writer: init / fini / preinit arrays are rejected — map them to `__mod_init_func` / `__mod_term_func`? — 🔴 NEEDS DECISION (found 2026-10-15, work-2, review of the section-flags change)
 

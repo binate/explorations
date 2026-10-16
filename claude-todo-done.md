@@ -1,3 +1,20 @@
+### asm ELF writer: a section's type and flags came from its name, ignoring the flags it was created with — DONE (binate `0a8e27fab`, 2026-10-15, work-2) (found 2026-10-10, work-2, writing bnld reader test fixtures)
+
+The ELF writer derived sh_flags / sh_type from the section name alone, so an API section with another name was
+SHF_ALLOC PROGBITS whatever its flags (an executable section was not executable; `init_array` was not
+SHT_INIT_ARRAY).  Now, as clang's: a section's flags are the given ones added to those clang implies for
+`.section .<name>` (text*/init/fini rx; data*/data1/bss*/the arrays/rodata_relro rw; rodata*/rodata1 r), -1
+taking the implied ones (`asm/asm_section.bn`); ELF sh_flags map SF_READ/WRITE/EXEC to ALLOC/WRITE/EXECINSTR;
+sh_type is inferred from the name (note* NOTE, the array names, bss*/tbss* NOBITS — `asm.IsZeroFill`, shared by
+both writers and the zero-content check); a NOBITS section takes no file bytes.  SetSection rejects changed
+flags for an existing section, flags beyond the fixed ones of text/data/bss/rodata/rodata_relro, invalid flag
+values, and the thread-local names tdata/tbss (no flag can mark a section thread-local yet).  Mach-O places a
+custom section by its flags (exec → __TEXT with the instruction attributes, writable → __DATA, read-only →
+__TEXT) and rejects what it cannot express (unloaded, writable+executable, names over 16 characters, init / fini
+/ preinit arrays — the last pending a decision, see the `__mod_init_func` entry).  The review found clang ORs a
+name's implied flags (folded in) and that the 16-byte minimum alignment pads linked arrays with null entries
+(added to that entry).
+
 ### `len` of an array composite literal fails to compile — DONE (binate `6c3a0cede`, 2026-10-15, work-1) (found 2026-10-11, work-4, review of the deferred composite-element fix)
 
 `len([2]int{1, 2})` failed on LLVM and native: an array composite literal lowers to its storage (a pointer), so
