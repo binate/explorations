@@ -1,5 +1,5 @@
 # Plan: native code placement (x64, aarch64, arm32)
-Status: tooling designed (2026-10-12); decisions taken 2026-10-15 (below); tooling commit 1 next. Tracked in `claude-todo.md` ("native code placement").
+Status: tooling designed (2026-10-12); decisions taken 2026-10-15 (below); tooling commit 1 (placement seed) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report, `layout.py`) next. Tracked in `claude-todo.md` ("native code placement").
 ## Why
 
 Identical machine code runs at very different speeds depending on where it lands, on the x86 test host
@@ -68,7 +68,7 @@ Measurement tooling lands first (user: yes), because both steps are judged with 
   - Add a LOW todo: the assembler has no arm32 UDF encoder or parser, and aarch64 UDF is reachable only through asm/aarch64/isa and the text parser (comprehensive-assembler rule).
   - Commit and push each explorations edit immediately.
   - All binate work goes in the session's assigned worktree, and each commit lands before the next one starts.
-- 1. binate commit 1: T2 function-level placement seed for all three native backends.
+- 1. binate commit 1: T2 function-level placement seed for all three native backends. — LANDED binate `417f660bd` (2026-10-16). As landed, the API lives in a new leaf package `pkg/binate/native/place` rather than in common.bni, and PlaceCheck runs on every EmitObject, not only when a seed is set.
   
   1a. /home/user/workspace/binate/pkg/binate/native/common.bni gains about 45 lines (738 → ~785 of the 1000 cap):
   - `const PLACE_SPAN int = 64`

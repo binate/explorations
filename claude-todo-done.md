@@ -1160,6 +1160,21 @@ reader's reason.  Tests: `relocSectionChecks` on an ELF64 RELA and an ELF32 REL 
 `TestReadObjectRejectsNonRelocatable`, `TestReadArchiveBadMemberReason`.  Checked that clang C objects (`-g`,
 `-ffunction-sections`, `-O0` / `-O1`) still link on x86-64, aarch64 and arm32.
 
+### native code placement, tooling commit 1: hidden -fnative-place-seed on all three native backends — DONE (binate `417f660bd`, 2026-10-16)
+
+The first sub-step of the open "native code placement" entry in `claude-todo.md` (plan:
+`plan-native-code-placement.md`). A measurement aid: with `-fnative-place-seed=S` and `--backend native`, every
+function is preceded by never-executed trap filler (x64 INT3, aarch64 `BRK #0x5EED`, arm32 `BKPT #0x5EED`)
+whose length is a hash of the seed and the mangled name. Phase mode (default) puts each function's first entry
+at a seed-chosen phase within 64 bytes and aligns .text to 64; shift mode inserts the filler literally. Seed 0
+or no flag leaves every object byte-identical. API in the new leaf package `pkg/binate/native/place`
+(PlaceOptions, PlaceHash, PlaceFillBefore, PlaceCheck); ArchEmitter gains PlaceUnit and EmitPlaceFill;
+bnc's native switches moved to `cmd/bnc/args_native.bn` (placement flags hidden, an error without
+`--backend native`); `perf/placement/placehash.py` is the Python twin with the same pinned vectors.
+Validated before landing: seeded conformance (phase and shift) on native x64, aa64-linux, arm32 baremetal
+and arm32-linux with no failures; seed-0 output identical to main's compiler for x64, aarch64-linux and
+arm32-linux `cmd/bnc`; a seeded compiler self-compiles to the same bytes as an unseeded one.
+
 ### x64: RAX as a caller-saved home, behind -fx64-rax-home (off by default) — DONE (binate `edeabc7d1`, 2026-10-10)
 
 Step 3 of `plan-x64-home-pool.md`. With `-fx64-rax-home`, RAX joins the caller-saved GP home pool

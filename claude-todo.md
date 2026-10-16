@@ -1295,6 +1295,10 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   linux-tools-6.8.0-31). Blocks the decision on turning `-fx64-rax-home` on by default (see the done
   entry for `edeabc7d1`): on this Xeon it ran −0.21% instructions but ~+1.3% user time on the native
   self-compile, and mixed benchmark results.
+  Progress: tooling commit 1 (hidden `-fnative-place-seed` / `-fnative-place-mode`, all three native
+  backends) landed as binate `417f660bd` (2026-10-16; done entry). Next: tooling commit 2 (static report
+  `perf/placement/layout.py`), commit 3 (timing driver), commit 4 (probe), then phase-0 calibration,
+  block layout, and the placement policies.
 - **LOW: `bnc --build-dir <dir>` with a nonexistent `<dir>` reports only "native backend failed to emit
   object (arch=...)"** — 🔵 OPEN. Each object write fails because the directory is missing, but the
   message names neither the path nor the cause (seen 2026-10-15 while validating the placement tooling;
