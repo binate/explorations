@@ -128,10 +128,13 @@ checker needed its primitive methods and impls, then only in its `.bn`.  Since t
 change moved them all into `lang.bni`, and an interface-only package is checked from its `.bni`, the exception
 was dropped (user: "yes, look into it", then "yes" to making the change).  Also fixed stale docs that said
 `lang` is not injected / is lowered in the VM.  Review: a second unit test still expecting the exception and a
-stale doc copy in `vm.bni`, both fixed before landing.  Left open: the REPL still loads `lang` in full and
-lowers it while also injecting it (duplicate vtable / satentry registration since `54e6c0c7`) — asked the
-user; and the force-load ordering bug the review found, logged in `claude-todo.md` ("A primitive's method in a
-package that doesn't import `lang` is rejected …").
+stale doc copy in `vm.bni`, both fixed before landing.  Follow-ups, both done: the force-load ordering bug the
+review found (binate `5ac7c2c8e`, its own done entry); and the REPL, which loaded `lang` in full and lowered it
+while its driver also injected it — and, the review of that fix found, `reflect` and `startup` too, so a
+`reflect.TypeOf` func-value call at the prompt crashed the session (SIGSEGV), the prompt's `__Package()`
+descriptors were VM-built, and `import "pkg/builtins/startup"` failed.  binate `19c4aad71`: `repl.NewKernel`
+takes the driver's injected packages (`interp.BuiltinPackagePaths`), loads them interface-only and lowers none
+(user: "yes" to the REPL change, then "Driver passes the list" over a hand-copied list); REPL e2e case 77.
 
 ### `Self` inside an anonymous struct or a generic type argument escaped the checker's Self rules — DONE (binate `8846250ac`, 2026-10-14, work-6) (the IR-gen part is still open: claude-todo.md, "IR-gen crashes on an interface declaring a method with `Self` in a type argument")
 
