@@ -5,18 +5,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### The 32-bit-host unit lane (`builder-comp_arm32_linux`) still fails in check / types / irgen / iropt / native: the compiler may use the HOST's `int` width for target values — 🟡 IN PROGRESS CRITICAL (claimed 2026-10-13, work-1; found 2026-10-09, work-2, validating the bnld int64-addend change on that lane; pre-existing)
-
-The build break (bnc / bnas did not compile for a 32-bit host) and the assembler / linker test code that assumed a
-64-bit `int` are fixed (binate `be193de5e`, `ec27fce79`; see claude-todo-done.md): every asm package, link,
-cmd/bnc and cmd/bnas pass the lane.  The tests that assumed a 64-bit host (check, native/fold, native/aarch64,
-iropt, irgen) are fixed too (binate `49ab9be56`; claude-todo-done.md).  Still open: type layout is host `int`, so
-`TestLayoutRepeatedStructDag` (a 2^43-byte struct) fails on the lane, a 32-bit host silently wraps any type of
-2 GB or more for a 64-bit target, and nothing rejects a type whose size overflows int64 on any host; also
-`irdata.DataTerm.Addend` is `int`.  User decision (2026-10-13): "int64 layout seems right" — plan-int64-layout.md
-(staged: types + check with fail-loud narrowing at callers, then irgen / irdata, LLVM codegen, native, VM).  Order
-(user, 2026-10-13): after the negative-constant MAJOR.
-
 ### Constraint calls through `impl *P` / `impl @M` give wrong results — needs a spec decision — 🔴 NEEDS DECISION (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
 
 ```
@@ -35,6 +23,16 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 - Constraint-call lowering reconciles Self with the receiver kind (passes `*b`).
 
 ## MAJOR
+
+### int64 layout, stages 2-6: IR, LLVM codegen, native backends, VM — a 32-bit-hosted compiler fails loud on a > 2 GB type for a 64-bit target until they carry int64 — 🟡 IN PROGRESS (claimed 2026-10-15, work-1; the CRITICAL's continuation, plan-int64-layout.md)
+
+Stage 1 landed (binate `56c30e545`, docs `dc6444c`): types lays out in int64 and the checker rejects a type too
+large for the target; the rest of the compiler still narrows to the host's int through the transitional
+accessors (SizeOf / FieldOffset / TrailingPadding / ArrayLenHost / HostInt), which fail loud on a 32-bit host
+for a type of 2^31 bytes or more.  Remaining (plan-int64-layout.md): stage 2 ir / irgen / irbuild / irdata /
+iropt / irutil / mangle / types/abi to the int64 accessors; 3 LLVM codegen; 4 native backends and asm / elf /
+macho / link (bss without materialized zero bytes; a frame past the target's limit a compile error); 5 VM /
+interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the 32-bit lane.
 
 ### Native arm32 hard-float reads a variadic `__c_call`'s float result from s0 / d0 instead of r0 / r0:r1 — silent wrong value — 🟡 IN PROGRESS MAJOR (claimed 2026-10-15, work-3; user: "yes" to fixing it now; found 2026-10-15, work-3, e2e/arm32-c-hfa.sh on the arm32 HFA switch; disassembled; pre-existing)
 
@@ -71,15 +69,6 @@ has none, so the constant is NOT_CONST.  Test: conformance 1655 (`.xfail.all`). 
 array composite literal from its type expression (`env.Type(e.TypeRef)`, resolved at the current iota) when it
 has no checked type — or check the initializer of an imported constant whose value needs a type the evaluator
 cannot find.
-
-### The checker allocates a byte per element to check an array literal — `[1 << 40]T{}` exhausts memory — 🔴 OPEN (found 2026-10-14, work-1, review of the int64-layout plan; reproduced; pre-existing)
-
-checkArrayLit (check/check_expr_composite.bn) builds its duplicate-index set as `make_slice(bool, at.ArrayLen)`,
-so checking a literal costs memory in its array's length, not its element count: `[1 << 30]int8{}` takes the
-compiler to 1.08 GB RSS (2^26: 79 MB; 2^20: 32 MB), and `[1 << 40]int8{}` — a valid empty literal — asks for a
-terabyte.  Fix: a seen-set bounded by the number of elements (sorted indices, or a hash set), which the int64
-layout change needs anyway (a length past the host's `int`).  No conformance test yet: one big enough to show
-it would exhaust the runner's memory until the fix lands; the fix's test can use `[1 << 40]int8{}`.
 
 ### `make_slice` with an int64 / uint64 length on a 32-bit target passes one word — wrong length or invalid IR — 🔴 NEEDS DECISION MAJOR (found 2026-10-13, work-5, fixing the int64-index bug; pre-existing)
 

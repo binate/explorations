@@ -1,6 +1,6 @@
 # Plan: int64 type layout
 
-Status: planned 2026-10-13 (work-1).  The remaining piece of claude-todo.md's CRITICAL "The 32-bit-host unit
+Status: planned 2026-10-13 (work-1); stage 1 landed 2026-10-15 (binate `56c30e545`, docs `dc6444c`).  The remaining piece of claude-todo.md's CRITICAL "The 32-bit-host unit
 lane ... the compiler may use the HOST's `int` width for target values".  User decision (2026-10-13): "int64
 layout seems right" — over the alternative, a checker error for any type the host's `int` cannot size.
 

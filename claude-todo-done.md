@@ -1,3 +1,20 @@
+### The 32-bit-host unit lane (`builder-comp_arm32_linux`) fails in check / types / irgen / iropt / native: the compiler used the HOST's `int` width for target values — DONE (binate `be193de5e`, `ec27fce79`, `49ab9be56`, `56c30e545`; docs `dc6444c`; 2026-10-15, work-1) (found 2026-10-09, work-2)
+
+The build break and the asm / link test code assuming a 64-bit `int` (`be193de5e`, `ec27fce79`), then the tests
+assuming a 64-bit host (`49ab9be56`), then type layout: `56c30e545` lays out types in int64 (types), with the
+layout arithmetic saturating past the target's limit, the int accessors failing loud when a type does not fit the
+host's int, and the checker rejecting a type too large for the target (new spec rule type.layout.max-size, docs
+`dc6444c`; array lengths and keys bounded by the target's int; results / captures together).  The lane's
+check / types / irgen / iropt / native/fold / native/aarch64 / constval / mangle unit tests pass
+(TestLayoutRepeatedStructDag included).  The IR, backends and VM moving to the int64 accessors continue in
+claude-todo.md ("int64 layout, stages 2-6").
+
+### The checker allocates a byte per element to check an array literal — DONE (binate `56c30e545`, 2026-10-15, work-1) (found 2026-10-14, work-1, review of the int64-layout plan)
+
+checkArrayLit's duplicate-index set was `make_slice(bool, at.ArrayLen)` — 1.08 GB for `[1 << 30]int8{}`, a
+terabyte asked for `[1 << 40]int8{}`.  Now a table of the indices the elements take, bounded by the element
+count (also covering a dependent length, which used a list scan); unit test TestHugeArrayLiteralChecks.
+
 ### The interpreter loads `pkg/builtins/lang` interface-only, like the other injected builtins — DONE (binate `6560c5a2a`, 2026-10-14, work-7)
 
 `lang` was the one injected package the interpreter loaded in full (run path and `--test` runner), because the
