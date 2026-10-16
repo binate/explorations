@@ -1,3 +1,19 @@
+### IR-gen crashed on an interface declaring a method with `Self` in a type argument; interp's host call skipped object safety — DONE (binate `6d96f6927`, 2026-10-15, work-6; the checker part is `8846250ac`, below)
+
+`interface I { Put(b *Box[Self]) int }` (or `*G[Self]`, `St[Self]` for a generic alias of a struct), with no
+call anywhere, panicked IR-gen ("no checked copy of generic type instance …_void"): its interface registry
+resolved every method's signature with IR-gen's own resolver, where `Self` is void.  `interp.CallIfaceMethod`
+read the same signatures, so a host could call a `Self`-using method with an argument of any type.  Per
+plan-irgen-checker-types.md decision 3 (user, 2026-10-14: "2: Switching sounds fine."), `6d96f6927`: the
+registry holds method names, parents and aliases only; a dispatch site takes the method's signature from the
+checker's type of the receiver (types.LookupInterfaceMethod through the parents, mapped by irTypeFromChecker;
+missing / `Self`-mentioning / unmappable is an internal error); `CallIfaceMethod` takes the method from the
+receiver's (checker) interface type and refuses a `Self`-using one.  IR-gen tests that dispatched without the
+checker now run it.  Tests: conformance 1661, 1662 (cross-package); irgen dispatch and multi-result tests; interp
+`TestInterpCallIfaceMethodSelfRejected` / `…Inherited`.  Validated on the 494 conformance tests that declare an
+interface (LLVM, VM, native aa64) and the interface e2e scripts.  Review: no defects; stale comments fixed and
+the two tests above added.
+
 ### The 32-bit-host unit lane (`builder-comp_arm32_linux`) fails in check / types / irgen / iropt / native: the compiler used the HOST's `int` width for target values — DONE (binate `be193de5e`, `ec27fce79`, `49ab9be56`, `56c30e545`; docs `dc6444c`; 2026-10-15, work-1) (found 2026-10-09, work-2)
 
 The build break and the asm / link test code assuming a 64-bit `int` (`be193de5e`, `ec27fce79`), then the tests

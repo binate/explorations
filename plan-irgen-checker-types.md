@@ -126,8 +126,8 @@ IR-gen cannot map is an internal error, never `int`.
    dispatch site: genInterfaceMethodCall maps the method's FuncType from the interface type of `sel.X`;
    interp.CallIfaceMethod looks it up through its checker and returns an error for a `Self`-using method.  The
    IR interface registry keeps names, parents and aliases only, so `TYP_SELF` never enters IR and the mapper
-   treats it as an internal error.  Proposed order: lands with the checker fix for `Self` in struct types and
-   type arguments (MAJOR todo entry; user 2026-10-14: "1: (a)" — support them), before stage 0.
+   treats it as an internal error.  LANDED: binate `6d96f6927` (2026-10-15), after the checker fix for `Self`
+   in struct types and type arguments (`8846250ac`; user 2026-10-14: "1: (a)" — support them).
 4. Struct and interface INSTANCES map directly from the checker's instance type (typeInstanceCopy dropped
    for types; method bodies keep their checked copies).
 5. White-box no-checker tests of deleted internals are deleted; behavioural ones are rewritten to run the
