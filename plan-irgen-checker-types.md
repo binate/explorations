@@ -161,7 +161,8 @@ checked copy, whose types are concrete; without a checker there is no checker ty
 (and its stated reason, "IR-gen emits an instantiated generic body with the checker types recorded for the
 generic definition") is dead, as are the mapper's type-parameter branch and GenCtx.CurrentTypeParamOwner / Args,
 read only by those two.  The 23 tests the VM mode skips (compiled-only: C interop and the like) were not covered.
-Follow-up: delete them, the mapper's branch becoming an internal error (a separate commit).
+Deleted in binate `c9e1a5256` (landed 2026-10-16): the mapper's branch is an internal error, and selectorMethod
+takes the method from the checker's receiver type only.
 
 ## Constraints / risks
 
