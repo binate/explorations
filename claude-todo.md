@@ -40,6 +40,18 @@ From a review on 2026-10-16 (work-6): reconciling at lowering cannot work where 
 receiver type (`*P` for `impl *P`) would make the rule that Self satisfies the constraints its interface extends
 exact for pointer impls too.
 
+The checker already answers which receiver shape satisfies a constraint two ways (review, 2026-10-16, work-6;
+reproduced): a plain impl's receiver must equal the type argument (`impl *P : lang.Orderable` does not make `P`
+satisfy it), while a parameterized impl's receiver is matched with the call-site receiver smoothing
+(genericImplSatisfies uses receiverAssignable).  `impl *W[K] : lang.Orderable` (`func (w *W[K]) Compare(o W[K])
+int`) makes `W[int]` satisfy it, and `g[W[int]](w)` with `g[U lang.Orderable](u U) int { return u.Compare(u) }`
+runs; `impl W[K]` makes `@W[int]` satisfy it, and the constraint call is then rejected inside the instance ("cannot
+assign @W[int] to W[int] (in g[@W[int]], …)").  The spec takes both sides too: gen.impl.generic-recv says `impl
+*Cursor[T] : Iterator[T]` asserts that `Cursor[T]` satisfies `Iterator[T]`.  Text to revise with the decision:
+§11.9 iface.self ("substituted by the implementing named type"), §11.3 iface.impl.coverage ("with `Self`
+substituted by `R`'s named type"), gen.impl.generic-recv, gen.satisfy's receiver clause, gen.mono.constraint-call,
+and iface.self.constraint's "as a type parameter whose constraint is `I` would" (once it lands).
+
 ## MAJOR
 
 ### bnfmt drops an import's `#[build(...)]` annotation — the formatted file builds different code — 🟡 IN PROGRESS (claimed 2026-10-16, work-5/session) MAJOR (found 2026-10-16, work-3, label-sweep review)
