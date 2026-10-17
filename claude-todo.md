@@ -131,6 +131,15 @@ error naming the symbol until bnld implements them (IFUNC: an IRELATIVE relocati
 symbol's type kept in a dynamic one; TLS: with the TLS work; unique: as global, as ld.lld does).  The asm can
 produce an IFUNC symbol once `.type` lands.
 
+### asm `.size`: an alias of an alias takes the base symbol's size, where clang takes the nearest alias's — 🔴 OPEN (found 2026-10-16, work-2, review of the `.type` / `.size` change; low)
+
+`x: .byte 0` / `.size x, 2` / `y = x` / `.size y, 1` / `z = y`: clang gives z the size 1 (its ELF writer
+follows z's reference to y, which has a size); the asm gives 2, because an alias folds to its base symbol
+(`ConstSyms` holds x for z) and `listConstants` (asm/parse/parse_const.bn) copies the base's size before
+y's own `.size` is applied.  The type is right already (clang combines z's type with x's).  Fix: record each
+alias's direct referent, and give an alias with no `.size` of its own the size of the nearest alias up its
+chain that has one, else the base's.
+
 ### bnld: unwind tables — x86-64 `.eh_frame` and arm32 `.ARM.exidx` are dropped — 🔴 OPEN (found 2026-10-09, work-2, scoping the bnld reader MAJOR; user 2026-10-10: "Support both, own item")
 
 bnld's ELF reader keeps only SHF_ALLOC PROGBITS / NOBITS sections, so clang's x86-64 `.eh_frame` (typed
