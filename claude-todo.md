@@ -2239,7 +2239,7 @@ nothing currently reaches the reject (the only section-relative relocs are in th
 unwind sections), so this stays parked until a real clang/LLVM object needs a
 section-relative reloc in a KEPT section.
 
-### `@F` with `type F X` over a type nothing defines drops with a plain release — no link error — 🔴 OPEN (minor; found 2026-10-10, work-7, review of the undefined-`__dtor_X` fix; code reading; pre-existing)
+### `@F` with `type F X` over a type nothing defines drops with a plain release — no link error — 🟡 IN PROGRESS (claimed 2026-10-16, work-5/session) (minor; found 2026-10-10, work-7, review of the undefined-`__dtor_X` fix; code reading; pre-existing)
 
 An `@X` of a type nothing defines fails to link, naming `__dtor_X` (binate `9235b2aa6`), but a distinct type
 over it does not: with `type X; type F X`, `var p @F = nil` drops through EmitManagedPtrRefDec's plain RefDec —
