@@ -160,17 +160,6 @@ with "missing return".  Either the checker drops the init / post condition (the 
 or the spec's parenthetical "(an unconditional `for { … }` infinite loop)" becomes the rule.  Needs a
 conformance test either way.
 
-### `:=` in a C-style `for` post statement: compiler crash, wrong binding, leak — 🟡 IN PROGRESS MAJOR (claimed 2026-10-15, work-1; decided 2026-10-15, user: reject it — "Reject it (Recommended)"; found 2026-10-12, work-4, review of the for-init scoping fix; reproduced; pre-existing)
-
-The checker checks the post statement before the body (check/check_stmt.bn), so a variable a post `:=`
-declares is in scope in the body; genFor generates the body before the post statement, so IR-gen cannot see it.
-`for i := 0; i < 3; q := i { … q … }` panics ("internal error: unresolved identifier q in IR-gen"); with an
-outer `j`, a body's `j` is typed as the post-declared one but reads the outer one; a managed post `:=` leaks one
-block per post execution but the last.  §14.9 calls the post slot a simple statement, which admits `:=`, and
-says nothing more.  Decide: reject a declaration in the post statement (recommended — the variable would exist
-only from the second iteration on; Go rejects it too) or give it a meaning.  Then a conformance test (error or
-behaviour) and the checker / IR-gen change.  Review probes: scratchpad review3/p3–p6.
-
 ### A managed pointer to an interface value (`@(*I)` / `@(@I)`) passed for a raw `*any` miscompiles — 🔴 NEEDS DECISION MAJOR (user 2026-10-15: "I suspect we should define the box, but get the idea reviewed for feasibility and consistency; rejecting it seems ... artificial?"; found 2026-10-10, work-4, review of the deferred `@T` → `*I` fix; reproduced; pre-existing)
 
 `useAny(mkIG(1))`, with `mkIG` returning `@(*Getter)` (or `@(@Getter)`) and `func useAny(a *any)`, compiles and

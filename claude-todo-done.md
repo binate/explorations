@@ -1,3 +1,11 @@
+### `:=` in a C-style `for` post statement: compiler crash, wrong binding, leak — DONE (binate `d79172354`, docs `9556f34`; 2026-10-16, work-1) (decided 2026-10-15, user: "Reject it (Recommended)"; found 2026-10-12, work-4)
+
+A post `:=` crashed IR-gen (the checker checked the post before the body; IR-gen generates the body first), bound
+an outer name wrongly, and leaked a managed post value per iteration.  Now an error (new spec constraint
+stmt.for.post, docs `9556f34`): "a for loop's post statement cannot be a short variable declaration".  The
+statement is still checked, so the body's uses resolve and the error is the only one (an undefined name would park
+a REPL declaration instead).  Tests: check TestCheckForPostDeclaresRejected, conformance spec/14-statements 192.
+
 ### asm ELF writer: every section's sh_addralign was at least 16, where clang's is its contents' alignment — DONE (binate `bd4ee00c5`, 2026-10-15, work-2) (found 2026-10-14, work-2, comparing bnas `.lcomm` output with clang's)
 
 Not only unfaithful: the padding a linker puts between two objects' pieces of an over-aligned init / fini array
