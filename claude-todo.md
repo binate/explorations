@@ -5,6 +5,19 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
+### Bare-metal `RawAlloc` wraps its own size arithmetic: a large allocation corrupts memory instead of aborting "arena exhausted" — 🔴 OPEN CRITICAL (found 2026-10-16, work-1, review of the make_slice byte-size fix; reproduced on native arm32 bare metal; pre-existing)
+
+impls/core/common/pkg/builtins/rt/rt_baremetal.bn: `carve` checks `base + PREFIX + need + FOOTER > abase +
+ARENA_BYTES` (4 MiB arena), and the sum wraps a 32-bit int for a `need` of about 0x3FC00000 or more, so the
+exhaustion abort never fires and the frontier goes negative; and `RawAlloc`'s `alignUp(size, 8)` wraps for a size in
+[0x7FFFFFF9, 0x7FFFFFFF], taking the small-class path with a hugely negative class index.  Reproduced:
+`make_slice(uint8, 0x40000000)` on builder-comp_native_arm32_baremetal does not abort "rt.RawAlloc: arena
+exhausted" — it runs until the runner's 10 s timeout (Alloc's MemZero over ~1 GiB past the arena).  Reachable through
+any allocation (make, make_slice, box, rt.RawAlloc).  Fix: RawAlloc rejects `size > ARENA_BYTES` before `alignUp`,
+and `carve` compares without the overflowing sum (`need > abase + ARENA_BYTES - base - PREFIX - FOOTER`).  No test
+yet: the conformance runner has no bare-metal-only marker, and the same test on a hosted mode would allocate 1 GiB;
+the fix's test needs one (e.g. a per-mode skip, or a bare-metal-only test directory).
+
 ### `make_slice` with a length whose byte size overflows the int makes a slice over a too-small backing — silent heap corruption — 🟡 IN PROGRESS CRITICAL (claimed 2026-10-16, work-1; user: "yes" to fixing it next; found 2026-10-16, work-1, review of the make_slice wide-length fix; reproduced on LLVM and native aa64; pre-existing)
 
 The runtime's `MakeManagedSlice` (impls/core/common/pkg/builtins/rt/rt_managed.bn) allocates `Alloc(length *
