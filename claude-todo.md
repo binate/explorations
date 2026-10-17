@@ -2293,6 +2293,16 @@ also records the symbol operand at the call's Pos line (the symbol has no positi
 opener is never alone, and a source `__c_call(` / `"f", int, a)` is joined.  Fix: record the `(` (and the
 symbol's) position in the parser.
 
+### bnfmt puts a right-hand side moved to a continuation line one tab in, whatever the statement's indent — 🟢 LOW (found 2026-10-17, work-4, review of the multi-line list-element indent fix; pre-existing)
+
+When neither the right-hand side's one-line form nor its in-place wrap fits after `=` / `:=`, `printRhsValue`
+(`pkg/binate/format/print_stmtwrap.bn`) moves it to a `+1` continuation line -- but it writes the newline
+before `writeIndent(b, currentLineIndent(b) + 1)`, so `currentLineIndent` reads the new, empty line and the
+value lands at one tab: inside `func f() { if c {`, `var s = <92-character identifier>` prints `\t\tvar s =`
+then `\t<identifier>`, shallower than the statement.  `rhsContLongest` measures the value at the
+statement's indent + 1, so the width check and the print disagree.  Valid and idempotent.  Fix: take the
+indent before writing the newline, with a unit test.
+
 ### bnfmt indents a function literal's body from column 0 inside a composite literal element (and a case label) — 🟢 LOW, 🟡 IN PROGRESS (claimed 2026-10-16, work-4; user: "you can continue to fix any easy-to-fix bnfmt bugs afterwards") (found 2026-10-06, work-3, review of the function-literal comment fix; pre-existing)
 
 `printCompositeElems` (`pkg/binate/format/print_wrap.bn`) renders each element into a fresh builder, where
