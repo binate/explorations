@@ -271,28 +271,13 @@ conformance test either way.
 
 ### A managed pointer to an interface value (`@(*I)` / `@(@I)`) passed for a raw `*any` miscompiles — 🟡 IN PROGRESS MAJOR (claimed 2026-10-16, work-1; decided 2026-10-16, user: "Opaque box (Recommended)"; user 2026-10-15: "I suspect we should define the box, but get the idea reviewed for feasibility and consistency; rejecting it seems ... artificial?"; found 2026-10-10, work-4, review of the deferred `@T` → `*I` fix; reproduced; pre-existing)
 
-`useAny(mkIG(1))`, with `mkIG` returning `@(*Getter)` (or `@(@Getter)`) and `func useAny(a *any)`, compiles and
-segfaults at run time on LLVM and native aa64: wrapAsIfaceValue (gen_iface.bn) returns nil for an interface-value
-pointee (isBoxableNamelessType, gen_iface_nameless.bn, has no interface-value case), and convertToIfaceTarget
-(gen_util.bn) then passes the bare pointer on as if it were the interface value.  Deferred (`defer
-useAny(mkIG(1))`), the compiler fails loud instead (borrowRetainedIface: "a deferred managed pointer bound to a raw
-interface parameter has no box").  The semantics need deciding first: §11.12 makes the dynamic type the boxed type
-with its `*`/`@` stripped, here `*Getter`, an interface-value type, and no assertion target obviously recovers it
-(`.(*Getter)` is an interface target).  Either define the box (a structural identity, like the other name-less
-pointees, and the target that recovers it) or have the checker reject a pointer-to-interface-value source for an
-interface value.  Either way convertToIfaceTarget's silent fallback on a nil box should fail loud, and a
-conformance test lands with the decision (repro: review probe pe.bn).
-Decided (2026-10-16, after a design review): define the box, opaque — the dynamic type is the pointee's
-interface-value type (`*Getter` / `@Getter`, `*`/`@` and outer readonly stripped, a structural identity like other
-name-less pointees); no assertion target names it (`.(*Getter)` stays an interface target and misses; `.(*any)`
-hits); recovery through a named wrapper (`type GetterRef *Getter`).  The checker and spec already admit it and `@any`
-already boxes it; the gap is IR-gen's isBoxableNamelessType (no interface-value pointee).  Wider than first found: a
-RAW `&g` (`g @Getter`) into `*any` segfaults too, and `var a *any = pg` silently leaves `a` unset.  Work: IR-gen
-(isBoxableNamelessType + every nil-box fallback fails loud: convertToIfaceTarget, the var-decl path, the borrow
-fallbacks), a conformance test (raw / managed sources, arg / var-init / defer / variadic positions, type switch,
-refcount balance), spec (§7.13.14's name-less note lists pointer and interface-value pointees; §11.12 iface.assert's
-"concrete named type" wording), and a bnlint rule flagging a pointer to an interface value boxed into any (user:
-"Yes, add them").
+The box is done (binate `781cc67f4`, docs `acefa1c`; 2026-10-17): a pointer to an interface value — raw `&g` /
+`&rg` or a managed `@(@Getter)` — boxes into a raw `*any` with the interface-value type as an opaque name-less
+dynamic type (`case *any` / `.(*any)` recover it; `.(*Getter)` / `.(@Getter)` miss); IR-gen's nil-box fallbacks
+fail loud (requireBoxed); conformance 1674 / 1675.  Remaining: the bnlint rule flagging a pointer to an interface
+value boxed into any (user 2026-10-16: "Yes, add them") — shares its call-argument machinery with the function-name
+rule (see "A function NAME passed into `*any`").
+
 ### A function NAME passed into `*any` compiles and boxes nothing — silent wrong value — 🟡 IN PROGRESS MAJOR (claimed 2026-10-16, work-1; decided 2026-10-16, user: "Decay to @func, box it (Recommended)"; user 2026-10-15: "possibly we could reject, but get this reviewed versus decay to @func and box"; found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
 
 With `func add(a int, b int) int` and `func take(x *any) bool { return present(x) }`, `take(add)` compiles
