@@ -646,6 +646,16 @@ pointer-to-opaque-embedding rule, into §7.12; and "Importer's view" — judge t
 from its type arguments in the importer's view, so `PBox[[2]a.Box]` is rejected like `*([2]a.Box)`.
 
 
+### A local of an ill-formed type is reported at its declaration and again at each use — 🔴 OPEN (minor: duplicate diagnostics; found 2026-10-15, work-7, while adding the function-value opaque rule; reproduced; pre-existing)
+
+`requireSizedType` (pkg/binate/check/check_opaque.bn) is called both where a type is written (declarations,
+fields, parameters) and where a value is used (`_ = v`, assignments, composite literals, dereferences), and its
+pointer-to-opaque-embedding rule (and, since the function-value opaque change, its function-signature rule)
+applies at both: `func L() { var p *([2]Opaque); _ = p }` reports "cannot form a pointer to a type that embeds an
+opaque type by value" at the `var` and again at the `_ = p`.  Fix: at a value-use site check only the by-value
+rule (and the size limit); the type-formation rules (pointer, signature) belong where the type is written.  Sort
+the ~15 `requireSizedType` call sites into the two kinds; a checker test that such a local is reported once.
+
 ### Loader: a package with one `.bn` file gets the `.bni`'s imports (and declarations) merged into that file's own AST — its file scope sees imports it does not write — 🔴 OPEN (found 2026-10-09, work-7, review of the imported float const-expression fix; code reading; pre-existing)
 
 `pkg/binate/loader/loader_load.bn` builds the merged file as `merged = files[0]` when there is one `.bn` (a fresh
