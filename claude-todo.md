@@ -2855,7 +2855,7 @@ resolve where it was declared, and an instance reuses the declaration-time check
 (plan-irgen-checker-types.md decision 7).  For generic METHODS that suggests replacing the proposal above: a
 sibling keeps calling the old (shadowed) method, which stays instantiable — to confirm with the user.
 
-### `Self` as a type argument never satisfies a constraint, even one the interface extends — 🔴 NEEDS DECISION (found 2026-10-14, work-6, review of the checker fix for `Self` inside struct types / type arguments; pre-existing)
+### `Self` as a type argument never satisfies a constraint, even one the interface extends — 🟡 IN PROGRESS (claimed 2026-10-16, work-6; user, to treating Self as a type parameter bounded by the declaring interface: "yes, option 2 sounds fine (but get it reviewed, including your proposed spec update)"; found 2026-10-14, work-6, review of the checker fix for `Self` inside struct types / type arguments; pre-existing)
 
 `type OBox[T lang.Orderable] struct { v T }`, `interface I : lang.Orderable { Put(b *OBox[Self]) int }`: the
 declaration reports "type argument Self does not satisfy constraint Orderable", though every type implementing I
