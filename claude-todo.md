@@ -79,6 +79,42 @@ by `instanceFuncType`, is never passed to `requireSizedType`, though `checkValue
 instantiated parameters and results where the instance is formed (or at each method call / method value,
 as for generic functions), with an error test (the probe above, `b.Mk()`).
 
+### A method with a by-value receiver of an opaque type is accepted and compiled — 🔴 OPEN MAJOR (found 2026-10-16, work-5, review of the generic-type method-signature sizing; reproduced; pre-existing)
+
+`type Opaque` (no definition) with `func (o Opaque) V() int { return 1 }` compiles, links and runs, and so does
+`type O2 Opaque; func (o O2) V() int` — an opaque value reaches IR-gen as the receiver, the miscompile the opaque
+gate exists to prevent.  The DECL_FUNC loop in check/check_decl.bn (around line 300) sizes a declaration's
+`d.Params` and results but never `d.Recv`.  (A generic type's method is covered: its instance signature, receiver
+included, is sized per instance.)  Fix: size a value receiver there as a parameter is; an error test for both
+forms.
+
+### A generic type's method signature is not checked at its declaration for the parts that do not involve the type parameters — 🔴 OPEN (minor; found 2026-10-16, work-5, review of the generic-type method-signature sizing; reproduced; pre-existing)
+
+`func (b *Bx[T]) Bad() Opaque { for {} }` on a generic type nobody instantiates is accepted (spec `gen.mono.check`:
+a rule that does not depend on a type argument is decided once, at the declaration, whether or not the program
+instantiates it); `checkValueEmbedding` skips every method of a generic type.  With `Bx[int]` and `Bx[bool]` the
+per-instance signature check reports it once, blamed on an instance (`in Bx[int].Bad, instantiated at …`).
+Nothing reaches IR-gen uninstantiated.  Fix: check a generic type's method parameters and results that mention
+no type parameter at the declaration, as a non-generic method's are.
+
+### Instance-check diagnostics: a second instance's violation is hidden, and an instance formed through a generic's field is placed at that field — 🔴 OPEN (minor: diagnostics; found 2026-10-16, work-5, review of the generic-type method-signature sizing; pre-existing)
+
+contextualizeInstanceErrors drops an error another instance already reported at the same position, so with
+`Bx[Opaque]` and `Bx[Op2]` (both bad) only the first is named.  And an instance formed through a generic struct's
+field (`Outer[Opaque]` with a field `b Bx[T]`) is reported as instantiated at that field inside the generic, with
+no `via Outer[Opaque]`; through a generic function the `via` chain is right.  The program is rejected either way.
+Fix: keep one error per instance (or name every instance at a shared position), and record the root
+instantiation for an instance formed through a field.
+
+### Does populateInstantiatedInterface's speculative (`userFacing` false) path still have a valid-program case? — 🔴 OPEN (cleanup question; found 2026-10-16, work-5, review of the generic-type method-signature sizing)
+
+The split exists so an impl-match probe that instantiates an interface (`Consumer[Wrap[Op]]` probing `Wrap[Op]`'s
+impl `Sink[K]`) does not report Sink[Op]'s by-value method on valid code.  Now that a generic type's instance
+methods are sized, a `Wrap[Op]` whose impl names `Sink[Op]` with a by-value `Op` method has the same method itself
+and is rejected, so the scenario TestSpeculativeIfaceInstNoOpaqueByValueLeak was written for no longer has a valid
+form.  Find whether any valid program still reaches the speculative path with a method the user-facing check
+would reject; if none, the split (and requireInstantiatedIfaceMethodsSized's re-check) can go.
+
 ### int64 layout, stages 2-6: IR, LLVM codegen, native backends, VM — a 32-bit-hosted compiler fails loud on a > 2 GB type for a 64-bit target until they carry int64 — 🟡 PAUSED (claimed 2026-10-15, work-1; user 2026-10-15: "MAJORs first, then back"; the CRITICAL's continuation, plan-int64-layout.md)
 
 Stage 1 landed (binate `56c30e545`, docs `dc6444c`): types lays out in int64 and the checker rejects a type too
