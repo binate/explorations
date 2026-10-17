@@ -92,7 +92,7 @@ gate exists to prevent.  The DECL_FUNC loop in check/check_decl.bn (around line 
 included, is sized per instance.)  Fix: size a value receiver there as a parameter is; an error test for both
 forms.
 
-### A generic type's method signature is not checked at its declaration for the parts that do not involve the type parameters — 🔴 OPEN (minor; found 2026-10-16, work-5, review of the generic-type method-signature sizing; reproduced; pre-existing)
+### A generic type's method signature is not checked at its declaration for the parts that do not involve the type parameters — 🟡 IN PROGRESS (claimed 2026-10-16, work-5/session) (minor; found 2026-10-16, work-5, review of the generic-type method-signature sizing; reproduced; pre-existing)
 
 `func (b *Bx[T]) Bad() Opaque { for {} }` on a generic type nobody instantiates is accepted (spec `gen.mono.check`:
 a rule that does not depend on a type argument is decided once, at the declaration, whether or not the program
