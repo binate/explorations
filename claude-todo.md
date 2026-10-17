@@ -761,7 +761,7 @@ structs, then do the rest (Recommended)"):
    `check_instance_live.bn`) pick or create the variant through a helper; `InstWork.Lenders` is copied from
    the state.  §7.12's sentences on instances change with it.
 
-### A local of an ill-formed type is reported at its declaration and again at each use — 🔴 OPEN (minor: duplicate diagnostics; found 2026-10-15, work-7, while adding the function-value opaque rule; reproduced; pre-existing)
+### A local of an ill-formed type is reported at its declaration and again at each use — 🟡 IN PROGRESS (claimed 2026-10-17, work-5/session) (minor: duplicate diagnostics; found 2026-10-15, work-7, while adding the function-value opaque rule; reproduced; pre-existing)
 
 `requireSizedType` (pkg/binate/check/check_opaque.bn) is called both where a type is written (declarations,
 fields, parameters) and where a value is used (`_ = v`, assignments, composite literals, dereferences), and its
