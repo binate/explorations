@@ -782,7 +782,7 @@ not opaque, reaches `checkValueEmbedding`.  The error then lands on each importe
 parameters and results in the `.bni`'s view (pkg.bni.self-contained), so the error lands where the
 signature is written; error tests for the three declarations above.
 
-### Loader: a package with one `.bn` file gets the `.bni`'s imports (and declarations) merged into that file's own AST — its file scope sees imports it does not write — 🔴 OPEN (found 2026-10-09, work-7, review of the imported float const-expression fix; code reading; pre-existing)
+### Loader: a package with one `.bn` file gets the `.bni`'s imports (and declarations) merged into that file's own AST — its file scope sees imports it does not write — 🟡 IN PROGRESS (claimed 2026-10-17, work-5/session) (found 2026-10-09, work-7, review of the imported float const-expression fix; code reading; pre-existing)
 
 `pkg/binate/loader/loader_load.bn` builds the merged file as `merged = files[0]` when there is one `.bn` (a fresh
 `MergeFiles(files)` otherwise), then merges the `.bni` into `merged` — appending the `.bni`'s imports to
