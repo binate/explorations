@@ -1,3 +1,12 @@
+### Bare-metal `RawAlloc` wraps its own size arithmetic — DONE (binate `aa166c839`, 2026-10-16, work-1) (found 2026-10-16, work-1, review of the make_slice byte-size fix)
+
+carve's `base + PREFIX + need + FOOTER > arena end` wrapped a 32-bit int for a need of about 2^30, so the exhaustion
+abort never fired and memory past the 4 MiB arena was handed out (make_slice(uint8, 0x40000000) on native arm32 bare
+metal ran to the runner's timeout); RawAlloc's alignUp wrapped near the int's maximum.  RawAlloc now rejects a size
+past the whole arena up front, and carve compares need with the arena's remaining space.  Conformance 1672 / 1673
+(build-constrained length; a hosted .expected and a .error.builder-comp_arm32_baremetal, which the native arm32
+bare-metal mode inherits — user 2026-10-16: "Existing mechanisms" over a new per-mode skip marker).
+
 ### bnfmt lays out the argument list after a directly called function literal as if its `(` were alone — DONE (binate `6072c64a4`, 2026-10-16, work-4) (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
 
 A wrappable list keeps its opener alone when its first element starts on a later line, and it read the
