@@ -89,7 +89,7 @@ iropt / irutil / mangle / types/abi to the int64 accessors; 3 LLVM codegen; 4 na
 macho / link (bss without materialized zero bytes; a frame past the target's limit a compile error); 5 VM /
 interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the 32-bit lane.
 
-### An imported constant that is `len` of an array literal is not a constant to the importer — 🔴 OPEN (found 2026-10-14, work-1, writing the cross-package test for the iota-in-type-expression fix; reproduced; pre-existing)
+### An imported constant that is `len` of an array literal is not a constant to the importer — 🟡 IN PROGRESS (claimed 2026-10-16, work-5/session) (found 2026-10-14, work-1, writing the cross-package test for the iota-in-type-expression fix; reproduced; pre-existing)
 
 `const P int = len([3]int8{})` in a package's `.bni`: an importer's `var a [lc.P]int8` is rejected ("array
 length must be a constant integer"), though `len` of an array is an `int` constant (spec builtin.len); reading
