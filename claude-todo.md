@@ -318,6 +318,18 @@ nothing.  Work: IR-gen (~50-100 lines — the borrow / box / variadic paths emit
 @func arm in defaultedBorrowType), a conformance test across bare / qualified / generic-instance / method-expression
 forms, spec (func.ref.decay made explicit, with `take(add)` / `box(add)` / `@any` examples), and a bnlint rule
 flagging a function passed to a `...*any` print (user: "Yes, add them").
+### `panic` used as a value (`var f = panic`, `take(panic)`, `box(panic)`) passes the checker and crashes IR-gen — 🔴 OPEN (found 2026-10-17, work-1, review of the function-name-into-`*any` change; awaiting a user decision)
+
+The checker's universe defines `panic` as a TYP_FUNC with NO parameters (check/scope.bn, "variadic, checked
+specially"), not its spec signature `panic(msg *[]readonly char)` (§15.7 `builtin.panic`), and admits it wherever a
+function name may appear: `var f = panic`, `var f @func() = panic`, `take(panic)` for a `*any`, `box(panic)`.
+IR-gen has no function behind the name and aborts ("internal error: unresolved identifier panic in IR-gen"), for
+every one of these, with or without the function-name decay into `*any`.  The spec does not say whether `panic`
+may be used as a value.  Options: (a) reject it in the checker ("panic can only be called") — `panic` is checked
+specially and is a control-flow terminator; (b) support it — a function value of type `@func(*[]readonly char)`
+backed by a runtime abort function, with the universe `panic` given its real signature.  Either way the spec
+states the rule, and a conformance test pins it (an `.error` test for (a), a run test for (b)).
+
 ### No CI lane runs the LLVM arm32 bare-metal mode at -O2 — 🔴 OPEN (raised 2026-09-30, work-1; awaiting a user decision)
 
 .github/workflows/conformance-o2.yml runs builder-comp (host LLVM) and the native modes at -O2, not
