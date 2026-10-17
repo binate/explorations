@@ -1,3 +1,10 @@
+### bnld unwind tables, step 1: keep x86-64's `.eh_frame` — DONE (binate `19f61e0af`, 2026-10-16, work-2)
+
+The ELF reader dropped x86-64's `.eh_frame` (SHT_X86_64_UNWIND) with its relocations, where aarch64's (PROGBITS)
+was kept as read-only data; `elfKeepsSection` now keeps it on EM_X86_64 (the type value is SHT_ARM_EXIDX on ARM).
+Test: parse_elf_keep_test's TestReadElfKeepsX64EhFrame; the LLVM bnld e2e links and runs clang x86-64 objects.
+The rest (`.eh_frame_hdr` / PT_GNU_EH_FRAME, arm32 `.ARM.exidx`) stays in the todo entry.
+
 ### asm: `.type` / `.size` were unsupported, and an ELF symbol's type was inferred — DONE (binate `846af1665`, 2026-10-16, work-2) (found 2026-10-14, work-2, comparing bnas output with clang's)
 
 The asm API has Symbol.Type (SYM_NOTYPE / OBJECT / FUNC / IFUNC, replacing the common-only Object flag), SetType
