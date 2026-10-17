@@ -761,7 +761,7 @@ file-scoped, so it should not); add a second `.bn` and the same code is rejected
 file for the one-file case too (copy files[0]'s imports and declarations), so no source file's AST is mutated; an
 error test (the one-file package above) and a check that existing packages still build (some may rely on it).
 
-### A `switch` with two `default` clauses is accepted — invalid code accepted — 🔴 OPEN, DECIDED 2026-10-15 (found 2026-10-03, work-3, review of the switch-default fix; reproduced 2026-10-15 on bnc and bni: the second default runs; pre-existing)
+### A `switch` with two `default` clauses is accepted — invalid code accepted — 🟡 IN PROGRESS (claimed 2026-10-16, work-5/session), DECIDED 2026-10-15 (found 2026-10-03, work-3, review of the switch-default fix; reproduced 2026-10-15 on bnc and bni: the second default runs; pre-existing)
 
 `switch x { default: A; default: B }` (and a type switch with two) passes the parser, the checker and —
 literally — the spec, which never says a switch has at most one `default`.  Which one runs is an IR-gen
