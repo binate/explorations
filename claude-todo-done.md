@@ -1,3 +1,23 @@
+### native arm32-linux: variadic floats ride GP registers; both follow-ups resolved — DONE (binate `5d8181d86`, `1f0b96c3f`)
+
+- **Landed `5d8181d86` (2026-08-25):** `native/arm32` now passes variadic FLOAT args
+  in GP registers (AAPCS-VFP base-standard rule), fixing `regressions/c-call/
+  printf-variadic-float` — the ONE real failure that kept `builder-comp_native_arm32_linux`
+  non-blocking.  New `CallConv.VariadicFloatInGp` (arm32-hard-float only) makes the shared
+  V-walkers classify a variadic float as its same-width uint (GP pair, never VFP);
+  arm32 `emitCallArg` skips the VFP peel for variadic floats.  **Validated end-to-end under
+  qemu-arm** (a fresh `bnarm1` container on this worktree): printf-variadic-float PASSES,
+  707/888/926 stay green → the mode is now **2982/0**.  Adversarial review clean on 6 hazards.
+  **FOLLOW-UPS:** (1) a variadic FLOAT32 currently fails loud (C promotes variadic float→double;
+  frontend doesn't yet) — proper fix is VCVT-promote float32→float64 in the emit; (2) with the
+  mode green, promote `builder-comp_native_arm32_linux` false→blocking in conformance-tests.yml
+  (plan-native-arm32.md P7), pending a green CI run of the landed fix.
+
+**Resolved (2026-10-16):** (1) is settled the other way — Binate performs no default promotions, so the
+checker rejects an unpromoted variadic float32 on every target (checkCVariadicPromoted), and native arm32's
+emitCallArg backstop now rejects one under both float ABIs (binate `1f0b96c3f`); (2) is done —
+`builder-comp_native_arm32_linux` is blocking in conformance-tests.yml.
+
 ### bnld unwind tables, step 2: `.eh_frame_hdr` and PT_GNU_EH_FRAME for the static and dynamic links — DONE (binate `10adaecd2`, 2026-10-16, work-2)
 
 glibc's unwinder finds an executable's FDEs only by PT_GNU_EH_FRAME, which bnld never wrote, so no bnld-linked
