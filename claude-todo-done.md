@@ -1,3 +1,20 @@
+### An instance's type-argument parts are judged where the arguments are written (struct instances) — DONE (binate `7c5273422`, docs `87bf772`, 2026-10-16, work-7)
+
+Inside a generic instance the formation rules counted only a type with no definition anywhere as opaque, so
+`PBox[[2]a.Box]` (`p *T`) and `MH[a.Box]` (`f *func(T)`) were accepted in an importer that rejects
+`*([2]a.Box)` / `*func(a.Box)` written directly (the user decided "Importer's view").  An instance entered in
+the importer's view is now walked as its generic declares it: its abstract instance (`abstractInstanceOf`,
+cached per generic; built on demand by `buildAbstractInstance` when the generic's abstract check has not run
+yet, so the verdict does not depend on declaration order) with an `opaqueFrame` binding its type parameters
+to this use's arguments; at a type parameter the walk continues with the argument in the importer's view
+(check_opaque_inst.bn).  Inside an instance's body the substituted walk in the generic's view stays
+(`InstanceState.BodyDepth`).  Spec: §7.12 `type.opaque.pointer-to-embedding` / `type.opaque.signature`.  The
+review found a body regression (a package's own export through another package's generic whose body holds an
+instance over `*([1]T)`) and the declaration-order dependence; both fixed with tests.  Tests: check
+TestCheckOpaqueInstance{ArgImporterViewRejected,GenericPartsOk,ArgOrder,BodyOwnExportOk}; conformance
+spec/07-types 294.  Left open in `claude-todo.md`: generic interface instances with declaration-time checks of
+a generic's own parts, and instance bodies ("Opaque in both places").
+
 ### bnfmt prints a function-local grouped declaration's closing `)` at column 0 — DONE (binate `cfe806b76`, 2026-10-16, work-4) (found 2026-10-14, work-1, formatting a conformance test; pre-existing)
 
 Inside a function, `const (` … `)` (any grouped declaration) printed its members indented but its closing
