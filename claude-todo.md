@@ -169,6 +169,14 @@ y's own `.size` is applied.  The type is right already (clang combines z's type 
 alias's direct referent, and give an alias with no `.size` of its own the size of the nearest alias up its
 chain that has one, else the base's.
 
+### Thread-local storage in the assembler and bnld (the TLS series) — 🟡 IN PROGRESS (claimed 2026-10-17, work-2; user: "let's continue with the items on the list"; scope user 2026-10-09: "All, staged") — x86-64 / arm32 scope NEEDS DECISION
+
+Nothing handles TLS today: the assembler rejects `.tdata` / `.tbss`, `%tls_object` and every TLS operator;
+bnld reads `.tdata` / `.tbss` as plain data / bss and rejects every TLS relocation, so no C object using
+`__thread` links with bnld on any target.  Stages, the clang survey and the open decision (whether the
+x86-64 and arm32 assembler operators and bnld halves are in the series — recommended) are in
+`plan-tls.md`.  Progress: none landed yet.
+
 ### bnld: the arm32 unwind index's placement scans each object's sections once per code section — 🟡 IN PROGRESS (claimed 2026-10-17, work-2) (found 2026-10-16, work-2, review of the `.ARM.exidx` change)
 
 Both placements of `.ARM.exidx` — Layout's (link/arm_exidx.bn placeArmExidx) and the scripted builder's

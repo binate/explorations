@@ -285,7 +285,7 @@ Commits (series):
 The bnld input-reader MAJOR (claude-todo) comes first (user, 2026-10-09: "bnld reader MAJOR"); the order of
 the rest is open.  (1) Fold a number after a MOVW operator (3d (a)) — ✅ landed `6da46c766`.  (2) bnld's PREL `_NC` on MOVZ / MOVN
 and PREL_G3 as lld (3d (c)) — ✅ landed `fc29977b9`.  (3) GOT addends on ELF (3d (2a)) — not done: keep rejecting (user, 2026-10-14; see 3d (2a)).  (4) ELF named locals against the section
-symbol (3e (2.1)) — ✅ landed `fbb62a67a`.  (5) TLS, staged (3d).  (6) The PAuth `_auth` operators, assembler side (3d).
+symbol (3e (2.1)) — ✅ landed `fbb62a67a`.  (5) TLS, staged (3d) — 🟡 IN PROGRESS, staged in `plan-tls.md`.  (6) The PAuth `_auth` operators, assembler side (3d).
 
 ## Decisions (user, 2026-09-30 — each the recommended option)
 
