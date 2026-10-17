@@ -5,6 +5,17 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
+### `make_slice` with a length whose byte size overflows the int makes a slice over a too-small backing — silent heap corruption — 🔴 OPEN CRITICAL (found 2026-10-16, work-1, review of the make_slice wide-length fix; reproduced on LLVM and native aa64; pre-existing)
+
+The runtime's `MakeManagedSlice` (impls/core/common/pkg/builtins/rt/rt_managed.bn) allocates `Alloc(length *
+elemSize)` with no overflow check, and `Alloc` adds the header size unchecked too.  A length that fits the target's
+int but whose byte size does not wraps: `make_slice(int64, (1 << 61) + 1)` on a 64-bit target is a slice of length
+2^61 + 1 over an 8-byte backing (`make_slice(int64, 0x20000001)` on a 32-bit one likewise), and `s[i]` for any i >= 1
+passes the bounds check and writes outside the allocation.  Test: conformance 1669 (`.xfail.all`; it expects the
+trap and only prints the length).  Fix: the runtime traps ("make_slice length out of range", the same message as a
+negative or too-wide length, spec builtin.make-slice) when `length * elemSize`, or the header add, overflows the
+int — `length > (maxInt - header) / elemSize` for a non-zero elemSize; an elemSize of 0 allocates nothing.
+
 ### Constraint calls through `impl *P` / `impl @M` give wrong results — needs a spec decision — 🔴 NEEDS DECISION (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
 
 ```
