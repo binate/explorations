@@ -1,3 +1,11 @@
+### `make_slice` with a length whose byte size overflows the int makes a slice over a too-small backing — DONE (binate `39dd44fd4`, 2026-10-16, work-1) (found 2026-10-16, work-1, review of the make_slice wide-length fix)
+
+MakeManagedSlice allocated `length * elemSize` unchecked: make_slice(int64, 2^61 + 1) (64-bit) / 0x20000001 (32-bit)
+gave a slice of that length over 8 bytes — silent heap corruption.  The runtime now traps "make_slice length out of
+range" when the elements' size, with the header, does not fit the int (checked by division).  Conformance 1669 (no
+longer xfail), 1670 (the header term), 1671 (a zero-size element takes the int's maximum).  Found on the way: the
+bare-metal RawAlloc wrap (claude-todo.md CRITICAL).
+
 ### CI's -O2 conformance lane was red on main: 1622 / 1625 linked at -O2 on the LLVM backend — DONE (binate `515dfb883`, 2026-10-16, work-5) (found 2026-10-12, work-5)
 
 `1622_err_xpkg_undefined_forward_type_drop` and `1625_err_undefined_forward_type_drop` expect a program that

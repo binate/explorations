@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### Bare-metal `RawAlloc` wraps its own size arithmetic: a large allocation corrupts memory instead of aborting "arena exhausted" — 🔴 OPEN CRITICAL (found 2026-10-16, work-1, review of the make_slice byte-size fix; reproduced on native arm32 bare metal; pre-existing)
+### Bare-metal `RawAlloc` wraps its own size arithmetic: a large allocation corrupts memory instead of aborting "arena exhausted" — 🟡 IN PROGRESS CRITICAL (claimed 2026-10-16, work-1; user: "yes" to fixing it next, with a per-mode skip marker; found 2026-10-16, work-1, review of the make_slice byte-size fix; reproduced on native arm32 bare metal; pre-existing)
 
 impls/core/common/pkg/builtins/rt/rt_baremetal.bn: `carve` checks `base + PREFIX + need + FOOTER > abase +
 ARENA_BYTES` (4 MiB arena), and the sum wraps a 32-bit int for a `need` of about 0x3FC00000 or more, so the
@@ -17,17 +17,6 @@ any allocation (make, make_slice, box, rt.RawAlloc).  Fix: RawAlloc rejects `siz
 and `carve` compares without the overflowing sum (`need > abase + ARENA_BYTES - base - PREFIX - FOOTER`).  No test
 yet: the conformance runner has no bare-metal-only marker, and the same test on a hosted mode would allocate 1 GiB;
 the fix's test needs one (e.g. a per-mode skip, or a bare-metal-only test directory).
-
-### `make_slice` with a length whose byte size overflows the int makes a slice over a too-small backing — silent heap corruption — 🟡 IN PROGRESS CRITICAL (claimed 2026-10-16, work-1; user: "yes" to fixing it next; found 2026-10-16, work-1, review of the make_slice wide-length fix; reproduced on LLVM and native aa64; pre-existing)
-
-The runtime's `MakeManagedSlice` (impls/core/common/pkg/builtins/rt/rt_managed.bn) allocates `Alloc(length *
-elemSize)` with no overflow check, and `Alloc` adds the header size unchecked too.  A length that fits the target's
-int but whose byte size does not wraps: `make_slice(int64, (1 << 61) + 1)` on a 64-bit target is a slice of length
-2^61 + 1 over an 8-byte backing (`make_slice(int64, 0x20000001)` on a 32-bit one likewise), and `s[i]` for any i >= 1
-passes the bounds check and writes outside the allocation.  Test: conformance 1669 (`.xfail.all`; it expects the
-trap and only prints the length).  Fix: the runtime traps ("make_slice length out of range", the same message as a
-negative or too-wide length, spec builtin.make-slice) when `length * elemSize`, or the header add, overflows the
-int — `length > (maxInt - header) / elemSize` for a non-zero elemSize; an elemSize of 0 allocates nothing.
 
 ### Constraint calls through `impl *P` / `impl @M` give wrong results — needs a spec decision — 🔴 NEEDS DECISION (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
 
