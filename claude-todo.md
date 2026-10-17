@@ -208,11 +208,8 @@ Found 2026-10-16 starting it: keeping `.eh_frame` as data is not enough, on aarc
 — and bnld writes neither, so no bnld-linked x86-64 or aarch64 executable can unwind through C code today.
 So the work is (user 2026-10-16: "Full fix, staged"): (1) keep x86-64 `.eh_frame` — done, binate
 `19f61e0af`; (2) `.eh_frame_hdr` + PT_GNU_EH_FRAME — done for the static and dynamic links, binate
-`10adaecd2`; (2b) the same for the scripted LayoutBuilder: a driver call placing the table (and the
-output `.eh_frame`'s terminator) in its open section, filled at Finish (every `.eh_frame` input must be placed
-then — an unplaced one keeps a stale OutIndex), EmitElf giving it PT_GNU_EH_FRAME, and the bracketing symbols
-a bare-metal unwinder uses (`__eh_frame_start` / `__eh_frame_end` / `__eh_frame_hdr_start` /
-`__eh_frame_hdr_end`, as LLVM libunwind's bare-metal mode reads them); (3) the arm32 `.ARM.exidx` above.  Sibling gap, not part of this entry: bnld's Mach-O reader drops `__compact_unwind`
+`10adaecd2`; (2b) the same for the scripted LayoutBuilder — done, binate `84b7b6515`; (3) the arm32
+`.ARM.exidx` above.  Sibling gap, not part of this entry: bnld's Mach-O reader drops `__compact_unwind`
 / `__eh_frame` and writes no `__unwind_info`, so a bnld-linked Mach-O cannot unwind through C code either.
 
 ### Spec gap: when are a compound statement's header temporaries released? — 🔴 NEEDS DECISION (found 2026-10-12, work-4, spec review of the `defer { … }` change; pre-existing)

@@ -1,3 +1,13 @@
+### bnld unwind tables, step 2b: the scripted layout places `.eh_frame` and `.eh_frame_hdr` — DONE (binate `84b7b6515`, 2026-10-16, work-2)
+
+LayoutBuilder.PlaceEhFrame places every input's `.eh_frame` (aligned for them) and the terminator between
+`__eh_frame_start` / `__eh_frame_end`; PlaceEhFrameHdr reserves the search table between `__eh_frame_hdr_start` /
+`__eh_frame_hdr_end` (LLVM libunwind's bare-metal symbols); Finish fills it, requiring PlaceEhFrame to have placed
+every `.eh_frame` input; EmitElf (auto-derived segments) gives it PT_GNU_EH_FRAME; script items EhFrame /
+EhFrameHdr.  The review found the `.eh_frame` pointer and `__eh_frame_start` could precede alignment padding or
+other bytes (now the first record's address, which also tightens the static / dynamic links).  Tests:
+builder_ehframe_test.bn; the scripted-builder e2e scripts pass.
+
 ### Bare-metal `RawAlloc` wraps its own size arithmetic — DONE (binate `aa166c839`, 2026-10-16, work-1) (found 2026-10-16, work-1, review of the make_slice byte-size fix)
 
 carve's `base + PREFIX + need + FOOTER > arena end` wrapped a 32-bit int for a need of about 2^30, so the exhaustion
