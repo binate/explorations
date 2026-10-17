@@ -1,3 +1,21 @@
+### bnld: unwind tables — x86-64 `.eh_frame` and arm32 `.ARM.exidx` were dropped — DONE (binate `19f61e0af`, `10adaecd2`, `84b7b6515`, `336f14387`, 2026-10-17, work-2)
+
+bnld's ELF reader kept only SHF_ALLOC PROGBITS / NOBITS sections, so clang's x86-64 `.eh_frame` (typed
+SHT_X86_64_UNWIND there) and arm32's `.ARM.exidx` were dropped; and aarch64's kept `.eh_frame` was useless,
+since glibc's unwinder finds an executable's FDEs only through PT_GNU_EH_FRAME, which bnld did not write — so
+no bnld-linked ELF program could unwind through its C code.  Done in stages (user 2026-10-16: "Full fix,
+staged"): (1) x86-64 `.eh_frame` kept as data — `19f61e0af`; (2) `.eh_frame_hdr` (the sorted search table)
+with PT_GNU_EH_FRAME, and a terminator after the merged `.eh_frame`, in the static and dynamic links —
+`10adaecd2`, with `e2e/bnld-unwind-linux.sh` (glibc `backtrace()` through bnld-linked C code, x86-64 and
+aarch64); (2b) the scripted LayoutBuilder's PlaceEhFrame / PlaceEhFrameHdr — `84b7b6515`; (3) arm32's
+`.ARM.exidx`, laid out as ld.lld does — `336f14387`: the reader keeps SHT_ARM_EXIDX with the code section its
+sh_link names; the index is merged in code-address order, with a synthesized EXIDX_CANTUNWIND entry for code
+that has none (native Binate code, the runtime asm) and a sentinel ending the code; `__exidx_start` /
+`__exidx_end`; PT_ARM_EXIDX; the scripted builder's PlaceArmExidx (the baremetal-arm driver places it and
+`.ARM.extab`), tested on qemu bare metal with a C lookup of the table.  Follow-ups in claude-todo.md: the
+index placement's per-section scans, the firmware-arm / script-arm drivers, bnld's Mach-O unwind info, and
+the assembler's unwind directives.
+
 ### bnfmt indents a function literal's body from column 0 inside a composite literal element (and a case label) — DONE (binate `37caac55b`, 2026-10-17, work-4) (found 2026-10-06, work-3, review of the function-literal comment fix; pre-existing)
 
 Lists laid out from element text rendered into a fresh builder -- composite elements, case labels,

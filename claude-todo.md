@@ -224,30 +224,48 @@ y's own `.size` is applied.  The type is right already (clang combines z's type 
 alias's direct referent, and give an alias with no `.size` of its own the size of the nearest alias up its
 chain that has one, else the base's.
 
-### bnld: unwind tables — x86-64 `.eh_frame` and arm32 `.ARM.exidx` are dropped — 🟡 IN PROGRESS (claimed 2026-10-16, work-2; user: "let's continue with the items on the list") (found 2026-10-09, work-2, scoping the bnld reader MAJOR; user 2026-10-10: "Support both, own item")
+### bnld: the arm32 unwind index's placement scans each object's sections once per code section — 🟡 IN PROGRESS (claimed 2026-10-17, work-2) (found 2026-10-16, work-2, review of the `.ARM.exidx` change)
 
-bnld's ELF reader keeps only SHF_ALLOC PROGBITS / NOBITS sections, so clang's x86-64 `.eh_frame` (typed
-SHT_X86_64_UNWIND there; PROGBITS on aarch64, where it is kept) and arm32's `.ARM.exidx` (SHT_ARM_EXIDX) are
-dropped with their relocations: a bnld-linked program cannot unwind through C code (C++ exceptions, backtraces);
-nothing else changes.  Do: keep x86-64 `.eh_frame` as data, as aarch64's is; implement `.ARM.exidx` — entries
-sorted by the code they describe, an EXIDX_CANTUNWIND terminator, `__exidx_start` / `__exidx_end`, and a
-PT_ARM_EXIDX segment — as lld does.
+Both placements of `.ARM.exidx` — Layout's (link/arm_exidx.bn placeArmExidx) and the scripted builder's
+(link/builder_ehframe.bn placeExidxEntries, for PlaceArmExidx) — find a code section's index sections by
+scanning all of its object's sections, once per code section: O(S²) per object, where an object built with
+`-ffunction-sections` has a code and an index section per function.  The builder also orders the placed code
+by insertion sort, O(n²) over all code sections when they are not placed in address order.  Fix: one pass
+per object mapping each code section to its index sections, and a merge sort (as sortEhPairs) for the
+address order.
 
-Found 2026-10-16 starting it: keeping `.eh_frame` as data is not enough, on aarch64 either.  glibc's unwinder
-(libgcc_s `_Unwind_Find_FDE`) finds an executable's FDEs only through its PT_GNU_EH_FRAME segment (the
-`.eh_frame_hdr` binary-search table) — crtbegin's frame registration is not used, and bnld links no crtbegin
-— and bnld writes neither, so no bnld-linked x86-64 or aarch64 executable can unwind through C code today.
-So the work is (user 2026-10-16: "Full fix, staged"): (1) keep x86-64 `.eh_frame` — done, binate
-`19f61e0af`; (2) `.eh_frame_hdr` + PT_GNU_EH_FRAME — done for the static and dynamic links, binate
-`10adaecd2`; (2b) the same for the scripted LayoutBuilder — done, binate `84b7b6515`; (3) the arm32
-`.ARM.exidx` above, as ld.lld does it: (3a) the reader keeps SHT_ARM_EXIDX on EM_ARM with the code section
-its sh_link names; Layout gives `.ARM.exidx` its own read-only output section, walking the code sections in
-address order and placing each one's exidx inputs, or a synthesized EXIDX_CANTUNWIND entry for one with none
-(native Binate code, the runtime asm — else a PC there falls into the previous function's entry), then a
-CANTUNWIND sentinel past the last code; `__exidx_start` / `__exidx_end` when referenced; PT_ARM_EXIDX in the
-static arm32 writer; (3b) the scripted builder's PlaceArmExidx (firmware / bare metal), after the code it
-indexes.  Test on bare metal (qemu) with a C lookup of the table, as libgcc's `__gnu_Unwind_Find_exidx` does.  Sibling gap, not part of this entry: bnld's Mach-O reader drops `__compact_unwind`
-/ `__eh_frame` and writes no `__unwind_info`, so a bnld-linked Mach-O cannot unwind through C code either.
+### bnld: the firmware-arm and script-arm drivers do not place arm32's unwind index — 🔴 NEEDS DECISION (found 2026-10-16, work-2, the `.ARM.exidx` change)
+
+The baremetal-arm driver places `.ARM.exidx` (PlaceArmExidx) and `.ARM.extab`; drivers/firmware-arm.bn and
+drivers/script-arm.bn place neither, so a clang-compiled C object's index is left unplaced and dropped
+without a word (the builder fails only for an unplaced init / fini array, or an `.eh_frame` its search table
+counts).  An unwinder that looks the table up by `__exidx_start` / `__exidx_end` fails the link as undefined
+(only PlaceArmExidx defines them); one that never runs is unaffected.  Options: (a) add PlaceArmExidx and
+`*(.ARM.extab*)` to both drivers, after their code, as baremetal-arm does; (b) also make the builder reject
+an unplaced index, as it rejects an unplaced array, with an explicit way for a driver to discard one; (c)
+leave the two drivers minimal.  Recommendation: (a) and (b), so no driver loses the index without saying so.
+
+### bnld Mach-O: unwind info is dropped — `__compact_unwind` / `__eh_frame` read and discarded, no `__unwind_info` written — 🔴 OPEN (found 2026-10-16, work-2, the ELF unwind-tables work)
+
+bnld's Mach-O reader drops clang's `__LD,__compact_unwind` and `__TEXT,__eh_frame` (parse_macho.bn), and the
+writers emit no `__TEXT,__unwind_info` — the two-level lookup table ld64 builds from the compact-unwind
+entries, with `__eh_frame` for frames compact unwind cannot describe, and which libunwind finds through that
+section — so a bnld-linked Mach-O program cannot unwind through its C code (C++ exceptions, `backtrace()`):
+the Mach-O counterpart of the ELF gap closed by binate `10adaecd2`.  Do: read `__compact_unwind` (with its
+section-relative relocations; see "bnld's Mach-O reader has no general section-relative (non-extern) reloc
+support") and `__eh_frame`, write `__unwind_info` as ld64 does, and add an e2e that unwinds through
+bnld-linked C code on macOS.
+
+### asm: unwind directives are rejected — `.cfi_*`, and arm32's EHABI `.fnstart` / `.fnend` / `.cantunwind` / … — 🔴 OPEN (found 2026-10-16, work-2, the bnld `.ARM.exidx` change)
+
+The text assembler knows no unwind directive ("unknown directive"), so hand-written assembly (bnas input,
+the runtime `.s` files) cannot describe its frames.  clang turns `.cfi_startproc` … `.cfi_endproc` and the
+CFA rules between them (`.cfi_def_cfa*`, `.cfi_offset`, `.cfi_restore`, `.cfi_remember_state`, …) into
+`.eh_frame` FDEs on ELF and compact-unwind entries on Mach-O, and arm32's EHABI directives (`.fnstart` /
+`.fnend` / `.cantunwind` / `.save` / `.vsave` / `.setfp` / `.pad` / `.movsp` / `.personality` /
+`.personalityindex` / `.handlerdata` / `.unwind_raw`) into `.ARM.exidx` / `.ARM.extab` entries.  In scope
+as assembler completeness (every directive clang accepts), each target's output verified against clang's
+objects; bnld already links the ELF forms.
 
 ### Spec gap: when are a compound statement's header temporaries released? — 🔴 NEEDS DECISION (found 2026-10-12, work-4, spec review of the `defer { … }` change; pre-existing)
 
