@@ -1,3 +1,17 @@
+### asm: `.type` / `.size` were unsupported, and an ELF symbol's type was inferred — DONE (binate `846af1665`, 2026-10-16, work-2) (found 2026-10-14, work-2, comparing bnas output with clang's)
+
+The asm API has Symbol.Type (SYM_NOTYPE / OBJECT / FUNC / IFUNC, replacing the common-only Object flag), SetType
+(the stronger of two types, as clang combines them) and SetSize; the ELF writer writes st_info's type and st_size
+from them, with no STT_FUNC inference.  `.type` takes every clang spelling (a name, STT_<NAME>, a quoted name, or
+after `%`, `@` — not ARM — or `#` — not x86-64; comma optional; common = object); `.size` a number (a forward label
+difference decided on the second pass), the last winning (asm/parse/parse_symtype.bn).  Finish applies them before
+and after listing constants, so an alias takes its target's; a `.type` of an unlisted name enters an undefined
+global, a common defined after them replaces them.  Mach-O rejects both.  tls_object / gnu_unique_object are
+rejected (no thread-local section, no GNU_UNIQUE binding yet).  The native backends type their functions in
+common.EmitObject (markFunctions), so their objects do not change; the arm32 runtime `.s` files and bnld's `_start`
+stubs say `.type`; memzero_aarch64.s (both formats) leaves MemZero NOTYPE on ELF.  Follow-ups logged: bnld ignores
+input symbol types (IFUNC / TLS / GNU_UNIQUE); `.size` of an alias of an alias.
+
 ### `:=` in a C-style `for` post statement: compiler crash, wrong binding, leak — DONE (binate `d79172354`, docs `9556f34`; 2026-10-16, work-1) (decided 2026-10-15, user: "Reject it (Recommended)"; found 2026-10-12, work-4)
 
 A post `:=` crashed IR-gen (the checker checked the post before the body; IR-gen generates the body first), bound

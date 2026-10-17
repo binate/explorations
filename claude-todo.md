@@ -109,18 +109,6 @@ because the asm ELF writer over-aligned every section (no longer: a byte-only `.
 the end symbols never were.  `runtime/baremetal_arm32/baremetal.ld` aligns them (`ALIGN(4)`).  Fix: align dot to
 4 before each boundary symbol, and check the driver's symbol values in its builder unit test.
 
-### asm: `.type` / `.size` are unsupported, and an ELF symbol's type is inferred — 🟡 IN PROGRESS (claimed 2026-10-15, work-2; user: "let's continue with the items on the list") (found 2026-10-14, work-2, comparing bnas output with clang's)
-
-The text assembler rejects `.type sym, @function` / `.size sym, expr`, so hand-written ELF assembly cannot mark
-a function or data object or give it a size (st_size: symbolizers, `nm -S`, copy relocations of data).  And
-the ELF writer (`elfSymType`, asm/elf/elf_util.bn) types every defined non-local symbol in an executable
-section STT_FUNC, where clang types a symbol only by `.type` (NOTYPE otherwise) — the inference stands in for
-the `.type` the native backends never set (bfd needs STT_FUNC to interwork a Thumb caller).  Do: Symbol type and
-size in the asm API, the directives as clang accepts them (all its type spellings; `.size` with an expression
-evaluated at the end), ELF st_info / st_size from them, the native backends and the runtime `.s` files setting
-their functions' type explicitly so the inference can go; on Mach-O, which has neither directive, reject them as
-clang does.  Thread-local and indirect-function types belong with the TLS / IFUNC work.
-
 ### bnld: an input symbol's ELF type is ignored — an IFUNC or TLS symbol, or a GNU_UNIQUE binding, is linked as an ordinary one — 🔴 OPEN (found 2026-10-15, work-2, scoping asm `.type`; latent)
 
 bnld's ELF reader (`readSymbols`, pkg/binate/link/parse_elf.bn) keeps st_info's binding and drops its type, so a
