@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### `make_slice` with a length whose byte size overflows the int makes a slice over a too-small backing — silent heap corruption — 🔴 OPEN CRITICAL (found 2026-10-16, work-1, review of the make_slice wide-length fix; reproduced on LLVM and native aa64; pre-existing)
+### `make_slice` with a length whose byte size overflows the int makes a slice over a too-small backing — silent heap corruption — 🟡 IN PROGRESS CRITICAL (claimed 2026-10-16, work-1; user: "yes" to fixing it next; found 2026-10-16, work-1, review of the make_slice wide-length fix; reproduced on LLVM and native aa64; pre-existing)
 
 The runtime's `MakeManagedSlice` (impls/core/common/pkg/builtins/rt/rt_managed.bn) allocates `Alloc(length *
 elemSize)` with no overflow check, and `Alloc` adds the header size unchecked too.  A length that fits the target's
