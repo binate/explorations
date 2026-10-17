@@ -67,7 +67,7 @@ import's annotations on the lines before it (as declarations do), keep an annota
 through the run sort, keep comments between imports in place, and add a format unit test (an annotated
 import round-trips byte-for-byte) plus 737 / 1370's annotated files as inputs.
 
-### A generic type's method signatures are never sized for its instances — an opaque by-value result reaches IR-gen — 🔴 OPEN MAJOR (found 2026-10-15, work-7, review of the function-signature opaque rule; reproduced; pre-existing)
+### A generic type's method signatures are never sized for its instances — an opaque by-value result reaches IR-gen — 🟡 IN PROGRESS (claimed 2026-10-16, work-5/session) MAJOR (found 2026-10-15, work-7, review of the function-signature opaque rule; reproduced; pre-existing)
 
 With `type Opaque` (no definition), `type Bx[T any] struct { p *T }` and `func (b *Bx[T]) Mk() T`, a
 `*Bx[Opaque]` value's `b.Mk()` compiles, links and runs: the opaque by-value result reaches IR-gen, the
