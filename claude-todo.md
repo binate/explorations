@@ -641,37 +641,30 @@ error (the forwarder should drop the redundant `expose "P"`; a bnlint rule could
 when both paths denote the same declaration (compare the defining package and declaration, not the name),
 spec to match.  Needs a conformance test either way.
 
-### A function-value type's parameters and results are not held to the opaque rules; an instance's type-argument parts are judged in the generic's view — 🟡 IN PROGRESS (claimed 2026-10-15, work-7/session — user: "let's actually *fix* these leftovers, one-by-one; you can start with the two we've gone over"; DECIDED 2026-10-15; raised 2026-10-03, work-3, review of the type-declaration opaque check; split out 2026-10-10, work-7)
+### An instance's type-argument parts are judged in the generic's view, not the importer's — in its structure and in its body — 🟡 IN PROGRESS (claimed 2026-10-15, work-7/session — user: "let's actually *fix* these leftovers, one-by-one; you can start with the two we've gone over"; DECIDED 2026-10-15 — user: "Importer's view"; raised 2026-10-03, work-3, review of the type-declaration opaque check; split out 2026-10-10, work-7; the function-signature half landed as binate `df6f53cf6`)
 
-With `type Op` opaque, a function declaration's by-value opaque parameter or result is rejected (`func f(o
-Op)`: "cannot use an opaque type by value"), and so is one pointing to a type that embeds an opaque type by
-value (`func f(p *([2]Op))`), but a function-value TYPE with the same signature is accepted, as a
-declaration, a field or a parameter: `type F *func(Op) int`, `@func() Op`, `*func(*([2]Op))`.  The checker
-never enters a function type (`embedsOpaqueByValue`, `pointeeEmbedsOpaque` and `nestedPointerEmbedsOpaque`
-in `pkg/binate/check/check_opaque.bn` all stop at one).  Such a function value can never be called with an
-opaque argument (no `Op` value can be formed), and a call through `@func() Op` is rejected at the call (the
-call result is held to the by-value rule), so the type is unusable but harmless.  The spec is silent: §7.9 says nothing on parameter types, §7.12 lists
-only `make`/`make_slice`/`sizeof`/`alignof` and field access, and the pointer-to-opaque-embedding rule the
-checker enforces is not written down at all.  Options: (a) hold a function-value type's parameters and
-results to the rules a function declaration's are held to (reject `*func(Op) int` where it is written);
-(b) keep today's behaviour: accept the type, reject a call through it that would form an opaque value
-(`g()` on an `@func() Op`), and spec that.  Recommendation: (a) — one rule for every signature, the error
-where the bad type is written, and no function value that can never be called; write the rule (with the
-pointer rule) into §7.12.
-Related, for the same write-up: inside a generic instance the checker counts only a type with no
-definition anywhere as opaque (`nestedPointerEmbedsOpaque`), so that another package's `Cell[int]` with a
-field `*([2]Box)` over its own opaque export `Box` stays legal in an importer — but the instance view also
-covers parts that come from the importer's own type arguments: `PBox[[2]a.Box]` (`type PBox[T any] struct
-{ p *T }`) is accepted in an importer while `*([2]a.Box)` written there directly is rejected.  Not an IR-gen
-hazard (a.Box's layout is filled in a whole-program build; pure opaque types are caught in both views).
-Options: judge the parts that come from the type arguments in the importer's view (needs the generic's
-structure walked with its type parameters marked), or accept it and spec that a cross-package opaque
-export is opaque only in what the importing package writes itself.
-**Decided 2026-10-15 (user):** "(a) Same rule" — reject a function-value type whose parameters or results
-break the rules a function declaration's are held to, where it is written, and write that rule, with the
-pointer-to-opaque-embedding rule, into §7.12; and "Importer's view" — judge the parts of an instance that come
-from its type arguments in the importer's view, so `PBox[[2]a.Box]` is rejected like `*([2]a.Box)`.
-
+Inside a generic instance the checker counts only a type with no definition anywhere as opaque
+(`nestedPointerEmbedsOpaque`, `funcSignaturesSized` in pkg/binate/check/check_opaque*.bn), so that another
+package's `Cell[int]` with a field `*([2]Box)` over its own opaque export `Box` stays legal in an importer —
+but that view also covers the parts that come from the importer's own type arguments: `PBox[[2]a.Box]`
+(`type PBox[T any] struct { p *T }`) and `MH[q.Op]` (`f *func(T)`) are accepted in an importer while
+`*([2]a.Box)` / `*func(q.Op)` written there directly are rejected.  **Decided (user): "Importer's view"** —
+judge the parts of an instance that come from its type arguments in the view of where the arguments are
+written.  Design (2026-10-15): on entering an instance in the importer's view, walk the generic's cached
+abstract instance (its own type parameters unsubstituted; in `c.GenericInstantiations`, created for every
+generic decl by `checkGenericDeclAbstract`) in the generic's view, and at a type parameter continue with the
+argument in the importer's view; a nested abstract instance is already expressed in the outer generic's
+parameters, so one frame per boundary suffices; fall back to today's walk when no abstract instance is
+cached; a per-decl cache for the lookup.  **The review of `df6f53cf6` showed it must cover instance BODIES
+too**: a body is checked where the generic is (`checkInstanceBody`, the generic's package and view), so its
+by-value and pointer rules count an argument that is the instantiating package's own opaque export as
+opaque (a false rejection: q's own `.bni` generic with `var x T = *p` or `*([2]T)`, instantiated by q with
+its own `Op`), while its function signatures (since `df6f53cf6`, `InstanceState.BodyDepth`) use the pure
+view, which misses an importer's export (`gt[q.Op]` with `var f *func(T)` in a generic main declares is
+accepted).  A body's types are substituted, so the argument parts are not marked there; one option judges a
+type in a body as opaque only if it is opaque both where the generic is and where the instance is
+instantiated (needs the instantiation's package and view on the instance's work item).  §7.12's
+`type.opaque.pointer-to-embedding` / `type.opaque.signature` sentences on instances change with it.
 
 ### A local of an ill-formed type is reported at its declaration and again at each use — 🔴 OPEN (minor: duplicate diagnostics; found 2026-10-15, work-7, while adding the function-value opaque rule; reproduced; pre-existing)
 

@@ -1,3 +1,25 @@
+### Every function signature is held to the opaque rules where it is written — DONE (binate `df6f53cf6`, docs `bd230a0`, 2026-10-16, work-7)
+
+A function declaration's by-value opaque parameter or result, or one pointing to a type embedding an opaque
+type by value, was rejected, but the same signature was accepted as a function value type (`type F
+*func(Op) int`, `@func() [2]Op`, `*func(*([2]Op))`), as an interface method, and (like the pointer rule)
+as a builtin's type operand.  The user decided "(a) Same rule"; at review, also to fold in interface methods
+and builtin operands ("Include both").  `requireSizedType` is now `opaqueRulesKept` (by value, then
+`formationRulesKept`: the pointer rule and `funcSignaturesSized`, check_opaque_func.bn) and then the size
+rule; `requireMethodSignaturesKept` checks a declared interface's methods; `requireFormedType` holds
+`make` / `make_slice` / `sizeof` / `alignof` / `bit_cast` / `__c_call` type operands to the formation rules.
+Inside an instance's structure and in the signatures in its body (`InstanceState.BodyDepth`) only a type
+with no definition anywhere counts.  Spec: §7.12 `type.opaque.by-value`, `type.opaque.pointer-to-embedding`,
+`type.opaque.signature`; §12 `gen.mono.check` cites them.  Two review rounds: a regression (a package's own
+opaque export passed to a generic over `*func(T)` — `cmp.Fn[Op]` — was rejected in the instance's body), a
+cubic cost on deep types (10.5 s → 0.35 s on an 80-level probe), and an instance-view mismatch between the
+interface-instance populate and recheck paths; all fixed with tests.  Tests: check
+TestCheckOpaqueFuncValueSignature{Rejected,Ok}, ...InstanceOwnExportOk, TestCheckOpaqueInterfaceMethodRejected,
+TestCheckOpaqueBuiltinOperandRejected; conformance spec/07-types 289–293.  Left open: the importer's view of
+an instance's type-argument parts (the decided second half, `claude-todo.md`); logged from the reviews: a
+generic type's method signatures are never sized (MAJOR), a `.bni` function declaration is checked in the
+`.bn`'s view, and a bad local is reported at each use as well as its declaration.
+
 ### native arm32-linux: variadic floats ride GP registers; both follow-ups resolved — DONE (binate `5d8181d86`, `1f0b96c3f`)
 
 - **Landed `5d8181d86` (2026-08-25):** `native/arm32` now passes variadic FLOAT args
