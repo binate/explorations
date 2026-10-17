@@ -42,6 +42,19 @@ exact for pointer impls too.
 
 ## MAJOR
 
+### bnfmt drops an import's `#[build(...)]` annotation — the formatted file builds different code — 🔴 OPEN MAJOR (found 2026-10-16, work-3, label-sweep review)
+
+`printImports` / `appendImport` (pkg/binate/format/print_file.bn) never print `ImportSpec.Annotations`, so
+`bnfmt` turns a conditional import into an unconditional one.  On conformance
+737_build_import_select/pkg/sel/sel.bn both `#[build(is(arch, "aarch64"))] import "pkg/sel_aa"` and
+`#[build(!is(arch, "aarch64"))] import "pkg/sel_other"` come out as plain imports (a blank line between
+them), and the comment above them moves below the import block.  `bnfmt -w` on such a file silently changes
+which packages are imported (and so what is built); hygiene's bnfmt-format check covers only
+pkg/cmd/impls/ifaces, where no annotated import exists yet, so nothing has caught it.  Fix: print each
+import's annotations on the lines before it (as declarations do), keep an annotated import attached to them
+through the run sort, keep comments between imports in place, and add a format unit test (an annotated
+import round-trips byte-for-byte) plus 737 / 1370's annotated files as inputs.
+
 ### A generic type's method signatures are never sized for its instances — an opaque by-value result reaches IR-gen — 🔴 OPEN MAJOR (found 2026-10-15, work-7, review of the function-signature opaque rule; reproduced; pre-existing)
 
 With `type Opaque` (no definition), `type Bx[T any] struct { p *T }` and `func (b *Bx[T]) Mk() T`, a
