@@ -1,3 +1,11 @@
+### bnfmt prints a function-local grouped declaration's closing `)` at column 0 — DONE (binate `cfe806b76`, 2026-10-16, work-4) (found 2026-10-14, work-1, formatting a conformance test; pre-existing)
+
+Inside a function, `const (` … `)` (any grouped declaration) printed its members indented but its closing
+paren at column 0.  `printGroupDecl` (`pkg/binate/format/print_group.bn`) computed the line's indent but wrote
+`\n)` without it; it now writes the indent before the `)`.  No file under hygiene's bnfmt roots changed
+layout.  Test: `TestGroupInFunctionClosingParen` (`pkg/binate/format/print_group_test.bn`), a group inside a
+function and one inside an `if`.
+
 ### bnld unwind tables, step 2b: the scripted layout places `.eh_frame` and `.eh_frame_hdr` — DONE (binate `84b7b6515`, 2026-10-16, work-2)
 
 LayoutBuilder.PlaceEhFrame places every input's `.eh_frame` (aligned for them) and the terminator between
