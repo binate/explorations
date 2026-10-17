@@ -235,7 +235,7 @@ with "missing return".  Either the checker drops the init / post condition (the 
 or the spec's parenthetical "(an unconditional `for { … }` infinite loop)" becomes the rule.  Needs a
 conformance test either way.
 
-### A managed pointer to an interface value (`@(*I)` / `@(@I)`) passed for a raw `*any` miscompiles — 🔴 NEEDS DECISION MAJOR (user 2026-10-15: "I suspect we should define the box, but get the idea reviewed for feasibility and consistency; rejecting it seems ... artificial?"; found 2026-10-10, work-4, review of the deferred `@T` → `*I` fix; reproduced; pre-existing)
+### A managed pointer to an interface value (`@(*I)` / `@(@I)`) passed for a raw `*any` miscompiles — 🟡 IN REVIEW MAJOR (claimed 2026-10-16, work-1: the design review the user asked for; user 2026-10-15: "I suspect we should define the box, but get the idea reviewed for feasibility and consistency; rejecting it seems ... artificial?"; found 2026-10-10, work-4, review of the deferred `@T` → `*I` fix; reproduced; pre-existing)
 
 `useAny(mkIG(1))`, with `mkIG` returning `@(*Getter)` (or `@(@Getter)`) and `func useAny(a *any)`, compiles and
 segfaults at run time on LLVM and native aa64: wrapAsIfaceValue (gen_iface.bn) returns nil for an interface-value
@@ -249,7 +249,7 @@ pointees, and the target that recovers it) or have the checker reject a pointer-
 interface value.  Either way convertToIfaceTarget's silent fallback on a nil box should fail loud, and a
 conformance test lands with the decision (repro: review probe pe.bn).
 
-### A function NAME passed into `*any` compiles and boxes nothing — silent wrong value — 🔴 NEEDS DECISION MAJOR (user 2026-10-15: "possibly we could reject, but get this reviewed versus decay to @func and box"; found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
+### A function NAME passed into `*any` compiles and boxes nothing — silent wrong value — 🟡 IN REVIEW MAJOR (claimed 2026-10-16, work-1: the design review the user asked for; user 2026-10-15: "possibly we could reject, but get this reviewed versus decay to @func and box"; found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
 
 With `func add(a int, b int) int` and `func take(x *any) bool { return present(x) }`, `take(add)` compiles
 and returns false (LLVM and native), and `testing.Println(add)` prints nothing useful: the checker types
