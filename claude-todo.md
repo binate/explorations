@@ -678,6 +678,8 @@ accepted).  A body's types are substituted, so the argument parts are not marked
 type in a body as opaque only if it is opaque both where the generic is and where the instance is
 instantiated (needs the instantiation's package and view on the instance's work item).  §7.12's
 `type.opaque.pointer-to-embedding` / `type.opaque.signature` sentences on instances change with it.
+**Decided 2026-10-16 (user) for bodies: "Opaque in both places"** — a type in an instance's body counts as
+opaque only if it is opaque both where the generic is written and where the instance is instantiated.
 
 ### A local of an ill-formed type is reported at its declaration and again at each use — 🔴 OPEN (minor: duplicate diagnostics; found 2026-10-15, work-7, while adding the function-value opaque rule; reproduced; pre-existing)
 
