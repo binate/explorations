@@ -42,7 +42,7 @@ exact for pointer impls too.
 
 ## MAJOR
 
-### bnfmt drops an import's `#[build(...)]` annotation — the formatted file builds different code — 🔴 OPEN MAJOR (found 2026-10-16, work-3, label-sweep review)
+### bnfmt drops an import's `#[build(...)]` annotation — the formatted file builds different code — 🟡 IN PROGRESS (claimed 2026-10-16, work-5/session) MAJOR (found 2026-10-16, work-3, label-sweep review)
 
 `printImports` / `appendImport` (pkg/binate/format/print_file.bn) never print `ImportSpec.Annotations`, so
 `bnfmt` turns a conditional import into an unconditional one.  On conformance
