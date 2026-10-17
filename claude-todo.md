@@ -137,6 +137,16 @@ nothing else changes.  Do: keep x86-64 `.eh_frame` as data, as aarch64's is; imp
 sorted by the code they describe, an EXIDX_CANTUNWIND terminator, `__exidx_start` / `__exidx_end`, and a
 PT_ARM_EXIDX segment — as lld does.
 
+Found 2026-10-16 starting it: keeping `.eh_frame` as data is not enough, on aarch64 either.  glibc's unwinder
+(libgcc_s `_Unwind_Find_FDE`) finds an executable's FDEs only through its PT_GNU_EH_FRAME segment (the
+`.eh_frame_hdr` binary-search table) — crtbegin's frame registration is not used, and bnld links no crtbegin
+— and bnld writes neither, so no bnld-linked x86-64 or aarch64 executable can unwind through C code today.
+So the work is: (1) keep x86-64 `.eh_frame`; (2) `.eh_frame` as its own output section in the read-only
+group, a synthesized `.eh_frame_hdr` (FDE initial locations read from the relocated `.eh_frame`, per each
+CIE's pointer encoding, sorted) and PT_GNU_EH_FRAME, in the static, dynamic and scripted ELF writers; (3) the
+arm32 `.ARM.exidx` above.  Sibling gap, not part of this entry: bnld's Mach-O reader drops `__compact_unwind`
+/ `__eh_frame` and writes no `__unwind_info`, so a bnld-linked Mach-O cannot unwind through C code either.
+
 ### Spec gap: when are a compound statement's header temporaries released? — 🔴 NEEDS DECISION (found 2026-10-12, work-4, spec review of the `defer { … }` change; pre-existing)
 
 §9.7 says a statement's temporaries last "until the end of that statement", but the review's probe shows a
