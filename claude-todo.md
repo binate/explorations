@@ -35,6 +35,11 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 - `*P` does not satisfy `Comparable`, so the error is at the instantiation.
 - Constraint-call lowering reconciles Self with the receiver kind (passes `*b`).
 
+From a review on 2026-10-16 (work-6): reconciling at lowering cannot work where Self is inside a type argument
+(`OBox[*P]` and `OBox[P]` differ in layout, and no conversion exists), as already for `*[]Self`; making Self the
+receiver type (`*P` for `impl *P`) would make the rule that Self satisfies the constraints its interface extends
+exact for pointer impls too.
+
 ## MAJOR
 
 ### A generic type's method signatures are never sized for its instances — an opaque by-value result reaches IR-gen — 🔴 OPEN MAJOR (found 2026-10-15, work-7, review of the function-signature opaque rule; reproduced; pre-existing)
@@ -2868,6 +2873,26 @@ consistent rule would treat it as a type parameter bounded by I: Self satisfies 
 (typeSatisfiesConstraint's TYP_TYPE_PARAM arm, check/check_generic.bn); at the impl the implementing type's own
 `OBox[P]` is checked as written.  Decide whether to adopt that rule (a spec addition under iface.self) or keep
 rejecting.
+
+### A constraint instance naming a type parameter that shadows a predeclared type compares equal to the predeclared one's — 🔴 OPEN MINOR (found 2026-10-16, work-6, review of the Self-constraint proposal; reproduced; pre-existing)
+
+`func inner[U Eq[int]](u U) int`, `func outer[int any, T Eq[int]](t T) { report(inner[T](t)) }`: the declaration
+check accepts `inner[T]`.  typeSatisfiesConstraint's type-parameter arm (check/check_generic.bn) compares T's bound
+`Eq[<outer's int>]` with `Eq[<predeclared int>]` by Pkg and Name, and an instance's Name is its mangled name
+(`Eq[int]`), which prints a type parameter bare.  `outer[bool, S]` (with `impl S : Eq[bool]`) is then rejected
+only by the per-instance check ("type argument S does not satisfy constraint Eq[int] (in outer[bool, S], …)"),
+and an `outer` that is never instantiated is accepted.  No wrong code.  Fix: compare instance interfaces by their
+generic declaration and type arguments, not by mangled name; isDescendantInterface and implCoversInterface compare
+the same way.
+
+### `readonly T` does not satisfy T's constraint, though `readonly int` satisfies `int`'s — 🔴 NEEDS DECISION (found 2026-10-16, work-6, review of the Self-constraint proposal; reproduced; pre-existing)
+
+Inside `func f[T lang.Orderable](t T)`, `g[readonly T](r)` (for `func g[U lang.Orderable]`) is rejected ("type
+argument readonly T does not satisfy constraint Orderable"), while `g[readonly int](x)` is accepted: the
+concrete-type arm of typeSatisfiesConstraint matches impls with Identical, which strips `readonly`, and the
+type-parameter arm tests `t.Kind == TYP_TYPE_PARAM` without peeling it.  Decide whether `readonly T` satisfies T's
+constraint (then that arm peels `readonly`, and a `Self` arm does the same), or whether `readonly int` stops
+satisfying `int`'s.
 
 ### Is a constraint that names its own type parameter (`[T Eq[T]]`) legal? Today the checker reports "undefined: T" — 🔴 NEEDS DECISION (found 2026-10-04, work-6, review of generic functions at the prompt)
 
