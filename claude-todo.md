@@ -2225,7 +2225,7 @@ also records the symbol operand at the call's Pos line (the symbol has no positi
 opener is never alone, and a source `__c_call(` / `"f", int, a)` is joined.  Fix: record the `(` (and the
 symbol's) position in the parser.
 
-### bnfmt prints a function-local grouped declaration's closing `)` at column 0 — 🟢 LOW (found 2026-10-14, work-1, formatting a conformance test; pre-existing)
+### bnfmt prints a function-local grouped declaration's closing `)` at column 0 — 🟢 LOW, 🟡 IN PROGRESS (claimed 2026-10-16, work-4; user: "you can continue to fix any easy-to-fix bnfmt bugs afterwards") (found 2026-10-14, work-1, formatting a conformance test; pre-existing)
 
 Inside a function, `const (` … `)` (any grouped declaration) is printed with its members indented but its
 closing paren at column 0: `func main() {\n\tconst (\n\t\tA = 1\n\t\tB = 2\n\t)\n\t_ = A + B\n}` comes out with
