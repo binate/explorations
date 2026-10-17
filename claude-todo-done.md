@@ -1,3 +1,11 @@
+### `make_slice` with an int64 / uint64 length on a 32-bit target passes one word — DONE (binate `0efe3e450`, docs `854c420`; 2026-10-16, work-1) (decided 2026-10-15, user: "Trap at run time (Recommended)"; found 2026-10-13, work-5)
+
+A length wider than the target's int was narrowed to its low word (`make_slice(int, 4294967298)` a 2-element slice
+on arm32; LLVM arm32 invalid IR).  IR-gen now passes such a length narrowed when it fits the int and -1 otherwise
+(sliceLenInRange, branch-free), which the runtime's trap catches; the message is now "runtime error: make_slice
+length out of range" (spec builtin.make-slice, docs `854c420`).  Conformance 1666-1668; 724 and spec 15-builtins
+008 take the new message.  Found on the way (review): the byte-size overflow CRITICAL (conformance 1669).
+
 ### bnld unwind tables, step 1: keep x86-64's `.eh_frame` — DONE (binate `19f61e0af`, 2026-10-16, work-2)
 
 The ELF reader dropped x86-64's `.eh_frame` (SHT_X86_64_UNWIND) with its relocations, where aarch64's (PROGBITS)

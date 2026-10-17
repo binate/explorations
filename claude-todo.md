@@ -57,19 +57,6 @@ array composite literal from its type expression (`env.Type(e.TypeRef)`, resolve
 has no checked type — or check the initializer of an imported constant whose value needs a type the evaluator
 cannot find.
 
-### `make_slice` with an int64 / uint64 length on a 32-bit target passes one word — wrong length or invalid IR — 🟡 IN PROGRESS MAJOR (claimed 2026-10-16, work-1; decided 2026-10-15, user: trap at run time — "Trap at run time (Recommended)": the negative-length trap extended to "length out of range"; found 2026-10-13, work-5, fixing the int64-index bug; pre-existing)
-
-The same class as the int64-index bug: IR-gen's `genIntOperand` widens a length narrower than int but passes
-a wider one through, so `make_slice(T, n)` with an int64 / uint64 `n` on arm32 hands the runtime's
-`MakeManagedSlice(…, n int)` a 64-bit value.  LLVM arm32 emits invalid IR (seen: `call …MakeManagedSlice(…,
-i32 %v2)` with `%v2` an i64); native arm32 and the VM on an arm32 host pass the low word (by code reading),
-so `make_slice(int, 4294967298)` would make a 2-element slice silently.  The fix needs a spec decision:
-§15 defines only a negative `n` as a trap ("make_slice with negative length"); a length that does not fit
-int on the target is not covered.  Options: trap it (a new message, or the negative-length one extended to
-"length out of range"), or define it otherwise.  Then IR-gen checks a wide length before narrowing it, as
-the int64-index fix does for bounds checks.  Found while fixing the int64-index bug (conformance 1633),
-whose todo entry flagged make_slice lengths to check.
-
 ### The LLVM backend declares a function's own sret parameter `align 8` whatever the result's alignment; a C caller's buffer may be less aligned — 🔴 OPEN (found 2026-10-09, work-1, review of the returned-local change; pre-existing; plausible, not yet reproduced)
 
 A function returning through sret is defined `define void @f(ptr sret(%T) align 8 %v.retbuf, ...)`
