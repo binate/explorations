@@ -246,7 +246,7 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### A C-style `for` with init / post but no condition is not terminating to the checker — 🔴 OPEN MINOR (found 2026-10-12, work-4, writing the for-init scoping test; pre-existing)
+### A C-style `for` with init / post but no condition is not terminating to the checker — 🟡 IN PROGRESS (claimed 2026-10-16, work-5/session) MINOR (found 2026-10-12, work-4, writing the for-init scoping test; pre-existing)
 
 §14.14 `stmt.terminating` counts "a `for` with no condition and no `break` targeting it" as terminating, but
 check/check_terminates.bn also requires no init and no post statement (`if s.Init != nil || s.Post != nil
