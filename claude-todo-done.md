@@ -1,3 +1,15 @@
+### CI's -O2 conformance lane was red on main: 1622 / 1625 linked at -O2 on the LLVM backend — DONE (binate `515dfb883`, 2026-10-16, work-5) (found 2026-10-12, work-5)
+
+`1622_err_xpkg_undefined_forward_type_drop` and `1625_err_undefined_forward_type_drop` expect a program that
+releases an `@X` of a type nothing defines to fail to link, naming `__dtor_X`.  Their only release was of a local
+`@X` initialized to nil: at -O2 clang folds the release's null check, the destroy branch goes, and the link's
+dead-stripping (`-dead_strip` / `--gc-sections`) drops the shim that referenced the undefined destructor, so the
+program linked and ran.  Decided (2026-10-16, user: "Tests use a live release (Recommended)"): a link error is a
+property of the references that survive optimization, and a release proven to be of nil needs no destructor, so
+whether such a program links is left unspecified; the tests now release a global `@X`, whose old value no
+optimizer can prove nil.  Validated at -O0 on 11 modes and at -O2 on builder-comp, native aa64, native x64 darwin
+and native arm32 bare metal.
+
 ### `make_slice` with an int64 / uint64 length on a 32-bit target passes one word — DONE (binate `0efe3e450`, docs `854c420`; 2026-10-16, work-1) (decided 2026-10-15, user: "Trap at run time (Recommended)"; found 2026-10-13, work-5)
 
 A length wider than the target's int was narrowed to its low word (`make_slice(int, 4294967298)` a 2-element slice
