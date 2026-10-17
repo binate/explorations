@@ -41,6 +41,23 @@ and iface.self.constraint's "as a type parameter whose constraint is `I` would" 
 
 ## MAJOR
 
+### A constrained generic alias instantiated during declaration collection is never constraint-checked — an interface method signature accepts `O[W]` — 🔴 OPEN MAJOR (found 2026-10-16, work-3, review of the spec §12.4 gap removal)
+
+With `type Box[T any] struct { v T }`, `type O[T lang.Orderable] = Box[T]` and `type W struct { f int }`
+(no `impl W : Orderable`), `var o O[W]` in a function body is rejected ("type argument W does not satisfy
+constraint Orderable"), but `interface I { m(o O[W]) }` is accepted (verified with a tree bnc).  Cause (from
+reading the checker): during declaration collection instantiateGenericDeclWithArgs (check_generic_type.bn)
+forces userFacing false and records the constraint check as pending before the alias branch;
+recheckDeferredConstraints (check_deferred_constraints.bn) looks a pending check up only in
+c.GenericInstantiations, but an alias instantiation lives only in c.AliasInstantiations
+(check_generic_alias.bn), so the lookup returns nil and the check is dropped.  Sites resolved only during
+collection lose it: non-generic interface method signatures, impl receivers and interface lists, interface
+parents, and an importer's view of a `.bni`; function signatures, fields, package vars and bodies are
+re-resolved later and do check.  Only matters for an alias whose constraint is stricter than its target's;
+no wrong code.  Fix: make the deferred recheck find alias instantiations too (or record the pending check
+against the alias), and test each collection-time site.  Test:
+conformance/spec/12-generics/109_err_satisfy_alias_iface_sig (xfail.all).
+
 ### bnfmt drops an import's `#[build(...)]` annotation — the formatted file builds different code — 🟡 IN PROGRESS (claimed 2026-10-16, work-5/session) MAJOR (found 2026-10-16, work-3, label-sweep review)
 
 `printImports` / `appendImport` (pkg/binate/format/print_file.bn) never print `ImportSpec.Annotations`, so
