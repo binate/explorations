@@ -1,3 +1,16 @@
+### bnld unwind tables, step 2: `.eh_frame_hdr` and PT_GNU_EH_FRAME for the static and dynamic links — DONE (binate `10adaecd2`, 2026-10-16, work-2)
+
+glibc's unwinder finds an executable's FDEs only by PT_GNU_EH_FRAME, which bnld never wrote, so no bnld-linked
+x86-64 / aarch64 program unwound through its C code (backtrace() three C frames deep found 1 frame).  Layout gives
+`.eh_frame` its own read-only output section with the linker-made `.eh_frame_hdr` before it (lld's order); Link
+and LinkDynElf add a linker-made object (ehframe_hdr.bn) when an input has a non-empty `.eh_frame` — the table,
+filled after relocation from each FDE's code address (CIE 'R' encoding; ehframe_cie.bn), sorted, as ld.lld
+writes it byte for byte, and the zero terminator ending the output `.eh_frame` (crtend's `__FRAME_END__`'s job)
+— and both writers emit PT_GNU_EH_FRAME at the table's place.  Records bnld cannot read with certainty (64-bit,
+CIE version not 1/3, unknown augmentation, aligned personality, indirect address) are errors naming the object.
+e2e/bnld-unwind-linux.sh: 5 frames on x86-64 and aarch64 (1 without the table).  Still open in the todo entry:
+the scripted builder (2b) and arm32 `.ARM.exidx` (3).
+
 ### `make_slice` with a length whose byte size overflows the int makes a slice over a too-small backing — DONE (binate `39dd44fd4`, 2026-10-16, work-1) (found 2026-10-16, work-1, review of the make_slice wide-length fix)
 
 MakeManagedSlice allocated `length * elemSize` unchecked: make_slice(int64, 2^61 + 1) (64-bit) / 0x20000001 (32-bit)
