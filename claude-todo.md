@@ -46,7 +46,7 @@ array composite literal from its type expression (`env.Type(e.TypeRef)`, resolve
 has no checked type — or check the initializer of an imported constant whose value needs a type the evaluator
 cannot find.
 
-### `make_slice` with an int64 / uint64 length on a 32-bit target passes one word — wrong length or invalid IR — 🔴 OPEN MAJOR (decided 2026-10-15, user: trap at run time — "Trap at run time (Recommended)": the negative-length trap extended to "length out of range"; found 2026-10-13, work-5, fixing the int64-index bug; pre-existing)
+### `make_slice` with an int64 / uint64 length on a 32-bit target passes one word — wrong length or invalid IR — 🟡 IN PROGRESS MAJOR (claimed 2026-10-16, work-1; decided 2026-10-15, user: trap at run time — "Trap at run time (Recommended)": the negative-length trap extended to "length out of range"; found 2026-10-13, work-5, fixing the int64-index bug; pre-existing)
 
 The same class as the int64-index bug: IR-gen's `genIntOperand` widens a length narrower than int but passes
 a wider one through, so `make_slice(T, n)` with an int64 / uint64 `n` on arm32 hands the runtime's
