@@ -128,7 +128,7 @@ y's own `.size` is applied.  The type is right already (clang combines z's type 
 alias's direct referent, and give an alias with no `.size` of its own the size of the nearest alias up its
 chain that has one, else the base's.
 
-### bnld: unwind tables — x86-64 `.eh_frame` and arm32 `.ARM.exidx` are dropped — 🔴 OPEN (found 2026-10-09, work-2, scoping the bnld reader MAJOR; user 2026-10-10: "Support both, own item")
+### bnld: unwind tables — x86-64 `.eh_frame` and arm32 `.ARM.exidx` are dropped — 🟡 IN PROGRESS (claimed 2026-10-16, work-2; user: "let's continue with the items on the list") (found 2026-10-09, work-2, scoping the bnld reader MAJOR; user 2026-10-10: "Support both, own item")
 
 bnld's ELF reader keeps only SHF_ALLOC PROGBITS / NOBITS sections, so clang's x86-64 `.eh_frame` (typed
 SHT_X86_64_UNWIND there; PROGBITS on aarch64, where it is kept) and arm32's `.ARM.exidx` (SHT_ARM_EXIDX) are
