@@ -1786,7 +1786,7 @@ closed-source `{facade.bni, bundle.a}` whose internal packages the consumer neve
   `main.o` + the consumer's other objects + the library's object, leaving out the consumer's
   module for the package, works today (a shared var reads the library's value).
 
-### VM: a package variable nothing defines aborts the process instead of failing the load — 🟡 IN PROGRESS (claimed 2026-10-17, work-5/session) (MINOR; found 2026-10-07, work-3, review of the `.bni`-only extern-var fix)
+### VM: a package variable nothing defines aborts the process instead of failing the load — 🔴 OPEN (MINOR; found 2026-10-07, work-3, review of the `.bni`-only extern-var fix)
 
 Lowering a global reference with no storage (a `.bni`-only package's var with no implementation)
 stops with `vmPanic("vm: nothing in the program defines the package variable …")`, which aborts
@@ -1796,6 +1796,13 @@ to skip the reference silently, leaving the instruction reading an unrelated reg
 collect unresolved globals during lowering as load errors (`LowerModule` reports them,
 `LoadProgram` returns them), and have the REPL report one without ending the session.  Covered
 by e2e/bni-only-var-undefined.sh for bni's exit; needs a REPL / LoadProgram test.
+Investigated 2026-10-17 (work-5; claimed, then released — not self-contained): `LoadProgram` /
+`LoadCallable` can return a lowering error easily (the VM records it instead of panicking), but the REPL lowers
+per prompt in about ten places (repl/decl.bn, decl_retry.bn, eval.bn, session.bn, mid_session_import.bn) after
+the prompt's declarations are committed to the session scope, so a lowering error there needs the prompt rolled
+back.  The alternative — lower the reference as a run-time trap, so only code that reads the variable fails —
+needs a recoverable fault, which the VM raises only at an instruction with a fault key (a cleanup pad in the IR),
+which a global load does not have.  Either is a design choice for the REPL's error model.
 
 ### Package descriptors — Phase C (richer metadata) + VM extern auto-enumeration remain
 
