@@ -209,7 +209,13 @@ Found 2026-10-16 starting it: keeping `.eh_frame` as data is not enough, on aarc
 So the work is (user 2026-10-16: "Full fix, staged"): (1) keep x86-64 `.eh_frame` — done, binate
 `19f61e0af`; (2) `.eh_frame_hdr` + PT_GNU_EH_FRAME — done for the static and dynamic links, binate
 `10adaecd2`; (2b) the same for the scripted LayoutBuilder — done, binate `84b7b6515`; (3) the arm32
-`.ARM.exidx` above.  Sibling gap, not part of this entry: bnld's Mach-O reader drops `__compact_unwind`
+`.ARM.exidx` above, as ld.lld does it: (3a) the reader keeps SHT_ARM_EXIDX on EM_ARM with the code section
+its sh_link names; Layout gives `.ARM.exidx` its own read-only output section, walking the code sections in
+address order and placing each one's exidx inputs, or a synthesized EXIDX_CANTUNWIND entry for one with none
+(native Binate code, the runtime asm — else a PC there falls into the previous function's entry), then a
+CANTUNWIND sentinel past the last code; `__exidx_start` / `__exidx_end` when referenced; PT_ARM_EXIDX in the
+static arm32 writer; (3b) the scripted builder's PlaceArmExidx (firmware / bare metal), after the code it
+indexes.  Test on bare metal (qemu) with a C lookup of the table, as libgcc's `__gnu_Unwind_Find_exidx` does.  Sibling gap, not part of this entry: bnld's Mach-O reader drops `__compact_unwind`
 / `__eh_frame` and writes no `__unwind_info`, so a bnld-linked Mach-O cannot unwind through C code either.
 
 ### Spec gap: when are a compound statement's header temporaries released? — 🔴 NEEDS DECISION (found 2026-10-12, work-4, spec review of the `defer { … }` change; pre-existing)
