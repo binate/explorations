@@ -72,49 +72,6 @@ no wrong code.  Fix: make the deferred recheck find alias instantiations too (or
 against the alias), and test each collection-time site.  Test:
 conformance/spec/12-generics/109_err_satisfy_alias_iface_sig (xfail.all).
 
-### bnfmt drops an import's `#[build(...)]` annotation — the formatted file builds different code — 🟡 IN PROGRESS (claimed 2026-10-16, work-5/session) MAJOR (found 2026-10-16, work-3, label-sweep review)
-
-`printImports` / `appendImport` (pkg/binate/format/print_file.bn) never print `ImportSpec.Annotations`, so
-`bnfmt` turns a conditional import into an unconditional one.  On conformance
-737_build_import_select/pkg/sel/sel.bn both `#[build(is(arch, "aarch64"))] import "pkg/sel_aa"` and
-`#[build(!is(arch, "aarch64"))] import "pkg/sel_other"` come out as plain imports (a blank line between
-them), and the comment above them moves below the import block.  `bnfmt -w` on such a file silently changes
-which packages are imported (and so what is built); hygiene's bnfmt-format check covers only
-pkg/cmd/impls/ifaces, where no annotated import exists yet, so nothing has caught it.  Fix: print each
-import's annotations on the lines before it (as declarations do), keep an annotated import attached to them
-through the run sort, keep comments between imports in place, and add a format unit test (an annotated
-import round-trips byte-for-byte) plus 737 / 1370's annotated files as inputs.
-
-### A generic type's method signatures are never sized for its instances — an opaque by-value result reaches IR-gen — 🟡 IN PROGRESS (claimed 2026-10-16, work-5/session) MAJOR (found 2026-10-15, work-7, review of the function-signature opaque rule; reproduced; pre-existing)
-
-With `type Opaque` (no definition), `type Bx[T any] struct { p *T }` and `func (b *Bx[T]) Mk() T`, a
-`*Bx[Opaque]` value's `b.Mk()` compiles, links and runs: the opaque by-value result reaches IR-gen, the
-miscompile the opaque gate exists to prevent.  Likewise `Set(v *func(T))` / `Cb() *func(T)` (the
-function-signature rule).  A generic FUNCTION's signature is sized at each call (check_generic.bn
-`requireSizedType` on the instantiated params/results), but a generic type's method signature, instantiated
-by `instanceFuncType`, is never passed to `requireSizedType`, though `checkValueEmbedding`'s comment says
-"sizing is enforced per concrete instantiation, exactly as a generic function's is".  Fix: size each method's
-instantiated parameters and results where the instance is formed (or at each method call / method value,
-as for generic functions), with an error test (the probe above, `b.Mk()`).
-
-### A method with a by-value receiver of an opaque type is accepted and compiled — 🟡 IN PROGRESS (claimed 2026-10-16, work-5/session) MAJOR (found 2026-10-16, work-5, review of the generic-type method-signature sizing; reproduced; pre-existing)
-
-`type Opaque` (no definition) with `func (o Opaque) V() int { return 1 }` compiles, links and runs, and so does
-`type O2 Opaque; func (o O2) V() int` — an opaque value reaches IR-gen as the receiver, the miscompile the opaque
-gate exists to prevent.  The DECL_FUNC loop in check/check_decl.bn (around line 300) sizes a declaration's
-`d.Params` and results but never `d.Recv`.  (A generic type's method is covered: its instance signature, receiver
-included, is sized per instance.)  Fix: size a value receiver there as a parameter is; an error test for both
-forms.
-
-### A generic type's method signature is not checked at its declaration for the parts that do not involve the type parameters — 🟡 IN PROGRESS (claimed 2026-10-16, work-5/session) (minor; found 2026-10-16, work-5, review of the generic-type method-signature sizing; reproduced; pre-existing)
-
-`func (b *Bx[T]) Bad() Opaque { for {} }` on a generic type nobody instantiates is accepted (spec `gen.mono.check`:
-a rule that does not depend on a type argument is decided once, at the declaration, whether or not the program
-instantiates it); `checkValueEmbedding` skips every method of a generic type.  With `Bx[int]` and `Bx[bool]` the
-per-instance signature check reports it once, blamed on an instance (`in Bx[int].Bad, instantiated at …`).
-Nothing reaches IR-gen uninstantiated.  Fix: check a generic type's method parameters and results that mention
-no type parameter at the declaration, as a non-generic method's are.
-
 ### Instance-check diagnostics: a second instance's violation is hidden, and an instance formed through a generic's field is placed at that field — 🔴 OPEN (minor: diagnostics; found 2026-10-16, work-5, review of the generic-type method-signature sizing; pre-existing)
 
 contextualizeInstanceErrors drops an error another instance already reported at the same position, so with
@@ -142,18 +99,6 @@ for a type of 2^31 bytes or more.  Remaining (plan-int64-layout.md): stage 2 ir 
 iropt / irutil / mangle / types/abi to the int64 accessors; 3 LLVM codegen; 4 native backends and asm / elf /
 macho / link (bss without materialized zero bytes; a frame past the target's limit a compile error); 5 VM /
 interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the 32-bit lane.
-
-### An imported constant that is `len` of an array literal is not a constant to the importer — 🟡 IN PROGRESS (claimed 2026-10-16, work-5/session) (found 2026-10-14, work-1, writing the cross-package test for the iota-in-type-expression fix; reproduced; pre-existing)
-
-`const P int = len([3]int8{})` in a package's `.bni`: an importer's `var a [lc.P]int8` is rejected ("array
-length must be a constant integer"), though `len` of an array is an `int` constant (spec builtin.len); reading
-`lc.P` as a value works (3).  The `.bni` scope evaluates an imported constant's initializer without checking it
-(defineBniConst), and the evaluator's `len` (`checkerEnv.Len`, check/check_constval.bn) finds the type only of a
-checked argument (`ResolvedTypeID`), a variable it names, or a string literal — an unchecked composite literal
-has none, so the constant is NOT_CONST.  Test: conformance 1655 (`.xfail.all`).  Fix direction: let `Len` type an
-array composite literal from its type expression (`env.Type(e.TypeRef)`, resolved at the current iota) when it
-has no checked type — or check the initializer of an imported constant whose value needs a type the evaluator
-cannot find.
 
 ### The LLVM backend declares a function's own sret parameter `align 8` whatever the result's alignment; a C caller's buffer may be less aligned — 🔴 OPEN (found 2026-10-09, work-1, review of the returned-local change; pre-existing; plausible, not yet reproduced)
 
@@ -277,15 +222,6 @@ suggests pinning that `if` conditions' and `switch` tags' temporaries are releas
 runs, which matches the compiler for `switch` (unverified for `if`) — and give the `for` condition and post
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
-
-### A C-style `for` with init / post but no condition is not terminating to the checker — 🟡 IN PROGRESS (claimed 2026-10-16, work-5/session) MINOR (found 2026-10-12, work-4, writing the for-init scoping test; pre-existing)
-
-§14.14 `stmt.terminating` counts "a `for` with no condition and no `break` targeting it" as terminating, but
-check/check_terminates.bn also requires no init and no post statement (`if s.Init != nil || s.Post != nil
-{ return false }`), so `func f() int { for p := mk(); ; p.n++ { if p.n == 3 { return p.n } } }` is rejected
-with "missing return".  Either the checker drops the init / post condition (the spec's wording, and Go's rule)
-or the spec's parenthetical "(an unconditional `for { … }` infinite loop)" becomes the rule.  Needs a
-conformance test either way.
 
 ### A managed pointer to an interface value (`@(*I)` / `@(@I)`) passed for a raw `*any` miscompiles — 🟡 IN PROGRESS MAJOR (claimed 2026-10-16, work-1; decided 2026-10-16, user: "Opaque box (Recommended)"; user 2026-10-15: "I suspect we should define the box, but get the idea reviewed for feasibility and consistency; rejecting it seems ... artificial?"; found 2026-10-10, work-4, review of the deferred `@T` → `*I` fix; reproduced; pre-existing)
 
@@ -790,15 +726,12 @@ structs, then do the rest (Recommended)"):
    `check_instance_live.bn`) pick or create the variant through a helper; `InstWork.Lenders` is copied from
    the state.  §7.12's sentences on instances change with it.
 
-### A local of an ill-formed type is reported at its declaration and again at each use — 🟡 IN PROGRESS (claimed 2026-10-17, work-5/session) (minor: duplicate diagnostics; found 2026-10-15, work-7, while adding the function-value opaque rule; reproduced; pre-existing)
-
-`requireSizedType` (pkg/binate/check/check_opaque.bn) is called both where a type is written (declarations,
-fields, parameters) and where a value is used (`_ = v`, assignments, composite literals, dereferences), and its
-pointer-to-opaque-embedding rule (and, since the function-value opaque change, its function-signature rule)
-applies at both: `func L() { var p *([2]Opaque); _ = p }` reports "cannot form a pointer to a type that embeds an
-opaque type by value" at the `var` and again at the `_ = p`.  Fix: at a value-use site check only the by-value
-rule (and the size limit); the type-formation rules (pointer, signature) belong where the type is written.  Sort
-the ~15 `requireSizedType` call sites into the two kinds; a checker test that such a local is reported once.
+Both pieces cover two checks added since (binate `d9c3b4c15`, `621f94019`): an instance method's signature is
+sized in `checkInstanceBody` (`requireMethodInstanceSized`), so in the body's view, and a generic's parts
+that mention no type parameter are checked at the declaration (`requireIndependentSignatureSized`) — piece
+1's declaration check.  The function-signature part of the instance-method check uses the pure view, so an
+importer's export through a type parameter is missed there too (a review found `g.BS[q.Op]` with
+`Set(*func(T))` accepted).
 
 ### A `.bni` function declaration's signature is checked in the `.bn`'s view — a by-value opaque export in it is accepted at the package and rejected at each importer's call — 🔴 OPEN (found 2026-10-15, work-7, review of the function-signature opaque rule; reproduced; pre-existing)
 
@@ -810,27 +743,9 @@ not opaque, reaches `checkValueEmbedding`.  The error then lands on each importe
 (`type CBT *func(Op) int`) is rejected, as it should be.  Fix: check a `.bni` function declaration's
 parameters and results in the `.bni`'s view (pkg.bni.self-contained), so the error lands where the
 signature is written; error tests for the three declarations above.
-
-### Loader: a package with one `.bn` file gets the `.bni`'s imports (and declarations) merged into that file's own AST — its file scope sees imports it does not write — 🟡 IN PROGRESS (claimed 2026-10-17, work-5/session) (found 2026-10-09, work-7, review of the imported float const-expression fix; code reading; pre-existing)
-
-`pkg/binate/loader/loader_load.bn` builds the merged file as `merged = files[0]` when there is one `.bn` (a fresh
-`MergeFiles(files)` otherwise), then merges the `.bni` into `merged` — appending the `.bni`'s imports to
-`merged.Imports` and prepending its declarations — so `Package.Files[0]`, which the checker's per-file scopes and
-IR-gen's per-file import overlays use as that file's OWN imports, gains the `.bni`'s.  With `p.bni` importing
-`pkg/a` and a single `p/p.bn` importing nothing, `func F() int { return a.N }` in p.bn type-checks (imports are
-file-scoped, so it should not); add a second `.bn` and the same code is rejected.  **To do:** build a fresh merged
-file for the one-file case too (copy files[0]'s imports and declarations), so no source file's AST is mutated; an
-error test (the one-file package above) and a check that existing packages still build (some may rely on it).
-
-### A `switch` with two `default` clauses is accepted — invalid code accepted — 🟡 IN PROGRESS (claimed 2026-10-16, work-5/session), DECIDED 2026-10-15 (found 2026-10-03, work-3, review of the switch-default fix; reproduced 2026-10-15 on bnc and bni: the second default runs; pre-existing)
-
-`switch x { default: A; default: B }` (and a type switch with two) passes the parser, the checker and —
-literally — the spec, which never says a switch has at most one `default`.  Which one runs is an IR-gen
-accident (the last since the switch-default fix; the first before it).  Fix: spec `stmt.switch.default` — at
-most one default clause — and a checker error at the second ("multiple defaults in switch"), for expression
-and type switches; an error test.
-**Decided 2026-10-15 (user):** "Reject it" — at most one `default` per switch (§14 `stmt.switch.default`; type
-switches in §11.12 `iface.typeswitch`), a checker error at the second, an error test for each kind of switch.
+The same holds for a `.bni` var's type and a method value: since binate `9d94ec6bd` an importer's value use
+of them keeps only the value rules, so `_ = q.V` with `var V *([2]X)` in `q.bni` is accepted at the importer
+(a call's by-value result is still rejected there).  Check those in the `.bni`'s view too.
 
 ### Language feature (design): an annotation that keeps a function's frame from being optimized away — 🔴 OPEN, DESIGN (raised 2026-10-09 by the user, closing the debug.Callers -O2 entry: "As a todo, we can perhaps ponder an annotation that prevents the eliminiation of certain frames.")
 
@@ -2300,16 +2215,16 @@ nothing currently reaches the reject (the only section-relative relocs are in th
 unwind sections), so this stays parked until a real clang/LLVM object needs a
 section-relative reloc in a KEPT section.
 
-### `@F` with `type F X` over a type nothing defines drops with a plain release — no link error — 🟡 IN PROGRESS (claimed 2026-10-16, work-5/session) (minor; found 2026-10-10, work-7, review of the undefined-`__dtor_X` fix; code reading; pre-existing)
-
-An `@X` of a type nothing defines fails to link, naming `__dtor_X` (binate `9235b2aa6`), but a distinct type
-over it does not: with `type X; type F X`, `var p @F = nil` drops through EmitManagedPtrRefDec's plain RefDec —
-its opaque arm matches only an unpeeled stamped pointee (F is not stamped, and StripWrappers(F) is X, which no
-arm matches) — so the program compiles, links and runs.  Harmless as long as such an `@F` can only be nil, but
-inconsistent with `@X`.  Fix: route a named type whose underlying is an opaque type through that type's
-destructor (or give F a destructor that calls X's).
-
 ## bnfmt (self-hosted formatter)
+
+### bnfmt's import section: four layout nits from the import-annotation fix's review — 🟢 LOW (found
+2026-10-16, work-5, review of the import-annotation fix, binate `bf091b2ed`)
+
+Left after `pkg/binate/format/print_imports.bn`: (1) the lines of an empty `import ()` group read as blank
+lines when the printer decides where blank lines go; (2) the limit for an import's trailing comment is the
+first declaration's `Pos`, which for an annotated or `var` declaration is not its first token, so a comment
+before such a declaration may be taken as the import's; (3) a trailing comment on the `package` line moves;
+(4) a comment between an import's alias and its path moves.  Each needs a format test reproducing it first.
 
 ### bnfmt moves a comment inside an argument list below its statement — 🟢 LOW (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
 
