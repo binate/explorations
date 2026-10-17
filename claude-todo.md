@@ -35,6 +35,18 @@ func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
 
 ## MAJOR
 
+### A generic type's method signatures are never sized for its instances — an opaque by-value result reaches IR-gen — 🔴 OPEN MAJOR (found 2026-10-15, work-7, review of the function-signature opaque rule; reproduced; pre-existing)
+
+With `type Opaque` (no definition), `type Bx[T any] struct { p *T }` and `func (b *Bx[T]) Mk() T`, a
+`*Bx[Opaque]` value's `b.Mk()` compiles, links and runs: the opaque by-value result reaches IR-gen, the
+miscompile the opaque gate exists to prevent.  Likewise `Set(v *func(T))` / `Cb() *func(T)` (the
+function-signature rule).  A generic FUNCTION's signature is sized at each call (check_generic.bn
+`requireSizedType` on the instantiated params/results), but a generic type's method signature, instantiated
+by `instanceFuncType`, is never passed to `requireSizedType`, though `checkValueEmbedding`'s comment says
+"sizing is enforced per concrete instantiation, exactly as a generic function's is".  Fix: size each method's
+instantiated parameters and results where the instance is formed (or at each method call / method value,
+as for generic functions), with an error test (the probe above, `b.Mk()`).
+
 ### int64 layout, stages 2-6: IR, LLVM codegen, native backends, VM — a 32-bit-hosted compiler fails loud on a > 2 GB type for a 64-bit target until they carry int64 — 🟡 PAUSED (claimed 2026-10-15, work-1; user 2026-10-15: "MAJORs first, then back"; the CRITICAL's continuation, plan-int64-layout.md)
 
 Stage 1 landed (binate `56c30e545`, docs `dc6444c`): types lays out in int64 and the checker rejects a type too
@@ -660,6 +672,17 @@ applies at both: `func L() { var p *([2]Opaque); _ = p }` reports "cannot form a
 opaque type by value" at the `var` and again at the `_ = p`.  Fix: at a value-use site check only the by-value
 rule (and the size limit); the type-formation rules (pointer, signature) belong where the type is written.  Sort
 the ~15 `requireSizedType` call sites into the two kinds; a checker test that such a local is reported once.
+
+### A `.bni` function declaration's signature is checked in the `.bn`'s view — a by-value opaque export in it is accepted at the package and rejected at each importer's call — 🔴 OPEN (found 2026-10-15, work-7, review of the function-signature opaque rule; reproduced; pre-existing)
+
+With `q.bni` exporting `type Op` opaquely and declaring `func Get() Op`, `func DefaultCB() *func(Op) int` and
+`func Run(cb *func(Op) int) int` (defined in `q.bn`), all are accepted where they are written: the `.bni`
+declaration is paired with its `.bn` definition, and only the `.bn` one, in the `.bn`'s view where `Op` is
+not opaque, reaches `checkValueEmbedding`.  The error then lands on each importer's call result
+(`q.Run(q.DefaultCB())` is rejected at the call), or nowhere (`q.Run(nil)`).  A `.bni` type declaration
+(`type CBT *func(Op) int`) is rejected, as it should be.  Fix: check a `.bni` function declaration's
+parameters and results in the `.bni`'s view (pkg.bni.self-contained), so the error lands where the
+signature is written; error tests for the three declarations above.
 
 ### Loader: a package with one `.bn` file gets the `.bni`'s imports (and declarations) merged into that file's own AST — its file scope sees imports it does not write — 🔴 OPEN (found 2026-10-09, work-7, review of the imported float const-expression fix; code reading; pre-existing)
 
