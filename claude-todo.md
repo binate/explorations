@@ -2207,18 +2207,23 @@ destructor (or give F a destructor that calls X's).
 
 ## bnfmt (self-hosted formatter)
 
-### bnfmt lays out the argument list after a directly called function literal as if its `(` were alone — 🟢 LOW, 🟡 IN PROGRESS (claimed 2026-10-16, work-4; user: "go ahead and fix bnfmt") (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
+### bnfmt moves a comment inside an argument list below its statement — 🟢 LOW (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
 
-`printCall` / `printIndex` (`pkg/binate/format/print_expr.bn`) pass `headLine(e.X)`, the head's Pos line,
-as the list's opener line.  For `func(v int) {` … `}(x)` that is the `func` line, while `(` and `x` are on
-the `}` line, so `printArgList` (`print_wrap.bn`) takes the opener as alone and prints `}(` with `x` on a +2
-continuation line.  The opener's line is the `(`'s (`e.Pos.Line`).  Likewise `printArgList` reads the first
-and last elements' lines from their Pos, so a first argument `func() { … }()` counts as starting on its last
-line.  (The statement-level form of this, `stmtStartPos` / `exprStartPos`, is fixed.)  Changing the opener
-line also changes calls whose head spans lines another way (a chain split after `.`: `x.` / `f(a)`), so check
-the layout of bnfmt-format.sh's roots under it first.  Related, a comment inside a multi-line left operand
-but outside any function literal (`a.b(x, // c` / `y).c = 1`) is printed before the next statement — the
-fallback for a comment no node places, as for the same comment on a right-hand side.
+A comment after an argument in a wrapped list -- `h(x, // e` / `y)`, also on a right-hand side
+(`z := h(x, // d` …) and in a left operand (`a.b(x, // c` / `y).c = 1`) -- is placed by no node, so it is
+printed on its own line after the statement, followed by a blank line, and the list is joined: `h(x, y)`,
+then `// e`, then a blank line.  The fill printers (`fillExprList` and `fillStrs`,
+`pkg/binate/format/print_wrap.bn`) would need to emit a same-line comment after the element it follows and
+break the line there.
+
+### bnfmt takes a builtin's keyword line, and `__c_call`'s symbol line, as its `(`'s — 🟢 LOW (found 2026-10-16, work-4, review of the list-start fix; pre-existing)
+
+An EXPR_BUILTIN's Pos is its keyword, and the AST records no `(` position, so `printBuiltin`
+(`pkg/binate/format/print_builtin.bn`) passes the keyword's line as the opener's: `_ = len` / `(x)` (no
+semicolon is inserted after a builtin keyword) prints `len(` with `x` on a continuation line.  `printCCall`
+also records the symbol operand at the call's Pos line (the symbol has no position of its own), so its
+opener is never alone, and a source `__c_call(` / `"f", int, a)` is joined.  Fix: record the `(` (and the
+symbol's) position in the parser.
 
 ### bnfmt prints a function-local grouped declaration's closing `)` at column 0 — 🟢 LOW (found 2026-10-14, work-1, formatting a conformance test; pre-existing)
 
@@ -2248,8 +2253,10 @@ current line from `len(exprSingleLine(elem))`, the length of its whole rendering
 literal only the first line (`func() {`) shares the line, so a literal whose body holds a few comment lines
 measures too long: `register("…", 123456789, func() { // c` formats as `register("…", 123456789,` then the
 literal on a `+2` continuation line, where the same literal without the comment stays on the call's line.
-Valid and idempotent, not canonical.  The first-argument decision (`wrapOpenerAlone`) already measures by the
-first line.  Measuring the fill decision the same way changes the layout of ~20+ files in the tree
+Valid and idempotent, not canonical.  The first-argument decision (`wrapOpenerAlone`) measures a literal at
+the element's left edge (alone, or called: `func() { … }()`) by its first line, but an element that only
+ends in one, `s.Map(func(x int) int { … })`, by its whole text, so a long body puts `(` alone above it.
+Measuring the fill decision the same way changes the layout of ~20+ files in the tree
 (cross-line strings and other multi-line elements, e.g. `pkg/binate/asm/parse/*.bn`, `cmd/bnc/main.bn`), so
 it needs a decision on which multi-line elements it applies to (function literals only?) and a reformat of
 the tree in step with the CHECK_TOOLS bnfmt.

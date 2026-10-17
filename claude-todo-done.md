@@ -1,3 +1,17 @@
+### bnfmt lays out the argument list after a directly called function literal as if its `(` were alone — DONE (binate `6072c64a4`, 2026-10-16, work-4) (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
+
+A wrappable list keeps its opener alone when its first element starts on a later line, and it read the
+head's first line as the opener's and each element's line from its Pos -- the operator of a call, selector,
+index or binary expression, the `{` of a composite, the `[` of an instantiation.  So `func(v int) {` …
+`}(x)` printed `}(` with `x` on a continuation line, as did a first argument `func() { … }()` or one split
+after a `.`, and the same shapes in composite elements, case labels and type lists (`Pair[pkg.` /
+`Vec[int], int]`; a grouped member split that way also gained a blank line).  `printCall` / `printIndex` now
+pass the `(` / `[` line; the lists take first-token lines from `exprStartPos` (a composite's from its type)
+and the new `typeStartPos`; and the first-argument width check measures a called literal by its first line
+(`exprLeftmost`), which the review found missing from the first version.  No file under hygiene's bnfmt
+roots changed layout.  Tests: `pkg/binate/format/print_list_start_test.bn`.  The comment-placement problem
+this entry also noted is now "bnfmt moves a comment inside an argument list below its statement".
+
 ### Every function signature is held to the opaque rules where it is written — DONE (binate `df6f53cf6`, docs `bd230a0`, 2026-10-16, work-7)
 
 A function declaration's by-value opaque parameter or result, or one pointing to a type embedding an opaque
