@@ -41,6 +41,20 @@ and iface.self.constraint's "as a type parameter whose constraint is `I` would" 
 
 ## MAJOR
 
+### An importer's `sizeof` / `alignof` of a type its `.bni` declares later crashes the compiler — 🔴 OPEN MAJOR (found 2026-10-17, work-5, review of the `.bni` constant `len` change; reproduced; pre-existing)
+
+`const Z uint = sizeof(S)` followed by `type S struct { x int64; y int64 }` in `q.bni`, with an importer's
+`var a [q.Z]int8`, panics: "internal error: an array length the type checker did not resolve reached IR
+generation" (also `alignof(S)` and `sizeof([2]S)`; the single-package form compiles and prints 16).  The
+importer evaluates the `.bni` constant while building the `.bni` scope (BuildingIfaceScope), when S is still a
+pass-1 placeholder: checkerEnv.Type (check/check_constval.bn) sees it as embedding an opaque type and returns
+POISONED without reporting anything — a status that means "its error is already reported" — so the importer's
+`[q.Z]` reports nothing and the unresolved length reaches IR-gen.  Fix: in that context return NOT_CONST, never a
+silent POISONED (the importer then rejects `[q.Z]` "array length must be a constant integer"), and properly make a
+`.bni` constant's evaluation see the `.bni`'s later types (resolve them first, as collectConstDeps does for later
+constants), so the program compiles.  A conformance test for the crash (the program above) and for a later
+named array type under `len` (`const R int = len(Row{})` before `type Row [8]int16`, also rejected today).
+
 ### A constrained generic alias instantiated during declaration collection is never constraint-checked — an interface method signature accepts `O[W]` — 🔴 OPEN MAJOR (found 2026-10-16, work-3, review of the spec §12.4 gap removal)
 
 With `type Box[T any] struct { v T }`, `type O[T lang.Orderable] = Box[T]` and `type W struct { f int }`
