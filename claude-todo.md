@@ -2179,7 +2179,7 @@ destructor (or give F a destructor that calls X's).
 
 ## bnfmt (self-hosted formatter)
 
-### bnfmt lays out the argument list after a directly called function literal as if its `(` were alone — 🟢 LOW (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
+### bnfmt lays out the argument list after a directly called function literal as if its `(` were alone — 🟢 LOW, 🟡 IN PROGRESS (claimed 2026-10-16, work-4; user: "go ahead and fix bnfmt") (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
 
 `printCall` / `printIndex` (`pkg/binate/format/print_expr.bn`) pass `headLine(e.X)`, the head's Pos line,
 as the list's opener line.  For `func(v int) {` … `}(x)` that is the `func` line, while `(` and `x` are on
