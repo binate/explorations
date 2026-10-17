@@ -1,3 +1,18 @@
+### bnfmt indents a function literal's body from column 0 inside a composite literal element (and a case label) — DONE (binate `37caac55b`, 2026-10-17, work-4) (found 2026-10-06, work-3, review of the function-literal comment fix; pre-existing)
+
+Lists laid out from element text rendered into a fresh builder -- composite elements, case labels,
+`__c_call` arguments, parameters and type lists (`printStrList` / `fillStrs`,
+`pkg/binate/format/print_wrap.bn`) -- indented the later lines of an element that spans lines as if it
+started at column 0: a function literal's body and `}`, a string split across lines, a nested list that
+wraps, a multi-line struct.  Each element is now a `listItem` (`pkg/binate/format/print_listitem.bn`)
+holding its column-0 text, its first token's line and its node; a one-line element is written from its
+text as before, and one that spans lines is printed again in place, reserving the comma or the list's close
+that follows it.  Four check tests change layout under the new bnfmt
+(`pkg/binate/check/{check_generic_alias,check_lit_addr,check_stmt,check_too_large}_test.bn`, each a split
+string in a composite, indentation only); they keep the CHECK_TOOLS bnfmt's layout until the CHECK_TOOLS
+bump reformats them.  Tests: `pkg/binate/format/print_listitem_test.bn`.  The comment between a literal's
+parameters noted here moved to the argument-list comment entry.
+
 ### An instance's type-argument parts are judged where the arguments are written (struct instances) — DONE (binate `7c5273422`, docs `87bf772`, 2026-10-16, work-7)
 
 Inside a generic instance the formation rules counted only a type with no definition anywhere as opaque, so

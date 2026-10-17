@@ -2286,7 +2286,8 @@ destructor (or give F a destructor that calls X's).
 A comment after an argument in a wrapped list -- `h(x, // e` / `y)`, also on a right-hand side
 (`z := h(x, // d` …) and in a left operand (`a.b(x, // c` / `y).c = 1`) -- is placed by no node, so it is
 printed on its own line after the statement, followed by a blank line, and the list is joined: `h(x, y)`,
-then `// e`, then a blank line.  The fill printers (`fillExprList` and `fillStrs`,
+then `// e`, then a blank line.  A comment between a function literal's parameters (`func(a int, // c` /
+`b int) {` …) moves below the statement the same way.  The fill printers (`fillExprList` and `fillStrs`,
 `pkg/binate/format/print_wrap.bn`) would need to emit a same-line comment after the element it follows and
 break the line there.
 
@@ -2309,18 +2310,24 @@ then `\t<identifier>`, shallower than the statement.  `rhsContLongest` measures 
 statement's indent + 1, so the width check and the print disagree.  Valid and idempotent.  Fix: take the
 indent before writing the newline, with a unit test.
 
-### bnfmt indents a function literal's body from column 0 inside a composite literal element (and a case label) — 🟢 LOW, 🟡 IN PROGRESS (claimed 2026-10-16, work-4; user: "you can continue to fix any easy-to-fix bnfmt bugs afterwards") (found 2026-10-06, work-3, review of the function-literal comment fix; pre-existing)
+### bnfmt joins the element after a split string onto the string's continuation line in a composite literal, case label or `__c_call` — 🟢 LOW (found 2026-10-16, work-4, fixing the multi-line list-element indent; pre-existing)
 
-`printCompositeElems` (`pkg/binate/format/print_wrap.bn`) renders each element into a fresh builder, where
-`currentLineIndent` is 0, so a function literal as an element's value indents its body from column 0:
-inside a function, `var s = S{f: func() { g() }}` with a multi-line body prints as
-`	var s = S{f: func() {
-	g()
-}}` (body and closing brace at the wrong depth).  Idempotent but
-mis-indented.  Other lists rendered from pre-built element strings (case labels via `caseLabelStrs`,
-`printStrList` callers) likely share it.  Also pre-existing: a comment between a literal's parameters
-(`func(a int, // c`) moves below the statement, with an extra blank line after it.  Fix: render the
-elements with the enclosing indent (or print function-literal elements directly into the target builder).
+In a call's arguments, the element after a string split across lines starts on a fresh continuation line
+(`fillExprList`'s `exprIsCrossLineStr` check, `pkg/binate/format/print_wrap.bn`), but `fillStrs` --
+composite elements, case labels, `__c_call` arguments -- packs it onto the string's deeper continuation:
+`var s = @[]@[]char{` / `"aaa"` / `"bbb",` / `"ccc"}`, with `"ccc"` on a line of its own in the source,
+prints `"bbb", "ccc"}` on the string's continuation line, where the same arguments of `g(` print `"ccc")`
+back on a line at the list's continuation indent.  Fix: the same check in `fillStrs`, for an item whose
+expression (`listItem.x`) is a cross-line string.
+
+### bnfmt's time grows exponentially with the nesting depth of calls and of multi-line list elements — 🟢 LOW (found 2026-10-16, work-4, fuzzing the multi-line list-element indent fix; the call case pre-existing)
+
+Each call nested in a call's arguments makes formatting about three times slower: calls nested 16 deep
+take ~37 s (not traced; likely the width decisions rendering each argument subtree again).  A list element
+that spans lines (`pkg/binate/format/print_listitem.bn`) is rendered at column 0 to measure it, then printed
+again in place, so each level of nested multi-line composite elements doubles the time: twenty levels take
+~2.3 s.  Real code does not nest this deep, but the time should not be exponential in depth.  Fix: compute
+each node's widths once (cached per node) instead of re-rendering subtrees to measure them.
 
 ### bnfmt packs a later argument that is a multi-line function literal by its whole text — a commented literal breaks onto a continuation line — 🟢 LOW (found 2026-10-06, work-3, fixing the function-literal comment placement)
 
@@ -2331,7 +2338,9 @@ measures too long: `register("…", 123456789, func() { // c` formats as `regist
 literal on a `+2` continuation line, where the same literal without the comment stays on the call's line.
 Valid and idempotent, not canonical.  The first-argument decision (`wrapOpenerAlone`) measures a literal at
 the element's left edge (alone, or called: `func() { … }()`) by its first line, but an element that only
-ends in one, `s.Map(func(x int) int { … })`, by its whole text, so a long body puts `(` alone above it.
+ends in one, `s.Map(func(x int) int { … })`, by its whole text, so a long body puts `(` alone above it.  `printStrList` and `fillStrs` (composite
+elements, case labels, `__c_call` arguments, parameters, type lists) measure every element, the first
+included, by its whole text.
 Measuring the fill decision the same way changes the layout of ~20+ files in the tree
 (cross-line strings and other multi-line elements, e.g. `pkg/binate/asm/parse/*.bn`, `cmd/bnc/main.bn`), so
 it needs a decision on which multi-line elements it applies to (function literals only?) and a reformat of
