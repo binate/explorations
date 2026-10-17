@@ -83,7 +83,7 @@ by `instanceFuncType`, is never passed to `requireSizedType`, though `checkValue
 instantiated parameters and results where the instance is formed (or at each method call / method value,
 as for generic functions), with an error test (the probe above, `b.Mk()`).
 
-### A method with a by-value receiver of an opaque type is accepted and compiled — 🔴 OPEN MAJOR (found 2026-10-16, work-5, review of the generic-type method-signature sizing; reproduced; pre-existing)
+### A method with a by-value receiver of an opaque type is accepted and compiled — 🟡 IN PROGRESS (claimed 2026-10-16, work-5/session) MAJOR (found 2026-10-16, work-5, review of the generic-type method-signature sizing; reproduced; pre-existing)
 
 `type Opaque` (no definition) with `func (o Opaque) V() int { return 1 }` compiles, links and runs, and so does
 `type O2 Opaque; func (o O2) V() int` — an opaque value reaches IR-gen as the receiver, the miscompile the opaque
