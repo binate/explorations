@@ -352,6 +352,10 @@ every special case — isPanicCall, the arity / spread diagnostics, IR-gen's gen
 mark; IR-gen's funcRefName maps a marked `panic` to `pkg/builtins/rt.Panic` and funcRefShadowed returns false for
 it, so the value forms go through the ordinary function-value paths.  IR-gen must never resolve `panic` by name
 (an imported generic body would bind the instantiating package's `func panic`).
+Open (needs a user decision; found 2026-10-17 by the review of the change): `_func_handle(panic)` and
+`__c_entry(panic)` pass the checker (check_builtin.bn and cEntryFuncSym resolve the name with `c.Scope.Lookup` and
+accept the universe SYM_FUNC) and then fail in clang (IR-gen emits the bare name `main.panic`); pre-existing.
+Either reject the predeclared `panic` in both checks (isUniversePanic), or treat it as rt.Panic in both.
 
 ### `panic` used as a value (`var f = panic`, `take(panic)`, `box(panic)`) passes the checker and crashes IR-gen — 🟡 IN PROGRESS (claimed 2026-10-17, work-1; user 2026-10-17: "(b) sounds right, but get this idea reviewed. What exactly does the spec say about panic being checked specially? (Obviously, when passed as a value, it loses any special checks; but why would we force people to wrap panic in a trivial function if they want to pass it?)"; found 2026-10-17, work-1, review of the function-name-into-`*any` change; design reviewed 2026-10-17, user: "2. yes" — done together with "`panic` is recognized by name …")
 
