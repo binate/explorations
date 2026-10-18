@@ -1504,10 +1504,10 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   backends) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report
   `perf/placement/layout.py`) landed as binate `f05342e5d` (2026-10-18); tooling commit 3 (timing driver
   `ab.py`, analysis `stats.py`) landed as binate `4f9e3c75b` (2026-10-18); done entries for all three.
-  Next: commit 4 (probe), then phase-0 calibration, block layout, and the placement policies. Pending
-  user decisions on commit 3: the selection order (implemented: the Decisions rule, geomean first),
-  whether the 1% text budget is summed over workloads or per workload, and whether ab.py should refuse
-  benchmark sizes whose runs are too short for user time to resolve. Pending user decision: on Mach-O, `--expect-seed` in shift mode fails only when inexact rows
+  Next: commit 4 (probe), then phase-0 calibration, block layout, and the placement policies. User
+  decisions on commit 3 (2026-10-18): keep the selection order (the Decisions rule, geomean first), keep
+  the 1% text budget summed over workloads, and make ab.py refuse a reference run under 0.5 s of CPU
+  unless --allow-short-runs (binate `1997e9dbc`, not yet landed). Pending user decision: on Mach-O, `--expect-seed` in shift mode fails only when inexact rows
   outnumber exact ones (dead-strip moves functions); the exact alternative is an option that reads the
   kept object files.
   Open (found 2026-10-18 by `layout.py --expect-seed`): phase mode does NOT survive a dead-stripped Mach-O link
