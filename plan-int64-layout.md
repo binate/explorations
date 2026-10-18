@@ -88,7 +88,12 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
    non-panicking predicates.)
 2. ir / irgen / irbuild / irdata / iropt / irutil / mangle / types/abi move to the int64 API: sizeof / alignof
    constants, field and element offsets (GEP), copy and zero-fill sizes, `DataZero` and `DataTerm.Addend`,
-   type-info records.
+   type-info records.  Status: DONE `addbb15a2` (2026-10-18).  Also int64: DataTerm.Width, BuildGlobalVar's size,
+   abi.ResultImageSize / AggregateReturnSize, ir.Instr.RetbufSize and the descriptors' RetbufSize (a large
+   result is legal for a 64-bit target compiled on a 32-bit host); consumers that write host memory narrow
+   with HostInt (native's materialized zero-fill until stage 4, the VM, the interpreter).  types/abi's
+   register classifiers narrow through boundedInt (fails loud past 64) on aggregates already bounded to 16
+   bytes; the HFA fold caps member counts at 5 (an exact count could wrap on a 32-bit host).
 3. LLVM codegen: sizes and offsets in the emitted IR (allocas, GEPs, memcpy / memset / memmove, data).
 4. Native backends (common, callconv, fold, aarch64, x64, arm32) and asm / elf / macho / link: data sizes,
    copy and zero-fill lengths and loop counts, offsets past 32 bits, bss without materialized zero bytes; a

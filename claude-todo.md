@@ -129,8 +129,9 @@ the user's 2026-10-15 order: "MAJORs first, then back"; the CRITICAL's continuat
 Stage 1 landed (binate `56c30e545`, docs `dc6444c`): types lays out in int64 and the checker rejects a type too
 large for the target; the rest of the compiler still narrows to the host's int through the transitional
 accessors (SizeOf / FieldOffset / TrailingPadding / ArrayLenHost / HostInt), which fail loud on a 32-bit host
-for a type of 2^31 bytes or more.  Remaining (plan-int64-layout.md): stage 2 ir / irgen / irbuild / irdata /
-iropt / irutil / mangle / types/abi to the int64 accessors; 3 LLVM codegen; 4 native backends and asm / elf /
+for a type of 2^31 bytes or more.  Stage 2 landed (binate `addbb15a2`, 2026-10-18): ir / irgen / irbuild / irdata /
+iropt / types/abi read layout in int64, and the shared records (irdata's data terms, type-info records, retbuf sizes)
+are int64.  Remaining (plan-int64-layout.md): 3 LLVM codegen; 4 native backends and asm / elf /
 macho / link (bss without materialized zero bytes; a frame past the target's limit a compile error); 5 VM /
 interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the 32-bit lane.
 
