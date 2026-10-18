@@ -45,12 +45,33 @@ IR-gen cannot map is an internal error, never `int`.
    reflectPackageStructType).  Assert-and-run whether bindTypeParams / CurrentTypeParamOwner are still
    reached for function bodies (they predate checked-copy emission, `d938d91bb`).
 1. **Checker records.**
-   - `TypeExpr.ResolvedTypeID` stamped at every resolution, including the piecewise sites:
-     `[...]T` composite heads (checkCompositeLit infers the length without resolveTypeExpr), assertion /
-     type-switch targets (IR-gen should take the assertion Expr's recovered type instead), impl interface
-     refs (resolveImplInterfaceRef), interface parents (resolveInterfaceExtension), interface-alias targets,
-     and write-back from the copies WithNamedBlankBinders makes (receivers / impl receivers with `_`
-     binders); cleared by the clone functions (as LenVal is); re-set on REPL re-checks.
+   - DONE (binate `d93f895df`, 2026-10-18): `TypeExpr.DenotedTypeID` (named apart from Expr.ResolvedTypeID,
+     which indexes ExprTypes) indexes a dedicated table, Checker.Stamps, read with Checker.TypeExprType.  Each
+     record names its node (raw pointer), so a node resolved again keeps its id; an id another checker left
+     or a whole-node copy inherited is not trusted.  Recorded by resolveTypeExpr /
+     resolveTypeExprAllowInterface / resolveStructType; an assertion / type-switch target records the type it
+     recovers (equal to what the target syntax denotes); a `_`-binder receiver is resolved through its
+     WithNamedBlankBinders copy and the records copied back; a generic alias's target and a generic
+     interface's parents take the records of the copy their abstract instantiation was resolved from (copying,
+     not re-resolving, so nothing checked changes).  A type declaration's struct records the declared type's
+     underlying (named): checkValueEmbedding's size check rebuilds it unrecorded; a generic struct's
+     definition records its struct over the type parameters, unnamed (a package's .bni and .bn each declare
+     it, instances are made from the first registered — the .bni's — and only the merged .bn's is checked
+     abstractly), each instance copy the instance's named underlying.
+     Walk test check_type_stamps_walk_test.bn; a temporary hook running the walk after every compilation
+     found nothing unrecorded across the builder-comp corpus and bnc's self-compile.  Exempt from the walk:
+     the `[...]` of an inferred-length literal (Stage 0: the literal's type has the length — no record, unlike
+     the earlier text of this bullet), an instantiation's head (names a generic), an instance copy's
+     constraints (never resolved: each instantiation checks against a copy of its own).
+     Notes for the later stages, from the review: (a) a node resolved more than once records the LATEST
+     resolution, so a composite type's record is identical to, but not the same object as, the one a symbol
+     or signature holds — stage 2's memo by checker Type pointer is sound for named types only, composites
+     need structural keys or the declaration's type; (b) the ids are per AST node, so a second checker over
+     the same AST (interp LoadProgram then LoadCallable on one loader) takes them: the first checker's records
+     then read nil — any stage that reads records must run before another checker re-checks that AST, or the
+     records move to per-checker tables keyed by node; (c) throwaway clones (constraint checks, instance
+     signatures, `_`-binder copies, failed instance bodies) add records, so the table grows with the
+     instantiations, not only the source nodes (memory, not a leak).
    - A DENOTED-TYPE record on type-denoting Exprs (type args written as expressions, `T.M` / `Box[int].M`
      bases, `pkg.T` selectors) — separate from Expr.ResolvedTypeID, which is a value's type.
    - A type-vs-value classification for IR-gen's probe sites (typeArgExprToType on the X of `X.M` / `X[...]`,
