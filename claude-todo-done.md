@@ -1,3 +1,18 @@
+### x64 assembler: operand sizes checked; `[rip + label]` in every encoder — DONE (binate `ad3b8ddeb`, `1ad5c6634`, 2026-10-18, work-2) (x64 assembler entry, items (ii), (iv), (v))
+
+(ii) The encoders check operand sizes — the two register / memory operands of Mov, the ALU group, Test, Imul2 and
+Imul3 must match (`mov qword ptr [rax], ecx` is an error, as clang), any other size is an error — and the text parser
+gives an unsized memory operand its register operand's size, or "ambiguous operand size" with none (`ad3b8ddeb`).
+(iv) A `[rip + label]` operand is a memory operand like any other: every encoder taking one encodes it with a
+FIX_REL32_LEA fixup, whose addend is reduced by the size of any immediate after the rel32 (ELF R_X86_64_PC32 `x-5`
+for `add dword ptr [rip + x], 5`); the Mach-O writer picks X86_64_RELOC_SIGNED_1 / _2 / _4 from the addend as
+written against the label (before a temporary's reference moves to its atom), as clang does.  bnas matches clang's
+text and relocations for 33 RIP-relative forms on ELF and Mach-O; a review found no correctness defects (and the
+alias-folding divergence now logged under the asm alias entry) (`1ad5c6634`).  (v) The "Pre-fix this" comment was
+already gone.  Tests: x64 x64_size_test, x64_rip_imm_test, x64_operand_test; parse x64_size_test,
+TestX64RipWithImmediate; macho TestMachoX64SignedTypes, TestMachoX64SignedTypeOfTemporary; elf
+TestWriteElfX64RipImmediateAddends.
+
 ### Copy propagation for `var y = x` — DONE (binate `25c8a5f6d`, 2026-10-18, work-1) (aggregate-copy entry; user order 2026-10-13)
 
 New iropt pass copy-prop (-fcopy-prop, -O1+, not in the VM set): `v = OP_LOAD x; OP_STORE y, v` folds — y's uses

@@ -663,28 +663,12 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### x64 assembler / text parser: operand sizes unchecked (`mov [rax], ecx` is an 8-byte store), RIP-label forms, `ret imm16` — 🟡 IN PROGRESS (claimed 2026-10-18, work-2; user: "Fix each first", before the x86-64 TLS operators) (found 2026-09-25; work-4's 2026-09-25 claim released 2026-10-12 — nobody is on it)
-Progress (work-2): (ii) operand sizes — landed binate `ad3b8ddeb` (2026-10-18): the encoders check sizes, and an
-unsized memory operand takes its register's ("ambiguous operand size" without one), as clang; (v) the "Pre-fix this"
-comment is gone (found 2026-10-18).  Next: (iv), then (vi).
-Re-checked 2026-10-12: (ii), (v) and (vi) below are still open (emitALU encodes at one operand's size,
-`operandSize`, with no match check; the "Pre-fix this" comment is still in `x64_data_test.bn`; no `ret imm16`
-form); (iv) was not re-checked.
-(REX.X/REX.B, RIP-label operand size, operand-kind validation, per-width immediate ranges incl. the imm8-only
-paths, and SZ16 imm16 landed in `d35da4a89`, see done log; `emitModRM`'s wrong addresses — no base with an
-index, an RSP index, scale 3, a displacement beyond 32 bits, `[5]` encoded RIP-relative — and the text parser's
-greedy displacement / scale parse (`[rbp - 8 + 4]`, `[rax+r9*2+2]`) were fixed by binate `c361a10e8`, see done
-log.)  Still open, all silent: (ii) Operand SIZES are not validated: mixed register/memory or register/register
-sizes encode at one operand's width (`Mov(Mem SZ64, Reg SZ32)` → `48 89 08`, a 64-bit store; clang rejects
-`mov qword ptr [rax], ecx`), non-SZ sizes encode as 32-bit ops, and the parser defaults an unsized `[rax]` to
-SZ64 so `mov [rax], ecx` is an 8-byte store — fix by requiring matching SZ sizes in emitALU/Test/Mov/
-emitUnaryRM/emitShift (every native call site already passes matching sizes) and inferring an unsized memory
-operand's size from the register in the parser.  (iv) `[rip + label]` is supported only by
-Mov/Lea (everything else rejects it); RIP-label forms followed by an immediate need a relocation that
-accounts for the trailing immediate.  (v) `x64_data_test.bn` ~61 has a "Pre-fix this" comment (not
-stand-alone).  (vi) `ret imm16` (C2 iw, RET's stack-popping form) has no encoder or parser form: rejected
-(since `331b13ee4`, which rejects text after an instruction's operands; before, `ret 1` silently assembled as
-`ret`).  **Fix:** as listed; golden bnas-vs-clang tests per form.
+### x64 assembler / text parser: `ret imm16` has no form — 🟡 IN PROGRESS (claimed 2026-10-18, work-2; user: "Fix each first", before the x86-64 TLS operators) (found 2026-09-25)
+(Operand sizes, `[rip + label]` in every encoder and the stale "Pre-fix this" comment are done: binate
+`ad3b8ddeb`, `1ad5c6634`, see the done log.)  Still open: (vi) `ret imm16` (C2 iw, RET's stack-popping form)
+has no encoder or parser form: rejected (since `331b13ee4`, which rejects text after an instruction's
+operands; before, `ret 1` silently assembled as `ret`).  **Fix:** an encoder and the parser form; golden
+bnas-vs-clang tests.
 ### arm32 assembler: condition codes and some register fields are silently masked — 🔴 OPEN, unclaimed (found 2026-09-25 by the T6 b1 review; work-4's 2026-09-25 claim released 2026-10-12 — nobody is on it)
 
 (The Operand2 path, register-offset memory shifts and operand registers, and the clang alias substitutions are
