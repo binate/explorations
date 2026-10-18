@@ -37,7 +37,13 @@ runs.  (It also lets `impl W[K]` make `@W[int]` satisfy it, which neither readin
 *Cursor[T] : Iterator[T]` asserts that `Cursor[T]` satisfies `Iterator[T]`.  Text to revise with the decision:
 §11.9 iface.self ("substituted by the implementing named type"), §11.3 iface.impl.coverage ("with `Self`
 substituted by `R`'s named type"), gen.impl.generic-recv, gen.satisfy's receiver clause, gen.mono.constraint-call,
-and iface.self.constraint's "as a type parameter whose constraint is `I` would" (once it lands).
+iface.self.constraint's "as a type parameter whose constraint is `I` would", and the Provisional notes under §11.3
+iface.impl.form and §12.1 gen.impl.generic-recv (docs `69e9d03`).
+
+With `Self` in a type argument, an `impl *P : I` cannot be implemented at all (2026-10-17, work-6): for `interface
+I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`, the method spelled `Put(b
+*OBox[P])` (Self is P) is rejected, since P does not satisfy Orderable (the impl is for *P), and spelled `Put(b
+*OBox[*P])` it does not match I.
 
 ## MAJOR
 
@@ -2996,17 +3002,6 @@ resolve where it was declared, and an instance reuses the declaration-time check
 (plan-irgen-checker-types.md decision 7).  For generic METHODS that suggests replacing the proposal above: a
 sibling keeps calling the old (shadowed) method, which stays instantiable — to confirm with the user.
 
-### `Self` as a type argument never satisfies a constraint, even one the interface extends — 🟡 IN PROGRESS (claimed 2026-10-16, work-6; user, to treating Self as a type parameter bounded by the declaring interface: "yes, option 2 sounds fine (but get it reviewed, including your proposed spec update)"; found 2026-10-14, work-6, review of the checker fix for `Self` inside struct types / type arguments; pre-existing)
-
-`type OBox[T lang.Orderable] struct { v T }`, `interface I : lang.Orderable { Put(b *OBox[Self]) int }`: the
-declaration reports "type argument Self does not satisfy constraint Orderable", though every type implementing I
-implements Orderable; the same with an empty-interface constraint.  So `Box[Self]` works only with an
-unconstrained generic.  At the declaration Self is known only to implement I (and its parents), so the
-consistent rule would treat it as a type parameter bounded by I: Self satisfies C iff I is or extends C
-(typeSatisfiesConstraint's TYP_TYPE_PARAM arm, check/check_generic.bn); at the impl the implementing type's own
-`OBox[P]` is checked as written.  Decide whether to adopt that rule (a spec addition under iface.self) or keep
-rejecting.
-
 ### A constraint instance naming a type parameter that shadows a predeclared type compares equal to the predeclared one's — 🔴 OPEN MINOR (found 2026-10-16, work-6, review of the Self-constraint proposal; reproduced; pre-existing)
 
 `func inner[U Eq[int]](u U) int`, `func outer[int any, T Eq[int]](t T) { report(inner[T](t)) }`: the declaration
@@ -3025,7 +3020,9 @@ argument readonly T does not satisfy constraint Orderable"), while `g[readonly i
 concrete-type arm of typeSatisfiesConstraint matches impls with Identical, which strips `readonly`, and the
 type-parameter arm tests `t.Kind == TYP_TYPE_PARAM` without peeling it.  Decide whether `readonly T` satisfies T's
 constraint (then that arm peels `readonly`, and a `Self` arm does the same), or whether `readonly int` stops
-satisfying `int`'s.
+satisfying `int`'s.  The `Self` arm (binate `2aaeb6013`) peels no `readonly` either, and gen.satisfy's text (docs
+`5ba93bd`) says only a parameterized impl can match a type built from type parameters or `Self`, which reads as
+`readonly T` never satisfying: revise both with the decision.
 
 ### Is a constraint that names its own type parameter (`[T Eq[T]]`) legal? Today the checker reports "undefined: T" — 🔴 NEEDS DECISION (found 2026-10-04, work-6, review of generic functions at the prompt)
 

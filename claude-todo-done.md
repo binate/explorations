@@ -1,3 +1,18 @@
+### `Self` as a type argument never satisfied a constraint, even one the interface extends — DONE (binate `2aaeb6013`, docs `69e9d03` / `5ba93bd`, 2026-10-17, work-6) (found 2026-10-14, work-6, review of the checker fix for `Self` inside struct types / type arguments; pre-existing)
+
+In an interface's method signature, `Self` as a type argument (`*OBox[Self]` for `type OBox[T lang.Orderable]`)
+now satisfies a constraint C iff the interface declaring the method is C or extends it, like a type parameter
+bounded by that interface (user: "yes, option 2 sounds fine (but get it reviewed, including your proposed spec
+update)"); for a generic interface it is decided with its type parameters abstract.  Such a check is queued with
+its interface (Checker.SelfBound) and run once the interface's parents are known, at the end of collectDecls or
+of a generic interface's own-parameter instantiation, and never latched in the instantiation cache.  Spec: §11.9
+iface.self.constraint, with gen.satisfy, gen.mono.check, gen.mono.instances and gen.impl.generic-recv revised
+(docs `5ba93bd`); in the same round gen.impl.generic-recv and §11.3's receiver-shape clause became Provisional,
+since which type a pointer-receiver impl makes satisfy is undecided (user: "A"; docs `69e9d03`).  Tests: spec
+11-interfaces 105-107, conformance 1695 / 1696, check TestSelfTypeArg*, REPL TestReplSelfTypeArg*.  Found by the
+reviews and logged: the REPL skips a parked generic interface's declaration check when it resolves, and `impl
+W[K]` lets `@W[int]` satisfy a constraint (both MAJOR, open); `readonly T` (needs decision).
+
 ### `_func_handle(panic)` and `__c_entry(panic)` pass the checker and fail in clang — DONE (binate `62a9c278a`, docs `820b62a`, 2026-10-17, work-1) (found 2026-10-17, work-1, review of the panic-through-scope change; user 2026-10-17: "(c) seems right")
 
 Both builtins resolved an identifier argument with `c.Scope.Lookup` and accepted the universe `panic` unmarked, so
