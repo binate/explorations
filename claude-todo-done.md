@@ -56,7 +56,8 @@ from `len` of an array, needs no definition.  Each REPL prompt entry is load-che
 declarations, impl rows and their minted records).  The link-once functions it generated are lowered when they
 load and forgotten when not; the instances a redefined generic re-emits are neither.  Tests:
 vm/lower_load_check_test.bn, irgen/gen_repl_entry_test.bn, repl/load_check_test.bn,
-e2e/bni-only-var-undefined.sh.  The review's float-constant finding is the open entry "A floating-point constant
+e2e/bni-only-var-undefined.sh (its step 6, `interp.LoadCallable`'s load error, binate `57c11f478`).  The review's
+float-constant finding is the open entry "A floating-point constant
 over `len` of an array variable reads the variable at each use".
 
 ### `var x Big = *p` copies the pointee twice — DONE (binate `c97a72eb7`, docs `e601c4a`, 2026-10-18, work-1) (aggregate-copy entry; user order 2026-10-13)

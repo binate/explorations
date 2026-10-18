@@ -1848,8 +1848,7 @@ has already committed it when it is lowered, so a member needing such a variable
 `vmPanic` (vm/lower_func.bn).  Fix: a checker operation that re-parks a resolved group — keep the snapshots
 `retryGroup` (check/check_pending_retry.bn) takes, `undoDecl` them, and put the group back in Pending as failed
 with the load errors; a group resolved later in the same sweep that depends on it is re-parked too.  IR-gen's
-state is restored per member, and `emitResolvedGroup` load-checks before lowering.  Also missing from
-`0434863cf`'s coverage: a unit test of `interp.LoadCallable` returning a load error.
+state is restored per member, and `emitResolvedGroup` load-checks before lowering.
 
 ### Package descriptors — Phase C (richer metadata) + VM extern auto-enumeration remain
 
