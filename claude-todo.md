@@ -747,38 +747,6 @@ error (the forwarder should drop the redundant `expose "P"`; a bnlint rule could
 when both paths denote the same declaration (compare the defining package and declaration, not the name),
 spec to match.  Needs a conformance test either way.
 
-### An instance's body judges its type-argument parts in the generic's view, not the importer's — 🟡 IN PROGRESS (claimed 2026-10-15, work-7/session — user: "let's actually *fix* these leftovers, one-by-one; you can start with the two we've gone over"; DECIDED 2026-10-16 — user: "Opaque in both places"; raised 2026-10-03, work-3, review of the type-declaration opaque check; split out 2026-10-10, work-7; the function-signature half landed as binate `df6f53cf6`, struct instances' structure as binate `7c5273422`, interface instances, alias uses, calls and a generic's own parts as binate `ae7916bf4`)
-
-Instances' structure, generic interface instances, generic alias uses, generic calls and a generic declaration's own
-parts are done (binate `7c5273422`, `ae7916bf4`; see the done entries).  What remains is instance bodies: a type in an
-instance's body counts as opaque only if it is opaque both where the generic is written and where the instance is
-instantiated.  Today a body is checked where the generic is (`checkInstanceBody`, the generic's package and view), so
-its by-value and pointer rules count an argument that is the instantiating package's own opaque export as opaque (a
-false rejection: q's own `.bni` generic with `var x T = *p` or `*([2]T)`, instantiated by q with its own `Op`), while
-its function signatures (`InstanceState.BodyDepth`) use the pure view, which misses an importer's export (`gt[q.Op]`
-with `var f *func(T)` in a generic main declares is accepted).  Design: drop the `BodyDepth` pure-view special cases
-(`formationRulesKept`, `instanceStructure`); in a body an export X counts as hidden only if it is hidden where the
-generic is written and its owner is not in the body's lender class — the instantiation site's package (when the site
-is not in a `.bni`) plus the parent work item's lenders, intersected with the export owners among the instance's
-arguments.  `InstCheckState` gains the class, with variant states for other classes; the queueing sites
-(`check_instances.bn`, `check_instance_fields.bn`, `check_instance_state.bn`, `check_instance_live.bn`) pick or create
-the variant through a helper; `InstWork.Lenders` is copied from the state.  §7.12's sentences on instances change with
-it.
-
-The same piece covers two gaps in instance methods' signatures:
-
-- **An instance method's signature is sized in the body** (`checkInstanceBody`, `requireMethodInstanceSized`, binate
-  `d9c3b4c15`), so in the body's view: in q's `.bn`, `lib.S[Op]` (q's own export) with lib's `func (s *S[T]) m(x T)` is
-  rejected "in S[Op].m", while the same part as a struct field is accepted.  Its function-signature part uses the pure
-  view, so an importer's export through a type parameter is missed (a review found `g.BS[q.Op]` with `Set(*func(T))`
-  accepted).
-- **Interface instances in a generic type's method signatures are judged nowhere**: `type S[T any] struct { v *T }` with
-  `func (s *S[T]) m(g *Get[T]) {}` and `var s S[Fwd]` (Fwd opaque) is accepted, and so is `m(w *Wrap[S[T]])`.  Deriving an
-  instance method's signature (`DerivingInstanceSig`) instantiates `Get[Fwd]` non-user-facing, so the use-site check
-  (`requireIfaceInstanceArgsKept`) does not run, and `funcSignaturesSized` enters an interface instance only inside an
-  instance's structure (`f != nil`).  Main had the same gap before `ae7916bf4` (found 2026-10-17, work-7, third review of
-  that change).
-
 ### A `.bni` function declaration's signature is checked in the `.bn`'s view — a by-value opaque export in it is accepted at the package and rejected at each importer's call — 🔴 OPEN (found 2026-10-15, work-7, review of the function-signature opaque rule; reproduced; pre-existing)
 
 With `q.bni` exporting `type Op` opaquely and declaring `func Get() Op`, `func DefaultCB() *func(Op) int` and

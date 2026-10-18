@@ -1,3 +1,25 @@
+### An instance's body judged its type-argument parts in the generic's view, not the importer's — DONE (binate `eee217f4a`, docs `4af0b5f`, 2026-10-18, work-7) (raised 2026-10-03, work-3; DECIDED 2026-10-16 — user: "Opaque in both places"; the earlier pieces landed as binate `df6f53cf6`, `7c5273422`, `ae7916bf4`)
+
+An instance's body was checked where its generic is written: its by-value and pointer rules counted the
+instantiating package's own opaque export as opaque (q's own `.bni` generic with `var x T = *p`, instantiated in
+q's `.bn` with its own Op, was rejected), while its function signatures and the type arguments it writes were
+judged counting only a type with no definition anywhere (`gt[q.Op]` with `var f *func(T)` in a generic main
+declares was accepted).  Now a type in a body counts as opaque only if it is opaque both where the generic is
+written and where the instance is instantiated.  Each check of an instance has a lender class
+(check_instance_lenders.bn): the owners of the opaque exports its type arguments carry whose exports are visible
+where it is named — the package it is written in, outside a `.bni`, plus what is lent to what it is named for
+(the instance whose check named it; while an instance is built, the naming it is built for; for a constraint
+check, its use's context, kept with a deferred check).  An instance named in several classes is checked once per
+class (InstCheckState.Next); a generic interface instance names its methods' struct instances in each class it
+is named in; and the checks a package's `.bni` queues are kept for the package's own check, so an instance a
+`.bni` names is still rejected there, as on main.  A generic type's method signatures now follow a generic
+function's: own parts at the declaration (requireGenericMethodSigKept), argument parts per instance through a
+frame over the abstract signature — which also judges an interface instance the signature writes, before judged
+nowhere (`m(g *Get[T])` with S[Fwd] was accepted).  Tests: check_instance_lenders_test.bn (9 tests); conformance
+spec/07-types 299, 300.  A first review found the generic's own package dropped while building, exports missed in
+types still being resolved, an interface instance not re-walked in a second class, and a `.bni` naming's check
+discarded; a second found a constraint check naming in the generic's view; all fixed before landing.
+
 ### x64 assembler: operand sizes checked; `[rip + label]` in every encoder — DONE (binate `ad3b8ddeb`, `1ad5c6634`, 2026-10-18, work-2) (x64 assembler entry, items (ii), (iv), (v))
 
 (ii) The encoders check operand sizes — the two register / memory operands of Mov, the ALU group, Test, Imul2 and
