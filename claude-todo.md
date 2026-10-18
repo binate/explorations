@@ -225,7 +225,8 @@ follows z's reference to y, which has a size); the asm gives 2, because an alias
 (`ConstSyms` holds x for z) and `listConstants` (asm/parse/parse_const.bn) copies the base's size before
 y's own `.size` is applied.  The type is right already (clang combines z's type with x's).  Fix: record each
 alias's direct referent, and give an alias with no `.size` of its own the size of the nearest alias up its
-chain that has one, else the base's.
+chain that has one, else the base's.  **User decision 2026-10-18: fix this (both parts) after the x64
+assembler entry's `ret imm16`, before the x86-64 TLS operators (plan-tls.md stage 3).**
 
 The same folding shows in relocations (found 2026-10-18, work-2, review of the x86-64 `[rip + label]`
 change): a reference to an alias is recorded against its base with the alias's offset added.  On Mach-O,
@@ -2269,11 +2270,12 @@ conditional jumps, syscall, immediates, and `[base+index*scale+disp]`.  Validate
 end-to-end (bnas → lld → linux/amd64 container): hello (RIP-rel lea), a
 call/loop/jne calc, and a RIP-relative global read-modify-write.
 
-**Remaining (surface as programs need them):** the x64 text parser is narrower
-than the x64 *encoder* for the non-typical surface — SSE / float / xmm forms, and
-exotic addressing modes — so a program using those may hit a parser gap.  Audit
-`pkg/binate/asm/parse/x64*` against `pkg/binate/asm/x64` when such a consumer
-appears.  **aarch64 → ELF is DONE** (`846802a77`): `bnas -target linux-aarch64`
+**Remaining:** the x64 text parser recognizes only ~30 mnemonics (mov / lea, the ALU
+group, test, the shifts, imul, push / pop, the one-operand group, div / idiv, branches):
+no SSE / x87, movzx / movsx / movsxd, setcc, cmov, etc., though the encoder library has
+many of them.  The assembler is meant to be comprehensive, so the parser must cover the
+encoder library (and the encoder fill the gaps clang has).  **User decision 2026-10-18:
+do it after the x86-64 TLS operators (plan-tls.md stage 3).**  **aarch64 → ELF is DONE** (`846802a77`): `bnas -target linux-aarch64`
 routes aarch64+linux to `elf.WriteAArch64` (the object format now follows the OS
 via `AssembleFile`'s `osName`; `""` keeps the per-arch host default).  The aa64
 text parser also gained the `#:lo12:label` ADD operand (`4dbd8bb4e`), so a
