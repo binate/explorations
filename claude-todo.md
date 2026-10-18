@@ -652,6 +652,9 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `slices.Append` sites.  Needs a decision on scope/order.
 
 ### x64 assembler / text parser: operand sizes unchecked (`mov [rax], ecx` is an 8-byte store), RIP-label forms, `ret imm16` — 🟡 IN PROGRESS (claimed 2026-10-18, work-2; user: "Fix each first", before the x86-64 TLS operators) (found 2026-09-25; work-4's 2026-09-25 claim released 2026-10-12 — nobody is on it)
+Progress (work-2): (ii) operand sizes — landed binate `ad3b8ddeb` (2026-10-18): the encoders check sizes, and an
+unsized memory operand takes its register's ("ambiguous operand size" without one), as clang; (v) the "Pre-fix this"
+comment is gone (found 2026-10-18).  Next: (iv), then (vi).
 Re-checked 2026-10-12: (ii), (v) and (vi) below are still open (emitALU encodes at one operand's size,
 `operandSize`, with no match check; the "Pre-fix this" comment is still in `x64_data_test.bn`; no `ret imm16`
 form); (iv) was not re-checked.
