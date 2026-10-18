@@ -61,7 +61,7 @@ type argument against a parameterized impl's substituted receiver as the plain a
 (Identical), adjusted to whatever the pointer-impl decision above settles for `impl *W[K]`.  An expected-to-fail
 conformance test is to follow.
 
-### REPL: a generic interface that parks and later resolves skips its declaration check — an invalid `*B[*U]` is accepted — 🔴 OPEN MAJOR (found 2026-10-17, work-6, review of the Self-constraint change; reproduced; pre-existing)
+### REPL: a generic interface that parks and later resolves skips its declaration check — an invalid `*B[*U]` is accepted — 🟡 IN PROGRESS (claimed 2026-10-17, work-6; user: "go ahead and fix the REPL bug next, then continue with item 7") MAJOR (found 2026-10-17, work-6, review of the Self-constraint change; reproduced; pre-existing)
 
 At the prompt, with `interface Eq[T any] { Equal(o T) bool }` and `type B[T Eq[int]] struct { v T }`,
 `interface H0[U any] : Eq[U] { Put(b *B[*U]) int }` is rejected (`*U` does not satisfy `Eq[int]`), but
