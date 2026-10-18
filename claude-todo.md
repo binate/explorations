@@ -278,31 +278,17 @@ The box is done (binate `781cc67f4`, docs `acefa1c`; 2026-10-17): a pointer to a
 dynamic type (`case *any` / `.(*any)` recover it; `.(*Getter)` / `.(@Getter)` miss); IR-gen's nil-box fallbacks
 fail loud (requireBoxed); conformance 1674 / 1675.  Remaining: the bnlint rule flagging a pointer to an interface
 value boxed into any (user 2026-10-16: "Yes, add them") — shares its call-argument machinery with the function-name
-rule (see "A function NAME passed into `*any`").
+rule (see "bnlint: flag a function passed to a `...*any` print").
 
-### A function NAME passed into `*any` compiles and boxes nothing — silent wrong value — 🟡 IN PROGRESS MAJOR (claimed 2026-10-16, work-1; decided 2026-10-16, user: "Decay to @func, box it (Recommended)"; user 2026-10-15: "possibly we could reject, but get this reviewed versus decay to @func and box"; found 2026-10-03, work-3, review of the nil-into-*any fix; reproduced; pre-existing)
+### bnlint: flag a function passed to a `...*any` print — 🔴 OPEN (user 2026-10-16: "Yes, add them"; the language side is done, binate `2c6661c07`)
 
-With `func add(a int, b int) int` and `func take(x *any) bool { return present(x) }`, `take(add)` compiles
-and returns false (LLVM and native), and `testing.Println(add)` prints nothing useful: the checker types
-`add` as TYP_FUNC, AssignableTo fails, but the raw-interface value borrow (canBorrowValueIntoRawIface)
-admits it (valuePtrSatisfies is true for `any`); IR-gen's borrow path evaluates the bare name through
-genExpr, which finds no local and returns the "unknown ident" zero placeholder, boxed under a TYP_FUNC
-identity.  A function reference decays to a function value only in a function-value slot (func.ref.decay),
-and `*any` is not one.  Options: (a) reject a function name borrowed into an interface value ("a function
-name is not a value here; take a function value (`f := add`) first"); (b) decay it to its `@func` default
-(`defaultType`) and box that.  Recommendation: (a) — no implicit function-value construction outside a
-function-value slot.  Either way: a conformance test, and the irgen fallback should fail loud.
-Decided (2026-10-16, after a design review): the name decays to its `@func` default and is boxed — what the spec
-already says (func.lit.inferred-default covers a bare function reference; func.ref.decay does not say "only"): a raw
-`*any` borrows a stack temporary (a non-capturing func value: static vtable, null data — no allocation), `@any` still
-needs `box(add)`; the dynamic type is `@func(...)`, opaque (recovered through a named function-value type).  Current
-behaviour is worse than first found: `take(add)` and `box(add)` hit an IR-gen internal error ("unresolved
-identifier"), `take(pkg.F)` and a method expression compile then abort at run time, `take(id[int])` silently boxes
-nothing.  Work: IR-gen (~50-100 lines — the borrow / box / variadic paths emit the function value; a TYP_FUNC →
-@func arm in defaultedBorrowType), a conformance test across bare / qualified / generic-instance / method-expression
-forms, spec (func.ref.decay made explicit, with `take(add)` / `box(add)` / `@any` examples), and a bnlint rule
-flagging a function passed to a `...*any` print (user: "Yes, add them").
-### `panic` used as a value (`var f = panic`, `take(panic)`, `box(panic)`) passes the checker and crashes IR-gen — 🔴 OPEN (found 2026-10-17, work-1, review of the function-name-into-`*any` change; awaiting a user decision)
+A function name passed to a `...*any` print (`testing.Println(add)`, `fmt.Println(add)`) boxes the function's
+`@func` value (func.ref.decay), which prints as `%!?(unknown)` — almost always a missing call.  Add a bnlint
+rule flagging a function passed to a `...*any` print.  It shares its call-argument → interface-parameter
+machinery with the rule flagging a pointer to an interface value boxed into any (see "A managed pointer to an
+interface value …").
+
+### `panic` used as a value (`var f = panic`, `take(panic)`, `box(panic)`) passes the checker and crashes IR-gen — 🟡 IN PROGRESS (claimed 2026-10-17, work-1; user 2026-10-17: "(b) sounds right, but get this idea reviewed. What exactly does the spec say about panic being checked specially? (Obviously, when passed as a value, it loses any special checks; but why would we force people to wrap panic in a trivial function if they want to pass it?)"; found 2026-10-17, work-1, review of the function-name-into-`*any` change)
 
 The checker's universe defines `panic` as a TYP_FUNC with NO parameters (check/scope.bn, "variadic, checked
 specially"), not its spec signature `panic(msg *[]readonly char)` (§15.7 `builtin.panic`), and admits it wherever a

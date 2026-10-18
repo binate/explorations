@@ -1,3 +1,17 @@
+### A function NAME passed into `*any` compiles and boxes nothing — DONE (binate `2c6661c07`, docs `3fcc751`, 2026-10-17, work-1) MAJOR (found 2026-10-03, work-3, review of the nil-into-*any fix; decided 2026-10-16, user: "Decay to @func, box it (Recommended)")
+
+A function name used as a value for a raw `*any` — bare `add`, `pkg.F`, a generic instance `id[int]`, a method
+expression `B.Get` — in an argument, a var initializer (or a composite element in one), a `...*any` argument or
+`box(add)` crashed IR-gen ("unresolved identifier"), aborted at run time (`pkg.F`, a method expression) or boxed
+nothing (`id[int]`).  genFuncNameValue (irgen/gen_borrow.bn) now emits the name's function value at its default
+type — `@func(…)`, or a method expression's `*func(…)` — in IR-gen's representation, for the borrow and box
+paths; the box's dynamic type is the opaque name-less function-value type.  The review before landing caught two
+defects, both fixed: a generic instance's checker spelling leaked into the box's type-info symbol
+(`box(BG[int].Get)` failed in clang), and IR-gen's own name lookup took an imported generic body's constant for
+the importer's same-named function (an internal error).  Conformance 1681 / 1682; spec `func.ref.decay` and
+`iface.construct.value-borrow`.  Remaining: the bnlint rule (todo "bnlint: flag a function passed to a `...*any`
+print").  Found along the way: `panic` used as a value (todo).
+
 ### bnfmt drops an import's `#[build(...)]` annotation — the formatted file builds different code — DONE (binate `bf091b2ed`, 2026-10-17, work-5) MAJOR (found 2026-10-16, work-3, label-sweep review)
 
 `printImports` / `appendImport` (pkg/binate/format/print_file.bn) never print `ImportSpec.Annotations`, so
