@@ -66,7 +66,7 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
   PredeclaredPanic, ConstID, LenVal / LenKnown, KeyVal / KeyKnown, Captures) — through one ast function that
   shares that list with the clone; e2e repl case for the repro above.
 
-### A generic type's bare name is accepted as a type argument or a method expression's base — `one[Box]()` crashes IR-gen, `Box.Get` aborts at run time — 🔴 OPEN MAJOR (found 2026-10-18, work-6, review of the expression type records; reproduced; pre-existing)
+### A generic type's bare name is accepted as a type argument or a method expression's base — `one[Box]()` crashes IR-gen, `Box.Get` aborts at run time — 🟡 IN PROGRESS MAJOR (claimed 2026-10-18, work-6/session — user: "yes, that order is fine"; found 2026-10-18, work-6, review of the expression type records; reproduced; pre-existing)
 
 - With `type Box[T any] struct { v T }` and `func (b *Box[T]) Get() T`: `one[Box]()` (`func one[T any]() int`)
   passes the checker and stops IR-gen with "internal error: IR-gen cannot resolve the type Box, which the checker
