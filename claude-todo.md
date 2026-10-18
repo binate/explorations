@@ -2948,20 +2948,6 @@ ship one that runs).
 
 ## REPL
 
-### REPL: a package imported mid-session is checked on top of the session's scope, so it sees names declared at the prompt — 🟡 IN PROGRESS (claimed 2026-10-18, work-7/session — user: "let's actually *fix* these leftovers, one-by-one; you can start with the two we've gone over"; found 2026-10-11, work-7, review of the `.bni` interface-view change; confirmed with a checker-level probe; pre-existing)
-
-`CheckMainPersistent` leaves `c.Scope` at the session's scope, and a mid-session import
-(`pkg/binate/repl/mid_session_import.bn`) then calls `LoadPackageInterface` and `CheckPackage`, which build
-the package's scopes on `c.Scope`: `checkPackageImpl`'s package scope and `buildScopeFromFile`'s temp scope
-(commented "on top of universe") both sit on the session's scope.  So the imported package's `.bn`, and its
-interface's generic bodies, resolve a name they neither declare nor import to one typed at the prompt: with
-`type secret …` declared in the session, `func f(x @secret) { }` in the package's `.bn` is accepted (a probe
-with the session scope simulated in a checker unit test), though the package does not compile on its own.
-The `.bni` file scope's ParentNames filter already falls through to the universe, not the session's scope.
-Fix: build a package's scopes on the universe (the outermost scope), not on `c.Scope`, in both places; a
-checker unit test with a simulated session scope (as `TestBniViewSkipsSessionScope` does), and an e2e repl
-case that imports such a package mid-session.
-
 ### REPL: an incompatible redefinition of a generic method that a sibling still calls in the old shape — decide the rule — 🔴 OPEN (found 2026-10-03, work-6, review of the generic-methods-at-the-prompt fix; put to the user)
 
 `type Cur[T any] struct { v T }`, `func (c *Cur[T]) Get() T { return c.v }`, `func (c *Cur[T]) Twice() T

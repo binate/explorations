@@ -1,3 +1,13 @@
+### REPL: a package imported mid-session was checked on top of the session's scope, so it saw names declared at the prompt — DONE (binate `d44e80972`, 2026-10-18, work-7) (found 2026-10-11, work-7, review of the `.bni` interface-view change; pre-existing)
+
+`checkPackageImpl` built a package's scope, and `buildScopeFromFile` its interface's temporary scope, on
+`c.Scope` — at the REPL, the session's scope — so a package imported mid-session resolved a name it neither
+declares nor imports to one typed at the prompt (with `type secret int` entered first, a package whose `.bn`
+has `func use(x @secret) {}`, or whose `.bni` generic body declares `var s secret`, was accepted).  Both scopes
+now sit on the universe scope (`universeOf`); every other caller checks packages from the top level, where
+`c.Scope` already is the universe.  Tests: check TestImportSkipsSessionScope (fails with the change reverted);
+e2e repl mid-session-import-no-prompt-names.
+
 ### An instance's body judged its type-argument parts in the generic's view, not the importer's — DONE (binate `eee217f4a`, docs `4af0b5f`, 2026-10-18, work-7) (raised 2026-10-03, work-3; DECIDED 2026-10-16 — user: "Opaque in both places"; the earlier pieces landed as binate `df6f53cf6`, `7c5273422`, `ae7916bf4`)
 
 An instance's body was checked where its generic is written: its by-value and pointer rules counted the
