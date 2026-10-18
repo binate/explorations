@@ -1,3 +1,27 @@
+### VM: a package variable nothing defines aborts the process instead of failing the load — DONE for the VM, the hosts and REPL statements and declarations (binate `0434863cf`, 2026-10-18, work-5); parked groups are still open in claude-todo.md (user, 2026-10-17: "Load error + REPL rollback (Recommended)", then "All four, as two commits (Recommended)")
+
+Lowering a global reference with no storage (a `.bni`-only package's var with no implementation) stopped with
+`vmPanic`, aborting bni, a REPL session that read such a var, and an embedder's `LoadProgram` / `LoadCallable`.
+A checker hook asking the VM's registry was built and withdrawn (user, 2026-10-17: "1 seems wrong, and violates
+separate compilation. Compiling a package should only depend on its source files and its dependencies .bni
+files").
+
+**Done** (binate `0434863cf`): `vm.LoadCheck` (vm/lower_load_check.bn) finds, among functions lowered together,
+those referring to a package variable with no registered storage that their module does not declare, and those
+naming such a function (or a name the caller will not provide); the error reads "nothing in the program defines
+the package variable pkg/solo.V (used by main.main, line 7)".  `LowerModule` checks first and returns the errors
+with nothing lowered; `LoadProgram` / `LoadCallable` return them, `bni --test` reports them, the REPL's
+`NewKernel` returns them as setup errors, and a mid-session import whose package does not load is not made (nor
+one importing it).  Only lowered code counts, as for bnc's link: an uninstantiated generic, or a constant folded
+from `len` of an array, needs no definition.  Each REPL prompt entry is load-checked before it is kept
+(`repl.loadFails`); one that does not load is not run or kept, and IR-gen's state is put back
+(`irgen.BeginReplEntry` / `UndoReplEntry`: replaced signatures and generic stashes; added globals, generic
+declarations, impl rows and their minted records).  The link-once functions it generated are lowered when they
+load and forgotten when not; the instances a redefined generic re-emits are neither.  Tests:
+vm/lower_load_check_test.bn, irgen/gen_repl_entry_test.bn, repl/load_check_test.bn,
+e2e/bni-only-var-undefined.sh.  The review's float-constant finding is the open entry "A floating-point constant
+over `len` of an array variable reads the variable at each use".
+
 ### `var x Big = *p` copies the pointee twice — DONE (binate `c97a72eb7`, docs `e601c4a`, 2026-10-18, work-1) (aggregate-copy entry; user order 2026-10-13)
 
 IR-gen emits x's slot's OP_ALLOC between the load of `*p` and the store into x, and AggLoadElision's S-adjacent

@@ -1857,23 +1857,17 @@ closed-source `{facade.bni, bundle.a}` whose internal packages the consumer neve
   `main.o` + the consumer's other objects + the library's object, leaving out the consumer's
   module for the package, works today (a shared var reads the library's value).
 
-### VM: a package variable nothing defines aborts the process instead of failing the load — 🟡 IN PROGRESS (claimed 2026-10-17, work-5/session; DECIDED 2026-10-17 — user: "Load error + REPL rollback (Recommended)": lowering collects unresolved globals as load errors, LoadProgram / LoadCallable return them, the REPL reports one and rolls back that prompt; a checker hook asking the VM's registry was then chosen, built and withdrawn — user, 2026-10-17: "1 seems wrong, and violates separate compilation. Compiling a package should only depend on its source files and its dependencies .bni files" — so the first decision stands, confirmed ("yes"): a load error for a reference in code the VM lowers, as bnc's link error, none for code never lowered (an uninstantiated generic); the REPL rolls the prompt back, IR-gen's caches for what it generated included; scope — user, 2026-10-17: "All four, as two commits (Recommended)": (1) the VM, the hosts and REPL statements and declarations — IR-gen cache settling, IR-gen state restore, pre-commit generation of var initializers and re-emitted generic instances — then (2) parked groups, through a new checker operation that re-parks a resolved group) (MINOR; found 2026-10-07, work-3, review of the `.bni`-only extern-var fix)
+### REPL: a parked declaration resolving at a later prompt that needs a package variable nothing defines aborts the process — 🟡 IN PROGRESS (claimed 2026-10-17, work-5/session; the second of two commits — user, 2026-10-17: "All four, as two commits (Recommended)"; the first, binate `0434863cf`, is in the done log under "VM: a package variable nothing defines aborts the process instead of failing the load") (MINOR; found 2026-10-07, work-3, review of the `.bni`-only extern-var fix)
 
-Lowering a global reference with no storage (a `.bni`-only package's var with no implementation)
-stops with `vmPanic("vm: nothing in the program defines the package variable …")`, which aborts
-the host: a REPL session that imports such a package and reads the var dies, and an embedder's
-`LoadProgram` / `LoadCallable` (errors as values) aborts instead of returning an error.  (It used
-to skip the reference silently, leaving the instruction reading an unrelated register.)  Fix:
-collect unresolved globals during lowering as load errors (`LowerModule` reports them,
-`LoadProgram` returns them), and have the REPL report one without ending the session.  Covered
-by e2e/bni-only-var-undefined.sh for bni's exit; needs a REPL / LoadProgram test.
-Investigated 2026-10-17 (work-5; claimed, then released — not self-contained): `LoadProgram` /
-`LoadCallable` can return a lowering error easily (the VM records it instead of panicking), but the REPL lowers
-per prompt in about ten places (repl/decl.bn, decl_retry.bn, eval.bn, session.bn, mid_session_import.bn) after
-the prompt's declarations are committed to the session scope, so a lowering error there needs the prompt rolled
-back.  The alternative — lower the reference as a run-time trap, so only code that reads the variable fails —
-needs a recoverable fault, which the VM raises only at an instruction with a fault key (a cleanup pad in the IR),
-which a global load does not have.  Either is a design choice for the REPL's error model.
+Since binate `0434863cf` the VM load-checks what it lowers (`vm.LoadCheck`), and a REPL prompt entry that does not
+load is rolled back with IR-gen's state (`repl.loadFails`, `irgen.BeginReplEntry` / `UndoReplEntry`).  Not
+covered: a parked group that resolves at a later prompt (`emitResolvedGroup`, repl/decl_retry.bn) — the checker
+has already committed it when it is lowered, so a member needing such a variable still reaches the lowering
+`vmPanic` (vm/lower_func.bn).  Fix: a checker operation that re-parks a resolved group — keep the snapshots
+`retryGroup` (check/check_pending_retry.bn) takes, `undoDecl` them, and put the group back in Pending as failed
+with the load errors; a group resolved later in the same sweep that depends on it is re-parked too.  IR-gen's
+state is restored per member, and `emitResolvedGroup` load-checks before lowering.  Also missing from
+`0434863cf`'s coverage: a unit test of `interp.LoadCallable` returning a load error.
 
 ### Package descriptors — Phase C (richer metadata) + VM extern auto-enumeration remain
 
