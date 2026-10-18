@@ -1,3 +1,11 @@
+### x64 assembler: `ret imm16` — DONE (binate `1a1a0a742`, 2026-10-18, work-2) (x64 assembler entry, item (vi); the entry is now closed)
+
+`x64.RetImm` emits `ret imm16` (C2 iw) for -32768..65535 and rejects any other value with no bytes (clang keeps
+the low 16 bits: `ret 65536` is `ret 0` there); the text parser reads `ret` / `retn` with an optional constant
+expression (none: C3; one: C2 iw, `ret 0` too, as clang).  Tests: x64 TestRetImm, parse TestParseX64RetImm;
+TestX64TrailingTextRejected now rejects junk after RET's immediate.  RET's immediate shares INT's leniencies
+(a register-named constant, a label difference, a unary plus), now in the MAJOR x64 parser entry.
+
 ### REPL: a package imported mid-session was checked on top of the session's scope, so it saw names declared at the prompt — DONE (binate `d44e80972`, 2026-10-18, work-7) (found 2026-10-11, work-7, review of the `.bni` interface-view change; pre-existing)
 
 `checkPackageImpl` built a package's scope, and `buildScopeFromFile` its interface's temporary scope, on

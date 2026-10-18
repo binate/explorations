@@ -752,13 +752,7 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### x64 assembler / text parser: `ret imm16` has no form — 🟡 IN PROGRESS (claimed 2026-10-18, work-2; user: "Fix each first", before the x86-64 TLS operators) (found 2026-09-25)
-(Operand sizes, `[rip + label]` in every encoder and the stale "Pre-fix this" comment are done: binate
-`ad3b8ddeb`, `1ad5c6634`, see the done log.)  Still open: (vi) `ret imm16` (C2 iw, RET's stack-popping form)
-has no encoder or parser form: rejected (since `331b13ee4`, which rejects text after an instruction's
-operands; before, `ret 1` silently assembled as `ret`).  **Fix:** an encoder and the parser form; golden
-bnas-vs-clang tests.
-### x64 text parser: a constant from a label difference is read as an immediate where clang reads a memory operand; `int 3`; INT / RET immediates accept what clang rejects — 🔴 OPEN (MAJOR, latent; found 2026-10-18, work-2, review of `ret imm16`)
+### x64 text parser: a constant from a label difference is read as an immediate where clang reads a memory operand; `int 3`; INT / RET immediates accept what clang rejects — 🟡 IN PROGRESS (claimed 2026-10-18, work-2; user: "Next, before the alias work") (MAJOR, latent; found 2026-10-18, work-2, review of `ret imm16`)
 
 Silent divergence from clang (`clang -c -target x86_64-linux-gnu`, Intel syntax): with `L1: nop` / `L2: nop` /
 `N = L2 - L1`, `mov rax, N` assembles to `mov rax, 1` (48 c7 c0 01 00 00 00), where clang reads N as a memory
