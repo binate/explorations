@@ -279,7 +279,7 @@ error naming the symbol until bnld implements them (IFUNC: an IRELATIVE relocati
 symbol's type kept in a dynamic one; unique: as global, as ld.lld does).  An STT_TLS symbol is rejected already
 (binate `4d91dc223`), until the TLS series links it.  The asm can produce an IFUNC symbol once `.type` lands.
 
-### asm: an assigned symbol folds to its base — `.size` of an alias of an alias, and the symbol / Mach-O type of a relocation against an alias — 🔴 OPEN (found 2026-10-16, work-2, review of the `.type` / `.size` change; low)
+### asm: an assigned symbol folds to its base — `.size` of an alias of an alias, and the symbol / Mach-O type of a relocation against an alias — 🟡 IN PROGRESS (claimed 2026-10-18, work-2) (found 2026-10-16, work-2, review of the `.type` / `.size` change; low)
 
 `x: .byte 0` / `.size x, 2` / `y = x` / `.size y, 1` / `z = y`: clang gives z the size 1 (its ELF writer
 follows z's reference to y, which has a size); the asm gives 2, because an alias folds to its base symbol
@@ -749,26 +749,6 @@ block sets computed once; dominance by DFS pre/post numbering so `Dominates` is 
 block-reference sets), sort intervals with an O(n log n) sort, and move function-sized list builds to
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
-
-### x64 text parser: a constant from a label difference is read as an immediate where clang reads a memory operand; `int 3`; INT / RET immediates accept what clang rejects — 🟡 IN PROGRESS (claimed 2026-10-18, work-2; user: "Next, before the alias work") (MAJOR, latent; found 2026-10-18, work-2, review of `ret imm16`)
-
-Silent divergence from clang (`clang -c -target x86_64-linux-gnu`, Intel syntax): with `L1: nop` / `L2: nop` /
-`N = L2 - L1`, `mov rax, N` assembles to `mov rax, 1` (48 c7 c0 01 00 00 00), where clang reads N as a memory
-operand at absolute address 1: `mov rax, qword ptr [1]` (48 8b 04 25 01 00 00 00); likewise `cmp ecx, N` and
-`add rax, N + 4` (clang `[5]`).  The same source becomes a different instruction.  (`K = 8` / `add rax, K` is an
-immediate in both.)  Also: `int 3` is CD 03, where clang writes the one-byte `int3` (CC; LLVM rewrites `int $3`);
-and INT / RET read their immediate with ParseExpr directly, skipping `parseX64Operand`'s checks, so they take
-what clang rejects: a constant named like a register (`ss = 16` / `ret ss`, `int ss`; clang "invalid operand"),
-a label difference or `.` (`ret L2 - L1`, `ret N`, `ret . - L1`, `int L2 - L1`), and a unary plus (`ret +8`,
-`int +3`; clang "unknown token in expression", as for `add rax, +8`).  Root cause: `x64ConstOperand`'s path takes
-any constant's value as an immediate, where clang's Intel parser makes an expression from a label difference a
-memory reference.  **Fix:** one immediate-operand helper for the general operand, INT and RET, classifying as
-clang does — an absolute constant is an immediate; one from a label difference (or `.`) is a memory operand
-`[disp32]` (MemAbs) in a general operand position and an error for INT / RET; `(`, `~` and a character literal
-start an immediate (the `~8` / `(1 + 2)` gap in the bnas x64 → ELF entry below); a unary plus and a
-register-named constant are rejected — and encode `int 3` as CC.  Golden bnas-vs-clang tests.  The x86-64 TLS
-operators (plan-tls.md stage 3) put symbolic expressions in operands (`fs:[x@TPOFF]`), so this classification
-is better settled before them.
 
 ### arm32 assembler: condition codes and some register fields are silently masked — 🔴 OPEN, unclaimed (found 2026-09-25 by the T6 b1 review; work-4's 2026-09-25 claim released 2026-10-12 — nobody is on it)
 

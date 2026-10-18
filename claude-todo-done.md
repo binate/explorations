@@ -1,3 +1,19 @@
+### x64 text parser: a label-difference constant is a memory reference, as clang reads it; `int 3`; Intel-syntax immediates — DONE (binate `9256c7b49`, 2026-10-18, work-2) (MAJOR, found in review of `ret imm16`; user: "Follow clang where sound")
+
+In an x86-64 operand the name of a constant a label difference decided (`N = L2 - L1`; ExprResult.DiffConst) is
+read as clang reads it: bare, parenthesized or with a number added or subtracted it is a memory operand at that
+address (`mov rax, N` was `mov rax, 1`, clang `mov rax, qword ptr [1]`), and in brackets a displacement, which
+clang always encodes in 32 bits with a base (x64.Operand.Disp32).  Every form clang misreads or rejects is an
+error: `-N`, `~N`, `N*2`, `[rbx - N]`, two label differences in one operand, N beside a symbol, N as a scale, N
+as an INT / RET / IMUL immediate (IMUL's third operand was a silent divergence too: clang makes it an APX memory
+form).  Also as clang: `int 3` (however written) is CC; a unary `+`, a `-` right after a `-`, `.`, and a
+register's name in an expression (a constant so named included — `K1 = 5` / `add eax, (K1)` was `add eax, 5`,
+clang `add eax, 0`) are errors; `(`, `~` and a character literal start an immediate; INT / RET / IMUL immediates
+share parseX64Imm.  A written difference in brackets still folds to a number (the existing extension).  bnas
+matches clang byte-for-byte on 37 accepted forms (ELF and Mach-O); two reviews (the second found the IMUL and
+register-name divergences, fixed before landing).  Tests: parse x64_imm_test (TestX64DiffConst*, ...),
+x64 TestMemDisp32.
+
 ### Instantiating a method whose result wraps the receiver's parameter hung the compiler — `func (b *Box[V]) Wrap() Box[Opt[V]]` — DONE (binate `8bbfe8777`, 2026-10-18, work-7) MAJOR (found 2026-10-17, work-7, review of the instance-identity fix; the branching case and a static expansion check remain open in claude-todo.md)
 
 gen.mono.instances makes the program an error (every method of an instance names instances, called or not).  Two
