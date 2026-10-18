@@ -141,6 +141,18 @@ iropt / irutil / mangle / types/abi to the int64 accessors; 3 LLVM codegen; 4 na
 macho / link (bss without materialized zero bytes; a frame past the target's limit a compile error); 5 VM /
 interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the 32-bit lane.
 
+### `len(p.A)` of an imported array variable is rejected as an array length — 🔴 OPEN (minor: valid code rejected; found 2026-10-17, work-5, probing the VM undefined-package-variable entry; reproduced; pre-existing)
+
+With `var A [4]int` in package p's `.bni`, an importer's `var b [len(p.A)]int` is rejected ("array length must
+be a constant integer"), though `len` of an array is an `int` constant (spec `builtin.len`); `[len(A)]int` of a
+same-package or local array works, and so does `const N int = len(p.A)`.  An array length is evaluated whole,
+unchecked (`evalArrayLen` → `evalConst`), and `checkerEnv.Len` (check/check_constval.bn) finds the type of an
+unchecked operand only for a bare identifier (`lookupDeclOnDemand`), a composite literal or a string literal —
+not a qualified `p.A`, so the length is NOT_CONST.  (The constant's initializer is checked before it is
+evaluated, so its operand already has a type.)  Fix: resolve a package-qualified operand (`resolveQualifiedSym`)
+as the identifier case does, taking a variable's type; a checker test with an imported array variable as an
+array length.
+
 ### The LLVM backend declares a function's own sret parameter `align 8` whatever the result's alignment; a C caller's buffer may be less aligned — 🔴 OPEN (found 2026-10-09, work-1, review of the returned-local change; pre-existing; plausible, not yet reproduced)
 
 A function returning through sret is defined `define void @f(ptr sret(%T) align 8 %v.retbuf, ...)`
