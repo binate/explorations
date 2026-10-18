@@ -41,6 +41,20 @@ and iface.self.constraint's "as a type parameter whose constraint is `I` would" 
 
 ## MAJOR
 
+### REPL: a generic interface that parks and later resolves skips its declaration check — an invalid `*B[*U]` is accepted — 🔴 OPEN MAJOR (found 2026-10-17, work-6, review of the Self-constraint change; reproduced; pre-existing)
+
+At the prompt, with `interface Eq[T any] { Equal(o T) bool }` and `type B[T Eq[int]] struct { v T }`,
+`interface H0[U any] : Eq[U] { Put(b *B[*U]) int }` is rejected (`*U` does not satisfy `Eq[int]`), but
+`interface H[U any] : K { Put(b *B[*U]) int }` parks on K, and `interface K {}` then reports "interface H
+resolved" with no error (reproduced with a pkg/binate/repl unit test).  The `Self` constraint check is skipped
+the same way: `interface G[U any] : K { Put(b *B[Self]) int }`, then `interface K {}`, is accepted.  Likely
+cause (from a review, not yet confirmed in the code): the parked attempt populates and caches the interface's
+instantiation with its own type parameters (checkGenericDeclAbstract, check/check_generic_populate.bn), whose
+population is where those checks run, and undoing the parked declaration does not drop that cache entry
+(c.GenericInstantiations, c.GenericDeclsResolved), so the retry hits the cache and checks nothing.  Fix: drop or
+re-check a parked declaration's abstract instantiation on retry, and add the two cases above as REPL unit tests
+(they are not in the tree: unit tests can be marked expected-fail only per package).
+
 ### A generic interface instance's methods are sized while a struct instance in them is still being built, which counts as opaque — `type N[T any] struct { next *Get[N[T]] }` is rejected — 🟡 IN PROGRESS MAJOR (claimed 2026-10-17, work-7/session — user: "Half-built fix first (Recommended)"; found 2026-10-17, work-7, review of the instance-identity fix; reproduced; pre-existing)
 
 ```
