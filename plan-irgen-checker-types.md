@@ -72,12 +72,26 @@ IR-gen cannot map is an internal error, never `int`.
      records move to per-checker tables keyed by node; (c) throwaway clones (constraint checks, instance
      signatures, `_`-binder copies, failed instance bodies) add records, so the table grows with the
      instantiations, not only the source nodes (memory, not a leak).
-   - A DENOTED-TYPE record on type-denoting Exprs (type args written as expressions, `T.M` / `Box[int].M`
-     bases, `pkg.T` selectors) — separate from Expr.ResolvedTypeID, which is a value's type.
-   - A type-vs-value classification for IR-gen's probe sites (typeArgExprToType on the X of `X.M` / `X[...]`,
-     isInterfaceTypeExpr, methodExprName, lookupStructIdx used as a type-or-not test).
-   - A walk test: every TypeExpr in checked ASTs stamped; no TYP_TYPE_PARAM in instance copies.
-   - Storage: a dedicated TypeExpr table (or reuse an id), not ever-growing ExprTypes.
+   - DONE (binate `d50cc8676`, 2026-10-18): a denoted-type record on type-naming Exprs — a generic function's
+     type arguments (every spelling, and each type within one) and a method expression's base (`T.M`,
+     `Box[int].M`).  Expr.DenotedTypeID indexes a second table, Checker.Stamps.Exprs, read with
+     Checker.ExprDenotedType; the record holds what the TypeExpr of the same spelling denotes.  Recorded by
+     typeArgOrInterfaceFromExpr and checkSelectorExpr's `T.M` arm; checking a node as a value drops its record
+     and recording it drops its value type (the latest check decides).  The walk requires a record exactly on
+     the type positions (none on values or package names).  Open, each with its own todo entry: a bare generic
+     type name (`one[Box]`, `Box.Get`) is accepted and records the placeholder (MAJOR); a REPL retry re-checks a
+     parked declaration on its failed attempt's annotations, which can leave a stale value type on what is now
+     a package name (MAJOR); the qualified method expression `pkg.T.M` is rejected (forwarder-audit entry) —
+     when it is accepted, its base must be recorded too.
+   - DONE (2026-10-18, no further records needed): the type-vs-value classification is the records — an Expr
+     with a denoted-type record names a type, one with a value type (ResolvedTypeID) is a value, and a
+     selector base with neither is a package (once the REPL retry clears annotations).  A temporary hook
+     comparing IR-gen's own reading with the records at all 7 probe sites (methodExprName under
+     !selectorBaseIsVar ×2, genericInstanceName ×2, the typeArgExprToType callers ×3) found no disagreement
+     across bnc's self-compile and 797 conformance tests (generic, 12-generics, 11-interfaces, iface, method).
+     isInterfaceTypeExpr reads the TypeExpr record (1a); lookupStructIdx's other type-or-not uses are
+     declaration registration (stage 5).  Stage 4 switches the probes to the records.
+   - DONE (1a, 1b): the walk test (check_type_stamps_walk_test.bn) and the storage (Checker.Stamps, ids per node).
 2. **Complete the mapper.**  Memoized by checker Type pointer; registers lazily and self-sufficiently from
    the checker type (fields, method sets, parents) so ordering cannot leave it nil; the opaque rule
    (OpaqueExportPkg against the current module — the checker's Type is shared between a `.bni` forward and
