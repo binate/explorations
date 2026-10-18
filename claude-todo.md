@@ -2940,7 +2940,7 @@ ship one that runs).
 
 ## REPL
 
-### REPL: a package imported mid-session is checked on top of the session's scope, so it sees names declared at the prompt — 🔴 OPEN (found 2026-10-11, work-7, review of the `.bni` interface-view change; confirmed with a checker-level probe; pre-existing)
+### REPL: a package imported mid-session is checked on top of the session's scope, so it sees names declared at the prompt — 🟡 IN PROGRESS (claimed 2026-10-18, work-7/session — user: "let's actually *fix* these leftovers, one-by-one; you can start with the two we've gone over"; found 2026-10-11, work-7, review of the `.bni` interface-view change; confirmed with a checker-level probe; pre-existing)
 
 `CheckMainPersistent` leaves `c.Scope` at the session's scope, and a mid-session import
 (`pkg/binate/repl/mid_session_import.bn`) then calls `LoadPackageInterface` and `CheckPackage`, which build
