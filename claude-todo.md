@@ -41,7 +41,7 @@ and iface.self.constraint's "as a type parameter whose constraint is `I` would" 
 
 ## MAJOR
 
-### A generic interface instance's methods are sized while a struct instance in them is still being built, which counts as opaque — `type N[T any] struct { next *Get[N[T]] }` is rejected — 🔴 OPEN MAJOR (found 2026-10-17, work-7, review of the instance-identity fix; reproduced; pre-existing)
+### A generic interface instance's methods are sized while a struct instance in them is still being built, which counts as opaque — `type N[T any] struct { next *Get[N[T]] }` is rejected — 🟡 IN PROGRESS MAJOR (claimed 2026-10-17, work-7/session — user: "Half-built fix first (Recommended)"; found 2026-10-17, work-7, review of the instance-identity fix; reproduced; pre-existing)
 
 ```
 interface Get[T any] { get() T }
