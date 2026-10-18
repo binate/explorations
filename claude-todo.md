@@ -218,7 +218,7 @@ error naming the symbol until bnld implements them (IFUNC: an IRELATIVE relocati
 symbol's type kept in a dynamic one; unique: as global, as ld.lld does).  An STT_TLS symbol is rejected already
 (binate `4d91dc223`), until the TLS series links it.  The asm can produce an IFUNC symbol once `.type` lands.
 
-### asm `.size`: an alias of an alias takes the base symbol's size, where clang takes the nearest alias's — 🔴 OPEN (found 2026-10-16, work-2, review of the `.type` / `.size` change; low)
+### asm: an assigned symbol folds to its base — `.size` of an alias of an alias, and the symbol / Mach-O type of a relocation against an alias — 🔴 OPEN (found 2026-10-16, work-2, review of the `.type` / `.size` change; low)
 
 `x: .byte 0` / `.size x, 2` / `y = x` / `.size y, 1` / `z = y`: clang gives z the size 1 (its ELF writer
 follows z's reference to y, which has a size); the asm gives 2, because an alias folds to its base symbol
@@ -226,6 +226,16 @@ follows z's reference to y, which has a size); the asm gives 2, because an alias
 y's own `.size` is applied.  The type is right already (clang combines z's type with x's).  Fix: record each
 alias's direct referent, and give an alias with no `.size` of its own the size of the nearest alias up its
 chain that has one, else the base's.
+
+The same folding shows in relocations (found 2026-10-18, work-2, review of the x86-64 `[rip + label]`
+change): a reference to an alias is recorded against its base with the alias's offset added.  On Mach-O,
+`_a2 = _d + 3` / `cmp byte ptr [rip + _a2 - 4], 1` becomes a SIGNED_2 against `_d` (field -2), where clang
+writes a SIGNED against `_a2` itself (a listed symbol; field -5); and with a temporary alias `La3 = _d + 5`,
+`cmp byte ptr [rip + La3], 1` becomes a SIGNED (field 4) where clang writes a SIGNED_1 (field 4) — clang
+picks the SIGNED_N type from the addend against the name written, before it moves a temporary's reference to
+its atom, but the Mach-O writer only sees the folded addend.  The linked values are the same.  Fix together with the above: keep the alias as the fixup's target and let each writer resolve it
+as clang does (Mach-O: a listed alias stays the relocation's symbol; a temporary one moves to its atom's
+symbol after the type is chosen from the addend against it).
 
 ### bnld Mach-O reader: a section type it does not handle is read as data — S_GB_ZEROFILL gets the header bytes — 🔴 OPEN (found 2026-10-17, work-2, review of the asm TLS change; latent)
 
