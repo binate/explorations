@@ -32,14 +32,28 @@ reproduced): a plain impl's receiver must equal the type argument (`impl *P : la
 satisfy it), while a parameterized impl's receiver is matched with the call-site receiver smoothing
 (genericImplSatisfies uses receiverAssignable).  `impl *W[K] : lang.Orderable` (`func (w *W[K]) Compare(o W[K])
 int`) makes `W[int]` satisfy it, and `g[W[int]](w)` with `g[U lang.Orderable](u U) int { return u.Compare(u) }`
-runs; `impl W[K]` makes `@W[int]` satisfy it, and the constraint call is then rejected inside the instance ("cannot
-assign @W[int] to W[int] (in g[@W[int]], …)").  The spec takes both sides too: gen.impl.generic-recv says `impl
+runs.  (It also lets `impl W[K]` make `@W[int]` satisfy it, which neither reading allows: the MAJOR entry on
+`g[@W[int]]`.)  The spec takes both sides too: gen.impl.generic-recv says `impl
 *Cursor[T] : Iterator[T]` asserts that `Cursor[T]` satisfies `Iterator[T]`.  Text to revise with the decision:
 §11.9 iface.self ("substituted by the implementing named type"), §11.3 iface.impl.coverage ("with `Self`
 substituted by `R`'s named type"), gen.impl.generic-recv, gen.satisfy's receiver clause, gen.mono.constraint-call,
 and iface.self.constraint's "as a type parameter whose constraint is `I` would" (once it lands).
 
 ## MAJOR
+
+### A parameterized impl lets a managed pointer to its instance satisfy a constraint — `g[@W[int]]` is accepted through `impl W[K]` — 🔴 OPEN MAJOR (found 2026-10-16, work-6, review of the spec status cleanup; split out of the pointer-impl decision entry 2026-10-17; reproduced; pre-existing)
+
+With `impl W[K] : lang.Orderable` (`func (w W[K]) Compare(o W[K]) int`) and `func g[U lang.Orderable](u U) int {
+return 7 }`, `g[@W[int]](w)` is accepted and prints 7, although no reading of the receiver shape lets `impl W[K]`
+make `@W[int]` satisfy Orderable; the plain counterpart, `impl P : lang.Orderable` with `g[@P](p)`, is rejected
+("type argument @P does not satisfy constraint Orderable").  With a constraint call in g (`u.Compare(u)`) the
+program is rejected inside the instance instead, with a misleading error ("cannot assign @W[int] to W[int] (in
+g[@W[int]], …)").  Cause: typeSatisfiesConstraint (check/check_generic.bn) checks a parameterized impl with
+genericImplSatisfies (check/types_assignable_iface.bn), the interface-value construction helper, which matches the
+receiver with the construction site's smoothing (receiverAssignable), so `@W[int]` matches `W[K]`.  Fix: match a
+type argument against a parameterized impl's substituted receiver as the plain arm matches a plain impl's
+(Identical), adjusted to whatever the pointer-impl decision above settles for `impl *W[K]`.  An expected-to-fail
+conformance test is to follow.
 
 ### REPL: a generic interface that parks and later resolves skips its declaration check — an invalid `*B[*U]` is accepted — 🔴 OPEN MAJOR (found 2026-10-17, work-6, review of the Self-constraint change; reproduced; pre-existing)
 
