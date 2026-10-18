@@ -1,3 +1,19 @@
+### REPL: a parked generic declaration that later resolved skipped its declaration check — an invalid `*B[*U]` was accepted — DONE (binate `6caa8ed5b`, 2026-10-18, work-6) MAJOR (found 2026-10-17, work-6, review of the Self-constraint change; pre-existing)
+
+At the prompt, `interface H[U any] : K { Put(b *B[*U]) int }` (with `type B[T Eq[int]]`) parked on K, and
+`interface K {}` then reported "interface H resolved" with no error; the `Self` constraint check (`*B[Self]`) and
+a parked generic struct in a type group (`S[T any] struct { b *B[*T]; k K }`) were skipped the same way.  A parked
+declaration is retried as the same declaration, and the parked attempt had cached its abstract instantiation
+(checkGenericDeclAbstract) and marked it resolved (GenericDeclsResolved), so the retry checked nothing.  Undoing a
+REPL declaration now drops every instance its check cached — generic type, alias and function instances, abstract
+instances, and the generics resolved abstractly (dropInstCaches, check/check_inst_cache_drop.bn) — after undoing
+the deps journal, and first removes the surviving instance-check states' edges to the dropped states (Namers /
+Deps are raw pointers).  A retried group shares one mark.  Tests: repl TestReplParkedGenericInterfaceChecked,
+TestReplParkedGenericInterfaceSelf, TestReplParkedGenericStructInTypeGroup (each fails without the fix),
+TestReplUndoneDeclFuncInstanceGetsLaterMethods, TestReplParkedDeclFuncInstanceGetsLaterMethods; check
+TestDropInstCachesForgetsDroppedStates.  A first version that truncated only the type caches was rejected in
+review: it left function instances, and raw edges from surviving states, pointing at dropped entries.
+
 ### VM: a package variable nothing defines aborts the process instead of failing the load — DONE for the VM, the hosts and REPL statements and declarations (binate `0434863cf`, 2026-10-18, work-5); parked groups are still open in claude-todo.md (user, 2026-10-17: "Load error + REPL rollback (Recommended)", then "All four, as two commits (Recommended)")
 
 Lowering a global reference with no storage (a `.bni`-only package's var with no implementation) stopped with

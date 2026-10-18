@@ -58,22 +58,9 @@ g[@W[int]], …)").  Cause: typeSatisfiesConstraint (check/check_generic.bn) che
 genericImplSatisfies (check/types_assignable_iface.bn), the interface-value construction helper, which matches the
 receiver with the construction site's smoothing (receiverAssignable), so `@W[int]` matches `W[K]`.  Fix: match a
 type argument against a parameterized impl's substituted receiver as the plain arm matches a plain impl's
-(Identical), adjusted to whatever the pointer-impl decision above settles for `impl *W[K]`.  An expected-to-fail
-conformance test is to follow.
-
-### REPL: a generic interface that parks and later resolves skips its declaration check — an invalid `*B[*U]` is accepted — 🟡 IN PROGRESS (claimed 2026-10-17, work-6; user: "go ahead and fix the REPL bug next, then continue with item 7") MAJOR (found 2026-10-17, work-6, review of the Self-constraint change; reproduced; pre-existing)
-
-At the prompt, with `interface Eq[T any] { Equal(o T) bool }` and `type B[T Eq[int]] struct { v T }`,
-`interface H0[U any] : Eq[U] { Put(b *B[*U]) int }` is rejected (`*U` does not satisfy `Eq[int]`), but
-`interface H[U any] : K { Put(b *B[*U]) int }` parks on K, and `interface K {}` then reports "interface H
-resolved" with no error (reproduced with a pkg/binate/repl unit test).  The `Self` constraint check is skipped
-the same way: `interface G[U any] : K { Put(b *B[Self]) int }`, then `interface K {}`, is accepted.  Likely
-cause (from a review, not yet confirmed in the code): the parked attempt populates and caches the interface's
-instantiation with its own type parameters (checkGenericDeclAbstract, check/check_generic_populate.bn), whose
-population is where those checks run, and undoing the parked declaration does not drop that cache entry
-(c.GenericInstantiations, c.GenericDeclsResolved), so the retry hits the cache and checks nothing.  Fix: drop or
-re-check a parked declaration's abstract instantiation on retry, and add the two cases above as REPL unit tests
-(they are not in the tree: unit tests can be marked expected-fail only per package).
+(Identical), adjusted to whatever the pointer-impl decision above settles for `impl *W[K]`.  Covered by
+conformance spec/12-generics/119_err_satisfy_generic_impl_managed_ptr (binate `0051d4792`, expected to fail in every
+mode).
 
 ### Instantiating a method whose result wraps the receiver's parameter hangs the compiler — `func (b *Box[V]) Wrap() Box[Opt[V]]` — 🔴 OPEN MAJOR (found 2026-10-17, work-7, review of the instance-identity fix; reproduced; pre-existing)
 
