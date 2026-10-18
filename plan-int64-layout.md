@@ -109,14 +109,23 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
    open claude-todo entry "Native aa64 rejects a struct field at an offset of 16 MiB or more", which a frame
    past 16 MiB hits too); native x64 compiles and runs 20 MB and fails loud at 3 GB (disp32 / imm32); native
    arm32 compiles 20 MB, and its zero global goes to `.data` as 20 MB of zero bytes (the 16 MiB bare-metal RAM
-   region then stops the link).  LLVM compiles all of them.  Commits:
-   - 4a. native/common, callconv, fold: Size() (comparisons as before); the frame plan accumulates slot sizes and
-     offsets in int64, with a frame past the target's int a compile error; copy lengths int64.
-   - 4b. aarch64: offsets and copy lengths int64; an offset past an instruction's immediate range is
-     materialized in a scratch register (fixes the 16 MiB entry, frames included).
-   - 4c. x64: the same past disp32 / imm32.
-   - 4d. arm32: a 32-bit target, so every size and offset fits 32 bits and narrowing is exact on any host.
-   - 4e. asm / elf / macho / link: native backends put zero-initialized globals in bss, which records its size
+   region then stops the link).  LLVM compiles all of them.
+   Scope found while starting (2026-10-18): x64 SysV and arm32 pass a large aggregate by value on the stack, so
+   the call-argument stack layout (callconv ArgWords 152 uses, CallArgStackOff 124, EffectiveArgWords 34,
+   CallStackBytes 36) carries argument sizes too, besides RegMap's frame tables (~110 backend sites).  User
+   decision (2026-10-18): "Full int64 (as planned)" — frames and the call-argument stack layout carry int64
+   everywhere (chosen over a uniform 2 GB native limit, and over int64 frames with stack arguments capped at 2
+   GB).  Commits:
+   - 4a. DONE (not yet landed): native/common, callconv, fold compare sizes with Size().
+   - 4b. aarch64: an add / sub of an offset past the 0..0xFFFFFF immediate range is materialized in a scratch
+     register (the 16 MiB entry, fields and frames; fails on 64-bit hosts today, independent of int64).
+   - 4c. callconv's stack layout in int64 (argument words, stack offsets, stack bytes) and each backend's
+     stack-argument paths; a large by-value argument is copied with a loop, not word by word.
+   - 4d. RegMap's frame tables in int64 (PlanFrame bounded by the target's int, a compile error past it) and each
+     backend's slot addressing, materializing offsets past an instruction's reach (aarch64 past what MemImm
+     takes on the host, x64 past disp32; arm32 is a 32-bit target, so narrowing is exact).
+   - 4e. Field / element offsets and copy lengths per backend (ElemSizeOf, FieldByteOffset, aggregate copies).
+   - 4f. asm / elf / macho / link: native backends put zero-initialized globals in bss, which records its size
      without materializing bytes (an int64 size on a 32-bit host); check crt0 / the linker scripts clear bss.
    Tests compile functions holding the large frames / offsets without calling them, so they need no memory.
 5. VM / interp: VM memory is host memory, so its layout narrows at allocation (`HostInt`), failing loud.
