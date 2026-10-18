@@ -326,6 +326,16 @@ on a 64-bit target) never finishes compiling.  Fix: the loop form genArrayCopy u
 elements with a bool accumulator slot), at least past a small element count; a conformance test comparing a large
 array (equal, and unequal at the last element).
 
+### `var s [N]char = "…"` emits per-byte IR for the whole array — a large array blows up compile time and IR size — 🔴 OPEN (found 2026-10-18, work-1, int64 layout stage 3; pre-existing)
+
+codegen/emit_strings.bn lowers OP_RODATA_ARRAY by storing every byte of the `[N x i8]` slot one at a time
+(emitInlineByteStores, the zero-padding tail too), then loads the slot as an SSA `[N x i8]` value, which the store
+to the variable decomposes again leaf by leaf (an OP_RODATA_ARRAY is not a memory-backed bulk value,
+emit_bulk_value.bn): `var s [20000]char = "hi"` emits ~100k IR lines (40k GEPs + byte stores, 20k extractvalues +
+stores).  The native backends' lowering is unchecked.  Fix: store the literal's bytes, zero the tail with one bulk
+zero-fill (emitMemZero), and make the value memory-backed (or have IR-gen store into the variable's slot
+directly); a conformance test with a large zero-padded array.
+
 ### No CI lane runs the LLVM arm32 bare-metal mode at -O2 — 🔴 OPEN (raised 2026-09-30, work-1; awaiting a user decision)
 
 .github/workflows/conformance-o2.yml runs builder-comp (host LLVM) and the native modes at -O2, not
