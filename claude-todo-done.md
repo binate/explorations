@@ -1,3 +1,17 @@
+### A generic type's bare name was accepted as a type argument or a method expression's base — `one[Box]()` crashed IR-gen, `Box.Get` aborted at run time — DONE (binate `986fcfa54`, 2026-10-18, work-6) (MAJOR, found 2026-10-18 in review of the expression type records; pre-existing)
+
+A type expression `var x Box` (Box generic) was rejected, "generic type used without type arguments"
+(gen.instantiate), but the expression forms were not: a type argument written as an identifier (`one[Box]()`,
+`one[*Box]()`, the function value `one[Box]`, `size[Box]()`) took the placeholder and stopped IR-gen ("cannot
+resolve the type Box"), an exposed generic's marker (`one[fwd.Box]()`) became a void type argument, and `Box.Get`
+(called or not) found the placeholder's abstract method and aborted at run time.  The unqualified checks of a type
+expression's name are now check resolveTypeName (pending alias, lookup, placeholder, kind), shared by an identifier
+type argument; a qualified type argument rejects an exposed generic's marker; checkSelectorExpr's `T.M` arm rejects
+the placeholder.  The named-type code moved to resolve_type_named.bn.  Reviewed (no valid program rejected; its
+hygiene and test findings fixed before landing).  Tests: check TestBareGenericNameRejected (7 forms, one error
+each); conformance spec/12-generics/121_err_generic_bare_type_arg, 122_err_generic_bare_method_expr,
+1700_expose_generic_bare_type_arg_reject.
+
 ### x64 text parser: a label-difference constant is a memory reference, as clang reads it; `int 3`; Intel-syntax immediates — DONE (binate `9256c7b49`, 2026-10-18, work-2) (MAJOR, found in review of `ret imm16`; user: "Follow clang where sound")
 
 In an x86-64 operand the name of a constant a label difference decided (`N = L2 - L1`; ExprResult.DiffConst) is
