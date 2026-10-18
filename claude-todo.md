@@ -47,7 +47,7 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
-### REPL: a parked declaration is re-checked on the syntax its failed attempt annotated — a stale implicit `&` crashes the VM — 🔴 OPEN MAJOR (found 2026-10-18, work-6, review of the expression type records; reproduced; pre-existing)
+### REPL: a parked declaration is re-checked on the syntax its failed attempt annotated — a stale implicit `&` crashes the VM — 🟡 IN PROGRESS MAJOR (claimed 2026-10-18, work-6/session — user: "yes, that order is fine"; found 2026-10-18, work-6, review of the expression type records; reproduced; pre-existing)
 
 - Repro (`bni --repl`, with `testing` imported): `type T struct { n int }`, `func (t *T) Inc() int { t.n = t.n + 1;
   return t.n }`, `func add(a int, b int) int { return a + b }`, `var v T`, `var y int = add(v.Inc(), u)` (parks on
