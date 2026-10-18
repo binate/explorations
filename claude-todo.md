@@ -77,6 +77,50 @@ program should compile (instantiate only the methods the program reaches, gen.mo
 with a clean diagnostic; either way the compiler must not hang.  Needs investigation; check what the spec says
 about which methods of an instance are instantiated.
 
+**Investigated 2026-10-18 (work-7):** gen.mono.instances makes the program an error (every method of an instance
+names instances, called or not; the set is infinite).  Two causes of the hang, fixed in an unlanded commit: (1) while
+a struct instance is built, the instances its method signatures name were queued with the chain depth of the naming
+that started the builds, so the drain checked instances at depth ~1, each starting another 128-deep build chain; the
+built instance is now the namer (as a generic function's instance is while its signature is resolved), and the chain
+is reported from `Box[int]`; (2) `mentionsTypeParam` stopped at depth 64 and answered "no", so abstract instances
+nested deeper (built while Wrap's own declaration is checked) counted as concrete and were queued — which hung even
+with Box never instantiated.
+
+Still open (the review of that commit, reproduced on main too):
+- A chain that branches still hangs: `func (b *Box[V]) A() Box[Opt[V]]` plus `B() Box[Res[V]]` (Box never
+  instantiated), or fields alone, `type T2[X any] struct { a *T2[Opt[X]]; b *T2[Res[X]] }` — which §12.3 says must be
+  rejected at its declaration.  Building an instance eagerly instantiates what its fields and method signatures name,
+  bounded only in depth (GenericInstDepth 128), not breadth: ~2^127 instances.  The principled fix is a static
+  expansion check over the generic declarations' type-parameter flow (an edge P→Q where a generic writes H[…] with
+  Q's argument mentioning P, weighted when P is nested in a constructor; a positive-weight cycle is an infinite
+  instantiation): reject at the declaration for a cycle through fields only, and where an instantiation is named
+  for one through methods and bodies.
+- With the commit, an uninstantiated generic with such a method is rejected at its declaration ("nested too deeply
+  (cyclic or unbounded type argument?)" at Opt's and Box's declarations) — stricter than the spec, which names no
+  instance of it; main hung.  Abstract instances' methods are derived eagerly; the static check above would decide
+  it instead.
+- The commit adds struct build nesting to the drain's chain depth, so a finite 140-long chain (f1 → … → f100[T]
+  naming S1[T], whose method signatures chain through 40 struct types) is rejected or accepted depending on which
+  naming comes first (main accepts it).  §12.3 allows the bound of 128; the order dependence is the problem.
+
+### A type parameter constrained by an interface over an instance of its own generic segfaults the compiler — `type Box[T C[Box[T]]]` — 🔴 OPEN MAJOR (found 2026-10-18, work-7, review of the instance-chain hang fix; reproduced on main; pre-existing)
+
+```
+interface C[T any] { M() T }
+type Box[T C[Box[T]]] struct { x T }
+func main() { testing.Println(1) }
+```
+bnc exits 139 (segfault) in about 0.03 s, with Box never instantiated.  The same shape with `C[Opt[T]]` reports
+"undefined: T" instead (see the NEEDS DECISION entry on a constraint that names its own type parameter).  Root
+cause unknown — needs investigation; the compiler must report an error, not crash.
+
+### An error in an instance reached through a generic alias is reported as instantiated at the alias's declaration — 🔴 OPEN (minor; found 2026-10-18, work-7, review of the instance-chain hang fix; pre-existing)
+
+With `type Alias[T any] = Box[T]` and `var b Alias[int64]`, an error in Box[int64]'s method body reads "(in
+Box[int64].S, instantiated at main.bn:9:24)" — the alias declaration's target — instead of the program's
+`Alias[int64]`.  The alias's target is resolved in the alias's scope, and the instance it names takes that position
+as its site; it should take the use's (the target is as if written at the use, gen.instantiate.alias).
+
 ### REPL: a parked group in which a function reads a variable of the same group crashes IR-gen — 🔴 OPEN MAJOR (found 2026-10-17, work-5, reproducing the VM undefined-package-variable entry; reproduced; pre-existing)
 
 At the REPL, `func f() int { return v + 1 }` (parked on v), then `var v int = g()` (parked on g), then
