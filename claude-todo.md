@@ -676,6 +676,21 @@ reserves a slot for every value, folded-away ones included (`native/common/commo
 frame space (visible in the arm32 managed-slice destructor loops: the frame stays `sub sp,#128` after the
 folded constant's slot went unused); fixed together with dropping folded values from LinearScan.
 
+### A raw interface box of a name-less pointee carries no owning slot-0 dtor — blocks `unsafe_cast` `*I -> @I` — 🔴 OPEN (filed 2026-10-17, work-3, split out of the entry below)
+
+A box's `(T, any)` / `(T, I)` vtable row has slot 0 = the owning dtor, which a MANAGED interface value calls
+when it drops its data.  For a RAW box of a name-less pointee (isBoxableNamelessType: a pointer to a slice,
+array, function value, pointer or interface value) irgen/gen_iface.bn leaves slot 0 null — "a RAW iface
+BORROWS, so its any-block slot-0 dtor is never called".  That is correct today, but it is what makes the
+decided `unsafe_cast` raw -> managed interface conversion (entry below) unsound: asserting such a raw value
+managed yields a managed value whose drop frees the cell without destroying the pointee (e.g. the elements
+of a `@[2]@Node`) — a leak, reproduced on LLVM and native when the conversion was implemented.  The dynamic
+type is not known statically, so the checker cannot exclude it.  Fix: give every box row its owning slot-0
+dtor, raw-only boxes included (queue the dtor body whenever a row is created), then implement the entry
+below.  Also check whether gen_iface.bn's "boxing a managed pointer to an anonymous managed struct into `@any`
+is not yet supported" panic is still reachable (a direct `var a @any = p` of a `@struct { q @Inner }` compiles
+and runs).
+
 ### Should `unsafe_cast` convert a RAW interface value to a MANAGED one (`*I -> @I`, `*I -> @J`)? — 🔴 OPEN, DECIDED 2026-10-03, BACK-BURNERED (raised 2026-10-03, work-3, review of the unsafe_cast interface-widening change)
 
 §8.7 lists `*T -> @T` (raw pointer -> managed pointer, asserting a management header at the pointee's
@@ -693,7 +708,8 @@ conversion should say that, not "recover a narrower interface".
 Decision (user, 2026-10-03: "3, 5, 8, 9: go with your recs (though for 9 probably bnlint should complain about it)"): option (a) — allow it, as the interface analogue of `*T -> @T` (the data word asserted to carry a management header; a same-interface or widening vtable), lowered through the upcast; `genIfaceUpcast`'s raw -> managed panic and the checker's "does not convert a raw interface value to a managed one" message (with its TODO) go.  Spec §8.7 bullet plus tests (identity and widening, refcount-neutral).
 Back-burnered 2026-10-03 (work-3, self-drive): an implementation (checker branch, genIfaceUpcast taking
 "may assert managed", conformance spec/08-conversions 028) was written and reviewed, then withdrawn — not
-landed — because the assertion is unsound until a prerequisite exists.  (1) PREREQUISITE — a raw box's
+landed — because the assertion is unsound until a prerequisite exists.  (1) PREREQUISITE (its own entry
+above, "A raw interface box of a name-less pointee carries no owning slot-0 dtor") — a raw box's
 `(T, any)` / `(T, I)` vtable row leaves slot 0 (the owning dtor) null for a NAME-LESS pointee ("a raw iface
 borrows, slot 0 is never called", gen_iface.bn), and for an anonymous managed struct / managed func-value
 pointee no owning dtor is wired at all (a managed `@any` of one is an IR-gen panic, "FU4 Part B").  So
