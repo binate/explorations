@@ -334,7 +334,9 @@ to the variable decomposes again leaf by leaf (an OP_RODATA_ARRAY is not a memor
 emit_bulk_value.bn): `var s [20000]char = "hi"` emits ~100k IR lines (40k GEPs + byte stores, 20k extractvalues +
 stores).  The native backends' lowering is unchecked.  Fix: store the literal's bytes, zero the tail with one bulk
 zero-fill (emitMemZero), and make the value memory-backed (or have IR-gen store into the variable's slot
-directly); a conformance test with a large zero-padded array.
+directly); a conformance test with a large zero-padded array.  Past 2^31 bytes (a 64-bit
+target) int64 layout stage 3 (not yet landed) makes it the internal error "an aggregate too large for i32
+offsets is emitted leaf by leaf".
 
 ### No CI lane runs the LLVM arm32 bare-metal mode at -O2 — 🔴 OPEN (raised 2026-09-30, work-1; awaiting a user decision)
 
@@ -485,6 +487,12 @@ emitZeroRec iterate an array's elements even when an element has no leaves, so a
 (LLVM only; native aa64 0.05 s), so `[1 << 40]E` hangs the compiler.  Skip an array whose element has no
 leaves (or zero size) before the loop.  The VM's `vm_iface_crossmode.bn` has a similar per-element loop (not
 reproduced).
+
+Also (found 2026-10-18, work-1, review of int64 layout stage 3): a multi-return tuple with a bulk member is still
+built as an SSA value, leaf by leaf — `func two(p *Big) (Big, int) { return *p, 3 }` emits 8202 per-leaf lines
+for a 4 KB `Big`; for a `Big` past 2^31 bytes (a 64-bit target) stage 3 (not yet landed) makes it the internal
+error "an aggregate too large for i32 offsets is emitted leaf by leaf" (on main: a hang / out of memory).  The
+tuple build needs the memory-backed form too.
 
 ### Per-instantiation checking (design B) follow-ups — 🔴 NEEDS DECISION (raised 2026-09-30 – 2026-10-02, work-4; design B itself is done, commits 1–7 landed)
 - bnlint (CheckPackageDecls) skips the instance checks of a dependency's generics, whose bodies it does not
