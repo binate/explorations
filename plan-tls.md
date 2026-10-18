@@ -33,7 +33,8 @@ cannot be linked by bnld on any target.
 ## Stages (each a reviewed, landed commit or two)
 
 Progress: stage 1 — landed binate `08e9b84b1` (2026-10-17).  bnld rejects thread-local storage in an input
-until stages 5–9 link it — landed binate `4d91dc223` (2026-10-17).  Next: stage 2.
+until stages 5–9 link it — landed binate `4d91dc223` (2026-10-17).  Stage 2a — landed binate `54d587043`
+(2026-10-17).  Next: 2b.
 
 1. **Assembler: thread-local sections and symbols** (all arches, both formats).  ELF: SHF_TLS (the `T`
    flag; `.tdata*` / `.tbss*` imply it, `.tbss*` NOBITS), `%tls_object` / `@tls_object` → STT_TLS, a symbol

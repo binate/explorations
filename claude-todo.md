@@ -246,7 +246,8 @@ bnld reads `.tdata` / `.tbss` as plain data / bss and rejects every TLS relocati
 Mach-O) and the clang survey are in `plan-tls.md`.  Progress: stage 1, the assembler's thread-local sections
 and symbols — landed binate `08e9b84b1` (2026-10-17); bnld rejects thread-local storage in an input (an SHF_TLS
 section or STT_TLS symbol, a Mach-O S_THREAD_LOCAL_* section) until it links it — landed binate `4d91dc223`
-(2026-10-17).  Next: stage 2, the aa64 TLS operators.
+(2026-10-17); stage 2a, the aa64 local-exec / local-dynamic operators (`:tprel_*:`, `:dtprel_*:`) — landed
+binate `54d587043` (2026-10-17).  Next: 2b, initial-exec / TLSDESC (`:gottprel*:`, `:tlsdesc*:`, `.tlsdesccall`).
 
 ### bnld: the firmware-arm and script-arm drivers do not place arm32's unwind index — 🔴 NEEDS DECISION (found 2026-10-16, work-2, the `.ARM.exidx` change)
 
