@@ -1,3 +1,13 @@
+### bnld: the arm32 unwind index's placement scanned each object's sections once per code section — DONE (binate `861e41419`, 2026-10-17, work-2)
+
+Both placements of `.ARM.exidx` (Layout's placeArmExidx, the scripted builder's placeExidxEntries) found a
+code section's index sections by scanning all of its object's sections once per code section — O(S²) per
+object with `-ffunction-sections` — and the builder ordered the placed code by insertion sort.  Now
+`exidxChains` maps each code section to its index sections in one pass, and the builder sorts with the
+stable merge sort the `.eh_frame_hdr` table uses (`sortByKey`, moved to layout.bn).  Tests: TestExidxChains,
+and the builder's address-order test with unindexed code the sort moves (fails with the sort's index
+bookkeeping broken).
+
 ### A function NAME passed into `*any` compiles and boxes nothing — DONE (binate `2c6661c07`, docs `3fcc751`, 2026-10-17, work-1) MAJOR (found 2026-10-03, work-3, review of the nil-into-*any fix; decided 2026-10-16, user: "Decay to @func, box it (Recommended)")
 
 A function name used as a value for a raw `*any` — bare `add`, `pkg.F`, a generic instance `id[int]`, a method

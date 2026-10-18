@@ -217,16 +217,6 @@ bnld reads `.tdata` / `.tbss` as plain data / bss and rejects every TLS relocati
 `__thread` links with bnld on any target.  Stages (all three arches: aa64, x86-64, arm32, ELF and
 Mach-O) and the clang survey are in `plan-tls.md`.  Progress: none landed yet.
 
-### bnld: the arm32 unwind index's placement scans each object's sections once per code section — 🟡 IN PROGRESS (claimed 2026-10-17, work-2) (found 2026-10-16, work-2, review of the `.ARM.exidx` change)
-
-Both placements of `.ARM.exidx` — Layout's (link/arm_exidx.bn placeArmExidx) and the scripted builder's
-(link/builder_ehframe.bn placeExidxEntries, for PlaceArmExidx) — find a code section's index sections by
-scanning all of its object's sections, once per code section: O(S²) per object, where an object built with
-`-ffunction-sections` has a code and an index section per function.  The builder also orders the placed code
-by insertion sort, O(n²) over all code sections when they are not placed in address order.  Fix: one pass
-per object mapping each code section to its index sections, and a merge sort (as sortEhPairs) for the
-address order.
-
 ### bnld: the firmware-arm and script-arm drivers do not place arm32's unwind index — 🔴 NEEDS DECISION (found 2026-10-16, work-2, the `.ARM.exidx` change)
 
 The baremetal-arm driver places `.ARM.exidx` (PlaceArmExidx) and `.ARM.extab`; drivers/firmware-arm.bn and
