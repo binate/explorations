@@ -366,7 +366,9 @@ irgen/gen_eq_aggregate.bn emitAggregateEq compares an array element by element, 
 IR (its own TODO says so): `var a, b [1<<24]int; a == b` emits ~100M IR instructions, and `[1<<40]struct{}` (legal
 on a 64-bit target) never finishes compiling.  Fix: the loop form genArrayCopy uses (a counted loop over the
 elements with a bool accumulator slot), at least past a small element count; a conformance test comparing a large
-array (equal, and unequal at the last element).
+array (equal, and unequal at the last element).  An element of size 0 has no data, so such an array compares equal
+with no compare at all (review of int64 layout stage 3: `var a, b [1 << 16]E; a == b` with `E` a `struct {}` emits
+590k lines of LLVM IR, and conformance 1700's `Z` compared with `==` never finishes compiling).
 
 ### `var s [N]char = "…"` emits per-byte IR for the whole array — a large array blows up compile time and IR size — 🔴 OPEN (found 2026-10-18, work-1, int64 layout stage 3; pre-existing)
 
