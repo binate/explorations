@@ -132,23 +132,6 @@ silent POISONED (the importer then rejects `[q.Z]` "array length must be a const
 constants), so the program compiles.  A conformance test for the crash (the program above) and for a later
 named array type under `len` (`const R int = len(Row{})` before `type Row [8]int16`, also rejected today).
 
-### A constrained generic alias instantiated during declaration collection is never constraint-checked — an interface method signature accepts `O[W]` — 🟡 IN PROGRESS (claimed 2026-10-17, work-3) MAJOR (found 2026-10-16, work-3, review of the spec §12.4 gap removal)
-
-With `type Box[T any] struct { v T }`, `type O[T lang.Orderable] = Box[T]` and `type W struct { f int }`
-(no `impl W : Orderable`), `var o O[W]` in a function body is rejected ("type argument W does not satisfy
-constraint Orderable"), but `interface I { m(o O[W]) }` is accepted (verified with a tree bnc).  Cause (from
-reading the checker): during declaration collection instantiateGenericDeclWithArgs (check_generic_type.bn)
-forces userFacing false and records the constraint check as pending before the alias branch;
-recheckDeferredConstraints (check_deferred_constraints.bn) looks a pending check up only in
-c.GenericInstantiations, but an alias instantiation lives only in c.AliasInstantiations
-(check_generic_alias.bn), so the lookup returns nil and the check is dropped.  Sites resolved only during
-collection lose it: non-generic interface method signatures, impl receivers and interface lists, interface
-parents, and an importer's view of a `.bni`; function signatures, fields, package vars and bodies are
-re-resolved later and do check.  Only matters for an alias whose constraint is stricter than its target's;
-no wrong code.  Fix: make the deferred recheck find alias instantiations too (or record the pending check
-against the alias), and test each collection-time site.  Test:
-conformance/spec/12-generics/109_err_satisfy_alias_iface_sig (xfail.all).
-
 ### Instance-check diagnostics: a second instance's violation is hidden, and an instance formed through a generic's field is placed at that field — 🔴 OPEN (minor: diagnostics; found 2026-10-16, work-5, review of the generic-type method-signature sizing; pre-existing)
 
 contextualizeInstanceErrors drops an error another instance already reported at the same position, so with

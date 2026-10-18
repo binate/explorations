@@ -1,3 +1,25 @@
+### A constrained generic alias instantiated during declaration collection is never constraint-checked — an interface method signature accepts `O[W]` — DONE (binate `903ead3fa`, 2026-10-17, work-3) (found 2026-10-16, work-3, review of the spec §12.4 gap removal)
+
+With `type Box[T any] struct { v T }`, `type O[T lang.Orderable] = Box[T]` and `type W struct { f int }`
+(no `impl W : Orderable`), `var o O[W]` in a function body is rejected ("type argument W does not satisfy
+constraint Orderable"), but `interface I { m(o O[W]) }` is accepted (verified with a tree bnc).  Cause (from
+reading the checker): during declaration collection instantiateGenericDeclWithArgs (check_generic_type.bn)
+forces userFacing false and records the constraint check as pending before the alias branch;
+recheckDeferredConstraints (check_deferred_constraints.bn) looks a pending check up only in
+c.GenericInstantiations, but an alias instantiation lives only in c.AliasInstantiations
+(check_generic_alias.bn), so the lookup returns nil and the check is dropped.  Sites resolved only during
+collection lose it: non-generic interface method signatures, impl receivers and interface lists, interface
+parents, and an importer's view of a `.bni`; function signatures, fields, package vars and bodies are
+re-resolved later and do check.  Only matters for an alias whose constraint is stricter than its target's;
+no wrong code.  Fix: make the deferred recheck find alias instantiations too (or record the pending check
+against the alias), and test each collection-time site.  Test:
+conformance/spec/12-generics/109_err_satisfy_alias_iface_sig (xfail.all).
+Resolution (binate `903ead3fa`): recheckDeferredConstraints now also looks the pending check up in
+AliasInstantiations.  Probing showed every collection-time site was affected — an interface method
+signature, an interface parent list, an impl's interface list and a .bni signature — and each now
+rejects `O[W]` while `O[int]` stays accepted; spec tests 109 (no longer xfail) and 110-112, plus two
+check unit tests.  The spec's §12.4 note for this gap goes in a docs follow-up.
+
 ### bnfmt joins the element after a split string onto the string's continuation line in a composite literal, case label or `__c_call` — DONE (binate `ff51462f2`, 2026-10-17, work-4) (found 2026-10-16, work-4, fixing the multi-line list-element indent; pre-existing)
 
 `fillStrs` (`pkg/binate/format/print_wrap.bn`) packed the item after a string split across source lines
