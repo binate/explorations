@@ -66,6 +66,32 @@ until stages 5–9 link it — landed binate `4d91dc223` (2026-10-17).  Next: st
 10. **e2e**: C `__thread` (LE, IE, an import of glibc's TLS, PIC objects) linked by bnld and run on
     x86-64 / aarch64 / arm32 Linux (docker) and macOS; checked against the clang + lld build.
 
+## Stage 2 design: the aa64 TLS operators (surveyed 2026-10-17, clang 21)
+
+Commits: (2a) local-exec `:tprel_*:` and local-dynamic `:dtprel_*:`; (2b) initial-exec `:gottprel*:`,
+TLSDESC `:tlsdesc*:` / `:tlsdesc_auth*:` and `.tlsdesccall`; (2c) Mach-O `@TLVPPAGE` / `@TLVPPAGEOFF`.
+
+What clang accepts (each its own fixup kind; never resolved at assembly time):
+- MOVZ / MOVN / MOVK / `mov` with `:tprel_g2:` `:tprel_g1:` `:tprel_g1_nc:` `:tprel_g0:` `:tprel_g0_nc:`, the
+  same five `:dtprel_*:`, and `:gottprel_g1:` / `:gottprel_g0_nc:` (TLSLE / TLSLD / TLSIE_MOVW_*).  A MOVZ (and
+  `mov`, at shift 0) with a checked (non-`_nc`) one is encoded as MOVN — the linker picks the opcode by the
+  value's sign; a MOVK or a `_nc` keeps its opcode.  G2 on a W register is an error.  An addend is allowed.
+- ADD (32- or 64-bit, not ADDS / SUB) with `:tprel_hi12:` (implicitly `lsl #12`; an explicit one is an error),
+  `:tprel_lo12:`, `:tprel_lo12_nc:`, the `:dtprel_*:` three, and `:tlsdesc_lo12:` (TLSDESC_ADD_LO12).
+- Every scaled-offset load / store, PRFM and the sign-extending loads, with `:tprel_lo12:` / `_nc` and
+  `:dtprel_lo12:` / `_nc` — LDST8/16/32/64/128 by the access size; not LDUR, writeback or pairs.
+- `:gottprel_lo12:` on an 8-byte transfer (LD64_GOTTPREL_LO12_NC; STR too, as `:got_lo12:`), `:tlsdesc_lo12:` on
+  the 64-bit LDR (TLSDESC_LD64_LO12); ADRP `:gottprel:` / `:tlsdesc:`; the literal `ldr Rt, :gottprel:sym` in
+  every form `:got:` takes (TLSIE_LD_GOTTPREL_PREL19); `.tlsdesccall sym` (TLSDESC_CALL on the next
+  instruction); the PAuth `:tlsdesc_auth:` (ADRP) / `:tlsdesc_auth_lo12:` (ADD, 64-bit LDR).
+- A symbol a TLS operator names is STT_TLS (clang's fixSymbolsInTLSFixups), and its relocation keeps it.
+
+Deliberate rejects (clang accepts): a number after any TLS operator (clang folds the lo12 forms, `add x0, x0,
+:tprel_lo12:5`, and errors on the MOVW ones); a TLS operator naming a symbol defined in a section that is not
+thread-local (clang retypes the `.data` label STT_TLS — nonsense either way); `ldr Rt, :tlsdesc:sym` (clang
+emits a plain R_AARCH64_LD_PREL_LO19, dropping the descriptor); any TLS operator on Mach-O (ELF-only, as the
+MOVW group).
+
 ## Scope decision
 
 All three arches (user, 2026-10-17: "All three arches (Recommended)"): stages 3 and 4 (the x86-64 and arm32
