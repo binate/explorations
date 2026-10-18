@@ -730,6 +730,21 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
+### asm Mach-O: a temporary at the end of an atom is attributed to the next atom — 🔴 OPEN (MAJOR, latent; found 2026-10-18, work-2, review of the alias-reference change)
+
+A temporary label at an atom's end — `Lend:` (or `LC = .`) right before the next atom's symbol — is moved by
+`retargetTemporaryRelocs` (asm/macho/macho_atoms.bn, `atomBaseFor` / `containingAtomSymbol`) to the atom that
+STARTS at that address, not the one it ends: `_f: nop` / `Lend:` / `_g: nop` / `.quad Lend` (arm64) is UNSIGNED
+`_g+0` here where clang writes `_f+4`; `lea rax, [rip + Lend]` from `_g` is resolved in place where clang
+relocates against `_f+N`; `Lend - _g` is an error here.  Same address in the object, but the object sets
+`MH_SUBSECTIONS_VIA_SYMBOLS`, so once ld64 reorders or dead-strips atoms the reference points at `_g` instead of
+the end of `_f` — silent wrong code.  The Mach-O writer is shared, so check whether the native backend's objects
+reference such end labels (function-end temporaries).  clang attributes a temporary to the atom it was defined
+in (the labels' atom counts the parser already keeps, Parser.LabelGens, make the same distinction for
+differences).  **Fix:** retarget a temporary to the atom it belongs to — the last atom-starting symbol defined
+before it, not one at its address defined after it — with golden tests against clang, including a link that
+reorders atoms.
+
 ### arm32 assembler: condition codes and some register fields are silently masked — 🔴 OPEN, unclaimed (found 2026-09-25 by the T6 b1 review; work-4's 2026-09-25 claim released 2026-10-12 — nobody is on it)
 
 (The Operand2 path, register-offset memory shifts and operand registers, and the clang alias substitutions are
