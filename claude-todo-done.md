@@ -1,3 +1,19 @@
+### `_func_handle(panic)` and `__c_entry(panic)` pass the checker and fail in clang — DONE (binate `62a9c278a`, docs `820b62a`, 2026-10-17, work-1) (found 2026-10-17, work-1, review of the panic-through-scope change; user 2026-10-17: "(c) seems right")
+
+Both builtins resolved an identifier argument with `c.Scope.Lookup` and accepted the universe `panic` unmarked, so
+IR-gen emitted the bare `main.panic` and clang rejected it.  `_func_handle(panic)` is now rt.Panic's handle (the
+checker marks the argument, IR-gen names panicFuncName()); `__c_entry(panic)` is rejected ("__c_entry argument
+cannot be the predeclared panic"; pkg.centry.eligible).  Both lookups go through lookupDeclOnDemand.  Conformance
+1693 / 1694; TestPanicFuncHandleAndCEntry.
+
+### A managed pointer to an interface value (`@(*I)` / `@(@I)`) passed for a raw `*any` miscompiles — DONE (binate `781cc67f4`, docs `acefa1c`, 2026-10-17, work-1) MAJOR (found 2026-10-10, work-4; decided 2026-10-16, user: "Opaque box (Recommended)")
+
+A pointer to an interface value — raw `&g` / `&rg` or a managed `@(@Getter)` — now boxes into a raw `*any` with the
+interface-value type as an opaque name-less dynamic type (`case *any` / `.(*any)` recover it; `.(*Getter)` /
+`.(@Getter)` miss); IR-gen's nil-box fallbacks fail loud (requireBoxed).  Conformance 1674 / 1675.  The bnlint rule
+flagging such a box is in the todo ("bnlint: flag a function, and a pointer to an interface value, passed into
+any").
+
 ### A generic interface instance's methods were sized while a struct instance in them was still being built — `type N[T any] struct { next *Get[N[T]] }` was rejected — DONE (binate `0dbc4963d`, 2026-10-17, work-7) MAJOR (found 2026-10-17, work-7, review of the instance-identity fix; pre-existing)
 
 `interface Get[T any] { get() T }; type N[T any] struct { v T; next *Get[N[T]] }` was rejected ("cannot use an

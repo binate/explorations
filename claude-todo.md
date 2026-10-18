@@ -299,32 +299,15 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### A managed pointer to an interface value (`@(*I)` / `@(@I)`) passed for a raw `*any` miscompiles — 🟡 IN PROGRESS MAJOR (claimed 2026-10-16, work-1; decided 2026-10-16, user: "Opaque box (Recommended)"; user 2026-10-15: "I suspect we should define the box, but get the idea reviewed for feasibility and consistency; rejecting it seems ... artificial?"; found 2026-10-10, work-4, review of the deferred `@T` → `*I` fix; reproduced; pre-existing)
+### bnlint: flag a function, and a pointer to an interface value, passed into any — 🟡 IN PROGRESS (claimed 2026-10-17, work-1; user 2026-10-16: "Yes, add them"; the language side is done, binate `781cc67f4` and `2c6661c07`)
 
-The box is done (binate `781cc67f4`, docs `acefa1c`; 2026-10-17): a pointer to an interface value — raw `&g` /
-`&rg` or a managed `@(@Getter)` — boxes into a raw `*any` with the interface-value type as an opaque name-less
-dynamic type (`case *any` / `.(*any)` recover it; `.(*Getter)` / `.(@Getter)` miss); IR-gen's nil-box fallbacks
-fail loud (requireBoxed); conformance 1674 / 1675.  Remaining: the bnlint rule flagging a pointer to an interface
-value boxed into any (user 2026-10-16: "Yes, add them") — shares its call-argument machinery with the function-name
-rule (see "bnlint: flag a function passed to a `...*any` print").
-
-### bnlint: flag a function passed to a `...*any` print — 🔴 OPEN (user 2026-10-16: "Yes, add them"; the language side is done, binate `2c6661c07`)
-
-A function name passed to a `...*any` print (`testing.Println(add)`, `fmt.Println(add)`) boxes the function's
-`@func` value (func.ref.decay), which prints as `%!?(unknown)` — almost always a missing call.  Add a bnlint
-rule flagging a function passed to a `...*any` print.  It shares its call-argument → interface-parameter
-machinery with the rule flagging a pointer to an interface value boxed into any (see "A managed pointer to an
-interface value …").
-
-### `_func_handle(panic)` and `__c_entry(panic)` pass the checker and fail in clang — 🟡 IN PROGRESS (claimed 2026-10-17, work-1; user 2026-10-17, choosing among reject both / rt.Panic in both / support `_func_handle(panic)` and reject `__c_entry(panic)`: "(c) seems right"; found 2026-10-17, work-1, review of the panic-through-scope change; pre-existing)
-
-check_builtin.bn's `_func_handle` argument check and check_c_interop.bn's cEntryFuncSym resolve the name with
-`c.Scope.Lookup` and accept the universe SYM_FUNC `panic` without checking the identifier (so it is never marked
-PredeclaredPanic); the IR-gen arms (gen_builtin.bn, gen_builtin_ffi.bn) emit the bare name `main.panic`, which clang
-rejects.  Decided: `_func_handle(panic)` is rt.Panic's handle (the argument is marked and IR-gen names
-panicFuncName()); `__c_entry(panic)` is rejected (it would export the runtime's function as a C entry point of the
-user's package).  Needs a conformance run test for `_func_handle(panic)` and an `.error` test for `__c_entry(panic)`,
-and the spec (`_func_handle` / `__c_entry` rules) to say so.
+Two bnlint rules, sharing their call-argument → interface-parameter machinery:
+- a function — a function name, which decays to its `@func` value (func.ref.decay), or a function value —
+  passed to a `...*any` print (`testing.Println(add)`, `fmt.Println(add)`): it prints as `%!?(unknown)`, almost
+  always a missing call;
+- a pointer to an interface value (`&g` for `g @Getter`, a `@(@Getter)`) boxed into any: the box's dynamic type
+  is the opaque interface-value type, which no assertion but `*any` / `@any` recovers — almost always a mistake
+  for passing the interface value itself.
 
 ### No CI lane runs the LLVM arm32 bare-metal mode at -O2 — 🔴 OPEN (raised 2026-09-30, work-1; awaiting a user decision)
 
