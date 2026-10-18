@@ -1,3 +1,13 @@
+### Copy propagation for `var y = x` — DONE (binate `25c8a5f6d`, 2026-10-18, work-1) (aggregate-copy entry; user order 2026-10-13)
+
+New iropt pass copy-prop (-fcopy-prop, -O1+, not in the VM set): `v = OP_LOAD x; OP_STORE y, v` folds — y's uses
+become x's, the copy and y's slot go — when x and y are pointer-free stack slots, y's first write is the copy, x is
+confined and untouched after the copy (in its block and every block reachable from it), and, if the block can run
+again, x's OP_ALLOC is in it before the copy.  copyThen 1c → 0 on native and LLVM; cmd/bnc 69 fewer aggregate
+copies.  The first review found a miscompile (x declared outside a loop that copies it: writes through y reached the
+next iteration's copy) and a quadratic fixpoint; both fixed before landing; a second review (hand probes on five
+targets, 273 random programs) found nothing.  Conformance 1698; plan-aggregate-copy-opts.md D6.
+
 ### A generic's own parts are judged at its declaration; interface instances, alias uses and calls judge only their type-argument parts, where written — DONE (binate `ae7916bf4`, docs `4415842`, 2026-10-18, work-7) (a piece of "An instance's body judges its type-argument parts in the generic's view, not the importer's"; user 2026-10-16: "Land structs, then do the rest (Recommended)")
 
 An interface instance's opaque checks judged its whole substituted method signatures, in a view that depended on which

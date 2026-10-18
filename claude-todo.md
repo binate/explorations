@@ -123,7 +123,8 @@ and is rejected, so the scenario TestSpeculativeIfaceInstNoOpaqueByValueLeak was
 form.  Find whether any valid program still reaches the speculative path with a method the user-facing check
 would reject; if none, the split (and requireInstantiatedIfaceMethodsSized's re-check) can go.
 
-### int64 layout, stages 2-6: IR, LLVM codegen, native backends, VM — a 32-bit-hosted compiler fails loud on a > 2 GB type for a 64-bit target until they carry int64 — 🟡 PAUSED (claimed 2026-10-15, work-1; user 2026-10-15: "MAJORs first, then back"; the CRITICAL's continuation, plan-int64-layout.md)
+### int64 layout, stages 2-6: IR, LLVM codegen, native backends, VM — a 32-bit-hosted compiler fails loud on a > 2 GB type for a 64-bit target until they carry int64 — 🟡 IN PROGRESS (claimed 2026-10-15, work-1; resumed 2026-10-18 after the MAJORs and the aggregate-copy items, per
+the user's 2026-10-15 order: "MAJORs first, then back"; the CRITICAL's continuation, plan-int64-layout.md)
 
 Stage 1 landed (binate `56c30e545`, docs `dc6444c`): types lays out in int64 and the checker rejects a type too
 large for the target; the rest of the compiler still narrows to the host's int through the transitional
@@ -891,7 +892,7 @@ claude-todo-done.md and plan-aggregate-copy-opts.md); still open:
   User order (2026-10-13): this entry's `var x Big = *p` (the OP_ALLOC between the load and the store keeps
   the load copied) and then copy propagation for `var y = x` (copyThen) come after the CRITICAL 32-bit-host
   entry and the MAJORs.  `var x Big = *p` is done (binate `c97a72eb7`, plan D5); copy propagation for `var y =
-  x` started 2026-10-18 (work-1).
+  x` is done (binate `25c8a5f6d`, plan D6: copyThen 1c -> 0).
 - plan-aggregate-copy-opts.md D1-D4 are done (D1 `dfde1e73a` / `e62af60cf` / `dfce07941` / `35a7a4f3b` /
   `2e5cec867`; D2 `9fe09deb6` / `3c18f42d4`; D3 `69d6dcf57`, its native follow-up `d304bed5f`; D4
   `11375988e`; managed results' moves `d7f5734a2`; fault pads left out of NoZeroInit and every emit-time

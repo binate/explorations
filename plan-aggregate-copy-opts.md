@@ -266,7 +266,13 @@ D. Copy chains (load → private copy → temp slot → argument): revisit after
      Status: DONE `c97a72eb7` (2026-10-18) — -O2 -fno-inline, Big 808 B: `var x Big = *p; return sum(x)`, its
      `x.n++` variant and `x := *p` each 2c → 1c on native aa64 and LLVM arm32 bare metal; `var a [30]int = g`
      from a global copies g straight into a.  Conformance 1697.
-   - D6. Copy propagation for `var y = x` (copyThen, 1c, min 0): IN PROGRESS (2026-10-18, work-1).
+   - D6. Copy propagation for `var y = x` (copyThen, 1c, min 0).  Status: DONE `25c8a5f6d` (2026-10-18) — iropt
+     copy-prop pass (-fcopy-prop, on at -O1+, not in the VM set): a whole copy of a confined slot x into a fresh
+     slot y folds (y becomes x) when nothing touches x after the copy, and — if the copy's block can run again —
+     x's OP_ALLOC is in that block before it.  copyThen 1c → 0 on native aa64 and LLVM arm32 bare metal (every
+     table shape now at its minimum); cmd/bnc native aa64 -O2 51,816 → 51,747 copies.  The first version's
+     review found a silent miscompile with x declared outside a loop copying it (fixed before landing; 1698
+     covers it).
 
 Each step: unit tests on the emitted IR / pass output, conformance on LLVM + LLVM arm32 bare metal + native aa64
 (and the VM for B / C), and a measurement per perf-optimization-guide.md (copy bytes in the native aa64
