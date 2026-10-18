@@ -146,6 +146,19 @@ iropt / irutil / mangle / types/abi to the int64 accessors; 3 LLVM codegen; 4 na
 macho / link (bss without materialized zero bytes; a frame past the target's limit a compile error); 5 VM /
 interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the 32-bit lane.
 
+### A floating-point constant over `len` of an array variable reads the variable at each use — 🔴 OPEN (found 2026-10-18, work-5, review of the VM load check; reproduced; pre-existing)
+
+`const F float64 = cast(float64, len(p.A))` (`var A [4]int` in package p's `.bni`) is not folded: a constant
+computed through a floating-point value is stashed as CONST_EXPR (irgen/gen_const_fold.bn `stashConstExpr`)
+and its initializer re-lowered at each use, and `genBuiltin(LEN)` (gen_builtin.bn) evaluates its operand even
+for an array — so every use of F loads p.A, though `len` of an array is a constant (spec `builtin.len`).
+With nothing defining A: the LLVM backend builds and runs it (prints 4; the load is optimized away),
+`bnc --backend native` fails to link (`_bn_G2_3_pkg4_solo1_1_A` undefined, from main.main), and bni reports a
+load error.  `cast(int, …)`, `cast(uint8, …)`, plain `len` and `len + 1` all fold.  The load error also names
+the constant's declaration line, not the use's.  Fix direction: fold an array's `len` in the CONST_EXPR
+re-lowering (the checker has its value), or do not evaluate a side-effect-free array operand of `len` at all;
+a conformance test with a `.bni`-only array var (expected 4; xfail the native and VM modes until fixed).
+
 ### `len(p.A)` of an imported array variable is rejected as an array length — 🔴 OPEN (minor: valid code rejected; found 2026-10-17, work-5, probing the VM undefined-package-variable entry; reproduced; pre-existing)
 
 With `var A [4]int` in package p's `.bni`, an importer's `var b [len(p.A)]int` is rejected ("array length must
