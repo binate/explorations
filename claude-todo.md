@@ -251,6 +251,14 @@ S_DTRACE_DOF (0xf), the thread-local types (0x11–0x15) and S_INIT_FUNC_OFFSETS
 or ld64 can put in an object, or reject it with an error naming the section (the thread-local types are rejected
 already, binate `4d91dc223`).
 
+### asm Mach-O `@GOTPAGEOFF`: accepts STR / LDR D / PRFM, which ld64 refuses to link — 🔴 OPEN (found 2026-10-18, work-2, review of the asm `@TLVPPAGEOFF` change; loud at link time)
+
+The aarch64 parser takes `sym@GOTPAGEOFF` on every 8-byte transfer (`isa.GotSlotTransferOk`: LDR / STR of X or D,
+PRFM), as clang assembles them, but ld64 links ARM64_RELOC_GOT_LOAD_PAGEOFF12 only on an LDR (or ADD): `str x1,
+[x0, _d@GOTPAGEOFF]` fails with "relocation on non-LDR/ADD instruction".  ELF's `:got_lo12:` is fine with the
+whole set.  Fix: on Mach-O take only what ld64 links (check LDR D and PRFM against ld64 too), as `@TLVPPAGEOFF`
+takes only `ldr Xt` (binate, the `@TLVPPAGE` change).
+
 ### Thread-local storage in the assembler and bnld (the TLS series) — 🟡 IN PROGRESS (claimed 2026-10-17, work-2; user: "let's continue with the items on the list"; scope user 2026-10-09: "All, staged"; 2026-10-17: "All three arches (Recommended)")
 
 Nothing handles TLS today: the assembler rejects `.tdata` / `.tbss`, `%tls_object` and every TLS operator;
