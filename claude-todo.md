@@ -269,7 +269,9 @@ and symbols — landed binate `08e9b84b1` (2026-10-17); bnld rejects thread-loca
 section or STT_TLS symbol, a Mach-O S_THREAD_LOCAL_* section) until it links it — landed binate `4d91dc223`
 (2026-10-17); stage 2a, the aa64 local-exec / local-dynamic operators (`:tprel_*:`, `:dtprel_*:`) — landed
 binate `54d587043` (2026-10-17); 2b, initial-exec / TLSDESC (`:gottprel*:`, `:tlsdesc*:`, `.tlsdesccall`,
-`:tlsdesc_auth*:`) — landed binate `7df7a13b2` (2026-10-18).  Next: 2c, Mach-O `@TLVPPAGE` / `@TLVPPAGEOFF`.
+`:tlsdesc_auth*:`) — landed binate `7df7a13b2` (2026-10-18); 2c, Mach-O `@TLVPPAGE` / `@TLVPPAGEOFF` — landed binate
+`0b78c67a8` (2026-10-18; a TLV program assembled here links with ld64 and runs).  Stage 2 is complete.  Next: stage 3,
+the x86-64 operators.
 
 ### bnld: the firmware-arm and script-arm drivers do not place arm32's unwind index — 🔴 NEEDS DECISION (found 2026-10-16, work-2, the `.ARM.exidx` change)
 
