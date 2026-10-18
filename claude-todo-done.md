@@ -1,3 +1,11 @@
+### `var x Big = *p` copies the pointee twice — DONE (binate `c97a72eb7`, docs `e601c4a`, 2026-10-18, work-1) (aggregate-copy entry; user order 2026-10-13)
+
+IR-gen emits x's slot's OP_ALLOC between the load of `*p` and the store into x, and AggLoadElision's S-adjacent
+rule (a load of an unknown source stored whole reads it in place) refused any non-pure instruction between them,
+so the load was copied into its own region first.  A stack slot's OP_ALLOC now may sit between (it writes only its
+own fresh slot); the spec now says a local's storage ends when its block exits (mem.scope-exit), which this relies
+on.  808-byte Big: 2c → 1c on native aa64 and LLVM; conformance 1697; plan-aggregate-copy-opts.md D5.
+
 ### bnlint: flag a function, and a pointer to an interface value, passed into any — DONE (binate `c9127870a`, 2026-10-17, work-1) (user 2026-10-16: "Yes, add them")
 
 Two bnlint rules over one walk (lint/any_box.bn) of every conversion site — a call's arguments (a method call's

@@ -895,7 +895,8 @@ claude-todo-done.md and plan-aggregate-copy-opts.md); still open:
   exactly 32 bytes with "one other use", and 1,553 copied loads read only by extracts (S-extract's shape).
   User order (2026-10-13): this entry's `var x Big = *p` (the OP_ALLOC between the load and the store keeps
   the load copied) and then copy propagation for `var y = x` (copyThen) come after the CRITICAL 32-bit-host
-  entry and the MAJORs.  `var x Big = *p` started 2026-10-17 (work-1).
+  entry and the MAJORs.  `var x Big = *p` is done (binate `c97a72eb7`, plan D5); copy propagation for `var y =
+  x` started 2026-10-18 (work-1).
 - plan-aggregate-copy-opts.md D1-D4 are done (D1 `dfde1e73a` / `e62af60cf` / `dfce07941` / `35a7a4f3b` /
   `2e5cec867`; D2 `9fe09deb6` / `3c18f42d4`; D3 `69d6dcf57`, its native follow-up `d304bed5f`; D4
   `11375988e`; managed results' moves `d7f5734a2`; fault pads left out of NoZeroInit and every emit-time

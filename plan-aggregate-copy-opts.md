@@ -259,6 +259,14 @@ D. Copy chains (load → private copy → temp slot → argument): revisit after
      clobber(x)` — a silent miscompile on aa64), now counted as touching S (aggregate loads through S's pointers
      and what passes them on — not a call's own result, so `y := transform(x)` still qualifies), and that a
      slot passed in place on arm32 LLVM must be aligned for byval (writeByvalSlotAlign).
+   - D5. `var x Big = *p` (and `x := *p`) copied the pointee twice: IR-gen emits x's slot's OP_ALLOC after the
+     initializer, between the load and the store, and AggLoadElision's S-adjacent rule refused anything between
+     but pure reads.  A stack slot's OP_ALLOC writes only its own fresh slot, which no earlier pointer can
+     legitimately reach (spec e601c4a: a local's storage ends when its block exits), so it may sit between.
+     Status: DONE `c97a72eb7` (2026-10-18) — -O2 -fno-inline, Big 808 B: `var x Big = *p; return sum(x)`, its
+     `x.n++` variant and `x := *p` each 2c → 1c on native aa64 and LLVM arm32 bare metal; `var a [30]int = g`
+     from a global copies g straight into a.  Conformance 1697.
+   - D6. Copy propagation for `var y = x` (copyThen, 1c, min 0): IN PROGRESS (2026-10-18, work-1).
 
 Each step: unit tests on the emitted IR / pass output, conformance on LLVM + LLVM arm32 bare metal + native aa64
 (and the VM for B / C), and a measurement per perf-optimization-guide.md (copy bytes in the native aa64
