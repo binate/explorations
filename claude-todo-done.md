@@ -1,3 +1,14 @@
+### bnlint: flag a function, and a pointer to an interface value, passed into any — DONE (binate `c9127870a`, 2026-10-17, work-1) (user 2026-10-16: "Yes, add them")
+
+Two bnlint rules over one walk (lint/any_box.bn) of every conversion site — a call's arguments (a method call's
+through the receiver's recorded type; a `...T` argument against T), typed var initializers, assignments, return
+operands (functions', methods', function literals'), composite elements and `cast`: func-into-any-variadic (a
+function name, generic instance or function value passed as a `...*any` argument — a print showing
+`%!?(unknown)`) and iface-pointer-into-any (a pointer to an interface value converted to `*any` / `@any`, whose
+dynamic type no assertion recovers).  Types resolve through aliases and `readonly` only, so a named wrapper (the
+recoverable-box idiom) is not flagged — a false positive the review caught.  The checker now records a method's
+signature on its declaration (Decl.ResolvedTypeID).  The tree lints clean.
+
 ### Instances over different type parameters spelled alike shared one identity — `N[T]` written in `S[T]` was N's own `N[T]` — DONE (binate `419ef26e3`, 2026-10-17, work-7) MAJOR (found 2026-10-17, work-7, second review of the generic-own-parts opaque change; pre-existing)
 
 A generic instance's identity was its mangled name, which spells a type parameter by its bare name, so instances

@@ -292,16 +292,6 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### bnlint: flag a function, and a pointer to an interface value, passed into any — 🟡 IN PROGRESS (claimed 2026-10-17, work-1; user 2026-10-16: "Yes, add them"; the language side is done, binate `781cc67f4` and `2c6661c07`)
-
-Two bnlint rules, sharing their call-argument → interface-parameter machinery:
-- a function — a function name, which decays to its `@func` value (func.ref.decay), or a function value —
-  passed to a `...*any` print (`testing.Println(add)`, `fmt.Println(add)`): it prints as `%!?(unknown)`, almost
-  always a missing call;
-- a pointer to an interface value (`&g` for `g @Getter`, a `@(@Getter)`) boxed into any: the box's dynamic type
-  is the opaque interface-value type, which no assertion but `*any` / `@any` recovers — almost always a mistake
-  for passing the interface value itself.
-
 ### No CI lane runs the LLVM arm32 bare-metal mode at -O2 — 🔴 OPEN (raised 2026-09-30, work-1; awaiting a user decision)
 
 .github/workflows/conformance-o2.yml runs builder-comp (host LLVM) and the native modes at -O2, not
@@ -866,7 +856,7 @@ claude-todo-done.md and plan-aggregate-copy-opts.md); still open:
   exactly 32 bytes with "one other use", and 1,553 copied loads read only by extracts (S-extract's shape).
   User order (2026-10-13): this entry's `var x Big = *p` (the OP_ALLOC between the load and the store keeps
   the load copied) and then copy propagation for `var y = x` (copyThen) come after the CRITICAL 32-bit-host
-  entry and the MAJORs.
+  entry and the MAJORs.  `var x Big = *p` started 2026-10-17 (work-1).
 - plan-aggregate-copy-opts.md D1-D4 are done (D1 `dfde1e73a` / `e62af60cf` / `dfce07941` / `35a7a4f3b` /
   `2e5cec867`; D2 `9fe09deb6` / `3c18f42d4`; D3 `69d6dcf57`, its native follow-up `d304bed5f`; D4
   `11375988e`; managed results' moves `d7f5734a2`; fault pads left out of NoZeroInit and every emit-time
