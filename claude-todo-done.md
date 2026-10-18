@@ -1,3 +1,24 @@
+### A generic's own parts are judged at its declaration; interface instances, alias uses and calls judge only their type-argument parts, where written — DONE (binate `ae7916bf4`, docs `4415842`, 2026-10-18, work-7) (a piece of "An instance's body judges its type-argument parts in the generic's view, not the importer's"; user 2026-10-16: "Land structs, then do the rest (Recommended)")
+
+An interface instance's opaque checks judged its whole substituted method signatures, in a view that depended on which
+path first instantiated it, so an importer's export reaching a method through a type parameter (`GI[a.Box]` with a
+method over `*func(T)`) was judged in the generic's view.  Now a generic declaration's own parts (those not involving
+its type parameters) are checked once, at the declaration, in the view where it is written, whether or not it is
+instantiated (§12 `gen.mono.check`; check_generic_own.bn) — a `.bni` generic in the `.bni` view (user: "The .bni view
+(Recommended)").  An instance's structure, a generic interface instance (at each use), a generic alias use and a generic
+call judge only the parts that come from their type arguments, in the view where they are written (check_opaque_use.bn),
+and type arguments are held to the rules on forming a type, including at calls, type assertions and type-switch cases.
+These checks wait until every instance they reach is built (the deferral of `0dbc4963d`, generalized to
+`pendingCheck`).  Some errors moved from each instance to the declaration, and an unused generic with a bad concrete
+part is now an error.  The identity MAJOR's shape (`*S[a.Box]` with `S[T]` holding `@a.Get[N[T]]`) is rejected, and q's
+own opaque export through `lib.Get[Op]` in q's `.bn` compiles (main rejected it).  Conformance 1619, which expected the
+generic's view, was removed.  Tests: check TestCheckGenericOwnParts{Rejected,ReportedOnce,Ok,NotAgainInBodies},
+TestCheckOpaqueInstanceOwnPartsAtDeclaration, TestCheckIfaceSizing{AliasDeferred,DeferredSizeRuns}, and in
+check_opaque_use_test.bn TestCheckOpaque{IfaceInstanceArgView,CallArgView,AliasArgView,TypeArgsWritten,AliasTargetArgs,
+AliasArgInBody,NestedArgsWalkedOnce,IfaceInstanceOwnExportOk,IfaceInBodyReportedOnce,IfaceInBodyAfterStructure,
+AliasInBodyAtUse}; conformance spec/07-types 295–298.  Reviews found an interface instance nested in a body's
+population reported twice and a structure population's latch suppressing a later body check, both fixed before landing.
+
 ### REPL: a parked generic declaration that later resolved skipped its declaration check — an invalid `*B[*U]` was accepted — DONE (binate `6caa8ed5b`, 2026-10-18, work-6) MAJOR (found 2026-10-17, work-6, review of the Self-constraint change; pre-existing)
 
 At the prompt, `interface H[U any] : K { Put(b *B[*U]) int }` (with `type B[T Eq[int]]`) parked on K, and

@@ -747,45 +747,37 @@ error (the forwarder should drop the redundant `expose "P"`; a bnlint rule could
 when both paths denote the same declaration (compare the defining package and declaration, not the name),
 spec to match.  Needs a conformance test either way.
 
-### An instance's type-argument parts are judged in the generic's view, not the importer's — in its structure and in its body — 🟡 IN PROGRESS (claimed 2026-10-15, work-7/session — user: "let's actually *fix* these leftovers, one-by-one; you can start with the two we've gone over"; DECIDED 2026-10-15 — user: "Importer's view"; raised 2026-10-03, work-3, review of the type-declaration opaque check; split out 2026-10-10, work-7; the function-signature half landed as binate `df6f53cf6`, struct instances' structure as binate `7c5273422`)
+### An instance's body judges its type-argument parts in the generic's view, not the importer's — 🟡 IN PROGRESS (claimed 2026-10-15, work-7/session — user: "let's actually *fix* these leftovers, one-by-one; you can start with the two we've gone over"; DECIDED 2026-10-16 — user: "Opaque in both places"; raised 2026-10-03, work-3, review of the type-declaration opaque check; split out 2026-10-10, work-7; the function-signature half landed as binate `df6f53cf6`, struct instances' structure as binate `7c5273422`, interface instances, alias uses, calls and a generic's own parts as binate `ae7916bf4`)
 
-Struct (type) instances entered in the importer's view are now walked as their generic declares them (binate
-`7c5273422`, docs `87bf772`; see the done entry).  Two pieces remain, in this order (user 2026-10-16: "Land
-structs, then do the rest (Recommended)"):
+Instances' structure, generic interface instances, generic alias uses, generic calls and a generic declaration's own
+parts are done (binate `7c5273422`, `ae7916bf4`; see the done entries).  What remains is instance bodies: a type in an
+instance's body counts as opaque only if it is opaque both where the generic is written and where the instance is
+instantiated.  Today a body is checked where the generic is (`checkInstanceBody`, the generic's package and view), so
+its by-value and pointer rules count an argument that is the instantiating package's own opaque export as opaque (a
+false rejection: q's own `.bni` generic with `var x T = *p` or `*([2]T)`, instantiated by q with its own `Op`), while
+its function signatures (`InstanceState.BodyDepth`) use the pure view, which misses an importer's export (`gt[q.Op]`
+with `var f *func(T)` in a generic main declares is accepted).  Design: drop the `BodyDepth` pure-view special cases
+(`formationRulesKept`, `instanceStructure`); in a body an export X counts as hidden only if it is hidden where the
+generic is written and its owner is not in the body's lender class — the instantiation site's package (when the site
+is not in a `.bni`) plus the parent work item's lenders, intersected with the export owners among the instance's
+arguments.  `InstCheckState` gains the class, with variant states for other classes; the queueing sites
+(`check_instances.bn`, `check_instance_fields.bn`, `check_instance_state.bn`, `check_instance_live.bn`) pick or create
+the variant through a helper; `InstWork.Lenders` is copied from the state.  §7.12's sentences on instances change with
+it.
 
-1. **Generic interface instances, and a generic declaration's own parts at the declaration.**  An interface
-   instance's existing opaque checks (`check_generic_populate.bn`) judge its whole substituted method
-   signatures, in a view that depends on which path first instantiates it (the interface-instance populate
-   or the recheck), so an importer's export reaching a method through a type parameter (`GI[a.Box]` with a
-   method over `*func(T)`) is judged in the generic's view.  Walking interface instances' abstract methods
-   the way `instanceStructure` walks struct instances duplicated those existing reports, so it was left out
-   of `7c5273422`.  The coherent fix (the user's choice): check a generic declaration's own parts (those not
-   involving its type parameters) once, at the declaration, in the declaring package's view (as §12
-   `gen.mono.check` already says), and have interface instances judge only their argument parts, in the
-   importer's view.  Some existing errors move from each instance to the declaration, and an unused generic
-   with a bad concrete part becomes an error.
-2. **Instance bodies — decided 2026-10-16 (user): "Opaque in both places"**: a type in an instance's body
-   counts as opaque only if it is opaque both where the generic is written and where the instance is
-   instantiated.  Today a body is checked where the generic is (`checkInstanceBody`, the generic's package
-   and view), so its by-value and pointer rules count an argument that is the instantiating package's own
-   opaque export as opaque (a false rejection: q's own `.bni` generic with `var x T = *p` or `*([2]T)`,
-   instantiated by q with its own `Op`), while its function signatures (`InstanceState.BodyDepth`) use the
-   pure view, which misses an importer's export (`gt[q.Op]` with `var f *func(T)` in a generic main
-   declares is accepted).  Design: drop the `BodyDepth` pure-view special cases (`formationRulesKept`,
-   `instanceStructure`); in a body an export X counts as hidden only if it is hidden where the generic is
-   written and its owner is not in the body's lender class — the instantiation site's package (when the
-   site is not in a `.bni`) plus the parent work item's lenders, intersected with the export owners among
-   the instance's arguments.  `InstCheckState` gains the class, with variant states for other classes; the
-   queueing sites (`check_instances.bn`, `check_instance_fields.bn`, `check_instance_state.bn`,
-   `check_instance_live.bn`) pick or create the variant through a helper; `InstWork.Lenders` is copied from
-   the state.  §7.12's sentences on instances change with it.
+The same piece covers two gaps in instance methods' signatures:
 
-Both pieces cover two checks added since (binate `d9c3b4c15`, `621f94019`): an instance method's signature is
-sized in `checkInstanceBody` (`requireMethodInstanceSized`), so in the body's view, and a generic's parts
-that mention no type parameter are checked at the declaration (`requireIndependentSignatureSized`) — piece
-1's declaration check.  The function-signature part of the instance-method check uses the pure view, so an
-importer's export through a type parameter is missed there too (a review found `g.BS[q.Op]` with
-`Set(*func(T))` accepted).
+- **An instance method's signature is sized in the body** (`checkInstanceBody`, `requireMethodInstanceSized`, binate
+  `d9c3b4c15`), so in the body's view: in q's `.bn`, `lib.S[Op]` (q's own export) with lib's `func (s *S[T]) m(x T)` is
+  rejected "in S[Op].m", while the same part as a struct field is accepted.  Its function-signature part uses the pure
+  view, so an importer's export through a type parameter is missed (a review found `g.BS[q.Op]` with `Set(*func(T))`
+  accepted).
+- **Interface instances in a generic type's method signatures are judged nowhere**: `type S[T any] struct { v *T }` with
+  `func (s *S[T]) m(g *Get[T]) {}` and `var s S[Fwd]` (Fwd opaque) is accepted, and so is `m(w *Wrap[S[T]])`.  Deriving an
+  instance method's signature (`DerivingInstanceSig`) instantiates `Get[Fwd]` non-user-facing, so the use-site check
+  (`requireIfaceInstanceArgsKept`) does not run, and `funcSignaturesSized` enters an interface instance only inside an
+  instance's structure (`f != nil`).  Main had the same gap before `ae7916bf4` (found 2026-10-17, work-7, third review of
+  that change).
 
 ### A `.bni` function declaration's signature is checked in the `.bn`'s view — a by-value opaque export in it is accepted at the package and rejected at each importer's call — 🔴 OPEN (found 2026-10-15, work-7, review of the function-signature opaque rule; reproduced; pre-existing)
 
