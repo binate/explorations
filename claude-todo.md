@@ -317,6 +317,14 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
+### Array `==` / `!=` unrolls one comparison per element — a large array blows up compile time and IR size — 🔴 OPEN (found 2026-10-18, work-1, review of int64 layout stage 2; pre-existing)
+
+irgen/gen_eq_aggregate.bn emitAggregateEq compares an array element by element, fully unrolled in straight-line
+IR (its own TODO says so): `var a, b [1<<24]int; a == b` emits ~100M IR instructions, and `[1<<40]struct{}` (legal
+on a 64-bit target) never finishes compiling.  Fix: the loop form genArrayCopy uses (a counted loop over the
+elements with a bool accumulator slot), at least past a small element count; a conformance test comparing a large
+array (equal, and unequal at the last element).
+
 ### No CI lane runs the LLVM arm32 bare-metal mode at -O2 — 🔴 OPEN (raised 2026-09-30, work-1; awaiting a user decision)
 
 .github/workflows/conformance-o2.yml runs builder-comp (host LLVM) and the native modes at -O2, not
