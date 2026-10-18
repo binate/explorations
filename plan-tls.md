@@ -41,9 +41,9 @@ cannot be linked by bnld on any target.
    `:tlsdesc_auth:` / `_lo12:`), each operand form clang accepts, ELF relocations; Mach-O `@TLVPPAGE` /
    `@TLVPPAGEOFF`.  An undefined symbol a TLS operator refers to becomes STT_TLS.
 3. **Assembler: x86-64 TLS operators** — `@TPOFF`, `@GOTTPOFF`, `@TLSGD`, `@TLSLD`, `@DTPOFF`,
-   `@tlsdesc`, `@tlscall` (ELF), `@TLVP` (Mach-O).  (Scope: see Open decision.)
+   `@tlsdesc`, `@tlscall` (ELF), `@TLVP` (Mach-O).
 4. **Assembler: arm32 TLS operators** — `(TPOFF)`, `(GOTTPOFF)`, `(TLSGD)`, `(TLSLDM)`, `(TLSLDO)`,
-   `(TLSDESC)`, `(TLSCALL)`, `.tlsdescseq`.  (Scope: see Open decision.)
+   `(TLSDESC)`, `(TLSCALL)`, `.tlsdescseq`.
 5. **bnld ELF: the TLS segment and local-exec**, all three arches, static and dynamic links: merge
    `.tdata*` then `.tbss*` into one TLS template (PT_TLS; `.tbss` takes no address space in the RW
    segment), an STT_TLS symbol's value its offset in the template, and the LE relocations (aarch64
@@ -63,9 +63,8 @@ cannot be linked by bnld on any target.
 10. **e2e**: C `__thread` (LE, IE, an import of glibc's TLS, PIC objects) linked by bnld and run on
     x86-64 / aarch64 / arm32 Linux (docker) and macOS; checked against the clang + lld build.
 
-## Open decision
+## Scope decision
 
-The 2026-10-09 scope was set inside the aa64 plan.  Stages 3 and 4 (x86-64 and arm32 assembler
-operators) and the x86-64 / arm32 halves of stages 5–7 are not covered by it.  bnld links clang-compiled
-C objects on every target, so without them a C `__thread` cannot be linked by bnld on x86-64 or arm32.
-Recommendation: all three arches in the series (CLAUDE.md: the three are equally important).
+All three arches (user, 2026-10-17: "All three arches (Recommended)"): stages 3 and 4 (the x86-64 and arm32
+assembler operators) and the x86-64 / arm32 halves of stages 5–7 are in the series, as written above —
+bnld links clang-compiled C objects on every target.
