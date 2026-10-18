@@ -1,3 +1,20 @@
+### `panic` is recognized by name, not through scope, and cannot be used as a value — DONE (binate `9e19626c0`, tests `c6afc1fd7`, docs `b587621`, 2026-10-17, work-1) MAJOR (found 2026-10-17, work-1; user 2026-10-17: "(b) sounds right, but get this idea reviewed" — panic usable as a value — and "2. yes" — fix both together)
+
+The checker's universe gave `panic` an empty parameter list and every special case keyed on the identifier's
+spelling: a call through a parameter, local or package-level binding named `panic` aborted instead of calling the
+binding, the missing-return analysis counted it as a terminator, `panic(42)` compiled, and `panic` used as a value
+(`var f = panic`, `take(panic)`, `box(panic)`) crashed IR-gen.  Now the checker marks an identifier that resolves to
+the universe `panic` (ast.Expr.PredeclaredPanic, recomputed on every check, cleared on clone), gives `panic` its
+real type `func(msg *[]readonly char)`, and applies the special rules only to a direct call through a marked
+identifier; IR-gen lowers that call to rt.Panic + unreachable and makes a marked `panic` used as a value a function
+value of rt.Panic (never resolving `panic` by name).  The design review and the change's review caught: a
+package-level `var panic` declared after an initializer that reads it (lookupDeclOnDemand now tries the batch's
+not-yet-defined variable before the universe), a REPL retry keeping a stale mark, and (validation) the VM not having
+rt's signatures when the program does not import rt (the interpreter, `bni --test` and the REPL now force-load rt as
+bnc does).  Conformance 1683-1692; spec builtin.predeclared / builtin.panic / stmt.terminating / func.ref.decay, and
+§21.8 / §21.9 no longer call panic inconsistent across modes.  Remaining: `_func_handle(panic)` / `__c_entry(panic)`
+(todo).
+
 ### bnfmt puts a blank line between an annotated declaration's doc comment and its `#[...]` — DONE (binate `74807c93b`, 2026-10-17, work-4) (found 2026-10-17, work-4, probing the import-section nits; pre-existing)
 
 `printDecls` (`pkg/binate/format/print_file.bn`) placed a top-level declaration's leading comments by

@@ -337,48 +337,15 @@ rule flagging a function passed to a `...*any` print.  It shares its call-argume
 machinery with the rule flagging a pointer to an interface value boxed into any (see "A managed pointer to an
 interface value …").
 
-### `panic` is recognized by name, not through scope: a shadowing parameter or local is ignored, and `panic(42)` is accepted — 🟡 IN PROGRESS MAJOR (claimed 2026-10-17, work-1; user 2026-10-17, asked whether to fix this together with `panic` as a value: "2. yes"; found 2026-10-17, work-1, investigating `panic` as a value)
+### `_func_handle(panic)` and `__c_entry(panic)` pass the checker and fail in clang — 🟡 IN PROGRESS (claimed 2026-10-17, work-1; user 2026-10-17, choosing among reject both / rt.Panic in both / support `_func_handle(panic)` and reject `__c_entry(panic)`: "(c) seems right"; found 2026-10-17, work-1, review of the panic-through-scope change; pre-existing)
 
-The spec makes `panic` a predeclared function that a binding may shadow (§15.7 `builtin.predeclared`), with one
-`*[]readonly char` parameter (`builtin.panic`).  But the checker's universe gives it an EMPTY parameter list
-(check/scope.bn) and checks only the argument count (checkCallExpr), and every special case keys on the
-identifier's spelling, not on what it resolves to: check/check_terminates.bn isPanicCall, check/check_expr.bn
-isVariadicBuiltinCall, irgen/gen_call.bn genCall → genPanicCall.  So:
-- a call through a parameter or local named `panic` (`func g(panic @func(*[]readonly char)) { panic("x") }`,
-  `panic := say; panic("x")`) aborts with "panic: x" instead of calling the binding (wrong code for a valid
-  program; conformance 1683, xfail all);
-- the missing-return analysis counts that call as a terminator, so a function with a result whose body ends in
-  it compiles (conformance 1684, xfail all);
-- `panic(42)` compiles and prints "panic: " (conformance 1685, xfail all; an ordinary call reports "cannot
-  assign untyped int to *[]readonly uint8").
-- a package-level `func panic(m *[]readonly char)` in a user package is ignored the same way (the call aborts,
-  and `func f() int { panic("x") }` passes the missing-return check); `var h *func() = panic` passes the checker
-  (the universe type is `func()`) and crashes IR-gen.
-The tests landed as binate `c6afc1fd7`.
-Fix: give the universe `panic` its real signature, and make every special case ask whether the callee resolves to
-the universe object (so a shadowing binding is an ordinary call).  This is the same change `panic` as a value
-needs (see "`panic` used as a value …"); both are being done together.  Design (reviewed 2026-10-17): the checker
-marks an identifier that resolves to the universe `panic` (an ast.Expr checker-output bool, cleared on clone) and
-every special case — isPanicCall, the arity / spread diagnostics, IR-gen's genCall → genPanicCall — keys on the
-mark; IR-gen's funcRefName maps a marked `panic` to `pkg/builtins/rt.Panic` and funcRefShadowed returns false for
-it, so the value forms go through the ordinary function-value paths.  IR-gen must never resolve `panic` by name
-(an imported generic body would bind the instantiating package's `func panic`).
-Open (needs a user decision; found 2026-10-17 by the review of the change): `_func_handle(panic)` and
-`__c_entry(panic)` pass the checker (check_builtin.bn and cEntryFuncSym resolve the name with `c.Scope.Lookup` and
-accept the universe SYM_FUNC) and then fail in clang (IR-gen emits the bare name `main.panic`); pre-existing.
-Either reject the predeclared `panic` in both checks (isUniversePanic), or treat it as rt.Panic in both.
-
-### `panic` used as a value (`var f = panic`, `take(panic)`, `box(panic)`) passes the checker and crashes IR-gen — 🟡 IN PROGRESS (claimed 2026-10-17, work-1; user 2026-10-17: "(b) sounds right, but get this idea reviewed. What exactly does the spec say about panic being checked specially? (Obviously, when passed as a value, it loses any special checks; but why would we force people to wrap panic in a trivial function if they want to pass it?)"; found 2026-10-17, work-1, review of the function-name-into-`*any` change; design reviewed 2026-10-17, user: "2. yes" — done together with "`panic` is recognized by name …")
-
-The checker's universe defines `panic` as a TYP_FUNC with NO parameters (check/scope.bn, "variadic, checked
-specially"), not its spec signature `panic(msg *[]readonly char)` (§15.7 `builtin.panic`), and admits it wherever a
-function name may appear: `var f = panic`, `var f @func() = panic`, `take(panic)` for a `*any`, `box(panic)`.
-IR-gen has no function behind the name and aborts ("internal error: unresolved identifier panic in IR-gen"), for
-every one of these, with or without the function-name decay into `*any`.  The spec does not say whether `panic`
-may be used as a value.  Options: (a) reject it in the checker ("panic can only be called") — `panic` is checked
-specially and is a control-flow terminator; (b) support it — a function value of type `@func(*[]readonly char)`
-backed by a runtime abort function, with the universe `panic` given its real signature.  Either way the spec
-states the rule, and a conformance test pins it (an `.error` test for (a), a run test for (b)).
+check_builtin.bn's `_func_handle` argument check and check_c_interop.bn's cEntryFuncSym resolve the name with
+`c.Scope.Lookup` and accept the universe SYM_FUNC `panic` without checking the identifier (so it is never marked
+PredeclaredPanic); the IR-gen arms (gen_builtin.bn, gen_builtin_ffi.bn) emit the bare name `main.panic`, which clang
+rejects.  Decided: `_func_handle(panic)` is rt.Panic's handle (the argument is marked and IR-gen names
+panicFuncName()); `__c_entry(panic)` is rejected (it would export the runtime's function as a C entry point of the
+user's package).  Needs a conformance run test for `_func_handle(panic)` and an `.error` test for `__c_entry(panic)`,
+and the spec (`_func_handle` / `__c_entry` rules) to say so.
 
 ### No CI lane runs the LLVM arm32 bare-metal mode at -O2 — 🔴 OPEN (raised 2026-09-30, work-1; awaiting a user decision)
 
