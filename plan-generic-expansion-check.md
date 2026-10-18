@@ -25,7 +25,9 @@ That has three defects:
    abstract) builds `Box[Opt[V]]`, whose methods build `Box[Opt[Opt[V]]]`, … to the bound.  The spec names no
    instance there.
 3. **Order-dependent chain bound.**  Build nesting adds to a body chain's depth, so a long finite chain is accepted
-   or rejected depending on which naming comes first.
+   or rejected depending on which naming comes first.  The static check does not address this one: an instance keeps
+   the chain depth of its first naming in the drain.  §12.3 allows the bound of 128 on such a chain; making the
+   verdict independent of naming order is a separate question (not part of this plan).
 
 Bodies need no static check: they are not built eagerly, and the drain's depth-first walk with its stop at the first
 overflow ends a branching family through bodies after one 128-long path.
@@ -73,7 +75,9 @@ with no concrete instance.  With the static verdict in hand there are two ways t
   the cost of a special case.
 
 Recommendation: (B) — the static check makes every concrete case an error, so the special case is confined to
-abstract checking, where nothing is emitted.
+abstract checking, where nothing is emitted.  **Decided 2026-10-18 (user): "(B) Targeted, expanding only".**  Not
+returning the error type for such an instance instead: that would accept invalid code in the generic's own bodies
+(`return b.Wrap()` from a method declared `int`), which the abstract check must still reject.
 
 ## Tests
 
