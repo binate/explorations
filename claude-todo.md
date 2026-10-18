@@ -2338,7 +2338,16 @@ group, test, the shifts, imul, push / pop, the one-operand group, div / idiv, br
 no SSE / x87, movzx / movsx / movsxd, setcc, cmov, etc., though the encoder library has
 many of them.  The assembler is meant to be comprehensive, so the parser must cover the
 encoder library (and the encoder fill the gaps clang has).  **User decision 2026-10-18:
-do it after the x86-64 TLS operators (plan-tls.md stage 3).**  **aarch64 → ELF is DONE** (`846802a77`): `bnas -target linux-aarch64`
+do it after the x86-64 TLS operators (plan-tls.md stage 3).**  Also found 2026-10-18 (review of the x64
+immediate-classification fix): (a) encodings that differ from clang's for the same instruction — a jump to a
+known nearby label is always rel32 (`e9` / `0f 8x`) where clang relaxes to rel8 (`eb` / `7x`), and the ALU /
+TEST immediate forms on AL / AX / EAX / RAX use the ModR/M encodings (`cmp al, 1` is `80 f8 01`, `test eax,
+imm32` is `f7 c0 …`) where clang uses the accumulator short forms (`3c 01`, `a9 …`; likewise `05`, `2d`,
+`25`, `0d`, `35`, `3d` for add / sub / and / or / xor / cmp); (b) forms clang accepts that bnas rejects (no wrong
+code): `dword ptr N` without brackets, `N[rbx]`, `call [N]` / `jmp N` (to an absolute address), `[rip + N]`
+(R_X86_64_PC32 against the absolute address), `shl eax, N` (an APX form), a displacement past 32 bits (clang
+keeps the low 32), constants whose labels come later in an operand, and a label difference across Mach-O
+atoms.  **aarch64 → ELF is DONE** (`846802a77`): `bnas -target linux-aarch64`
 routes aarch64+linux to `elf.WriteAArch64` (the object format now follows the OS
 via `AssembleFile`'s `osName`; `""` keeps the per-arch host default).  The aa64
 text parser also gained the `#:lo12:label` ADD operand (`4dbd8bb4e`), so a
