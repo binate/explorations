@@ -1,3 +1,19 @@
+### bnfmt puts a right-hand side moved to a continuation line one tab in, whatever the statement's indent — DONE (binate `03a813f6e`, 2026-10-17, work-4) (found 2026-10-17, work-4, review of the multi-line list-element indent fix; pre-existing)
+
+`printRhsValue` (`pkg/binate/format/print_stmtwrap.bn`) wrote the newline before reading
+`currentLineIndent`, so a value moved to a continuation line after `=` / `:=` took its indent from the new,
+empty line and landed at one tab.  It now reads the indent first: the value sits one tab deeper than the
+line the head ends on (the statement's, unless the head spans lines), as `rhsContLongest` measured it.
+`TestWrapVarDeclAtomicRhsToPlus1`, which used a long string literal (a string splits in place, so it never
+reached this path, and `checkWrap` does not check layout), became the golden `TestWrapRhsAtomicToPlus1`
+(identifiers at three depths); `TestWrapRhsContinuesFromHeadsLastLine` covers a head that spans lines.
+Seven files change layout under the new bnfmt, one tab deeper
+(`pkg/binate/asm/parse/x64_regnames_test.bn`, `pkg/binate/check/check_generic_bare_test.bn`,
+`pkg/binate/check/check_instances.bn`, `pkg/binate/irgen/gen_typedecl_test.bn`,
+`pkg/binate/iropt/inline_recursion.bn`, `pkg/binate/link/relocate_pool_test.bn`,
+`pkg/binate/parser/parser_test.bn`); they keep the CHECK_TOOLS bnfmt's layout until the CHECK_TOOLS bump
+reformats them.
+
 ### bnld: the arm32 unwind index's placement scanned each object's sections once per code section — DONE (binate `861e41419`, 2026-10-17, work-2)
 
 Both placements of `.ARM.exidx` (Layout's placeArmExidx, the scripted builder's placeExidxEntries) found a
