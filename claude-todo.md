@@ -55,27 +55,6 @@ population is where those checks run, and undoing the parked declaration does no
 re-check a parked declaration's abstract instantiation on retry, and add the two cases above as REPL unit tests
 (they are not in the tree: unit tests can be marked expected-fail only per package).
 
-### A generic interface instance's methods are sized while a struct instance in them is still being built, which counts as opaque — `type N[T any] struct { next *Get[N[T]] }` is rejected — 🟡 IN PROGRESS MAJOR (claimed 2026-10-17, work-7/session — user: "Half-built fix first (Recommended)"; found 2026-10-17, work-7, review of the instance-identity fix; reproduced; pre-existing)
-
-```
-interface Get[T any] { get() T }
-type N[T any] struct { v T; next *Get[N[T]] }
-```
-is rejected on main: "main.bn:6:2: cannot use an opaque type by value".  N's abstract check populates N[T]; its
-field instantiates Get[N[T]] user-facing, and `populateInstantiatedInterface` (check_generic_populate.bn) runs
-`requireSizedType` on the substituted `get() N[T]` while N[T] is still being populated — its `Underlying` is set
-only after the fields resolve — and `isOpaqueType` (check_opaque.bn) counts a named type with no `Underlying` as
-opaque.  `var x *Get[N[int]]` in a function fails the same way.  Whether a program trips it depends on which
-declaration instantiates the interface first: adding `type S[T any] struct { g *Get[N[T]] }` makes the program
-above compile on main, because S's instance reuses N's already-built one — and the instance-identity fix (claimed
-MAJOR above, not yet landed), which keeps S's `N[T]` apart from N's own, builds S's from scratch, so programs main
-accepts become rejected.  Fix: never judge an instance that is still being built — defer an interface instance's
-method checks until the outermost instantiation completes (as recheckDeferredConstraints defers constraint
-checks), rather than treating the half-built instance as opaque or skipping it (which would miss a genuine
-opaque-by-value use).  Tests: the two declarations above alone; with `var x *Get[N[int]]`; with S and a generic
-function over `*Get[N[T]]`; a generic alias `L[T any] = *Get[N[T]]`; and an error test where N holds a pure
-opaque type by value.
-
 ### Instantiating a method whose result wraps the receiver's parameter hangs the compiler — `func (b *Box[V]) Wrap() Box[Opt[V]]` — 🔴 OPEN MAJOR (found 2026-10-17, work-7, review of the instance-identity fix; reproduced; pre-existing)
 
 ```

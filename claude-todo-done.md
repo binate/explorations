@@ -1,3 +1,17 @@
+### A generic interface instance's methods were sized while a struct instance in them was still being built — `type N[T any] struct { next *Get[N[T]] }` was rejected — DONE (binate `0dbc4963d`, 2026-10-17, work-7) MAJOR (found 2026-10-17, work-7, review of the instance-identity fix; pre-existing)
+
+`interface Get[T any] { get() T }; type N[T any] struct { v T; next *Get[N[T]] }` was rejected ("cannot use an
+opaque type by value"): N[T]'s field instantiates Get[N[T]] while N[T] is still being populated, and
+`populateInstantiatedInterface` sized `get() N[T]` at once, while N[T] had no underlying type (which counts as
+opaque).  Whether a program tripped it depended on which declaration first built the instances.  Interface
+method size checks (`requireMethodSized`, check_iface_sizing.bn) now wait, with their scope and package, until
+the outermost instantiation completes (`flushPendingSizing`), and an instantiation counts as in progress from the
+moment its shell is registered, before `resolveGenericTypeDeclAbstract`.  The user chose to land this before the
+instance-identity fix, which would otherwise have turned it into regressions.  Review: no regression; a test of
+the flush path added, the pending list a `vec.Vec`.  Tests: check TestCheckIfaceSizing{AfterInstanceBuilt,
+OpaqueRejected,DeferredCheckRuns}; conformance spec/12-generics 117.  Found by the review and logged: a generic
+alias seen as recursive and `sizeof` of a half-built instance (both open).
+
 ### bnfmt's import section nits (3) and (4): a `package` line's trailing comment, and one between an import's alias and path, moved — DONE (binate `64fb82388`, 2026-10-17, work-4) (found 2026-10-16, work-5, review of the import-annotation fix, binate `bf091b2ed`)
 
 (3) `package "t" // c` printed the comment on its own line after the clause; (4) `import b /* c */
