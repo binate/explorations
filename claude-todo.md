@@ -41,7 +41,7 @@ and iface.self.constraint's "as a type parameter whose constraint is `I` would" 
 
 ## MAJOR
 
-### Abstract instances over different generics' same-named type parameters share one identity — `N[T]` written in `S[T]` is N's own `N[T]` — 🔴 OPEN MAJOR (found 2026-10-17, work-7, second review of the generic-own-parts opaque change; reproduced; pre-existing)
+### Abstract instances over different generics' same-named type parameters share one identity — `N[T]` written in `S[T]` is N's own `N[T]` — 🟡 IN PROGRESS MAJOR (claimed 2026-10-17, work-7/session — user: "Identity fix first (Recommended)"; found 2026-10-17, work-7, second review of the generic-own-parts opaque change; reproduced; pre-existing)
 
 A generic instance's identity is its mangled name (`mangleInstantiatedName`, pkg/binate/check/check_generic_type.bn;
 `NamedIdentityName` in pkg/binate/types/types_identical.bn for a named instance, (Pkg, Name) for an interface
