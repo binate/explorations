@@ -326,7 +326,7 @@ rule flagging a function passed to a `...*any` print.  It shares its call-argume
 machinery with the rule flagging a pointer to an interface value boxed into any (see "A managed pointer to an
 interface value …").
 
-### `panic` is recognized by name, not through scope: a shadowing parameter or local is ignored, and `panic(42)` is accepted — 🔴 OPEN MAJOR (found 2026-10-17, work-1, investigating `panic` as a value; awaiting a user decision)
+### `panic` is recognized by name, not through scope: a shadowing parameter or local is ignored, and `panic(42)` is accepted — 🟡 IN PROGRESS MAJOR (claimed 2026-10-17, work-1; user 2026-10-17, asked whether to fix this together with `panic` as a value: "2. yes"; found 2026-10-17, work-1, investigating `panic` as a value)
 
 The spec makes `panic` a predeclared function that a binding may shadow (§15.7 `builtin.predeclared`), with one
 `*[]readonly char` parameter (`builtin.panic`).  But the checker's universe gives it an EMPTY parameter list
@@ -340,11 +340,20 @@ isVariadicBuiltinCall, irgen/gen_call.bn genCall → genPanicCall.  So:
   it compiles (conformance 1684, xfail all);
 - `panic(42)` compiles and prints "panic: " (conformance 1685, xfail all; an ordinary call reports "cannot
   assign untyped int to *[]readonly uint8").
+- a package-level `func panic(m *[]readonly char)` in a user package is ignored the same way (the call aborts,
+  and `func f() int { panic("x") }` passes the missing-return check); `var h *func() = panic` passes the checker
+  (the universe type is `func()`) and crashes IR-gen.
+The tests landed as binate `c6afc1fd7`.
 Fix: give the universe `panic` its real signature, and make every special case ask whether the callee resolves to
 the universe object (so a shadowing binding is an ordinary call).  This is the same change `panic` as a value
-needs (see "`panic` used as a value …"), so fixing both together is the natural scope.
+needs (see "`panic` used as a value …"); both are being done together.  Design (reviewed 2026-10-17): the checker
+marks an identifier that resolves to the universe `panic` (an ast.Expr checker-output bool, cleared on clone) and
+every special case — isPanicCall, the arity / spread diagnostics, IR-gen's genCall → genPanicCall — keys on the
+mark; IR-gen's funcRefName maps a marked `panic` to `pkg/builtins/rt.Panic` and funcRefShadowed returns false for
+it, so the value forms go through the ordinary function-value paths.  IR-gen must never resolve `panic` by name
+(an imported generic body would bind the instantiating package's `func panic`).
 
-### `panic` used as a value (`var f = panic`, `take(panic)`, `box(panic)`) passes the checker and crashes IR-gen — 🟡 IN PROGRESS (claimed 2026-10-17, work-1; user 2026-10-17: "(b) sounds right, but get this idea reviewed. What exactly does the spec say about panic being checked specially? (Obviously, when passed as a value, it loses any special checks; but why would we force people to wrap panic in a trivial function if they want to pass it?)"; found 2026-10-17, work-1, review of the function-name-into-`*any` change)
+### `panic` used as a value (`var f = panic`, `take(panic)`, `box(panic)`) passes the checker and crashes IR-gen — 🟡 IN PROGRESS (claimed 2026-10-17, work-1; user 2026-10-17: "(b) sounds right, but get this idea reviewed. What exactly does the spec say about panic being checked specially? (Obviously, when passed as a value, it loses any special checks; but why would we force people to wrap panic in a trivial function if they want to pass it?)"; found 2026-10-17, work-1, review of the function-name-into-`*any` change; design reviewed 2026-10-17, user: "2. yes" — done together with "`panic` is recognized by name …")
 
 The checker's universe defines `panic` as a TYP_FUNC with NO parameters (check/scope.bn, "variadic, checked
 specially"), not its spec signature `panic(msg *[]readonly char)` (§15.7 `builtin.panic`), and admits it wherever a
