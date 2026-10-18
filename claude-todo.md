@@ -41,6 +41,42 @@ and iface.self.constraint's "as a type parameter whose constraint is `I` would" 
 
 ## MAJOR
 
+### A generic interface instance's methods are sized while a struct instance in them is still being built, which counts as opaque — `type N[T any] struct { next *Get[N[T]] }` is rejected — 🔴 OPEN MAJOR (found 2026-10-17, work-7, review of the instance-identity fix; reproduced; pre-existing)
+
+```
+interface Get[T any] { get() T }
+type N[T any] struct { v T; next *Get[N[T]] }
+```
+is rejected on main: "main.bn:6:2: cannot use an opaque type by value".  N's abstract check populates N[T]; its
+field instantiates Get[N[T]] user-facing, and `populateInstantiatedInterface` (check_generic_populate.bn) runs
+`requireSizedType` on the substituted `get() N[T]` while N[T] is still being populated — its `Underlying` is set
+only after the fields resolve — and `isOpaqueType` (check_opaque.bn) counts a named type with no `Underlying` as
+opaque.  `var x *Get[N[int]]` in a function fails the same way.  Whether a program trips it depends on which
+declaration instantiates the interface first: adding `type S[T any] struct { g *Get[N[T]] }` makes the program
+above compile on main, because S's instance reuses N's already-built one — and the instance-identity fix (claimed
+MAJOR above, not yet landed), which keeps S's `N[T]` apart from N's own, builds S's from scratch, so programs main
+accepts become rejected.  Fix: never judge an instance that is still being built — defer an interface instance's
+method checks until the outermost instantiation completes (as recheckDeferredConstraints defers constraint
+checks), rather than treating the half-built instance as opaque or skipping it (which would miss a genuine
+opaque-by-value use).  Tests: the two declarations above alone; with `var x *Get[N[int]]`; with S and a generic
+function over `*Get[N[T]]`; a generic alias `L[T any] = *Get[N[T]]`; and an error test where N holds a pure
+opaque type by value.
+
+### Instantiating a method whose result wraps the receiver's parameter hangs the compiler — `func (b *Box[V]) Wrap() Box[Opt[V]]` — 🔴 OPEN MAJOR (found 2026-10-17, work-7, review of the instance-identity fix; reproduced; pre-existing)
+
+```
+type Opt[T any] struct { v T }
+type Box[T any] struct { x T }
+func (b *Box[V]) Wrap() Box[Opt[V]] { var r Box[Opt[V]]; r.x.v = b.x; return r }
+func main() { var b Box[int]; b.x = 1; testing.Println(b.Wrap().x.v) }
+```
+spins at 100% CPU (killed after 20 s); the "generic instantiation nested too deeply" bound never fires.
+Presumably each instance's methods are instantiated, so Box[int]'s Wrap makes Box[Opt[int]], whose Wrap makes
+Box[Opt[Opt[int]]], and so on — not nested (each is queued), so GenericInstDepth stays low.  Unknown whether the
+program should compile (instantiate only the methods the program reaches, gen.mono.instances) or be rejected
+with a clean diagnostic; either way the compiler must not hang.  Needs investigation; check what the spec says
+about which methods of an instance are instantiated.
+
 ### Abstract instances over different generics' same-named type parameters share one identity — `N[T]` written in `S[T]` is N's own `N[T]` — 🟡 IN PROGRESS MAJOR (claimed 2026-10-17, work-7/session — user: "Identity fix first (Recommended)"; found 2026-10-17, work-7, second review of the generic-own-parts opaque change; reproduced; pre-existing)
 
 A generic instance's identity is its mangled name (`mangleInstantiatedName`, pkg/binate/check/check_generic_type.bn;
