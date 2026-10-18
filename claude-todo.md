@@ -1434,6 +1434,29 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   backends) landed as binate `417f660bd` (2026-10-16; done entry). Next: tooling commit 2 (static report
   `perf/placement/layout.py`), commit 3 (timing driver), commit 4 (probe), then phase-0 calibration,
   block layout, and the placement policies.
+  Open (found 2026-10-18 by `layout.py --expect-seed`): phase mode does NOT survive a dead-stripped Mach-O link
+  by ld64.lld. ld64.lld aligns each atom only to the largest power of two dividing its offset, so once a
+  stripped atom (or the unnamed leading-filler atom) is dropped, whole objects move off their phase (97 of 244
+  functions in fannkuch-redux; the same objects linked without -dead_strip all pass). `place.bni` and
+  `perf/placement/placehash.py` claim the opposite and must be corrected. Unverified: Apple ld64 / ld-prime,
+  which bnc uses on macOS; run `layout.py BIN --expect-seed S` on a Mac build to check. If it also loses the
+  phase, the compiler needs a fix (e.g. a symbol on each leading filler, or no subsections in seeded builds).
+- **native backends keep every copy of a weak function: no per-function section / COMDAT group** — 🔵 OPEN.
+  The LLVM path emits each generic instantiation and other shared definitions as `weak_odr` in its own COMDAT,
+  so the linker keeps one body. The native backends (x64, aarch64, arm32) put weak functions in the object's
+  single `.text`; the link binds the symbol to one copy but every other copy's bytes stay. In the x64 native
+  `cmd/bnc` (built -O2 by bnc at binate `417f660bd`) 494,535 of 13,591,036 text bytes (3.6%) are code outside
+  any function, and 51 weak functions (e.g. `stdx/slices.Append` and `containers/table.Table.Remove`
+  instantiations) have block labels in bodies other than the kept one (`perf/placement/layout.py` reports the
+  outside-function bytes). A native-vs-LLVM gap in code size and i-cache footprint, and it shifts placement.
+  Fix: emit each weak (and linkonce-style) function in its own section in a COMDAT group (ELF `SHF_GROUP` /
+  `.text.<sym>`; Mach-O relies on atoms plus coalescing, check what the linkers do), on all three backends and
+  in bnld; add a link test that two objects defining the same instantiation produce one body.
+- **LOW: `bnc --keep-objs` keeps no package objects when building a program** — 🔵 OPEN. `cmd/bnc/main.bn`
+  removes the compiled `.o` files after the clang link unconditionally (and the bnld path keeps only the start
+  stub), so `--keep-objs` ("keep intermediate .o files") is honored only by library and `--test` builds. Seen
+  2026-10-18 while trying to inspect native objects. Fix: guard every removal on `cli.KeepObjs`; add a cmd/bnc
+  test.
 - **bnld writes no symbols for defined functions (Mach-O or ELF)** — 🔵 OPEN. A program linked with
   `--linker bnld` has a symbol table holding only its undefined imports (Mach-O `buildMachoSymtab` in
   `pkg/binate/link/dynmacho.bn` writes one UND nlist per import; the ELF output has no `.text` symbols at all),
