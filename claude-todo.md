@@ -145,7 +145,8 @@ With nothing defining A: the LLVM backend builds and runs it (prints 4; the load
 load error.  `cast(int, …)`, `cast(uint8, …)`, plain `len` and `len + 1` all fold.  The load error also names
 the constant's declaration line, not the use's.  Fix direction: fold an array's `len` in the CONST_EXPR
 re-lowering (the checker has its value), or do not evaluate a side-effect-free array operand of `len` at all;
-a conformance test with a `.bni`-only array var (expected 4; xfail the native and VM modes until fixed).
+covered by conformance 1699_float_const_len_bni_only_array (binate `43ab553fa`; expected-fail on the four VM
+modes and the six native modes).
 
 ### `len(p.A)` of an imported array variable is rejected as an array length — 🔴 OPEN (minor: valid code rejected; found 2026-10-17, work-5, probing the VM undefined-package-variable entry; reproduced; pre-existing)
 
