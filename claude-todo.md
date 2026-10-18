@@ -278,6 +278,24 @@ rule flagging a function passed to a `...*any` print.  It shares its call-argume
 machinery with the rule flagging a pointer to an interface value boxed into any (see "A managed pointer to an
 interface value …").
 
+### `panic` is recognized by name, not through scope: a shadowing parameter or local is ignored, and `panic(42)` is accepted — 🔴 OPEN MAJOR (found 2026-10-17, work-1, investigating `panic` as a value; awaiting a user decision)
+
+The spec makes `panic` a predeclared function that a binding may shadow (§15.7 `builtin.predeclared`), with one
+`*[]readonly char` parameter (`builtin.panic`).  But the checker's universe gives it an EMPTY parameter list
+(check/scope.bn) and checks only the argument count (checkCallExpr), and every special case keys on the
+identifier's spelling, not on what it resolves to: check/check_terminates.bn isPanicCall, check/check_expr.bn
+isVariadicBuiltinCall, irgen/gen_call.bn genCall → genPanicCall.  So:
+- a call through a parameter or local named `panic` (`func g(panic @func(*[]readonly char)) { panic("x") }`,
+  `panic := say; panic("x")`) aborts with "panic: x" instead of calling the binding (wrong code for a valid
+  program; conformance 1683, xfail all);
+- the missing-return analysis counts that call as a terminator, so a function with a result whose body ends in
+  it compiles (conformance 1684, xfail all);
+- `panic(42)` compiles and prints "panic: " (conformance 1685, xfail all; an ordinary call reports "cannot
+  assign untyped int to *[]readonly uint8").
+Fix: give the universe `panic` its real signature, and make every special case ask whether the callee resolves to
+the universe object (so a shadowing binding is an ordinary call).  This is the same change `panic` as a value
+needs (see "`panic` used as a value …"), so fixing both together is the natural scope.
+
 ### `panic` used as a value (`var f = panic`, `take(panic)`, `box(panic)`) passes the checker and crashes IR-gen — 🟡 IN PROGRESS (claimed 2026-10-17, work-1; user 2026-10-17: "(b) sounds right, but get this idea reviewed. What exactly does the spec say about panic being checked specially? (Obviously, when passed as a value, it loses any special checks; but why would we force people to wrap panic in a trivial function if they want to pass it?)"; found 2026-10-17, work-1, review of the function-name-into-`*any` change)
 
 The checker's universe defines `panic` as a TYP_FUNC with NO parameters (check/scope.bn, "variadic, checked
