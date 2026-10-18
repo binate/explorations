@@ -62,7 +62,7 @@ type argument against a parameterized impl's substituted receiver as the plain a
 conformance spec/12-generics/119_err_satisfy_generic_impl_managed_ptr (binate `0051d4792`, expected to fail in every
 mode).
 
-### Instantiating a method whose result wraps the receiver's parameter hangs the compiler — `func (b *Box[V]) Wrap() Box[Opt[V]]` — 🔴 OPEN MAJOR (found 2026-10-17, work-7, review of the instance-identity fix; reproduced; pre-existing)
+### Instantiating a method whose result wraps the receiver's parameter hangs the compiler — `func (b *Box[V]) Wrap() Box[Opt[V]]` — 🟡 IN PROGRESS MAJOR (claimed 2026-10-18, work-7/session — user: "yes" to taking it next; found 2026-10-17, work-7, review of the instance-identity fix; reproduced; pre-existing)
 
 ```
 type Opt[T any] struct { v T }
