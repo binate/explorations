@@ -47,6 +47,22 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
+### A generic type's bare name is accepted as a type argument or a method expression's base — `one[Box]()` crashes IR-gen, `Box.Get` aborts at run time — 🔴 OPEN MAJOR (found 2026-10-18, work-6, review of the expression type records; reproduced; pre-existing)
+
+- With `type Box[T any] struct { v T }` and `func (b *Box[T]) Get() T`: `one[Box]()` (`func one[T any]() int`)
+  passes the checker and stops IR-gen with "internal error: IR-gen cannot resolve the type Box, which the checker
+  accepted"; `var g = Box.Get` compiles, and the program aborts with "internal error: unresolved selector in
+  IR-gen".  The type expression `var x Box` is rejected ("generic type used without type arguments"), as
+  gen.instantiate requires.  `size[Box]()` (sizeof of T) is rejected with a misleading "cannot take
+  sizeof/alignof of an opaque type".  The qualified bare form `one[q.Box]` is rejected ("undefined: Box").
+- Cause: the expression arms that read a name as a type — check_generic.bn typeArgOrInterfaceFromExprUnstamped's
+  EXPR_IDENT arm, and check_expr_access.bn checkSelectorExpr's `T.M` arm — return the symbol's type without the
+  isGenericTypePlaceholder check resolve_type.bn applies to a TEXPR_NAMED (and without resolvePendingAliasNamed).
+  The placeholder carries the generic's abstract method set, so `Box.Get` finds Get.
+- Fix: route both arms through the named-type checks resolveTypeExpr's TEXPR_NAMED arm makes; conformance error
+  tests for `one[Box]()`, `Box.Get`, `size[Box]()`.  The expression type records (binate check_type_stamps.bn)
+  then never hold a placeholder.
+
 ### A parameterized impl lets a managed pointer to its instance satisfy a constraint — `g[@W[int]]` is accepted through `impl W[K]` — 🔴 OPEN MAJOR (found 2026-10-16, work-6, review of the spec status cleanup; split out of the pointer-impl decision entry 2026-10-17; reproduced; pre-existing)
 
 With `impl W[K] : lang.Orderable` (`func (w W[K]) Compare(o W[K]) int`) and `func g[U lang.Orderable](u U) int {
