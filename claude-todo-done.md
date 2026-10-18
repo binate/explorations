@@ -1,3 +1,18 @@
+### Instances over different type parameters spelled alike shared one identity — `N[T]` written in `S[T]` was N's own `N[T]` — DONE (binate `419ef26e3`, 2026-10-17, work-7) MAJOR (found 2026-10-17, work-7, second review of the generic-own-parts opaque change; pre-existing)
+
+A generic instance's identity was its mangled name, which spells a type parameter by its bare name, so instances
+over two different parameters spelled alike were identical and shared one cache entry: one generic's `T` and
+another's, or one generic's parameters bound under swapped names by a method receiver.  Main rejected valid code
+— `func G[T any](x @Get[N[T]]) T { return x.get().v }` with `type N[T any] struct { v T; next @Get[N[T]] }` was
+"cannot assign T to T" — and accepted `func (m *M[V, K]) wrong() Opt[V] { return m.ov }` with `ov Opt[V]` over M's
+second parameter.  `Identical` now also requires instances whose names agree to have identical type arguments
+(`instArgsIdentical`, types_identical.bn), and `sameInterface` / `isDescendantInterface` / `implCoversInterface`
+use `Identical`.  Landed after the half-built-instance fix (`0dbc4963d`), which the identity fix's review showed it
+would otherwise turn into regressions (user: "Identity fix first", then "Half-built fix first").  Tests: check
+TestIdenticalInstancesOverTypeParams, TestCheckInstanceOverSameNamedParam, TestCheckInstanceBinderPositionDistinct,
+TestCheckImplCoversInstanceByArgs; conformance spec/12-generics 118.  The review also found the compiler hang on
+a wrapping generic method (open MAJOR).
+
 ### `Self` as a type argument never satisfied a constraint, even one the interface extends — DONE (binate `2aaeb6013`, docs `69e9d03` / `5ba93bd`, 2026-10-17, work-6) (found 2026-10-14, work-6, review of the checker fix for `Self` inside struct types / type arguments; pre-existing)
 
 In an interface's method signature, `Self` as a type argument (`*OBox[Self]` for `type OBox[T lang.Orderable]`)

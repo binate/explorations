@@ -90,33 +90,6 @@ program should compile (instantiate only the methods the program reaches, gen.mo
 with a clean diagnostic; either way the compiler must not hang.  Needs investigation; check what the spec says
 about which methods of an instance are instantiated.
 
-### Abstract instances over different generics' same-named type parameters share one identity — `N[T]` written in `S[T]` is N's own `N[T]` — 🟡 IN PROGRESS MAJOR (claimed 2026-10-17, work-7/session — user: "Identity fix first (Recommended)"; found 2026-10-17, work-7, second review of the generic-own-parts opaque change; reproduced; pre-existing)
-
-A generic instance's identity is its mangled name (`mangleInstantiatedName`, pkg/binate/check/check_generic_type.bn;
-`NamedIdentityName` in pkg/binate/types/types_identical.bn for a named instance, (Pkg, Name) for an interface
-instance), which spells each argument with `QualifiedTypeName` — for a type parameter, its bare name.  So an
-instance over one generic's `T` and one over another generic's `T` are identical and share one cache entry
-(`lookupCachedInstantiationEntry` matches arguments with IdenticalStrict).  With
-```
-interface Get[T any] { get() T }                       // in pkg a, with an opaque export Box
-type N[T any] struct { v T; next @a.Get[N[T]] }
-type S[T any] struct { g @a.Get[N[T]] }
-func G[T any](x @a.Get[N[T]]) int { return 0 }
-```
-S's abstract structure and G's signature get the `Get[N[T]]` that N's own abstract check created, whose `T` is
-N's (`TpOwner`), not S's or G's.  Whatever follows type parameters by owner through an abstract instance then
-sees a foreign parameter: the opaque frame walk (`bindFrameType`) binds nothing, so `*S[a.Box]` and
-`G[a.Box](nil)` — whose `Get[N[a.Box]]` returns `N[a.Box]`, holding `a.Box` by value — are accepted.  Renaming
-S's and G's parameter (`S[V any]`) makes both rejected.  On main the opaque check catches these through the
-concrete instance's population (`populateInstantiatedInterface` checks the substituted methods); the change that
-judges a generic's own parts at its declaration and an instance's argument parts through the abstract instance
-(not yet landed) misses them.  Other checks that read an abstract instance's type parameters may be affected the
-same way; not yet audited.  Fix: give a type parameter an owner-qualified spelling in instance identity, or
-compare instances structurally (same generic, arguments identical, a type parameter by owner and index), keeping
-the display name as written; check what else keys on these names (IR-gen's instance naming sees only concrete
-instances).  Tests: an error test with the shape above, plus a generic alias `L[T] = @a.Get[N[T]]` and the
-generic-function form.
-
 ### REPL: a parked group in which a function reads a variable of the same group crashes IR-gen — 🔴 OPEN MAJOR (found 2026-10-17, work-5, reproducing the VM undefined-package-variable entry; reproduced; pre-existing)
 
 At the REPL, `func f() int { return v + 1 }` (parked on v), then `var v int = g()` (parked on g), then
