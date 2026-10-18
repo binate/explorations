@@ -1928,6 +1928,18 @@ reader's reason.  Tests: `relocSectionChecks` on an ELF64 RELA and an ELF32 REL 
 `TestReadObjectRejectsNonRelocatable`, `TestReadArchiveBadMemberReason`.  Checked that clang C objects (`-g`,
 `-ffunction-sections`, `-O0` / `-O1`) still link on x86-64, aarch64 and arm32.
 
+### native code placement, tooling commit 3: perf/placement ab.py timing driver and stats.py — DONE (binate `4f9e3c75b`, 2026-10-18)
+
+A sub-step of the open "native code placement" entry in `claude-todo.md` (plan: `plan-native-code-placement.md`).
+`ab.py run` builds every arm at many `-fnative-place-seed` seeds (plus seed-0 and unflagged controls) and aborts on
+placement that does not vary, identical arms (unless --aa same), differing arms under --aa same, seed-0 != unflagged,
+or a failing `layout.py --expect-seed`; LLVM arms are flagged. Timed rounds: one per seed, Williams-square order with
+mirrored replicates, ASLR off, fixed environment, stack moved by stack_pad(seed) (preflight-checked), every output
+checked; samples.tsv / builds.tsv / meta.json. `stats.py` gives per-arm log-time differences with bootstrap/t CIs,
+placement spread and its ratio, run/placement noise from a joint position+drift order model, flagged samples, the
+geomean over items, --plan, covariates, and the selection table. Built and reviewed by a workflow (16 findings,
+5 major, all fixed); 285 unit tests need no compiler. The probe options come with commit 4.
+
 ### native code placement, tooling commit 2: perf/placement/layout.py static placement report — DONE (binate `f05342e5d`, 2026-10-18)
 
 A sub-step of the open "native code placement" entry in `claude-todo.md` (plan: `plan-native-code-placement.md`).

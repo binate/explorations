@@ -1,5 +1,5 @@
 # Plan: native code placement (x64, aarch64, arm32)
-Status: tooling designed (2026-10-12); decisions taken 2026-10-15 (below); tooling commit 1 (placement seed) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report, `layout.py`) landed as binate `f05342e5d` (2026-10-18); tooling commit 3 (timing driver) next. Tracked in `claude-todo.md` ("native code placement").
+Status: tooling designed (2026-10-12); decisions taken 2026-10-15 (below); tooling commit 1 (placement seed) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report, `layout.py`) landed as binate `f05342e5d` (2026-10-18); tooling commit 3 (timing driver, `ab.py` / `stats.py`) landed as binate `4f9e3c75b` (2026-10-18); tooling commit 4 (probe) next. Tracked in `claude-todo.md` ("native code placement").
 ## Why
 
 Identical machine code runs at very different speeds depending on where it lands, on the x86 test host
@@ -178,7 +178,7 @@ Measurement tooling lands first (user: yes), because both steps are judged with 
   - --compare reports per-function phase and size deltas, and per-loop window and line deltas.
   - --expect-seed recomputes, via placehash, the filler bytes expected before each Binate function and exits non-zero on a mismatch. The first function of each object is checked as >=, because of linker gap fill.
   - aarch64/arm32 get the same tables with a --window of 16/32/64, a branch-density column instead of the erratum column, and their own branch tables: aarch64 b, b.cond, bl, br, blr, ret, cbz/cbnz, tbz/tbnz; arm32 b{cond}, bl, bx, blx, pop {..pc}.
-- 3. binate commit 3, T3 stack shift and T5 timing driver, in /home/user/workspace/binate/perf/placement/. Each file stays under 500 lines.
+- 3. binate commit 3, T3 stack shift and T5 timing driver, in /home/user/workspace/binate/perf/placement/. Each file stays under 500 lines. — LANDED binate `4f9e3c75b` (2026-10-18), without the probe options (commit 4). As landed: the selection table follows the Decisions rule (lowest geomean first; spread and then text break ties; a tie = the 95% CI of the per-seed geomean difference covers 0), compares the unplaced builds' text, and gives no verdict when the data is short of 40 seeds or of the 8 benchmarks + self-compile; stats.py takes several experiment dirs; --aa same aborts on differing binaries; steal is per CPU; a failed output check stops the experiment. Pending user decisions: text budget summed vs per item; refusing benchmark sizes whose runs are too short to time.
   
   runner.py (T3):
   - `spawn(argv, pad_len, cwd, out_path, aslr) -> Sample` records user, sys, wall, maxrss, minflt, majflt, nvcsw and nivcsw from os.wait4, plus an output hash, the /proc/stat steal delta and load1.

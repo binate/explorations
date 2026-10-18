@@ -1502,9 +1502,12 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   self-compile, and mixed benchmark results.
   Progress: tooling commit 1 (hidden `-fnative-place-seed` / `-fnative-place-mode`, all three native
   backends) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report
-  `perf/placement/layout.py`) landed as binate `f05342e5d` (2026-10-18); done entries for both. Next:
-  commit 3 (timing driver), commit 4 (probe), then phase-0 calibration, block layout, and the placement
-  policies. Pending user decision: on Mach-O, `--expect-seed` in shift mode fails only when inexact rows
+  `perf/placement/layout.py`) landed as binate `f05342e5d` (2026-10-18); tooling commit 3 (timing driver
+  `ab.py`, analysis `stats.py`) landed as binate `4f9e3c75b` (2026-10-18); done entries for all three.
+  Next: commit 4 (probe), then phase-0 calibration, block layout, and the placement policies. Pending
+  user decisions on commit 3: the selection order (implemented: the Decisions rule, geomean first),
+  whether the 1% text budget is summed over workloads or per workload, and whether ab.py should refuse
+  benchmark sizes whose runs are too short for user time to resolve. Pending user decision: on Mach-O, `--expect-seed` in shift mode fails only when inexact rows
   outnumber exact ones (dead-strip moves functions); the exact alternative is an option that reads the
   kept object files.
   Open (found 2026-10-18 by `layout.py --expect-seed`): phase mode does NOT survive a dead-stripped Mach-O link
