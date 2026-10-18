@@ -243,8 +243,8 @@ symbol typed STT_GNU_IFUNC (`__attribute__((ifunc))`, glibc's static string func
 function — a call reaches the resolver, not the function it returns — and an STT_TLS symbol as a plain address,
 both silently.  A binding of STB_GNU_UNIQUE (10) is none of local / global / weak.  Do: reject these inputs with an
 error naming the symbol until bnld implements them (IFUNC: an IRELATIVE relocation in a static link, or the
-symbol's type kept in a dynamic one; TLS: with the TLS work; unique: as global, as ld.lld does).  The asm can
-produce an IFUNC symbol once `.type` lands.
+symbol's type kept in a dynamic one; unique: as global, as ld.lld does).  An STT_TLS symbol is rejected already
+(binate `4d91dc223`), until the TLS series links it.  The asm can produce an IFUNC symbol once `.type` lands.
 
 ### asm `.size`: an alias of an alias takes the base symbol's size, where clang takes the nearest alias's — 🔴 OPEN (found 2026-10-16, work-2, review of the `.type` / `.size` change; low)
 
@@ -263,8 +263,8 @@ offset 0, so S_GB_ZEROFILL (0xc) and S_THREAD_LOCAL_ZEROFILL (0x12) get the obje
 contents, silently.  Types with linker semantics bnld does not implement are also taken as plain data: S_COALESCED
 (0xb, one copy kept across objects), the literal- and symbol-pointer and stub types (5–8, 0x10), S_INTERPOSING (0xd),
 S_DTRACE_DOF (0xf), the thread-local types (0x11–0x15) and S_INIT_FUNC_OFFSETS (0x16).  Fix: handle each type clang
-or ld64 can put in an object, or reject it with an error naming the section; the thread-local types get rejected
-by the TLS series' bnld guard first.
+or ld64 can put in an object, or reject it with an error naming the section (the thread-local types are rejected
+already, binate `4d91dc223`).
 
 ### Thread-local storage in the assembler and bnld (the TLS series) — 🟡 IN PROGRESS (claimed 2026-10-17, work-2; user: "let's continue with the items on the list"; scope user 2026-10-09: "All, staged"; 2026-10-17: "All three arches (Recommended)")
 
@@ -272,9 +272,9 @@ Nothing handles TLS today: the assembler rejects `.tdata` / `.tbss`, `%tls_objec
 bnld reads `.tdata` / `.tbss` as plain data / bss and rejects every TLS relocation, so no C object using
 `__thread` links with bnld on any target.  Stages (all three arches: aa64, x86-64, arm32, ELF and
 Mach-O) and the clang survey are in `plan-tls.md`.  Progress: stage 1, the assembler's thread-local sections
-and symbols — landed binate `08e9b84b1` (2026-10-17).  Next: a bnld guard rejecting TLS inputs loudly until bnld
-links them (its ELF reader drops SHF_TLS and ignores STT_TLS; its Mach-O reader would fill `__thread_bss` with
-the object's header bytes), then stage 2.
+and symbols — landed binate `08e9b84b1` (2026-10-17); bnld rejects thread-local storage in an input (an SHF_TLS
+section or STT_TLS symbol, a Mach-O S_THREAD_LOCAL_* section) until it links it — landed binate `4d91dc223`
+(2026-10-17).  Next: stage 2, the aa64 TLS operators.
 
 ### bnld: the firmware-arm and script-arm drivers do not place arm32's unwind index — 🔴 NEEDS DECISION (found 2026-10-16, work-2, the `.ARM.exidx` change)
 
