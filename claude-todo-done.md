@@ -1,3 +1,14 @@
+### The LLVM backend's per-leaf copy / zero-fill walked every element of an array of zero-size elements — `[1 << 40]E` hung the compiler — DONE (binate `651ea270e`, 2026-10-18, work-1; the zero-size part of "The LLVM backend lowers aggregate loads, copies and zero-fills one scalar leaf at a time")
+
+emitCopyRec / emitZeroRec / emitStoreSSARec / emitLoadSSARec skip an array whose element has size 0 (a struct
+copy holding `[1 << n]E` took time linear in the length: 2^26, 31 s).  The VM's collectIfaceVtOffsets (a
+function's interface-value result offsets) skips them too; it hung the VM on such a result type.  clang splits an
+aggregate SSA value element by element, ~19 ns per element even for zero-size ones (`[1 << 30]E`: ~20 s per value;
+`[1 << 30][1 << 30][0]int`: forever), so the LLVM backend spells an array of zero-size elements with length 0.
+Landed as part of int64 layout stage 3; two reviews.  Tests: conformance 1701_zero_size_huge_array_copy (every
+mode; the nested type fits a 32-bit target), codegen TestLlvmTypeZeroSizeArrayHasLengthZero.  Still open: `==` on
+such arrays (claude-todo.md, "Array `==` / `!=` unrolls one comparison per element").
+
 ### A generic type's bare name was accepted as a type argument or a method expression's base — `one[Box]()` crashed IR-gen, `Box.Get` aborted at run time — DONE (binate `986fcfa54`, 2026-10-18, work-6) (MAJOR, found 2026-10-18 in review of the expression type records; pre-existing)
 
 A type expression `var x Box` (Box generic) was rejected, "generic type used without type arguments"

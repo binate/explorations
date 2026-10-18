@@ -94,7 +94,12 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
    with HostInt (native's materialized zero-fill until stage 4, the VM, the interpreter).  types/abi's
    register classifiers narrow through boundedInt (fails loud past 64) on aggregates already bounded to 16
    bytes; the HFA fold caps member counts at 5 (an exact count could wrap on a 32-bit host).
-3. LLVM codegen: sizes and offsets in the emitted IR (allocas, GEPs, memcpy / memset / memmove, data).
+3. LLVM codegen: sizes and offsets in the emitted IR (allocas, GEPs, memcpy / memset / memmove, data).  Status:
+   DONE `651ea270e` (2026-10-18).  Also: TrailingPadding() returns int64 (codegen is its only user); the per-leaf
+   copy / zero / SSA load and store recursions check that the aggregate fits their i32 GEP offsets
+   (checkLeafwiseSize, an internal error past it) and skip arrays of zero-size elements; debug info leaves out a
+   size past 2^60 bytes (a struct that large is a declaration); an array of zero-size elements is `[0 x …]` in LLVM
+   types.
 4. Native backends (common, callconv, fold, aarch64, x64, arm32) and asm / elf / macho / link: data sizes,
    copy and zero-fill lengths and loop counts, offsets past 32 bits, bss without materialized zero bytes; a
    frame past the target's limit is a compile error.

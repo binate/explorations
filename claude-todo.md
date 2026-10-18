@@ -173,7 +173,8 @@ large for the target; the rest of the compiler still narrows to the host's int t
 accessors (SizeOf / FieldOffset / TrailingPadding / ArrayLenHost / HostInt), which fail loud on a 32-bit host
 for a type of 2^31 bytes or more.  Stage 2 landed (binate `addbb15a2`, 2026-10-18): ir / irgen / irbuild / irdata /
 iropt / types/abi read layout in int64, and the shared records (irdata's data terms, type-info records, retbuf sizes)
-are int64.  Remaining (plan-int64-layout.md): 3 LLVM codegen; 4 native backends and asm / elf /
+are int64.  Stage 3 landed (binate `651ea270e`, 2026-10-18): the LLVM backend writes sizes and offsets from the
+int64 API.  Remaining (plan-int64-layout.md): 4 native backends and asm / elf /
 macho / link (bss without materialized zero bytes; a frame past the target's limit a compile error); 5 VM /
 interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the 32-bit lane.
 
@@ -379,7 +380,7 @@ emit_bulk_value.bn): `var s [20000]char = "hi"` emits ~100k IR lines (40k GEPs +
 stores).  The native backends' lowering is unchecked.  Fix: store the literal's bytes, zero the tail with one bulk
 zero-fill (emitMemZero), and make the value memory-backed (or have IR-gen store into the variable's slot
 directly); a conformance test with a large zero-padded array.  Past 2^31 bytes (a 64-bit
-target) int64 layout stage 3 (not yet landed) makes it the internal error "an aggregate too large for i32
+target) int64 layout stage 3 (`651ea270e`) made it the internal error "an aggregate too large for i32
 offsets is emitted leaf by leaf".
 
 ### No CI lane runs the LLVM arm32 bare-metal mode at -O2 — 🔴 OPEN (raised 2026-09-30, work-1; awaiting a user decision)
@@ -525,17 +526,10 @@ the LLVM backend (as native does): a load MemCopies into a function-scoped temp 
 address; stores MemCopy from it, extracts GEP into it, by-value args / returns / call results / phis use
 the address — every codegen producer and consumer of aggregate values handles that form.
 
-Also (found 2026-10-14, work-1, review of the int64-layout plan; reproduced with a scratch bnc): emitCopyRec /
-emitZeroRec iterate an array's elements even when an element has no leaves, so a struct copy holding
-`[1 << n]E` with `E` an empty struct emits nothing yet takes time linear in the length — 2^22: 2 s, 2^26: 31 s
-(LLVM only; native aa64 0.05 s), so `[1 << 40]E` hangs the compiler.  Skip an array whose element has no
-leaves (or zero size) before the loop.  The VM's `vm_iface_crossmode.bn` has a similar per-element loop (not
-reproduced).
-
 Also (found 2026-10-18, work-1, review of int64 layout stage 3): a multi-return tuple with a bulk member is still
 built as an SSA value, leaf by leaf — `func two(p *Big) (Big, int) { return *p, 3 }` emits 8202 per-leaf lines
-for a 4 KB `Big`; for a `Big` past 2^31 bytes (a 64-bit target) stage 3 (not yet landed) makes it the internal
-error "an aggregate too large for i32 offsets is emitted leaf by leaf" (on main: a hang / out of memory).  The
+for a 4 KB `Big`; for a `Big` past 2^31 bytes (a 64-bit target) int64 layout stage 3 (`651ea270e`) made it the
+internal error "an aggregate too large for i32 offsets is emitted leaf by leaf" (before: a hang / out of memory).  The
 tuple build needs the memory-backed form too.  So does `box(*p)` (OP_BOX stores an SSA value): a 4 KB struct boxes
 in 12.6k lines of IR (4097 insertvalues), and a 3 GB one gets the same internal error.
 
