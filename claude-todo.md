@@ -2334,15 +2334,13 @@ section-relative reloc in a KEPT section.
 
 ## bnfmt (self-hosted formatter)
 
-### bnfmt's import section: four layout nits from the import-annotation fix's review — 🟢 LOW, (3) and (4)
-🟡 IN PROGRESS (claimed 2026-10-17, work-4; user: "Maybe we'll do (3) and (4) first") (found
+### bnfmt's import section: two layout nits from the import-annotation fix's review — 🟢 LOW (found
 2026-10-16, work-5, review of the import-annotation fix, binate `bf091b2ed`)
 
 Left after `pkg/binate/format/print_imports.bn`: (1) the lines of an empty `import ()` group read as blank
 lines when the printer decides where blank lines go; (2) the limit for an import's trailing comment is the
 first declaration's `Pos`, which for an annotated or `var` declaration is not its first token, so a comment
-before such a declaration may be taken as the import's; (3) a trailing comment on the `package` line moves;
-(4) a comment between an import's alias and its path moves.  Each needs a format test reproducing it first.
+before such a declaration may be taken as the import's.  Each needs a format test reproducing it first.
 For (2): `takeImportEntry` takes only comments on or before the import's own line, so it needs a
 declaration starting on the last import's line (from reading the code; not reproduced).
 `declStartPos` (`pkg/binate/format/print_decl.bn`, binate `74807c93b`) gives an annotated declaration's

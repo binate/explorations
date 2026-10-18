@@ -1,3 +1,17 @@
+### bnfmt's import section nits (3) and (4): a `package` line's trailing comment, and one between an import's alias and path, moved — DONE (binate `64fb82388`, 2026-10-17, work-4) (found 2026-10-16, work-5, review of the import-annotation fix, binate `bf091b2ed`)
+
+(3) `package "t" // c` printed the comment on its own line after the clause; (4) `import b /* c */
+"pkg/b"` printed it after the path (an aliased import's `Pos` is the alias's).  The parser now records
+`File.PkgPos` (the `package` keyword) and `ImportSpec.PathPos` (the path), read only by the formatter.  The
+clause takes the comments after it on its line, up to the first import or declaration joined to it by `;`
+(`emitTrailingCommentBefore`; a first version took those too, which a review caught), and a comment after
+its annotation block is placed as a declaration's is (`printAnnotationsBefore`); a comment between alias
+and path stays there.  Left: `package /* c */ "t"` prints the comment after the name.  Tests:
+`TestParsePathAndPackagePositions` (`pkg/binate/parser/parse_import_test.bn`),
+`TestFormatPackageClauseTrailingComment`, `TestFormatPackageClauseJoinedLine`,
+`TestFormatCommentAfterImportAlias` (`pkg/binate/format/print_imports_test.bn`).  Nits (1) and (2) stay
+open.
+
 ### `panic` is recognized by name, not through scope, and cannot be used as a value — DONE (binate `9e19626c0`, tests `c6afc1fd7`, docs `b587621`, 2026-10-17, work-1) MAJOR (found 2026-10-17, work-1; user 2026-10-17: "(b) sounds right, but get this idea reviewed" — panic usable as a value — and "2. yes" — fix both together)
 
 The checker's universe gave `panic` an empty parameter list and every special case keyed on the identifier's
