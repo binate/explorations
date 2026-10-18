@@ -76,8 +76,9 @@ What clang accepts (each its own fixup kind; never resolved at assembly time):
   same five `:dtprel_*:`, and `:gottprel_g1:` / `:gottprel_g0_nc:` (TLSLE / TLSLD / TLSIE_MOVW_*).  A MOVZ (and
   `mov`, at shift 0) with a checked (non-`_nc`) one is encoded as MOVN — the linker picks the opcode by the
   value's sign; a MOVK or a `_nc` keeps its opcode.  G2 on a W register is an error.  An addend is allowed.
-- ADD (32- or 64-bit, not ADDS / SUB) with `:tprel_hi12:` (implicitly `lsl #12`; an explicit one is an error),
-  `:tprel_lo12:`, `:tprel_lo12_nc:`, the `:dtprel_*:` three, and `:tlsdesc_lo12:` (TLSDESC_ADD_LO12).
+- ADD (32- or 64-bit, not ADDS / SUB) with `:tprel_hi12:` (its `lsl #12` form), `:tprel_lo12:`, `:tprel_lo12_nc:`,
+  the `:dtprel_*:` three, and `:tlsdesc_lo12:` (TLSDESC_ADD_LO12); written with '#', an optional `lsl #0|#12` as
+  after `:lo12:` (`#:tprel_hi12:sym, lsl #12`, GCC's spelling; a HI12 is shifted either way).
 - Every scaled-offset load / store, PRFM and the sign-extending loads, with `:tprel_lo12:` / `_nc` and
   `:dtprel_lo12:` / `_nc` — LDST8/16/32/64/128 by the access size; not LDUR, writeback or pairs.
 - `:gottprel_lo12:` on an 8-byte transfer (LD64_GOTTPREL_LO12_NC; STR too, as `:got_lo12:`), `:tlsdesc_lo12:` on
