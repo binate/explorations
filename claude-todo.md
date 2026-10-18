@@ -1778,7 +1778,7 @@ closed-source `{facade.bni, bundle.a}` whose internal packages the consumer neve
   `main.o` + the consumer's other objects + the library's object, leaving out the consumer's
   module for the package, works today (a shared var reads the library's value).
 
-### VM: a package variable nothing defines aborts the process instead of failing the load — 🟡 IN PROGRESS (claimed 2026-10-17, work-5/session; DECIDED 2026-10-17 — user: "Load error + REPL rollback (Recommended)": lowering collects unresolved globals as load errors, LoadProgram / LoadCallable return them, the REPL reports one and rolls back that prompt) (MINOR; found 2026-10-07, work-3, review of the `.bni`-only extern-var fix)
+### VM: a package variable nothing defines aborts the process instead of failing the load — 🟡 IN PROGRESS (claimed 2026-10-17, work-5/session; DECIDED 2026-10-17 — user: "Load error + REPL rollback (Recommended)": lowering collects unresolved globals as load errors, LoadProgram / LoadCallable return them, the REPL reports one and rolls back that prompt; then, 2026-10-17, on the mechanism — user: "Checker, via a host hook (Recommended)": the VM host gives the checker a storage query for interface-only packages' vars, a reference to one with no storage is a check error at the reference, and the REPL rolls back through its check-failure path) (MINOR; found 2026-10-07, work-3, review of the `.bni`-only extern-var fix)
 
 Lowering a global reference with no storage (a `.bni`-only package's var with no implementation)
 stops with `vmPanic("vm: nothing in the program defines the package variable …")`, which aborts
