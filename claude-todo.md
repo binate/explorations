@@ -664,7 +664,7 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### x64 assembler / text parser: operand sizes unchecked (`mov [rax], ecx` is an 8-byte store), RIP-label forms, `ret imm16` — 🔴 OPEN, unclaimed (found 2026-09-25; work-4's 2026-09-25 claim released 2026-10-12 — nobody is on it)
+### x64 assembler / text parser: operand sizes unchecked (`mov [rax], ecx` is an 8-byte store), RIP-label forms, `ret imm16` — 🟡 IN PROGRESS (claimed 2026-10-18, work-2; user: "Fix each first", before the x86-64 TLS operators) (found 2026-09-25; work-4's 2026-09-25 claim released 2026-10-12 — nobody is on it)
 Re-checked 2026-10-12: (ii), (v) and (vi) below are still open (emitALU encodes at one operand's size,
 `operandSize`, with no match check; the "Pre-fix this" comment is still in `x64_data_test.bn`; no `ret imm16`
 form); (iv) was not re-checked.
