@@ -1,3 +1,13 @@
+### bnfmt joins the element after a split string onto the string's continuation line in a composite literal, case label or `__c_call` — DONE (binate `ff51462f2`, 2026-10-17, work-4) (found 2026-10-16, work-4, fixing the multi-line list-element indent; pre-existing)
+
+`fillStrs` (`pkg/binate/format/print_wrap.bn`) packed the item after a string split across source lines
+onto the string's last line -- with the opener alone, its +2 continuation -- where `fillExprList` starts
+a call's next argument on a fresh continuation line.  `fillStrs` now makes the same check
+(`itemIsCrossLineStr`, an item whose expression after any key is a cross-line string).  Test:
+`TestListItemAfterCrossLineStr` (`pkg/binate/format/print_listitem_test.bn`).  No file under hygiene's
+bnfmt roots changed layout.  Not caught, as in calls: a cross-line string inside a binary expression, or as
+a nested list's last element; and a cross-line string KEY (always ill-typed).
+
 ### bnfmt puts a right-hand side moved to a continuation line one tab in, whatever the statement's indent — DONE (binate `03a813f6e`, 2026-10-17, work-4) (found 2026-10-17, work-4, review of the multi-line list-element indent fix; pre-existing)
 
 `printRhsValue` (`pkg/binate/format/print_stmtwrap.bn`) wrote the newline before reading

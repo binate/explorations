@@ -2344,16 +2344,6 @@ also records the symbol operand at the call's Pos line (the symbol has no positi
 opener is never alone, and a source `__c_call(` / `"f", int, a)` is joined.  Fix: record the `(` (and the
 symbol's) position in the parser.
 
-### bnfmt joins the element after a split string onto the string's continuation line in a composite literal, case label or `__c_call` — 🟢 LOW, 🟡 IN PROGRESS (claimed 2026-10-17, work-4; user: "you can continue to fix any easy-to-fix bnfmt bugs afterwards") (found 2026-10-16, work-4, fixing the multi-line list-element indent; pre-existing)
-
-In a call's arguments, the element after a string split across lines starts on a fresh continuation line
-(`fillExprList`'s `exprIsCrossLineStr` check, `pkg/binate/format/print_wrap.bn`), but `fillStrs` --
-composite elements, case labels, `__c_call` arguments -- packs it onto the string's deeper continuation:
-`var s = @[]@[]char{` / `"aaa"` / `"bbb",` / `"ccc"}`, with `"ccc"` on a line of its own in the source,
-prints `"bbb", "ccc"}` on the string's continuation line, where the same arguments of `g(` print `"ccc")`
-back on a line at the list's continuation indent.  Fix: the same check in `fillStrs`, for an item whose
-expression (`listItem.x`) is a cross-line string.
-
 ### bnfmt's time grows exponentially with the nesting depth of calls and of multi-line list elements — 🟢 LOW (found 2026-10-16, work-4, fuzzing the multi-line list-element indent fix; the call case pre-existing)
 
 Each call nested in a call's arguments makes formatting about three times slower: calls nested 16 deep
