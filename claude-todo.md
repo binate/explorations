@@ -1825,6 +1825,12 @@ has already committed it when it is lowered, so a member needing such a variable
 `retryGroup` (check/check_pending_retry.bn) takes, `undoDecl` them, and put the group back in Pending as failed
 with the load errors; a group resolved later in the same sweep that depends on it is re-parked too.  IR-gen's
 state is restored per member, and `emitResolvedGroup` load-checks before lowering.
+Scope widened 2026-10-18 after the commit's review found that undoing a group keeps generated code that
+depends on what the undo removes — instances of a generic the group declared (a later different definition
+reuses them), IR-gen's registration of a type it declared (a later different `type T` gets the old layout and
+destructor), and a failing group's functions piling up in the session module at each retry — user: "yes" to
+undoing a failed entry completely (IR-gen's type registration undone, its unlowered functions removed, every
+reusable function it generated forgotten) in the same commit.
 
 ### Package descriptors — Phase C (richer metadata) + VM extern auto-enumeration remain
 
