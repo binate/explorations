@@ -103,6 +103,22 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
 4. Native backends (common, callconv, fold, aarch64, x64, arm32) and asm / elf / macho / link: data sizes,
    copy and zero-fill lengths and loop counts, offsets past 32 bits, bss without materialized zero bytes; a
    frame past the target's limit is a compile error.
+   Recon (2026-10-18, a 64-bit host, main at stage 3): 228 sites (aarch64 63, arm32 60, x64 53, common 29,
+   callconv 15, fold 8), most of them size comparisons.  A 20 MB / 3 GB local and a global with a field past
+   that offset: native aa64 fails to compile both sizes ("ADD/SUB immediate out of range (0..0xFFFFFF)" — the
+   open claude-todo entry "Native aa64 rejects a struct field at an offset of 16 MiB or more", which a frame
+   past 16 MiB hits too); native x64 compiles and runs 20 MB and fails loud at 3 GB (disp32 / imm32); native
+   arm32 compiles 20 MB, and its zero global goes to `.data` as 20 MB of zero bytes (the 16 MiB bare-metal RAM
+   region then stops the link).  LLVM compiles all of them.  Commits:
+   - 4a. native/common, callconv, fold: Size() (comparisons as before); the frame plan accumulates slot sizes and
+     offsets in int64, with a frame past the target's int a compile error; copy lengths int64.
+   - 4b. aarch64: offsets and copy lengths int64; an offset past an instruction's immediate range is
+     materialized in a scratch register (fixes the 16 MiB entry, frames included).
+   - 4c. x64: the same past disp32 / imm32.
+   - 4d. arm32: a 32-bit target, so every size and offset fits 32 bits and narrowing is exact on any host.
+   - 4e. asm / elf / macho / link: native backends put zero-initialized globals in bss, which records its size
+     without materializing bytes (an int64 size on a 32-bit host); check crt0 / the linker scripts clear bss.
+   Tests compile functions holding the large frames / offsets without calling them, so they need no memory.
 5. VM / interp: VM memory is host memory, so its layout narrows at allocation (`HostInt`), failing loud.
 6. Remove the int forms of `SizeOf()` / `FieldOffset()` / `TrailingPadding()` / `ArrayLenHost()`; end to end
    on the 32-bit lane: a program with a > 2 GB type for a 64-bit target compiles through both backends.
