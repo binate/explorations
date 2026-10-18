@@ -492,7 +492,8 @@ Also (found 2026-10-18, work-1, review of int64 layout stage 3): a multi-return 
 built as an SSA value, leaf by leaf — `func two(p *Big) (Big, int) { return *p, 3 }` emits 8202 per-leaf lines
 for a 4 KB `Big`; for a `Big` past 2^31 bytes (a 64-bit target) stage 3 (not yet landed) makes it the internal
 error "an aggregate too large for i32 offsets is emitted leaf by leaf" (on main: a hang / out of memory).  The
-tuple build needs the memory-backed form too.
+tuple build needs the memory-backed form too.  So does `box(*p)` (OP_BOX stores an SSA value): a 4 KB struct boxes
+in 12.6k lines of IR (4097 insertvalues), and a 3 GB one gets the same internal error.
 
 ### Per-instantiation checking (design B) follow-ups — 🔴 NEEDS DECISION (raised 2026-09-30 – 2026-10-02, work-4; design B itself is done, commits 1–7 landed)
 - bnlint (CheckPackageDecls) skips the instance checks of a dependency's generics, whose bodies it does not
