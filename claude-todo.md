@@ -96,7 +96,7 @@ silent POISONED (the importer then rejects `[q.Z]` "array length must be a const
 constants), so the program compiles.  A conformance test for the crash (the program above) and for a later
 named array type under `len` (`const R int = len(Row{})` before `type Row [8]int16`, also rejected today).
 
-### A constrained generic alias instantiated during declaration collection is never constraint-checked — an interface method signature accepts `O[W]` — 🔴 OPEN MAJOR (found 2026-10-16, work-3, review of the spec §12.4 gap removal)
+### A constrained generic alias instantiated during declaration collection is never constraint-checked — an interface method signature accepts `O[W]` — 🟡 IN PROGRESS (claimed 2026-10-17, work-3) MAJOR (found 2026-10-16, work-3, review of the spec §12.4 gap removal)
 
 With `type Box[T any] struct { v T }`, `type O[T lang.Orderable] = Box[T]` and `type W struct { f int }`
 (no `impl W : Orderable`), `var o O[W]` in a function body is rejected ("type argument W does not satisfy
