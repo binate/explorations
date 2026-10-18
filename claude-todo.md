@@ -1455,9 +1455,12 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   entry for `edeabc7d1`): on this Xeon it ran −0.21% instructions but ~+1.3% user time on the native
   self-compile, and mixed benchmark results.
   Progress: tooling commit 1 (hidden `-fnative-place-seed` / `-fnative-place-mode`, all three native
-  backends) landed as binate `417f660bd` (2026-10-16; done entry). Next: tooling commit 2 (static report
-  `perf/placement/layout.py`), commit 3 (timing driver), commit 4 (probe), then phase-0 calibration,
-  block layout, and the placement policies.
+  backends) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report
+  `perf/placement/layout.py`) landed as binate `f05342e5d` (2026-10-18); done entries for both. Next:
+  commit 3 (timing driver), commit 4 (probe), then phase-0 calibration, block layout, and the placement
+  policies. Pending user decision: on Mach-O, `--expect-seed` in shift mode fails only when inexact rows
+  outnumber exact ones (dead-strip moves functions); the exact alternative is an option that reads the
+  kept object files.
   Open (found 2026-10-18 by `layout.py --expect-seed`): phase mode does NOT survive a dead-stripped Mach-O link
   by ld64.lld. ld64.lld aligns each atom only to the largest power of two dividing its offset, so once a
   stripped atom (or the unnamed leading-filler atom) is dropped, whole objects move off their phase (97 of 244

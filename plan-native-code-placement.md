@@ -1,5 +1,5 @@
 # Plan: native code placement (x64, aarch64, arm32)
-Status: tooling designed (2026-10-12); decisions taken 2026-10-15 (below); tooling commit 1 (placement seed) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report, `layout.py`) next. Tracked in `claude-todo.md` ("native code placement").
+Status: tooling designed (2026-10-12); decisions taken 2026-10-15 (below); tooling commit 1 (placement seed) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report, `layout.py`) landed as binate `f05342e5d` (2026-10-18); tooling commit 3 (timing driver) next. Tracked in `claude-todo.md` ("native code placement").
 ## Why
 
 Identical machine code runs at very different speeds depending on where it lands, on the x86 test host
@@ -146,7 +146,7 @@ Measurement tooling lands first (user: yes), because both steps are judged with 
   - a seeded native bnc must self-compile cmd/bnc to the same bytes as an unseeded one;
   - `bnc --test --backend native -fnative-place-seed=7` over the native packages;
   - a minimal adversarial review.
-- 2. binate commit 2, T4 static report, in /home/user/workspace/binate/perf/placement/ (Python stdlib only):
+- 2. binate commit 2, T4 static report, in /home/user/workspace/binate/perf/placement/ (Python stdlib only): — LANDED binate `f05342e5d` (2026-10-18). As landed: split over more modules than the three named (layout_disasm, layout_names, layout_span, layout_loops, layout_seed, layout_hot, layout_report) to keep each under 500 lines; tests use synthetic programs rendered in all three objdump syntaxes plus real excerpts in testdata/; Mach-O --expect-seed checks phases only, and in shift mode fails only when inexact rows outnumber exact ones (rule pending user confirmation).
   - layout.py: the CLI and core.
   - layout_x86.py and layout_arm.py: arch rules.
   - Each under 500 lines.

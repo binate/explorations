@@ -1849,6 +1849,21 @@ reader's reason.  Tests: `relocSectionChecks` on an ELF64 RELA and an ELF32 REL 
 `TestReadObjectRejectsNonRelocatable`, `TestReadArchiveBadMemberReason`.  Checked that clang C objects (`-g`,
 `-ffunction-sections`, `-O0` / `-O1`) still link on x86-64, aarch64 and arm32.
 
+### native code placement, tooling commit 2: perf/placement/layout.py static placement report — DONE (binate `f05342e5d`, 2026-10-18)
+
+A sub-step of the open "native code placement" entry in `claude-todo.md` (plan: `plan-native-code-placement.md`).
+`layout.py BIN` disassembles a native-built ELF (x86-64, aarch64, arm32, arm32 bare metal) or Mach-O (x86-64,
+aarch64) binary and reports text bytes split into code / placement filler / pad / gap / data, per-function
+phase, windows and lines, the x86 JCC-erratum and dense-window checks (Arm: branch density), and with --loops
+each natural loop's footprint (union of member blocks), header phase and windows/lines against the minimum.
+--compare diffs two builds; --expect-seed checks the filler against placehash.py (exit 1 on mismatch); --hot
+credits a `perf report --stdio` profile; --tsv/--json. Built and adversarially reviewed by a workflow (25
+findings fixed); 136 unit tests need no binaries (synthetic programs in all three objdump syntaxes plus real
+excerpts in testdata/). Verified on fannkuch-redux for all five targets and native x64 `cmd/bnc` (all 12,029
+functions pass --expect-seed). Also corrected place.bni / placehash.py: phase mode does not survive a
+dead-stripped ld64.lld Mach-O link. Found along the way and filed in `claude-todo.md`: native weak-function
+duplicates (no COMDAT), bnld writes no defined symbols, `--keep-objs` ignored for program builds.
+
 ### native code placement, tooling commit 1: hidden -fnative-place-seed on all three native backends — DONE (binate `417f660bd`, 2026-10-16)
 
 The first sub-step of the open "native code placement" entry in `claude-todo.md` (plan:
