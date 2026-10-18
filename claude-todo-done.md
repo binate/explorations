@@ -1,3 +1,17 @@
+### Instantiating a method whose result wraps the receiver's parameter hung the compiler — `func (b *Box[V]) Wrap() Box[Opt[V]]` — DONE (binate `8bbfe8777`, 2026-10-18, work-7) MAJOR (found 2026-10-17, work-7, review of the instance-identity fix; the branching case and a static expansion check remain open in claude-todo.md)
+
+gen.mono.instances makes the program an error (every method of an instance names instances, called or not).  Two
+causes of the hang: while a struct instance was built, the instances its method signatures name were queued with the
+chain depth of the naming that started the builds, so the drain checked instances at depth ~1, each check starting
+another 128-deep build chain past the bound; and `mentionsTypeParam` stopped at depth 64 and answered "no", so
+abstract instances nested deeper (built while Wrap's own declaration is checked) counted as concrete and were queued,
+which hung even with Box never instantiated.  The built instance is now the namer (as a generic function's instance
+is while its signature is resolved), so the chain is reported from `Box[int]` ("Box[int] names Box[Opt[int]], and so
+on through 128 levels"), and `mentionsTypeParam` walks without a depth bound.  Tests: check
+TestCheckInstanceChainThroughMethodResult (hangs with the namer change reverted), TestMentionsTypeParamDeep;
+conformance spec/12-generics 120.  Its review found a chain that branches still hanging, a crash on
+`type Box[T C[Box[T]]]`, and an alias attribution bug (each logged).
+
 ### x64 assembler: `ret imm16` — DONE (binate `1a1a0a742`, 2026-10-18, work-2) (x64 assembler entry, item (vi); the entry is now closed)
 
 `x64.RetImm` emits `ret imm16` (C2 iw) for -32768..65535 and rejects any other value with no bytes (clang keeps
