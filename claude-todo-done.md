@@ -1,3 +1,18 @@
+### bnfmt puts a blank line between an annotated declaration's doc comment and its `#[...]` — DONE (binate `74807c93b`, 2026-10-17, work-4) (found 2026-10-17, work-4, probing the import-section nits; pre-existing)
+
+`printDecls` (`pkg/binate/format/print_file.bn`) placed a top-level declaration's leading comments by
+`d.Pos`, its keyword, a line below the `#[...]` block, so the doc comment came out cut off from the block
+by a blank line.  It now places them by the first annotation's position (`declStartPos`).  A comment after
+the block, which used to move above it, stays after it (`printDeclAnnotations`, `print_decl.bn`): on the
+line of the block's last entry it trails the block, else it goes on its own line below; when the keyword
+shares that line, its comments stay with the declaration (a first version took them, the long-line marker
+too, which a review caught).  The AST records no `]` position, so a comment after `]` on a block spanning
+lines goes below the block.  Tests: `TestFormatAnnotatedDeclComments`, `TestFormatAnnotationOnKeywordLine`
+(`print_decl_test.bn`).  No file under hygiene's bnfmt roots changes layout: the 19 doc comments the old
+bnfmt cut off (`ifaces/core/pkg/builtins/build.bni` 12, `impls/stdlib/pkg/std/os/sys/io.bn` 6,
+`impls/core/common/pkg/builtins/startup/args_main.bn` 1) keep their blank line, so they need joining by hand
+once the CHECK_TOOLS bnfmt carries the fix.
+
 ### A constrained generic alias instantiated during declaration collection is never constraint-checked — an interface method signature accepts `O[W]` — DONE (binate `903ead3fa`, 2026-10-17, work-3) (found 2026-10-16, work-3, review of the spec §12.4 gap removal)
 
 With `type Box[T any] struct { v T }`, `type O[T lang.Orderable] = Box[T]` and `type W struct { f int }`

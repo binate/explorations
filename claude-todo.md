@@ -2353,17 +2353,6 @@ section-relative reloc in a KEPT section.
 
 ## bnfmt (self-hosted formatter)
 
-### bnfmt puts a blank line between an annotated declaration's doc comment and its `#[...]` — 🟢 LOW, 🟡 IN PROGRESS (claimed 2026-10-17, work-4; user: "you can continue to fix any easy-to-fix bnfmt bugs afterwards") (found 2026-10-17, work-4, probing the import-section nits; pre-existing)
-
-`printDecls` (`pkg/binate/format/print_file.bn`) places a top-level declaration's leading comments by
-`d.Pos`, which for an annotated declaration is its keyword, a line below the `#[...]` block, so
-`emitLeadingComments` sees a gap and keeps a blank line: `// about f` / `#[build(os == "linux")]` /
-`func f() {}` prints the comment, a blank line, then the annotation.  The tree carries the result (hygiene's
-bnfmt forces it): 19 doc comments cut off from their declaration, in `ifaces/core/pkg/builtins/build.bni`
-(12), `impls/stdlib/pkg/std/os/sys/io.bn` (6) and `impls/core/common/pkg/builtins/startup/args_main.bn`
-(1).  Fix: place them by the first annotation's position.  A fixed bnfmt keeps a blank line the source
-has, so those 19 need joining by hand once the CHECK_TOOLS bnfmt carries the fix.
-
 ### bnfmt's import section: four layout nits from the import-annotation fix's review — 🟢 LOW (found
 2026-10-16, work-5, review of the import-annotation fix, binate `bf091b2ed`)
 
@@ -2372,6 +2361,10 @@ lines when the printer decides where blank lines go; (2) the limit for an import
 first declaration's `Pos`, which for an annotated or `var` declaration is not its first token, so a comment
 before such a declaration may be taken as the import's; (3) a trailing comment on the `package` line moves;
 (4) a comment between an import's alias and its path moves.  Each needs a format test reproducing it first.
+For (2): `takeImportEntry` takes only comments on or before the import's own line, so it needs a
+declaration starting on the last import's line (from reading the code; not reproduced).
+`declStartPos` (`pkg/binate/format/print_decl.bn`, binate `74807c93b`) gives an annotated declaration's
+first position, for `limit`.
 
 ### bnfmt moves a comment inside an argument list below its statement — 🟢 LOW (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
 
