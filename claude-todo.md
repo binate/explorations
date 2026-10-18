@@ -258,12 +258,26 @@ y's own `.size` is applied.  The type is right already (clang combines z's type 
 alias's direct referent, and give an alias with no `.size` of its own the size of the nearest alias up its
 chain that has one, else the base's.
 
+### bnld Mach-O reader: a section type it does not handle is read as data — S_GB_ZEROFILL gets the header bytes — 🔴 OPEN (found 2026-10-17, work-2, review of the asm TLS change; latent)
+
+`machoSectionKind` (pkg/binate/link/parse_macho.bn) treats only S_ZEROFILL as zero-fill and every other section type
+as data or rodata, copying `size` bytes from the section's file offset.  A zero-fill section of another type has
+offset 0, so S_GB_ZEROFILL (0xc) and S_THREAD_LOCAL_ZEROFILL (0x12) get the object's Mach-O header as their
+contents, silently.  Types with linker semantics bnld does not implement are also taken as plain data: S_COALESCED
+(0xb, one copy kept across objects), the literal- and symbol-pointer and stub types (5–8, 0x10), S_INTERPOSING (0xd),
+S_DTRACE_DOF (0xf), the thread-local types (0x11–0x15) and S_INIT_FUNC_OFFSETS (0x16).  Fix: handle each type clang
+or ld64 can put in an object, or reject it with an error naming the section; the thread-local types get rejected
+by the TLS series' bnld guard first.
+
 ### Thread-local storage in the assembler and bnld (the TLS series) — 🟡 IN PROGRESS (claimed 2026-10-17, work-2; user: "let's continue with the items on the list"; scope user 2026-10-09: "All, staged"; 2026-10-17: "All three arches (Recommended)")
 
 Nothing handles TLS today: the assembler rejects `.tdata` / `.tbss`, `%tls_object` and every TLS operator;
 bnld reads `.tdata` / `.tbss` as plain data / bss and rejects every TLS relocation, so no C object using
 `__thread` links with bnld on any target.  Stages (all three arches: aa64, x86-64, arm32, ELF and
-Mach-O) and the clang survey are in `plan-tls.md`.  Progress: none landed yet.
+Mach-O) and the clang survey are in `plan-tls.md`.  Progress: stage 1, the assembler's thread-local sections
+and symbols — landed binate `08e9b84b1` (2026-10-17).  Next: a bnld guard rejecting TLS inputs loudly until bnld
+links them (its ELF reader drops SHF_TLS and ignores STT_TLS; its Mach-O reader would fill `__thread_bss` with
+the object's header bytes), then stage 2.
 
 ### bnld: the firmware-arm and script-arm drivers do not place arm32's unwind index — 🔴 NEEDS DECISION (found 2026-10-16, work-2, the `.ARM.exidx` change)
 

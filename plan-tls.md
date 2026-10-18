@@ -32,6 +32,9 @@ cannot be linked by bnld on any target.
 
 ## Stages (each a reviewed, landed commit or two)
 
+Progress: stage 1 — landed binate `08e9b84b1` (2026-10-17).  Next: a bnld guard rejecting TLS inputs
+loudly until stages 5–9 link them, then stage 2.
+
 1. **Assembler: thread-local sections and symbols** (all arches, both formats).  ELF: SHF_TLS (the `T`
    flag; `.tdata*` / `.tbss*` imply it, `.tbss*` NOBITS), `%tls_object` / `@tls_object` → STT_TLS, a symbol
    defined in a TLS section STT_TLS whatever its `.type`.  Mach-O: the `__thread_data` /
