@@ -1508,6 +1508,13 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   backends) landed as binate `417f660bd` (2026-10-16; done entry). Next: tooling commit 2 (static report
   `perf/placement/layout.py`), commit 3 (timing driver), commit 4 (probe), then phase-0 calibration,
   block layout, and the placement policies.
+- **bnld writes no symbols for defined functions (Mach-O or ELF)** — 🔵 OPEN. A program linked with
+  `--linker bnld` has a symbol table holding only its undefined imports (Mach-O `buildMachoSymtab` in
+  `pkg/binate/link/dynmacho.bn` writes one UND nlist per import; the ELF output has no `.text` symbols at all),
+  so profilers (`perf`, `sample`), lldb backtraces and `perf/placement/layout.py` cannot name any function in
+  it. Seen 2026-10-18: fannkuch-redux linked by bnld for x86_64-linux and aarch64-darwin. Fix: emit a local
+  (or global, per the input binding) symbol for every defined function and data object, as clang/ld do, with
+  sizes on ELF; add link tests that read the symbols back.
 - **LOW: `bnc --build-dir <dir>` with a nonexistent `<dir>` reports only "native backend failed to emit
   object (arch=...)"** — 🔵 OPEN. Each object write fails because the directory is missing, but the
   message names neither the path nor the cause (seen 2026-10-15 while validating the placement tooling;
