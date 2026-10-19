@@ -294,7 +294,7 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### LLVM x86-64 mis-addresses an incoming byval argument past 2 GiB above the frame — 🔴 OPEN MAJOR (found 2026-10-19, work-1, review of the x86-64 LLVM frame limit; pre-existing; needs a decision)
+### LLVM x86-64 mis-addresses an incoming byval argument past 2 GiB above the frame — 🟡 IN PROGRESS MAJOR (claimed 2026-10-19, work-1; user decision 2026-10-19: reject such a function on LLVM x86-64, "let's do that fix now") (found 2026-10-19, work-1, review of the x86-64 LLVM frame limit; pre-existing)
 
 The x86-64 LLVM frame limit (warn-stack-size 2^31 - 1) covers a function's own frame, not its incoming stack
 arguments.  `func f(a Big, b Big, c Big)` with `type Big [0x40000000]uint8` passes each as `ptr byval`; f's frame
