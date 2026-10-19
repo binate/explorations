@@ -795,7 +795,7 @@ annotations: `#[build]`, `#[c_export]`); whether it constrains the function's ow
 inlining of it, or both; what the VM does (its frames are never removed); and whether `debug.Callers`
 should then promise those frames.
 
-### A generic type first instantiated inside a generic alias's target sees that alias as recursive — "invalid recursive type alias" depending on declaration order — 🔴 OPEN (found 2026-10-17, work-7, review of the half-built-instance fix; reproduced; pre-existing)
+### A generic type first instantiated inside a generic alias's target sees that alias as recursive — "invalid recursive type alias" depending on declaration order — 🟡 IN PROGRESS (claimed 2026-10-19, work-7/session — user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]."; found 2026-10-17, work-7, review of the half-built-instance fix; reproduced; pre-existing)
 
 ```
 interface Get[T any] { get() T }
