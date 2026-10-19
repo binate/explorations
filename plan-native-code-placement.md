@@ -86,7 +86,7 @@ Measurement tooling lands first (user: yes), because both steps are judged with 
   1b. New common/common_place.bn (~120 lines) holds the semantics. Let K = PLACE_SPAN/unit and idx = PlaceHash(Seed, sym) mod K.
   - Shift mode: pre = unit * idx.
   - Phase mode: phi = unit * idx; pre = (phi - alignUp(off, unit)) mod PLACE_SPAN.
-  - Probe symbol, in either mode, including at seed 0: phi = ProbePhase (a target phase, not a shift), pre computed as in phase mode, and post = PLACE_SPAN - pre. Every later byte is then identical across all probe phases, including phase 0.
+  - Probe symbol, in either mode, including at seed 0: phi = ProbePhase (a target phase, not a shift), pre computed as in phase mode, and post = PLACE_SPAN - pre. Every later byte position is then identical across all probe phases, including phase 0, and so is every later byte except instructions that refer to the probed function (a call to it changes its displacement; seen as exactly one such instruction per comparison in the commit-4 validation).
   - Any other function at seed 0: pre = post = 0.
   
   1c. common_emit_object.bn changes:
