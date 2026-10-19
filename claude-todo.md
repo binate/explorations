@@ -2406,7 +2406,7 @@ sampled all have a string split across lines.  And
 blank line on the second format.  The layouts are valid; `--check` on the tree passes because its files
 are already at a fixpoint.
 
-### bnfmt packs a later argument that is a multi-line function literal by its whole text — a commented literal breaks onto a continuation line — 🟢 LOW (found 2026-10-06, work-3, fixing the function-literal comment placement)
+### bnfmt packs a later argument that is a multi-line function literal by its whole text — a commented literal breaks onto a continuation line — 🟢 LOW — 🟡 IN PROGRESS (claimed 2026-10-19, temp-4; user: measure all multi-line elements by the part on the current line) (found 2026-10-06, work-3, fixing the function-literal comment placement)
 
 `fillExprList` (`pkg/binate/format/print_wrap.bn`) decides whether a non-first argument stays on the
 current line from `len(exprSingleLine(elem))`, the length of its whole rendering.  For a multi-line function
