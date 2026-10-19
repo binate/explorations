@@ -230,7 +230,9 @@ conformance run (3720 passed with the hook in), bnc's self-compile and e2e repl.
   ignores readonly (IdenticalStrict keeps it) — so `struct { a T; b int }` gets `b readonly int` (1441, 1476,
   1486).  The mapper keeps the checker's readonly when it builds the struct; in lookup mode it interns through
   the same function and agrees.  Not observable at run time as far as found (boxing identity is the checker
-  type's), but the IR type misstates the source.  Decided: intern by IdenticalStrict (stage 2 above).
+  type's), but the IR type misstates the source.  Decided: intern by IdenticalStrict (stage 2 above) —
+  LANDED binate `22e7c18b4` (2026-10-18), with field-load forwarding no longer taking an anonymous struct for a
+  distinct object (a pointer to one converts to one adding readonly; review found the miscompile, 1704).
 - Generic identity: the generic a written instantiation names, found by name, is the checker's InstDecl
   everywhere but generic aliases (`type L[T] = Box[T]`, 16 sites: InstDecl is Box's declaration, which the
   lookup of `L` does not find) — so IR-gen's stash holds the checker's own nodes.  The mapper now takes InstDecl
