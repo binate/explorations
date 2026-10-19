@@ -305,6 +305,19 @@ will carry it (int64 layout stage 4d-2).  Options: give the LLVM x86-64 backend 
 target, the largest type), or leave it (LLVM is a stopgap) with a test.  Covered only by conformance 1707's 64-bit
 expectation, which passes because the frame's function never runs.
 
+### LLVM x86-64 mis-addresses an incoming byval argument past 2 GiB above the frame — 🔴 OPEN MAJOR (found 2026-10-19, work-1, review of the x86-64 LLVM frame limit; pre-existing; needs a decision)
+
+The x86-64 LLVM frame limit (warn-stack-size 2^31 - 1) covers a function's own frame, not its incoming stack
+arguments.  `func f(a Big, b Big, c Big)` with `type Big [0x40000000]uint8` passes each as `ptr byval`; f's frame
+is 0x60 bytes, so it compiles under the limit, but c's address comes out as `leaq -0x7ffffff0(%rbp)` instead of
+`rbp + 0x80000010` — the displacement truncated, silently.  No LLVM-x86-64 Binate caller reaches it (the caller's
+frame holds the 3 GiB outgoing area and is rejected), so only a caller that is not LLVM-x86-64 Binate code can: C
+calling an exported function, or native x64 code (once int64 layout stage 4d-2 lets its frames pass 2 GiB) linked
+with LLVM-compiled code.  Fix: reject, in the LLVM backend on x86-64, a function whose incoming stack arguments
+end past 2^31 - 1 bytes (a codegen check, like the frame limit), or another rule the user picks.  No test yet:
+conformance cannot drive a non-LLVM caller into an LLVM x86-64 callee; a codegen unit test can pin the
+rejection once decided.
+
 ### Neither backend probes the stack for a large frame — a frame past the guard page can step over it — 🔴 OPEN MAJOR (found 2026-10-18, work-1, review of the native aa64 16 MiB fix; pre-existing; needs a decision)
 
 A function's prologue moves SP down by its whole frame in one step (native: `sub sp, sp, #frame`, now also past 16
