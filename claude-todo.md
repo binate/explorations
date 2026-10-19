@@ -679,7 +679,7 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### asm Mach-O fidelity: clang lists `ltmpN` section symbols on AArch64; the string table holds unlisted names; a short-range-fixup error names the anchor — 🟡 IN PROGRESS (claimed 2026-10-19, work-2; user: "Next, before TLS 3") (found 2026-10-19, work-2, review of binate `97255aad6`)
+### asm Mach-O symbol and string tables: clang's `ltmpN` anchors, symbol order and string-table layout; a short-range-fixup error names the anchor; x86-64 section-relative relocations — 🟡 IN PROGRESS (claimed 2026-10-19, work-2; user: "Next, before TLS 3") (found 2026-10-19, work-2, review of binate `97255aad6`)
 
 (1) clang (`-target arm64-apple-macos`) lists a local `ltmp<N>` symbol at the start of every section, with or without
 `.subsections_via_symbols` (on x86-64 it lists none): `.text` / `.globl _g` / `_g: ret` / `.data` / `.globl _d` /
@@ -692,8 +692,29 @@ fixup kind!".  (3) The writer adds every symbol's name to the string table, list
 before partitionSymbols drops the temporaries), so an object carries the names of temporaries it never lists — the
 generated literal-pool labels `L\x02=\x020`, `L\x02=\x021`, … and every `L` label: `f: ldr x0, =C1` / `g: ldr x1,
 =C2` has a 17-byte string table where the two listed names need 5 (clang's holds only listed names).  No reader
-uses those bytes.  **Fix:** (1) list each section's anchor on AArch64 as clang does, with golden symbol tables; (2)
-name the label the source wrote; (3) build the string table from the listed symbols only.
+uses those bytes.  Found with them (clang 21 probes, 2026-10-19): (4) clang sorts the defined-external and the
+undefined symbols by name (`_a`, `_m`, `_zz`; `_ua`, `_uz`) and keeps locals in creation order, each `ltmp<N>` created
+when its section first is (`ltmp0` for __text, which exists from the start); bnas keeps symbol order in every
+bucket.  (5) clang's string table is LLVM's StringTableBuilder (MachO64) layout: a leading NUL, the names sorted by
+their reversed bytes in descending order with tail merging, padded to a multiple of 8
+(`\0_zz\0_uz\0_m\0_ua\0_a\0_loc2\0_loc1\0ltmp0\0` + 3 NULs); bnas writes symbol order, unpadded.  (6) On x86-64 a
+relocation against a temporary no symbol precedes is section-relative in clang (`r_extern` 0, the section's ordinal:
+`leaq Lx(%rip)` with `Lx` after `.quad 0` in __data); bnas defines an `ltmp<N>` anchor and relocates against it.
+**Fix** (user, 2026-10-19: "Match byte-for-byte" for the string table): one commit for (1)-(5) — anchors for every
+section on AArch64, placed by creation; externals and undefined sorted by name; the string table laid out as clang's;
+the label in the message — with golden symbol and string tables against clang; then one for (6).
+
+### asm Mach-O section layout for text input: alignment as the contents ask, `__text` first, headers in creation order, as clang lays them out — 🟡 IN PROGRESS (claimed 2026-10-19, work-2, after the table entry above; user: "Follow clang for text")
+
+bnas gives `data` / `bss` (and the relro and thread sections) 8-byte alignment by default and every other section 4
+(asm/macho/macho_sect.bn machoSectAlign); clang aligns a section only as its contents ask (`.p2align`, 4 for AArch64
+instructions), so `_a: ret` / `Lx: ret` / `_b: ret` then `.data` / `_d: .quad 1` puts `_d` at 0xc in clang's object
+and 0x10 in bnas's.  clang's object also always has `__text`, created first (a data-only file has an empty one), and
+writes the section headers in creation order (zero-fill sections last only in address order), where bnas writes
+regular then zero-fill headers and only the sections the source names.  The native backend probably relies on the
+8-byte data default.  **Fix:** for text input follow clang (alignment from the contents, `__text` first, creation-
+order headers); the native backend keeps its defaults through the API; check ELF the same way; golden layouts
+against clang.
 
 ### asm Mach-O: fold a backward label difference across atoms when the source has no `.subsections_via_symbols`, as clang does — 🟡 IN PROGRESS (claimed 2026-10-19, work-2, after the fidelity entry above; user: "Match clang without the directive")
 
