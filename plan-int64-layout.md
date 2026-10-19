@@ -134,9 +134,20 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
      32-bit target's 4 GiB).  A 3 GB global compiles on native aa64.  crt0 clears no bss — QEMU's ELF loader
      zero-fills it, as for the LLVM backend's bss.  4f-2 (open): bss lengths, symbol offsets and local-common
      sizes in int64 through asm / elf / macho / link, for a 32-bit host.
-   Order (2026-10-18): 4e next (field offsets need an int64 addressing helper per backend — x64 has no reserved
-   scratch register, so one past disp32 uses the destination register or saves / restores one), then 4c + 4d
-   together (callconv's stack offsets feed the same frame addressing), then 4f-2.
+   Order (revised 2026-10-18, after reading x64's helpers): 4d before 4e, so each backend helper's offset
+   parameter moves to int64 once (4e's field offsets flow into the same helpers as the frame offsets):
+   - 4d-1. native/common: RegMap's frame tables and frame fields int64; PlanFrame accumulates in int64 and a
+     frame past the target's int is a compile error; the int lookups (LookupAlloc, LookupSpill, NeedAlloc,
+     NeedSpill, LookupArgCopy, LookupAllocSize) stay, narrowing fail-loud, beside int64 variants.
+   - 4d-2 / 4d-3 / 4d-4. x64, aarch64, arm32 move to the int64 lookups and thread int64 offsets through their
+     helpers.  x64: an offset past disp32 rebases — PUSH a register the access does not use, load it with
+     base + offset (MOV imm64, ADD), address through it, POP; the frame never uses the red zone, and when any
+     operand is rebased every RSP-based operand of the access is too, so none is read off by the push.
+     aarch64: MemImm64 and int64 range checks in the assembler's load / store paths (they narrow to int before
+     checking today, which a 32-bit host would wrap).  arm32: a 32-bit target, so narrowing is exact.  Then
+     the int lookups go.
+   - 4e (field / element offsets, copy sizes; common.ElemSizeOf / FieldByteOffset int64), 4c (callconv's stack
+     layout), 4f-2.
    Tests compile functions holding the large frames / offsets without calling them, so they need no memory.
 5. VM / interp: VM memory is host memory, so its layout narrows at allocation (`HostInt`), failing loud.
 6. Remove the int forms of `SizeOf()` / `FieldOffset()` / `TrailingPadding()` / `ArrayLenHost()`; end to end
