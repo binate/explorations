@@ -99,20 +99,6 @@ Box[int64].S, instantiated at main.bn:9:24)" — the alias declaration's target 
 `Alias[int64]`.  The alias's target is resolved in the alias's scope, and the instance it names takes that position
 as its site; it should take the use's (the target is as if written at the use, gen.instantiate.alias).
 
-### REPL: a parked group in which a function reads a variable of the same group crashes IR-gen — 🟡 IN PROGRESS (claimed 2026-10-18, work-5/session) MAJOR (found 2026-10-17, work-5, reproducing the VM undefined-package-variable entry; reproduced; pre-existing)
-
-At the REPL, `func f() int { return v + 1 }` (parked on v), then `var v int = g()` (parked on g), then
-`func g() int { return 5 + 0*f() }` resolves the three as one group, and the REPL aborts: "panic: internal
-error: unresolved identifier v in IR-gen (compiler bug)".  The program is valid: v's initializer reaches f only
-through a call, which forms no initialization edge (spec §17.2 `prog.init.var-cycle`).  `emitResolvedGroup`
-(pkg/binate/repl/decl_retry.bn) IR-gens and lowers the group's functions before it IR-gens the group's
-variables (`genRebinding`) and materializes them (`MaterializeOneGlobal`), so f's body names a v IR-gen does
-not know yet; with that order fixed, lowering f before v is materialized would stop on the VM's "nothing in the
-program defines the package variable" the same way.  A function that reads only a variable of an earlier group
-works (the retry resolves groups in dependency order).  Fix: IR-gen and materialize a group's variables before
-its functions are generated and lowered, keeping the initializers after both; a REPL test with the three
-prompts above.
-
 ### An importer's `sizeof` / `alignof` of a type its `.bni` declares later crashes the compiler — 🔴 OPEN MAJOR (found 2026-10-17, work-5, review of the `.bni` constant `len` change; reproduced; pre-existing)
 
 `const Z uint = sizeof(S)` followed by `type S struct { x int64; y int64 }` in `q.bni`, with an importer's
