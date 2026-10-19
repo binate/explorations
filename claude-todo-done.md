@@ -1,3 +1,21 @@
+### An error in an instance reached through a generic alias was reported as instantiated at the alias's declaration — DONE (binate `37447ffb2`, 2026-10-19, work-7) (found 2026-10-18, work-7, review of the instance-chain hang fix; claimed 2026-10-18 — user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]].")
+
+With `type A[T any] = Box[T]` and `var b A[int8]`, an error in Box[int8]'s method read "(in Box[int8].S,
+instantiated at <the alias's target>)"; an instance in an infinite family named through an alias was reported at
+the target too, and a constraint miss the alias's own check did not catch was reported a second time there.  The
+target is resolved in the alias's scope, so the instances it names took their positions in it.  Now they are
+attributed to the use (gen.instantiate.alias: the target as if written there) — the outermost one, through an
+alias naming another: InstanceState.AliasScope / AliasUse and attributedPos (check_generic_alias.bn).  What the
+target's instances are built from resolves in its own declaration's scope and keeps its positions; an alias
+instantiated with its own type parameters (its declaration's check) attributes nothing.  The review also found
+that the instance-build budget (MAX_INSTANCES_PER_BUILD, binate `27844b58b`) never started for a build whose
+outermost instantiation is an alias (the alias raises GenericInstDepth): the over-budget error blamed an earlier,
+unrelated instantiation, and a stale BuildOver made a later alias instance the error type with no diagnostic.
+InstanceState.BuildDepth now counts generic type builds in progress, aliases excluded.  Tests: check
+TestGenericAliasInstancesAtUse, TestGenericAliasDeclErrorsStayInTarget; conformance spec/12-generics 128, 129.
+Kept: with an alias declaration already rejected, two constraint misses at one use whose messages are identical
+(the message names no generic) merge into one.
+
 ### bnfmt's time grows exponentially with the nesting depth of calls and of multi-line list elements — DONE (binate `922992893`, 2026-10-19, temp-4) (found 2026-10-16, work-4, fuzzing the multi-line list-element indent fix; the call case pre-existing)
 
 Each level of nested calls made formatting about three times slower (wrapped calls 16 deep: 42 s), and each
