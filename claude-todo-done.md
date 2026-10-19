@@ -1,3 +1,19 @@
+### bnfmt takes a builtin's keyword line, and `__c_call`'s symbol line, as its `(`'s — DONE (binate `fd8e5836b`, 2026-10-19, temp-4) (found 2026-10-16, work-4, review of the list-start fix; pre-existing)
+
+An EXPR_BUILTIN's Pos is its keyword, and the AST recorded no `(` position, so `_ = len` / `(x)` printed
+`len(` with `x` on a continuation line, and a source `__c_call(` / `"f", int, a)` was joined (the symbol
+had no position of its own).
+Resolution (binate `fd8e5836b`; user: a side table on ast.File that only the comment-collecting parse
+fills): a comment-collecting parse records each builtin call's keyword and `(`, and a `__c_call`'s symbol,
+"void" and `...`, in `File.BuiltinOpeners` (a vec whose length is part of the parse state a backtrack
+restores); `ast.Expr` is unchanged and the compiler's parse records nothing.  The printer finds a call's
+record by its keyword's position: the `(`'s line decides the wrap mode, the list's comments start after
+the keyword, and a `__c_call`'s items take their own positions (its symbol then keys the list).  A review
+found a comment between keyword and `(` leaving the call and the table built with slices.Append (108 s on
+160k calls); both fixed before landing.  Tests: TestParseBuiltinOpeners, TestFormatBuiltinOpener,
+TestFormatBuiltinGapComments.  The type-operand builtins, still printed without wrapping, are tracked in
+claude-todo.md.
+
 ### An error in an instance reached through a generic alias was reported as instantiated at the alias's declaration — DONE (binate `37447ffb2`, 2026-10-19, work-7) (found 2026-10-18, work-7, review of the instance-chain hang fix; claimed 2026-10-18 — user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]].")
 
 With `type A[T any] = Box[T]` and `var b A[int8]`, an error in Box[int8]'s method read "(in Box[int8].S,

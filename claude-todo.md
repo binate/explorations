@@ -2370,14 +2370,21 @@ When a function literal's parameter list wraps, the body and its `}` indent from
 A declaration's body is not affected (it indents from column 0).  The body should indent one tab past the
 line the literal starts on.
 
-### bnfmt takes a builtin's keyword line, and `__c_call`'s symbol line, as its `(`'s — 🟢 LOW — 🟡 IN PROGRESS (claimed 2026-10-19, temp-4; user: record them in a side table on ast.File that only the comment-collecting parse fills) (found 2026-10-16, work-4, review of the list-start fix; pre-existing)
+### bnfmt prints a builtin with a type operand without wrapping, and moves a comment after its `(` — 🟢 LOW (found 2026-10-19, temp-4, review of the builtin-opener fix; pre-existing)
 
-An EXPR_BUILTIN's Pos is its keyword, and the AST records no `(` position, so `printBuiltin`
-(`pkg/binate/format/print_builtin.bn`) passes the keyword's line as the opener's: `_ = len` / `(x)` (no
-semicolon is inserted after a builtin keyword) prints `len(` with `x` on a continuation line.  `printCCall`
-also records the symbol operand at the call's Pos line (the symbol has no position of its own), so its
-opener is never alone, and a source `__c_call(` / `"f", int, a)` is joined.  Fix: record the `(` (and the
-symbol's) position in the parser.
+`printBuiltin` (`pkg/binate/format/print_builtin.bn`) writes a builtin with a type operand (`make`,
+`make_slice`, `cast`, `bit_cast`, `unsafe_cast`, `sizeof`, `alignof`, `__c_global`) as `name(` + type +
+`, ` + value with no list logic: a source `cast` / `(int,` / `x)` is joined, and a comment after its `(`
+(`cast( // c` / `int, x)`) goes after the statement.  The parser records these calls' `(` already
+(`ast.File.BuiltinOpeners`); printing the operands as an item list (a type item, then the value) would
+give them the value-argument builtins' wrapping and comments.
+
+### The lexer builds its comment list with slices.Append — quadratic in a file's comments — 🟢 LOW (found 2026-10-19, temp-4, review of the builtin-opener fix; pre-existing)
+
+`pkg/binate/lexer/scan.bn` appends each comment to `l.comments` with `slices.Append`, which copies the
+list every time: a comment-collecting lex (bnfmt) of a file with 160k comments takes ~90 s.  Real files
+have a few hundred.  Build it in a vec, as the parser's builtin records are (binate `fd8e5836b`); the
+lexer's Save / Restore would keep the vec's length and pop back to it.
 
 ### bnfmt's time grows exponentially with the nesting depth of function literals — 🟢 LOW (found 2026-10-19, temp-4, review of the rendering cache; calls and composites fixed in binate `922992893`)
 
