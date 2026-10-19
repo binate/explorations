@@ -47,25 +47,6 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
-### REPL: a parked declaration is re-checked on the syntax its failed attempt annotated — a stale implicit `&` crashes the VM — 🟡 IN PROGRESS MAJOR (claimed 2026-10-18, work-6/session — user: "yes, that order is fine"; found 2026-10-18, work-6, review of the expression type records; reproduced; pre-existing)
-
-- Repro (`bni --repl`, with `testing` imported): `type T struct { n int }`, `func (t *T) Inc() int { t.n = t.n + 1;
-  return t.n }`, `func add(a int, b int) int { return a + b }`, `var v T`, `var y int = add(v.Inc(), u)` (parks on
-  u), `var w T = T{n: 40}`, `var v *T = &w` (shadows v, incompatible type), `var u int = 1` → `panic: vm: extern
-  not found: main..Inc`.  Parking alone (v stays a T) and the shadowing alone (y declared after it) both print 42.
-- Cause (inferred, consistent with the symptom, not yet confirmed by a fix): retryGroup (check_pending_retry.bn)
-  checks the parked Decl's syntax again in place, and undoDecl restores the checker's state but not the
-  annotations the failed attempt left on the AST.  The checker only ever sets ImplicitAddr, FieldSel,
-  LitAddressed and BorrowTemp to true, so the first attempt's ImplicitAddr on `v.Inc` (v a T value, a `*T`
-  method) survives the retry, where v is a `*T`; IR-gen then takes `&v`, a `**T`, as the receiver (its named type
-  is empty: `main..Inc`).  A stale FieldSel would read a field where the retry found a method value (silent
-  wrong code).  The same staleness leaves a value type (ResolvedTypeID) on a name that was undefined in the
-  failed attempt and names a package in the retry (review of the expression type records).
-- Fix: before a retry, clear in place the checker annotations of the parked declarations' syntax — the set
-  ast.CloneDecl clears (ResolvedTypeID, DenotedTypeID, ImplicitAddr, LitAddressed, BorrowTemp, FieldSel,
-  PredeclaredPanic, ConstID, LenVal / LenKnown, KeyVal / KeyKnown, Captures) — through one ast function that
-  shares that list with the clone; e2e repl case for the repro above.
-
 ### A parameterized impl lets a managed pointer to its instance satisfy a constraint — `g[@W[int]]` is accepted through `impl W[K]` — 🔴 OPEN MAJOR (found 2026-10-16, work-6, review of the spec status cleanup; split out of the pointer-impl decision entry 2026-10-17; reproduced; pre-existing)
 
 With `impl W[K] : lang.Orderable` (`func (w W[K]) Compare(o W[K]) int`) and `func g[U lang.Orderable](u U) int {

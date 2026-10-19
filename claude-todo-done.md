@@ -1,3 +1,18 @@
+### REPL: a parked declaration was re-checked on the syntax its failed attempt annotated — a stale implicit `&` crashed the VM — DONE (binate `99f45cae3`, 2026-10-18, work-6) (MAJOR, found 2026-10-18 in review of the expression type records; pre-existing)
+
+retryGroup checked a parked declaration again on the same AST, and undoing a failed attempt restored the checker's
+state but not the annotations left on the syntax; the checker only ever sets ImplicitAddr, FieldSel, LitAddressed,
+BorrowTemp and ViaConstraint to true.  `var y int = add(v.Inc(), u)` parked with v a T value; after `var v *T = &w`
+and u's declaration the retried call still took `&v` (a **T) and the VM aborted, "extern not found: main..Inc"; a
+stale ViaConstraint (found in review) made a retried call take a method over a field (7 for 9).  Now retryGroup
+clears each member's annotations first: ast.ClearCheckerAnnotations clears in place what a clone starts without,
+and ViaConstraint, through the clone's own walk (copyDecl and its helpers take `fresh`); the unsafe_index rewrite is
+kept.  The per-site resets that stood in for it went (checkIdent's PredeclaredPanic reset, the expression type
+records' clears).  A bare const member's synthesized declaration shares the explicit member's nodes; its retry
+re-checks them to the same result (documented).  Rebased onto and re-validated after `567a28447` (the retry sweep's
+load check).  Tests: repl TestReplRetryReadsTheSyntaxAfresh, TestReplRetryDecidesConstraintCallsAfresh; ast
+TestClearCheckerAnnotationsInPlace; e2e repl retry-reads-syntax-afresh.
+
 ### asm: a use of an alias names the alias, as clang relocates it; an alias's `.size` follows its chain — DONE (binate `4c041991a`, 2026-10-18, work-2) (user: before the x86-64 TLS operators)
 
 A use of an assigned symbol (`A = lbl + 8`) outside a constant's definition now stands for the alias itself
