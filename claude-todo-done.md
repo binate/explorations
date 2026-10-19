@@ -1,3 +1,44 @@
+### asm Mach-O symbol and string tables: clang's `ltmpN` anchors, symbol order and string-table layout; a short-range-fixup error names the anchor — DONE (binate `648821e8a`, 2026-10-19, work-2; user: "Next, before TLS 3", "Match byte-for-byte") (found 2026-10-19, work-2, review of binate `97255aad6`)
+
+(1) clang (`-target arm64-apple-macos`) lists a local `ltmp<N>` symbol at the start of every section, with or without
+`.subsections_via_symbols` (on x86-64 it lists none): `.text` / `.globl _g` / `_g: ret` / `.data` / `.globl _d` /
+`_d: .quad 1` has `ltmp0` in __text and `ltmp1` in __data.  bnas lists an anchor only when a relocation against a
+temporary needs one (asm/macho/macho_atoms.bn).  Symbol-table fidelity only.  (2) The "no Mach-O relocation for the
+reference to …" error for a b.cond / cbz / tbz / ldr-literal / adr names the section anchor, not the label, when the
+target is a temporary in another section: `_f: adr x0, Ld` with `Ld` in data reports `'ltmp1'` (macho_reloc.bn: the
+relocation is retargeted to the anchor before its type is checked).  clang stops on such input with "unknown AArch64
+fixup kind!".  (3) The writer adds every symbol's name to the string table, listed or not (asm/macho/macho.bn,
+before partitionSymbols drops the temporaries), so an object carries the names of temporaries it never lists — the
+generated literal-pool labels `L\x02=\x020`, `L\x02=\x021`, … and every `L` label: `f: ldr x0, =C1` / `g: ldr x1,
+=C2` has a 17-byte string table where the two listed names need 5 (clang's holds only listed names).  No reader
+uses those bytes.  Found with them (clang 21 probes, 2026-10-19): (4) clang sorts the defined-external and the
+undefined symbols by name (`_a`, `_m`, `_zz`; `_ua`, `_uz`) and keeps locals in creation order, each `ltmp<N>` created
+when its section first is (`ltmp0` for __text, which exists from the start); bnas keeps symbol order in every
+bucket.  (5) clang's string table is LLVM's StringTableBuilder (MachO64) layout: a leading NUL, the names sorted by
+their reversed bytes in descending order with tail merging, padded to a multiple of 8
+(`\0_zz\0_uz\0_m\0_ua\0_a\0_loc2\0_loc1\0ltmp0\0` + 3 NULs); bnas writes symbol order, unpadded.  (6) On x86-64 a
+relocation against a temporary no symbol precedes is section-relative in clang (`r_extern` 0, the section's ordinal:
+`leaq Lx(%rip)` with `Lx` after `.quad 0` in __data); bnas defines an `ltmp<N>` anchor and relocates against it.
+**Fix** (user, 2026-10-19: "Match byte-for-byte" for the string table): one commit for (1)-(5) — anchors for every
+section on AArch64, placed by creation; externals and undefined sorted by name; the string table laid out as clang's;
+the label in the message — with golden symbol and string tables against clang; then one for (6).
+
+Resolution (binate `648821e8a`), items (1)-(5); (6), the x86-64 section-relative relocations, stays open in
+claude-todo.md.  On AArch64 every section has its `ltmp<N>` anchor; the locals are listed where clang registers them
+— a symbol at its name's first mention (a fixup reference, an assignment, a label difference, a declaration or a
+definition; a literal-pool entry's symbols where the entry is emitted: asm.Assembler.NoteMention, Symbol.Mention),
+an anchor where its section was created (Section.MentionsBefore), ties by section — and the defined externals and
+undefined symbols are sorted by name; the string table holds the listed names alone in StringTableBuilder's layout
+(machoStringTable); the errors name the label the source wrote (machoRelocsAsWritten).  A Mach-O object with more
+than 255 sections is now an error (bnas wrapped n_sect; clang writes 0 for the 256th section's anchor).  One
+deliberate difference: with `.subsections_via_symbols`, a relocation against an anchor that shares its address with
+another listed symbol goes against that symbol, since ld64 rejects clang's object there ("invalid r_symbolnum":
+`Lx:` / `_d:` at the start of data, loaded through Lx).  Known remaining order difference: `.uint64 _a + (_b -
+_a)` with both labels forward lists `_b`, `_a` (clang `_a`, `_b`).  Tests: TestAssembleFileMachoSymtabLikeClang
+(fifteen sources' tables equal to clang 21's), TestAssembleFileMachoAnchorPeer, TestAssembleFileMachoErrorNamesLabel,
+the macho_symtab_test.bn tests, TestMachoTooManySections, TestNoteMention.  Two reviews; their findings are fixed in
+the commit.
+
 ### LLVM x86-64 silently miscompiled a frame past 2 GiB — DONE (binate `3279fc9ac`, 2026-10-19, work-1) (found 2026-10-19, work-1, review of the LLVM frame check; pre-existing)
 
 LLVM's x86-64 backend truncates a frame object's displacement to 32 bits with no diagnostic: in a 3 GiB frame a
