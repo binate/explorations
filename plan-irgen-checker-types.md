@@ -121,6 +121,10 @@ IR-gen cannot map is an internal error, never `int`.
    (`.xfail.all`, drop it when stage 4/5 lands).  The checker already resolves X to the instance (an
    interface alias is another symbol for the target's Type).  `1508_iface_generic_alias_type_order` is the
    guard: instantiating the generic early under the legacy resolver turned a later type alias into `int`.
+   - DONE (binate `5333e1fc2`, 2026-10-19): bnc / bni `--x-type-differential <file>` (irgen
+     gen_type_differential.bn) — `differs` and `abstract` (a type parameter, Self, or a type-parameter-
+     dependent array length) lines.  Full builder-comp (3728) and native arm32 (3679) with it on: only the
+     interface-alias legacy bug (1383, 1508) and parameterized impls' type parameters.
 4. **Switch, by site class.**  Declarations first: var / global types (existing Decl.ResolvedTypeID),
    signatures, struct fields from checker types (removes the several copies of field resolution).  Then
    expressions: assertions and composite literals from their Expr types.  The remaining TypInt() fallbacks
