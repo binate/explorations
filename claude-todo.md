@@ -81,7 +81,7 @@ instances' methods are built eagerly until the bound.  §12.3 names no instance 
 uninstantiated generic growing through type constructors now is.  Possible fix: defer the methods of abstract
 instances whose arguments hold a dependent length when built while another instance is, as for an infinite family.
 
-### A type parameter constrained by an interface over an instance of its own generic segfaults the compiler — `type Box[T C[Box[T]]]` — 🔴 OPEN MAJOR (found 2026-10-18, work-7, review of the instance-chain hang fix; reproduced on main; pre-existing)
+### A type parameter constrained by an interface over an instance of its own generic segfaults the compiler — `type Box[T C[Box[T]]]` — 🟡 IN PROGRESS MAJOR (claimed 2026-10-18, work-7/session — user: "yes" to taking it next; found 2026-10-18, work-7, review of the instance-chain hang fix; reproduced on main; pre-existing)
 
 ```
 interface C[T any] { M() T }
