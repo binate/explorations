@@ -131,9 +131,12 @@ iropt / types/abi read layout in int64, and the shared records (irdata's data te
 are int64.  Stage 3 landed (binate `651ea270e`, 2026-10-18): the LLVM backend writes sizes and offsets from the
 int64 API.  Stage 4a / 4b landed (binate `73d8d968f`, `845a85f52`, 2026-10-18): the shared native layer compares
 sizes with Size(); native aa64 materializes an add / sub immediate past 16 MiB.  Stage 4f-1 landed (binate
-`25ffa73f0`): native zero globals go to bss, which the assembler counts without holding.  Remaining
-(plan-int64-layout.md): the rest of 4 (field offsets and copies, callconv's stack layout and the frame tables,
-bss lengths and symbol offsets in int64 for a 32-bit host; a frame past the target's limit a compile error); 5 VM /
+`25ffa73f0`): native zero globals go to bss, which the assembler counts without holding.  Stage 4d-1 landed
+(binate `8d5ed266a`): native frame tables in int64, a frame past the target's address space a compile error
+(spec §21.4 row, docs `1501abe`; user decision 2026-10-18 "Address space").  Remaining (plan-int64-layout.md): the
+LLVM backend's matching frame check (it silently wraps an arm32 frame past 4 GiB today); the backends' int64 frame
+lookups (4d-2..4); field offsets and copies; callconv's stack layout; bss lengths and symbol offsets in int64 for a
+32-bit host; 5 VM /
 interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the 32-bit lane.
 
 ### An array length `len(f())` is rejected when `func f` comes later in the file — 🟡 IN PROGRESS (claimed 2026-10-19, work-5/session; user: "yes, take those two next"; minor: valid code rejected; found 2026-10-18, work-5, review of the len change; reproduced)

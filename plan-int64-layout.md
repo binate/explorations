@@ -136,9 +136,20 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
      sizes in int64 through asm / elf / macho / link, for a 32-bit host.
    Order (revised 2026-10-18, after reading x64's helpers): 4d before 4e, so each backend helper's offset
    parameter moves to int64 once (4e's field offsets flow into the same helpers as the frame offsets):
-   - 4d-1. native/common: RegMap's frame tables and frame fields int64; PlanFrame accumulates in int64 and a
-     frame past the target's int is a compile error; the int lookups (LookupAlloc, LookupSpill, NeedAlloc,
-     NeedSpill, LookupArgCopy, LookupAllocSize) stay, narrowing fail-loud, beside int64 variants.
+   - 4d-1. DONE `8d5ed266a` (2026-10-19): native/common: RegMap's frame tables and frame fields int64; PlanFrame
+     accumulates in int64 (saturating) and a frame past the target's address space — 2^32 - 1 on a 32-bit target,
+     the int64 range on a 64-bit one — is a compile error naming the function (CheckFrameFits).  The bound was
+     first the target's int, which the review found rejects a legal program (one local of nearly 2^31 bytes on
+     arm32); user decision (2026-10-18): "Address space", catalogued in spec §21.4 (docs `1501abe`, "modes must
+     agree").  The int lookups (LookupAlloc, LookupSpill, NeedAlloc, NeedSpill, LookupArgCopy, LookupAllocSize)
+     stay, narrowing fail-loud (FrameInt), beside int64 variants; native/common's int64 lists are a non-generic
+     int64List (the pinned BUILDER conflates vec.Vec[int64] with vec.Vec[int]).
+   - Next: the LLVM backend rejects the same frames (codegen totals each function's hoisted allocas against the
+     shared limit — move frameLimit to types — and reports through a codegen error list cmd/bnc checks); it
+     silently wraps an arm32 frame past 4 GiB today (two 2 GiB locals → `sub sp, sp, #16`).  The VM must agree
+     too (stage 5).
+   - Note for 4d-2..4: FrameInt guards the frame values, not sums the backends compute from them in host int
+     (`frameSize + 16`, `SavedRegsOff + 8 * i`, `LookupAlloc(...) + fieldOff`); those sums move to int64 too.
    - 4d-2 / 4d-3 / 4d-4. x64, aarch64, arm32 move to the int64 lookups and thread int64 offsets through their
      helpers.  x64: an offset past disp32 rebases — PUSH a register the access does not use, load it with
      base + offset (MOV imm64, ADD), address through it, POP; the frame never uses the red zone, and when any
