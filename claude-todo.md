@@ -2332,7 +2332,7 @@ prints `func f() {` / `/* c */` / `}` (the comment moves into the body), `var /*
 but the comment moves.  The AST records no position for a declaration's name or an annotation block's
 `]`, which placing these comments needs.
 
-### bnfmt moves a comment inside an argument list below its statement — 🟢 LOW (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
+### bnfmt moves a comment inside an argument list below its statement — 🟢 LOW — 🟡 IN PROGRESS (claimed 2026-10-18, temp-4) (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
 
 A comment after an argument in a wrapped list -- `h(x, // e` / `y)`, also on a right-hand side
 (`z := h(x, // d` …) and in a left operand (`a.b(x, // c` / `y).c = 1`) -- is placed by no node, so it is
