@@ -100,7 +100,7 @@ Box[int64].S, instantiated at main.bn:9:24)" — the alias declaration's target 
 `Alias[int64]`.  The alias's target is resolved in the alias's scope, and the instance it names takes that position
 as its site; it should take the use's (the target is as if written at the use, gen.instantiate.alias).
 
-### REPL: a parked group in which a function reads a variable of the same group crashes IR-gen — 🔴 OPEN MAJOR (found 2026-10-17, work-5, reproducing the VM undefined-package-variable entry; reproduced; pre-existing)
+### REPL: a parked group in which a function reads a variable of the same group crashes IR-gen — 🟡 IN PROGRESS (claimed 2026-10-18, work-5/session) MAJOR (found 2026-10-17, work-5, reproducing the VM undefined-package-variable entry; reproduced; pre-existing)
 
 At the REPL, `func f() int { return v + 1 }` (parked on v), then `var v int = g()` (parked on g), then
 `func g() int { return 5 + 0*f() }` resolves the three as one group, and the REPL aborts: "panic: internal
@@ -159,7 +159,7 @@ int64 API.  Remaining (plan-int64-layout.md): 4 native backends and asm / elf /
 macho / link (bss without materialized zero bytes; a frame past the target's limit a compile error); 5 VM /
 interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the 32-bit lane.
 
-### A floating-point constant over `len` of an array variable reads the variable at each use — 🔴 OPEN (found 2026-10-18, work-5, review of the VM load check; reproduced; pre-existing)
+### A floating-point constant over `len` of an array variable reads the variable at each use — 🟡 IN PROGRESS (claimed 2026-10-18, work-5/session; found 2026-10-18, work-5, review of the VM load check; reproduced; pre-existing)
 
 `const F float64 = cast(float64, len(p.A))` (`var A [4]int` in package p's `.bni`) is not folded: a constant
 computed through a floating-point value is stashed as CONST_EXPR (irgen/gen_const_fold.bn `stashConstExpr`)
@@ -173,7 +173,7 @@ re-lowering (the checker has its value), or do not evaluate a side-effect-free a
 covered by conformance 1699_float_const_len_bni_only_array (binate `43ab553fa`; expected-fail on the four VM
 modes and the six native modes).
 
-### `len(p.A)` of an imported array variable is rejected as an array length — 🔴 OPEN (minor: valid code rejected; found 2026-10-17, work-5, probing the VM undefined-package-variable entry; reproduced; pre-existing)
+### `len(p.A)` of an imported array variable is rejected as an array length — 🟡 IN PROGRESS (claimed 2026-10-18, work-5/session; minor: valid code rejected; found 2026-10-17, work-5, probing the VM undefined-package-variable entry; reproduced; pre-existing)
 
 With `var A [4]int` in package p's `.bni`, an importer's `var b [len(p.A)]int` is rejected ("array length must
 be a constant integer"), though `len` of an array is an `int` constant (spec `builtin.len`); `[len(A)]int` of a
