@@ -681,6 +681,10 @@ a temporary in a section that holds no other symbol (`.section data` / `Lend:` a
 goes against the section's zero-size anchor, and ld64 rejects the object ("invalid r_symbolnum"), as it rejects
 clang's.  **Fix:** needs investigating — what ld64 accepts there (a non-extern relocation is not allowed for ARM64
 PAGE21 / PAGEOFF12), else a clear error.
+(c) clang writes each section's relocations in reverse order (LLVM's MachObjectWriter, "to match 'as'"), each
+ADDEND / SUBTRACTOR entry still before the relocation it belongs to; bnas writes them in fixup order: `call Lx` / `jmp
+Lx` has its two BRANCH entries the other way round from clang's.  **Fix:** write each section's relocations in
+reverse, pairs kept together; golden relocation order against clang on both arches.
 
 ### asm Mach-O section layout for text input: alignment as the contents ask, `__text` first, headers in creation order, as clang lays them out — 🟡 IN PROGRESS (claimed 2026-10-19, work-2, after the table entry above; user: "Follow clang for text")
 
