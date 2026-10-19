@@ -711,7 +711,7 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### asm Mach-O fidelity: clang lists `ltmpN` section symbols on AArch64; a short-range-fixup error names the anchor — 🔵 OPEN (found 2026-10-19, work-2, review of binate `97255aad6`)
+### asm Mach-O fidelity: clang lists `ltmpN` section symbols on AArch64; the string table holds unlisted names; a short-range-fixup error names the anchor — 🔵 OPEN (found 2026-10-19, work-2, review of binate `97255aad6`)
 
 (1) clang (`-target arm64-apple-macos`) lists a local `ltmp<N>` symbol at the start of every section, with or without
 `.subsections_via_symbols` (on x86-64 it lists none): `.text` / `.globl _g` / `_g: ret` / `.data` / `.globl _d` /
@@ -720,8 +720,12 @@ temporary needs one (asm/macho/macho_atoms.bn).  Symbol-table fidelity only.  (2
 reference to …" error for a b.cond / cbz / tbz / ldr-literal / adr names the section anchor, not the label, when the
 target is a temporary in another section: `_f: adr x0, Ld` with `Ld` in data reports `'ltmp1'` (macho_reloc.bn: the
 relocation is retargeted to the anchor before its type is checked).  clang stops on such input with "unknown AArch64
-fixup kind!".  **Fix:** (1) list each section's anchor on AArch64 as clang does, with golden symbol tables; (2) name
-the label the source wrote.
+fixup kind!".  (3) The writer adds every symbol's name to the string table, listed or not (asm/macho/macho.bn,
+before partitionSymbols drops the temporaries), so an object carries the names of temporaries it never lists — the
+generated literal-pool labels `L\x02=\x020`, `L\x02=\x021`, … and every `L` label: `f: ldr x0, =C1` / `g: ldr x1,
+=C2` has a 17-byte string table where the two listed names need 5 (clang's holds only listed names).  No reader
+uses those bytes.  **Fix:** (1) list each section's anchor on AArch64 as clang does, with golden symbol tables; (2)
+name the label the source wrote; (3) build the string table from the listed symbols only.
 
 ### asm AArch64 Mach-O literal pools: share an entry across atoms, as clang does — 🟡 IN PROGRESS (claimed 2026-10-18, work-2; user: "Share like clang")
 
