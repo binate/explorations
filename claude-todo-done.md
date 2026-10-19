@@ -1,3 +1,10 @@
+### fmt's unit tests `&`-box their operands for the CHECK_TOOLS bnlint — DONE (binate `f4a0660ee`, 2026-10-18, temp-4)
+
+The hygiene bnlint (then `bnc-0.0.12-pre3`) predated the implicit value→`*any` borrow, so fmt's linted
+tests `&`-boxed every operand.  With CHECK_TOOLS at `bnc-0.0.17-pre3`, the 233 operands in seven test
+files pass bare and the comments explaining the boxing are gone; TestSprintfStructScalars and the new
+TestSprintAddressedOperand keep the `&` form covered.
+
 ### asm Mach-O: a temporary belongs to the atom it was defined in, an alias to its target's — DONE (binate `3f55db20c`, 2026-10-18, work-2) (MAJOR, latent; found in review of the alias-reference change; user: before TLS stage 3)
 
 A temporary at an atom's end (`_f: nop` / `Lend:` / `_g: nop`) was attributed to the atom starting at its address:

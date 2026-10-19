@@ -2190,18 +2190,8 @@ documented divergences, never silently):
 signs it exactly as Go signs a real `math.Copysign(0,-1)`; Go constant-folds the
 `-0.0` literal to `+0.0`.  A language constant-folding difference, not a fmt one.)
 
-Tests: unit tests `fmt_printf_test.bn` + `fmt_printf_fields_test.bn` (`&`-boxed
-operands until CHECK_TOOLS carries value-borrow — see below), conformance
+Tests: unit tests `fmt_printf_test.bn` + `fmt_printf_fields_test.bn`, conformance
 `1135_fmt_printf`.
-
-**Note (CHECK_TOOLS lag) — 🟡 IN PROGRESS (claimed 2026-10-18, temp-4: the fmt tests drop the `&`s,
-CHECK_TOOLS is now `bnc-0.0.17-pre3`):** the hygiene `lint` bnlint (`CHECK_TOOLS_VERSION`,
-bnc-0.0.12-pre3) predates the implicit value→`*any` borrow, so LINTED stdlib code
-(incl. fmt's own tests) must `&`-box operands (`Sprintf("%d", &n)`), not pass them
-bare.  A CHECK_TOOLS bump to a bundle carrying value-borrow (the `9d04870b`
-string-literal box + the earlier scalar/var value-borrow) would let those tests
-drop the `&`.  The non-linted conformance tests (1090/1135) already use the bare
-form.
 
 ### `lang.Stringer` returns `@[]char`, but every string producer returns `@[]readonly char` — 🟡 OPEN (2026-08-02)
 
