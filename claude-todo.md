@@ -851,6 +851,15 @@ MAJOR's fix (not yet landed) does for interface method sizing, cannot help: the 
 Needs N[T]'s layout known before the instances its fields name are populated (populate pointer-held field types
 lazily), or a length that depends on an unbuilt instance resolved after it is built.  Test with the program above
 (and an interface method parameter `[sizeof(T)]uint8`).
+**Wider than first reported (2026-10-19, reproduced on main):** a non-generic N fails the same way
+(`type N struct { v int64; next *Box[N] }`), and so does a plain forward reference with no cycle at all —
+`type M struct { b Box[N] }` before `type N struct { v int64 }`, or `*Box[N]` there: Box[N] is populated while M is
+collected, before N is, and prepareLayout prepares only the types the `sizeof` operand names (`T`), not what it
+resolves to.  A genuine cycle (`type N struct { v int64; b Box[N] }`) is reported as "an opaque type", not as a
+cycle.  Plan: (1) prepare a `sizeof` / `alignof` operand's layout by its resolved type too, collecting the package
+types a type argument reaches; (2) defer an instance's structure while a type its structure needs the layout of is
+still being collected or built, populating it when that completes — a by-value use meanwhile is a cycle, reported
+as one.
 
 ## Performance
 
