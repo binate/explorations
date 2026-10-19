@@ -294,17 +294,6 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### LLVM x86-64 silently miscompiles a frame past 2 GiB — 🟡 IN PROGRESS MAJOR (claimed 2026-10-19, work-1; user decision 2026-10-19: "Reject past 2 GiB" — "warn-stack-size" 2^31 - 1 and -Werror=frame-larger-than on x86-64) (found 2026-10-19, work-1, review of the LLVM frame check; pre-existing)
-
-LLVM's x86-64 backend truncates a frame object's displacement to 32 bits with no diagnostic (the check is an
-assert, off in release builds): in a 3 GiB frame a store to the last local lands at `1073741831(%rbp)` — 1 GiB above
-the frame, in the caller's memory — and past 4 GiB one writes the return address.  LLVM aarch64 and arm32 address
-such frames correctly.  The frame is legal for a 64-bit target (spec §21.4: up to the address space), and native x64
-will carry it (int64 layout stage 4d-2).  Options: give the LLVM x86-64 backend a frame limit of 2^31 - 1
-("warn-stack-size" plus -Werror=frame-larger-than on x86-64 — loud, but below the §21.4 minimum for a 64-bit
-target, the largest type), or leave it (LLVM is a stopgap) with a test.  Covered only by conformance 1707's 64-bit
-expectation, which passes because the frame's function never runs.
-
 ### LLVM x86-64 mis-addresses an incoming byval argument past 2 GiB above the frame — 🔴 OPEN MAJOR (found 2026-10-19, work-1, review of the x86-64 LLVM frame limit; pre-existing; needs a decision)
 
 The x86-64 LLVM frame limit (warn-stack-size 2^31 - 1) covers a function's own frame, not its incoming stack

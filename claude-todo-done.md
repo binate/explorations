@@ -1,3 +1,21 @@
+### LLVM x86-64 silently miscompiled a frame past 2 GiB — DONE (binate `3279fc9ac`, 2026-10-19, work-1) (found 2026-10-19, work-1, review of the LLVM frame check; pre-existing)
+
+LLVM's x86-64 backend truncates a frame object's displacement to 32 bits with no diagnostic: in a 3 GiB frame a
+store to the last local landed at `1073741831(%rbp)`, 1 GiB above the frame.  User decision (2026-10-19): "Reject
+past 2 GiB".  On x86-64 every LLVM define now carries "warn-stack-size"="2147483647" and bnc compiles the IR with
+-Werror=frame-larger-than (codegen llvmFrameLimit / FrameSizeChecked), as on a 32-bit target (`1246f0e68`), so such a
+frame is a compile error; a frame of 0x7FFFFE00 + 64 bytes compiles with every displacement correct, 0x80000000 +
+64 is rejected.  The limit is short of spec §21.4's minimum for a 64-bit target and makes LLVM x86-64 disagree
+with the other modes there; the spec row says so (docs `11beb8f`).  conformance/run.sh gained an
+`.error.<mode>.<arch>` tier, and conformance 1710 expects the error in builder-comp / -comp-comp / -comp-comp-comp
+on an x86-64 host (validated as LLVM x86-64 under Rosetta with BINATE_FLAGS="--target x86_64-darwin"
+HOST_ARCH=x64; the 724-test subset passed 718/0 that way, and a cross-built x86-64 bnc works).  The review found
+1710's frame shrinking at -O2 (LLVM forwarded y's and z's stores to their loads and dropped them; an inlined call
+moved big's frame into main, which then crashed on LLVM aa64): 1710 now never calls big and writes / reads each
+local through two opaque globals; it passes at -O0 and -O2 on every backend.  Since the check measures the frame
+LLVM lays out, after inlining, whether a program is accepted can depend on the -O level.  Residual gap kept open:
+incoming byval arguments past 2 GiB (claude-todo.md, its own entry).
+
 ### A generic type first instantiated inside a generic alias's target saw that alias as recursive — "invalid recursive type alias" depending on declaration order — DONE (binate `3ef1793ef`, 2026-10-19, work-7) (found 2026-10-17, work-7, review of the half-built-instance fix; claimed 2026-10-19 — user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]].")
 
 `type L[T any] = *Get[N[T]]`, `type N[T any] struct { v T; l L[int] }`, `var gl L[int]` was rejected, "invalid

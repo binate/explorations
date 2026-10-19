@@ -144,10 +144,13 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
      agree").  The int lookups (LookupAlloc, LookupSpill, NeedAlloc, NeedSpill, LookupArgCopy, LookupAllocSize)
      stay, narrowing fail-loud (FrameInt), beside int64 variants; native/common's int64 lists are a non-generic
      int64List (the pinned BUILDER conflates vec.Vec[int64] with vec.Vec[int]).
-   - Next: the LLVM backend rejects the same frames (codegen totals each function's hoisted allocas against the
-     shared limit — move frameLimit to types — and reports through a codegen error list cmd/bnc checks); it
-     silently wraps an arm32 frame past 4 GiB today (two 2 GiB locals → `sub sp, sp, #16`).  The VM must agree
-     too (stage 5).
+   - DONE `1246f0e68`, `3279fc9ac` (2026-10-19): the LLVM backend rejects the same frames.  Every define carries
+     "warn-stack-size" at the LLVM frame limit and bnc compiles the IR with -Werror=frame-larger-than, so LLVM's
+     own measure of the frame (after its optimizations) is checked: on a 32-bit target the limit is
+     types.FrameLimit (an arm32 frame past 4 GiB wrapped: two 2 GiB locals → `sub sp, sp, #16`); on x86-64 it
+     is 2^31 - 1, the largest frame LLVM addresses there (user decision 2026-10-19, "Reject past 2 GiB"; spec
+     §21.4 notes it, docs `11beb8f`); aarch64 is unchecked.  conformance 1710 covers every backend (run.sh's new
+     `.error.<mode>.<arch>` tier for LLVM x86-64).  The VM must agree too (stage 5).
    - Note for 4d-2..4: FrameInt guards the frame values, not sums the backends compute from them in host int
      (`frameSize + 16`, `SavedRegsOff + 8 * i`, `LookupAlloc(...) + fieldOff`); those sums move to int64 too.
    - 4d-2 / 4d-3 / 4d-4. x64, aarch64, arm32 move to the int64 lookups and thread int64 offsets through their
