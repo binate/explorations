@@ -1,3 +1,23 @@
+### Infinite generic instantiation was caught only by depth bounds — a family that branched hung the compiler — DONE (binate `27844b58b`, docs `b1c7240`, 2026-10-18, work-7) MAJOR (found 2026-10-17, work-7, review of the instance-identity fix; the linear chain landed as binate `8bbfe8777`; plan explorations/done/plan-generic-expansion-check.md)
+
+A generic family naming ever-growing instances is now found from the declarations' text (check_generic_expand.bn):
+a graph over the generics' type parameters, an edge to each position of an instance a declaration writes whose
+argument the parameter flows into — growing when nested inside a type constructor; generic aliases expanded by
+substitution (check_generic_expand_flow.bn); array lengths' type operands walked, a length mention not counted as
+growth — from fields, underlying types, alias targets, interfaces' parents (structure) and methods' and interfaces'
+signatures.  A parameter in a strongly connected component with a growing edge is in an infinite family: naming a
+concrete instance of it is an error where named, and a generic whose structure alone forms one is rejected at its
+declaration (struct fields per §12.3; interface parents — user 2026-10-18: "Yes, spec it").  Abstract instances of
+a family built while another instance is wait for their methods until code uses them (check_generic_build.bn —
+decision (B), user: "(B) Targeted, expanding only"); parents are always built.  A family growing through
+array-length arithmetic is stopped by MAX_INSTANCES_PER_BUILD (4096, §21.4; user: "Not growing + build budget").
+Verdicts are redone after any change to the generic declarations or methods (Checker.GenericGen).  Two review rounds
+found eight problems (deferred interface parents, REPL cache staleness, alias false positives, length families, error
+placement, the length regression, diamond cost), fixed before landing.  Tests: check check_generic_expand*_test.bn,
+check_generic_build_test.bn; conformance spec/12-generics 123–126; expected errors of 081, 120, 284, 765, 1586.  Left
+open: the naming-order chain bound and uninstantiated length-arithmetic methods (claude-todo.md); the
+`type Box[T C[Box[T]]]` crash (MAJOR, claude-todo.md).
+
 ### Native aa64 rejected a frame or a struct field at an offset of 16 MiB or more — DONE (binate `845a85f52`, 2026-10-18, work-1; found 2026-10-07, work-3, review of the repeated-struct layout fix)
 
 `type Big struct { pad [20000000]uint8; x int }` with `g.x = 7` / `p.x`, or a local `Big`, failed to compile on

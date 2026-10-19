@@ -62,25 +62,24 @@ type argument against a parameterized impl's substituted receiver as the plain a
 conformance spec/12-generics/119_err_satisfy_generic_impl_managed_ptr (binate `0051d4792`, expected to fail in every
 mode).
 
-### Infinite generic instantiation is caught only by depth bounds — a chain that branches hangs the compiler; add a static expansion check — 🟡 IN PROGRESS MAJOR (claimed 2026-10-18, work-7/session — user: "Land, then static check (Recommended)"; found 2026-10-17, work-7, review of the instance-identity fix; the linear chain landed as binate `8bbfe8777`)
+### The instance chain bound depends on naming order — a long finite chain is accepted or rejected depending on which naming comes first — 🔴 OPEN (minor; found 2026-10-18, work-7, review of the instance-chain hang fix)
 
-A generic whose fields or method signatures name ever-growing instances of itself is caught only when a build
-nests 128 deep (GenericInstDepth) or a chain of instance checks grows past MAX_INSTANCE_DEPTH.  Building an instance
-eagerly instantiates what its fields and method signatures name, so a chain that branches explores ~2^127 instances
-before either bound: `func (b *Box[V]) A() Box[Opt[V]]` plus `B() Box[Res[V]]` (Box never instantiated), or fields
-alone, `type T2[X any] struct { a *T2[Opt[X]]; b *T2[Res[X]] }` — which §12.3 says must be rejected at its
-declaration — hang the compiler (on main as well).  Two related verdicts come from the same eager building:
-- an uninstantiated generic whose method names ever-growing instances (`func (b *Box[V]) Wrap() Box[Opt[V]]`) is
-  rejected at its declaration ("nested too deeply (cyclic or unbounded type argument?)" at Opt's and Box's
-  declarations), though the spec names no instance of it;
-- the build nesting adds to the drain's chain depth, so a finite 140-long chain (f1 → … → f100[T] naming S1[T], whose
-  method signatures chain through 40 struct types) is rejected or accepted depending on which naming comes first.
+Since binate `8bbfe8777` an instance built while another is built is named from it, so build nesting adds to the
+drain's chain depth, and an instance keeps the depth of its first naming.  A finite 140-long chain (f1[T] → … →
+f100[T] naming S1[T], whose method signatures chain through 40 struct types) is rejected ("nested too deeply
+(polymorphic recursion?)") when the first naming of S1[int] is f100's, and accepted when `var s S1[int]` in main names
+it first.  §12.3 allows a bound of 128 on such a chain; the verdict should not depend on the order.  Needs a design:
+the depth an instance is reached at is the longest chain to it, which the depth-first drain does not track.
 
-Fix: a static expansion check over the generic declarations' type-parameter flow — an edge P→Q where a generic
-writes H[…] with Q's argument mentioning P, weighted when P is nested inside a type constructor; a positive-weight
-cycle means infinite instantiation.  Reject at the declaration for a cycle through fields only (§12.3), and where an
-instantiation is named for one through methods and bodies; with the check deciding, building need not recurse
-into an infinite family at all.
+### An uninstantiated generic whose methods grow only through array-length arithmetic is rejected at its declaration — 🔴 OPEN (minor; found 2026-10-18, work-7, the static expansion check; pre-existing)
+
+`func (n *N[T]) A() *N[[sizeof(T) + 1]uint8]` (and a second such method), with N never instantiated, is rejected by
+the build-depth bound ("generic instantiation nested too deeply (cyclic or unbounded type argument?)") while N's own
+methods are checked with T abstract: the expansion check does not count a parameter mentioned in a length as
+growing (whether it grows depends on the arithmetic; user 2026-10-18: "Not growing + build budget"), so the abstract
+instances' methods are built eagerly until the bound.  §12.3 names no instance of N, so it should be accepted, as an
+uninstantiated generic growing through type constructors now is.  Possible fix: defer the methods of abstract
+instances whose arguments hold a dependent length when built while another instance is, as for an infinite family.
 
 ### A type parameter constrained by an interface over an instance of its own generic segfaults the compiler — `type Box[T C[Box[T]]]` — 🔴 OPEN MAJOR (found 2026-10-18, work-7, review of the instance-chain hang fix; reproduced on main; pre-existing)
 
