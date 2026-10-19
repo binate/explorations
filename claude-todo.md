@@ -81,7 +81,7 @@ instances' methods are built eagerly until the bound.  §12.3 names no instance 
 uninstantiated generic growing through type constructors now is.  Possible fix: defer the methods of abstract
 instances whose arguments hold a dependent length when built while another instance is, as for an infinite family.
 
-### An error in an instance reached through a generic alias is reported as instantiated at the alias's declaration — 🔴 OPEN (minor; found 2026-10-18, work-7, review of the instance-chain hang fix; pre-existing)
+### An error in an instance reached through a generic alias is reported as instantiated at the alias's declaration — 🟡 IN PROGRESS (claimed 2026-10-18, work-7/session — user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]."; minor; found 2026-10-18, work-7, review of the instance-chain hang fix; pre-existing)
 
 With `type Alias[T any] = Box[T]` and `var b Alias[int64]`, an error in Box[int64]'s method body reads "(in
 Box[int64].S, instantiated at main.bn:9:24)" — the alias declaration's target — instead of the program's
