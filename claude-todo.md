@@ -130,9 +130,10 @@ for a type of 2^31 bytes or more.  Stage 2 landed (binate `addbb15a2`, 2026-10-1
 iropt / types/abi read layout in int64, and the shared records (irdata's data terms, type-info records, retbuf sizes)
 are int64.  Stage 3 landed (binate `651ea270e`, 2026-10-18): the LLVM backend writes sizes and offsets from the
 int64 API.  Stage 4a / 4b landed (binate `73d8d968f`, `845a85f52`, 2026-10-18): the shared native layer compares
-sizes with Size(); native aa64 materializes an add / sub immediate past 16 MiB.  Remaining (plan-int64-layout.md):
-the rest of 4 (callconv's stack layout, the frame tables, field offsets and copies, bss) and asm / elf /
-macho / link (bss without materialized zero bytes; a frame past the target's limit a compile error); 5 VM /
+sizes with Size(); native aa64 materializes an add / sub immediate past 16 MiB.  Stage 4f-1 landed (binate
+`25ffa73f0`): native zero globals go to bss, which the assembler counts without holding.  Remaining
+(plan-int64-layout.md): the rest of 4 (field offsets and copies, callconv's stack layout and the frame tables,
+bss lengths and symbol offsets in int64 for a 32-bit host; a frame past the target's limit a compile error); 5 VM /
 interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the 32-bit lane.
 
 ### A floating-point constant over `len` of an array variable reads the variable at each use — 🟡 IN PROGRESS (claimed 2026-10-18, work-5/session; found 2026-10-18, work-5, review of the VM load check; reproduced; pre-existing)

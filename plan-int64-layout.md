@@ -128,6 +128,15 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
    - 4e. Field / element offsets and copy lengths per backend (ElemSizeOf, FieldByteOffset, aggregate copies).
    - 4f. asm / elf / macho / link: native backends put zero-initialized globals in bss, which records its size
      without materializing bytes (an int64 size on a 32-bit host); check crt0 / the linker scripts clear bss.
+     4f-1 DONE `25ffa73f0` (2026-10-18, done before 4c-4e: it fixed a 64-bit-host failure): every native package
+     global goes to bss (its storage is all zero; the initializer runs at start-up), and a zero-fill section
+     holds no bytes in the assembler (Section.ZeroFill, countZeroFill: fails loud past the host's int or a
+     32-bit target's 4 GiB).  A 3 GB global compiles on native aa64.  crt0 clears no bss — QEMU's ELF loader
+     zero-fills it, as for the LLVM backend's bss.  4f-2 (open): bss lengths, symbol offsets and local-common
+     sizes in int64 through asm / elf / macho / link, for a 32-bit host.
+   Order (2026-10-18): 4e next (field offsets need an int64 addressing helper per backend — x64 has no reserved
+   scratch register, so one past disp32 uses the destination register or saves / restores one), then 4c + 4d
+   together (callconv's stack offsets feed the same frame addressing), then 4f-2.
    Tests compile functions holding the large frames / offsets without calling them, so they need no memory.
 5. VM / interp: VM memory is host memory, so its layout narrows at allocation (`HostInt`), failing loud.
 6. Remove the int forms of `SizeOf()` / `FieldOffset()` / `TrailingPadding()` / `ArrayLenHost()`; end to end
