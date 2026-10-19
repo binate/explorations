@@ -285,6 +285,17 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
+### LLVM x86-64 silently miscompiles a frame past 2 GiB — 🔴 OPEN MAJOR (found 2026-10-19, work-1, review of the LLVM frame check; pre-existing; needs a decision)
+
+LLVM's x86-64 backend truncates a frame object's displacement to 32 bits with no diagnostic (the check is an
+assert, off in release builds): in a 3 GiB frame a store to the last local lands at `1073741831(%rbp)` — 1 GiB above
+the frame, in the caller's memory — and past 4 GiB one writes the return address.  LLVM aarch64 and arm32 address
+such frames correctly.  The frame is legal for a 64-bit target (spec §21.4: up to the address space), and native x64
+will carry it (int64 layout stage 4d-2).  Options: give the LLVM x86-64 backend a frame limit of 2^31 - 1
+("warn-stack-size" plus -Werror=frame-larger-than on x86-64 — loud, but below the §21.4 minimum for a 64-bit
+target, the largest type), or leave it (LLVM is a stopgap) with a test.  Covered only by conformance 1707's 64-bit
+expectation, which passes because the frame's function never runs.
+
 ### Neither backend probes the stack for a large frame — a frame past the guard page can step over it — 🔴 OPEN MAJOR (found 2026-10-18, work-1, review of the native aa64 16 MiB fix; pre-existing; needs a decision)
 
 A function's prologue moves SP down by its whole frame in one step (native: `sub sp, sp, #frame`, now also past 16
