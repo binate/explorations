@@ -1,3 +1,18 @@
+### bnfmt's time grows exponentially with the nesting depth of calls and of multi-line list elements — DONE (binate `922992893`, 2026-10-19, temp-4) (found 2026-10-16, work-4, fuzzing the multi-line list-element indent fix; the call case pre-existing)
+
+Each level of nested calls made formatting about three times slower (wrapped calls 16 deep: 42 s), and each
+level of nested multi-line composite elements about two to six times (keyed ones 12 deep: 20 s).
+Resolution (binate `922992893`): a rendering of an expression on its own is cached per node for the
+formatting of a file (`pkg/binate/format/print_rendermemo.bn`), keyed by the node's kind and position, the
+column it starts at, whether wrapping is suppressed and the comment cursor, and checked against the node;
+`exprSingleLine` and list items read it, an argument list builds its one-line trial from its elements'
+renderings (each from its column) and only when the source kept it on one line, and it measures its first
+element only when the opener is not alone.  Those cases now format in under 10 ms, the output unchanged (a
+review diffed the old and new bnfmt on the tree, a comment-injected copy of it and about 10,000 generated
+files, and found one difference -- string runs measured at column 0 -- fixed before landing).  Tests:
+TestFormatDeepNesting, TestFormatArgsOneLineFromColumn.  Nested function literals remain exponential;
+tracked in claude-todo.md.
+
 ### asm AArch64 Mach-O literal pools: share an entry across atoms, as clang does — DONE (binate `bc9bb76eb`, 2026-10-19, work-2; user: "Share like clang")
 
 The text parser keeps each literal-pool entry in the atom of the loads that use it on Mach-O (aarch64_pool.bn: a

@@ -2366,14 +2366,25 @@ also records the symbol operand at the call's Pos line (the symbol has no positi
 opener is never alone, and a source `__c_call(` / `"f", int, a)` is joined.  Fix: record the `(` (and the
 symbol's) position in the parser.
 
-### bnfmt's time grows exponentially with the nesting depth of calls and of multi-line list elements — 🟢 LOW — 🟡 IN PROGRESS (claimed 2026-10-19, temp-4) (found 2026-10-16, work-4, fuzzing the multi-line list-element indent fix; the call case pre-existing)
+### bnfmt's time grows exponentially with the nesting depth of function literals — 🟢 LOW (found 2026-10-19, temp-4, review of the rendering cache; calls and composites fixed in binate `922992893`)
 
-Each call nested in a call's arguments makes formatting about three times slower: calls nested 16 deep
-take ~37 s (not traced; likely the width decisions rendering each argument subtree again).  A list element
-that spans lines (`pkg/binate/format/print_listitem.bn`) is rendered at column 0 to measure it, then printed
-again in place, so each level of nested multi-line composite elements doubles the time: twenty levels take
-~2.3 s.  Real code does not nest this deep, but the time should not be exponential in depth.  Fix: compute
-each node's widths once (cached per node) instead of re-rendering subtrees to measure them.
+Function literals nested in each other's bodies still format in time exponential in the depth: with
+`return X` or `_ = X` in each body about 2x per level (17 deep ~2 s), with a comment in each body about 3x
+(14 deep ~19 s).  The statement trials in a body (`exprListSingleLine`, `rhsInlineLongest` /
+`rhsContLongest`, `printBlockSingleTrial`) render afresh and are not cached, and each print of a literal is
+under a fresh comment cursor (`literalBodyCursor`), so nothing in its body hits the rendering cache
+(`pkg/binate/format/print_rendermemo.bn`, keyed by cursor).  Real code does not nest this deep.
+
+### bnfmt is not idempotent on some layouts around split strings, and on a block comment that ends a line — 🟢 LOW (found 2026-10-19, temp-4, fuzzing in the review of the rendering cache; pre-existing)
+
+Formatting a formatted file changes it again (bnfmt `bnc-0.0.17-pre3` and the tree's alike):
+`_ = T{kkkkkkkk: f(a, b, "<31 a>" "<31 a>" "<31 a>")}` first moves the right-hand side to a
+continuation line (`_ =` / `T{` / … with the string split across lines), then moves it back to `_ = T{`.
+About a fifth of the review's randomly generated files (1,115 of 6,000) change on a second format; those
+sampled all have a string split across lines.  And
+`conformance/spec/05-lexical/142_block_comment_newline_asi.bn` (`x := 5 /* …` / `… */ y := 6`) gains a
+blank line on the second format.  The layouts are valid; `--check` on the tree passes because its files
+are already at a fixpoint.
 
 ### bnfmt packs a later argument that is a multi-line function literal by its whole text — a commented literal breaks onto a continuation line — 🟢 LOW (found 2026-10-06, work-3, fixing the function-literal comment placement)
 
