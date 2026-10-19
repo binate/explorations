@@ -367,7 +367,8 @@ lines goes below the block.  Tests: `TestFormatAnnotatedDeclComments`, `TestForm
 (`print_decl_test.bn`).  No file under hygiene's bnfmt roots changes layout: the 19 doc comments the old
 bnfmt cut off (`ifaces/core/pkg/builtins/build.bni` 12, `impls/stdlib/pkg/std/os/sys/io.bn` 6,
 `impls/core/common/pkg/builtins/startup/args_main.bn` 1) keep their blank line, so they need joining by hand
-once the CHECK_TOOLS bnfmt carries the fix.
+once the CHECK_TOOLS bnfmt carries the fix.  They were joined with the CHECK_TOOLS bump to
+`bnc-0.0.17-pre3` (binate `7573b7a27`).
 
 ### A constrained generic alias instantiated during declaration collection is never constraint-checked — an interface method signature accepts `O[W]` — DONE (binate `903ead3fa`, 2026-10-17, work-3) (found 2026-10-16, work-3, review of the spec §12.4 gap removal)
 
@@ -415,7 +416,7 @@ Seven files change layout under the new bnfmt, one tab deeper
 `pkg/binate/check/check_instances.bn`, `pkg/binate/irgen/gen_typedecl_test.bn`,
 `pkg/binate/iropt/inline_recursion.bn`, `pkg/binate/link/relocate_pool_test.bn`,
 `pkg/binate/parser/parser_test.bn`); they keep the CHECK_TOOLS bnfmt's layout until the CHECK_TOOLS bump
-reformats them.
+reformats them (binate `7573b7a27`, CHECK_TOOLS_VERSION -> `bnc-0.0.17-pre3`).
 
 ### bnld: the arm32 unwind index's placement scanned each object's sections once per code section — DONE (binate `861e41419`, 2026-10-17, work-2)
 
@@ -631,7 +632,7 @@ text as before, and one that spans lines is printed again in place, reserving th
 that follows it.  Four check tests change layout under the new bnfmt
 (`pkg/binate/check/{check_generic_alias,check_lit_addr,check_stmt,check_too_large}_test.bn`, each a split
 string in a composite, indentation only); they keep the CHECK_TOOLS bnfmt's layout until the CHECK_TOOLS
-bump reformats them.  Tests: `pkg/binate/format/print_listitem_test.bn`.  The comment between a literal's
+bump reformats them (binate `7573b7a27`).  Tests: `pkg/binate/format/print_listitem_test.bn`.  The comment between a literal's
 parameters noted here moved to the argument-list comment entry.
 
 ### An instance's type-argument parts are judged where the arguments are written (struct instances) — DONE (binate `7c5273422`, docs `87bf772`, 2026-10-16, work-7)
