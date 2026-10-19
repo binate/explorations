@@ -1,3 +1,14 @@
+### A type naming an alias of a generic interface instantiation before the interfaces were collected kept the alias's name — the upcast to it failed — DONE (binate `240932251`, 2026-10-19, work-6, plan-irgen-checker-types stage 4a) (found 2026-10-03, work-3; pre-existing)
+
+`interface X = G[int]` named by a type alias, a global, a global function value's parameter, or another package's
+struct field / type alias, before IR-gen collected the interfaces, kept the alias's name (an IR-gen stub), so the
+upcast to it failed: "negative vtable slot offset" at build, "target vtable not found" in the VM.  Fixed as decided
+(2026-10-12), by the plan rather than a patch to IR-gen's resolver: resolveTypeExpr now takes the checker's record of
+what a type expression denotes (the checker resolves X to the G[int] instance in any declaration order).  1508
+(the early-instantiation hazard the earlier patch hit) stays green.  Tests: conformance 1506 (xfail dropped),
+1709_iface_generic_alias_early_global_func, 1708_iface_generic_alias_xpkg — 1708 and 1709 abort the build before the
+switch.
+
 ### The initialization order counts `len` of an array as a read of its operand — DONE (binate `d8e055854`, 2026-10-19, work-5) (user: "yes, take those two next"; minor: valid code rejected; found 2026-10-18, work-5, review of the len change; reproduced)
 
 `collectVarDeps` (check/check_var_resolve.bn) walks every builtin's arguments as reads, so `var a [3]int =
