@@ -81,7 +81,7 @@ instances' methods are built eagerly until the bound.  §12.3 names no instance 
 uninstantiated generic growing through type constructors now is.  Possible fix: defer the methods of abstract
 instances whose arguments hold a dependent length when built while another instance is, as for an infinite family.
 
-### Layout preparation during collection looks names up by NAME in the package being checked — a generic's `sizeof(T)` finds a package type `T`, an imported generic's `sizeof(Inner)` the importer's `Inner` — 🔴 OPEN MAJOR (found 2026-10-19, work-7, review of the instance-`sizeof` forward-reference fix; reproduced; pre-existing)
+### Layout preparation during collection looks names up by NAME in the package being checked — a generic's `sizeof(T)` finds a package type `T`, an imported generic's `sizeof(Inner)` the importer's `Inner` — 🟡 IN PROGRESS (claimed 2026-10-19, work-7/session — user, asked whether to take it on next as part of the `sizeof` entry below: "yes"; MAJOR; found 2026-10-19, work-7, review of the instance-`sizeof` forward-reference fix; reproduced; pre-existing)
 
 `type Box[T any] struct { a [sizeof(T)]uint8 }` with `type T struct { b Box[int32] }` is rejected, "cyclic type
 definition involving `T`", and an imported `q.QBox[T]` holding `[sizeof(Inner)]uint8` (q's own Inner), used in the
@@ -93,7 +93,7 @@ instance type argument as held by value (its TEXPR_INSTANTIATE arm), so `type X 
 `type N struct { q P[X] }` and `type P[T any] struct { p *T }` is a false cycle too (the direct
 `type X struct { a [sizeof(N)]uint8 }` form as well), and it does not reach slice elements, which
 embedsOpaqueByValue does, so `type M struct { b Box[@[]N] }` before N is "an opaque type".  Proposed fix: prepare
-by the RESOLVED type only — prepareResolvedLayout (not yet landed), walking the by-value parts of
+by the RESOLVED type only — prepareResolvedLayout (binate `ac5e26e15`), walking the by-value parts of
 the resolved operand and, in prepareBatchType, of the collected declaration's type — and drop the name-based AST
 walk (prepareLayoutIn, prepareGenericFields); decide slices with the opaque rule.  Conformance tests for the three
 programs above.
@@ -836,7 +836,7 @@ lazily), or a length that depends on an unbuilt instance resolved after it is bu
 `type M struct { b Box[N] }` before `type N struct { v int64 }`, or `*Box[N]` there: Box[N] is populated while M is
 collected, before N is, and prepareLayout prepares only the types the `sizeof` operand names (`T`), not what it
 resolves to.  A genuine cycle (`type N struct { v int64; b Box[N] }`) is reported as "an opaque type", not as a
-cycle.  Plan: (1) prepare a `sizeof` / `alignof` operand's layout by its resolved type too, collecting the package
+cycle.  Plan: (1) [DONE, binate `ac5e26e15`] prepare a `sizeof` / `alignof` operand's layout by its resolved type too, collecting the package
 types a type argument reaches; (2) defer an instance's structure while a type its structure needs the layout of is
 still being collected or built, populating it when that completes — a by-value use meanwhile is a cycle, reported
 as one.
