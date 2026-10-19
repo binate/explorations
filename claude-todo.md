@@ -2199,7 +2199,8 @@ Tests: unit tests `fmt_printf_test.bn` + `fmt_printf_fields_test.bn` (`&`-boxed
 operands until CHECK_TOOLS carries value-borrow — see below), conformance
 `1135_fmt_printf`.
 
-**Note (CHECK_TOOLS lag):** the hygiene `lint` bnlint (`CHECK_TOOLS_VERSION`,
+**Note (CHECK_TOOLS lag) — 🟡 IN PROGRESS (claimed 2026-10-18, temp-4: the fmt tests drop the `&`s,
+CHECK_TOOLS is now `bnc-0.0.17-pre3`):** the hygiene `lint` bnlint (`CHECK_TOOLS_VERSION`,
 bnc-0.0.12-pre3) predates the implicit value→`*any` borrow, so LINTED stdlib code
 (incl. fmt's own tests) must `&`-box operands (`Sprintf("%d", &n)`), not pass them
 bare.  A CHECK_TOOLS bump to a bundle carrying value-borrow (the `9d04870b`
