@@ -788,21 +788,6 @@ annotations: `#[build]`, `#[c_export]`); whether it constrains the function's ow
 inlining of it, or both; what the VM does (its frames are never removed); and whether `debug.Callers`
 should then promise those frames.
 
-### A generic type first instantiated inside a generic alias's target sees that alias as recursive — "invalid recursive type alias" depending on declaration order — 🟡 IN PROGRESS (claimed 2026-10-19, work-7/session — user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]."; found 2026-10-17, work-7, review of the half-built-instance fix; reproduced; pre-existing)
-
-```
-interface Get[T any] { get() T }
-type L[T any] = *Get[N[T]]
-type N[T any] struct { v T; l L[int] }
-var gl L[int]
-```
-is rejected: "invalid recursive type alias L".  Adding `var gn N[bool]` before `gl`, or dropping `gl`, makes it
-compile.  `instantiateGenericDeclWithArgs` (check_generic_type.bn) clears `c.AliasResolving` only after
-`resolveGenericTypeDeclAbstract`, so when N's first instantiation happens inside `L[int]`'s target, N's abstract
-field `l L[int]` finds `L[int]` still on the alias stack; a cycle through the defined type N is legal
-(gen.instantiate.alias).  Fix: save and clear `AliasResolving` before `resolveGenericTypeDeclAbstract` (where the
-instantiation already counts as in progress), restore it after population; test with the program above.
-
 ### `sizeof` of a type argument that is an instance still being built is "an opaque type" — `type N[T any] struct { next *Box[N[T]] }` with `Box[T]` holding `[sizeof(T)]uint8` — 🟡 IN PROGRESS (claimed 2026-10-19, work-7/session — user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]."; found 2026-10-17, work-7, review of the half-built-instance fix; reproduced; pre-existing)
 
 ```

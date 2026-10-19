@@ -1,3 +1,18 @@
+### A generic type first instantiated inside a generic alias's target saw that alias as recursive — "invalid recursive type alias" depending on declaration order — DONE (binate `3ef1793ef`, 2026-10-19, work-7) (found 2026-10-17, work-7, review of the half-built-instance fix; claimed 2026-10-19 — user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]].")
+
+`type L[T any] = *Get[N[T]]`, `type N[T any] struct { v T; l L[int] }`, `var gl L[int]` was rejected, "invalid
+recursive type alias L", and compiled once anything named N first: N's first instantiation happened inside
+L[int]'s target, and Checker.AliasResolving was cleared only around the instance's members, not around its
+generic's declaration resolved with the type parameters abstract, so N's field `l L[int]` found L[int] still on
+the stack.  A cycle through the defined type N is no alias cycle (gen.instantiate.alias): the stack is now
+cleared for the whole of an instantiation's resolution (instantiateGenericDeclWithArgs).  The review found the
+cache-hit arm's constraint check still under the caller's stack — `type Box[T Cmp[A[int]]]` with
+`type A[T any] = *Box[K]` was rejected as recursive (and K reported against `Cmp[<error>]`) while `Cmp[*Box[K]]`
+written out compiled; a constraint is no part of a type, so checkInstantiationConstraints clears the stack too.
+Genuine alias cycles (`R = @[]R[T]`, mutual aliases, through an interface instance's argument) are still found; a
+by-value cycle through an alias is now the by-value recursion error alone.  Tests: check
+TestGenericAliasTargetNamesOwnInstance (both forms); conformance spec/12-generics 130.
+
 ### A type naming an alias of a generic interface instantiation before the interfaces were collected kept the alias's name — the upcast to it failed — DONE (binate `240932251`, 2026-10-19, work-6, plan-irgen-checker-types stage 4a) (found 2026-10-03, work-3; pre-existing)
 
 `interface X = G[int]` named by a type alias, a global, a global function value's parameter, or another package's
