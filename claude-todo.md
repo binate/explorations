@@ -2330,7 +2330,7 @@ section-relative reloc in a KEPT section.
 
 ## bnfmt (self-hosted formatter)
 
-### bnfmt's import section: two layout nits from the import-annotation fix's review — 🟢 LOW (found
+### bnfmt's import section: two layout nits from the import-annotation fix's review — 🟢 LOW — 🟡 IN PROGRESS (claimed 2026-10-18, temp-4) (found
 2026-10-16, work-5, review of the import-annotation fix, binate `bf091b2ed`)
 
 Left after `pkg/binate/format/print_imports.bn`: (1) the lines of an empty `import ()` group read as blank
