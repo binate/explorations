@@ -99,6 +99,12 @@ IR-gen cannot map is an internal error, never `int`.
    error (decision 3); generic declarations by identity
    (irInstantiationFromChecker re-looks a generic up by d.Name).  Instruction-level typing choices stay out
    of scope (StripConstForIR, a named func value's OP_FUNC_VALUE at the bare type, untyped constants).
+   - DONE (binate `e95366b1b`, 2026-10-18): generic declarations by identity (stashedGenericDecl: the
+     checker's InstDecl, an internal error when IR-gen stashed no such node) and TYP_SELF as an internal error.
+   - The memo, lazy registration and the opaque rule: the mapper audit (below) found no lookup gap and no
+     opaque difference at the resolveTypeExpr sites.  Proposed (2026-10-18, awaiting the user): move the memo
+     and lazy registration to stage 5 (where registries are keyed by checker identity), keep the opaque rule as
+     a stage 4 check, and go on to stage 3.  Also asked: intern anonymous structs by IdenticalStrict?
 3. **Differential, behind a flag.**  Compute the mapped side in pure naming mode (GenCtx.NamingInstances —
    no registration, no `__anon_N` counter advance) and compare identity strings (kind + MangleTypeArg-style
    identity incl. readonly), not objects.  Run on the conformance corpus, the self-compile and the REPL e2e,
