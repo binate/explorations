@@ -1,3 +1,15 @@
+### Native aa64 rejected a frame or a struct field at an offset of 16 MiB or more — DONE (binate `845a85f52`, 2026-10-18, work-1; found 2026-10-07, work-3, review of the repeated-struct layout fix)
+
+`type Big struct { pad [20000000]uint8; x int }` with `g.x = 7` / `p.x`, or a local `Big`, failed to compile on
+`--backend native` (aarch64): "ADD/SUB immediate out of range (0..0xFFFFFF)" — the backend hands frame sizes,
+slot offsets and field offsets to the aarch64 Add / Sub wrappers, whose immediate reaches 0xFFFFFF.  A
+non-flag-setting ADD / SUB of a wider immediate now loads it into the X17 scratch (MOVZ / MOVK) and adds the
+register (the extended-register form with SP), as an oversize load / store offset already did; the range checks
+read the int64 immediate, and the new Imm64 constructor carries one past 2^31 on a 32-bit host.  The text
+assembler still rejects such an immediate (it encodes through the exact isa layer), as clang does.  Part of int64
+layout stage 4; reviewed (no X17 clobber in the backend).  Tests: asm/aarch64 TestAddSubWideImmUsesScratch,
+TestAddWideImmFailsLoud, TestAddNegWideImm, TestWideImmSpAndLoadStore; conformance 1702_offset_past_16mib.
+
 ### REPL: a parked declaration was re-checked on the syntax its failed attempt annotated — a stale implicit `&` crashed the VM — DONE (binate `99f45cae3`, 2026-10-18, work-6) (MAJOR, found 2026-10-18 in review of the expression type records; pre-existing)
 
 retryGroup checked a parked declaration again on the same AST, and undoing a failed attempt restored the checker's

@@ -155,7 +155,9 @@ accessors (SizeOf / FieldOffset / TrailingPadding / ArrayLenHost / HostInt), whi
 for a type of 2^31 bytes or more.  Stage 2 landed (binate `addbb15a2`, 2026-10-18): ir / irgen / irbuild / irdata /
 iropt / types/abi read layout in int64, and the shared records (irdata's data terms, type-info records, retbuf sizes)
 are int64.  Stage 3 landed (binate `651ea270e`, 2026-10-18): the LLVM backend writes sizes and offsets from the
-int64 API.  Remaining (plan-int64-layout.md): 4 native backends and asm / elf /
+int64 API.  Stage 4a / 4b landed (binate `73d8d968f`, `845a85f52`, 2026-10-18): the shared native layer compares
+sizes with Size(); native aa64 materializes an add / sub immediate past 16 MiB.  Remaining (plan-int64-layout.md):
+the rest of 4 (callconv's stack layout, the frame tables, field offsets and copies, bss) and asm / elf /
 macho / link (bss without materialized zero bytes; a frame past the target's limit a compile error); 5 VM /
 interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the 32-bit lane.
 
@@ -2633,15 +2635,6 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
   (`pkg/binate/irbuild/verify.bn`) checks block structure, phi ownership and constant ranges but not operand
   counts, so nothing proves those inputs impossible.  Fix: check each op's operand count and required types in
   the verifier (then the guards are dead and can go), or make each guard record `a.SetError`.
-
-- **Native aa64 rejects a struct field at an offset of 16 MiB or more** — 🟡 IN PROGRESS (claimed 2026-10-18,
-  work-1, as part of int64 layout stage 4 (plan-int64-layout.md); a frame past 16 MiB fails the same way) (found
-  2026-10-07, work-3, review of the repeated-struct layout fix).  `type Big struct { pad [20000000]uint8; x int }` with `g.x = 7` /
-  `p.x` fails to compile on `--backend native` (aarch64): "ADD/SUB immediate out of range (0..0xFFFFFF);
-  materialize it in a register".  The field-address lowering hands the offset straight to the ADD-immediate
-  encoder (12 bits, optionally shifted by 12).  LLVM and native x64 compile and run it; native arm32 emits it
-  (the 16 MiB baremetal RAM region then stops the link).  Fix: materialize an offset that does not fit in a
-  register (MOVZ/MOVK) and add it, as the encoder's message says.
 
 - **Checker rejects valid alias uses in const / untyped-literal contexts** — 🔵 OPEN (found
   2026-09-26).  Spec type.alias.transparency: an alias is its target in every context.  But with

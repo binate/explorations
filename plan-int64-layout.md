@@ -116,9 +116,10 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
    decision (2026-10-18): "Full int64 (as planned)" — frames and the call-argument stack layout carry int64
    everywhere (chosen over a uniform 2 GB native limit, and over int64 frames with stack arguments capped at 2
    GB).  Commits:
-   - 4a. DONE (not yet landed): native/common, callconv, fold compare sizes with Size().
-   - 4b. aarch64: an add / sub of an offset past the 0..0xFFFFFF immediate range is materialized in a scratch
-     register (the 16 MiB entry, fields and frames; fails on 64-bit hosts today, independent of int64).
+   - 4a. DONE `73d8d968f` (2026-10-18): native/common, callconv, fold compare sizes with Size().
+   - 4b. DONE `845a85f52` (2026-10-18): aarch64: an add / sub of an offset past the 0..0xFFFFFF immediate range
+     is materialized in the X17 scratch (the 16 MiB entry, fields and frames).  A 3 GB global still fails on
+     native aa64 with no specific error (likely the object writer; 4f).
    - 4c. callconv's stack layout in int64 (argument words, stack offsets, stack bytes) and each backend's
      stack-argument paths; a large by-value argument is copied with a loop, not word by word.
    - 4d. RegMap's frame tables in int64 (PlanFrame bounded by the target's int, a compile error past it) and each
