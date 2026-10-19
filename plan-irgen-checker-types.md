@@ -158,6 +158,11 @@ IR-gen cannot map is an internal error, never `int`.
      The opaque check: a switched site returns the same registry entry the syntax reading did (same lookup
      order), so OpaqueExportPkg is unchanged — nothing to add.  The interface-alias todo entry moved to done.
    - 4b: type arguments and method-expression bases from their Expr records (ExprDenotedType).
+     DONE (binate `ccd303d75`, 2026-10-19): typeArgExprToType and genericInstanceName take the concrete Expr
+     record (typeFromRecord / concreteExprRecord, now in gen_checker_type.bn); the differential notes only
+     IR-gen's own readings (`unrecorded`, `abstract`).  --emit-llvm byte-identical with no exception over the
+     corpus (3747, 64- and 32-bit) and bnc's main module; builder-comp-int 3725; every package's unit tests;
+     e2e; generics / alias subset on native aa64 / x64 / arm32 (341 each); self-compile time neutral.
    - 4c: the duplicated field / signature resolution goes.
    - 4d: TypInt() fallbacks become internal errors; assertions and composite literals from Expr types.
 5. **Registries keyed by checker identity, names from it.**  Key by checker Type identity (a pointer memo) —
