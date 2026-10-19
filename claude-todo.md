@@ -81,17 +81,6 @@ instances' methods are built eagerly until the bound.  §12.3 names no instance 
 uninstantiated generic growing through type constructors now is.  Possible fix: defer the methods of abstract
 instances whose arguments hold a dependent length when built while another instance is, as for an infinite family.
 
-### A type parameter constrained by an interface over an instance of its own generic segfaults the compiler — `type Box[T C[Box[T]]]` — 🟡 IN PROGRESS MAJOR (claimed 2026-10-18, work-7/session — user: "yes" to taking it next; found 2026-10-18, work-7, review of the instance-chain hang fix; reproduced on main; pre-existing)
-
-```
-interface C[T any] { M() T }
-type Box[T C[Box[T]]] struct { x T }
-func main() { testing.Println(1) }
-```
-bnc exits 139 (segfault) in about 0.03 s, with Box never instantiated.  The same shape with `C[Opt[T]]` reports
-"undefined: T" instead (see the NEEDS DECISION entry on a constraint that names its own type parameter).  Root
-cause unknown — needs investigation; the compiler must report an error, not crash.
-
 ### An error in an instance reached through a generic alias is reported as instantiated at the alias's declaration — 🔴 OPEN (minor; found 2026-10-18, work-7, review of the instance-chain hang fix; pre-existing)
 
 With `type Alias[T any] = Box[T]` and `var b Alias[int64]`, an error in Box[int64]'s method body reads "(in

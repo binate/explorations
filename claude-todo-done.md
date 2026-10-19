@@ -1,3 +1,15 @@
+### A type parameter constrained by an interface over an instance of its own generic segfaulted the compiler — `type Box[T C[Box[T]]]` — DONE (binate `6ccd8d239`, 2026-10-18, work-7) MAJOR (found 2026-10-18, work-7, review of the instance-chain hang fix; a regression from binate `ae7916bf4`)
+
+`type Box[T any, U C[Box[int, int]]]` (and `type Box[T C[Box[T]]]`) with `interface C[T any] { M() T }` overflowed the
+stack, uninstantiated: building Box's abstract instance (buildAbstractInstance) resolves its type parameters'
+constraints first, the constraint's interface instance is judged where written (requireIfaceInstanceArgsKept, added in
+`ae7916bf4`), and the walk of C's method returning a Box asked for Box's abstract instance — not built yet, so built
+again.  bnc-0.0.17-pre3, which predates `ae7916bf4`, did not crash.  abstractInstanceOf and abstractAliasTarget now
+answer "not known" while the generic's abstract instance is being built (InstanceState.Abstracting); the walk takes
+the instance substituted.  The programs report their errors: int does not satisfy C[Box[int,int]]; "undefined: T" for
+a constraint naming its own parameter (the NEEDS DECISION entry on `[T Eq[T]]`).  Tests: check
+TestAbstractInstanceInOwnConstraint (crashes without the guard); conformance spec/12-generics 127.
+
 ### REPL: a parked group in which a function reads a variable of the same group crashes IR-gen — DONE (binate `f94bc7a4f`, 2026-10-18, work-5) MAJOR (found 2026-10-17, work-5, reproducing the VM undefined-package-variable entry; reproduced; pre-existing)
 
 At the REPL, `func f() int { return v + 1 }` (parked on v), then `var v int = g()` (parked on g), then
