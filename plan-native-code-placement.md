@@ -1,5 +1,5 @@
 # Plan: native code placement (x64, aarch64, arm32)
-Status: tooling designed (2026-10-12); decisions taken 2026-10-15 (below); tooling commit 1 (placement seed) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report, `layout.py`) landed as binate `f05342e5d` (2026-10-18); tooling commit 3 (timing driver, `ab.py` / `stats.py`) landed as binate `4f9e3c75b` (2026-10-18); tooling commit 4 (probe) next. Tracked in `claude-todo.md` ("native code placement").
+Status: tooling designed (2026-10-12); decisions taken 2026-10-15 (below); tooling commit 1 (placement seed) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report, `layout.py`) landed as binate `f05342e5d` (2026-10-18); tooling commit 3 (timing driver, `ab.py` / `stats.py`) landed as binate `4f9e3c75b` (2026-10-18), its short-run refusal as `0a6a3aeaf`; tooling commit 4 (probe) landed as binate `053d743c1` (2026-10-19); phase-0 calibration next. Tracked in `claude-todo.md` ("native code placement").
 ## Why
 
 Identical machine code runs at very different speeds depending on where it lands, on the x86 test host
@@ -221,7 +221,7 @@ Measurement tooling lands first (user: yes), because both steps are judged with 
   - with --static-report, per-seed T4 covariates against per-seed d.
   
   The 'selection' table implements the approved rule directly: the smallest spread, a mean no worse than base beyond the CI, and text size from T4 within the budget.
-- 4. binate commit 4, the probe:
+- 4. binate commit 4, the probe: — LANDED binate `053d743c1` (2026-10-19). As landed: both switches use StringListVar (explicit 0 / empty detected); a probe without a phase, an empty symbol and a negative or non-int32 phase are parse errors; every -fnative-place-* switch is also an error with --emit-llvm (user to confirm); layout.py spells it --expect-seed S --probe SYM --probe-phase P and exits 3 when the probe matches nothing; ab.py --probe makes the single native arm one arm per phase (NAME.pPP), rejects --aa, and its seed-0/no-flag controls carry the probe.
   - flags -fnative-place-probe=SYM (StringVar) and -fnative-place-probe-phase=P (IntVar, default -1);
   - errors: a phase without a probe, a negative phase;
   - the unit-multiple and P < 64 checks happen in common.PlaceCheck, which fails EmitObject loudly;

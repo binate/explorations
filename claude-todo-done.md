@@ -2259,6 +2259,19 @@ reader's reason.  Tests: `relocSectionChecks` on an ELF64 RELA and an ELF32 REL 
 `TestReadObjectRejectsNonRelocatable`, `TestReadArchiveBadMemberReason`.  Checked that clang C objects (`-g`,
 `-ffunction-sections`, `-O0` / `-O1`) still link on x86-64, aarch64 and arm32.
 
+### native code placement, tooling commit 4: the placement probe — DONE (binate `053d743c1`, 2026-10-19)
+
+A sub-step of the open "native code placement" entry in `claude-todo.md`. Hidden bnc switches
+`-fnative-place-probe=SYM -fnative-place-probe-phase=P` put one function at phase P (mod 64) of .text on all three
+native backends: filler before it as in phase mode and after it to total PLACE_SPAN, so later functions keep their
+byte positions (only instructions referring to SYM change); works in both modes and at seed 0. place.PlaceOptions
+gains ProbeSym/ProbePhase, PlaceFillAfter is new, PlaceCheck validates the phase; placehash.py, `layout.py
+--expect-seed --probe`, and `ab.py --probe SYM --probe-phases ...` support it. Validated: no-probe output identical
+to the previous compiler; probe invariance on fannkuch-redux and native cmd/bnc on x64/aarch64/arm32; probed
+conformance 0 failures on native x64, aa64-linux and arm32-baremetal; a probed bnc self-compiles identically. Built
+and reviewed by a workflow (5 findings fixed). Also landed with it: `0a6a3aeaf`, ab.py refuses a reference run under
+0.5 s of CPU unless --allow-short-runs.
+
 ### native code placement, tooling commit 3: perf/placement ab.py timing driver and stats.py — DONE (binate `4f9e3c75b`, 2026-10-18)
 
 A sub-step of the open "native code placement" entry in `claude-todo.md` (plan: `plan-native-code-placement.md`).
