@@ -174,6 +174,12 @@ the constant's declaration line, not the use's.  Fix direction: fold an array's 
 re-lowering (the checker has its value), or do not evaluate a side-effect-free array operand of `len` at all;
 covered by conformance 1699_float_const_len_bni_only_array (binate `43ab553fa`; expected-fail on the four VM
 modes and the six native modes).
+Not only constants: `len(solo.A)` anywhere — a function body, a variable's initializer — reads A, so it fails to
+load on the VM ("nothing in the program defines the package variable pkg/solo.A") and to link natively, though
+the length is a constant.  DECIDED 2026-10-18 — user: "let's go with never evaluated": `len(e)` of an array
+(or a named type over one) is decided by e's type alone, as `sizeof` is, and e is not evaluated — `len(f())`
+does not call f, `len(*p)` does not fault on a nil p.  Fix: say so in `builtin.len`, and have IR-gen emit the
+length as a constant without lowering the operand.
 
 ### `len(p.A)` of an imported array variable is rejected as an array length — 🟡 IN PROGRESS (claimed 2026-10-18, work-5/session; minor: valid code rejected; found 2026-10-17, work-5, probing the VM undefined-package-variable entry; reproduced; pre-existing)
 
