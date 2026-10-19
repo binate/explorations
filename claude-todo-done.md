@@ -1,3 +1,23 @@
+### REPL: a parked declaration resolving at a later prompt that needs a package variable nothing defines aborts the process — DONE (binate `567a28447`, 2026-10-18, work-5) (user, 2026-10-17: "All four, as two commits (Recommended)" — this is the second; scope widened 2026-10-18, user: "yes") (MINOR; found 2026-10-07, work-3)
+
+A resolved parked group was emitted after the checker had committed it, with no load check, and reached the
+lowering `vmPanic`.
+
+**Done** (binate `567a28447`): `check.RetryPendingDeclsLoading` hands each group the sweep checks to the REPL as it is
+checked; a resolved group the REPL cannot load is undone and stays parked with its load errors
+(`PendingDecl.LoadErrs`; a use reports "function f is unresolved (it does not load)"), and what depends on it
+parks on it.  `repl.emitResolvedGroup` generates a whole group, load-checks it, then lowers it; a failure is
+reported once ("function f still parked (it does not load)"; a variable's initializer and a statement named in
+the errors).  The review of the first draft found that undoing an entry kept generated code depending on what
+the undo removed (a generic's instance, a type's registration and helpers), and that a failing group grew the
+module at each retry, so an unkept entry's IR-gen undo is now complete (`irgen.BeginReplEntry` /
+`UndoReplEntry`: nothing of it lowered, every module table, record, queue, flag and counter put back, in-place
+writes hooked), and an unkept statement's checker records are rolled back too.  `vm.LoadCheck` returns only
+the load errors.  Tests: check_pending_retry_test.bn, irgen/gen_repl_entry_test.bn,
+repl/decl_retry_load_test.bn, repl/load_check_test.bn, e2e/bni-only-var-undefined.sh.  Not covered: a group
+function reading a variable of its group still crashes IR-gen (the open entry "REPL: a parked group in which a
+function reads a variable of the same group crashes IR-gen").
+
 ### The LLVM backend's per-leaf copy / zero-fill walked every element of an array of zero-size elements — `[1 << 40]E` hung the compiler — DONE (binate `651ea270e`, 2026-10-18, work-1; the zero-size part of "The LLVM backend lowers aggregate loads, copies and zero-fills one scalar leaf at a time")
 
 emitCopyRec / emitZeroRec / emitStoreSSARec / emitLoadSSARec skip an array whose element has size 0 (a struct

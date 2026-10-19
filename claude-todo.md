@@ -1885,23 +1885,6 @@ closed-source `{facade.bni, bundle.a}` whose internal packages the consumer neve
   `main.o` + the consumer's other objects + the library's object, leaving out the consumer's
   module for the package, works today (a shared var reads the library's value).
 
-### REPL: a parked declaration resolving at a later prompt that needs a package variable nothing defines aborts the process — 🟡 IN PROGRESS (claimed 2026-10-17, work-5/session; the second of two commits — user, 2026-10-17: "All four, as two commits (Recommended)"; the first, binate `0434863cf`, is in the done log under "VM: a package variable nothing defines aborts the process instead of failing the load") (MINOR; found 2026-10-07, work-3, review of the `.bni`-only extern-var fix)
-
-Since binate `0434863cf` the VM load-checks what it lowers (`vm.LoadCheck`), and a REPL prompt entry that does not
-load is rolled back with IR-gen's state (`repl.loadFails`, `irgen.BeginReplEntry` / `UndoReplEntry`).  Not
-covered: a parked group that resolves at a later prompt (`emitResolvedGroup`, repl/decl_retry.bn) — the checker
-has already committed it when it is lowered, so a member needing such a variable still reaches the lowering
-`vmPanic` (vm/lower_func.bn).  Fix: a checker operation that re-parks a resolved group — keep the snapshots
-`retryGroup` (check/check_pending_retry.bn) takes, `undoDecl` them, and put the group back in Pending as failed
-with the load errors; a group resolved later in the same sweep that depends on it is re-parked too.  IR-gen's
-state is restored per member, and `emitResolvedGroup` load-checks before lowering.
-Scope widened 2026-10-18 after the commit's review found that undoing a group keeps generated code that
-depends on what the undo removes — instances of a generic the group declared (a later different definition
-reuses them), IR-gen's registration of a type it declared (a later different `type T` gets the old layout and
-destructor), and a failing group's functions piling up in the session module at each retry — user: "yes" to
-undoing a failed entry completely (IR-gen's type registration undone, its unlowered functions removed, every
-reusable function it generated forgotten) in the same commit.
-
 ### Package descriptors — Phase C (richer metadata) + VM extern auto-enumeration remain
 
 The general per-package `reflect.Package` descriptor incl. the `Functions` table
