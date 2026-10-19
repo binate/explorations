@@ -695,17 +695,6 @@ generated literal-pool labels `L\x02=\x020`, `L\x02=\x021`, … and every `L` la
 uses those bytes.  **Fix:** (1) list each section's anchor on AArch64 as clang does, with golden symbol tables; (2)
 name the label the source wrote; (3) build the string table from the listed symbols only.
 
-### asm AArch64 Mach-O literal pools: share an entry across atoms, as clang does — 🟡 IN PROGRESS (claimed 2026-10-18, work-2; user: "Share like clang")
-
-The text parser keeps each literal-pool entry in the atom of the loads that use it on Mach-O (aarch64_pool.bn: a
-new entry when an atom-starting label separates the load from a pending or emitted one, PoolGens / poolSecGen),
-so a load and its entry are never split by ld64.  clang shares across atoms, as on ELF: `_f: ldr x0, =C` / `ret`
-/ `_g: ldr x1, =C` / `ret` is one entry in clang (both loads patched in place, `58000080` / `58000041`) and two
-here; with `.ltorg` after each function clang's `_g` load shares `_f`'s emitted entry (`58FFFFC1`).  Since
-binate `3f55db20c` a load of a temporary in its section is patched in place on AArch64 Mach-O whatever its atom
-(clang's rule), so sharing like clang now assembles.  **Fix:** drop the atom condition from entry sharing on
-Mach-O (and with the format unknown), golden tests against clang.
-
 ### arm32 assembler: condition codes and some register fields are silently masked — 🔴 OPEN, unclaimed (found 2026-09-25 by the T6 b1 review; work-4's 2026-09-25 claim released 2026-10-12 — nobody is on it)
 
 (The Operand2 path, register-offset memory shifts and operand registers, and the clang alias substitutions are

@@ -1,3 +1,23 @@
+### asm AArch64 Mach-O literal pools: share an entry across atoms, as clang does — DONE (binate `bc9bb76eb`, 2026-10-19, work-2; user: "Share like clang")
+
+The text parser keeps each literal-pool entry in the atom of the loads that use it on Mach-O (aarch64_pool.bn: a
+new entry when an atom-starting label separates the load from a pending or emitted one, PoolGens / poolSecGen),
+so a load and its entry are never split by ld64.  clang shares across atoms, as on ELF: `_f: ldr x0, =C` / `ret`
+/ `_g: ldr x1, =C` / `ret` is one entry in clang (both loads patched in place, `58000080` / `58000041`) and two
+here; with `.ltorg` after each function clang's `_g` load shares `_f`'s emitted entry (`58FFFFC1`).  Since
+binate `3f55db20c` a load of a temporary in its section is patched in place on AArch64 Mach-O whatever its atom
+(clang's rule), so sharing like clang now assembles.  **Fix:** drop the atom condition from entry sharing on
+Mach-O (and with the format unknown), golden tests against clang.
+
+Resolution (binate `bc9bb76eb`): the atom condition is gone from entry sharing (Parser.PoolGens removed), so an
+entry is shared across atoms as clang shares it: the three cases above assemble to clang's words with no
+relocations.  It landed after binate `97255aad6`, which sets MH_SUBSECTIONS_VIA_SYMBOLS only for
+`.subsections_via_symbols`: without the directive the linker keeps the section whole, so a load and a shared entry
+in different atoms stay in reach; with it they may be split, as in clang's object.  The per-section count of
+atom-starting labels, now read only by label differences, became Parser.AtomCounts (atomCount / noteAtomStart in
+expr_diff.bn).  Tests: parse TestPoolAtoms; assemble TestAssembleFilePoolSharedAcrossFunctions (one entry in the
+text section for ELF and Mach-O alike).
+
 ### A `.bni` function declaration's signature was checked in the `.bn`'s view — a by-value opaque export in it was accepted at the package and rejected at each importer's call — DONE (binate `4b41f71a4`, 2026-10-19, work-7) (found 2026-10-15, work-7, review of the function-signature opaque rule; claimed 2026-10-18 — user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]].")
 
 With `q.bni` exporting `type Op` opaquely and declaring `func Get() Op`, `func DefaultCB() *func(Op) int`,
