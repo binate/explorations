@@ -199,6 +199,39 @@ read only by those two.  The 23 tests the VM mode skips (compiled-only: C intero
 Deleted in binate `c9e1a5256` (landed 2026-10-16): the mapper's branch is an internal error, and selectorMethod
 takes the method from the checker's receiver type only.
 
+## Mapper audit (2026-10-18, work-6)
+
+A temporary hook (not committed) wrapped IR-gen's resolveTypeExpr: for every type expression with a checker
+record (stage 1a) it mapped the record with irTypeFromChecker and compared MangleTypeArg identity strings with
+the legacy result — once in naming mode (GenCtx.NamingInstances), once in lookup mode — and compared the
+generic a written instantiation finds by name with the checker's InstDecl.  Corpus: the full builder-comp
+conformance run (3720 passed with the hook in), bnc's self-compile and e2e repl.
+- Lookup mode: the mapper never returned nil where the legacy resolver resolved.  Every named type, struct,
+  alias and instance the legacy resolver finds is registered when the mapper looks it up, so stage 4's switch
+  of the resolveTypeExpr sites needs no lazy registration: stage 2's "registers lazily ... so ordering cannot
+  leave it nil" has no case in the corpus, and the opaque rule showed no difference either.
+- Differences, both modes: (1) an interface alias of a generic interface instantiation (`interface X =
+  G[int]`, 1383 and 1508): the legacy resolver keeps the alias's name, the mapper gives the instance — the
+  known legacy bug (1506), fixed by the switch; (2) parameterized impls (`impl *Box[T] : Getter[T]`, 194 sites):
+  IR-gen resolves the abstract impl's type expressions through its own substitution, while the records hold
+  the type parameters (stage 5).
+- Naming mode only: an anonymous struct type that differs from an earlier one only in a field's `readonly`
+  maps to that earlier struct in the legacy resolver — internAnonStruct interns by types.Identical, which
+  ignores readonly (IdenticalStrict keeps it) — so `struct { a T; b int }` gets `b readonly int` (1441, 1476,
+  1486).  The mapper keeps the checker's readonly when it builds the struct; in lookup mode it interns through
+  the same function and agrees.  Not observable at run time as far as found (boxing identity is the checker
+  type's), but the IR type misstates the source.  Open: intern by IdenticalStrict?
+- Generic identity: the generic a written instantiation names, found by name, is the checker's InstDecl
+  everywhere but generic aliases (`type L[T] = Box[T]`, 16 sites: InstDecl is Box's declaration, which the
+  lookup of `L` does not find) — so IR-gen's stash holds the checker's own nodes.  The mapper now takes InstDecl
+  by identity (stashedGenericDecl, an internal error on a miss) and makes `Self` an internal error; the audit
+  run again on top found no miss and no Self.
+- Type expressions IR-gen resolves with no checker record (1205 sites) are all its own synthesized nodes —
+  type arguments written as expressions (exprToTypeExpr: `f[int]`, `Wrap[int]`, lists across lines),
+  method-expression bases (`Box[int].Get`), its own copies of `_`-binder receivers — and the `[...]` heads of
+  inferred-length literals (exempt by design).  Each has its record elsewhere: the Expr's (1b), the original
+  receiver's (1a), the literal's type.
+
 ## Constraints / risks
 
 - IR-gen drivers must fully check every dependency: imported `.bni` generic types / interfaces,
