@@ -156,18 +156,7 @@ the length is a constant.  DECIDED 2026-10-18 — user: "let's go with never eva
 does not call f, `len(*p)` does not fault on a nil p.  Fix: say so in `builtin.len`, and have IR-gen emit the
 length as a constant without lowering the operand.
 
-### A `.bni` constant over `len` of a call or a dereference evaluates the operand at each use — 🔴 OPEN (found 2026-10-18, work-5, review of the len change; by reasoning)
-
-A `.bni` constant's initializer is evaluated unchecked while the importer builds the `.bni`'s scope, before its
-functions are in scope, so `len`'s operand gets a type only when it names a variable or constant (stampOperandType,
-check/check_constval.bn, check_const_expr.bn).  `const F float64 = cast(float64, len(G()))` (or `len(*P)`,
-`len(S.a)`) in a `.bni` is accepted as constant (`lenIsConstant` counts an operand of unknown type as constant), and
-its initializer, lowered at each use as a floating-point constant's is, has `len`'s operand lowered too — G called
-at each use, P dereferenced — though `len` of an array never evaluates it (builtin.len).  Fix: type such operands
-once the `.bni`'s functions and types are in scope, or give IR-gen the operand's array type another way; a
-conformance test with such a `.bni` constant.
-
-### An array length `len(f())` is rejected when `func f` comes later in the file — 🔴 OPEN (minor: valid code rejected; found 2026-10-18, work-5, review of the len change; by reasoning)
+### An array length `len(f())` is rejected when `func f` comes later in the file — 🔴 OPEN (minor: valid code rejected; found 2026-10-18, work-5, review of the len change; reproduced)
 
 An array length's `len` operand is checked where the length is resolved (checkerEnv.Len), during collection, in
 source order; a function is defined only when collection reaches it, and `lookupDeclOnDemand` resolves variables
@@ -175,7 +164,7 @@ and constants on demand, not functions.  So `var g [len(f())]int` (or `type T [l
 [3]int` reports "undefined: f", and the reverse order is accepted.  Fix: resolve a function (and a method) the
 operand names on demand as a variable is; a conformance test with the length before the function.
 
-### The initialization order counts `len` of an array as a read of its operand — 🔴 OPEN (minor: valid code rejected; found 2026-10-18, work-5, review of the len change; by reasoning)
+### The initialization order counts `len` of an array as a read of its operand — 🔴 OPEN (minor: valid code rejected; found 2026-10-18, work-5, review of the len change; reproduced)
 
 `collectVarDeps` (check/check_var_resolve.bn) walks every builtin's arguments as reads, so `var a [3]int =
 h(len(a))` is rejected as an initialization cycle, though `len` of an array does not read its operand
