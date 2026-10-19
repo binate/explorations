@@ -140,14 +140,6 @@ and constants on demand, not functions.  So `var g [len(f())]int` (or `type T [l
 [3]int` reports "undefined: f", and the reverse order is accepted.  Fix: resolve a function (and a method) the
 operand names on demand as a variable is; a conformance test with the length before the function.
 
-### The initialization order counts `len` of an array as a read of its operand — 🟡 IN PROGRESS (claimed 2026-10-19, work-5/session; user: "yes, take those two next"; minor: valid code rejected; found 2026-10-18, work-5, review of the len change; reproduced)
-
-`collectVarDeps` (check/check_var_resolve.bn) walks every builtin's arguments as reads, so `var a [3]int =
-h(len(a))` is rejected as an initialization cycle, though `len` of an array does not read its operand
-(builtin.len).  The walk is syntactic: telling an array operand from a slice's (whose length is a read) needs its
-type.  Fix: skip `len`'s operand when its type is an array (the walk would need the checker's types); a
-conformance test.
-
 ### The LLVM backend declares a function's own sret parameter `align 8` whatever the result's alignment; a C caller's buffer may be less aligned — 🔴 OPEN (found 2026-10-09, work-1, review of the returned-local change; pre-existing; plausible, not yet reproduced)
 
 A function returning through sret is defined `define void @f(ptr sret(%T) align 8 %v.retbuf, ...)`

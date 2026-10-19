@@ -1,3 +1,18 @@
+### The initialization order counts `len` of an array as a read of its operand — DONE (binate `d8e055854`, 2026-10-19, work-5) (user: "yes, take those two next"; minor: valid code rejected; found 2026-10-18, work-5, review of the len change; reproduced)
+
+`collectVarDeps` (check/check_var_resolve.bn) walks every builtin's arguments as reads, so `var a [3]int =
+h(len(a))` is rejected as an initialization cycle, though `len` of an array does not read its operand
+(builtin.len).  The walk is syntactic: telling an array operand from a slice's (whose length is a read) needs its
+type.  Fix: skip `len`'s operand when its type is an array (the walk would need the checker's types); a
+conformance test.
+
+**Done** (binate `d8e055854`): `collectVarDeps` finds `len`'s operand type from the package's declarations
+(`declaredType`) and skips an array operand, in the initializer's own expression only — inside an
+immediately-invoked literal a local may shadow the package's array with a slice, so every operand is walked
+there (a review caught the first version dropping such a read).  Tests: check_var_resolve_test.bn
+(`TestVarInitLenOfArrayNotARead`, `...OfSliceIsARead`, `...InLiteralWalked`), conformance
+1707_var_init_len_of_array_not_a_read.
+
 ### bnfmt takes a builtin's keyword line, and `__c_call`'s symbol line, as its `(`'s — DONE (binate `fd8e5836b`, 2026-10-19, temp-4) (found 2026-10-16, work-4, review of the list-start fix; pre-existing)
 
 An EXPR_BUILTIN's Pos is its keyword, and the AST recorded no `(` position, so `_ = len` / `(x)` printed
