@@ -81,6 +81,23 @@ instances' methods are built eagerly until the bound.  §12.3 names no instance 
 uninstantiated generic growing through type constructors now is.  Possible fix: defer the methods of abstract
 instances whose arguments hold a dependent length when built while another instance is, as for an infinite family.
 
+### Layout preparation during collection looks names up by NAME in the package being checked — a generic's `sizeof(T)` finds a package type `T`, an imported generic's `sizeof(Inner)` the importer's `Inner` — 🔴 OPEN MAJOR (found 2026-10-19, work-7, review of the instance-`sizeof` forward-reference fix; reproduced; pre-existing)
+
+`type Box[T any] struct { a [sizeof(T)]uint8 }` with `type T struct { b Box[int32] }` is rejected, "cyclic type
+definition involving `T`", and an imported `q.QBox[T]` holding `[sizeof(Inner)]uint8` (q's own Inner), used in the
+importer's `type Inner struct { b q.QBox[int64] }`, is rejected at `q.bni`, "cyclic type definition involving
+`Inner`" — valid programs.  While an instance is populated, the array length's `sizeof` is prepared with
+prepareLayout (check_decl_layout.bn), which walks the operand's AST and looks each name up in the current
+package's DeclBatch by name (prepareBatchType), not in the generic's scope.  The same AST walk treats every
+instance type argument as held by value (its TEXPR_INSTANTIATE arm), so `type X struct { b Box[N] }` with
+`type N struct { q P[X] }` and `type P[T any] struct { p *T }` is a false cycle too (the direct
+`type X struct { a [sizeof(N)]uint8 }` form as well), and it does not reach slice elements, which
+embedsOpaqueByValue does, so `type M struct { b Box[@[]N] }` before N is "an opaque type".  Proposed fix: prepare
+by the RESOLVED type only — prepareResolvedLayout (not yet landed), walking the by-value parts of
+the resolved operand and, in prepareBatchType, of the collected declaration's type — and drop the name-based AST
+walk (prepareLayoutIn, prepareGenericFields); decide slices with the opaque rule.  Conformance tests for the three
+programs above.
+
 ### An importer's `sizeof` / `alignof` of a type its `.bni` declares later crashes the compiler — 🔴 OPEN MAJOR (found 2026-10-17, work-5, review of the `.bni` constant `len` change; reproduced; pre-existing)
 
 `const Z uint = sizeof(S)` followed by `type S struct { x int64; y int64 }` in `q.bni`, with an importer's
