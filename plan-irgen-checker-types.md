@@ -78,11 +78,11 @@ IR-gen cannot map is an internal error, never `int`.
      Checker.ExprDenotedType; the record holds what the TypeExpr of the same spelling denotes.  Recorded by
      typeArgOrInterfaceFromExpr and checkSelectorExpr's `T.M` arm; checking a node as a value drops its record
      and recording it drops its value type (the latest check decides).  The walk requires a record exactly on
-     the type positions (none on values or package names).  Open, each with its own todo entry: a bare generic
-     type name (`one[Box]`, `Box.Get`) is accepted and records the placeholder (MAJOR); a REPL retry re-checks a
-     parked declaration on its failed attempt's annotations, which can leave a stale value type on what is now
-     a package name (MAJOR); the qualified method expression `pkg.T.M` is rejected (forwarder-audit entry) —
-     when it is accepted, its base must be recorded too.
+     the type positions (none on values or package names).  Found in its review and fixed since: a bare generic
+     type name (`one[Box]`, `Box.Get`) is rejected (binate `986fcfa54`), and a REPL retry clears the parked
+     declaration's annotations before checking it again (binate `99f45cae3`), so no stale value type is left on
+     what is now a package name.  Open: the qualified method expression `pkg.T.M` is rejected (forwarder-audit
+     entry) — when it is accepted, its base must be recorded too.
    - DONE (2026-10-18, no further records needed): the type-vs-value classification is the records — an Expr
      with a denoted-type record names a type, one with a value type (ResolvedTypeID) is a value, and a
      selector base with neither is a package (once the REPL retry clears annotations).  A temporary hook
