@@ -130,6 +130,29 @@ IR-gen cannot map is an internal error, never `int`.
    expressions: assertions and composite literals from their Expr types.  The remaining TypInt() fallbacks
    become internal errors.  Check the opaque rule (OpaqueExportPkg against the current module) where a
    switched site reaches an opaque type (moved here from stage 2: the audit found no difference).
+   Decided (2026-10-19, user: "the single switch sounds reasonable, but get a quick, focused review of this
+   choice (vs the written plan) first"; the review recommended it with the guards below): switch at the
+   chokepoint rather than by site class — every class goes through the same mapper and registration
+   functions, and a per-class intermediate state splits the interface-alias fix (1506's mismatch, one site
+   with the instance and another with the alias's name).  Increments:
+   - 4a: resolveTypeExpr returns irTypeFromChecker (lookup mode) for every recorded, non-abstract type
+     expression; IR-gen's own reading only for syntax with no record (its synthesized nodes) and abstract
+     records (parameterized impls, stage 5).  Guards: (a) NamingInstances cleared while mapping there (a naming
+     path reaches resolveTypeExpr: instanceCopyName → canonicalTypeArgs → completeIfaceAliasStub →
+     instantiatedAliasTarget); (b) a nil mapping of a concrete record is an internal error, never a fallback;
+     (c) in lookup mode the mapper's interface arm requires the interface to be registered (the legacy
+     isInterfaceTypeExpr failed loudly on a miss); (d) under --x-type-differential each fallback is logged
+     with its reason.  Validation: byte-identical --emit-llvm, legacy vs switched bnc, over the conformance
+     corpus and the self-compile on a 64-bit and a 32-bit target (allowed: 1383, 1506, 1508) — catches
+     `__anon_N` numbering, registration order, func-type parameter names, the generic-alias path; full
+     builder-comp-int (the interp drivers, a second checker over one AST, injected `.bni`-only packages);
+     the unit-test runner's builds with the switched gen1; REPL and interp e2e (prompt generics, parked
+     declarations, forward types, an interface alias at the prompt); 1383 / 1506 (xfail dropped) / 1508 on
+     LLVM, VM, native aa64 / x64 / arm32, plus variants (X typing a field, a global, a parameter before
+     interface collection; cross-package; G with parents); a user-CPU A/B of the self-compile.
+   - 4b: type arguments and method-expression bases from their Expr records (ExprDenotedType).
+   - 4c: the duplicated field / signature resolution goes.
+   - 4d: TypInt() fallbacks become internal errors; assertions and composite literals from Expr types.
 5. **Registries keyed by checker identity, names from it.**  Key by checker Type identity (a pointer memo) —
    the mapper's memo and lazy, self-sufficient registration from the checker type (fields, method sets,
    parents) come here (moved from stage 2: the audit found no lookup gap at the switched sites) —
