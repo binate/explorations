@@ -136,26 +136,6 @@ sizes with Size(); native aa64 materializes an add / sub immediate past 16 MiB. 
 bss lengths and symbol offsets in int64 for a 32-bit host; a frame past the target's limit a compile error); 5 VM /
 interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the 32-bit lane.
 
-### A floating-point constant over `len` of an array variable reads the variable at each use — 🟡 IN PROGRESS (claimed 2026-10-18, work-5/session; found 2026-10-18, work-5, review of the VM load check; reproduced; pre-existing)
-
-`const F float64 = cast(float64, len(p.A))` (`var A [4]int` in package p's `.bni`) is not folded: a constant
-computed through a floating-point value is stashed as CONST_EXPR (irgen/gen_const_fold.bn `stashConstExpr`)
-and its initializer re-lowered at each use, and `genBuiltin(LEN)` (gen_builtin.bn) evaluates its operand even
-for an array — so every use of F loads p.A, though `len` of an array is a constant (spec `builtin.len`).
-With nothing defining A: the LLVM backend builds and runs it (prints 4; the load is optimized away),
-`bnc --backend native` fails to link (`_bn_G2_3_pkg4_solo1_1_A` undefined, from main.main), and bni reports a
-load error.  `cast(int, …)`, `cast(uint8, …)`, plain `len` and `len + 1` all fold.  The load error also names
-the constant's declaration line, not the use's.  Fix direction: fold an array's `len` in the CONST_EXPR
-re-lowering (the checker has its value), or do not evaluate a side-effect-free array operand of `len` at all;
-covered by conformance 1699_float_const_len_bni_only_array (binate `43ab553fa`; expected-fail on the four VM
-modes and the six native modes).
-Not only constants: `len(solo.A)` anywhere — a function body, a variable's initializer — reads A, so it fails to
-load on the VM ("nothing in the program defines the package variable pkg/solo.A") and to link natively, though
-the length is a constant.  DECIDED 2026-10-18 — user: "let's go with never evaluated": `len(e)` of an array
-(or a named type over one) is decided by e's type alone, as `sizeof` is, and e is not evaluated — `len(f())`
-does not call f, `len(*p)` does not fault on a nil p.  Fix: say so in `builtin.len`, and have IR-gen emit the
-length as a constant without lowering the operand.
-
 ### An array length `len(f())` is rejected when `func f` comes later in the file — 🟡 IN PROGRESS (claimed 2026-10-19, work-5/session; user: "yes, take those two next"; minor: valid code rejected; found 2026-10-18, work-5, review of the len change; reproduced)
 
 An array length's `len` operand is checked where the length is resolved (checkerEnv.Len), during collection, in
@@ -171,18 +151,6 @@ h(len(a))` is rejected as an initialization cycle, though `len` of an array does
 (builtin.len).  The walk is syntactic: telling an array operand from a slice's (whose length is a read) needs its
 type.  Fix: skip `len`'s operand when its type is an array (the walk would need the checker's types); a
 conformance test.
-
-### `len(p.A)` of an imported array variable is rejected as an array length — 🟡 IN PROGRESS (claimed 2026-10-18, work-5/session; minor: valid code rejected; found 2026-10-17, work-5, probing the VM undefined-package-variable entry; reproduced; pre-existing)
-
-With `var A [4]int` in package p's `.bni`, an importer's `var b [len(p.A)]int` is rejected ("array length must
-be a constant integer"), though `len` of an array is an `int` constant (spec `builtin.len`); `[len(A)]int` of a
-same-package or local array works, and so does `const N int = len(p.A)`.  An array length is evaluated whole,
-unchecked (`evalArrayLen` → `evalConst`), and `checkerEnv.Len` (check/check_constval.bn) finds the type of an
-unchecked operand only for a bare identifier (`lookupDeclOnDemand`), a composite literal or a string literal —
-not a qualified `p.A`, so the length is NOT_CONST.  (The constant's initializer is checked before it is
-evaluated, so its operand already has a type.)  Fix: resolve a package-qualified operand (`resolveQualifiedSym`)
-as the identifier case does, taking a variable's type; a checker test with an imported array variable as an
-array length.
 
 ### The LLVM backend declares a function's own sret parameter `align 8` whatever the result's alignment; a C caller's buffer may be less aligned — 🔴 OPEN (found 2026-10-09, work-1, review of the returned-local change; pre-existing; plausible, not yet reproduced)
 

@@ -1,3 +1,47 @@
+### `len(p.A)` of an imported array variable is rejected as an array length — DONE (binate `6cd7d8cc5`, docs `82607cb`, 2026-10-19, work-5) (minor: valid code rejected; found 2026-10-17, work-5, probing the VM undefined-package-variable entry; reproduced; pre-existing)
+
+With `var A [4]int` in package p's `.bni`, an importer's `var b [len(p.A)]int` is rejected ("array length must
+be a constant integer"), though `len` of an array is an `int` constant (spec `builtin.len`); `[len(A)]int` of a
+same-package or local array works, and so does `const N int = len(p.A)`.  An array length is evaluated whole,
+unchecked (`evalArrayLen` → `evalConst`), and `checkerEnv.Len` (check/check_constval.bn) finds the type of an
+unchecked operand only for a bare identifier (`lookupDeclOnDemand`), a composite literal or a string literal —
+not a qualified `p.A`, so the length is NOT_CONST.  (The constant's initializer is checked before it is
+evaluated, so its operand already has a type.)  Fix: resolve a package-qualified operand (`resolveQualifiedSym`)
+as the identifier case does, taking a variable's type; a checker test with an imported array variable as an
+array length.
+
+**Done** (binate `6cd7d8cc5`): an array length's `len` operand is checked where the length is resolved, as a
+composite literal is (a package's variable, a field, an element, a call), and while a `.bni`'s scope is built
+another package's variable is resolved as an identifier is.  Tests: conformance 1706_len_imported_array_length
+(an importer's array length, another `.bni`'s, and `.bni` floating-point constants), 1705.
+
+### A floating-point constant over `len` of an array variable reads the variable at each use — DONE (binate `6cd7d8cc5`, docs `82607cb`, 2026-10-19, work-5) (found 2026-10-18, work-5, review of the VM load check; reproduced; pre-existing)
+
+`const F float64 = cast(float64, len(p.A))` (`var A [4]int` in package p's `.bni`) is not folded: a constant
+computed through a floating-point value is stashed as CONST_EXPR (irgen/gen_const_fold.bn `stashConstExpr`)
+and its initializer re-lowered at each use, and `genBuiltin(LEN)` (gen_builtin.bn) evaluates its operand even
+for an array — so every use of F loads p.A, though `len` of an array is a constant (spec `builtin.len`).
+With nothing defining A: the LLVM backend builds and runs it (prints 4; the load is optimized away),
+`bnc --backend native` fails to link (`_bn_G2_3_pkg4_solo1_1_A` undefined, from main.main), and bni reports a
+load error.  `cast(int, …)`, `cast(uint8, …)`, plain `len` and `len + 1` all fold.  The load error also names
+the constant's declaration line, not the use's.  Fix direction: fold an array's `len` in the CONST_EXPR
+re-lowering (the checker has its value), or do not evaluate a side-effect-free array operand of `len` at all;
+covered by conformance 1699_float_const_len_bni_only_array (binate `43ab553fa`; expected-fail on the four VM
+modes and the six native modes).
+Not only constants: `len(solo.A)` anywhere — a function body, a variable's initializer — reads A, so it fails to
+load on the VM ("nothing in the program defines the package variable pkg/solo.A") and to link natively, though
+the length is a constant.  DECIDED 2026-10-18 — user: "let's go with never evaluated": `len(e)` of an array
+(or a named type over one) is decided by e's type alone, as `sizeof` is, and e is not evaluated — `len(f())`
+does not call f, `len(*p)` does not fault on a nil p.  Fix: say so in `builtin.len`, and have IR-gen emit the
+length as a constant without lowering the operand.
+
+**Done** (binate `6cd7d8cc5`, docs `82607cb`): `len` of an array takes its length from the checker's type of the
+operand and does not lower the operand (genBuiltin), and the spec's builtin.len says the operand is not
+evaluated.  Tests: conformance 1705_len_array_not_evaluated, 1699 (its expected-fail markers removed), and
+1665 (it expected an array literal's element calls to be made; now not).  The review's two other findings are
+open entries: the initialization order counting `len`'s operand as a read, and `[len(f())]int` before
+`func f`.
+
 ### bnfmt moves a comment inside an argument list below its statement — DONE (binate `1deb2f0a9`, 2026-10-19, temp-4) (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
 
 A comment after an argument in a wrapped list -- `h(x, // e` / `y)`, also on a right-hand side and in a
