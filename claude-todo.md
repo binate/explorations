@@ -685,7 +685,7 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### asm Mach-O: every object claims MH_SUBSECTIONS_VIA_SYMBOLS, so clang's in-place rule for temporaries is wrong code under `-dead_strip` — 🔴 OPEN (MAJOR; found 2026-10-18, work-2, review of the pool-sharing change; awaiting the user's decision)
+### asm Mach-O: every object claims MH_SUBSECTIONS_VIA_SYMBOLS, so clang's in-place rule for temporaries is wrong code under `-dead_strip` — 🟡 IN PROGRESS (claimed 2026-10-18, work-2; user: "Honour the directive") (MAJOR; found 2026-10-18, work-2, review of the pool-sharing change)
 
 The Mach-O writer sets MH_SUBSECTIONS_VIA_SYMBOLS on every object (asm/macho/macho.bn ~172), and the text parser
 has no `.subsections_via_symbols` directive; clang sets the flag only when the source writes the directive (as
