@@ -2354,7 +2354,7 @@ When a function literal's parameter list wraps, the body and its `}` indent from
 A declaration's body is not affected (it indents from column 0).  The body should indent one tab past the
 line the literal starts on.
 
-### bnfmt takes a builtin's keyword line, and `__c_call`'s symbol line, as its `(`'s — 🟢 LOW (found 2026-10-16, work-4, review of the list-start fix; pre-existing)
+### bnfmt takes a builtin's keyword line, and `__c_call`'s symbol line, as its `(`'s — 🟢 LOW — 🟡 IN PROGRESS (claimed 2026-10-19, temp-4; user: record them in a side table on ast.File that only the comment-collecting parse fills) (found 2026-10-16, work-4, review of the list-start fix; pre-existing)
 
 An EXPR_BUILTIN's Pos is its keyword, and the AST records no `(` position, so `printBuiltin`
 (`pkg/binate/format/print_builtin.bn`) passes the keyword's line as the opener's: `_ = len` / `(x)` (no
