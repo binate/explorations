@@ -285,7 +285,7 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### LLVM x86-64 silently miscompiles a frame past 2 GiB — 🔴 OPEN MAJOR (found 2026-10-19, work-1, review of the LLVM frame check; pre-existing; needs a decision)
+### LLVM x86-64 silently miscompiles a frame past 2 GiB — 🟡 IN PROGRESS MAJOR (claimed 2026-10-19, work-1; user decision 2026-10-19: "Reject past 2 GiB" — "warn-stack-size" 2^31 - 1 and -Werror=frame-larger-than on x86-64) (found 2026-10-19, work-1, review of the LLVM frame check; pre-existing)
 
 LLVM's x86-64 backend truncates a frame object's displacement to 32 bits with no diagnostic (the check is an
 assert, off in release builds): in a 3 GiB frame a store to the last local lands at `1073741831(%rbp)` — 1 GiB above
