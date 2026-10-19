@@ -1,3 +1,24 @@
+### bnfmt's import section: two layout nits from the import-annotation fix's review — DONE (binate `29fe795ed`, 2026-10-18, temp-4) (found 2026-10-16, work-5, review of the import-annotation fix, binate `bf091b2ed`)
+
+Left after `pkg/binate/format/print_imports.bn`: (1) the lines of an empty `import ()` group read as blank
+lines when the printer decides where blank lines go; (2) the limit for an import's trailing comment is the
+first declaration's `Pos`, which for an annotated or `var` declaration is not its first token, so a comment
+before such a declaration may be taken as the import's.  Each needs a format test reproducing it first.
+For (2): `takeImportEntry` takes only comments on or before the import's own line, so it needs a
+declaration starting on the last import's line (from reading the code; not reproduced).
+`declStartPos` (`pkg/binate/format/print_decl.bn`, binate `74807c93b`) gives an annotated declaration's
+first position, for `limit`.
+
+Resolution (binate `29fe795ed`): (1) the parser records each empty group in `File.EmptyImports` (its
+first position, `(` and `)`), and `blankBetween` holds its annotation, `import (` and `)` lines as it
+does a spec's, so the imports around it sort as one run and a blank line between two comments in it is
+kept.  (2) A declaration records its annotation block's `#` (`Decl.AnnotPos`), and `declStartPos` -- the
+import section's limit and the package clause's -- returns it, so a comment after the `#` of a
+declaration joined to the last import by `;` is the declaration's.  Tests:
+TestParseEmptyImportGroupPositions, TestParseDeclAnnotPos, and the three tests in
+`pkg/binate/format/print_imports_extent_test.bn`.  The review also found the declaration-header comment
+moves now tracked in claude-todo.md.
+
 ### A type parameter constrained by an interface over an instance of its own generic segfaulted the compiler — `type Box[T C[Box[T]]]` — DONE (binate `6ccd8d239`, 2026-10-18, work-7) MAJOR (found 2026-10-18, work-7, review of the instance-chain hang fix; a regression from binate `ae7916bf4`)
 
 `type Box[T any, U C[Box[int, int]]]` (and `type Box[T C[Box[T]]]`) with `interface C[T any] { M() T }` overflowed the

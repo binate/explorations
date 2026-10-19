@@ -2323,17 +2323,14 @@ section-relative reloc in a KEPT section.
 
 ## bnfmt (self-hosted formatter)
 
-### bnfmt's import section: two layout nits from the import-annotation fix's review — 🟢 LOW — 🟡 IN PROGRESS (claimed 2026-10-18, temp-4) (found
-2026-10-16, work-5, review of the import-annotation fix, binate `bf091b2ed`)
+### bnfmt moves a comment inside a declaration's header — 🟢 LOW (found 2026-10-18, temp-4, review of the import-section fix; pre-existing)
 
-Left after `pkg/binate/format/print_imports.bn`: (1) the lines of an empty `import ()` group read as blank
-lines when the printer decides where blank lines go; (2) the limit for an import's trailing comment is the
-first declaration's `Pos`, which for an annotated or `var` declaration is not its first token, so a comment
-before such a declaration may be taken as the import's.  Each needs a format test reproducing it first.
-For (2): `takeImportEntry` takes only comments on or before the import's own line, so it needs a
-declaration starting on the last import's line (from reading the code; not reproduced).
-`declStartPos` (`pkg/binate/format/print_decl.bn`, binate `74807c93b`) gives an annotated declaration's
-first position, for `limit`.
+A comment between a declaration's keyword and its name is placed by no node: `func /* c */ f() {}`
+prints `func f() {` / `/* c */` / `}` (the comment moves into the body), `var /* c */ x int` prints
+`var x int /* c */`, and `package /* c */ "t"` prints the comment after the path.  A comment after the
+`]` of an annotation block that spans lines goes below the block.  Each output is valid and idempotent,
+but the comment moves.  The AST records no position for a declaration's name or an annotation block's
+`]`, which placing these comments needs.
 
 ### bnfmt moves a comment inside an argument list below its statement — 🟢 LOW (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
 
