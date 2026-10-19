@@ -790,7 +790,7 @@ error (the forwarder should drop the redundant `expose "P"`; a bnlint rule could
 when both paths denote the same declaration (compare the defining package and declaration, not the name),
 spec to match.  Needs a conformance test either way.
 
-### A `.bni` function declaration's signature is checked in the `.bn`'s view — a by-value opaque export in it is accepted at the package and rejected at each importer's call — 🔴 OPEN (found 2026-10-15, work-7, review of the function-signature opaque rule; reproduced; pre-existing)
+### A `.bni` function declaration's signature is checked in the `.bn`'s view — a by-value opaque export in it is accepted at the package and rejected at each importer's call — 🟡 IN PROGRESS (claimed 2026-10-18, work-7/session — user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]."; found 2026-10-15, work-7, review of the function-signature opaque rule; reproduced; pre-existing)
 
 With `q.bni` exporting `type Op` opaquely and declaring `func Get() Op`, `func DefaultCB() *func(Op) int` and
 `func Run(cb *func(Op) int) int` (defined in `q.bn`), all are accepted where they are written: the `.bni`
