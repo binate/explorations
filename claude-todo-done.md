@@ -1,3 +1,20 @@
+### asm: a use of an alias names the alias, as clang relocates it; an alias's `.size` follows its chain — DONE (binate `4c041991a`, 2026-10-18, work-2) (user: before the x86-64 TLS operators)
+
+A use of an assigned symbol (`A = lbl + 8`) outside a constant's definition now stands for the alias itself
+(nameValue), listed at its location at Finish, so the writers treat it as any label: a listed alias is the
+relocation's symbol on Mach-O (clang's `_a2`, not `_d`) and section-relative on ELF (no longer through an
+interposable global base); a temporary alias moves to its atom with the SIGNED_N type chosen from the addend
+against it; a branch to a local alias resolves in place.  Uses before a redefinition keep the old definition
+through a hidden temporary alias named by that definition's line (both passes agree), which also takes the
+aliases defined as it alone and the `.size` the name had; an alias of an undefined symbol folds to symbol +
+addend at Finish (clang's ELF; clang's Mach-O lists an undefined alias there, which cannot link — deliberately
+not copied); the "used before being made global or weak" error is gone (clang accepts it).  `.size`: the
+nearest alias up a chain of plain referents (`z = y`, `((y))`) with one, else the target's, as clang's ELF writer.
+Two reviews (the second: an external alias in a PC-relative difference rejected, hidden names differing across
+passes — fixed before landing).  Tests: assemble TestAssembleFileAliasReferences (Mach-O + ELF vs clang), parse
+TestAliasOfExternalInDifference, TestAliasRedefinitionOnTwoPasses, TestSizeOfAliasChain, TestSizeOfRedefinedAlias,
+TestBoundAfterUse.
+
 ### REPL: a parked declaration resolving at a later prompt that needs a package variable nothing defines aborts the process — DONE (binate `567a28447`, 2026-10-18, work-5) (user, 2026-10-17: "All four, as two commits (Recommended)" — this is the second; scope widened 2026-10-18, user: "yes") (MINOR; found 2026-10-07, work-3)
 
 A resolved parked group was emitted after the checker had committed it, with no load check, and reached the
