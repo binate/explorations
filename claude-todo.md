@@ -711,22 +711,17 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### asm Mach-O: every object claims MH_SUBSECTIONS_VIA_SYMBOLS, so clang's in-place rule for temporaries is wrong code under `-dead_strip` — 🟡 IN PROGRESS (claimed 2026-10-18, work-2; user: "Honour the directive") (MAJOR; found 2026-10-18, work-2, review of the pool-sharing change)
+### asm Mach-O fidelity: clang lists `ltmpN` section symbols on AArch64; a short-range-fixup error names the anchor — 🔵 OPEN (found 2026-10-19, work-2, review of binate `97255aad6`)
 
-The Mach-O writer sets MH_SUBSECTIONS_VIA_SYMBOLS on every object (asm/macho/macho.bn ~172), and the text parser
-has no `.subsections_via_symbols` directive; clang sets the flag only when the source writes the directive (as
-compilers do; hand-written asm usually does not).  Since binate `3f55db20c`, AArch64 Mach-O patches a PC-relative
-reference to a temporary in its section in place whatever its atom (clang's rule, which assumes a temporary is
-referred to only from its own atom).  With the flag always on, that is wrong code once ld64 strips or moves the
-atom holding the target — and bnc links every Mach-O program with `-dead_strip` (cmd/bnc/target.bn ~324):
-`_unused: ldr x0, =0x2A0000002A` / `ret` / `.ltorg` / `.global _main` / `_main: ldr x0, =0x2A0000002A` / `and x0,
-x0, #0xff` / `ret` exits 0 under `-dead_strip` (42 without), from bnas's object and clang's (with the directive)
-alike; the unshared case (several functions' `ldr =` entries flushed at the end, in the last function's atom) has
-done so since `3f55db20c` — before, such a load was rejected.  No tree `.s` uses `ldr Rt, =` today.  Options: honour
-`.subsections_via_symbols` as clang does (no atoms without it, so every same-section reference is fixed and
-nothing is split; the native backend's objects set the flag through the API); back out the in-place rule and
-atom-local pools; or keep clang's bytes and the hazard.  The pool-sharing change (below) is held until this is
-decided.
+(1) clang (`-target arm64-apple-macos`) lists a local `ltmp<N>` symbol at the start of every section, with or without
+`.subsections_via_symbols` (on x86-64 it lists none): `.text` / `.globl _g` / `_g: ret` / `.data` / `.globl _d` /
+`_d: .quad 1` has `ltmp0` in __text and `ltmp1` in __data.  bnas lists an anchor only when a relocation against a
+temporary needs one (asm/macho/macho_atoms.bn).  Symbol-table fidelity only.  (2) The "no Mach-O relocation for the
+reference to …" error for a b.cond / cbz / tbz / ldr-literal / adr names the section anchor, not the label, when the
+target is a temporary in another section: `_f: adr x0, Ld` with `Ld` in data reports `'ltmp1'` (macho_reloc.bn: the
+relocation is retargeted to the anchor before its type is checked).  clang stops on such input with "unknown AArch64
+fixup kind!".  **Fix:** (1) list each section's anchor on AArch64 as clang does, with golden symbol tables; (2) name
+the label the source wrote.
 
 ### asm AArch64 Mach-O literal pools: share an entry across atoms, as clang does — 🟡 IN PROGRESS (claimed 2026-10-18, work-2; user: "Share like clang")
 

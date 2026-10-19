@@ -1,3 +1,33 @@
+### asm Mach-O: every object claims MH_SUBSECTIONS_VIA_SYMBOLS, so clang's in-place rule for temporaries is wrong code under `-dead_strip` — DONE (binate `97255aad6`, 2026-10-19, work-2; user: "Honour the directive") (MAJOR; found 2026-10-18, work-2, review of the pool-sharing change)
+
+The Mach-O writer sets MH_SUBSECTIONS_VIA_SYMBOLS on every object (asm/macho/macho.bn ~172), and the text parser
+has no `.subsections_via_symbols` directive; clang sets the flag only when the source writes the directive (as
+compilers do; hand-written asm usually does not).  Since binate `3f55db20c`, AArch64 Mach-O patches a PC-relative
+reference to a temporary in its section in place whatever its atom (clang's rule, which assumes a temporary is
+referred to only from its own atom).  With the flag always on, that is wrong code once ld64 strips or moves the
+atom holding the target — and bnc links every Mach-O program with `-dead_strip` (cmd/bnc/target.bn ~324):
+`_unused: ldr x0, =0x2A0000002A` / `ret` / `.ltorg` / `.global _main` / `_main: ldr x0, =0x2A0000002A` / `and x0,
+x0, #0xff` / `ret` exits 0 under `-dead_strip` (42 without), from bnas's object and clang's (with the directive)
+alike; the unshared case (several functions' `ldr =` entries flushed at the end, in the last function's atom) has
+done so since `3f55db20c` — before, such a load was rejected.  No tree `.s` uses `ldr Rt, =` today.  Options: honour
+`.subsections_via_symbols` as clang does (no atoms without it, so every same-section reference is fixed and
+nothing is split; the native backend's objects set the flag through the API); back out the in-place rule and
+atom-local pools; or keep clang's bytes and the hazard.  The pool-sharing change (below) is held until this is
+decided.
+
+Resolution (binate `97255aad6`): the directive is honoured as clang honours it.  asm.Assembler.SubsectionsViaSymbols
+is set by `.subsections_via_symbols` (Mach-O only; an error for ELF or before the object format is known) or through
+the API, which the native backends use for their Mach-O objects, and the writer sets the header flag from it.
+Assembler.DisplacementFixed follows clang: on AArch64 without the flag every PC-relative reference within a section is
+patched in place (a global or weak definition in another atom included; ADRP stays a relocation); x86-64 compares
+atoms either way.  bnas matched clang 21's header flags, words and relocations for each probe both ways (a review
+checked a wider set: tbz / cbz / adr / ldr-literal, aliases, private externs, the directive before `.arch` or after the
+code, a second pass).  A load reaching a pool in an uncalled function's atom exits 42 under `-dead_strip` without the
+directive (0 with it, as clang's object does).  Label differences are unchanged: clang folds a backward difference
+and relocates a forward one either way.  Tests: parse_subsections_test.bn, assemble_subsections_test.bn (with the
+`-dead_strip` link-and-run), TestDisplacementFixedWithoutSubsections, TestResolveMachoCrossAtomWithoutSubsections,
+TestEmitObjectSubsectionsViaSymbols; the atom tests that build objects through the API set the flag.
+
 ### bnfmt's import section: two layout nits from the import-annotation fix's review — DONE (binate `29fe795ed`, 2026-10-18, temp-4) (found 2026-10-16, work-5, review of the import-annotation fix, binate `bf091b2ed`)
 
 Left after `pkg/binate/format/print_imports.bn`: (1) the lines of an empty `import ()` group read as blank
