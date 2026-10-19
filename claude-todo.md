@@ -361,6 +361,17 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
+### Neither backend probes the stack for a large frame — a frame past the guard page can step over it — 🔴 OPEN MAJOR (found 2026-10-18, work-1, review of the native aa64 16 MiB fix; pre-existing; needs a decision)
+
+A function's prologue moves SP down by its whole frame in one step (native: `sub sp, sp, #frame`, now also past 16
+MiB on aarch64; LLVM: the IR carries no "probe-stack" attribute, so clang emits none either), so with the stack
+nearly exhausted a frame larger than the guard region sets SP past the guard page, into whatever is mapped below
+(another thread's stack, the heap), and the function's stores corrupt it instead of faulting (the "stack clash"
+class).  clang probes such frames on its own targets (macOS: `___chkstk_darwin`; Linux: `-fstack-clash-protection`).
+Fix: probe each guard-sized step of a large frame in the native prologues (touch every page, or a probe loop),
+give the LLVM backend's functions the matching "probe-stack" attribute, and decide the bare-metal behaviour (no
+guard page there).  Test: a recursion with a frame past the guard size that overflows must fault, not corrupt.
+
 ### Array `==` / `!=` unrolls one comparison per element — a large array blows up compile time and IR size — 🔴 OPEN (found 2026-10-18, work-1, review of int64 layout stage 2; pre-existing)
 
 irgen/gen_eq_aggregate.bn emitAggregateEq compares an array element by element, fully unrolled in straight-line
