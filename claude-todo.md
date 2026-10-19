@@ -2353,15 +2353,25 @@ prints `func f() {` / `/* c */` / `}` (the comment moves into the body), `var /*
 but the comment moves.  The AST records no position for a declaration's name or an annotation block's
 `]`, which placing these comments needs.
 
-### bnfmt moves a comment inside an argument list below its statement — 🟢 LOW — 🟡 IN PROGRESS (claimed 2026-10-18, temp-4) (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
+### bnfmt moves a comment in some lists below its statement — 🟢 LOW (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
 
-A comment after an argument in a wrapped list -- `h(x, // e` / `y)`, also on a right-hand side
-(`z := h(x, // d` …) and in a left operand (`a.b(x, // c` / `y).c = 1`) -- is placed by no node, so it is
-printed on its own line after the statement, followed by a blank line, and the list is joined: `h(x, y)`,
-then `// e`, then a blank line.  A comment between a function literal's parameters (`func(a int, // c` /
-`b int) {` …) moves below the statement the same way.  The fill printers (`fillExprList` and `fillStrs`,
-`pkg/binate/format/print_wrap.bn`) would need to emit a same-line comment after the element it follows and
-break the line there.
+Delimited lists print the comments after their opener and between their elements (binate `1deb2f0a9`,
+`pkg/binate/format/print_listcomments.bn`).  Still placed by no node, so printed after the statement with
+the list joined: a comment after a list's last element, before its close (`h(x,` / `y, // c` / `)`); one
+between the elements of a statement's expression list (`return a, // c` / `b`, `x, // c` / `y := …`); and
+one among a typed builtin's operands (`make_slice(T, // c` / `n)`, `cast`), in a declaration's
+type-parameter list (`func h[T any, // c` / `U any]()`, which goes into the body), an impl's interface list
+or an annotation's arguments.  Also after the opener of a parameter, result or function-type list, whose
+opener position the AST does not record.  A list printer that takes these would claim them as
+`claimGap` does.
+
+### bnfmt indents a function literal's body from its parameters' continuation line — 🟢 LOW (found 2026-10-18, temp-4, testing the list-comment fix; pre-existing)
+
+When a function literal's parameter list wraps, the body and its `}` indent from the continuation line the
+`{` lands on, not from the line the literal starts on: `var g = func(aaaa… int, bbbb… int,` /
+`\t\t\tcccc int) {` / `\t\t\t\ts()` / `\t\t\t}` (both bnfmt `bnc-0.0.17-pre3` and the tree's).
+A declaration's body is not affected (it indents from column 0).  The body should indent one tab past the
+line the literal starts on.
 
 ### bnfmt takes a builtin's keyword line, and `__c_call`'s symbol line, as its `(`'s — 🟢 LOW (found 2026-10-16, work-4, review of the list-start fix; pre-existing)
 

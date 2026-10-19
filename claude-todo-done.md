@@ -1,3 +1,22 @@
+### bnfmt moves a comment inside an argument list below its statement — DONE (binate `1deb2f0a9`, 2026-10-19, temp-4) (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
+
+A comment after an argument in a wrapped list -- `h(x, // e` / `y)`, also on a right-hand side and in a
+left operand -- and between a function literal's or declaration's parameters, a composite's elements, a
+case's labels, a `__c_call`'s operands or a generic's type arguments was placed by no node: printed after
+the statement (into the body, for a declaration's parameters), and the list joined.
+Resolution (binate `1deb2f0a9`): a delimited list prints the comments after its opener (when its position
+is known) and between its elements (`pkg/binate/format/print_listcomments.bn`).  A line comment keeps its
+line, the next element starts a continuation line, and its width is reserved when the element before it is
+packed; a block comment flows like an element (not on a `// LONG-LINE ALLOWED` line), written against a
+delimiter.  A list is rendered several times, so a gap's comments are found by position and marked done in
+the cursor with the list (keyed by its first element's position) as their owner; every rendering prints
+them, and an inner list claims first because a gap is claimed only after the element before it is
+rendered.  A review (about 50k comments injected into about 540 tree files: none lost or duplicated) found
+a `__c_call` key collision that duplicated a comment, the opener's comments not counted in the wrap
+decision, long-line markers reflowed and the spacing after `(` and `case`; all fixed before landing.
+Tests: `pkg/binate/format/print_listcomments_test.bn`.  The cases still placed as before are tracked in
+claude-todo.md.
+
 ### asm Mach-O: every object claims MH_SUBSECTIONS_VIA_SYMBOLS, so clang's in-place rule for temporaries is wrong code under `-dead_strip` — DONE (binate `97255aad6`, 2026-10-19, work-2; user: "Honour the directive") (MAJOR; found 2026-10-18, work-2, review of the pool-sharing change)
 
 The Mach-O writer sets MH_SUBSECTIONS_VIA_SYMBOLS on every object (asm/macho/macho.bn ~172), and the text parser
