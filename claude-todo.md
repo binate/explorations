@@ -709,20 +709,16 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### asm Mach-O: a temporary at the end of an atom is attributed to the next atom — 🟡 IN PROGRESS (claimed 2026-10-18, work-2; user: "Next, before TLS stage 3") (MAJOR, latent; found 2026-10-18, work-2, review of the alias-reference change)
+### asm AArch64 Mach-O literal pools: share an entry across atoms, as clang does — 🟡 IN PROGRESS (claimed 2026-10-18, work-2; user: "Share like clang")
 
-A temporary label at an atom's end — `Lend:` (or `LC = .`) right before the next atom's symbol — is moved by
-`retargetTemporaryRelocs` (asm/macho/macho_atoms.bn, `atomBaseFor` / `containingAtomSymbol`) to the atom that
-STARTS at that address, not the one it ends: `_f: nop` / `Lend:` / `_g: nop` / `.quad Lend` (arm64) is UNSIGNED
-`_g+0` here where clang writes `_f+4`; `lea rax, [rip + Lend]` from `_g` is resolved in place where clang
-relocates against `_f+N`; `Lend - _g` is an error here.  Same address in the object, but the object sets
-`MH_SUBSECTIONS_VIA_SYMBOLS`, so once ld64 reorders or dead-strips atoms the reference points at `_g` instead of
-the end of `_f` — silent wrong code.  The Mach-O writer is shared, so check whether the native backend's objects
-reference such end labels (function-end temporaries).  clang attributes a temporary to the atom it was defined
-in (the labels' atom counts the parser already keeps, Parser.LabelGens, make the same distinction for
-differences).  **Fix:** retarget a temporary to the atom it belongs to — the last atom-starting symbol defined
-before it, not one at its address defined after it — with golden tests against clang, including a link that
-reorders atoms.
+The text parser keeps each literal-pool entry in the atom of the loads that use it on Mach-O (aarch64_pool.bn: a
+new entry when an atom-starting label separates the load from a pending or emitted one, PoolGens / poolSecGen),
+so a load and its entry are never split by ld64.  clang shares across atoms, as on ELF: `_f: ldr x0, =C` / `ret`
+/ `_g: ldr x1, =C` / `ret` is one entry in clang (both loads patched in place, `58000080` / `58000041`) and two
+here; with `.ltorg` after each function clang's `_g` load shares `_f`'s emitted entry (`58FFFFC1`).  Since
+binate `3f55db20c` a load of a temporary in its section is patched in place on AArch64 Mach-O whatever its atom
+(clang's rule), so sharing like clang now assembles.  **Fix:** drop the atom condition from entry sharing on
+Mach-O (and with the format unknown), golden tests against clang.
 
 ### arm32 assembler: condition codes and some register fields are silently masked — 🔴 OPEN, unclaimed (found 2026-09-25 by the T6 b1 review; work-4's 2026-09-25 claim released 2026-10-12 — nobody is on it)
 

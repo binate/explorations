@@ -1,3 +1,19 @@
+### asm Mach-O: a temporary belongs to the atom it was defined in, an alias to its target's — DONE (binate `3f55db20c`, 2026-10-18, work-2) (MAJOR, latent; found in review of the alias-reference change; user: before TLS stage 3)
+
+A temporary at an atom's end (`_f: nop` / `Lend:` / `_g: nop`) was attributed to the atom starting at its address:
+`.quad Lend` was UNSIGNED `_g+0` where clang writes `_f+4` — wrong once ld64 reorders or dead-strips atoms.  Now
+asm records definition order (Symbol.DefOrder; an alias takes its target's, a section anchor 0) and an alias's
+target (Symbol.AliasOf), and AtomOf attributes as clang: an atom start itself; an alias to its target's atom,
+even past its end; any other label to the last atom start defined before it at or below its offset (the last
+label defined of several at one place, weak or not; a label over an alias of it).  The Mach-O writer's
+retargeting and DisplacementFixed use it; DisplacementFixed compares atoms by identity (zero-length atoms stay
+apart), and on AArch64 (user: "Follow clang") a PC-relative reference to a temporary in its section is patched
+in place whatever its atom, as clang does (x86-64 compares atoms).  The dead-strip test of a temporary before the
+first symbol now asserts clang's in-place patch (clang's own object crashes under -dead_strip there too).  Two
+reviews (the second: an alias at an atom start reintroducing the bug, clang's arm64 rule, a duplicate anchor,
+the weak preference — fixed before landing).  Tests: asm TestAtomOfDefinitionOrder, TestAtomOfAtOnePlace;
+assemble TestAssembleFileTemporaryAtAtomEnd (arm64 vs clang).
+
 ### Infinite generic instantiation was caught only by depth bounds — a family that branched hung the compiler — DONE (binate `27844b58b`, docs `b1c7240`, 2026-10-18, work-7) MAJOR (found 2026-10-17, work-7, review of the instance-identity fix; the linear chain landed as binate `8bbfe8777`; plan explorations/done/plan-generic-expansion-check.md)
 
 A generic family naming ever-growing instances is now found from the declarations' text (check_generic_expand.bn):
