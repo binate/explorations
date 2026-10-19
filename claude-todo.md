@@ -679,7 +679,7 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### asm Mach-O fidelity: clang lists `ltmpN` section symbols on AArch64; the string table holds unlisted names; a short-range-fixup error names the anchor — 🔵 OPEN (found 2026-10-19, work-2, review of binate `97255aad6`)
+### asm Mach-O fidelity: clang lists `ltmpN` section symbols on AArch64; the string table holds unlisted names; a short-range-fixup error names the anchor — 🟡 IN PROGRESS (claimed 2026-10-19, work-2; user: "Next, before TLS 3") (found 2026-10-19, work-2, review of binate `97255aad6`)
 
 (1) clang (`-target arm64-apple-macos`) lists a local `ltmp<N>` symbol at the start of every section, with or without
 `.subsections_via_symbols` (on x86-64 it lists none): `.text` / `.globl _g` / `_g: ret` / `.data` / `.globl _d` /
@@ -694,6 +694,16 @@ generated literal-pool labels `L\x02=\x020`, `L\x02=\x021`, … and every `L` la
 =C2` has a 17-byte string table where the two listed names need 5 (clang's holds only listed names).  No reader
 uses those bytes.  **Fix:** (1) list each section's anchor on AArch64 as clang does, with golden symbol tables; (2)
 name the label the source wrote; (3) build the string table from the listed symbols only.
+
+### asm Mach-O: fold a backward label difference across atoms when the source has no `.subsections_via_symbols`, as clang does — 🟡 IN PROGRESS (claimed 2026-10-19, work-2, after the fidelity entry above; user: "Match clang without the directive")
+
+clang folds `_f: ret` / `_g: ret` / `.quad _g - _f` to 4 with no relocation, with or without the directive (MC
+evaluates the difference when it is emitted, before atoms are assigned); a forward difference across atoms is a
+SUBTRACTOR / UNSIGNED pair either way.  bnas folds only within one atom (expr_diff.bn, Parser.LabelGens), so its
+backward cross-atom difference is a pair.  Without the directive the linker keeps each section whole, so the fold
+is sound there; with it bnas keeps the pair (clang's fold is wrong once ld64 moves an atom).  **Fix:** fold a
+backward difference across atoms in one section when the object has no `.subsections_via_symbols`; the directive
+may follow the difference, so decide on the second pass or a pre-scan; golden words against clang in both modes.
 
 ### arm32 assembler: condition codes and some register fields are silently masked — 🔴 OPEN, unclaimed (found 2026-09-25 by the T6 b1 review; work-4's 2026-09-25 claim released 2026-10-12 — nobody is on it)
 
