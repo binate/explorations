@@ -3166,7 +3166,7 @@ reports "method `Compare` has wrong signature", while the non-generic `impl IdS 
 accepted: the abstract satisfaction check (gen.impl.generic-recv) substitutes `Self` with something other
 than the receiver's placeholder instantiation `IdS[T]`.  So `hashmap[IdS[int], V]` is impossible.  Fix in
 the abstract impl check's Self substitution; a test with a generic key type.
-Resolution (binate `9962fc006`): Self is the receiver's own instantiation, the placeholder still where the methods are looked up.  Tests: conformance 1583, TestGenericImplSelfIsReceiverInstance.  A hashmap unit test with a generic key waits for the pinned CHECK_TOOLS bnlint to include the fix (hygiene's lint rejects it until then).  Found meanwhile: the `Self`-at-end-of-line ASI entry (NEEDS DECISION).
+Resolution (binate `9962fc006`): Self is the receiver's own instantiation, the placeholder still where the methods are looked up.  Tests: conformance 1583, TestGenericImplSelfIsReceiverInstance.  A hashmap unit test with a generic key waited for the pinned CHECK_TOOLS bnlint to include the fix (hygiene's lint rejected it until then); it landed with CHECK_TOOLS at `bnc-0.0.17-pre3` (binate `ed7635ced`, TestGenericKey in hashmap_generic_key_test.bn).  Found meanwhile: the `Self`-at-end-of-line ASI entry (NEEDS DECISION).
 
 ### IR-gen silently lowers an unresolved identifier to the constant 0 — DONE (binate `8ac21365d`, 2026-10-06, work-7)
 
