@@ -1,3 +1,19 @@
+### A `.bni` function declaration's signature was checked in the `.bn`'s view — a by-value opaque export in it was accepted at the package and rejected at each importer's call — DONE (binate `4b41f71a4`, 2026-10-19, work-7) (found 2026-10-15, work-7, review of the function-signature opaque rule; claimed 2026-10-18 — user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]].")
+
+With `q.bni` exporting `type Op` opaquely and declaring `func Get() Op`, `func DefaultCB() *func(Op) int`,
+`func Run(cb *func(Op) int) int`, `func (t *T) Take(o Op) int` or `var V *([2]Op)` (defined in `q.bn`), all were
+accepted where written: the package's merged declarations carry such a declaration only as the `.bn`'s
+definition, judged in the `.bn`'s view where Op is not opaque, so the error landed on an importer's call or
+nowhere (`q.Run(nil)`, `_ = q.V`).  Now the `.bni`'s non-generic function, method and variable declarations are
+also judged in the `.bni`'s view (check_bni_decls_sized.bn, pkg.bni.self-contained); the function check is
+shared with the `.bn`'s (requireFuncDeclSized).  A method value goes through the method's declaration, now
+judged at the `.bni`.  Tests: check TestCheckBniDeclsJudgedInBniView (incl. a value-receiver method and a var
+group); conformance spec/07-types 301.  The review found conformance 227 and 229 (`.bni` signatures returning
+the opaque export by value) passing on the new `.bni` error alone, since their `error` regexes were unanchored;
+each line is now pinned to its file and line, so the importer's call-site check is still tested.  Kept: a type
+opaque in both views (no definition anywhere, another package's opaque export, too large) is reported at the
+`.bni` declaration and at the `.bn` definition, each a separately written ill-formed declaration.
+
 ### `len(p.A)` of an imported array variable is rejected as an array length — DONE (binate `6cd7d8cc5`, docs `82607cb`, 2026-10-19, work-5) (minor: valid code rejected; found 2026-10-17, work-5, probing the VM undefined-package-variable entry; reproduced; pre-existing)
 
 With `var A [4]int` in package p's `.bni`, an importer's `var b [len(p.A)]int` is rejected ("array length must

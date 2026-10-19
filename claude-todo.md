@@ -783,20 +783,6 @@ error (the forwarder should drop the redundant `expose "P"`; a bnlint rule could
 when both paths denote the same declaration (compare the defining package and declaration, not the name),
 spec to match.  Needs a conformance test either way.
 
-### A `.bni` function declaration's signature is checked in the `.bn`'s view — a by-value opaque export in it is accepted at the package and rejected at each importer's call — 🟡 IN PROGRESS (claimed 2026-10-18, work-7/session — user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]."; found 2026-10-15, work-7, review of the function-signature opaque rule; reproduced; pre-existing)
-
-With `q.bni` exporting `type Op` opaquely and declaring `func Get() Op`, `func DefaultCB() *func(Op) int` and
-`func Run(cb *func(Op) int) int` (defined in `q.bn`), all are accepted where they are written: the `.bni`
-declaration is paired with its `.bn` definition, and only the `.bn` one, in the `.bn`'s view where `Op` is
-not opaque, reaches `checkValueEmbedding`.  The error then lands on each importer's call result
-(`q.Run(q.DefaultCB())` is rejected at the call), or nowhere (`q.Run(nil)`).  A `.bni` type declaration
-(`type CBT *func(Op) int`) is rejected, as it should be.  Fix: check a `.bni` function declaration's
-parameters and results in the `.bni`'s view (pkg.bni.self-contained), so the error lands where the
-signature is written; error tests for the three declarations above.
-The same holds for a `.bni` var's type and a method value: since binate `9d94ec6bd` an importer's value use
-of them keeps only the value rules, so `_ = q.V` with `var V *([2]X)` in `q.bni` is accepted at the importer
-(a call's by-value result is still rejected there).  Check those in the `.bni`'s view too.
-
 ### Language feature (design): an annotation that keeps a function's frame from being optimized away — 🔴 OPEN, DESIGN (raised 2026-10-09 by the user, closing the debug.Callers -O2 entry: "As a todo, we can perhaps ponder an annotation that prevents the eliminiation of certain frames.")
 
 `debug.Callers` promises no particular frames: at -O1 and above LLVM makes a tail call a sibling call on
