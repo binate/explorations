@@ -150,6 +150,13 @@ IR-gen cannot map is an internal error, never `int`.
      declarations, forward types, an interface alias at the prompt); 1383 / 1506 (xfail dropped) / 1508 on
      LLVM, VM, native aa64 / x64 / arm32, plus variants (X typing a field, a global, a parameter before
      interface collection; cross-package; G with parents); a user-CPU A/B of the self-compile.
+     DONE (binate `240932251`, 2026-10-19): as above, all four guards.  --emit-llvm legacy vs switched
+     byte-identical over the corpus (3743, 64- and 32-bit) and bnc's main module except 1506 (now compiles);
+     builder-comp-int 3721; every package's unit tests; e2e repl / interp; 1383 / 1506 / 1508 / 1709 / 1708 on
+     five backends (1508 — the early-instantiation hazard — green; the review found the first 1707 / 1708 never
+     reached the stub, retargeted as 1709 / 1708, which abort the legacy build); self-compile user time neutral.
+     The opaque check: a switched site returns the same registry entry the syntax reading did (same lookup
+     order), so OpaqueExportPkg is unchanged — nothing to add.  The interface-alias todo entry moved to done.
    - 4b: type arguments and method-expression bases from their Expr records (ExprDenotedType).
    - 4c: the duplicated field / signature resolution goes.
    - 4d: TypInt() fallbacks become internal errors; assertions and composite literals from Expr types.
