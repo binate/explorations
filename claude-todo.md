@@ -156,7 +156,7 @@ the length is a constant.  DECIDED 2026-10-18 — user: "let's go with never eva
 does not call f, `len(*p)` does not fault on a nil p.  Fix: say so in `builtin.len`, and have IR-gen emit the
 length as a constant without lowering the operand.
 
-### An array length `len(f())` is rejected when `func f` comes later in the file — 🔴 OPEN (minor: valid code rejected; found 2026-10-18, work-5, review of the len change; reproduced)
+### An array length `len(f())` is rejected when `func f` comes later in the file — 🟡 IN PROGRESS (claimed 2026-10-19, work-5/session; user: "yes, take those two next"; minor: valid code rejected; found 2026-10-18, work-5, review of the len change; reproduced)
 
 An array length's `len` operand is checked where the length is resolved (checkerEnv.Len), during collection, in
 source order; a function is defined only when collection reaches it, and `lookupDeclOnDemand` resolves variables
@@ -164,7 +164,7 @@ and constants on demand, not functions.  So `var g [len(f())]int` (or `type T [l
 [3]int` reports "undefined: f", and the reverse order is accepted.  Fix: resolve a function (and a method) the
 operand names on demand as a variable is; a conformance test with the length before the function.
 
-### The initialization order counts `len` of an array as a read of its operand — 🔴 OPEN (minor: valid code rejected; found 2026-10-18, work-5, review of the len change; reproduced)
+### The initialization order counts `len` of an array as a read of its operand — 🟡 IN PROGRESS (claimed 2026-10-19, work-5/session; user: "yes, take those two next"; minor: valid code rejected; found 2026-10-18, work-5, review of the len change; reproduced)
 
 `collectVarDeps` (check/check_var_resolve.bn) walks every builtin's arguments as reads, so `var a [3]int =
 h(len(a))` is rejected as an initialization cycle, though `len` of an array does not read its operand
