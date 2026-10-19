@@ -102,9 +102,10 @@ IR-gen cannot map is an internal error, never `int`.
    - DONE (binate `e95366b1b`, 2026-10-18): generic declarations by identity (stashedGenericDecl: the
      checker's InstDecl, an internal error when IR-gen stashed no such node) and TYP_SELF as an internal error.
    - The memo, lazy registration and the opaque rule: the mapper audit (below) found no lookup gap and no
-     opaque difference at the resolveTypeExpr sites.  Proposed (2026-10-18, awaiting the user): move the memo
-     and lazy registration to stage 5 (where registries are keyed by checker identity), keep the opaque rule as
-     a stage 4 check, and go on to stage 3.  Also asked: intern anonymous structs by IdenticalStrict?
+     opaque difference at the resolveTypeExpr sites.  Decided (2026-10-18, user: "1. We can proceed as you
+     suggest. 2. I think stopping is correct."): the memo and lazy registration move to stage 5, the opaque rule
+     is a stage 4 check, and stage 3 is next; and anonymous structs that differ only in `readonly` stop being
+     interned as one (internAnonStruct by IdenticalStrict).
 3. **Differential, behind a flag.**  Compute the mapped side in pure naming mode (GenCtx.NamingInstances —
    no registration, no `__anon_N` counter advance) and compare identity strings (kind + MangleTypeArg-style
    identity incl. readonly), not objects.  Run on the conformance corpus, the self-compile and the REPL e2e,
@@ -123,8 +124,11 @@ IR-gen cannot map is an internal error, never `int`.
 4. **Switch, by site class.**  Declarations first: var / global types (existing Decl.ResolvedTypeID),
    signatures, struct fields from checker types (removes the several copies of field resolution).  Then
    expressions: assertions and composite literals from their Expr types.  The remaining TypInt() fallbacks
-   become internal errors.
+   become internal errors.  Check the opaque rule (OpaqueExportPkg against the current module) where a
+   switched site reaches an opaque type (moved here from stage 2: the audit found no difference).
 5. **Registries keyed by checker identity, names from it.**  Key by checker Type identity (a pointer memo) —
+   the mapper's memo and lazy, self-sufficient registration from the checker type (fields, method sets,
+   parents) come here (moved from stage 2: the audit found no lookup gap at the switched sites) —
    not by Decl (opaque types have two Decls for one Type, instances none).  NAME things from the checker's
    identity, not `d.Name` (registerTypeDeclEntry, methodQualName's receiver text, dtor / copy helpers, impl
    rows, typeinfo) — else a shadowed T still collides on `main.T` symbols.  Impl rows from the checker's
@@ -226,7 +230,7 @@ conformance run (3720 passed with the hook in), bnc's self-compile and e2e repl.
   ignores readonly (IdenticalStrict keeps it) — so `struct { a T; b int }` gets `b readonly int` (1441, 1476,
   1486).  The mapper keeps the checker's readonly when it builds the struct; in lookup mode it interns through
   the same function and agrees.  Not observable at run time as far as found (boxing identity is the checker
-  type's), but the IR type misstates the source.  Open: intern by IdenticalStrict?
+  type's), but the IR type misstates the source.  Decided: intern by IdenticalStrict (stage 2 above).
 - Generic identity: the generic a written instantiation names, found by name, is the checker's InstDecl
   everywhere but generic aliases (`type L[T] = Box[T]`, 16 sites: InstDecl is Box's declaration, which the
   lookup of `L` does not find) — so IR-gen's stash holds the checker's own nodes.  The mapper now takes InstDecl
