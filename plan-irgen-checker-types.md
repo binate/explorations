@@ -164,6 +164,9 @@ IR-gen cannot map is an internal error, never `int`.
      corpus (3747, 64- and 32-bit) and bnc's main module; builder-comp-int 3725; every package's unit tests;
      e2e; generics / alias subset on native aa64 / x64 / arm32 (341 each); self-compile time neutral.
    - 4c: the duplicated field / signature resolution goes.
+     Fields DONE (binate `ac80c0313`, 2026-10-19): nine copies → structFields / fillStructFields
+     (gen_typedecl.bn); --emit-llvm byte-identical (3751, 64- and 32-bit; bnc's main module).  Signatures next
+     (~11 copies of FuncSig building: params via irResolveParamType, results, variadic, multi-return struct).
    - 4d: TypInt() fallbacks become internal errors; assertions and composite literals from Expr types.
 5. **Registries keyed by checker identity, names from it.**  Key by checker Type identity (a pointer memo) —
    the mapper's memo and lazy, self-sufficient registration from the checker type (fields, method sets,
