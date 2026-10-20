@@ -1,5 +1,5 @@
 # Plan: native code placement (x64, aarch64, arm32)
-Status: tooling designed (2026-10-12); decisions taken 2026-10-15 (below); tooling commit 1 (placement seed) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report, `layout.py`) landed as binate `f05342e5d` (2026-10-18); tooling commit 3 (timing driver, `ab.py` / `stats.py`) landed as binate `4f9e3c75b` (2026-10-18), its short-run refusal as `0a6a3aeaf`; tooling commit 4 (probe) landed as binate `053d743c1` (2026-10-19); phase-0 calibration run on the x86 VM 2026-10-19/20 (results below); user decisions 2026-10-20: the per-workload guard gets a Holm correction over the workloads, and on this VM x64 decisions use the benchmark geomean and the self-compile while per-benchmark claims are timed on the aa64 machines. Next: the Holm change, then block layout. Tracked in `claude-todo.md` ("native code placement").
+Status: tooling designed (2026-10-12); decisions taken 2026-10-15 (below); tooling commit 1 (placement seed) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report, `layout.py`) landed as binate `f05342e5d` (2026-10-18); tooling commit 3 (timing driver, `ab.py` / `stats.py`) landed as binate `4f9e3c75b` (2026-10-18), its short-run refusal as `0a6a3aeaf`; tooling commit 4 (probe) landed as binate `053d743c1` (2026-10-19); phase-0 calibration run on the x86 VM 2026-10-19/20 (results below); user decisions 2026-10-20: the per-workload guard gets a Holm correction over the workloads, and on this VM x64 decisions use the benchmark geomean and the self-compile while per-benchmark claims are timed on the aa64 machines. Next: the Holm change (binate commit ready, awaiting landing approval), then block layout (design drafted below, awaiting user review). Tracked in `claude-todo.md` ("native code placement").
 ## Why
 
 Identical machine code runs at very different speeds depending on where it lands, on the x86 test host
@@ -243,6 +243,326 @@ Measurement tooling lands first (user: yes), because both steps are judged with 
   - Randomizing C-entry thunks and function-value shims, and the .s runtime objects. memzero_aarch64.s is hot on aarch64, and the arm32 baremetal aeabi_int.s/aeabi_float.s are hot on arm32. This is via the embedded assembler.
   - LLVM-arm randomization.
   - Callgrind-weighted exposures in T4/stats: an optional mechanism analysis beyond the brief.
+
+## Block layout design (draft 2026-10-20, awaiting user review)
+
+This section covers step 1 of the Order above: fall-through elision, loop rotation and contiguous loops. It applies to all three native backends, sits behind a hidden switch, and is judged with `ab.py`. Line anchors refer to binate `5ff452880` (main, 2026-10-20).
+
+### 1. Compute an emission order and leave `f.Blocks` alone
+
+- The pass decides, for each function, the order in which blocks are emitted. It runs right after `iropt.EliminatePhis` (`native/common/common_emit_object.bn:81`), so the `phicrit` blocks that pass creates get placed too.
+- `f.Blocks`, liveness, register allocation and `PlanFrame` do not change.
+  - `PlanFrame` assigns stack slots by walking `f.Blocks` (`common_plan_frame.bn:41,176`). Reordering `f.Blocks` would move slots, and on x64 change disp8/disp32 encoding sizes, which would confound the A/B.
+  - Register allocation already works in RPO (`regalloc_liveness.bn:326-345`), and `liveBefore[bi]` is indexed by block.
+- So the A/B arms differ only in block order, branch shapes and which blocks x64 aligns. irgen, the inliner, the VM and LLVM are untouched.
+
+### 2. Analyses and algorithm (`iropt`)
+
+`iropt/loops.bn` exports a loop nest, declared after `iropt.bni:126`:
+- It exposes the membership walk that already exists at `loops.bn:60-104`.
+- `ComputeLoopDepths` (used at `regalloc_scan.bn:115`) is rebuilt on top of it and must give identical output.
+- Placement policy B will use it too.
+
+```
+type LoopNest struct {
+	Header    @[]int      // loop l's header block
+	Parent    @[]int      // smallest other loop containing l's header, or -1
+	Members   @[]@[]bool  // Members[l][b]
+	Innermost @[]int      // per block: innermost loop containing it, or -1
+}
+func ComputeLoopNest(f @ir.Func) @LoopNest
+```
+
+A new file `iropt/block_order.bn` adds `func ComputeBlockOrder(f @ir.Func) @[]int`.
+- It lives in `iropt` because it needs `DomInfo` (`dom.bn:34-58`), which is private to `iropt`.
+- Putting it in a separate package would mean exporting `DomInfo` and adding the package to the CLAUDE.md BUILDER-surface list.
+
+The order is structural: it uses no weights and no sort. Every choice depends only on block indices, so the output is deterministic, which gen2 == gen3 requires.
+
+```
+d := ComputeDom(f); nest := loopNest(d); rank[b] := RPO index of b (-1 if unreachable)
+cold := least fixpoint over b != 0: terminator is OP_UNREACHABLE, or Succs[b] non-empty and all cold
+for each loop l, innermost first: seq[l] := rotate(l, chain(l, Header[l]))
+Order := expand(chain(ROOT, 0)) ++ cold reachable blocks in RPO ++ unreachable blocks by index
+
+units(R): reachable non-cold blocks whose innermost loop is R, plus the loops with Parent == R
+entry(u): the block or the loop's header;  first(u)/bottom(u): first/last block of expand(u)
+
+chain(R, e):
+  out := [unit(e)]
+  repeat:
+    z := bottom(last(out))
+    c := unit(s) for the first s in Succs[z] (Block1, then Block2) with unit(s) in units(R),
+         unplaced, first(unit(s)) == s, and ready(unit(s))
+         // ready(u): every pred p of entry(u) with 0 <= rank[p] < rank[entry(u)] is placed
+    if none: c := the unplaced unit of R with the lowest rank[entry(c)]    // RPO cursor
+    if none: return out
+    append c
+
+rotate(l, s):
+  h := Header[l]; z := bottom(last(s))
+  if h == 0 || len(s) < 2 || h ∉ Succs[z] || z exits l: return s
+  for k := 1 .. len(s)-1:                       // k = 1 cuts right after the header
+    b := s[k-1]
+    if b is a block && b exits l && first(s[k]) ∈ Succs[b]: return s[k:] ++ s[:k]
+  return s
+```
+
+- **Entry block.** Block 0 is never marked cold. So a function in which every path panics still starts at its entry block. A loop that contains block 0 must be headed by it; such a loop is not rotated, because the prologue falls into block 0.
+- **Rotated inner loops** start with their top block, not their header. The block before such a loop has to jump to the header anyway, so the loop never takes a fall-through slot. The RPO cursor places it.
+- **Readiness** puts a merge block after all of its forward predecessors, so an if/else comes out as cond, then, else, merge. Readiness is only a preference: every CFG still gets a valid order.
+- **Cost:** O(L·n + e) per function, plus one more `ComputeDom` call. This applies only in `loops` mode.
+- **Checks.**
+  - The pass panics if the result is not a permutation or `Order[0] != 0`, the same way `ir_phi_elim.bn:155` panics.
+  - Under `--verify-ir` (`irbuild/verify.bn:190`; this needs an exported getter for the flag), it also checks that each loop is one contiguous range of `Order`, with inner loops nested inside it.
+
+### 3. What rotation does to each loop shape
+
+Today a for-loop (`irgen/gen_flow.bn:50-53`) executes 3 taken branches per iteration: `jcc body`, `jmp post` and `jmp cond`. It executes 2 when `mergeSinglePredBlocks` (`thread_jumps.bn:183`) merges post into the body. A `continue` in the loop prevents that merge.
+
+| Shape | Layout under `loops` | Taken branches per iteration |
+|---|---|---|
+| for/while with a test in the header | `pre: jmp H; top: body…; post falls into H; H: jcc top`; the exit falls through | 1 taken (`fallthrough` on today's order: 1 taken + 1 not taken) |
+| `for { A; if c { break }; B }` | cut after the block that exits | 1 taken |
+| exit test inside an if/else | not rotated; the latch does `jmp H` | 1 taken |
+| self-loop, or self-loop with `phicrit` latch S | `B: jcc B`, or `[S, B]` with `B: jcc S`; the exit falls through | 1 taken |
+| latch tests at the bottom | not rotated; already ideal | 1 taken |
+| loop with several exits | the bottom exit falls through; the others are forward jcc, not taken | – |
+| nested loops | the inner loop is placed as one unit; `jmp H_inner` once per outer iteration | – |
+
+- Rotation adds one taken `jmp H` each time the loop is entered.
+- Today `phicrit` blocks, inliner clones (`inline_multiblock.bn:49,60`) and refcount release blocks are placed at the end of the function. With this pass they are placed inside their loop.
+- **Irreducible CFGs:** none is known to arise. The language has no `goto`, and `thread_jumps.bn:19-30` never threads a jump into a loop header or past one. If one does arise, its blocks are treated as ordinary units of their region and the order is still valid.
+
+### 4. Cold code
+
+**Moved to the end of the function:**
+- blocks ending in `OP_UNREACHABLE`: panic (`gen_panic.bn:48`), assertion failure (`gen_assert.bn:64,68`) and falling off the end of a non-void function (`gen_func.bn:267,283`);
+- blocks whose successors are all cold.
+
+As a result, `if bad { panic(…) }` compiles to a forward jcc that is not taken. A cold block can never reach a loop latch, so it is never part of a loop.
+
+**Not cold:** `ivrd.present` and `fv_refdec` (`gen_util_refcount.bn:134-185`). They run whenever the value's data pointer is non-null; `OP_REFDEC` itself decides whether the count reaches zero.
+
+**Out of reach for this pass (Question 1):** the following paths are emitted inline while lowering a single instruction, so they are not IR blocks and the pass cannot move them.
+- **Bounds check.** `cmp; jb ok; call BoundsFail` takes a branch on every in-bounds check (`x64_guards.bn:33-55`, `aarch64_guards.bn:37-57`, `arm32_dispatch.bn:285-311`). The division check works the same way.
+  - The fix would be a `jae` to a stub placed after the function's last block. The stub would be named with `common.BoundsLabel(…, fail=true)` (`common_names.bn:30-42`), which exists but is unused.
+  - The stub never returns and sees the same registers as the check site, so moving it out of line is mechanical.
+- **RefDec destroy path.** On x64, `jnz skip` is taken whenever the count stays above zero (`x64_managed.bn:133-180`; also `aarch64_refcount.bn:132-198` and `arm32_refcount.bn:128-182`). Stubs for this path would need a jump back to the main line.
+
+### 5. Plan and plumbing (`native/common`)
+
+A new file `common_block_plan.bn`, about 90 lines (`common.bni` is 922 lines), holds:
+- the constants `BLOCK_LAYOUT_SOURCE` (0), `BLOCK_LAYOUT_FALLTHROUGH` and `BLOCK_LAYOUT_LOOPS`, with `BlockLayoutByName` and `BlockLayoutName`;
+- `type BlockPlan struct { Order @[]int; AlignTop @[]bool; FallThrough bool }`, where `AlignTop` is indexed by block;
+- `PlanBlocks(f, mode)`, which fills the plan as follows:
+
+| Mode | Order | AlignTop | FallThrough |
+|---|---|---|---|
+| SOURCE | identity | `ComputeLoopHeaders` | false (output byte-identical to today) |
+| FALLTHROUGH | identity | `ComputeLoopHeaders` | true |
+| LOOPS | `ComputeBlockOrder` | first block of each loop in `Order` | true |
+
+Changes to existing code:
+- `common.EmitObject` (`common_emit_object.bn:14-15`) gains a `layout int` parameter. It is validated before anything is emitted, the same way `PlaceCheck` is (`:28-34`).
+- The `EmitFunc` call at `:91` passes `PlanBlocks(f, layout)`.
+- `ArchEmitter.EmitFunc` (`common.bni:44`) gains a `plan @BlockPlan` parameter. That touches the three emitters and four test doubles:
+  - `relabelRecorder` (`common_emit_object_test.bn:58`);
+  - `placeCapture` in `x64_place_test.bn:51`, `aarch64_place_test.bn:54` and `arm32_place_test.bn:55`.
+
+### 6. Per-backend emission
+
+**Shared changes**
+- `emitFunc` keeps its signature, so its 52 test call sites need no change. It becomes a wrapper for `emitFuncPlanned(…, PlanBlocks(f, SOURCE))`.
+- The block loops (`x64_emit_func.bn:172`, `aarch64_emit_func.bn:294`, `arm32_emit_func.bn:273`) iterate over `plan.Order`. If `Order` has the wrong length, that is a `SetError`.
+- The label rule stays `bi > 0` (`:177`, `:296`, `:275`), so every block except the entry keeps its label.
+- `next` is the block that follows in `Order` when `FallThrough` is set, and nil otherwise. It is passed explicitly to a new `emitTerm(…, ins, next) (endedInTransfer bool)`. `emitInstr`'s own JUMP/BRANCH cases pass nil, so the instruction-level tests stay unchanged.
+
+**How terminators are lowered**
+
+| Case | Emitted |
+|---|---|
+| `Block1 == Block2` | handled as a JUMP |
+| JUMP to `next` | nothing |
+| else-arm is `next` | `cc → then` |
+| then-arm is `next` | `inv(cc) → else` |
+| neither arm is `next` | today's two-branch pair |
+
+Branch fusion only fuses integer compares (`fold/branch_fuse.bn:20-22`), so `cc^1` is a correct inverse.
+
+**Guard against code after a terminator**
+- JUMP and BRANCH are on none of the retention allowlists (`x64_regmap.bn:400-427`, `aarch64_retention.bn:16`, `arm32_retention.bn:15-44`). So no register is dirty after a terminator, and the spills after it emit nothing (x64 `:222-231`, aa64 `:344-354`, arm32 `:316-324`).
+- An elided JUMP adds no fixup.
+- Each backend records the code offset right after the terminator. If the end of the block is at a different offset, it calls `SetError`, because once blocks can fall through, any code emitted there would run on only one path.
+- The check runs in every mode, and SOURCE output does not change.
+
+**x64**
+- A new file `x64_branch_term.bn` takes over the terminator code in `x64_dispatch.bn:175-211`.
+- When the then-arm is next: fused branches emit `Jcc(InvertCC(a, cc), else)`, unfused ones emit `test; jz else`.
+- When the else-arm is next: fused branches emit `Jcc(cc, then)`, unfused ones emit `test; jnz then`.
+- The new `x64.InvertCC(a, cc) int` returns `cc^1` (the pairs are at `x64.bni:76-92`). An invalid cc raises an error through `condOK` (`x64.bn:266`).
+- `plan.AlignTop` replaces `ComputeLoopHeaders` (`:171`, `:178`), and the comment at `:161-165` is rewritten.
+- The alignment pad goes before the loop's top block, not its header. After rotation the header is entered by fall-through on every iteration, so padding there would execute NOPs every time.
+- The pad before a rotated loop's top comes right after `jmp H`, so it never runs. An unrotated top that is entered by fall-through runs its pad once per loop entry (Question 4).
+
+**aarch64**
+- JUMP elision goes in `aarch64_dispatch.bn:171-177`.
+- `emitCondBranch` (`aarch64_compare.bn:133-150`) gains `next`. Fused branches are inverted with the existing `invertCondForOp` (`:157`).
+- `emitCondBranchTo` (`aarch64_branch_relax.bn:63-85`) makes its register mode explicit:
+  - `COND_NE` means CBNZ and `COND_EQ` means CBZ;
+  - the far-backward form uses the opposite instruction followed by a `B`;
+  - the call at `:148` passes `(COND_NE, COND_EQ)` instead of today's `0, 0`;
+  - a branch whose then-arm is next becomes `cbz else`.
+- **Branch islands**
+  - The block-end call at `:355` becomes `islands.check(a, endedInTransfer)`.
+  - Today `endsInTransfer` (`:162-169`) decides by looking at the last emitted instruction word. After an elided jump, that word can be an island's last `B` stub followed by an `over:` label, or an inline `B` to a label at the end of the block. In both cases control still falls through.
+  - Blocks that fall through therefore get the `B over` form. `endsInTransfer` is kept only to cross-check the flag.
+
+**arm32**
+- JUMP elision goes in `arm32_dispatch.bn:93-99`, and `emitBranch` (`:194-222`) gains `next`.
+- Unfused branches become `cmp #0; beq else` or `cmp #0; bne then`.
+- The new `arm32.InvertCond(a, cond) int` raises an error on AL and on any value outside 0-13. It has to check for itself because `condBits` (`arm32.bn:187`) silently masks bad values (`claude-todo.md:827`).
+- B's 24-bit immediate reaches ±32 MiB, and arm32 has no literal pools, so nothing else changes.
+
+**Mach-O:** block labels are local temporaries and never start an atom (`asm_temps.bn:66-69`).
+
+### 7. Short x64 branches (rel8), a later step with its own switch value (Question 3)
+
+- **Backward branches.** When the target label is already defined, emit the existing `x64.JccOffset`/`JmpOffset` (`x64_branch_offset.bn`; `x64_aggcopy_loop.bn:35` already does this).
+  - This is exact, about 30 lines, and covers rotated loop back edges.
+  - It records no fixup, which does no harm at a terminator because the guard covers it.
+- **Forward branches.** Use grow-only relaxation in `asm/x64`.
+  - Alignment pads are recomputed. The relaxation must finish for each function before `PlaceFillBefore` reads `CurrentOffset` (`common_emit_object.bn:88`).
+  - It also gives `bnas` short branches (`claude-todo.md:2364`).
+  - The alternative, emitting everything once to measure and then again for real, doubles x64 emission time and requires emission to have no side effects.
+- This is a separate step because it changes code size and JCC-erratum exposure on its own.
+
+### 8. Switch and measurement
+
+- **The switch** is `-fnative-block-layout=source|fallthrough|loops`, default `source`.
+  - It is a hidden `StringListVar` registered in `registerNativeFlags` (`cmd/bnc/args_native.bn:32-44`).
+  - Its errors follow the `-fnative-place-*` rules (`:63-83`): an unknown value, use without `--backend native`, or use with `--emit-llvm`.
+- **Route:** `native.Options.BlockLayout` (`native.bn:85-104`) → each backend's `Options` → `common.EmitObject(…, opts.Place, opts.BlockLayout)` (`x64.bn:25`, `aarch64.bn:23`, `arm32.bn:24`).
+- **A/B:** one compiler, three arms.
+  ```
+  ab.py run --work W --arm src=$BNC --arm ft=$BNC --arm loops=$BNC \
+    --arm-flags ft='-fnative-block-layout=fallthrough' --arm-flags loops='-fnative-block-layout=loops' \
+    --workload bench … --seeds 1-40 --reps 2 --mode phase        (and --workload selfcompile)
+  ```
+  - `ft` against `src` measures elision alone.
+  - `loops` against `ft` measures reordering, rotation and the move of the alignment pad.
+  - `ab_build` aborts if two arms produce identical binaries, which confirms that each switch value actually changed the code.
+  - `stats.py` applies the Holm-corrected selection rule.
+  - Use at least 40 seeds. `--plan` gave 12 seeds for the benchmark geomean and 14 for the self-compile at ±1%.
+- **Self-compile workload.** The timed self-compile uses the default work flags in both arms, so only the bnc being timed differs.
+- **Compile-time cost of the pass** is measured separately: one bnc compiling `cmd/bnc` with `loops` and with `source`. This needs a per-arm `ab.py --arm-work-flags` option (commit 9).
+- **Where it runs:** x64 is timed here and aarch64 on the aa64 machines. arm32 has no hardware, so it is judged only by `layout.py --loops --compare`.
+
+### 9. Tooling (`perf/placement/layout_loops.py`)
+
+- `build_blocks` (`:45-85`) already follows fall-through across labels and padding. Every block except the entry keeps its label, so `loop_keys` (`:253-271`) can still match loops across arms.
+- New fields for each loop:
+  - `top`, `top_m32` and `top_m64`;
+  - `pad` and `pad_ft`, measured before the top block;
+  - `jmps` (unconditional branches inside the loop's footprint) and `back` (backward branches). These count branches per iteration statically and are the only arm32 evidence.
+- A gap inside a loop's footprint that contains only alignment padding is merged with the ranges on either side. A whole-binary count of loops with `ranges > 1` then checks contiguity. aa64 branch islands can still legitimately split a loop.
+- The docstring line "Loops are not contiguous" (`:18-19`) becomes "Loops need not be contiguous".
+
+### 10. Tests
+
+**iropt.** `block_order_test` runs on hand-built IR.
+- Cases: straight-line code, if/else, for, while, `for { … break … }`, a self-loop, a `phicrit` latch, nested loops, a loop with several exits, a loop headed by the entry block, a function in which every path panics, an irreducible cycle, unreachable blocks and chains of cold blocks.
+- Properties checked:
+  - the order is a permutation with `Order[0] == 0`;
+  - loops are contiguous and nested;
+  - a for-loop's header comes last, right after its latch;
+  - the exit block comes right after the loop;
+  - cold blocks come after hot ones, and unreachable blocks come last;
+  - the output is deterministic.
+- Plus tests for the loop nest itself.
+
+**common.**
+- `PlanBlocks` for each mode.
+- The test doubles receive the plan.
+- An unknown mode fails.
+- SOURCE and LOOPS produce identical register allocation and `PlanFrame` size.
+
+**Per backend** (`*_layout_test.bn`):
+- an elided JUMP emits 0 bytes;
+- all 10 fused compares are inverted correctly, checked by decoding the output;
+- unfused branches emit JZ/CBZ/BEQ;
+- when neither arm is next, the output is unchanged;
+- the code-after-terminator guard fires;
+- `InvertCC` and `InvertCond`, including their error cases;
+- x64: the pad before a loop top follows a `jmp`;
+- aa64: far-backward CBZ, and an island at the end of a block that falls through gets `B over` (as in `aarch64_branch_relax_test.bn:179-240`);
+- Mach-O: fall-through adds no atom start.
+
+**Routing.**
+- `native_test`: the setting reaches x86_64/elf, x86_64/macho, aarch64/macho, aarch64/elf and arm32/elf, and `Options{}` behaves as SOURCE.
+- `args_native_test`: the default, each value and each error.
+
+**Conformance.** Run with `BINATE_FLAGS` set to `-fnative-block-layout=fallthrough`, then to `-fnative-block-layout=loops`, on:
+- `builder-comp_native_x64-comp_native_x64` and `builder-comp_native_x64_darwin-comp_native_x64_darwin`;
+- `builder-comp_native_aa64-comp_native_aa64` and `builder-comp_native_aa64_linux-comp_native_aa64_linux`;
+- `builder-comp_native_arm32_baremetal` (the required mode for native arm32) and `builder-comp_native_arm32_linux`.
+
+**Self-compile.**
+- A native bnc built with SOURCE, and one built with no flag, are byte-identical (`cmp`) to the build from before the change.
+- A bnc built with `loops` compiles itself to the same bytes as one built with `source`.
+- gen2 == gen3 under `loops`.
+- `bnc --test --backend native -fnative-block-layout=loops` passes on the native packages.
+- The gen1 build passes (the pinned BUILDER).
+
+**Existing tests that pin branch shapes** stay unchanged while the default is `source`:
+- `x64_dispatch_test.bn:242-302`
+- `arm32_dispatch_test.bn:65-80`
+- the three `TestEmitFuncEndsAtLastTerminator` tests
+- `x64_align_test.bn:48-75`
+
+### 11. Commit sequence
+
+Each commit can land on its own and is approved separately. SOURCE output stays byte-identical throughout.
+
+1. `x64.InvertCC` and `arm32.InvertCond`, with tests. About 30 lines of code and 60 lines of tests.
+2. Plumbing, about 220 + 250 lines:
+   - `BlockPlan` with SOURCE and FALLTHROUGH;
+   - the `EmitObject`/`ArchEmitter` change and the 4 test doubles;
+   - the `Options` fields and the switch;
+   - iterating `Order` and using `AlignTop`;
+   - `emitTerm` and the guard;
+   - routing tests.
+
+   `fallthrough` has no effect on a backend until that backend's own commit lands.
+3. x64 elision and inversion. About 110 + 200.
+4. aarch64 elision, inversion, CBZ and the island flag. About 120 + 250.
+5. arm32 elision and inversion. About 90 + 180.
+   - Commits 3-5 implement T6's "drop branch-to-fallthrough" item (`claude-todo.md:1390`) behind the switch; the item is done when a default turns it on.
+   - A `src`/`ft` A/B can run at this point.
+6. `LoopNest`, with `ComputeLoopDepths` rebuilt on it. About 90 + 120.
+7. `ComputeBlockOrder` and the `--verify-ir` contiguity check. About 270 + 450.
+8. LOOPS mode: the LOOPS plan and `AlignTop` at loop tops, with conformance under `loops`. About 40 + 120.
+9. The new `layout_loops.py` fields and `ab.py --arm-work-flags`. About 100 + 120.
+10. The A/B. Then, if you decide to, flip the default and update the byte-pinned tests.
+
+Commits 3-5 change only branch shapes, on today's block order. Commit 8 changes only the order, with the shape code already in place. So a conformance failure points at a single change. The backward conditional branches that first appear in commit 8 are already unit-tested in commits 3-5.
+
+### 12. Risks
+
+- **Code after a terminator that falls through:** the guard catches it.
+- **aa64 islands landing in a fall-through gap:** the `endedInTransfer` flag prevents this.
+- **Short loops may slow down.** Rotation adds one taken `jmp` per loop entry, so loops that run about once per entry pay for it. The Holm-corrected per-workload guard would catch that.
+- **Alignment moves.** `loops` moves x64 alignment from the loop header to the loop top. Under `fallthrough`, a pad after an elided preheader `jmp` runs once per loop entry.
+- **If `loops` underperforms,** first disassemble to check that rotation actually happened. The fallback is another switch value: a chain order driven by static weights. The weights would be int64, so 32- and 64-bit hosts produce the same layout, and the rotation point would be chosen by minimising cost.
+- **Later functions move.** Function sizes change, which shifts every later function; placement randomization absorbs that.
+- **arm32** is judged only from the static report.
+
+### Questions for the user
+
+1. Should the bounds-check and division-check failure paths move out of line as the next step, with their own A/B? I recommend it. And should the RefDec slow path, whose stubs need a jump back, follow, or stay inline?
+2. Should the decision to make `loops` the default use the placement selection rule (Holm-corrected, at least 40 seeds, benchmark geomean plus self-compile)? And should all three backends share one default, decided from the x64 and aa64 timings plus arm32's static report, or should each architecture get its own?
+3. x64 short branches: should they be the next step, backward branches first and then relaxation for forward branches (my recommendation), or should backward short branches be folded into this work?
+4. Should an unrotated x64 loop top that is entered by fall-through stay aligned? I suggest keeping it and deciding in the alignment-policy step.
 
 ## Phase-0 calibration results (x86 VM, 2026-10-19/20)
 
