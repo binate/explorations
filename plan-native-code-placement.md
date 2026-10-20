@@ -272,8 +272,19 @@ Raw data and `stats.py` reports: scratch dirs aa-same-bench, aa-salted-bench, aa
   the build phase. Validation without a drop (seeds 91-120, seed-by-seed builds): B +1.16% [-0.01, +2.29], so
   build order is NOT the explanation (the drop-cache run's +0.06% was the one exception in four runs: +0.62,
   +0.75, +0.06, +1.16). Remaining candidates: arm 0's placement seeds are the small integers themselves while
-  arm 1's are salted 31-bit values, or a later arm index is slower for another reason. Being tested: a
-  three-arm salted A/A (A raw seeds, B salted once, C salted twice), seeds 121-150.
+  arm 1's are salted 31-bit values, or a later arm index is slower for another reason. Three-arm salted A/A
+  (A raw seeds, B salted once, C salted twice; seeds 121-150): B-A +1.85% (t 3.1), C-A +0.76% (t 1.0),
+  C-B -1.09% (t -1.8); position effects ~0 -- fits neither "later arm slower" nor "salted seeds slower"
+  cleanly. Still unexplained; the only bias-free run is the page-cache-drop one, so a second --drop-caches
+  A/A (seeds 151-180) is running.
+- A real placement effect (from the 330 per-seed points of the five salted self-compile runs, each centred
+  on its round): the entry phase of the hottest function, native/common blockLiveBefore, predicts the whole
+  self-compile's time: phase 16 -0.50%, 48 -0.41%, 0 +0.34%, 32 +0.56% (se ~0.16 each), i.e. entering at
+  16 mod 32 is ~0.9% faster than 0 mod 32 (~5 se). livenessFixpoint's phase shows nothing. layout.py on a
+  fast (16) vs slow (0) build: blockLiveBefore has 18 vs 30 JCC-erratum units (31 vs 50 counting fused
+  pairs), 12 vs 19 in its main loop (for.cond.5) -- on this Cascade Lake (JCC-erratum microcode) the likely
+  mechanism. It does not explain the arm bias (predicted B-A 0.0-0.1%). The whole-binary JCC covariate
+  correlated weakly because cold code dominates it: covariates should be weighted by a profile (--hot).
 - Run noise dominates: two back-to-back runs of one binary differ by a median 2.6-3.9% (p90 7-11%) on
   binary-trees / fannkuch / richards; per-run noise ~1.0-1.5% spectral-norm, ~2% n-body, ~2-3% self-compile,
   4-8% fasta / record-churn. The host speed also drifts: the A/A-same self-compile's per-round mean went
