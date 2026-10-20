@@ -89,7 +89,7 @@ abort since binate `aa166c839`, which stopped the allocator wrapping).  Options:
 shard / shrink the test packages, or xfail them on bare metal.  The test binaries grow with every test added,
 so a one-off trim will not last.
 
-### CI red: native x64 unit — the runner is shut down partway through `pkg/binate/check` — 🔴 OPEN, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
+### CI red: native x64 unit — the runner is shut down partway through `pkg/binate/check` — 🟡 IN PROGRESS (claimed 2026-10-20, work-3; user: "then #6 and #5"), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
 `builder-comp_native_x64-comp_native_x64` (unit) ends with "The runner has received a shutdown signal … exit
 code 143" 7-10 minutes into `STARTING: pkg/binate/check`, in every finished run since at least 2026-10-16
@@ -98,7 +98,7 @@ kill at the same package every time points at the test binary exhausting the run
 a transient.  Not reproduced locally (it needs an x86-64 Linux host; a memory-capped docker run is the safe
 way).  Find which check test drives it and why the native x64 build differs from aa64 / LLVM, which pass.
 
-### CI red: arm32 Linux VM conformance — 1333, 1566 and 1569 die with SIGBUS (exit 135) — 🔴 OPEN, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
+### CI red: arm32 Linux VM conformance — 1333, 1566 and 1569 die with SIGBUS (exit 135) — 🟡 IN PROGRESS (claimed 2026-10-20, work-3; user: "then #6 and #5"), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
 On `builder-comp_arm32_linux_int` (the bytecode VM on a 32-bit host) 1333_decl_order_forward_types_pkg and
 1566_large_agg_stack_part_loops print all of their expected output and then exit with status 135 (SIGBUS);
