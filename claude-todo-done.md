@@ -1,3 +1,20 @@
+### `sizeof` of a type argument that is an instance still being built was "an opaque type" — `type N[T any] struct { next *Box[N[T]] }` with `Box[T]` holding `[sizeof(T)]uint8` — DONE (binate `ac5e26e15`, `7d6ccda87`, `a25aeb940`, 2026-10-20, work-7) (found 2026-10-17, work-7, review of the half-built-instance fix; claimed 2026-10-19 — user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]].")
+
+An instance's `[sizeof(T)]uint8` read the layout of its type argument while that was not built: N[T] being built
+(`type N[T any] struct { v T; next *Box[N[T]] }`), a type being collected (`type N struct { v int64; next *Box[N] }`),
+or one collection had not reached (`type M struct { b Box[N] }` before N) — "an opaque type", or a false cycle.
+Three changes: `ac5e26e15` prepares a `sizeof` operand's layout by its resolved type, collecting a type argument's
+type first (forward references; a by-value cycle is reported as one); `7d6ccda87` (the by-name layout MAJOR) walks
+the resolved type only; `a25aeb940` makes an instance whose build reads a layout not built yet wait
+(check_layout_wait.bn): its build is undone and done again once nothing it may wait for is being built, round by
+round, a last no-wait round reporting a cycle ("cyclic type definition involving `N`", an instance by its
+generic's name); a type in progress is not opaque (typeInProgress), so slices of one are fine.  Covered: pointer,
+slice and function-value holds, a generic's own declaration, interface instances with a sized method, the
+opaque rule through a slice.  The review found a flush round hiding its not-yet-rebuilt entries (order-dependent
+rejections) and a type collected inside another's collection reading a waiting instance; both fixed before
+landing.  Tests: check check_layout_wait_test.bn (7), check_decl_layout_test.bn; conformance spec/15-builtins
+157, 158, 161.  Two cases left: the entry "An instance's `sizeof` of a type not built yet: two cases still rejected".
+
 ### bnfmt drops an empty string literal `""` that it splits at the line cap — DONE (binate `4a7dc72fc`, 2026-10-20, temp-4) (found 2026-10-19, temp-4, review of the fill-measure change; pre-existing, in bnfmt `bnc-0.0.17-pre3`) (CRITICAL)
 
 `splitStringLit` (`pkg/binate/format/print_expr.bn`) splits a literal that does not fit at the current

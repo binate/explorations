@@ -914,34 +914,20 @@ annotations: `#[build]`, `#[c_export]`); whether it constrains the function's ow
 inlining of it, or both; what the VM does (its frames are never removed); and whether `debug.Callers`
 should then promise those frames.
 
-### `sizeof` of a type argument that is an instance still being built is "an opaque type" — `type N[T any] struct { next *Box[N[T]] }` with `Box[T]` holding `[sizeof(T)]uint8` — 🟡 IN PROGRESS (claimed 2026-10-19, work-7/session — user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]."; found 2026-10-17, work-7, review of the half-built-instance fix; reproduced; pre-existing)
+### An instance's `sizeof` of a type not built yet: two cases still rejected — a `.bni`'s own declarations, and a generic's declaration reading a concrete type being collected — 🔴 OPEN (minor; found 2026-10-19, work-7, review of the layout-wait change; reproduced; pre-existing)
 
-```
-type Box[T any] struct { a [sizeof(T)]uint8 }
-type N[T any] struct { v T; next *Box[N[T]] }
-```
-is rejected: "cannot take sizeof/alignof of an opaque type".  N[T]'s field instantiates Box[N[T]] while N[T] is
-still being populated (no underlying type yet, which counts as opaque), and Box's array length needs N[T]'s size;
-N[T]'s own layout does not depend on Box (the field is a pointer).  Deferring the check, as the half-built-instance
-MAJOR's fix (not yet landed) does for interface method sizing, cannot help: the length is part of the type built.
-Needs N[T]'s layout known before the instances its fields name are populated (populate pointer-held field types
-lazily), or a length that depends on an unbuilt instance resolved after it is built.  Test with the program above
-(and an interface method parameter `[sizeof(T)]uint8`).
-**Wider than first reported (2026-10-19, reproduced on main):** a non-generic N fails the same way
-(`type N struct { v int64; next *Box[N] }`), and so does a plain forward reference with no cycle at all —
-`type M struct { b Box[N] }` before `type N struct { v int64 }`, or `*Box[N]` there: Box[N] is populated while M is
-collected, before N is, and prepareLayout prepares only the types the `sizeof` operand names (`T`), not what it
-resolves to.  A genuine cycle (`type N struct { v int64; b Box[N] }`) is reported as "an opaque type", not as a
-cycle.  Plan: (1) [DONE, binate `ac5e26e15`] prepare a `sizeof` / `alignof` operand's layout by its resolved type too, collecting the package
-types a type argument reaches; (2) defer an instance's structure while a type its structure needs the layout of is
-still being collected or built, populating it when that completes — a by-value use meanwhile is a cycle, reported
-as one.
-Also in this class (reproduced 2026-10-19; valid, rejected as "an opaque type"): the opaque rule
-(embedsOpaqueByValue) follows a slice's element and counts a type still being collected as opaque, so
-`type M struct { a [sizeof(@[]L)]uint8 }` with `type L struct { m M }`, `type H struct { v int64; s @[]Z }` with
-`type Z struct { a [sizeof(H)]uint8 }`, and `type M struct { a [sizeof(@[]M)]uint8 }` are rejected though a slice's
-size never depends on its element.  Part (2)'s tests should also cover a type held through a function value
-(`type X struct { f *func(Box[N]) int; v int64 }; type N struct { x X }`) and through aliases.
+Since binate `a25aeb940` an instance whose build reads the layout of a type not built yet waits for it
+(check_layout_wait.bn).  Two cases do not get that, and stay rejected as before:
+(1) declared in a `.bni` — `type Box[T any] struct { a [sizeof(T)]uint8 }` and
+`type N struct { v int64; next *Box[N] }` in `q.bni` is "an opaque type" at q.bni, though the same in `q.bn`
+compiles: a `.bni`'s types are not collected through the DeclBatch, so N being built is not seen as in progress
+(next to the `.bni` `sizeof` MAJOR above);
+(2) a generic's own declaration reading a concrete type being collected —
+`type Box[T any] struct { a [sizeof(N)]uint8; t T }` with `type N struct { v int64; p *Box[int] }` is "cyclic type
+definition involving `N`": Box's declaration is resolved with its type parameters abstract when Box[int] is first
+named, inside N's collection, and that resolution (once per declaration, in a frame where nothing waits) reads N.
+Fix (2) by letting the abstract resolution wait like an instance (resolved again later); (1) needs the `.bni`'s
+types collected as the batch collects the `.bn`'s.
 
 ## Performance
 
