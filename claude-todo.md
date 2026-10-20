@@ -5,19 +5,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### bnfmt drops an empty string literal `""` that it splits at the line cap — 🟡 IN PROGRESS (claimed 2026-10-19, temp-4; user: fix it now, landing before the fill-measure change) (found 2026-10-19, temp-4, review of the fill-measure change; pre-existing, in bnfmt `bnc-0.0.17-pre3`)
-
-`splitStringLit` (`pkg/binate/format/print_expr.bn`) splits a literal that does not fit at the current
-column into adjacent parts by looping over its content; for `""` the content is empty, the loop never runs,
-and nothing is written -- the literal is silently dropped.  On main it bites where a single `""` lands so
-that `""` would end past column 100: `<96 n's> = ""` formats as `<96 n's> =` (does not parse).  The
-unlanded fill-measure change renders list elements at their real column, which would spread it to every
-list: `x(<93 a's>, "")` -> `x(aaa…, )`, then `x(aaa…)`; `T{"first", …, ""}` loses an element in code
-that still compiles (a review's token check found it in two generated files and in perturbed tree code).
-Fix: an empty literal is never split (write it as is); a regression test, and a token-preservation check
-in the formatter's differential testing.  bnfmt `--check` in hygiene reports such a file rather than
-rewriting it, but `bnfmt -w` corrupts it.
-
 ### Constraint calls through `impl *P` / `impl @M` give wrong results — needs a spec decision — 🔴 NEEDS DECISION (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
 
 ```

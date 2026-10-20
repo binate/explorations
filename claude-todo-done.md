@@ -1,3 +1,21 @@
+### bnfmt drops an empty string literal `""` that it splits at the line cap — DONE (binate `4a7dc72fc`, 2026-10-20, temp-4) (found 2026-10-19, temp-4, review of the fill-measure change; pre-existing, in bnfmt `bnc-0.0.17-pre3`) (CRITICAL)
+
+`splitStringLit` (`pkg/binate/format/print_expr.bn`) splits a literal that does not fit at the current
+column into adjacent parts by looping over its content; for `""` the content is empty, the loop never runs,
+and nothing is written -- the literal is silently dropped.  On main it bites where a single `""` lands so
+that `""` would end past column 100: `<96 n's> = ""` formats as `<96 n's> =` (does not parse).  The
+unlanded fill-measure change renders list elements at their real column, which would spread it to every
+list: `x(<93 a's>, "")` -> `x(aaa…, )`, then `x(aaa…)`; `T{"first", …, ""}` loses an element in code
+that still compiles (a review's token check found it in two generated files and in perturbed tree code).
+Fix: an empty literal is never split (write it as is); a regression test, and a token-preservation check
+in the formatter's differential testing.  bnfmt `--check` in hygiene reports such a file rather than
+rewriting it, but `bnfmt -w` corrupts it.
+
+Resolution (binate `4a7dc72fc`): `splitStringLit` writes an empty literal whole (past the cap if it must
+be; it has no shorter spelling), so `<96 n's> = ""` moves the literal to a continuation line.  Test:
+TestEmptyStringLitPastCapKept.  The fill-measure change (still unlanded) builds on the fix; its
+differential testing gains a token-preservation check.
+
 ### Layout preparation during collection looked names up by NAME in the package being checked — a generic's `sizeof(T)` found a package type `T`, an imported generic's `sizeof(Inner)` the importer's `Inner` — DONE (binate `7d6ccda87`, 2026-10-19, work-7) (MAJOR; found 2026-10-19, work-7, review of the instance-`sizeof` forward-reference fix; claimed 2026-10-19 — user: "yes")
 
 `type Box[T any] struct { a [sizeof(T)]uint8 }` with `type T struct { b Box[int32] }` was rejected, "cyclic type
