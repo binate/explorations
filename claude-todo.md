@@ -47,6 +47,74 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
+### CI red: `check`'s `TestExpandBuildBudget` overflows the VM stack (unit, `builder-comp-int` / `builder-comp-comp-int`) — 🔴 OPEN, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
+
+`TestExpandBuildBudget` (check_generic_build_test.bn, added by binate `27844b58b`, the work-7 static
+expansion check) checks `type N[T any] struct { x T; a *N[[sizeof(T) + 1]uint8]; b *N[[sizeof(T) + 1]uint16] }`
+and expects "generic instantiation N[int] builds more than 4096 instances"; under the bytecode VM it dies with
+"runtime error: stack overflow" (reproduced locally: `scripts/unittest/run.sh builder-comp-int
+pkg/binate/check`).  The native and LLVM lanes pass.  Root cause unknown: either the build recursion is
+deeper than the 4096-instance budget implies (then the checker should not recurse that deep), or the VM's
+stack is too small for a legitimate depth.  Decide which before changing the test.
+
+### CI red: arm32 unit tests put constants of 2^31 and above in `int` (asm/assemble, link) — 🔴 OPEN, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
+
+On the 32-bit-`int` lanes (`builder-comp_arm32_linux`, `builder-comp_arm32_baremetal`) three test files do not
+compile: asm/assemble/assemble_alias_test.bn:31,46 and assemble_subsections_test.bn:51,57 ("mismatched types
+int and untyped int": `got >= 0x80000000`, `got - 0x100000000`, `w != 0x94000002`, an 8-byte `tlsU` read into
+an `int`), and link/parse_tls_test.bn:81-82 ("cannot assign untyped int to int": `isMachoThreadLocal(0x80000015)`
+etc.).  Added by binate `4c041991a`, `97255aad6` (asm Mach-O) and `4d91dc223` (bnld TLS) — the work-2 series.
+Fix: use int64 / uint32 where the values are 32-bit unsigned or 64-bit (and check whether `isMachoThreadLocal`
+and the 8-byte read helper themselves take `int` where a section flag / 64-bit field needs uint32 / int64 — a
+latent 32-bit-host bug in the code, not just the test).
+
+### CI red: bare-metal `rt` tests do not compile — `rt_memmove_test.bn` uses helpers from the libc-gated `rt_test.bn` — 🔴 OPEN, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
+
+impls/core/common/pkg/builtins/rt/rt_memmove_test.bn (binate `987685d08`, work-1's memmove change) calls
+`offsetPtr` and `fail`, defined in rt_test.bn, which is gated `#[build(!is(os, "baremetal"))]`; on
+`builder-comp_arm32_baremetal` the package's tests fail with "undefined: offsetPtr" / "undefined: fail".  Fix:
+give the memmove test its own helpers (or move the helpers to an ungated test file) so it runs on bare metal
+too — memmove is used there — rather than gating it off.
+
+### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🔴 NEEDS DECISION, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
+
+`builder-comp_arm32_baremetal` runs each package's test binary in QEMU `virt` with `-m 16M`, linked by
+runtime/baremetal_arm32/baremetal.ld (`RAM LENGTH = 16M`: code, data, `.bss` — including the 4 MiB heap arena,
+rt_baremetal.bn ARENA_BYTES — then the stack growing down from the top).  Several packages no longer fit:
+`native/arm32`'s test binary fails to link (".bss will not fit in region RAM: overflowed by 844365 bytes",
+735013 a few hours earlier); `irgen`'s links with `.text` 11.9 MB + `.bss` 4.2 MB, leaving ~600 KB of stack, and
+dies with no output (reproduced locally); `asm/parse` and `check` abort with "rt.RawAlloc: arena exhausted" (an
+abort since binate `aa166c839`, which stopped the allocator wrapping).  Options: give test runs more RAM
+(QEMU `virt` has 1 GiB; the runner's `-m` and the linker script's LENGTH move together) and a larger arena, or
+shard / shrink the test packages, or xfail them on bare metal.  The test binaries grow with every test added,
+so a one-off trim will not last.
+
+### CI red: native x64 unit — the runner is shut down partway through `pkg/binate/check` — 🔴 OPEN, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
+
+`builder-comp_native_x64-comp_native_x64` (unit) ends with "The runner has received a shutdown signal … exit
+code 143" 7-10 minutes into `STARTING: pkg/binate/check`, in every finished run since at least 2026-10-16
+(runs at bd4ee00c5, 053d743c1, ccd303d75); the job is at ~19 of its 30 minutes, so it is not the timeout.  A
+kill at the same package every time points at the test binary exhausting the runner's memory (or disk), not
+a transient.  Not reproduced locally (it needs an x86-64 Linux host; a memory-capped docker run is the safe
+way).  Find which check test drives it and why the native x64 build differs from aa64 / LLVM, which pass.
+
+### CI red: arm32 Linux VM conformance — 1333, 1566 and 1569 die with SIGBUS (exit 135) — 🔴 OPEN, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
+
+On `builder-comp_arm32_linux_int` (the bytecode VM on a 32-bit host) 1333_decl_order_forward_types_pkg and
+1566_large_agg_stack_part_loops print all of their expected output and then exit with status 135 (SIGBUS);
+1569_large_agg_shim_loops stops one line short.  Reproduced locally in the binate-ci container
+(`conformance/run.sh builder-comp_arm32_linux_int 1333 1566 1569`).  Shard 2/3 of that mode has been red since at
+least 2026-10-15.  Root cause unknown — the shared symptom (a bus error at or near exit) suggests the VM's
+teardown, or an unaligned access in freeing, on the 32-bit host.
+
+### CI red: e2e `bnld-real-program` checks `e_phnum` as if it were the PT_LOAD count — 🔴 OPEN, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
+
+e2e/bnld-real-program.sh:370 asserts `u16le "$PA" 56 = 2` ("aarch64 output not two PT_LOAD segments"), but
+offset 56 is `e_phnum`, the count of ALL program headers.  Since binate `10adaecd2` (work-2: `.eh_frame_hdr` and
+PT_GNU_EH_FRAME) the linked aarch64 program carries a PT_GNU_EH_FRAME header as well, so the check fails though
+the segments are right; the x86-64 check (line 257) reads the same field.  Fix: count the PT_LOAD entries in the
+program-header table (and check PT_GNU_EH_FRAME separately where an `.eh_frame` exists).
+
 ### A parameterized impl lets a managed pointer to its instance satisfy a constraint — `g[@W[int]]` is accepted through `impl W[K]` — 🔴 OPEN MAJOR (found 2026-10-16, work-6, review of the spec status cleanup; split out of the pointer-impl decision entry 2026-10-17; reproduced; pre-existing)
 
 With `impl W[K] : lang.Orderable` (`func (w W[K]) Compare(o W[K]) int`) and `func g[U lang.Orderable](u U) int {
