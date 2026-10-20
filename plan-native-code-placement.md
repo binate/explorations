@@ -265,9 +265,12 @@ Raw data and `stats.py` reports: scratch dirs aa-same-bench, aa-salted-bench, aa
   between the arms on the self-compile only. Ruled out: file-backed huge pages (no PMD-mapped text in either
   arm's bnc), text size (equal means), every static layout covariate (no arm difference, |z| <= 1.5; per-seed
   d uncorrelated). Being tested: build order -- ab.py builds arm 0's binaries before arm 1's, so arm 1's page-
-  cache pages are allocated later (physical page colouring of a 14 MB text); the test drops the page cache
-  between the build and timed phases (seeds 61-90). Another difference: arm 0's placement seeds are the small
-  integers themselves, arm 1's are salted 31-bit values.
+  cache pages are allocated later (physical page colouring of a 14 MB text). With the page cache dropped
+  between the build and timed phases (seeds 61-90) the bias went away: +0.06% [-0.88, +1.03] (consistent with
+  the build-order explanation, ~1.1 SE from the earlier +0.7%, so not proof). binate `8ae1d26cd` (not yet
+  landed): ab.py builds seed by seed with the arms alternating, and --drop-caches drops the page cache after
+  the build phase. Validation without a drop (seeds 91-120) running. Remaining alternative explanation: arm
+  0's placement seeds are the small integers themselves, arm 1's are salted 31-bit values.
 - Run noise dominates: two back-to-back runs of one binary differ by a median 2.6-3.9% (p90 7-11%) on
   binary-trees / fannkuch / richards; per-run noise ~1.0-1.5% spectral-norm, ~2% n-body, ~2-3% self-compile,
   4-8% fasta / record-churn. The host speed also drifts: the A/A-same self-compile's per-round mean went
