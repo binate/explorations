@@ -66,7 +66,8 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 expansion check) checks `type N[T any] struct { x T; a *N[[sizeof(T) + 1]uint8]; b *N[[sizeof(T) + 1]uint16] }`
 and expects "generic instantiation N[int] builds more than 4096 instances"; under the bytecode VM it dies with
 "runtime error: stack overflow" (reproduced locally: `scripts/unittest/run.sh builder-comp-int
-pkg/binate/check`).  The native and LLVM lanes pass.  Root cause unknown: either the build recursion is
+pkg/binate/check`).  The LLVM lanes pass; the native lanes never get as far as running it (see the
+native x64 unit entry below: compiling check's tests natively exhausts memory).  Root cause unknown: either the build recursion is
 deeper than the 4096-instance budget implies (then the checker should not recurse that deep), or the VM's
 stack is too small for a legitimate depth.  Decide which before changing the test.
 
@@ -115,11 +116,33 @@ console (as pkg/builtins/testing/sys already does), or have the runner print thr
 ### CI red: native x64 unit — the runner is shut down partway through `pkg/binate/check` — 🟡 IN PROGRESS (claimed 2026-10-20, work-3; user: "then #6 and #5"), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
 `builder-comp_native_x64-comp_native_x64` (unit) ends with "The runner has received a shutdown signal … exit
-code 143" 7-10 minutes into `STARTING: pkg/binate/check`, in every finished run since at least 2026-10-16
-(runs at bd4ee00c5, 053d743c1, ccd303d75); the job is at ~19 of its 30 minutes, so it is not the timeout.  A
-kill at the same package every time points at the test binary exhausting the runner's memory (or disk), not
-a transient.  Not reproduced locally (it needs an x86-64 Linux host; a memory-capped docker run is the safe
-way).  Find which check test drives it and why the native x64 build differs from aa64 / LLVM, which pass.
+code 143" partway through `STARTING: pkg/binate/check` in every finished run since at least 2026-10-06, and
+`builder-comp_native_aa64-comp_native_aa64` (unit) fails `check` with no output after ~600 s, or hits the job's
+30-minute timeout there, in every run since 1fca458a1 (2026-10-06; it passed at 85fcda9cb, with 1346 check tests).
+
+Root cause (found 2026-10-19, work-3): COMPILING check's test binary with `--backend native` takes 64.6 GB
+(peak footprint; 6.8 GB resident, the rest compressed or swapped) and 370 s on this host, against 0.65 GB for
+the LLVM backend; the binary itself runs in 2 s and 76 MB.  The Linux runner is OOM-killed; the macOS runner
+swaps until it is killed.  The memory goes to the generated test runner's `main` (cmd/bnc/gen_test_runner.bn) —
+one function with a block group and a managed local per test, 1569 of them for check — because native/common's
+per-function analyses are quadratic in a function's size, in time and in memory.  A synthetic package of N
+trivial tests compiles natively in 2.0 GB / 6 s (N=250), 6.7 GB / 22 s (500), 25.8 GB / 124 s (1000) and
+102.6 GB / 605 s (2000); the LLVM backend needs 0.09 / 0.16 / 0.29 / 0.56 GB.  A `sample` profile at N=1000
+(aarch64): RegMap.PlanFrame ~68% — LastUseArgLoads ~45% (per aggregate load, the slotReachPtr and slotAliases
+fixpoints and slotDeadAfterLoad, each rescanning the whole function with NextID-long arrays) and
+AggLoadElision ~23% (valueUsedInOtherBlock, allocaAddrConfinedToLoadStore, lastAliasUseIndex: a whole-function
+scan per candidate); ComputeLiveBeforeAllFused ~18% (blockLiveBefore allocates NextID-long sets per block);
+ComputeLivenessFused + ComputeLivenessFp ~13% (livenessFixpoint keeps four dense `bool` sets over ALL value
+IDs per block, once per register class — O(blocks × values) memory, where the footprint peaks).
+
+Proposed fix (awaiting the user's decision): make these analyses near-linear in function size — (1) liveness
+over a compact index of the values live across blocks, as packed bitsets (a block-local value needs no
+dataflow); (2) live-before derived by one backward scan per block from its live-out, with no NextID-sized
+per-block arrays; (3) the slot analyses walk a per-function def→uses index from each slot (a slot's reach is
+the closure over its users) instead of rescanning every block per slot until nothing changes, with sparse
+visited sets — plus a test that compiles a large generated function natively under a memory budget.
+Generating the runner as many small functions would only hide this from test packages (a large user function
+still hits it), so it is a workaround, not the fix.
 
 ### CI red: arm32 Linux VM conformance — 1333, 1566 and 1569 die with SIGBUS (exit 135) — 🟡 IN PROGRESS (claimed 2026-10-20, work-3; user: "then #6 and #5"), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
