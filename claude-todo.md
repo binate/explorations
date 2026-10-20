@@ -101,6 +101,16 @@ abort since binate `aa166c839`, which stopped the allocator wrapping).  Options:
 (QEMU `virt` has 1 GiB; the runner's `-m` and the linker script's LENGTH move together) and a larger arena, or
 shard / shrink the test packages, or xfail them on bare metal.  The test binaries grow with every test added,
 so a one-off trim will not last.
+**Correction (2026-10-20, work-3): `irgen`'s silent failure is NOT the RAM limit.**  `irgen`'s and
+`asm/assemble`'s bare-metal test binaries read their command line (semihosting 0x15) and exit 1 (0x20) with
+no CPU fault — and with no output, because ALL bare-metal test-runner output is dropped: the generated runner
+(cmd/bnc/gen_test_runner.bn) prints RUN / PASS / FAIL through pkg/std/fmt -> os.Stdout, and
+impls/stdlib/pkg/std/os/os_baremetal.bn's Stdout is an empty File whose Write always fails (errNoFS).  So
+those two packages have ordinary FAILING TESTS nobody can see (the CI log shows `()` for every bare-metal
+package's count for the same reason).  NEEDS DECISION: route bare-metal os.Stdout / Stderr to the semihosting
+console (as pkg/builtins/testing/sys already does), or have the runner print through pkg/builtins/testing
+(its source says it must use the real pkg/std/fmt).  Only after that can the failing tests be found; the
+`native/arm32` link overflow and the arena exhaustion remain size problems.
 
 ### CI red: native x64 unit — the runner is shut down partway through `pkg/binate/check` — 🟡 IN PROGRESS (claimed 2026-10-20, work-3; user: "then #6 and #5"), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
