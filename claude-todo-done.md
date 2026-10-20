@@ -1,3 +1,16 @@
+### asm Mach-O: relocations in clang's order, each section's in reverse — DONE (binate `908f83e8f`, 2026-10-20, work-2) (found 2026-10-19, work-2, review of binate `648821e8a`)
+
+clang (LLVM's MachObjectWriter, "to match 'as'") writes each section's relocations in reverse, each ADDEND /
+SUBTRACTOR entry still before the relocation it belongs to; bnas wrote them in fixup order.  Resolution (binate
+`908f83e8f`): writeMachoRelocs builds each section's entries in source order, a group per relocation with its
+companion entry (so a diagnostic still names the first bad reference in the source), and appends the groups in
+reverse.  bnas's Relocs are in address order within a section (every fixup is added at the section's end), the order
+LLVM records them before reversing; a review compared pools, `.ltorg`, TLV and GOT pairs, aliases, differences and the
+x86-64 SIGNED_1 forms against clang 21 — identical.  bnld needs only each companion before its relocation; its GOT
+slots now follow the reversed order (deterministic, unpinned).  The writer's comment that ld64 rejects every
+r_extern 0 relocation (wrong for x86-64) now gives the real reason bnas writes none.  Test:
+TestAssembleFileMachoRelocationOrder (an AArch64 and an x86-64 source's entries equal to clang's in order).
+
 ### x86-64: a zero-size aggregate parameter was one GP word to types/abi but none to native callconv — native↔LLVM ABI mismatch, and invalid LLVM IR for some calls — DONE (binate `4bb232cf4`, 2026-10-20, work-1) (found 2026-10-19, work-1, review of the LLVM x86-64 stack-argument check; pre-existing)
 
 types/abi's sysvArgWords clamped a zero-size aggregate (struct {}, [0]T) to one GP word, while native
