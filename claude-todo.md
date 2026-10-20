@@ -231,6 +231,19 @@ and constants on demand, not functions.  So `var g [len(f())]int` (or `type T [l
 [3]int` reports "undefined: f", and the reverse order is accepted.  Fix: resolve a function (and a method) the
 operand names on demand as a variable is; a conformance test with the length before the function.
 
+### A deferred early read of a variable leaves the function instances its check built cached — 🔴 OPEN (minor: a misleading diagnostic; found 2026-10-19, work-5, review of the on-demand functions change; by reasoning)
+
+`batchVarOnDemand` (check/check_decl_batch.bn), deferring a variable's check read while types are collected, drops
+its errors but not the generic-function instances (`FuncInstance`s) or queued instance work the check built.
+`type B [len(tbl)]uint8`, `var tbl = gf[int]()`, then `func gf[T any]() [<a length negative for T=int>]T`: the
+instance's signature error defers the check and is dropped; `recheckDeferredVars` then hits the cached instance and
+reports a misleading "declare its type" at tbl, while the real error surfaces only from the instance's body check.
+The program is rejected either way.  The REPL undoes such caches (`markInstCaches` / `dropInstCaches`,
+`discardInstWork`), but dropping them mid-collection could leave a function defined on demand meanwhile with a
+signature naming a dropped instance type, so the fix needs care.  Also noted by that review, with no concrete case:
+a lookup made from an imported generic's instance-signature scope (which sets `c.curPkgPath` to the generic's home)
+could define a same-named local function on demand, and `enterPackageDecl` does not reset `curPkgPath`.
+
 ### The LLVM backend declares a function's own sret parameter `align 8` whatever the result's alignment; a C caller's buffer may be less aligned — 🔴 OPEN (found 2026-10-09, work-1, review of the returned-local change; pre-existing; plausible, not yet reproduced)
 
 A function returning through sret is defined `define void @f(ptr sret(%T) align 8 %v.retbuf, ...)`
