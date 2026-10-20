@@ -1,5 +1,5 @@
 # Plan: native code placement (x64, aarch64, arm32)
-Status: tooling designed (2026-10-12); decisions taken 2026-10-15 (below); tooling commit 1 (placement seed) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report, `layout.py`) landed as binate `f05342e5d` (2026-10-18); tooling commit 3 (timing driver, `ab.py` / `stats.py`) landed as binate `4f9e3c75b` (2026-10-18), its short-run refusal as `0a6a3aeaf`; tooling commit 4 (probe) landed as binate `053d743c1` (2026-10-19); phase-0 calibration next. Tracked in `claude-todo.md` ("native code placement").
+Status: tooling designed (2026-10-12); decisions taken 2026-10-15 (below); tooling commit 1 (placement seed) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report, `layout.py`) landed as binate `f05342e5d` (2026-10-18); tooling commit 3 (timing driver, `ab.py` / `stats.py`) landed as binate `4f9e3c75b` (2026-10-18), its short-run refusal as `0a6a3aeaf`; tooling commit 4 (probe) landed as binate `053d743c1` (2026-10-19); phase-0 calibration run on the x86 VM 2026-10-19/20 (results below), awaiting user decisions on the selection-rule guard and where decisive timing runs. Tracked in `claude-todo.md` ("native code placement").
 ## Why
 
 Identical machine code runs at very different speeds depending on where it lands, on the x86 test host
