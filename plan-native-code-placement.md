@@ -269,8 +269,11 @@ Raw data and `stats.py` reports: scratch dirs aa-same-bench, aa-salted-bench, aa
   between the build and timed phases (seeds 61-90) the bias went away: +0.06% [-0.88, +1.03] (consistent with
   the build-order explanation, ~1.1 SE from the earlier +0.7%, so not proof). binate `8ae1d26cd` (not yet
   landed): ab.py builds seed by seed with the arms alternating, and --drop-caches drops the page cache after
-  the build phase. Validation without a drop (seeds 91-120) running. Remaining alternative explanation: arm
-  0's placement seeds are the small integers themselves, arm 1's are salted 31-bit values.
+  the build phase. Validation without a drop (seeds 91-120, seed-by-seed builds): B +1.16% [-0.01, +2.29], so
+  build order is NOT the explanation (the drop-cache run's +0.06% was the one exception in four runs: +0.62,
+  +0.75, +0.06, +1.16). Remaining candidates: arm 0's placement seeds are the small integers themselves while
+  arm 1's are salted 31-bit values, or a later arm index is slower for another reason. Being tested: a
+  three-arm salted A/A (A raw seeds, B salted once, C salted twice), seeds 121-150.
 - Run noise dominates: two back-to-back runs of one binary differ by a median 2.6-3.9% (p90 7-11%) on
   binary-trees / fannkuch / richards; per-run noise ~1.0-1.5% spectral-norm, ~2% n-body, ~2-3% self-compile,
   4-8% fasta / record-churn. The host speed also drifts: the A/A-same self-compile's per-round mean went
