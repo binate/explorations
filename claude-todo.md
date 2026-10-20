@@ -757,17 +757,13 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### asm Mach-O: x86-64 section-relative relocations for a temporary no symbol precedes; a reference into a section with no other symbol under subsections — 🟡 IN PROGRESS (claimed 2026-10-19, work-2; user: "Next, before TLS 3") (found 2026-10-19, work-2, review of binate `97255aad6` / `648821e8a`)
+### asm Mach-O: a reference into a section with no other symbol under subsections; relocation order — 🟡 IN PROGRESS (claimed 2026-10-19, work-2; user: "Next, before TLS 3") (found 2026-10-19, work-2, review of binate `97255aad6` / `648821e8a`)
 
-(a) On x86-64 a relocation against a temporary no symbol precedes is section-relative in clang (`r_extern` 0, the
-section's ordinal: `leaq Lx(%rip)` with `Lx` after `.quad 0` in __data, the target's address in the field); bnas
-defines an `ltmp<N>` anchor and relocates against it (asm/macho/macho_atoms.bn sectionAnchor), so its object lists a
-symbol clang's does not.  It links either way.  **Fix:** write clang's non-extern relocation on x86-64 and drop the
-anchor there; golden relocations and symbol tables against clang.  (b) With `.subsections_via_symbols`, a reference to
-a temporary in a section that holds no other symbol (`.section data` / `Lend:` and nothing else, loaded from text)
-goes against the section's zero-size anchor, and ld64 rejects the object ("invalid r_symbolnum"), as it rejects
-clang's.  **Fix:** needs investigating — what ld64 accepts there (a non-extern relocation is not allowed for ARM64
-PAGE21 / PAGEOFF12), else a clear error.
+(b) With `.subsections_via_symbols`, a reference to a temporary in a section that holds no other symbol (`.section
+data` / `Lend:` and nothing else, loaded from text) goes against the section's zero-size anchor, and ld64 rejects the
+object ("invalid r_symbolnum"), as it rejects clang's.  **Fix:** needs investigating — what ld64 accepts there (a
+non-extern relocation is not allowed for ARM64 PAGE21 / PAGEOFF12, and is wrong code on x86-64; see the declined
+x86-64 section-relative entry in claude-todo-done.md), else a clear error.
 (c) clang writes each section's relocations in reverse order (LLVM's MachObjectWriter, "to match 'as'"), each
 ADDEND / SUBTRACTOR entry still before the relocation it belongs to; bnas writes them in fixup order: `call Lx` / `jmp
 Lx` has its two BRANCH entries the other way round from clang's.  **Fix:** write each section's relocations in

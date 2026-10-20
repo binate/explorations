@@ -1,3 +1,18 @@
+### asm Mach-O x86-64: section-relative relocations for a temporary no symbol precedes, as clang writes them — DECLINED (2026-10-19, work-2; user: "Keep anchors; don't land") (found 2026-10-19, work-2, review of binate `97255aad6`)
+
+clang has no section anchors on x86-64: a reference to a temporary that no listed symbol precedes in its section is
+section-relative (`r_extern` 0, the section's ordinal, the target's address in the object in the field), where bnas
+relocates against an `ltmp<N>` anchor.  A change matching clang byte-for-byte (relocations, section contents, symbol
+tables for SIGNED, SIGNED_1, BRANCH, UNSIGNED and SUBTRACTOR sides) was written and is archived on the binate branch
+`archive/20261019-asm-x64-section-relative-relocs`; its review showed clang's form unsound, so bnas keeps its anchors
+as a deliberate difference.  (1) ld64 rejects a section-relative SUBTRACTOR, ld-prime and ld_classic alike
+(`.uint64 _main - Lx`: "X86_64_RELOC_SUBTRACTOR must have r_extern=1"), clang's object included.  (2) An address-only
+reference resolves into whichever atom holds the address: under `-ld_classic`, `lea rax, [rip + Lend]` with Lend at
+the end of data returns 0 instead of 7 (reproduced; ld-prime gets 7), and so do references reaching past a section's
+end; with `.subsections_via_symbols` a temporary at the end of the leading unnamed region (`Lend:` just before `_g:`)
+is taken as `_g`'s, so `-order_file` gives 104 and `-dead_strip` 0 instead of 7, on both linkers.  The anchor form is
+right in every case.  ld64 also rejects clang's section-relative GOT_LOAD.
+
 ### asm Mach-O symbol and string tables: clang's `ltmpN` anchors, symbol order and string-table layout; a short-range-fixup error names the anchor — DONE (binate `648821e8a`, 2026-10-19, work-2; user: "Next, before TLS 3", "Match byte-for-byte") (found 2026-10-19, work-2, review of binate `97255aad6`)
 
 (1) clang (`-target arm64-apple-macos`) lists a local `ltmp<N>` symbol at the start of every section, with or without
