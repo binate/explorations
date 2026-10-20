@@ -1,3 +1,59 @@
+### CI red: arm32 Linux VM conformance — 1333, 1566 and 1569 die with SIGBUS (exit 135) — DONE (binate `112434dbe`, `52266eabe`, 2026-10-20, work-3) (filed 2026-10-20, work-3, CI triage)
+
+On `builder-comp_arm32_linux_int` (the bytecode VM on a 32-bit host) 1333_decl_order_forward_types_pkg and
+1566_large_agg_stack_part_loops print all of their expected output and then exit with status 135 (SIGBUS);
+1569_large_agg_shim_loops stops one line short.  Reproduced locally in the binate-ci container
+(`conformance/run.sh builder-comp_arm32_linux_int 1333 1566 1569`).  Shard 2/3 of that mode has been red since at
+least 2026-10-15.
+Resolution (binate `112434dbe`): execLoop's BC_RETURN copy-back (an aggregate returned from the callee's frame,
+copied down to the caller's stack top) advanced callerSP by the type's natural size (lowerReturn's Aux), so an
+odd-sized aggregate left vm.SP unaligned and the next frame header (pushFrame's `*int` stores) faulted on arm32; it
+now advances by the 8-rounded size, as execFunc already did.  Found with an LD_PRELOAD SIGBUS handler (dladdr) in
+the qemu-arm container: vm.SP odd after the return in 1566 / 1569, an odd frameStart in 1333.
+TestFrameAlignOddAggregateReturnThenCall's callee reports its local's address mod 4, so it fails on any host
+without the fix.  The review's follow-up `52266eabe` makes both copy-backs (BC_RETURN, execFunc) MemMove: the image
+lies inside the frame that starts at its destination, so a large one overlaps it, which MemCopy's contract forbids.
+builder-comp_arm32_linux_int: 3728 passed, 0 failed.
+
+### CI red: e2e `bnld-real-program` checks `e_phnum` as if it were the PT_LOAD count — DONE (binate `a55671e55`, 2026-10-20, work-3) (filed 2026-10-20, work-3, CI triage)
+
+e2e/bnld-real-program.sh:370 asserts `u16le "$PA" 56 = 2` ("aarch64 output not two PT_LOAD segments"), but
+offset 56 is `e_phnum`, the count of ALL program headers.  Since binate `10adaecd2` (work-2: `.eh_frame_hdr` and
+PT_GNU_EH_FRAME) the linked aarch64 program carries a PT_GNU_EH_FRAME header as well, so the check fails though
+the segments are right; the x86-64 check (line 257) reads the same field.  Fix: count the PT_LOAD entries in the
+program-header table (and check PT_GNU_EH_FRAME separately where an `.eh_frame` exists).
+Resolution (binate `a55671e55`): the script counts the PT_LOAD entries of the program-header table
+(`phdr_count`) and checks the two load segments' flags (x86-64: `5 6`); the aarch64 check also requires exactly one
+PT_GNU_EH_FRAME.  The helpers were checked against readelf (the script itself runs only on x86-64 Linux).
+
+### CI red: bare-metal `rt` tests do not compile — `rt_memmove_test.bn` uses helpers from the libc-gated `rt_test.bn` — DONE (binate `a7332a071`, 2026-10-20, work-3) (filed 2026-10-20, work-3, CI triage)
+
+impls/core/common/pkg/builtins/rt/rt_memmove_test.bn (binate `987685d08`, work-1's memmove change) calls
+`offsetPtr` and `fail`, defined in rt_test.bn, which is gated `#[build(!is(os, "baremetal"))]`; on
+`builder-comp_arm32_baremetal` the package's tests fail with "undefined: offsetPtr" / "undefined: fail".  Fix:
+give the memmove test its own helpers (or move the helpers to an ungated test file) so it runs on bare metal
+too — memmove is used there — rather than gating it off.
+Resolution (binate `a7332a071`): `fail` and `offsetPtr` moved from rt_test.bn to a new ungated
+rt_testsupport_test.bn, so the memmove tests build and run on bare metal (rt passes on builder-comp_arm32_baremetal).
+
+### CI red: arm32 unit tests put constants of 2^31 and above in `int` (asm/assemble, link) — DONE (binate `63627ae64`, 2026-10-20, work-3) (filed 2026-10-20, work-3, CI triage)
+
+On the 32-bit-`int` lanes (`builder-comp_arm32_linux`, `builder-comp_arm32_baremetal`) three test files do not
+compile: asm/assemble/assemble_alias_test.bn:31,46 and assemble_subsections_test.bn:51,57 ("mismatched types
+int and untyped int": `got >= 0x80000000`, `got - 0x100000000`, `w != 0x94000002`, an 8-byte `tlsU` read into
+an `int`), and link/parse_tls_test.bn:81-82 ("cannot assign untyped int to int": `isMachoThreadLocal(0x80000015)`
+etc.).  Added by binate `4c041991a`, `97255aad6` (asm Mach-O) and `4d91dc223` (bnld TLS) — the work-2 series.
+Fix: use int64 / uint32 where the values are 32-bit unsigned or 64-bit (and check whether `isMachoThreadLocal`
+and the 8-byte read helper themselves take `int` where a section flag / 64-bit field needs uint32 / int64 — a
+latent 32-bit-host bug in the code, not just the test).
+Resolution (binate `63627ae64`): the tests read 32-bit unsigned and 64-bit fields as int64 (`tlsU64`;
+`machoRelocInfo` returns int64; `elfRela` reads its info word and addend through it; `subsecText` returns its
+instruction word as uint32), sign-extend a 4-byte field explicitly, and pass link's section-flag constants through
+int64 variables.  Once they compiled, TestAssembleFileTlvReferences also failed on 32 bits (a relocation word with
+bit 31 set read as a negative int); the int64 reads cover it.  The code itself is right on a 32-bit host:
+isMachoThreadLocal masks `flags & 0xff`, which a flag word read as a negative int still passes.  asm/assemble and
+link pass on builder-comp_arm32_linux.
+
 ### asm Mach-O: relocations in clang's order, each section's in reverse — DONE (binate `908f83e8f`, 2026-10-20, work-2) (found 2026-10-19, work-2, review of binate `648821e8a`)
 
 clang (LLVM's MachObjectWriter, "to match 'as'") writes each section's relocations in reverse, each ADDEND /
