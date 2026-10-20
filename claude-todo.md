@@ -821,6 +821,12 @@ cycle.  Plan: (1) [DONE, binate `ac5e26e15`] prepare a `sizeof` / `alignof` oper
 types a type argument reaches; (2) defer an instance's structure while a type its structure needs the layout of is
 still being collected or built, populating it when that completes — a by-value use meanwhile is a cycle, reported
 as one.
+Also in this class (reproduced 2026-10-19; valid, rejected as "an opaque type"): the opaque rule
+(embedsOpaqueByValue) follows a slice's element and counts a type still being collected as opaque, so
+`type M struct { a [sizeof(@[]L)]uint8 }` with `type L struct { m M }`, `type H struct { v int64; s @[]Z }` with
+`type Z struct { a [sizeof(H)]uint8 }`, and `type M struct { a [sizeof(@[]M)]uint8 }` are rejected though a slice's
+size never depends on its element.  Part (2)'s tests should also cover a type held through a function value
+(`type X struct { f *func(Box[N]) int; v int64 }; type N struct { x X }`) and through aliases.
 
 ## Performance
 
