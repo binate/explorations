@@ -301,8 +301,10 @@ Raw data and `stats.py` reports: scratch dirs aa-same-bench, aa-salted-bench, aa
   r +0.30, JCC hits r -0.22, none significant at 30 seeds).
 - The selection rule's "no workload slower beyond its 95% CI" guard rejected the salted A/A arm (n-body, and on
   the self-compile run the self-compile itself): over 9 workloads it rejects a neutral arm ~20% of the time by
-  design, more with the under-coverage above. Raised with the user (multiplicity correction or a minimum
-  slowdown), not yet decided.
+  design, more with the under-coverage above. Decided 2026-10-20: a Holm correction over the workloads
+  (stats_select: Holm's step-down test on each workload's one-sided bootstrap p-value against a slowdown,
+  family-wise 2.5%; not yet landed). On the salted A/A data above it keeps the neutral arm eligible
+  (n-body p 0.0058 > 0.025/9).
 
 ## Tests
 - common_place_test.bn:
