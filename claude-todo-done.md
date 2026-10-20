@@ -1,3 +1,18 @@
+### asm Mach-O: a reference into a section with no other symbol under subsections — DONE (binate `1a20cd3a8`, 2026-10-20, work-2; user: "Next, before TLS 3") (found 2026-10-19, work-2, review of binate `97255aad6` / `648821e8a`)
+
+(b) With `.subsections_via_symbols`, a reference to a temporary in a section that holds no other symbol (`.section
+data` / `Lend:` and nothing else, loaded from text) goes against the section's zero-size anchor, and ld64 rejects the
+object ("invalid r_symbolnum"), as it rejects clang's.  **Fix:** needs investigating — what ld64 accepts there (a
+non-extern relocation is not allowed for ARM64 PAGE21 / PAGEOFF12, and is wrong code on x86-64; see the declined
+x86-64 section-relative entry in claude-todo-done.md), else a clear error.
+
+Resolution (binate `1a20cd3a8`): probing showed only a section with no contents fails (a temporary at the end of a
+section with contents links, with or without the directive); ld rejects bnas's anchor relocation there ("invalid
+r_symbolnum") and clang's object too, on AArch64 and on x86-64 (clang's section-relative one: "points to section(2)
+with no content").  atomBaseFor now reports it ("a reference to 'Lend' in the empty section data, which ld64 rejects
+in an object with .subsections_via_symbols") instead of writing an object no linker takes.  Test:
+TestAssembleFileSubsectionsViaSymbols (both arches).
+
 ### CI red: arm32 Linux VM conformance — 1333, 1566 and 1569 die with SIGBUS (exit 135) — DONE (binate `112434dbe`, `52266eabe`, 2026-10-20, work-3) (filed 2026-10-20, work-3, CI triage)
 
 On `builder-comp_arm32_linux_int` (the bytecode VM on a 32-bit host) 1333_decl_order_forward_types_pkg and
