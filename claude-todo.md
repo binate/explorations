@@ -364,6 +364,21 @@ LLVM's empty first-class struct do; add a zero-size case to native/callconv's ab
 Test: a conformance test calling g and h (with s's fields checked) fails to compile on LLVM x86-64 today; the runner
 has no per-host-arch xfail, so it lands with the fix.
 
+### native arm32: an 8-aligned zero-size argument wastes an odd core register — native↔LLVM / C ABI mismatch — 🔴 OPEN MAJOR (found 2026-10-19, work-1, review of the x86-64 zero-size argument fix; pre-existing)
+
+native/callconv's argRegWordsStackWords (callconv.bn, the AAPCS §6.5 C.3 even-pair round) applies NeedsEvenReg
+(call_args.bn) to any 8-aligned argument, including one of 0 words — `[0]int64`, `[0]float64`, `struct { x
+[0]int64 }` — and advanceNgrn keeps the rounded cursor, so an odd core register is used up.  LLVM (codegen spells it
+`<{ [0 x i64] }>` / `[0 x i64]`, zero parts) takes no register and rounds nothing, and clang's C rules ignore an
+empty record, so they agree with each other and not with native.  Confirmed (review, `--target arm32-linux`):
+`f(a int32, b int32, c int32, z Z, d int32)` with `Z = struct { x [0]int64 }` — the LLVM caller passes d in r3, the
+native callee reads d from its first incoming stack word.  A native↔LLVM mix, a native `__c_call`, or a native
+`#[c_export]` passes every argument after such a value wrongly.  Proposed fix (review): NeedsEvenReg false when
+cc.ArgWords(t) == 0 (it is the one source for the dispatch cursor and the func-value shim's outgoing cursor).
+Tests: add an 8-aligned zero-size argument after an odd number of int32s to e2e/mixed-backend-calls.sh (its arm32
+variant runs in the binate-ci image) and to conformance 1712; neither covers it today (1712's E is 1-aligned and
+`[0]int` 4-aligned on arm32).
+
 ### Neither backend probes the stack for a large frame — a frame past the guard page can step over it — 🔴 OPEN MAJOR (found 2026-10-18, work-1, review of the native aa64 16 MiB fix; pre-existing; needs a decision)
 
 A function's prologue moves SP down by its whole frame in one step (native: `sub sp, sp, #frame`, now also past 16
