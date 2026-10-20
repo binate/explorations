@@ -1,3 +1,17 @@
+### x86-64: a zero-size aggregate parameter was one GP word to types/abi but none to native callconv — native↔LLVM ABI mismatch, and invalid LLVM IR for some calls — DONE (binate `4bb232cf4`, 2026-10-20, work-1) (found 2026-10-19, work-1, review of the LLVM x86-64 stack-argument check; pre-existing)
+
+types/abi's sysvArgWords clamped a zero-size aggregate (struct {}, [0]T) to one GP word, while native
+callconv's argWords gives it none (as LLVM does for the empty first-class struct codegen passes).  So on x86-64
+`g(e E, a, b, c, d int, s P2)` had the LLVM define read s from the stack and native from R8/R9 (a native↔LLVM mix
+printed 516394372321 for 651), and `h(6 ints, e E, s P2, t P2)` made e itself memory-class (`ptr byval(E)`) with
+an LLVM call storing to a byval slot it never allocated, so clang rejected the module.  sysvArgWords now counts
+ceil(size/8) words, 0 for a zero-size aggregate.  Tests: native/callconv's abi↔callconv cross-check pins zero-size
+signatures (fails without the fix); conformance 1712 calls g / h / a [0]int shape (LLVM x86-64 failed to compile
+it); e2e/mixed-backend-calls.sh links the shapes across the two backends (on x86-64, both mixes failed without the
+fix — checked with an x86_64-darwin build under Rosetta).  Docs fixed alongside: callconv's ArgWords ("at least 1")
+and abi's SysVClassify ("empty" listed as MEMORY).  The review found the native arm32 even-register waste for an
+8-aligned zero-size argument (its own entry).
+
 ### `sizeof` of a type argument that is an instance still being built was "an opaque type" — `type N[T any] struct { next *Box[N[T]] }` with `Box[T]` holding `[sizeof(T)]uint8` — DONE (binate `ac5e26e15`, `7d6ccda87`, `a25aeb940`, 2026-10-20, work-7) (found 2026-10-17, work-7, review of the half-built-instance fix; claimed 2026-10-19 — user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]].")
 
 An instance's `[sizeof(T)]uint8` read the layout of its type argument while that was not built: N[T] being built

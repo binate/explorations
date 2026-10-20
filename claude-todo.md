@@ -392,25 +392,6 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### x86-64: a zero-size aggregate parameter is one GP word to types/abi but none to native callconv — native↔LLVM ABI mismatch, and LLVM emits invalid IR for some calls — 🟡 IN PROGRESS MAJOR (claimed 2026-10-19, work-1; user: "yes, go ahead; let's fix that next") (found 2026-10-19, work-1, review of the LLVM x86-64 stack-argument check; pre-existing)
-
-`abi.SysVArgInMemory` (types/abi/sysv_argmem.bn, sysvArgWords) clamps a zero-size aggregate to one GP word, while
-native callconv (native/callconv/call_args.bn, argWords) gives it none.  With `type E struct {}` and a 16-byte
-`type S struct { a int; b int }`:
-- `func g(e E, a int, b int, c int, d int, s S)`: the LLVM define makes s memory-class (`ptr byval`, read at
-  `16(%rbp)`), while native x64 reads s from R8/R9 — a native caller and an LLVM callee (or the reverse) disagree on
-  where s is, silently.
-- `func h(a int, b int, c int, d int, e2 int, f int, e E, s S, t S)`: abi makes e memory-class, `ptr byval(E)`, which
-  LLVM gives an 8-byte stack slot (t at `40(%rbp)`; callconv puts t at 16).  An LLVM call of h emits `store %E
-  %v15, ptr %v18.agA6` with no `.agA6` alloca, so clang rejects the module ("use of undefined value") — a program
-  calling h does not compile with the LLVM backend on x86-64.
-- The LLVM x86-64 stack-argument check (codegen checkStackArgs, which uses callconv) is off by 8-16 bytes per such
-  parameter at its 2 GiB boundary.
-Proposed fix (from the review): abi counts a zero-size aggregate as 0 words and never memory-class, as callconv and
-LLVM's empty first-class struct do; add a zero-size case to native/callconv's abi↔callconv cross-check battery.
-Test: a conformance test calling g and h (with s's fields checked) fails to compile on LLVM x86-64 today; the runner
-has no per-host-arch xfail, so it lands with the fix.
-
 ### native arm32: an 8-aligned zero-size argument wastes an odd core register — native↔LLVM / C ABI mismatch — 🔴 OPEN MAJOR (found 2026-10-19, work-1, review of the x86-64 zero-size argument fix; pre-existing)
 
 native/callconv's argRegWordsStackWords (callconv.bn, the AAPCS §6.5 C.3 even-pair round) applies NeedsEvenReg
