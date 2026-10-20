@@ -258,7 +258,16 @@ Raw data and `stats.py` reports: scratch dirs aa-same-bench, aa-salted-bench, aa
   -0.01% [-0.46, +0.46]; but 3 of the 9 per-workload 95% bootstrap intervals exclude 0: fannkuch -1.64%
   [-2.96, -0.33], n-body +0.90% [+0.21, +1.62], self-compile +0.62% [+0.02, +1.22] (t-interval [-0.01, +1.25]).
   Chance gives >= 3 of 9 under 1% of the time: either the per-workload intervals under-cover on this host or
-  something differs systematically between arm 0 and arm 1. Not yet resolved.
+  something differs systematically between arm 0 and arm 1.
+  Replicate on new seeds (2026-10-20): fannkuch -0.08% [-1.23, +1.06] and n-body +0.27% [-0.61, +1.12] (40
+  seeds 41-80) cover 0, so those two were chance; but the self-compile again has B slower, +0.75%
+  [+0.10, +1.39] (30 seeds 31-60; pooled with the first run ~+0.7%, z ~ 3): a real systematic difference
+  between the arms on the self-compile only. Ruled out: file-backed huge pages (no PMD-mapped text in either
+  arm's bnc), text size (equal means), every static layout covariate (no arm difference, |z| <= 1.5; per-seed
+  d uncorrelated). Being tested: build order -- ab.py builds arm 0's binaries before arm 1's, so arm 1's page-
+  cache pages are allocated later (physical page colouring of a 14 MB text); the test drops the page cache
+  between the build and timed phases (seeds 61-90). Another difference: arm 0's placement seeds are the small
+  integers themselves, arm 1's are salted 31-bit values.
 - Run noise dominates: two back-to-back runs of one binary differ by a median 2.6-3.9% (p90 7-11%) on
   binary-trees / fannkuch / richards; per-run noise ~1.0-1.5% spectral-norm, ~2% n-body, ~2-3% self-compile,
   4-8% fasta / record-churn. The host speed also drifts: the A/A-same self-compile's per-round mean went
