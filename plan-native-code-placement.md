@@ -1,5 +1,5 @@
 # Plan: native code placement (x64, aarch64, arm32)
-Status: tooling designed (2026-10-12); decisions taken 2026-10-15 (below); tooling commit 1 (placement seed) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report, `layout.py`) landed as binate `f05342e5d` (2026-10-18); tooling commit 3 (timing driver, `ab.py` / `stats.py`) landed as binate `4f9e3c75b` (2026-10-18), its short-run refusal as `0a6a3aeaf`; tooling commit 4 (probe) landed as binate `053d743c1` (2026-10-19); phase-0 calibration run on the x86 VM 2026-10-19/20 (results below), awaiting user decisions on the selection-rule guard and where decisive timing runs. Tracked in `claude-todo.md` ("native code placement").
+Status: tooling designed (2026-10-12); decisions taken 2026-10-15 (below); tooling commit 1 (placement seed) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report, `layout.py`) landed as binate `f05342e5d` (2026-10-18); tooling commit 3 (timing driver, `ab.py` / `stats.py`) landed as binate `4f9e3c75b` (2026-10-18), its short-run refusal as `0a6a3aeaf`; tooling commit 4 (probe) landed as binate `053d743c1` (2026-10-19); phase-0 calibration run on the x86 VM 2026-10-19/20 (results below); user decisions 2026-10-20: the per-workload guard gets a Holm correction over the workloads, and on this VM x64 decisions use the benchmark geomean and the self-compile while per-benchmark claims are timed on the aa64 machines. Next: the Holm change, then block layout. Tracked in `claude-todo.md` ("native code placement").
 ## Why
 
 Identical machine code runs at very different speeds depending on where it lands, on the x86 test host
@@ -278,8 +278,8 @@ Raw data and `stats.py` reports: scratch dirs aa-same-bench, aa-salted-bench, aa
   cleanly. A second --drop-caches A/A (seeds 151-180): B -0.09% [-0.88, +0.74]. So: all four runs that kept
   the freshly built binaries in the page cache showed the second arm slower (+0.62, +0.75, +1.16, +1.86%),
   both runs that dropped it showed nothing (+0.06, -0.09%). Mechanism unknown (not build order, not PMD
-  THP, not placement); remedy: binate `2f841226d` (not yet landed) makes ab.py's --drop-caches auto|on|off
-  default to auto (drop when root, warn otherwise).
+  THP, not placement); remedy: binate `5ff452880` (landed 2026-10-20) makes ab.py's --drop-caches auto|on|off
+  default to auto (drop when root, warn otherwise), and builds the arms seed by seed.
 - A real placement effect (from the 330 per-seed points of the five salted self-compile runs, each centred
   on its round): the entry phase of the hottest function, native/common blockLiveBefore, predicts the whole
   self-compile's time: phase 16 -0.50%, 48 -0.41%, 0 +0.34%, 32 +0.56% (se ~0.16 each), i.e. entering at

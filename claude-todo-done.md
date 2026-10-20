@@ -2457,6 +2457,18 @@ reader's reason.  Tests: `relocSectionChecks` on an ELF64 RELA and an ELF32 REL 
 `TestReadObjectRejectsNonRelocatable`, `TestReadArchiveBadMemberReason`.  Checked that clang C objects (`-g`,
 `-ffunction-sections`, `-O0` / `-O1`) still link on x86-64, aarch64 and arm32.
 
+### native code placement, phase-0 calibration and its tooling follow-ups — DONE (binate `15f9d7ac4`, `ffe4a8e3d`, `5ff452880`, 2026-10-20)
+
+A sub-step of the open "native code placement" entry in `claude-todo.md`; results are in
+`plan-native-code-placement.md` ("Phase-0 calibration results"). A/A runs on the x86 VM: the benchmark geomean is
+unbiased (salted, 40 seeds: -0.01% [-0.46, +0.46]); the self-compile showed a second-arm slowdown in every run that
+kept the freshly built binaries in the page cache and none after dropping it. Follow-ups: `5ff452880` ab.py
+--drop-caches auto|on|off (default auto) and seed-by-seed arm builds; `15f9d7ac4` bnc's usage text moves to
+usage.bn with a test that the hidden -fnative-place-* / -fx64-rax-home switches stay out of it and out of
+optflags.PassList; `ffe4a8e3d` the perf/placement Ctrl-C tests restore default SIGINT handling, which a
+non-interactive shell's background job starts with ignored. The calibration also found a real placement effect
+(blockLiveBefore's entry phase mod 32 moves the self-compile by ~0.9%, tracking its JCC-erratum unit count).
+
 ### native code placement, tooling commit 4: the placement probe — DONE (binate `053d743c1`, 2026-10-19)
 
 A sub-step of the open "native code placement" entry in `claude-todo.md`. Hidden bnc switches
