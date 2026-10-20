@@ -1,3 +1,19 @@
+### LLVM x86-64 mis-addressed an incoming byval argument past 2 GiB above the frame — DONE (binate `519dd78fa`, 2026-10-19, work-1) (found 2026-10-19, work-1, review of the x86-64 LLVM frame limit; pre-existing)
+
+The x86-64 LLVM frame limit covered a function's own frame, not its incoming stack arguments: `func f(a Big, b Big,
+c Big)` with three 1 GiB arrays compiled (frame 0x60) and addressed c at `-0x7ffffff0(%rbp)` instead of `rbp +
+0x80000010`, reachable from C calling an export or from native code linked with LLVM-compiled code.  User decision
+(2026-10-19): reject such a function on LLVM x86-64.  codegen's checkStackArgs — on every function's define, and on
+a C export's entry with the C layout (an sret pointer only the C side has can move a scalar onto the stack ahead of
+the rest) — records codegen.EmitError when the stack arguments end past 2^31 - 1 bytes above the frame pointer
+(16 + end - 1, exact; end from callconv.CallArgStackOff plus the size rounded to eightbytes), and bnc reports it and
+fails.  Shims receive every aggregate by address, so they are not checked; --emit-llvm, which only prints the IR,
+does not check.  Tests: codegen unit tests (three 1 GiB arrays; the exact boundary, 0x7FFFFFF0 / 0x7FFFFFF1; a C
+export whose entry alone passes it), conformance 1711 (the error on an x86-64 host's LLVM modes; native x64
+xfailed — a displacement past disp32 fails loud there, int64 layout stage 4d-2).  Validated as LLVM x86-64 under
+Rosetta (724-test subset 720/0).  The review found the x86-64 zero-size aggregate parameter mismatch (its own
+entry), which makes the bound off by 8-16 bytes per such parameter.
+
 ### asm Mach-O x86-64: section-relative relocations for a temporary no symbol precedes, as clang writes them — DECLINED (2026-10-19, work-2; user: "Keep anchors; don't land") (found 2026-10-19, work-2, review of binate `97255aad6`)
 
 clang has no section anchors on x86-64: a reference to a temporary that no listed symbol precedes in its section is

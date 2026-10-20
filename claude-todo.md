@@ -362,20 +362,7 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### LLVM x86-64 mis-addresses an incoming byval argument past 2 GiB above the frame — 🟡 IN PROGRESS MAJOR (claimed 2026-10-19, work-1; user decision 2026-10-19: reject such a function on LLVM x86-64, "let's do that fix now") (found 2026-10-19, work-1, review of the x86-64 LLVM frame limit; pre-existing)
-
-The x86-64 LLVM frame limit (warn-stack-size 2^31 - 1) covers a function's own frame, not its incoming stack
-arguments.  `func f(a Big, b Big, c Big)` with `type Big [0x40000000]uint8` passes each as `ptr byval`; f's frame
-is 0x60 bytes, so it compiles under the limit, but c's address comes out as `leaq -0x7ffffff0(%rbp)` instead of
-`rbp + 0x80000010` — the displacement truncated, silently.  No LLVM-x86-64 Binate caller reaches it (the caller's
-frame holds the 3 GiB outgoing area and is rejected), so only a caller that is not LLVM-x86-64 Binate code can: C
-calling an exported function, or native x64 code (once int64 layout stage 4d-2 lets its frames pass 2 GiB) linked
-with LLVM-compiled code.  Fix: reject, in the LLVM backend on x86-64, a function whose incoming stack arguments
-end past 2^31 - 1 bytes (a codegen check, like the frame limit), or another rule the user picks.  No test yet:
-conformance cannot drive a non-LLVM caller into an LLVM x86-64 callee; a codegen unit test can pin the
-rejection once decided.
-
-### x86-64: a zero-size aggregate parameter is one GP word to types/abi but none to native callconv — native↔LLVM ABI mismatch, and LLVM emits invalid IR for some calls — 🔴 OPEN MAJOR (found 2026-10-19, work-1, review of the LLVM x86-64 stack-argument check; pre-existing)
+### x86-64: a zero-size aggregate parameter is one GP word to types/abi but none to native callconv — native↔LLVM ABI mismatch, and LLVM emits invalid IR for some calls — 🟡 IN PROGRESS MAJOR (claimed 2026-10-19, work-1; user: "yes, go ahead; let's fix that next") (found 2026-10-19, work-1, review of the LLVM x86-64 stack-argument check; pre-existing)
 
 `abi.SysVArgInMemory` (types/abi/sysv_argmem.bn, sysvArgWords) clamps a zero-size aggregate to one GP word, while
 native callconv (native/callconv/call_args.bn, argWords) gives it none.  With `type E struct {}` and a 16-byte

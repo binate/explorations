@@ -156,7 +156,9 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
    - 4d-2 / 4d-3 / 4d-4. x64, aarch64, arm32 move to the int64 lookups and thread int64 offsets through their
      helpers.  x64: an offset past disp32 rebases — PUSH a register the access does not use, load it with
      base + offset (MOV imm64, ADD), address through it, POP; the frame never uses the red zone, and when any
-     operand is rebased every RSP-based operand of the access is too, so none is read off by the push.
+     operand is rebased every RSP-based operand of the access is too, so none is read off by the push.  Incoming stack arguments
+     past disp32 above RBP too: conformance 1711's native x64 xfails (an argument 3 GiB up) go with 4d-2,
+     as 1710's do.
      aarch64: MemImm64 and int64 range checks in the assembler's load / store paths (they narrow to int before
      checking today, which a 32-bit host would wrap).  arm32: a 32-bit target, so narrowing is exact.  Then
      the int lookups go.
