@@ -275,8 +275,11 @@ Raw data and `stats.py` reports: scratch dirs aa-same-bench, aa-salted-bench, aa
   arm 1's are salted 31-bit values, or a later arm index is slower for another reason. Three-arm salted A/A
   (A raw seeds, B salted once, C salted twice; seeds 121-150): B-A +1.85% (t 3.1), C-A +0.76% (t 1.0),
   C-B -1.09% (t -1.8); position effects ~0 -- fits neither "later arm slower" nor "salted seeds slower"
-  cleanly. Still unexplained; the only bias-free run is the page-cache-drop one, so a second --drop-caches
-  A/A (seeds 151-180) is running.
+  cleanly. A second --drop-caches A/A (seeds 151-180): B -0.09% [-0.88, +0.74]. So: all four runs that kept
+  the freshly built binaries in the page cache showed the second arm slower (+0.62, +0.75, +1.16, +1.86%),
+  both runs that dropped it showed nothing (+0.06, -0.09%). Mechanism unknown (not build order, not PMD
+  THP, not placement); remedy: binate `2f841226d` (not yet landed) makes ab.py's --drop-caches auto|on|off
+  default to auto (drop when root, warn otherwise).
 - A real placement effect (from the 330 per-seed points of the five salted self-compile runs, each centred
   on its round): the entry phase of the hottest function, native/common blockLiveBefore, predicts the whole
   self-compile's time: phase 16 -0.50%, 48 -0.41%, 0 +0.34%, 32 +0.56% (se ~0.16 each), i.e. entering at
