@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### bnfmt drops an empty string literal `""` that it splits at the line cap — 🔴 OPEN, needs a decision (found 2026-10-19, temp-4, review of the fill-measure change; pre-existing, in bnfmt `bnc-0.0.17-pre3`)
+### bnfmt drops an empty string literal `""` that it splits at the line cap — 🟡 IN PROGRESS (claimed 2026-10-19, temp-4; user: fix it now, landing before the fill-measure change) (found 2026-10-19, temp-4, review of the fill-measure change; pre-existing, in bnfmt `bnc-0.0.17-pre3`)
 
 `splitStringLit` (`pkg/binate/format/print_expr.bn`) splits a literal that does not fit at the current
 column into adjacent parts by looping over its content; for `""` the content is empty, the loop never runs,
