@@ -57,7 +57,7 @@ pkg/binate/check`).  The native and LLVM lanes pass.  Root cause unknown: either
 deeper than the 4096-instance budget implies (then the checker should not recurse that deep), or the VM's
 stack is too small for a legitimate depth.  Decide which before changing the test.
 
-### CI red: arm32 unit tests put constants of 2^31 and above in `int` (asm/assemble, link) — 🔴 OPEN, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
+### CI red: arm32 unit tests put constants of 2^31 and above in `int` (asm/assemble, link) — 🟡 IN PROGRESS (claimed 2026-10-20, work-3; user: "go ahead and start with #3 and #7 (and maybe #2)"), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
 On the 32-bit-`int` lanes (`builder-comp_arm32_linux`, `builder-comp_arm32_baremetal`) three test files do not
 compile: asm/assemble/assemble_alias_test.bn:31,46 and assemble_subsections_test.bn:51,57 ("mismatched types
@@ -68,7 +68,7 @@ Fix: use int64 / uint32 where the values are 32-bit unsigned or 64-bit (and chec
 and the 8-byte read helper themselves take `int` where a section flag / 64-bit field needs uint32 / int64 — a
 latent 32-bit-host bug in the code, not just the test).
 
-### CI red: bare-metal `rt` tests do not compile — `rt_memmove_test.bn` uses helpers from the libc-gated `rt_test.bn` — 🔴 OPEN, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
+### CI red: bare-metal `rt` tests do not compile — `rt_memmove_test.bn` uses helpers from the libc-gated `rt_test.bn` — 🟡 IN PROGRESS (claimed 2026-10-20, work-3; user: "go ahead and start with #3 and #7 (and maybe #2)"), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
 impls/core/common/pkg/builtins/rt/rt_memmove_test.bn (binate `987685d08`, work-1's memmove change) calls
 `offsetPtr` and `fail`, defined in rt_test.bn, which is gated `#[build(!is(os, "baremetal"))]`; on
@@ -107,7 +107,7 @@ On `builder-comp_arm32_linux_int` (the bytecode VM on a 32-bit host) 1333_decl_o
 least 2026-10-15.  Root cause unknown — the shared symptom (a bus error at or near exit) suggests the VM's
 teardown, or an unaligned access in freeing, on the 32-bit host.
 
-### CI red: e2e `bnld-real-program` checks `e_phnum` as if it were the PT_LOAD count — 🔴 OPEN, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
+### CI red: e2e `bnld-real-program` checks `e_phnum` as if it were the PT_LOAD count — 🟡 IN PROGRESS (claimed 2026-10-20, work-3; user: "go ahead and start with #3 and #7 (and maybe #2)"), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
 e2e/bnld-real-program.sh:370 asserts `u16le "$PA" 56 = 2` ("aarch64 output not two PT_LOAD segments"), but
 offset 56 is `e_phnum`, the count of ALL program headers.  Since binate `10adaecd2` (work-2: `.eh_frame_hdr` and
