@@ -1,3 +1,21 @@
+### Layout preparation during collection looked names up by NAME in the package being checked — a generic's `sizeof(T)` found a package type `T`, an imported generic's `sizeof(Inner)` the importer's `Inner` — DONE (binate `7d6ccda87`, 2026-10-19, work-7) (MAJOR; found 2026-10-19, work-7, review of the instance-`sizeof` forward-reference fix; claimed 2026-10-19 — user: "yes")
+
+`type Box[T any] struct { a [sizeof(T)]uint8 }` with `type T struct { b Box[int32] }` was rejected, "cyclic type
+definition involving `T`", and an imported generic's `sizeof(Inner)` (q's own Inner) was rejected at `q.bni` when
+the importer declared an unrelated Inner holding it by value: while an instance is populated, prepareLayout walked
+the operand as written (the generic's own text) and looked each name up in the current package's batch by name.
+The same walk took every instance type argument as held by value (`type X struct { b Box[N] }` with
+`type N struct { q P[X] }`, P holding `*T`, a false cycle) and never reached a slice's element (`sizeof(@[]N)`
+before N, "an opaque type").  Now prepareLayout takes the resolved type and walks its by-value parts, collecting
+each batch type declaration it reaches by identity (batchTypeDeclOf, which rejects an instance or a type the
+package scope does not hold under its name before searching the batch); what a slice's element reaches is
+collected too, never reported as a cycle.  The name-based walk and DeclBatch.GenericsPrepared are gone.  The
+review caught, before landing, a false cycle through a variable's slice type (`var arr [3]@[]L` read by M's
+length, L holding M) and a 57x slowdown on a 1500-type stress program.  Tests: check
+TestLayoutGenericSizeofNamesItsParam, TestLayoutInstanceArgThroughPointerNoCycle, TestLayoutSliceOfLaterType,
+TestLayoutThroughSliceNoCycle; conformance spec/15-builtins 159, 160.  The opaque rule counting a type still
+being collected as opaque through a slice's element stays with the `sizeof` of an unbuilt instance entry.
+
 ### LLVM x86-64 mis-addressed an incoming byval argument past 2 GiB above the frame — DONE (binate `519dd78fa`, 2026-10-19, work-1) (found 2026-10-19, work-1, review of the x86-64 LLVM frame limit; pre-existing)
 
 The x86-64 LLVM frame limit covered a function's own frame, not its incoming stack arguments: `func f(a Big, b Big,
