@@ -244,6 +244,37 @@ Measurement tooling lands first (user: yes), because both steps are judged with 
   - LLVM-arm randomization.
   - Callgrind-weighted exposures in T4/stats: an optional mechanism analysis beyond the brief.
 
+## Phase-0 calibration results (x86 VM, 2026-10-19/20)
+
+Host: this session's Firecracker VM (Intel Xeon @ 2.10GHz, Cascade Lake, 4 vCPUs, no PMU), ASLR off, one compiler
+built from main `053d743c1` for both arms, the 8 benchmarks (fasta at N=2500000, mandelbrot 3000, record-churn
+16000, so every run takes >= 0.5 s of CPU; the rest at DEFAULT_N) and the native self-compile, 2 reps per seed.
+Raw data and `stats.py` reports: scratch dirs aa-same-bench, aa-salted-bench, aa-same-self, aa-salted-self
+(session scratchpad `cal/`; not durable).
+
+- A/A same (identical binaries), 10 seeds: every interval covers 0 (benchmark geomean +0.32% [-0.64, +1.29];
+  self-compile -0.97% [-2.97, +0.88]).
+- A/A salted (each arm placed differently), 40 seeds on the benchmarks, 30 on the self-compile: benchmark geomean
+  -0.01% [-0.46, +0.46]; but 3 of the 9 per-workload 95% bootstrap intervals exclude 0: fannkuch -1.64%
+  [-2.96, -0.33], n-body +0.90% [+0.21, +1.62], self-compile +0.62% [+0.02, +1.22] (t-interval [-0.01, +1.25]).
+  Chance gives >= 3 of 9 under 1% of the time: either the per-workload intervals under-cover on this host or
+  something differs systematically between arm 0 and arm 1. Not yet resolved.
+- Run noise dominates: two back-to-back runs of one binary differ by a median 2.6-3.9% (p90 7-11%) on
+  binary-trees / fannkuch / richards; per-run noise ~1.0-1.5% spectral-norm, ~2% n-body, ~2-3% self-compile,
+  4-8% fasta / record-churn. The host speed also drifts: the A/A-same self-compile's per-round mean went
+  37.4 -> 49.8 -> 45.0 s (user time, no load of ours), so cross-seed spreads and covariates measured here
+  are host-dominated; only the interleaved A-B difference is usable.
+- Seeds for a +-1% 95% interval (`--plan`): geomean over the 8 benchmarks 12, self-compile 14; single benchmarks
+  11 (spectral-norm) to 146 (record-churn).
+- The known swings did not reproduce cleanly: fannkuch's per-seed times are broad (range ~21-27%) but not
+  bimodal, and they do not correlate with the inner loop's excess windows/lines (r ~ +0.06/+0.11) or JCC hits
+  (r -0.13); the self-compile's per-seed spread is ~5% (salted) with weak covariates (inner excess windows
+  r +0.30, JCC hits r -0.22, none significant at 30 seeds).
+- The selection rule's "no workload slower beyond its 95% CI" guard rejected the salted A/A arm (n-body, and on
+  the self-compile run the self-compile itself): over 9 workloads it rejects a neutral arm ~20% of the time by
+  design, more with the under-coverage above. Raised with the user (multiplicity correction or a minimum
+  slowdown), not yet decided.
+
 ## Tests
 - common_place_test.bn:
   - PlaceHash pinned vectors, the same ones as test_placehash.py.
