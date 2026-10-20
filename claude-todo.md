@@ -122,7 +122,8 @@ scan per candidate); ComputeLiveBeforeAllFused ~18% (blockLiveBefore allocates N
 ComputeLivenessFused + ComputeLivenessFp ~13% (livenessFixpoint keeps four dense `bool` sets over ALL value
 IDs per block, once per register class — O(blocks × values) memory, where the footprint peaks).
 
-Proposed fix (awaiting the user's decision): make these analyses near-linear in function size — (1) liveness
+Fix (user: "then start on the proposed fix"; plan-native-analysis-scaling.md; it is the native half of the
+"Compile time is superlinear in function size" entry): make these analyses near-linear in function size — (1) liveness
 over a compact index of the values live across blocks, as packed bitsets (a block-local value needs no
 dataflow); (2) live-before derived by one backward scan per block from its live-out, with no NextID-sized
 per-block arrays; (3) the slot analyses walk a per-function def→uses index from each slot (a slot's reach is
@@ -762,7 +763,7 @@ Each needs a test (xfail'd) + triage; grouped here so none is lost.
   defines `__Package`, `__pkg_info`, `__pkg_funcs`, `__pkg_satfrag` and `__ifaceid` copies.
 - **Unverified:** the REPL (`repl/ir_imports.bn`) has no equivalent of `registerGenericBodyExternDeps`.
 
-### Compile time is superlinear in function size — iropt mem2reg, the native allocator/liveness passes, and the compiler-wide copy-per-append `slices.Append` — 🔴 OPEN (found 2026-09-27)
+### Compile time is superlinear in function size — iropt mem2reg, the native allocator/liveness passes, and the compiler-wide copy-per-append `slices.Append` — 🔴 OPEN (found 2026-09-27); its native-analysis part 🟡 IN PROGRESS (claimed 2026-10-20, work-3, as the fix for the native x64 unit `check` entry; plan-native-analysis-scaling.md)
 
 **Severity: major (a single large function compiles in tens of seconds; the cost roughly quadruples per
 doubling).** Found while fixing the arm32 `UnhomeID` blowup, with a generated `main` holding N copies of
