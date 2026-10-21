@@ -72,7 +72,9 @@ CI) is the user's call.
 - The original trigger: `bnc --test --backend native pkg/binate/check` within a sane budget.
 
 ## Progress
-- [ ] Stage 1
+- [x] Stage 1 — binate `15bddd15e` (2026-10-20).  Native objects byte-identical (14 packages × aa64 / x64 /
+  arm32, the 500-test runner).  Synthetic N tests, native: 6.5 GB / 15 s → 1.3 GB / 12 s (N=500), 25.8 GB /
+  124 s → 4.9 GB / 58 s (1000), 102.6 GB / 605 s → 18.9 GB / 327 s (2000) — still quadratic (Stages 2–3).
 - [ ] Stage 2
 - [ ] Stage 3
 - [ ] Stage 4
