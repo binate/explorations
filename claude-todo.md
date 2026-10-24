@@ -842,6 +842,15 @@ by `.arch`), a `.section` before `.arch` leaves a Mach-O object with no `__text`
 already made), its anchors starting at `ltmp0` on `__data`.  If clang's ELF objects also always carry `.text` ((b)),
 creating text when parsing starts, for every format, covers both.
 
+### asm Mach-O: a literal-pool load of a forward label difference is rejected (`_f: ldr x1, =(_e - _f)` … `_e:`) — 🔴 OPEN, unclaimed (found 2026-10-24, work-2, review of the LC_DATA_IN_CODE change)
+
+`bnas -target darwin-aarch64` rejects `_f: ldr x1, =(_e - _f)` / ` ret` / `_e: ret` with "a difference of locations
+in different sections or atoms is not a number", where clang assembles it into the pool with no relocation.  bnas
+accepts the backward form (`_e` defined before the load) and the same input for ELF.  Root cause not yet
+investigated (a guess: the pool operand's forward difference does not wait for the second pass, as other forward
+differences across atoms do without `.subsections_via_symbols`).  **Fix:** root-cause it; test against clang's
+object, with and without `.subsections_via_symbols`.
+
 ### arm32 assembler: condition codes and some register fields are silently masked — 🔴 OPEN, unclaimed (found 2026-09-25 by the T6 b1 review; work-4's 2026-09-25 claim released 2026-10-12 — nobody is on it)
 
 (The Operand2 path, register-offset memory shifts and operand registers, and the clang alias substitutions are
