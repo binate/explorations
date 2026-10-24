@@ -137,7 +137,7 @@ f100[T] naming S1[T], whose method signatures chain through 40 struct types) is 
 it first.  §12.3 allows a bound of 128 on such a chain; the verdict should not depend on the order.  Needs a design:
 the depth an instance is reached at is the longest chain to it, which the depth-first drain does not track.
 
-### An uninstantiated generic whose methods grow only through array-length arithmetic is rejected at its declaration — 🔴 OPEN (minor; found 2026-10-18, work-7, the static expansion check; pre-existing)
+### An uninstantiated generic whose methods grow only through array-length arithmetic is rejected at its declaration — 🟡 IN PROGRESS (claimed 2026-10-23, work-7/session — user: "Then continue with 5b then 5a."; minor; found 2026-10-18, work-7, the static expansion check; pre-existing)
 
 `func (n *N[T]) A() *N[[sizeof(T) + 1]uint8]` (and a second such method), with N never instantiated, is rejected by
 the build-depth bound ("generic instantiation nested too deeply (cyclic or unbounded type argument?)") while N's own
