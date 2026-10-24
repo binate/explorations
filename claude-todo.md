@@ -47,6 +47,32 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
+### REPL: a resolved group's functions are generated before the group's other signatures exist — calls between them are lowered untyped (wrong values, crashes) — 🔴 OPEN, MAJOR (filed 2026-10-23, work-6)
+
+In `bni --repl`, functions that park on each other (mutual recursion entered at two prompts) resolve together
+(repl `genResolvedGroup`), and a call from the first member generated to a later one is lowered as a call to an
+unregistered function: no parameter types, an `int` result.  An argument that needs a conversion at the call is
+then wrong:
+```
+> func f(n int) int { if n == 0 { return 0 }; return g("hello", n - 1) }
+> func g(s *[]readonly char, n int) int { if n == 0 { return len(s) }; return f(n - 1) }
+> testing.Println(f(1))
+0                                   (5 expected)
+```
+and with `func g(gr *Greeter, n int)` called as `g(&th, n - 1)` (`impl *Thing : Greeter`), `&th` is not boxed:
+"runtime error: call of nil interface value" (7 expected).  The same code prints 5 and 7 compiled by bnc, run from
+a file by bni, and at the prompt when g is entered first (nothing parks).  A non-`int` result is mistyped in the IR
+too (the VM passes the word through, so a `float64` pair came out right).
+- Root cause: genResolvedGroup generates each function with irgen.GenDecl, which registers that function's
+  signature and then generates its body, so the first member's body is generated before the others' signatures
+  are registered (genCall's lookupFuncSig misses).  A package compile registers every signature first.
+- Found by: plan-irgen-checker-types.md 4d2 (not yet landed), which makes a call to a function IR-gen has no
+  signature for an internal error; the repl unit test TestReplMutualRecursionResolves reaches it.
+- Fix: register the signature of every function and method in the group before generating any of their bodies
+  (an irgen entry that registers a declaration's signature without generating it, called by genResolvedGroup
+  before its generation passes).  Regression cases: the two sessions above, in e2e/repl.sh (which has no
+  expected-fail marker, so they come with the fix).
+
 ### CI red: `check`'s `TestExpandBuildBudget` overflows the VM stack (unit, `builder-comp-int` / `builder-comp-comp-int`) — 🔴 OPEN, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
 `TestExpandBuildBudget` (check_generic_build_test.bn, added by binate `27844b58b`, the work-7 static
