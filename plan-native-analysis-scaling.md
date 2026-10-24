@@ -78,7 +78,10 @@ CI) is the user's call.
 - [x] Stage 2 — binate `7b08c1442` (2026-10-23).  Native objects byte-identical.  Peak footprint, N tests:
   0.26 GB (1000) and 0.50 GB (2000), from 4.9 / 18.9 GB after Stage 1 (LLVM: 0.29 / 0.56 GB).  Times not yet
   re-measured on a quiet machine; the remaining time is mostly the Stage 3 slot analyses.
-- [ ] Stage 3 — 3a landed, binate `b57e92111` (2026-10-23): the slot analyses (CallResultSlots,
-  LastUseArgLoads, RetbufLocal) over a per-function use index (funcUses), byte-identical; the 500-test
-  runner's compile 14.8 s → 4.0 s user.  3b (AggLoadElision over the index) in progress.
+- [x] Stage 3 — 3a binate `b57e92111`: the slot analyses (CallResultSlots, LastUseArgLoads, RetbufLocal)
+  over a per-function use index (funcUses); 3b binate `825c27386`: AggLoadElision over it, with
+  common.AggLoadElider for the LLVM backend's per-load caller (2026-10-23).  Native and LLVM objects
+  byte-identical.  Native compile of pkg/binate/check's tests: 5.6 s user / 0.54 GB (was 330 s / 64.6 GB);
+  synthetic N tests: 1.8 s / 0.26 GB (1000), 6.8 s / 0.50 GB (2000) — still ×3.8 per doubling in time, a
+  smaller superlinear term not yet profiled.
 - [ ] Stage 4

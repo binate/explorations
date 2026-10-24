@@ -107,7 +107,7 @@ console (as pkg/builtins/testing/sys already does), or have the runner print thr
 (its source says it must use the real pkg/std/fmt).  Only after that can the failing tests be found; the
 `native/arm32` link overflow and the arena exhaustion remain size problems.
 
-### CI red: native x64 unit — the runner is shut down partway through `pkg/binate/check` — 🟡 IN PROGRESS (claimed 2026-10-20, work-3; user: "then #6 and #5"), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
+### CI red: native x64 unit — the runner is shut down partway through `pkg/binate/check` — 🟡 FIX LANDED, awaiting CI (binate `15bddd15e`, `7b08c1442`, `b57e92111`, `825c27386`; claimed 2026-10-20, work-3; user: "then #6 and #5"), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
 `builder-comp_native_x64-comp_native_x64` (unit) ends with "The runner has received a shutdown signal … exit
 code 143" partway through `STARTING: pkg/binate/check` in every finished run since at least 2026-10-06, and
@@ -129,6 +129,9 @@ scan per candidate); ComputeLiveBeforeAllFused ~18% (blockLiveBefore allocates N
 ComputeLivenessFused + ComputeLivenessFp ~13% (livenessFixpoint keeps four dense `bool` sets over ALL value
 IDs per block, once per register class — O(blocks × values) memory, where the footprint peaks).
 
+Landed (stages 1–3 of plan-native-analysis-scaling.md): the native compile of check's tests is 5.6 s / 0.54 GB.
+Close this entry once the native x64 and aa64 unit lanes pass `check` in CI; the plan's Stage 4 (a guard
+against regressions) and the remaining smaller superlinear term stay with the plan.
 Fix (user: "then start on the proposed fix"; plan-native-analysis-scaling.md; it is the native half of the
 "Compile time is superlinear in function size" entry): make these analyses near-linear in function size — (1) liveness
 over a compact index of the values live across blocks, as packed bitsets (a block-local value needs no
