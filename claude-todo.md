@@ -176,6 +176,12 @@ f100[T] naming S1[T], whose method signatures chain through 40 struct types) is 
 (polymorphic recursion?)") when the first naming of S1[int] is f100's, and accepted when `var s S1[int]` in main names
 it first.  §12.3 allows a bound of 128 on such a chain; the verdict should not depend on the order.  Needs a design:
 the depth an instance is reached at is the longest chain to it, which the depth-first drain does not track.
+**Decision (user 2026-10-23: "5a: 1 seems reasonable."):** the bound measures the SHORTEST chain from an
+instantiation the program writes.  Plan: keep depth-first discovery, record what each instance names, lower an
+instance's depth when a shorter chain to it turns up (and its descendants' with it), report an instance past 128
+only once no shallower work remains, and add a total cap on instance checks (a new §21.4 limit) so a family that
+grows and fans out (`f[T]` naming `f[@T]` and `f[*T]`) stops quickly.  Spec gen.mono.instances: "the shortest
+chain".  Verified probe pair for tests: `f1[int](); g[int]()` rejected and `g[int](); f1[int]()` accepted today.
 
 ### A finite chain of 92 or more distinct generic structs is rejected even when the program instantiates none — 🔴 OPEN (minor; found 2026-10-23, work-7, probing the naming-order chain bound; reproduced on every build back to Oct 18; pre-existing)
 
