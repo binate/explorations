@@ -766,7 +766,7 @@ Each needs a test (xfail'd) + triage; grouped here so none is lost.
   defines `__Package`, `__pkg_info`, `__pkg_funcs`, `__pkg_satfrag` and `__ifaceid` copies.
 - **Unverified:** the REPL (`repl/ir_imports.bn`) has no equivalent of `registerGenericBodyExternDeps`.
 
-### Compile time is superlinear in function size — iropt mem2reg, the native allocator/liveness passes, and the compiler-wide copy-per-append `slices.Append` — 🔴 OPEN (found 2026-09-27); its native-analysis part 🟡 IN PROGRESS (claimed 2026-10-20, work-3, as the fix for the native x64 unit `check` entry; plan-native-analysis-scaling.md)
+### Compile time is superlinear in function size — iropt mem2reg, the native allocator/liveness passes, and the compiler-wide copy-per-append `slices.Append` — 🔴 OPEN (found 2026-09-27); its native-analysis part 🟡 IN PROGRESS (claimed 2026-10-20, work-3, as the fix for the native x64 unit `check` entry; plan-native-analysis-scaling.md); also claimed by work-3 (2026-10-23; user: "yes, go on with them now"): the residual terms the N-test profile shows after that plan's Stage 3 — ir.AddBlock / AddFaultPad's copy-per-append block lists, the assembler's symbol lookup, the allocator's spansClobber and buildSuccs' block lookup.  iropt mem2reg and the general slices.Append sweep stay OPEN.
 
 **Severity: major (a single large function compiles in tens of seconds; the cost roughly quadruples per
 doubling).** Found while fixing the arm32 `UnhomeID` blowup, with a generated `main` holding N copies of
