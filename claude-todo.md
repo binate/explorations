@@ -799,18 +799,16 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### asm Mach-O section layout for text input: alignment as the contents ask, `__text` first, headers in creation order, as clang lays them out — 🟡 IN PROGRESS (claimed 2026-10-19, work-2, after the table entry above; user: "Follow clang for text")
+### asm section layout for text input, the rest: LC_DATA_IN_CODE for literal pools, ELF against clang, a `__text` when `.arch` follows a `.section` — 🟡 IN PROGRESS (claimed 2026-10-19, work-2; the Mach-O layout DONE binate `047443141`, see the done log; user: "Follow clang for text")
 
-bnas gives `data` / `bss` (and the relro and thread sections) 8-byte alignment by default and every other section 4
-(asm/macho/macho_sect.bn machoSectAlign); clang aligns a section only as its contents ask (`.p2align`, 4 for AArch64
-instructions), so `_a: ret` / `Lx: ret` / `_b: ret` then `.data` / `_d: .quad 1` puts `_d` at 0xc in clang's object
-and 0x10 in bnas's.  clang's object also always has `__text`, created first (a data-only file has an empty one), and
-writes the section headers in creation order (zero-fill sections last only in address order), where bnas writes
-regular then zero-fill headers and only the sections the source names.  An object with no symbols has no LC_SYMTAB or
-LC_DYSYMTAB in clang's (bnas writes both, empty), and clang writes LC_BUILD_VERSION right after the segment command,
-where bnas writes it last.  The native backend probably relies on the 8-byte data default.  **Fix:** for text input follow clang (alignment from the contents, `__text` first, creation-
-order headers); the native backend keeps its defaults through the API; check ELF the same way; golden layouts
-against clang.
+(a) clang's arm64 Mach-O object for `_f: ldr x0, =0x123456789` / `ret` carries an LC_DATA_IN_CODE command (in the
+probe placed before LC_SYMTAB, naming 8 bytes of entries for the one pool); bnas writes none.  Probe clang's entries
+(several pools, pools in other sections, x86-64) and write them.  (b) ELF: compare bnas's ELF objects with clang's
+for the same sources, as assemble's TestAssembleFileMachoLayoutLikeClang does for Mach-O (section order, whether
+`.text` is always present, sh_addralign, symbol order) — not yet checked.  (c) With no `-target` (the format decided
+by `.arch`), a `.section` before `.arch` leaves a Mach-O object with no `__text` (machoTextFirst sees a section
+already made), its anchors starting at `ltmp0` on `__data`.  If clang's ELF objects also always carry `.text` ((b)),
+creating text when parsing starts, for every format, covers both.
 
 ### arm32 assembler: condition codes and some register fields are silently masked — 🔴 OPEN, unclaimed (found 2026-09-25 by the T6 b1 review; work-4's 2026-09-25 claim released 2026-10-12 — nobody is on it)
 

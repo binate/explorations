@@ -1,3 +1,20 @@
+### asm Mach-O section layout for text input as clang's — DONE (binate `047443141`, 2026-10-23, work-2; user: "Follow clang for text (Recommended)", "Keep 2^2 (Recommended)")
+
+bnas gave every Mach-O section at least its name's default alignment (8 for data and bss, 4 for others), wrote
+regular then zero-fill headers and only the sections the source named, put LC_BUILD_VERSION last, and always wrote
+LC_SYMTAB / LC_DYSYMTAB.  Resolution (binate `047443141`): text input (Assembler.AlignAsAsked, set by the parser)
+aligns each section only as its contents ask, the contents right after the load commands, and the parser creates
+`text` first on Mach-O (machoTextFirst).  For every Mach-O object the headers follow creation order (the writer's
+Order/Pos maps dropped), LC_BUILD_VERSION follows the segment, the symbol and string tables are written only when a
+symbol is listed, and S_ATTR_SOME_INSTRUCTIONS marks exactly the sections an instruction went into
+(Section.HasInstructions, set through Assembler.NoteInstruction by the encoders).  An instruction in a zero-fill
+section is an error, as in clang.  Deliberate difference: an AArch64 `__text` holding instructions keeps 2^2 where
+clang writes 2^0, which lets ld place code at an odd address after another object's odd-sized `__text`.  The native
+backend keeps its alignment defaults.  Tests: assemble TestAssembleFileMachoLayoutLikeClang (golden against clang,
+both arches), macho TestMachoSomeInstructionsWhereEmitted, asm TestNoteInstruction, parse
+TestArchMachoCreatesTextFirst, the encoders' alignment tests.  LC_DATA_IN_CODE, ELF and the
+`.section`-before-`.arch` corner stay in the todo entry.
+
 ### A type parameter list's constraints resolved a parameter name three different ways — `type W[T Eq[U], U any]` meant `Eq[main.U]` declared, `Eq[int]` instantiated — DONE (binate `eb485bf0e`, 2026-10-23, work-7; user decision: "Whole parameter list (Recommended)") (MAJOR; found 2026-10-23, work-7, review of the self-constraint rejection; pre-existing)
 
 With a package type `U`, `type W[T Eq[U], U any]` resolved `Eq[U]` as `Eq[main.U]` at the declaration
