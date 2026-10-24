@@ -1,3 +1,17 @@
+### Func-value calls: LLVM gave a zero-size aggregate argument no dispatch slot, native and the VM one — native↔LLVM mismatch — DONE (binate `36b3f21b8`, 2026-10-23, work-1) (found 2026-10-23, work-1, testing the native arm32 zero-size even-pad fix; pre-existing)
+
+The func-value / interface-method dispatch gives each user argument a slot, an aggregate a pointer slot (docs/abi
+03 §3.3).  Native (isByAddressAgg*) and the VM (its trampolines take one word per parameter; it picks the
+trampoline by result shape only) gave a zero-size aggregate that slot; LLVM codegen, through abi.IsAggregateArg
+("wider than one word"), passed it first-class in none — the mixed-backend e2e's ZeroEvenFn printed 432 /
+-1269843920 for 5432 on aa64 and 6432 on arm32.  User decision (2026-10-23, re-asked after I had wrongly said the
+VM agreed with LLVM): one pointer slot.  abi.IsAggregateArg is now true for a zero-size aggregate, so the LLVM
+shim, packed shim and call site give it the slot; the interp's RunFuncTyped, which refused such an argument,
+passes it (its slot points at any valid address).  docs/abi 03 §3.3 says so (docs `2d73844`).  Tests: abi / codegen /
+interp unit tests (each fails without the fix) and the e2e's ZeroEvenFn line; validated on aa64, arm32 (Docker)
+and x86-64 (Rosetta) e2e, and the argument / func-value conformance subset on LLVM aa64 / x86-64 / arm32 and the
+VM.  The review found the native aa64 / x64 shim bug (its own entry, test 1714).
+
 ### asm Mach-O: fold a backward label difference across atoms when the source has no `.subsections_via_symbols`, as clang does — DONE (binate `9754ddf2f`, 2026-10-23, work-2; user: "Match clang without the directive")
 
 clang folds `_f: ret` / `_g: ret` / `.quad _g - _f` to 4 with no relocation, with or without the directive (MC
