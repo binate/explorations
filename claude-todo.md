@@ -3053,7 +3053,7 @@ satisfying `int`'s.  The `Self` arm (binate `2aaeb6013`) peels no `readonly` eit
 `5ba93bd`) says only a parameterized impl can match a type built from type parameters or `Self`, which reads as
 `readonly T` never satisfying: revise both with the decision.
 
-### A type parameter list's constraints resolve a parameter name three different ways — `type W[T Eq[U], U any]` means `Eq[main.U]` declared, `Eq[int]` instantiated — 🔴 OPEN MAJOR (NEEDS DECISION: the scope of a type parameter; found 2026-10-23, work-7, review of the self-constraint rejection; reproduced; pre-existing)
+### A type parameter list's constraints resolve a parameter name three different ways — `type W[T Eq[U], U any]` means `Eq[main.U]` declared, `Eq[int]` instantiated — 🟡 IN PROGRESS (MAJOR; DECIDED 2026-10-23: a type parameter is in scope in its whole type-parameter list — user chose "Whole parameter list (Recommended)"; claimed 2026-10-23, work-7/session; found 2026-10-23, work-7, review of the self-constraint rejection; reproduced; pre-existing)
 
 With a package type `U`, `type W[T Eq[U], U any] struct { t T; u U }` resolves the constraint `Eq[U]` as
 `Eq[main.U]` at the declaration (installTypeParamScope defines each parameter only after resolving its
