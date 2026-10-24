@@ -3038,6 +3038,22 @@ satisfying `int`'s.  The `Self` arm (binate `2aaeb6013`) peels no `readonly` eit
 `5ba93bd`) says only a parameterized impl can match a type built from type parameters or `Self`, which reads as
 `readonly T` never satisfying: revise both with the decision.
 
+### A type parameter list's constraints resolve a parameter name three different ways — `type W[T Eq[U], U any]` means `Eq[main.U]` declared, `Eq[int]` instantiated — 🔴 OPEN MAJOR (NEEDS DECISION: the scope of a type parameter; found 2026-10-23, work-7, review of the self-constraint rejection; reproduced; pre-existing)
+
+With a package type `U`, `type W[T Eq[U], U any] struct { t T; u U }` resolves the constraint `Eq[U]` as
+`Eq[main.U]` at the declaration (installTypeParamScope defines each parameter only after resolving its
+constraint, so a constraint sees the EARLIER parameters only), as `Eq[B]` for a method `func (w *W[A, B]) …`
+(resolveReceiverBinderConstraints, check_decl_func_generic.bn, defines every binder first), and as `Eq[int]` for
+`W[P, int]` (checkInstantiationConstraints, check_deferred_constraints.bn, binds every argument first).  So
+`var w W[P, int]` with `impl P : Eq[U]` is rejected ("type argument P does not satisfy constraint Eq[int]") and the
+method body reports "cannot assign U to B" — one constraint, three meanings.  The spec does not say where a type
+parameter's scope begins (§12.1, §9).  Needs the owner's decision: the scope of a type parameter — the whole
+type-parameter list (what instantiation and receiver binders do: a constraint may name a later parameter, and a
+same-named outer type is shadowed) or only the parameters before it (what a declaration does) — then one
+resolution on every path, a spec rule (gen.typeparams), and a conformance test (the program above).  This bears on
+the self-constraint rule (gen.constraint.self, in progress below): with the whole-list scope, `[T Eq[T]]` names the
+parameter itself even where a package type `T` exists.
+
 ### Is a constraint that names its own type parameter (`[T Eq[T]]`) legal? Today the checker reports "undefined: T" — 🟡 IN PROGRESS (DECIDED 2026-10-23: reject it, with a diagnostic pointing to `Self`, a spec rule under gen.constraint and a conformance test — user: "Rejecting it that way sounds reasonable. Then continue with 5b then 5a."; claimed 2026-10-23, work-7/session; found 2026-10-04, work-6, review of generic functions at the prompt)
 
 `interface Eq[T any] { Same(o T) bool }`, `func f[T Eq[T]](x T) T { return x }`: a file reports "undefined: T"
