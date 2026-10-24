@@ -83,6 +83,17 @@ pkg/binate/check`).  The LLVM lanes pass; the native lanes never get as far as r
 native x64 unit entry below: compiling check's tests natively exhausts memory).  Root cause unknown: either the build recursion is
 deeper than the 4096-instance budget implies (then the checker should not recurse that deep), or the VM's
 stack is too small for a legitimate depth.  Decide which before changing the test.
+**Diagnosis (2026-10-23, work-7):** the depth is legitimate and the VM's frames are the outlier.  A probe
+walking the VM frame chain at the overflow found 998 frames, 7.86 MB: 98 nested builds (under the checker's cap
+of 128, GenericInstDepth), each ten frames (instantiateGenericDeclWithArgs → buildInstance →
+buildInstanceMembers → populateInstantiatedType → resolveStructType → buildStructType → resolveTypeExpr →
+resolveTypeExprUnstamped → resolveTypeExprAllowInterface → resolveTypeInstantiation → the next level), costing about 80 KB of VM stack per level against about 6.5 KB compiled.  instantiateGenericDeclWithArgs
+alone takes 37,000 bytes in the VM (3261 registers) and 3440 bytes compiled (LLVM).  The VM gives every IR
+value its own register slot (vm/lower_func.bn: `NumRegs = f.NextID + maxArgs + globalRegs`, no reuse), so a
+frame grows with the function's total value count, and pushFrame zeroes the whole frame on every call.  At the
+cap of 128 this function shape needs about 10.4 MB, more than bni's 8 MiB VM stack (cmd/bni test.bn / main.bn).
+Options (awaiting decision): slot reuse by liveness in the VM lowering; a larger VM stack; building nested
+instances from a worklist in the checker; splitting the checker's long functions.
 
 ### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🔴 NEEDS DECISION, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
