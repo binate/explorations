@@ -1,3 +1,16 @@
+### native arm32: an 8-aligned zero-size argument wasted an odd core register — native↔LLVM / C mismatch — DONE (binate `12b08963b`, 2026-10-23, work-1) (found 2026-10-19, work-1, review of the x86-64 zero-size argument fix; pre-existing)
+
+native/callconv's even-register-pair round (AAPCS32 C.3) applied NeedsEvenReg to an 8-aligned argument of 0 words
+(`[0]int64`, `[0]float64`, `struct { x [0]int64 }`) and kept the rounded cursor, wasting an odd register; LLVM
+(and clang for an empty C record — GCC pads one, as native did) take no register.  NeedsEvenReg — the one
+predicate the placement walk and the func-value shim's outgoing cursor share — is now false for a zero-word
+argument, as docs/abi 02 already specified (a zero-size aggregate is skipped, no cursor advances).  Tests: a
+callconv unit test (soft- and hard-float, fails without the fix); e2e/mixed-backend-calls.sh direct-call shapes
+ZeroEven / ZeroEvenArr (its arm32 variant printed 321 / 5321 for 4321 without the fix); conformance 1712's w / v
+on every mode.  Validated: native + LLVM arm32 baremetal argument/zero-size subset 679/0, the e2e on the host and
+on arm32 in Docker.  Testing a func-value variant found the separate dispatch-slot mismatch (its own entry); that
+variant lands with its fix.
+
 ### An array length `len(f())` is rejected when `func f` comes later in the file — DONE (binate `f1645f4c1`, 2026-10-23, work-5) (user: "yes, take those two next", then "let's extend" to generic functions; minor: valid code rejected; found 2026-10-18, work-5, review of the len change; reproduced)
 
 An array length's `len` operand is checked where the length is resolved (checkerEnv.Len), during collection, in

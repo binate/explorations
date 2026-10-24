@@ -348,22 +348,7 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### native arm32: an 8-aligned zero-size argument wastes an odd core register — native↔LLVM / C ABI mismatch — 🟡 IN PROGRESS MAJOR (claimed 2026-10-23, work-1; user: "go ahead and fix the native arm32 bug next") (found 2026-10-19, work-1, review of the x86-64 zero-size argument fix; pre-existing)
-
-native/callconv's argRegWordsStackWords (callconv.bn, the AAPCS §6.5 C.3 even-pair round) applies NeedsEvenReg
-(call_args.bn) to any 8-aligned argument, including one of 0 words — `[0]int64`, `[0]float64`, `struct { x
-[0]int64 }` — and advanceNgrn keeps the rounded cursor, so an odd core register is used up.  LLVM (codegen spells it
-`<{ [0 x i64] }>` / `[0 x i64]`, zero parts) takes no register and rounds nothing, and clang's C rules ignore an
-empty record, so they agree with each other and not with native.  Confirmed (review, `--target arm32-linux`):
-`f(a int32, b int32, c int32, z Z, d int32)` with `Z = struct { x [0]int64 }` — the LLVM caller passes d in r3, the
-native callee reads d from its first incoming stack word.  A native↔LLVM mix, a native `__c_call`, or a native
-`#[c_export]` passes every argument after such a value wrongly.  Proposed fix (review): NeedsEvenReg false when
-cc.ArgWords(t) == 0 (it is the one source for the dispatch cursor and the func-value shim's outgoing cursor).
-Tests: add an 8-aligned zero-size argument after an odd number of int32s to e2e/mixed-backend-calls.sh (its arm32
-variant runs in the binate-ci image) and to conformance 1712; neither covers it today (1712's E is 1-aligned and
-`[0]int` 4-aligned on arm32).
-
-### Func-value calls: native gives a zero-size aggregate argument a dispatch slot, LLVM and the VM none — native↔LLVM mismatch on every target — 🔴 OPEN MAJOR (found 2026-10-23, work-1, testing the native arm32 zero-size even-pad fix; pre-existing; needs an ABI decision)
+### Func-value calls: native gives a zero-size aggregate argument a dispatch slot, LLVM and the VM none — native↔LLVM mismatch on every target — 🟡 IN PROGRESS MAJOR (claimed 2026-10-23, work-1; user decision 2026-10-23: "No slot" — a zero-size argument takes no dispatch slot) (found 2026-10-23, work-1, testing the native arm32 zero-size even-pad fix; pre-existing)
 
 A call through a func value passes each user argument in a dispatch slot (docs/abi 03 §3.3).  For a zero-size
 aggregate (`struct {}`, `[0]T`, `struct { x [0]int64 }`) the LLVM shim and call site pass it first-class — codegen's
