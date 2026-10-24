@@ -3057,7 +3057,7 @@ satisfying `int`'s.  The `Self` arm (binate `2aaeb6013`) peels no `readonly` eit
 `5ba93bd`) says only a parameterized impl can match a type built from type parameters or `Self`, which reads as
 `readonly T` never satisfying: revise both with the decision.
 
-### Is a constraint that names its own type parameter (`[T Eq[T]]`) legal? Today the checker reports "undefined: T" — 🔴 NEEDS DECISION (found 2026-10-04, work-6, review of generic functions at the prompt)
+### Is a constraint that names its own type parameter (`[T Eq[T]]`) legal? Today the checker reports "undefined: T" — 🟡 IN PROGRESS (DECIDED 2026-10-23: reject it, with a diagnostic pointing to `Self`, a spec rule under gen.constraint and a conformance test — user: "Rejecting it that way sounds reasonable. Then continue with 5b then 5a."; claimed 2026-10-23, work-7/session; found 2026-10-04, work-6, review of generic functions at the prompt)
 
 `interface Eq[T any] { Same(o T) bool }`, `func f[T Eq[T]](x T) T { return x }`: a file reports "undefined: T"
 (at the prompt the declaration parks, pending T).  A constraint naming ANOTHER type parameter
