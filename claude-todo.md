@@ -73,7 +73,7 @@ too (the VM passes the word through, so a `float64` pair came out right).
   before its generation passes).  Regression cases: the two sessions above, in e2e/repl.sh (which has no
   expected-fail marker, so they come with the fix).
 
-### CI red: `check`'s `TestExpandBuildBudget` overflows the VM stack (unit, `builder-comp-int` / `builder-comp-comp-int`) — 🔴 OPEN, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
+### CI red: `check`'s `TestExpandBuildBudget` overflows the VM stack (unit, `builder-comp-int` / `builder-comp-comp-int`) — 🟡 IN PROGRESS (claimed 2026-10-23, work-7/session — user: "you can take the VM stack overflow next."), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
 `TestExpandBuildBudget` (check_generic_build_test.bn, added by binate `27844b58b`, the work-7 static
 expansion check) checks `type N[T any] struct { x T; a *N[[sizeof(T) + 1]uint8]; b *N[[sizeof(T) + 1]uint16] }`
