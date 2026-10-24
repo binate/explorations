@@ -75,6 +75,8 @@ CI) is the user's call.
 - [x] Stage 1 — binate `15bddd15e` (2026-10-20).  Native objects byte-identical (14 packages × aa64 / x64 /
   arm32, the 500-test runner).  Synthetic N tests, native: 6.5 GB / 15 s → 1.3 GB / 12 s (N=500), 25.8 GB /
   124 s → 4.9 GB / 58 s (1000), 102.6 GB / 605 s → 18.9 GB / 327 s (2000) — still quadratic (Stages 2–3).
-- [ ] Stage 2
+- [x] Stage 2 — binate `7b08c1442` (2026-10-23).  Native objects byte-identical.  Peak footprint, N tests:
+  0.26 GB (1000) and 0.50 GB (2000), from 4.9 / 18.9 GB after Stage 1 (LLVM: 0.29 / 0.56 GB).  Times not yet
+  re-measured on a quiet machine; the remaining time is mostly the Stage 3 slot analyses.
 - [ ] Stage 3
 - [ ] Stage 4
