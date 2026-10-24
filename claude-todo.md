@@ -456,26 +456,6 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### native aa64 / x64 func-value and closure shims mis-route arguments after a zero-size one — wrong values and SIGSEGV in native-only programs — 🟡 IN PROGRESS MAJOR (claimed 2026-10-23, work-1; user: "fix the shim bug next") (found 2026-10-23, work-1, review of the func-value zero-size slot fix; pre-existing)
-
-A zero-size aggregate argument takes one INCOMING dispatch word (its address) but 0 OUTGOING words (it has no
-bytes), and the native aa64 / x64 shims assume outgoing >= incoming:
-- the register-only budget counts outgoing words only (aarch64_funcvalue_shim.bn ~316 and x64_funcvalue_shim.bn
-  ~338, `nUserWords += callconv.ArgWords(pt)`; the closure forms aarch64_closure_shim.bn ~215 and x64's
-  outUserWords_x64), so when zero-size arguments push the incoming words past the registers the shim still reads
-  the stack-passed words from registers;
-- the closure fast path's right-to-left in-place shift (aarch64_closure_shim.bn ~230, and x64's) overwrites an
-  earlier argument's incoming register with a later one's outgoing value.
-Native-only results (review probes): aa64 `*func(int32, Z, int32, E, int32, [0]float64, float64, P2) int64`
-SIGSEGV (want 654321), the same as an interface method 8500321 (8654321), a one-capture closure
-`@func(int32, Z, int32, E, int32, [0]float64, int32)` 7004331 (7004321), an interface method of that shape garbage
-(8004321); x64 the func value 3321 (4321), the closure 7003331, the interface method garbage.  Native arm32
-(shimArgsFitRegisters checks the incoming and outgoing counts separately; it stages the incoming registers when a
-by-address aggregate is present) and LLVM are right on all of them.  Also to sweep: aarch64_closure_shim_aggregate.bn
-~231 and the closure float / spill variants (the same ArgWords-for-by-address pattern).  Fix: gate the register-only
-path on the incoming and outgoing counts separately, and stage rather than shift in place when a by-address
-argument has ArgWords < 1.  Test: conformance 1714 (binate `4486a32b8`; xfailed on the native aa64 and x64 modes).
-
 ### native aa64 / x64 reject a float-containing closure with a big multi-return result ("not yet handled") — 🔴 OPEN MAJOR (found 2026-10-23, work-1, probing the zero-size shim fix; pre-existing)
 
 A closure that captures, takes or returns a float and returns a multi-value result too big for the return registers
@@ -484,8 +464,8 @@ result is not yet handled` (aarch64_closure_shim.bn ~101, x64_closure_shim.bn ~1
 sret / big-tuple shape; the non-float closure path and the func-value shims do).  E.g. `MakeSplit(scale float64)
 @func(int64) (int64 x9)` or a closure `func(x float64) (float64, int64 x8)`.  The LLVM backend and native arm32 take
 it.  It fails loud, not silently; a valid program is still rejected.  Fix: give the float closure shim the big
-multi-return (sret / retbuf) shape the scalar closure shim has.  Test: a conformance test (xfail on the native aa64
-and x64 modes) to land with the zero-size shim fix.
+multi-return (sret / retbuf) shape the scalar closure shim has.  Test: conformance 1715 (binate `c08d54520`; xfailed on
+the native aa64 and x64 modes).
 
 ### Neither backend probes the stack for a large frame — a frame past the guard page can step over it — 🔴 OPEN MAJOR (found 2026-10-18, work-1, review of the native aa64 16 MiB fix; pre-existing; needs a decision)
 

@@ -1,3 +1,21 @@
+### native aa64 / x64 func-value and closure shims mis-routed arguments after a zero-size one — DONE (binate `a625e19dc`, 2026-10-24, work-1) (found 2026-10-23, work-1, review of the func-value zero-size slot fix; pre-existing)
+
+A zero-size aggregate argument takes one incoming dispatch word (its address) but no outgoing word, and the aa64 /
+x64 shims assumed the counts agree: the func-value shims and the scalar closure routing chose the register-only
+shapes on the outgoing count (so incoming words past the registers were read from registers — an interface call
+printed 8500321 for 8654321, a func value SIGSEGV'd on aa64), and the closure shims' right-to-left in-place shift let
+a later argument overwrite an earlier one's unread register (7004331 for 7004321) — on aa64's scalar fast and spill
+paths and the aggregate-result paths with two or more capture words; the review added closures whose captures are
+all zero-size (no capture words: the "upward" shift ran downward, 333 for 321).  Now the func-value shims and the
+scalar closure routing also budget the incoming words (funcvalPackedWords*), and with a zero-size argument or no
+capture words the aa64 closure fast path stages in X9.., its spill path and the aggregate-result paths stage in the
+frame, and x64's scalar closure takes its (always-staging) spill path.  The register-only marshals moved to
+<arch>_funcvalue_marshal.bn (the shim files were at 493 / 495 lines).  Tests: conformance 1714 (xfails removed; new
+lines for each staged path, each failing on aa64 or x64 without the fix); 140 generated shapes matched LLVM on
+native aa64 / x64 (72 of 280 runs had not), the argument / func-value subset on native aa64 / x64 / arm32, the
+mixed-backend e2e on all three arches.  Probing found the float-closure big multi-return gap (its own entry, test
+1715 `c08d54520`).
+
 ### An uninstantiated generic whose methods grow only through array-length arithmetic was reported rejected at its declaration — NOT REPRODUCIBLE (regression test binate `e024187f6`, 2026-10-23, work-7; user: "Then continue with 5b then 5a.") (minor; found 2026-10-18, work-7, the static expansion check)
 
 `func (n *N[T]) A() *N[[sizeof(T) + 1]uint8]` (and a second such method), with N never instantiated, was reported
