@@ -363,6 +363,21 @@ Tests: add an 8-aligned zero-size argument after an odd number of int32s to e2e/
 variant runs in the binate-ci image) and to conformance 1712; neither covers it today (1712's E is 1-aligned and
 `[0]int` 4-aligned on arm32).
 
+### Func-value calls: native gives a zero-size aggregate argument a dispatch slot, LLVM and the VM none — native↔LLVM mismatch on every target — 🔴 OPEN MAJOR (found 2026-10-23, work-1, testing the native arm32 zero-size even-pad fix; pre-existing; needs an ABI decision)
+
+A call through a func value passes each user argument in a dispatch slot (docs/abi 03 §3.3).  For a zero-size
+aggregate (`struct {}`, `[0]T`, `struct { x [0]int64 }`) the LLVM shim and call site pass it first-class — codegen's
+shimParamType takes the pointer form only for aggParamCoerced (size >= 1) or abi.IsAggregateArg (wider than a word)
+— so it takes no slot; the native backends' isByAddressAggX64 / isByAddressAggArm32 / isByAddressAggAA64 test the
+aggregate kind only, so it takes a pointer slot.  Each backend agrees with itself; across them every later argument
+moves.  e2e/mixed-backend-calls.sh with `ZeroEvenFn() *func(int32, int32, int32, Z, int32) int32` (Z = struct { x
+[0]int64 }) called from the other backend printed 432 / -1269843920 for 5432 on aa64, and 6432 on arm32.  The ABI
+text is ambiguous: 03 §3.3 says an aggregate "of any size" travels as one pointer slot (native's reading), while 02
+says a zero-size aggregate occupies no register "anywhere in this spec" and 03 already exempts a zero-size RESULT
+from the retbuf shape (LLVM's and the VM's reading, via abi.IsAggregateArg).  Proposed: no slot for a zero-size
+argument (the native predicates exclude size 0, matching IsAggregateArg), and 03 §3.3 says so.  Test: the
+ZeroEvenFn line in the mixed-backend e2e (fails on aa64 and arm32 today).
+
 ### Neither backend probes the stack for a large frame — a frame past the guard page can step over it — 🔴 OPEN MAJOR (found 2026-10-18, work-1, review of the native aa64 16 MiB fix; pre-existing; needs a decision)
 
 A function's prologue moves SP down by its whole frame in one step (native: `sub sp, sp, #frame`, now also past 16
