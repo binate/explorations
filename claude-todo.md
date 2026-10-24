@@ -356,7 +356,7 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### native arm32: an 8-aligned zero-size argument wastes an odd core register — native↔LLVM / C ABI mismatch — 🔴 OPEN MAJOR (found 2026-10-19, work-1, review of the x86-64 zero-size argument fix; pre-existing)
+### native arm32: an 8-aligned zero-size argument wastes an odd core register — native↔LLVM / C ABI mismatch — 🟡 IN PROGRESS MAJOR (claimed 2026-10-23, work-1; user: "go ahead and fix the native arm32 bug next") (found 2026-10-19, work-1, review of the x86-64 zero-size argument fix; pre-existing)
 
 native/callconv's argRegWordsStackWords (callconv.bn, the AAPCS §6.5 C.3 even-pair round) applies NeedsEvenReg
 (call_args.bn) to any 8-aligned argument, including one of 0 words — `[0]int64`, `[0]float64`, `struct { x
