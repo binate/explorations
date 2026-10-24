@@ -84,4 +84,8 @@ CI) is the user's call.
   byte-identical.  Native compile of pkg/binate/check's tests: 5.6 s user / 0.54 GB (was 330 s / 64.6 GB);
   synthetic N tests: 1.8 s / 0.26 GB (1000), 6.8 s / 0.50 GB (2000) — still ×3.8 per doubling in time, a
   smaller superlinear term not yet profiled.
-- [ ] Stage 4
+- [x] Stage 4 — binate `62518209c` (2026-10-24): e2e/native-large-function.sh compiles a 2000-block main
+  natively (host linked and run; x86-64 / AArch64 / arm32 Linux objects) within 30 s CPU and 2 GiB each (user:
+  "maybe 30 s and 2 GB").  ~1.5 s / 100 MiB here; the pre-Stage-3 compiler took 34 s.
+- [ ] Residual terms (claimed in the superlinear-compile-time entry): ir.AddBlock / AddFaultPad block lists,
+  the assembler's symbol hash, spansClobber, buildSuccs.
