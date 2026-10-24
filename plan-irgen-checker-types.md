@@ -173,9 +173,15 @@ IR-gen cannot map is an internal error, never `int`.
      dummy-constant paths (function literal, interface call, method value, composite literal, a struct with no
      fields) are internal errors; an instrumented compiler saw none fire (self-compile, builder-comp,
      builder-comp-int, e2e); --emit-llvm byte-identical (3291, 64- and 32-bit; bnc's main module).
-     4d2 next: the int defaults where int is sometimes the right result (local `var` / `:=` / multi-value
-     bindings, `*p`, `-x`, call results, for-in / slice elements, a missing field): audit which fire, then
-     internal errors; a local `var` takes the checker's Decl.ResolvedTypeID (defineDeclVar records it).
+     4d2 in progress.  4d2a DONE (binate `ce70a1f8e`, 2026-10-24): nine int defaults (multi-value binding /
+     assignment components, indexed / ranged / assigned elements, an unregistered call's result, `*p`, `-x`, a
+     missing field) and the unlowered expression / builtin / statement kinds are internal errors; an instrumented
+     compiler saw none of the nine fire (self-compile, builder-comp, builder-comp-int, the REPL e2e); four
+     no-checker irgen tests reached them and now check their source; --emit-llvm byte-identical (3298, 64-bit;
+     bnc's main module).  Its REPL prerequisite: a resolved group's functions are declared before any is
+     generated (binate `3cd936143`).  Open: the int defaults of a local `var` and a single `:=` binding — take
+     the type from Decl.ResolvedTypeID (defineDeclVar records it) and a new checker record for `:=`, or keep
+     IR-gen's inference (user: "we'll discuss this later").
 5. **Registries keyed by checker identity, names from it.**  Key by checker Type identity (a pointer memo) —
    the mapper's memo and lazy, self-sufficient registration from the checker type (fields, method sets,
    parents) come here (moved from stage 2: the audit found no lookup gap at the switched sites) —

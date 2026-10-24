@@ -1,3 +1,16 @@
+### REPL: a resolved group's functions were generated before the group's other signatures existed — calls between them were lowered untyped — DONE (binate `3cd936143`, 2026-10-24, work-6) (found 2026-10-23, work-6, plan-irgen-checker-types.md 4d2)
+
+Part of the REPL resolved-group entry, which stays open for the two cases its review found.  Functions that park on
+each other (mutual recursion entered at two prompts) resolve together (repl genResolvedGroup), which generated each
+with irgen.GenDecl, its signature registered and then its body, so the first member's calls to a later one were
+lowered as calls to an unregistered function: no parameter types, an `int` result (`g("hello", n - 1)` into
+`g(s *[]readonly char, n int)` gave 0, 5 expected; `g(&th, n - 1)` into `gr *Greeter` was not boxed: "call of nil
+interface value").  Now genResolvedFuncs declares every member to IR-gen (irgen.DeclareFunc: its signature
+registered, a generic stashed) before it generates any body (irgen.GenFuncBody), as a package's functions are,
+and what declaring them adds is lowered with the types' helpers.  Tests: six e2e/repl.sh cases (a call taking a
+later member's signature, one boxing into a later member's interface, instantiating a later generic function and a
+later generic method, and two groups of redefinitions); the irgen and repl unit tests.
+
 ### bnfmt: a binary chain measured an operand by a rendering from column 0 — DONE (binate `f5a890569`, 2026-10-24, temp-4)
 
 Part of the non-idempotence entry, which stays open for the rest.  A wrapped binary chain decided whether an operand

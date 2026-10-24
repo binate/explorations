@@ -47,33 +47,12 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
-### REPL: a resolved group's functions are generated before the group's other signatures exist — calls between them are lowered untyped (wrong values, crashes) — 🟡 IN PROGRESS (claimed 2026-10-23, work-6/session — user: "1. yes"), MAJOR (filed 2026-10-23, work-6)
+### REPL: in a resolved group, a redefinition that changes a signature is not the one the group's other members call — wrong values — 🟡 IN PROGRESS (claimed 2026-10-23, work-6/session — user: "1. yes"; these cases, user: "then fix the remaining cases next"), MAJOR (filed 2026-10-23, work-6)
 
-In `bni --repl`, functions that park on each other (mutual recursion entered at two prompts) resolve together
-(repl `genResolvedGroup`), and a call from the first member generated to a later one is lowered as a call to an
-unregistered function: no parameter types, an `int` result.  An argument that needs a conversion at the call is
-then wrong:
-```
-> func f(n int) int { if n == 0 { return 0 }; return g("hello", n - 1) }
-> func g(s *[]readonly char, n int) int { if n == 0 { return len(s) }; return f(n - 1) }
-> testing.Println(f(1))
-0                                   (5 expected)
-```
-and with `func g(gr *Greeter, n int)` called as `g(&th, n - 1)` (`impl *Thing : Greeter`), `&th` is not boxed:
-"runtime error: call of nil interface value" (7 expected).  The same code prints 5 and 7 compiled by bnc, run from
-a file by bni, and at the prompt when g is entered first (nothing parks).  A non-`int` result is mistyped in the IR
-too (the VM passes the word through, so a `float64` pair came out right).
-- Root cause: genResolvedGroup generates each function with irgen.GenDecl, which registers that function's
-  signature and then generates its body, so the first member's body is generated before the others' signatures
-  are registered (genCall's lookupFuncSig misses).  A package compile registers every signature first.
-- Found by: plan-irgen-checker-types.md 4d2 (not yet landed), which makes a call to a function IR-gen has no
-  signature for an internal error; the repl unit test TestReplMutualRecursionResolves reaches it.
-- Fix: register the signature of every function and method in the group before generating any of their bodies
-  (an irgen entry that registers a declaration's signature without generating it, called by genResolvedGroup
-  before its generation passes).  Regression cases: the two sessions above, in e2e/repl.sh (which has no
-  expected-fail marker, so they come with the fix).
-- Two more cases of the class, found by the review of that fix (both predate it; the repl unit tests have only
-  a per-package xfail and e2e/repl.sh none, so their regression cases come with their fix):
+In `bni --repl`, functions that park on each other resolve together (repl genResolvedGroup).  Their functions are
+declared to IR-gen before any is generated (binate `3cd936143`, in the done file), and two cases of the class remain,
+found by the review of that fix (both predate it; the repl unit tests have only a per-package xfail and e2e/repl.sh
+none, so their regression cases come with their fix):
   - Two redefinitions in one group, the later one changing its signature: the earlier one's call to it runs the
     OLD definition.  The VM's CallCache binds a call by name when the caller is lowered, and lowerResolvedGroup
     lowers the members in generation order, so f binds to the old h before h's LowerOneFuncShadow appends the
@@ -113,6 +92,30 @@ too (the VM passes the word through, so a `float64` pair came out right).
     testing.Println(use())
     testing.Println(P(1))
     ```
+
+### REPL: redefining a method of a generic non-struct type neither re-emits nor forgets its instances — the old body runs — 🔴 OPEN, MAJOR (filed 2026-10-24, work-6)
+
+A method of a generic type whose underlying type is not a struct (`type Pair[T any] [2]T`) redefined at the prompt
+keeps its instances.  With the same signature an existing caller runs the old body, and with another signature a new
+caller runs the old instance:
+```
+> type Pair[T any] [2]T
+> func (p Pair[T]) Second() T { return p[1] }
+> func ps() int { var p Pair[int]; p[1] = 4; return p.Second() }
+> testing.Println(ps())
+4
+> func (p Pair[T]) Second() T { var z T; return z }
+> testing.Println(ps())
+4                                   (0 expected; with `type Pair[T any] struct { a T; b T }` it is 0)
+```
+and after `func (p Pair[T]) Second(k int) int { return k + 10 }` (reported shadowed), `func ps2() int { var p
+Pair[int]; return p.Second(5) }` gives 0 (15 expected).
+- Root cause: irgen's reemitGenericMethod looks for the instances already emitted only among gc.Mod.Structs; a
+  generic non-struct type's instances are gc.Mod.TypeAliases entries (InstDecl / InstDefPkg / InstArgs, from
+  ensureInstantiatedNamed), so none is emitted again, and each stays marked emitted.
+- Found by: probing for the resolved-group entry's generic-method case (above).
+- Fix: find the instances among both (one helper, shared with that case's fix).  Regression cases in
+  e2e/repl.sh, with the fix.
 
 ### CI red: `check`'s `TestExpandBuildBudget` overflows the VM stack (unit, `builder-comp-int` / `builder-comp-comp-int`) — 🟡 IN PROGRESS (claimed 2026-10-23, work-7/session — user: "you can take the VM stack overflow next."), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
