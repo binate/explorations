@@ -163,6 +163,23 @@ f100[T] naming S1[T], whose method signatures chain through 40 struct types) is 
 it first.  §12.3 allows a bound of 128 on such a chain; the verdict should not depend on the order.  Needs a design:
 the depth an instance is reached at is the longest chain to it, which the depth-first drain does not track.
 
+### A finite chain of 92 or more distinct generic structs is rejected even when the program instantiates none — 🔴 OPEN (minor; found 2026-10-23, work-7, probing the naming-order chain bound; reproduced on every build back to Oct 18; pre-existing)
+
+`type S1[T any] struct { v T; next *S2[T] }` … `type S92[T any] struct { v T }`, with no instantiation anywhere, is
+rejected at S1: "generic instantiation S1[T] builds more than 4096 instances (an implementation limit)"; 91 types
+are accepted.  From 129 types the build-nesting guard fires first ("generic instantiation nested too deeply (cyclic
+or unbounded type argument?)", check_generic_type.bn).  The count is quadratic: S1's declaration check builds
+S2[T1], whose build resolves S2's declaration abstractly, which builds S3[T2], and so on; then S2[T1]'s field builds
+S3[T1], and so on — each generic's own parameter gets its own copy of the rest of the chain (S_j[T_i] for every
+i < j: 91·92/2 = 4186 > 4096 at 92 types, 90·91/2 = 4095 at 91), all counted against the outermost build.
+§12.3 gen.mono.instances bounds only what a program names — instantiations with no type parameter — so with no
+instantiation neither limit applies; with `var a S1[int]`, S1[int] names 91 instances along a 92-long chain, within
+both.  Possible fixes: count against the budget only the instances named with the outermost's own arguments, not
+those of the declaration resolutions it triggers (or resolve a generic's declaration outside the build it is first
+reached in); and build nested instances from a worklist rather than by native recursion, so a chain's length is not
+capped by the stack.  Repro generator: S_i[T] with `next *S_{i+1}[T]`, main printing 1.  Related: "The instance
+chain bound depends on naming order" (above).
+
 ### An uninstantiated generic whose methods grow only through array-length arithmetic is rejected at its declaration — 🟡 IN PROGRESS (claimed 2026-10-23, work-7/session — user: "Then continue with 5b then 5a."; minor; found 2026-10-18, work-7, the static expansion check; pre-existing)
 
 `func (n *N[T]) A() *N[[sizeof(T) + 1]uint8]` (and a second such method), with N never instantiated, is rejected by
