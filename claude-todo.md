@@ -362,7 +362,7 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### Func-value calls: native gives a zero-size aggregate argument a dispatch slot, LLVM and the VM none — native↔LLVM mismatch on every target — 🟡 IN PROGRESS MAJOR (claimed 2026-10-23, work-1; user decision 2026-10-23: "No slot" — a zero-size argument takes no dispatch slot) (found 2026-10-23, work-1, testing the native arm32 zero-size even-pad fix; pre-existing)
+### Func-value calls: LLVM gives a zero-size aggregate argument no dispatch slot, native and the VM one — native↔LLVM mismatch on every target — 🟡 IN PROGRESS MAJOR (claimed 2026-10-23, work-1; user decision 2026-10-23, after a correction about the VM: "One pointer slot") (found 2026-10-23, work-1, testing the native arm32 zero-size even-pad fix; pre-existing)
 
 A call through a func value passes each user argument in a dispatch slot (docs/abi 03 §3.3).  For a zero-size
 aggregate (`struct {}`, `[0]T`, `struct { x [0]int64 }`) the LLVM shim and call site pass it first-class — codegen's
@@ -373,9 +373,12 @@ moves.  e2e/mixed-backend-calls.sh with `ZeroEvenFn() *func(int32, int32, int32,
 [0]int64 }) called from the other backend printed 432 / -1269843920 for 5432 on aa64, and 6432 on arm32.  The ABI
 text is ambiguous: 03 §3.3 says an aggregate "of any size" travels as one pointer slot (native's reading), while 02
 says a zero-size aggregate occupies no register "anywhere in this spec" and 03 already exempts a zero-size RESULT
-from the retbuf shape (LLVM's and the VM's reading, via abi.IsAggregateArg).  Proposed: no slot for a zero-size
-argument (the native predicates exclude size 0, matching IsAggregateArg), and 03 §3.3 says so.  Test: the
-ZeroEvenFn line in the mixed-backend e2e (fails on aa64 and arm32 today).
+from the retbuf shape (LLVM's reading).  The VM agrees with native: its TrampolineScalar maps the incoming
+dispatch words one per parameter (closureArgv), and a VM caller packs one word per argument.  (An earlier version
+of this entry said the VM agreed with LLVM; it does not.)  Decision: one pointer slot, as native, the VM and 03
+§3.3's text have it — LLVM codegen's dispatch (shimParamType and the call-site / shim isAggregateArg sites) and
+the interp's isByAddressType take a zero-size aggregate by address, and 03 §3.3 says "including zero-size".
+Test: the ZeroEvenFn line in the mixed-backend e2e (fails on aa64 and arm32 today).
 
 ### Neither backend probes the stack for a large frame — a frame past the guard page can step over it — 🔴 OPEN MAJOR (found 2026-10-18, work-1, review of the native aa64 16 MiB fix; pre-existing; needs a decision)
 
