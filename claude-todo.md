@@ -154,7 +154,7 @@ type argument against a parameterized impl's substituted receiver as the plain a
 conformance spec/12-generics/119_err_satisfy_generic_impl_managed_ptr (binate `0051d4792`, expected to fail in every
 mode).
 
-### The instance chain bound depends on naming order — a long finite chain is accepted or rejected depending on which naming comes first — 🔴 OPEN (minor; found 2026-10-18, work-7, review of the instance-chain hang fix)
+### The instance chain bound depends on naming order — a long finite chain is accepted or rejected depending on which naming comes first — 🟡 IN PROGRESS (claimed 2026-10-23, work-7/session — user: "Then continue with 5b then 5a."; minor; found 2026-10-18, work-7, review of the instance-chain hang fix)
 
 Since binate `8bbfe8777` an instance built while another is built is named from it, so build nesting adds to the
 drain's chain depth, and an instance keeps the depth of its first naming.  A finite 140-long chain (f1[T] → … →
