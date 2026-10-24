@@ -1,3 +1,27 @@
+### asm Mach-O: fold a backward label difference across atoms when the source has no `.subsections_via_symbols`, as clang does — DONE (binate `9754ddf2f`, 2026-10-23, work-2; user: "Match clang without the directive")
+
+clang folds `_f: ret` / `_g: ret` / `.quad _g - _f` to 4 with no relocation, with or without the directive (MC
+evaluates the difference when it is emitted, before atoms are assigned); a forward difference across atoms is a
+SUBTRACTOR / UNSIGNED pair either way.  bnas folds only within one atom (expr_diff.bn, Parser.LabelGens), so its
+backward cross-atom difference is a pair.  Without the directive the linker keeps each section whole, so the fold
+is sound there; with it bnas keeps the pair (clang's fold is wrong once ld64 moves an atom).  **Fix:** fold a
+backward difference across atoms in one section when the object has no `.subsections_via_symbols`; the directive
+may follow the difference, so decide on the second pass or a pre-scan; golden words against clang in both modes.
+
+Resolution (binate `9754ddf2f`): clang folds at emission time, before atoms are assigned, when both labels are
+already defined and no fragment boundary of its assembler lies between them — any alignment directive (one that pads
+nothing too), a non-empty `.ltorg`, a `.zero` whose count a difference decides, an x86-64 jmp / jcc it may relax, a
+zero-fill symbol (`.lcomm`, `.tbss`); `.zero` with a number, `.fill`, `.ascii`, section switches, calls and RIP
+references do not count (clang 21 probes).  It never folds through an alias (a variable to it), and an expression
+that still names a symbol after such a fold is an error there ("expected relocatable expression").  The parser counts
+the boundaries per section (Parser.FragCounts, LabelFrags) and fixedDistance folds such a difference on Mach-O with no
+directive known; a fold before a later directive forces a second pass (Parser.AcrossFolds), and a symbol operand or
+data value whose expression folded one must come out a number (acrossAtomsResult).  With the directive the pair is
+kept (clang folds; unsound).  Remaining differences, not from this change: clang folds `x = _g - _f` across a
+boundary, and `.zero _g - _f` before a later directive, at layout, where bnas rejects them.  Test:
+TestAssembleFileMachoDifferenceFold (ten sources equal to clang's, the directive after, a relocatable expression
+rejected).  Reviewed twice.
+
 ### native arm32: an 8-aligned zero-size argument wasted an odd core register — native↔LLVM / C mismatch — DONE (binate `12b08963b`, 2026-10-23, work-1) (found 2026-10-19, work-1, review of the x86-64 zero-size argument fix; pre-existing)
 
 native/callconv's even-register-pair round (AAPCS32 C.3) applied NeedsEvenReg to an 8-aligned argument of 0 words

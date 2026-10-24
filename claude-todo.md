@@ -739,16 +739,6 @@ where bnas writes it last.  The native backend probably relies on the 8-byte dat
 order headers); the native backend keeps its defaults through the API; check ELF the same way; golden layouts
 against clang.
 
-### asm Mach-O: fold a backward label difference across atoms when the source has no `.subsections_via_symbols`, as clang does — 🟡 IN PROGRESS (claimed 2026-10-19, work-2, after the fidelity entry above; user: "Match clang without the directive")
-
-clang folds `_f: ret` / `_g: ret` / `.quad _g - _f` to 4 with no relocation, with or without the directive (MC
-evaluates the difference when it is emitted, before atoms are assigned); a forward difference across atoms is a
-SUBTRACTOR / UNSIGNED pair either way.  bnas folds only within one atom (expr_diff.bn, Parser.LabelGens), so its
-backward cross-atom difference is a pair.  Without the directive the linker keeps each section whole, so the fold
-is sound there; with it bnas keeps the pair (clang's fold is wrong once ld64 moves an atom).  **Fix:** fold a
-backward difference across atoms in one section when the object has no `.subsections_via_symbols`; the directive
-may follow the difference, so decide on the second pass or a pre-scan; golden words against clang in both modes.
-
 ### arm32 assembler: condition codes and some register fields are silently masked — 🔴 OPEN, unclaimed (found 2026-09-25 by the T6 b1 review; work-4's 2026-09-25 claim released 2026-10-12 — nobody is on it)
 
 (The Operand2 path, register-offset memory shifts and operand registers, and the clang alias substitutions are
