@@ -1,3 +1,38 @@
+### bnfmt packs a later argument that is a multi-line function literal by its whole text — a commented literal breaks onto a continuation line — DONE (binate `b9bd636d0`, 2026-10-23, temp-4; user: measure all multi-line elements by the part on the current line, and "B") (found 2026-10-06, work-3, fixing the function-literal comment placement)
+
+`fillExprList` (`pkg/binate/format/print_wrap.bn`) decides whether a non-first argument stays on the
+current line from `len(exprSingleLine(elem))`, the length of its whole rendering.  For a multi-line function
+literal only the first line (`func() {`) shares the line, so a literal whose body holds a few comment lines
+measures too long: `register("…", 123456789, func() { // c` formats as `register("…", 123456789,` then the
+literal on a `+2` continuation line, where the same literal without the comment stays on the call's line.
+Valid and idempotent, not canonical.  The first-argument decision (`wrapOpenerAlone`) measures a literal at
+the element's left edge (alone, or called: `func() { … }()`) by its first line, but an element that only
+ends in one, `s.Map(func(x int) int { … })`, by its whole text, so a long body puts `(` alone above it.  `printStrList` and `fillStrs` (composite
+elements, case labels, `__c_call` arguments, parameters, type lists) measure every element, the first
+included, by its whole text.
+Measuring the fill decision the same way changes the layout of ~20+ files in the tree
+(cross-line strings and other multi-line elements, e.g. `pkg/binate/asm/parse/*.bn`, `cmd/bnc/main.bn`), so
+it needs a decision on which multi-line elements it applies to (function literals only?) and a reformat of
+the tree in step with the CHECK_TOOLS bnfmt.
+
+Resolution (binate `b9bd636d0`, on top of the empty-string fix `4a7dc72fc` the second review turned up): a fill
+decision measures an expression element as it would print at each place (`pkg/binate/format/print_lineshare.bn`:
+`exprFitsAt`, `itemFitsAt`), rendered from the current column and from the continuation column with the line's
+indent and what follows it.  It stays when it is one line here and fits; it moves when it is one line at the
+continuation and fits there; otherwise (it spans lines wherever it is printed) it stays when its first line here
+fits, is no shorter than its first line at the continuation, and its later lines pass the cap no more than they
+would there (the user's option "B": an element too wide for a continuation line stays where the first line of its
+wrapped form fits).  A string that spans lines and is not the list's last element never stays on the list's first
+line; the element after one whose last line is deeper than the continuation lines starts a fresh line; a string run
+counts its tail in choosing split vs merged.  It applies to call/index arguments, statement value lists, composite
+elements, case labels and `__c_call` operands, first element included (`wrapOpenerAlone` is gone); types,
+parameters and text items keep the text measure.  89 tree files change layout (within the cap, at a fixpoint);
+they keep the CHECK_TOOLS bnfmt's layout until the next CHECK_TOOLS bump reformats them.  Against the previous
+bnfmt: no new second-pass change in the tree, one in ~3,200 perturbed tree copies (22 fixed); of ~10,000
+generated files the second-pass changes drop from 1,152 to 145 (81 new); 28 files gain lines over the cap, 963
+lose some; no token differences.  Tests: `print_lineshare_test.bn`, plus updated `print_listitem_test.bn`
+goldens.  The remaining second-pass changes are in the non-idempotence entry in claude-todo.md.
+
 ### asm Mach-O: a reference into a section with no other symbol under subsections — DONE (binate `1a20cd3a8`, 2026-10-20, work-2; user: "Next, before TLS 3") (found 2026-10-19, work-2, review of binate `97255aad6` / `648821e8a`)
 
 (b) With `.subsections_via_symbols`, a reference to a temporary in a section that holds no other symbol (`.section

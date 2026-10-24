@@ -2403,30 +2403,19 @@ under a fresh comment cursor (`literalBodyCursor`), so nothing in its body hits 
 ### bnfmt is not idempotent on some layouts around split strings, and on a block comment that ends a line — 🟢 LOW (found 2026-10-19, temp-4, fuzzing in the review of the rendering cache; pre-existing)
 
 Formatting a formatted file changes it again (bnfmt `bnc-0.0.17-pre3` and the tree's alike):
-`_ = T{kkkkkkkk: f(a, b, "<31 a>" "<31 a>" "<31 a>")}` first moves the right-hand side to a
-continuation line (`_ =` / `T{` / … with the string split across lines), then moves it back to `_ = T{`.
-About a fifth of the review's randomly generated files (1,115 of 6,000) change on a second format; those
-sampled all have a string split across lines.  And
+`f(a, "<31 a>" "<31 a>" "<31 a>".y)` first prints `f(a,` / `"<92 a>"` / `"a".y)` (the run merged and split on a
+continuation line), and the second format, which finds that split in its source, puts the string back after
+`f(a, `, where its first part ends at byte 100.  With binate `b9bd636d0`, 145 of the fill review's ~10,000
+generated files change on a second format (64 of them also did before it, 81 are new; 1,152 did before it).
+Sampled shapes: a string bnfmt splits (the example; `len(pkg.Rec{}),` / `"<76 a>"` joined on the second pass); a
+list holding a block comment (`x.m(f[int](),` / `f[int](/* K2 */ pkg.Rec{` … joined onto one line); a line
+comment after a case label's `:` moved to its own line; and, in a perturbed tree copy, a call argument whose own
+first argument the source wrote on one line past the cap (`slices.Append[…](vtables,` /
+`irdata.NewPkgVtableEntry(symPrefixed(appendStrFV(bareName, "<60-byte string>")),` …) moved to a continuation
+line on the first format and back after `vtables,` on the second.  And
 `conformance/spec/05-lexical/142_block_comment_newline_asi.bn` (`x := 5 /* …` / `… */ y := 6`) gains a
 blank line on the second format.  The layouts are valid; `--check` on the tree passes because its files
 are already at a fixpoint.
-
-### bnfmt packs a later argument that is a multi-line function literal by its whole text — a commented literal breaks onto a continuation line — 🟢 LOW — 🟡 IN PROGRESS (claimed 2026-10-19, temp-4; user: measure all multi-line elements by the part on the current line) (found 2026-10-06, work-3, fixing the function-literal comment placement)
-
-`fillExprList` (`pkg/binate/format/print_wrap.bn`) decides whether a non-first argument stays on the
-current line from `len(exprSingleLine(elem))`, the length of its whole rendering.  For a multi-line function
-literal only the first line (`func() {`) shares the line, so a literal whose body holds a few comment lines
-measures too long: `register("…", 123456789, func() { // c` formats as `register("…", 123456789,` then the
-literal on a `+2` continuation line, where the same literal without the comment stays on the call's line.
-Valid and idempotent, not canonical.  The first-argument decision (`wrapOpenerAlone`) measures a literal at
-the element's left edge (alone, or called: `func() { … }()`) by its first line, but an element that only
-ends in one, `s.Map(func(x int) int { … })`, by its whole text, so a long body puts `(` alone above it.  `printStrList` and `fillStrs` (composite
-elements, case labels, `__c_call` arguments, parameters, type lists) measure every element, the first
-included, by its whole text.
-Measuring the fill decision the same way changes the layout of ~20+ files in the tree
-(cross-line strings and other multi-line elements, e.g. `pkg/binate/asm/parse/*.bn`, `cmd/bnc/main.bn`), so
-it needs a decision on which multi-line elements it applies to (function literals only?) and a reformat of
-the tree in step with the CHECK_TOOLS bnfmt.
 
 ## bnlint rules, unused-entity checks & lint skips
 
