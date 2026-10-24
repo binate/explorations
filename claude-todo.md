@@ -183,16 +183,6 @@ reached in); and build nested instances from a worklist rather than by native re
 capped by the stack.  Repro generator: S_i[T] with `next *S_{i+1}[T]`, main printing 1.  Related: "The instance
 chain bound depends on naming order" (above).
 
-### An uninstantiated generic whose methods grow only through array-length arithmetic is rejected at its declaration — 🟡 IN PROGRESS (claimed 2026-10-23, work-7/session — user: "Then continue with 5b then 5a."; minor; found 2026-10-18, work-7, the static expansion check; pre-existing)
-
-`func (n *N[T]) A() *N[[sizeof(T) + 1]uint8]` (and a second such method), with N never instantiated, is rejected by
-the build-depth bound ("generic instantiation nested too deeply (cyclic or unbounded type argument?)") while N's own
-methods are checked with T abstract: the expansion check does not count a parameter mentioned in a length as
-growing (whether it grows depends on the arithmetic; user 2026-10-18: "Not growing + build budget"), so the abstract
-instances' methods are built eagerly until the bound.  §12.3 names no instance of N, so it should be accepted, as an
-uninstantiated generic growing through type constructors now is.  Possible fix: defer the methods of abstract
-instances whose arguments hold a dependent length when built while another instance is, as for an infinite family.
-
 ### An importer's `sizeof` / `alignof` of a type its `.bni` declares later crashes the compiler — 🔴 OPEN MAJOR (found 2026-10-17, work-5, review of the `.bni` constant `len` change; reproduced; pre-existing)
 
 `const Z uint = sizeof(S)` followed by `type S struct { x int64; y int64 }` in `q.bni`, with an importer's

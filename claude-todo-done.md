@@ -1,3 +1,14 @@
+### An uninstantiated generic whose methods grow only through array-length arithmetic was reported rejected at its declaration — NOT REPRODUCIBLE (regression test binate `e024187f6`, 2026-10-23, work-7; user: "Then continue with 5b then 5a.") (minor; found 2026-10-18, work-7, the static expansion check)
+
+`func (n *N[T]) A() *N[[sizeof(T) + 1]uint8]` (and a second such method), with N never instantiated, was reported
+rejected by the build-depth bound ("generic instantiation nested too deeply").  Every build kept back to Oct 18
+accepts it, in field, method, interface and generic-function forms.  While N's declarations are checked with T
+abstract, a length that depends on a type parameter (types.Type.ArrayLenDependent) compares by its placeholder
+(types.Identical; each instantiation checks the lengths), so the `N[[sizeof(T) + 1]uint8]` named from N's abstract
+instance is the same instance at every level and the abstract family stops after one level (spec gen.mono.check).
+A concrete instantiation (`N[int]`) still grows and is stopped by the build budget.  Test: conformance
+spec/12-generics 133 (accepted, prints 1).
+
 ### bnfmt is not idempotent: eight causes — DONE (binate `ae0e0a63c`, after `674665b91` moved the string printer to print_strlit.bn; 2026-10-23, temp-4)
 
 Part of the non-idempotence entry, which stays open for the rest.  Formatting a formatted file changed it again in 150
