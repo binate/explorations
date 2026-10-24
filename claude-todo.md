@@ -425,6 +425,17 @@ by-address aggregate is present) and LLVM are right on all of them.  Also to swe
 path on the incoming and outgoing counts separately, and stage rather than shift in place when a by-address
 argument has ArgWords < 1.  Test: conformance 1714 (binate `4486a32b8`; xfailed on the native aa64 and x64 modes).
 
+### native aa64 / x64 reject a float-containing closure with a big multi-return result ("not yet handled") — 🔴 OPEN MAJOR (found 2026-10-23, work-1, probing the zero-size shim fix; pre-existing)
+
+A closure that captures, takes or returns a float and returns a multi-value result too big for the return registers
+fails to compile on native aa64 and x64: `native aarch64 / x64: float-containing closure with a big multi-return
+result is not yet handled` (aarch64_closure_shim.bn ~101, x64_closure_shim.bn ~143 — the float-closure path has no
+sret / big-tuple shape; the non-float closure path and the func-value shims do).  E.g. `MakeSplit(scale float64)
+@func(int64) (int64 x9)` or a closure `func(x float64) (float64, int64 x8)`.  The LLVM backend and native arm32 take
+it.  It fails loud, not silently; a valid program is still rejected.  Fix: give the float closure shim the big
+multi-return (sret / retbuf) shape the scalar closure shim has.  Test: a conformance test (xfail on the native aa64
+and x64 modes) to land with the zero-size shim fix.
+
 ### Neither backend probes the stack for a large frame — a frame past the guard page can step over it — 🔴 OPEN MAJOR (found 2026-10-18, work-1, review of the native aa64 16 MiB fix; pre-existing; needs a decision)
 
 A function's prologue moves SP down by its whole frame in one step (native: `sub sp, sp, #frame`, now also past 16
