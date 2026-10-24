@@ -1,3 +1,43 @@
+### CI red: native x64 unit — the runner is shut down partway through `pkg/binate/check` — DONE (binate `15bddd15e`, `7b08c1442`, `b57e92111`, `825c27386`, 2026-10-23, work-3; CI-confirmed 2026-10-24) (filed 2026-10-20, work-3, CI triage)
+
+`builder-comp_native_x64-comp_native_x64` (unit) ends with "The runner has received a shutdown signal … exit
+code 143" partway through `STARTING: pkg/binate/check` in every finished run since at least 2026-10-06, and
+`builder-comp_native_aa64-comp_native_aa64` (unit) fails `check` with no output after ~600 s, or hits the job's
+30-minute timeout there, in every run since 1fca458a1 (2026-10-06; it passed at 85fcda9cb, with 1346 check tests).
+
+Root cause (found 2026-10-19, work-3): COMPILING check's test binary with `--backend native` takes 64.6 GB
+(peak footprint; 6.8 GB resident, the rest compressed or swapped) and 370 s on this host, against 0.65 GB for
+the LLVM backend; the binary itself runs in 2 s and 76 MB.  The Linux runner is OOM-killed; the macOS runner
+swaps until it is killed.  The memory goes to the generated test runner's `main` (cmd/bnc/gen_test_runner.bn) —
+one function with a block group and a managed local per test, 1569 of them for check — because native/common's
+per-function analyses are quadratic in a function's size, in time and in memory.  A synthetic package of N
+trivial tests compiles natively in 2.0 GB / 6 s (N=250), 6.7 GB / 22 s (500), 25.8 GB / 124 s (1000) and
+102.6 GB / 605 s (2000); the LLVM backend needs 0.09 / 0.16 / 0.29 / 0.56 GB.  A `sample` profile at N=1000
+(aarch64): RegMap.PlanFrame ~68% — LastUseArgLoads ~45% (per aggregate load, the slotReachPtr and slotAliases
+fixpoints and slotDeadAfterLoad, each rescanning the whole function with NextID-long arrays) and
+AggLoadElision ~23% (valueUsedInOtherBlock, allocaAddrConfinedToLoadStore, lastAliasUseIndex: a whole-function
+scan per candidate); ComputeLiveBeforeAllFused ~18% (blockLiveBefore allocates NextID-long sets per block);
+ComputeLivenessFused + ComputeLivenessFp ~13% (livenessFixpoint keeps four dense `bool` sets over ALL value
+IDs per block, once per register class — O(blocks × values) memory, where the footprint peaks).
+
+Landed (stages 1–3 of plan-native-analysis-scaling.md): the native compile of check's tests is 5.6 s / 0.54 GB.
+Close this entry once the native x64 and aa64 unit lanes pass `check` in CI; the plan's Stage 4 (a guard
+against regressions) and the remaining smaller superlinear term stay with the plan.
+Fix (user: "then start on the proposed fix"; plan-native-analysis-scaling.md; it is the native half of the
+"Compile time is superlinear in function size" entry): make these analyses near-linear in function size — (1) liveness
+over a compact index of the values live across blocks, as packed bitsets (a block-local value needs no
+dataflow); (2) live-before derived by one backward scan per block from its live-out, with no NextID-sized
+per-block arrays; (3) the slot analyses walk a per-function def→uses index from each slot (a slot's reach is
+the closure over its users) instead of rescanning every block per slot until nothing changes, with sparse
+visited sets — plus a test that compiles a large generated function natively under a memory budget.
+Generating the runner as many small functions would only hide this from test packages (a large user function
+still hits it), so it is a workaround, not the fix.
+Resolution: plan-native-analysis-scaling.md stages 1–3 — the live-before cursor, the cross-block liveness bitsets,
+and the frame planner's slot analyses and AggLoadElision over a per-function use index — make the native
+compile of check's tests 5.6 s / 0.54 GB (was 330 s / 64.6 GB), byte-identical output.  CI run 40066559519 (at
+e024187f6): builder-comp_native_x64-comp_native_x64 and builder-comp_native_aa64-comp_native_aa64 unit both pass
+(8 / 9 min).  Guarded by e2e/native-large-function.sh (binate `62518209c`).
+
 ### REPL: a resolved group's functions were generated before the group's other signatures existed — calls between them were lowered untyped — DONE (binate `3cd936143`, 2026-10-24, work-6) (found 2026-10-23, work-6, plan-irgen-checker-types.md 4d2)
 
 Part of the REPL resolved-group entry, which stays open for the two cases its review found.  Functions that park on

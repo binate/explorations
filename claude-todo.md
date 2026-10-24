@@ -196,40 +196,13 @@ console (as pkg/builtins/testing/sys already does), or have the runner print thr
 (its source says it must use the real pkg/std/fmt).  Only after that can the failing tests be found; the
 `native/arm32` link overflow and the arena exhaustion remain size problems.
 
-### CI red: native x64 unit — the runner is shut down partway through `pkg/binate/check` — 🟡 FIX LANDED, awaiting CI (binate `15bddd15e`, `7b08c1442`, `b57e92111`, `825c27386`; claimed 2026-10-20, work-3; user: "then #6 and #5"), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
+### CI red: arm32 unit — `TestAssembleFileMachoLayoutLikeClang` reads a Mach-O section's flags word as an `int` (asm/assemble) — 🔴 OPEN (found 2026-10-24, work-3, CI run 40066559519)
 
-`builder-comp_native_x64-comp_native_x64` (unit) ends with "The runner has received a shutdown signal … exit
-code 143" partway through `STARTING: pkg/binate/check` in every finished run since at least 2026-10-06, and
-`builder-comp_native_aa64-comp_native_aa64` (unit) fails `check` with no output after ~600 s, or hits the job's
-30-minute timeout there, in every run since 1fca458a1 (2026-10-06; it passed at 85fcda9cb, with 1346 check tests).
-
-Root cause (found 2026-10-19, work-3): COMPILING check's test binary with `--backend native` takes 64.6 GB
-(peak footprint; 6.8 GB resident, the rest compressed or swapped) and 370 s on this host, against 0.65 GB for
-the LLVM backend; the binary itself runs in 2 s and 76 MB.  The Linux runner is OOM-killed; the macOS runner
-swaps until it is killed.  The memory goes to the generated test runner's `main` (cmd/bnc/gen_test_runner.bn) —
-one function with a block group and a managed local per test, 1569 of them for check — because native/common's
-per-function analyses are quadratic in a function's size, in time and in memory.  A synthetic package of N
-trivial tests compiles natively in 2.0 GB / 6 s (N=250), 6.7 GB / 22 s (500), 25.8 GB / 124 s (1000) and
-102.6 GB / 605 s (2000); the LLVM backend needs 0.09 / 0.16 / 0.29 / 0.56 GB.  A `sample` profile at N=1000
-(aarch64): RegMap.PlanFrame ~68% — LastUseArgLoads ~45% (per aggregate load, the slotReachPtr and slotAliases
-fixpoints and slotDeadAfterLoad, each rescanning the whole function with NextID-long arrays) and
-AggLoadElision ~23% (valueUsedInOtherBlock, allocaAddrConfinedToLoadStore, lastAliasUseIndex: a whole-function
-scan per candidate); ComputeLiveBeforeAllFused ~18% (blockLiveBefore allocates NextID-long sets per block);
-ComputeLivenessFused + ComputeLivenessFp ~13% (livenessFixpoint keeps four dense `bool` sets over ALL value
-IDs per block, once per register class — O(blocks × values) memory, where the footprint peaks).
-
-Landed (stages 1–3 of plan-native-analysis-scaling.md): the native compile of check's tests is 5.6 s / 0.54 GB.
-Close this entry once the native x64 and aa64 unit lanes pass `check` in CI; the plan's Stage 4 (a guard
-against regressions) and the remaining smaller superlinear term stay with the plan.
-Fix (user: "then start on the proposed fix"; plan-native-analysis-scaling.md; it is the native half of the
-"Compile time is superlinear in function size" entry): make these analyses near-linear in function size — (1) liveness
-over a compact index of the values live across blocks, as packed bitsets (a block-local value needs no
-dataflow); (2) live-before derived by one backward scan per block from its live-out, with no NextID-sized
-per-block arrays; (3) the slot analyses walk a per-function def→uses index from each slot (a slot's reach is
-the closure over its users) instead of rescanning every block per slot until nothing changes, with sparse
-visited sets — plus a test that compiles a large generated function natively under a memory budget.
-Generating the runner as many small functions would only hide this from test packages (a large user function
-still hits it), so it is a workaround, not the fix.
+On `builder-comp_arm32_linux` (32-bit `int`) asm/assemble's TestAssembleFileMachoLayoutLikeClang, added by binate
+`047443141` ("asm Mach-O: lay text input's objects out as clang does"), fails.  Its layout dump shows the `__text`
+section's flags as `-2147482624` — 0x80000400 (S_ATTR_PURE_INSTRUCTIONS is bit 31) read into a 32-bit `int` — most
+likely the mismatch with the expected layout (not yet confirmed against the test's expected text).  If so it is the
+class the arm32 `2^31 in an int` test fixes in binate `63627ae64` handled: read the field as uint32 / int64.
 
 ### A parameterized impl lets a managed pointer to its instance satisfy a constraint — `g[@W[int]]` is accepted through `impl W[K]` — 🔴 OPEN MAJOR (found 2026-10-16, work-6, review of the spec status cleanup; split out of the pointer-impl decision entry 2026-10-17; reproduced; pre-existing)
 
