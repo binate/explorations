@@ -133,8 +133,9 @@ alone takes 37,000 bytes in the VM (3261 registers) and 3440 bytes compiled (LLV
 value its own register slot (vm/lower_func.bn: `NumRegs = f.NextID + maxArgs + globalRegs`, no reuse), so a
 frame grows with the function's total value count, and pushFrame zeroes the whole frame on every call.  At the
 cap of 128 this function shape needs about 10.4 MB, more than bni's 8 MiB VM stack (cmd/bni test.bn / main.bn).
-Options (awaiting decision): slot reuse by liveness in the VM lowering; a larger VM stack; building nested
-instances from a worklist in the checker; splitting the checker's long functions.
+Options: slot reuse by liveness in the VM lowering; a larger VM stack; building nested instances from a worklist
+in the checker; splitting the checker's long functions.  **Decision (user 2026-10-24: "VM slot reuse
+(Recommended)"):** assign VM register slots by liveness so values whose live ranges do not overlap share a slot.
 
 ### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🔴 NEEDS DECISION, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
