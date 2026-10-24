@@ -234,6 +234,15 @@ only once no shallower work remains, and add a total cap on instance checks (a n
 grows and fans out (`f[T]` naming `f[@T]` and `f[*T]`) stops quickly.  Spec gen.mono.instances: "the shortest
 chain".  Verified probe pair for tests: `f1[int](); g[int]()` rejected and `g[int](); f1[int]()` accepted today.
 
+### VM lowering sizes the call-arg region without `OP_CALL_HANDLE` — 🔴 OPEN (minor, latent; found 2026-10-24, work-7, review of the VM slot-reuse change; pre-existing)
+
+findMaxCallArgs (vm/lower_func_helpers.bn) counts the packed args of OP_CALL / _INDIRECT / _FUNC_VALUE /
+_IFACE_METHOD and multi-returns, but not OP_CALL_HANDLE, whose `Args[1..]` lowerFunc packs at callArgBase too
+(IR-gen emits it for `_call_dtor(h, p)` / `_call_free_fn`).  In a function whose only arg-carrying call is one, the
+region has 0 slots and the pack MOV writes the first global-address register, which happens to be unused there
+(one arg, at least one global register).  Fix: count OP_CALL_HANDLE (start 1) like the other indirect calls; a
+unit test lowering a function whose only call is a call-handle op, checking NumRegs covers the pack.
+
 ### A finite chain of 92 or more distinct generic structs is rejected even when the program instantiates none — 🔴 OPEN (minor; found 2026-10-23, work-7, probing the naming-order chain bound; reproduced on every build back to Oct 18; pre-existing)
 
 `type S1[T any] struct { v T; next *S2[T] }` … `type S92[T any] struct { v T }`, with no instantiation anywhere, is
