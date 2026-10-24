@@ -2494,11 +2494,12 @@ Function literals nested in each other's bodies still format in time exponential
 under a fresh comment cursor (`literalBodyCursor`), so nothing in its body hits the rendering cache
 (`pkg/binate/format/print_rendermemo.bn`, keyed by cursor).  Real code does not nest this deep.
 
-### bnfmt is not idempotent on some layouts: a lone argument, a string bnfmt splits, binary-chain operands, function literals — 🟡 IN PROGRESS (claimed 2026-10-23, temp-4; user: "yes" to taking it next) 🟢 LOW (found 2026-10-19, temp-4, fuzzing in the review of the rendering cache; pre-existing)
+### bnfmt is not idempotent on some layouts: a lone argument, a string bnfmt splits, function literals — 🟡 IN PROGRESS (claimed 2026-10-23, temp-4; user: "yes" to taking it next) 🟢 LOW (found 2026-10-19, temp-4, fuzzing in the review of the rendering cache; pre-existing)
 
-Formatting a formatted file changes it again in 52 of the ~25,000 files of the fill and idempotence corpora (the tree,
+Formatting a formatted file changes it again in 47 of the ~25,000 files of the fill and idempotence corpora (the tree,
 generated files and perturbed tree copies); the tree's own files are at a fixpoint.  binate `ae0e0a63c` fixed eight
-causes (see the done file).  What remains, from the cases minimized from the corpora:
+causes, and `f5a890569` a binary chain's column-0 operand measure (see the done file).  What remains, from the cases
+minimized from the corpora:
 
 - **A lone argument** (14 cases; one from a perturbed tree file, `Append[irdata](vtables, irdata(symPrefixed(
   appendStrFV(bareName, "<57-byte string>"))()))`): printArgList measures a lone argument that is not a string with
@@ -2510,9 +2511,6 @@ causes (see the done file).  What remains, from the cases minimized from the cor
 - **A string bnfmt splits** (about 12): its parts fill their lines at the column it lands at; a second format keeps
   them and measures an alternative placement a level deeper, where they run past the cap though a fresh split would
   fit there.
-- **A binary chain measures an operand by a rendering from column 0** (`binOperandWidth`, print_chain.bn), but a run
-  of strings' width depends on its column: `x() +` / `"<85 a>"` (the run fits split at column 0, merged at its own)
-  joins on the second format.  Fix: render the operand from its own column (seed the scratch with the current line).
 - About 20 others, mostly a function literal whose body has a long line or a `// LONG-LINE ALLOWED` marker, and
   right-hand sides a first format moves to a continuation line.
 

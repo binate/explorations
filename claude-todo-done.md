@@ -1,3 +1,17 @@
+### bnfmt: a binary chain measured an operand by a rendering from column 0 — DONE (binate `f5a890569`, 2026-10-24, temp-4)
+
+Part of the non-idempotence entry, which stays open for the rest.  A wrapped binary chain decided whether an operand
+stays on the line, and tried its one-line form, by renderings from column 0 with nothing after them; a run of
+adjacent strings is written split or merged by where it lands, so an operand could be measured split, move to a
+continuation line and print merged there (`x() +` / `"<85 a>"`), which a second format joins.  Both now measure an
+operand where it would print, with what follows it, through the rendering cache (operandAt); an operand that spans
+lines there is still measured from column 0, which keeps a short function literal on the line.  The cache also took
+nested parenthesized chains off their repeated renderings (20 deep: 44 s to 0.03 s, laid out the same).  On the
+~25,000 corpus files, those a second format changes drop from 52 to 47 (1 new: a function literal with a
+`// LONG-LINE ALLOWED` line in nested lists); no tree file formats differently, no token diffs, no new lines over the
+cap.  A string-run operand now merges and stays on its line, as list elements do since `b9bd636d0`.  Tests:
+TestChainOperandAtItsColumn (fails on the previous bnfmt), TestNestedChainMeasuresCached (print_chain_test.bn).
+
 ### native aa64 / x64 func-value and closure shims mis-routed arguments after a zero-size one — DONE (binate `a625e19dc`, 2026-10-24, work-1) (found 2026-10-23, work-1, review of the func-value zero-size slot fix; pre-existing)
 
 A zero-size aggregate argument takes one incoming dispatch word (its address) but no outgoing word, and the aa64 /
@@ -48,8 +62,8 @@ new).  The causes fixed, each with a golden test that fails on the previous bnfm
 - A list element's trailing line comment was not part of its tail (now `withTrail`, when the comment can fit at all).
 - A function literal's one-line block did not leave room for what follows it (`printBlockTail`).
 
-Found on the way: the lone-argument rule, the column-dependence of a string bnfmt splits, and the binary chain's
-column-0 operand measure (all in the open entry).
+Found on the way: the lone-argument rule, the column-dependence of a string bnfmt splits (both in the open entry),
+and the binary chain's column-0 operand measure (fixed by `f5a890569`).
 
 ### asm Mach-O section layout for text input as clang's — DONE (binate `047443141`, 2026-10-23, work-2; user: "Follow clang for text (Recommended)", "Keep 2^2 (Recommended)")
 
