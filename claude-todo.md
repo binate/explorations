@@ -2456,22 +2456,35 @@ Function literals nested in each other's bodies still format in time exponential
 under a fresh comment cursor (`literalBodyCursor`), so nothing in its body hits the rendering cache
 (`pkg/binate/format/print_rendermemo.bn`, keyed by cursor).  Real code does not nest this deep.
 
-### bnfmt is not idempotent on some layouts around split strings, and on a block comment that ends a line — 🟡 IN PROGRESS (claimed 2026-10-23, temp-4; user: "yes" to taking it next) 🟢 LOW (found 2026-10-19, temp-4, fuzzing in the review of the rendering cache; pre-existing)
+### bnfmt is not idempotent on some layouts: a lone argument, a string bnfmt splits, binary-chain operands, function literals — 🟡 IN PROGRESS (claimed 2026-10-23, temp-4; user: "yes" to taking it next) 🟢 LOW (found 2026-10-19, temp-4, fuzzing in the review of the rendering cache; pre-existing)
 
-Formatting a formatted file changes it again (bnfmt `bnc-0.0.17-pre3` and the tree's alike):
-`f(a, "<31 a>" "<31 a>" "<31 a>".y)` first prints `f(a,` / `"<92 a>"` / `"a".y)` (the run merged and split on a
-continuation line), and the second format, which finds that split in its source, puts the string back after
-`f(a, `, where its first part ends at byte 100.  With binate `b9bd636d0`, 145 of the fill review's ~10,000
-generated files change on a second format (64 of them also did before it, 81 are new; 1,152 did before it).
-Sampled shapes: a string bnfmt splits (the example; `len(pkg.Rec{}),` / `"<76 a>"` joined on the second pass); a
-list holding a block comment (`x.m(f[int](),` / `f[int](/* K2 */ pkg.Rec{` … joined onto one line); a line
-comment after a case label's `:` moved to its own line; and, in a perturbed tree copy, a call argument whose own
-first argument the source wrote on one line past the cap (`slices.Append[…](vtables,` /
-`irdata.NewPkgVtableEntry(symPrefixed(appendStrFV(bareName, "<60-byte string>")),` …) moved to a continuation
-line on the first format and back after `vtables,` on the second.  And
-`conformance/spec/05-lexical/142_block_comment_newline_asi.bn` (`x := 5 /* …` / `… */ y := 6`) gains a
-blank line on the second format.  The layouts are valid; `--check` on the tree passes because its files
-are already at a fixpoint.
+Formatting a formatted file changes it again in 52 of the ~25,000 files of the fill and idempotence corpora (the tree,
+generated files and perturbed tree copies); the tree's own files are at a fixpoint.  binate `ae0e0a63c` fixed eight
+causes (see the done file).  What remains, from the cases minimized from the corpora:
+
+- **A lone argument** (14 cases; one from a perturbed tree file, `Append[irdata](vtables, irdata(symPrefixed(
+  appendStrFV(bareName, "<57-byte string>"))()))`): printArgList measures a lone argument that is not a string with
+  tail 1, so it stays after its opener and wraps itself, but prints it with everything after the list.  The layout it
+  gets that way (a call's opener alone, a function literal's block expanded) is kept by a second format, whose measure
+  of the alternatives then differs.  Measuring it with its whole tail fixes 11 of the 14 but changes 7 tree files for
+  the worse (`len(` / `patchX64(…)) !=` / `0 || …`).  Needs a decision on the lone-argument rule, or on keeping a
+  source opener alone.
+- **A string bnfmt splits** (about 12): its parts fill their lines at the column it lands at; a second format keeps
+  them and measures an alternative placement a level deeper, where they run past the cap though a fresh split would
+  fit there.
+- **A binary chain measures an operand by a rendering from column 0** (`binOperandWidth`, print_chain.bn), but a run
+  of strings' width depends on its column: `x() +` / `"<85 a>"` (the run fits split at column 0, merged at its own)
+  joins on the second format.  Fix: render the operand from its own column (seed the scratch with the current line).
+- About 20 others, mostly a function literal whose body has a long line or a `// LONG-LINE ALLOWED` marker, and
+  right-hand sides a first format moves to a continuation line.
+
+Open questions from `ae0e0a63c` (landed as is): pkg/binate/check/check_instances.bn's right-hand side
+`table.NewTable[…](…)` will wrap its type arguments inline (`…, instanceDeclHasher,` / `instanceDeclEq](`) at the
+next CHECK_TOOLS bump, where it moved to a continuation line only because its inline form ran a byte past the cap;
+giving right-hand sides the fill measure's first-line rule instead changes 330 tree files.  And making room for a
+tail can leave a one-character last part (`"hello worl"` / `"d"}, // <85-byte comment>`).  Minor: trailWidth reserves
+nothing for a line comment after a block comment in a gap (`x, /* b */ // c`); a statement's leading `/* a */ // b`
+on a line of its own still prints as two lines (stable).
 
 ## bnlint rules, unused-entity checks & lint skips
 

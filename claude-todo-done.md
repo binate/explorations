@@ -1,3 +1,27 @@
+### bnfmt is not idempotent: eight causes — DONE (binate `ae0e0a63c`, after `674665b91` moved the string printer to print_strlit.bn; 2026-10-23, temp-4)
+
+Part of the non-idempotence entry, which stays open for the rest.  Formatting a formatted file changed it again in 150
+of ~25,000 corpus files (147 of ~23,000 before the reviewer's 2,000 were added); after `ae0e0a63c`, 52 (15 of them
+new).  The causes fixed, each with a golden test that fails on the previous bnfmt:
+
+- A split string reserved its tail on every part, so one placed on a continuation line ended short of the cap and a
+  second format fit it after the previous argument; each earlier part now fills its line, and where the rest fits
+  only without the tail, the part ends once where a final part holds the rest and the tail (`finalPartStart`).
+  (The documented example, `f(a, "<31 a>" "<31 a>" "<31 a>".y)`.)
+- A one-line block or struct type on a `// LONG-LINE ALLOWED` line was expanded, moving the marker to its last line.
+- A blank line was measured from a statement's end, not a trailing block comment spanning lines
+  (conformance/spec/05-lexical/142_block_comment_newline_asi.bn gained a blank line).
+- A postfix head reserved nothing for its suffix: a call's or index's opener (`()` and the tail when empty), a
+  slice's `[lo:hi]`, `.(T)`, a parenthesized head's `)`.
+- A case label's trailing comment was looked for on the `case` line; the parser now records `ast.CaseClause.Colon`.
+  The label takes only a comment before its first statement.
+- `/* a */ // b` in a list gap was split onto two lines on a second format.
+- A list element's trailing line comment was not part of its tail (now `withTrail`, when the comment can fit at all).
+- A function literal's one-line block did not leave room for what follows it (`printBlockTail`).
+
+Found on the way: the lone-argument rule, the column-dependence of a string bnfmt splits, and the binary chain's
+column-0 operand measure (all in the open entry).
+
 ### asm Mach-O section layout for text input as clang's — DONE (binate `047443141`, 2026-10-23, work-2; user: "Follow clang for text (Recommended)", "Keep 2^2 (Recommended)")
 
 bnas gave every Mach-O section at least its name's default alignment (8 for data and bss, 4 for others), wrote
