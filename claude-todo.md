@@ -198,6 +198,20 @@ lookups (4d-2..4); field offsets and copies; callconv's stack layout; bss length
 32-bit host; 5 VM /
 interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the 32-bit lane.
 
+### A method declared later is not defined on demand while declarations are collected — 🔴 OPEN (minor: valid code rejected; found 2026-10-23, work-5, landing the on-demand functions change; reproduced)
+
+Since binate `f1645f4c1` a package's functions, generic or not, are defined on demand during collection
+(`batchFuncOnDemand`, check/check_decl_batch.bn), so a declaration collected before a function may call it.  A
+method is not: it is attached only when collection reaches it.  `var s S`, `type S struct { n int }`, `var g
+[len(s.mk())]int`, then `func (r S) mk() [3]int` reports "undefined: mk"; and an inferred-type variable read
+early whose initializer calls a later method (`type B [len(tbl)]uint8`, `var tbl = s.mk()`) gets "the type of
+`tbl` is needed while the package's types are collected ... declare its type".  The reverse order is accepted.
+Tests pinning today's behavior: check_decl_batch_test.bn `TestArrayLenOfInferredVarNeedsLaterDecl`,
+`...LaterUseClean`, check_pending_retry_test.bn `TestPendingVarNeededDuringCollectionFails`.  Fix: attach a
+method on demand when a selector on a collected type misses it (collectMethodDecl for the batch's methods of
+that receiver base, with the generic-receiver bookkeeping), as functions are defined; then those tests become
+acceptance tests, plus a conformance test with the method after the length.
+
 ### A deferred early read of a variable leaves the function instances its check built cached — 🔴 OPEN (minor: a misleading diagnostic; found 2026-10-19, work-5, review of the on-demand functions change; by reasoning)
 
 `batchVarOnDemand` (check/check_decl_batch.bn), deferring a variable's check read while types are collected, drops
