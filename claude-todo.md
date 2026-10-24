@@ -2407,7 +2407,7 @@ Function literals nested in each other's bodies still format in time exponential
 under a fresh comment cursor (`literalBodyCursor`), so nothing in its body hits the rendering cache
 (`pkg/binate/format/print_rendermemo.bn`, keyed by cursor).  Real code does not nest this deep.
 
-### bnfmt is not idempotent on some layouts around split strings, and on a block comment that ends a line — 🟢 LOW (found 2026-10-19, temp-4, fuzzing in the review of the rendering cache; pre-existing)
+### bnfmt is not idempotent on some layouts around split strings, and on a block comment that ends a line — 🟡 IN PROGRESS (claimed 2026-10-23, temp-4; user: "yes" to taking it next) 🟢 LOW (found 2026-10-19, temp-4, fuzzing in the review of the rendering cache; pre-existing)
 
 Formatting a formatted file changes it again (bnfmt `bnc-0.0.17-pre3` and the tree's alike):
 `f(a, "<31 a>" "<31 a>" "<31 a>".y)` first prints `f(a,` / `"<92 a>"` / `"a".y)` (the run merged and split on a
