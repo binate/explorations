@@ -117,6 +117,39 @@ Pair[int]; return p.Second(5) }` gives 0 (15 expected).
 - Fix: find the instances among both (one helper, shared with that case's fix).  Regression cases in
   e2e/repl.sh, with the fix.
 
+### REPL: a method value taken after a method is shadowed (another signature) runs the old method — wrong values, arguments dropped — 🔴 OPEN, MAJOR (filed 2026-10-24, work-6)
+
+Once a method value has been taken, one taken after the method is redefined with another signature calls the OLD
+method, typed with the new signature:
+```
+> type Mv struct { n int }
+> func (v *Mv) Size() int { return 1000 }
+> var mv Mv
+> func mvold() int { var m *func() int = mv.Size; return m() }
+> testing.Println(mvold())
+1000
+> func (v *Mv) Size() int8 { return 5 }
+> func mvnew() int8 { var m *func() int8 = mv.Size; return m() }
+> testing.Println(mvnew(), mv.Size())
+-24 5                               (5 5 expected)
+> func (v *Mv) Size(k int) int { return k }
+> func mvk() int { var m *func(int) int = mv.Size; return m(42) }
+> testing.Println(mvk(), mv.Size(42))
+1000 42                             (42 42 expected)
+```
+With no method value taken before the redefinition it is right (42 42).  A generic type's method is affected the
+same way.
+- Root cause: IR-gen synthesizes one wrapper per method and captured receiver form and reuses it by name
+  (gen_method_value.bn: methodValueWrapperName, Mod.MethodValueWrappers).  The old wrapper's call was bound to the
+  old method when the VM lowered it, so a shadowing redefinition's new method values get the old wrapper.  (A
+  redefinition of the same signature replaces the method in place, which the old wrapper then reaches.)
+- Found by: the adversarial review of the REPL resolved-group shadowing fix (work-6, 2026-10-24); predates it
+  (a bni without that fix gives the same).
+- Proposed fix: when a method is shadowed at the prompt, IR-gen forgets its method-value wrappers, as it forgets a
+  shadowed generic's instances, and the VM unbinds them once the entry is kept, so a later method value
+  synthesizes a new wrapper that calls the new method while values taken before keep the old one.  Regression
+  case in e2e/repl.sh, with the fix.
+
 ### CI red: `check`'s `TestExpandBuildBudget` overflows the VM stack (unit, `builder-comp-int` / `builder-comp-comp-int`) — 🟡 IN PROGRESS (claimed 2026-10-23, work-7/session — user: "you can take the VM stack overflow next."), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
 `TestExpandBuildBudget` (check_generic_build_test.bn, added by binate `27844b58b`, the work-7 static
