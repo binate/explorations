@@ -1,3 +1,21 @@
+### An array length `len(f())` is rejected when `func f` comes later in the file — DONE (binate `f1645f4c1`, 2026-10-23, work-5) (user: "yes, take those two next", then "let's extend" to generic functions; minor: valid code rejected; found 2026-10-18, work-5, review of the len change; reproduced)
+
+An array length's `len` operand is checked where the length is resolved (checkerEnv.Len), during collection, in
+source order; a function is defined only when collection reaches it, and `lookupDeclOnDemand` resolves variables
+and constants on demand, not functions.  So `var g [len(f())]int` (or `type T [len(f())]int`) before `func f()
+[3]int` reports "undefined: f", and the reverse order is accepted.  Fix: resolve a function (and a method) the
+operand names on demand as a variable is; a conformance test with the length before the function.
+
+**Done** (binate `f1645f4c1`): a batch's package-level functions, generic or not, are defined on demand during
+collection (`batchFuncOnDemand`, check/check_decl_batch.bn), as its variables and constants are, also under a
+predeclared name; a generic's instantiation looks its name up the same way.  Reviews found, and it fixes: a cycle
+through an on-demand function's signature taken as a zero length (now a cycle error), an on-demand function's
+signature errors lost when an early read is deferred, a constrained generic's check made against the impls
+collected so far (now deferred, `PendingFuncChecks`), and a type argument declared later taken for an opaque type
+(its layout collected first; reachable since binate `6cd7d8cc5`).  A later method is still not defined on demand
+("declare its type" remains for it).  Tests: check_decl_batch_test.bn, check_pending_retry_test.bn, conformance
+1713_array_length_calls_later_func.
+
 ### bnfmt packs a later argument that is a multi-line function literal by its whole text — a commented literal breaks onto a continuation line — DONE (binate `b9bd636d0`, 2026-10-23, temp-4; user: measure all multi-line elements by the part on the current line, and "B") (found 2026-10-06, work-3, fixing the function-literal comment placement)
 
 `fillExprList` (`pkg/binate/format/print_wrap.bn`) decides whether a non-first argument stays on the

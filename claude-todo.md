@@ -198,14 +198,6 @@ lookups (4d-2..4); field offsets and copies; callconv's stack layout; bss length
 32-bit host; 5 VM /
 interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the 32-bit lane.
 
-### An array length `len(f())` is rejected when `func f` comes later in the file — 🟡 IN PROGRESS (claimed 2026-10-19, work-5/session; user: "yes, take those two next"; minor: valid code rejected; found 2026-10-18, work-5, review of the len change; reproduced)
-
-An array length's `len` operand is checked where the length is resolved (checkerEnv.Len), during collection, in
-source order; a function is defined only when collection reaches it, and `lookupDeclOnDemand` resolves variables
-and constants on demand, not functions.  So `var g [len(f())]int` (or `type T [len(f())]int`) before `func f()
-[3]int` reports "undefined: f", and the reverse order is accepted.  Fix: resolve a function (and a method) the
-operand names on demand as a variable is; a conformance test with the length before the function.
-
 ### A deferred early read of a variable leaves the function instances its check built cached — 🔴 OPEN (minor: a misleading diagnostic; found 2026-10-19, work-5, review of the on-demand functions change; by reasoning)
 
 `batchVarOnDemand` (check/check_decl_batch.bn), deferring a variable's check read while types are collected, drops
