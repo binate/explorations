@@ -1,3 +1,26 @@
+### A type parameter list's constraints resolved a parameter name three different ways — `type W[T Eq[U], U any]` meant `Eq[main.U]` declared, `Eq[int]` instantiated — DONE (binate `eb485bf0e`, 2026-10-23, work-7; user decision: "Whole parameter list (Recommended)") (MAJOR; found 2026-10-23, work-7, review of the self-constraint rejection; pre-existing)
+
+With a package type `U`, `type W[T Eq[U], U any]` resolved `Eq[U]` as `Eq[main.U]` at the declaration
+(installTypeParamScope defined each parameter only after resolving its constraint, so a constraint saw the earlier
+parameters only), as `Eq[B]` in a method's receiver binders, and as `Eq[int]` for `W[P, int]`.  Resolution (binate
+`eb485bf0e`): a type parameter is in scope throughout its declaration, its whole type-parameter list included (spec
+gen.typeparams.scope, docs `a06a71f`): defineTypeParams (resolve_type.bn) defines every parameter, then resolves each
+constraint, for a declaration and for a generic's abstract instance (check_opaque_inst.bn) alike.  A constraint that
+named an outer type sharing its own or a later parameter's name now names the parameter.  Tests: check
+TestTypeParamScopeWholeList; conformance spec/12-generics 132.
+
+### A constraint naming its own type parameter (`[T Eq[T]]`) reported "undefined: T" — DONE (binate `eb485bf0e`, 2026-10-23, work-7; user: "Rejecting it that way sounds reasonable. Then continue with 5b then 5a.") (found 2026-10-04, work-6, review of generic functions at the prompt)
+
+`interface Eq[T any] { Same(o T) bool }`, `func f[T Eq[T]](x T) T` reported "undefined: T" (the prompt parked the
+declaration).  Resolution (binate `eb485bf0e`): it is rejected at the parameter — "the constraint of type parameter T
+names T itself (an interface's methods take or return the type satisfying it as `Self`)" — even where a package
+type `T` exists (under the whole-list scope the name is the parameter's), and the parameter is then unconstrained,
+so an instantiation reports nothing more (spec gen.constraint.self, docs `a06a71f`).  constraintNamesOwnParam
+(check_constraint_self.bn), called from resolveTypeParamConstraint.  A method call in the body on such a parameter
+also reports "cannot access field on this type", as for any rejected constraint.  Tests: check
+TestConstraintNamesOwnParamRejected, TestConstraintNamesOwnParamOverPackageType,
+TestAbstractInstanceInOwnConstraint; conformance spec/12-generics 131.
+
 ### Func-value calls: LLVM gave a zero-size aggregate argument no dispatch slot, native and the VM one — native↔LLVM mismatch — DONE (binate `36b3f21b8`, 2026-10-23, work-1) (found 2026-10-23, work-1, testing the native arm32 zero-size even-pad fix; pre-existing)
 
 The func-value / interface-method dispatch gives each user argument a slot, an aggregate a pointer slot (docs/abi
