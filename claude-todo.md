@@ -47,7 +47,7 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
-### REPL: a resolved group's functions are generated before the group's other signatures exist — calls between them are lowered untyped (wrong values, crashes) — 🔴 OPEN, MAJOR (filed 2026-10-23, work-6)
+### REPL: a resolved group's functions are generated before the group's other signatures exist — calls between them are lowered untyped (wrong values, crashes) — 🟡 IN PROGRESS (claimed 2026-10-23, work-6/session — user: "1. yes"), MAJOR (filed 2026-10-23, work-6)
 
 In `bni --repl`, functions that park on each other (mutual recursion entered at two prompts) resolve together
 (repl `genResolvedGroup`), and a call from the first member generated to a later one is lowered as a call to an
