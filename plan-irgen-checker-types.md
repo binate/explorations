@@ -169,6 +169,13 @@ IR-gen cannot map is an internal error, never `int`.
      Signatures DONE (binate `4a4506027`, 2026-10-20): eleven copies → declParamTypes / appendParamTypes /
      declResultTypes / funcSigOf (gen.bn); --emit-llvm byte-identical (3752, 64- and 32-bit; main module).
    - 4d: TypInt() fallbacks become internal errors; assertions and composite literals from Expr types.
+     4d1 DONE (binate `1509653b1`, 2026-10-23): the 27 element / operand / literal-type fallbacks and the
+     dummy-constant paths (function literal, interface call, method value, composite literal, a struct with no
+     fields) are internal errors; an instrumented compiler saw none fire (self-compile, builder-comp,
+     builder-comp-int, e2e); --emit-llvm byte-identical (3291, 64- and 32-bit; bnc's main module).
+     4d2 next: the int defaults where int is sometimes the right result (local `var` / `:=` / multi-value
+     bindings, `*p`, `-x`, call results, for-in / slice elements, a missing field): audit which fire, then
+     internal errors; a local `var` takes the checker's Decl.ResolvedTypeID (defineDeclVar records it).
 5. **Registries keyed by checker identity, names from it.**  Key by checker Type identity (a pointer memo) —
    the mapper's memo and lazy, self-sufficient registration from the checker type (fields, method sets,
    parents) come here (moved from stage 2: the audit found no lookup gap at the switched sites) —
