@@ -160,6 +160,20 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
      operand is rebased every RSP-based operand of the access is too, so none is read off by the push.  Incoming stack arguments
      past disp32 above RBP too: conformance 1711's native x64 xfails (an argument 3 GiB up) go with 4d-2,
      as 1710's do.
+     4d-2 design (2026-10-24, from reading x64): PlanFrame lays slots out in instruction order, so after a huge
+     local EVERY later spill slot (and the call-result / data regions) sits past 2 GiB; frame-slot offsets reach
+     `[RSP + off]` in ~16 function-body files directly and through the shared helpers (copy / zero loops,
+     emitScalarLoad / Store, emitAggPieceOffX64, tuple stores, incoming-arg spills).  Every x64 register has a
+     role (pool R10/R11/RCX/RDX, homes, RAX), so there is no free scratch.  So: (1) x64 takes int64 offsets
+     (LookupAlloc64 / LookupSpill64 / the frame fields; FrameInt goes); (2) one far-frame primitive
+     (x64_frame_far.bn): an access whose displacement (plus its span) passes disp32 addresses through a register
+     loaded with base + off (MOV imm64; ADD base) — a load or LEA computes into its own destination; a store or a
+     loop saves its scratch in the red zone's BOTTOM slots ([RSP-128], [RSP-120]; the multi-return tuple image uses
+     at most the top 64 bytes) and restores it, so RSP never moves and no other RSP operand shifts (instead of the
+     PUSH/POP above); (3) the prologue's `sub rsp` past imm32 goes through R11; (4) incoming args (RBP-based) the
+     same.  Tests: 1710 / 1711's x64 xfails go; runtime coverage of every far site from a test option
+     `-fnative-far-disp=N` (displacements past N are far), under which the native x64 conformance subset runs
+     with a small N (no test can RUN a 2 GiB frame).
      aarch64: MemImm64 and int64 range checks in the assembler's load / store paths (they narrow to int before
      checking today, which a 32-bit host would wrap).  arm32: a 32-bit target, so narrowing is exact.  Then
      the int lookups go.
