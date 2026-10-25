@@ -408,6 +408,22 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
+### native aa64 / x64 closure shims return a multi-return of 16 bytes or fewer that needs the result buffer through registers — segfault / memory corruption — 🔴 OPEN MAJOR (found 2026-10-24, work-1, investigating 1715; pre-existing)
+
+A capturing closure whose multi-value result has more fields than the return registers hold
+(callconv.MultiReturnTupleNeedsSret: more than 3 GP / 4 FP on x86-64, more than 8 GP on aarch64) is returned through
+the caller's buffer, but when the tuple is 16 bytes or fewer the closure shims take the register-return (pack) path:
+their sret test is `retSz > 16 && multiRetTuple == nil` (x64_closure_shim_aggregate.bn,
+x64_closure_shim_aggregate_spill.bn, x64_closure_shim_float.bn; aarch64_closure_shim_aggregate.bn,
+aarch64_closure_shim_aggregate_spill.bn, aarch64_closure_shim_float.bn), right for a single aggregate but not for a
+tuple.  The lifted body then writes its result through whatever its result-pointer register holds (on x86-64, RDI =
+the first capture) — a segfault in the test, memory corruption in general.  E.g. `func(int32) (int32 x4)` on x64,
+`func(uint8) (uint8 x9)` on aa64.  Function-value shims decide by register count (useSretMulti) and are fine;
+LLVM, the VM and both arm32 backends pass.  Fix: decide a closure shim's sret by register count for a multi-return
+(isBigMultiReturn_x64 / isBigMultiReturnAA64) and by size only for a single aggregate — the same decision the
+float big multi-return fix below needs.  Test: conformance 1716 (not yet landed; xfailed on the native aa64 and x64
+modes).
+
 ### native aa64 / x64 reject a float-containing closure with a big multi-return result ("not yet handled") — 🟡 IN PROGRESS (claimed 2026-10-24, work-1) MAJOR (found 2026-10-23, work-1, probing the zero-size shim fix; pre-existing)
 
 A closure that captures, takes or returns a float and returns a multi-value result too big for the return registers
