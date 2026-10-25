@@ -1,3 +1,14 @@
+### CI red: arm32 unit — `TestAssembleFileMachoLayoutLikeClang` reads a Mach-O section's flags word as an `int` (asm/assemble) — DONE (binate `746a908fa`, 2026-10-25, work-3) (found 2026-10-24, work-3, CI run 40066559519)
+
+On `builder-comp_arm32_linux` (32-bit `int`) asm/assemble's TestAssembleFileMachoLayoutLikeClang, added by binate
+`047443141` ("asm Mach-O: lay text input's objects out as clang does"), fails.  Its layout dump shows the `__text`
+section's flags as `-2147482624` — 0x80000400 (S_ATTR_PURE_INSTRUCTIONS is bit 31) read into a 32-bit `int` — most
+likely the mismatch with the expected layout (not yet confirmed against the test's expected text).  If so it is the
+class the arm32 `2^31 in an int` test fixes in binate `63627ae64` handled: read the field as uint32 / int64.
+Resolution (binate `746a908fa`): confirmed — and a second dump of the same kind: machoRelocEntries (TestAssembleFileMachoRelocationOrder,
+from `908f83e8f`) printed a relocation info word with type ARM64_RELOC_ADDEND (0xA4000010) as -1543503856.  Both dumps read
+the fields with tlsU64 and print int64; asm/assemble's Mach-O tests pass on builder-comp_arm32_linux.
+
 ### asm ELF objects laid out as clang's: one string table, clang's header, file and symbol order — DONE (binate `6bc08c13b`, 2026-10-25, work-2; user: "Match clang (Recommended)", "Keep automatic (Recommended)")
 
 bnas wrote the contents, every relocation section, `.symtab`, `.strtab`, `.shstrtab`, `.note.GNU-stack`.
