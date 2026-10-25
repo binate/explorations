@@ -1,3 +1,22 @@
+### bnfmt: a `// LONG-LINE ALLOWED` line expanded a one-line block with a comment, and a statement took every comment on its line — DONE (binate `9b58a7bd0`, 2026-10-25, temp-4; user: "Keep the line whole")
+
+Part of the non-idempotence entry, which stays open for the rest.  On a marked line a one-line block with a comment in
+it expanded, which moved the marker to its `}`, and a second format wrapped the line above, no longer marked.  Now
+the block's one-line form is tried on a marked line whatever its comments, and kept when its lists claim them all;
+a marked statement or declaration that cannot stay on its line (a block in it must expand, for a comment between its
+statements) prints as an unmarked one, so no block is kept whole on a line that loses the marker
+(printStmtMaybeNoWrap / printDeclMaybeNoWrap print a suppressed trial and fall back, resetting the comment cursors
+with markCursors / resetCursors).  And a statement's trailing comments, and its marker, are those before the next
+statement on its line, its block's `}`, or in a switch the next case or the switch's `}`: they were every comment on
+the source line (`x = f(); g(/* c */ y)` gave the first statement the second's comment, and an `else` block's went
+into the then block).  The review found a cost blowup with nested one-line switches on a marked line (18 deep: 4.9 s
+against 0.26 s before; 0.54 s with the case limits and a bounded cursor save).  On the corpora: files a second
+format changes 40 to 37, none new; 12 files change; no formatted tree file changes.  Tests:
+TestMarkedLineKeepsBlockWithListComments, TestMarkedLineThatExpandsPrintsUnmarked (print_longline_test.bn),
+TestCaseStatementsTakeTheirOwnComments (print_switch_test.bn), each failing on the previous bnfmt.  Left open, in
+their own entries: several statements on a marked line, a one-line struct type's comments, and declarations, group
+members and struct fields that take the next node's comments.
+
 ### asm parse: the text section first for every object format, as clang's objects have it — DONE (binate `354ccc767`, 2026-10-25, work-2; user: "Follow clang for text")
 
 clang's objects, ELF and Mach-O, always have their text section first (empty when nothing is written there); bnas

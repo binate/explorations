@@ -2443,9 +2443,10 @@ under a fresh comment cursor (`literalBodyCursor`), so nothing in its body hits 
 
 ### bnfmt is not idempotent on some layouts: a lone argument, a string bnfmt splits, function literals — 🟡 IN PROGRESS (claimed 2026-10-23, temp-4; user: "yes" to taking it next) 🟢 LOW (found 2026-10-19, temp-4, fuzzing in the review of the rendering cache; pre-existing)
 
-Formatting a formatted file changes it again in 40 of the ~25,000 files of binate's `scripts/bnfmt-check` corpora
-(`33c49c1b8`; gen 21, genb 18, rv 1); the tree's own files are at a fixpoint.  binate `ae0e0a63c` fixed eight causes,
-and `f5a890569` a binary chain's column-0 operand measure (see the done file).  (Before `33c49c1b8` the corpora were
+Formatting a formatted file changes it again in 37 of the ~25,000 files of binate's `scripts/bnfmt-check` corpora
+(`33c49c1b8`, at binate `9b58a7bd0`; gen 20, genb 16, rv 1); the tree's own files are at a fixpoint.  binate
+`ae0e0a63c` fixed eight causes, `f5a890569` a binary chain's column-0 operand measure, and `9b58a7bd0` a commented
+one-line block on a `// LONG-LINE ALLOWED` line (see the done file).  (Before `33c49c1b8` the corpora were
 scratch copies, which the system's /tmp cleanup deleted; the scripts regenerate them from the same seeds, with the
 files that did not parse fixed, and genb with index expressions, so it went from 24 to 18.)
 
@@ -2463,15 +2464,10 @@ repeatedly, 42 of the 46 stop changing on the second format and 4 on the third; 
 - Measuring a lone argument with everything after it (printArgList's tail 1) fixes 6 of the 46 and adds 2, and
   changes 6 tree files, some better (a composite literal or a call kept whole after its opener), some worse (`len(`
   alone; `patchX64(…)) !=` / `0 || …`).
-- Not of this family: a one-line function literal whose body has a block comment, on a `// LONG-LINE ALLOWED` line,
-  expands (printBlockTail keeps only a comment-free block on one line), which moves the marker to its `}`; the body
-  line, no longer marked, wraps on a second format.
 
 Decided (user, 2026-10-24, of: format to a fixpoint inside bnfmt; fix the move measure; change the lone-argument rule;
 leave the rest): "Fix the move measure" -- when deciding whether an element moves, measure its placed form with the
 breaks a second format would keep; prototype it and report how many of the 40 it fixes and which tree files change.
-And for the marked-line case, "Keep the line whole": print the block on one line with its comment, as a comment-free
-block already is on a marked line.
 
 Open questions from `ae0e0a63c` (landed as is): pkg/binate/check/check_instances.bn's right-hand side
 `table.NewTable[…](…)` will wrap its type arguments inline (`…, instanceDeclHasher,` / `instanceDeclEq](`) at the
@@ -2480,6 +2476,35 @@ giving right-hand sides the fill measure's first-line rule instead changes 330 t
 tail can leave a one-character last part (`"hello worl"` / `"d"}, // <85-byte comment>`).  Minor: trailWidth reserves
 nothing for a line comment after a block comment in a gap (`x, /* b */ // c`); a statement's leading `/* a */ // b`
 on a line of its own still prints as two lines (stable).
+
+### bnfmt gives a declaration, group member or struct field the comments of the next one on its line — 🟡 IN PROGRESS (claimed 2026-10-25, temp-4; user: "let's fix next") 🟢 LOW (found 2026-10-25, temp-4, review of the marked-line fix; pre-existing)
+
+A top-level declaration, a member of a declaration group and a struct field take every comment on their source line
+as trailing comments, so a comment inside the next node on the line moves to the earlier one:
+`var a = 1; var b = q(/* c */ x)` prints `var a = 1 /* c */` and `var b = q(x)`; in a group, `c = 1; d = 2 // tail`
+puts `// tail` after `c = 1`, and `U int; V [/* w */ 2]int` puts `/* w */` after `U int`; in a struct,
+`f int; g [/* h */ 4]int` puts `/* h */` after `f int` (bnfmt `bnc-0.0.17-pre3` and the tree's).  Statements stop at
+the next statement, their block's `}` or the next case (binate `9b58a7bd0`); these need the same limit: the next
+node's start, or the group's `)` / the struct's `}`.
+
+### bnfmt on a `// LONG-LINE ALLOWED` line: several statements on the line; a one-line struct type's comments — 🟡 IN PROGRESS (claimed 2026-10-25, temp-4; user: "I guess we should special-case?", "then let's fix these") 🟢 LOW (found 2026-10-25, temp-4, review of the marked-line fix)
+
+- The marker goes with the statement it follows, the line's last (binate `9b58a7bd0`; before, it went with the first
+  and moved past the later ones), so in `hhh…(a, b); z() // LONG-LINE ALLOWED` the long first statement is wrapped,
+  and stays past the cap when its name alone is that long.  bnfmt prints each statement on its own line, so only one
+  of them keeps the marker after it.  The user would special-case it; how is open: keep the line's statements
+  together, `;`-joined, as written; or give the marker to the statement that would wrap, on its own line.
+- A one-line struct type does not print its fields' comments.  In a statement they go after the type
+  (`var s struct { a int /* c */ }` prints `var s struct { a int } /* c */`, on any line); a type declaration's
+  one-line struct with a comment expands, as a block with one does, which on a marked line moves the marker to its
+  `}`.
+
+### bnfmt does not wrap a statement whose trailing comment takes its line past the cap — 🟡 IN PROGRESS (claimed 2026-10-25, temp-4; user: "then let's fix these") 🟢 LOW (found 2026-10-25, temp-4, review of the marked-line fix; pre-existing)
+
+A statement's width check leaves out its trailing comment: `qqqqqqqqqq = fffffffff(aaaaaaaaaaaaaaaa, bbb…) // a long
+trailing comment that pushes it past` stays on one 119-byte line (bnfmt `bnc-0.0.17-pre3` and the tree's).  The
+comment goes after the statement's last line, so the statement's measure should reserve it as a tail, and wrap; a
+comment that alone runs past the cap leaves the line over it whatever is done.
 
 ## bnlint rules, unused-entity checks & lint skips
 
