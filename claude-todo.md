@@ -408,7 +408,7 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### native aa64 / x64 closure shims return a multi-return of 16 bytes or fewer that needs the result buffer through registers — segfault / memory corruption — 🔴 OPEN MAJOR (found 2026-10-24, work-1, investigating 1715; pre-existing)
+### native aa64 / x64 closure shims return a multi-return of 16 bytes or fewer that needs the result buffer through registers — segfault / memory corruption — 🟡 IN PROGRESS (claimed 2026-10-25, work-1) MAJOR (found 2026-10-24, work-1, investigating 1715; pre-existing)
 
 A capturing closure whose multi-value result has more fields than the return registers hold
 (callconv.MultiReturnTupleNeedsSret: more than 3 GP / 4 FP on x86-64, more than 8 GP on aarch64) is returned through
