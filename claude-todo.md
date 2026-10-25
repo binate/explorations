@@ -2443,23 +2443,32 @@ under a fresh comment cursor (`literalBodyCursor`), so nothing in its body hits 
 
 ### bnfmt is not idempotent on some layouts: a lone argument, a string bnfmt splits, function literals — 🟡 IN PROGRESS (claimed 2026-10-23, temp-4; user: "yes" to taking it next) 🟢 LOW (found 2026-10-19, temp-4, fuzzing in the review of the rendering cache; pre-existing)
 
-Formatting a formatted file changes it again in 47 of the ~25,000 files of the fill and idempotence corpora (the tree,
-generated files and perturbed tree copies); the tree's own files are at a fixpoint.  binate `ae0e0a63c` fixed eight
-causes, and `f5a890569` a binary chain's column-0 operand measure (see the done file).  What remains, from the cases
-minimized from the corpora:
+Formatting a formatted file changes it again in 46 of the ~25,000 files of the fill and idempotence corpora (gen 21,
+genb 24, rv 1); the tree's own files are at a fixpoint.  binate `ae0e0a63c` fixed eight causes, and `f5a890569` a
+binary chain's column-0 operand measure (see the done file).  (The scratch corpora were deleted by the system's /tmp
+cleanup and rebuilt 2026-10-24 from the session transcript: gen, genb and sweep regenerate identically from their
+seeds; the comment-injected and perturbed tree copies are made from the current tree.)
 
-- **A lone argument** (14 cases; one from a perturbed tree file, `Append[irdata](vtables, irdata(symPrefixed(
-  appendStrFV(bareName, "<57-byte string>"))()))`): printArgList measures a lone argument that is not a string with
-  tail 1, so it stays after its opener and wraps itself, but prints it with everything after the list.  The layout it
-  gets that way (a call's opener alone, a function literal's block expanded) is kept by a second format, whose measure
-  of the alternatives then differs.  Measuring it with its whole tail fixes 11 of the 14 but changes 7 tree files for
-  the worse (`len(` / `patchX64(…)) !=` / `0 || …`).  Needs a decision on the lone-argument rule, or on keeping a
-  source opener alone.
-- **A string bnfmt splits** (about 12): its parts fill their lines at the column it lands at; a second format keeps
-  them and measures an alternative placement a level deeper, where they run past the cap though a fresh split would
-  fit there.
-- About 20 others, mostly a function literal whose body has a long line or a `// LONG-LINE ALLOWED` marker, and
-  right-hand sides a first format moves to a continuation line.
+The 46, minimized, are nearly all one mechanism.  bnfmt keeps some layouts it finds in the source -- an opener alone, a
+string run split across lines, a multi-line block, a wrapped list or chain -- and a first format produces those
+layouts itself, so a second format takes them for the author's and measures differently.  Mostly the first format
+moves an element to a continuation line because its rendering after the previous element breaks earlier inside (in
+fitsPlacedOrMoved, a shorter first line placed than moved: an inner opener alone, a lone function literal moved to
+stay on one line, a string split at the deeper column); the second format keeps the breaks printed at the moved
+position, the two renderings then start alike, and the element moves back (`g(a{f},` / `zzz(hhhhh(func() {` becomes
+`g(a{f}, zzz(hhhhh(func() {`).  Fewer go the other way: a split the first format made is kept at a deeper column,
+runs past the cap, and the element moves on.  Several of the splits leave a one-character last part.  Formatted
+repeatedly, 42 of the 46 stop changing on the second format and 4 on the third; none oscillate.
+
+- Measuring a lone argument with everything after it (printArgList's tail 1) fixes 6 of the 46 and adds 2, and
+  changes 6 tree files, some better (a composite literal or a call kept whole after its opener), some worse (`len(`
+  alone; `patchX64(…)) !=` / `0 || …`).
+- Not of this family: a one-line function literal whose body has a block comment, on a `// LONG-LINE ALLOWED` line,
+  expands (printBlockTail keeps only a comment-free block on one line), which moves the marker to its `}`; the body
+  line, no longer marked, wraps on a second format.
+
+Needs a decision on the approach (asked 2026-10-24): format to a fixpoint inside bnfmt; make the move decision measure
+the placed alternative with the breaks a second format would keep; change the lone-argument rule; or leave the rest.
 
 Open questions from `ae0e0a63c` (landed as is): pkg/binate/check/check_instances.bn's right-hand side
 `table.NewTable[…](…)` will wrap its type arguments inline (`…, instanceDeclHasher,` / `instanceDeclEq](`) at the
