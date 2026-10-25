@@ -47,52 +47,6 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
-### REPL: in a resolved group, a redefinition that changes a signature is not the one the group's other members call — wrong values — 🟡 IN PROGRESS (claimed 2026-10-23, work-6/session — user: "1. yes"; these cases, user: "then fix the remaining cases next"), MAJOR (filed 2026-10-23, work-6)
-
-In `bni --repl`, functions that park on each other resolve together (repl genResolvedGroup).  Their functions are
-declared to IR-gen before any is generated (binate `3cd936143`, in the done file), and two cases of the class remain,
-found by the review of that fix (both predate it; the repl unit tests have only a per-package xfail and e2e/repl.sh
-none, so their regression cases come with their fix):
-  - Two redefinitions in one group, the later one changing its signature: the earlier one's call to it runs the
-    OLD definition.  The VM's CallCache binds a call by name when the caller is lowered, and lowerResolvedGroup
-    lowers the members in generation order, so f binds to the old h before h's LowerOneFuncShadow appends the
-    new one.  Proposed fix: lower all of a group's shadowing bodies first, as one set (vm.LowerFuncsShadow).
-    `3 / 1000 / 106` expected; `-23 / 1000 / 80` with the declare-first fix, `1001 / 1000 / 1104` before it:
-    ```
-    func P(n int) int { if n == 0 { return 1 }; return f() + cast(int, h()) + q(n) }
-    func h() int { return 1000 }
-    func useh() int { return h() }
-    func f() int { return 0 }
-    func f() int { return cast(int, h()) + P(0) }
-    func h() int8 { var _ int = P(0); return 2 }
-    func q(n int) int { return 100 + n }
-    testing.Println(f())
-    testing.Println(useh())
-    testing.Println(P(1))
-    ```
-    (P parks with stale pending names — groupReady does not re-check it while q is missing — so the
-    redefinitions of f and h, which use P, join its group.)
-  - A generic type's method redefined with a different signature: the instances already emitted
-    (`Box[int].get`) keep their emitted mark and old signature until reemitRedefined runs at the method's own
-    turn (shadowGenericInstances skips methods), so a member generated before it calls the old instance with the
-    old signature.  Proposed fix: forget the instances and register their new signatures when the method is
-    declared, as for a generic function, plus the lowering order above.  `3 / 1000 / 106` expected, `1001 /
-    1000 / 1104` with or without the declare-first fix:
-    ```
-    type Box[T any] struct { v T }
-    func P(n int) int { if n == 0 { return 1 }; var b Box[int]; return f() + q(n) + cast(int, b.get()) }
-    func (b *Box[T]) get() int { return 1000 }
-    func use() int { var b Box[int]; return b.get() }
-    testing.Println(use())
-    func f() int { return 0 }
-    func f() int { var b Box[int]; return cast(int, b.get()) + P(0) }
-    func (b *Box[T]) get() int8 { var _ int = P(0); return 2 }
-    func q(n int) int { return 100 + n }
-    testing.Println(f())
-    testing.Println(use())
-    testing.Println(P(1))
-    ```
-
 ### REPL: redefining a method of a generic non-struct type neither re-emits nor forgets its instances — the old body runs — 🔴 OPEN, MAJOR (filed 2026-10-24, work-6)
 
 A method of a generic type whose underlying type is not a struct (`type Pair[T any] [2]T`) redefined at the prompt

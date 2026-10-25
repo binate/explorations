@@ -1,3 +1,21 @@
+### REPL: in a resolved group, a redefinition that changes a signature is not the one the group's other members call — DONE (binate `0be07e8e4`, 2026-10-24, work-6; user: "then fix the remaining cases next") (filed 2026-10-23, work-6)
+
+In `bni --repl`, functions that park on each other resolve together (repl genResolvedGroup).  After the
+declare-first fix (binate `3cd936143`), two cases remained, both found by that fix's review: (1) two redefinitions
+in one group, the later one changing its signature — the earlier one's call to it ran the OLD definition, because
+the VM's CallCache binds a call by name when the caller is lowered and the group was lowered in generation order;
+(2) a generic type's method redefined with another signature — the instances already emitted kept their emitted
+mark and old signature until the method's own turn, so a member generated before it called the old instance with
+the old signature.  Resolution (binate `0be07e8e4`): lowerResolvedFuncs installs the functions of every shadowing
+member as one set (vm.LowerFuncsShadow) before lowering the rest; a shadowing generic method forgets its instances
+when it is declared (irgen.ShadowReplGenericMethod) and, at its own turn, emits the ones nothing has emitted since
+(irgen.EmitShadowedMethod), so a redefinition that does not load is still rejected at the prompt;
+vm.LowerOneFuncShadow is deleted (no callers).  Both sessions now print `3 / 1000 / 106` (case 1 printed `-23 /
+1000 / 80`, case 2 `1001 / 1000 / 1104`).  Tests: e2e/repl.sh
+`group-earlier-redefinition-calls-later-shadowing-one`, `group-earlier-redefinition-calls-shadowing-generic-method`,
+`group-earlier-redefinition-calls-shadowing-value-method`, `group-shadowing-redefinitions-call-each-other`; irgen
+TestShadowReplGenericMethod; repl TestLoadFailsGenericMethodShadowNotKept.
+
 ### asm Mach-O LC_DATA_IN_CODE for literal pools and `.data_region`, as clang writes it — DONE (binate `1e52d50eb`, 2026-10-24, work-2; user: "Split into entries (Recommended)")
 
 clang's Mach-O object lists the data in its sections in LC_DATA_IN_CODE; bnas wrote none.  Resolution (binate
