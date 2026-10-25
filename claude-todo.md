@@ -408,7 +408,7 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### native aa64 / x64 reject a float-containing closure with a big multi-return result ("not yet handled") — 🔴 OPEN MAJOR (found 2026-10-23, work-1, probing the zero-size shim fix; pre-existing)
+### native aa64 / x64 reject a float-containing closure with a big multi-return result ("not yet handled") — 🟡 IN PROGRESS (claimed 2026-10-24, work-1) MAJOR (found 2026-10-23, work-1, probing the zero-size shim fix; pre-existing)
 
 A closure that captures, takes or returns a float and returns a multi-value result too big for the return registers
 fails to compile on native aa64 and x64: `native aarch64 / x64: float-containing closure with a big multi-return
