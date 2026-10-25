@@ -1,6 +1,6 @@
 # Plan: native backend per-function analyses that scale with function size
 
-Status: in progress (work-3, started 2026-10-20).  Tracks the fix for the claude-todo entry "CI red: native x64
+Status: done (work-3, 2026-10-20 – 2026-10-24).  Tracks the fix for the claude-todo entry "CI red: native x64
 unit — the runner is shut down partway through `pkg/binate/check`" (#5 of the 2026-10-20 CI triage), and is the
 native-backend half of the older entry "Compile time is superlinear in function size" (2026-09-27); that
 entry's iropt mem2reg (-O2) and compiler-wide `slices.Append` parts are NOT in this plan.
