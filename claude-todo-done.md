@@ -1,3 +1,17 @@
+### asm ELF objects laid out as clang's: one string table, clang's header, file and symbol order — DONE (binate `6bc08c13b`, 2026-10-25, work-2; user: "Match clang (Recommended)", "Keep automatic (Recommended)")
+
+bnas wrote the contents, every relocation section, `.symtab`, `.strtab`, `.shstrtab`, `.note.GNU-stack`.
+Resolution (binate `6bc08c13b`), for every ELF object (the native backend's included): headers null, `.strtab`
+(naming the sections too — no `.shstrtab`), each section followed by its relocation section (SHF_INFO_LINK),
+`.note.GNU-stack` (still always written: bnas input cannot name it), `.ARM.attributes`, `.symtab`; file order
+contents, symtab, relocations, strtab, header table (elf_headers.bn); the string table as LLVM's StringTableBuilder
+lays it out (asm.StringTable, shared with Mach-O, with asm.SortIndices); symbols in clang's registration order — first
+mention, a section symbol at its section's creation, `.local` / `.type` / ELF visibility directives counting as a
+mention (not `.size`), an ELF `.lcomm` mentioning its name before making bss.  Tests: assemble
+TestAssembleFileElfLayoutLikeClang (nine x86-64 sources, byte-identical to clang's objects), elf
+TestElfHeaderOrderArm32, asm TestStringTable / TestSortIndicesStable.  Mapping symbols, `text` first and arm32
+`.ARM.attributes` stay in the todo entry.
+
 ### CI red: `check`'s `TestExpandBuildBudget` overflowed the VM stack (unit, `builder-comp-int` / `builder-comp-comp-int`) — ✅ DONE (binate `e38f2cbf0`, 2026-10-24, work-7; user: "VM slot reuse (Recommended)"), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
 `TestExpandBuildBudget` (check_generic_build_test.bn) expects "generic instantiation N[int] builds more than 4096
