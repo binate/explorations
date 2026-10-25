@@ -1,3 +1,20 @@
+### CI red: `check`'s `TestExpandBuildBudget` overflowed the VM stack (unit, `builder-comp-int` / `builder-comp-comp-int`) — ✅ DONE (binate `e38f2cbf0`, 2026-10-24, work-7; user: "VM slot reuse (Recommended)"), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
+
+`TestExpandBuildBudget` (check_generic_build_test.bn) expects "generic instantiation N[int] builds more than 4096
+instances" for `type N[T any] struct { x T; a *N[[sizeof(T) + 1]uint8]; b *N[[sizeof(T) + 1]uint16] }`; under the
+bytecode VM it died with "runtime error: stack overflow".  The depth was legitimate (98 nested builds, under the
+checker's cap of 128, ten frames each) and the VM's frames were the outlier: the VM gave every IR value its own
+register slot (`NumRegs = f.NextID + maxArgs + globalRegs`), so instantiateGenericDeclWithArgs took 3261 registers,
+37,000 bytes, against 3440 bytes compiled, and a nesting level cost about 80 KB of bni's 8 MiB VM stack.
+Fix: vm/lower_regalloc.bn assigns register slots by liveness — each value gets an interval over a linear order of
+the instructions (a cleanup pad's blocks right after the instruction they are attached to, a pad's reads live at
+that instruction, a value read before any definition live from the frame's entry so it reads the fresh frame's
+zero), and a greedy scan gives values with disjoint intervals one slot; params keep their packed slots.  IR ids are
+renumbered to slots during emission, replacing the post-emission 32-bit remap (which missed BC_MADD's Aux register
+and rewrote BC_BOX's flag field).  instantiateGenericDeclWithArgs: 59 registers, 11,384 bytes (now mostly frame
+regions for aggregate loads); a nesting level about 22 KB.  The test passes under the VM (about 68 s there: the
+checker builds 4096+ instances).  Unit tests: vm/lower_regalloc_test.bn.
+
 ### REPL: in a resolved group, a redefinition that changes a signature is not the one the group's other members call — DONE (binate `0be07e8e4`, 2026-10-24, work-6; user: "then fix the remaining cases next") (filed 2026-10-23, work-6)
 
 In `bni --repl`, functions that park on each other resolve together (repl genResolvedGroup).  After the
