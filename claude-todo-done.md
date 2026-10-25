@@ -1,3 +1,17 @@
+### asm Mach-O LC_DATA_IN_CODE for literal pools and `.data_region`, as clang writes it — DONE (binate `1e52d50eb`, 2026-10-24, work-2; user: "Split into entries (Recommended)")
+
+clang's Mach-O object lists the data in its sections in LC_DATA_IN_CODE; bnas wrote none.  Resolution (binate
+`1e52d50eb`): asm data regions (DataRegion, BeginDataRegion / EndDataRegion, kinds REGION_* = Mach-O's DICE_KIND_*;
+no nesting, a region ends in the section it began in, Finalize rejects one open); the parser makes each literal pool
+a data region from before its alignment padding and takes `.data_region [jt8|jt16|jt32]` / `.end_data_region` on
+Mach-O (errors on ELF, as in clang), the end-of-input pools now emitted in the order of each section's first pool
+entry, as clang orders them; the writer puts the command after LC_BUILD_VERSION and its entries after the relocation
+entries.  Differences from clang: a region over 65535 bytes takes consecutive entries (clang writes the length mod
+65536); a region ending in another section and `.end_data_region` with none open are errors (clang writes a
+meaningless entry / crashes).  Tests: assemble TestAssembleFileMachoDataInCodeLikeClang (goldens against clang,
+both arches), macho TestMachoDataInCode / TestMachoDataInCodeSplitsLongRegions, asm TestDataRegions /
+TestDataRegionErrors, parse TestDataRegionDirectives / TestLiteralPoolIsDataRegion / TestDataRegionRejects.
+
 ### CI red: native x64 unit — the runner is shut down partway through `pkg/binate/check` — DONE (binate `15bddd15e`, `7b08c1442`, `b57e92111`, `825c27386`, 2026-10-23, work-3; CI-confirmed 2026-10-24) (filed 2026-10-20, work-3, CI triage)
 
 `builder-comp_native_x64-comp_native_x64` (unit) ends with "The runner has received a shutdown signal … exit

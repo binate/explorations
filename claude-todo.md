@@ -849,16 +849,14 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### asm section layout for text input, the rest: LC_DATA_IN_CODE for literal pools, ELF against clang, a `__text` when `.arch` follows a `.section` — 🟡 IN PROGRESS (claimed 2026-10-19, work-2; the Mach-O layout DONE binate `047443141`, see the done log; user: "Follow clang for text")
+### asm section layout for text input, the rest: ELF against clang, a `__text` when `.arch` follows a `.section` — 🟡 IN PROGRESS (claimed 2026-10-19, work-2; the Mach-O layout DONE binate `047443141`, LC_DATA_IN_CODE DONE binate `1e52d50eb`, see the done log; user: "Follow clang for text")
 
-(a) clang's arm64 Mach-O object for `_f: ldr x0, =0x123456789` / `ret` carries an LC_DATA_IN_CODE command (in the
-probe placed before LC_SYMTAB, naming 8 bytes of entries for the one pool); bnas writes none.  Probe clang's entries
-(several pools, pools in other sections, x86-64) and write them.  (b) ELF: compare bnas's ELF objects with clang's
-for the same sources, as assemble's TestAssembleFileMachoLayoutLikeClang does for Mach-O (section order, whether
-`.text` is always present, sh_addralign, symbol order) — not yet checked.  (c) With no `-target` (the format decided
-by `.arch`), a `.section` before `.arch` leaves a Mach-O object with no `__text` (machoTextFirst sees a section
-already made), its anchors starting at `ltmp0` on `__data`.  If clang's ELF objects also always carry `.text` ((b)),
-creating text when parsing starts, for every format, covers both.
+(b) ELF: compare bnas's ELF objects with clang's for the same sources, as assemble's TestAssembleFileMachoLayoutLikeClang
+does for Mach-O (section order, whether `.text` is always present, sh_addralign, symbol order, AArch64 / arm32 mapping
+symbols `$x` / `$d` — bnas writes none, and a literal pool is the data clang marks with one) — not yet checked.
+(c) With no `-target` (the format decided by `.arch`), a `.section` before `.arch` leaves a Mach-O object with no
+`__text` (machoTextFirst sees a section already made), its anchors starting at `ltmp0` on `__data`.  If clang's ELF
+objects also always carry `.text` ((b)), creating text when parsing starts, for every format, covers both.
 
 ### asm Mach-O: a literal-pool load of a forward label difference is rejected (`_f: ldr x1, =(_e - _f)` … `_e:`) — 🔴 OPEN, unclaimed (found 2026-10-24, work-2, review of the LC_DATA_IN_CODE change)
 
