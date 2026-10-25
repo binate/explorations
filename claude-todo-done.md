@@ -95,7 +95,8 @@ nested parenthesized chains off their repeated renderings (20 deep: 44 s to 0.03
 ~25,000 corpus files, those a second format changes drop from 52 to 47 (1 new: a function literal with a
 `// LONG-LINE ALLOWED` line in nested lists); no tree file formats differently, no token diffs, no new lines over the
 cap.  A string-run operand now merges and stays on its line, as list elements do since `b9bd636d0`.  Tests:
-TestChainOperandAtItsColumn (fails on the previous bnfmt), TestNestedChainMeasuresCached (print_chain_test.bn).
+TestChainOperandAtItsColumn (fails on the previous bnfmt), TestNestedChainMeasuresCached (print_chain_test.bn);
+TestChainMultiLineOperandUnindented (binate `8bf08c482`) covers the column-0 measure of an operand that spans lines.
 
 ### native aa64 / x64 func-value and closure shims mis-routed arguments after a zero-size one — DONE (binate `a625e19dc`, 2026-10-24, work-1) (found 2026-10-23, work-1, review of the func-value zero-size slot fix; pre-existing)
 
