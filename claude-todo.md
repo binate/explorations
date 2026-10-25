@@ -127,7 +127,7 @@ console (as pkg/builtins/testing/sys already does), or have the runner print thr
 (its source says it must use the real pkg/std/fmt).  Only after that can the failing tests be found; the
 `native/arm32` link overflow and the arena exhaustion remain size problems.
 
-### CI red: arm32 unit — `TestAssembleFileElfLayoutLikeClang` reads an ELF relocation's 64-bit r_info into an `int` (asm/assemble) — 🔴 OPEN (found 2026-10-25, work-3)
+### CI red: arm32 unit — `TestAssembleFileElfLayoutLikeClang` reads an ELF relocation's 64-bit r_info into an `int` (asm/assemble) — 🟡 IN PROGRESS (claimed 2026-10-25, work-3; user: "yes, go ahead and take it") (found 2026-10-25, work-3)
 
 TestAssembleFileElfLayoutLikeClang (binate `6bc08c13b`, "asm ELF: lay objects out as clang does") fails on
 `builder-comp_arm32_linux`: its dump prints `rel .rela.text 3 2 -4` where the expected text has `3 8589934594 -4` —
