@@ -153,27 +153,19 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
      `.error.<mode>.<arch>` tier for LLVM x86-64).  The VM must agree too (stage 5).
    - Note for 4d-2..4: FrameInt guards the frame values, not sums the backends compute from them in host int
      (`frameSize + 16`, `SavedRegsOff + 8 * i`, `LookupAlloc(...) + fieldOff`); those sums move to int64 too.
-   - 4d-2 / 4d-3 / 4d-4 (4d-2 in progress, 2026-10-24, work-1). x64, aarch64, arm32 move to the int64 lookups and
-     thread int64 offsets through their
-     helpers.  x64: an offset past disp32 rebases — PUSH a register the access does not use, load it with
-     base + offset (MOV imm64, ADD), address through it, POP; the frame never uses the red zone, and when any
-     operand is rebased every RSP-based operand of the access is too, so none is read off by the push.  Incoming stack arguments
-     past disp32 above RBP too: conformance 1711's native x64 xfails (an argument 3 GiB up) go with 4d-2,
-     as 1710's do.
-     4d-2 design (2026-10-24, from reading x64): PlanFrame lays slots out in instruction order, so after a huge
-     local EVERY later spill slot (and the call-result / data regions) sits past 2 GiB; frame-slot offsets reach
-     `[RSP + off]` in ~16 function-body files directly and through the shared helpers (copy / zero loops,
-     emitScalarLoad / Store, emitAggPieceOffX64, tuple stores, incoming-arg spills).  Every x64 register has a
-     role (pool R10/R11/RCX/RDX, homes, RAX), so there is no free scratch.  So: (1) x64 takes int64 offsets
-     (LookupAlloc64 / LookupSpill64 / the frame fields; FrameInt goes); (2) one far-frame primitive
-     (x64_frame_far.bn): an access whose displacement (plus its span) passes disp32 addresses through a register
-     loaded with base + off (MOV imm64; ADD base) — a load or LEA computes into its own destination; a store or a
-     loop saves its scratch in the red zone's BOTTOM slots ([RSP-128], [RSP-120]; the multi-return tuple image uses
-     at most the top 64 bytes) and restores it, so RSP never moves and no other RSP operand shifts (instead of the
-     PUSH/POP above); (3) the prologue's `sub rsp` past imm32 goes through R11; (4) incoming args (RBP-based) the
-     same.  Tests: 1710 / 1711's x64 xfails go; runtime coverage of every far site from a test option
-     `-fnative-far-disp=N` (displacements past N are far), under which the native x64 conformance subset runs
-     with a small N (no test can RUN a 2 GiB frame).
+   - 4d-2. DONE `74f8e652e` (2026-10-24): native x64 takes int64 frame offsets (LookupAlloc64 / LookupSpill64 /
+     NeedAlloc64 / NeedSpill64 / LookupAllocSize64, SretSlotOff / SavedRegsOff) and addresses every frame slot
+     through x64_frame_far.bn: an access whose displacements pass disp32 goes through a register loaded with
+     base + offset (MOV imm64; LEA, flags intact); a load or LEA computes into its own destination; a store, an
+     XMM load or a copy loop saves a scratch in the red zone's bottom slots ([RSP-128], [RSP-120]) and restores
+     it (RSP never moves; emitMultiReturnPack fails loud if its image would reach them); the prologue's
+     `sub rsp` past imm32 goes through R11; incoming stack arguments are read off RBP + 16.  Test option
+     `bnc -fx64-far-disp=N` (native.Options.X64FarDisp): the native x64 arg subset passes with N = 16, and a bnc
+     built that way by native x64 emits the same IR and code as gen1.  1710 / 1711 compile on native x64.  The
+     far mode runs in no CI mode (wiring one is the user's call).  Left for 4c: OUTGOING stack arguments past
+     2 GiB (a caller of 1711's f) still fail to compile on native x64 -- the assembler rejects the displacement
+     of the argument-area stores (x64_call*.bn, the shims).
+   - 4d-3 / 4d-4. aarch64, arm32 move to the int64 lookups and thread int64 offsets through their helpers.
      aarch64: MemImm64 and int64 range checks in the assembler's load / store paths (they narrow to int before
      checking today, which a 32-bit host would wrap).  arm32: a 32-bit target, so narrowing is exact.  Then
      the int lookups go.
