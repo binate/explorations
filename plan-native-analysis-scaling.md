@@ -87,5 +87,7 @@ CI) is the user's call.
 - [x] Stage 4 — binate `62518209c` (2026-10-24): e2e/native-large-function.sh compiles a 2000-block main
   natively (host linked and run; x86-64 / AArch64 / arm32 Linux objects) within 30 s CPU and 2 GiB each (user:
   "maybe 30 s and 2 GB").  ~1.5 s / 100 MiB here; the pre-Stage-3 compiler took 34 s.
-- [ ] Residual terms (claimed in the superlinear-compile-time entry): ir.AddBlock / AddFaultPad block lists,
-  the assembler's symbol hash, spansClobber, buildSuccs.
+- [x] Residual terms — binate `e3babf99e` (ir.AddBlock / AddFaultPad block lists through a vec), `ba076e293`
+  (the assembler's symbol hash mixes djb2), `8b7cac1e2` (spansClobber by binary search, buildSuccs by an address
+  index), 2026-10-24.  Byte-identical native and LLVM objects.  2000-test package 4.5 s → 2.0 s (×2.6 per doubling,
+  was ×3.7); pkg/binate/check's tests natively 2.9 s; the e2e guard's compiles 0.5–0.8 s.
