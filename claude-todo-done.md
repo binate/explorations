@@ -1,3 +1,13 @@
+### asm parse: the text section first for every object format, as clang's objects have it — DONE (binate `354ccc767`, 2026-10-25, work-2; user: "Follow clang for text")
+
+clang's objects, ELF and Mach-O, always have their text section first (empty when nothing is written there); bnas
+made it first only for Mach-O once the format was known, so an ELF object lacked one unless the input named it, and a
+Mach-O object whose `.arch` followed a `.section` had none.  Resolution (binate `354ccc767`): NewParser makes an empty,
+non-current `text` whenever the assembler has no section (replacing machoTextFirst).  Tests: parse
+TestParserMakesTextFirst (both formats, `.section` before `.arch`), TestParseSection; assemble
+TestAssembleFileElfLayoutLikeClang adds a data-only x86-64 object; parser tests find their sections by name
+(sectionNamed).
+
 ### native aa64 / x64 closure shims returned a multi-return of 16 bytes or fewer that needs the result buffer through registers — ✅ DONE (binate `7aa18e056`, 2026-10-25, work-1; user: "Fix 1716 first (Recommended)")
 
 A capturing closure whose multi-value result has more fields than the return registers hold
