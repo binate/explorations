@@ -2425,6 +2425,14 @@ line the literal starts on.
 (`ast.File.BuiltinOpeners`); printing the operands as an item list (a type item, then the value) would
 give them the value-argument builtins' wrapping and comments.
 
+### The checker finds a generic function's instance by scanning every instance — quadratic in a package's instance count — 🟢 LOW (found 2026-10-25, work-7, profiling a total cap on instance checks for 5a; pre-existing)
+
+funcInstance (check/check_instances.bn) looks an instance up on every naming of a generic function by scanning
+st.Funcs and comparing each instance's type arguments (typeListsIdentical), so a package that names n instances does
+O(n^2) comparisons.  The tree's largest package drain checks 93 instances, so it does not show today.  Checking 16384
+instances of conformance 090's fan-out family (24.6 s natively), funcInstance with IdenticalStrict and ResolveAlias under it were over half of
+the samples.  Fix: index the instances by declaration and type arguments.
+
 ### The lexer builds its comment list with slices.Append — quadratic in a file's comments — 🟢 LOW (found 2026-10-19, temp-4, review of the builtin-opener fix; pre-existing)
 
 `pkg/binate/lexer/scan.bn` appends each comment to `l.comments` with `slices.Append`, which copies the
