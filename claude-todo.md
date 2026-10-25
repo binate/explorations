@@ -127,7 +127,7 @@ console (as pkg/builtins/testing/sys already does), or have the runner print thr
 (its source says it must use the real pkg/std/fmt).  Only after that can the failing tests be found; the
 `native/arm32` link overflow and the arena exhaustion remain size problems.
 
-### CI red: arm32 unit — `TestAssembleFileMachoLayoutLikeClang` reads a Mach-O section's flags word as an `int` (asm/assemble) — 🔴 OPEN (found 2026-10-24, work-3, CI run 40066559519)
+### CI red: arm32 unit — `TestAssembleFileMachoLayoutLikeClang` reads a Mach-O section's flags word as an `int` (asm/assemble) — 🟡 IN PROGRESS (claimed 2026-10-24, work-3; user: "Take the new one") (found 2026-10-24, work-3, CI run 40066559519)
 
 On `builder-comp_arm32_linux` (32-bit `int`) asm/assemble's TestAssembleFileMachoLayoutLikeClang, added by binate
 `047443141` ("asm Mach-O: lay text input's objects out as clang does"), fails.  Its layout dump shows the `__text`
