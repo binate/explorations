@@ -2412,7 +2412,9 @@ prints `func f() {` / `/* c */` / `}` (the comment moves into the body), `var /*
 `var x int /* c */`, and `package /* c */ "t"` prints the comment after the path.  A comment after the
 `]` of an annotation block that spans lines goes below the block.  Each output is valid and idempotent,
 but the comment moves.  The AST records no position for a declaration's name or an annotation block's
-`]`, which placing these comments needs.
+`]`, which placing these comments needs.  Related: an empty annotation block `#[]`, which bnfmt drops on
+purpose, leaves an empty line in its place, so a doc comment above it no longer touches its declaration
+(conformance/spec/16-packages/071_annotation_degenerate.bn).
 
 ### bnfmt moves a comment in some lists below its statement — 🟢 LOW (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
 
@@ -2423,8 +2425,10 @@ between the elements of a statement's expression list (`return a, // c` / `b`, `
 one among a typed builtin's operands (`make_slice(T, // c` / `n)`, `cast`), in a declaration's
 type-parameter list (`func h[T any, // c` / `U any]()`, which goes into the body), an impl's interface list
 or an annotation's arguments.  Also after the opener of a parameter, result or function-type list, whose
-opener position the AST does not record.  A list printer that takes these would claim them as
-`claimGap` does.
+opener position the AST does not record, and in an empty list (`f(/* c */ )`, `T{/* c */ }`).  A list printer
+that takes these would claim them as `claimGap` does.  binate `scripts/bnfmt-check`'s comment check (`33c49c1b8`)
+finds a comment moved past another in 686 of its corpus files (580 of the comment-injected tree copies, mostly
+`func f(/* c */ a T, …)`, whose comment goes into the body; `r, /* c */ e = …`, whose goes after the statement).
 
 ### bnfmt indents a function literal's body from its parameters' continuation line — 🟢 LOW (found 2026-10-18, temp-4, testing the list-comment fix; pre-existing)
 
@@ -2461,11 +2465,11 @@ under a fresh comment cursor (`literalBodyCursor`), so nothing in its body hits 
 
 ### bnfmt is not idempotent on some layouts: a lone argument, a string bnfmt splits, function literals — 🟡 IN PROGRESS (claimed 2026-10-23, temp-4; user: "yes" to taking it next) 🟢 LOW (found 2026-10-19, temp-4, fuzzing in the review of the rendering cache; pre-existing)
 
-Formatting a formatted file changes it again in 46 of the ~25,000 files of the fill and idempotence corpora (gen 21,
-genb 24, rv 1); the tree's own files are at a fixpoint.  binate `ae0e0a63c` fixed eight causes, and `f5a890569` a
-binary chain's column-0 operand measure (see the done file).  (The scratch corpora were deleted by the system's /tmp
-cleanup and rebuilt 2026-10-24 from the session transcript: gen, genb and sweep regenerate identically from their
-seeds; the comment-injected and perturbed tree copies are made from the current tree.)
+Formatting a formatted file changes it again in 40 of the ~25,000 files of binate's `scripts/bnfmt-check` corpora
+(`33c49c1b8`; gen 21, genb 18, rv 1); the tree's own files are at a fixpoint.  binate `ae0e0a63c` fixed eight causes,
+and `f5a890569` a binary chain's column-0 operand measure (see the done file).  (Before `33c49c1b8` the corpora were
+scratch copies, which the system's /tmp cleanup deleted; the scripts regenerate them from the same seeds, with the
+files that did not parse fixed, and genb with index expressions, so it went from 24 to 18.)
 
 The 46, minimized, are nearly all one mechanism.  bnfmt keeps some layouts it finds in the source -- an opener alone, a
 string run split across lines, a multi-line block, a wrapped list or chain -- and a first format produces those
@@ -2485,8 +2489,11 @@ repeatedly, 42 of the 46 stop changing on the second format and 4 on the third; 
   expands (printBlockTail keeps only a comment-free block on one line), which moves the marker to its `}`; the body
   line, no longer marked, wraps on a second format.
 
-Needs a decision on the approach (asked 2026-10-24): format to a fixpoint inside bnfmt; make the move decision measure
-the placed alternative with the breaks a second format would keep; change the lone-argument rule; or leave the rest.
+Decided (user, 2026-10-24, of: format to a fixpoint inside bnfmt; fix the move measure; change the lone-argument rule;
+leave the rest): "Fix the move measure" -- when deciding whether an element moves, measure its placed form with the
+breaks a second format would keep; prototype it and report how many of the 40 it fixes and which tree files change.
+And for the marked-line case, "Keep the line whole": print the block on one line with its comment, as a comment-free
+block already is on a marked line.
 
 Open questions from `ae0e0a63c` (landed as is): pkg/binate/check/check_instances.bn's right-hand side
 `table.NewTable[…](…)` will wrap its type arguments inline (`…, instanceDeclHasher,` / `instanceDeclEq](`) at the
