@@ -165,7 +165,7 @@ only once no shallower work remains, and add a total cap on instance checks (a n
 grows and fans out (`f[T]` naming `f[@T]` and `f[*T]`) stops quickly.  Spec gen.mono.instances: "the shortest
 chain".  Verified probe pair for tests: `f1[int](); g[int]()` rejected and `g[int](); f1[int]()` accepted today.
 
-### VM lowering sizes the call-arg region without `OP_CALL_HANDLE` — 🔴 OPEN (minor, latent; found 2026-10-24, work-7, review of the VM slot-reuse change; pre-existing)
+### VM lowering sizes the call-arg region without `OP_CALL_HANDLE` — 🟡 IN PROGRESS (claimed 2026-10-24, work-7/session — user: "let's take on all the open entries"; minor, latent; found 2026-10-24, work-7, review of the VM slot-reuse change; pre-existing)
 
 findMaxCallArgs (vm/lower_func_helpers.bn) counts the packed args of OP_CALL / _INDIRECT / _FUNC_VALUE /
 _IFACE_METHOD and multi-returns, but not OP_CALL_HANDLE, whose `Args[1..]` lowerFunc packs at callArgBase too
