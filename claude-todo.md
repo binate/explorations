@@ -164,6 +164,11 @@ instance's depth when a shorter chain to it turns up (and its descendants' with 
 only once no shallower work remains, and add a total cap on instance checks (a new §21.4 limit) so a family that
 grows and fans out (`f[T]` naming `f[@T]` and `f[*T]`) stops quickly.  Spec gen.mono.instances: "the shortest
 chain".  Verified probe pair for tests: `f1[int](); g[int]()` rejected and `g[int](); f1[int]()` accepted today.
+**Limit (user 2026-10-25: "Search limit (Recommended)"), replacing the total cap:** measured with 128-deep type
+arguments, an instance check costs ~0.7 ms natively and ~65 ms with the checker in the VM (int-int), so a total cap
+of N makes conformance 090 (fan-out) cost N checks.  Instead, an instance set aside for a too-long chain is
+reported once 256 more instances are checked without a shorter chain to it turning up (a new §21.4 limit,
+at least 256); no total cap.  090 then takes ~0.3 s natively, ~25 s in int-int (~6 s before).
 
 ### A finite chain of 92 or more distinct generic structs is rejected even when the program instantiates none — 🔴 OPEN (minor; found 2026-10-23, work-7, probing the naming-order chain bound; reproduced on every build back to Oct 18; pre-existing)
 
