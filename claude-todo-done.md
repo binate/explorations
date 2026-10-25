@@ -1,3 +1,12 @@
+### VM lowering sized the call-arg region without `OP_CALL_HANDLE` — ✅ DONE (binate `d36f2f609`, 2026-10-25, work-7; user: "let's take on all the open entries") (minor, latent; found 2026-10-24, work-7, review of the VM slot-reuse change; pre-existing)
+
+findMaxCallArgs (vm/lower_func_helpers.bn) counted the packed args of OP_CALL / _INDIRECT / _FUNC_VALUE /
+_IFACE_METHOD and multi-returns, but not OP_CALL_HANDLE, whose `Args[1..]` lowerFunc packs at callArgBase too
+(IR-gen emits it for `_call_dtor(h, p)` / `_call_free_fn`).  In a function whose only arg-carrying call was one, the
+region had 0 slots and the pack MOV wrote the first global-address register, which happened to be unused there.
+Fix: count OP_CALL_HANDLE from Args[1] like the other indirect calls.  Test: vm
+TestFindMaxCallArgsCountsCallHandle (fails with the fix line reverted).
+
 ### CI red: arm32 unit — `TestAssembleFileMachoLayoutLikeClang` reads a Mach-O section's flags word as an `int` (asm/assemble) — DONE (binate `746a908fa`, 2026-10-25, work-3) (found 2026-10-24, work-3, CI run 40066559519)
 
 On `builder-comp_arm32_linux` (32-bit `int`) asm/assemble's TestAssembleFileMachoLayoutLikeClang, added by binate
