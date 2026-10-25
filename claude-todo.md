@@ -305,9 +305,9 @@ int64 API.  Stage 4a / 4b landed (binate `73d8d968f`, `845a85f52`, 2026-10-18): 
 sizes with Size(); native aa64 materializes an add / sub immediate past 16 MiB.  Stage 4f-1 landed (binate
 `25ffa73f0`): native zero globals go to bss, which the assembler counts without holding.  Stage 4d-1 landed
 (binate `8d5ed266a`): native frame tables in int64, a frame past the target's address space a compile error
-(spec §21.4 row, docs `1501abe`; user decision 2026-10-18 "Address space").  Remaining (plan-int64-layout.md): the
-LLVM backend's matching frame check (it silently wraps an arm32 frame past 4 GiB today); the backends' int64 frame
-lookups (4d-2..4); field offsets and copies; callconv's stack layout; bss lengths and symbol offsets in int64 for a
+(spec §21.4 row, docs `1501abe`; user decision 2026-10-18 "Address space").  The LLVM frame check landed (binate
+`1246f0e68`, `3279fc9ac`, `519dd78fa`).  Remaining (plan-int64-layout.md): the backends' int64 frame lookups (4d-2..4;
+4d-2, x64, in progress 2026-10-24); field offsets and copies; callconv's stack layout; bss lengths and symbol offsets in int64 for a
 32-bit host; 5 VM /
 interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the 32-bit lane.
 

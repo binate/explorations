@@ -153,7 +153,8 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
      `.error.<mode>.<arch>` tier for LLVM x86-64).  The VM must agree too (stage 5).
    - Note for 4d-2..4: FrameInt guards the frame values, not sums the backends compute from them in host int
      (`frameSize + 16`, `SavedRegsOff + 8 * i`, `LookupAlloc(...) + fieldOff`); those sums move to int64 too.
-   - 4d-2 / 4d-3 / 4d-4. x64, aarch64, arm32 move to the int64 lookups and thread int64 offsets through their
+   - 4d-2 / 4d-3 / 4d-4 (4d-2 in progress, 2026-10-24, work-1). x64, aarch64, arm32 move to the int64 lookups and
+     thread int64 offsets through their
      helpers.  x64: an offset past disp32 rebases — PUSH a register the access does not use, load it with
      base + offset (MOV imm64, ADD), address through it, POP; the frame never uses the red zone, and when any
      operand is rebased every RSP-based operand of the access is too, so none is read off by the push.  Incoming stack arguments
