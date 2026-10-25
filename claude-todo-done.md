@@ -1,3 +1,22 @@
+### native aa64 / x64 closure shims returned a multi-return of 16 bytes or fewer that needs the result buffer through registers — ✅ DONE (binate `7aa18e056`, 2026-10-25, work-1; user: "Fix 1716 first (Recommended)")
+
+A capturing closure whose multi-value result has more fields than the return registers hold
+(callconv.MultiReturnTupleNeedsSret: more than 3 GP / 4 FP on x86-64, more than 8 GP on aarch64) is returned through
+the caller's buffer, but when the tuple is 16 bytes or fewer the closure shims take the register-return (pack) path:
+their sret test is `retSz > 16 && multiRetTuple == nil` (x64_closure_shim_aggregate.bn,
+x64_closure_shim_aggregate_spill.bn, x64_closure_shim_float.bn; aarch64_closure_shim_aggregate.bn,
+aarch64_closure_shim_aggregate_spill.bn, aarch64_closure_shim_float.bn), right for a single aggregate but not for a
+tuple.  The lifted body then writes its result through whatever its result-pointer register holds (on x86-64, RDI =
+the first capture) — a segfault in the test, memory corruption in general.  E.g. `func(int32) (int32 x4)` on x64,
+`func(uint8) (uint8 x9)` on aa64.  Function-value shims decide by register count (useSretMulti) and are fine;
+LLVM, the VM and both arm32 backends pass.  Fix: decide a closure shim's sret by register count for a multi-return
+(isBigMultiReturn_x64 / isBigMultiReturnAA64) and by size only for a single aggregate — the same decision the
+float big multi-return fix needs.  Test: conformance 1716.
+Resolution (binate `7aa18e056`): the six closure aggregate shims take their sret decision from the lifted body's
+own rule, cc.FuncReturnsViaInternalSret(f) (the one PlanFrame reserves the sret slot by), so shim and callee
+cannot disagree; unit tests that paired a result-less lifted function with an aggregate-returning func value give it
+its results.  1716 also covers an eight-capture (stack-spill) closure and (int16 x4, float32) / (uint8 x9, float32).
+
 ### VM lowering sized the call-arg region without `OP_CALL_HANDLE` — ✅ DONE (binate `d36f2f609`, 2026-10-25, work-7; user: "let's take on all the open entries") (minor, latent; found 2026-10-24, work-7, review of the VM slot-reuse change; pre-existing)
 
 findMaxCallArgs (vm/lower_func_helpers.bn) counted the packed args of OP_CALL / _INDIRECT / _FUNC_VALUE /
