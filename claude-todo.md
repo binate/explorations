@@ -782,14 +782,21 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### asm section layout for text input, the rest: ELF against clang, a `__text` when `.arch` follows a `.section` — 🟡 IN PROGRESS (claimed 2026-10-19, work-2; the Mach-O layout DONE binate `047443141`, LC_DATA_IN_CODE DONE binate `1e52d50eb`, see the done log; user: "Follow clang for text")
+### asm ELF objects as clang writes them, and `text` first for every format — 🟡 IN PROGRESS (claimed 2026-10-19, work-2; the Mach-O layout DONE binate `047443141`, LC_DATA_IN_CODE DONE binate `1e52d50eb`, see the done log; user: "Follow clang for text")
 
-(b) ELF: compare bnas's ELF objects with clang's for the same sources, as assemble's TestAssembleFileMachoLayoutLikeClang
-does for Mach-O (section order, whether `.text` is always present, sh_addralign, symbol order, AArch64 / arm32 mapping
-symbols `$x` / `$d` — bnas writes none, and a literal pool is the data clang marks with one) — not yet checked.
-(c) With no `-target` (the format decided by `.arch`), a `.section` before `.arch` leaves a Mach-O object with no
-`__text` (machoTextFirst sees a section already made), its anchors starting at `ltmp0` on `__data`.  If clang's ELF
-objects also always carry `.text` ((b)), creating text when parsing starts, for every format, covers both.
+Compared 2026-10-24 on 14 sources (aarch64, x86-64, arm32; alignment and symbol values already match).  (a) Section
+order and string tables: clang writes null, `.strtab` (which also names the sections — no `.shstrtab`), each content
+section followed by its `.rela` / `.rel` (flags SHF_INFO_LINK, which bnas leaves 0), `.symtab` last, LLVM's string
+table layout; bnas writes the contents, then every relocation section, `.symtab`, `.strtab`, `.shstrtab`,
+`.note.GNU-stack`.  User: "Match clang (Recommended)", for every ELF object, the native backend's included.
+(b) Mapping symbols: clang writes `$x` / `$d` on AArch64 (`$d` in `.data` too) and `$a` / `$d` on arm32 (`$d` there
+only for the pool in text, none in `.data`, in the probe); bnas writes none.  User: "All objects (Recommended)".
+(c) clang's ELF object always has an (empty) `.text` first, as its Mach-O one does: create `text` when parsing
+starts, for every format (which also gives a Mach-O object whose `.arch` follows a `.section` its `__text`).
+(d) `.note.GNU-stack` stays automatic for every ELF object (bnas's bare section names cannot name it; user: "Keep
+automatic (Recommended)"); placed as the last content section, as clang places it for a source ending with it.
+(e) arm32: clang always writes `.ARM.attributes` from the target; bnas writes it only for the native backend and has
+no `.eabi_attribute` / `.cpu` / `.fpu` directives — not yet decided.
 
 ### asm Mach-O: a literal-pool load of a forward label difference is rejected (`_f: ldr x1, =(_e - _f)` … `_e:`) — 🔴 OPEN, unclaimed (found 2026-10-24, work-2, review of the LC_DATA_IN_CODE change)
 
