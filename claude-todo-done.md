@@ -1,3 +1,13 @@
+### CI red: arm32 unit — `TestAssembleFileElfLayoutLikeClang` reads an ELF relocation's 64-bit r_info into an `int` (asm/assemble) — DONE (binate `e61709912`, 2026-10-25, work-3) (found 2026-10-25, work-3)
+
+TestAssembleFileElfLayoutLikeClang (binate `6bc08c13b`, "asm ELF: lay objects out as clang does") fails on
+`builder-comp_arm32_linux`: its dump prints `rel .rela.text 3 2 -4` where the expected text has `3 8589934594 -4` —
+r_info (symbol index << 32 | type) read through a 32-bit `int` keeps only the type.  The same class as binate
+`746a908fa` / `63627ae64`: read the 8-byte r_info (and any 8-byte field the dump prints) with tlsU64 and print int64.
+Found by running asm/assemble on that lane right after `6bc08c13b` landed.
+Resolution (binate `e61709912`): elfLayoutText's section, symbol and relocation lines read every printed field with tlsU64
+and print int64; asm/assemble passes on builder-comp_arm32_linux (29 tests).
+
 ### native aa64 / x64 rejected a float-containing closure with a big multi-return result ("not yet handled") — ✅ DONE (binate `81503e7e3`, 2026-10-25, work-1; user: "let's do 4d-2, then 1715")
 
 A closure that captures, takes or returns a float and returns a multi-value result too big for the return registers

@@ -127,14 +127,6 @@ console (as pkg/builtins/testing/sys already does), or have the runner print thr
 (its source says it must use the real pkg/std/fmt).  Only after that can the failing tests be found; the
 `native/arm32` link overflow and the arena exhaustion remain size problems.
 
-### CI red: arm32 unit — `TestAssembleFileElfLayoutLikeClang` reads an ELF relocation's 64-bit r_info into an `int` (asm/assemble) — 🟡 IN PROGRESS (claimed 2026-10-25, work-3; user: "yes, go ahead and take it") (found 2026-10-25, work-3)
-
-TestAssembleFileElfLayoutLikeClang (binate `6bc08c13b`, "asm ELF: lay objects out as clang does") fails on
-`builder-comp_arm32_linux`: its dump prints `rel .rela.text 3 2 -4` where the expected text has `3 8589934594 -4` —
-r_info (symbol index << 32 | type) read through a 32-bit `int` keeps only the type.  The same class as binate
-`746a908fa` / `63627ae64`: read the 8-byte r_info (and any 8-byte field the dump prints) with tlsU64 and print int64.
-Found by running asm/assemble on that lane right after `6bc08c13b` landed.
-
 ### A parameterized impl lets a managed pointer to its instance satisfy a constraint — `g[@W[int]]` is accepted through `impl W[K]` — 🔴 OPEN MAJOR (found 2026-10-16, work-6, review of the spec status cleanup; split out of the pointer-impl decision entry 2026-10-17; reproduced; pre-existing)
 
 With `impl W[K] : lang.Orderable` (`func (w W[K]) Compare(o W[K]) int`) and `func g[U lang.Orderable](u U) int {
