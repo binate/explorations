@@ -1,3 +1,23 @@
+### A method declared later was not defined on demand while declarations are collected — ✅ DONE (binate `7206c4652`, 2026-10-25, work-5/temp-5; user: "maybe take it on?", landing approved with "wait 5 minutes, then go ahead") (minor: valid code rejected; found 2026-10-23)
+
+An array length's `len` operand is checked while a package's declarations are collected, and a method was
+attached only when collection reached it: `var g [len(s.mk())]int` before `func (r S) mk() [3]int` reported
+"undefined: mk" ("cannot access field on this type" with S after the length), and an inferred-type variable read
+early whose initializer calls a later method got "declare its type".  So did a generic type's method selected on an
+instance built before collection reached the method — even one collected before the selection (an instance took
+its generic's methods when built and again only at the end of collection).  Now a method lookup that misses during
+collection attaches the method first (`batchMethodOnDemand`, check/check_decl_batch_method.bn, from
+`lookupVisibleMethod`): an instance takes its generic's methods so far, else the batch's not-yet-collected method
+is defined (`collectMethodDecl`); a deferred early read takes it back (`undoBatchMethods`) so collection reports
+its errors once.  The review found three bugs in the first version, all fixed with tests before landing: undo
+records out of step when a method's signature reads a deferred variable (bnc crashed), unbounded recursion copying
+a generic's methods onto an instance whose copied signature selects a missing method (segfault), and declarations
+matched in the caller's scope (missed under a generic function's or a function literal's scope).  Tests:
+check_decl_batch_method_test.bn (12), check_pending_retry_test.bn
+`TestPendingVarNeededDuringCollectionResolvesThroughMethod`, conformance 1717_array_length_calls_later_method.
+Left open: an impl declared later (the full-resolver entry), the constants a deferred read resolves losing their
+errors, and an undefined `len` operand reported as not constant (their own entries).
+
 ### bnfmt: a `// LONG-LINE ALLOWED` line of several statements printed one per line — DONE (binate `0e56c2f91`, 2026-10-25, temp-4; user: "I guess we should special-case?", "A sounds fine")
 
 The marker goes with the statement it follows, the line's last (binate `9b58a7bd0`), and bnfmt printed each

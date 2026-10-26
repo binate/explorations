@@ -225,20 +225,6 @@ operand with `lookupDeclOnDemand` and reports an unbound one (`errUndefined`) on
 REPL forward reference; otherwise the length falls through as not constant.  The program is rejected either way.
 Fix: report the unbound name in every mode, with a unit test pinning the message.
 
-### A method declared later is not defined on demand while declarations are collected — 🟡 IN PROGRESS (claimed 2026-10-25, work-5/temp-5; minor: valid code rejected; found 2026-10-23, work-5, landing the on-demand functions change; reproduced)
-
-Since binate `f1645f4c1` a package's functions, generic or not, are defined on demand during collection
-(`batchFuncOnDemand`, check/check_decl_batch.bn), so a declaration collected before a function may call it.  A
-method is not: it is attached only when collection reaches it.  `var s S`, `type S struct { n int }`, `var g
-[len(s.mk())]int`, then `func (r S) mk() [3]int` reports "undefined: mk"; and an inferred-type variable read
-early whose initializer calls a later method (`type B [len(tbl)]uint8`, `var tbl = s.mk()`) gets "the type of
-`tbl` is needed while the package's types are collected ... declare its type".  The reverse order is accepted.
-Tests pinning today's behavior: check_decl_batch_test.bn `TestArrayLenOfInferredVarNeedsLaterDecl`,
-`...LaterUseClean`, check_pending_retry_test.bn `TestPendingVarNeededDuringCollectionFails`.  Fix: attach a
-method on demand when a selector on a collected type misses it (collectMethodDecl for the batch's methods of
-that receiver base, with the generic-receiver bookkeeping), as functions are defined; then those tests become
-acceptance tests, plus a conformance test with the method after the length.
-
 ### A deferred early read of a variable loses the errors of the constants it resolved — 🔴 OPEN (minor: a lost diagnostic; found 2026-10-25, work-5, review of the on-demand methods change; reproduced)
 
 `batchVarOnDemand` (check/check_decl_batch.bn), deferring a variable's check while types are collected, drops every
@@ -246,8 +232,8 @@ error since its mark (`dropChecksSince`) and leaves the functions it defined on 
 their errors again.  A constant first resolved during that check is not taken back: it stays resolved
 (`c.ConstResolved`), and its own error is gone.  `type B [len(tbl)]uint8`, `var tbl = mk()`, `func mk() [N]int`,
 `const N = undefinedThing` reports "array length must be a constant integer" and "declare its type", but not
-"undefined: undefinedThing".  A method in mk's place behaves the same once methods are defined on demand (the
-later-method entry above).  The program is rejected either way.  Fix: take back the constants (and the types
+"undefined: undefinedThing".  A method in mk's place behaves the same (methods are defined on demand since binate
+`7206c4652`).  The program is rejected either way.  Fix: take back the constants (and the types
 collected on demand) resolved inside the deferred check, so they are resolved again and report their own errors.
 
 ### A deferred early read of a variable leaves the function instances its check built cached — 🔴 OPEN (minor: a misleading diagnostic; found 2026-10-19, work-5, review of the on-demand functions change; by reasoning)
@@ -617,7 +603,9 @@ layout) and variables a read needs.  One path stays partial: an inferred-type va
 collected — by an array length, directly or through a constant it reads (`type B [len(tbl)]uint8; var tbl =
 mk()`) — is checked against a half-collected package, so a function, type, method or impl declared later is
 not there yet; the check reports that name as "declared later than a type whose array length needs it"
-rather than resolving it.  Fix: resolve every package-level declaration on demand — function signatures,
+rather than resolving it.  Functions (binate `f1645f4c1`) and methods (binate `7206c4652`) are now defined on
+demand; an impl declared later still is not (`var tbl = pick(&s)` before `impl S : I` gets "declare its type";
+check_decl_batch_test.bn `TestArrayLenOfInferredVarNeedsLaterDecl` pins it).  Fix: resolve every package-level declaration on demand — function signatures,
 types (for any use that needs their layout or methods), methods and impls — with one cycle stack, so the
 order of collection never matters.  Needs conformance tests for each of those forms and for cycles through
 them (`var v = F(); func F() [len(v)]int`, `type T [len(v)]int; var v = T{}`).
