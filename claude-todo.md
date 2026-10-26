@@ -389,6 +389,17 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
+### native arm32 copy / zero loops stop after one unit for an aggregate of 2 GiB or more — silent wrong code — 🔴 OPEN MAJOR (found 2026-10-25, work-1, int64 layout 4d-4; pre-existing)
+
+emitIndexedCopyLoopArm32, emitFrameZeroArm32 and emitZeroThroughArm32 (native/arm32/arm32_aggcopy_loop.bn) count
+an index down from size - unit and loop while it is non-negative (`SUBS idx, idx, #unit; BPL top`).  For a size of
+2 GiB or more the first index already has its sign bit set, so each loop copies or zeroes one unit and stops: a
+struct copy or zero-initialization of a >= 2 GiB aggregate on native arm32 (legal: an arm32 frame may approach
+4 GiB, spec §21.4) silently leaves the rest untouched, on any host.  Fix: loop on no-borrow (`BCS` / `BHS`), which
+counts the same for every size under 2 GiB and correctly past it.  Found converting arm32 to int64 frame offsets
+(4d-4), which touches emitFrameZeroArm32.  Test: a unit test pinning the loop's condition (no program can run a
+2 GiB copy).
+
 ### Neither backend probes the stack for a large frame — a frame past the guard page can step over it — 🔴 OPEN MAJOR (found 2026-10-18, work-1, review of the native aa64 16 MiB fix; pre-existing; needs a decision)
 
 A function's prologue moves SP down by its whole frame in one step (native: `sub sp, sp, #frame`, now also past 16
