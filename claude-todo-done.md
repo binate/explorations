@@ -37,7 +37,9 @@ into the then block).  The review found a cost blowup with nested one-line switc
 against 0.26 s before; 0.54 s with the case limits and a bounded cursor save).  On the corpora: files a second
 format changes 40 to 37, none new; 12 files change; no formatted tree file changes.  Tests:
 TestMarkedLineKeepsBlockWithListComments, TestMarkedLineThatExpandsPrintsUnmarked (print_longline_test.bn),
-TestCaseStatementsTakeTheirOwnComments (print_switch_test.bn), each failing on the previous bnfmt.  Left open, in
+TestCaseStatementsTakeTheirOwnComments (print_switch_test.bn), each failing on the previous bnfmt; binate
+`889130996` added TestBlockStatementsTakeTheirOwnComments (print_stmt_test.bn) and
+TestMarkedDeclarationThatExpandsPrintsUnmarked (print_longline_test.bn), for two paths those missed.  Left open, in
 their own entries: several statements on a marked line, a one-line struct type's comments, and declarations, group
 members and struct fields that take the next node's comments.
 
