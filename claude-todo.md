@@ -47,63 +47,6 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
-### REPL: redefining a method of a generic non-struct type neither re-emits nor forgets its instances — the old body runs — 🟡 IN PROGRESS (claimed 2026-10-25, work-6/session — user: "yes to both"), MAJOR (filed 2026-10-24, work-6)
-
-A method of a generic type whose underlying type is not a struct (`type Pair[T any] [2]T`) redefined at the prompt
-keeps its instances.  With the same signature an existing caller runs the old body, and with another signature a new
-caller runs the old instance:
-```
-> type Pair[T any] [2]T
-> func (p Pair[T]) Second() T { return p[1] }
-> func ps() int { var p Pair[int]; p[1] = 4; return p.Second() }
-> testing.Println(ps())
-4
-> func (p Pair[T]) Second() T { var z T; return z }
-> testing.Println(ps())
-4                                   (0 expected; with `type Pair[T any] struct { a T; b T }` it is 0)
-```
-and after `func (p Pair[T]) Second(k int) int { return k + 10 }` (reported shadowed), `func ps2() int { var p
-Pair[int]; return p.Second(5) }` gives 0 (15 expected).
-- Root cause: irgen's reemitGenericMethod looks for the instances already emitted only among gc.Mod.Structs; a
-  generic non-struct type's instances are gc.Mod.TypeAliases entries (InstDecl / InstDefPkg / InstArgs, from
-  ensureInstantiatedNamed), so none is emitted again, and each stays marked emitted.
-- Found by: probing for the resolved-group entry's generic-method case (above).
-- Fix: find the instances among both (one helper, shared with that case's fix).  Regression cases in
-  e2e/repl.sh, with the fix.
-
-### REPL: a method value taken after a method is shadowed (another signature) runs the old method — wrong values, arguments dropped — 🟡 IN PROGRESS (claimed 2026-10-25, work-6/session — user: "yes to both"), MAJOR (filed 2026-10-24, work-6)
-
-Once a method value has been taken, one taken after the method is redefined with another signature calls the OLD
-method, typed with the new signature:
-```
-> type Mv struct { n int }
-> func (v *Mv) Size() int { return 1000 }
-> var mv Mv
-> func mvold() int { var m *func() int = mv.Size; return m() }
-> testing.Println(mvold())
-1000
-> func (v *Mv) Size() int8 { return 5 }
-> func mvnew() int8 { var m *func() int8 = mv.Size; return m() }
-> testing.Println(mvnew(), mv.Size())
--24 5                               (5 5 expected)
-> func (v *Mv) Size(k int) int { return k }
-> func mvk() int { var m *func(int) int = mv.Size; return m(42) }
-> testing.Println(mvk(), mv.Size(42))
-1000 42                             (42 42 expected)
-```
-With no method value taken before the redefinition it is right (42 42).  A generic type's method is affected the
-same way.
-- Root cause: IR-gen synthesizes one wrapper per method and captured receiver form and reuses it by name
-  (gen_method_value.bn: methodValueWrapperName, Mod.MethodValueWrappers).  The old wrapper's call was bound to the
-  old method when the VM lowered it, so a shadowing redefinition's new method values get the old wrapper.  (A
-  redefinition of the same signature replaces the method in place, which the old wrapper then reaches.)
-- Found by: the adversarial review of the REPL resolved-group shadowing fix (work-6, 2026-10-24); predates it
-  (a bni without that fix gives the same).
-- Proposed fix: when a method is shadowed at the prompt, IR-gen forgets its method-value wrappers, as it forgets a
-  shadowed generic's instances, and the VM unbinds them once the entry is kept, so a later method value
-  synthesizes a new wrapper that calls the new method while values taken before keep the old one.  Regression
-  case in e2e/repl.sh, with the fix.
-
 ### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🔴 NEEDS DECISION, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
 `builder-comp_arm32_baremetal` runs each package's test binary in QEMU `virt` with `-m 16M`, linked by

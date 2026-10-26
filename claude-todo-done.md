@@ -1,3 +1,29 @@
+### REPL: a method value taken after a method is shadowed (another signature) runs the old method — DONE (binate `2cabff483`, 2026-10-25, work-6; user: "yes to both") (filed 2026-10-24, work-6)
+
+Once a method value had been taken, one taken after the method was redefined at the prompt with another signature
+called the OLD method, typed with the new signature (`-24` for an int8 5, a new argument dropped): IR-gen reuses one
+wrapper per method and captured receiver form by name (Module.MethodValueWrappers), and the VM had bound the old
+wrapper's call to the old method.  Resolution (binate `2cabff483`): a method redefined with another signature forgets
+its method-value wrappers in IR-gen (irgen.ShadowReplMethodValues; for a generic type's method, each instance's), and
+the VM unbinds them once the redefinition is kept (commitShadows), so a later method value synthesizes a wrapper that
+calls the new method while values taken before keep the old one; an entry that does not load gets the wrappers back
+(UndoReplEntry).  replShadow's Generic became Funcs, shadowGenericInstances shadowFuncs.  Tests: irgen
+TestIsMethodValueWrapperOf / TestShadowReplMethodValues; repl TestReplMethodValueAfterShadowCallsNewMethod,
+TestReplGenericMethodValueAfterShadowCallsNewMethod, TestLoadFailsMethodShadowKeepsMethodValues; e2e/repl.sh
+method-value-after-shadow, method-value-after-shadow-receiver-kinds,
+method-value-after-shadow-generic-non-struct-and-var-init, group-method-value-of-shadowing-method.
+
+### REPL: redefining a method of a generic non-struct type neither re-emits nor forgets its instances — DONE (binate `ae0fb63ab`, 2026-10-25, work-6; user: "yes to both") (filed 2026-10-24, work-6)
+
+A method of a generic type whose underlying type is not a struct (`type Pair[T any] [2]T`) redefined at the prompt
+kept its instances: with the same signature an existing caller ran the old body, with another signature a new caller
+ran the old instance.  The REPL looked for the receiver type's instances only among gc.Mod.Structs; such a type's are
+gc.Mod.TypeAliases entries (ensureInstantiatedNamed).  Resolution (binate `ae0fb63ab`): methodRecvInstances finds
+them in both, as recvInst records (generic declaration, defining package, canonical type arguments) shared by the
+re-emission, the shadowing and EmitShadowedMethod.  Tests: repl TestReplGenericNonStructMethodRedefinedReplaces /
+TestReplGenericNonStructMethodRedefinedShadows, irgen TestShadowReplGenericMethodOfNonStruct, e2e/repl.sh
+generic-non-struct-method-redefined (`4 false` / `3 true` / `15 3`; `4 false` / `4 false` / `0 4` before).
+
 ### A method declared later was not defined on demand while declarations are collected — ✅ DONE (binate `7206c4652`, 2026-10-25, work-5/temp-5; user: "maybe take it on?", landing approved with "wait 5 minutes, then go ahead") (minor: valid code rejected; found 2026-10-23)
 
 An array length's `len` operand is checked while a package's declarations are collected, and a method was
