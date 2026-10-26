@@ -47,7 +47,7 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
-### REPL: redefining a method of a generic non-struct type neither re-emits nor forgets its instances — the old body runs — 🔴 OPEN, MAJOR (filed 2026-10-24, work-6)
+### REPL: redefining a method of a generic non-struct type neither re-emits nor forgets its instances — the old body runs — 🟡 IN PROGRESS (claimed 2026-10-25, work-6/session — user: "yes to both"), MAJOR (filed 2026-10-24, work-6)
 
 A method of a generic type whose underlying type is not a struct (`type Pair[T any] [2]T`) redefined at the prompt
 keeps its instances.  With the same signature an existing caller runs the old body, and with another signature a new
@@ -71,7 +71,7 @@ Pair[int]; return p.Second(5) }` gives 0 (15 expected).
 - Fix: find the instances among both (one helper, shared with that case's fix).  Regression cases in
   e2e/repl.sh, with the fix.
 
-### REPL: a method value taken after a method is shadowed (another signature) runs the old method — wrong values, arguments dropped — 🔴 OPEN, MAJOR (filed 2026-10-24, work-6)
+### REPL: a method value taken after a method is shadowed (another signature) runs the old method — wrong values, arguments dropped — 🟡 IN PROGRESS (claimed 2026-10-25, work-6/session — user: "yes to both"), MAJOR (filed 2026-10-24, work-6)
 
 Once a method value has been taken, one taken after the method is redefined with another signature calls the OLD
 method, typed with the new signature:
