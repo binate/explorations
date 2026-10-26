@@ -239,6 +239,17 @@ method on demand when a selector on a collected type misses it (collectMethodDec
 that receiver base, with the generic-receiver bookkeeping), as functions are defined; then those tests become
 acceptance tests, plus a conformance test with the method after the length.
 
+### A deferred early read of a variable loses the errors of the constants it resolved — 🔴 OPEN (minor: a lost diagnostic; found 2026-10-25, work-5, review of the on-demand methods change; reproduced)
+
+`batchVarOnDemand` (check/check_decl_batch.bn), deferring a variable's check while types are collected, drops every
+error since its mark (`dropChecksSince`) and leaves the functions it defined on demand to collection, which reports
+their errors again.  A constant first resolved during that check is not taken back: it stays resolved
+(`c.ConstResolved`), and its own error is gone.  `type B [len(tbl)]uint8`, `var tbl = mk()`, `func mk() [N]int`,
+`const N = undefinedThing` reports "array length must be a constant integer" and "declare its type", but not
+"undefined: undefinedThing".  A method in mk's place behaves the same once methods are defined on demand (the
+later-method entry above).  The program is rejected either way.  Fix: take back the constants (and the types
+collected on demand) resolved inside the deferred check, so they are resolved again and report their own errors.
+
 ### A deferred early read of a variable leaves the function instances its check built cached — 🔴 OPEN (minor: a misleading diagnostic; found 2026-10-19, work-5, review of the on-demand functions change; by reasoning)
 
 `batchVarOnDemand` (check/check_decl_batch.bn), deferring a variable's check read while types are collected, drops
