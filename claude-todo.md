@@ -2435,6 +2435,8 @@ Declarations, group members, struct fields and imports stop at the next node's c
 - A case kept on one line with its body prints the body with no comment cursor, so the comments after its label and
   between its statements go after the last: `case 1: a() /* c */; b()` prints `case 1: a(); b() /* c */` (bnfmt
   `bnc-0.0.17-pre3` and the tree's).  Its width check leaves the comments out too.
+- A comment between a signature's `)` and its results goes into the body: `func f(a int) /* c */ int {` prints
+  `/* c */` on a line of its own as the body's first (bnfmt `bnc-0.0.17-pre3` and the tree's).
 
 ### bnfmt: a struct type's comments, and a marked group member — 🟡 IN PROGRESS (claimed 2026-10-25, temp-4; user: "then let's fix these") 🟢 LOW (found 2026-10-25, temp-4, review of the marked-line fix)
 
