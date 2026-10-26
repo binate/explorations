@@ -1,3 +1,15 @@
+### bnfmt: a `// LONG-LINE ALLOWED` line of several statements printed one per line — DONE (binate `0e56c2f91`, 2026-10-25, temp-4; user: "I guess we should special-case?", "A sounds fine")
+
+The marker goes with the statement it follows, the line's last (binate `9b58a7bd0`), and bnfmt printed each
+statement on a line of its own, so `hhh…(a, b); z() // LONG-LINE ALLOWED` wrapped the long first one, or left it past
+the cap unmarked.  Decided (user): keep the line as written.  Resolution (binate `0e56c2f91`): a marked line of
+`;`-joined statements, of `;`-joined top-level declarations (after the first one's annotation block), or a case
+written on one line with its body is printed as written, with the comments between its parts and wrapping
+suppressed; a line one of them cannot stay on (a block that must expand, for a comment between its statements)
+prints one per line, as an unmarked one does, and a marked case that cannot stay on its line expands.  Tests:
+TestMarkedLineKeepsItsStatementsJoined, TestMarkedCaseLineKeepsItsComments, TestMarkedLineKeepsJoinedDeclarations,
+TestMarkedLineOfStatementsThatCannotStayJoinedSplits.
+
 ### A finite chain of 92 or more distinct generic structs was rejected with nothing instantiated (build budget part) — ✅ DONE (binate `3b3b6ef2d`, 2026-10-25, work-7; user: "yes" to taking it, landing approved with "wait 12 minutes, then go ahead and land") (minor; found 2026-10-23, work-7)
 
 `type S1[T any] struct { v T; next *S2[T] }` … `type S92[T any] struct { v T }`, with nothing instantiated, was
