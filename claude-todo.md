@@ -716,7 +716,8 @@ Tag_CPU_unaligned_access=0, so the no-OS target writes that; `.cpu` is an explic
 `.eabi_attribute 5` wins); a string attribute is written raw (escapes kept) but Tag_also_compatible_with (65), whose
 escapes clang reads; a leading identifier is always an attribute name (52 of them, Tag_File / Section / Symbol
 included); clang truncates tags and numbers to 32 bits.  The native writer keeps VFPv3 without NEON plus
-Tag_ABI_VFP_args.  To ask the user before landing: bnas rejecting tags 0-3 and tags or numbers outside 32 bits.
+Tag_ABI_VFP_args.  User (2026-10-26): tags 0-3 and tags / numbers outside 32 bits "Reject them (Recommended)";
+Thumb-only `.cpu` names "Reject them (Recommended)"; the no-OS default "Match bnc baremetal (0) (Recommended)".
 
 ### asm arm32: an ARM feature model gating instructions as clang does, and the forms it lacks — 🔴 OPEN, unclaimed (found 2026-10-25, work-2, the `.ARM.attributes` work; user: "Attributes now, gating next (Recommended)")
 
