@@ -2433,6 +2433,10 @@ on a line of its own still prints as two lines (stable).
 Declarations, group members, struct fields and imports stop at the next node's comments (binate `1b66c0a0a`).  Left:
 - A one-member `var ( … )` is parsed as a plain `var` whose Pos is the member's name, so the `var` keyword's position is
   lost and `var a = 1; var ( // c` / `b = 2` / `)` gives `// c` to `a`.  The parser should record the keyword.
+  The same collapse (parseVarDecl, parseTypeDecl) moves the member's trailing comment to a line of its own after
+  the declaration: `type (` / `F int // c` / `)` prints `type F int`, a blank line, then `// c`; `var (` / `x = 1 // d` /
+  `)` likewise (bnfmt `bnc-0.0.17-pre3` and the tree's).  A one-member `const (` stays a group (for `iota`) and
+  keeps its comment.
 - A comment between a grouped type member's name and its type goes to the previous member: the member's Pos is the
   `type` keyword's (parseTypeSpec), not its name's.
 - A group's comment alignment checks the width of a member's first trailing comment only, so `j = 1 /* j */ // <80
