@@ -2477,6 +2477,18 @@ last line.  So both comments go on lines of their own after the statement (`x :=
 inner comment goes after the statement (`p = 1 + /* z */ 2` prints `p = 1 + 2 /* z */`).  A line comment inside
 cannot simply join the trailing one (`// c // d` lexes as one comment).
 
+### bnfmt's operator chain moves a function literal to a continuation line for what follows its last line — 🟢 LOW (found 2026-10-26, temp-4, working on the statement trailing-comment entry; pre-existing)
+
+printBinaryWrapped keeps an operand on the line when binOperandWidth plus the operand's tail fits there
+(print_chain.bn).  An operand that spans lines is measured by all its bytes, unindented, so the tail -- which goes
+on its last line -- counts against the line the break is decided for: a function literal that ends a chain moves to
+a continuation line when what follows it is long, as a line comment after it in a list is (`g(a, // c` /
+`e((zzzzzzzzzzzzzzzzzzzzzzz + func() int { return hhhhhhhhhhhhhhhhhhhhhhh }).gggg), // <40 bytes>` breaks before
+`func`; bnfmt `bnc-0.0.17-pre3` and the tree's).  Dropping the tail for an operand that spans lines when rendered
+from column 0 is not stable: a literal written on one line renders on one line there and moves, and once it has
+expanded it spans lines there and stays (tried 2026-10-26: two files of the scripts/bnfmt-check rv corpus became
+non-idempotent).  The fix needs a measure that does not depend on how the source laid the operand out.
+
 ### bnfmt does not wrap a statement whose trailing comment takes its line past the cap — 🟡 IN PROGRESS (claimed 2026-10-25, temp-4; user: "then let's fix these") 🟢 LOW (found 2026-10-25, temp-4, review of the marked-line fix; pre-existing)
 
 A statement's width check leaves out its trailing comment: `qqqqqqqqqq = fffffffff(aaaaaaaaaaaaaaaa, bbb…) // a long
