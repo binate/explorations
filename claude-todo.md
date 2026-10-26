@@ -142,26 +142,6 @@ type argument against a parameterized impl's substituted receiver as the plain a
 conformance spec/12-generics/119_err_satisfy_generic_impl_managed_ptr (binate `0051d4792`, expected to fail in every
 mode).
 
-### The instance chain bound depends on naming order — a long finite chain is accepted or rejected depending on which naming comes first — 🟡 IN PROGRESS (claimed 2026-10-23, work-7/session — user: "Then continue with 5b then 5a."; minor; found 2026-10-18, work-7, review of the instance-chain hang fix)
-
-Since binate `8bbfe8777` an instance built while another is built is named from it, so build nesting adds to the
-drain's chain depth, and an instance keeps the depth of its first naming.  A finite 140-long chain (f1[T] → … →
-f100[T] naming S1[T], whose method signatures chain through 40 struct types) is rejected ("nested too deeply
-(polymorphic recursion?)") when the first naming of S1[int] is f100's, and accepted when `var s S1[int]` in main names
-it first.  §12.3 allows a bound of 128 on such a chain; the verdict should not depend on the order.  Needs a design:
-the depth an instance is reached at is the longest chain to it, which the depth-first drain does not track.
-**Decision (user 2026-10-23: "5a: 1 seems reasonable."):** the bound measures the SHORTEST chain from an
-instantiation the program writes.  Plan: keep depth-first discovery, record what each instance names, lower an
-instance's depth when a shorter chain to it turns up (and its descendants' with it), report an instance past 128
-only once no shallower work remains, and add a total cap on instance checks (a new §21.4 limit) so a family that
-grows and fans out (`f[T]` naming `f[@T]` and `f[*T]`) stops quickly.  Spec gen.mono.instances: "the shortest
-chain".  Verified probe pair for tests: `f1[int](); g[int]()` rejected and `g[int](); f1[int]()` accepted today.
-**Limit (user 2026-10-25: "Search limit (Recommended)"), replacing the total cap:** measured with 128-deep type
-arguments, an instance check costs ~0.7 ms natively and ~65 ms with the checker in the VM (int-int), so a total cap
-of N makes conformance 090 (fan-out) cost N checks.  Instead, an instance set aside for a too-long chain is
-reported once 256 more instances are checked without a shorter chain to it turning up (a new §21.4 limit,
-at least 256); no total cap.  090 then takes ~0.3 s natively, ~25 s in int-int (~6 s before).
-
 ### A finite chain of 92 or more distinct generic structs is rejected even when the program instantiates none — 🔴 OPEN (minor; found 2026-10-23, work-7, probing the naming-order chain bound; reproduced on every build back to Oct 18; pre-existing)
 
 `type S1[T any] struct { v T; next *S2[T] }` … `type S92[T any] struct { v T }`, with no instantiation anywhere, is

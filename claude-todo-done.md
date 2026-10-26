@@ -1,3 +1,19 @@
+### The instance chain bound depended on naming order — ✅ DONE (binate `971ce6ac3`, docs `6cfd110`, 2026-10-25, work-7; user: "5a: 1 seems reasonable." and "Search limit (Recommended)") (minor; found 2026-10-18, work-7, review of the instance-chain hang fix)
+
+An instance kept the chain depth of its first naming and the drain is depth-first, so a finite 140-long chain (f1[T]
+… f100[T] naming S1[T], whose methods chain through S40[T]) was rejected for `f1[int](); g[int]()` and accepted for
+`g[int](); f1[int]()`, g[T] naming S1[T] directly.  Decision: the bound (spec gen.mono.instances) is on the SHORTEST
+chain to an instance from one the program writes.  Fix (check/check_instance_drain.bn): every naming of an instance
+queued or checked in the drain is recorded as a chain link (from the instance being checked or built, or from the
+program); an instance past MAX_INSTANCE_DEPTH is set aside; when the stack empties the depths are relaxed over the
+links and those that now fit are checked, the first that does not is reported.  The planned total cap on instance
+checks was replaced by a search limit (a check with 128-deep type arguments costs ~0.7 ms natively and ~65 ms with
+the checker in the VM, so a cap of N makes a fan-out family cost N checks): an instance set aside is reported once
+MAX_CHAIN_SEARCH (256) more instances are checked without a shorter chain to it (a new §21.4 limit).  Conformance
+090 now stops after ~384 checks.  The drain no longer stops at the first too-deep instance, so instances queued
+beside it are checked in the same input (TestReplOverflowChecksOthers).  Tests: check check_instance_drain_test.bn;
+conformance spec/12-generics 134 (accepted), 135 (rejected).
+
 ### CI red: arm32 unit — `TestAssembleFileElfLayoutLikeClang` reads an ELF relocation's 64-bit r_info into an `int` (asm/assemble) — DONE (binate `e61709912`, 2026-10-25, work-3) (found 2026-10-25, work-3)
 
 TestAssembleFileElfLayoutLikeClang (binate `6bc08c13b`, "asm ELF: lay objects out as clang does") fails on
