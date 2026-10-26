@@ -142,22 +142,26 @@ type argument against a parameterized impl's substituted receiver as the plain a
 conformance spec/12-generics/119_err_satisfy_generic_impl_managed_ptr (binate `0051d4792`, expected to fail in every
 mode).
 
-### A finite chain of 92 or more distinct generic structs is rejected even when the program instantiates none — 🟡 IN PROGRESS (claimed 2026-10-25, work-7/session — user: "yes" to "I'd take the 92-struct one next"; minor; found 2026-10-23, work-7, probing the naming-order chain bound; reproduced on every build back to Oct 18; pre-existing)
+### A generic declaration naming a long or branching chain of distinct generics is rejected even when nothing is instantiated — 🟡 IN PROGRESS (claimed 2026-10-25, work-7/session; minor; found 2026-10-23, work-7, probing the naming-order chain bound; pre-existing)
 
-`type S1[T any] struct { v T; next *S2[T] }` … `type S92[T any] struct { v T }`, with no instantiation anywhere, is
-rejected at S1: "generic instantiation S1[T] builds more than 4096 instances (an implementation limit)"; 91 types
-are accepted.  From 129 types the build-nesting guard fires first ("generic instantiation nested too deeply (cyclic
-or unbounded type argument?)", check_generic_type.bn).  The count is quadratic: S1's declaration check builds
-S2[T1], whose build resolves S2's declaration abstractly, which builds S3[T2], and so on; then S2[T1]'s field builds
-S3[T1], and so on — each generic's own parameter gets its own copy of the rest of the chain (S_j[T_i] for every
-i < j: 91·92/2 = 4186 > 4096 at 92 types, 90·91/2 = 4095 at 91), all counted against the outermost build.
-§12.3 gen.mono.instances bounds only what a program names — instantiations with no type parameter — so with no
-instantiation neither limit applies; with `var a S1[int]`, S1[int] names 91 instances along a 92-long chain, within
-both.  Possible fixes: count against the budget only the instances named with the outermost's own arguments, not
-those of the declaration resolutions it triggers (or resolve a generic's declaration outside the build it is first
-reached in); and build nested instances from a worklist rather than by native recursion, so a chain's length is not
-capped by the stack.  Repro generator: S_i[T] with `next *S_{i+1}[T]`, main printing 1.  Related: "The instance
-chain bound depends on naming order" (above).
+Two cases are still rejected with no instantiation anywhere (§12.3 gen.mono.instances bounds only what a program
+names, so both are valid programs):
+- More than 128 distinct generics, `type S1[T any] struct { v T; next *S2[T] }` … `S129`: rejected at the last
+  ("generic instantiation nested too deeply (cyclic or unbounded type argument?)", check_generic_type.bn).  Checking
+  S1's declaration builds S2[T1], whose build resolves S2's declaration, which builds S3[T2], and so on — one nested
+  build per generic, stopped by the GenericInstDepth guard at 128.
+- 14 generics `type A1[T any] struct { v T; a *A2[*T]; b *A2[@T] }` … `A14`: rejected at A1's field `A2[*T]`
+  ("builds more than 4096 instances"); 13 are accepted.  A2[*T]'s build builds both A3 instances, each of those both
+  A4 instances, and so on: 2^13 − 1 instances at 14 generics.
+Cause: an instance whose type arguments mention a type parameter (an abstract instance) is built eagerly and
+transitively, inside the enclosing build, though only a generic body reading its structure needs it — each generic's
+own declaration is checked on its own anyway.  The user approved (2026-10-25, "option 1 is fine") building what a
+pointer field names after the enclosing build; that removes the nesting but not the work (still n²/2 abstract builds
+for a linear chain, 2^(n−1) for a branching one), so the branching case stays rejected or, uncounted, takes
+exponential time.  Building abstract instances only when something reads their structure (as an expanding family's
+abstract instances already get their methods, ensureMembers) removes both; the choice is back with the user.  Repro
+generators: scratch `S_i` / `A_i` programs as above, main printing 1.  The part counting a generic's own declaration
+against its own budget landed in binate `3b3b6ef2d` (see the done log).
 
 ### An importer's `sizeof` / `alignof` of a type its `.bni` declares later crashes the compiler — 🔴 OPEN MAJOR (found 2026-10-17, work-5, review of the `.bni` constant `len` change; reproduced; pre-existing)
 

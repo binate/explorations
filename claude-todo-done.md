@@ -1,3 +1,16 @@
+### A finite chain of 92 or more distinct generic structs was rejected with nothing instantiated (build budget part) — ✅ DONE (binate `3b3b6ef2d`, 2026-10-25, work-7; user: "yes" to taking it, landing approved with "wait 12 minutes, then go ahead and land") (minor; found 2026-10-23, work-7)
+
+`type S1[T any] struct { v T; next *S2[T] }` … `type S92[T any] struct { v T }`, with nothing instantiated, was
+rejected at S1: "builds more than 4096 instances".  A build resolves its generic's own declaration once, with the
+type parameters abstract, inside whatever build first reaches the generic; so each generic's own parameter built a
+copy of the rest of the chain (S_j[T_i] for every i < j, ~n²/2 instances), all counted against S1's build.  Fix
+(check_generic_build.bn enterOwnBuildBudget / leaveOwnBuildBudget, called from resolveGenericTypeDeclAbstract): the
+instances a generic's own declaration names each count as an outermost instantiation against the budget, tracked by
+a new InstanceState.BuildBase (BuildDepth is left alone, since flushLayoutWaits reads it).  Chains of up to 128
+generics are now accepted, named or not.  Tests: check TestBuildBudgetChainOfGenerics; conformance
+spec/12-generics/136_generic_struct_chain_100.  The chains over 128 generics and the branching chains still rejected
+stay open in claude-todo.md.
+
 ### bnfmt gave a declaration, group member or struct field the comments of the next one on its line — DONE (binate `1b66c0a0a`, 2026-10-25, temp-4; user: "let's fix next")
 
 A top-level declaration, a declaration-group member and a struct field took every comment on their source line, so a
