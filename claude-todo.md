@@ -216,6 +216,14 @@ assembler.  Remaining (plan-int64-layout.md): the backends' int64 frame lookups 
 32-bit host; 5 VM /
 interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the 32-bit lane.
 
+### An undefined name as an array length's `len` operand is reported as not constant — 🔴 OPEN (minor: a misleading diagnostic; found 2026-10-25, work-5, probing the later-method change; reproduced)
+
+`var g [len(nosuch)]int`, or the same length in a function's result, reports "array length must be a constant
+integer" instead of "undefined: nosuch".  `checkerEnv.Len` (check/check_constval.bn) resolves an identifier
+operand with `lookupDeclOnDemand` and reports an unbound one (`errUndefined`) only in TentativeMode, where it is a
+REPL forward reference; otherwise the length falls through as not constant.  The program is rejected either way.
+Fix: report the unbound name in every mode, with a unit test pinning the message.
+
 ### A method declared later is not defined on demand while declarations are collected — 🟡 IN PROGRESS (claimed 2026-10-25, work-5/temp-5; minor: valid code rejected; found 2026-10-23, work-5, landing the on-demand functions change; reproduced)
 
 Since binate `f1645f4c1` a package's functions, generic or not, are defined on demand during collection
