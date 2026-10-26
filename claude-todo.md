@@ -782,6 +782,25 @@ in a hard-float GNU program, checked 2026-10-25); bnas writes it only for the na
 set) and has no `.eabi_attribute` / `.cpu` / `.fpu` directives.  User: "Defaults + directives (Recommended)" — write
 clang's attributes for each bnas arm32 target's matching triple, and add `.eabi_attribute`, `.cpu` and `.fpu` (as
 clang reads them; ARM's `.arch <name>` collides with bnas's own `.arch arm32`, to be settled when designed).
+Scope (user, 2026-10-25): "Attributes now, gating next (Recommended)" — the default set, `.eabi_attribute`, the
+attribute effects of `.cpu` / `.fpu` (a Thumb-only CPU rejected) now; instruction gating is the item below.  Baseline:
+"armv7-a + hw divide" — the native backend's sdiv / udiv stay, so bnc's arm32 targets become `-march=armv7ve` and the
+default set is clang's for armv7ve (v7, A, ARM, Thumb-2, VFPv3, NEON, unaligned, MPextension_use, DIV_use=2,
+Virtualization_use=3), for text input and native objects alike (native hard-float adding Tag_ABI_VFP_args).  clang's
+rules, probed: tags sorted by number with Tag_conformance first; `.eabi_attribute` replaces or adds a tag and wins over
+`.fpu` in either order (defaults fill only tags not set); `.fpu` (24 names + aliases vfp3 / vfp4) sets FP_arch,
+Advanced_SIMD_arch, FP_HP_extension, last wins, none / softvfp drop them; `.cpu` (99 names) adds only Tag_CPU_name,
+last wins.
+
+### asm arm32: an ARM feature model gating instructions as clang does, and the forms it lacks — 🔴 OPEN, unclaimed (found 2026-10-25, work-2, the `.ARM.attributes` work; user: "Attributes now, gating next (Recommended)")
+
+clang gates arm32 instructions by the target's features, which `.cpu` and `.fpu` change: a CPU without VFP (generic,
+arm7tdmi, xscale) rejects VFP instructions, a Thumb-only CPU (cortex-m*) switches to Thumb mode (bnas: an error), `.fpu
+softvfp` / a d16 FPU narrows VFP, and the architecture version gates the rest.  bnas has no feature model: it accepts
+one fixed A32 + VFP set, which disagrees with clang's default armv7ve both ways — it rejects forms clang accepts
+(`vmov.f64 d0, #1.0`, d16–d31 as in `vadd.f64 d20, d1, d2`, `dmb ish`).  **Fix:** a feature model (architecture
+version, FPU, extensions) set by the target, `.cpu` and `.fpu`, each encoder checked against it as clang checks it;
+add the missing forms; golden accept/reject tests against clang.
 
 ### asm Mach-O: a literal-pool load of a forward label difference is rejected (`_f: ldr x1, =(_e - _f)` … `_e:`) — 🔴 OPEN, unclaimed (found 2026-10-24, work-2, review of the LC_DATA_IN_CODE change)
 
