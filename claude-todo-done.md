@@ -1,3 +1,17 @@
+### native aa64 / x64 rejected a float-containing closure with a big multi-return result ("not yet handled") — ✅ DONE (binate `81503e7e3`, 2026-10-25, work-1; user: "let's do 4d-2, then 1715")
+
+A closure that captures, takes or returns a float and returns a multi-value result too big for the return registers
+fails to compile on native aa64 and x64: `native aarch64 / x64: float-containing closure with a big multi-return
+result is not yet handled` (aarch64_closure_shim.bn ~101, x64_closure_shim.bn ~143 — the float-closure path has no
+sret / big-tuple shape; the non-float closure path and the func-value shims do).  E.g. `MakeSplit(scale float64)
+@func(int64) (int64 x9)` or a closure `func(x float64) (float64, int64 x8)`.  The LLVM backend and native arm32 take
+it.  It fails loud, not silently; a valid program is still rejected.  Fix: give the float closure shim the big
+multi-return (sret / retbuf) shape the scalar closure shim has.  Test: conformance 1715 (binate `c08d54520`).
+Resolution (binate `81503e7e3`): the float closure shim's sret shape takes a big multi-return as it takes a big
+single aggregate (retbuf in RDI / moved to X8); both multi-return routes pick sret or pack from the lifted body's
+own rule, cc.FuncReturnsViaInternalSret.  1715 also covers a closure with ten float64 arguments returning
+(float64, int64 x9).  Investigating it turned up the size-based sret decision fixed by binate `7aa18e056` (1716).
+
 ### bnfmt: a `// LONG-LINE ALLOWED` line expanded a one-line block with a comment, and a statement took every comment on its line — DONE (binate `9b58a7bd0`, 2026-10-25, temp-4; user: "Keep the line whole")
 
 Part of the non-idempotence entry, which stays open for the rest.  On a marked line a one-line block with a comment in

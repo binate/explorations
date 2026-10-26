@@ -404,17 +404,6 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### native aa64 / x64 reject a float-containing closure with a big multi-return result ("not yet handled") — 🟡 IN PROGRESS (claimed 2026-10-24, work-1) MAJOR (found 2026-10-23, work-1, probing the zero-size shim fix; pre-existing)
-
-A closure that captures, takes or returns a float and returns a multi-value result too big for the return registers
-fails to compile on native aa64 and x64: `native aarch64 / x64: float-containing closure with a big multi-return
-result is not yet handled` (aarch64_closure_shim.bn ~101, x64_closure_shim.bn ~143 — the float-closure path has no
-sret / big-tuple shape; the non-float closure path and the func-value shims do).  E.g. `MakeSplit(scale float64)
-@func(int64) (int64 x9)` or a closure `func(x float64) (float64, int64 x8)`.  The LLVM backend and native arm32 take
-it.  It fails loud, not silently; a valid program is still rejected.  Fix: give the float closure shim the big
-multi-return (sret / retbuf) shape the scalar closure shim has.  Test: conformance 1715 (binate `c08d54520`; xfailed on
-the native aa64 and x64 modes).
-
 ### Neither backend probes the stack for a large frame — a frame past the guard page can step over it — 🔴 OPEN MAJOR (found 2026-10-18, work-1, review of the native aa64 16 MiB fix; pre-existing; needs a decision)
 
 A function's prologue moves SP down by its whole frame in one step (native: `sub sp, sp, #frame`, now also past 16
