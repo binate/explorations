@@ -389,7 +389,7 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### native arm32 copy / zero loops stop after one unit for an aggregate of 2 GiB or more — silent wrong code — 🔴 OPEN MAJOR (found 2026-10-25, work-1, int64 layout 4d-4; pre-existing)
+### native arm32 copy / zero loops stop after one unit for an aggregate of 2 GiB or more — silent wrong code — 🟡 IN PROGRESS (claimed 2026-10-25, work-1, with 4d-4) MAJOR (found 2026-10-25, work-1, int64 layout 4d-4; pre-existing)
 
 emitIndexedCopyLoopArm32, emitFrameZeroArm32 and emitZeroThroughArm32 (native/arm32/arm32_aggcopy_loop.bn) count
 an index down from size - unit and loop while it is non-negative (`SUBS idx, idx, #unit; BPL top`).  For a size of
