@@ -2437,8 +2437,15 @@ Declarations, group members, struct fields and imports stop at the next node's c
   the declaration: `type (` / `F int // c` / `)` prints `type F int`, a blank line, then `// c`; `var (` / `x = 1 // d` /
   `)` likewise (bnfmt `bnc-0.0.17-pre3` and the tree's).  A one-member `const (` stays a group (for `iota`) and
   keeps its comment.
+  The collapsed declaration's End is stamped past the `)` (parseTopLevelDecl in parser.bn; parse_stmt.bn for a
+  local one), so the comment is not on End's line; and the declaration then spans lines, so a `// LONG-LINE
+  ALLOWED` on its member's line is not looked for: the member wraps and the marker goes on a line of its own.
 - A comment between a grouped type member's name and its type goes to the previous member: the member's Pos is the
   `type` keyword's (parseTypeSpec), not its name's.
+  When the member starts its line, the comment goes on a line of its own above it, which is not idempotent: the
+  next format finds a comment line there and splits the alignment run (`type (` / `AAAAAAAA int // x` /
+  `B /* c */ bool // y` / `)` aligns `// y` with `// x`, and the second format does not; bnfmt `bnc-0.0.17-pre3`
+  and the tree's).
 - A group's comment alignment checks the width of a member's first trailing comment only, so `j = 1 /* j */ // <80
   chars>` can be aligned out to 111 columns.
 - In `#[build(...)] /* f */ import (`, the comment moves above the annotation block.
@@ -2452,6 +2459,15 @@ Declarations, group members, struct fields and imports stop at the next node's c
 
 printGroupDecl does not check for the `// LONG-LINE ALLOWED` marker, so a marked group member is wrapped.  (The
 struct-type parts of this entry are done: binate `3a041efdc`.)
+
+### bnfmt moves a statement's trailing comment to a line of its own after a comment inside it that no list prints — 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing)
+
+A comment inside a statement that no list prints (an operand's, in `x := 1 + /* c */` / `2 // d`) is still pending
+in the cursor when the statement ends, and emitTrailingCommentBefore stops at it, as it is not on the statement's
+last line.  So both comments go on lines of their own after the statement (`x := 1 + 2`, `/* c */`, `// d`), and a
+`// LONG-LINE ALLOWED` there no longer marks the line (bnfmt `bnc-0.0.17-pre3` and the tree's).  On one line, the
+inner comment goes after the statement (`p = 1 + /* z */ 2` prints `p = 1 + 2 /* z */`).  A line comment inside
+cannot simply join the trailing one (`// c // d` lexes as one comment).
 
 ### bnfmt does not wrap a statement whose trailing comment takes its line past the cap — 🟡 IN PROGRESS (claimed 2026-10-25, temp-4; user: "then let's fix these") 🟢 LOW (found 2026-10-25, temp-4, review of the marked-line fix; pre-existing)
 
