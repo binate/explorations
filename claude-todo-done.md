@@ -1,3 +1,15 @@
+### bnfmt: a marked group member is kept as written — DONE (binate `67c2d6806`, 2026-10-26, temp-4; user: "then let's fix these"; landing: "yes, go ahead; then continue with 4b")
+
+printGroupDecl did not check for the `// LONG-LINE ALLOWED` marker, so a marked member of a `var (` / `const (` /
+`type (` group was wrapped, and members `;`-joined on a marked line printed one per line, wrapping a long earlier
+one (the marker is the last's).  Resolution (binate `67c2d6806`): a marked line keeps its member, or its joined
+members with the comments between them, as written, with wrapping suppressed (markedMemberRunEnd,
+printMarkedMembers in print_longline.bn), as a marked line of statements or declarations does; one that cannot be
+kept (a function literal whose body must expand for a comment in it) prints one member per line, unmarked but for
+the last.  The run's comment alignment measures a marked line as it prints (markedMembersBody).  No file of the
+scripts/bnfmt-check corpora or of the tree formats differently.  Tests: TestMarkedGroupMemberStaysOnItsLine,
+TestMarkedLineKeepsJoinedGroupMembers, TestMarkedGroupMemberThatCannotStayOnItsLineSplits.
+
 ### bnfmt: a struct type's comments — DONE (binate `3a041efdc`, 2026-10-26, temp-4; user: "then let's fix these"; landing: "wait 5 minutes, then land")
 
 A struct type reached through printType (a variable's, a field's or a parameter's type, a type-group member's, one
@@ -12,7 +24,7 @@ are results a line comment splits: six files of the scripts/bnfmt-check corpora 
 there; no file of the tree formats differently.  Tests: TestNestedStructTypesTakeTheirComments,
 TestMarkedLineKeepsStructWithListComments, TestStructTypeMeasuredByItsFirstLine,
 TestTypeGroupMemberStructTakesItsComments, TestSignatureResultsSplitByCommentMeasuredByFirstLine.  The marked group
-member of the same entry stays open in claude-todo.md.
+member of the same entry: binate `67c2d6806`.
 
 ### bnc arm32 targets armv7ve, as the native backend's sdiv / udiv need — DONE (binate `997ef2d57`, 2026-10-25, work-2; user: "armv7-a + hw divide")
 

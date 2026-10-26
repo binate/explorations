@@ -2456,11 +2456,6 @@ Declarations, group members, struct fields and imports stop at the next node's c
 - A comment between a signature's `)` and its results goes into the body: `func f(a int) /* c */ int {` prints
   `/* c */` on a line of its own as the body's first (bnfmt `bnc-0.0.17-pre3` and the tree's).
 
-### bnfmt: a marked group member is wrapped — 🟡 IN PROGRESS (claimed 2026-10-25, temp-4; user: "then let's fix these") 🟢 LOW (found 2026-10-25, temp-4, review of the marked-line fix)
-
-printGroupDecl does not check for the `// LONG-LINE ALLOWED` marker, so a marked group member is wrapped.  (The
-struct-type parts of this entry are done: binate `3a041efdc`.)
-
 ### bnfmt moves a statement's trailing comment to a line of its own after a comment inside it that no list prints — 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing)
 
 A comment inside a statement that no list prints (an operand's, in `x := 1 + /* c */` / `2 // d`) is still pending
