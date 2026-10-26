@@ -212,7 +212,7 @@ assembler.  Remaining (plan-int64-layout.md): the backends' int64 frame lookups 
 32-bit host; 5 VM /
 interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the 32-bit lane.
 
-### A method declared later is not defined on demand while declarations are collected — 🔴 OPEN (minor: valid code rejected; found 2026-10-23, work-5, landing the on-demand functions change; reproduced)
+### A method declared later is not defined on demand while declarations are collected — 🟡 IN PROGRESS (claimed 2026-10-25, work-5/temp-5; minor: valid code rejected; found 2026-10-23, work-5, landing the on-demand functions change; reproduced)
 
 Since binate `f1645f4c1` a package's functions, generic or not, are defined on demand during collection
 (`batchFuncOnDemand`, check/check_decl_batch.bn), so a declaration collected before a function may call it.  A
