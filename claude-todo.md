@@ -741,6 +741,19 @@ which then stays in the symbol table — so the linker can interwork or add a ve
 by both).  The assemble tests compare those objects by their symbols only.  **Fix:** decide each with the user
 (clang's choice, or keep bnas's), then follow it and make the cases full-layout goldens.
 
+### asm text: string escapes and directive-name case differ from clang — 🔴 OPEN, unclaimed (found 2026-10-26, work-2, review of the `.ARM.attributes` change)
+
+(a) bnas's lexer decodes and checks the escapes of every string token, so a line with an escape it refuses fails
+before any directive sees it; clang's lexer only skips the character after a `\`, and a directive that decodes
+escapes (`.ascii`, `.asciz`, Tag_also_compatible_with) checks them then, while one that takes a string as written
+(`.eabi_attribute` for every other string tag) never does: `.eabi_attribute 5, "a\qb"` writes `a\qb` in clang,
+"unknown escape sequence" in bnas.  (b) `\'` is accepted in a bnas string; clang rejects it ("invalid escape
+sequence (unrecognized character)", `.ascii "a\'b"`).  (c) A `\x` escape above 0xFF is an error in bnas (by its
+lexer's no-truncation rule); clang keeps the low byte (`.ascii "a\x141"`).  (d) clang matches the names of its
+generic directives in any case (`.GLOBAL`, `.ASCII`, `.FPU`, `.EABI_ATTRIBUTE`) but not ELF's section directives
+(`.TEXT`: "unknown directive"); bnas matches every directive name as written.  **Fix:** decide each with the user;
+for (a), string tokens carrying their escape errors to the directives that decode them.
+
 ### asm Mach-O: a literal-pool load of a forward label difference is rejected (`_f: ldr x1, =(_e - _f)` … `_e:`) — 🔴 OPEN, unclaimed (found 2026-10-24, work-2, review of the LC_DATA_IN_CODE change)
 
 `bnas -target darwin-aarch64` rejects `_f: ldr x1, =(_e - _f)` / ` ret` / `_e: ret` with "a difference of locations
