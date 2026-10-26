@@ -753,8 +753,12 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 
 ### asm ELF objects as clang writes them: arm32 `.ARM.attributes` — 🟡 IN PROGRESS (claimed 2026-10-19, work-2; the Mach-O layout DONE binate `047443141`, LC_DATA_IN_CODE DONE binate `1e52d50eb`, the ELF structure DONE binate `6bc08c13b`, `text` first DONE binate `354ccc767`, mapping symbols DONE binate `54d9b3e1e`, see the done log; user: "Follow clang for text")
 
-(e) arm32: clang always writes `.ARM.attributes` from the target; bnas writes it only for the native backend and has
-no `.eabi_attribute` / `.cpu` / `.fpu` directives — not yet decided.
+(e) arm32: clang always writes `.ARM.attributes` from the target (for `armv7a-linux-gnueabihf`, even from plain
+assembly: v7-A, ARM and Thumb-2 ISA, VFPv3, NEON, unaligned access — no Tag_ABI_VFP_args; such an object links and runs
+in a hard-float GNU program, checked 2026-10-25); bnas writes it only for the native backend (its minimal hard-float
+set) and has no `.eabi_attribute` / `.cpu` / `.fpu` directives.  User: "Defaults + directives (Recommended)" — write
+clang's attributes for each bnas arm32 target's matching triple, and add `.eabi_attribute`, `.cpu` and `.fpu` (as
+clang reads them; ARM's `.arch <name>` collides with bnas's own `.arch arm32`, to be settled when designed).
 
 ### asm Mach-O: a literal-pool load of a forward label difference is rejected (`_f: ldr x1, =(_e - _f)` … `_e:`) — 🔴 OPEN, unclaimed (found 2026-10-24, work-2, review of the LC_DATA_IN_CODE change)
 
