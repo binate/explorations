@@ -1,3 +1,17 @@
+### asm ELF mapping symbols as clang writes them ($x / $a and $d) — DONE (binate `54d9b3e1e`, 2026-10-25, work-2; user: "All objects (Recommended)", "Keep correct $d (Recommended)")
+
+bnas wrote no mapping symbols.  Resolution (binate `54d9b3e1e`): the assembler records mapping marks (asm MapMark) —
+the encoders emit every instruction byte through EmitInstrUint8 .. EmitInstrUint64 (replacing NoteInstruction), which
+mark code; any other emission marks data, even of no bytes (`.zero 0`, `.ascii ""`, `.fill N, 0`); alignment padding
+(AlignFill, EmitPadding) marks neither; per-section state; the parser reserves each instruction's / datum's / pool's
+mark mention so the mark comes before the symbols it uses, as clang registers it; `.tlsdesccall` marks code (and names
+its symbol).  The ELF writer lists them: AArch64 `$x` / `$d` (STT_TLS in TLS sections), arm32 `$a` / `$d` with clang's
+held-back first `$d`, none on x86-64; for every object, so the native backends' own `$x` / `$a` label
+(ArchEmitter.ElfTextMappingSymbol) is gone.  Deliberate difference: when arm32 data opens the first text section with
+no label before it, clang drops (or misplaces) the held-back `$d`; bnas keeps it.  Tests: assemble
+TestAssembleFileElfMappingSymbolsAArch64 (byte-identical to clang) / ...Arm32 (symbols), asm TestMapMarks /
+TestMarkMentionReserved / TestEmitInstr, elf TestElfMapKeys, the native place tests (text one run of code).
+
 ### The instance chain bound depended on naming order — ✅ DONE (binate `971ce6ac3`, docs `6cfd110`, 2026-10-25, work-7; user: "5a: 1 seems reasonable." and "Search limit (Recommended)") (minor; found 2026-10-18, work-7, review of the instance-chain hang fix)
 
 An instance kept the chain depth of its first naming and the drain is depth-first, so a finite 140-long chain (f1[T]

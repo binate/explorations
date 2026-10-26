@@ -739,10 +739,8 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### asm ELF objects as clang writes them: mapping symbols, arm32 attributes — 🟡 IN PROGRESS (claimed 2026-10-19, work-2; the Mach-O layout DONE binate `047443141`, LC_DATA_IN_CODE DONE binate `1e52d50eb`, the ELF structure DONE binate `6bc08c13b`, `text` first DONE binate `354ccc767`, see the done log; user: "Follow clang for text")
+### asm ELF objects as clang writes them: arm32 `.ARM.attributes` — 🟡 IN PROGRESS (claimed 2026-10-19, work-2; the Mach-O layout DONE binate `047443141`, LC_DATA_IN_CODE DONE binate `1e52d50eb`, the ELF structure DONE binate `6bc08c13b`, `text` first DONE binate `354ccc767`, mapping symbols DONE binate `54d9b3e1e`, see the done log; user: "Follow clang for text")
 
-(b) Mapping symbols: clang writes `$x` / `$d` on AArch64 (`$d` in `.data` too) and `$a` / `$d` on arm32 (`$d` there
-only for the pool in text, none in `.data`, in the probe); bnas writes none.  User: "All objects (Recommended)".
 (e) arm32: clang always writes `.ARM.attributes` from the target; bnas writes it only for the native backend and has
 no `.eabi_attribute` / `.cpu` / `.fpu` directives — not yet decided.
 
