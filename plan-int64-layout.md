@@ -165,7 +165,8 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
      far mode runs in no CI mode (wiring one is the user's call).  Left for 4c: OUTGOING stack arguments past
      2 GiB (a caller of 1711's f) still fail to compile on native x64 -- the assembler rejects the displacement
      of the argument-area stores (x64_call*.bn, the shims).
-   - 4d-3 / 4d-4. aarch64, arm32 move to the int64 lookups and thread int64 offsets through their helpers.
+   - 4d-3 / 4d-4 (4d-3 in progress, 2026-10-25, work-1). aarch64, arm32 move to the int64 lookups and thread
+     int64 offsets through their helpers.
      aarch64: MemImm64 and int64 range checks in the assembler's load / store paths (they narrow to int before
      checking today, which a 32-bit host would wrap).  arm32: a 32-bit target, so narrowing is exact.  Then
      the int lookups go.
