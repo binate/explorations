@@ -1,3 +1,16 @@
+### bnfmt gave a declaration, group member or struct field the comments of the next one on its line — DONE (binate `1b66c0a0a`, 2026-10-25, temp-4; user: "let's fix next")
+
+A top-level declaration, a declaration-group member and a struct field took every comment on their source line, so a
+comment inside the next node on the line moved to the earlier one (`var a = 1; var b = q(/* c */ x)` printed
+`var a = 1 /* c */`).  Resolution (binate `1b66c0a0a`): each stops at the next node's start, or at the group's `)` /
+the struct's `}`; a group's comment alignment measures each member's own comment; a grouped var/const member starts
+at its name (`m int; n /* o */ int` gave `/* o */` to m); an import followed by an import group stops at the group's
+declaration; the `// LONG-LINE ALLOWED` marker on `;`-joined declarations is the last one's.  No file of the tree or
+of the scripts/bnfmt-check corpora formats differently.  Tests: TestJoinedDeclarationsTakeTheirOwnComments,
+TestGroupMembersTakeTheirOwnComments, TestGroupMemberCommentsAfterNameAndBeforeClose,
+TestMarkedLineGoesWithLastJoinedDeclaration, TestStructFieldsTakeTheirOwnComments,
+TestFormatImportStopsAtNextImportDecl.  The gaps left are in claude-todo.md.
+
 ### asm ELF mapping symbols as clang writes them ($x / $a and $d) — DONE (binate `54d9b3e1e`, 2026-10-25, work-2; user: "All objects (Recommended)", "Keep correct $d (Recommended)")
 
 bnas wrote no mapping symbols.  Resolution (binate `54d9b3e1e`): the assembler records mapping marks (asm MapMark) —
