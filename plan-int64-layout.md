@@ -165,11 +165,15 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
      far mode runs in no CI mode (wiring one is the user's call).  Left for 4c: OUTGOING stack arguments past
      2 GiB (a caller of 1711's f) still fail to compile on native x64 -- the assembler rejects the displacement
      of the argument-area stores (x64_call*.bn, the shims).
-   - 4d-3 / 4d-4 (4d-3 in progress, 2026-10-25, work-1). aarch64, arm32 move to the int64 lookups and thread
-     int64 offsets through their helpers.
-     aarch64: MemImm64 and int64 range checks in the assembler's load / store paths (they narrow to int before
-     checking today, which a 32-bit host would wrap).  arm32: a 32-bit target, so narrowing is exact.  Then
-     the int lookups go.
+   - 4d-3. DONE `b108193b0` (2026-10-25): native aarch64 takes the int64 lookups and fields and passes int64
+     offsets to the assembler: MemImm64; LDR/STR (word, sub-word, sign-extending, FP) range-check the int64 and
+     form one out of range in X17; LDP/STP and the pre-/post-indexed / unscaled forms reject one past the host's
+     int; Fstr_d / Fldr_d / Fstr_s / Fldr_s take int64.  A load into X17 past the immediate field is allowed (an
+     indirect call's target reload past a 32 KiB frame failed to compile).  The frame zero-fill takes an int64
+     size on both native backends (a >= 2 GiB zero-initialized region failed in FrameInt on a 32-bit host).
+     Coverage on a 32-bit host comes from the builder-comp_arm32_linux unit-test lane (it runs asm/aarch64,
+     native/aarch64 and native/x64).  On a 64-bit host the code is unchanged (byte-identical cmd/bnc objects).
+   - 4d-4. arm32 moves to the int64 lookups: a 32-bit target, so narrowing is exact.  Then the int lookups go.
    - 4e (field / element offsets, copy sizes; common.ElemSizeOf / FieldByteOffset int64), 4c (callconv's stack
      layout), 4f-2.
    Tests compile functions holding the large frames / offsets without calling them, so they need no memory.
