@@ -155,7 +155,7 @@ sizes with Size(); native aa64 materializes an add / sub immediate past 16 MiB. 
 (spec §21.4 row, docs `1501abe`; user decision 2026-10-18 "Address space").  The LLVM frame check landed (binate
 `1246f0e68`, `3279fc9ac`, `519dd78fa`).  Stage 4d-2 landed (binate `74f8e652e`): native x64 frame slots and incoming
 arguments past disp32.  Stage 4d-3 landed (binate `b108193b0`): native aarch64 frame offsets in int64 through the
-assembler.  Remaining (plan-int64-layout.md): the backends' int64 frame lookups (4d-4 arm32, in progress 2026-10-25, work-1); outgoing stack arguments past 2 GiB (native x64 rejects them at compile time; with callconv's stack layout,
+assembler.  Remaining (plan-int64-layout.md): Stage 4d-4 landed (binate `f2264bbe4`): native arm32; removing the int frame lookups (4d-5); outgoing stack arguments past 2 GiB (native x64 rejects them at compile time; with callconv's stack layout,
 4c); field offsets and copies; callconv's stack layout; bss lengths and symbol offsets in int64 for a
 32-bit host; 5 VM /
 interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the 32-bit lane.
@@ -328,17 +328,6 @@ suggests pinning that `if` conditions' and `switch` tags' temporaries are releas
 runs, which matches the compiler for `switch` (unverified for `if`) — and give the `for` condition and post
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
-
-### native arm32 copy / zero loops stop after one unit for an aggregate of 2 GiB or more — silent wrong code — 🟡 IN PROGRESS (claimed 2026-10-25, work-1, with 4d-4) MAJOR (found 2026-10-25, work-1, int64 layout 4d-4; pre-existing)
-
-emitIndexedCopyLoopArm32, emitFrameZeroArm32 and emitZeroThroughArm32 (native/arm32/arm32_aggcopy_loop.bn) count
-an index down from size - unit and loop while it is non-negative (`SUBS idx, idx, #unit; BPL top`).  For a size of
-2 GiB or more the first index already has its sign bit set, so each loop copies or zeroes one unit and stops: a
-struct copy or zero-initialization of a >= 2 GiB aggregate on native arm32 (legal: an arm32 frame may approach
-4 GiB, spec §21.4) silently leaves the rest untouched, on any host.  Fix: loop on no-borrow (`BCS` / `BHS`), which
-counts the same for every size under 2 GiB and correctly past it.  Found converting arm32 to int64 frame offsets
-(4d-4), which touches emitFrameZeroArm32.  Test: a unit test pinning the loop's condition (no program can run a
-2 GiB copy).
 
 ### Neither backend probes the stack for a large frame — a frame past the guard page can step over it — 🔴 OPEN MAJOR (found 2026-10-18, work-1, review of the native aa64 16 MiB fix; pre-existing; needs a decision)
 

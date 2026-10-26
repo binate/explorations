@@ -173,8 +173,17 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
      size on both native backends (a >= 2 GiB zero-initialized region failed in FrameInt on a 32-bit host).
      Coverage on a 32-bit host comes from the builder-comp_arm32_linux unit-test lane (it runs asm/aarch64,
      native/aarch64 and native/x64).  On a 64-bit host the code is unchanged (byte-identical cmd/bnc objects).
-   - 4d-4 (in progress, 2026-10-25, work-1). arm32 moves to the int64 lookups: a 32-bit target, so narrowing
-     is exact.  Then the int lookups go.
+   - 4d-4. DONE `f2264bbe4` (2026-10-25): native arm32 takes the int64 lookups; its frame / base memory helpers,
+     VFP base load / store, tuple stores, frame zero-fill, epilogue and stackArgsBase take int64, decide their
+     encoding on the int64, and materialize a constant from its 32-bit target word (wordArm32), so a 64-bit and
+     a 32-bit host emit the same code.  Fixed with it: the copy / zero loops ended on BPL (a >= 2 GiB copy did one
+     unit; now BCS), and string-literal byte stores wrote through a hard-coded R4 that could be their own base.
+   - 4d-5 (open). Remove the RegMap's int frame lookups (LookupAlloc / LookupSpill / NeedAlloc / NeedSpill /
+     LookupArgCopy / LookupAllocSize) and FrameInt; native/common's arg-copy and copy-stats code still call
+     LookupAlloc.
+   - Note for 4e: copy and zero sizes still come from the int SizeOf(), which fails loud (HostInt) on a 32-bit
+     host for an aggregate of 2 GiB or more, so the arm32 BCS loop fix is reachable only from a 64-bit host
+     until 4e.
    - 4e (field / element offsets, copy sizes; common.ElemSizeOf / FieldByteOffset int64), 4c (callconv's stack
      layout), 4f-2.
    Tests compile functions holding the large frames / offsets without calling them, so they need no memory.

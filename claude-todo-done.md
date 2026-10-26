@@ -1,3 +1,27 @@
+### native arm32 copy / zero loops stopped after one unit for an aggregate of 2 GiB or more — ✅ DONE (binate `f2264bbe4`, 2026-10-25, work-1; user: "Fold into 4d-4 (Recommended)")
+
+emitIndexedCopyLoopArm32, emitFrameZeroArm32 and emitZeroThroughArm32 (native/arm32/arm32_aggcopy_loop.bn) count
+an index down from size - unit and loop while it is non-negative (`SUBS idx, idx, #unit; BPL top`).  For a size of
+2 GiB or more the first index already has its sign bit set, so each loop copies or zeroes one unit and stops: a
+struct copy or zero-initialization of a >= 2 GiB aggregate on native arm32 (legal: an arm32 frame may approach
+4 GiB, spec §21.4) silently leaves the rest untouched, on any host.  Fix: loop on no-borrow (`BCS` / `BHS`), which
+counts the same for every size under 2 GiB and correctly past it.  Found converting arm32 to int64 frame offsets
+(4d-4), which touches emitFrameZeroArm32.  Test: a unit test pinning the loop's condition (no program can run a
+2 GiB copy).
+Resolution (binate `f2264bbe4`): the three loops branch back on BCS (no borrow), the same count below 2^31 and correct
+past it; arm32_frame_wide_test.bn pins the condition (TestFrameZeroPast2GiBLoopsUnsignedArm32 drives an index past
+2^31).  On a 64-bit host the native arm32 objects of cmd/bnc changed only in 1963 BPL -> BHS branches.
+
+### native arm32 string-literal byte stores wrote through a hard-coded R4 that could be their own base — ✅ DONE (binate `f2264bbe4`, 2026-10-25, work-1; found by the 4d-4 review; user: "Fold into 4d-4 (Recommended)")
+
+emitInlineByteStores (arm32_rodata.bn) wrote each byte of a string literal through R4, while emitStringToArray
+took the store base from scratchReg, which under register pressure (R4 unclaimed and holding a retained value,
+no free pool register left) evicts and hands out R4 -- then `mov r4, #b; strb r4, [r4, #i]` stored each byte
+to byte + i: silent memory corruption.  Reachable with one free pool register before 4d-4 (two after, as the
+zero-fill loop claims one more).  Resolution: the byte scratch is a register the op claimed (the zero-fill's
+in emitStringToArray, a fresh scratchReg in emitStringToCharsCopy); allocReg's doc no longer excepts R4.
+Test: TestStringToArrayByteScratchClaimedArm32 (fails with the old emitStringToArray).
+
 ### REPL: a method value taken after a method is shadowed (another signature) runs the old method — DONE (binate `2cabff483`, 2026-10-25, work-6; user: "yes to both") (filed 2026-10-24, work-6)
 
 Once a method value had been taken, one taken after the method was redefined at the prompt with another signature
