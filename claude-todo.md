@@ -211,7 +211,7 @@ sizes with Size(); native aa64 materializes an add / sub immediate past 16 MiB. 
 (spec §21.4 row, docs `1501abe`; user decision 2026-10-18 "Address space").  The LLVM frame check landed (binate
 `1246f0e68`, `3279fc9ac`, `519dd78fa`).  Stage 4d-2 landed (binate `74f8e652e`): native x64 frame slots and incoming
 arguments past disp32.  Stage 4d-3 landed (binate `b108193b0`): native aarch64 frame offsets in int64 through the
-assembler.  Remaining (plan-int64-layout.md): the backends' int64 frame lookups (4d-4 arm32); outgoing stack arguments past 2 GiB (native x64 rejects them at compile time; with callconv's stack layout,
+assembler.  Remaining (plan-int64-layout.md): the backends' int64 frame lookups (4d-4 arm32, in progress 2026-10-25, work-1); outgoing stack arguments past 2 GiB (native x64 rejects them at compile time; with callconv's stack layout,
 4c); field offsets and copies; callconv's stack layout; bss lengths and symbol offsets in int64 for a
 32-bit host; 5 VM /
 interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the 32-bit lane.

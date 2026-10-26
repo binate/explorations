@@ -173,7 +173,8 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
      size on both native backends (a >= 2 GiB zero-initialized region failed in FrameInt on a 32-bit host).
      Coverage on a 32-bit host comes from the builder-comp_arm32_linux unit-test lane (it runs asm/aarch64,
      native/aarch64 and native/x64).  On a 64-bit host the code is unchanged (byte-identical cmd/bnc objects).
-   - 4d-4. arm32 moves to the int64 lookups: a 32-bit target, so narrowing is exact.  Then the int lookups go.
+   - 4d-4 (in progress, 2026-10-25, work-1). arm32 moves to the int64 lookups: a 32-bit target, so narrowing
+     is exact.  Then the int lookups go.
    - 4e (field / element offsets, copy sizes; common.ElemSizeOf / FieldByteOffset int64), 4c (callconv's stack
      layout), 4f-2.
    Tests compile functions holding the large frames / offsets without calling them, so they need no memory.
