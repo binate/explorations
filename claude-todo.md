@@ -155,10 +155,12 @@ sizes with Size(); native aa64 materializes an add / sub immediate past 16 MiB. 
 (spec §21.4 row, docs `1501abe`; user decision 2026-10-18 "Address space").  The LLVM frame check landed (binate
 `1246f0e68`, `3279fc9ac`, `519dd78fa`).  Stage 4d-2 landed (binate `74f8e652e`): native x64 frame slots and incoming
 arguments past disp32.  Stage 4d-3 landed (binate `b108193b0`): native aarch64 frame offsets in int64 through the
-assembler.  Remaining (plan-int64-layout.md): Stage 4d-4 landed (binate `f2264bbe4`): native arm32; removing the int frame lookups (4d-5, in progress 2026-10-26, work-1); outgoing stack arguments past 2 GiB (native x64 rejects them at compile time; with callconv's stack layout,
-4c); field offsets and copies; callconv's stack layout; bss lengths and symbol offsets in int64 for a
-32-bit host; 5 VM /
-interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the 32-bit lane.
+assembler.  Stage 4d-4 landed (binate `f2264bbe4`): native arm32.  Stage 4d-5 landed (binate `842db9d45`): the
+RegMap's frame lookups return int64 (the int forms and FrameInt gone); stage 4d is done.  Remaining
+(plan-int64-layout.md): 4e field / element offsets and copy sizes; 4c callconv's stack layout (with outgoing stack
+arguments past 2 GiB, which native x64 rejects at compile time); 4f-2 bss lengths and symbol offsets in int64 for a
+32-bit host; 5 VM / interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the
+32-bit lane.
 
 ### An undefined name as an array length's `len` operand is reported as not constant — 🔴 OPEN (minor: a misleading diagnostic; found 2026-10-25, work-5, probing the later-method change; reproduced)
 

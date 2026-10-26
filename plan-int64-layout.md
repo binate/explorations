@@ -178,9 +178,9 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
      encoding on the int64, and materialize a constant from its 32-bit target word (wordArm32), so a 64-bit and
      a 32-bit host emit the same code.  Fixed with it: the copy / zero loops ended on BPL (a >= 2 GiB copy did one
      unit; now BCS), and string-literal byte stores wrote through a hard-coded R4 that could be their own base.
-   - 4d-5 (in progress, 2026-10-26, work-1). Remove the RegMap's int frame lookups (LookupAlloc / LookupSpill / NeedAlloc / NeedSpill /
-     LookupArgCopy / LookupAllocSize) and FrameInt; native/common's arg-copy and copy-stats code still call
-     LookupAlloc.
+   - 4d-5. DONE `842db9d45` (2026-10-26): the RegMap's int frame lookups (LookupAlloc / LookupAllocSize /
+     LookupSpill / NeedSpill / NeedAlloc / LookupArgCopy) and FrameInt are gone; the int64 forms took their
+     names (user decision 2026-10-26: "Rename to plain names").  Stage 4d is done.
    - Note for 4e: copy and zero sizes still come from the int SizeOf(), which fails loud (HostInt) on a 32-bit
      host for an aggregate of 2 GiB or more, so the arm32 BCS loop fix is reachable only from a 64-bit host
      until 4e.
