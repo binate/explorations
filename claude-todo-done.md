@@ -1,3 +1,23 @@
+### asm ELF objects as clang writes them: arm32 `.ARM.attributes` — DONE (binate `87b6efa9a`, 2026-10-26, work-2; user: "Defaults + directives (Recommended)", "Attributes now, gating next (Recommended)", "armv7-a + hw divide")
+
+The last piece of the clang-fidelity entry whose earlier pieces are logged below (the Mach-O layout `047443141`,
+LC_DATA_IN_CODE `1e52d50eb`, the ELF structure `6bc08c13b`, `text` first `354ccc767`, mapping symbols `54d9b3e1e`, the
+armv7ve baseline `997ef2d57`).  bnas wrote `.ARM.attributes` only for the native backend's hard-float objects (v7,
+VFPv3, Tag_ABI_VFP_args) and had no attribute directives.  Resolution (binate `87b6efa9a`): every arm32 object lists
+clang's attributes for armv7ve, the FPU's (asm.Assembler.ArmFPU; clang's 36 FPU names and aliases) and those set
+explicitly (SetArmAttr) over them, in clang's order (Tag_conformance first, then by tag); `.eabi_attribute` (clang's
+52 names with or without `Tag_`, or a number; strings as written but Tag_also_compatible_with's escapes read), `.cpu`
+(Tag_CPU_name; clang's A32 CPUs) and `.fpu` read as clang reads them (a block comment after the name is part of it).
+Targets: bnas on Linux VFPv3 + NEON (clang's arm-linux-gnueabihf); no OS = bnc's arm32-baremetal (soft float,
+Tag_CPU_unaligned_access 0, as `-mno-unaligned-access`); the native backend's hard-float objects VFPv3 without NEON
+plus Tag_ABI_VFP_args, its bare-metal ones no unaligned access; bnc passes the target's OS to the in-process
+assembler (nativeOsForTarget).  User-approved deviations: tags 0-3 and tags / numbers outside 32 bits, and Thumb-only
+`.cpu` names, are errors.  bnas's arm32 objects are byte-identical to clang's on both targets, directives included
+(assemble_armattr_test.bn; the matching arm32 mapping cases are full-layout goldens).  Left for other entries:
+instruction gating by `.cpu` / `.fpu` and `.arch <name>` (the ARM feature-model entry), string escapes and
+directive-name case (the asm-text entry), the data-section instruction alignment and arm32 `bl` relocations (the
+ELF layout-differences entry).
+
 ### bnfmt: a marked group member is kept as written — DONE (binate `67c2d6806`, 2026-10-26, temp-4; user: "then let's fix these"; landing: "yes, go ahead; then continue with 4b")
 
 printGroupDecl did not check for the `// LONG-LINE ALLOWED` marker, so a marked member of a `var (` / `const (` /
