@@ -2482,6 +2482,9 @@ Declarations, group members, struct fields and imports stop at the next node's c
 - A group's comment alignment checks the width of a member's first trailing comment only, so `j = 1 /* j */ // <80
   chars>` can be aligned out to 111 columns.
 - In `#[build(...)] /* f */ import (`, the comment moves above the annotation block.
+- A case kept on one line with its body prints the body with no comment cursor, so the comments after its label and
+  between its statements go after the last: `case 1: a() /* c */; b()` prints `case 1: a(); b() /* c */` (bnfmt
+  `bnc-0.0.17-pre3` and the tree's).  Its width check leaves the comments out too.
 
 ### bnfmt on a `// LONG-LINE ALLOWED` line: several statements on the line; a one-line struct type's comments — 🟡 IN PROGRESS (claimed 2026-10-25, temp-4; user: "I guess we should special-case?", "then let's fix these") 🟢 LOW (found 2026-10-25, temp-4, review of the marked-line fix)
 
