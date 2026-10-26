@@ -142,7 +142,7 @@ type argument against a parameterized impl's substituted receiver as the plain a
 conformance spec/12-generics/119_err_satisfy_generic_impl_managed_ptr (binate `0051d4792`, expected to fail in every
 mode).
 
-### A finite chain of 92 or more distinct generic structs is rejected even when the program instantiates none — 🔴 OPEN (minor; found 2026-10-23, work-7, probing the naming-order chain bound; reproduced on every build back to Oct 18; pre-existing)
+### A finite chain of 92 or more distinct generic structs is rejected even when the program instantiates none — 🟡 IN PROGRESS (claimed 2026-10-25, work-7/session — user: "yes" to "I'd take the 92-struct one next"; minor; found 2026-10-23, work-7, probing the naming-order chain bound; reproduced on every build back to Oct 18; pre-existing)
 
 `type S1[T any] struct { v T; next *S2[T] }` … `type S92[T any] struct { v T }`, with no instantiation anywhere, is
 rejected at S1: "generic instantiation S1[T] builds more than 4096 instances (an implementation limit)"; 91 types
