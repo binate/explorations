@@ -2461,8 +2461,9 @@ node's start, or the group's `)` / the struct's `}`.
 - The marker goes with the statement it follows, the line's last (binate `9b58a7bd0`; before, it went with the first
   and moved past the later ones), so in `hhh…(a, b); z() // LONG-LINE ALLOWED` the long first statement is wrapped,
   and stays past the cap when its name alone is that long.  bnfmt prints each statement on its own line, so only one
-  of them keeps the marker after it.  The user would special-case it; how is open: keep the line's statements
-  together, `;`-joined, as written; or give the marker to the statement that would wrap, on its own line.
+  of them keeps the marker after it.  Decided (user, 2026-10-25: "A sounds fine"): a marked line keeps its
+  statements together, `;`-joined, as written.  The same goes for `;`-joined top-level declarations, where the
+  marker likewise goes with the last (`var a = <long>; var b = 2 // LONG-LINE ALLOWED` wraps `a`).
 - A one-line struct type does not print its fields' comments.  In a statement they go after the type
   (`var s struct { a int /* c */ }` prints `var s struct { a int } /* c */`, on any line); a type declaration's
   one-line struct with a comment expands, as a block with one does, which on a marked line moves the marker to its
