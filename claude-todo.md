@@ -2444,18 +2444,10 @@ Declarations, group members, struct fields and imports stop at the next node's c
 - A comment between a signature's `)` and its results goes into the body: `func f(a int) /* c */ int {` prints
   `/* c */` on a line of its own as the body's first (bnfmt `bnc-0.0.17-pre3` and the tree's).
 
-### bnfmt: a struct type's comments, and a marked group member — 🟡 IN PROGRESS (claimed 2026-10-25, temp-4; user: "then let's fix these") 🟢 LOW (found 2026-10-25, temp-4, review of the marked-line fix)
+### bnfmt: a marked group member is wrapped — 🟡 IN PROGRESS (claimed 2026-10-25, temp-4; user: "then let's fix these") 🟢 LOW (found 2026-10-25, temp-4, review of the marked-line fix)
 
-- A one-line struct type does not print its fields' comments.  In a statement they go after the type
-  (`var s struct { a int /* c */ }` prints `var s struct { a int } /* c */`, on any line); a type declaration's
-  one-line struct with a comment expands, as a block with one does, which on a marked line moves the marker to its
-  `}`.
-- A struct type reached through printType (a var's type, a field's, a group member's) is printed with no comment
-  cursor, so the comments in it go to the end-of-file backstop: `var w struct { /* z */` / `x int` / `} // after w`
-  puts both on lines of their own after the declaration.  Since binate `1b66c0a0a` the joined form
-  `var a = 1; var v struct { /* z */` … `} // after v` does too (before, `a` took `/* z */`).  Print such struct
-  types with the cursor.
-- A marked group member is wrapped: printGroupDecl does not check for the marker.
+printGroupDecl does not check for the `// LONG-LINE ALLOWED` marker, so a marked group member is wrapped.  (The
+struct-type parts of this entry are done: binate `3a041efdc`.)
 
 ### bnfmt does not wrap a statement whose trailing comment takes its line past the cap — 🟡 IN PROGRESS (claimed 2026-10-25, temp-4; user: "then let's fix these") 🟢 LOW (found 2026-10-25, temp-4, review of the marked-line fix; pre-existing)
 

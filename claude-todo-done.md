@@ -1,3 +1,19 @@
+### bnfmt: a struct type's comments — DONE (binate `3a041efdc`, 2026-10-26, temp-4; user: "then let's fix these"; landing: "wait 5 minutes, then land")
+
+A struct type reached through printType (a variable's, a field's or a parameter's type, a type-group member's, one
+in an expression) was printed with no comment cursor, so its comments went to the end-of-file backstop
+(`var w struct { /* z */` … `} // after w` put both after the declaration), and a one-line struct type did not print
+its fields' comments (`var s struct { a int /* c */ }` printed `var s struct { a int } /* c */`).  Resolution
+(binate `3a041efdc`): such a struct takes the comments inside it through a cursor of its own (innerCursor), as a
+function literal's body does, so a one-line struct with a comment in it expands, as a block with one does; on a
+`// LONG-LINE ALLOWED` line, one whose comments all sit in its lists stays whole.  A multi-line struct is measured
+by its first line, for a field's alignment column (fieldTypeWidth) and for a signature's results (sigSuffixLen), as
+are results a line comment splits: six files of the scripts/bnfmt-check corpora no longer wrap their parameters
+there; no file of the tree formats differently.  Tests: TestNestedStructTypesTakeTheirComments,
+TestMarkedLineKeepsStructWithListComments, TestStructTypeMeasuredByItsFirstLine,
+TestTypeGroupMemberStructTakesItsComments, TestSignatureResultsSplitByCommentMeasuredByFirstLine.  The marked group
+member of the same entry stays open in claude-todo.md.
+
 ### bnc arm32 targets armv7ve, as the native backend's sdiv / udiv need — DONE (binate `997ef2d57`, 2026-10-25, work-2; user: "armv7-a + hw divide")
 
 The native arm32 backend divides with sdiv / udiv, which armv7-a does not guarantee, while bnc passed clang
