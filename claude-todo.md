@@ -694,7 +694,7 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### asm ELF objects as clang writes them: arm32 `.ARM.attributes` — 🟡 IN PROGRESS (claimed 2026-10-19, work-2; the Mach-O layout DONE binate `047443141`, LC_DATA_IN_CODE DONE binate `1e52d50eb`, the ELF structure DONE binate `6bc08c13b`, `text` first DONE binate `354ccc767`, mapping symbols DONE binate `54d9b3e1e`, see the done log; user: "Follow clang for text")
+### asm ELF objects as clang writes them: arm32 `.ARM.attributes` — 🟡 IN PROGRESS (claimed 2026-10-19, work-2; the Mach-O layout DONE binate `047443141`, LC_DATA_IN_CODE DONE binate `1e52d50eb`, the ELF structure DONE binate `6bc08c13b`, `text` first DONE binate `354ccc767`, mapping symbols DONE binate `54d9b3e1e`, the armv7ve baseline DONE binate `997ef2d57`, see the done log; user: "Follow clang for text")
 
 (e) arm32: clang always writes `.ARM.attributes` from the target (for `armv7a-linux-gnueabihf`, even from plain
 assembly: v7-A, ARM and Thumb-2 ISA, VFPv3, NEON, unaligned access — no Tag_ABI_VFP_args; such an object links and runs
@@ -711,6 +711,12 @@ rules, probed: tags sorted by number with Tag_conformance first; `.eabi_attribut
 `.fpu` in either order (defaults fill only tags not set); `.fpu` (24 names + aliases vfp3 / vfp4) sets FP_arch,
 Advanced_SIMD_arch, FP_HP_extension, last wins, none / softvfp drop them; `.cpu` (99 names) adds only Tag_CPU_name,
 last wins.
+Probed since (2026-10-25): bnc's arm32-baremetal also passes `-mno-unaligned-access`, with which clang writes
+Tag_CPU_unaligned_access=0, so the no-OS target writes that; `.cpu` is an explicit Tag_CPU_name (the later of it and
+`.eabi_attribute 5` wins); a string attribute is written raw (escapes kept) but Tag_also_compatible_with (65), whose
+escapes clang reads; a leading identifier is always an attribute name (52 of them, Tag_File / Section / Symbol
+included); clang truncates tags and numbers to 32 bits.  The native writer keeps VFPv3 without NEON plus
+Tag_ABI_VFP_args.  To ask the user before landing: bnas rejecting tags 0-3 and tags or numbers outside 32 bits.
 
 ### asm arm32: an ARM feature model gating instructions as clang does, and the forms it lacks — 🔴 OPEN, unclaimed (found 2026-10-25, work-2, the `.ARM.attributes` work; user: "Attributes now, gating next (Recommended)")
 

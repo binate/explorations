@@ -1,3 +1,13 @@
+### bnc arm32 targets armv7ve, as the native backend's sdiv / udiv need — DONE (binate `997ef2d57`, 2026-10-25, work-2; user: "armv7-a + hw divide")
+
+The native arm32 backend divides with sdiv / udiv, which armv7-a does not guarantee, while bnc passed clang
+`-march=armv7-a` for both arm32 targets.  Resolution (binate `997ef2d57`): both targets pass `-march=armv7ve`
+(armv7-a with the Virtualization Extensions, which bring hardware divide), as do the runners' toolchain probes and
+the arm32 e2e scripts; cmd/bnc's target tests pin both.  With both backends dividing in one instruction, nothing Binate
+emits calls the 32-bit AEABI divide helpers (runtime/baremetal_arm32/aeabi_int.s) any more; they stay for C objects
+built without hardware divide, and e2e/arm32-aeabi-dormant-helpers.sh probes them (signs, INT32_MIN, the top bit).
+Part of the `.ARM.attributes` entry in claude-todo.md, whose default set is clang's for armv7ve.
+
 ### native arm32 copy / zero loops stopped after one unit for an aggregate of 2 GiB or more — ✅ DONE (binate `f2264bbe4`, 2026-10-25, work-1; user: "Fold into 4d-4 (Recommended)")
 
 emitIndexedCopyLoopArm32, emitFrameZeroArm32 and emitZeroThroughArm32 (native/arm32/arm32_aggcopy_loop.bn) count
