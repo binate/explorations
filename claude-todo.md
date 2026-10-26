@@ -725,9 +725,21 @@ clang gates arm32 instructions by the target's features, which `.cpu` and `.fpu`
 arm7tdmi, xscale) rejects VFP instructions, a Thumb-only CPU (cortex-m*) switches to Thumb mode (bnas: an error), `.fpu
 softvfp` / a d16 FPU narrows VFP, and the architecture version gates the rest.  bnas has no feature model: it accepts
 one fixed A32 + VFP set, which disagrees with clang's default armv7ve both ways — it rejects forms clang accepts
-(`vmov.f64 d0, #1.0`, d16–d31 as in `vadd.f64 d20, d1, d2`, `dmb ish`).  **Fix:** a feature model (architecture
+(`vmov.f64 d0, #1.0`, d16–d31 as in `vadd.f64 d20, d1, d2`, `dmb ish`, `blx <label>`: "expected register for
+BLX").  **Fix:** a feature model (architecture
 version, FPU, extensions) set by the target, `.cpu` and `.fpu`, each encoder checked against it as clang checks it;
 add the missing forms; golden accept/reject tests against clang.
+
+### asm ELF: two layout differences from clang — an instruction in a data section, and arm32 `bl` to a local label — 🔴 OPEN, unclaimed (found 2026-10-26, work-2, comparing arm32 objects with clang's for the `.ARM.attributes` work)
+
+With `.ARM.attributes` matching, bnas's arm32 objects are byte-identical to clang's (`arm-linux-gnueabihf` /
+`arm-none-eabi`, `-march=armv7ve`) but for these (and the held-back first `$d`, kept by decision):
+(a) An instruction in a data section (`.section data` / `.uint8 1` / `bx lr`; on AArch64 `ret`) gives the section
+alignment 4 in bnas, 1 in clang (arm32 and AArch64; x86-64 matches).  (b) arm32 `bl g` / `bl<cond> g` to a label in
+the same section is resolved by bnas; clang keeps an R_ARM_CALL / R_ARM_JUMP24 relocation — for a `.L` label too,
+which then stays in the symbol table — so the linker can interwork or add a veneer (`b` / `b<cond>` match: resolved
+by both).  The assemble tests compare those objects by their symbols only.  **Fix:** decide each with the user
+(clang's choice, or keep bnas's), then follow it and make the cases full-layout goldens.
 
 ### asm Mach-O: a literal-pool load of a forward label difference is rejected (`_f: ldr x1, =(_e - _f)` … `_e:`) — 🔴 OPEN, unclaimed (found 2026-10-24, work-2, review of the LC_DATA_IN_CODE change)
 
