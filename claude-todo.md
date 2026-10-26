@@ -158,8 +158,9 @@ transitively, inside the enclosing build, though only a generic body reading its
 own declaration is checked on its own anyway.  The user approved (2026-10-25, "option 1 is fine") building what a
 pointer field names after the enclosing build; that removes the nesting but not the work (still n²/2 abstract builds
 for a linear chain, 2^(n−1) for a branching one), so the branching case stays rejected or, uncounted, takes
-exponential time.  Building abstract instances only when something reads their structure (as an expanding family's
-abstract instances already get their methods, ensureMembers) removes both; the choice is back with the user.  Repro
+exponential time.  Decided fix (user, 2026-10-25: "A"): build an abstract instance's structure only when something
+reads it (as an expanding family's abstract instances already get their methods, ensureMembers); instances the
+program names stay built at once.  Repro
 generators: scratch `S_i` / `A_i` programs as above, main printing 1.  The part counting a generic's own declaration
 against its own budget landed in binate `3b3b6ef2d` (see the done log).
 
