@@ -120,7 +120,7 @@ against its own budget landed in binate `3b3b6ef2d` (see the done log).
 - **Root cause (from a sample; the name length by reasoning):** IR-gen's `registerModuleTypeDecl` → `ensureInstantiatedType` → `ensureInstantiatedStruct` (recursing), with the time in `instantiationMangledName` → `mangle.LpWriteArgList` / `lpTypeArgNamed`: the mangled name of `Pair[P(k-1), P(k-1)]` writes its argument's name twice, so the name of `Pn` is 2^n long.
 - **Needs a decision:** the mangling scheme — a backreference to an argument already written in the name (as the Itanium ABI's substitutions do), or a hash for a long argument list.  Whether `ensureInstantiatedStruct`'s recursion is exponential apart from the name is still to check.
 
-### A package variable whose declared type's array length names the variable itself crashes bnc — 🔴 OPEN MAJOR (found 2026-10-26, work-5, review of the unbound-array-length-name change; reproduced; pre-existing, bnc-0.0.17-pre3 too)
+### A package variable whose declared type's array length names the variable itself crashes bnc — 🟡 IN PROGRESS MAJOR (claimed 2026-10-26, work-5/session; user: "do the MAJORs in any convenient order"; found 2026-10-26, work-5, review of the unbound-array-length-name change; reproduced; pre-existing, bnc-0.0.17-pre3 too)
 
 `var v [len(v)]int` at package level makes bnc die with a segmentation fault (exit 139) and no message; a local
 `var w [len(w)]int` is rejected cleanly (w is not in scope in its own declaration).  Root cause not yet
