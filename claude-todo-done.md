@@ -1,3 +1,41 @@
+### A generic declaration naming a long or branching chain of distinct generics is rejected even when nothing is instantiated — DONE (binate `3fc098581`, with `1a0c3e046`, 2026-10-26, work-7; user: "A"; landing: "go ahead and land the commits")
+
+More than 128 distinct generics each naming the next through a pointer (`type S1[T any] struct { v T; next *S2[T] }`
+… `S129`) were rejected as "nested too deeply", and 14 each naming the next twice (`a *A2[*T]; b *A2[@T]`) as
+"builds more than 4096 instances", with nothing instantiated: checking each declaration built the abstract instances
+behind its pointers at once, each inside the one before.  Resolution (binate `3fc098581`): an abstract instance named
+behind a pointer is postponed — entered in the instance cache with its structure unbuilt — and built when something
+reads it (a field or method selection, a by-value use, a cache hit that needs it, an opaque walk that needs its
+parts); instances the program names are still built at once.  Along the way:
+- pointeeEmbedsOpaque stops at a generic instance whose type arguments cannot bring an opaque type in
+  (argsMayBringOpaque), since its generic's own parts were judged at its declaration (requireGenericPartsKept).
+  Without that, a chain of named pointer generics (`type R1[T any] *R2[*T]` …) built the rest of the chain at each
+  declaration (12 s at 200 levels).  So a generic's own opaque field is now reported once, at its declaration, not
+  again at each named pointer to it.
+- The walks of an instance's type arguments (partsMayBreak, with the pointee checks inside it) share one visited
+  set and enter each part before judging it, so arguments shared or nested at many levels are walked once.
+- `1a0c3e046` first moved type-parameter substitution into check_generic_subst.bn.
+Tests: conformance 12-generics 137 (a 200-level struct chain), 138 (a 40-level branching chain), 139 (the branching
+chain over an imported opaque type argument), 140 (a 200-level named-pointer chain); check unit tests in
+check_generic_postpone_test.bn, check_opaque_use_test.bn (TestCheckOpaqueSharedArgsWalkedOnce,
+TestCheckOpaqueNestedPointerArgsWalkedOnce), check_inst_cache_drop_test.bn, check_opaque_inst_test.bn and
+check_generic_build_test.bn.  No test covers entering a part before judging it: without that order a one-argument
+chain takes quadratic time, and the inputs where it turns exponential also get exponentially long instance names in
+IR-gen.  Left open: the postponed-instance gaps entry and the IR-gen instance-names entry.  The part counting a
+generic's own declaration against a budget of its own landed earlier, in binate `3b3b6ef2d`.
+
+### `types.Identical` is exponential on instance arguments that share a type — a chain of aliases each pairing the one below hangs the checker — DONE (binate `e308d01df`, 2026-10-26, work-7; user: "yes to both"; landing: "go ahead and land the commits")
+
+`type Pair[A any, B any] struct { a *A; b *B }`, `type P0 = Pair[int, int]`, `type Pk = Pair[P(k-1), P(k-1)]` up to
+n and `var x Pn` took the checker over 60 s at n = 40: Identical had no shortcut for a type compared with itself, so
+comparing `Pair[P39, P39]` with itself compared both arguments at every level (2^n comparisons, reached through the
+instance cache's IdenticalStrict lookups).  Resolution (binate `e308d01df`): Identical and IdenticalStrict return
+true at once for a type compared with itself, after alias resolution (every arm is reflexive).  With `3fc098581`
+too, the n = 40 check takes 0.01 s.  Distinct but identical type objects at every level would still compare
+exponentially; whether the checker ever builds such a pair was not checked in general.  Tests:
+types_identical_test.bn (TestIdenticalToItselfSharedArgs, 40 levels and an alias; TestIdenticalSharedArgsBuiltApart).
+The same program's compile is still exponential in IR-gen's instance names (open entry).
+
 ### An undefined name in an array length is reported as undefined — DONE (binate `529e0bd5a`, 2026-10-26, work-5; user: "let's go through the related entries one by one"; landing: "yes, go ahead and land.")
 
 `var g [len(nosuch)]int` (and `[nosuch]int`, `[nosuch.X]int`) reported "array length must be a constant integer": a

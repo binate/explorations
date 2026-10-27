@@ -85,40 +85,22 @@ type argument against a parameterized impl's substituted receiver as the plain a
 conformance spec/12-generics/119_err_satisfy_generic_impl_managed_ptr (binate `0051d4792`, expected to fail in every
 mode).
 
-### A generic declaration naming a long or branching chain of distinct generics is rejected even when nothing is instantiated — 🟡 IN PROGRESS (claimed 2026-10-25, work-7/session; minor; found 2026-10-23, work-7, probing the naming-order chain bound; pre-existing)
+### IR-gen spells every type argument out in an instance's name — instances whose arguments share a type get exponentially long names — 🔴 NEEDS DECISION (found 2026-10-26, work-7, testing the abstract-instance change's shared-argument walk; reproduced on main; pre-existing)
 
-Two cases are still rejected with no instantiation anywhere (§12.3 gen.mono.instances bounds only what a program
-names, so both are valid programs):
-- More than 128 distinct generics, `type S1[T any] struct { v T; next *S2[T] }` … `S129`: rejected at the last
-  ("generic instantiation nested too deeply (cyclic or unbounded type argument?)", check_generic_type.bn).  Checking
-  S1's declaration builds S2[T1], whose build resolves S2's declaration, which builds S3[T2], and so on — one nested
-  build per generic, stopped by the GenericInstDepth guard at 128.
-- 14 generics `type A1[T any] struct { v T; a *A2[*T]; b *A2[@T] }` … `A14`: rejected at A1's field `A2[*T]`
-  ("builds more than 4096 instances"); 13 are accepted.  A2[*T]'s build builds both A3 instances, each of those both
-  A4 instances, and so on: 2^13 − 1 instances at 14 generics.
-Cause: an instance whose type arguments mention a type parameter (an abstract instance) is built eagerly and
-transitively, inside the enclosing build, though only a generic body reading its structure needs it — each generic's
-own declaration is checked on its own anyway.  The user approved (2026-10-25, "option 1 is fine") building what a
-pointer field names after the enclosing build; that removes the nesting but not the work (still n²/2 abstract builds
-for a linear chain, 2^(n−1) for a branching one), so the branching case stays rejected or, uncounted, takes
-exponential time.  Decided fix (user, 2026-10-25: "A"): build an abstract instance's structure only when something
-reads it (as an expanding family's abstract instances already get their methods, ensureMembers); instances the
-program names stay built at once.  Repro
-generators: scratch `S_i` / `A_i` programs as above, main printing 1.  The part counting a generic's own declaration
-against its own budget landed in binate `3b3b6ef2d` (see the done log).
-
-### `types.Identical` is exponential on instance arguments that share a type — a chain of aliases each pairing the one below hangs the checker — 🟡 IN PROGRESS (claimed 2026-10-26, work-7/session; user: "yes to both") (found 2026-10-26, work-7, testing the abstract-instance change's shared-argument walk; reproduced on main; pre-existing)
-
-- **Symptom:** `type Pair[A any, B any] struct { a *A; b *B }`, `type P0 = Pair[int, int]`, `type Pk = Pair[P(k-1), P(k-1)]` up to n, and `var x Pn`.  The checker alone (compile stopped by a type error) takes 0.08 s at n = 18, 1.2 s at 22, 4.8 s at 24, and more than 60 s at 40 (a compiler built from main at `3b3b6ef2d`).
-- **Root cause:** `Identical` (`pkg/binate/types/types_identical.bn`) has no shortcut for a type compared with itself, so comparing `Pair[P39, P39]` with itself recurses into both arguments at every level (`instArgsIdentical`): 2^n comparisons.  Sampled stack: `recheckDeferredConstraints` → `lookupCachedInstantiationEntry` → `IdenticalStrict` → `Identical` → `instArgsIdentical`, recursing.
-- **Proposed fix:** `if a == b { return true }` after the alias resolution (every arm of `Identical` is reflexive), and the same in `IdenticalStrict`, with a types unit test comparing a 40-level shared instance with itself.  Two distinct but identical objects at every level would still be exponential; the instance cache keeps one object per instance, so that should not arise (to verify).
-- **Blocks:** the abstract-instance change's new `TestCheckOpaqueSharedArgsWalkedOnce` (40 levels) hangs on it.
-
-### IR-gen spells every type argument out in an instance's name — instances whose arguments share a type get exponentially long names — 🔴 NEEDS DECISION (found 2026-10-26, work-7, the same probe; reproduced on main; pre-existing)
-
-- **Symptom:** the program of the `types.Identical` entry above, with no type error, compiles in 2.6 s at n = 18, 31 s at 22, and more than 120 s at 24 (main at `3b3b6ef2d`); the time is in IR-gen, after the checker.
+- **Symptom:** `type Pair[A any, B any] struct { a *A; b *B }`, `type P0 = Pair[int, int]`, `type Pk = Pair[P(k-1), P(k-1)]` up to n, and `var x Pn`, with no type error, compiles in 2.6 s at n = 18, 31 s at 22, and more than 120 s at 24 (main at `3b3b6ef2d`); the time is in IR-gen, after the checker.
 - **Root cause (from a sample; the name length by reasoning):** IR-gen's `registerModuleTypeDecl` → `ensureInstantiatedType` → `ensureInstantiatedStruct` (recursing), with the time in `instantiationMangledName` → `mangle.LpWriteArgList` / `lpTypeArgNamed`: the mangled name of `Pair[P(k-1), P(k-1)]` writes its argument's name twice, so the name of `Pn` is 2^n long.
 - **Needs a decision:** the mangling scheme — a backreference to an argument already written in the name (as the Itanium ABI's substitutions do), or a hash for a long argument list.  Whether `ensureInstantiatedStruct`'s recursion is exponential apart from the name is still to check.
+
+### Postponed abstract instances: three small gaps — a size check that does not enter them, a REPL rollback that keeps a build, and a possible missed opaque check — 🔴 OPEN (minor; found 2026-10-26, work-7, reviews of the abstract-instance change, binate `3fc098581`)
+
+- `partTooLarge` does not enter a postponed instance, so it can miss a too-large part reached only through one —
+  something like `[1 << 62]U`, U := `*T`, in a generic that is never instantiated.
+- REPL: a postponed instance that existed before a tentative check and is built inside it keeps that build after
+  the check is rolled back.  Whether that can change a later answer is not established.
+- Unverified (a review's low-confidence report; not reproduced): an instance still waiting for its layout when
+  checkValueEmbedding runs (before finishDeclBatch) is not counted as opaque at the declaration, and since
+  pointeeEmbedsOpaque stops at an instance whose type arguments cannot bring an opaque type in, a later `*G[...]`
+  would not judge it again — an opaque type held by value could be accepted.  Needs a repro attempt first.
 
 ### A package variable whose declared type's array length names the variable itself crashes bnc — 🟡 IN PROGRESS MAJOR (claimed 2026-10-26, work-5/session; user: "do the MAJORs in any convenient order"; found 2026-10-26, work-5, review of the unbound-array-length-name change; reproduced; pre-existing, bnc-0.0.17-pre3 too)
 
