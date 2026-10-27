@@ -127,6 +127,15 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
      takes on the host, x64 past disp32; arm32 is a 32-bit target, so narrowing is exact).
    - 4e (in progress, 2026-10-26, work-1). Field / element offsets and copy lengths per backend (ElemSizeOf,
      FieldByteOffset, aggregate copies).
+     Split (2026-10-26, from a survey: ~225 int-layout uses in native/, most in the backends): on a 32-bit host
+     SizeOf() / FieldOffset() / ArrayLenHost() panic (HostInt) on a type past 2^31 even where only a check
+     (`SizeOf() <= 0`, register classification) reaches them, so each backend moves to Size() / Offset() /
+     int64 array lengths throughout, narrowing explicitly only where the ABI bounds the value (register-returned
+     aggregates, tuples); copy and zero lengths, element sizes and field offsets thread int64 into the copy
+     helpers (aggcopy pieces stay small: tails relative to an int64 base).
+     - 4e-1. native/common: ElemSizeOf and FieldByteOffset return int64 (backends narrow at the call, fail-loud,
+       until their step).
+     - 4e-2 / 4e-3 / 4e-4. x64 / aarch64 / arm32.
    - 4f. asm / elf / macho / link: native backends put zero-initialized globals in bss, which records its size
      without materializing bytes (an int64 size on a 32-bit host); check crt0 / the linker scripts clear bss.
      4f-1 DONE `25ffa73f0` (2026-10-18, done before 4c-4e: it fixed a 64-bit-host failure): every native package
