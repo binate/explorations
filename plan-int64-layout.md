@@ -125,6 +125,11 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
      the 4e-2 review): native x64's closure shims narrow a capture's closure-struct offset with HostInt; a capture
      past 2 GiB follows more than 2 GiB of stack-passed captures, and a register-passed capture after them loads
      at Mem(R11 / RDI, offset), which the assembler rejects past 2^31 -- the shims need the far paths too.
+     Also (4e-3 review): callconv's argWords uses SizeOf(), and argRegWordsStackWords computes ArgWords before its
+     indirect-large check, so on a 32-bit host CallArgRegStart / CallStackBytes panic on any argument, parameter or
+     capture past 2 GiB, even an indirect-large one passed as a pointer.  Once they take int64, add the aarch64
+     closure-capture test held back from 4e-3: two Big captures, the second's ADD (and an int64 capture after it,
+     at 2^31 + 8) through X17 -- it panics on CI's 32-bit-host unit lane (builder-comp_arm32_linux) until then.
    - 4d. RegMap's frame tables in int64 (PlanFrame bounded by the target's int, a compile error past it) and each
      backend's slot addressing, materializing offsets past an instruction's reach (aarch64 past what MemImm
      takes on the host, x64 past disp32; arm32 is a 32-bit target, so narrowing is exact).
@@ -148,7 +153,14 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
        byte-identical; conformance 1718 (compile-only: a field past 2^31, an element > 2 GiB, a 2 GiB + 19 copy,
        make / make_slice) passes on every 64-bit mode and is a "type is too large" error on the arm32 modes; the
        native x64 subset passes with -fx64-far-disp=16.
-     - 4e-3 / 4e-4. aarch64 / arm32.
+     - 4e-3. DONE `b771afffa` (2026-10-27): native aarch64 reads Size() / Offset() / ArrayLen throughout; the asm
+       layer already took int64 (X17 past an immediate), so only types widened (cmd/bnc objects byte-identical).
+       Closure capture offsets are int64 (an indirect-large capture is passed by pointer, so a later capture sits
+       past 2^31 with nothing on the stack).  Fixed with it (review): the packed func-value shim's int sum of its
+       frame copies wrapped on a 32-bit host (two 1.5 GiB arguments made SUB SP an ADD SP, the copies overwriting
+       the caller's frame; three 1 GiB ones skipped one copy) -- now int64 offsets / frame size; a single
+       aggregate return read ArgWords before its sret copy.  native/common's copy-stats tally is int64.
+     - 4e-4. arm32.
    - 4f. asm / elf / macho / link: native backends put zero-initialized globals in bss, which records its size
      without materializing bytes (an int64 size on a 32-bit host); check crt0 / the linker scripts clear bss.
      4f-1 DONE `25ffa73f0` (2026-10-18, done before 4c-4e: it fixed a 64-bit-host failure): every native package
