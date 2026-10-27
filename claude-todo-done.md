@@ -1,3 +1,21 @@
+### bnfmt: a statement's width checks leave room for the comments after it — DONE (binate `cb6028078`, 2026-10-26, temp-4; user: "then let's fix these"; landing: "wait 4 minutes, then land; then continue (and take on the todos)")
+
+A statement's width checks left out its trailing comments, so `qqqqqqqqqq = fffffffff(aaaa…, bbb…) // a long
+trailing comment that pushes it past` stayed on one 119-byte line.  Resolution (binate `cb6028078`): a statement, a
+top-level declaration and a group member not aligned to a comment column reserve the width of the comments after
+their last line as a tail (printTrailing, print_trail.bn), so calls, values and value lists, `return`, `var` /
+`const`, `++` / `--` and a signature with no body wrap for them, and a one-line block (`if`, `for`, `defer`, a
+function literal) expands.  Nothing is reserved for comments too wide to fit after one byte on a continuation line
+(withTrail), when the layout that reserves them still runs past the cap with them (the old layout is kept), or with
+`// LONG-LINE ALLOWED` among them.  The decision is made on the reserving layout: reserving only when the layout
+without the comments overflows left 52 of 3,000 generated files non-idempotent, as the first format replaces the
+layout the second decides on.  A comment inside the statement that no list prints stays pending on its last line, so
+the statement is printed again with the width that will follow it; that print keeps the comments the first one
+claimed (cached renderings do not claim them again, so undoing the claims printed them twice).  11 of the
+scripts/bnfmt-check corpora's files that a second format changed are now stable, and no file in them got wider or
+moved a comment; 27 conformance files format narrower.  Tests: print_trail_test.bn.  Left (switch cases, a
+typed-only `var`, struct fields, interface methods) in the todo entry.
+
 ### asm ELF objects as clang writes them: arm32 `.ARM.attributes` — DONE (binate `87b6efa9a`, 2026-10-26, work-2; user: "Defaults + directives (Recommended)", "Attributes now, gating next (Recommended)", "armv7-a + hw divide")
 
 The last piece of the clang-fidelity entry whose earlier pieces are logged below (the Mach-O layout `047443141`,

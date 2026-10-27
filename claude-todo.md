@@ -2395,13 +2395,20 @@ Function literals nested in each other's bodies still format in time exponential
 `rhsContLongest`, `printBlockSingleTrial`) render afresh and are not cached, and each print of a literal is
 under a fresh comment cursor (`literalBodyCursor`), so nothing in its body hits the rendering cache
 (`pkg/binate/format/print_rendermemo.bn`, keyed by cursor).  Real code does not nest this deep.
+A statement with a comment no list prints on its last line is printed twice to reserve the comments after it
+(printTrailing, print_trail.bn; see the inner-comment entry), which doubles this per level: with `x := func() int {`
+… `}() /* s */ + 1 // t` in each body, depth 8 takes 61 s, against 1.5 s before binate `cb6028078`.
 
 ### bnfmt is not idempotent on some layouts: a lone argument, a string bnfmt splits, function literals — 🟡 IN PROGRESS (claimed 2026-10-23, temp-4; user: "yes" to taking it next) 🟢 LOW (found 2026-10-19, temp-4, fuzzing in the review of the rendering cache; pre-existing)
 
-Formatting a formatted file changes it again in 37 of the ~25,000 files of binate's `scripts/bnfmt-check` corpora
-(`33c49c1b8`, at binate `9b58a7bd0`; gen 20, genb 16, rv 1); the tree's own files are at a fixpoint.  binate
-`ae0e0a63c` fixed eight causes, `f5a890569` a binary chain's column-0 operand measure, and `9b58a7bd0` a commented
-one-line block on a `// LONG-LINE ALLOWED` line (see the done file).  (Before `33c49c1b8` the corpora were
+Formatting a formatted file changes it again in 26 of the ~25,000 files of binate's `scripts/bnfmt-check` corpora
+(`33c49c1b8`, at binate `cb6028078`; gen 16, genb 9, rv 1); the tree's own files are at a fixpoint.  binate
+`ae0e0a63c` fixed eight causes, `f5a890569` a binary chain's column-0 operand measure, `9b58a7bd0` a commented
+one-line block on a `// LONG-LINE ALLOWED` line (see the done file), and `cb6028078`, reserving a statement's
+trailing comments, 11 more.  That makes a trailing comment a tail, as a selector after a call is, so it also starts
+the moves below: 4 of the 3,000 files generated to review `cb6028078` (`gg.hh(x.yyy, x.yyy(cccc,` / `cccc(func(p
+int) int { … }))) // <80 bytes>` moves the argument and expands the literal; the second format keeps it on the head
+line, as with a long selector there).  (Before `33c49c1b8` the corpora were
 scratch copies, which the system's /tmp cleanup deleted; the scripts regenerate them from the same seeds, with the
 files that did not parse fixed, and genb with index expressions, so it went from 24 to 18.)
 
@@ -2479,13 +2486,38 @@ a continuation line when what follows it is long, as a line comment after it in 
 from column 0 is not stable: a literal written on one line renders on one line there and moves, and once it has
 expanded it spans lines there and stays (tried 2026-10-26: two files of the scripts/bnfmt-check rv corpus became
 non-idempotent).  The fix needs a measure that does not depend on how the source laid the operand out.
+A statement's or group member's trailing comment is such a tail too (binate `cb6028078`): `m int = a * func(p int)
+int {` … `} // <60 bytes>` breaks before `func`, for nothing (3 of the 3,000 files generated to review that commit).
 
-### bnfmt does not wrap a statement whose trailing comment takes its line past the cap — 🟡 IN PROGRESS (claimed 2026-10-25, temp-4; user: "then let's fix these") 🟢 LOW (found 2026-10-25, temp-4, review of the marked-line fix; pre-existing)
+### bnfmt does not wrap a line whose trailing comment takes it past the cap: what remains — 🟡 IN PROGRESS (claimed 2026-10-25, temp-4; user: "then let's fix these"; "take on the todos") 🟢 LOW (found 2026-10-25, temp-4, review of the marked-line fix; pre-existing)
 
-A statement's width check leaves out its trailing comment: `qqqqqqqqqq = fffffffff(aaaaaaaaaaaaaaaa, bbb…) // a long
-trailing comment that pushes it past` stays on one 119-byte line (bnfmt `bnc-0.0.17-pre3` and the tree's).  The
-comment goes after the statement's last line, so the statement's measure should reserve it as a tail, and wrap; a
-comment that alone runs past the cap leaves the line over it whatever is done.
+Statements, top-level declarations and group members not aligned to a comment column reserve the comments after
+them (binate `cb6028078`; see the done file).  Left, each over the cap with the tree's bnfmt:
+- A statement kept on its case line: `case 1: yyyy := ffff(aaaa, bbbb) // long c` stays 103 wide; caseInlineEligible
+  and caseRunColumn (print_switch.bn) measure the case without its comments.
+- A case's labels: `case aaaa, bbbb, cccc: // a long comment` stays 106 wide, where the same labels with more after
+  them wrap.
+- A typed-only `var V *func(int, …) int // trailing comment` stays 113 wide, where a longer type with no comment
+  wraps; a struct field the same (`F *func(…) int // c`, 110).
+- An interface method: its comments go out of the interface (see that entry); once they stay, its signature should
+  reserve them too.
+
+### bnfmt's lone element in brackets leaves out what follows the close — 🟡 IN PROGRESS (claimed 2026-10-26, temp-4; user: "take on the todos") 🟢 LOW (found 2026-10-26, temp-4, review of the statement trailing-comment fix; pre-existing)
+
+printArgList (print_wrap.bn) measures whether a lone element fits after its opener with only the close after it, as
+an element that wraps -- a call, a composite -- reserves the rest itself; a lone string literal gets the whole tail.
+An identifier or a selector cannot reserve it, so `ffff…[cccc…]++` with the `]` at column 100 prints 102 wide, and
+`ffff…[cccc…]++ // a trailing cc` and `gggg(ffff…[cccc…]) // a trailing cc` stay 103 wide, while an index that
+itself runs past the cap wraps (`ffff…[` / `cccc…]++`) (bnfmt `bnc-0.0.17-pre3` and the tree's).  Measuring every
+lone element with everything after it is the lone-argument rule the non-idempotence entry tried; giving the whole
+tail only to an element that cannot break, as a string literal has it, is narrower.
+
+### bnfmt moves every comment inside an interface out of it — 🟡 IN PROGRESS (claimed 2026-10-26, temp-4; user: "take on the todos") 🟢 LOW (found 2026-10-26, temp-4, review of the statement trailing-comment fix; pre-existing)
+
+printInterfaceDecl (print_decl.bn) prints the methods with no comment cursor, so an interface's comments go after
+it: `interface I {` / `// doc for M` / `M(a int) int` / `N(/* x */ b int) // n` / `}` prints the methods bare, then
+`// doc for M`, `/* x */` and `// n` after the `}` (bnfmt `bnc-0.0.17-pre3` and the tree's, in a `.bn` and a
+`.bni`).  The methods should take their comments as a struct type's fields do (innerCursor, print_type.bn).
 
 ## bnlint rules, unused-entity checks & lint skips
 
