@@ -1,3 +1,18 @@
+### asm arm32 stage 1: the ARM feature model gating the current instruction set — DONE (binate `09f41e4f7`, 2026-10-26, work-2; user: "Staged series, gating first (Recommended)", "Accept 3 as GNU as (Recommended)", "Keep bnas's ISA meaning (Recommended)", "Keep bnas's reading (Recommended)", "Fix it in this commit (Recommended)")
+
+Stage 1 of the arm32 assembler series (plan-asm-arm32-isa.md; the entry "asm arm32: an ARM feature model ..." in
+claude-todo.md keeps stages 2–4).  bnas accepted its arm32 instructions on every target.  Resolution (binate
+`09f41e4f7`): the parser keeps the features in effect (Parser.Arm32Feats; levels v4T .. v9.6, R profile, extensions),
+armv7ve's by default; `.arch <ARM name>` (LLVM's canonical names / synonyms, matched at the end of each name in
+LLVM's order; armv7ve / armv5tej / armv8-r as GNU as; M profile and Apple's armv7s / armv7k errors; bnas's ISA names
+keep their meaning; `8.1-a` read as written), `.cpu` (80 CPUs, table generated from clang probes) and
+`.arch_extension` (clang's rules, `no` in any case, clang's messages) set them; bx / blx <reg> / clz / movw / movt /
+sdiv / udiv gated with clang's messages; mov / ldr= become movw only from v6T2; nop is the v6K hint with its
+condition (arm32.Nop takes one; `nopeq` used to lose it), `mov r0, r0` before; code padding the hint from v6T2;
+`.arch` gives a fallback Tag_CPU_name (and Tag_WMMX_arch for iwmmxt) where none is explicit; `bkpt` with a
+condition rejected (it used to assemble unconditionally).  A differential harness against clang (2,000+ cases over
+every architecture, CPU and extension case) found no difference but the three architectures clang fails on.
+
 ### bnfmt: a switch case's width checks leave room for the comments after it — DONE (binate `26c2ba240`, 2026-10-26, temp-4; user: "then let's fix these"; "take on the todos"; landing: "wait 9 minutes, then land")
 
 A case kept on one line with its body, and an expanded case's labels, were measured without the comments after them:

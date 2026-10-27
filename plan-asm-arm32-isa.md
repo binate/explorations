@@ -23,7 +23,7 @@ forms it lacks".  User (2026-10-26): "Staged series, gating first (Recommended)"
 3. **VFPv3 / v4** (the FPU part of the model: `.fpu`, d16 / d32, fp16, vfp4, fp-armv8).
 4. **NEON** (incl. the v8 crypto forms).
 
-## Stage 1: the feature model
+## Stage 1: the feature model — DONE (binate `09f41e4f7`)
 
 ### clang's facts (Apple clang 21, `--target=arm-linux-gnueabihf -march=armv7ve`; probes in the session scratchpad)
 
