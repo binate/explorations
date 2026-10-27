@@ -157,7 +157,7 @@ sizes with Size(); native aa64 materializes an add / sub immediate past 16 MiB. 
 arguments past disp32.  Stage 4d-3 landed (binate `b108193b0`): native aarch64 frame offsets in int64 through the
 assembler.  Stage 4d-4 landed (binate `f2264bbe4`): native arm32.  Stage 4d-5 landed (binate `842db9d45`): the
 RegMap's frame lookups return int64 (the int forms and FrameInt gone); stage 4d is done.  Remaining
-(plan-int64-layout.md): 4e field / element offsets and copy sizes; 4c callconv's stack layout (with outgoing stack
+(plan-int64-layout.md): 4e field / element offsets and copy sizes (in progress 2026-10-26, work-1); 4c callconv's stack layout (with outgoing stack
 arguments past 2 GiB, which native x64 rejects at compile time); 4f-2 bss lengths and symbol offsets in int64 for a
 32-bit host; 5 VM / interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the
 32-bit lane.

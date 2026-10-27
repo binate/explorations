@@ -125,7 +125,8 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
    - 4d. RegMap's frame tables in int64 (PlanFrame bounded by the target's int, a compile error past it) and each
      backend's slot addressing, materializing offsets past an instruction's reach (aarch64 past what MemImm
      takes on the host, x64 past disp32; arm32 is a 32-bit target, so narrowing is exact).
-   - 4e. Field / element offsets and copy lengths per backend (ElemSizeOf, FieldByteOffset, aggregate copies).
+   - 4e (in progress, 2026-10-26, work-1). Field / element offsets and copy lengths per backend (ElemSizeOf,
+     FieldByteOffset, aggregate copies).
    - 4f. asm / elf / macho / link: native backends put zero-initialized globals in bss, which records its size
      without materializing bytes (an int64 size on a 32-bit host); check crt0 / the linker scripts clear bss.
      4f-1 DONE `25ffa73f0` (2026-10-18, done before 4c-4e: it fixed a 64-bit-host failure): every native package
