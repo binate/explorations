@@ -23,6 +23,36 @@ forms it lacks".  User (2026-10-26): "Staged series, gating first (Recommended)"
 3. **VFPv3 / v4** (the FPU part of the model: `.fpu`, d16 / d32, fp16, vfp4, fp-armv8).
 4. **NEON** (incl. the v8 crypto forms).
 
+## Stage 2: the complete A32 core
+
+An exact encoder package, `pkg/binate/asm/arm32/isa` (as `asm/aarch64/isa`: each encoder emits exactly the one
+instruction its operands name, or sets an error — nothing split, synthesized or masked into range), the parser
+taking every A32 form clang takes through it, each gated by the stage 1 features, then `asm/arm32`'s backend
+encoders routed through it.  One instruction class per commit, each checked by a differential harness against clang
+(operand combinations valid and invalid: registers incl. SP / PC, immediates at and past their ranges, every shift,
+condition and flag form, clang's aliases and shorthands), the cases pinned as in-tree goldens.
+
+- 2a. Data processing: the 16 operations × immediate (modified immediate), register (shift by immediate, RRX) and
+  register-shifted-register forms, S, the two-operand and Rd-less / Rn-less forms, clang's substitutions.
+- 2b. Multiplies and divide: mul / mla / mls, the long forms (umull, umlal, smull, smlal, umaal), the DSP halfword
+  ones (smla<x><y>, smlaw<y>, smulw<y>, smlal<x><y>, smul<x><y>), the dual ones (smuad / smusd / smlad / smlsd /
+  smlald / smlsld, with X), the most-significant-word ones (smmul / smmla / smmls, with R); sdiv / udiv.
+- 2c. Saturating (qadd / qsub / qdadd / qdsub, ssat / usat / ssat16 / usat16), parallel add / sub (s / q / sh / u /
+  uq / uh × add16 / asx / sax / sub16 / add8 / sub8), sel, usad8 / usada8, pkhbt / pkhtb.
+- 2d. Extend and extend-add (sxtb / sxth / sxtb16 / uxt*, sxtab / ... with rotation), bitfield (bfc / bfi / sbfx /
+  ubfx), reverse (rev / rev16 / revsh / rbit), clz.
+- 2e. Loads and stores: ldr / str / ldrb / strb, ldrh / strh / ldrsb / ldrsh, ldrd / strd in every addressing mode
+  (immediate, register, scaled register, pre / post-index, writeback, literal), the T forms, pld / pldw / pli.
+- 2f. Exclusives and ordering: ldrex / strex (b, h, d), clrex, swp / swpb, the v8 acquire / release forms (lda / stl
+  / ldaex / stlex families).
+- 2g. Block transfer: ldm / stm ia / ib / da / db, writeback, `^`, push / pop forms.
+- 2h. Branches: b, bl, blx <label>, blx <reg>, bx, bxj.
+- 2i. System and hints: svc, bkpt, udf, hvc, smc, eret, mrs / msr (APSR / CPSR / SPSR fields, banked registers),
+  cps, setend, srs / rfe, nop / yield / wfe / wfi / sev / sevl / dbg / csdb / esb, dmb / dsb / isb with options,
+  sb, ssbb / pssbb, setpan, hlt.
+- 2j. Coprocessor: mcr / mrc (and 2), mcrr / mrrc (and 2), cdp (and 2), ldc / stc (and 2, L).
+- 2k. `asm/arm32`'s encoders (the native backend's) through isa.
+
 ## Stage 1: the feature model — DONE (binate `09f41e4f7`)
 
 ### clang's facts (Apple clang 21, `--target=arm-linux-gnueabihf -march=armv7ve`; probes in the session scratchpad)
