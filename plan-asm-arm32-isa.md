@@ -70,6 +70,10 @@ forms it lacks".  User (2026-10-26): "Staged series, gating first (Recommended)"
 - `.arch`, `.cpu` replace the feature set (and set Tag_CPU_name); `.arch_extension` adds / removes bits.
 - `nop` encodes by feature (mov r0, r0 before v6K).
 - Tests: per-architecture and per-CPU accept / reject / encoding goldens from clang for the current set.
+- User (2026-10-26): bnas's instruction-set names in `.arch` (aarch64 / arm64, arm32 / arm, x64 / x86_64) keep their
+  meaning in arm32 code — "Keep bnas's ISA meaning (Recommended)" — where clang reads aarch64 / arm64 as ARMv8-A; an
+  `.arch` name starting with a decimal number (`8.1-a`), which clang's lexer turns into armv7-a, is read as written
+  — "Keep bnas's reading (Recommended)".
 
 ### For stages 3–4 (from the stage 1 review, each probed against clang)
 

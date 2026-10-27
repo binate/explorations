@@ -783,7 +783,7 @@ an exact, range-checked encoder layer like aarch64/isa plus its parser; **(3)** 
 separately, with clang accept / reject goldens.  Then back to TLS stage 3 and the rest of the queue.  Plan and
 clang's facts: plan-asm-arm32-isa.md.
 
-### asm arm32: `bkpteq` silently loses its condition, and operand checks differ from clang — 🔴 OPEN, unclaimed (found 2026-10-26, work-2, review of the arm32 feature-model change)
+### asm arm32: `bkpteq` silently loses its condition, and operand checks differ from clang — 🔴 OPEN; (a) 🟡 IN PROGRESS (claimed 2026-10-26, work-2, with the feature-model change; user: "Fix it in this commit (Recommended)") (found 2026-10-26, work-2, review of the arm32 feature-model change)
 
 Probed against clang (Apple clang 21) with bnas from main: (a) **`bkpteq #1` assembles as an unconditional `bkpt`
 (E1200071)** — the condition is dropped without a word, so the breakpoint fires where the source made it conditional;
