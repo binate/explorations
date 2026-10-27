@@ -11,7 +11,8 @@ sdiv / udiv gated with clang's messages; mov / ldr= become movw only from v6T2; 
 condition (arm32.Nop takes one; `nopeq` used to lose it), `mov r0, r0` before; code padding the hint from v6T2;
 `.arch` gives a fallback Tag_CPU_name (and Tag_WMMX_arch for iwmmxt) where none is explicit; `bkpt` with a
 condition rejected (it used to assemble unconditionally).  A differential harness against clang (2,000+ cases over
-every architecture, CPU and extension case) found no difference but the three architectures clang fails on.
+every architecture, CPU and extension case) found no difference but the three architectures clang fails on;
+binate `3f0dc27d4` pins every CPU's gating in the tree (TestArm32CPUTableGating).
 
 ### bnfmt: a switch case's width checks leave room for the comments after it — DONE (binate `26c2ba240`, 2026-10-26, temp-4; user: "then let's fix these"; "take on the todos"; landing: "wait 9 minutes, then land")
 
