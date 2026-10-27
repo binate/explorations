@@ -426,6 +426,21 @@ Fix: probe each guard-sized step of a large frame in the native prologues (touch
 give the LLVM backend's functions the matching "probe-stack" attribute, and decide the bare-metal behaviour (no
 guard page there).  Test: a recursion with a frame past the guard size that overflows must fault, not corrupt.
 
+### A variadic call's backing array is not size-checked — on a 32-bit target, two 1 GiB arguments end in an internal error, not "type is too large" — 🔴 OPEN (found 2026-10-27, work-1, review of int64 layout 4e-4; pre-existing; minor: fails loud)
+IR-gen builds a variadic call's backing array as `[n]T` (irgen/gen_variadic.bn) after the checker, which checks
+only the types the program writes (check_too_large.bn), so an `[n]T` past the target's maximum object size (spec
+type.layout.max-size; 2^31 - 1 on a 32-bit target) reaches layout, where types.Size() panics: "internal error: a
+type too large for the target reached layout (the checker rejects it)".  Every backend (the panic is in types);
+the host target compiles the same program.  Repro (`--target arm32-baremetal`):
+```
+type Big [1 << 30]uint8
+func use(xs ...Big) int { return len(xs) }
+func main() { var a Big; var b Big; _ = use(a, b) }
+```
+Fix: the checker rejects a variadic call whose packed arguments (n of the element type) pass the maximum object
+size, with the same "type is too large" error.  Test: a conformance test with that error on the 32-bit modes
+(xfail there until the fix).
+
 ### Array `==` / `!=` unrolls one comparison per element — a large array blows up compile time and IR size — 🔴 OPEN (found 2026-10-18, work-1, review of int64 layout stage 2; pre-existing)
 
 irgen/gen_eq_aggregate.bn emitAggregateEq compares an array element by element, fully unrolled in straight-line
