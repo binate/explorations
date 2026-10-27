@@ -129,7 +129,7 @@ whose `len(v)` looks v up again (lookupDeclOnDemand → batchVarOnDemand), and n
 as being resolved.  Fix: guard that resolution and report the cycle (v's type needs v's type), with a conformance
 test.
 
-### A package variable whose inferred type names itself through `len` is accepted, with a made-up type — 🔴 OPEN MAJOR (found 2026-10-26, work-5, review of the unbound-array-length-name change; reproduced)
+### A package variable whose inferred type names itself through `len` is accepted, with a made-up type — 🟡 IN PROGRESS MAJOR (claimed 2026-10-26, work-5/session, with the declared-type crash above: one fix; user: "do the MAJORs in any convenient order"; found 2026-10-26, work-5, review of the unbound-array-length-name change; reproduced)
 
 `var u = [len(u)]int{}` compiles, u is `[0]int`, and `len(u)` prints 0; u's type depends on itself, so the program
 must be rejected.  bnc-0.0.17-pre3 crashed on it instead ("internal error: an array length the type checker did not
@@ -140,6 +140,16 @@ verified: batchVarOnDemand (check/check_decl_batch.bn) reports a variable named 
 the cycle to the initialization order, which never sees it (neither a composite literal's type nor `len` of an
 array is a read, check_var_resolve.bn), and checkerEnv.Len then returns POISONED for the error type, as if an
 error had been reported.  Fix: report the cycle there in every pass, with a conformance test.
+
+### An immediately-invoked function literal's local or parameter that shadows a package variable is counted as a read of it — a false initialization cycle — 🔴 OPEN MAJOR (found 2026-10-26, work-5, probing the self-referential variable types; reproduced; pre-existing)
+
+`var u = func() int { var u = 3; return u }()` and `var u = func(u int) int { return u }(4)` are valid (the
+literal's `u` is its own) but are rejected "variable initialization cycle involving `u`".  The initialization order
+collects the reads in an immediately-invoked literal's body (collectVarDepsFuncLitBody, check/check_var_resolve.bn)
+by name, ignoring the literal's parameters and the body's own declarations, so a name they bind is taken for the
+package variable.  A common idiom (`var cfg = func() Config { var cfg Config; …; return cfg }()`) hits it.  Fix:
+track the names the literal binds (parameters, locals by block, for-in variables) and skip them, with a conformance
+test of each binding form.
 
 ### A generic function named without type arguments, as a value, crashes IR-gen — 🔴 OPEN MAJOR (found 2026-10-26, work-5, probing the unbound-array-length-name change; reproduced; pre-existing, bnc-0.0.17-pre3 too)
 
