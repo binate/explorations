@@ -1,3 +1,27 @@
+### A package variable whose type depends on itself through an array length crashed bnc (declared type) or was accepted with a made-up type (inferred) — DONE (binate `a12d578cb`, 2026-10-27, work-5; user: "do the MAJORs in any convenient order"; landing: "wait 15 minutes, then go ahead; then continue")
+
+Two MAJORs, one cause.  `var v [len(v)]int` at package level crashed bnc with a segmentation fault and no message
+(batchVarOnDemand resolved v's declared type, whose `len(v)` looked v up on demand again, without end), as did a
+mutual pair and a function literal whose signature names its own variable.  `var u = [len(u)]int{}` compiled with u
+`[0]int`, as did `len(u.x)`, mutual pairs, cycles mixing reads and lengths, and a generic instance's signature
+(`func mk[T any]() [len(u)]T`, `var u = mk[int]()`): u, named from its own initializer, had the error type, so `len`
+of it returned POISONED, which means "its error is already reported".  Resolution (binate `a12d578cb`, after
+`e560bd997`, which moves the on-demand variable code into check_decl_batch_var.bn unchanged): a variable named while
+its own type is being found takes the type its initializer spells at its head (varHeadType, check_var_placeholder.bn)
+-- a function literal's signature, a composite literal's or a cast's type, a call's one result (a function named
+plainly, qualified or as a generic instance, or a method of a variable) — and otherwise a placeholder, the error
+type, whose reads are logged.  An array length an operand of which a placeholder leaves in error is reported
+"variable type cycle involving `x`", once, blaming the variable whose placeholder it read, and that variable then
+has the error type, so nothing more is reported.  A cycle of reads alone stays the initialization order's.  A
+declared type is resolved marked (resolveBatchVarType); the check deferred while types are collected records the
+placeholder and takes the head type again (recheckDeferredVars), so a cycle found there stands, with no "declare its
+type".  A first design, which took every variable an array length named while a variable was checked for a cycle,
+made valid programs cycles and was replaced.  Two programs that printed 0 print 3; `var b = [len(a)]int{}` with
+`var a = h(b)`, `func h(x [4]int) [3]int` is rejected "cannot assign [3]int to [4]int".  Tests:
+check_var_placeholder_test.bn (40).  Left (todo): the placeholder silencing a check where the head spells no type
+(`var a = len([len(b)]int{})`); "declare its type" for a cycle through a function's signature met while types are
+collected; a struct field's `len(u.b)` message.
+
 ### asm arm32 stage 1: the ARM feature model gating the current instruction set — DONE (binate `09f41e4f7`, 2026-10-26, work-2; user: "Staged series, gating first (Recommended)", "Accept 3 as GNU as (Recommended)", "Keep bnas's ISA meaning (Recommended)", "Keep bnas's reading (Recommended)", "Fix it in this commit (Recommended)")
 
 Stage 1 of the arm32 assembler series (plan-asm-arm32-isa.md; the entry "asm arm32: an ARM feature model ..." in
