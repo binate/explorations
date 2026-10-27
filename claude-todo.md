@@ -249,6 +249,36 @@ arguments past 2 GiB, which native x64 rejects at compile time); 4f-2 bss length
 32-bit host; 5 VM / interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the
 32-bit lane.
 
+### Inside an instance's build, a declaration resolved on demand that reads a member of a type not built yet is "cannot access field on this type" — 🔴 OPEN (a valid program rejected; found 2026-10-27, work-7, review of the on-demand layout-frame fix; reproduced; pre-existing)
+
+```
+type Box[T any] struct { a [sizeof(T)]uint8 }
+type W[T any] struct { a [sizeof(T)]uint8 }
+type N struct { v int64; p *Box[X] }
+type X struct { b [len(w.a)]uint8 }
+var w W[Q]
+type Q struct { c [sizeof(N)]uint8 }
+```
+N is collected; Box[X] is built and collects X on demand, which defines w, building W[Q], which collects Q,
+whose length reads N while N is collected.  W[Q] waits (check/check_layout_wait.bn: its members are undone), but X
+and w, below W[Q] on the layout-frame stack, do not: X then selects `w.a` from W[Q], which has no fields yet, and
+the program is rejected "cannot access field on this type".  A method (`len(w.mk())`) fails the same way; inside
+an inferred variable's initializer the error becomes "needed while the package's types are collected".  An
+interface still being collected does the same: `interface I { m() [sizeof(N)]uint8 }` declared first, `type X
+struct { b [len(i.m())]uint8 }`, `var i *I` (N collects Box[X], which collects X, which selects `m` from I, whose
+methods are not there yet).  With `p *X` in place of `p *Box[X]` both compile.  Fix: a field or method selected
+from a type not built yet — an instance in progress (instanceInProgress) or an interface being collected — makes
+the reading frame wait (waitForLayoutHere), as a `sizeof` of it does, reporting the cycle only where nothing can
+wait; with unit tests for both forms.
+
+### An array length calling a method promoted from an embedded struct is "undefined" while the package's types are collected — 🔴 OPEN (a valid program rejected; found 2026-10-27, work-7, review of the on-demand layout-frame fix; reproduced; pre-existing)
+
+`type E struct { k int }`, `func (s E) mk() [16]uint8`, `type Y struct { E }`, `var y Y`, then `type X struct { b
+[len(y.mk())]uint8 }` (or `var g [len(y.mk())]uint8`) is rejected "undefined: mk", though E, its method and Y are
+all declared first.  A method of Y's own resolves (batchMethodOnDemand, check/check_decl_batch_method.bn, through
+lookupVisibleMethod); the promoted one is not found while types are collected.  Fix: look the method up through
+the embedded fields during collection as after it, with a unit test.
+
 ### A struct field's array length naming a variable initialized with the struct is "cannot access field on this type" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-10-26, work-5, probing the variable type-cycle fix; reproduced; pre-existing)
 
 `type B struct { b [2]int; a [len(u.b)]int }` with `var u = B{}` is rejected "cannot access field on this type" at
