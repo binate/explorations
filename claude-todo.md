@@ -120,6 +120,35 @@ against its own budget landed in binate `3b3b6ef2d` (see the done log).
 - **Root cause (from a sample; the name length by reasoning):** IR-gen's `registerModuleTypeDecl` → `ensureInstantiatedType` → `ensureInstantiatedStruct` (recursing), with the time in `instantiationMangledName` → `mangle.LpWriteArgList` / `lpTypeArgNamed`: the mangled name of `Pair[P(k-1), P(k-1)]` writes its argument's name twice, so the name of `Pn` is 2^n long.
 - **Needs a decision:** the mangling scheme — a backreference to an argument already written in the name (as the Itanium ABI's substitutions do), or a hash for a long argument list.  Whether `ensureInstantiatedStruct`'s recursion is exponential apart from the name is still to check.
 
+### A package variable whose declared type's array length names the variable itself crashes bnc — 🔴 OPEN MAJOR (found 2026-10-26, work-5, review of the unbound-array-length-name change; reproduced; pre-existing, bnc-0.0.17-pre3 too)
+
+`var v [len(v)]int` at package level makes bnc die with a segmentation fault (exit 139) and no message; a local
+`var w [len(w)]int` is rejected cleanly (w is not in scope in its own declaration).  Root cause not yet
+investigated; likely unbounded recursion: batchVarOnDemand (check/check_decl_batch.bn) resolves v's declared type,
+whose `len(v)` looks v up again (lookupDeclOnDemand → batchVarOnDemand), and nothing marks a declared-type variable
+as being resolved.  Fix: guard that resolution and report the cycle (v's type needs v's type), with a conformance
+test.
+
+### A package variable whose inferred type names itself through `len` is accepted, with a made-up type — 🔴 OPEN MAJOR (found 2026-10-26, work-5, review of the unbound-array-length-name change; reproduced)
+
+`var u = [len(u)]int{}` compiles, u is `[0]int`, and `len(u)` prints 0; u's type depends on itself, so the program
+must be rejected.  bnc-0.0.17-pre3 crashed on it instead ("internal error: an array length the type checker did not
+resolve reached IR generation"); which later commit turned the crash into this acceptance is not bisected (binate
+`6cd7d8cc5`, after which `len` of an array never evaluates its operand, is a candidate).  Likely cause, not
+verified: batchVarOnDemand (check/check_decl_batch.bn) reports a variable named from its own initializer
+(VarsChecking) as a cycle only while types are collected; otherwise it defines it with the error type and leaves
+the cycle to the initialization order, which never sees it (neither a composite literal's type nor `len` of an
+array is a read, check_var_resolve.bn), and checkerEnv.Len then returns POISONED for the error type, as if an
+error had been reported.  Fix: report the cycle there in every pass, with a conformance test.
+
+### A generic function named without type arguments, as a value, crashes IR-gen — 🔴 OPEN MAJOR (found 2026-10-26, work-5, probing the unbound-array-length-name change; reproduced; pre-existing, bnc-0.0.17-pre3 too)
+
+With `func gf[T any](x T) T { return x }`, `var hh = gf` in a function body passes the checker, and IR-gen panics
+"internal error: unresolved identifier gf in IR-gen (compiler bug)".  Binate has no type inference (spec
+`gen.instantiate`: the type arguments are always written), so the checker must reject a generic function's bare
+name used as a value.  Fix: reject it where the value use is typed (checkIdent or its callers) with a clear
+message, with a unit test and a conformance error test.
+
 ### An importer's `sizeof` / `alignof` of a type its `.bni` declares later crashes the compiler — 🔴 OPEN MAJOR (found 2026-10-17, work-5, review of the `.bni` constant `len` change; reproduced; pre-existing)
 
 `const Z uint = sizeof(S)` followed by `type S struct { x int64; y int64 }` in `q.bni`, with an importer's
