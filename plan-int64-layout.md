@@ -133,8 +133,8 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
      int64 array lengths throughout, narrowing explicitly only where the ABI bounds the value (register-returned
      aggregates, tuples); copy and zero lengths, element sizes and field offsets thread int64 into the copy
      helpers (aggcopy pieces stay small: tails relative to an int64 base).
-     - 4e-1. native/common: ElemSizeOf and FieldByteOffset return int64 (backends narrow at the call, fail-loud,
-       until their step).
+     - 4e-1. DONE `87830f726` (2026-10-26): native/common's ElemSizeOf and FieldByteOffset return int64 (backends
+       narrow at the call with types.HostInt, fail-loud, until their step).
      - 4e-2 / 4e-3 / 4e-4. x64 / aarch64 / arm32.
    - 4f. asm / elf / macho / link: native backends put zero-initialized globals in bss, which records its size
      without materializing bytes (an int64 size on a 32-bit host); check crt0 / the linker scripts clear bss.
