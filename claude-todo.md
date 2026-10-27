@@ -213,14 +213,6 @@ reported invalid as well as one not known yet (re-resolved later).  Fix: have ev
 resolve an invalid length to the error type, as resolveTypeExpr does for `[...]T` outside a composite literal, with
 a unit test pinning a single error.
 
-### An undefined name as an array length's `len` operand is reported as not constant — 🟡 IN PROGRESS (claimed 2026-10-26, work-5/session; user: "let's go through the related entries one by one"; minor: a misleading diagnostic; found 2026-10-25, work-5, probing the later-method change; reproduced)
-
-`var g [len(nosuch)]int`, or the same length in a function's result, reports "array length must be a constant
-integer" instead of "undefined: nosuch".  `checkerEnv.Len` (check/check_constval.bn) resolves an identifier
-operand with `lookupDeclOnDemand` and reports an unbound one (`errUndefined`) only in TentativeMode, where it is a
-REPL forward reference; otherwise the length falls through as not constant.  The program is rejected either way.
-Fix: report the unbound name in every mode, with a unit test pinning the message.
-
 ### A deferred early read of a variable loses the errors of the constants it resolved — 🔴 OPEN (minor: a lost diagnostic; found 2026-10-25, work-5, review of the on-demand methods change; reproduced)
 
 `batchVarOnDemand` (check/check_decl_batch.bn), deferring a variable's check while types are collected, drops every

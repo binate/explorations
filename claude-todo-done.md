@@ -1,3 +1,20 @@
+### An undefined name in an array length is reported as undefined — DONE (binate `529e0bd5a`, 2026-10-26, work-5; user: "let's go through the related entries one by one"; landing: "yes, go ahead and land.")
+
+`var g [len(nosuch)]int` (and `[nosuch]int`, `[nosuch.X]int`) reported "array length must be a constant integer": a
+dimension is evaluated with constval and never checked, and checkerEnv reported an unbound name only in
+TentativeMode.  Resolution (binate `529e0bd5a`): the dimension's evaluation (evalDimConst) reports an unbound
+constant or `len` operand as checkIdent would ("undefined: nosuch"; `_` is "cannot use _ as a value", at the REPL
+too) and an unresolved selector as checkExpr would, and the length then reports nothing more — also when it depends
+on a type parameter, where checkDimLenOperands checks an operand after the dependent one (which evaluation does not
+reach), so an uninstantiated generic's `[alignof(T) + nosuch]T` is now rejected.  Not reported as undefined
+(dimNameUndefined): `__Package`; a function named in its own signature (declined while it is being defined); and,
+while a `.bni` scope is built (in declaration order), a name the `.bni` declares.  Conformance 1389's `[_]int` now
+expects "cannot use _ as a value".  Tests: eval_const_int_test.bn (16), repl decl_blank_test.bn
+TestReplBlankArrayLen.  Found on the way and logged: a self-referential declared array type crashes bnc, a
+self-referential inferred one is accepted as `[0]int`, and a generic function as a bare value crashes IR-gen
+(MAJOR); a `.bni` type's length does not resolve the `.bni`'s later names; an invalid length's `[0]T` makes
+follow-on errors.
+
 ### bnfmt: a statement's width checks leave room for the comments after it — DONE (binate `cb6028078`, 2026-10-26, temp-4; user: "then let's fix these"; landing: "wait 4 minutes, then land; then continue (and take on the todos)")
 
 A statement's width checks left out its trailing comments, so `qqqqqqqqqq = fffffffff(aaaa…, bbb…) // a long
