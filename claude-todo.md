@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### A type collected on demand inside an instance's build, reading a type still being collected, keeps a zero array length — silent wrong code — 🔴 OPEN CRITICAL (found 2026-10-26, work-7, review of the abstract-resolution layout-wait change; reproduced on main; pre-existing)
+### A type collected on demand inside an instance's build, reading a type still being collected, keeps a zero array length — silent wrong code — 🟡 IN PROGRESS CRITICAL (claimed 2026-10-27, work-7/ff6d76c5, fix (a); found 2026-10-26, work-7, review of the abstract-resolution layout-wait change; reproduced on main; pre-existing)
 
 - **Symptom:** `type N struct { v int64; p *Box[X] }`, `type Box[T any] struct { a [sizeof(T)]uint8 }`, `type X
   struct { b [sizeof(N)]uint8 }`, and main printing `len(x.b)`, `len(b.a)` and `sizeof(X)` (`var b Box[X]; var x
