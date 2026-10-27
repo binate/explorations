@@ -237,6 +237,14 @@ arguments past 2 GiB, which native x64 rejects at compile time); 4f-2 bss length
 32-bit host; 5 VM / interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the
 32-bit lane.
 
+### A struct field's array length naming a variable initialized with the struct is "cannot access field on this type" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-10-26, work-5, probing the variable type-cycle fix; reproduced; pre-existing)
+
+`type B struct { b [2]int; a [len(u.b)]int }` with `var u = B{}` is rejected "cannot access field on this type" at
+`u.b`.  B's field length checks u on demand while B is being collected; u's type is B, whose fields are not
+there yet, so selecting `b` fails.  It is a cycle (B's layout needs u's type, which is B): report it as one —
+"cyclic type definition involving `B`", or the variable type cycle the generic form `type Box[T any] struct { b
+[2]int; a [len(u.b)]T }` with `var u = Box[int]{}` reports (check_var_placeholder.bn) — with a unit test.
+
 ### An invalid array length makes the array `[0]T`, so its uses report follow-on errors — 🔴 OPEN (minor: a follow-on diagnostic; found 2026-10-26, work-5, probing the `len(nosuch)` change; reproduced; pre-existing)
 
 `func f() [-1]int { var r [3]int; return r }` reports "array length must be non-negative" and then "cannot assign
