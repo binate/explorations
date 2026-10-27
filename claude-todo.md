@@ -175,7 +175,7 @@ arguments past 2 GiB, which native x64 rejects at compile time); 4f-2 bss length
 32-bit host; 5 VM / interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the
 32-bit lane.
 
-### An undefined name as an array length's `len` operand is reported as not constant — 🔴 OPEN (minor: a misleading diagnostic; found 2026-10-25, work-5, probing the later-method change; reproduced)
+### An undefined name as an array length's `len` operand is reported as not constant — 🟡 IN PROGRESS (claimed 2026-10-26, work-5/session; user: "let's go through the related entries one by one"; minor: a misleading diagnostic; found 2026-10-25, work-5, probing the later-method change; reproduced)
 
 `var g [len(nosuch)]int`, or the same length in a function's result, reports "array length must be a constant
 integer" instead of "undefined: nosuch".  `checkerEnv.Len` (check/check_constval.bn) resolves an identifier
