@@ -121,7 +121,10 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
      is materialized in the X17 scratch (the 16 MiB entry, fields and frames).  A 3 GB global still fails on
      native aa64 with no specific error (likely the object writer; 4f).
    - 4c. callconv's stack layout in int64 (argument words, stack offsets, stack bytes) and each backend's
-     stack-argument paths; a large by-value argument is copied with a loop, not word by word.
+     stack-argument paths; a large by-value argument is copied with a loop, not word by word.  Includes (found in
+     the 4e-2 review): native x64's closure shims narrow a capture's closure-struct offset with HostInt; a capture
+     past 2 GiB follows more than 2 GiB of stack-passed captures, and a register-passed capture after them loads
+     at Mem(R11 / RDI, offset), which the assembler rejects past 2^31 -- the shims need the far paths too.
    - 4d. RegMap's frame tables in int64 (PlanFrame bounded by the target's int, a compile error past it) and each
      backend's slot addressing, materializing offsets past an instruction's reach (aarch64 past what MemImm
      takes on the host, x64 past disp32; arm32 is a 32-bit target, so narrowing is exact).
@@ -135,7 +138,17 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
      helpers (aggcopy pieces stay small: tails relative to an int64 base).
      - 4e-1. DONE `87830f726` (2026-10-26): native/common's ElemSizeOf and FieldByteOffset return int64 (backends
        narrow at the call with types.HostInt, fail-loud, until their step).
-     - 4e-2 / 4e-3 / 4e-4. x64 / aarch64 / arm32.
+     - 4e-2. DONE `650f83fc5` (2026-10-26): native x64 reads Size() / Offset() / ArrayLen throughout.  The copy
+       helpers take int64 sizes; x64_frame_far.bn's far paths serve every base (a field / element / copy past 2^31
+       through a pointer or a global goes through a register loaded with base + offset); immNear decides an
+       immediate, and an element size or a runtime call's size past imm32 is a 64-bit constant (emitMulConstX64,
+       Imm64); the overlap-safe copy compares a size past imm32 through the red zone's bottom slot; a zero-fill's
+       tail past a displacement goes through a saved scratch.  Values the register ABI bounds narrow with a cast;
+       closure-shim capture offsets narrow with HostInt (left for 4c).  native x64 objects of cmd/bnc are
+       byte-identical; conformance 1718 (compile-only: a field past 2^31, an element > 2 GiB, a 2 GiB + 19 copy,
+       make / make_slice) passes on every 64-bit mode and is a "type is too large" error on the arm32 modes; the
+       native x64 subset passes with -fx64-far-disp=16.
+     - 4e-3 / 4e-4. aarch64 / arm32.
    - 4f. asm / elf / macho / link: native backends put zero-initialized globals in bss, which records its size
      without materializing bytes (an int64 size on a 32-bit host); check crt0 / the linker scripts clear bss.
      4f-1 DONE `25ffa73f0` (2026-10-18, done before 4c-4e: it fixed a 64-bit-host failure): every native package
