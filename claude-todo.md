@@ -2494,7 +2494,11 @@ Declarations, group members, struct fields and imports stop at the next node's c
 - In `#[build(...)] /* f */ import (`, the comment moves above the annotation block.
 - A case kept on one line with its body prints the body with no comment cursor, so the comments after its label and
   between its statements go after the last: `case 1: a() /* c */; b()` prints `case 1: a(); b() /* c */` (bnfmt
-  `bnc-0.0.17-pre3` and the tree's).  Its width check leaves the comments out too.
+  `bnc-0.0.17-pre3` and the tree's).  Its width check leaves the comments out too.  When its last statement ends on
+  a later source line (`case 6: a() /* x */; b(c,` / `d) // e`), emitTrailingCommentBefore stops at the label line's
+  pending comment, and both go on lines of their own before the next case; a second format sees an own-line comment
+  there and ends the case's alignment run at it, so the run's bodies move (not idempotent; found 2026-10-26 in a
+  review of the switch cases' trailing-comment room).
 - A comment between a signature's `)` and its results goes into the body: `func f(a int) /* c */ int {` prints
   `/* c */` on a line of its own as the body's first (bnfmt `bnc-0.0.17-pre3` and the tree's).
 
