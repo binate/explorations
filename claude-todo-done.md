@@ -13,7 +13,8 @@ layout the second decides on.  A comment inside the statement that no list print
 the statement is printed again with the width that will follow it; that print keeps the comments the first one
 claimed (cached renderings do not claim them again, so undoing the claims printed them twice).  11 of the
 scripts/bnfmt-check corpora's files that a second format changed are now stable, and no file in them got wider or
-moved a comment; 27 conformance files format narrower.  Tests: print_trail_test.bn.  Left (switch cases, a
+moved a comment; 27 conformance files format narrower.  Tests: print_trail_test.bn, to which binate `262167728`
+adds a declaration a `// LONG-LINE ALLOWED` line cannot keep and a case body's statement.  Left (switch cases, a
 typed-only `var`, struct fields, interface methods) in the todo entry.
 
 ### asm ELF objects as clang writes them: arm32 `.ARM.attributes` — DONE (binate `87b6efa9a`, 2026-10-26, work-2; user: "Defaults + directives (Recommended)", "Attributes now, gating next (Recommended)", "armv7-a + hw divide")
