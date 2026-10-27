@@ -175,6 +175,15 @@ arguments past 2 GiB, which native x64 rejects at compile time); 4f-2 bss length
 32-bit host; 5 VM / interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the
 32-bit lane.
 
+### An invalid array length makes the array `[0]T`, so its uses report follow-on errors — 🔴 OPEN (minor: a follow-on diagnostic; found 2026-10-26, work-5, probing the `len(nosuch)` change; reproduced; pre-existing)
+
+`func f() [-1]int { var r [3]int; return r }` reports "array length must be non-negative" and then "cannot assign
+[3]int to [0]int"; a variable length (`[n]int`), `[true]int` and an undefined name do the same.  resolveTypeExpr
+(check/resolve_type.bn) builds `[0]T` whenever evalArrayLen's length is not known, which covers a length already
+reported invalid as well as one not known yet (re-resolved later).  Fix: have evalArrayLen tell the two apart and
+resolve an invalid length to the error type, as resolveTypeExpr does for `[...]T` outside a composite literal, with
+a unit test pinning a single error.
+
 ### An undefined name as an array length's `len` operand is reported as not constant — 🟡 IN PROGRESS (claimed 2026-10-26, work-5/session; user: "let's go through the related entries one by one"; minor: a misleading diagnostic; found 2026-10-25, work-5, probing the later-method change; reproduced)
 
 `var g [len(nosuch)]int`, or the same length in a function's result, reports "array length must be a constant
