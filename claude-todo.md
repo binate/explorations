@@ -783,6 +783,17 @@ an exact, range-checked encoder layer like aarch64/isa plus its parser; **(3)** 
 separately, with clang accept / reject goldens.  Then back to TLS stage 3 and the rest of the queue.  Plan and
 clang's facts: plan-asm-arm32-isa.md.
 
+### asm arm32: `bkpteq` silently loses its condition, and operand checks differ from clang — 🔴 OPEN, unclaimed (found 2026-10-26, work-2, review of the arm32 feature-model change)
+
+Probed against clang (Apple clang 21) with bnas from main: (a) **`bkpteq #1` assembles as an unconditional `bkpt`
+(E1200071)** — the condition is dropped without a word, so the breakpoint fires where the source made it conditional;
+clang: "instruction 'bkpt' is not predicable, but condition code specified" (parse/arm32_instr.bn, the BKPT / SVC
+case).  (b) `umull r0, r0, r1, r2` (RdHi = RdLo) is accepted; clang: "unpredictable instruction, RdHi and RdLo must be
+different".  (c) `mul pc, r0, r1` and `mla pc, r0, r1, r2` are accepted; clang: "operand must be a register in range
+[r0, r14]".  (d) `movw pc, #1` is rejected ("MOVW / MOVT destination must be R0..R14"); clang accepts it (01F000E3).
+**Fix:** (a) reject a condition on bkpt as clang does; (b)–(d) the operand rules of the exact A32 encoder layer
+(plan-asm-arm32-isa.md stage 2), each against clang.
+
 ### asm ELF: two layout differences from clang — an instruction in a data section, and arm32 `bl` to a local label — 🔴 OPEN, unclaimed (found 2026-10-26, work-2, comparing arm32 objects with clang's for the `.ARM.attributes` work)
 
 With `.ARM.attributes` matching, bnas's arm32 objects are byte-identical to clang's (`arm-linux-gnueabihf` /
