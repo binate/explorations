@@ -107,6 +107,19 @@ program names stay built at once.  Repro
 generators: scratch `S_i` / `A_i` programs as above, main printing 1.  The part counting a generic's own declaration
 against its own budget landed in binate `3b3b6ef2d` (see the done log).
 
+### `types.Identical` is exponential on instance arguments that share a type — a chain of aliases each pairing the one below hangs the checker — 🔴 OPEN (found 2026-10-26, work-7, testing the abstract-instance change's shared-argument walk; reproduced on main; pre-existing)
+
+- **Symptom:** `type Pair[A any, B any] struct { a *A; b *B }`, `type P0 = Pair[int, int]`, `type Pk = Pair[P(k-1), P(k-1)]` up to n, and `var x Pn`.  The checker alone (compile stopped by a type error) takes 0.08 s at n = 18, 1.2 s at 22, 4.8 s at 24, and more than 60 s at 40 (a compiler built from main at `3b3b6ef2d`).
+- **Root cause:** `Identical` (`pkg/binate/types/types_identical.bn`) has no shortcut for a type compared with itself, so comparing `Pair[P39, P39]` with itself recurses into both arguments at every level (`instArgsIdentical`): 2^n comparisons.  Sampled stack: `recheckDeferredConstraints` → `lookupCachedInstantiationEntry` → `IdenticalStrict` → `Identical` → `instArgsIdentical`, recursing.
+- **Proposed fix:** `if a == b { return true }` after the alias resolution (every arm of `Identical` is reflexive), and the same in `IdenticalStrict`, with a types unit test comparing a 40-level shared instance with itself.  Two distinct but identical objects at every level would still be exponential; the instance cache keeps one object per instance, so that should not arise (to verify).
+- **Blocks:** the abstract-instance change's new `TestCheckOpaqueSharedArgsWalkedOnce` (40 levels) hangs on it.
+
+### IR-gen spells every type argument out in an instance's name — instances whose arguments share a type get exponentially long names — 🔴 NEEDS DECISION (found 2026-10-26, work-7, the same probe; reproduced on main; pre-existing)
+
+- **Symptom:** the program of the `types.Identical` entry above, with no type error, compiles in 2.6 s at n = 18, 31 s at 22, and more than 120 s at 24 (main at `3b3b6ef2d`); the time is in IR-gen, after the checker.
+- **Root cause (from a sample; the name length by reasoning):** IR-gen's `registerModuleTypeDecl` → `ensureInstantiatedType` → `ensureInstantiatedStruct` (recursing), with the time in `instantiationMangledName` → `mangle.LpWriteArgList` / `lpTypeArgNamed`: the mangled name of `Pair[P(k-1), P(k-1)]` writes its argument's name twice, so the name of `Pn` is 2^n long.
+- **Needs a decision:** the mangling scheme — a backreference to an argument already written in the name (as the Itanium ABI's substitutions do), or a hash for a long argument list.  Whether `ensureInstantiatedStruct`'s recursion is exponential apart from the name is still to check.
+
 ### An importer's `sizeof` / `alignof` of a type its `.bni` declares later crashes the compiler — 🔴 OPEN MAJOR (found 2026-10-17, work-5, review of the `.bni` constant `len` change; reproduced; pre-existing)
 
 `const Z uint = sizeof(S)` followed by `type S struct { x int64; y int64 }` in `q.bni`, with an importer's
