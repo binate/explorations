@@ -696,7 +696,7 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### asm arm32: an ARM feature model gating instructions as clang does, and the forms it lacks — 🔴 OPEN, unclaimed (found 2026-10-25, work-2, the `.ARM.attributes` work; user: "Attributes now, gating next (Recommended)")
+### asm arm32: an ARM feature model gating instructions as clang does, and the forms it lacks — 🟡 IN PROGRESS (claimed 2026-10-26, work-2; found 2026-10-25, work-2, the `.ARM.attributes` work; user: "Attributes now, gating next (Recommended)")
 
 clang gates arm32 instructions by the target's features, which `.cpu` and `.fpu` change: a CPU without VFP (generic,
 arm7tdmi, xscale) rejects VFP instructions, a Thumb-only CPU (cortex-m*) switches to Thumb mode (bnas: an error), `.fpu
