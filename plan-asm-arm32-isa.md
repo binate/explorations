@@ -70,3 +70,18 @@ forms it lacks".  User (2026-10-26): "Staged series, gating first (Recommended)"
 - `.arch`, `.cpu` replace the feature set (and set Tag_CPU_name); `.arch_extension` adds / removes bits.
 - `nop` encodes by feature (mov r0, r0 before v6K).
 - Tests: per-architecture and per-CPU accept / reject / encoding goldens from clang for the current set.
+
+### For stages 3–4 (from the stage 1 review, each probed against clang)
+
+- `.arch` and `.cpu` also reset the FP / NEON features: `.arch armv6` then `vadd.f32 s0, s1, s2` is "requires VFP2";
+  `.arch armv7-a` turns NEON on; `.cpu cortex-a8` has NEON but not VFPv4, `.cpu arm1176jzf-s` VFPv2 but no NEON;
+  `.fpu vfpv2` then `.arch armv7-a` ends with NEON allowed.  So the architecture and CPU tables need their FP
+  features (the attributes, by contrast, keep the FPU's: `.arch` changes only Tag_CPU_name, and Tag_WMMX_arch for
+  iwmmxt).
+- The starting FP features differ by target (Linux: VFPv3 + NEON; bare metal: none), but NewParser sets the
+  features before the OS is known: set the FP part where the target is (assemble.armTargetAttrs, bnc).
+- clang applies extensions through LLVM's implication graph, setting and clearing: `.arch armv8-a` then
+  `.arch_extension noaes` makes `vadd.f32 d0, ..` "requires NEON" and `sha1h` fail; `nofp` / `nosimd` drop both VFP2
+  and NEON.  Stage 1 adds / drops flat bits (idiv / virt the one implication); stages 3–4 need the closure, `.fpu`
+  through it too.
+- `bxj` is accepted from armv5t to armv8-a, so there is no V5TEJ level (removed); gate it as clang does.
