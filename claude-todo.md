@@ -899,7 +899,7 @@ annotations: `#[build]`, `#[c_export]`); whether it constrains the function's ow
 inlining of it, or both; what the VM does (its frames are never removed); and whether `debug.Callers`
 should then promise those frames.
 
-### An instance's `sizeof` of a type not built yet: two cases still rejected — a `.bni`'s own declarations, and a generic's declaration reading a concrete type being collected — 🔴 OPEN (minor; found 2026-10-19, work-7, review of the layout-wait change; reproduced; pre-existing)
+### An instance's `sizeof` of a type not built yet: two cases still rejected — a `.bni`'s own declarations, and a generic's declaration reading a concrete type being collected — 🟡 IN PROGRESS (claimed 2026-10-26, work-7/session; user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]") (minor; found 2026-10-19, work-7, review of the layout-wait change; reproduced; pre-existing)
 
 Since binate `a25aeb940` an instance whose build reads the layout of a type not built yet waits for it
 (check_layout_wait.bn).  Two cases do not get that, and stay rejected as before:
