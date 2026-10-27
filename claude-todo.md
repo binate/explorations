@@ -151,6 +151,18 @@ package variable.  A common idiom (`var cfg = func() Config { var cfg Config; �
 track the names the literal binds (parameters, locals by block, for-in variables) and skip them, with a conformance
 test of each binding form.
 
+### A package variable read while its own check is in progress is typed as an error, so the checks that read it accept wrong code — 🔴 OPEN MAJOR (found 2026-10-26, work-5, review of the variable type-cycle fix; reproduced; pre-existing)
+
+`var a = len([len(b)]int{})` with `var b = [3]bool{a, true, false}` compiles (an int in a bool array) and `b[0]`
+prints `true`; `var b = [len(a)]int{}` with `var a = h(b)`, `func h(x [4]int) [3]int`, compiles though b is
+`[3]int`.  Checking a needs b's type, whose check reads a while a is still being checked: batchVarOnDemand
+(check/check_decl_batch_var.bn) then defines a with the error type, which every check reading it treats as an
+error already reported, so b's element, or h's argument, is never checked against a's real type.  The
+initialization order catches the cycles made of reads alone; a cycle through a type (an array length) it never
+sees.  Fix: check again, once the variable has its type, each declaration whose check read it while it had none
+(or type such a variable from its initializer's head before checking its operands, everywhere that is possible),
+with conformance tests of both programs above.
+
 ### A generic function named without type arguments, as a value, crashes IR-gen — 🔴 OPEN MAJOR (found 2026-10-26, work-5, probing the unbound-array-length-name change; reproduced; pre-existing, bnc-0.0.17-pre3 too)
 
 With `func gf[T any](x T) T { return x }`, `var hh = gf` in a function body passes the checker, and IR-gen panics
