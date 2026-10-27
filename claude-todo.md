@@ -5,6 +5,18 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
+### The initialization order misses a read through a type assertion `x.(K T)` — silent wrong initialization order — 🔴 OPEN CRITICAL (found 2026-10-27, work-5, review of the IIFE shadowing fix; reproduced; pre-existing)
+
+`var a = sh.(*Sq).s` followed by `var q Sq = Sq{s: 7}` and `var sh *Shape = &q` compiles, and initializing a fails at
+run time ("type assertion failed: <unset> is not main.Sq"): a is initialized before sh.  The comma-ok form in an
+immediately-invoked literal (`var a = func() int { v, ok := sh.(*Sq); if ok { return v.s }; return -1 }()`) silently
+gives -1 instead of 7, and a real cycle through one (`var a = sh.(*Sq).s` with `var sh *Shape = mk(a)`) is accepted
+with no "variable initialization cycle".  Root cause: collectVarDepsIn (check/check_var_resolve.bn) has no
+EXPR_TYPE_ASSERT case, so it falls through to `return deps` and never walks the assertion's operand X, a read
+prog.init.order counts.  (A type switch's scrutinee is walked, as the statement's X; every other expression kind with
+an operand is walked.)  Fix: walk e.X for EXPR_TYPE_ASSERT, with a unit test of the cycle and a conformance test of
+the two programs that run.
+
 ### A type collected on demand inside an instance's build, reading a type still being collected, keeps a zero array length — silent wrong code — 🟡 IN PROGRESS CRITICAL (claimed 2026-10-27, work-7/ff6d76c5, fix (a); found 2026-10-26, work-7, review of the abstract-resolution layout-wait change; reproduced on main; pre-existing)
 
 - **Symptom:** `type N struct { v int64; p *Box[X] }`, `type Box[T any] struct { a [sizeof(T)]uint8 }`, `type X
@@ -140,6 +152,15 @@ by name, ignoring the literal's parameters and the body's own declarations, so a
 package variable.  A common idiom (`var cfg = func() Config { var cfg Config; …; return cfg }()`) hits it.  Fix:
 track the names the literal binds (parameters, locals by block, for-in variables) and skip them, with a conformance
 test of each binding form.
+
+### Inside an immediately-invoked literal, `len` of a package array is taken as a read — a false initialization cycle — 🔴 OPEN (minor; found 2026-10-27, work-5, review of the IIFE shadowing fix; reproduced; pre-existing)
+
+`var n = func() int { return len(arr) }()` with `var arr [3]int = [3]int{n, 0, 0}` is rejected "variable initialization
+cycle involving `n`", though `len` of an array does not read it (builtin.len), as at the initializer's own level
+(TestVarInitLenOfArrayNotARead).  collectVarDepsIn (check/check_var_resolve.bn) skips `len`'s operand only outside a
+literal's body, because declaredType does not see the literal's locals, one of which may shadow the array with a slice
+(TestVarInitLenInLiteralWalked).  Once the body walk knows the names bound where it is (the IIFE shadowing entry above),
+the skip can apply in a body when the operand names nothing bound there.  Fix that, with a unit test.
 
 ### A package variable read while its own check is in progress is typed as an error, so the checks that read it accept wrong code — 🔴 OPEN MAJOR (found 2026-10-26, work-5, review of the variable type-cycle fix; reproduced; pre-existing)
 
