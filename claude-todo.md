@@ -131,7 +131,7 @@ mode).
   pointeeEmbedsOpaque stops at an instance whose type arguments cannot bring an opaque type in, a later `*G[...]`
   would not judge it again — an opaque type held by value could be accepted.  Needs a repro attempt first.
 
-### An immediately-invoked function literal's local or parameter that shadows a package variable is counted as a read of it — a false initialization cycle — 🔴 OPEN MAJOR (found 2026-10-26, work-5, probing the self-referential variable types; reproduced; pre-existing)
+### An immediately-invoked function literal's local or parameter that shadows a package variable is counted as a read of it — a false initialization cycle — 🟡 IN PROGRESS MAJOR (claimed 2026-10-27, work-5/session; user: "do the MAJORs in any convenient order"; found 2026-10-26, work-5, probing the self-referential variable types; reproduced; pre-existing)
 
 `var u = func() int { var u = 3; return u }()` and `var u = func(u int) int { return u }(4)` are valid (the
 literal's `u` is its own) but are rejected "variable initialization cycle involving `u`".  The initialization order
