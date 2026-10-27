@@ -5,6 +5,35 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
+### A type collected on demand inside an instance's build, reading a type still being collected, keeps a zero array length — silent wrong code — 🔴 OPEN CRITICAL (found 2026-10-26, work-7, review of the abstract-resolution layout-wait change; reproduced on main; pre-existing)
+
+- **Symptom:** `type N struct { v int64; p *Box[X] }`, `type Box[T any] struct { a [sizeof(T)]uint8 }`, `type X
+  struct { b [sizeof(N)]uint8 }`, and main printing `len(x.b)`, `len(b.a)` and `sizeof(X)` (`var b Box[X]; var x
+  X`) compiles and prints `0 0 16`; the right output is `16 16 16` (a compiler built from main's checker as of
+  binate `3fc098581`).
+- **Root cause (traced by reading; the output reproduced):** N is collected; its field names Box[X], built at once;
+  Box[X]'s build reads sizeof(X), so prepareBatchType (check_decl_layout.bn) collects X on demand — inside Box[X]'s
+  layout frame.  X's length reads sizeof(N); N is being collected, so waitForLayoutHere (check_layout_wait.bn)
+  charges the wait to the frame on top, Box[X] (which waits and is built again later), and the length evaluates
+  POISONED with no error.  X stays collected as `[0]uint8` and is never collected again; IR-gen, finding no length
+  stamped on X's field, folds sizeof(N) itself and lays X out as 16 bytes.  The checker and IR-gen disagree on X.
+- **Same family:** a constant evaluated on demand inside such a frame (batchConstOnDemand) is recorded POISONED
+  for good; a variable's declared type resolved on demand (batchVarOnDemand) probably too (not probed).  With the
+  abstract-resolution wait (the change that found this, not landed), a generic's own declaration frame gets the
+  same: `const S = sizeof(N)`, `type Box[T any] struct { a [S]uint8; t T }`, `type N struct { v int64; p
+  *Box[int] }` passes the checker and panics in IR-gen ("IR generation cannot evaluate a constant the type checker
+  accepted"); main rejects it with a false "cyclic type definition".  Related false error on main: `const S =
+  sizeof(W[int64])` used in `type Bx[T any] struct { a [S]uint8; t T }`, W[T] holding a *Bx[T], is rejected as
+  "constant definition cycle involving `S`".
+- **Proposed fix:** charge a wait only to the frame whose own resolution reads the layout.  A concrete declaration
+  collected or evaluated on demand inside a frame must not keep a result computed while it would have waited:
+  (a) run the on-demand collection in a frame of its own that, when it would wait, makes the enclosing instance (or
+  declaration) wait too and undoes the declaration's collection (or the constant's evaluation), which is done again
+  once the type it read is built — this accepts the valid programs; or (b), a smaller safe step, run it in a nil
+  frame, so the read reports a (false) cycle instead of wrong code.
+- **Tests needed:** the program above, checking the printed lengths; the constant form; an interface form (a
+  method `F(a [S]uint8)` with an impl — rejected with a misleading "[24]uint8 to [0]uint8" under the wait change).
+
 ### Constraint calls through `impl *P` / `impl @M` give wrong results — needs a spec decision — 🔴 NEEDS DECISION (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
 
 ```
