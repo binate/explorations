@@ -28,8 +28,11 @@ the one-line form a second format reads has them after the body.  With binate `8
 generated with switch statements format differently, and all 1,500 are stable on a second format (34 were not); one
 line got a byte wider (142 to 143), the alignment of a case whose comment fits nowhere, in a run that changed when a
 long label with no body wrapped for its comment.  In the scripts/bnfmt-check corpora one genb file formats narrower
-and no other file changes.  Tests: print_trail_switch_test.bn.  Left: a typed-only `var`, struct fields and interface
-methods in the todo entry; a one-line case's comment placement in the declaration-comments entry.
+and no other file changes.  Tests: print_trail_switch_test.bn; binate `b0fcc203c` adds a case statement written over
+two lines and a bodiless case whose label cannot wrap for its comment (without them, removing the bodiless case's label
+check passed every test, and counting the comments from the case's first line failed only on a second format).  Left:
+a typed-only `var`, struct fields and interface methods in the todo entry; a one-line case's comment placement in the
+declaration-comments entry.
 
 ### bnfmt: a one-line block with a comment in a list expands whether or not it was measured first — DONE (binate `844d788c5`, 2026-10-26, temp-4; a cause of the non-idempotence entry (user: "yes" to taking it next), found testing binate `26c2ba240`; landing: "wait 9 minutes, then land")
 
