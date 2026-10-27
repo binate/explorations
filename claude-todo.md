@@ -165,7 +165,7 @@ again (recheckDeferredVars, check/check_decl_batch_var.bn) nothing is reported, 
 errVarNeededDuringCollection.  Why the check again does not meet the cycle is not traced.  Fix: trace it and report
 the cycle there; a unit test of the program above.
 
-### A generic function named without type arguments, as a value, crashes IR-gen — 🔴 OPEN MAJOR (found 2026-10-26, work-5, probing the unbound-array-length-name change; reproduced; pre-existing, bnc-0.0.17-pre3 too)
+### A generic function named without type arguments, as a value, crashes IR-gen — 🟡 IN PROGRESS MAJOR (claimed 2026-10-27, work-5/session; user: "do the MAJORs in any convenient order"; found 2026-10-26, work-5, probing the unbound-array-length-name change; reproduced; pre-existing, bnc-0.0.17-pre3 too)
 
 With `func gf[T any](x T) T { return x }`, `var hh = gf` in a function body passes the checker, and IR-gen panics
 "internal error: unresolved identifier gf in IR-gen (compiler bug)".  Binate has no type inference (spec
