@@ -713,13 +713,17 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 
 clang gates arm32 instructions by the target's features, which `.cpu` and `.fpu` change: a CPU without VFP (generic,
 arm7tdmi, xscale) rejects VFP instructions, a Thumb-only CPU (cortex-m*) switches to Thumb mode (bnas: an error), `.fpu
-softvfp` / a d16 FPU narrows VFP, and the architecture version gates the rest.  bnas has no feature model: it accepts
-one fixed A32 + VFP set, which disagrees with clang's default armv7ve both ways — it rejects forms clang accepts
-(`vmov.f64 d0, #1.0`, d16–d31 as in `vadd.f64 d20, d1, d2`, `dmb ish`, `blx <label>`: "expected register for
-BLX").  ARM's `.arch <name>` (`.arch armv7-a`), which sets the architecture version, collides with bnas's own `.arch
-arm32` and is to be settled here.  **Fix:** a feature model (architecture
-version, FPU, extensions) set by the target, `.cpu` and `.fpu`, each encoder checked against it as clang checks it;
-add the missing forms; golden accept/reject tests against clang.
+softvfp` / a d16 FPU narrows VFP, and the architecture version gates the rest.  bnas has no feature model, and its
+arm32 text parser has only ~55 mnemonics (data processing, loads / stores, block transfers, branches, mul / mla /
+umull / smull, sdiv / udiv, clz, nop, svc, bkpt) — no VFP, NEON, barriers, exclusives, media / saturating / bitfield,
+system or coprocessor instructions — and asm/arm32's encoders cover only what the native backend uses (the basic A32
+set and ~40 VFP forms).  Named gaps so far: `vmov.f64 d0, #1.0`, d16–d31 (`vadd.f64 d20, d1, d2`), `dmb ish`,
+`blx <label>` ("expected register for BLX").  ARM's `.arch <name>` (`.arch armv7-a`), which sets the architecture
+version, collides with bnas's own `.arch arm32` and is to be settled here.
+User (2026-10-26): "Staged series, gating first (Recommended)" — **(1)** a feature model (architecture version, FPU,
+extensions, set by the target, `.cpu`, `.fpu`) gating the current set as clang does; **(2)** the complete A32 core,
+an exact, range-checked encoder layer like aarch64/isa plus its parser; **(3)** VFPv3 / v4; **(4)** NEON — each landed
+separately, with clang accept / reject goldens.  Then back to TLS stage 3 and the rest of the queue.
 
 ### asm ELF: two layout differences from clang — an instruction in a data section, and arm32 `bl` to a local label — 🔴 OPEN, unclaimed (found 2026-10-26, work-2, comparing arm32 objects with clang's for the `.ARM.attributes` work)
 
