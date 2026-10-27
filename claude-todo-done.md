@@ -13,7 +13,8 @@ Tag_CPU_unaligned_access 0, as `-mno-unaligned-access`); the native backend's ha
 plus Tag_ABI_VFP_args, its bare-metal ones no unaligned access; bnc passes the target's OS to the in-process
 assembler (nativeOsForTarget).  User-approved deviations: tags 0-3 and tags / numbers outside 32 bits, and Thumb-only
 `.cpu` names, are errors.  bnas's arm32 objects are byte-identical to clang's on both targets, directives included
-(assemble_armattr_test.bn; the matching arm32 mapping cases are full-layout goldens).  Left for other entries:
+(assemble_armattr_test.bn; the matching arm32 mapping cases are full-layout goldens; the native objects'
+attributes pinned by binate `e60c73cb9`).  Left for other entries:
 instruction gating by `.cpu` / `.fpu` and `.arch <name>` (the ARM feature-model entry), string escapes and
 directive-name case (the asm-text entry), the data-section instruction alignment and arm32 `bl` relocations (the
 ELF layout-differences entry).
