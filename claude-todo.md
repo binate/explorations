@@ -563,6 +563,11 @@ order, so (found 2026-10-03 by the review of that fix; valid code rejected, each
 const S Size = 4` → "array length must be a constant integer" (S records NOT_CONST); `var V [S]uint8; type H
 struct{a int; b int}; const S = sizeof(H)` → S silently POISONED and V `[0]uint8` (only the package's own
 checkBniVarMatch then complains).
+Nor does a named type's array length define the `.bni` names it reads first (found 2026-10-26, work-5, probing
+the `len(nosuch)` change; reproduced): `type T [N]int` before `const N = 3` in `q.bni`, or `type T [len(V)]int`
+before `var V [3]int`, is "array length must be a constant integer" at q.bni, though the same in a `.bn`
+compiles (a `.bn` constant or variable is resolved on demand): buildScopeFromFile's pass 2 resolves T, and so
+evaluates its length, before it reaches N.
 
 ### aa64 text assembler: clang-valid instruction families still rejected (completeness) — 🟡 IN PROGRESS (listed 2026-09-26; claimed 2026-09-27, work-2/session; user: "Next, after this lands", then "yes"; landing family by family)
 
