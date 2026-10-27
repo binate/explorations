@@ -723,7 +723,8 @@ version, collides with bnas's own `.arch arm32` and is to be settled here.
 User (2026-10-26): "Staged series, gating first (Recommended)" — **(1)** a feature model (architecture version, FPU,
 extensions, set by the target, `.cpu`, `.fpu`) gating the current set as clang does; **(2)** the complete A32 core,
 an exact, range-checked encoder layer like aarch64/isa plus its parser; **(3)** VFPv3 / v4; **(4)** NEON — each landed
-separately, with clang accept / reject goldens.  Then back to TLS stage 3 and the rest of the queue.
+separately, with clang accept / reject goldens.  Then back to TLS stage 3 and the rest of the queue.  Plan and
+clang's facts: plan-asm-arm32-isa.md.
 
 ### asm ELF: two layout differences from clang — an instruction in a data section, and arm32 `bl` to a local label — 🔴 OPEN, unclaimed (found 2026-10-26, work-2, comparing arm32 objects with clang's for the `.ARM.attributes` work)
 
