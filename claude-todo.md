@@ -2479,6 +2479,9 @@ int) int { … }))) // <80 bytes>` moves the argument and expands the literal; t
 line, as with a long selector there).  (Before `33c49c1b8` the corpora were
 scratch copies, which the system's /tmp cleanup deleted; the scripts regenerate them from the same seeds, with the
 files that did not parse fixed, and genb with index expressions, so it went from 24 to 18.)
+binate `844d788c5` fixed one more cause: a one-line block whose list comment a measurement claimed before it printed
+stayed on its line, and a second format expanded it (none in the corpora; 34 of 1,500 files generated with switch
+statements; see the done file).
 
 The 46, minimized, are nearly all one mechanism.  bnfmt keeps some layouts it finds in the source -- an opener alone, a
 string run split across lines, a multi-line block, a wrapped list or chain -- and a first format produces those
@@ -2530,11 +2533,15 @@ Declarations, group members, struct fields and imports stop at the next node's c
 - In `#[build(...)] /* f */ import (`, the comment moves above the annotation block.
 - A case kept on one line with its body prints the body with no comment cursor, so the comments after its label and
   between its statements go after the last: `case 1: a() /* c */; b()` prints `case 1: a(); b() /* c */` (bnfmt
-  `bnc-0.0.17-pre3` and the tree's).  Its width check leaves the comments out too.  When its last statement ends on
-  a later source line (`case 6: a() /* x */; b(c,` / `d) // e`), emitTrailingCommentBefore stops at the label line's
-  pending comment, and both go on lines of their own before the next case; a second format sees an own-line comment
-  there and ends the case's alignment run at it, so the run's bodies move (not idempotent; found 2026-10-26 in a
-  review of the switch cases' trailing-comment room).
+  `bnc-0.0.17-pre3` and the tree's).  Its width checks measure every comment on its line there too, as a second
+  format finds them (binate `26c2ba240`), so a case with a comment before its `:` expands for it, though the label
+  line the comment then goes on cannot hold it: `case <85 a's> /* cccccccccc */: g() // d` prints a 109-wide label
+  line ending `: /* cccccccccc */` (on one line it is 118 wide).  Printed where they are, the comments should be
+  measured there, and that case would keep its line.  When its last statement ends on a later source line (`case 6:
+  a() /* x */; b(c,` / `d) // e`), emitTrailingCommentBefore stops at the label line's pending comment, and both go
+  on lines of their own before the next case; a second format sees an own-line comment there and ends the case's
+  alignment run at it, so the run's bodies move (not idempotent; found 2026-10-26 in a review of the switch cases'
+  trailing-comment room).
 - A comment between a signature's `)` and its results goes into the body: `func f(a int) /* c */ int {` prints
   `/* c */` on a line of its own as the body's first (bnfmt `bnc-0.0.17-pre3` and the tree's).
 
@@ -2563,12 +2570,9 @@ int {` … `} // <60 bytes>` breaks before `func`, for nothing (3 of the 3,000 f
 
 ### bnfmt does not wrap a line whose trailing comment takes it past the cap: what remains — 🟡 IN PROGRESS (claimed 2026-10-25, temp-4; user: "then let's fix these"; "take on the todos") 🟢 LOW (found 2026-10-25, temp-4, review of the marked-line fix; pre-existing)
 
-Statements, top-level declarations and group members not aligned to a comment column reserve the comments after
-them (binate `cb6028078`; see the done file).  Left, each over the cap with the tree's bnfmt:
-- A statement kept on its case line: `case 1: yyyy := ffff(aaaa, bbbb) // long c` stays 103 wide; caseInlineEligible
-  and caseRunColumn (print_switch.bn) measure the case without its comments.
-- A case's labels: `case aaaa, bbbb, cccc: // a long comment` stays 106 wide, where the same labels with more after
-  them wrap.
+Statements, top-level declarations and group members not aligned to a comment column reserve the comments after them
+(binate `cb6028078`), and so do switch cases (binate `26c2ba240`; see the done file).  Left, each over the cap with
+the tree's bnfmt:
 - A typed-only `var V *func(int, …) int // trailing comment` stays 113 wide, where a longer type with no comment
   wraps; a struct field the same (`F *func(…) int // c`, 110).
 - An interface method: its comments go out of the interface (see that entry); once they stay, its signature should

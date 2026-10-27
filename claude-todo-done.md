@@ -1,3 +1,33 @@
+### bnfmt: a switch case's width checks leave room for the comments after it — DONE (binate `26c2ba240`, 2026-10-26, temp-4; user: "then let's fix these"; "take on the todos"; landing: "wait 9 minutes, then land")
+
+A case kept on one line with its body, and an expanded case's labels, were measured without the comments after them:
+`case 1: yyyy := ffff(aaaa, bbbb) // long c` stayed 103 wide, and `case aaaa, bbbb, cccc: // a long comment` 106.
+Resolution (binate `26c2ba240`): a one-line case that its comments take past the cap expands when every line of the
+expanded case fits them (caseInlineEligible, caseExpandedFits in print_switch.bn), and keeps its line when not, or
+with `// LONG-LINE ALLOWED` among them; a run of one-line cases aligns its bodies only where the comments still fit
+(caseRunColumn); and an expanded case's labels wrap for the comments after the `:` (printCaseLabelTrailing,
+print_trail.bn).  The one-line print writes every comment on the case's line after its last statement, so the checks
+measure them all there: measuring the ones before the label's `:` at the label made such a case non-idempotent, as
+the one-line form a second format reads has them after the body.  With binate `844d788c5`, 586 of 1,500 files
+generated with switch statements format differently, and all 1,500 are stable on a second format (34 were not); one
+line got a byte wider (142 to 143), the alignment of a case whose comment fits nowhere, in a run that changed when a
+long label with no body wrapped for its comment.  In the scripts/bnfmt-check corpora one genb file formats narrower
+and no other file changes.  Tests: print_trail_switch_test.bn.  Left: a typed-only `var`, struct fields and interface
+methods in the todo entry; a one-line case's comment placement in the declaration-comments entry.
+
+### bnfmt: a one-line block with a comment in a list expands whether or not it was measured first — DONE (binate `844d788c5`, 2026-10-26, temp-4; a cause of the non-idempotence entry (user: "yes" to taking it next), found testing binate `26c2ba240`; landing: "wait 9 minutes, then land")
+
+On a line without `// LONG-LINE ALLOWED`, printBlock keeps a one-line block on its line only when no comment is in
+it, and it looked only at the comments still pending.  A measurement that rendered the block first claimed the
+comment in its call's list, so the block stayed on one line, and a second format, printing the expanded case without
+that measurement, expanded it: `case 1: if c { xxxxxxxxx(aa /* in */, hhhh…, cccc…) }; if hhhhhhhh { … }` expanded
+the case and kept `if c { … }` on its line.  A rendering made with no cursor (a one-line case's body) saw no comment
+at all: `case 2: if c { f(a /* c1 */, b) }` stayed on one line, stably, where the same block outside a switch
+expands.  Resolution (binate `844d788c5`): commentInBlock looks for any comment inside the block's span, in the
+cursor printing it or, with none, in activeCursor.  34 of 1,500 files generated with switch statements were
+non-idempotent this way; the scripts/bnfmt-check corpora have none.  Tests: print_stmt_test.bn
+TestOneLineBlockWithAListCommentExpandsAfterAMeasurement.
+
 ### A generic declaration naming a long or branching chain of distinct generics is rejected even when nothing is instantiated — DONE (binate `3fc098581`, with `1a0c3e046`, 2026-10-26, work-7; user: "A"; landing: "go ahead and land the commits")
 
 More than 128 distinct generics each naming the next through a pointer (`type S1[T any] struct { v T; next *S2[T] }`
