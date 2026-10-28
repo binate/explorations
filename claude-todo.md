@@ -2543,8 +2543,9 @@ section-relative reloc in a KEPT section.
 
 A comment between a declaration's keyword and its name is placed by no node: `func /* c */ f() {}`
 prints `func f() {` / `/* c */` / `}` (the comment moves into the body), `var /* c */ x int` prints
-`var x int /* c */`, and `package /* c */ "t"` prints the comment after the path.  A comment after the
-`]` of an annotation block that spans lines goes below the block.  Each output is valid and idempotent,
+`var x int /* c */`, and `package /* c */ "t"` prints the comment after the path; an interface's go above
+its first method (`interface /* k */ I /* n */ {`).  A comment after the `]` of an annotation block that
+spans lines goes below the block.  Each output is valid and idempotent,
 but the comment moves.  The AST records no position for a declaration's name or an annotation block's
 `]`, which placing these comments needs.  Related: an empty annotation block `#[]`, which bnfmt drops on
 purpose, leaves an empty line in its place, so a doc comment above it no longer touches its declaration
@@ -2557,8 +2558,9 @@ Delimited lists print the comments after their opener and between their elements
 the list joined: a comment after a list's last element, before its close (`h(x,` / `y, // c` / `)`); one
 between the elements of a statement's expression list (`return a, // c` / `b`, `x, // c` / `y := …`); and
 one among a typed builtin's operands (`make_slice(T, // c` / `n)`, `cast`), in a declaration's
-type-parameter list (`func h[T any, // c` / `U any]()`, which goes into the body), an impl's interface list
-or an annotation's arguments.  Also after the opener of a parameter, result or function-type list, whose
+type-parameter list (`func h[T any, // c` / `U any]()`, which goes into the body), an impl's interface list,
+an interface's parent list (`interface X : A, /* a */ B {`, whose comment goes above its first method) or an
+annotation's arguments.  Also after the opener of a parameter, result or function-type list, whose
 opener position the AST does not record, and in an empty list (`f(/* c */ )`, `T{/* c */ }`).  A list printer
 that takes these would claim them as `claimGap` does.  binate `scripts/bnfmt-check`'s comment check (`33c49c1b8`)
 finds a comment moved past another in 686 of its corpus files (580 of the comment-injected tree copies, mostly
@@ -2709,12 +2711,15 @@ non-idempotent).  The fix needs a measure that does not depend on how the source
 A statement's or group member's trailing comment is such a tail too (binate `cb6028078`): `m int = a * func(p int)
 int {` … `} // <60 bytes>` breaks before `func`, for nothing (3 of the 3,000 files generated to review that commit).
 
-### bnfmt does not wrap a line whose trailing comment takes it past the cap: what remains — 🟡 IN PROGRESS (claimed 2026-10-25, temp-4; user: "then let's fix these"; "take on the todos") 🟢 LOW (found 2026-10-25, temp-4, review of the marked-line fix; pre-existing)
+### bnfmt does not keep an interface method or a struct field on a `// LONG-LINE ALLOWED` line whole — 🔴 OPEN 🟢 LOW (found 2026-10-27, temp-4, review of the interface-comments fix; pre-existing)
 
-Statements, top-level declarations and group members not aligned to a comment column reserve the comments after them
-(binate `cb6028078`), and so do switch cases (binate `26c2ba240`) and types, a struct field's among them (binate
-`35aae75f6`; see the done file).  Left: an interface method.  Its comments go out of the interface (see that entry);
-once they stay, its signature should reserve them too.
+A statement, a top-level declaration, a group member and a case keep a marked line as written (print_longline.bn),
+but an interface method or a struct field on one wraps by its own width, and the marker goes on its last line:
+`\tFfff…(aaaa… int, bbbb… int, cccc… int) (int, bool, error) // LONG-LINE ALLOWED` (107 wide before the marker)
+prints `\tFfff…(aaaa… int, bbbb… int,` / `\t\t\tcccc… int) (int, bool, error) // LONG-LINE ALLOWED`, and a
+field `F *func(Aaaa…, Bbbb…, Cccc…, Dddd…) (int, bool, error) // LONG-LINE ALLOWED` (103 wide) the same (the
+tree's bnfmt; bnfmt `bnc-0.0.17-pre3` wraps them too, and moves a method's marker after its interface).  A marked
+method or field should print as printDeclMaybeNoWrap prints a marked declaration.
 
 ### bnfmt's lone element in brackets leaves out what follows the close — 🟡 IN PROGRESS (claimed 2026-10-26, temp-4; user: "take on the todos") 🟢 LOW (found 2026-10-26, temp-4, review of the statement trailing-comment fix; pre-existing)
 
@@ -2725,13 +2730,6 @@ An identifier or a selector cannot reserve it, so `ffff…[cccc…]++` with the 
 itself runs past the cap wraps (`ffff…[` / `cccc…]++`) (bnfmt `bnc-0.0.17-pre3` and the tree's).  Measuring every
 lone element with everything after it is the lone-argument rule the non-idempotence entry tried; giving the whole
 tail only to an element that cannot break, as a string literal has it, is narrower.
-
-### bnfmt moves every comment inside an interface out of it — 🟡 IN PROGRESS (claimed 2026-10-26, temp-4; user: "take on the todos") 🟢 LOW (found 2026-10-26, temp-4, review of the statement trailing-comment fix; pre-existing)
-
-printInterfaceDecl (print_decl.bn) prints the methods with no comment cursor, so an interface's comments go after
-it: `interface I {` / `// doc for M` / `M(a int) int` / `N(/* x */ b int) // n` / `}` prints the methods bare, then
-`// doc for M`, `/* x */` and `// n` after the `}` (bnfmt `bnc-0.0.17-pre3` and the tree's, in a `.bn` and a
-`.bni`).  The methods should take their comments as a struct type's fields do (innerCursor, print_type.bn).
 
 ## bnlint rules, unused-entity checks & lint skips
 

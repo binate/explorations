@@ -1,3 +1,20 @@
+### bnfmt: an interface's methods take the comments inside it, and wrap for the ones after them — DONE (binate `eeb534c6f`, 2026-10-28, temp-4; user: "take on the todos"; "then let's fix these"; landing: "wait 9 minutes, then land")
+
+printInterfaceDecl (print_decl.bn) printed an interface's methods with no comment cursor, so every comment inside an
+interface went after its `}` -- a method's doc, the comment after a method, one left before the `}` -- in a `.bn`
+and a `.bni` alike, and a blank line between two methods was dropped.  Resolution (binate `eeb534c6f`): the methods
+take the declaration's cursor, as a struct type's fields do: an own-line comment above the method it precedes, a
+blank line between two methods kept (one, however many), the comments after a method on its line, and those left
+before the `}` on lines of their own; a comment after the `{` goes on a line of its own.  A method's signature prints
+through printTrailing (printMethodTrailing, print_trail.bn), so it wraps to leave room for the comments after it --
+the piece the trailing-comment entry had left after binate `35aae75f6`.  A comment the interface's printers place
+nowhere still moves, now staying inside the interface: one right after a method's `(` goes after the method, and one
+in the header (around the name, in the type-parameter or parent list) goes above the first method (todo: the header
+and list entries).  In the scripts/bnfmt-check corpora 10 fuzz files format differently, each with a comment now kept
+inside an interface; none is wider, and none newly fails a second format.  Tests: print_interface_test.bn (3);
+removing each of 11 pieces of the change in turn fails one of them.  Left (todo): a method or struct field on a
+`// LONG-LINE ALLOWED` line still wraps.
+
 ### asm arm32 stage 2a: data processing as clang takes it — DONE (binate `4925d2d0c`, 2026-10-28, work-2; user: "Extend asm/arm32 (Recommended)", "Accept them consistently (Recommended)")
 
 Every data-processing form clang takes (plan-asm-arm32-isa.md step 2a), checked by a differential harness against
