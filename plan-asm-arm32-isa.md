@@ -37,6 +37,8 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
   register-shifted-register forms, S, the two-operand and Rd-less / Rn-less forms, clang's substitutions.
   User (2026-10-27): a constant's name written without `#` is an immediate wherever a number without `#` is
   ("Accept them consistently (Recommended)"), where clang takes it only where an alias or MOVW catches it.
+  Deliberate differences: an immediate past 32 bits is an error (clang truncates it), and so is a float literal
+  (`#4.5`, `$ 4.5`), which clang encodes as 0 in an integer instruction.
 - 2a2. `:lower16:` / `:upper16:` operands for MOVW / MOVT (and MOV), which the text parser does not read yet (the
   encoders' MovwLabel / MovtLabel exist); found by the 2a review.
 - 2b. Multiplies and divide: mul / mla / mls, the long forms (umull, umlal, smull, smlal, umaal), the DSP halfword
