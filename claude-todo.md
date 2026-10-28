@@ -234,17 +234,29 @@ nothing from an embedded field).  Z's declaration has no field `c`, so the membe
 (check/check_member_read.bn, fieldPath), and the selector then finds Z with no underlying type.  Fix: where neither
 the declaration's fields nor its methods have the name, report "undefined: c", with a unit test.
 
-### A constant switch tag is not given a type, so a typed case is "mismatched types int and untyped int" — 🔴 OPEN (a valid program rejected; found 2026-10-27, work-5, review of the generic-function-value fix; reproduced; pre-existing)
+### A constant switch tag is not given its default type: a typed case is rejected, and a tag too big for `int` matches a wrapped case — 🔴 OPEN MAJOR (a valid program rejected, and a silent wrong branch; found 2026-10-27, work-5, review of the generic-function-value fix; reproduced; pre-existing)
 
 `var x int = 5` then `switch 5 { case x: … }` is rejected "mismatched types int and untyped int", and `const K = 5`
 with `var x int8` and `switch K { case x: … }` "mismatched types int8 and untyped int"; `switch 5 { case 5: … }`
-compiles.  Asked whether the rejection is intended, the user (2026-10-27): "No, that seems wrong."  Root cause:
-checkSwitchStmt (check/check_stmt_switch.bn) gives an untyped NON-constant tag the default `int`, but leaves an
-untyped constant tag untyped, so `stmt.switch.tag`'s "each case expression must be assignable to the tag's type"
-tests `int` against untyped int.  The spec does not say what an untyped constant tag's type is, so the fix needs that
-decided first: the tag takes its default type (an `int8` case is then still rejected), or each case is compared as
-`tag == case`, the constant taking the case's type.  Then a sentence under `stmt.switch.tag`, the checker change,
-and a conformance test.
+compiles.  `switch true { case b: … }` (b bool) and `switch 1.5 { case f: … }` (f float64) are rejected the same
+way.  `switch 0xFFFFFFFFFFFFFFFF { case -1: … }` takes the `-1` case on a 64-bit target (the tag wraps to -1), and
+`switch nil { default: … }` is accepted.  Asked whether the rejection is intended, the user (2026-10-27): "No, that
+seems wrong."  Root cause: checkSwitchStmt (check/check_stmt_switch.bn) gives an untyped NON-constant tag the default
+`int`, but leaves an untyped constant tag untyped, so `stmt.switch.tag`'s "each case expression must be assignable to
+the tag's type" tests `int` against untyped int, and no check that the tag fits a type ever runs.
+
+Decided (user, 2026-10-27): "I tend to believe that we should keep things simple and give it the default type", the
+same as for `a := <literal>` (spec `const.default`, `const.default.int-width`), on 32-bit targets too.  So an untyped
+constant tag takes its default type; a tag whose value does not fit `int` is rejected as `x := 0xFFFFFFFFFFFFFFFF`
+is ("cannot assign untyped int to int"; `x := 3000000000` on a 32-bit target says the same); a `nil` tag is rejected
+as `x := nil` is ("cannot infer a type from nil"); and an `int8` or `uint` case of `switch 5` stays an error.  Go
+does the same: it converts an untyped constant tag to its default type, rejects `switch 0xFFFFFFFFFFFFFFFF` and
+(GOARCH=arm) `switch 3000000000` as overflowing `int`, rejects `switch nil`, and rejects `switch 5 { case x }` for an
+`int8` or `uint` x.  An untyped case already takes the tag's type (`case -8` over an `int8` tag).  Fix: in
+checkSwitchStmt, give the tag its type the way a `:=` does (`defaultType`, `rejectNilInference`,
+`checkDefaultIntFits`); a sentence under `stmt.switch.tag`; unit tests; a conformance test (a typed case of a
+constant tag, bool and float tags).  Also: `case 300` over an `int8` tag says "mismatched types untyped int and int8"
+where `var v int8 = 300` says "cannot assign untyped int to int8"; give it the latter.
 
 ### An invalid array length makes the array `[0]T`, so its uses report follow-on errors — 🔴 OPEN (minor: a follow-on diagnostic; found 2026-10-26, work-5, probing the `len(nosuch)` change; reproduced; pre-existing)
 
