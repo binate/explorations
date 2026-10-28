@@ -249,7 +249,7 @@ arguments past 2 GiB, which native x64 rejects at compile time); 4f-2 bss length
 32-bit host; 5 VM / interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the
 32-bit lane.
 
-### Inside an instance's build, a declaration resolved on demand that reads a member of a type not built yet is "cannot access field on this type" — 🔴 OPEN (a valid program rejected; found 2026-10-27, work-7, review of the on-demand layout-frame fix; reproduced; pre-existing)
+### Inside an instance's build, a declaration resolved on demand that reads a member of a type not built yet is "cannot access field on this type" — 🟡 IN PROGRESS (claimed 2026-10-27, work-7/ff6d76c5; a valid program rejected; found 2026-10-27, work-7, review of the on-demand layout-frame fix; reproduced; pre-existing)
 
 ```
 type Box[T any] struct { a [sizeof(T)]uint8 }
