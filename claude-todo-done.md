@@ -1,3 +1,24 @@
+### A type collected on demand inside an instance's build, reading a type still being collected, kept a zero array length — silent wrong code — DONE (binate `b6173f60b`, 2026-10-27, work-7; user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]"; fix (a): "yes"; landing: "1. wait 20 minutes, then go ahead.")
+
+`type N struct { v int64; p *Box[X] }`, `type Box[T any] struct { a [sizeof(T)]uint8 }`, `type X struct { b
+[sizeof(N)]uint8 }` printed `0 0 16` for len(x.b), len(b.a) and sizeof(X) (16 16 16 is right): Box[X]'s build
+collected X on demand, X's length read N while N was collected, the wait went to Box[X], and X kept [0]uint8, which
+IR-gen, folding sizeof(N) itself, laid out as 16 bytes.  The same held through a variable of a declared or an
+inferred type, an alias, a type collected inside another (wrong code), a constant (an IR-gen panic), and a
+function's, a generic function instance's or a method's result (a misleading "cannot assign [16]uint8 to
+[0]uint8"); a type holding N by value — a real cycle — compiled silently.  Resolution (binate `b6173f60b`, fix (a)):
+each declaration resolved on demand inside an instance's build is a layout frame of its own (layoutFrame.Demand,
+check/check_layout_wait.bn), which waits with the instance and is undone — its binding, its records and its
+syntax's annotations (ast.ClearCheckerAnnotations) — and is resolved again once the layout is built; a generic
+function instance's signature is resolved again when next named (FuncInstance.SigWaited).  What a frame that waits
+reports is dropped (layoutFrameBlocked): `[len(v) - 1]uint8` was "array length must be non-negative" on
+main.  Nothing more is resolved on demand inside a build that waits (skipDemand), which keeps a chain of constants
+linear.  The cycle is reported.  Tests: check_layout_wait_demand_test.bn (8); conformance spec/15-builtins
+162_sizeof_type_arg_collected_on_demand.  The abstract-resolution forms the entry listed stay with the open entry
+"An instance's `sizeof` of a type not built yet: two cases still rejected", which now lists the constant form
+too.  Found in review and still open: a member read of a type not built yet, and a promoted method read in an array
+length during collection.
+
 ### A generic function's bare name used as a value passed the checker and crashed IR-gen — DONE (binate `245ec0f9c`, 2026-10-27, work-5; user: "do the MAJORs in any convenient order"; landing: "wait 10 minutes, then land; then continue with the CRITICAL fix")
 
 With `func gf[T any](x T) T`, `var hh = gf` (local or package-level), `hh := gf`, `_ = gf`, and another package's
