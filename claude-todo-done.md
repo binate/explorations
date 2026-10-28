@@ -1,3 +1,31 @@
+### A generic function's bare name used as a value passed the checker and crashed IR-gen — DONE (binate `245ec0f9c`, 2026-10-27, work-5; user: "do the MAJORs in any convenient order"; landing: "wait 10 minutes, then land; then continue with the CRITICAL fix")
+
+With `func gf[T any](x T) T`, `var hh = gf` (local or package-level), `hh := gf`, `_ = gf`, and another package's
+generic function read the same way (`var ap = slices.Append`) passed the checker and crashed IR-gen ("unresolved
+identifier gf in IR-gen (compiler bug)", "unresolved selector in IR-gen", "the checker type parameter T reached
+IR-gen").  The other value uses were rejected only by a mismatch with the generic signature.  There is no type
+inference (`gen.instantiate`): a generic function has a value only as an instance (`gf[int]`).  Resolution (binate
+`245ec0f9c`): notAValue (check/checker_errors.bn), which checkIdent and the package-qualified selector ask, rejects
+a generic function: "generic function `gf` used without type arguments".  A call's head and `&`'s operand are looked
+up before they are checked as expressions (genericFuncNamed, check_expr_index.bn, shared with
+checkInstantiateOrIndex, isGenericFuncInstantiation and calleeResult), so a call without type arguments keeps
+"generic function requires type arguments — use f[T](...)" and `&gf` "cannot take the address of function `gf`".
+Tests: check_generic_bare_test.bn (5); conformance spec/12-generics 141_err_generic_func_value.
+
+### A name an immediately-invoked literal binds was read as the package variable of that name — a false initialization cycle — DONE (binate `d007106ed`, with the move `650ecabd3`, 2026-10-27, work-5; user: "do the MAJORs in any convenient order"; landing: "wait 10 minutes, then land; then continue with the CRITICAL fix")
+
+`var u = func() int { var u = 3; return u }()`, `var u = func(u int) int { return u }(4)` and the idiom `var cfg =
+func() Config { var cfg Config; …; return cfg }()` were rejected "variable initialization cycle involving `u`":
+collectVarDepsFuncLitBody collected the names the literal's body reads without regard to what the body binds.
+Resolution (binate `d007106ed`; `650ecabd3` first moved the body walk to check/check_var_resolve_iife.bn): the walk
+keeps the names in scope (varDepScope) -- the literal's parameters and, from its declaration to the end of its block,
+loop or case clause, each local declared with var, const or :=, a C-style or for-in loop variable and a type
+switch's binder -- and does not collect them.  A local is not in scope in its own initializer (`var u = u + 1`, `u
+:= u`), which is walked first, and the literal's arguments are read where it is called.  Tests:
+check_var_resolve_iife_test.bn (TestVarInitIIFEShadowNotARead, 11 forms; TestVarInitIIFEShadowEndsWithScope, 20
+forms still cycles); conformance regressions/iife-var-init-shadow.  Left (todo): `len` of a package array inside such
+a literal is still a read.
+
 ### bnfmt: a type's width checks leave room for the comments after it, a function type's parameters for its results — DONE (binate `35aae75f6`, 2026-10-27, temp-4; user: "then let's fix these"; "take on the todos"; landing: "wait 5 minutes, then go ahead")
 
 A type was measured with nothing after it on its line.  A declaration with only a type and its comment (`var V
@@ -41,7 +69,8 @@ placeholder and takes the head type again (recheckDeferredVars), so a cycle foun
 type".  A first design, which took every variable an array length named while a variable was checked for a cycle,
 made valid programs cycles and was replaced.  Two programs that printed 0 print 3; `var b = [len(a)]int{}` with
 `var a = h(b)`, `func h(x [4]int) [3]int` is rejected "cannot assign [3]int to [4]int".  Tests:
-check_var_placeholder_test.bn (40).  Left (todo): the placeholder silencing a check where the head spells no type
+check_var_placeholder_test.bn (40); conformance regressions/var-type-cycle-declared, var-type-cycle-inferred,
+var-type-from-init-head and var-type-from-init-head-checked (binate `182eb3010`).  Left (todo): the placeholder silencing a check where the head spells no type
 (`var a = len([len(b)]int{})`); "declare its type" for a cycle through a function's signature met while types are
 collected; a struct field's `len(u.b)` message.
 

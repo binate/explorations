@@ -143,16 +143,6 @@ mode).
   pointeeEmbedsOpaque stops at an instance whose type arguments cannot bring an opaque type in, a later `*G[...]`
   would not judge it again — an opaque type held by value could be accepted.  Needs a repro attempt first.
 
-### An immediately-invoked function literal's local or parameter that shadows a package variable is counted as a read of it — a false initialization cycle — 🟡 IN PROGRESS MAJOR (claimed 2026-10-27, work-5/session; user: "do the MAJORs in any convenient order"; found 2026-10-26, work-5, probing the self-referential variable types; reproduced; pre-existing)
-
-`var u = func() int { var u = 3; return u }()` and `var u = func(u int) int { return u }(4)` are valid (the
-literal's `u` is its own) but are rejected "variable initialization cycle involving `u`".  The initialization order
-collects the reads in an immediately-invoked literal's body (collectVarDepsFuncLitBody, check/check_var_resolve.bn)
-by name, ignoring the literal's parameters and the body's own declarations, so a name they bind is taken for the
-package variable.  A common idiom (`var cfg = func() Config { var cfg Config; …; return cfg }()`) hits it.  Fix:
-track the names the literal binds (parameters, locals by block, for-in variables) and skip them, with a conformance
-test of each binding form.
-
 ### Inside an immediately-invoked literal, `len` of a package array is taken as a read — a false initialization cycle — 🔴 OPEN (minor; found 2026-10-27, work-5, review of the IIFE shadowing fix; reproduced; pre-existing)
 
 `var n = func() int { return len(arr) }()` with `var arr [3]int = [3]int{n, 0, 0}` is rejected "variable initialization
@@ -185,14 +175,6 @@ length checks t on demand while types are collected, and t's call defines mk on 
 again (recheckDeferredVars, check/check_decl_batch_var.bn) nothing is reported, so the deferred variable gets
 errVarNeededDuringCollection.  Why the check again does not meet the cycle is not traced.  Fix: trace it and report
 the cycle there; a unit test of the program above.
-
-### A generic function named without type arguments, as a value, crashes IR-gen — 🟡 IN PROGRESS MAJOR (claimed 2026-10-27, work-5/session; user: "do the MAJORs in any convenient order"; found 2026-10-26, work-5, probing the unbound-array-length-name change; reproduced; pre-existing, bnc-0.0.17-pre3 too)
-
-With `func gf[T any](x T) T { return x }`, `var hh = gf` in a function body passes the checker, and IR-gen panics
-"internal error: unresolved identifier gf in IR-gen (compiler bug)".  Binate has no type inference (spec
-`gen.instantiate`: the type arguments are always written), so the checker must reject a generic function's bare
-name used as a value.  Fix: reject it where the value use is typed (checkIdent or its callers) with a clear
-message, with a unit test and a conformance error test.
 
 ### An importer's `sizeof` / `alignof` of a type its `.bni` declares later crashes the compiler — 🔴 OPEN MAJOR (found 2026-10-17, work-5, review of the `.bni` constant `len` change; reproduced; pre-existing)
 
