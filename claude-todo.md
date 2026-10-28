@@ -2711,7 +2711,7 @@ non-idempotent).  The fix needs a measure that does not depend on how the source
 A statement's or group member's trailing comment is such a tail too (binate `cb6028078`): `m int = a * func(p int)
 int {` … `} // <60 bytes>` breaks before `func`, for nothing (3 of the 3,000 files generated to review that commit).
 
-### bnfmt does not keep an interface method or a struct field on a `// LONG-LINE ALLOWED` line whole — 🔴 OPEN 🟢 LOW (found 2026-10-27, temp-4, review of the interface-comments fix; pre-existing)
+### bnfmt does not keep an interface method or a struct field on a `// LONG-LINE ALLOWED` line whole — 🟡 IN PROGRESS (claimed 2026-10-28, temp-4; user: "take on the todos") 🟢 LOW (found 2026-10-27, temp-4, review of the interface-comments fix; pre-existing)
 
 A statement, a top-level declaration, a group member and a case keep a marked line as written (print_longline.bn),
 but an interface method or a struct field on one wraps by its own width, and the marker goes on its last line:
