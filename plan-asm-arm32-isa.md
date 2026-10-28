@@ -25,10 +25,11 @@ forms it lacks".  User (2026-10-26): "Staged series, gating first (Recommended)"
 
 ## Stage 2: the complete A32 core
 
-An exact encoder package, `pkg/binate/asm/arm32/isa` (as `asm/aarch64/isa`: each encoder emits exactly the one
-instruction its operands name, or sets an error — nothing split, synthesized or masked into range), the parser
-taking every A32 form clang takes through it, each gated by the stage 1 features, then `asm/arm32`'s backend
-encoders routed through it.  One instruction class per commit, each checked by a differential harness against clang
+`pkg/binate/asm/arm32` extended to the whole A32 set — its encoders are already exact (each emits exactly the one
+instruction its operands name, or sets an error — nothing split, synthesized or masked into range; the parser's
+mov → movw choice is the parser's), so no separate layer like `asm/aarch64/isa` is needed (user, 2026-10-27:
+"Extend asm/arm32 (Recommended)"; files and `.bni` split by instruction class as they grow, VFP and NEON as
+sub-packages) — and the parser taking every A32 form clang takes, each gated by the stage 1 features.  One instruction class per commit, each checked by a differential harness against clang
 (operand combinations valid and invalid: registers incl. SP / PC, immediates at and past their ranges, every shift,
 condition and flag form, clang's aliases and shorthands), the cases pinned as in-tree goldens.
 
@@ -51,7 +52,6 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
   cps, setend, srs / rfe, nop / yield / wfe / wfi / sev / sevl / dbg / csdb / esb, dmb / dsb / isb with options,
   sb, ssbb / pssbb, setpan, hlt.
 - 2j. Coprocessor: mcr / mrc (and 2), mcrr / mrrc (and 2), cdp (and 2), ldc / stc (and 2, L).
-- 2k. `asm/arm32`'s encoders (the native backend's) through isa.
 
 ## Stage 1: the feature model — DONE (binate `09f41e4f7`)
 
