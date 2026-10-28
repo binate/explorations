@@ -1,3 +1,42 @@
+### Inside an instance's build, a declaration resolved on demand that reads a member of a type not built yet is "cannot access field on this type" — DONE (binate `f7e99b80b`, 2026-10-27, work-7; user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]"; "2. yes, fold it in."; landing: "wait 9 minutes, then go ahead")
+
+```
+type Box[T any] struct { a [sizeof(T)]uint8 }
+type W[T any] struct { a [sizeof(T)]uint8 }
+type N struct { v int64; p *Box[X] }
+type X struct { b [len(w.a)]uint8 }
+var w W[Q]
+type Q struct { c [sizeof(N)]uint8 }
+```
+was rejected "cannot access field on this type": Box[X]'s build collected X on demand, which defined w and built
+W[Q], whose length read N while N was collected; W[Q] waited, and X then selected `w.a` from W[Q], which had no
+fields yet.  A method of such an instance, a method of an interface still being collected, a field of a type
+declared later and reached only through a pointer (`var p *Z`, `[len(p.c)]uint8`), and a method of an interface
+declared later failed the same way.  Resolution (binate `f7e99b80b`): a member read readies the type it reads from
+(check/check_member_read.bn).  An interface that collection has not reached is collected on demand, and a type only
+when its declaration gives it a field of that name (fieldPath), together with the declarations the field is defined
+through.  A type or an interface being collected, or an instance being built or waiting, that lacks the member yet
+makes the innermost instance being built wait, as a `sizeof` of it does; where nothing can wait the cycle is
+reported.  The batch records the interfaces being collected and collected (DeclBatch.IfacesCollecting,
+IfacesCollected), and the instances that waited are built again whenever no instance is being built, also while a
+type or an interface declaration is collected (flushLayoutWaits); before, `type S struct { m N[int64]; k
+[sizeof(Box[N[int64]])]uint8 }` was "cyclic type definition involving `Box`".  The review of the first version found
+false cycles where a method read collected its type and instances not built again while an interface was
+collected; both were fixed before landing.  Tests: check_member_read_test.bn (6); conformance spec/13-expressions
+070_member_of_type_not_built, spec/15-builtins 163_sizeof_instance_built_while_collecting.  Still rejected, and
+filed: a cycle judged per type rather than per member (open entry "A member read is a cycle when another member of
+its type depends on the reader"), a promoted field's misleading diagnostic (open entry "A field read through a
+pointer to a type declared later that has no such field"), and a generic's abstract declaration reading an
+interface's method (case (2) of the open entry "An instance's `sizeof` of a type not built yet: two cases still
+rejected").
+
+### A struct field's array length naming a variable initialized with the struct is "cannot access field on this type" — DONE (binate `f7e99b80b`, 2026-10-27, work-7; fixed by the member-read change above)
+
+`type B struct { b [2]int; a [len(u.b)]int }` with `var u = B{}` was rejected "cannot access field on this type" at
+`u.b`.  It is a cycle (B's layout needs u's type, which is B).  Since binate `f7e99b80b` a member read of a type
+being collected, with nothing that can wait, reports the cycle (check/check_member_read.bn), so it is "cyclic type
+definition involving `B`", the only error, pinned by TestMemberReadCycle.
+
 ### An array length calling a method promoted from an embedded struct is "undefined" while the package's types are collected — NOT A BUG (retired 2026-10-27, work-7, found while fixing the member-read entry)
 
 Filed from a review of the on-demand layout-frame fix: `type E struct { k int }`, `func (s E) mk() [16]uint8`,

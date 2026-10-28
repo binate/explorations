@@ -202,34 +202,7 @@ arguments past 2 GiB, which native x64 rejects at compile time); 4f-2 bss length
 32-bit host; 5 VM / interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the
 32-bit lane.
 
-### Inside an instance's build, a declaration resolved on demand that reads a member of a type not built yet is "cannot access field on this type" — 🟡 IN PROGRESS (claimed 2026-10-27, work-7/ff6d76c5; a valid program rejected; found 2026-10-27, work-7, review of the on-demand layout-frame fix; reproduced; pre-existing)
-
-```
-type Box[T any] struct { a [sizeof(T)]uint8 }
-type W[T any] struct { a [sizeof(T)]uint8 }
-type N struct { v int64; p *Box[X] }
-type X struct { b [len(w.a)]uint8 }
-var w W[Q]
-type Q struct { c [sizeof(N)]uint8 }
-```
-N is collected; Box[X] is built and collects X on demand, which defines w, building W[Q], which collects Q, whose
-length reads N while N is collected.  W[Q] waits (check/check_layout_wait.bn: its members are undone), but X and w,
-below W[Q] on the layout-frame stack, do not: X then selects `w.a` from W[Q], which has no fields yet, and the
-program is rejected "cannot access field on this type".  A method (`len(w.mk())`) fails the same way; inside an
-inferred variable's initializer the error becomes "needed while the package's types are collected".  An interface
-still being collected does the same: `interface I { m() [sizeof(N)]uint8 }` declared first, `type X struct { b
-[len(i.m())]uint8 }`, `var i *I` (N collects Box[X], which collects X, which selects `m` from I, whose methods are
-not there yet).  With `p *X` in place of `p *Box[X]` both compile.  The same message comes with no instance at all
-for a type reached only through a pointer and declared later, which nothing collects before its member is read:
-`type X struct { b [len(p.c)]uint8 }`, `var p *Z`, `type Z struct { c [16]uint8 }` (with `var p Z`, or Z declared
-first, it compiles); and for an interface declared later (`var i *I`, `[len(i.m())]uint8`), since an interface is
-collected only when collection reaches it (found 2026-10-27, work-7, probing this entry; reproduced on main).  Fix:
-a field or method selected from a type not built yet — an instance in progress (instanceInProgress) or an interface
-being collected — makes the reading frame wait (waitForLayoutHere), as a `sizeof` of it does, reporting the cycle
-only where nothing can wait; and collect a type or an interface collection has not reached on demand (as
-prepareBatchType collects one whose layout is read) before its member is read; with unit tests for each form.
-
-### An array length reading a composite literal of a type declared later, or a parent interface's method, is rejected while the package's types are collected — 🔴 OPEN (a valid program rejected; found 2026-10-27, work-7, probing the member-read entry above; reproduced on main; pre-existing)
+### An array length reading a composite literal of a type declared later, or a parent interface's method, is rejected while the package's types are collected — 🔴 OPEN (a valid program rejected; found 2026-10-27, work-7, probing the member-read fix, binate `f7e99b80b`; reproduced on main; pre-existing)
 
 `type X struct { b [len(Z{}.c)]uint8 }` with `type Z struct { c [16]uint8 }` declared after it is rejected "cannot
 use an opaque type by value" and "cannot access field on this type" (Z declared first, it compiles): nothing
@@ -239,6 +212,27 @@ access field on this type": an interface's parents are resolved only once the wh
 (resolvePendingIfaceParents, check/check_interface.bn), so a method it inherits is not there during collection.
 Fix: collect a composite literal's type on demand (prepareLayout) where collection has not reached it; resolve an
 interface's parents on demand when a method is looked up on it during collection; unit tests for both.
+
+### A member read is a cycle when another member of its type depends on the reader — the checker judges it per type, not per member — 🔴 NEEDS DECISION (found 2026-10-27, work-7, review of the member-read fix; pre-existing, before binate `f7e99b80b` as "cannot access field on this type")
+
+`type X struct { b [len(p.c)]uint8 }`, `var p *Z`, `type Z struct { c [16]uint8; d [sizeof(X)]uint8 }` is "cyclic
+type definition involving `X`": reading `p.c` collects Z, whose `d` reads X's size while X is collected.  `c` does
+not depend on X, so resolving members one at a time would accept it; with `var p Z` (Z by value) main reports the
+same cycle.  Interfaces likewise: `type X struct { b [len(i1.m())]uint8 }`, `var i1 *I1`, `var i2 *I2`,
+`interface I1 { m() [len(i2.n())]uint8; k() [3]uint8 }`, `interface I2 { n() [len(i1.k())]uint8 }` is "cyclic type
+definition involving `I1`": I1's methods are added together, and `k` is read while `m` is resolved.  The spec's
+`type.named.value-acyclic` covers a type containing itself by value, not a layout reached through an array length,
+so whether these programs are valid is not decided.  Decide: such cycles judged per type (say so in the spec, with
+a conformance error test), or per member (a struct's fields and an interface's methods resolved one at a time on
+demand, with tests).
+
+### A field read through a pointer to a type declared later that has no such field is "cannot access field on this type" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-10-27, work-7, review of the member-read fix; pre-existing)
+
+`type X struct { b [len(p.c)]uint8 }`, `var p *Z`, `type Z struct { E }`, `type E struct { c [16]uint8 }` is
+"cannot access field on this type" at `p.c`; in a function body the same read is "undefined: c" (Binate promotes
+nothing from an embedded field).  Z's declaration has no field `c`, so the member read does not collect Z
+(check/check_member_read.bn, fieldPath), and the selector then finds Z with no underlying type.  Fix: where neither
+the declaration's fields nor its methods have the name, report "undefined: c", with a unit test.
 
 ### A constant switch tag is not given a type, so a typed case is "mismatched types int and untyped int" — 🔴 OPEN (a valid program rejected; found 2026-10-27, work-5, review of the generic-function-value fix; reproduced; pre-existing)
 
@@ -251,14 +245,6 @@ tests `int` against untyped int.  The spec does not say what an untyped constant
 decided first: the tag takes its default type (an `int8` case is then still rejected), or each case is compared as
 `tag == case`, the constant taking the case's type.  Then a sentence under `stmt.switch.tag`, the checker change,
 and a conformance test.
-
-### A struct field's array length naming a variable initialized with the struct is "cannot access field on this type" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-10-26, work-5, probing the variable type-cycle fix; reproduced; pre-existing)
-
-`type B struct { b [2]int; a [len(u.b)]int }` with `var u = B{}` is rejected "cannot access field on this type" at
-`u.b`.  B's field length checks u on demand while B is being collected; u's type is B, whose fields are not
-there yet, so selecting `b` fails.  It is a cycle (B's layout needs u's type, which is B): report it as one —
-"cyclic type definition involving `B`", or the variable type cycle the generic form `type Box[T any] struct { b
-[2]int; a [len(u.b)]T }` with `var u = Box[int]{}` reports (check_var_placeholder.bn) — with a unit test.
 
 ### An invalid array length makes the array `[0]T`, so its uses report follow-on errors — 🔴 OPEN (minor: a follow-on diagnostic; found 2026-10-26, work-5, probing the `len(nosuch)` change; reproduced; pre-existing)
 
@@ -986,6 +972,10 @@ A related form, through a constant: `type Bx[T any] struct { a [S]uint8; t T }`,
 `type W[T any] struct { v T; p *Bx[T] }` is "constant definition cycle involving `S`" — Bx's declaration, resolved
 with its type parameters abstract while S is resolved, reads S; whether letting the abstract resolution wait covers
 it is not checked.
+An interface's method read the same way is case (2) too: `type Box2[T any] struct { a [len(i.n())]uint8; t *T }`,
+`interface I { m() *Box2[int]; n() [4]uint8 }`, `var i *I` is "cyclic type definition involving `I`" (before binate
+`f7e99b80b`, "cannot access field on this type"): collecting I names Box2[int] in `m`, and Box2's abstract
+resolution reads `i.n()` while I is collected.
 
 ## Performance
 
