@@ -159,8 +159,21 @@ type"; t's type is mk's result, whose length reads t, so the error is "variable 
 length checks t on demand while types are collected, and t's call defines mk on demand
 (batchFuncOnDemand), whose signature reads t while t is checked; the check of t is deferred, and when it is checked
 again (recheckDeferredVars, check/check_decl_batch_var.bn) nothing is reported, so the deferred variable gets
-errVarNeededDuringCollection.  Why the check again does not meet the cycle is not traced.  Fix: trace it and report
-the cycle there; a unit test of the program above.
+errVarNeededDuringCollection.  Why the check again does not meet the cycle is not traced.  A cycle through a
+variable checked while types are collected gives the same follow-on: `type A [len(u)]int`, `var u = [len(w)]int{5,
+6, 7}`, `var w = mk(u).arr` with `func mk(p [3]int) S` (S holding an `arr [3]int`) reports the variable type cycle
+and then "declare its type" for one of u and w (found 2026-10-28, work-5, review of the head-typing change).  Fix:
+trace it and report the cycle there alone; unit tests of both programs.
+
+### The checker's unit tests ignore parse errors, so a test whose program does not parse passes on what is left — 🔴 OPEN (minor: test accuracy; found 2026-10-28, work-5, writing the head-typing tests)
+
+checkSrc (check/types_test.bn) and the other helpers that parse a test's program (`p.ParseFile()` in
+bni_scope_test.bn, check_const_bare_test.bn, check_decl_func_test.bn and more) never read `p.Errors()`, so a
+program with a syntax error is checked as the parser recovered it.  Two rewritten tests in
+check_decl_batch_var_test.bn wrote a pointer to an array as `*[3]int32` (raw-slice sugar, a parse error; the
+spelling is `*([3]int32)`) and still passed, expecting one checker error.  Fix: make the helpers fail a test whose
+program does not parse (a test that means to pass unparsable source says so, through a helper of its own), then fix
+the tests that turn out not to parse.
 
 ### An importer's `sizeof` / `alignof` of a type its `.bni` declares later crashes the compiler — 🔴 OPEN MAJOR (found 2026-10-17, work-5, review of the `.bni` constant `len` change; reproduced; pre-existing)
 
