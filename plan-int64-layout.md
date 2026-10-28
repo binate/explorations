@@ -130,6 +130,17 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
      capture past 2 GiB, even an indirect-large one passed as a pointer.  Once they take int64, add the aarch64
      closure-capture test held back from 4e-3: two Big captures, the second's ADD (and an int64 capture after it,
      at 2^31 + 8) through X17 -- it panics on CI's 32-bit-host unit lane (builder-comp_arm32_linux) until then.
+     Split (2026-10-27, from a survey: in the native backends ArgWords ~87 uses, CallArgStackOff ~60,
+     CallArgRegStart ~50, CallStackBytes ~18, EffectiveArgWords ~16; also codegen's checkStackArgs and native/common's
+     param slots), as 4d was:
+     - 4c-1. callconv computes from Size() in int64: argWords, the stack words, CallArgStackOff / CallStackBytes
+       and their V forms, an indirect-large argument's one word decided before any size-derived word count.  int64
+       forms (...64) beside the int ones, which narrow fail-loud (HostInt); codegen's checkStackArgs and native/
+       common's param slots move to the int64 forms.
+     - 4c-2 / 4c-3 / 4c-4. x64 / aarch64 / arm32 stack-argument paths on the int64 forms: outgoing stores and
+       incoming reads past a displacement (x64 far paths, aarch64 X17, arm32 its word), a large by-value argument
+       copied with a loop, closure-shim capture offsets (x64's HostInt gone), the aarch64 capture test above.
+     - 4c-5. The int forms go; the int64 ones take their names.
    - 4d. RegMap's frame tables in int64 (PlanFrame bounded by the target's int, a compile error past it) and each
      backend's slot addressing, materializing offsets past an instruction's reach (aarch64 past what MemImm
      takes on the host, x64 past disp32; arm32 is a 32-bit target, so narrowing is exact).
