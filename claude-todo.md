@@ -837,6 +837,13 @@ different".  (c) `mul pc, r0, r1` and `mla pc, r0, r1, r2` are accepted; clang: 
 [r0, r14]".  (d) `movw pc, #1` is rejected ("MOVW / MOVT destination must be R0..R14"); clang accepts it (01F000E3).
 **Fix:** the operand rules of the exact A32 encoder layer (plan-asm-arm32-isa.md stage 2), each against clang.
 
+### asm: `.set` / `.equ` (and `.equiv` / `.eqv`) are unknown directives — 🔴 OPEN, unclaimed (found 2026-10-27, work-2, the arm32 data-processing harness)
+
+bnas defines a constant only as `name = expr`.  clang also takes `.set name, expr` and `.equ name, expr` (probed on arm32:
+`.equ K, 4` / `add r0, r1, #K` is E2810004 in clang, "unknown directive" in bnas), and has the related `.equiv`
+and `.eqv`; bnas knows none of them on any architecture.  **Fix:** the directives in `parse_directive.bn` on top of
+the `=` path (`parseConstDef`), each probed against clang first (`.equiv` redefining a name, `.eqv`'s evaluation).
+
 ### asm ELF: two layout differences from clang — an instruction in a data section, and arm32 `bl` to a local label — 🔴 OPEN, unclaimed (found 2026-10-26, work-2, comparing arm32 objects with clang's for the `.ARM.attributes` work)
 
 With `.ARM.attributes` matching, bnas's arm32 objects are byte-identical to clang's (`arm-linux-gnueabihf` /
