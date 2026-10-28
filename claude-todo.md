@@ -249,6 +249,28 @@ nothing from an embedded field).  Z's declaration has no field `c`, so the membe
 (check/check_member_read.bn, fieldPath), and the selector then finds Z with no underlying type.  Fix: where neither
 the declaration's fields nor its methods have the name, report "undefined: c", with a unit test.
 
+### A build that waits for a layout still builds the instances it names from the length it could not read, and reports their errors — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
+
+`type Other[T any] struct { x T }`, `func (o *Other[T]) q() int { return 32 / cast(int, sizeof(T)) }`, `type Box[T
+any] struct { a *Other[[sizeof(T)]uint8]; t int }`, `type N struct { v int64; p *Box[N] }` is rejected "division by
+zero in constant expression (in Other[[0]uint8].q, instantiated at … via Box[N])"; with `y [sizeof(T) - 1]uint8` in
+Other in place of q, "array length is too large".  Box[N]'s build reads sizeof(N) while N is collected and waits
+(check/check_layout_wait.bn), but goes on resolving with the length as 0, and names Other[[0]uint8]: that instance
+is built in a frame of its own that does not wait, so its errors are reported, and it stays cached.  The same
+happens inside a generic's declaration resolved abstractly (`type Box[T any] struct { a *Other[[sizeof(N)]uint8];
+t T }`, `type N struct { v int64; p *Box[int] }`).  Without the member that breaks on a zero length the programs
+compile and print the right lengths.  Fix: build no new instance inside a build that waits, as skipDemand resolves
+no declaration on demand there (or build it uncached, its errors dropped), with unit tests for both forms.
+
+### A generic alias of a struct type that takes the size of a type being collected is a false cycle — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
+
+`type A[T any] = struct { a [sizeof(N)]uint8; t T }` with `type N struct { v int64; w int64; p *A[int] }` is
+"cyclic type definition involving `N`", though N holds A[int] only through a pointer; N's field then keeps the
+struct with `[0]uint8` (`n.p = &x`, x an A[int], is "cannot assign *struct { a [24]uint8; t int } to *struct { a
+[0]uint8; t int }").  A generic alias's target is resolved for its arguments (instantiateGenericAlias) in no layout
+frame that can wait, unlike a generic type's instance (check/check_layout_wait.bn).  Fix: let the alias target's
+resolution wait as an instance's build does, and be resolved again once the layout is built, with a unit test.
+
 ### A constant switch tag is not given its default type: a typed case is rejected, and a tag too big for `int` matches a wrapped case — 🟡 IN PROGRESS MAJOR (claimed 2026-10-27, work-5/session; user: "that order is fine (and continue work after landing; you can stack commits for all of these before asking for landing permission)"; a valid program rejected, and a silent wrong branch; found 2026-10-27, work-5, review of the generic-function-value fix; reproduced; pre-existing)
 
 `var x int = 5` then `switch 5 { case x: … }` is rejected "mismatched types int and untyped int", and `const K = 5`
