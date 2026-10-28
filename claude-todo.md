@@ -983,6 +983,21 @@ annotations: `#[build]`, `#[c_export]`); whether it constrains the function's ow
 inlining of it, or both; what the VM does (its frames are never removed); and whether `debug.Callers`
 should then promise those frames.
 
+### A generic's declaration that reads a variable or a function whose own check built its instance is a false cycle — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, probing the constant form of the abstract-declaration wait; reproduced on main; pre-existing)
+
+`type Bx[T any] struct { a [len(Q)]uint8; t T }`, `var Q [sizeof(W[int64])]uint8`, `type W[T any] struct { v T; p
+*Bx[T] }` is "variable type cycle involving `Q`", and `type Bx[T any] struct { a [len(g())]uint8; t T }`, `func g()
+[sizeof(W[int64])]uint8 { … }` (W the same) is "undefined: g"; without generics (`type B struct { a [len(Q)]uint8
+}`, `type W struct { v int64; p *B }`) both compile.  Q's type, or g's signature, builds W[int64], which names
+Bx[int64] through a pointer; Bx's declaration, resolved with its type parameters abstract
+(check/check_layout_wait_abstract.bn), reads Q or g while Q's type or g's signature is still resolved: a variable type
+cycle (check/check_var_placeholder.bn), or a function named while its signature is resolved, left undefined
+(batchFuncOnDemand, check/check_decl_batch.bn).  W holds Bx only through a pointer, so neither depends on what reads
+it.  The constant form is the claimed entry below.  Fix: as that entry does for a constant — a read of the variable
+or function while it is checked waits when a layout frame that can wait was entered after its check started, the
+flush's last round does not run while one is checked, and the layout waits are flushed after each — with unit tests
+for both.
+
 ### An instance's `sizeof` of a type not built yet: still rejected in a `.bni`'s own declarations, and through a constant a generic's declaration reads — 🟡 IN PROGRESS (claimed 2026-10-26, work-7/session; user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]") (minor; found 2026-10-19, work-7, review of the layout-wait change; reproduced; pre-existing)
 
 Since binate `a25aeb940` an instance whose build reads the layout of a type not built yet waits for it
