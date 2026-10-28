@@ -197,7 +197,7 @@ sizes with Size(); native aa64 materializes an add / sub immediate past 16 MiB. 
 arguments past disp32.  Stage 4d-3 landed (binate `b108193b0`): native aarch64 frame offsets in int64 through the
 assembler.  Stage 4d-4 landed (binate `f2264bbe4`): native arm32.  Stage 4d-5 landed (binate `842db9d45`): the
 RegMap's frame lookups return int64 (the int forms and FrameInt gone); stage 4d is done.  Remaining
-(plan-int64-layout.md): 4e field / element offsets and copy sizes DONE (binate `87830f726` common, `650f83fc5` x64, `b771afffa` aarch64, `3beb3cc38` arm32); 4c callconv's stack layout (with outgoing stack
+(plan-int64-layout.md): 4e field / element offsets and copy sizes DONE (binate `87830f726` common, `650f83fc5` x64, `b771afffa` aarch64, `3beb3cc38` arm32); 4c callconv's stack layout (in progress 2026-10-27, work-1; with outgoing stack
 arguments past 2 GiB, which native x64 rejects at compile time); 4f-2 bss lengths and symbol offsets in int64 for a
 32-bit host; 5 VM / interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the
 32-bit lane.
@@ -453,8 +453,8 @@ func use(xs ...Big) int { return len(xs) }
 func main() { var a Big; var b Big; _ = use(a, b) }
 ```
 Fix: the checker rejects a variadic call whose packed arguments (n of the element type) pass the maximum object
-size, with the same "type is too large" error.  Test: a conformance test with that error on the 32-bit modes
-(xfail there until the fix).
+size, with the same "type is too large" error.  Test: conformance 1719 (binate `8b25f89ee`) expects that error on
+the five arm32 modes, xfailed there until the fix.
 
 ### Array `==` / `!=` unrolls one comparison per element — a large array blows up compile time and IR size — 🔴 OPEN (found 2026-10-18, work-1, review of int64 layout stage 2; pre-existing)
 

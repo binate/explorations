@@ -120,7 +120,7 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
    - 4b. DONE `845a85f52` (2026-10-18): aarch64: an add / sub of an offset past the 0..0xFFFFFF immediate range
      is materialized in the X17 scratch (the 16 MiB entry, fields and frames).  A 3 GB global still fails on
      native aa64 with no specific error (likely the object writer; 4f).
-   - 4c. callconv's stack layout in int64 (argument words, stack offsets, stack bytes) and each backend's
+   - 4c (in progress, 2026-10-27, work-1). callconv's stack layout in int64 (argument words, stack offsets, stack bytes) and each backend's
      stack-argument paths; a large by-value argument is copied with a loop, not word by word.  Includes (found in
      the 4e-2 review): native x64's closure shims narrow a capture's closure-struct offset with HostInt; a capture
      past 2 GiB follows more than 2 GiB of stack-passed captures, and a register-passed capture after them loads
