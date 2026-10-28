@@ -240,14 +240,6 @@ access field on this type": an interface's parents are resolved only once the wh
 Fix: collect a composite literal's type on demand (prepareLayout) where collection has not reached it; resolve an
 interface's parents on demand when a method is looked up on it during collection; unit tests for both.
 
-### An array length calling a method promoted from an embedded struct is "undefined" while the package's types are collected — 🔴 OPEN (a valid program rejected; found 2026-10-27, work-7, review of the on-demand layout-frame fix; reproduced; pre-existing)
-
-`type E struct { k int }`, `func (s E) mk() [16]uint8`, `type Y struct { E }`, `var y Y`, then `type X struct { b
-[len(y.mk())]uint8 }` (or `var g [len(y.mk())]uint8`) is rejected "undefined: mk", though E, its method and Y are
-all declared first.  A method of Y's own resolves (batchMethodOnDemand, check/check_decl_batch_method.bn, through
-lookupVisibleMethod); the promoted one is not found while types are collected.  Fix: look the method up through
-the embedded fields during collection as after it, with a unit test.
-
 ### A constant switch tag is not given a type, so a typed case is "mismatched types int and untyped int" — 🔴 OPEN (a valid program rejected; found 2026-10-27, work-5, review of the generic-function-value fix; reproduced; pre-existing)
 
 `var x int = 5` then `switch 5 { case x: … }` is rejected "mismatched types int and untyped int", and `const K = 5`

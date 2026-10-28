@@ -1,3 +1,11 @@
+### An array length calling a method promoted from an embedded struct is "undefined" while the package's types are collected — NOT A BUG (retired 2026-10-27, work-7, found while fixing the member-read entry)
+
+Filed from a review of the on-demand layout-frame fix: `type E struct { k int }`, `func (s E) mk() [16]uint8`,
+`type Y struct { E }`, `var y Y`, `[len(y.mk())]uint8` is "undefined: mk".  Binate promotes no field and no method
+from an embedded field — it is an unnamed positional field (docs/spec 07-types, the open note after
+type.struct.anonymous-structural) — so `y.mk()` is "undefined: mk" in a function body as well, and the error is
+right.
+
 ### A type collected on demand inside an instance's build, reading a type still being collected, kept a zero array length — silent wrong code — DONE (binate `b6173f60b`, 2026-10-27, work-7; user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]"; fix (a): "yes"; landing: "1. wait 20 minutes, then go ahead.")
 
 `type N struct { v int64; p *Box[X] }`, `type Box[T any] struct { a [sizeof(T)]uint8 }`, `type X struct { b
