@@ -102,54 +102,29 @@ mode).
   pointeeEmbedsOpaque stops at an instance whose type arguments cannot bring an opaque type in, a later `*G[...]`
   would not judge it again — an opaque type held by value could be accepted.  Needs a repro attempt first.
 
-### Inside an immediately-invoked literal, `len` of a package array is taken as a read — a false initialization cycle — 🟡 IN PROGRESS (minor; claimed 2026-10-27, work-5/session; user: "that order is fine (and continue work after landing; you can stack commits for all of these before asking for landing permission)"; found 2026-10-27, work-5, review of the IIFE shadowing fix; reproduced; pre-existing)
+### Two package variables whose initializers spell no type at their head, each read while the other's check is in progress, compile unchecked — 🟡 IN PROGRESS MAJOR (claimed 2026-10-27, work-5/session; user: "Then work on the major"; part 1 DONE binate `4fa186628`, see the done log; waiting on the user's answer below; found 2026-10-26, work-5, review of the variable type-cycle fix; reproduced; pre-existing)
 
-`var n = func() int { return len(arr) }()` with `var arr [3]int = [3]int{n, 0, 0}` is rejected "variable initialization
-cycle involving `n`", though `len` of an array does not read it (builtin.len), as at the initializer's own level
-(TestVarInitLenOfArrayNotARead).  collectVarDepsIn (check/check_var_resolve.bn) skips `len`'s operand only outside a
-literal's body, because declaredType does not see the literal's locals, one of which may shadow the array with a slice
-(TestVarInitLenInLiteralWalked).  Once the body walk knows the names bound where it is (the IIFE shadowing entry above),
-the skip can apply in a body when the operand names nothing bound there.  Fix that, with a unit test.
+`var a = len([len(b)]int{})` with `var b = h(a).arr` and `func h(n bool) S` (S having an `arr [3]int`) compiles,
+an int passed as a bool.  a's check needs b's type; b's initializer spells no type at its head (a selector), so b is
+checked in full on demand (defineVarOnDemand, check/check_decl_batch_var.bn), and its call reads a's placeholder,
+the error type, which every check reading it treats as an error already reported.  Asked the user (2026-10-27, and
+again 2026-10-28) whether (B) that is a "variable type cycle", as the drafted `decl.var.type-acyclic` says (b's type
+depends on a's, a's on b's through the array length) — recommended, and how the same cycle through a head's needed
+variable is reported (`var u = [len(w)]int{}` with `var w = mk(u).arr`) — or (A) the checks that read the
+placeholder are done again once it has its type (the batch's PlaceholderReads logs those reads), accepting the
+program when `h` takes an int.  Either way: a conformance test of the program above.
 
-### A package variable read while its own check is in progress is typed as an error, so the checks that read it accept wrong code — 🟡 IN PROGRESS MAJOR (claimed 2026-10-27, work-5/session; user: "Then work on the major"; found 2026-10-26, work-5, review of the variable type-cycle fix; reproduced; pre-existing)
-
-`var a = len([len(b)]int{})` with `var b = [3]bool{a, true, false}` compiles (an int in a bool array) and `b[0]`
-prints `true`.  Checking a needs b's type, whose check reads a while a is still being checked: batchVarOnDemand
-(check/check_decl_batch_var.bn) then gives a the type its initializer spells at its head (varHeadType,
-check/check_var_placeholder.bn) — here none, as `len` spells no type — and otherwise a placeholder, the error
-type, which every check reading it treats as an error already reported, so b's element is never checked against
-a's real type.  (Where the head spells the type — `var b = [len(a)]int{}` with `var a = h(b)`, `func h(x [4]int)
-[3]int` — it is checked since binate `a12d578cb`: "cannot assign [3]int to [4]int".)  The initialization order
-catches the cycles made of reads alone; a cycle through a type (an array length) it never sees.  Fix: check again,
-once the variable has its type, each declaration whose check read its placeholder (the batch's PlaceholderReads
-logs those reads), with a conformance test of the program above.
-
-Also, whether a program is rejected depends on the order of its declarations: `var p = w`, `var w = [3]bool{a ==
-3, true, false}`, `var a = len([len(p)]int{})` is "variable type cycle involving `p`", while the same three in the
-order w, p, a or a, p, w compile and print 3 and 3.  p's check reads w on demand, and w is checked in full, its
-elements too, before p has a type, so a, read from w's elements, finds p's placeholder in an array length; but w's
-type is its head's, `[3]bool`, which needs none of that.  Plan: (1) a variable read on demand whose initializer
-spells its type at its head gets that type without its initializer being checked (pass 2 checks it), which fixes the
-order dependence and every program above whose reader spells its type at its head (all but one, where the reader is
-an immediately-invoked literal — not a head form until the entry below is done); (2) what remains is a variable
-whose initializer spells no type at its head read, while its check is in progress, from the check of another such
-variable: `var a = len([len(b)]int{})` with `var b = h(a).arr` and `func h(n bool) S` (S having an `arr [3]int`)
-compiles, an int passed as a bool.  Asked the user (2026-10-27) whether that is a "variable type cycle", as the
-drafted `decl.var.type-acyclic` says (b's type depends on a's, a's on b's through the array length), or the checks
-that read the placeholder are done again once it has its type (the recheck design above), accepting it when `h`
-takes an int.
-
-### A variable's type may not depend on itself: the spec has no rule, and a called function literal does not give its type at its head — 🟡 IN PROGRESS (claimed 2026-10-27, work-5/session; user: "1. yes" (to a rule in §9, next to `decl.var`, that a variable's type may not depend on itself), "Yes, we should make it consistent" (a called literal gives its type at its head as a named call does), and "that order is fine (and continue work after landing; you can stack commits for all of these before asking for landing permission)"; found 2026-10-27, work-5, the variable type-cycle tests)
+### A variable's type may not depend on itself: the spec has no rule — 🟡 IN PROGRESS (claimed 2026-10-27, work-5/session; user: "1. yes" (to a rule in §9, next to `decl.var`, that a variable's type may not depend on itself); the called function literal's head type DONE binate `e7e305386`, see the done log; found 2026-10-27, work-5, the variable type-cycle tests)
 
 The checker rejects a package variable whose type needs its own type ("variable type cycle",
 check/check_var_placeholder.bn), but the spec has no rule saying so.  What counts as a cycle depends on the
 initializers whose type is known before their operands are checked (varHeadType): a function literal, a composite
 literal whose type is written out, `cast` / `bit_cast`, and a call of a named function, of a generic function's
-instance or of a package variable's method.  A called function literal is not among them: `var b = [len(a)]int{}`
-with `var a = func() [3]int { var r [3]int; _ = b; return r }()` is "variable type cycle", while the same through a
-named function compiles.  Fix: give a called function literal its result type at the head; add
-`decl.var.type-acyclic` to docs §9.2 after `decl.var.redeclare`, listing those forms (a draft is ready); regenerate
-binate's scripts/spec-coverage/rule-ids.txt; unit and conformance tests citing the rule.
+instance, of a package variable's method or of a function literal written in place.  Fix: add
+`decl.var.type-acyclic` to docs §9.2 after `decl.var.redeclare`, listing those forms (a draft is ready; how it
+words two variables without a head form, each read while the other's check is in progress, waits on the user's
+answer in the MAJOR above); regenerate binate's scripts/spec-coverage/rule-ids.txt; unit and conformance tests
+citing the rule.
 
 ### A variable type cycle through a function's signature, met while types are collected, says "declare its type" — 🔴 OPEN (minor: diagnostic; found 2026-10-26, work-5, review of the variable type-cycle fix; reproduced; pre-existing)
 
@@ -283,30 +258,6 @@ struct with `[0]uint8` (`n.p = &x`, x an A[int], is "cannot assign *struct { a [
 [0]uint8; t int }").  A generic alias's target is resolved for its arguments (instantiateGenericAlias) in no layout
 frame that can wait, unlike a generic type's instance (check/check_layout_wait.bn).  Fix: let the alias target's
 resolution wait as an instance's build does, and be resolved again once the layout is built, with a unit test.
-
-### A constant switch tag is not given its default type: a typed case is rejected, and a tag too big for `int` matches a wrapped case — 🟡 IN PROGRESS MAJOR (claimed 2026-10-27, work-5/session; user: "that order is fine (and continue work after landing; you can stack commits for all of these before asking for landing permission)"; a valid program rejected, and a silent wrong branch; found 2026-10-27, work-5, review of the generic-function-value fix; reproduced; pre-existing)
-
-`var x int = 5` then `switch 5 { case x: … }` is rejected "mismatched types int and untyped int", and `const K = 5`
-with `var x int8` and `switch K { case x: … }` "mismatched types int8 and untyped int"; `switch 5 { case 5: … }`
-compiles.  `switch true { case b: … }` (b bool) and `switch 1.5 { case f: … }` (f float64) are rejected the same
-way.  `switch 0xFFFFFFFFFFFFFFFF { case -1: … }` takes the `-1` case on a 64-bit target (the tag wraps to -1), and
-`switch nil { default: … }` is accepted.  Asked whether the rejection is intended, the user (2026-10-27): "No, that
-seems wrong."  Root cause: checkSwitchStmt (check/check_stmt_switch.bn) gives an untyped NON-constant tag the default
-`int`, but leaves an untyped constant tag untyped, so `stmt.switch.tag`'s "each case expression must be assignable to
-the tag's type" tests `int` against untyped int, and no check that the tag fits a type ever runs.
-
-Decided (user, 2026-10-27): "I tend to believe that we should keep things simple and give it the default type", the
-same as for `a := <literal>` (spec `const.default`, `const.default.int-width`), on 32-bit targets too.  So an untyped
-constant tag takes its default type; a tag whose value does not fit `int` is rejected as `x := 0xFFFFFFFFFFFFFFFF`
-is ("cannot assign untyped int to int"; `x := 3000000000` on a 32-bit target says the same); a `nil` tag is rejected
-as `x := nil` is ("cannot infer a type from nil"); and an `int8` or `uint` case of `switch 5` stays an error.  Go
-does the same: it converts an untyped constant tag to its default type, rejects `switch 0xFFFFFFFFFFFFFFFF` and
-(GOARCH=arm) `switch 3000000000` as overflowing `int`, rejects `switch nil`, and rejects `switch 5 { case x }` for an
-`int8` or `uint` x.  An untyped case already takes the tag's type (`case -8` over an `int8` tag).  Fix: in
-checkSwitchStmt, give the tag its type the way a `:=` does (`defaultType`, `rejectNilInference`,
-`checkDefaultIntFits`); a sentence under `stmt.switch.tag`; unit tests; a conformance test (a typed case of a
-constant tag, bool and float tags).  Also: `case 300` over an `int8` tag says "mismatched types untyped int and int8"
-where `var v int8 = 300` says "cannot assign untyped int to int8"; give it the latter.
 
 ### An invalid array length makes the array `[0]T`, so its uses report follow-on errors — 🔴 OPEN (minor: a follow-on diagnostic; found 2026-10-26, work-5, probing the `len(nosuch)` change; reproduced; pre-existing)
 

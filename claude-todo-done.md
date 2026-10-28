@@ -1,3 +1,56 @@
+### A called function literal did not give its type at its head, as a call of a named function does — DONE (binate `e7e305386`, 2026-10-28, work-5; user: "Yes, we should make it consistent"; "that order is fine (and continue work after landing; you can stack commits for all of these before asking for landing permission)"; landing: "wait 14 minutes, then land all of them")
+
+`var b = [len(a)]int{}` with `var a = func() [3]int { var r [3]int; _ = b; return r }()` was "variable type cycle
+involving `a`", while the same through a named function compiled; and `var a = len([len(b)]int{})` with `var b =
+func() [3]int { var r [3]int; var t bool = a; _ = t; return r }()` compiled, b's body reading a's placeholder (an int
+as a bool).  Resolution (binate `e7e305386`): calleeResult (check/check_var_placeholder.bn) gives a function literal called
+where it is written its one result from its signature (resolveFuncDeclType), so b, named before its turn, has its type
+before its body is checked.  Tests: TestVarHeadTypeCalledLiteral, TestVarHeadTypeCalledLiteralCycle,
+TestVarHeadTypeCalledLiteralReadWhileFound (check_var_head_test.bn); conformance regressions
+var-head-type-called-literal.  Left (todo): the spec rule `decl.var.type-acyclic`, which lists the head forms.
+
+### A constant switch tag was not given its default type: a typed case was rejected, and a tag too big for `int` matched a wrapped case — DONE (binate `a3fec35c6`, docs `27051da`, 2026-10-28, work-5; user: "No, that seems wrong."; "I tend to believe that we should keep things simple and give it the default type"; "that order is fine (and continue work after landing; you can stack commits for all of these before asking for landing permission)"; landing: "wait 14 minutes, then land all of them")
+
+`var x int = 5` then `switch 5 { case x: … }` was rejected "mismatched types int and untyped int", as were
+`switch K`, `switch true { case b: }` and `switch 1.5 { case g: }`; `switch 0xFFFFFFFFFFFFFFFF { case -1: … }` took
+the -1 case on a 64-bit target (the tag wrapped to -1); `switch nil { default: }` compiled.  checkSwitchStmt gave an
+untyped non-constant tag `int` but left an untyped constant tag untyped.  Resolution (binate `a3fec35c6`): an untyped
+constant tag takes its default type as the initializer of `x := tag` does (defaultType, checkDefaultIntFits,
+rejectNilInference, check/check_stmt_switch.bn): a tag whose value does not fit `int` is "cannot assign untyped int
+to int" (3000000000 on a 32-bit target too), `switch nil` is "cannot infer a type from nil", and a case of another
+type stays a mismatch.  Go does the same.  `case 300` over an `int8` tag is "cannot assign untyped int to int8", as
+`var v int8 = 300` is.  Spec (docs `27051da`): a sentence under `stmt.switch.tag`.  Tests: check_stmt_switch_test.bn;
+conformance spec/14-statements 196_switch_constant_tag_default_type, 197_err_switch_constant_tag_overflows_int (also
+run on native arm32 baremetal).
+
+### Inside an immediately-invoked literal, `len` of a package array was taken as a read — a false initialization cycle — DONE (binate `6b4fb5c5e`, 2026-10-28, work-5; user: "that order is fine (and continue work after landing; you can stack commits for all of these before asking for landing permission)"; landing: "wait 14 minutes, then land all of them")
+
+`var n = func() int { return len(ar) }()` with `var ar [3]int = [3]int{n, 0, 0}` was rejected "variable initialization
+cycle involving `n`": collectVarDepsIn (check/check_var_resolve.bn) skipped an array operand of `len` (builtin.len)
+only outside a literal's body, because declaredType does not see the body's locals, one of which may shadow the
+package's array with a slice.  Resolution (binate `6b4fb5c5e`): in a body the operand is skipped too when the body binds
+none of the names declaredType looks its type up by — the variable, function or package it names
+(declaredTypeShadowed, check/check_var_resolve_iife.bn).  Tests: TestVarInitLenInLiteralNotARead (six forms),
+TestVarInitLenInLiteralShadowedFuncWalked; conformance regressions var-init-len-in-literal.
+
+### A variable read before its turn was checked in full, so the checks it made read a placeholder unchecked, and a program's rejection depended on its declarations' order — DONE (part 1 of a MAJOR; binate `4fa186628`, 2026-10-28, work-5; user: "Then work on the major"; "that order is fine (and continue work after landing; you can stack commits for all of these before asking for landing permission)"; landing: "wait 14 minutes, then land all of them")
+
+`var a = len([len(b)]int{})` with `var b = [3]bool{a, true, false}` compiled (an int in a bool array) and `b[0]`
+printed `true`: a's check needed b's type, b was checked in full on demand, and its elements read a's placeholder,
+the error type, taken for an error already reported.  A chain (`var w = [2]bool{x, true}`, `var x = a + 1`) left x
+with the error type and IR-gen failed ("package variable with no IR-gen type"); and `var p = w`, `var w = [3]bool{a
+== 3, true, false}`, `var a = len([len(p)]int{})` was "variable type cycle involving `p`" in that order and compiled
+in the others.  Resolution (binate `4fa186628`): a variable named before its turn whose initializer spells its type at
+its head (varHeadType) is defined with that type, as a variable with a declared type is (defineVarOnDemand,
+check/check_decl_batch_var.bn), and pass 2 checks its initializer with the real types of what it reads.  A variable
+named while the type its head spells is found on demand — `var u = [len(u)]int{}`, or `var u = [len(w)]int{5, 6,
+7}` with `var w = mk(u).arr` — is "variable type cycle involving `u`" (batchVarOnDemand); the review found the second
+compiling (an array passed where mk wants a `@S`) before that report was added.  Programs told "declare its type"
+because such a variable's initializer needed a declaration collected later now compile, as the head gives the type.
+Tests: check_var_head_test.bn; conformance regressions var-head-type-order, var-head-type-operand-checked,
+var-head-type-chain, var-head-type-read-while-found.  Left (todo): two variables without a head form, each read
+while the other's check is in progress.
+
 ### bnfmt: an interface's methods take the comments inside it, and wrap for the ones after them — DONE (binate `eeb534c6f`, 2026-10-28, temp-4; user: "take on the todos"; "then let's fix these"; landing: "wait 9 minutes, then land")
 
 printInterfaceDecl (print_decl.bn) printed an interface's methods with no comment cursor, so every comment inside an
@@ -48,7 +101,8 @@ assertion recovers (`*T`, `@T` or `T` for a type of the package or of an importe
 length is again not a read.  Tests: TestVarInitTypeAssertIsARead (the single-value form, the comma-ok forms of `:=`
 and `=`, a local's initializer, a method call's receiver, a call's argument), TestVarInitLenOfAssertedArrayNotARead
 (by `*T`, `@T`, `T` and through a dereference); conformance regressions var-init-type-assert (the direct, both
-comma-ok and the type-switch forms), var-init-type-assert-cycle, var-init-len-asserted-array.
+comma-ok and the type-switch forms), var-init-type-assert-cycle, var-init-len-asserted-array.  Coverage (binate
+`1c3a75c70`): conformance regressions var-init-len-asserted-xpkg-array (a target of an imported package's type).
 
 ### Inside an instance's build, a declaration resolved on demand that reads a member of a type not built yet is "cannot access field on this type" — DONE (binate `f7e99b80b`, 2026-10-27, work-7; user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]"; "2. yes, fold it in."; landing: "wait 9 minutes, then go ahead")
 
