@@ -2689,12 +2689,9 @@ int {` … `} // <60 bytes>` breaks before `func`, for nothing (3 of the 3,000 f
 ### bnfmt does not wrap a line whose trailing comment takes it past the cap: what remains — 🟡 IN PROGRESS (claimed 2026-10-25, temp-4; user: "then let's fix these"; "take on the todos") 🟢 LOW (found 2026-10-25, temp-4, review of the marked-line fix; pre-existing)
 
 Statements, top-level declarations and group members not aligned to a comment column reserve the comments after them
-(binate `cb6028078`), and so do switch cases (binate `26c2ba240`; see the done file).  Left, each over the cap with
-the tree's bnfmt:
-- A typed-only `var V *func(int, …) int // trailing comment` stays 113 wide, where a longer type with no comment
-  wraps; a struct field the same (`F *func(…) int // c`, 110).
-- An interface method: its comments go out of the interface (see that entry); once they stay, its signature should
-  reserve them too.
+(binate `cb6028078`), and so do switch cases (binate `26c2ba240`) and types, a struct field's among them (binate
+`35aae75f6`; see the done file).  Left: an interface method.  Its comments go out of the interface (see that entry);
+once they stay, its signature should reserve them too.
 
 ### bnfmt's lone element in brackets leaves out what follows the close — 🟡 IN PROGRESS (claimed 2026-10-26, temp-4; user: "take on the todos") 🟢 LOW (found 2026-10-26, temp-4, review of the statement trailing-comment fix; pre-existing)
 

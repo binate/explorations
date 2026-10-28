@@ -1,3 +1,26 @@
+### bnfmt: a type's width checks leave room for the comments after it, a function type's parameters for its results — DONE (binate `35aae75f6`, 2026-10-27, temp-4; user: "then let's fix these"; "take on the todos"; landing: "wait 5 minutes, then go ahead")
+
+A type was measured with nothing after it on its line.  A declaration with only a type and its comment (`var V
+*func(int, …) int // trailing comment`) printed up to 119 wide, a struct field's type 102, a type inside another type
+up to 116, and a struct type kept on one line with its comment 103.  A function type's parameters left no room for its
+results (`var V *func(…) int`, 102 with no comment), nor a function's result type for the ` {` after it (101).
+Resolution (binate `35aae75f6`): printTypeTail (print_type.bn) carries a tail through pointer, managed, slice, array,
+`readonly` and parenthesized types to a struct type, which expands for it, and to a function type and type arguments,
+which wrap for it; a typed-only declaration, a type declaration, a group member and a local `var` print their type
+with room for the comments after it, and so does a struct field (printFieldTypeTrailing, print_trail.bn); a function
+type's parameters leave room for its results (sigSuffixLen), and its results, like a signature's, for what follows
+them (printResults).  A run of struct fields pads its names only where every field's comment still fits padded
+(structRunColumn) -- padding took a 99-wide `a int // …` to 118 -- and it measures each field as it prints, after its
+name and with room for its comments (fieldLine): measured at column 0 with no room, a run left unpadded because a
+field's type wrapped was padded on a second format.  In the scripts/bnfmt-check corpora 9 files format differently, 8
+narrower: five conformance tests' function types wrap for their results, two struct runs no longer pad their names, a
+fuzz file's field type arguments wrap for its comment, and a p-mix struct run now pads its names, as its `Bodies`
+field wraps however it is padded; no file newly fails a second format.  A function type with several results wraps its
+parameters when the results do not fit after them on one line, even where the results then wrap anyway, as a function
+declaration's already did.  Tests: print_trail_type_test.bn (8); removing each of 27 pieces of the fix in turn fails
+one of them.  A test that a list of several results leaves room for what follows it is not yet landed.  Left (todo):
+interface methods.
+
 ### A package variable whose type depends on itself through an array length crashed bnc (declared type) or was accepted with a made-up type (inferred) — DONE (binate `a12d578cb`, 2026-10-27, work-5; user: "do the MAJORs in any convenient order"; landing: "wait 15 minutes, then go ahead; then continue")
 
 Two MAJORs, one cause.  `var v [len(v)]int` at package level crashed bnc with a segmentation fault and no message
