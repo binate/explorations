@@ -114,7 +114,7 @@ mode).
   pointeeEmbedsOpaque stops at an instance whose type arguments cannot bring an opaque type in, a later `*G[...]`
   would not judge it again — an opaque type held by value could be accepted.  Needs a repro attempt first.
 
-### Inside an immediately-invoked literal, `len` of a package array is taken as a read — a false initialization cycle — 🔴 OPEN (minor; found 2026-10-27, work-5, review of the IIFE shadowing fix; reproduced; pre-existing)
+### Inside an immediately-invoked literal, `len` of a package array is taken as a read — a false initialization cycle — 🟡 IN PROGRESS (minor; claimed 2026-10-27, work-5/session; user: "that order is fine (and continue work after landing; you can stack commits for all of these before asking for landing permission)"; found 2026-10-27, work-5, review of the IIFE shadowing fix; reproduced; pre-existing)
 
 `var n = func() int { return len(arr) }()` with `var arr [3]int = [3]int{n, 0, 0}` is rejected "variable initialization
 cycle involving `n`", though `len` of an array does not read it (builtin.len), as at the initializer's own level
@@ -135,6 +135,18 @@ a's real type.  (Where the head spells the type — `var b = [len(a)]int{}` with
 catches the cycles made of reads alone; a cycle through a type (an array length) it never sees.  Fix: check again,
 once the variable has its type, each declaration whose check read its placeholder (the batch's PlaceholderReads
 logs those reads), with a conformance test of the program above.
+
+### A variable's type may not depend on itself: the spec has no rule, and a called function literal does not give its type at its head — 🟡 IN PROGRESS (claimed 2026-10-27, work-5/session; user: "1. yes" (to a rule in §9, next to `decl.var`, that a variable's type may not depend on itself), "Yes, we should make it consistent" (a called literal gives its type at its head as a named call does), and "that order is fine (and continue work after landing; you can stack commits for all of these before asking for landing permission)"; found 2026-10-27, work-5, the variable type-cycle tests)
+
+The checker rejects a package variable whose type needs its own type ("variable type cycle",
+check/check_var_placeholder.bn), but the spec has no rule saying so.  What counts as a cycle depends on the
+initializers whose type is known before their operands are checked (varHeadType): a function literal, a composite
+literal whose type is written out, `cast` / `bit_cast`, and a call of a named function, of a generic function's
+instance or of a package variable's method.  A called function literal is not among them: `var b = [len(a)]int{}`
+with `var a = func() [3]int { var r [3]int; _ = b; return r }()` is "variable type cycle", while the same through a
+named function compiles.  Fix: give a called function literal its result type at the head; add
+`decl.var.type-acyclic` to docs §9.2 after `decl.var.redeclare`, listing those forms (a draft is ready); regenerate
+binate's scripts/spec-coverage/rule-ids.txt; unit and conformance tests citing the rule.
 
 ### A variable type cycle through a function's signature, met while types are collected, says "declare its type" — 🔴 OPEN (minor: diagnostic; found 2026-10-26, work-5, review of the variable type-cycle fix; reproduced; pre-existing)
 
@@ -234,7 +246,7 @@ nothing from an embedded field).  Z's declaration has no field `c`, so the membe
 (check/check_member_read.bn, fieldPath), and the selector then finds Z with no underlying type.  Fix: where neither
 the declaration's fields nor its methods have the name, report "undefined: c", with a unit test.
 
-### A constant switch tag is not given its default type: a typed case is rejected, and a tag too big for `int` matches a wrapped case — 🔴 OPEN MAJOR (a valid program rejected, and a silent wrong branch; found 2026-10-27, work-5, review of the generic-function-value fix; reproduced; pre-existing)
+### A constant switch tag is not given its default type: a typed case is rejected, and a tag too big for `int` matches a wrapped case — 🟡 IN PROGRESS MAJOR (claimed 2026-10-27, work-5/session; user: "that order is fine (and continue work after landing; you can stack commits for all of these before asking for landing permission)"; a valid program rejected, and a silent wrong branch; found 2026-10-27, work-5, review of the generic-function-value fix; reproduced; pre-existing)
 
 `var x int = 5` then `switch 5 { case x: … }` is rejected "mismatched types int and untyped int", and `const K = 5`
 with `var x int8` and `switch K { case x: … }` "mismatched types int8 and untyped int"; `switch 5 { case 5: … }`
