@@ -1014,6 +1014,20 @@ annotations: `#[build]`, `#[c_export]`); whether it constrains the function's ow
 inlining of it, or both; what the VM does (its frames are never removed); and whether `debug.Callers`
 should then promise those frames.
 
+### A cycle through a generic's layout is reported once at each place that reads it — 🔴 OPEN (minor: one cycle reported twice; found 2026-10-28, work-7, review of the constant form of the abstract-declaration wait; reproduced on main for a type being collected; pre-existing)
+
+`type Cyc[T any] struct { v T; a [sizeof(Cyc[T])]uint8 }` with `type N struct { v int64; a [sizeof(Cyc[int8])]uint8
+}` reports "cyclic type definition involving `Cyc`" twice: in Cyc's declaration and at N's `sizeof`.  With the
+constant form of the entry below (a constant read by a build its resolution started waits; not yet landed), a cycle
+through a constant does the same: `type Bx[T any] struct { a [S]uint8; t T }`, `const S = sizeof(W[int64])`, `type
+W[T any] struct { v T; p *Bx[T]; q [sizeof(Bx[T])]uint8 }` reports "… involving `Bx`" at W's `sizeof(Bx[T])` and
+"… involving `W`" at S's `sizeof` (on main: one "constant definition cycle involving `S`").  An instance that still
+waits is built on the flush's last round, which reports the cycle where its build reads a layout; a `sizeof` that
+cannot wait — a type being collected, or a constant resolved on demand in that round (layoutNotBuilt,
+check/check_layout_wait.bn) — reports it again where it reads the instance.  Fix: report a cycle once, e.g. a read
+that cannot wait builds the waiting instance for the last time first, so the cycle is reported where it closes and
+the read finds a built layout; unit tests for both forms.
+
 ### A generic's declaration that reads a variable or a function whose own check built its instance is a false cycle — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, probing the constant form of the abstract-declaration wait; reproduced on main; pre-existing)
 
 `type Bx[T any] struct { a [len(Q)]uint8; t T }`, `var Q [sizeof(W[int64])]uint8`, `type W[T any] struct { v T; p
