@@ -259,17 +259,22 @@ type X struct { b [len(w.a)]uint8 }
 var w W[Q]
 type Q struct { c [sizeof(N)]uint8 }
 ```
-N is collected; Box[X] is built and collects X on demand, which defines w, building W[Q], which collects Q,
-whose length reads N while N is collected.  W[Q] waits (check/check_layout_wait.bn: its members are undone), but X
-and w, below W[Q] on the layout-frame stack, do not: X then selects `w.a` from W[Q], which has no fields yet, and
-the program is rejected "cannot access field on this type".  A method (`len(w.mk())`) fails the same way; inside
-an inferred variable's initializer the error becomes "needed while the package's types are collected".  An
-interface still being collected does the same: `interface I { m() [sizeof(N)]uint8 }` declared first, `type X
-struct { b [len(i.m())]uint8 }`, `var i *I` (N collects Box[X], which collects X, which selects `m` from I, whose
-methods are not there yet).  With `p *X` in place of `p *Box[X]` both compile.  Fix: a field or method selected
-from a type not built yet — an instance in progress (instanceInProgress) or an interface being collected — makes
-the reading frame wait (waitForLayoutHere), as a `sizeof` of it does, reporting the cycle only where nothing can
-wait; with unit tests for both forms.
+N is collected; Box[X] is built and collects X on demand, which defines w, building W[Q], which collects Q, whose
+length reads N while N is collected.  W[Q] waits (check/check_layout_wait.bn: its members are undone), but X and w,
+below W[Q] on the layout-frame stack, do not: X then selects `w.a` from W[Q], which has no fields yet, and the
+program is rejected "cannot access field on this type".  A method (`len(w.mk())`) fails the same way; inside an
+inferred variable's initializer the error becomes "needed while the package's types are collected".  An interface
+still being collected does the same: `interface I { m() [sizeof(N)]uint8 }` declared first, `type X struct { b
+[len(i.m())]uint8 }`, `var i *I` (N collects Box[X], which collects X, which selects `m` from I, whose methods are
+not there yet).  With `p *X` in place of `p *Box[X]` both compile.  The same message comes with no instance at all
+for a type reached only through a pointer and declared later, which nothing collects before its member is read:
+`type X struct { b [len(p.c)]uint8 }`, `var p *Z`, `type Z struct { c [16]uint8 }` (with `var p Z`, or Z declared
+first, it compiles); and for an interface declared later (`var i *I`, `[len(i.m())]uint8`), since an interface is
+collected only when collection reaches it (found 2026-10-27, work-7, probing this entry; reproduced on main).  Fix:
+a field or method selected from a type not built yet — an instance in progress (instanceInProgress) or an interface
+being collected — makes the reading frame wait (waitForLayoutHere), as a `sizeof` of it does, reporting the cycle
+only where nothing can wait; and collect a type or an interface collection has not reached on demand (as
+prepareBatchType collects one whose layout is read) before its member is read; with unit tests for each form.
 
 ### An array length calling a method promoted from an embedded struct is "undefined" while the package's types are collected — 🔴 OPEN (a valid program rejected; found 2026-10-27, work-7, review of the on-demand layout-frame fix; reproduced; pre-existing)
 
