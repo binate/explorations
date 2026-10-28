@@ -2693,6 +2693,18 @@ non-idempotent).  The fix needs a measure that does not depend on how the source
 A statement's or group member's trailing comment is such a tail too (binate `cb6028078`): `m int = a * func(p int)
 int {` … `} // <60 bytes>` breaks before `func`, for nothing (3 of the 3,000 files generated to review that commit).
 
+### bnfmt aligns a run across a comment before an element on its line, which it moves to a line of its own — 🔴 OPEN 🟢 LOW (found 2026-10-28, temp-4, review of the marked method-and-field fix; pre-existing)
+
+A struct type pads its fields' names, and a group and a switch align their members' and one-line cases' comments, in
+runs that a blank line or an own-line comment breaks, found by source lines (structRunEnd, print_type.bn; groupRunEnd,
+print_group.bn; caseRunEnd, print_switch.bn).  A comment before an element on the element's own line (`/* p */ yy
+int`) is in no gap, so the element stays in the run; but it prints on a line of its own above the element
+(emitLeadingComments), which breaks the run when the output is formatted again.  `type T struct {` / `x int` /
+`/* p */ yy int` / `}` prints `x  int` / `/* p */` / `yy int`, and a second format `x int`; the same with `a = 1 //
+x` / `/* p */ bbbb = 2 // y` in a `var` or `const` group, and with `case 1: g() // a` / `/* p */ case 2222: g() //
+b` (bnfmt `bnc-0.0.17-pre3` and the tree's).  The second format is stable.  A run should break at any comment that
+prints on a line of its own between two elements, or such a comment should stay on its element's line.
+
 ### bnfmt does not keep an interface method or a struct field on a `// LONG-LINE ALLOWED` line whole — 🟡 IN PROGRESS (claimed 2026-10-28, temp-4; user: "take on the todos") 🟢 LOW (found 2026-10-27, temp-4, review of the interface-comments fix; pre-existing)
 
 A statement, a top-level declaration, a group member and a case keep a marked line as written (print_longline.bn),
