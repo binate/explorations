@@ -1658,9 +1658,10 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   `ab.py`, analysis `stats.py`) landed as binate `4f9e3c75b` (2026-10-18); done entries for all three.
   Phase-0 calibration ran 2026-10-19/20 on the x86 VM (results in the plan); its follow-ups landed as
   binate `15f9d7ac4` (usage text test), `ffe4a8e3d` (Ctrl-C tests) and `5ff452880` (ab.py page-cache drop,
-  seed-by-seed builds). Next: Holm correction of the selection guard (user decision 2026-10-20), then
-  block layout and the placement policies; a JCC-erratum mitigation experiment is motivated by the
-  blockLiveBefore result. User
+  seed-by-seed builds); the Holm correction of the selection guard (user decision 2026-10-20) landed as
+  binate `3f95bef54` (2026-10-28). Next: block layout (design drafted in the plan, awaiting user review),
+  then the placement policies; a JCC-erratum mitigation experiment is motivated by the blockLiveBefore
+  result. User
   decisions on commit 3 (2026-10-18): keep the selection order (the Decisions rule, geomean first), keep
   the 1% text budget summed over workloads, and make ab.py refuse a reference run under 0.5 s of CPU
   unless --allow-short-runs (binate `0a6a3aeaf`). Tooling commit 4 (the placement probe,

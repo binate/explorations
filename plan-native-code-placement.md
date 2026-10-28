@@ -1,5 +1,5 @@
 # Plan: native code placement (x64, aarch64, arm32)
-Status: tooling designed (2026-10-12); decisions taken 2026-10-15 (below); tooling commit 1 (placement seed) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report, `layout.py`) landed as binate `f05342e5d` (2026-10-18); tooling commit 3 (timing driver, `ab.py` / `stats.py`) landed as binate `4f9e3c75b` (2026-10-18), its short-run refusal as `0a6a3aeaf`; tooling commit 4 (probe) landed as binate `053d743c1` (2026-10-19); phase-0 calibration run on the x86 VM 2026-10-19/20 (results below); user decisions 2026-10-20: the per-workload guard gets a Holm correction over the workloads, and on this VM x64 decisions use the benchmark geomean and the self-compile while per-benchmark claims are timed on the aa64 machines. Next: the Holm change (binate commit ready, awaiting landing approval), then block layout (design drafted below, awaiting user review). Tracked in `claude-todo.md` ("native code placement").
+Status: tooling designed (2026-10-12); decisions taken 2026-10-15 (below); tooling commit 1 (placement seed) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report, `layout.py`) landed as binate `f05342e5d` (2026-10-18); tooling commit 3 (timing driver, `ab.py` / `stats.py`) landed as binate `4f9e3c75b` (2026-10-18), its short-run refusal as `0a6a3aeaf`; tooling commit 4 (probe) landed as binate `053d743c1` (2026-10-19); phase-0 calibration run on the x86 VM 2026-10-19/20 (results below); user decisions 2026-10-20: the per-workload guard gets a Holm correction over the workloads, and on this VM x64 decisions use the benchmark geomean and the self-compile while per-benchmark claims are timed on the aa64 machines. The Holm change landed as binate `3f95bef54` (2026-10-28). Next: block layout (design drafted below, awaiting user review). Tracked in `claude-todo.md` ("native code placement").
 ## Why
 
 Identical machine code runs at very different speeds depending on where it lands, on the x86 test host
@@ -621,10 +621,15 @@ Raw data and `stats.py` reports: scratch dirs aa-same-bench, aa-salted-bench, aa
   r +0.30, JCC hits r -0.22, none significant at 30 seeds).
 - The selection rule's "no workload slower beyond its 95% CI" guard rejected the salted A/A arm (n-body, and on
   the self-compile run the self-compile itself): over 9 workloads it rejects a neutral arm ~20% of the time by
-  design, more with the under-coverage above. Decided 2026-10-20: a Holm correction over the workloads
-  (stats_select: Holm's step-down test on each workload's one-sided bootstrap p-value against a slowdown,
-  family-wise 2.5%; not yet landed). On the salted A/A data above it keeps the neutral arm eligible
-  (n-body p 0.0058 > 0.025/9).
+  design, more with the under-coverage above. Decided 2026-10-20: a Holm correction over the workloads;
+  landed as binate `3f95bef54` (2026-10-28): stats_select applies Holm's step-down test, family-wise 2.5%, to
+  each workload's one-sided Student-t p-value of "the arm is not slower" (below 0.025 exactly when its 95% t
+  interval lies above 0). Not the bootstrap: its tails are too thin at 0.025/9 (normal null data rejected
+  0.0057 vs 0.0028 nominal at 40 seeds, simulated); resampling the salted A/A's centred per-seed differences
+  as the null, the summed first-threshold rate over the 9 workloads was ~2.6% for t vs ~4.8% for the
+  percentile bootstrap. Negatively skewed differences (richards, skew -1.2) still reject ~3-5x nominal under
+  t, the bootstrap, or bootstrap-t. On the salted A/A data the neutral arm is now eligible (n-body p 0.0087 >
+  0.025/9).
 
 ## Tests
 - common_place_test.bn:

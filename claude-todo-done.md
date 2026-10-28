@@ -3602,6 +3602,16 @@ reader's reason.  Tests: `relocSectionChecks` on an ELF64 RELA and an ELF32 REL 
 `TestReadObjectRejectsNonRelocatable`, `TestReadArchiveBadMemberReason`.  Checked that clang C objects (`-g`,
 `-ffunction-sections`, `-O0` / `-O1`) still link on x86-64, aarch64 and arm32.
 
+### native code placement: the selection guard is Holm-corrected over the workloads — DONE (binate `3f95bef54`, 2026-10-28)
+
+A sub-step of the open "native code placement" entry in `claude-todo.md` (user decision 2026-10-20: "maybe correct
+for running 9 at once?"). stats.py's selection rule rejected an arm when any workload's own 95% interval lay above 0,
+which over 9 workloads rejects a neutral arm ~20% of the time (it rejected the salted A/A arm). Each workload's
+difference now carries p_slower, the one-sided Student-t p-value of "the arm is not slower", and an arm is slower
+when Holm's step-down test over its workloads rejects at family-wise 2.5%; a note names a workload whose own t
+interval lies above 0 but that Holm keeps. The t p-value rather than the percentile bootstrap's, whose tails are too
+thin at 0.025/9 (simulation details in `plan-native-code-placement.md`). Reviewed twice (8 mutations, all caught).
+
 ### native code placement, phase-0 calibration and its tooling follow-ups — DONE (binate `15f9d7ac4`, `ffe4a8e3d`, `5ff452880`, 2026-10-20)
 
 A sub-step of the open "native code placement" entry in `claude-todo.md`; results are in
