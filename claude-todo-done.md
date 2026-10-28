@@ -75,8 +75,8 @@ fuzz file's field type arguments wrap for its comment, and a p-mix struct run no
 field wraps however it is padded; no file newly fails a second format.  A function type with several results wraps its
 parameters when the results do not fit after them on one line, even where the results then wrap anyway, as a function
 declaration's already did.  Tests: print_trail_type_test.bn (8); removing each of 27 pieces of the fix in turn fails
-one of them.  A test that a list of several results leaves room for what follows it is not yet landed.  Left (todo):
-interface methods.
+one of them.  binate `3aa09965e` tests that a list of several results leaves room for what follows it (giving that
+list no room passed every test before).  Left (todo): interface methods.
 
 ### A package variable whose type depends on itself through an array length crashed bnc (declared type) or was accepted with a made-up type (inferred) — DONE (binate `a12d578cb`, 2026-10-27, work-5; user: "do the MAJORs in any convenient order"; landing: "wait 15 minutes, then go ahead; then continue")
 
