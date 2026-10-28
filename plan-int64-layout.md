@@ -133,10 +133,13 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
      Split (2026-10-27, from a survey: in the native backends ArgWords ~87 uses, CallArgStackOff ~60,
      CallArgRegStart ~50, CallStackBytes ~18, EffectiveArgWords ~16; also codegen's checkStackArgs and native/common's
      param slots), as 4d was:
-     - 4c-1. callconv computes from Size() in int64: argWords, the stack words, CallArgStackOff / CallStackBytes
-       and their V forms, an indirect-large argument's one word decided before any size-derived word count.  int64
-       forms (...64) beside the int ones, which narrow fail-loud (HostInt); codegen's checkStackArgs and native/
-       common's param slots move to the int64 forms.
+     - 4c-1. DONE `e88c25dba` (2026-10-28): callconv computes from Size() in int64: argWords (rounded without an
+       overflowing add), the stack words, CallArgStackOff / CallStackBytes and their V / VFP forms, an indirect-
+       large argument's one word decided before any size-derived word count; the walkers' adds are checked
+       (stackAdd, fail-loud past the int64 range).  int64 forms (ArgWords64, CallArgStackOff64, CallStackBytes64,
+       CallArgStackOffV64, CallStackBytesV64) beside the int ones, which narrow fail-loud (HostInt); codegen's
+       checkStackArgs and native/common's param slots / PlanFrame use the int64 forms.  cmd/bnc objects
+       byte-identical on all three native targets.
      - 4c-2 / 4c-3 / 4c-4. x64 / aarch64 / arm32 stack-argument paths on the int64 forms: outgoing stores and
        incoming reads past a displacement (x64 far paths, aarch64 X17, arm32 its word), a large by-value argument
        copied with a loop, closure-shim capture offsets (x64's HostInt gone), the aarch64 capture test above.
