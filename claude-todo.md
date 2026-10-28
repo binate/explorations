@@ -832,7 +832,7 @@ an exact, range-checked encoder layer like aarch64/isa plus its parser; **(3)** 
 separately, with clang accept / reject goldens.  Then back to TLS stage 3 and the rest of the queue.  Plan and
 clang's facts: plan-asm-arm32-isa.md.
 
-### asm arm32: operand checks differ from clang (umull RdHi = RdLo, mul / mla into pc, movw pc) — 🔴 OPEN, unclaimed; the `bkpteq` part DONE binate `09f41e4f7` (found 2026-10-26, work-2, review of the arm32 feature-model change)
+### asm arm32: operand checks differ from clang (umull RdHi = RdLo, mul / mla into pc, movw pc) — 🟡 IN PROGRESS (claimed 2026-10-27, work-2, in plan-asm-arm32-isa.md stage 2: (d) in step 2a, (b) / (c) in step 2b); the `bkpteq` part DONE binate `09f41e4f7` (found 2026-10-26, work-2, review of the arm32 feature-model change)
 
 Probed against clang (Apple clang 21) with bnas from main: (b) `umull r0, r0, r1, r2` (RdHi = RdLo) is accepted; clang: "unpredictable instruction, RdHi and RdLo must be
 different".  (c) `mul pc, r0, r1` and `mla pc, r0, r1, r2` are accepted; clang: "operand must be a register in range
