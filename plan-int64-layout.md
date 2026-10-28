@@ -133,7 +133,7 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
    - 4d. RegMap's frame tables in int64 (PlanFrame bounded by the target's int, a compile error past it) and each
      backend's slot addressing, materializing offsets past an instruction's reach (aarch64 past what MemImm
      takes on the host, x64 past disp32; arm32 is a 32-bit target, so narrowing is exact).
-   - 4e (in progress, 2026-10-26, work-1). Field / element offsets and copy lengths per backend (ElemSizeOf,
+   - 4e DONE (2026-10-27). Field / element offsets and copy lengths per backend (ElemSizeOf,
      FieldByteOffset, aggregate copies).
      Split (2026-10-26, from a survey: ~225 int-layout uses in native/, most in the backends): on a 32-bit host
      SizeOf() / FieldOffset() / ArrayLenHost() panic (HostInt) on a type past 2^31 even where only a check
@@ -160,7 +160,11 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
        frame copies wrapped on a 32-bit host (two 1.5 GiB arguments made SUB SP an ADD SP, the copies overwriting
        the caller's frame; three 1 GiB ones skipped one copy) -- now int64 offsets / frame size; a single
        aggregate return read ArgWords before its sret copy.  native/common's copy-stats tally is int64.
-     - 4e-4. arm32.
+     - 4e-4. DONE `3beb3cc38` (2026-10-27): native arm32 reads Size() / Offset() / ArrayLen through checked int
+       helpers (sizeArm32 / offsetArm32 / arrayLenArm32 / layoutIntArm32): no arm32 type passes 2^31 - 1 (spec
+       type.layout.max-size; types' Size() fails loud on one), so the narrowing is exact on any host; frame offsets
+       stay int64.  cmd/bnc objects byte-identical.  After it only callconv's argWords reads the int SizeOf() in the
+       native backends (4c).  Found by its review: a variadic call's backing array is not size-checked (claude-todo).
    - 4f. asm / elf / macho / link: native backends put zero-initialized globals in bss, which records its size
      without materializing bytes (an int64 size on a 32-bit host); check crt0 / the linker scripts clear bss.
      4f-1 DONE `25ffa73f0` (2026-10-18, done before 4c-4e: it fixed a 64-bit-host failure): every native package
