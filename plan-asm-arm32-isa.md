@@ -37,6 +37,8 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
   register-shifted-register forms, S, the two-operand and Rd-less / Rn-less forms, clang's substitutions.
   User (2026-10-27): a constant's name written without `#` is an immediate wherever a number without `#` is
   ("Accept them consistently (Recommended)"), where clang takes it only where an alias or MOVW catches it.
+- 2a2. `:lower16:` / `:upper16:` operands for MOVW / MOVT (and MOV), which the text parser does not read yet (the
+  encoders' MovwLabel / MovtLabel exist); found by the 2a review.
 - 2b. Multiplies and divide: mul / mla / mls, the long forms (umull, umlal, smull, smlal, umaal), the DSP halfword
   ones (smla<x><y>, smlaw<y>, smulw<y>, smlal<x><y>, smul<x><y>), the dual ones (smuad / smusd / smlad / smlsd /
   smlald / smlsld, with X), the most-significant-word ones (smmul / smmla / smmls, with R); sdiv / udiv.
@@ -46,13 +48,18 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
   ubfx), reverse (rev / rev16 / revsh / rbit), clz.
 - 2e. Loads and stores: ldr / str / ldrb / strb, ldrh / strh / ldrsb / ldrsh, ldrd / strd in every addressing mode
   (immediate, register, scaled register, pre / post-index, writeback, literal), the T forms, pld / pldw / pli.
+  From the 2a review: a label difference as a post-indexed immediate (`ldr r0, [r1], #b-a`) is taken by bnas;
+  clang: "invalid instruction".
 - 2f. Exclusives and ordering: ldrex / strex (b, h, d), clrex, swp / swpb, the v8 acquire / release forms (lda / stl
   / ldaex / stlex families).
 - 2g. Block transfer: ldm / stm ia / ib / da / db, writeback, `^`, push / pop forms.
-- 2h. Branches: b, bl, blx <label>, blx <reg>, bx, bxj.
+- 2h. Branches: b, bl, blx <label>, blx <reg>, bx, bxj.  From the 2a review: `adr r0, <label>` with a label named
+  like a register (`r1`, `sp`, `v1`) is taken by bnas; clang: "invalid operand for instruction" (`b r1` to such a
+  label is fine in both).
 - 2i. System and hints: svc, bkpt, udf, hvc, smc, eret, mrs / msr (APSR / CPSR / SPSR fields, banked registers),
   cps, setend, srs / rfe, nop / yield / wfe / wfi / sev / sevl / dbg / csdb / esb, dmb / dsb / isb with options,
-  sb, ssbb / pssbb, setpan, hlt.
+  sb, ssbb / pssbb, setpan, hlt.  From the 2a review: `svc #K` with K a label difference is taken by bnas; clang:
+  "operand must be an immediate in the range [0,0xffffff]".
 - 2j. Coprocessor: mcr / mrc (and 2), mcrr / mrrc (and 2), cdp (and 2), ldc / stc (and 2, L).
 
 ## Stage 1: the feature model — DONE (binate `09f41e4f7`)
