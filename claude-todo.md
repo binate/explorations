@@ -850,6 +850,12 @@ which then stays in the symbol table — so the linker can interwork or add a ve
 by both).  The assemble tests compare those objects by their symbols only.  **Fix:** decide each with the user
 (clang's choice, or keep bnas's), then follow it and make the cases full-layout goldens.
 
+### asm text: `;` as a statement separator — 🔴 OPEN, unclaimed (found 2026-10-27, work-2, review of the arm32 data-processing step)
+
+clang takes `;` between statements on one line in ARM code (`add r0, r1; nop`); bnas's lexer rejects the line.  Probe
+which targets clang takes it on (ARM; AArch64 and x86-64 may differ — on some, `;` starts a comment or separates as
+well), then split statements in prepareLine / parseLine as clang does.
+
 ### asm text: string escapes and directive-name case differ from clang — 🔴 OPEN, unclaimed (found 2026-10-26, work-2, review of the `.ARM.attributes` change)
 
 (a) bnas's lexer decodes and checks the escapes of every string token, so a line with an escape it refuses fails

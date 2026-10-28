@@ -35,6 +35,8 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
 
 - 2a. Data processing: the 16 operations × immediate (modified immediate), register (shift by immediate, RRX) and
   register-shifted-register forms, S, the two-operand and Rd-less / Rn-less forms, clang's substitutions.
+  User (2026-10-27): a constant's name written without `#` is an immediate wherever a number without `#` is
+  ("Accept them consistently (Recommended)"), where clang takes it only where an alias or MOVW catches it.
 - 2b. Multiplies and divide: mul / mla / mls, the long forms (umull, umlal, smull, smlal, umaal), the DSP halfword
   ones (smla<x><y>, smlaw<y>, smulw<y>, smlal<x><y>, smul<x><y>), the dual ones (smuad / smusd / smlad / smlsd /
   smlald / smlsld, with X), the most-significant-word ones (smmul / smmla / smmls, with R); sdiv / udiv.
