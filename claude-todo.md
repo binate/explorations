@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### The initialization order misses a read through a type assertion `x.(K T)` — silent wrong initialization order — 🔴 OPEN CRITICAL (found 2026-10-27, work-5, review of the IIFE shadowing fix; reproduced; pre-existing)
+### The initialization order misses a read through a type assertion `x.(K T)` — silent wrong initialization order — 🟡 IN PROGRESS CRITICAL (claimed 2026-10-27, work-5/session; user: "then continue with the CRITICAL fix"; found 2026-10-27, work-5, review of the IIFE shadowing fix; reproduced; pre-existing)
 
 `var a = sh.(*Sq).s` followed by `var q Sq = Sq{s: 7}` and `var sh *Shape = &q` compiles, and initializing a fails at
 run time ("type assertion failed: <unset> is not main.Sq"): a is initialized before sh.  The comma-ok form in an
@@ -278,6 +278,18 @@ wait; with unit tests for both forms.
 all declared first.  A method of Y's own resolves (batchMethodOnDemand, check/check_decl_batch_method.bn, through
 lookupVisibleMethod); the promoted one is not found while types are collected.  Fix: look the method up through
 the embedded fields during collection as after it, with a unit test.
+
+### A constant switch tag is not given a type, so a typed case is "mismatched types int and untyped int" — 🔴 OPEN (a valid program rejected; found 2026-10-27, work-5, review of the generic-function-value fix; reproduced; pre-existing)
+
+`var x int = 5` then `switch 5 { case x: … }` is rejected "mismatched types int and untyped int", and `const K = 5`
+with `var x int8` and `switch K { case x: … }` "mismatched types int8 and untyped int"; `switch 5 { case 5: … }`
+compiles.  Asked whether the rejection is intended, the user (2026-10-27): "No, that seems wrong."  Root cause:
+checkSwitchStmt (check/check_stmt_switch.bn) gives an untyped NON-constant tag the default `int`, but leaves an
+untyped constant tag untyped, so `stmt.switch.tag`'s "each case expression must be assignable to the tag's type"
+tests `int` against untyped int.  The spec does not say what an untyped constant tag's type is, so the fix needs that
+decided first: the tag takes its default type (an `int8` case is then still rejected), or each case is compared as
+`tag == case`, the constant taking the case's type.  Then a sentence under `stmt.switch.tag`, the checker change,
+and a conformance test.
 
 ### A struct field's array length naming a variable initialized with the struct is "cannot access field on this type" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-10-26, work-5, probing the variable type-cycle fix; reproduced; pre-existing)
 
