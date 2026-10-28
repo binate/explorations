@@ -1,3 +1,22 @@
+### The initialization order misses a read through a type assertion `x.(K T)` — silent wrong initialization order — DONE (binate `5e54b7554`, 2026-10-27, work-5; user: "then continue with the CRITICAL fix"; "(wait at 15 minutes and land 050ccfc09, but you can continue your investigation while waiting)")
+
+`var a = sh.(*Sq).s` followed by `var q Sq = Sq{s: 7}` and `var sh *Shape = &q` compiles, and initializing a fails at
+run time ("type assertion failed: <unset> is not main.Sq"): a is initialized before sh.  The comma-ok form in an
+immediately-invoked literal (`var a = func() int { v, ok := sh.(*Sq); if ok { return v.s }; return -1 }()`) silently
+gives -1 instead of 7, and a real cycle through one (`var a = sh.(*Sq).s` with `var sh *Shape = mk(a)`) is accepted
+with no "variable initialization cycle".  Root cause: collectVarDepsIn (check/check_var_resolve.bn) had no
+EXPR_TYPE_ASSERT case, so it fell through to `return deps` and never walked the assertion's operand X, a read
+prog.init.order counts.  (A type switch's scrutinee is walked, as the statement's X; every other expression kind with
+an operand is walked.)
+Resolution (binate `5e54b7554`): collectVarDepsIn walks a type assertion's operand (iface.assert), so `x.(K T)` reads x
+for the initialization order.  The review of the first version found that this made `len(sh.(*Bx).arr)` a false
+cycle (the length of an array does not evaluate its operand, builtin.len); declaredType now gives the type an
+assertion recovers (`*T`, `@T` or `T` for a type of the package or of an imported one, declaredAssertType), so that
+length is again not a read.  Tests: TestVarInitTypeAssertIsARead (the single-value form, the comma-ok forms of `:=`
+and `=`, a local's initializer, a method call's receiver, a call's argument), TestVarInitLenOfAssertedArrayNotARead
+(by `*T`, `@T`, `T` and through a dereference); conformance regressions var-init-type-assert (the direct, both
+comma-ok and the type-switch forms), var-init-type-assert-cycle, var-init-len-asserted-array.
+
 ### Inside an instance's build, a declaration resolved on demand that reads a member of a type not built yet is "cannot access field on this type" — DONE (binate `f7e99b80b`, 2026-10-27, work-7; user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]"; "2. yes, fold it in."; landing: "wait 9 minutes, then go ahead")
 
 ```

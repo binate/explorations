@@ -5,18 +5,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### The initialization order misses a read through a type assertion `x.(K T)` — silent wrong initialization order — 🟡 IN PROGRESS CRITICAL (claimed 2026-10-27, work-5/session; user: "then continue with the CRITICAL fix"; found 2026-10-27, work-5, review of the IIFE shadowing fix; reproduced; pre-existing)
-
-`var a = sh.(*Sq).s` followed by `var q Sq = Sq{s: 7}` and `var sh *Shape = &q` compiles, and initializing a fails at
-run time ("type assertion failed: <unset> is not main.Sq"): a is initialized before sh.  The comma-ok form in an
-immediately-invoked literal (`var a = func() int { v, ok := sh.(*Sq); if ok { return v.s }; return -1 }()`) silently
-gives -1 instead of 7, and a real cycle through one (`var a = sh.(*Sq).s` with `var sh *Shape = mk(a)`) is accepted
-with no "variable initialization cycle".  Root cause: collectVarDepsIn (check/check_var_resolve.bn) has no
-EXPR_TYPE_ASSERT case, so it falls through to `return deps` and never walks the assertion's operand X, a read
-prog.init.order counts.  (A type switch's scrutinee is walked, as the statement's X; every other expression kind with
-an operand is walked.)  Fix: walk e.X for EXPR_TYPE_ASSERT, with a unit test of the cycle and a conformance test of
-the two programs that run.
-
 ### Constraint calls through `impl *P` / `impl @M` give wrong results — needs a spec decision — 🔴 NEEDS DECISION (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
 
 ```
