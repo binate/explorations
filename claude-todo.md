@@ -124,6 +124,21 @@ catches the cycles made of reads alone; a cycle through a type (an array length)
 once the variable has its type, each declaration whose check read its placeholder (the batch's PlaceholderReads
 logs those reads), with a conformance test of the program above.
 
+Also, whether a program is rejected depends on the order of its declarations: `var p = w`, `var w = [3]bool{a ==
+3, true, false}`, `var a = len([len(p)]int{})` is "variable type cycle involving `p`", while the same three in the
+order w, p, a or a, p, w compile and print 3 and 3.  p's check reads w on demand, and w is checked in full, its
+elements too, before p has a type, so a, read from w's elements, finds p's placeholder in an array length; but w's
+type is its head's, `[3]bool`, which needs none of that.  Plan: (1) a variable read on demand whose initializer
+spells its type at its head gets that type without its initializer being checked (pass 2 checks it), which fixes the
+order dependence and every program above whose reader spells its type at its head (all but one, where the reader is
+an immediately-invoked literal — not a head form until the entry below is done); (2) what remains is a variable
+whose initializer spells no type at its head read, while its check is in progress, from the check of another such
+variable: `var a = len([len(b)]int{})` with `var b = h(a).arr` and `func h(n bool) S` (S having an `arr [3]int`)
+compiles, an int passed as a bool.  Asked the user (2026-10-27) whether that is a "variable type cycle", as the
+drafted `decl.var.type-acyclic` says (b's type depends on a's, a's on b's through the array length), or the checks
+that read the placeholder are done again once it has its type (the recheck design above), accepting it when `h`
+takes an int.
+
 ### A variable's type may not depend on itself: the spec has no rule, and a called function literal does not give its type at its head — 🟡 IN PROGRESS (claimed 2026-10-27, work-5/session; user: "1. yes" (to a rule in §9, next to `decl.var`, that a variable's type may not depend on itself), "Yes, we should make it consistent" (a called literal gives its type at its head as a named call does), and "that order is fine (and continue work after landing; you can stack commits for all of these before asking for landing permission)"; found 2026-10-27, work-5, the variable type-cycle tests)
 
 The checker rejects a package variable whose type needs its own type ("variable type cycle",
