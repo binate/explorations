@@ -1,3 +1,19 @@
+### asm arm32 stage 2a: data processing as clang takes it — DONE (binate `4925d2d0c`, 2026-10-28, work-2; user: "Extend asm/arm32 (Recommended)", "Accept them consistently (Recommended)")
+
+Every data-processing form clang takes (plan-asm-arm32-isa.md step 2a), checked by a differential harness against
+clang (`--target=arm-linux-gnueabihf -march=armv7ve`) over ~5,000 cases plus ~4,600 from the review's probe lists:
+identical bytes wherever clang accepts, except the deliberate differences (an immediate past 32 bits and a float
+literal are errors; clang truncates the one and encodes the other as 0).  Covered: `Rd, op2` for `Rd, Rd, op2`;
+`asl`; `.w` (repeated) ignored and `.n` an error; register names in any case with the APCS names, no leading zero;
+`$` (a lone `$` wherever `#` goes, `$4` in data-processing and pre-indexed memory operands); `imm8, rot` with or
+without prefixes; a constant's name as an immediate wherever a number goes (MOV's 16-bit value as MOVW, as clang
+matches a name) and as a shift instruction's amount; a label difference left to the immediate's own encoding (none
+in MOV / MOVW / MOVT, a shift amount or a rotation), written with `#` or starting with a label's name; no MOV / MVN
+or CMP / CMN substitute with SP or PC; MOVW into PC taken and MOVT into PC rejected (the operand-check entry's part
+(d)); memory shift names in lower or upper case only; PC with a register-shifted register where clang rejects it.
+Follow-ups: step 2a2 (`:lower16:` / `:upper16:`) and the later steps' review items, in the plan; todo entries for
+`.set` / `.equ` and for two general differences (a symbol defined nowhere, a forward constant).
+
 ### The initialization order misses a read through a type assertion `x.(K T)` — silent wrong initialization order — DONE (binate `5e54b7554`, 2026-10-27, work-5; user: "then continue with the CRITICAL fix"; "(wait at 15 minutes and land 050ccfc09, but you can continue your investigation while waiting)")
 
 `var a = sh.(*Sq).s` followed by `var q Sq = Sq{s: 7}` and `var sh *Shape = &q` compiles, and initializing a fails at

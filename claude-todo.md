@@ -863,7 +863,7 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### asm arm32: an ARM feature model gating instructions as clang does, and the forms it lacks — 🟡 IN PROGRESS (claimed 2026-10-26, work-2; stage 1, the feature model, DONE binate `09f41e4f7`, see the done log; found 2026-10-25, work-2, the `.ARM.attributes` work; user: "Attributes now, gating next (Recommended)")
+### asm arm32: an ARM feature model gating instructions as clang does, and the forms it lacks — 🟡 IN PROGRESS (claimed 2026-10-26, work-2; stage 1, the feature model, DONE binate `09f41e4f7`; stage 2's step 2a, data processing, DONE binate `4925d2d0c`; see the done log; found 2026-10-25, work-2, the `.ARM.attributes` work; user: "Attributes now, gating next (Recommended)")
 
 clang gates arm32 instructions by the target's features, which `.cpu` and `.fpu` change: a CPU without VFP (generic,
 arm7tdmi, xscale) rejects VFP instructions, a Thumb-only CPU (cortex-m*) switches to Thumb mode (bnas: an error), `.fpu
@@ -880,11 +880,11 @@ an exact, range-checked encoder layer like aarch64/isa plus its parser; **(3)** 
 separately, with clang accept / reject goldens.  Then back to TLS stage 3 and the rest of the queue.  Plan and
 clang's facts: plan-asm-arm32-isa.md.
 
-### asm arm32: operand checks differ from clang (umull RdHi = RdLo, mul / mla into pc, movw pc) — 🟡 IN PROGRESS (claimed 2026-10-27, work-2, in plan-asm-arm32-isa.md stage 2: (d) in step 2a, (b) / (c) in step 2b); the `bkpteq` part DONE binate `09f41e4f7` (found 2026-10-26, work-2, review of the arm32 feature-model change)
+### asm arm32: operand checks differ from clang (umull RdHi = RdLo, mul / mla into pc) — 🟡 IN PROGRESS (claimed 2026-10-27, work-2, in plan-asm-arm32-isa.md stage 2, step 2b); the `bkpteq` part DONE binate `09f41e4f7`, (d) `movw pc` DONE binate `4925d2d0c` (found 2026-10-26, work-2, review of the arm32 feature-model change)
 
 Probed against clang (Apple clang 21) with bnas from main: (b) `umull r0, r0, r1, r2` (RdHi = RdLo) is accepted; clang: "unpredictable instruction, RdHi and RdLo must be
 different".  (c) `mul pc, r0, r1` and `mla pc, r0, r1, r2` are accepted; clang: "operand must be a register in range
-[r0, r14]".  (d) `movw pc, #1` is rejected ("MOVW / MOVT destination must be R0..R14"); clang accepts it (01F000E3).
+[r0, r14]".
 **Fix:** the operand rules of the exact A32 encoder layer (plan-asm-arm32-isa.md stage 2), each against clang.
 
 ### asm: two general differences from clang — a symbol defined nowhere needs `.global`, and a constant cannot be used before its definition — 🔴 OPEN, unclaimed (found 2026-10-28, work-2, the arm32 2a review's probe lists)

@@ -33,7 +33,7 @@ sub-packages) — and the parser taking every A32 form clang takes, each gated b
 (operand combinations valid and invalid: registers incl. SP / PC, immediates at and past their ranges, every shift,
 condition and flag form, clang's aliases and shorthands), the cases pinned as in-tree goldens.
 
-- 2a. Data processing: the 16 operations × immediate (modified immediate), register (shift by immediate, RRX) and
+- 2a. DONE (binate `4925d2d0c`).  Data processing: the 16 operations × immediate (modified immediate), register (shift by immediate, RRX) and
   register-shifted-register forms, S, the two-operand and Rd-less / Rn-less forms, clang's substitutions.
   User (2026-10-27): a constant's name written without `#` is an immediate wherever a number without `#` is
   ("Accept them consistently (Recommended)"), where clang takes it only where an alias or MOVW catches it.
