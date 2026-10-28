@@ -276,6 +276,17 @@ being collected — makes the reading frame wait (waitForLayoutHere), as a `size
 only where nothing can wait; and collect a type or an interface collection has not reached on demand (as
 prepareBatchType collects one whose layout is read) before its member is read; with unit tests for each form.
 
+### An array length reading a composite literal of a type declared later, or a parent interface's method, is rejected while the package's types are collected — 🔴 OPEN (a valid program rejected; found 2026-10-27, work-7, probing the member-read entry above; reproduced on main; pre-existing)
+
+`type X struct { b [len(Z{}.c)]uint8 }` with `type Z struct { c [16]uint8 }` declared after it is rejected "cannot
+use an opaque type by value" and "cannot access field on this type" (Z declared first, it compiles): nothing
+collects the literal's type before its fields are read.  `interface P { m() [16]uint8 }`, `interface I : P { n()
+int }`, `var i *I`, `type X struct { b [len(i.m())]uint8 }` — all declared in that order — is rejected "cannot
+access field on this type": an interface's parents are resolved only once the whole batch is collected
+(resolvePendingIfaceParents, check/check_interface.bn), so a method it inherits is not there during collection.
+Fix: collect a composite literal's type on demand (prepareLayout) where collection has not reached it; resolve an
+interface's parents on demand when a method is looked up on it during collection; unit tests for both.
+
 ### An array length calling a method promoted from an embedded struct is "undefined" while the package's types are collected — 🔴 OPEN (a valid program rejected; found 2026-10-27, work-7, review of the on-demand layout-frame fix; reproduced; pre-existing)
 
 `type E struct { k int }`, `func (s E) mk() [16]uint8`, `type Y struct { E }`, `var y Y`, then `type X struct { b
