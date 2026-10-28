@@ -874,6 +874,15 @@ different".  (c) `mul pc, r0, r1` and `mla pc, r0, r1, r2` are accepted; clang: 
 [r0, r14]".  (d) `movw pc, #1` is rejected ("MOVW / MOVT destination must be R0..R14"); clang accepts it (01F000E3).
 **Fix:** the operand rules of the exact A32 encoder layer (plan-asm-arm32-isa.md stage 2), each against clang.
 
+### asm: two general differences from clang — a symbol defined nowhere needs `.global`, and a constant cannot be used before its definition — 🔴 OPEN, unclaimed (found 2026-10-28, work-2, the arm32 2a review's probe lists)
+
+(a) A reference to a symbol the file never defines (`b R0`, `bl SL`, `ldr r0, K`) is an error in bnas ("undefined symbol
+'R0' (declare it .global if it is defined elsewhere)", from `asm.bn`); clang makes it an undefined symbol for the
+linker.  (b) A constant used before its definition (`add r0, r1, #K` and then `K = 4`) is an error in bnas ("'K' is
+not a constant defined before this line"); clang takes it (E2810004).  Both are rejected on all three architectures
+((b) with other messages on AArch64 and x86-64) and predate the arm32 work.  **Fix:** decide each with the user
+first — (a) may be deliberate (it catches a misspelt name) — then match clang or record the decision.
+
 ### asm: `.set` / `.equ` (and `.equiv` / `.eqv`) are unknown directives — 🔴 OPEN, unclaimed (found 2026-10-27, work-2, the arm32 data-processing harness)
 
 bnas defines a constant only as `name = expr`.  clang also takes `.set name, expr` and `.equ name, expr` (probed on arm32:
