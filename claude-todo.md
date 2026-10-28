@@ -47,6 +47,18 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
+### The checker accepts a constant cycle through a generic instance's field, and IR-gen panics — 🔴 OPEN (MAJOR: an internal-error crash on an invalid program; found 2026-10-28, work-7, review of the constant form of the abstract-declaration wait; reproduced on main, also before binate `f7e99b80b`; pre-existing)
+
+`type Bx[T any] struct { a [S]uint8; t T }`, `var gv Bx[int64]`, `const S = len(gv.a)` (in either order) passes the
+type checker, and bnc then stops with "panic: internal error: IR generation cannot evaluate a constant the type
+checker accepted".  It is a cycle — S is the length of gv.a, whose length is S — and the same without generics
+(`type B struct { a [S]uint8; t int }`, `var gv B`) is "cyclic type definition involving `B`".  Root cause not traced:
+gv's type builds Bx[int64], whose declaration (resolved with its type parameters abstract) and build read S on
+demand, whose `len(gv.a)` reads a field of Bx[int64] while it is built (a member read of a type not built yet
+waits, check/check_member_read.bn; layout frames, check/check_layout_wait.bn); somewhere on the last, no-wait round
+that read or S's resolution is dropped without an error, leaving S with no value.  Fix: find where the cycle's error
+is lost and report it (one error), with a conformance error test (it panics today) and a unit test.
+
 ### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🔴 NEEDS DECISION, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
 `builder-comp_arm32_baremetal` runs each package's test binary in QEMU `virt` with `-m 16M`, linked by
