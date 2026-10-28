@@ -1,3 +1,23 @@
+### A generic's declaration resolved abstractly that read a layout not built yet was a false cycle — DONE (binate `2de248620`, 2026-10-28, work-7; user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]"; landing: "wait 18 minutes, then land")
+
+`type Box[T any] struct { a [sizeof(N)]uint8; t T }` with `type N struct { v int64; p *Box[int] }` was "cyclic type
+definition involving `N`", and so were a declaration reading the size of an instance being built
+(`[sizeof(W[int64])]uint8`, `type W[T any] struct { v T; p *Bx[T] }`), a generic interface's (`interface G[T any] {
+m() [sizeof(N)]uint8 }`), and one reading a method of an interface being collected (`[len(i.n())]uint8`, `interface
+I { m() *Box[int]; n() [4]uint8 }`): the declaration is resolved once with its type parameters abstract, inside the
+collection or build that first names an instance, in a frame that could not wait.  Resolution (binate `2de248620`):
+that resolution is a layout frame of its own (layoutFrame.Abstract, check/check_layout_wait_abstract.bn) that waits
+as an instance's build does — what it reports meanwhile is dropped, no declaration is resolved on demand inside it
+(skipDemand), what it recorded on the syntax is cleared (ast.ClearTypeExprAnnotations, ast.ClearCheckerAnnotations)
+— and it is resolved again with the instances waiting for a layout (InstanceState.AbstractWaits,
+flushLayoutRounds), whose last round reports a real cycle once (`type N struct { v int64; b Box[int] }`).  The
+REPL's prompt rollback leaves AbstractWaits alone, as it leaves LayoutWaiting.
+Tests: check_layout_wait_abstract_test.bn, ast's TestClearTypeExprAnnotationsInPlace; conformance spec/15-builtins
+164_sizeof_concrete_in_generic_decl_in_progress.  Left (todo, the same entry): the `.bni` case and the form
+through a constant.  Filed from its review, both pre-existing: "A build that waits for a layout still builds the
+instances it names from the length it could not read, and reports their errors" and "A generic alias of a struct
+type that takes the size of a type being collected is a false cycle".
+
 ### A called function literal did not give its type at its head, as a call of a named function does — DONE (binate `e7e305386`, 2026-10-28, work-5; user: "Yes, we should make it consistent"; "that order is fine (and continue work after landing; you can stack commits for all of these before asking for landing permission)"; landing: "wait 14 minutes, then land all of them")
 
 `var b = [len(a)]int{}` with `var a = func() [3]int { var r [3]int; _ = b; return r }()` was "variable type cycle

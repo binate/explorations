@@ -983,28 +983,24 @@ annotations: `#[build]`, `#[c_export]`); whether it constrains the function's ow
 inlining of it, or both; what the VM does (its frames are never removed); and whether `debug.Callers`
 should then promise those frames.
 
-### An instance's `sizeof` of a type not built yet: two cases still rejected — a `.bni`'s own declarations, and a generic's declaration reading a concrete type being collected — 🟡 IN PROGRESS (claimed 2026-10-26, work-7/session; user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]") (minor; found 2026-10-19, work-7, review of the layout-wait change; reproduced; pre-existing)
+### An instance's `sizeof` of a type not built yet: still rejected in a `.bni`'s own declarations, and through a constant a generic's declaration reads — 🟡 IN PROGRESS (claimed 2026-10-26, work-7/session; user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]") (minor; found 2026-10-19, work-7, review of the layout-wait change; reproduced; pre-existing)
 
 Since binate `a25aeb940` an instance whose build reads the layout of a type not built yet waits for it
-(check_layout_wait.bn).  Two cases do not get that, and stay rejected as before:
+(check_layout_wait.bn), and since binate `2de248620` so does a generic's own declaration resolved with its type
+parameters abstract (check_layout_wait_abstract.bn).  Two forms are still rejected:
 (1) declared in a `.bni` — `type Box[T any] struct { a [sizeof(T)]uint8 }` and
 `type N struct { v int64; next *Box[N] }` in `q.bni` is "an opaque type" at q.bni, though the same in `q.bn`
 compiles: a `.bni`'s types are not collected through the DeclBatch, so N being built is not seen as in progress
-(next to the `.bni` `sizeof` MAJOR above);
-(2) a generic's own declaration reading a concrete type being collected —
-`type Box[T any] struct { a [sizeof(N)]uint8; t T }` with `type N struct { v int64; p *Box[int] }` is "cyclic type
-definition involving `N`": Box's declaration is resolved with its type parameters abstract when Box[int] is first
-named, inside N's collection, and that resolution (once per declaration, in a frame where nothing waits) reads N.
-Fix (2) by letting the abstract resolution wait like an instance (resolved again later); (1) needs the `.bni`'s
-types collected as the batch collects the `.bn`'s.
-A related form, through a constant: `type Bx[T any] struct { a [S]uint8; t T }`, `const S = sizeof(W[int64])`,
-`type W[T any] struct { v T; p *Bx[T] }` is "constant definition cycle involving `S`" — Bx's declaration, resolved
-with its type parameters abstract while S is resolved, reads S; whether letting the abstract resolution wait covers
-it is not checked.
-An interface's method read the same way is case (2) too: `type Box2[T any] struct { a [len(i.n())]uint8; t *T }`,
-`interface I { m() *Box2[int]; n() [4]uint8 }`, `var i *I` is "cyclic type definition involving `I`" (before binate
-`f7e99b80b`, "cannot access field on this type"): collecting I names Box2[int] in `m`, and Box2's abstract
-resolution reads `i.n()` while I is collected.
+(next to the `.bni` `sizeof` MAJOR above).  Fix: collect the `.bni`'s types as the batch collects the `.bn`'s.
+(2) through a constant — `type Bx[T any] struct { a [S]uint8; t T }`, `const S = sizeof(W[int64])`,
+`type W[T any] struct { v T; p *Bx[T] }` is "constant definition cycle involving `S`" (checked on binate
+`2de248620`); the same without generics compiles.  Resolving S builds W[int64], which names Bx[int64]; Bx's
+declaration, resolved abstractly, reads S while S is still resolved, and resolveConstByName
+(check/check_const_resolve.bn) reports the cycle at once instead of letting the abstract resolution wait.  Fix: a
+read of a constant still resolved waits when a frame that can wait was entered after that constant's resolution
+started (each constant keeps the frame depth it started at); a constant being resolved counts as collecting, so
+the flush's last round, which reports cycles, does not run inside it; and the waits are flushed after each
+constant's resolution.
 
 ## Performance
 
