@@ -152,7 +152,7 @@ literal's body, because declaredType does not see the literal's locals, one of w
 (TestVarInitLenInLiteralWalked).  Once the body walk knows the names bound where it is (the IIFE shadowing entry above),
 the skip can apply in a body when the operand names nothing bound there.  Fix that, with a unit test.
 
-### A package variable read while its own check is in progress is typed as an error, so the checks that read it accept wrong code — 🔴 OPEN MAJOR (found 2026-10-26, work-5, review of the variable type-cycle fix; reproduced; pre-existing)
+### A package variable read while its own check is in progress is typed as an error, so the checks that read it accept wrong code — 🟡 IN PROGRESS MAJOR (claimed 2026-10-27, work-5/session; user: "Then work on the major"; found 2026-10-26, work-5, review of the variable type-cycle fix; reproduced; pre-existing)
 
 `var a = len([len(b)]int{})` with `var b = [3]bool{a, true, false}` compiles (an int in a bool array) and `b[0]`
 prints `true`.  Checking a needs b's type, whose check reads a while a is still being checked: batchVarOnDemand
