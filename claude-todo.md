@@ -169,6 +169,31 @@ variable is reported (`var u = [len(w)]int{}` with `var w = mk(u).arr`) — or (
 placeholder are done again once it has its type (the batch's PlaceholderReads logs those reads), accepting the
 program when `h` takes an int.  Either way: a conformance test of the program above.
 
+### An array length checked while its variable's type is found takes that variable's placeholder for an error: its errors are lost, and a variable read before its turn is a false cycle — 🔴 OPEN (minor: a valid program rejected, and ill-typed code that is never compiled accepted; found 2026-10-28, work-5, review of the placeholder MAJOR's part 2; reproduced; the false cycle since binate `4fa186628`, the rest pre-existing)
+
+`var u = [len(pick(func() int { return len(u) }))]int{}` (`func pick(f @func() int) [3]int`) compiles, as
+TestVarTypeCycleFuncLitBodyNotCycle pins (the length is pick's result's, and the literal is never compiled), but
+with `var z = u` before it is "variable type cycle involving `u`".  Read before its turn, u's head type is found on
+demand (varHeadType), and u named inside it is reported at once (batchVarOnDemand's head-typing branch, since binate
+`4fa186628`); pass 2's check of u instead finds its head type again inside the check (the VarsChecking branch), where
+the literal's read is a placeholder whose error does not reach the length.  Likewise `var u = [len(w)]int{}` with
+`var w = [len(pick(func() int { return len(u) }))]int{}` is "variable type cycle" in either order, though w's length
+does not need u.
+
+And errors in an array length's operand checked against a placeholder are lost: `var u = wrap([len(pick(func() int
+{ var t bool = u[0]; _ = t; return 0 }))]int{}).arr` (`func wrap(x [3]int) S`) compiles, an int assigned to a bool
+in a literal that is never compiled; and `var z = u` with `var u = [len(pick(func() int { var t bool = u[0]; _ = t;
+return 0 }))]int{}` is "variable type cycle involving `u`" (by the report at once above), where u alone gives
+"cannot assign int to bool".  The operand's type is kept (checkerEnv.Len reuses its ResolvedTypeID), so pass 2 does
+not check it again.
+
+Tried (not landed): finding the head's type again inside the on-demand head typing, as pass 2 does.  It fixed both,
+but `func f() int { return len(u) }` with `var u = [len(w)]int{5, 6, 7}` and `var w = mk(u).arr` then blamed w and
+left u a `[0]int` (follow-on "too many elements in array literal"), and `var w = [len(pick(func() int { return
+len(u) }))]int{}` with `var u = [len(w)]int{}` stayed a cycle.  Fix (to design): once the variable has its type,
+check again the array-length operands that read its placeholder (their kept types dropped), reporting their errors,
+rather than reporting a cycle at once; unit tests of the programs above.
+
 ### A variable's type may not depend on itself: the spec has no rule — 🟡 IN PROGRESS (claimed 2026-10-27, work-5/session; user: "1. yes" (to a rule in §9, next to `decl.var`, that a variable's type may not depend on itself); the called function literal's head type DONE binate `e7e305386`, see the done log; found 2026-10-27, work-5, the variable type-cycle tests)
 
 The checker rejects a package variable whose type needs its own type ("variable type cycle",
