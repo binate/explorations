@@ -59,12 +59,37 @@ waits, check/check_member_read.bn; layout frames, check/check_layout_wait.bn); s
 that read or S's resolution is dropped without an error, leaving S with no value.  Fix: find where the cycle's error
 is lost and report it (one error), with a conformance error test (it panics today) and a unit test.
 
-### CI red: the slow lanes hit their job time limits — unit int-int shards, conformance int-int and comp-comp-comp — 🟡 IN PROGRESS (claimed 2026-10-28, work-3; user: "both"), investigating (filed 2026-10-28, work-3)
+### CI red: the slow lanes hit their job time limits — unit int-int shards, conformance int-int and comp-comp-comp — 🟡 INVESTIGATED, NEEDS DECISION (claimed 2026-10-28, work-3; user: "both") (filed 2026-10-28, work-3)
 
 Unit run 40643666280 (at f7e99b80b): builder-comp-int-int shards 3, 5 and 6 of 12 cancelled at the 45-minute limit.
 Conformance run 40645707398 (at 5e54b7554): all six builder-comp-int-int shards and builder-comp-comp-comp cancelled at
-their limits.  Find whether it is a recent slowdown (a compile-time or VM regression — bisect by job durations across
-runs) or the suites outgrowing the shard counts.
+their limits.
+
+**Findings (2026-10-28, work-3): the int-int lanes' fixed per-test cost has risen ~2.5-3x since late September; the
+suites grew ~20% in the same span.**
+- Conformance int-int (6 shards, 30-min cap; sharded by `562b4cbba` to fit): shards took 15-23 min on 09-15 and
+  17-29 min through 09-25; some hit the cap from 09-26, and in every run sampled since 09-29 every shard has (one
+  29-min success on 09-29), so the lane has not completed for a month.  Per test (shard 1's first 40, from the job
+  logs): ~2.0-2.5 s through 09-28, 4.0 s on 09-30, ~5.0 s from 10-11, 6.4 s in run 40776545497 (10-28), where
+  001_hello alone takes 6 s.  Conformance entries grew 2553 -> 3068 (+20%) over 09-28 -> 10-28.  A shard now gets
+  through 230-400 tests before the cap; in September one ran ~570 in 20 min.
+- Unit int-int (12 shards, 45-min cap): shards took 3-13 min in September (one outlier at 27-30) and 8-45 min by
+  10-14, the same factor.
+- The per-test cost is the OUTER bni loading cmd/bni: the int-int runner has it parse, check, IR-gen, optimize and
+  lower cmd/bni's whole import cone for every test.  Locally an int-int 001_hello takes 2.25 s of CPU, 91% of it in
+  Interp.LoadProgram and 8% running the program; a plain int run takes 0.01 s.  At 19772cd6b (09-27) it took
+  1.24 s.  cmd/bni's cone grew 92k -> 121k lines (62 -> 66 packages), 1.31x, while the load's phases grew 2-5x
+  (macOS `sample`, 1-ms samples, 09-27 -> HEAD): IR-gen 258 -> 669 (overlayFileImports 86 -> 281), VM lowering
+  381 -> 1050 (IR passes 282 -> 578; lowerFunc 78 -> 371, of which assignSlots, new in e38f2cbf0 on 10-24, is
+  155), import / struct registration 108 -> 415 (RegisterPkgImports, registerAllStructTypes).  Parse and check
+  are not comparable: the 09-27 sample missed the start of the run.  Turning every IR pass off saves ~15%.
+- Not looked at: comp-comp-comp (one 30-min shard; 20-30 min since late September, cancelled about half the
+  time).  CI's gen1 build also went from 76-89 s to 180-212 s over the same span.
+
+Options (decision needed): (a) profile and fix the load pipeline's superlinear phases (cmd/bni's load is also
+bni's start-up cost for every user); (b) more shards or a longer cap for the int-int lanes
+(.github/workflows/{conformance,unit}-tests.yml); (c) stop re-loading cmd/bni for every test in int-int (one outer
+bni running many inner programs) -- a harness change that alters what the lane exercises.
 
 ### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🔴 NEEDS DECISION, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
