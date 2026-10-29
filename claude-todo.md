@@ -1118,6 +1118,21 @@ functions and methods — a read of one while its type or signature is resolved 
 was entered after that started, the flush's last round does not run while one is resolved once a read has waited,
 and the layout waits are flushed once it is defined — with unit tests for each form.
 
+### A method of a generic type's instance, whose signature builds an instance a generic's declaration reads it from, is a false cycle — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the variable and function forms of the abstract-declaration wait; reproduced on main; pre-existing)
+
+`type Bx[T any] struct { a [len(hv.m())]uint8; t T }`, `var hv H[int64]`, `type H[T any] struct { z T }`, `func (h
+*H[T]) m() [sizeof(W[T])]uint8 { … }`, `type W[T any] struct { v T; p *Bx[T] }` is "undefined: m"; with a
+non-generic H, or with m's signature not depending on T (`[sizeof(W[int64])]uint8`), it compiles once the variable,
+function and method forms wait (the entry above).  H[int64]'s copy of m is made when its methods are copied onto
+it (copyPlaceholderMethods, check/check_generic_backfill.bn, under InstanceState.MethodsCopying), not by
+defineBatchMethod: substituting T builds W[int64], which names Bx[int64] through a pointer, Bx's declaration
+(resolved abstractly) reads hv.m(), attachInstanceMethods declines while H[int64]'s methods are copied, and
+batchMethodDeclFor has m as collected.  W holds Bx only through a pointer, so m's signature does not depend on what
+reads it.  Fix: the same wait for a method copied onto an instance — a read of it while its signature is copied
+waits when a layout frame that can wait was entered after the copy started (the copy then counts as a declaration
+being resolved, check/check_layout_wait_decl.bn), and the layout waits are flushed once it is attached — with a
+unit test.
+
 ### An instance's `sizeof` of a type not built yet: still rejected in a `.bni`'s own declarations — 🟡 IN PROGRESS (claimed 2026-10-26, work-7/session; user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]") (minor; found 2026-10-19, work-7, review of the layout-wait change; reproduced; pre-existing)
 
 Since binate `a25aeb940` an instance whose build reads the layout of a type not built yet waits for it
