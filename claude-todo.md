@@ -2811,16 +2811,6 @@ b` (bnfmt `bnc-0.0.17-pre3` and the tree's).  The second format is stable.  An i
 (`/* p */ F() int`) moves to a line of its own the same way, with no run to break.  A run should break at any comment that
 prints on a line of its own between two elements, or such a comment should stay on its element's line.
 
-### bnfmt splits a `;`-joined run of struct fields or interface methods on a `// LONG-LINE ALLOWED` line — 🟡 IN PROGRESS (claimed 2026-10-28, temp-4; user: "take on the todos") 🟢 LOW (found 2026-10-28, temp-4, writing the fix for a single one; pre-existing)
-
-A marked field or method on a line of its own is kept whole (binate `e3d34c8ce`), but a marked line holding several,
-joined by `;`, is split one per line, each wrapped by its own width, with the marker after the last:
-`\tF *func(Aaaa…, Bbbb…, Cccc…, Dddd…) (int, bool, error); g int // LONG-LINE ALLOWED` prints `F` across two
-lines and `\tg int // LONG-LINE ALLOWED` after it, and an interface's `\tFfff…(…) (int, bool, error); G() int
-// LONG-LINE ALLOWED` the same (bnfmt `bnc-0.0.17-pre3` splits them too, putting the field's marker after `F`'s
-second line and the method's after the interface).  A statement and a group member keep such a run joined on its
-marked line, however wide (print_longline.bn); a run of fields or methods should too.
-
 ### bnfmt's lone element in brackets leaves out what follows the close — 🟡 IN PROGRESS (claimed 2026-10-26, temp-4; user: "take on the todos") 🟢 LOW (found 2026-10-26, temp-4, review of the statement trailing-comment fix; pre-existing)
 
 printArgList (print_wrap.bn) measures whether a lone element fits after its opener with only the close after it, as

@@ -1,3 +1,19 @@
+### bnfmt: struct fields or interface methods `;`-joined on a `// LONG-LINE ALLOWED` line stay joined — DONE (binate `4f58c52e5`, 2026-10-28, temp-4; user: "take on the todos"; landing: "wait 10 minutes, then land")
+
+A marked field or method on a line of its own was kept whole (binate `e3d34c8ce`), but a marked line holding several,
+joined by `;`, was split one per line, each wrapped by its own width, with the marker after the last: `F *func(Aaaa…,
+Bbbb…, Cccc…, Dddd…) (int, bool, error); g int // LONG-LINE ALLOWED` printed `F` across two lines, then `g int //
+LONG-LINE ALLOWED`, and an interface's `Ffff…(…) (int, bool, error); G() int // LONG-LINE ALLOWED` the same.
+Resolution (binate `4f58c52e5`): such a run prints as a marked run of statements does, with wrapping suppressed and
+the comments between its elements (markedFieldRunEnd, printMarkedFields, markedMethodRunEnd, printMarkedMethods;
+print_longline_field.bn).  A line that cannot be kept -- a struct type in it that expands for a comment between its
+fields -- prints one per line as before, with the marker after the last only, and a marker after the struct's or
+interface's `}` stays the declaration's.  A struct's alignment run pads only the first field of a kept line and
+measures the line whole, with the comments between its fields (fieldLineEnds, markedFieldsLine): past the cap, the run
+is left unpadded, as for any field past the cap.  In the scripts/bnfmt-check corpora no file formats differently.
+Tests: print_longline_field_test.bn (2 more); removing each piece of the change in turn fails one of them, but for the
+check that a line holds two or more and the cursor reset after measuring a line, which change no output.
+
 ### bnfmt: an interface method or struct field on a `// LONG-LINE ALLOWED` line stays whole — DONE (binate `e3d34c8ce`, 2026-10-28, temp-4; user: "take on the todos"; landing: "yes")
 
 A statement, a top-level declaration, a group member and a case kept a marked line as written, but an interface
