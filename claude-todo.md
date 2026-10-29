@@ -59,7 +59,7 @@ waits, check/check_member_read.bn; layout frames, check/check_layout_wait.bn); s
 that read or S's resolution is dropped without an error, leaving S with no value.  Fix: find where the cycle's error
 is lost and report it (one error), with a conformance error test (it panics today) and a unit test.
 
-### CI red: the slow lanes hit their job time limits — unit int-int shards, conformance int-int and comp-comp-comp — 🟡 INVESTIGATED, NEEDS DECISION (claimed 2026-10-28, work-3; user: "both") (filed 2026-10-28, work-3)
+### CI red: the slow lanes hit their job time limits — unit int-int shards, conformance int-int and comp-comp-comp — 🟡 IN PROGRESS on option (a) (claimed 2026-10-28, work-3; user: "both", then "(a)") (filed 2026-10-28, work-3)
 
 Unit run 40643666280 (at f7e99b80b): builder-comp-int-int shards 3, 5 and 6 of 12 cancelled at the 45-minute limit.
 Conformance run 40645707398 (at 5e54b7554): all six builder-comp-int-int shards and builder-comp-comp-comp cancelled at
