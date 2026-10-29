@@ -1087,6 +1087,18 @@ check/check_layout_wait.bn) — reports it again where it reads the instance.  F
 that cannot wait builds the waiting instance for the last time first, so the cycle is reported where it closes and
 the read finds a built layout; unit tests for both forms.
 
+### An array length left without a value by a reported error is taken as 0, and a second, false error follows — 🔴 OPEN (minor: an extra error after a real one; found 2026-10-28, work-7, probing the variable and function forms of the abstract-declaration wait; reproduced on main; pre-existing)
+
+`const A = B; const B = A; func g() [A]uint8 { var r [3]uint8; return r }` reports the constant cycle and then
+"cannot assign [3]uint8 to [0]uint8" at `return r`; so does `type B struct { a [sizeof(B)]uint8 }` with `func g()
+[sizeof(B)]uint8 { … return r }` (the cyclic type, then the same).  The array length is POISONED — its error
+already reported — but the array type is made with length 0, which the body's `return` then mismatches.  Through a
+generic the same shows with the wait for a function's signature: `type Box[T any] struct { a [len(g())]uint8; t T }`
+with `func g() [sizeof(Box[int])]uint8 { var r [sizeof(Box[int])]uint8; return r }` is "cyclic type definition
+involving `Box`" and then "cannot assign [8]uint8 to [0]uint8".  Fix: a type whose array length has no value
+because of an error already reported is the error type (or is otherwise kept from reporting again); unit tests
+expecting exactly the one error for each form.
+
 ### A generic's declaration that reads a variable, a function or a method whose own check built its instance is a false cycle — 🟡 IN PROGRESS (claimed 2026-10-28, work-7/ff6d76c5; user: "do as the next commit") (a valid program rejected; found 2026-10-28, work-7, probing the constant form of the abstract-declaration wait; reproduced on main; pre-existing)
 
 `type Bx[T any] struct { a [len(Q)]uint8; t T }`, `var Q [sizeof(W[int64])]uint8`, `type W[T any] struct { v T; p
