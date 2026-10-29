@@ -59,6 +59,13 @@ waits, check/check_member_read.bn; layout frames, check/check_layout_wait.bn); s
 that read or S's resolution is dropped without an error, leaving S with no value.  Fix: find where the cycle's error
 is lost and report it (one error), with a conformance error test (it panics today) and a unit test.
 
+### CI red: the slow lanes hit their job time limits — unit int-int shards, conformance int-int and comp-comp-comp — 🟡 IN PROGRESS (claimed 2026-10-28, work-3; user: "both"), investigating (filed 2026-10-28, work-3)
+
+Unit run 40643666280 (at f7e99b80b): builder-comp-int-int shards 3, 5 and 6 of 12 cancelled at the 45-minute limit.
+Conformance run 40645707398 (at 5e54b7554): all six builder-comp-int-int shards and builder-comp-comp-comp cancelled at
+their limits.  Find whether it is a recent slowdown (a compile-time or VM regression — bisect by job durations across
+runs) or the suites outgrowing the shard counts.
+
 ### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🔴 NEEDS DECISION, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
 `builder-comp_arm32_baremetal` runs each package's test binary in QEMU `virt` with `-m 16M`, linked by
