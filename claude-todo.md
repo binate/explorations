@@ -121,7 +121,7 @@ mode).
   pointeeEmbedsOpaque stops at an instance whose type arguments cannot bring an opaque type in, a later `*G[...]`
   would not judge it again — an opaque type held by value could be accepted.  Needs a repro attempt first.
 
-### Two package variables whose initializers spell no type at their head, each read while the other's check is in progress, compile unchecked — 🟡 IN PROGRESS MAJOR (claimed 2026-10-27, work-5/session; user: "Then work on the major"; part 1 DONE binate `4fa186628`, see the done log; waiting on the user's answer below; found 2026-10-26, work-5, review of the variable type-cycle fix; reproduced; pre-existing)
+### Two package variables whose initializers spell no type at their head, each read while the other's check is in progress, compile unchecked — 🟡 IN PROGRESS MAJOR (claimed 2026-10-27, work-5/session; user: "Then work on the major"; part 1 DONE binate `4fa186628`, see the done log; decided (user, 2026-10-28): "B", a variable type cycle; found 2026-10-26, work-5, review of the variable type-cycle fix; reproduced; pre-existing)
 
 `var a = len([len(b)]int{})` with `var b = h(a).arr` and `func h(n bool) S` (S having an `arr [3]int`) compiles,
 an int passed as a bool.  a's check needs b's type; b's initializer spells no type at its head (a selector), so b is
