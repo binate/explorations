@@ -2749,15 +2749,15 @@ x` / `/* p */ bbbb = 2 // y` in a `var` or `const` group, and with `case 1: g() 
 b` (bnfmt `bnc-0.0.17-pre3` and the tree's).  The second format is stable.  A run should break at any comment that
 prints on a line of its own between two elements, or such a comment should stay on its element's line.
 
-### bnfmt does not keep an interface method or a struct field on a `// LONG-LINE ALLOWED` line whole — 🟡 IN PROGRESS (claimed 2026-10-28, temp-4; user: "take on the todos") 🟢 LOW (found 2026-10-27, temp-4, review of the interface-comments fix; pre-existing)
+### bnfmt splits a `;`-joined run of struct fields or interface methods on a `// LONG-LINE ALLOWED` line — 🟡 IN PROGRESS (claimed 2026-10-28, temp-4; user: "take on the todos") 🟢 LOW (found 2026-10-28, temp-4, writing the fix for a single one; pre-existing)
 
-A statement, a top-level declaration, a group member and a case keep a marked line as written (print_longline.bn),
-but an interface method or a struct field on one wraps by its own width, and the marker goes on its last line:
-`\tFfff…(aaaa… int, bbbb… int, cccc… int) (int, bool, error) // LONG-LINE ALLOWED` (107 wide before the marker)
-prints `\tFfff…(aaaa… int, bbbb… int,` / `\t\t\tcccc… int) (int, bool, error) // LONG-LINE ALLOWED`, and a
-field `F *func(Aaaa…, Bbbb…, Cccc…, Dddd…) (int, bool, error) // LONG-LINE ALLOWED` (103 wide) the same (the
-tree's bnfmt; bnfmt `bnc-0.0.17-pre3` wraps them too, and moves a method's marker after its interface).  A marked
-method or field should print as printDeclMaybeNoWrap prints a marked declaration.
+A marked field or method on a line of its own is kept whole (binate `e3d34c8ce`), but a marked line holding several,
+joined by `;`, is split one per line, each wrapped by its own width, with the marker after the last:
+`\tF *func(Aaaa…, Bbbb…, Cccc…, Dddd…) (int, bool, error); g int // LONG-LINE ALLOWED` prints `F` across two
+lines and `\tg int // LONG-LINE ALLOWED` after it, and an interface's `\tFfff…(…) (int, bool, error); G() int
+// LONG-LINE ALLOWED` the same (bnfmt `bnc-0.0.17-pre3` splits them too, putting the field's marker after `F`'s
+second line and the method's after the interface).  A statement and a group member keep such a run joined on its
+marked line, however wide (print_longline.bn); a run of fields or methods should too.
 
 ### bnfmt's lone element in brackets leaves out what follows the close — 🟡 IN PROGRESS (claimed 2026-10-26, temp-4; user: "take on the todos") 🟢 LOW (found 2026-10-26, temp-4, review of the statement trailing-comment fix; pre-existing)
 

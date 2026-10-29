@@ -1,3 +1,19 @@
+### bnfmt: an interface method or struct field on a `// LONG-LINE ALLOWED` line stays whole — DONE (binate `e3d34c8ce`, 2026-10-28, temp-4; user: "take on the todos"; landing: "yes")
+
+A statement, a top-level declaration, a group member and a case kept a marked line as written, but an interface
+method or a struct field on one wrapped by its own width, with the marker on its last line (a 107-wide method, a
+103-wide field).  Resolution (binate `e3d34c8ce`): a method or field on one line, whose line bears the marker before
+the next one (or the close), prints with wrapping suppressed, as a marked declaration does
+(printTrailingMaybeNoWrap, print_longline.bn), and is kept when it stays on its line.  One that cannot -- a struct
+type in it that expands for a comment between its fields -- prints as before, with the marker after its last line,
+and so does one the source wrote across lines; a marker after the interface's or struct's `}` stays the
+declaration's.  A run of struct fields measures a marked field as it prints, so one kept whole past the cap leaves
+its run's names unpadded, as any field past the cap does.  In the scripts/bnfmt-check corpora no file formats
+differently.  Tests: print_longline_field_test.bn (2); removing each piece of the change in turn (the field's path,
+the method's, the one-line condition, the limit, the run's measure) fails one of them; dropping the cursor reset
+when the line cannot be kept fails none (the trial moves no cursor's position).  Left (todo): a marked line holding
+several fields or methods joined by `;` is still split.
+
 ### A generic's declaration resolved abstractly that read a layout not built yet was a false cycle — DONE (binate `2de248620`, 2026-10-28, work-7; user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]"; landing: "wait 18 minutes, then land")
 
 `type Box[T any] struct { a [sizeof(N)]uint8; t T }` with `type N struct { v int64; p *Box[int] }` was "cyclic type
