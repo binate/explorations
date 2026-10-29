@@ -216,6 +216,10 @@ RegMap's frame lookups return int64 (the int forms and FrameInt gone); stage 4d 
 arguments past 2 GiB, which native x64 rejects at compile time); 4f-2 bss lengths and symbol offsets in int64 for a
 32-bit host; 5 VM / interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the
 32-bit lane.
+CI red from stage 4e (noted 2026-10-28, work-3): conformance 1718_offsets_past_2gib (binate `650f83fc5`) fails on the
+LLVM lanes (builder-comp, -comp-comp, -comp-comp-comp; CI run 40645707398 at 5e54b7554) — clang rejects main's frame:
+"stack frame size (2147483704) exceeds limit (2147483647) in function 'bn_F1_4_main1_9_copyBytes'
+[-Werror,-Wframe-larger-than]" ("clang failed compiling main").  The test has .error markers only for the 32-bit lanes.
 
 ### An array length reading a composite literal of a type declared later, or a parent interface's method, is rejected while the package's types are collected — 🔴 OPEN (a valid program rejected; found 2026-10-27, work-7, probing the member-read fix, binate `f7e99b80b`; reproduced on main; pre-existing)
 
