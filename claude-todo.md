@@ -121,6 +121,17 @@ mode).
   pointeeEmbedsOpaque stops at an instance whose type arguments cannot bring an opaque type in, a later `*G[...]`
   would not judge it again — an opaque type held by value could be accepted.  Needs a repro attempt first.
 
+### `len` of an array variable whose type is inferred is taken as a read — a false initialization cycle — 🔴 OPEN (minor; found 2026-10-28, work-5, probing the placeholder MAJOR's part 2; reproduced; pre-existing)
+
+`var a = len(b)` with `var b = [3]int{a, 0, 0}` is rejected "variable initialization cycle involving `a`", though
+`len` of an array does not read it (builtin.len); with `var b [3]int = [3]int{a, 0, 0}` it compiles
+(TestVarInitLenOfArrayNotARead covers only declared types).  `var a = len(b.arr)` with `var b = mk(a)` is rejected
+the same way.  The initialization order (resolveTopLevelVarOrder, check/check_var_resolve.bn) is computed at the end
+of collection, before pass 2 checks the initializers, so declaredType finds no type for b (its symbol is not defined
+yet, and its initializer has no ResolvedTypeID) and `len`'s operand is walked as a read.  Fix (to decide): give
+declaredType a variable's head type (varHeadType), or compute the order after pass 2; a unit test and a conformance
+test.
+
 ### Two package variables whose initializers spell no type at their head, each read while the other's check is in progress, compile unchecked — 🟡 IN PROGRESS MAJOR (claimed 2026-10-27, work-5/session; user: "Then work on the major"; part 1 DONE binate `4fa186628`, see the done log; decided (user, 2026-10-28): "B", a variable type cycle; found 2026-10-26, work-5, review of the variable type-cycle fix; reproduced; pre-existing)
 
 `var a = len([len(b)]int{})` with `var b = h(a).arr` and `func h(n bool) S` (S having an `arr [3]int`) compiles,
