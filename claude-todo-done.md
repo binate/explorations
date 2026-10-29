@@ -1,3 +1,16 @@
+### The VM's call lowering walked every element of an array argument for interface words — a by-value 1 GiB array cost a minute at load — DONE (binate `506f3331a`, 2026-10-28)
+
+vm/vm_iface_crossmode.bn's collectIfaceVtOffsets (reached through buildArgIfaceLayout / argSubstBytes for every
+call site's argument types, at LowerModule) recursed into each element of an array even when the element type
+held no interface value, so 1720's three by-value `[1 << 30]uint8` arguments (in calls that never run) took ~65 s
+of CPU to load in builder-comp-int.  Resolution (binate `506f3331a`): the array branch returns at once when the
+element type holds no interface value (holdsIfaceValue, which peels alias / readonly / named and looks through
+struct fields and nested arrays); an array whose elements hold interfaces still yields one offset per element.
+1720 now loads in 1 s (builder-comp-int) and 3 s (builder-comp-int-int).  Tests: lower_slots_test.bn
+TestIfaceVtOffsetsForArrays (a 2^40-byte array yields nothing; arrays of a struct holding an interface, directly
+and behind a named, readonly or alias element, and a `[2][2]@Iface`, yield one offset per interface); conformance
+1720_stack_args_past_2gib_callers (binate `e320b4e07`).
+
 ### A constant a generic's declaration reads, whose own resolution built that generic's instance, was a false cycle — DONE (the constant form of the `.bni` / constant entry; binate `d9e37cfce`, 2026-10-28, work-7; user: "1. wait 20 minutes, then land.")
 
 `type Bx[T any] struct { a [S]uint8; t T }`, `const S = sizeof(W[int64])`, `type W[T any] struct { v T; p *Bx[T] }`

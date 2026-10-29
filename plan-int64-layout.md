@@ -147,10 +147,10 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
        emitRspAdjustX64), closure capture offsets int64 (HostInt gone); register-only shim paths narrow word
        counts through regArgWordsX64 (fail-loud past six).  cmd/bnc objects byte-identical; the x64 arg / call
        subset passes plain and with -fx64-far-disp=16.  Its caller-side conformance test 1720 (three 1 GiB
-       by-value args: direct, via a func value, via a closure) compiles on native x64 but waits on two
-       pre-existing bugs it exposed (claude-todo): the VM's call lowering walks every array element for
-       interface words (~65 s to load 1720; user decision 2026-10-28: fix it first, then land 1720), and
-       native backends copy a by-value aggregate argument twice (native arm32 rejects 1720's 6 GiB frame: xfail).
+       by-value args: direct, via a func value, via a closure) landed as binate `e320b4e07`, after the fix
+       for one pre-existing bug it exposed (`506f3331a`: the VM's call lowering walked every array element for
+       interface words, ~65 s to load 1720).  The other, native backends copying a by-value aggregate argument
+       twice (claude-todo), makes native arm32 reject 1720's 6 GiB frame: xfailed on both native arm32 modes.
      - 4c-3 / 4c-4. aarch64 / arm32 stack-argument paths on the int64 forms: outgoing stores and incoming reads
        past a displacement (aarch64 X17, arm32 its word), a large by-value argument copied with a loop, the
        aarch64 capture test above.

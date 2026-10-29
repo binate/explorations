@@ -528,16 +528,6 @@ Fix: the checker rejects a variadic call whose packed arguments (n of the elemen
 size, with the same "type is too large" error.  Test: conformance 1719 (binate `8b25f89ee`) expects that error on
 the five arm32 modes, xfailed there until the fix.
 
-### The VM's call lowering walks every element of an array argument for interface words — a by-value 1 GiB array costs a minute at load — 🟡 IN PROGRESS (claimed 2026-10-28, work-1; found 2026-10-28, work-1, int64 layout 4c-2's conformance test 1720; pre-existing)
-vm/vm_iface_crossmode.bn's collectIfaceVtOffsets recurses into each element of an array (reached through
-buildArgIfaceLayout / argSubstBytes for every call site's argument types, at LowerModule) even when the element
-type holds no interface value.  A call passing a `[1 << 30]uint8` by value costs ~2^30 iterations per argument:
-1720's three 1 GiB arguments (in calls that never run) take ~65 s of CPU in builder-comp-int with 15 MB resident
-(sampled: lowerCallOp -> buildArgIfaceLayout -> collectIfaceVtOffsets), and the VM-on-VM modes far longer.  Fix:
-skip an element (or field) type that holds no interface value (a memoized predicate), so the walk costs the type's
-interface words, not its length; an array whose elements hold interfaces still yields one offset each.  Blocks
-landing 1720 (its VM modes).
-
 ### Native backends copy a by-value aggregate argument read through a pointer twice — on arm32 three 1 GiB arguments pass the 4 GiB frame — 🔴 OPEN (found 2026-10-28, work-1, int64 layout 4c-2's conformance test 1720; pre-existing)
 `f(*p, *p, *p)` with f taking three by-value 1 GiB arrays: the native backends give each `*p` load its own frame
 region (emitAggLoad) and then copy it into the outgoing-args area, so the frame holds every argument twice.  With
@@ -545,7 +535,8 @@ region (emitAggLoad) and then copy it into the outgoing-args area, so the frame 
 native arm32 rejects it ("the frame of main.direct is larger than the target allows (at most 4294967295 bytes)")
 where LLVM arm32 compiles it, copying straight into the argument area.  The 64-bit native backends compile it with
 a doubled frame.  Fix: elide the load's region when the loaded value only feeds a by-value call argument (read in
-place, as AggLoadElision does for other uses), copying from the source to the argument slot.  Covered by 1720.
+place, as AggLoadElision does for other uses), copying from the source to the argument slot.  Covered by conformance 1720 (binate `e320b4e07`),
+xfailed on the two native arm32 modes until the fix.
 
 ### Array `==` / `!=` unrolls one comparison per element — a large array blows up compile time and IR size — 🔴 OPEN (found 2026-10-18, work-1, review of int64 layout stage 2; pre-existing)
 
