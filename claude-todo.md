@@ -1107,7 +1107,7 @@ check/check_layout_wait.bn) — reports it again where it reads the instance.  F
 that cannot wait builds the waiting instance for the last time first, so the cycle is reported where it closes and
 the read finds a built layout; unit tests for both forms.
 
-### A generic's declaration that reads a variable or a function whose own check built its instance is a false cycle — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, probing the constant form of the abstract-declaration wait; reproduced on main; pre-existing)
+### A generic's declaration that reads a variable or a function whose own check built its instance is a false cycle — 🟡 IN PROGRESS (claimed 2026-10-28, work-7/ff6d76c5; user: "do as the next commit") (a valid program rejected; found 2026-10-28, work-7, probing the constant form of the abstract-declaration wait; reproduced on main; pre-existing)
 
 `type Bx[T any] struct { a [len(Q)]uint8; t T }`, `var Q [sizeof(W[int64])]uint8`, `type W[T any] struct { v T; p
 *Bx[T] }` is "variable type cycle involving `Q`", and `type Bx[T any] struct { a [len(g())]uint8; t T }`, `func g()
