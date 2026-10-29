@@ -140,9 +140,20 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
        CallArgStackOffV64, CallStackBytesV64) beside the int ones, which narrow fail-loud (HostInt); codegen's
        checkStackArgs and native/common's param slots / PlanFrame use the int64 forms.  cmd/bnc objects
        byte-identical on all three native targets.
-     - 4c-2 / 4c-3 / 4c-4. x64 / aarch64 / arm32 stack-argument paths on the int64 forms: outgoing stores and
-       incoming reads past a displacement (x64 far paths, aarch64 X17, arm32 its word), a large by-value argument
-       copied with a loop, closure-shim capture offsets (x64's HostInt gone), the aarch64 capture test above.
+     - 4c-2. DONE `a171e6ddd` (2026-10-28): native x64's stack-argument paths on the int64 forms: calls store
+       arguments past a displacement through the far helpers (a MEMORY-class aggregate by a far copy / loop),
+       incoming params read int64 offsets; the C-export trampoline and the closure / func-value shims lay out
+       int64 frames (every access through the far helpers, RSP moved through R11 past an immediate,
+       emitRspAdjustX64), closure capture offsets int64 (HostInt gone); register-only shim paths narrow word
+       counts through regArgWordsX64 (fail-loud past six).  cmd/bnc objects byte-identical; the x64 arg / call
+       subset passes plain and with -fx64-far-disp=16.  Its caller-side conformance test 1720 (three 1 GiB
+       by-value args: direct, via a func value, via a closure) compiles on native x64 but waits on two
+       pre-existing bugs it exposed (claude-todo): the VM's call lowering walks every array element for
+       interface words (~65 s to load 1720; user decision 2026-10-28: fix it first, then land 1720), and
+       native backends copy a by-value aggregate argument twice (native arm32 rejects 1720's 6 GiB frame: xfail).
+     - 4c-3 / 4c-4. aarch64 / arm32 stack-argument paths on the int64 forms: outgoing stores and incoming reads
+       past a displacement (aarch64 X17, arm32 its word), a large by-value argument copied with a loop, the
+       aarch64 capture test above.
      - 4c-5. The int forms go; the int64 ones take their names.
    - 4d. RegMap's frame tables in int64 (PlanFrame bounded by the target's int, a compile error past it) and each
      backend's slot addressing, materializing offsets past an instruction's reach (aarch64 past what MemImm
