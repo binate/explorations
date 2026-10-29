@@ -471,7 +471,7 @@ Fix: the checker rejects a variadic call whose packed arguments (n of the elemen
 size, with the same "type is too large" error.  Test: conformance 1719 (binate `8b25f89ee`) expects that error on
 the five arm32 modes, xfailed there until the fix.
 
-### The VM's call lowering walks every element of an array argument for interface words — a by-value 1 GiB array costs a minute at load — 🔴 OPEN (found 2026-10-28, work-1, int64 layout 4c-2's conformance test 1720; pre-existing)
+### The VM's call lowering walks every element of an array argument for interface words — a by-value 1 GiB array costs a minute at load — 🟡 IN PROGRESS (claimed 2026-10-28, work-1; found 2026-10-28, work-1, int64 layout 4c-2's conformance test 1720; pre-existing)
 vm/vm_iface_crossmode.bn's collectIfaceVtOffsets recurses into each element of an array (reached through
 buildArgIfaceLayout / argSubstBytes for every call site's argument types, at LowerModule) even when the element
 type holds no interface value.  A call passing a `[1 << 30]uint8` by value costs ~2^30 iterations per argument:
