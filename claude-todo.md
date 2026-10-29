@@ -880,6 +880,13 @@ different".  (c) `mul pc, r0, r1` and `mla pc, r0, r1, r2` are accepted; clang: 
 [r0, r14]".
 **Fix:** the operand rules of the exact A32 encoder layer (plan-asm-arm32-isa.md stage 2), each against clang.
 
+### asm aarch64 Mach-O: `adrp x0, .@PAGE` / `add x0, x0, .@PAGEOFF` are rejected — 🔴 OPEN, unclaimed (found 2026-10-28, work-2, the review of the arm32 `:lower16:` work)
+
+bnas: "unexpected token after an operand (expected ',' or end of line)" at `.@PAGE`.  clang (`--target=arm64-apple-macos`)
+takes both: ARM64_RELOC_PAGE21 against the function's symbol and ARM64_RELOC_ADDEND 0x4 + ARM64_RELOC_PAGEOFF12 for
+the `add` (`.` made a symbol plus addend).  **Fix:** let a `@PAGE` / `@PAGEOFF` suffix follow `.` (and `. ± N`) as it
+follows a name, checked against clang's relocations.
+
 ### asm: two general differences from clang — a symbol defined nowhere needs `.global`, and a constant cannot be used before its definition — 🔴 OPEN, unclaimed (found 2026-10-28, work-2, the arm32 2a review's probe lists)
 
 (a) A reference to a symbol the file never defines (`b R0`, `bl SL`, `ldr r0, K`) is an error in bnas ("undefined symbol

@@ -40,7 +40,18 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
   Deliberate differences: an immediate past 32 bits is an error (clang truncates it), and so is a float literal
   (`#4.5`, `$ 4.5`), which clang encodes as 0 in an integer instruction.
 - 2a2. `:lower16:` / `:upper16:` operands for MOVW / MOVT (and MOV), which the text parser does not read yet (the
-  encoders' MovwLabel / MovtLabel exist); found by the 2a review.
+  encoders' MovwLabel / MovtLabel exist); found by the 2a review.  User (2026-10-28) on an addend outside
+  [-0x8000, 0x7FFF], where clang is inconsistent (it rejects an explicit `ext+0x8000` and a fixed difference past
+  16 bits, and truncates a distance it folds — a wrong high half for MOVT): "Correct halves (Recommended)" — a
+  low-half relocation keeps the low 16 bits of any 32-bit addend, a high-half one must fit, a fixed difference is
+  its true half.
+- 2a3. A `.` label's place in the ELF symbol table: clang registers the label it makes for `.` where it reads the
+  `.`, so a `.` followed by a forward reference in the same expression (`movw r0, #:lower16:(. + (2f - 1f))`,
+  `.short . + (b - a)`) is listed before the item's mapping symbol; bnas lists it after (2a2's
+  DefineLabelBeforeMark only covers a `.` with nothing mentioned since the reservation).  Fix: give each `.` its
+  own label name and mention when the expression parser reads it, carried in the ExprResult (Dot / NegDot copies,
+  negation), in the shared expression code — validated on all three architectures and Mach-O.  User (2026-10-28):
+  "Separate commit next (Recommended)".
 - 2b. Multiplies and divide: mul / mla / mls, the long forms (umull, umlal, smull, smlal, umaal), the DSP halfword
   ones (smla<x><y>, smlaw<y>, smulw<y>, smlal<x><y>, smul<x><y>), the dual ones (smuad / smusd / smlad / smlsd /
   smlald / smlsld, with X), the most-significant-word ones (smmul / smmla / smmls, with R); sdiv / udiv.
@@ -51,7 +62,8 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
 - 2e. Loads and stores: ldr / str / ldrb / strb, ldrh / strh / ldrsb / ldrsh, ldrd / strd in every addressing mode
   (immediate, register, scaled register, pre / post-index, writeback, literal), the T forms, pld / pldw / pli.
   From the 2a review: a label difference as a post-indexed immediate (`ldr r0, [r1], #b-a`) is taken by bnas;
-  clang: "invalid instruction".
+  clang: "invalid instruction".  An offset written as a 32-bit pattern (`ldr r0, [r1, #K]`, K = 0xFFFFFFFF) is an
+  error in bnas ("magnitude must fit 4095"); clang reads it as -1.
 - 2f. Exclusives and ordering: ldrex / strex (b, h, d), clrex, swp / swpb, the v8 acquire / release forms (lda / stl
   / ldaex / stlex families).
 - 2g. Block transfer: ldm / stm ia / ib / da / db, writeback, `^`, push / pop forms.
