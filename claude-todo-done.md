@@ -1,3 +1,23 @@
+### A constant a generic's declaration reads, whose own resolution built that generic's instance, was a false cycle — DONE (the constant form of the `.bni` / constant entry; binate `d9e37cfce`, 2026-10-28, work-7; user: "1. wait 20 minutes, then land.")
+
+`type Bx[T any] struct { a [S]uint8; t T }`, `const S = sizeof(W[int64])`, `type W[T any] struct { v T; p *Bx[T] }`
+was "constant definition cycle involving `S`": resolving S builds W[int64], which names Bx[int64] through a pointer,
+and Bx's declaration, resolved abstractly, and Bx[int64]'s build read S while S was still resolved.  Resolution
+(binate `d9e37cfce`): such a read waits, as a read of a layout not built yet does, when the innermost layout frame
+was entered after that constant's resolution started (each constant being resolved keeps the number of frames open
+when it started, DeclBatch.ConstStarts, check/check_layout_wait_const.bn); once a read has waited, the flush's last
+round, which reports cycles, does not run until the outermost constant is resolved, and the layout waits are flushed
+after each constant.  A cycle of constants alone is still "constant definition cycle", and a constant whose value
+needs the layout that reads it is reported once ("cyclic type definition involving `W`"); a cycle read through an
+array of an instance (`sizeof([2]Bx[int64])`) names the generic.  The review of the first version found a generic's
+own cycle sized by a constant reported twice, and a flush after every constant (600 instances and 1800 constants:
+6.7–7.5 s against 4.3–4.7 s on main); both were fixed by acting only once a read has waited (4.2–4.4 s).  No test
+shows two parts: the frame condition (without it, a real cycle inside a build waits through extra rounds and gives
+the same one error) and the flush after each constant (a later build has always flushed).  Still open: the `.bni`
+form, and the variable, function and method forms (todo), and a cycle through a constant and a by-value `sizeof`
+reported twice (todo: a cycle reported once at each place).  Tests: check_layout_wait_const_test.bn; conformance
+165_sizeof_constant_read_in_generic_decl_in_progress.
+
 ### Two package variables whose initializers spell no type at their head, each read while the other's check is in progress, compiled unchecked — DONE (part 2 of a MAJOR; binate `d992fc50b`, 2026-10-28, work-5; user: "Then work on the major"; decided: "B"; landing: "wait 15 minutes, then land")
 
 `var a = len([len(b)]int{})` with `var b = h(a).arr` and `func h(n bool) S` compiled, an int passed as a bool:

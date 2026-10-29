@@ -1086,7 +1086,7 @@ should then promise those frames.
 
 `type Cyc[T any] struct { v T; a [sizeof(Cyc[T])]uint8 }` with `type N struct { v int64; a [sizeof(Cyc[int8])]uint8
 }` reports "cyclic type definition involving `Cyc`" twice: in Cyc's declaration and at N's `sizeof`.  With the
-constant form of the entry below (a constant read by a build its resolution started waits; not yet landed), a cycle
+constant form of the entry below (a constant read by a build its resolution started waits, binate `d9e37cfce`), a cycle
 through a constant does the same: `type Bx[T any] struct { a [S]uint8; t T }`, `const S = sizeof(W[int64])`, `type
 W[T any] struct { v T; p *Bx[T]; q [sizeof(Bx[T])]uint8 }` reports "… involving `Bx`" at W's `sizeof(Bx[T])` and
 "… involving `W`" at S's `sizeof` (on main: one "constant definition cycle involving `S`").  An instance that still
@@ -1096,39 +1096,38 @@ check/check_layout_wait.bn) — reports it again where it reads the instance.  F
 that cannot wait builds the waiting instance for the last time first, so the cycle is reported where it closes and
 the read finds a built layout; unit tests for both forms.
 
-### A generic's declaration that reads a variable or a function whose own check built its instance is a false cycle — 🟡 IN PROGRESS (claimed 2026-10-28, work-7/ff6d76c5; user: "do as the next commit") (a valid program rejected; found 2026-10-28, work-7, probing the constant form of the abstract-declaration wait; reproduced on main; pre-existing)
+### A generic's declaration that reads a variable, a function or a method whose own check built its instance is a false cycle — 🟡 IN PROGRESS (claimed 2026-10-28, work-7/ff6d76c5; user: "do as the next commit") (a valid program rejected; found 2026-10-28, work-7, probing the constant form of the abstract-declaration wait; reproduced on main; pre-existing)
 
 `type Bx[T any] struct { a [len(Q)]uint8; t T }`, `var Q [sizeof(W[int64])]uint8`, `type W[T any] struct { v T; p
-*Bx[T] }` is "variable type cycle involving `Q`", and `type Bx[T any] struct { a [len(g())]uint8; t T }`, `func g()
-[sizeof(W[int64])]uint8 { … }` (W the same) is "undefined: g"; without generics (`type B struct { a [len(Q)]uint8
-}`, `type W struct { v int64; p *B }`) both compile.  Q's type, or g's signature, builds W[int64], which names
-Bx[int64] through a pointer; Bx's declaration, resolved with its type parameters abstract
-(check/check_layout_wait_abstract.bn), reads Q or g while Q's type or g's signature is still resolved: a variable type
-cycle (check/check_var_placeholder.bn), or a function named while its signature is resolved, left undefined
-(batchFuncOnDemand, check/check_decl_batch.bn).  W holds Bx only through a pointer, so neither depends on what reads
-it.  The constant form is the claimed entry below.  Fix: as that entry does for a constant — a read of the variable
-or function while it is checked waits when a layout frame that can wait was entered after its check started, the
-flush's last round does not run while one is checked, and the layout waits are flushed after each — with unit tests
-for both.
+*Bx[T] }` is "variable type cycle involving `Q`" (so is `var Q = [sizeof(W[int64])]uint8{}`, and `var Q = mk()` with
+`func mk() [sizeof(W[int64])]uint8` is "the type of `Q` is needed while the package's types are collected"), and
+`type Bx[T any] struct { a [len(g())]uint8; t T }`, `func g() [sizeof(W[int64])]uint8 { … }` (W the same) is
+"undefined: g"; so is a generic function (`[len(g[int]())]uint8`, `func g[U any]() [sizeof(W[int64])]uint8`), and a
+method (`[len(hv.m())]uint8`, `func (h *H) m() [sizeof(W[int64])]uint8`) is "undefined: m".  Without generics
+(`type B struct { a [len(Q)]uint8 }`, `type W struct { v int64; p *B }`) each compiles.  Q's type, or g's or m's
+signature, builds W[int64], which names Bx[int64] through a pointer; Bx's declaration, resolved with its type
+parameters abstract (check/check_layout_wait_abstract.bn), reads Q, g or m while Q's type or that signature is still
+resolved: a variable type cycle (check/check_var_placeholder.bn), or a function or method named while its signature
+is resolved, left undefined (batchFuncOnDemand, check/check_decl_batch.bn; batchMethodOnDemand,
+check/check_decl_batch_method.bn).  W holds Bx only through a pointer, so none of them depends on what reads it.
+The constant form waits since binate `d9e37cfce` (check/check_layout_wait_const.bn).  Fix: the same for variables,
+functions and methods — a read of one while its type or signature is resolved waits when a layout frame that can wait
+was entered after that started, the flush's last round does not run while one is resolved once a read has waited,
+and the layout waits are flushed once it is defined — with unit tests for each form.
 
-### An instance's `sizeof` of a type not built yet: still rejected in a `.bni`'s own declarations, and through a constant a generic's declaration reads — 🟡 IN PROGRESS (claimed 2026-10-26, work-7/session; user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]") (minor; found 2026-10-19, work-7, review of the layout-wait change; reproduced; pre-existing)
+### An instance's `sizeof` of a type not built yet: still rejected in a `.bni`'s own declarations — 🟡 IN PROGRESS (claimed 2026-10-26, work-7/session; user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]") (minor; found 2026-10-19, work-7, review of the layout-wait change; reproduced; pre-existing)
 
 Since binate `a25aeb940` an instance whose build reads the layout of a type not built yet waits for it
-(check_layout_wait.bn), and since binate `2de248620` so does a generic's own declaration resolved with its type
-parameters abstract (check_layout_wait_abstract.bn).  Two forms are still rejected:
-(1) declared in a `.bni` — `type Box[T any] struct { a [sizeof(T)]uint8 }` and
-`type N struct { v int64; next *Box[N] }` in `q.bni` is "an opaque type" at q.bni, though the same in `q.bn`
-compiles: a `.bni`'s types are not collected through the DeclBatch, so N being built is not seen as in progress
-(next to the `.bni` `sizeof` MAJOR above).  Fix: collect the `.bni`'s types as the batch collects the `.bn`'s.
-(2) through a constant — `type Bx[T any] struct { a [S]uint8; t T }`, `const S = sizeof(W[int64])`,
-`type W[T any] struct { v T; p *Bx[T] }` is "constant definition cycle involving `S`" (checked on binate
-`2de248620`); the same without generics compiles.  Resolving S builds W[int64], which names Bx[int64]; Bx's
-declaration, resolved abstractly, reads S while S is still resolved, and resolveConstByName
-(check/check_const_resolve.bn) reports the cycle at once instead of letting the abstract resolution wait.  Fix: a
-read of a constant still resolved waits when a frame that can wait was entered after that constant's resolution
-started (each constant keeps the frame depth it started at); a constant being resolved counts as collecting, so
-the flush's last round, which reports cycles, does not run inside it; and the waits are flushed after each
-constant's resolution.
+(check_layout_wait.bn), since binate `2de248620` so does a generic's own declaration resolved with its type
+parameters abstract (check_layout_wait_abstract.bn), and since binate `d9e37cfce` so does a read of a constant by a
+build its resolution started (check_layout_wait_const.bn).  Declared in a `.bni`, both forms are still rejected:
+`type Box[T any] struct { a [sizeof(T)]uint8 }` and `type N struct { v int64; next *Box[N] }` in `q.bni` is "an
+opaque type" at q.bni, though the same in `q.bn` compiles: a `.bni`'s types are not collected through the DeclBatch,
+so N being built is not seen as in progress (next to the `.bni` `sizeof` MAJOR above).  And `type Bx[T any] struct {
+a [S]uint8; t T }`, `const S = sizeof(W[int64])`, `type W[T any] struct { v T; p *Bx[T] }` in `lib.bni` is "array
+length must be a constant integer" at lib.bni, with the constant form's wait in place: a `.bni`'s constants are
+resolved by resolveBniConstByName (check/bni_scope_const.bn), which does not wait.  Fix: collect the `.bni`'s types,
+and resolve its constants, as the batch does the `.bn`'s.
 
 ## Performance
 
