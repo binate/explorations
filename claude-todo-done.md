@@ -1,3 +1,16 @@
+### asm arm32 stage 2a2: `:lower16:` / `:upper16:` and the PC-relative MOVW / MOVT relocations — DONE (binate `37cfd247a`, 2026-10-28, work-2; user: "Correct halves (Recommended)", "Separate commit next (Recommended)")
+
+MOVW, MOVT and MOV (as MOVW) take `:lower16:` / `:upper16:` as clang does, checked over ~90 cases with relocations
+and whole objects (byte-identical): `#`, `$` or no prefix; the relocation following the operator; a number or a
+fixed difference folded to its half; sym + addend as R_ARM_MOVW_ABS_NC / R_ARM_MOVT_ABS; sym less `.` or a label of
+this section as the new R_ARM_MOVW_PREL_NC / R_ARM_MOVT_PREL (encoder kinds, ELF mapping, bnld patching and PIE
+classification).  Addends ride in the immediate: a low-half relocation keeps the low 16 bits of any 32-bit addend,
+a high-half one must fit [-0x8000, 0x7FFF] — where clang truncates a folded distance into a wrong high half, bnas
+rejects it, and bnas takes, exactly, an explicit MOVW addend or a fixed difference past 16 bits that clang
+rejects.  A `.` label is mentioned before its item's mapping mark (DefineLabelBeforeMark) and listed as `.L0 `
+(clang's name, a trailing space included).  The move-wide encoders moved to arm32_movw.bn.  Follow-up: step 2a3
+(a `.` before a forward reference still lists after the mapping symbol), in the plan.
+
 ### bnfmt: struct fields or interface methods `;`-joined on a `// LONG-LINE ALLOWED` line stay joined — DONE (binate `4f58c52e5`, 2026-10-28, temp-4; user: "take on the todos"; landing: "wait 10 minutes, then land")
 
 A marked field or method on a line of its own was kept whole (binate `e3d34c8ce`), but a marked line holding several,
