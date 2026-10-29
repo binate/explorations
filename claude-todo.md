@@ -921,6 +921,14 @@ different".  (c) `mul pc, r0, r1` and `mla pc, r0, r1, r2` are accepted; clang: 
 [r0, r14]".
 **Fix:** the operand rules of the exact A32 encoder layer (plan-asm-arm32-isa.md stage 2), each against clang.
 
+### asm ELF: a listed generated label is named `.Ltmp<n>` counting only the labels bnas lists, where clang counts every temporary — 🔴 OPEN, unclaimed (found 2026-10-29, work-2, the review of the arm32 `.` symbol order)
+
+`1: nop` / `.short (1f - 1b), 2f` / `1: nop` / `2: nop` on arm32 ELF (R_ARM_ABS16 keeps the label): clang's symbol
+and relocation are `.Ltmp2`, bnas's `.Ltmp0`.  bnas numbers only the generated labels it lists
+(`elf_symtab.bn` ltmpName); clang numbers each temporary it creates (here the third numeric-label instance is
+`.Ltmp2`).  **Fix:** number generated labels as clang numbers its temporaries, probed against clang where a
+listed one follows unlisted ones (numeric labels, pool entries, `.` labels).
+
 ### asm aarch64 Mach-O: `adrp x0, .@PAGE` / `add x0, x0, .@PAGEOFF` are rejected — 🔴 OPEN, unclaimed (found 2026-10-28, work-2, the review of the arm32 `:lower16:` work)
 
 bnas: "unexpected token after an operand (expected ',' or end of line)" at `.@PAGE`.  clang (`--target=arm64-apple-macos`)
