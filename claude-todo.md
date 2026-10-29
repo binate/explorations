@@ -157,18 +157,6 @@ yet, and its initializer has no ResolvedTypeID) and `len`'s operand is walked as
 declaredType a variable's head type (varHeadType), or compute the order after pass 2; a unit test and a conformance
 test.
 
-### Two package variables whose initializers spell no type at their head, each read while the other's check is in progress, compile unchecked — 🟡 IN PROGRESS MAJOR (claimed 2026-10-27, work-5/session; user: "Then work on the major"; part 1 DONE binate `4fa186628`, see the done log; decided (user, 2026-10-28): "B", a variable type cycle; found 2026-10-26, work-5, review of the variable type-cycle fix; reproduced; pre-existing)
-
-`var a = len([len(b)]int{})` with `var b = h(a).arr` and `func h(n bool) S` (S having an `arr [3]int`) compiles,
-an int passed as a bool.  a's check needs b's type; b's initializer spells no type at its head (a selector), so b is
-checked in full on demand (defineVarOnDemand, check/check_decl_batch_var.bn), and its call reads a's placeholder,
-the error type, which every check reading it treats as an error already reported.  Asked the user (2026-10-27, and
-again 2026-10-28) whether (B) that is a "variable type cycle", as the drafted `decl.var.type-acyclic` says (b's type
-depends on a's, a's on b's through the array length) — recommended, and how the same cycle through a head's needed
-variable is reported (`var u = [len(w)]int{}` with `var w = mk(u).arr`) — or (A) the checks that read the
-placeholder are done again once it has its type (the batch's PlaceholderReads logs those reads), accepting the
-program when `h` takes an int.  Either way: a conformance test of the program above.
-
 ### An array length checked while its variable's type is found takes that variable's placeholder for an error: its errors are lost, and a variable read before its turn is a false cycle — 🔴 OPEN (minor: a valid program rejected, and ill-typed code that is never compiled accepted; found 2026-10-28, work-5, review of the placeholder MAJOR's part 2; reproduced; the false cycle since binate `4fa186628`, the rest pre-existing)
 
 `var u = [len(pick(func() int { return len(u) }))]int{}` (`func pick(f @func() int) [3]int`) compiles, as
@@ -200,11 +188,12 @@ The checker rejects a package variable whose type needs its own type ("variable 
 check/check_var_placeholder.bn), but the spec has no rule saying so.  What counts as a cycle depends on the
 initializers whose type is known before their operands are checked (varHeadType): a function literal, a composite
 literal whose type is written out, `cast` / `bit_cast`, and a call of a named function, of a generic function's
-instance, of a package variable's method or of a function literal written in place.  Fix: add
-`decl.var.type-acyclic` to docs §9.2 after `decl.var.redeclare`, listing those forms (a draft is ready; how it
-words two variables without a head form, each read while the other's check is in progress, waits on the user's
-answer in the MAJOR above); regenerate binate's scripts/spec-coverage/rule-ids.txt; unit and conformance tests
-citing the rule.
+instance, of a package variable's method or of a function literal written in place.  Any other initializer's
+type depends on the type of each variable it names outside the array lengths in it (binate `d992fc50b`: "variable type
+cycle" for `var a = len([len(b)]int{})` with `var b = h(a).arr`), and an array length on what its value needs.
+Fix: add `decl.var.type-acyclic` to docs §9.2 after `decl.var.redeclare`, listing those forms (a draft is ready,
+to update for the above and show the user); regenerate binate's scripts/spec-coverage/rule-ids.txt; unit and
+conformance tests citing the rule.
 
 ### A variable type cycle through a function's signature, met while types are collected, says "declare its type" — 🔴 OPEN (minor: diagnostic; found 2026-10-26, work-5, review of the variable type-cycle fix; reproduced; pre-existing)
 

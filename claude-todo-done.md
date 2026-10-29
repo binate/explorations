@@ -1,3 +1,26 @@
+### Two package variables whose initializers spell no type at their head, each read while the other's check is in progress, compiled unchecked — DONE (part 2 of a MAJOR; binate `d992fc50b`, 2026-10-28, work-5; user: "Then work on the major"; decided: "B"; landing: "wait 15 minutes, then land")
+
+`var a = len([len(b)]int{})` with `var b = h(a).arr` and `func h(n bool) S` compiled, an int passed as a bool:
+b's check, inside a's array length, read a's placeholder (the error type), taken for an error already reported,
+and b's type came out without it, so nothing reported the cycle.  So did `var v [len(w)]int` with
+`var w = h(v).arr`, and `var a = g(func() int { var t bool = a[0]; _ = t; return 0 }).arr`.  Decided (user,
+2026-10-28): "B", a variable type cycle, as the drafted `decl.var.type-acyclic` says (an initializer that spells no
+type at its head depends on each variable it names).  Resolution (binate `d992fc50b`): each placeholder read is logged
+with the depth of array lengths it is read at (evalArrayLen counts them), and when the check of a variable with an
+inferred type ends, a read at its own depth, in compiled code, is a variable type cycle — of the variable itself or
+of the enclosing one whose type was being found — unless that one's own check judges it, a cycle was reported
+meanwhile, or it is made of reads alone (the initialization order's, judged by its own dependencies); a read judged
+is marked so (judgeFreeReads, check/check_var_free_reads.bn).  A read inside an array length is still judged by
+whether it leaves the length without a value.  The review of the first version found a reads-only cycle reported
+twice when its variable was read before its turn (fixed: judged reads are marked), and that removing the report at
+once in batchVarOnDemand's head-typing branch, which makes `var z = u` before `var u = [len(pick(func() int {
+return len(u) }))]int{}` a false cycle, let an error in such a length through when u is read before its turn; the
+report at once was kept (todo: the array length checked against a placeholder).  Well-typed programs whose
+initializer spells no type at its head and names, in a literal, a variable that reads it are rejected too (`var a =
+g(func() int { return b[0] }).arr` with `var b = hi(a[0]).arr`), as B decides.  Tests: check_var_free_reads_test.bn;
+conformance regressions var-type-cycle-read-in-call, var-type-cycle-declared-read-in-call,
+var-type-cycle-read-in-literal.
+
 ### asm arm32 stage 2a2: `:lower16:` / `:upper16:` and the PC-relative MOVW / MOVT relocations — DONE (binate `37cfd247a`, 2026-10-28, work-2; user: "Correct halves (Recommended)", "Separate commit next (Recommended)")
 
 MOVW, MOVT and MOV (as MOVW) take `:lower16:` / `:upper16:` as clang does, checked over ~90 cases with relocations
