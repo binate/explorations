@@ -2580,7 +2580,7 @@ section-relative reloc in a KEPT section.
 
 A comment between a declaration's keyword and its name is placed by no node: `func /* c */ f() {}`
 prints `func f() {` / `/* c */` / `}` (the comment moves into the body), `var /* c */ x int` prints
-`var x int /* c */`, and `package /* c */ "t"` prints the comment after the path; an interface's go above
+`var x int /* c */` (and a struct field's, `b /* c */ int`, prints `b int /* c */`), and `package /* c */ "t"` prints the comment after the path; an interface's go above
 its first method (`interface /* k */ I /* n */ {`).  A comment after the `]` of an annotation block that
 spans lines goes below the block.  Each output is valid and idempotent,
 but the comment moves.  The AST records no position for a declaration's name or an annotation block's
@@ -2757,7 +2757,8 @@ int`) is in no gap, so the element stays in the run; but it prints on a line of 
 (emitLeadingComments), which breaks the run when the output is formatted again.  `type T struct {` / `x int` /
 `/* p */ yy int` / `}` prints `x  int` / `/* p */` / `yy int`, and a second format `x int`; the same with `a = 1 //
 x` / `/* p */ bbbb = 2 // y` in a `var` or `const` group, and with `case 1: g() // a` / `/* p */ case 2222: g() //
-b` (bnfmt `bnc-0.0.17-pre3` and the tree's).  The second format is stable.  A run should break at any comment that
+b` (bnfmt `bnc-0.0.17-pre3` and the tree's).  The second format is stable.  An interface method's comment
+(`/* p */ F() int`) moves to a line of its own the same way, with no run to break.  A run should break at any comment that
 prints on a line of its own between two elements, or such a comment should stay on its element's line.
 
 ### bnfmt splits a `;`-joined run of struct fields or interface methods on a `// LONG-LINE ALLOWED` line — 🟡 IN PROGRESS (claimed 2026-10-28, temp-4; user: "take on the todos") 🟢 LOW (found 2026-10-28, temp-4, writing the fix for a single one; pre-existing)
