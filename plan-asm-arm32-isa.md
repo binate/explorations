@@ -45,7 +45,7 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
   16 bits, and truncates a distance it folds — a wrong high half for MOVT): "Correct halves (Recommended)" — a
   low-half relocation keeps the low 16 bits of any 32-bit addend, a high-half one must fit, a fixed difference is
   its true half.
-- 2a3. A `.` label's place in the ELF symbol table: clang registers the label it makes for `.` where it reads the
+- 2a3. DONE (binate `31c5e7c60`; data directives value by value).  A `.` label's place in the ELF symbol table: clang registers the label it makes for `.` where it reads the
   `.`, so a `.` followed by a forward reference in the same expression (`movw r0, #:lower16:(. + (2f - 1f))`,
   `.short . + (b - a)`) is listed before the item's mapping symbol; bnas lists it after (2a2's
   DefineLabelBeforeMark only covers a `.` with nothing mentioned since the reservation).  Fix: give each `.` its

@@ -1,3 +1,14 @@
+### asm stage 2a3: a `.` label listed where clang registers it — DONE (binate `31c5e7c60`, 2026-10-29, work-2; user: "Separate commit next (Recommended)")
+
+A label made for `.` now takes its mention where the expression parser reads the `.` (noteDotRead), and
+ClearMarkMention puts an item's `.` labels before its mapping mark and its other new names (reassigning only the
+numbers they hold); a data directive is ordered value by value (EndMentionWindow), as clang parses and emits each
+value in turn; a `.` that folds away gives up its mention (ForgetMention).  Replaces 2a2's DefineLabelBeforeMark,
+which missed a `.` with a forward reference in the same expression.  The review found the first version's
+statement-wide window wrong for multi-value data (`.short 1, 2, .`); fixed before landing.  Checked: arm32 ELF
+objects byte-identical to clang's for every case, Mach-O arm64 symbols and relocations the same.  Found along the
+way and logged: `.Ltmp<n>` numbering counts only listed labels.
+
 ### The VM's call lowering walked every element of an array argument for interface words — a by-value 1 GiB array cost a minute at load — DONE (binate `506f3331a`, 2026-10-28)
 
 vm/vm_iface_crossmode.bn's collectIfaceVtOffsets (reached through buildArgIfaceLayout / argSubstBytes for every
