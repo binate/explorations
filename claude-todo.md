@@ -403,7 +403,7 @@ so whether these programs are valid is not decided.  Decide: such cycles judged 
 a conformance error test), or per member (a struct's fields and an interface's methods resolved one at a time on
 demand, with tests).
 
-### A field read through a pointer to a type declared later that has no such field is "cannot access field on this type" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-10-27, work-7, review of the member-read fix; pre-existing)
+### A field read through a pointer to a type declared later that has no such field is "cannot access field on this type" — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; minor: a misleading diagnostic; found 2026-10-27, work-7, review of the member-read fix; pre-existing)
 
 `type X struct { b [len(p.c)]uint8 }`, `var p *Z`, `type Z struct { E }`, `type E struct { c [16]uint8 }` is
 "cannot access field on this type" at `p.c`; in a function body the same read is "undefined: c" (Binate promotes
