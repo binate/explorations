@@ -354,7 +354,7 @@ struct with `[0]uint8` (`n.p = &x`, x an A[int], is "cannot assign *struct { a [
 frame that can wait, unlike a generic type's instance (check/check_layout_wait.bn).  Fix: let the alias target's
 resolution wait as an instance's build does, and be resolved again once the layout is built, with a unit test.
 
-### An invalid array length makes the array `[0]T`, so its uses report follow-on errors — 🔴 OPEN (minor: a follow-on diagnostic; found 2026-10-26, work-5, probing the `len(nosuch)` change; reproduced; pre-existing)
+### An invalid array length makes the array `[0]T`, so its uses report follow-on errors — 🟡 IN PROGRESS (claimed 2026-10-29, temp-5/session, self-drive; minor: a follow-on diagnostic; found 2026-10-26, work-5, probing the `len(nosuch)` change; reproduced; pre-existing)
 
 `func f() [-1]int { var r [3]int; return r }` reports "array length must be non-negative" and then "cannot assign
 [3]int to [0]int"; a variable length (`[n]int`), `[true]int` and an undefined name do the same.  resolveTypeExpr
