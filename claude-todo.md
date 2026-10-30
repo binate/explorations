@@ -316,7 +316,7 @@ what the parser recovered (eight checker tests did, five of them a parser reject
 Fix: per package, route the parses through a helper that fails on a parse error, as the checker's tests do, and
 fix the tests that turn out not to parse.
 
-### An importer's `sizeof` / `alignof` of a type its `.bni` declares later crashes the compiler — 🔴 OPEN MAJOR (found 2026-10-17, work-5, review of the `.bni` constant `len` change; reproduced; pre-existing)
+### An importer's `sizeof` / `alignof` of a type its `.bni` declares later crashes the compiler — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; MAJOR; found 2026-10-17, work-5, review of the `.bni` constant `len` change; reproduced; pre-existing)
 
 `const Z uint = sizeof(S)` followed by `type S struct { x int64; y int64 }` in `q.bni`, with an importer's
 `var a [q.Z]int8`, panics: "internal error: an array length the type checker did not resolve reached IR
