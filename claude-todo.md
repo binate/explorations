@@ -60,6 +60,30 @@ field orders and a unit test.  The `.bni` on-demand resolution (the entry on an 
 the same walk, and would hit the same bug once a `.bni` type being resolved, reached softly, is no longer taken for an
 opaque one.
 
+### A type whose walk is still on the stack counts as prepared when a `sizeof` reads it by value: a valid program gets a wrong array length, and a layout cycle is accepted — 🔴 OPEN (MAJOR: valid programs compiled with a wrong array type, silently, and an invalid one accepted; found 2026-10-30, work-7, review of the slice-reach fix; reproduced on main; pre-existing)
+
+`type N struct { v int64; a [sizeof(M)]uint8 }`, `type M struct { s *[]D }`, `type D struct { n N; e *[]E }`, `type E
+struct { a [sizeof(D)]uint8 }` compiles with E's array 24 bytes long while `sizeof(D)` is 40 (64-bit); with E declared
+first, both are 40.  With `type N struct { v int64; p *Box[M] }` and `type Box[T any] struct { a [sizeof(T)]uint8 }`
+instead, E's is 24 against 32.  And `type X struct { a [sizeof(D)]uint8 }`, `type D struct { v int64; e E }`, `type E
+struct { a [sizeof(D)]uint8 }` — a cycle, reported as "cyclic type definition involving `E`" without X — compiles, E's
+array 16 bytes against `sizeof(D)` 32.  prepareBatchType (check/check_decl_layout.bn) takes a type whose walk is on
+the stack (TypesWalking) as prepared, softly or by value alike: D's walk collects E on demand, and E's `sizeof(D)`
+then reads D's layout before D's walk has prepared N (the first two; D's walk is soft there, through M's slice), or
+while D holds E itself (the third).  The fix needs a decision for the first: from the review (not tried), recording a
+walk's softness and walking a soft one again by value makes the generic form wait, but in the non-generic one finds N
+being collected with no instance to wait for, a false cycle — only D's soft walk collecting E eagerly makes E depend
+on N.  The third should report the cycle.  Tests: conformance tests printing the lengths in both orders, and the cycle
+as an error test.
+
+### Preparing a layout walks a type graph reached only through slices as a tree — compile time exponential in its depth — 🔴 OPEN (minor: compile time; found 2026-10-30, work-7, review of the slice-reach fix; reproduced on main; pre-existing)
+
+`type X struct { a [sizeof(T22)]uint8 }` with `type T0 struct { v int64 }`, `type U0` the same, and each `type Ti
+struct { a *[]Ti-1; b *[]Ui-1 }` / `type Ui` the same, takes 0.7 s to compile at depth 18, 1.3 s at 20 and 4.3 s at
+22; without X's `sizeof`, 0.4 s.  prepareBatchType (check/check_decl_layout.bn) records a type as prepared only when
+it is reached by value, and each call walks the type's parts with a fresh visit set, so a type reached softly through
+two paths is walked once per path.  Fix: record the types prepared softly as well, so each is walked once per mode.
+
 ### A `.bni` type that holds itself by value, reached through an instance's `sizeof`, crashes the compiler — 🟡 IN PROGRESS (claimed 2026-10-30, work-7/session, with the entry on an instance's `sizeof` in a `.bni`; user: "Fold into .bni commit (Recommended)") (MAJOR: a compiler crash on an invalid program; found 2026-10-30, work-7, review of the `.bni` on-demand resolution; reproduced on main; pre-existing)
 
 `type Box[T any] struct { a [sizeof(T)]uint8 }`, `type N struct { v int64; p *Box[A] }`, `type A struct { b B }`,
