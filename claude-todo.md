@@ -1001,6 +1001,25 @@ not a constant defined before this line"); clang takes it (E2810004).  Both are 
 ((b) with other messages on AArch64 and x86-64) and predate the arm32 work.  **Fix:** decide each with the user
 first — (a) may be deliberate (it catches a misspelt name) — then match clang or record the decision.
 
+(b) also covers the forms `.set` / `.equ` / `.equiv` took on (2026-10-30, temp-5, review of the `.set` change; each
+behaves the same with `=`, checked against the bnc-0.0.17-pre3 bnas): `b K` then `.set K, 4` is rejected ("a constant
+must be defined before use"), and on Mach-O a forward `.set D, l2 - l1` between non-temporary labels is rejected
+("…different sections or atoms is not a number"), where clang folds it to 8.
+
+### asm: a self-referential constant is accepted, and a constant then a `.comm` of its name is rejected — 🔴 OPEN, unclaimed (found 2026-10-30, temp-5, review of the `.set` change; pre-existing: each behaves the same with `=`, checked against the bnc-0.0.17-pre3 bnas)
+
+(a) `.set K, K+4` or `.equiv K, K` (or `K = K + 4`) with no use of K is accepted with nothing emitted; clang reports
+"cyclic dependency detected".  (b) `.set K, 4` then `.comm K, 4` is rejected; clang accepts it.  **Fix:** probe both
+against clang on all three architectures and both object formats (what clang's `.comm` does to K's value, and
+whether a later use of a cyclic K differs), then match it in `parse_const.bn` / the `.comm` path.
+
+### bnld dynamic Mach-O: `__mh_execute_header` is not in the output symbol table — 🔴 OPEN, unclaimed (minor: lookup by name only; found 2026-10-30, temp-5, review of the `__mh_execute_header` change)
+
+bnld defines `__mh_execute_header` for a reference (`LinkDynMacho`), but does not list it in the output symtab, where
+ld64 lists it as `[referenced dynamically] external`.  Only a lookup by name (dlsym and the like) sees the difference.
+**Fix:** list it in `buildMachoSymtab` with REFERENCED_DYNAMICALLY (0x10) in n_desc, as ld64 does, checked with
+`nm -m` against an ld64-linked executable.
+
 ### asm: `.set` / `.equ` (and `.equiv` / `.eqv`) are unknown directives — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; found 2026-10-27, work-2, the arm32 data-processing harness)
 
 bnas defines a constant only as `name = expr`.  clang also takes `.set name, expr` and `.equ name, expr` (probed on arm32:
