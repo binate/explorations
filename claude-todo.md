@@ -64,21 +64,6 @@ copying a possibly unaligned source safely on arm32; in the VM, a load returned 
 result at the return.  Tests: a conformance test returning a large struct of bytes, and one of int32 for the VM, not
 yet written.
 
-### A method copied onto an instance while a layout its signature reads is still built keeps the zero length it was resolved with — 🟡 IN PROGRESS (claimed 2026-10-29, work-7/session; user: "let's fix that in the commit right after; you can choose which goes first (maybe this)") (MAJOR: a valid program compiled with a wrong array type, silently; found 2026-10-29, work-7, probing the method-copy wait; reproduced on main; pre-existing)
-
-`type Bx[T any] struct { a [len(hv.m())]uint8; t T }`, `type H[T any] struct { z T }`, `var hv H[int64]`, `func (h
-*H[T]) m() [sizeof(W[T])]uint8 { … }`, `type W[T any] struct { v T; p *Bx[T] }`, `var Q [len(W[int64]{}.p.a)]uint8`
-compiles, and the program prints 0 for `len(hv.m())` and `len(Q)` while `sizeof(W[int64])` prints 16; the same with
-Q's length as a struct field's or a function's result type.  The pinned BUILDER (bnc-0.0.17-pre3) rejects the program
-("array length must be a constant integer").  Traced: collecting Q builds W[int64] and Bx[int64], whose build selects
-hv.m(), and m is copied onto H[int64] on demand (attachInstanceMethods → copyPlaceholderMethods,
-check/check_generic_backfill.bn).  Likely its signature takes sizeof(W[int64]) while W[int64] is still being built, a
-read that waits (check/check_layout_wait.bn) and leaves the length 0, and the copy, in no frame that is done again,
-keeps m with `[0]uint8`, which Bx[int64], built again, reads.  Related: the entry on a waiting build that still builds
-the instances it names from the length it could not read.  Fix: a method whose copied signature makes a frame wait is
-not kept — taken back as a definition on demand is (enterDemandFrame, undoBatchMethods), to be copied again when next
-selected or back-filled — with a conformance test printing the lengths.
-
 ### CI red: the slow lanes hit their job time limits — unit int-int shards, conformance int-int and comp-comp-comp — 🟡 IN PROGRESS on option (a) (claimed 2026-10-28, work-3; user: "both", then "(a)") (filed 2026-10-28, work-3)
 
 Unit run 40643666280 (at f7e99b80b): builder-comp-int-int shards 3, 5 and 6 of 12 cancelled at the 45-minute limit.
@@ -1033,9 +1018,16 @@ W[T any] struct { v T; p *Bx[T]; q [sizeof(Bx[T])]uint8 }` reports "… involvin
 "… involving `W`" at S's `sizeof` (on main: one "constant definition cycle involving `S`").  An instance that still
 waits is built on the flush's last round, which reports the cycle where its build reads a layout; a `sizeof` that
 cannot wait — a type being collected, or a constant resolved on demand in that round (layoutNotBuilt,
-check/check_layout_wait.bn) — reports it again where it reads the instance.  Fix: report a cycle once, e.g. a read
+check/check_layout_wait.bn) — reports it again where it reads the instance.
+A real cycle through a generic type's copied method gets a second error at the selection: `type W[T any] struct { v T;
+b Bx[T] }`, `type Bx[T any] struct { a [len(H[T].m(nil))]uint8; t T }`, `type H[T any] struct { z T }`, `func (h
+*H[T]) m() [sizeof(W[T])]uint8 { … }`, with `var hb H[int16]` and `len(hb.m())` in main, is "cyclic type definition
+involving `W`" at m's `sizeof` and "undefined: m" at Bx's selection; with `hh[T]().m()` (a generic function returning
+`*H[T]`) in its place the second error is "… involving `H`" (found 2026-10-29, work-7, review of the method-copy wait;
+on main at binate `b770fccd4`).
+Fix: report a cycle once, e.g. a read
 that cannot wait builds the waiting instance for the last time first, so the cycle is reported where it closes and
-the read finds a built layout; unit tests for both forms.
+the read finds a built layout; unit tests for each form.
 
 ### A generic interface's method that selects a generic type's method, whose signature builds an instance naming the interface, is a false "method redeclared" — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; a valid program rejected; found 2026-10-29, work-7, review of the copied-method zero-length fix; reproduced on main; pre-existing)
 

@@ -1,3 +1,22 @@
+### A method copied onto an instance while a layout its signature reads is still built kept the zero length it was resolved with — DONE (binate `b770fccd4`, 2026-10-30, work-7; user: "wait 20 minutes, then land") (MAJOR: a valid program compiled with a wrong array type, silently)
+
+`type Bx[T any] struct { a [len(hv.m())]uint8; t T }`, `type H[T any] struct { z T }`, `var hv H[int64]`, `func (h
+*H[T]) m() [sizeof(W[T])]uint8 { … }`, `type W[T any] struct { v T; p *Bx[T] }`, `var Q [len(W[int64]{}.p.a)]uint8`
+printed 0 for `len(hv.m())` and `len(Q)` while `sizeof(W[int64])` printed 16.  Collecting Q builds W[int64] and
+Bx[int64], whose build selects hv.m(); m is copied onto H[int64] (copyPlaceholderMethods), and its signature reads
+sizeof(W[int64]) while W[int64] is built, a read that waits and leaves the length 0, which the copy kept.  The same
+went wrong through the back-fill, for a method copied after the one the build selects, for an impl of a generic
+interface (a false "does not implement … (method `m` has wrong signature)") and for a method value.  Resolution
+(binate `b770fccd4`): each copied signature is resolved in its own frame (enterDemandFrame / leaveDemandFrame); a
+method whose frame waited is not kept, and while that build waits no more are copied (skipDemand) — they are copied
+again when the instance is next looked up, built again or back-filled.  The first version went on copying the methods
+after the one it dropped, outside the waiting build: a sibling whose signature selects the dropped method got a false
+"undefined: m", and a real cycle a second error (found by review).  Still open (todo): a real cycle through a copied
+method gets a second error at the selection (the doubled-cycle entry), and a false "method m redeclared on type H"
+through a generic interface's method signature (its own entry, found by the review).  Tests:
+check_layout_wait_copy_test.bn (TestLayoutWaitMethodCopyNotKept, TestLayoutWaitMethodCopySiblings), conformance
+12-generics/142 and 143.
+
 ### bnfmt is not idempotent on some layouts: a lone argument, a string bnfmt splits, function literals — DONE (binate `b5e5bca15`, 2026-10-30, temp-4; user: "Fix the move measure"; landing: "wait 15 minutes, then go ahead and land")
 
 Formatting a formatted file changed it again in 26 of the ~25,000 files of binate's `scripts/bnfmt-check` corpora
