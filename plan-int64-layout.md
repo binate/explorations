@@ -159,10 +159,17 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
        to assemble past ~4095 words of outgoing or staged args): now X16 (emitStageUserWordsAA64) and X10.
        cmd/bnc objects byte-identical (darwin, linux); the held-back capture test landed; conformance 1721 (a
        tuple field filling X0..X7) and an e2e/ffi-export.sh case cover byValueWordsAA64's bound.
-     - 4c-4. arm32 stack-argument paths on the int64 forms: outgoing stores and incoming reads past a
-       displacement (arm32 its word), a large by-value argument copied with a loop.
+     - 4c-4. DONE `f0eedbd5d` + `11a94b739` (2026-10-29): native arm32 on the int64 forms (stack offsets and
+       shim frames int64, reaching the encoders as the 32-bit target word; word counts through
+       ccArgWordsArm32).  Every shim and the C-export trampoline checks its frame (common.CheckShimFrameFits):
+       a func-value shim of a callee taking > 4 GiB of stack args had its frame wrapped mod 2^32, now a
+       compile error.  Review finds fixed: shimOutRegs' word count wrapped negative on a 32-bit host (an empty
+       shim, no error); the trampoline copied a large by-value arg word by word (now a loop pre-pass,
+       `11a94b739`; its check also counts the caller's args).  cmd/bnc objects byte-identical (host, x86-64,
+       arm32-linux); e2e/arm32-ffi-export.sh has six large-struct trampoline entries (every word checked).
      - 4c-5. The int forms go; the int64 ones take their names.  callconv's EffectiveArgWords still calls the
-       int cc.ArgWords (a dozen aarch64 shim sites use it, at most two words there), so it moves with them.
+       int cc.ArgWords (a dozen aarch64 shim sites and two arm32 ones use it, at most two words there), so it
+       moves with them; a few native/arm32 and other tests still call the int forms.
    - 4d. RegMap's frame tables in int64 (PlanFrame bounded by the target's int, a compile error past it) and each
      backend's slot addressing, materializing offsets past an instruction's reach (aarch64 past what MemImm
      takes on the host, x64 past disp32; arm32 is a 32-bit target, so narrowing is exact).
