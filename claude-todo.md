@@ -47,6 +47,26 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
+### An aggregate with no word alignment copied whole through pointers is staged in a copy of its size on the stack — a 16 MiB struct of bytes overflows it; 1718's 2 GiB one is why the LLVM x86-64 lanes are red — 🔴 MAJOR, OPEN (found 2026-10-29, work-1, root-causing conformance 1718's CI failure; pre-existing)
+
+`*d = *s` with `type Page struct { b [0x1000000]uint8 }` and both on the heap crashes (SIGSEGV) on the LLVM and
+native backends and is "runtime error: stack overflow" in the VM; 4 MiB works, and so does a 16 MiB struct of
+int32.  The load of `*s` is copied into a frame region (an LLVM `alloca`; in the VM, its stack) the size of the
+aggregate, then that copy into `*d`.  Root cause (compiled modes): native/common's AggLoadElision
+(common_aggload_elision.bn) returns AGG_LOAD_COPIED for any aggregate with AlignOf() < 4 before looking at its
+uses, to keep word-wise consumers (call-argument / return marshals) off a possibly unaligned source on
+strict-align arm32 — which also catches a load whose one use is a whole store (storedWhole), the case it
+otherwise classifies AGG_LOAD_IN_PLACE_OVERLAPPING and the backends copy as memmove does.  The LLVM backend and
+the native backends both ask it.  The VM stages the load on its own stack (not yet traced).  Conformance
+1718_offsets_past_2gib's copyBytes (`*d = *s`, a 2 GiB struct of bytes) gets a 2 GiB frame, which clang rejects on
+x86-64 ("stack frame size (2147483704) exceeds limit (2147483647)"): the LLVM lanes (builder-comp, -comp-comp,
+-comp-comp-comp) have been red on main since binate `650f83fc5` (work-3's note under the int64-layout entry).
+Proposed fix: classify a whole store of a sub-word-aligned aggregate AGG_LOAD_IN_PLACE_OVERLAPPING too, once
+each backend's overlapping store copies a sub-word-aligned source correctly (LLVM: memmove; x64 / aarch64:
+unaligned access is fine; arm32: the memmove path must go byte by byte for such a source), so no region is
+planned; and the same for the VM's load + store.  Test: conformance 1722_copy_large_byte_struct (xfail.all; bare
+metal xfailed for its 4 MiB heap arena), not yet landed.
+
 ### A method copied onto an instance while a layout its signature reads is still built keeps the zero length it was resolved with — 🟡 IN PROGRESS (claimed 2026-10-29, work-7/session; user: "let's fix that in the commit right after; you can choose which goes first (maybe this)") (MAJOR: a valid program compiled with a wrong array type, silently; found 2026-10-29, work-7, probing the method-copy wait; reproduced on main; pre-existing)
 
 `type Bx[T any] struct { a [len(hv.m())]uint8; t T }`, `type H[T any] struct { z T }`, `var hv H[int64]`, `func (h
