@@ -120,7 +120,7 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
    - 4b. DONE `845a85f52` (2026-10-18): aarch64: an add / sub of an offset past the 0..0xFFFFFF immediate range
      is materialized in the X17 scratch (the 16 MiB entry, fields and frames).  A 3 GB global still fails on
      native aa64 with no specific error (likely the object writer; 4f).
-   - 4c (in progress, 2026-10-27, work-1). callconv's stack layout in int64 (argument words, stack offsets, stack bytes) and each backend's
+   - 4c DONE (2026-10-29). callconv's stack layout in int64 (argument words, stack offsets, stack bytes) and each backend's
      stack-argument paths; a large by-value argument is copied with a loop, not word by word.  Includes (found in
      the 4e-2 review): native x64's closure shims narrow a capture's closure-struct offset with HostInt; a capture
      past 2 GiB follows more than 2 GiB of stack-passed captures, and a register-passed capture after them loads
@@ -167,9 +167,10 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
        shim, no error); the trampoline copied a large by-value arg word by word (now a loop pre-pass,
        `11a94b739`; its check also counts the caller's args).  cmd/bnc objects byte-identical (host, x86-64,
        arm32-linux); e2e/arm32-ffi-export.sh has six large-struct trampoline entries (every word checked).
-     - 4c-5. The int forms go; the int64 ones take their names.  callconv's EffectiveArgWords still calls the
-       int cc.ArgWords (a dozen aarch64 shim sites and two arm32 ones use it, at most two words there), so it
-       moves with them; a few native/arm32 and other tests still call the int forms.
+     - 4c-5. DONE `f57b123a5` (2026-10-29): the int forms are gone; the int64 ones took the plain names
+       (ArgWords free and method, CallArgStackOff, CallStackBytes, CallArgStackOffV, CallStackBytesV, all
+       int64).  EffectiveArgWords stays int (at most four words), narrowing cc.ArgWords.  cmd/bnc objects
+       byte-identical (host, x86-64, arm32-linux).
    - 4d. RegMap's frame tables in int64 (PlanFrame bounded by the target's int, a compile error past it) and each
      backend's slot addressing, materializing offsets past an instruction's reach (aarch64 past what MemImm
      takes on the host, x64 past disp32; arm32 is a 32-bit target, so narrowing is exact).
