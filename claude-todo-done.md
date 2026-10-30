@@ -1,3 +1,18 @@
+### A type whose layout a `sizeof` reads, reached through a slice's element before it is reached by value, was not waited for: an instance kept a wrong array length — DONE (binate `7ebd47a44`, 2026-10-30, work-7; user: "Next, before .bni (Recommended)"; landing: "wait 12 minutes, then land") (MAJOR: a valid program compiled with a wrong array type, silently)
+
+`type Box[T any] struct { a [sizeof(T)]uint8 }`, `type N struct { v int64; next *Box[M] }`, `type M struct { s *[]N; n
+N }` compiled with Box[M]'s array 24 bytes long while `sizeof(M)` is 32 (64-bit); with M's fields swapped both were
+32.  Collecting N builds Box[M], whose `sizeof(M)` prepares M's layout (prepareLayoutIn, check/check_decl_layout.bn):
+the walk reached N softly through the slice's element, where a type being collected does not make the read wait, and
+that visit, its set keyed by type alone, stood for the field's by-value reach of N, which would have.  Resolution
+(binate `7ebd47a44`): the walk records soft and by-value visits apart (layoutVisits), so a type reached softly is
+walked again when it is reached by value.  The same skip let a cycle through such a reach pass (`type N struct { v
+int64; a [sizeof(M)]uint8 }` with that M compiled, with a length that matched nothing); it is now "cyclic type
+definition involving `N`" (found by the review).  Still open (todo, found by the review): a type whose walk is still
+on the stack counts as prepared (MAJOR: wrong lengths in one declaration order, an accepted cycle), and a type graph
+reached only through slices is walked as a tree (minor).  Tests: TestLayoutWaitsForTypeReachedSoftlyFirst; conformance
+12-generics/144_generic_sizeof_slice_then_by_value, 15-builtins/166_err_sizeof_slice_then_by_value_cycle.
+
 ### asm arm32 stage 2d: extend, extend-and-add, bitfield, reverse, count leading zeros — DONE (binate `c8501ae76`, with the review follow-up `c8d407930`, 2026-10-30, work-2)
 
 SXTB .. UXTH and SXTB16 / UXTB16 with their rotations, the extend-and-adds, BFC / BFI / SBFX / UBFX, REV / REV16 /

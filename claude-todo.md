@@ -47,19 +47,6 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
-### A type whose layout a `sizeof` reads, reached through a slice's element before it is reached by value, is not waited for: an instance keeps a wrong array length — 🟡 IN PROGRESS (claimed 2026-10-30, work-7/session; user: "Next, before .bni (Recommended)") (MAJOR: a valid program compiled with a wrong array type, silently; found 2026-10-30, work-7, review of the `.bni` on-demand resolution; reproduced on main; pre-existing)
-
-`type Box[T any] struct { a [sizeof(T)]uint8 }`, `type N struct { v int64; next *Box[M] }`, `type M struct { s *[]N; n
-N }` in a `.bn` compiles, and `len(b.a)` for `var b Box[M]` is 24 while `sizeof(M)` is 32; with M's fields swapped (`n
-N; s *[]N`) both are 32.  Collecting N builds Box[M], whose `sizeof(M)` prepares M's layout (prepareLayoutIn,
-check/check_decl_layout.bn): the walk reaches N softly, through the slice's element, which marks N visited (`seen` is
-keyed by type alone), and then skips N when it reaches it by value through the field `n`, so the read of N, still
-being collected, does not wait, and M's size is taken with N incomplete.  Fix: walk a type reached softly again when
-it is reached by value (visits keyed by type and softness), with a conformance test printing both lengths in both
-field orders and a unit test.  The `.bni` on-demand resolution (the entry on an instance's `sizeof` in a `.bni`) uses
-the same walk, and would hit the same bug once a `.bni` type being resolved, reached softly, is no longer taken for an
-opaque one.
-
 ### A type whose walk is still on the stack counts as prepared when a `sizeof` reads it by value: a valid program gets a wrong array length, and a layout cycle is accepted — 🔴 OPEN (MAJOR: valid programs compiled with a wrong array type, silently, and an invalid one accepted; found 2026-10-30, work-7, review of the slice-reach fix; reproduced on main; pre-existing)
 
 `type N struct { v int64; a [sizeof(M)]uint8 }`, `type M struct { s *[]D }`, `type D struct { n N; e *[]E }`, `type E
