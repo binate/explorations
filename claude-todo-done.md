@@ -1,3 +1,21 @@
+### A method of a generic type's instance, whose copied signature builds an instance that selects it, was "undefined" — DONE (binate `af5f060bf`, 2026-10-29, work-7; user: "1. yes, but wait 7 minutes first.")
+
+`type Bx[T any] struct { a [len(hv.m())]uint8; t T }`, `var hv H[int64]`, `type H[T any] struct { z T }`, `func (h
+*H[T]) m() [sizeof(W[T])]uint8 { … }`, `type W[T any] struct { v T; p *Bx[T] }` was "undefined: m".  Copying H's
+methods onto H[int64] (copyPlaceholderMethods) builds W[int64], and Bx[int64]'s build selects hv.m() before m is on
+H[int64]: in the back-fill once collection is done (the entry blamed the on-demand path, which is the next case), when
+another variable builds H[int64] during collection, when another method whose signature builds W[T] is copied first,
+and in the back-fill when another instance of H is back-filled first (found by review).  Resolution (binate
+`af5f060bf`): the copy counts as a declaration being resolved (a declStart with the instance,
+check/check_layout_wait_decl.bn); a method of the generic the instance does not have yet, selected inside a build the
+copy started, waits (methodCopyReadWaits, from lookupVisibleMethod), and the copy ends with a flush once a read has
+waited; during the back-fill an instance it has not reached takes its methods on demand (backfillMethodOnDemand).  A
+name the generic has no method by is reported at once: waiting for it added a false cycle error (found by review).
+The flush after the copy has no test (removing it changed none of 80 probes); kept (user: "2. I guess keeping it is
+fine.").  Still open (todo): a real cycle whose instance is first built in a function body is reported twice (the
+doubled-cycle entry), the REPL's statements, and a method copied while a layout its signature reads is still built
+keeps a zero array length (MAJOR).  Tests: check_layout_wait_copy_test.bn.
+
 ### asm arm32 stage 2b: the multiplies and divides, exact, as clang takes them — DONE (binate `5fa9deadf`, 2026-10-29, work-2; user: "Per step (Recommended)" on exact encoders)
 
 Every multiply and divide (MUL .. UDIV, the halfword, dual and most-significant-word forms) in an exact encoder
