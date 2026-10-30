@@ -3539,6 +3539,12 @@ happened to park.
   the new h however the others parked; (b) only the names a declaration misses now make edges (refreshed on each
   retry), so f always sees the old h and the e2e cases above change to calling the old definitions.
 - Decided (user, 2026-10-29): (a) — "(a) seems right".
+- Decided (user, 2026-10-30, after the reviews): a use in the body of a generic instance the group names first counts
+  ("Count it"); only a redefinition that shadows (another signature or type, a constant) is waited for, not one that
+  replaces ("Shadowing only"); a waiting group's own errors stay unreported until it is checked against the new
+  definition ("Keep waiting"); a declaration typed at the prompt that uses a name with a parked shadowing
+  redefinition parks on it too, statements still use the current definition ("Declarations wait"); "pending:"
+  drops names declared since that no parked declaration provides ("Drop them").
 - Needs: the fix, and e2e cases for the form that now sees the old definition.
 
 ### REPL: an incompatible redefinition of a generic method that a sibling still calls in the old shape — decide the rule — 🔴 OPEN (found 2026-10-03, work-6, review of the generic-methods-at-the-prompt fix; put to the user)
