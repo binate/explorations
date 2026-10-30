@@ -47,7 +47,7 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
-### A type whose layout a `sizeof` reads, reached through a slice's element before it is reached by value, is not waited for: an instance keeps a wrong array length — 🔴 OPEN (MAJOR: a valid program compiled with a wrong array type, silently; found 2026-10-30, work-7, review of the `.bni` on-demand resolution; reproduced on main; pre-existing)
+### A type whose layout a `sizeof` reads, reached through a slice's element before it is reached by value, is not waited for: an instance keeps a wrong array length — 🟡 IN PROGRESS (claimed 2026-10-30, work-7/session; user: "Next, before .bni (Recommended)") (MAJOR: a valid program compiled with a wrong array type, silently; found 2026-10-30, work-7, review of the `.bni` on-demand resolution; reproduced on main; pre-existing)
 
 `type Box[T any] struct { a [sizeof(T)]uint8 }`, `type N struct { v int64; next *Box[M] }`, `type M struct { s *[]N; n
 N }` in a `.bn` compiles, and `len(b.a)` for `var b Box[M]` is 24 while `sizeof(M)` is 32; with M's fields swapped (`n
@@ -60,7 +60,7 @@ field orders and a unit test.  The `.bni` on-demand resolution (the entry on an 
 the same walk, and would hit the same bug once a `.bni` type being resolved, reached softly, is no longer taken for an
 opaque one.
 
-### A `.bni` type that holds itself by value, reached through an instance's `sizeof`, crashes the compiler — 🔴 OPEN (MAJOR: a compiler crash on an invalid program; found 2026-10-30, work-7, review of the `.bni` on-demand resolution; reproduced on main; pre-existing)
+### A `.bni` type that holds itself by value, reached through an instance's `sizeof`, crashes the compiler — 🟡 IN PROGRESS (claimed 2026-10-30, work-7/session, with the entry on an instance's `sizeof` in a `.bni`; user: "Fold into .bni commit (Recommended)") (MAJOR: a compiler crash on an invalid program; found 2026-10-30, work-7, review of the `.bni` on-demand resolution; reproduced on main; pre-existing)
 
 `type Box[T any] struct { a [sizeof(T)]uint8 }`, `type N struct { v int64; p *Box[A] }`, `type A struct { b B }`,
 `type B struct { a A }` in `q.bni`, imported by a program that names `q.N`, makes bnc exit with a segfault (rc 139)
