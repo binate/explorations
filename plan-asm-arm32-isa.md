@@ -55,6 +55,13 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
 - 2b. Multiplies and divide: mul / mla / mls, the long forms (umull, umlal, smull, smlal, umaal), the DSP halfword
   ones (smla<x><y>, smlaw<y>, smulw<y>, smlal<x><y>, smul<x><y>), the dual ones (smuad / smusd / smlad / smlsd /
   smlald / smlsld, with X), the most-significant-word ones (smmul / smmla / smmls, with R); sdiv / udiv.
+  From the 2b review, rejections whose message differs from clang's (both reject): no operands ("expected
+  register"; clang "too few operands for instruction"), five registers to a three-register form or a trailing comma
+  ("too many operands"; clang "invalid instruction" / "unexpected token in operand"), the gates where clang lists
+  alternatives (`mls` before ARMv6T2, `sdiv` on armv7-r, `smlabb pc, …` before ARMv5TE, `mulgt r3, r12, pc`), S on
+  a name ending in a condition (`smmuls`, `umaals`, `sdivs`: clang reads `ls` / `vs`); and from shared code,
+  `muleqs` ("unknown instruction"; clang "instruction 'muleq' can not set flags") and an immediate or a list where a
+  register goes ("expected register"; clang "operand must be a register in range").
 - 2c. Saturating (qadd / qsub / qdadd / qdsub, ssat / usat / ssat16 / usat16), parallel add / sub (s / q / sh / u /
   uq / uh × add16 / asx / sax / sub16 / add8 / sub8), sel, usad8 / usada8, pkhbt / pkhtb.
 - 2d. Extend and extend-add (sxtb / sxth / sxtb16 / uxt*, sxtab / ... with rotation), bitfield (bfc / bfi / sbfx /
