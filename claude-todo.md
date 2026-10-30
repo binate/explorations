@@ -375,7 +375,7 @@ should match clang the same way.  Before lowering it, check what relies on it wi
 64-bit globals in `__data` and ARM64_RELOC_UNSIGNED slots ld requires 8-aligned — native data globals request
 their alignment (EmitDataGlobal), so find anything else.  No null-entry hazard here (Mach-O rejects arrays).
 
-### bnld firmware-arm driver: `_sdata` / `_edata` / `__bss_start` / `__bss_end` are not word-aligned — 🔴 OPEN (found 2026-10-15, work-2, review of the ELF alignment change; latent: the driver is structure-checked, not booted)
+### bnld firmware-arm driver: `_sdata` / `_edata` / `__bss_start` / `__bss_end` are not word-aligned — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; found 2026-10-15, work-2, review of the ELF alignment change; latent: the driver is structure-checked, not booted)
 
 `drivers/firmware-arm.bn` defines the data / bss boundary symbols at dot with no `AlignDot(4)`, but a startup
 routine copies `.data` and zeroes `.bss` a word at a time between them.  The start symbols were 16-aligned only
