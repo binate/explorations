@@ -151,10 +151,18 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
        for one pre-existing bug it exposed (`506f3331a`: the VM's call lowering walked every array element for
        interface words, ~65 s to load 1720).  The other, native backends copying a by-value aggregate argument
        twice (claude-todo), makes native arm32 reject 1720's 6 GiB frame: xfailed on both native arm32 modes.
-     - 4c-3 / 4c-4. aarch64 / arm32 stack-argument paths on the int64 forms: outgoing stores and incoming reads
-       past a displacement (aarch64 X17, arm32 its word), a large by-value argument copied with a loop, the
-       aarch64 capture test above.
-     - 4c-5. The int forms go; the int64 ones take their names.
+     - 4c-3. DONE `4b7288ed8` (2026-10-29): native aarch64 on the int64 forms: calls, incoming params, the
+       C-export return adapter and every closure / func-value shim take int64 stack offsets and frames
+       (MemImm64 / Imm64, formed in X17 past an instruction's reach); by-value word counts go through
+       byValueWordsAA64 (fail-loud past eight words: AAPCS64 passes or returns anything larger by reference /
+       sret).  Its review found three shim paths that shuttled a word through X17 into a far stack slot (failed
+       to assemble past ~4095 words of outgoing or staged args): now X16 (emitStageUserWordsAA64) and X10.
+       cmd/bnc objects byte-identical (darwin, linux); the held-back capture test landed; conformance 1721 (a
+       tuple field filling X0..X7) and an e2e/ffi-export.sh case cover byValueWordsAA64's bound.
+     - 4c-4. arm32 stack-argument paths on the int64 forms: outgoing stores and incoming reads past a
+       displacement (arm32 its word), a large by-value argument copied with a loop.
+     - 4c-5. The int forms go; the int64 ones take their names.  callconv's EffectiveArgWords still calls the
+       int cc.ArgWords (a dozen aarch64 shim sites use it, at most two words there), so it moves with them.
    - 4d. RegMap's frame tables in int64 (PlanFrame bounded by the target's int, a compile error past it) and each
      backend's slot addressing, materializing offsets past an instruction's reach (aarch64 past what MemImm
      takes on the host, x64 past disp32; arm32 is a 32-bit target, so narrowing is exact).
