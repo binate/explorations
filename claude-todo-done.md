@@ -1,3 +1,18 @@
+### A large aggregate returned by value needed its size twice on the stack — DONE (binate `02db3265e`, `12034603e`, 2026-10-30, work-1; user: "Fix it now"; landing: "yes, land both; then fix those next (you can batch them together before asking to land)")
+
+Two causes.  VM: a function returning one aggregate reserved the result image's size at its OP_RETURN (opGrowthBytes)
+beside the frame region holding it, though only a return of several values builds an image (packMultiReturn): `return
+*s` of 3.75 MiB was "runtime error: stack overflow" on the 8 MiB VM stack.  The image is now reserved only for a return
+of several values (`02db3265e`).  Compiled: `return *s` of an aggregate with no word alignment copied the source into a
+frame region of its size before the copy into the caller's result buffer (AggLoadElision kept every sub-word-aligned
+load copied unless stored whole), so a 5 MiB struct of bytes crashed (SIGSEGV) on LLVM and native.  A sub-word-aligned
+load of more than 16 bytes returned whole is now read in place: every target returns it through a buffer, and each
+backend's copy into it takes exactly its bytes at any alignment (`12034603e`).  Tests: conformance 1724 (4.5 MiB of
+bytes, and a 40-byte struct whose source starts at an odd address) and 1725 (4.5 MiB of int32);
+TestMaxGrowthReturnImage; the elision and codegen unit tests.  Still open (todo): a call's result kept in a local
+(compiled at -O0, the VM always); found by the review, both pre-existing: the VM stack kept by a host or native call
+of a VM function returning an aggregate, and aarch64's in-register return reading past an in-place source.
+
 ### A method copied onto an instance while a layout its signature reads is still built kept the zero length it was resolved with — DONE (binate `b770fccd4`, 2026-10-30, work-7; user: "wait 20 minutes, then land") (MAJOR: a valid program compiled with a wrong array type, silently)
 
 `type Bx[T any] struct { a [len(hv.m())]uint8; t T }`, `type H[T any] struct { z T }`, `var hv H[int64]`, `func (h

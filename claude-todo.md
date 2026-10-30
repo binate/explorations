@@ -94,30 +94,19 @@ scope is built reads A's layout, and the `.bni` build checks no type for holding
 batch does, in prepareBatchType's checkTypeByValueCycle, check/check_decl_layout.bn).  Fix: check it before the layout
 is read, reporting the cycle once, with a unit test and a conformance error test.
 
-### A large aggregate returned by value needs its size twice on the stack — 🟡 MAJOR, IN PROGRESS (claimed 2026-10-29, work-1; user: "Fix it now", then "wait 5 minutes, then land; then continue with that"; the whole-store case is done: binate `bc9a35b70`, `493731135`)
+### A call's large aggregate result kept in a local needs its size twice on the stack (compiled at -O0; the VM at any level) — 🟡 MAJOR, claimed 2026-10-29, work-1; asked 2026-10-30 whether to fix it now, no answer yet (the return cases are done: binate `02db3265e`, `12034603e`; the whole-store case: `bc9a35b70`, `493731135`)
 
-Three causes, found with probes of 3.5-5 MiB (an 8 MiB stack holds one copy, not two):
-- Compiled (LLVM and native): `return *s` of an aggregate with no word alignment copied the source into a frame
-  region of its size before the copy into the caller's result buffer (AggLoadElision kept every sub-word-aligned load
-  copied unless stored whole); a 5 MiB struct of bytes returned into a heap object crashed (SIGSEGV), one of int32 did
-  not.  Fix, not landed yet: a sub-word-aligned load of more than 16 bytes returned whole is read in place.
-- VM: a function returning one aggregate reserved the result image's size at its OP_RETURN (opGrowthBytes) beside the
-  frame region holding it, though only a return of several values builds an image (packMultiReturn): `return *s` of
-  3.75 MiB was "runtime error: stack overflow".  Fix, not landed yet: reserve the image only for a return of several
-  values.  Tests: conformance 1724 (both fixes), TestMaxGrowthReturnImage.
-- Open, needs a decision: a call's aggregate result kept in a local -- `var r Page = get(&src)`, or
-  `get(&src).b[i]`, whose result IR-gen keeps in a temporary -- needs its size twice, at any alignment.  Compiled, at
-  the default -O0 only: the local's OP_ALLOC, which zero-fills it (`llvm.memset` of the whole size), sits between the
-  call and the store, so CallResultSlots refuses the slot and the result gets a `.sret` buffer of its own; from -O1
-  the dead-store pass marks the slot NoZeroInit and the call writes into the local (4.5 MiB crashes at -O0, works at
-  -O1, on LLVM and native).  VM, at any level: BC_RETURN relocates the result onto the caller's stack and it is then
-  copied into the local's region; the VM has no call-result slots (with both fixes above, 3.75 MiB is "runtime
-  error: stack overflow" on the 8 MiB VM stack, 3.5 MiB works).  Proposed fix: IR-gen marks NoZeroInit a local whose
-  declaration stores its initializer whole (or emits the slot before evaluating it), and the VM gets call-result
-  slots -- a call whose result is stored whole into a confined local is handed the local as its result's
-  destination.
+`var r Page = get(&src)`, or `get(&src).b[i]` (IR-gen keeps the result in a temporary), with a 4.5 MiB result needs
+twice that, at any alignment.  Compiled, at the default -O0 only: the local's OP_ALLOC, which zero-fills it
+(`llvm.memset` of the whole size), sits between the call and the store, so CallResultSlots refuses the slot and the
+result gets a `.sret` buffer of its own; from -O1 the dead-store pass marks the slot NoZeroInit and the call writes into
+the local (4.5 MiB crashes at -O0, works at -O1, on LLVM and native).  VM, at any level: BC_RETURN relocates the result
+onto the caller's stack and it is then copied into the local's region; the VM has no call-result slots (3.75 MiB is
+"runtime error: stack overflow" on the 8 MiB VM stack, 3.5 MiB works).  Proposed fix: IR-gen marks NoZeroInit a local
+whose declaration stores its initializer whole (or emits the slot before evaluating it), and the VM gets call-result
+slots -- a call whose result is stored whole into a confined local is handed the local as its result's destination.
 
-### A host or native call of a VM function returning an aggregate leaves its result image on the VM stack — 🔴 MAJOR, OPEN (found 2026-10-30, work-1, review of the VM return-reservation fix; pre-existing; checked in code, not probed)
+### A host or native call of a VM function returning an aggregate leaves its result image on the VM stack — 🟡 MAJOR, IN PROGRESS (claimed 2026-10-30, work-1; user: "then fix those next (you can batch them together before asking to land)"; found 2026-10-30, work-1, review of the VM return-reservation fix; pre-existing; checked in code, not probed)
 
 execFunc (vm/vm_exec_helpers.bn) moves a retbuf-returning callee's result image down to the stack top it started from
 and leaves vm.SP past it (`savedSP = savedSP + ((sz + 7) & ~7)`, then `vm.SP = savedSP`), so its caller can read the
@@ -130,7 +119,7 @@ that statement's reservation.  Proposed fix: each execFunc caller that reads a r
 value before the call once it has copied the image out.  Test: a VM unit test calling CallFuncAggregate, and a
 function value through TrampolineAggregate / TrampolinePacked, many times, checking vm.SP returns to where it started.
 
-### aarch64: an aggregate of at most 16 bytes returned in registers from in place is loaded in whole words, past its end — 🔴 MAJOR (latent), OPEN (found 2026-10-30, work-1, review; pre-existing; checked in code, not probed)
+### aarch64: an aggregate of at most 16 bytes returned in registers from in place is loaded in whole words, past its end — 🟡 MAJOR (latent), IN PROGRESS (claimed 2026-10-30, work-1; user: "then fix those next (you can batch them together before asking to land)"; found 2026-10-30, work-1, review; pre-existing; checked in code, not probed)
 
 aarch64_return.bn's in-register aggregate return loads ceil(size / 8) whole 8-byte words from the value's pointer
 (`aarch64.Ldr(a, true, argReg(ri), aarch64.MemImm(ptr, 8 * ri))`).  For a load AggLoadElision reads in place (at most
