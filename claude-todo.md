@@ -319,7 +319,7 @@ spelling is `*([3]int32)`) and still passed, expecting one checker error.  Fix: 
 program does not parse (a test that means to pass unparsable source says so, through a helper of its own), then fix
 the tests that turn out not to parse.
 
-### Other packages' unit tests may also check what the parser recovered from a program that does not parse — 🔴 OPEN (minor: test accuracy; found 2026-10-29, temp-5, fixing the checker's tests)
+### Other packages' unit tests may also check what the parser recovered from a program that does not parse — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; minor: test accuracy; found 2026-10-29, temp-5, fixing the checker's tests)
 
 The checker's tests now stop on a program that does not parse (mustParse, check/types_test.bn).  Other packages'
 tests parse programs too, and some never read `p.Errors()`: `ParseFile()` sites in irgen (49), vm (39), lint (10),
