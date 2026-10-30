@@ -585,7 +585,7 @@ shows it.  In cmd/bnc's cone, keep a generic's int and int64 instances apart (na
 lists in a non-generic list).  Clears when a BUILDER containing `50d176225` is pinned (cut only when
 independently justified).
 
-### Until `BUILDER_VERSION` includes binate `1f29d31e9`, gen1 silently miscompiles some statements that open a block or follow a compound statement in BUILDER-compiled code — 🔴 OPEN MAJOR (constraint until the next BUILDER release; found 2026-09-30, work-4)
+### Until `BUILDER_VERSION` includes binate `1f29d31e9`, gen1 silently miscompiles some statements that open a block or follow a compound statement in BUILDER-compiled code — 🔴 OPEN MAJOR (constraint until the next BUILDER release; found 2026-09-30, work-4); the check 🟡 IN PROGRESS (claimed 2026-10-30, work-6)
 
 bnc-0.0.16 (the pinned BUILDER) has the IR-gen defect fixed on main by `1f29d31e9`.  So in cmd/bnc's cone (the packages the BUILDER compiles into gen1), these must not be the first statement of a loop / `if` / `else` / `case` body, nor the statement right after an `if` / `for` / `switch`:
 - a struct-field `++` / `--`;
@@ -606,7 +606,8 @@ guarantee did not hold: proposal (not wired up): a hygiene check that rejects a 
 following an `if` / `for` / `switch` in cmd/bnc's cone until the BUILDER is bumped.
 `e2e/repl.sh` builds gen1 without `--cflag -O2`, so there such a site traps (`Trace/BPT trap: 5` in evalArrayLen,
 2026-10-29: "FAIL: bni build failed:" with no case run, until `915da8429`); the user chose (2026-10-30) to add the
-check.
+check, as a ban on every field `++` / `--` in the BUILDER-compiled tree: "Ban field ++/-- (Recommended)" (the rest
+rewritten as `+= 1`).
 
 ### REPL redefinition of types and interfaces, and across kinds: shadowing (the design) is not implemented; such a redefinition is rejected meanwhile — 🟡 IN PROGRESS (claimed 2026-10-09, work-6/session — user: "let's do item 7 then") (found 2026-09-29, work-6, review of the REPL forward-reference plan; widened 2026-09-30)
 
