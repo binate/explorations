@@ -52,7 +52,7 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
   own label name and mention when the expression parser reads it, carried in the ExprResult (Dot / NegDot copies,
   negation), in the shared expression code — validated on all three architectures and Mach-O.  User (2026-10-28):
   "Separate commit next (Recommended)".
-- 2b. Multiplies and divide: mul / mla / mls, the long forms (umull, umlal, smull, smlal, umaal), the DSP halfword
+- 2b. DONE (binate `5fa9deadf`).  Multiplies and divide: mul / mla / mls, the long forms (umull, umlal, smull, smlal, umaal), the DSP halfword
   ones (smla<x><y>, smlaw<y>, smulw<y>, smlal<x><y>, smul<x><y>), the dual ones (smuad / smusd / smlad / smlsd /
   smlald / smlsld, with X), the most-significant-word ones (smmul / smmla / smmls, with R); sdiv / udiv.
   From the 2b review, rejections whose message differs from clang's (both reject): no operands ("expected

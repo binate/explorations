@@ -909,7 +909,7 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### asm arm32: an ARM feature model gating instructions as clang does, and the forms it lacks — 🟡 IN PROGRESS (claimed 2026-10-26, work-2; stage 1, the feature model, DONE binate `09f41e4f7`; stage 2's steps 2a, data processing, DONE binate `4925d2d0c` and 2a2, `:lower16:` / `:upper16:`, DONE binate `37cfd247a`, 2a3, the `.` label's symbol order, DONE binate `31c5e7c60`; see the done log; found 2026-10-25, work-2, the `.ARM.attributes` work; user: "Attributes now, gating next (Recommended)")
+### asm arm32: an ARM feature model gating instructions as clang does, and the forms it lacks — 🟡 IN PROGRESS (claimed 2026-10-26, work-2; stage 1, the feature model, DONE binate `09f41e4f7`; stage 2's steps 2a, data processing, DONE binate `4925d2d0c` and 2a2, `:lower16:` / `:upper16:`, DONE binate `37cfd247a`, 2a3, the `.` label's symbol order, DONE binate `31c5e7c60`, 2b, the multiplies and divides, DONE binate `5fa9deadf`; see the done log; found 2026-10-25, work-2, the `.ARM.attributes` work; user: "Attributes now, gating next (Recommended)")
 
 clang gates arm32 instructions by the target's features, which `.cpu` and `.fpu` change: a CPU without VFP (generic,
 arm7tdmi, xscale) rejects VFP instructions, a Thumb-only CPU (cortex-m*) switches to Thumb mode (bnas: an error), `.fpu
@@ -925,13 +925,6 @@ extensions, set by the target, `.cpu`, `.fpu`) gating the current set as clang d
 an exact, range-checked encoder layer like aarch64/isa plus its parser; **(3)** VFPv3 / v4; **(4)** NEON — each landed
 separately, with clang accept / reject goldens.  Then back to TLS stage 3 and the rest of the queue.  Plan and
 clang's facts: plan-asm-arm32-isa.md.
-
-### asm arm32: operand checks differ from clang (umull RdHi = RdLo, mul / mla into pc) — 🟡 IN PROGRESS (claimed 2026-10-27, work-2, in plan-asm-arm32-isa.md stage 2, step 2b); the `bkpteq` part DONE binate `09f41e4f7`, (d) `movw pc` DONE binate `4925d2d0c` (found 2026-10-26, work-2, review of the arm32 feature-model change)
-
-Probed against clang (Apple clang 21) with bnas from main: (b) `umull r0, r0, r1, r2` (RdHi = RdLo) is accepted; clang: "unpredictable instruction, RdHi and RdLo must be
-different".  (c) `mul pc, r0, r1` and `mla pc, r0, r1, r2` are accepted; clang: "operand must be a register in range
-[r0, r14]".
-**Fix:** the operand rules of the exact A32 encoder layer (plan-asm-arm32-isa.md stage 2), each against clang.
 
 ### asm ELF: a listed generated label is named `.Ltmp<n>` counting only the labels bnas lists, where clang counts every temporary — 🔴 OPEN, unclaimed (found 2026-10-29, work-2, the review of the arm32 `.` symbol order)
 

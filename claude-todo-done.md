@@ -1,3 +1,22 @@
+### asm arm32 stage 2b: the multiplies and divides, exact, as clang takes them — DONE (binate `5fa9deadf`, 2026-10-29, work-2; user: "Per step (Recommended)" on exact encoders)
+
+Every multiply and divide (MUL .. UDIV, the halfword, dual and most-significant-word forms) in an exact encoder
+file (arm32_mul.bn: condition, registers, clang's PC rules, RdLo != RdHi checked, where the old seven masked
+registers) and its parser (parse/arm32_mul.bn: two-operand MUL from ARMv6 and SDIV / UDIV, operand counts, S,
+each family gated as clang gates it), matching clang over ~10,000 cases in acceptance and bytes.  The review
+caught a negative last register let through and two-operand MUL before ARMv6, both fixed before landing;
+message-only differences are listed in the plan.  The other encoders' condition / register masking is to be
+fixed step by step (plan).
+
+### asm arm32: operand checks differ from clang (umull RdHi = RdLo, mul / mla into pc) — DONE ((b) and (c) binate `5fa9deadf`, 2026-10-29, work-2, step 2b; the `bkpteq` part binate `09f41e4f7`, (d) `movw pc` binate `4925d2d0c`) (found 2026-10-26, work-2, review of the arm32 feature-model change)
+
+Probed against clang (Apple clang 21) with bnas from main: (b) `umull r0, r0, r1, r2` (RdHi = RdLo) is accepted; clang: "unpredictable instruction, RdHi and RdLo must be
+different".  (c) `mul pc, r0, r1` and `mla pc, r0, r1, r2` are accepted; clang: "operand must be a register in range
+[r0, r14]".
+**Fix:** the operand rules of the exact A32 encoder layer (plan-asm-arm32-isa.md stage 2), each against clang.
+Resolution (binate `5fa9deadf`): the exact multiply encoders reject PC where clang does and a long multiply's
+RdLo = RdHi, with clang's messages.
+
 ### A generic's declaration that reads a variable, a function or a method whose own check built its instance was a false cycle — DONE (binate `80f71625a`, 2026-10-29, work-7; user: "1. wait 16 minutes, then go ahead.")
 
 `type Bx[T any] struct { a [len(Q)]uint8; t T }`, `var Q [sizeof(W[int64])]uint8`, `type W[T any] struct { v T; p
