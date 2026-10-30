@@ -417,7 +417,7 @@ because the asm ELF writer over-aligned every section (no longer: a byte-only `.
 the end symbols never were.  `runtime/baremetal_arm32/baremetal.ld` aligns them (`ALIGN(4)`).  Fix: align dot to
 4 before each boundary symbol, and check the driver's symbol values in its builder unit test.
 
-### bnld: an input symbol's ELF type is ignored — an IFUNC or TLS symbol, or a GNU_UNIQUE binding, is linked as an ordinary one — 🔴 OPEN (found 2026-10-15, work-2, scoping asm `.type`; latent)
+### bnld: an input symbol's ELF type is ignored — an IFUNC or TLS symbol, or a GNU_UNIQUE binding, is linked as an ordinary one — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; found 2026-10-15, work-2, scoping asm `.type`; latent)
 
 bnld's ELF reader (`readSymbols`, pkg/binate/link/parse_elf.bn) keeps st_info's binding and drops its type, so a
 symbol typed STT_GNU_IFUNC (`__attribute__((ifunc))`, glibc's static string functions) is linked as a plain
