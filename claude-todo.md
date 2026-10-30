@@ -298,6 +298,40 @@ so whether these programs are valid is not decided.  Decide: such cycles judged 
 a conformance error test), or per member (a struct's fields and an interface's methods resolved one at a time on
 demand, with tests).
 
+### A generic type's method copied onto an instance, after an earlier declaration built a type its result's length reads, keeps a zero length — a silent wrong type — 🔴 OPEN MAJOR (found 2026-10-30, temp-5, review of the "method redeclared" fix; reproduced on main `2d98bc5f1`; pre-existing)
+
+```
+var g [sizeof(W[int64])]uint8
+type H[T any] struct { z T }
+var hv H[int64]
+func (h *H[T]) m() [sizeof(W[T])]uint8 { var r [sizeof(W[T])]uint8; return r }
+type W[T any] struct { v T; j *B[T] }
+type B[T any] struct { a [len(hv.m())]uint8 }
+func main() { var b B[int64]; testing.Println(len(hv.m()), sizeof(W[int64]), len(g), len(b.a)) }
+```
+compiles and prints `0 16 16 0`, where it should print `16 16 16 16`: H[int64]'s m returns `[0]uint8`, and B[int64]'s
+`a` is `[0]uint8`.  The same with `const S = sizeof(W[int64])` or `func early() [sizeof(W[int64])]uint8` as the
+early declaration; without it the program prints `16 16 16`, and with a non-generic receiver it is right.  With an
+interface `J[T any] { k() [len(hv.m())]uint8 }` in B's place, J[int64]'s k is `[0]uint8`: `var x
+[sizeof(W[int64])]uint8 = hv.m()` is "cannot assign [0]uint8 to [24]uint8", and an impl of J[int64] whose k returns
+`[sizeof(W[int64])]uint8`, declared before m, is "type Impl does not implement J[int64] (method `k` has wrong
+signature)" — the second error the "method redeclared" entry (binate fix pending, temp-5) listed; that fix's tests
+place the impl after m.  The early declaration builds W[int64] (and B[int64], whose length selects hv.m()) before
+collection reaches m.  Root cause not traced; binate `b770fccd4` fixed the sibling case where the copied signature
+reads W[int64] while it is built (`var Q [len(W[int64]{}.p.a)]uint8` after W).  Fix: trace where H[int64]'s copy of
+m (or B[int64]) keeps the length its build could not read; tests: the program above (each early form), and the
+regression program generic-iface-method-selects-copied-method with the impl before m.
+
+### A generic function's constraint naming a length that depends on a type parameter is not resolved at instantiation — 🔴 OPEN (a valid program rejected; found 2026-10-30, temp-5, review of the shadowing-bound fix; reproduced on main `2d98bc5f1`; pre-existing)
+
+`func outer[T Eq[[sizeof(U)]uint8], U any](t T) int`, with `interface Eq[T any] { eq(o T) bool }` and `impl *N :
+Eq[[8]uint8]`: `outer[*N, int64](&n)` is "type argument *N does not satisfy constraint Eq[[0]uint8]", and so is
+outer's forwarding call `inner[T, U](t)` to `func inner[V Eq[[sizeof(W)]uint8], W any]` ("… (in outer[*N, int64],
+instantiated at …)").  instantiateGenericFunc substitutes the abstract constraint (substituteTypeParams), which keeps a
+length depending on a type parameter at its placeholder, 0; checkInstantiationConstraints resolves a generic type's
+constraints with its parameters bound.  Fix: resolve a generic function's constraints for the type arguments the same
+way; tests: the call and the forwarding above.
+
 ### A build that waits for a layout still builds the instances it names from the length it could not read, and reports their errors — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
 
 `type Other[T any] struct { x T }`, `func (o *Other[T]) q() int { return 32 / cast(int, sizeof(T)) }`, `type Box[T
