@@ -1006,6 +1006,29 @@ behaves the same with `=`, checked against the bnc-0.0.17-pre3 bnas): `b K` then
 must be defined before use"), and on Mach-O a forward `.set D, l2 - l1` between non-temporary labels is rejected
 ("…different sections or atoms is not a number"), where clang folds it to 8.
 
+### Unit tests: a check that fails with an empty message passes — `return fail(x.ErrorMsg)` when no error was set — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; MAJOR: tests that report green while their check fails; found 2026-10-30, temp-5, review of the asm `;` separator)
+
+A `testing.TestResult` is a string, "" a pass, and every test package's `fail(msg)` helper returns msg as it is.
+A check that expects an error and reports the error text (`if !x.HasError || !contains(x.ErrorMsg, …) { return
+fail(x.ErrorMsg) }`) therefore PASSES when no error happens at all: the message is empty.  It hid a real break —
+asm/parse's TestParseLineStrayCharacterIsFatal stayed green after `;` became a statement separator on x86-64
+(the line assembled, ErrorMsg was "", the test passed).  293 `return fail(<a message or error variable>)`
+sites in 81 test files (most in pkg/binate/asm/*, also link, native/*, irgen, check, codegen, iropt, types/abi)
+can do the same whenever the variable can be empty on the failing path.  **Fix:** make each package's `fail`
+(65 of them, one per test package) never return "": an empty msg becomes a fixed "check failed (empty failure
+message)"; then run every changed package's tests and root-cause whatever turns red — those are checks that
+have been failing silently.
+
+### asm aarch64: a memory offset of a `.` or label difference differs from clang — 🔴 OPEN, unclaimed (found 2026-10-30, temp-5, review of the `.@PAGEOFF` memory-offset change; pre-existing for the `#` spellings)
+
+bnas folds a `.`-difference at parse time, so `ldp x1, x2, [x0, #. - .]`, `ldr x1, [x0, #. - .]!` and `ldar x1,
+[x0, #. - .]` (and, since the bare `.` offset, the same without `#`) are accepted where clang rejects all three;
+`ldr x1, [x0, .-_f]` (value 4) becomes an `ldur` where clang errors "fixup must be 8-byte aligned"; `ldr x1, [x0,
+.@PAGEOFF]` is accepted on ELF (bnas takes the Mach-O specifiers on ELF as general page fixups), where clang
+rejects it; and an offset led by a name (`ldr x1, [x0, g-.]`, g a later label) is rejected ("expected a page
+offset") where clang on ELF encodes `ldr x1, [x0, #8]`.  **Fix:** probe each against clang (ELF and Mach-O) and
+match it in `aarch64_addr.bn` / `aarch64_items_sym.bn`.
+
 ### asm: a self-referential constant is accepted, and a constant then a `.comm` of its name is rejected — 🔴 OPEN, unclaimed (found 2026-10-30, temp-5, review of the `.set` change; pre-existing: each behaves the same with `=`, checked against the bnc-0.0.17-pre3 bnas)
 
 (a) `.set K, K+4` or `.equiv K, K` (or `K = K + 4`) with no use of K is accepted with nothing emitted; clang reports
