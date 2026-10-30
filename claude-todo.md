@@ -47,6 +47,29 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
+### The pinned BUILDER compiles `p.f++` inside `if p != nil { … }` as unreachable: a gen1 built without `-O2` traps in `check.evalArrayLen`, so `e2e/repl.sh` cannot build bni on main — 🔴 OPEN (MAJOR; found 2026-10-29, work-6, validating the parked-redefinition group rule; reproduced on main `9bbe8a2f7`)
+
+- Symptom: `e2e/repl.sh` prints only `FAIL: bni build failed:` and runs no case.  It builds gen1 with the BUILDER
+  without `--cflag -O2`, then has gen1 compile `cmd/bni`; gen1 dies with SIGTRAP (`Trace/BPT trap: 5`, exit 133) at
+  a `brk #1` in `check.evalArrayLen` — the `b.LenDepth++` of check/eval_const_int.bn:22, added by binate
+  `d992fc50b`.  Main `9bbe8a2f7`, with no other change, fails the same way.  Other scripts that build gen1 without
+  `-O2` would fail too (not checked).
+- Root cause: BUILDER `bnc-0.0.16` (BUILDER_VERSION) compiles an increment of a field through a managed pointer,
+  inside `if p != nil { … }`, to LLVM `unreachable`.  Repro: `type B struct { n int }`, `func g(b @B) int { if b !=
+  nil { b.n++ }; return 1 }`, called with a non-nil `@B`, traps when the BUILDER builds it; `b.n = b.n + 1` in the
+  same place works, and so does `b.n++` with no nil test (errVarTypeCycle's `b.CycleErrors++`).  The tree's
+  compiler gets it right (a bni built through gen2 runs the repro and prints 1): only the BUILDER has the bug.
+- Likely worse than the crash (inferred, not checked): the unit-test runner and conformance build gen1 with
+  `--cflag -O2` (scripts/lib/build-compilers.sh), where LLVM may delete the path it is told cannot run — those
+  builds do not trap — so that gen1's checker would never count LenDepth (the `--` at :29 is compiled the same
+  way), and the rule `d992fc50b` added (a placeholder read outside an array length is a variable type cycle) would
+  run wrong in every gen1, silently.
+- Fix options: write the two lines as `b.LenDepth = b.LenDepth + 1` / `- 1` (the BUILDER compiles that form
+  right), with a note that the BUILDER mis-compiles `++`/`--` there, kept until a BUILDER past the bug is pinned;
+  and add a check (hygiene or bnlint) for a field `++`/`--` under a nil test in cmd/bnc's cone.  A BUILDER
+  release is not warranted by this alone.
+- Needs: the user's decision.
+
 ### An aggregate with no word alignment copied whole through pointers is staged in a copy of its size on the stack — a 16 MiB struct of bytes overflows it; 1718's 2 GiB one is why the LLVM x86-64 lanes are red — 🟡 MAJOR, IN PROGRESS (claimed 2026-10-29, work-1; user: "Fix it now"; found 2026-10-29, work-1, root-causing conformance 1718's CI failure; pre-existing)
 
 `*d = *s` with `type Page struct { b [0x1000000]uint8 }` and both on the heap crashes (SIGSEGV) on the LLVM and
