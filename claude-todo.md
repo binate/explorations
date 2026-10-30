@@ -2720,7 +2720,7 @@ becomes a dynamic import dyld cannot bind (a load failure) or, for a direct ADRP
 define it in `LinkDynMacho` as `___dso_handle` is (`referencedNotDefined` → `withImageSym` → `setAbsValue` to the
 header address), with a unit test alongside `TestLinkDynMachoInitFuncAndDsoHandle`.
 
-### bnld dynamic Mach-O: llvm-objdump rejects the rebase table ("bad segIndex (too large)") — 🔴 OPEN (minor, tools only; found 2026-10-11, work-2, review of the Mach-O constructors change; pre-existing)
+### bnld dynamic Mach-O: llvm-objdump rejects the rebase table ("bad segIndex (too large)") — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; minor, tools only; found 2026-10-11, work-2, review of the Mach-O constructors change; pre-existing)
 
 `llvm-objdump --macho --rebase` on a bnld-linked dynamic Mach-O stops with "truncated or malformed object (for
 REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB bad segIndex (too large) for opcode at: 0x1)", though dyld loads and
