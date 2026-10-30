@@ -1063,7 +1063,7 @@ check/check_layout_wait.bn) — reports it again where it reads the instance.  F
 that cannot wait builds the waiting instance for the last time first, so the cycle is reported where it closes and
 the read finds a built layout; unit tests for both forms.
 
-### A generic interface's method that selects a generic type's method, whose signature builds an instance naming the interface, is a false "method redeclared" — 🔴 OPEN (a valid program rejected; found 2026-10-29, work-7, review of the copied-method zero-length fix; reproduced on main; pre-existing)
+### A generic interface's method that selects a generic type's method, whose signature builds an instance naming the interface, is a false "method redeclared" — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; a valid program rejected; found 2026-10-29, work-7, review of the copied-method zero-length fix; reproduced on main; pre-existing)
 
 `interface J[T any] { k() [len(hv.m())]uint8 }`, `type H[T any] struct { z T }`, `var hv H[int64]`, `func (h *H[T])
 m() [sizeof(W[T])]uint8 { … }`, `type W[T any] struct { v T; j *J[T] }` is "method m redeclared on type H" at m's
