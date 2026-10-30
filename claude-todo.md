@@ -330,6 +330,10 @@ silent POISONED (the importer then rejects `[q.Z]` "array length must be a const
 constants), so the program compiles.  A conformance test for the crash (the program above) and for a later
 named array type under `len` (`const R int = len(Row{})` before `type Row [8]int16`, also rejected today).
 
+**Worse than a crash (2026-10-30, temp-5):** built from binate `6a918a196`, bnc compiles the program above (an
+importer `main` with `var a [q.Z]int8`, `testing.Println(len(a))`) and it prints `0` — `a` is silently a `[0]int8`,
+where `sizeof(S)` is 16.  Silent wrong code on main.
+
 ### Instance-check diagnostics: a second instance's violation is hidden, and an instance formed through a generic's field is placed at that field — 🔴 OPEN (minor: diagnostics; found 2026-10-16, work-5, review of the generic-type method-signature sizing; pre-existing)
 
 contextualizeInstanceErrors drops an error another instance already reported at the same position, so with
