@@ -431,7 +431,7 @@ error naming the symbol until bnld implements them (IFUNC: an IRELATIVE relocati
 symbol's type kept in a dynamic one; unique: as global, as ld.lld does).  An STT_TLS symbol is rejected already
 (binate `4d91dc223`), until the TLS series links it.  The asm can produce an IFUNC symbol once `.type` lands.
 
-### bnld Mach-O reader: a section type it does not handle is read as data — S_GB_ZEROFILL gets the header bytes — 🔴 OPEN (found 2026-10-17, work-2, review of the asm TLS change; latent)
+### bnld Mach-O reader: a section type it does not handle is read as data — S_GB_ZEROFILL gets the header bytes — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; found 2026-10-17, work-2, review of the asm TLS change; latent)
 
 `machoSectionKind` (pkg/binate/link/parse_macho.bn) treats only S_ZEROFILL as zero-fill and every other section type
 as data or rodata, copying `size` bytes from the section's file offset.  A zero-fill section of another type has
