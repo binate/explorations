@@ -2630,7 +2630,7 @@ O(n^2) comparisons.  The tree's largest package drain checks 93 instances, so it
 instances of conformance 090's fan-out family (24.6 s natively), funcInstance with IdenticalStrict and ResolveAlias under it were over half of
 the samples.  Fix: index the instances by declaration and type arguments.
 
-### The lexer builds its comment list with slices.Append — quadratic in a file's comments — 🟢 LOW (found 2026-10-19, temp-4, review of the builtin-opener fix; pre-existing)
+### The lexer builds its comment list with slices.Append — quadratic in a file's comments — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive) 🟢 LOW (found 2026-10-19, temp-4, review of the builtin-opener fix; pre-existing)
 
 `pkg/binate/lexer/scan.bn` appends each comment to `l.comments` with `slices.Append`, which copies the
 list every time: a comment-collecting lex (bnfmt) of a file with 160k comments takes ~90 s.  Real files
