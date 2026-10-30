@@ -57,7 +57,9 @@ aggregate, then that copy into `*d`.  Root cause (compiled modes): native/common
 uses, to keep word-wise consumers (call-argument / return marshals) off a possibly unaligned source on
 strict-align arm32 — which also catches a load whose one use is a whole store (storedWhole), the case it
 otherwise classifies AGG_LOAD_IN_PLACE_OVERLAPPING and the backends copy as memmove does.  The LLVM backend and
-the native backends both ask it.  The VM stages the load on its own stack (not yet traced).  Conformance
+the native backends both ask it.  The VM copies EVERY aggregate load into a frame region of its own
+(BC_LOAD_AGGREGATE, vm/lower_memory.bn), whatever its alignment: a 16 MiB struct of int32 copied the same way
+overflows its 8 MiB stack too.  Conformance
 1718_offsets_past_2gib's copyBytes (`*d = *s`, a 2 GiB struct of bytes) gets a 2 GiB frame, which clang rejects on
 x86-64 ("stack frame size (2147483704) exceeds limit (2147483647)"): the LLVM lanes (builder-comp, -comp-comp,
 -comp-comp-comp) have been red on main since binate `650f83fc5` (work-3's note under the int64-layout entry).
