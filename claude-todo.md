@@ -221,7 +221,7 @@ variable checked while types are collected gives the same follow-on: `type A [le
 and then "declare its type" for one of u and w (found 2026-10-28, work-5, review of the head-typing change).  Fix:
 trace it and report the cycle there alone; unit tests of both programs.
 
-### The checker's unit tests ignore parse errors, so a test whose program does not parse passes on what is left — 🔴 OPEN (minor: test accuracy; found 2026-10-28, work-5, writing the head-typing tests)
+### The checker's unit tests ignore parse errors, so a test whose program does not parse passes on what is left — 🟡 IN PROGRESS (claimed 2026-10-29, temp-5/session, self-drive; minor: test accuracy; found 2026-10-28, work-5, writing the head-typing tests)
 
 checkSrc (check/types_test.bn) and the other helpers that parse a test's program (`p.ParseFile()` in
 bni_scope_test.bn, check_const_bare_test.bn, check_decl_func_test.bn and more) never read `p.Errors()`, so a
