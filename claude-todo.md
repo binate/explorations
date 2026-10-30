@@ -1138,6 +1138,17 @@ involving `Box`" and then "cannot assign [8]uint8 to [0]uint8".  Fix: a type who
 because of an error already reported is the error type (or is otherwise kept from reporting again); unit tests
 expecting exactly the one error for each form.
 
+### A generic interface's method that selects a generic type's method, whose signature builds an instance naming the interface, is a false "method redeclared" — 🔴 OPEN (a valid program rejected; found 2026-10-29, work-7, review of the copied-method zero-length fix; reproduced on main; pre-existing)
+
+`interface J[T any] { k() [len(hv.m())]uint8 }`, `type H[T any] struct { z T }`, `var hv H[int64]`, `func (h *H[T])
+m() [sizeof(W[T])]uint8 { … }`, `type W[T any] struct { v T; j *J[T] }` is "method m redeclared on type H" at m's
+declaration; with J declared after m, and an `impl *Impl : J[int64]` whose k returns `[16]uint8`, it is that and "type
+Impl does not implement J[int64] (method `k` has wrong signature)".  With m's signature not building W (`[8]uint8`)
+both compile, J generic or not.  Root cause not traced; a guess: m is defined on demand while J's instance is built
+and W[int64] is not, the definition is taken back (undoBatchMethods) without its method on H's placeholder
+(collectGenericMethodDecl's AddMethod), and collection's own definition then finds it there.  Fix: trace it, and take
+back what the on-demand definition added, with a unit test for both forms.
+
 ### At the REPL, a statement whose build reads a declaration or a method copy still being resolved does not wait for it — 🔴 OPEN (minor: a valid statement at the prompt rejected; found 2026-10-29, work-7, review of the method-copy wait; from reading the code, not reproduced; pre-existing)
 
 The waits for a declaration, or a copy of a generic's methods onto an instance, still being resolved
