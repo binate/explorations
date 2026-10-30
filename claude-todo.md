@@ -81,12 +81,16 @@ Three causes, found with probes of 3.5-5 MiB (an 8 MiB stack holds one copy, not
   frame region holding it, though only a return of several values builds an image (packMultiReturn): `return *s` of
   3.75 MiB was "runtime error: stack overflow".  Fix, not landed yet: reserve the image only for a return of several
   values.  Tests: conformance 1724 (both fixes), TestMaxGrowthReturnImage.
-- VM, open, needs a decision: a call's aggregate result kept in a local -- `var r Page = get(&src)`, or
-  `get(&src).b[i]`, whose result IR-gen keeps in a temporary -- needs its size twice: BC_RETURN relocates the result
-  onto the caller's stack, and it is then copied into the local's own region, where the native and LLVM backends
-  write it straight into the local (CallResultSlots).  With both fixes above, 3.75 MiB is "runtime error: stack
-  overflow" on the 8 MiB VM stack (3.5 MiB works); the compiled modes run it at 4.5 MiB.  Proposed fix: call-result
-  slots in the VM -- a call whose result is stored whole into a confined local is handed the local as its result's
+- Open, needs a decision: a call's aggregate result kept in a local -- `var r Page = get(&src)`, or
+  `get(&src).b[i]`, whose result IR-gen keeps in a temporary -- needs its size twice, at any alignment.  Compiled, at
+  the default -O0 only: the local's OP_ALLOC, which zero-fills it (`llvm.memset` of the whole size), sits between the
+  call and the store, so CallResultSlots refuses the slot and the result gets a `.sret` buffer of its own; from -O1
+  the dead-store pass marks the slot NoZeroInit and the call writes into the local (4.5 MiB crashes at -O0, works at
+  -O1, on LLVM and native).  VM, at any level: BC_RETURN relocates the result onto the caller's stack and it is then
+  copied into the local's region; the VM has no call-result slots (with both fixes above, 3.75 MiB is "runtime
+  error: stack overflow" on the 8 MiB VM stack, 3.5 MiB works).  Proposed fix: IR-gen marks NoZeroInit a local whose
+  declaration stores its initializer whole (or emits the slot before evaluating it), and the VM gets call-result
+  slots -- a call whose result is stored whole into a confined local is handed the local as its result's
   destination.
 
 ### A host or native call of a VM function returning an aggregate leaves its result image on the VM stack — 🔴 MAJOR, OPEN (found 2026-10-30, work-1, review of the VM return-reservation fix; pre-existing; checked in code, not probed)
