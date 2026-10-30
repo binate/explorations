@@ -3489,6 +3489,27 @@ resolve where it was declared, and an instance reuses the declaration-time check
 (plan-irgen-checker-types.md decision 7).  For generic METHODS that suggests replacing the proposal above: a
 sibling keeps calling the old (shadowed) method, which stays instantiable — to confirm with the user.
 
+### REPL: adding a method to a generic type checks its existing instances again against names redefined since — the method is rejected for an error in a sibling's old body — 🔴 OPEN (MAJOR: valid input rejected; found 2026-10-30, work-6, review of the parked-redefinition group rule; reproduced on main before that change)
+
+```
+func g() int { return 1000 }
+type Cell[T any] struct { v T }
+func (b *Cell[T]) get() int { return g() }
+func use() int { var b Cell[int]; return b.get() }
+testing.Println(use())                       1000
+func g() int8 { return 3 }                   warning: g shadowed (incompatible signature); ...
+func (b *Cell[T]) get2() int { return 7 }    cannot assign int8 to int (in Cell[int].get, instantiated at <repl>:1:28)
+var cb Cell[int]                             cannot assign int8 to int (in Cell[int].get, instantiated at <repl>:1:12)
+```
+- Cause: adding get2 queues every program-named instance of Cell again (requeueTypeInstances,
+  check/check_instance_live.bn), and the existing Cell[int] checks get's body again, against the new g — though
+  Cell[int].get is an existing caller, which keeps the old g ("existing callers retain old definition").  After
+  that, `var cb Cell[int]` fails the same way.  (A new instance, Cell[bool], whose get would call the new g, is a
+  real error.)
+- Related: the entry above (an incompatible redefinition of a generic method a sibling still calls).
+- Needs: the user's rule for what an existing instance is checked against when a method is added; then the fix, with
+  a repl test of this session.
+
 ### A constraint instance naming a type parameter that shadows a predeclared type compares equal to the predeclared one's — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; MINOR; found 2026-10-16, work-6, review of the Self-constraint proposal; reproduced; pre-existing)
 
 `func inner[U Eq[int]](u U) int`, `func outer[int any, T Eq[int]](t T) { report(inner[T](t)) }`: the declaration
