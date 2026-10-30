@@ -70,23 +70,32 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
   trailing commas, a non-register where a register goes, a shift on an instruction that takes none, missing shift
   amounts or names, two PC operands, the gates before ARMv6 where clang says "invalid instruction", and clang's
   'lsr' typo for LSL's range (bnas says 'lsl').
-- 2d. Extend and extend-add (sxtb / sxth / sxtb16 / uxt*, sxtab / ... with rotation), bitfield (bfc / bfi / sbfx /
-  ubfx), reverse (rev / rev16 / revsh / rbit), clz.
+- 2d. DONE (binate `c8501ae76`; the review's follow-up `c8d407930`).  Extend and extend-add (sxtb / sxth / sxtb16 / uxt*,
+  sxtab / ... with rotation), bitfield (bfc / bfi / sbfx / ubfx), reverse (rev / rev16 / revsh / rbit), clz; their
+  encoders exact (arm32_bits.bn).  clang rejects an extend's written rotation before ARMv6 even as `ror #0`, so bnas
+  does.  Message-only differences (both reject): the gates where clang says "invalid instruction" (bnas names the
+  architecture; for a rotation before ARMv6 clang says "operand must be a register"), `bfc r0, 8, ...`, `revs`,
+  `ubfx ..., $8`.  The follow-up takes clang's two rules for its general operand (saturate widths, SBFX / UBFX,
+  a pack's amount, SVC / BKPT, MOVW / MOVT, shift-instruction amounts, branch / ADR targets): no `-`, `+` or `~`
+  at the start without `#` / `$`, and a negative zero (`#-0`, `#-1+1`) out of range, ADR's SUB form; and makes
+  SVC / BKPT refuse a label difference.
 - 2e. Loads and stores: ldr / str / ldrb / strb, ldrh / strh / ldrsb / ldrsh, ldrd / strd in every addressing mode
   (immediate, register, scaled register, pre / post-index, writeback, literal), the T forms, pld / pldw / pli.
   From the 2a review: a label difference as a post-indexed immediate (`ldr r0, [r1], #b-a`) is taken by bnas;
   clang: "invalid instruction".  An offset written as a 32-bit pattern (`ldr r0, [r1, #K]`, K = 0xFFFFFFFF) is an
-  error in bnas ("magnitude must fit 4095"); clang reads it as -1.
+  error in bnas ("magnitude must fit 4095"); clang reads it as -1.  From the 2d review: clang's memory offset
+  takes a negative zero as a subtract (`ldr r0, [r1, #-0]` and `#-1+1` are E5110000, U = 0; post-index and
+  ldrh / ldrd the same) -- check bnas.
 - 2f. Exclusives and ordering: ldrex / strex (b, h, d), clrex, swp / swpb, the v8 acquire / release forms (lda / stl
   / ldaex / stlex families).
 - 2g. Block transfer: ldm / stm ia / ib / da / db, writeback, `^`, push / pop forms.
 - 2h. Branches: b, bl, blx <label>, blx <reg>, bx, bxj.  From the 2a review: `adr r0, <label>` with a label named
   like a register (`r1`, `sp`, `v1`) is taken by bnas; clang: "invalid operand for instruction" (`b r1` to such a
-  label is fine in both).
+  label is fine in both).  From the 2d review: a branch to a number past +/-32 MiB (`b #0x2000000`) clang wraps
+  into the offset field (EA800000); bnas rejects it, deliberately.
 - 2i. System and hints: svc, bkpt, udf, hvc, smc, eret, mrs / msr (APSR / CPSR / SPSR fields, banked registers),
   cps, setend, srs / rfe, nop / yield / wfe / wfi / sev / sevl / dbg / csdb / esb, dmb / dsb / isb with options,
-  sb, ssbb / pssbb, setpan, hlt.  From the 2a review: `svc #K` with K a label difference is taken by bnas; clang:
-  "operand must be an immediate in the range [0,0xffffff]".
+  sb, ssbb / pssbb, setpan, hlt.
 - 2j. Coprocessor: mcr / mrc (and 2), mcrr / mrrc (and 2), cdp (and 2), ldc / stc (and 2, L).
 - Exact encoders, per step (user 2026-10-29: "Per step (Recommended)"): `condBits` takes `cond & 0xf` and many
   encoders `r & 0xf`, so a bad value from a caller is mis-encoded silently; each step makes its class's encoders
@@ -94,6 +103,14 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
   Movw / Movt: registers checked, condition not) go with 2c; arm32_branch.bn's CLZ and extends with 2d,
   arm32_mem.bn with 2e, arm32_ldm.bn with 2g, the rest of arm32_branch.bn with 2h, arm32_sys.bn with 2i,
   arm32_vfp.bn with stage 3.
+- Outside the steps, found by the 2d reviews (bnas and clang differ; none is yet assigned):
+  - A quoted register (`add "r0", r1, r2`, `clz "r0", r1`) is taken by bnas -- the Rd parse does not check that the
+    token is a name; clang: "operand must be a register".
+  - `.arm`, `.code 16` / `.code 32`, `.thumb` and `.syntax` are unknown directives in bnas (clang takes `.arm`,
+    `.code 32` and `.syntax unified` in ARM code; `.thumb` / `.code 16` switch to Thumb, which bnas has none of).
+  - A `$` right before a character literal (`svc $'a'`): clang reads the symbol `$'a'`, bnas `$` and then 0x61.
+  - The expression parser: no `!` (logical not; clang `svc #!0` is 1), no quoted symbol names (`bl "lbl"`), and
+    clang reads `'\0'` as 0x30, where bnas rejects the escape.
 
 ## Stage 1: the feature model — DONE (binate `09f41e4f7`)
 
