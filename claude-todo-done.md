@@ -1,3 +1,14 @@
+### asm arm32 stage 2d: extend, extend-and-add, bitfield, reverse, count leading zeros — DONE (binate `c8501ae76`, with the review follow-up `c8d407930`, 2026-10-30, work-2)
+
+SXTB .. UXTH and SXTB16 / UXTB16 with their rotations, the extend-and-adds, BFC / BFI / SBFX / UBFX, REV / REV16 /
+REVSH / RBIT and CLZ: exact encoders (arm32_bits.bn, which takes over arm32_branch.bn's masking CLZ and extends)
+and their parser (parse/arm32_bits.bn), matching clang over ~750 cases.  An extend's written rotation needs ARMv6
+(`ror #0` too, as clang has it), the bitfields and RBIT ARMv6T2.  The review found that clang's general operand
+parser rejects a leading `-` / `+` / `~` without `#` and makes `#-0` a negative zero (out of range; ADR's SUB form);
+`c8d407930` applies both rules to every operand clang reads that way (saturate widths, SBFX / UBFX, pack amounts,
+SVC / BKPT, MOVW / MOVT, shift-instruction amounts, branch / ADR targets) and makes SVC / BKPT refuse a label
+difference.  Other differences the reviews found are logged in plan-asm-arm32-isa.md.
+
 ### A large aggregate returned by value needed its size twice on the stack — DONE (binate `02db3265e`, `12034603e`, 2026-10-30, work-1; user: "Fix it now"; landing: "yes, land both; then fix those next (you can batch them together before asking to land)")
 
 Two causes.  VM: a function returning one aggregate reserved the result image's size at its OP_RETURN (opGrowthBytes)
