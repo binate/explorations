@@ -427,7 +427,7 @@ Branch fusion only fuses integer compares (`fold/branch_fuse.bn:20-22`), so `cc^
 
 **Mach-O:** block labels are local temporaries and never start an atom (`asm_temps.bn:66-69`).
 
-### 7. Short x64 branches (rel8), a later step with its own switch value (Question 3)
+### 7. Short x64 branches (rel8): the step after the out-of-line bounds-check stubs (Question 3, decided 2026-10-30)
 
 - **Backward branches.** When the target label is already defined, emit the existing `x64.JccOffset`/`JmpOffset` (`x64_branch_offset.bn`; `x64_aggcopy_loop.bn:35` already does this).
   - This is exact, about 30 lines, and covers rotated loop back edges.
@@ -437,6 +437,7 @@ Branch fusion only fuses integer compares (`fold/branch_fuse.bn:20-22`), so `cc^
   - It also gives `bnas` short branches (`claude-todo.md:2364`).
   - The alternative, emitting everything once to measure and then again for real, doubles x64 emission time and requires emission to have no side effects.
 - This is a separate step because it changes code size and JCC-erratum exposure on its own.
+- Decided 2026-10-30: the backward form first, then forward relaxation as an `asm/x64` feature with `bnas` tests against clang's encodings; one A/B (short branches on vs off) for the two together, judged by the selection rule.
 
 ### 8. Switch and measurement
 
@@ -546,6 +547,7 @@ Each commit can land on its own and is approved separately. SOURCE output stays 
 9. The new `layout_loops.py` fields and `ab.py --arm-work-flags`. About 100 + 120.
 10. The A/B. Then, if you decide to, flip the default and update the byte-pinned tests.
 11. Out-of-line bounds-check failure paths on all three backends (§4, decided 2026-10-30), behind their own switch value, then their own A/B.
+12. x64 short branches (§7, decided 2026-10-30): the backward form, then forward relaxation in `asm/x64`, then one A/B.
 
 Commits 3-5 change only branch shapes, on today's block order. Commit 8 changes only the order, with the shape code already in place. So a conformance failure points at a single change. The backward conditional branches that first appear in commit 8 are already unit-tested in commits 3-5.
 
@@ -563,7 +565,7 @@ Commits 3-5 change only branch shapes, on today's block order. Commit 8 changes 
 
 1. Decided 2026-10-30: bounds-check failure paths move out of line as the step right after block layout, with their own switch value and A/B; the RefDec destroy path stays inline; division and shift checks are calls on both backends and are not part of this work (§4).
 2. Decided 2026-10-30: the placement selection rule decides, unchanged, from one three-arm `ab.py` run (`source`, `fallthrough`, `loops`; at least 40 seeds), so it can also pick `fallthrough`. One default for all three backends, flipped only when both x64 (timed on the x86 VM, under the 2026-10-20 rule: benchmark geomean plus self-compile) and aa64 (timed on the user's aa64 machines, full rule including the per-workload guard) pass; arm32 follows, checked by the static report (fewer taken branches per loop iteration, contiguous loops) and native arm32 conformance under `loops`. If x64 and aa64 disagree, neither flips: disassemble the losing case first, then bring the user the cause and the options (a fix, or per-architecture defaults).
-3. x64 short branches: should they be the next step, backward branches first and then relaxation for forward branches (my recommendation), or should backward short branches be folded into this work?
+3. Decided 2026-10-30: x64 short branches are the step after the out-of-line bounds-check stubs (§7): backward branches first, then forward relaxation in `asm/x64`, then one A/B for the two together; not folded into the block-layout work.
 4. Should an unrotated x64 loop top that is entered by fall-through stay aligned? I suggest keeping it and deciding in the alignment-policy step.
 
 ## Phase-0 calibration results (x86 VM, 2026-10-19/20)
