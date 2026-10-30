@@ -1123,6 +1123,20 @@ involving `Box`" and then "cannot assign [8]uint8 to [0]uint8".  Fix: a type who
 because of an error already reported is the error type (or is otherwise kept from reporting again); unit tests
 expecting exactly the one error for each form.
 
+### At the REPL, a statement whose build reads a declaration or a method copy still being resolved does not wait for it — 🔴 OPEN (minor: a valid statement at the prompt rejected; found 2026-10-29, work-7, review of the method-copy wait; from reading the code, not reproduced; pre-existing)
+
+The waits for a declaration, or a copy of a generic's methods onto an instance, still being resolved
+(check/check_layout_wait_decl.bn: DeclBatch.DeclStarts, declReadWaits, methodCopyReadWaits) are kept on the package's
+declaration batch, and the REPL drops the batch once a prompt's declarations are checked
+(check/check_pending_tentative.bn, check/checker_persistent.bn: `c.Batch = nil`), so a statement or an expression at
+the prompt is checked with none.  A prompt statement `var hb H[int16]`, with `type Bx[T any] struct { a
+[len(hh[T]().m())]uint8; t T }`, `func hh[T any]() *H[T] { return nil }`, `type H[T any] struct { z T }`, `func (h
+*H[T]) m() [sizeof(W[T])]uint8 { … }`, `type W[T any] struct { v T; p *Bx[T] }` declared before, should then be
+"undefined: m", while the same statement in a function body compiles.  The flush's suppression of its last round
+(batchDeclCollecting) reads the batch too, so letting the copy wait without one would report a false cycle from a
+flush inside the copy.  Fix: reproduce it in the REPL's tests first; then give a prompt's statements the state the
+batch carries for these waits (the starts and DeclReadWaited), with a REPL unit test.
+
 ### An instance's `sizeof` of a type not built yet: still rejected in a `.bni`'s own declarations — 🟡 IN PROGRESS (claimed 2026-10-26, work-7/session; user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]") (minor; found 2026-10-19, work-7, review of the layout-wait change; reproduced; pre-existing)
 
 Since binate `a25aeb940` an instance whose build reads the layout of a type not built yet waits for it
