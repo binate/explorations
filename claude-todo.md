@@ -183,6 +183,18 @@ yet, and its initializer has no ResolvedTypeID) and `len`'s operand is walked as
 declaredType a variable's head type (varHeadType), or compute the order after pass 2; a unit test and a conformance
 test.
 
+### A variable taking its own length in a call its type comes through is called an initialization cycle, not a type cycle — 🔴 OPEN (minor: diagnostic; found 2026-10-29, temp-5, review of the init-order-after-pass-2 change; reproduced)
+
+`var d = hi(len(d)).arr` (`func hi(n int) S`, S holding an `arr [3]int`) is "variable initialization cycle involving
+`d`".  d's initializer spells no type at its head and names d outside an array length, so its type depends on
+itself (§9.2 decl.var.type-acyclic); and `len(d)` reads d only if d is not an array.  d's check reads its own
+placeholder there, so `len(d)`'s operand is the error type and d's own type comes out the error type too: the
+initialization order, found after pass 2 (check/check_var_resolve.bn), cannot tell that d would be an array, counts
+`len(d)` as a read, and reports the cycle of reads.  (With another variable between, `var b = hi(a).arr` and `var a
+= len(b) + 0`, b's final type is known and the type cycle is reported.)  Fix: when the only reads that make a
+variable's cycle are `len` of variables whose types are the error type through its own placeholder, report the
+type cycle (judgeSelfReads, check/check_var_free_reads.bn); a unit test of the program above.
+
 ### An array length checked while its variable's type is found takes that variable's placeholder for an error: its errors are lost, and a variable read before its turn is a false cycle — 🔴 OPEN (minor: a valid program rejected, and ill-typed code that is never compiled accepted; found 2026-10-28, work-5, review of the placeholder MAJOR's part 2; reproduced; the false cycle since binate `4fa186628`, the rest pre-existing)
 
 `var u = [len(pick(func() int { return len(u) }))]int{}` (`func pick(f @func() int) [3]int`) compiles, as
