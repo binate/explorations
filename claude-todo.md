@@ -246,7 +246,7 @@ error type, and the views during and after pass 2 then disagree (a double report
 make a variable's cycle are `len` of placeholders read while its type is found, report the type cycle
 (judgeSelfReads, check/check_var_free_reads.bn); unit tests of both programs.
 
-### An array length checked while its variable's type is found takes that variable's placeholder for an error: its errors are lost, and a variable read before its turn is a false cycle — 🟡 IN PROGRESS (claimed 2026-10-29, temp-5/session, self-drive; minor: a valid program rejected, and ill-typed code that is never compiled accepted; found 2026-10-28, work-5, review of the placeholder MAJOR's part 2; reproduced; the false cycle since binate `4fa186628`, the rest pre-existing)
+### An array length checked while its variable's type is found takes that variable's placeholder for an error: its errors are lost, and a variable read before its turn is a false cycle — 🟠 BACK-BURNERED (temp-5, 2026-10-30: a fix reviewed unsound, archived on binate branch `archive/20261030-dim-read-recheck`; minor: a valid program rejected, and ill-typed code that is never compiled accepted; found 2026-10-28, work-5, review of the placeholder MAJOR's part 2; reproduced; the false cycle since binate `4fa186628`, the rest pre-existing)
 
 `var u = [len(pick(func() int { return len(u) }))]int{}` (`func pick(f @func() int) [3]int`) compiles, as
 TestVarTypeCycleFuncLitBodyNotCycle pins (the length is pick's result's, and the literal is never compiled), but
@@ -270,6 +270,19 @@ left u a `[0]int` (follow-on "too many elements in array literal"), and `var w =
 len(u) }))]int{}` with `var u = [len(w)]int{}` stayed a cycle.  Fix (to design): once the variable has its type,
 check again the array-length operands that read its placeholder (their kept types dropped), reporting their errors,
 rather than reporting a cycle at once; unit tests of the programs above.
+
+**Tried 2026-10-30 (temp-5), not landed:** drop the head-typing branch's immediate report (define the placeholder
+only), note each package-level array-length operand whose check read a placeholder and check it again after pass 2
+with its annotations cleared (ast.ClearExprAnnotations), and find a checked variable's head type again "quietly"
+(dropping a type cycle that search reports).  It fixed the entry's programs, but the review found: (1) critical — the
+quiet search drops the errors of variables it checks on demand along the way (`var u = [len(pick(func() int { return
+len(u) })) + len(w)]int{}` with `var w = h(u, 1 + true).arr` compiled and ran; a real type cycle too); (2) the same
+drop leaves a variable the error type with nothing reported (IR-gen panic); (3) with no immediate report, a constant
+resolved during head typing that reads the placeholder (`type T [len(u)]uint8`, `var u = [len(pickN(N))]int{}`,
+`const N = len(u)`) is POISONED with no error and the enclosing length still has a value, so nothing judges it (IR-gen
+panic); (4) the re-check runs outside a const group's iota context ("undefined: iota").  A sound fix needs: a
+judgment for every declaration that read a placeholder whose value the enclosing length did not need (constants
+included), no dropping of errors that belong to other declarations, and the re-check's full context.
 
 ### A variable type cycle through a function's signature, met while types are collected, says "declare its type" — 🟡 IN PROGRESS (claimed 2026-10-29, temp-5/session, self-drive; minor: diagnostic; found 2026-10-26, work-5, review of the variable type-cycle fix; reproduced; pre-existing)
 
