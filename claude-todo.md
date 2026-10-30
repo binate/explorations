@@ -360,6 +360,24 @@ length depending on a type parameter at its placeholder, 0; checkInstantiationCo
 constraints with its parameters bound.  Fix: resolve a generic function's constraints for the type arguments the same
 way; tests: the call and the forwarding above.
 
+### In a generic's own check, a constraint whose length depends on the generic's type parameter is judged with the placeholder length — valid programs rejected — 🔴 OPEN (a valid program rejected; found 2026-10-30, temp-5, reviews of the generic-function constraint fix; pre-existing)
+
+With `interface Eq[T any] { eq(o T) bool }`, `func inner[T Eq[[sizeof(U)]uint8], U any](t T) int`, `type G[T
+Eq[[sizeof(U)]uint8], U any] struct { t T }` and `impl *N : Eq[[8]uint8]`: `func fwd[U any](n *N) int { return
+inner[*N, U](n) }` and `type W[U any] struct { g *G[*N, U] }` are "type argument *N does not satisfy constraint
+Eq[[0]uint8]" in fwd's and W's own checks, though fwd[int64] and W[int64] are valid (so is `wrap[U any]`'s
+`outer[*N, [sizeof(U)]uint8](n)`).  The constraint, taken for type arguments that mention U, holds `[sizeof(U)]`
+at its placeholder length.  The concrete case (`outer[*N, int64]`) is resolved for its arguments (binate fix
+pending, temp-5).  Skipping such a constraint in the generic's own check is unsound, as a tried fix showed
+(not landed): (1) instance resolutions that set DerivingInstanceSig — function signatures
+(resolveInstanceSignature), generic-struct method signatures, parameterized impls' interface lists, a generic
+function's own constraint — do not judge constraints, so `func sig[U any](g *G[*N, U])` with `sig[int32]` was then
+accepted; (2) gen.satisfy / gen.mono.check decide a type-parameter argument at the declaration, so `inner[T, U]`
+with T bound `any` was accepted.  Fix (to design): decide such a constraint per instance — record the skipped
+(constraint, arguments, position) on the generic and judge it in each instance's check with the arguments bound,
+as body checks are — or make those instance resolutions judge the constraints of the instantiations they form;
+keep a type-parameter argument judged at the declaration.
+
 ### A build that waits for a layout still builds the instances it names from the length it could not read, and reports their errors — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
 
 `type Other[T any] struct { x T }`, `func (o *Other[T]) q() int { return 32 / cast(int, sizeof(T)) }`, `type Box[T
