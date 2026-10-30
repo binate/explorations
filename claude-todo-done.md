@@ -19,7 +19,7 @@ whose initializer takes the instance's size in a function literal is rejected na
 open (todo): a method copied onto a generic type's instance, the `.bni` forms, and the false `[0]` error after a
 reported cycle.  Tests: check_layout_wait_decl_test.bn, TestLayoutWaitConstThenRead.
 
-### A variable's type may not depend on itself: the spec had no rule — DONE (docs `78402f5`, binate `6a918a196`, 2026-10-29, work-5; user: "1. yes" (to a rule in §9, next to `decl.var`, that a variable's type may not depend on itself))
+### A variable's type may not depend on itself: the spec had no rule — DONE (docs `78402f5`, binate `6a918a196` and `c9b1bd467`, 2026-10-29, work-5; user: "1. yes" (to a rule in §9, next to `decl.var`, that a variable's type may not depend on itself))
 
 The checker rejected a package variable whose type needs its own type ("variable type cycle",
 check/check_var_placeholder.bn) under no spec rule.  Resolution: docs `78402f5` adds `decl.var.type-acyclic` to
@@ -35,6 +35,9 @@ conformance spec/09 175_err_var_type_cycle_through_initializer (`var a = len([le
 h(a).arr`: "variable type cycle involving `a`") and 176_var_type_from_head_not_cycle (`var b = [len(a)]int{1, 2,
 3}` with `var a = h(b)`, a's type h's result: prints `3 3`), both citing the rule.  The checker's side of the rule:
 binate `e7e305386` (a called function literal's head type) and `d992fc50b` (reads outside the array lengths).
+The coverage review added the rule's other examples (binate `c9b1bd467`): 177 (`var a [len(b)]int`, `var b
+[len(a)]int`), 178 (`var b = [len(a)]int{}`, `var a = b`), 179 (the not-a-cycle example, `func h(x [4]int) [3]int`:
+"cannot assign [3]int to [4]int") and 180 (`var v [len(pick(func() int { return len(v) }))]int`, valid).
 
 ### asm stage 2a3: a `.` label listed where clang registers it — DONE (binate `31c5e7c60`, 2026-10-29, work-2; user: "Separate commit next (Recommended)")
 
