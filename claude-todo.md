@@ -188,7 +188,7 @@ console (as pkg/builtins/testing/sys already does), or have the runner print thr
 (its source says it must use the real pkg/std/fmt).  Only after that can the failing tests be found; the
 `native/arm32` link overflow and the arena exhaustion remain size problems.
 
-### A parameterized impl lets a managed pointer to its instance satisfy a constraint — `g[@W[int]]` is accepted through `impl W[K]` — 🔴 OPEN MAJOR (found 2026-10-16, work-6, review of the spec status cleanup; split out of the pointer-impl decision entry 2026-10-17; reproduced; pre-existing)
+### A parameterized impl lets a managed pointer to its instance satisfy a constraint — `g[@W[int]]` is accepted through `impl W[K]` — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; MAJOR; found 2026-10-16, work-6, review of the spec status cleanup; split out of the pointer-impl decision entry 2026-10-17; reproduced; pre-existing)
 
 With `impl W[K] : lang.Orderable` (`func (w W[K]) Compare(o W[K]) int`) and `func g[U lang.Orderable](u U) int {
 return 7 }`, `g[@W[int]](w)` is accepted and prints 7, although no reading of the receiver shape lets `impl W[K]`
