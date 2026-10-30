@@ -586,7 +586,7 @@ a doubled frame.  Fix: elide the load's region when the loaded value only feeds 
 place, as AggLoadElision does for other uses), copying from the source to the argument slot.  Covered by conformance 1720 (binate `e320b4e07`),
 xfailed on the two native arm32 modes until the fix.
 
-### Array `==` / `!=` unrolls one comparison per element — a large array blows up compile time and IR size — 🔴 OPEN (found 2026-10-18, work-1, review of int64 layout stage 2; pre-existing)
+### Array `==` / `!=` unrolls one comparison per element — a large array blows up compile time and IR size — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; found 2026-10-18, work-1, review of int64 layout stage 2; pre-existing)
 
 irgen/gen_eq_aggregate.bn emitAggregateEq compares an array element by element, fully unrolled in straight-line
 IR (its own TODO says so): `var a, b [1<<24]int; a == b` emits ~100M IR instructions, and `[1<<40]struct{}` (legal
