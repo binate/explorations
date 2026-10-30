@@ -1250,8 +1250,14 @@ Box2[T any] struct { p *T }` is "constant definition cycle involving `S`" and "a
 integer" (the `.bn` prints 8 8): the constant's pre-walk (collectTypeExprNames, check/bni_scope_const.bn) takes a type
 argument as held by value, though Box2 holds it through a pointer.  A real cycle is also reported with more errors
 than in a `.bn`: `const S = sizeof(Bx[int64])` with `type Bx[T any] struct { a [S]uint8; t T }` is a constant cycle
-and "array length must be a constant integer", where the `.bn` reports one cyclic type.  Fix: define them on demand as
-the batch does, and walk a type argument as its generic holds it; unit tests for each.
+and "array length must be a constant integer", where the `.bn` reports one cyclic type.  Also found by the review of
+the `.bni` on-demand resolution: a `.bni` constant `const S = len(f[int]())` (`func f[T any]() [3]int`) is no constant
+to an importer (`var a [q.S]int` is "array length must be a constant integer"; the `.bn` takes it); an alias inside a
+`sizeof` layout cycle (`type N struct { v int64; next *Box[X] }`, `type X struct { b A }`, `type A =
+[sizeof(X)]uint8`) is also "invalid recursive type alias A" with that resolution (main reports opaque-type errors),
+where the `.bn` reports only the cyclic type; and `var V [len(V)]uint8` is "array length must be a constant integer",
+where the `.bn` says "variable type cycle involving `V`". Fix: define them on demand as the batch does, walk a type
+argument as its generic holds it, and report what the `.bn` reports; unit tests for each.
 
 ## Performance
 
