@@ -1038,7 +1038,7 @@ generic directives in any case (`.GLOBAL`, `.ASCII`, `.FPU`, `.EABI_ATTRIBUTE`) 
 (`.TEXT`: "unknown directive"); bnas matches every directive name as written.  **Fix:** decide each with the user;
 for (a), string tokens carrying their escape errors to the directives that decode them.
 
-### asm Mach-O: a literal-pool load of a forward label difference is rejected (`_f: ldr x1, =(_e - _f)` … `_e:`) — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; found 2026-10-24, work-2, review of the LC_DATA_IN_CODE change)
+### asm Mach-O: a literal-pool load of a forward label difference is rejected (`_f: ldr x1, =(_e - _f)` … `_e:`) — 🔴 OPEN, unclaimed (found 2026-10-24, work-2, review of the LC_DATA_IN_CODE change; probed 2026-10-30, temp-5, notes below)
 
 `bnas -target darwin-aarch64` rejects `_f: ldr x1, =(_e - _f)` / ` ret` / `_e: ret` with "a difference of locations
 in different sections or atoms is not a number", where clang assembles it into the pool with no relocation.  bnas
@@ -1046,6 +1046,20 @@ accepts the backward form (`_e` defined before the load) and the same input for 
 investigated (a guess: the pool operand's forward difference does not wait for the second pass, as other forward
 differences across atoms do without `.subsections_via_symbols`).  **Fix:** root-cause it; test against clang's
 object, with and without `.subsections_via_symbols`.
+
+Probed 2026-10-30 (temp-5; clang `--target=arm64-apple-macos`, bnas built from main `b770fccd4` + temp-5's batch):
+clang evaluates a pool entry where the pool is emitted (the section's end, or `.ltorg`), by the data rules: a
+difference of two labels both defined by then, with no alignment between them, folds to a number (the forward
+`_f: ldr x1, =(_e - _f)` … `_e:` is the word 8, no relocation, with or without `.subsections_via_symbols`); with a
+`.p2align` between them, or with the pool emitted (`.ltorg`) before `_e`, the entry is a SUBTRACTOR + UNSIGNED
+pair, as `.quad _e - _f` written forward is.  bnas evaluates the entry at the `ldr` (parseA64PoolLoad →
+parseSymExpr), where a forward difference across atoms is not fixed (fixedDistance), and a pool entry holds only a
+symbol plus a number, so it rejects every such entry — the forward one, and the backward one with
+`.subsections_via_symbols`.  A fix needs both: the difference evaluated where the pool is emitted (flushPool), and
+a pool entry able to carry a difference not fixed there, emitted as the data directives emit it
+(emitMachoDifference).  Related, for the data directives too: clang folds the backward `_f: nop` / `_e: ret` /
+`.quad _e - _f` with `.subsections_via_symbols` (the word 4), where bnas (fixedDistance's subsections rule) writes
+a SUBTRACTOR pair; check that rule against clang on each architecture before changing either.
 
 ### arm32 assembler: condition codes and some register fields are silently masked — 🔴 OPEN, unclaimed (found 2026-09-25 by the T6 b1 review; work-4's 2026-09-25 claim released 2026-10-12 — nobody is on it)
 
