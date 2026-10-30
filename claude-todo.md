@@ -1789,7 +1789,7 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   Phase-0 calibration ran 2026-10-19/20 on the x86 VM (results in the plan); its follow-ups landed as
   binate `15f9d7ac4` (usage text test), `ffe4a8e3d` (Ctrl-C tests) and `5ff452880` (ab.py page-cache drop,
   seed-by-seed builds); the Holm correction of the selection guard (user decision 2026-10-20) landed as
-  binate `3f95bef54` (2026-10-28). Next: block layout (design drafted in the plan, awaiting user review),
+  binate `3f95bef54` (2026-10-28). Next: block layout (design in the plan; its questions decided 2026-10-30),
   then the placement policies; a JCC-erratum mitigation experiment is motivated by the blockLiveBefore
   result. User
   decisions on commit 3 (2026-10-18): keep the selection order (the Decisions rule, geomean first), keep

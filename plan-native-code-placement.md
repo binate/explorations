@@ -1,5 +1,5 @@
 # Plan: native code placement (x64, aarch64, arm32)
-Status: tooling designed (2026-10-12); decisions taken 2026-10-15 (below); tooling commit 1 (placement seed) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report, `layout.py`) landed as binate `f05342e5d` (2026-10-18); tooling commit 3 (timing driver, `ab.py` / `stats.py`) landed as binate `4f9e3c75b` (2026-10-18), its short-run refusal as `0a6a3aeaf`; tooling commit 4 (probe) landed as binate `053d743c1` (2026-10-19); phase-0 calibration run on the x86 VM 2026-10-19/20 (results below); user decisions 2026-10-20: the per-workload guard gets a Holm correction over the workloads, and on this VM x64 decisions use the benchmark geomean and the self-compile while per-benchmark claims are timed on the aa64 machines. The Holm change landed as binate `3f95bef54` (2026-10-28). Next: block layout (design drafted below, awaiting user review). Tracked in `claude-todo.md` ("native code placement").
+Status: tooling designed (2026-10-12); decisions taken 2026-10-15 (below); tooling commit 1 (placement seed) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report, `layout.py`) landed as binate `f05342e5d` (2026-10-18); tooling commit 3 (timing driver, `ab.py` / `stats.py`) landed as binate `4f9e3c75b` (2026-10-18), its short-run refusal as `0a6a3aeaf`; tooling commit 4 (probe) landed as binate `053d743c1` (2026-10-19); phase-0 calibration run on the x86 VM 2026-10-19/20 (results below); user decisions 2026-10-20: the per-workload guard gets a Holm correction over the workloads, and on this VM x64 decisions use the benchmark geomean and the self-compile while per-benchmark claims are timed on the aa64 machines. The Holm change landed as binate `3f95bef54` (2026-10-28). Next: block layout (design below; its four questions decided 2026-10-30). Tracked in `claude-todo.md` ("native code placement").
 ## Why
 
 Identical machine code runs at very different speeds depending on where it lands, on the x86 test host
@@ -244,7 +244,7 @@ Measurement tooling lands first (user: yes), because both steps are judged with 
   - LLVM-arm randomization.
   - Callgrind-weighted exposures in T4/stats: an optional mechanism analysis beyond the brief.
 
-## Block layout design (draft 2026-10-20, awaiting user review)
+## Block layout design (draft 2026-10-20; questions decided 2026-10-30)
 
 This section covers step 1 of the Order above: fall-through elision, loop rotation and contiguous loops. It applies to all three native backends, sits behind a hidden switch, and is judged with `ab.py`. Line anchors refer to binate `5ff452880` (main, 2026-10-20).
 
@@ -404,7 +404,7 @@ Branch fusion only fuses integer compares (`fold/branch_fuse.bn:20-22`), so `cc^
 - The new `x64.InvertCC(a, cc) int` returns `cc^1` (the pairs are at `x64.bni:76-92`). An invalid cc raises an error through `condOK` (`x64.bn:266`).
 - `plan.AlignTop` replaces `ComputeLoopHeaders` (`:171`, `:178`), and the comment at `:161-165` is rewritten.
 - The alignment pad goes before the loop's top block, not its header. After rotation the header is entered by fall-through on every iteration, so padding there would execute NOPs every time.
-- The pad before a rotated loop's top comes right after `jmp H`, so it never runs. An unrotated top that is entered by fall-through runs its pad once per loop entry (Question 4).
+- The pad before a rotated loop's top comes right after `jmp H`, so it never runs. An unrotated top that is entered by fall-through runs its pad once per loop entry, and stays aligned (Question 4).
 
 **aarch64**
 - JUMP elision goes in `aarch64_dispatch.bn:171-177`.
@@ -556,6 +556,7 @@ Commits 3-5 change only branch shapes, on today's block order. Commit 8 changes 
 - **Code after a terminator that falls through:** the guard catches it.
 - **aa64 islands landing in a fall-through gap:** the `endedInTransfer` flag prevents this.
 - **Short loops may slow down.** Rotation adds one taken `jmp` per loop entry, so loops that run about once per entry pay for it. The Holm-corrected per-workload guard would catch that.
+  - LLVM's rotated loops have no such jump: LLVM tests the condition once before the loop and falls into a loop tested at the bottom (the Q1 probe: `testq; jle exit`, then the loop top). Per iteration both shapes take one branch. Copying the header's test into the block before the loop is an IR transform shared by all backends and the VM, not part of block layout. Decided 2026-10-30: not now; if the A/B's per-workload guard or a disassembly shows short loops losing, it is the follow-up.
 - **Alignment moves.** `loops` moves x64 alignment from the loop header to the loop top. Under `fallthrough`, a pad after an elided preheader `jmp` runs once per loop entry.
 - **If `loops` underperforms,** first disassemble to check that rotation actually happened. The fallback is another switch value: a chain order driven by static weights. The weights would be int64, so 32- and 64-bit hosts produce the same layout, and the rotation point would be chosen by minimising cost.
 - **Later functions move.** Function sizes change, which shifts every later function; placement randomization absorbs that.
@@ -566,7 +567,7 @@ Commits 3-5 change only branch shapes, on today's block order. Commit 8 changes 
 1. Decided 2026-10-30: bounds-check failure paths move out of line as the step right after block layout, with their own switch value and A/B; the RefDec destroy path stays inline; division and shift checks are calls on both backends and are not part of this work (§4).
 2. Decided 2026-10-30: the placement selection rule decides, unchanged, from one three-arm `ab.py` run (`source`, `fallthrough`, `loops`; at least 40 seeds), so it can also pick `fallthrough`. One default for all three backends, flipped only when both x64 (timed on the x86 VM, under the 2026-10-20 rule: benchmark geomean plus self-compile) and aa64 (timed on the user's aa64 machines, full rule including the per-workload guard) pass; arm32 follows, checked by the static report (fewer taken branches per loop iteration, contiguous loops) and native arm32 conformance under `loops`. If x64 and aa64 disagree, neither flips: disassemble the losing case first, then bring the user the cause and the options (a fix, or per-architecture defaults).
 3. Decided 2026-10-30: x64 short branches are the step after the out-of-line bounds-check stubs (§7): backward branches first, then forward relaxation in `asm/x64`, then one A/B for the two together; not folded into the block-layout work.
-4. Should an unrotated x64 loop top that is entered by fall-through stay aligned? I suggest keeping it and deciding in the alignment-policy step.
+4. Decided 2026-10-30: an unrotated x64 loop top entered by fall-through stays aligned, as LLVM does (the Q1 probe: LLVM falls into its loop top behind one 12-byte NOP, run once per loop entry); alignment choices are measured in the alignment-policy step, which can also make the padding that runs one long NOP, as LLVM's is, instead of up to two (native's NOPs are at most 9 bytes).
 
 ## Phase-0 calibration results (x86 VM, 2026-10-19/20)
 
