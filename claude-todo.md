@@ -2842,6 +2842,16 @@ itself runs past the cap wraps (`ffff…[` / `cccc…]++`) (bnfmt `bnc-0.0.17-pr
 lone element with everything after it is the lone-argument rule the non-idempotence entry tried; giving the whole
 tail only to an element that cannot break, as a string literal has it, is narrower.
 
+### bnfmt's `__c_call` leaves out what follows its `)` — 🔴 OPEN 🟢 LOW (found 2026-10-29, temp-4, testing the non-idempotence prototype; pre-existing)
+
+printCCall (print_builtin.bn) takes no tail: it fills its arguments with only its own `)` after the last, so what
+follows the call -- a close, a trailing comment -- gets no room.  A string run as the last argument is split to the
+cap, and the line then runs past it: `__c_call("sym", int, "<92 a's>" "<84 a's>") // K2` at four tabs prints its
+last part 101 wide, and inside `g(qqq[…])` 103 (bnfmt at binate `4f58c52e5`).  printBuiltin's other builtins take
+the tail (`1 + tail` for the last operand); pass it to printCCall as well.  It is what leaves one file of the
+`scripts/bnfmt-check` corpora (gen/g1_122) a line past the cap under the non-idempotence prototype, which lays the
+call out at a shallower column.
+
 ## bnlint rules, unused-entity checks & lint skips
 
 ### bnlint: flag a pointer-receiver method value on a composite literal (`S{…}.PGet`) — 🔴 OPEN (proposed 2026-09-30 by the review of the method-value fixes; decided: add later)
