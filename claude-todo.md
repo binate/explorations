@@ -47,7 +47,7 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
-### The pinned BUILDER compiles `p.f++` inside `if p != nil { … }` as unreachable: a gen1 built without `-O2` traps in `check.evalArrayLen`, so `e2e/repl.sh` cannot build bni on main — 🔴 OPEN (MAJOR; found 2026-10-29, work-6, validating the parked-redefinition group rule; reproduced on main `9bbe8a2f7`)
+### The pinned BUILDER compiles `p.f++` inside `if p != nil { … }` as unreachable: a gen1 built without `-O2` traps in `check.evalArrayLen`, so `e2e/repl.sh` cannot build bni on main — 🟡 IN PROGRESS (claimed 2026-10-30, work-6) (MAJOR; found 2026-10-29, work-6, validating the parked-redefinition group rule; reproduced on main `9bbe8a2f7`)
 
 - Symptom: `e2e/repl.sh` prints only `FAIL: bni build failed:` and runs no case.  It builds gen1 with the BUILDER
   without `--cflag -O2`, then has gen1 compile `cmd/bni`; gen1 dies with SIGTRAP (`Trace/BPT trap: 5`, exit 133) at
@@ -68,7 +68,8 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
   right), with a note that the BUILDER mis-compiles `++`/`--` there, kept until a BUILDER past the bug is pinned;
   and add a check (hygiene or bnlint) for a field `++`/`--` under a nil test in cmd/bnc's cone.  A BUILDER
   release is not warranted by this alone.
-- Needs: the user's decision.
+- Decided (user, 2026-10-30): "Rewrite + check" — the two lines rewritten, and a check for the pattern in cmd/bnc's
+  cone, landed before the parked-redefinition group rule.
 
 ### An aggregate with no word alignment copied whole through pointers is staged in a copy of its size on the stack — a 16 MiB struct of bytes overflows it; 1718's 2 GiB one is why the LLVM x86-64 lanes are red — 🟡 MAJOR, IN PROGRESS (claimed 2026-10-29, work-1; user: "Fix it now"; found 2026-10-29, work-1, root-causing conformance 1718's CI failure; pre-existing)
 
