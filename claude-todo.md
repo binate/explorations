@@ -47,22 +47,47 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
-### A sub-word-aligned aggregate returned whole, and in the VM any aggregate load not stored whole, is staged in a copy of its size on the stack — 🟡 MAJOR, IN PROGRESS (claimed 2026-10-29, work-1; user: "Fix it now", then "wait 5 minutes, then land; then continue with that"; the whole-store case is done: binate `bc9a35b70`, `493731135`)
+### A large aggregate returned by value needs its size twice on the stack — 🟡 MAJOR, IN PROGRESS (claimed 2026-10-29, work-1; user: "Fix it now", then "wait 5 minutes, then land; then continue with that"; the whole-store case is done: binate `bc9a35b70`, `493731135`)
 
-`return *s` with `type Page struct { b [0x500000]uint8 }` (5 MiB; `s` on the heap, the result stored into a heap
-object) crashes (SIGSEGV) on the LLVM and native backends, while the same with `[0x140000]int32` prints the right
-value: the callee copies the load into a frame region the size of the aggregate, beside the caller's result slot,
-so the program needs twice the stack.  Root cause (compiled modes): native/common's AggLoadElision keeps every load
-of an aggregate with AlignOf() < 4 copied (AGG_LOAD_COPIED) unless it is stored whole (AGG_LOAD_IN_PLACE_OVERLAPPING),
-to keep word-wise consumers (the return / call-argument marshals) off a possibly unaligned source on strict-align
-arm32; a word-aligned load returned whole (returnedWhole) is AGG_LOAD_IN_PLACE.  The VM gives every aggregate load
-but one stored whole its own frame region (BC_LOAD_AGGREGATE, vm/lower_memory.bn; inPlaceStoredLoads exempts only
-the whole store), so `return *s` of a large aggregate of any alignment needs a region its size in the 8 MiB VM stack
-(from the code; not probed yet).  By-value arguments are the separate entry on the native double copy of by-value
-aggregate arguments (1720).  Proposed fix: a sub-word-aligned load returned whole read in place, its return marshal
-copying a possibly unaligned source safely on arm32; in the VM, a load returned whole read in place, copied into the
-result at the return.  Tests: a conformance test returning a large struct of bytes, and one of int32 for the VM, not
-yet written.
+Three causes, found with probes of 3.5-5 MiB (an 8 MiB stack holds one copy, not two):
+- Compiled (LLVM and native): `return *s` of an aggregate with no word alignment copied the source into a frame
+  region of its size before the copy into the caller's result buffer (AggLoadElision kept every sub-word-aligned load
+  copied unless stored whole); a 5 MiB struct of bytes returned into a heap object crashed (SIGSEGV), one of int32 did
+  not.  Fix, not landed yet: a sub-word-aligned load of more than 16 bytes returned whole is read in place.
+- VM: a function returning one aggregate reserved the result image's size at its OP_RETURN (opGrowthBytes) beside the
+  frame region holding it, though only a return of several values builds an image (packMultiReturn): `return *s` of
+  3.75 MiB was "runtime error: stack overflow".  Fix, not landed yet: reserve the image only for a return of several
+  values.  Tests: conformance 1724 (both fixes), TestMaxGrowthReturnImage.
+- VM, open, needs a decision: a call's aggregate result kept in a local -- `var r Page = get(&src)`, or
+  `get(&src).b[i]`, whose result IR-gen keeps in a temporary -- needs its size twice: BC_RETURN relocates the result
+  onto the caller's stack, and it is then copied into the local's own region, where the native and LLVM backends
+  write it straight into the local (CallResultSlots).  With both fixes above, 3.75 MiB is "runtime error: stack
+  overflow" on the 8 MiB VM stack (3.5 MiB works); the compiled modes run it at 4.5 MiB.  Proposed fix: call-result
+  slots in the VM -- a call whose result is stored whole into a confined local is handed the local as its result's
+  destination.
+
+### A host or native call of a VM function returning an aggregate leaves its result image on the VM stack — 🔴 MAJOR, OPEN (found 2026-10-30, work-1, review of the VM return-reservation fix; pre-existing; checked in code, not probed)
+
+execFunc (vm/vm_exec_helpers.bn) moves a retbuf-returning callee's result image down to the stack top it started from
+and leaves vm.SP past it (`savedSP = savedSP + ((sz + 7) & ~7)`, then `vm.SP = savedSP`), so its caller can read the
+image; TrampolineAggregate and TrampolinePacked (vm_trampoline.bn) and CallFuncAggregate (call_aggregate.bn) copy the
+image out and never put vm.SP back.  So each such call keeps the result's size, rounded to 8, of VM stack: a host, or
+a compiled program calling a VM function value, that calls a function returning a 32-byte struct in a loop would get
+"runtime error: stack overflow" after about 260,000 calls on an 8 MiB stack (inferred).  When native code called from
+bytecode calls back into the VM, the outer statement's SP_RESTORE reclaims it, but until then the image sits above
+that statement's reservation.  Proposed fix: each execFunc caller that reads a relocated image restores vm.SP to its
+value before the call once it has copied the image out.  Test: a VM unit test calling CallFuncAggregate, and a
+function value through TrampolineAggregate / TrampolinePacked, many times, checking vm.SP returns to where it started.
+
+### aarch64: an aggregate of at most 16 bytes returned in registers from in place is loaded in whole words, past its end — 🔴 MAJOR (latent), OPEN (found 2026-10-30, work-1, review; pre-existing; checked in code, not probed)
+
+aarch64_return.bn's in-register aggregate return loads ceil(size / 8) whole 8-byte words from the value's pointer
+(`aarch64.Ldr(a, true, argReg(ri), aarch64.MemImm(ptr, 8 * ri))`).  For a load AggLoadElision reads in place (at most
+16 bytes, word-aligned, nothing that writes in between) that pointer is the source, so `func get(p *S) S { return *p
+}` with `S{a, b, c int32}` (12 bytes) reads [p+8, p+16), 4 bytes past the object: a crash when the object ends at an
+unmapped page.  x64 loads exact widths (loadWordBytesX64); arm32's in-register case is one word of at most 4 bytes.
+Not checked: whether aarch64's by-value argument marshals read an in-place source the same way.  Proposed fix: load
+the last word at its exact width, as x64 does.  Test: a unit test pinning the loads of a 12-byte in-place return.
 
 ### CI red: the slow lanes hit their job time limits — unit int-int shards, conformance int-int and comp-comp-comp — 🟡 IN PROGRESS on option (a) (claimed 2026-10-28, work-3; user: "both", then "(a)") (filed 2026-10-28, work-3)
 
