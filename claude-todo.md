@@ -47,7 +47,7 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
-### A method copied onto an instance while a layout its signature reads is still built keeps the zero length it was resolved with — 🔴 OPEN (MAJOR: a valid program compiled with a wrong array type, silently; found 2026-10-29, work-7, probing the method-copy wait; reproduced on main; pre-existing)
+### A method copied onto an instance while a layout its signature reads is still built keeps the zero length it was resolved with — 🟡 IN PROGRESS (claimed 2026-10-29, work-7/session; user: "let's fix that in the commit right after; you can choose which goes first (maybe this)") (MAJOR: a valid program compiled with a wrong array type, silently; found 2026-10-29, work-7, probing the method-copy wait; reproduced on main; pre-existing)
 
 `type Bx[T any] struct { a [len(hv.m())]uint8; t T }`, `type H[T any] struct { z T }`, `var hv H[int64]`, `func (h
 *H[T]) m() [sizeof(W[T])]uint8 { … }`, `type W[T any] struct { v T; p *Bx[T] }`, `var Q [len(W[int64]{}.p.a)]uint8`
