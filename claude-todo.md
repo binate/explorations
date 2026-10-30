@@ -190,10 +190,13 @@ test.
 itself (§9.2 decl.var.type-acyclic); and `len(d)` reads d only if d is not an array.  d's check reads its own
 placeholder there, so `len(d)`'s operand is the error type and d's own type comes out the error type too: the
 initialization order, found after pass 2 (check/check_var_resolve.bn), cannot tell that d would be an array, counts
-`len(d)` as a read, and reports the cycle of reads.  (With another variable between, `var b = hi(a).arr` and `var a
-= len(b) + 0`, b's final type is known and the type cycle is reported.)  Fix: when the only reads that make a
-variable's cycle are `len` of variables whose types are the error type through its own placeholder, report the
-type cycle (judgeSelfReads, check/check_var_free_reads.bn); a unit test of the program above.
+`len(d)` as a read, and reports the cycle of reads.  The same with another variable between: `var b = hi(a).arr`
+and `var a = len(b) + 0` (a's `len(b)` reads b's placeholder) is "variable initialization cycle involving `b`" (the
+unit test TestVarPlaceholderReadThroughLenIsTypeCycle pins only that one cycle is reported).  Taking the variable's
+final type for such a read instead does not work: when a type cycle is reported the variable's type becomes the
+error type, and the views during and after pass 2 then disagree (a double report).  Fix: when the only reads that
+make a variable's cycle are `len` of placeholders read while its type is found, report the type cycle
+(judgeSelfReads, check/check_var_free_reads.bn); unit tests of both programs.
 
 ### An array length checked while its variable's type is found takes that variable's placeholder for an error: its errors are lost, and a variable read before its turn is a false cycle — 🔴 OPEN (minor: a valid program rejected, and ill-typed code that is never compiled accepted; found 2026-10-28, work-5, review of the placeholder MAJOR's part 2; reproduced; the false cycle since binate `4fa186628`, the rest pre-existing)
 
