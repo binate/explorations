@@ -596,6 +596,15 @@ array (equal, and unequal at the last element).  An element of size 0 has no dat
 with no compare at all (review of int64 layout stage 3: `var a, b [1 << 16]E; a == b` with `E` a `struct {}` emits
 590k lines of LLVM IR, and conformance 1700's `Z` compared with `==` never finishes compiling).
 
+### A struct `==` / `!=` unrolls every scalar leaf of nested structs — compile time exponential in the nesting depth — 🔴 OPEN, unclaimed (found 2026-10-30, temp-5, review of the array-equality loop; pre-existing)
+
+The array-equality change (a loop past 16 leaves) bounds an array's compare, not a struct's: `type S0 struct { a, b
+int }`, `type Si struct { a, b S(i-1) }` and `x == y` on S14 emit 32768 `icmp eq` (1.7 s), doubling with each level
+(about 30 lines of source give 2^31 compares), and a loop over `[2]S30` does not help, as each element's compare
+is unrolled.  **Fix:** outline a per-type equality function past a leaf budget (memoized per type, linkonce as the
+copy helpers are — `genArrayCopy` / `ensureArrayCopy`), called from the compare; a unit test on the IR size of a
+deep nest and a conformance test.
+
 ### `var s [N]char = "…"` emits per-byte IR for the whole array — a large array blows up compile time and IR size — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; found 2026-10-18, work-1, int64 layout stage 3; pre-existing)
 
 codegen/emit_strings.bn lowers OP_RODATA_ARRAY by storing every byte of the `[N x i8]` slot one at a time
