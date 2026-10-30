@@ -262,6 +262,17 @@ variable checked while types are collected gives the same follow-on: `type A [le
 and then "declare its type" for one of u and w (found 2026-10-28, work-5, review of the head-typing change).  Fix:
 trace it and report the cycle there alone; unit tests of both programs.
 
+### A variable whose head calls a generic function's instance, or a method of a generic type's instance, whose signature reads the variable is rejected — 🔴 OPEN (minor: valid programs rejected; found 2026-10-29, temp-5, review of the head-call result-type change; reproduced; pre-existing)
+
+`var t = mk[int](nil)` with `func mk[T any](p *([len(t)]int)) [3]int` is "variable type cycle involving `t`", and
+`var v B[int]; var t = v.m(nil)` with `func (r B[T]) m(p *([len(t)]int)) [3]int` is "declare its type".  By §9.2
+decl.var.type-acyclic t's type is the instance's one result, `[3]int`, which does not depend on t; only the
+parameter does.  calleeResult (check/check_var_placeholder.bn) takes a non-generic function's or method's result
+type alone while its signature is not defined yet (definingFuncResult), but an instance's result is found by
+instantiating the whole signature (checkInstantiateOrIndex / the instance's method set), whose parameter reads t.
+Fix: resolve an instance's result type alone, with its type arguments bound, before its signature; unit tests of
+both programs.
+
 ### The checker's unit tests ignore parse errors, so a test whose program does not parse passes on what is left — 🟡 IN PROGRESS (claimed 2026-10-29, temp-5/session, self-drive; minor: test accuracy; found 2026-10-28, work-5, writing the head-typing tests)
 
 checkSrc (check/types_test.bn) and the other helpers that parse a test's program (`p.ParseFile()` in
