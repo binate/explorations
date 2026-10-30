@@ -109,8 +109,11 @@ suites grew ~20% in the same span.**
   (The tree itself grew between the two: the base went 31.40G -> 32.43G with a day of upstream commits.)
 - binate `140629e75` (landed 2026-10-29): load forwarding coalesces all slices' extracts together, and applyRLE
   places each materializing load through a per-block position map — 31.58G -> 31.00G (-1.9%).
-- Next: struct registration's copy-per-append of Module.Structs and linear lookupStructIdx (~3.4% of the run);
-  irbuild.BlockIndexIn's linear scan (O(blocks^2) in buildSuccsPreds, pruneUnreachableBlocks).
+- binate `9bbe8a2f7` (landed 2026-10-29): Module.Structs grows through a vec builder and is looked up through a
+  name index (ir.RegisterModuleStruct / StructIndexLookup) — 31.12G -> 30.30G (-2.6%).
+- Next: re-profile; known candidates are irbuild.BlockIndexIn's linear scan (O(blocks^2) in buildSuccsPreds,
+  pruneUnreachableBlocks, assertPhiEntriesArePreds), the append-built Preds / dominator children / DF sets in
+  iropt/dom.bn, the VM's slot assignment (assignSlots), and the fault-pad cleanup emission in irgen.
 
 Options (decision needed): (a) profile and fix the load pipeline's superlinear phases (cmd/bni's load is also
 bni's start-up cost for every user); (b) more shards or a longer cap for the int-int lanes
