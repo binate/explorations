@@ -1,3 +1,24 @@
+### A generic's declaration that reads a variable, a function or a method whose own check built its instance was a false cycle — DONE (binate `80f71625a`, 2026-10-29, work-7; user: "1. wait 16 minutes, then go ahead.")
+
+`type Bx[T any] struct { a [len(Q)]uint8; t T }`, `var Q [sizeof(W[int64])]uint8`, `type W[T any] struct { v T; p
+*Bx[T] }` was "variable type cycle involving `Q`" (so was a type taken from the initializer: a composite literal, a
+function literal, a call), and a function, a generic function or a method read the same way (`[len(g())]uint8`,
+`[len(hv.m())]uint8`) was "undefined: g" / "undefined: m".  Resolution (binate `80f71625a`): the constant form's wait
+covers every declaration of the batch being resolved (DeclBatch.DeclStarts, check/check_layout_wait_decl.bn): a read
+of a variable, function or method while its type or signature is resolved waits when the innermost layout frame was
+entered after that started; the layout waits are flushed once it is defined (an on-demand function or method only once
+its definition is kept, after its own frame closes), and the flush re-checks batchDeclCollecting each round, which
+also fixed the constant form for a read that first waits during a flush (`[sizeof(T1) + S]` was "constant definition
+cycle involving `S`").  The first tests read the instance with `sizeof`, which validateDimExpr resolves before the
+length is evaluated, so no flush was exercised; they read a field now (`len(W[int64]{}.p.a)`), and each flush after a
+definition, the constant form's included, fails a test without it.  No test reaches the flush after a variable's check
+in pass 2 or after a deferred variable's recheck (no read waits there in any program found), nor the frame condition;
+all three were kept (user: "3. keeping them is fine, I guess? 4. keep it, I guess.").  Changed messages:
+TestVarTypeCycleInstanceBeingBuilt is now "cyclic type definition involving `Box`", as without generics; a variable
+whose initializer takes the instance's size in a function literal is rejected naming `Bx`, not the variable.  Still
+open (todo): a method copied onto a generic type's instance, the `.bni` forms, and the false `[0]` error after a
+reported cycle.  Tests: check_layout_wait_decl_test.bn, TestLayoutWaitConstThenRead.
+
 ### A variable's type may not depend on itself: the spec had no rule — DONE (docs `78402f5`, binate `6a918a196`, 2026-10-29, work-5; user: "1. yes" (to a rule in §9, next to `decl.var`, that a variable's type may not depend on itself))
 
 The checker rejected a package variable whose type needs its own type ("variable type cycle",

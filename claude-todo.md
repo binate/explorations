@@ -1101,31 +1101,12 @@ involving `Box`" and then "cannot assign [8]uint8 to [0]uint8".  Fix: a type who
 because of an error already reported is the error type (or is otherwise kept from reporting again); unit tests
 expecting exactly the one error for each form.
 
-### A generic's declaration that reads a variable, a function or a method whose own check built its instance is a false cycle — 🟡 IN PROGRESS (claimed 2026-10-28, work-7/ff6d76c5; user: "do as the next commit") (a valid program rejected; found 2026-10-28, work-7, probing the constant form of the abstract-declaration wait; reproduced on main; pre-existing)
-
-`type Bx[T any] struct { a [len(Q)]uint8; t T }`, `var Q [sizeof(W[int64])]uint8`, `type W[T any] struct { v T; p
-*Bx[T] }` is "variable type cycle involving `Q`" (so is `var Q = [sizeof(W[int64])]uint8{}`, and `var Q = mk()` with
-`func mk() [sizeof(W[int64])]uint8` is "the type of `Q` is needed while the package's types are collected"), and
-`type Bx[T any] struct { a [len(g())]uint8; t T }`, `func g() [sizeof(W[int64])]uint8 { … }` (W the same) is
-"undefined: g"; so is a generic function (`[len(g[int]())]uint8`, `func g[U any]() [sizeof(W[int64])]uint8`), and a
-method (`[len(hv.m())]uint8`, `func (h *H) m() [sizeof(W[int64])]uint8`) is "undefined: m".  Without generics
-(`type B struct { a [len(Q)]uint8 }`, `type W struct { v int64; p *B }`) each compiles.  Q's type, or g's or m's
-signature, builds W[int64], which names Bx[int64] through a pointer; Bx's declaration, resolved with its type
-parameters abstract (check/check_layout_wait_abstract.bn), reads Q, g or m while Q's type or that signature is still
-resolved: a variable type cycle (check/check_var_placeholder.bn), or a function or method named while its signature
-is resolved, left undefined (batchFuncOnDemand, check/check_decl_batch.bn; batchMethodOnDemand,
-check/check_decl_batch_method.bn).  W holds Bx only through a pointer, so none of them depends on what reads it.
-The constant form waits since binate `d9e37cfce` (check/check_layout_wait_const.bn).  Fix: the same for variables,
-functions and methods — a read of one while its type or signature is resolved waits when a layout frame that can wait
-was entered after that started, the flush's last round does not run while one is resolved once a read has waited,
-and the layout waits are flushed once it is defined — with unit tests for each form.
-
 ### A method of a generic type's instance, whose signature builds an instance a generic's declaration reads it from, is a false cycle — 🟡 IN PROGRESS (claimed 2026-10-29, work-7/session; user: "2. do it next.") (a valid program rejected; found 2026-10-28, work-7, review of the variable and function forms of the abstract-declaration wait; reproduced on main; pre-existing)
 
 `type Bx[T any] struct { a [len(hv.m())]uint8; t T }`, `var hv H[int64]`, `type H[T any] struct { z T }`, `func (h
 *H[T]) m() [sizeof(W[T])]uint8 { … }`, `type W[T any] struct { v T; p *Bx[T] }` is "undefined: m"; with a
 non-generic H, or with m's signature not depending on T (`[sizeof(W[int64])]uint8`), it compiles once the variable,
-function and method forms wait (the entry above).  H[int64]'s copy of m is made when its methods are copied onto
+function and method forms wait (binate `80f71625a`).  H[int64]'s copy of m is made when its methods are copied onto
 it (copyPlaceholderMethods, check/check_generic_backfill.bn, under InstanceState.MethodsCopying), not by
 defineBatchMethod: substituting T builds W[int64], which names Bx[int64] through a pointer, Bx's declaration
 (resolved abstractly) reads hv.m(), attachInstanceMethods declines while H[int64]'s methods are copied, and
