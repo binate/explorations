@@ -47,35 +47,6 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
-### The pinned BUILDER compiles `p.f++` inside `if p != nil { … }` as unreachable: a gen1 built without `-O2` traps in `check.evalArrayLen`, so `e2e/repl.sh` cannot build bni on main — 🟡 IN PROGRESS (claimed 2026-10-30, work-6) (MAJOR; found 2026-10-29, work-6, validating the parked-redefinition group rule; reproduced on main `9bbe8a2f7`)
-
-- Symptom: `e2e/repl.sh` prints only `FAIL: bni build failed:` and runs no case.  It builds gen1 with the BUILDER
-  without `--cflag -O2`, then has gen1 compile `cmd/bni`; gen1 dies with SIGTRAP (`Trace/BPT trap: 5`, exit 133) at
-  a `brk #1` in `check.evalArrayLen` — the `b.LenDepth++` of check/eval_const_int.bn:22, added by binate
-  `d992fc50b`.  Main `9bbe8a2f7`, with no other change, fails the same way.  Other scripts that build gen1 without
-  `-O2` would fail too (not checked).
-- Root cause: BUILDER `bnc-0.0.16` (BUILDER_VERSION) compiles an increment of a field through a managed pointer,
-  inside `if p != nil { … }`, to LLVM `unreachable`.  Repro: `type B struct { n int }`, `func g(b @B) int { if b !=
-  nil { b.n++ }; return 1 }`, called with a non-nil `@B`, traps when the BUILDER builds it; `b.n = b.n + 1` in the
-  same place works, and so does `b.n++` with no nil test (errVarTypeCycle's `b.CycleErrors++`).  The tree's
-  compiler gets it right (a bni built through gen2 runs the repro and prints 1): only the BUILDER has the bug.
-- Likely worse than the crash (inferred, not checked): the unit-test runner and conformance build gen1 with
-  `--cflag -O2` (scripts/lib/build-compilers.sh), where LLVM may delete the path it is told cannot run — those
-  builds do not trap — so that gen1's checker would never count LenDepth (the `--` at :29 is compiled the same
-  way), and the rule `d992fc50b` added (a placeholder read outside an array length is a variable type cycle) would
-  run wrong in every gen1, silently.
-- Fix options: write the two lines as `b.LenDepth = b.LenDepth + 1` / `- 1` (the BUILDER compiles that form
-  right), with a note that the BUILDER mis-compiles `++`/`--` there, kept until a BUILDER past the bug is pinned;
-  and add a check (hygiene or bnlint) for a field `++`/`--` under a nil test in cmd/bnc's cone.  A BUILDER
-  release is not warranted by this alone.
-- Decided (user, 2026-10-30): "Rewrite + check" — the two lines rewritten, and a check for the pattern in cmd/bnc's
-  cone, landed before the parked-redefinition group rule.
-- Note (temp-5, 2026-10-30): binate `915da8429`, landed 2026-10-30 08:51, already rewrites both lines as `b.LenDepth =
-  b.LenDepth + 1` / `- 1` with TODOs, and three more sites the same way: errVarTypeCycle's `b.CycleErrors++`,
-  notePoisonedLen's `c.Batch.SilentPoisons++` and copy-prop's `sc.stamp++` (found the same day by a gen1-only test
-  failure; see the BUILDER-constraint entry's "Violations found 2026-10-30", which also proposes the check).  What
-  remains here is the check.
-
 ### A sub-word-aligned aggregate returned whole, and in the VM any aggregate load not stored whole, is staged in a copy of its size on the stack — 🟡 MAJOR, IN PROGRESS (claimed 2026-10-29, work-1; user: "Fix it now", then "wait 5 minutes, then land; then continue with that"; the whole-store case is done: binate `bc9a35b70`, `493731135`)
 
 `return *s` with `type Page struct { b [0x500000]uint8 }` (5 MiB; `s` on the heap, the result stored into a heap
@@ -562,6 +533,9 @@ since 2026-10-18 may be affected (CI's gen2/gen3 modes have not shown it; the bn
 five).  Fixed (rewritten as `x.f = x.f + 1`, with TODOs) by binate `915da8429`.  The 2026-09-30 scan's
 guarantee did not hold: proposal (not wired up): a hygiene check that rejects a field `++` / `--` opening a block or
 following an `if` / `for` / `switch` in cmd/bnc's cone until the BUILDER is bumped.
+`e2e/repl.sh` builds gen1 without `--cflag -O2`, so there such a site traps (`Trace/BPT trap: 5` in evalArrayLen,
+2026-10-29: "FAIL: bni build failed:" with no case run, until `915da8429`); the user chose (2026-10-30) to add the
+check.
 
 ### REPL redefinition of types and interfaces, and across kinds: shadowing (the design) is not implemented; such a redefinition is rejected meanwhile — 🟡 IN PROGRESS (claimed 2026-10-09, work-6/session — user: "let's do item 7 then") (found 2026-09-29, work-6, review of the REPL forward-reference plan; widened 2026-09-30)
 

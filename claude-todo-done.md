@@ -1,3 +1,11 @@
+### The pinned BUILDER compiles a field `++` in an `if` body as unreachable; e2e/repl.sh could not build bni — DONE (duplicate; fixed on main by binate `915da8429`, temp-5; 2026-10-30, work-6)
+
+Logged 2026-10-29 (work-6) after `e2e/repl.sh` failed at "FAIL: bni build failed:": its gen1, built without `-O2`,
+trapped at `brk #1` in check.evalArrayLen's `b.LenDepth++` (binate `d992fc50b`).  It is the BUILDER constraint the
+todo entry "Until `BUILDER_VERSION` includes binate `1f29d31e9`" already describes (a field `++` / `--` opening a
+block, or right after an `if` / `for` / `switch`); this entry's "under a nil test" was a wrong reading of the trigger.
+The sites were rewritten on main by `915da8429`; the trap symptom was added to that entry, which keeps the check.
+
 ### An aggregate with no word alignment copied whole through pointers was staged in a copy of its size on the stack — DONE (binate `bc9a35b70`, `493731135`, 2026-10-30, work-1; user: "Fix it now (Recommended)"; landing: "wait 5 minutes, then land; then continue with that")
 
 `*d = *s` with `type Page struct { b [0x1000000]uint8 }`, both on the heap, crashed (SIGSEGV) on the LLVM and native
