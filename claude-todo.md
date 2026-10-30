@@ -2656,7 +2656,7 @@ immediate starts only at a digit or `-` (`parseX64Operand`, `pkg/binate/asm/pars
 
 ## bnld (self-hosted linker)
 
-### bnld dynamic Mach-O: `__mh_execute_header` is not defined — 🔴 OPEN (minor; found 2026-10-11, work-2, review of the Mach-O constructors change; pre-existing)
+### bnld dynamic Mach-O: `__mh_execute_header` is not defined — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; minor; found 2026-10-11, work-2, review of the Mach-O constructors change; pre-existing)
 
 ld64 defines `__mh_execute_header` (C `_mh_execute_header`) as the executable's Mach-O header — the address
 bnld gives `___dso_handle` (`LinkDynMacho`, `machoDynHeaderAddr`).  bnld does not define it, so a reference
