@@ -2907,7 +2907,7 @@ loop whose value is stored into a variable, element or field declared outside th
 body (or otherwise outlives the iteration), pointing at `@func` for independent
 closures.
 
-### bnlint: flag `bit_cast` of a function literal to a raw or named-raw function-value type — 🔴 OPEN (proposed 2026-09-30 by the review of the cast-operand hint fix; decided: add later)
+### bnlint: flag `bit_cast` of a function literal to a raw or named-raw function-value type — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; proposed 2026-09-30 by the review of the cast-operand hint fix; decided: add later)
 
 `bit_cast` reinterprets its operand as it is typed (`conv.bit-cast`), so it gives a
 function literal no destination hint: `bit_cast(*func(int) int, func(x int) int {…})`
