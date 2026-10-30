@@ -3402,7 +3402,7 @@ resolve where it was declared, and an instance reuses the declaration-time check
 (plan-irgen-checker-types.md decision 7).  For generic METHODS that suggests replacing the proposal above: a
 sibling keeps calling the old (shadowed) method, which stays instantiable — to confirm with the user.
 
-### A constraint instance naming a type parameter that shadows a predeclared type compares equal to the predeclared one's — 🔴 OPEN MINOR (found 2026-10-16, work-6, review of the Self-constraint proposal; reproduced; pre-existing)
+### A constraint instance naming a type parameter that shadows a predeclared type compares equal to the predeclared one's — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; MINOR; found 2026-10-16, work-6, review of the Self-constraint proposal; reproduced; pre-existing)
 
 `func inner[U Eq[int]](u U) int`, `func outer[int any, T Eq[int]](t T) { report(inner[T](t)) }`: the declaration
 check accepts `inner[T]`.  typeSatisfiesConstraint's type-parameter arm (check/check_generic.bn) compares T's bound
