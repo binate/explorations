@@ -64,6 +64,12 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
   register goes ("expected register"; clang "operand must be a register in range").
 - 2c. Saturating (qadd / qsub / qdadd / qdsub, ssat / usat / ssat16 / usat16), parallel add / sub (s / q / sh / u /
   uq / uh × add16 / asx / sax / sub16 / add8 / sub8), sel, usad8 / usada8, pkhbt / pkhtb.
+  User (2026-10-29) on clang's other PKHBT / PKHTB spellings (the amount without `#`, an amount with no shift
+  name), where clang takes a bare PKHTB 0 as 32 and wraps 33 to 1: "Take them, same ranges (Recommended)" — the
+  named form's ranges (PKHBT 0..31, PKHTB 1..32).  Message-only differences from the 2c review (both reject):
+  trailing commas, a non-register where a register goes, a shift on an instruction that takes none, missing shift
+  amounts or names, two PC operands, the gates before ARMv6 where clang says "invalid instruction", and clang's
+  'lsr' typo for LSL's range (bnas says 'lsl').
 - 2d. Extend and extend-add (sxtb / sxth / sxtb16 / uxt*, sxtab / ... with rotation), bitfield (bfc / bfi / sbfx /
   ubfx), reverse (rev / rev16 / revsh / rbit), clz.
 - 2e. Loads and stores: ldr / str / ldrb / strb, ldrh / strh / ldrsb / ldrsh, ldrd / strd in every addressing mode
