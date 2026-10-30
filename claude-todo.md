@@ -685,6 +685,17 @@ bnc-0.0.16 (the pinned BUILDER) has the IR-gen defect fixed on main by `1f29d31e
 
 gen1 would get silently wrong code there, and gen1 compiles every test and gen2.  Examples: a loop body that never runs (the function returns early, with no error); `st.Top++` right after an `if` or a `for` does nothing.  An identifier `++` just before it doesn't help.  A statement that goes through expression evaluation first (`x.f = x.f + 1`, a declaration, a call) is fine, and so is one in a function's opening straight-line code.  Design B's instance stack (`pushInstWork` / `popInstWork`, binate `fe95d7de8`) keeps its `++` / `--` out of those positions; TODOs there mark it.  A 2026-09-30 scan of non-test code found no other field `++` / `--` (the only two are design B's), no `x := name` short-var, and no `*any` variable, parameter or field.  Clears when a BUILDER containing `1f29d31e9` is pinned (cut only when independently justified).
 
+**Violations found 2026-10-30 (temp-5), on main since 2026-10-18:** five field `++` / `--` in those positions reached
+the cone — evalArrayLen's `b.LenDepth++` / `--` (binate `d992fc50b`), errVarTypeCycle's `b.CycleErrors++` and
+notePoisonedLen's `c.Batch.SilentPoisons++` (`a12d578cb`), and copy-prop's `sc.stamp++` in srcUntouchedAfter
+(`25c8a5f6d`).  A test program with each shape, compiled by bnc-0.0.16, traps (or crashes at `--cflag -O2`), so gen1
+has undefined behavior there.  Seen as a false "variable type cycle" under builder-comp only (gen1 did not count
+array-length depth); copy-prop's site is in gen1's optimizer, which runs when gen1 builds gen2 at -O2, so gen2 built
+since 2026-10-18 may be affected (CI's gen2/gen3 modes have not shown it; the bnc-0.0.17 pre-releases predate all
+five).  Fixed (rewritten as `x.f = x.f + 1`, with TODOs) in temp-5's batch, not landed yet.  The 2026-09-30 scan's
+guarantee did not hold: proposal (not wired up): a hygiene check that rejects a field `++` / `--` opening a block or
+following an `if` / `for` / `switch` in cmd/bnc's cone until the BUILDER is bumped.
+
 ### REPL redefinition of types and interfaces, and across kinds: shadowing (the design) is not implemented; such a redefinition is rejected meanwhile — 🟡 IN PROGRESS (claimed 2026-10-09, work-6/session — user: "let's do item 7 then") (found 2026-09-29, work-6, review of the REPL forward-reference plan; widened 2026-09-30)
 
 claude-notes.md ("Redefinition in the REPL") says an incompatible type redefinition shadows the old
