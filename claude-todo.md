@@ -379,7 +379,7 @@ LLVM lanes (builder-comp, -comp-comp, -comp-comp-comp; CI run 40645707398 at 5e5
 "stack frame size (2147483704) exceeds limit (2147483647) in function 'bn_F1_4_main1_9_copyBytes'
 [-Werror,-Wframe-larger-than]" ("clang failed compiling main").  The test has .error markers only for the 32-bit lanes.
 
-### An array length reading a composite literal of a type declared later, or a parent interface's method, is rejected while the package's types are collected — 🔴 OPEN (a valid program rejected; found 2026-10-27, work-7, probing the member-read fix, binate `f7e99b80b`; reproduced on main; pre-existing)
+### An array length reading a composite literal of a type declared later, or a parent interface's method, is rejected while the package's types are collected — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; a valid program rejected; found 2026-10-27, work-7, probing the member-read fix, binate `f7e99b80b`; reproduced on main; pre-existing)
 
 `type X struct { b [len(Z{}.c)]uint8 }` with `type Z struct { c [16]uint8 }` declared after it is rejected "cannot
 use an opaque type by value" and "cannot access field on this type" (Z declared first, it compiles): nothing
