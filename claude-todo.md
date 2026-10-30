@@ -455,7 +455,7 @@ reported invalid as well as one not known yet (re-resolved later).  Fix: have ev
 resolve an invalid length to the error type, as resolveTypeExpr does for `[...]T` outside a composite literal, with
 a unit test pinning a single error.
 
-### A deferred early read of a variable loses the errors of the constants it resolved — 🔴 OPEN (minor: a lost diagnostic; found 2026-10-25, work-5, review of the on-demand methods change; reproduced)
+### A deferred early read of a variable loses the errors of the constants it resolved — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; minor: a lost diagnostic; found 2026-10-25, work-5, review of the on-demand methods change; reproduced)
 
 `batchVarOnDemand` (check/check_decl_batch.bn), deferring a variable's check while types are collected, drops every
 error since its mark (`dropChecksSince`) and leaves the functions it defined on demand to collection, which reports
