@@ -156,7 +156,11 @@ suites grew ~20% in the same span.**
   places each materializing load through a per-block position map — 31.58G -> 31.00G (-1.9%).
 - binate `9bbe8a2f7` (landed 2026-10-29): Module.Structs grows through a vec builder and is looked up through a
   name index (ir.RegisterModuleStruct / StructIndexLookup) — 31.12G -> 30.30G (-2.6%).
-- Next: re-profile; known candidates are irbuild.BlockIndexIn's linear scan (O(blocks^2) in buildSuccsPreds,
+- In progress (2026-10-30, work-3; user: "let's pursue that"): fault sites with an identical live managed set share
+  one cleanup pad instead of each getting a fresh copy — pad emission is ~7% of the load in IR-gen alone, and the
+  pads also go through the IR passes and VM lowering.  Changes the VM's IR shape, not behavior; iropt's pad analyses
+  (escape checks, pad fault-site maps) need auditing for a pad serving several sites.
+- Then: irbuild.BlockIndexIn's linear scan (O(blocks^2) in buildSuccsPreds,
   pruneUnreachableBlocks, assertPhiEntriesArePreds), the append-built Preds / dominator children / DF sets in
   iropt/dom.bn, the VM's slot assignment (assignSlots), and the fault-pad cleanup emission in irgen.
 
