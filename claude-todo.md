@@ -3506,41 +3506,6 @@ ship one that runs).
 
 ## REPL
 
-### REPL: whether a parked declaration sees a parked redefinition of a name it uses depends on an earlier parking — decide the rule — 🟡 IN PROGRESS (claimed 2026-10-29, work-6; found 2026-10-25, probing the method-value shadowing fix)
-
-Parked declarations resolve in groups: the strongly connected groups of the graph with an edge from each parked
-declaration to the parked declarations providing the names it MISSES (check/check_pending_retry.bn).  A name a
-declaration uses but does not miss — bound when it was checked, though a parked redefinition will rebind it — makes
-no edge.  So here `{P, f}` resolves first, against the old h, and h's redefinition (another signature) resolves
-after it and shadows it, f keeping the old h:
-```
-func P(n int) int { if n == 0 { return 1 }; return f() + q(n) }
-func h() int { return 1000 }
-func f() int { return 0 }
-func f() int { return cast(int, h()) + P(0) }
-func h() int8 { var _ int = P(0); return 5 }
-func q(n int) int { return 100 + n }
-testing.Println(f())                    1001
-```
-With `var x int8 = h()` in f, `{P, f}` does not check (cannot assign int to int8) and nothing resolves.  But when P
-parked on h first (P names h before h is declared), P's pending names still list h when the redefinition comes,
-so the redefinition, which uses P, joins P's group and f sees the NEW h — e2e/repl.sh
-group-earlier-redefinition-calls-later-shadowing-one (3), its generic- and value-method variants,
-group-shadowing-redefinitions-call-each-other and group-method-value-of-shadowing-method all rely on that.  A method behaves the same (`cast(int, mv.Size())` gives
-1001 one way, 6 the other).  Whether a member sees the new definition thus depends on how an unrelated member
-happened to park.
-- Options: (a) a parked redefinition joins the group of every parked declaration that uses its name, so f sees
-  the new h however the others parked; (b) only the names a declaration misses now make edges (refreshed on each
-  retry), so f always sees the old h and the e2e cases above change to calling the old definitions.
-- Decided (user, 2026-10-29): (a) — "(a) seems right".
-- Decided (user, 2026-10-30, after the reviews): a use in the body of a generic instance the group names first counts
-  ("Count it"); only a redefinition that shadows (another signature or type, a constant) is waited for, not one that
-  replaces ("Shadowing only"); a waiting group's own errors stay unreported until it is checked against the new
-  definition ("Keep waiting"); a declaration typed at the prompt that uses a name with a parked shadowing
-  redefinition parks on it too, statements still use the current definition ("Declarations wait"); "pending:"
-  drops names declared since that no parked declaration provides ("Drop them").
-- Needs: the fix, and e2e cases for the form that now sees the old definition.
-
 ### REPL: an incompatible redefinition of a generic method that a sibling still calls in the old shape — decide the rule — 🔴 OPEN (found 2026-10-03, work-6, review of the generic-methods-at-the-prompt fix; put to the user)
 
 `type Cur[T any] struct { v T }`, `func (c *Cur[T]) Get() T { return c.v }`, `func (c *Cur[T]) Twice() T

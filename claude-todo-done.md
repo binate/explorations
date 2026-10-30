@@ -1,3 +1,51 @@
+### REPL: a parked declaration sees a parked redefinition of a name it uses, however the others parked — DONE (binate `38b4fcd11`, 2026-10-30, work-6; user: "(a) seems right"; landing: "yes, go ahead")
+
+Parked declarations resolve in groups: the strongly connected groups of the graph with an edge from each parked
+declaration to the parked declarations providing the names it MISSES (check/check_pending_retry.bn).  A name a
+declaration uses but does not miss — bound when it was checked, though a parked redefinition will rebind it — makes
+no edge.  So here `{P, f}` resolves first, against the old h, and h's redefinition (another signature) resolves
+after it and shadows it, f keeping the old h:
+```
+func P(n int) int { if n == 0 { return 1 }; return f() + q(n) }
+func h() int { return 1000 }
+func f() int { return 0 }
+func f() int { return cast(int, h()) + P(0) }
+func h() int8 { var _ int = P(0); return 5 }
+func q(n int) int { return 100 + n }
+testing.Println(f())                    1001
+```
+With `var x int8 = h()` in f, `{P, f}` does not check (cannot assign int to int8) and nothing resolves.  But when P
+parked on h first (P names h before h is declared), P's pending names still list h when the redefinition comes,
+so the redefinition, which uses P, joins P's group and f sees the NEW h — e2e/repl.sh
+group-earlier-redefinition-calls-later-shadowing-one (3), its generic- and value-method variants,
+group-shadowing-redefinitions-call-each-other and group-method-value-of-shadowing-method all rely on that.  A method behaves the same (`cast(int, mv.Size())` gives
+1001 one way, 6 the other).  Whether a member sees the new definition thus depends on how an unrelated member
+happened to park.
+- Options: (a) a parked redefinition joins the group of every parked declaration that uses its name, so f sees
+  the new h however the others parked; (b) only the names a declaration misses now make edges (refreshed on each
+  retry), so f always sees the old h and the e2e cases above change to calling the old definitions.
+- Decided (user, 2026-10-29): (a) — "(a) seems right".
+- Decided (user, 2026-10-30, after the reviews): a use in the body of a generic instance the group names first counts
+  ("Count it"); only a redefinition that shadows (another signature or type, a constant) is waited for, not one that
+  replaces ("Shadowing only"); a waiting group's own errors stay unreported until it is checked against the new
+  definition ("Keep waiting"); a declaration typed at the prompt that uses a name with a parked shadowing
+  redefinition parks on it too, statements still use the current definition ("Declarations wait"); "pending:"
+  drops names declared since that no parked declaration provides ("Drop them").
+- Resolution (`38b4fcd11`): a tentative check records the names of the session it finds bound
+  (PendingDecl.UsedNames; types and interfaces, which are never redefined, excluded), including those used in the
+  bodies of the generic instances it names first and of a method it adds (not an existing method's body in an existing
+  instance checked again for it).  The groups take edges from them; a group whose check, missing nothing, uses a name
+  a parked declaration outside it redefines waits (undone, keeping the missing names its group was formed on), and a
+  new such use makes the sweep form the groups again.  A declaration typed at the prompt waits the same way.  A
+  redefinition with the old signature or type (PendingDecl.Replaces, compared as the REPL does) is not waited for.
+  "pending:" lists the redefinitions waited for and drops names declared since.  Tests:
+  pkg/binate/check/check_pending_redef_test.bn; e2e/repl.sh group-shadowing-*-seen-by-parked-user,
+  group-instance-body-sees-parked-redefinition, prompt-declaration-waits-for-parked-redefinition,
+  replacing-redefinition-not-waited-for, parked-user-waits-for-parked-redefinition; the group-* cases' old `f` now has
+  another signature, so their new `f` still shadows it and they stay one group.  Three reviews.
+- Left open: adding a method to a generic type checks its existing instances again against names redefined since (its
+  own todo entry, MAJOR).
+
 ### The BUILDER constraint's field `++` / `--` form is checked by hygiene — DONE (binate `191be535f`, 2026-10-30, work-6; user: "Ban field ++/-- (Recommended)"; landing: "go ahead and land 375c31a1d")
 
 The hygiene check builder-field-incdec rejects every field `++` / `--` in the BUILDER-compiled tree
