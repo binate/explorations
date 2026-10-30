@@ -616,7 +616,7 @@ shows it.  In cmd/bnc's cone, keep a generic's int and int64 instances apart (na
 lists in a non-generic list).  Clears when a BUILDER containing `50d176225` is pinned (cut only when
 independently justified).
 
-### Until `BUILDER_VERSION` includes binate `1f29d31e9`, gen1 silently miscompiles some statements that open a block or follow a compound statement in BUILDER-compiled code — 🔴 OPEN MAJOR (constraint until the next BUILDER release; found 2026-09-30, work-4); the check 🟡 IN PROGRESS (claimed 2026-10-30, work-6)
+### Until `BUILDER_VERSION` includes binate `1f29d31e9`, gen1 silently miscompiles some statements that open a block or follow a compound statement in BUILDER-compiled code — 🔴 OPEN MAJOR (constraint until the next BUILDER release; found 2026-09-30, work-4)
 
 bnc-0.0.16 (the pinned BUILDER) has the IR-gen defect fixed on main by `1f29d31e9`.  So in cmd/bnc's cone (the packages the BUILDER compiles into gen1), these must not be the first statement of a loop / `if` / `else` / `case` body, nor the statement right after an `if` / `for` / `switch`:
 - a struct-field `++` / `--`;
@@ -632,13 +632,10 @@ notePoisonedLen's `c.Batch.SilentPoisons++` (`a12d578cb`), and copy-prop's `sc.s
 has undefined behavior there.  Seen as a false "variable type cycle" under builder-comp only (gen1 did not count
 array-length depth); copy-prop's site is in gen1's optimizer, which runs when gen1 builds gen2 at -O2, so gen2 built
 since 2026-10-18 may be affected (CI's gen2/gen3 modes have not shown it; the bnc-0.0.17 pre-releases predate all
-five).  Fixed (rewritten as `x.f = x.f + 1`, with TODOs) by binate `915da8429`.  The 2026-09-30 scan's
-guarantee did not hold: proposal (not wired up): a hygiene check that rejects a field `++` / `--` opening a block or
-following an `if` / `for` / `switch` in cmd/bnc's cone until the BUILDER is bumped.
-`e2e/repl.sh` builds gen1 without `--cflag -O2`, so there such a site traps (`Trace/BPT trap: 5` in evalArrayLen,
-2026-10-29: "FAIL: bni build failed:" with no case run, until `915da8429`); the user chose (2026-10-30) to add the
-check, as a ban on every field `++` / `--` in the BUILDER-compiled tree: "Ban field ++/-- (Recommended)" (the rest
-rewritten as `+= 1`).
+five).  Fixed (rewritten as `x.f = x.f + 1`) by binate `915da8429`.  The 2026-09-30 scan's guarantee did not
+hold, so the hygiene check builder-field-incdec (binate `191be535f`) now rejects every field `++` / `--` in the
+BUILDER-compiled tree, in any position; the other two forms above are still kept out of those positions by hand.
+The check goes when a BUILDER containing `1f29d31e9` is pinned.
 
 ### REPL redefinition of types and interfaces, and across kinds: shadowing (the design) is not implemented; such a redefinition is rejected meanwhile — 🟡 IN PROGRESS (claimed 2026-10-09, work-6/session — user: "let's do item 7 then") (found 2026-09-29, work-6, review of the REPL forward-reference plan; widened 2026-09-30)
 

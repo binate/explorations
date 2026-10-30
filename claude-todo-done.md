@@ -1,3 +1,13 @@
+### The BUILDER constraint's field `++` / `--` form is checked by hygiene — DONE (binate `191be535f`, 2026-10-30, work-6; user: "Ban field ++/-- (Recommended)"; landing: "go ahead and land 375c31a1d")
+
+The hygiene check builder-field-incdec rejects every field `++` / `--` in the BUILDER-compiled tree
+(scripts/lib/builder-tree.sh), scanning each file whole with its literals and comments blanked in one pass, and
+failing when the walk misses a package it must reach or a file cannot be read.  The ten field `++` / `--` left, in
+positions the BUILDER compiles right, became `+= 1` / `-= 1`, and the per-site notes the check supersedes went.
+Found because `e2e/repl.sh`, which builds gen1 without `--cflag -O2`, trapped in check.evalArrayLen (2026-10-29: "FAIL:
+bni build failed:" with no case run) until binate `915da8429` rewrote the five unsafe sites.  The constraint's todo
+entry stays open for its other two forms and the BUILDER bump.
+
 ### A type whose layout a `sizeof` reads, reached through a slice's element before it is reached by value, was not waited for: an instance kept a wrong array length — DONE (binate `7ebd47a44`, 2026-10-30, work-7; user: "Next, before .bni (Recommended)"; landing: "wait 12 minutes, then land") (MAJOR: a valid program compiled with a wrong array type, silently)
 
 `type Box[T any] struct { a [sizeof(T)]uint8 }`, `type N struct { v int64; next *Box[M] }`, `type M struct { s *[]N; n
