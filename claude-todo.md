@@ -107,7 +107,7 @@ the instances it names from the length it could not read.  Fix: a method whose c
 not kept — taken back as a definition on demand is (enterDemandFrame, undoBatchMethods), to be copied again when next
 selected or back-filled — with a conformance test printing the lengths.
 
-### The checker accepts a constant cycle through a generic instance's field, and IR-gen panics — 🟡 IN PROGRESS (claimed 2026-10-29, temp-5/session, self-drive; MAJOR: an internal-error crash on an invalid program; found 2026-10-28, work-7, review of the constant form of the abstract-declaration wait; reproduced on main, also before binate `f7e99b80b`; pre-existing)
+### The checker accepts a constant cycle through a generic instance's field, and IR-gen panics — 🟡 IN PROGRESS (claimed 2026-10-29, temp-5/session, self-drive; fixed on main by binate `80f71625a` (found 2026-10-30), its regression tests not landed yet; MAJOR: an internal-error crash on an invalid program; found 2026-10-28, work-7, review of the constant form of the abstract-declaration wait; reproduced on main, also before binate `f7e99b80b`; pre-existing)
 
 `type Bx[T any] struct { a [S]uint8; t T }`, `var gv Bx[int64]`, `const S = len(gv.a)` (in either order) passes the
 type checker, and bnc then stops with "panic: internal error: IR generation cannot evaluate a constant the type
