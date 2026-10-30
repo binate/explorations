@@ -231,7 +231,7 @@ yet, and its initializer has no ResolvedTypeID) and `len`'s operand is walked as
 declaredType a variable's head type (varHeadType), or compute the order after pass 2; a unit test and a conformance
 test.
 
-### A variable taking its own length in a call its type comes through is called an initialization cycle, not a type cycle — 🔴 OPEN (minor: diagnostic; found 2026-10-29, temp-5, review of the init-order-after-pass-2 change; reproduced)
+### A variable taking its own length in a call its type comes through is called an initialization cycle, not a type cycle — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; minor: diagnostic; found 2026-10-29, temp-5, review of the init-order-after-pass-2 change; reproduced)
 
 `var d = hi(len(d)).arr` (`func hi(n int) S`, S holding an `arr [3]int`) is "variable initialization cycle involving
 `d`".  d's initializer spells no type at its head and names d outside an array length, so its type depends on
