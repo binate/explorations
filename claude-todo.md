@@ -47,7 +47,7 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
-### An aggregate with no word alignment copied whole through pointers is staged in a copy of its size on the stack — a 16 MiB struct of bytes overflows it; 1718's 2 GiB one is why the LLVM x86-64 lanes are red — 🔴 MAJOR, OPEN (found 2026-10-29, work-1, root-causing conformance 1718's CI failure; pre-existing)
+### An aggregate with no word alignment copied whole through pointers is staged in a copy of its size on the stack — a 16 MiB struct of bytes overflows it; 1718's 2 GiB one is why the LLVM x86-64 lanes are red — 🟡 MAJOR, IN PROGRESS (claimed 2026-10-29, work-1; user: "Fix it now"; found 2026-10-29, work-1, root-causing conformance 1718's CI failure; pre-existing)
 
 `*d = *s` with `type Page struct { b [0x1000000]uint8 }` and both on the heap crashes (SIGSEGV) on the LLVM and
 native backends and is "runtime error: stack overflow" in the VM; 4 MiB works, and so does a 16 MiB struct of
