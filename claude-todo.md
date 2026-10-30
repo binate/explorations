@@ -104,9 +104,12 @@ suites grew ~20% in the same span.**
 **Progress on (a)** (int-int conformance/001_hello, instructions retired, perf/ab-binaries.sh, median of 5):
 - binate `331ebd2ea` (landed 2026-10-29): irgen caches overlayFileImports' alias maps per base and import list
   instead of rebuilding one per declaration per pass — 36.76G -> 31.40G (-14.6%).
-- Next: mem2reg's per-alloca whole-function scans (a use index; drafted), the per-slice whole-function passes of
-  load forwarding's extract coalescing, struct registration's copy-per-append of Module.Structs and linear
-  lookupStructIdx.
+- binate `7502003fd` (landed 2026-10-29): mem2reg reads each alloca's uses from one use index, and its stacks and
+  lists, and the dominator tree's postorder walk and IteratedDF worklist, are vecs — 32.43G -> 31.35G (-3.3%).
+  (The tree itself grew between the two: the base went 31.40G -> 32.43G with a day of upstream commits.)
+- Next: the per-slice whole-function passes of load forwarding's extract coalescing and applyRLE's per-instruction
+  slot scan (drafted); struct registration's copy-per-append of Module.Structs and linear lookupStructIdx;
+  irbuild.BlockIndexIn's linear scan (O(blocks^2) in buildSuccsPreds, pruneUnreachableBlocks).
 
 Options (decision needed): (a) profile and fix the load pipeline's superlinear phases (cmd/bni's load is also
 bni's start-up cost for every user); (b) more shards or a longer cap for the int-int lanes
