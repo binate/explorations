@@ -2915,7 +2915,7 @@ makes the literal a heap `@func` statement temporary and reinterprets it as a ra
 closure that dangles after the statement.  Flag it, pointing at `cast` (which makes
 the literal a frame closure).
 
-### bnlint: flag an `@func` temporary borrowed by a `*func` destination past its statement — 🔴 OPEN (proposed 2026-09-30 by the review of the cast-operand hint fix; decided: add later)
+### bnlint: flag an `@func` temporary borrowed by a `*func` destination past its statement — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; proposed 2026-09-30 by the review of the cast-operand hint fix; decided: add later)
 
 `var h *func(int) int = cast(@func(int) int, func…)` or `= mk(7)` (with
 `mk` returning `@func`) borrows a statement temporary as a raw `*func`; the temporary
