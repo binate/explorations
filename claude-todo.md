@@ -166,10 +166,14 @@ suites grew ~20% in the same span.**
   places each materializing load through a per-block position map — 31.58G -> 31.00G (-1.9%).
 - binate `9bbe8a2f7` (landed 2026-10-29): Module.Structs grows through a vec builder and is looked up through a
   name index (ir.RegisterModuleStruct / StructIndexLookup) — 31.12G -> 30.30G (-2.6%).
-- In progress (2026-10-30, work-3; user: "let's pursue that"): fault sites with an identical live managed set share
-  one cleanup pad instead of each getting a fresh copy — pad emission is ~7% of the load in IR-gen alone, and the
-  pads also go through the IR passes and VM lowering.  Changes the VM's IR shape, not behavior; iropt's pad analyses
-  (escape checks, pad fault-site maps) need auditing for a pad serving several sites.
+- binate `0e054dc10` (landed 2026-10-30): load forwarding's pad check follows pad-to-pad entries (an inlined
+  callee's pad chains into its call site's; a multi-block pad's later blocks) and ignores pads no fault point reaches
+  — sound before (a call-site pad's fault points all lay in its inlined body) but needed once pads are shared;
+  compiled code changes (more forwarding, 134 conformance tests), all passing on LLVM / native aa64 / VM.
+- binate `461ecfd0e` (landed 2026-10-30; user: "let's pursue that"): fault ops whose live set matches the last pad's
+  share it — 30.33G -> 25.32G (-16.5%); compiled output identical after renumbering value ids.
+- Total so far ~34% fewer instructions per int-int test (the per-change ratios compounded).  Check CI's next
+  conformance / unit int-int durations before deciding whether shards or caps still need changing.
 - Then: irbuild.BlockIndexIn's linear scan (O(blocks^2) in buildSuccsPreds,
   pruneUnreachableBlocks, assertPhiEntriesArePreds), the append-built Preds / dominator children / DF sets in
   iropt/dom.bn, the VM's slot assignment (assignSlots), and the fault-pad cleanup emission in irgen.
