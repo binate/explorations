@@ -1126,7 +1126,7 @@ functions and methods — a read of one while its type or signature is resolved 
 was entered after that started, the flush's last round does not run while one is resolved once a read has waited,
 and the layout waits are flushed once it is defined — with unit tests for each form.
 
-### A method of a generic type's instance, whose signature builds an instance a generic's declaration reads it from, is a false cycle — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the variable and function forms of the abstract-declaration wait; reproduced on main; pre-existing)
+### A method of a generic type's instance, whose signature builds an instance a generic's declaration reads it from, is a false cycle — 🟡 IN PROGRESS (claimed 2026-10-29, work-7/session; user: "2. do it next.") (a valid program rejected; found 2026-10-28, work-7, review of the variable and function forms of the abstract-declaration wait; reproduced on main; pre-existing)
 
 `type Bx[T any] struct { a [len(hv.m())]uint8; t T }`, `var hv H[int64]`, `type H[T any] struct { z T }`, `func (h
 *H[T]) m() [sizeof(W[T])]uint8 { … }`, `type W[T any] struct { v T; p *Bx[T] }` is "undefined: m"; with a
