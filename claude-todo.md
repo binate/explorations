@@ -207,7 +207,7 @@ len(u) }))]int{}` with `var u = [len(w)]int{}` stayed a cycle.  Fix (to design):
 check again the array-length operands that read its placeholder (their kept types dropped), reporting their errors,
 rather than reporting a cycle at once; unit tests of the programs above.
 
-### A variable type cycle through a function's signature, met while types are collected, says "declare its type" — 🔴 OPEN (minor: diagnostic; found 2026-10-26, work-5, review of the variable type-cycle fix; reproduced; pre-existing)
+### A variable type cycle through a function's signature, met while types are collected, says "declare its type" — 🟡 IN PROGRESS (claimed 2026-10-29, temp-5/session, self-drive; minor: diagnostic; found 2026-10-26, work-5, review of the variable type-cycle fix; reproduced; pre-existing)
 
 `type B [len(t)]uint8`, `var t = mk()`, `func mk() [len(t)]int` is rejected, but with "the type of `t` is needed
 while the package's types are collected ..., but its initializer uses declarations not collected yet: declare its
