@@ -107,8 +107,9 @@ suites grew ~20% in the same span.**
 - binate `7502003fd` (landed 2026-10-29): mem2reg reads each alloca's uses from one use index, and its stacks and
   lists, and the dominator tree's postorder walk and IteratedDF worklist, are vecs — 32.43G -> 31.35G (-3.3%).
   (The tree itself grew between the two: the base went 31.40G -> 32.43G with a day of upstream commits.)
-- Next: the per-slice whole-function passes of load forwarding's extract coalescing and applyRLE's per-instruction
-  slot scan (drafted); struct registration's copy-per-append of Module.Structs and linear lookupStructIdx;
+- binate `140629e75` (landed 2026-10-29): load forwarding coalesces all slices' extracts together, and applyRLE
+  places each materializing load through a per-block position map — 31.58G -> 31.00G (-1.9%).
+- Next: struct registration's copy-per-append of Module.Structs and linear lookupStructIdx (~3.4% of the run);
   irbuild.BlockIndexIn's linear scan (O(blocks^2) in buildSuccsPreds, pruneUnreachableBlocks).
 
 Options (decision needed): (a) profile and fix the load pipeline's superlinear phases (cmd/bni's load is also
