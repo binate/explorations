@@ -47,6 +47,29 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
+### A type whose layout a `sizeof` reads, reached through a slice's element before it is reached by value, is not waited for: an instance keeps a wrong array length — 🔴 OPEN (MAJOR: a valid program compiled with a wrong array type, silently; found 2026-10-30, work-7, review of the `.bni` on-demand resolution; reproduced on main; pre-existing)
+
+`type Box[T any] struct { a [sizeof(T)]uint8 }`, `type N struct { v int64; next *Box[M] }`, `type M struct { s *[]N; n
+N }` in a `.bn` compiles, and `len(b.a)` for `var b Box[M]` is 24 while `sizeof(M)` is 32; with M's fields swapped (`n
+N; s *[]N`) both are 32.  Collecting N builds Box[M], whose `sizeof(M)` prepares M's layout (prepareLayoutIn,
+check/check_decl_layout.bn): the walk reaches N softly, through the slice's element, which marks N visited (`seen` is
+keyed by type alone), and then skips N when it reaches it by value through the field `n`, so the read of N, still
+being collected, does not wait, and M's size is taken with N incomplete.  Fix: walk a type reached softly again when
+it is reached by value (visits keyed by type and softness), with a conformance test printing both lengths in both
+field orders and a unit test.  The `.bni` on-demand resolution (the entry on an instance's `sizeof` in a `.bni`) uses
+the same walk, and would hit the same bug once a `.bni` type being resolved, reached softly, is no longer taken for an
+opaque one.
+
+### A `.bni` type that holds itself by value, reached through an instance's `sizeof`, crashes the compiler — 🔴 OPEN (MAJOR: a compiler crash on an invalid program; found 2026-10-30, work-7, review of the `.bni` on-demand resolution; reproduced on main; pre-existing)
+
+`type Box[T any] struct { a [sizeof(T)]uint8 }`, `type N struct { v int64; p *Box[A] }`, `type A struct { b B }`,
+`type B struct { a A }` in `q.bni`, imported by a program that names `q.N`, makes bnc exit with a segfault (rc 139)
+and no message; the same in `q.bn` is "recursive type: a type cannot contain itself by value".  From the review (not
+traced here): the crash is in types.structLayoutOf, recursing through A and B.  Building Box[A] while the `.bni`'s
+scope is built reads A's layout, and the `.bni` build checks no type for holding itself by value before that (the
+batch does, in prepareBatchType's checkTypeByValueCycle, check/check_decl_layout.bn).  Fix: check it before the layout
+is read, reporting the cycle once, with a unit test and a conformance error test.
+
 ### A large aggregate returned by value needs its size twice on the stack — 🟡 MAJOR, IN PROGRESS (claimed 2026-10-29, work-1; user: "Fix it now", then "wait 5 minutes, then land; then continue with that"; the whole-store case is done: binate `bc9a35b70`, `493731135`)
 
 Three causes, found with probes of 3.5-5 MiB (an 8 MiB stack holds one copy, not two):
@@ -1092,6 +1115,20 @@ a [S]uint8; t T }`, `const S = sizeof(W[int64])`, `type W[T any] struct { v T; p
 length must be a constant integer" at lib.bni, with the constant form's wait in place: a `.bni`'s constants are
 resolved by resolveBniConstByName (check/bni_scope_const.bn), which does not wait.  Fix: collect the `.bni`'s types,
 and resolve its constants, as the batch does the `.bn`'s.
+
+### A `.bni`'s variables and functions named before their declarations, and a constant reached through a type argument, are rejected — 🔴 OPEN (minor: valid programs rejected; found 2026-10-30, work-7, review of the `.bni` on-demand resolution; reproduced on main; pre-existing)
+
+In a `.bni`, with `type Bx[T any] struct { a [len(V)]uint8; t T }` and `type U struct { p *Bx[int64] }` before `var V
+[4]int`, building Bx[int64] is "array length must be a constant integer"; with `[len(f())]uint8` before `func f()
+[6]int`, also "undefined: f".  The same in a `.bn` prints 4 and 6: the batch defines a variable or a function an array
+length names on demand (batchVarOnDemand, batchFuncOnDemand), the `.bni` build only its constants (and its types, with
+the entry above).  And `const S = sizeof(N)`, `type N struct { b Box2[M] }`, `type M struct { a [S]uint8 }`, `type
+Box2[T any] struct { p *T }` is "constant definition cycle involving `S`" and "array length must be a constant
+integer" (the `.bn` prints 8 8): the constant's pre-walk (collectTypeExprNames, check/bni_scope_const.bn) takes a type
+argument as held by value, though Box2 holds it through a pointer.  A real cycle is also reported with more errors
+than in a `.bn`: `const S = sizeof(Bx[int64])` with `type Bx[T any] struct { a [S]uint8; t T }` is a constant cycle
+and "array length must be a constant integer", where the `.bn` reports one cyclic type.  Fix: define them on demand as
+the batch does, and walk a type argument as its generic holds it; unit tests for each.
 
 ## Performance
 
