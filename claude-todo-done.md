@@ -1,3 +1,20 @@
+### A variable's type may not depend on itself: the spec had no rule — DONE (docs `78402f5`, binate `6a918a196`, 2026-10-29, work-5; user: "1. yes" (to a rule in §9, next to `decl.var`, that a variable's type may not depend on itself))
+
+The checker rejected a package variable whose type needs its own type ("variable type cycle",
+check/check_var_placeholder.bn) under no spec rule.  Resolution: docs `78402f5` adds `decl.var.type-acyclic` to
+§9.2 after `decl.var.redeclare`.  A variable's type is its declared type or else its initializer's; an initializer
+that spells its type at its head (a function literal, a composite literal of a written type other than `[...]T`,
+`cast` / `bit_cast`, and a call of a function of the package or an imported one, of a generic function's instance,
+of a package variable's method or of a function literal written where it is called) has it before its operands are
+checked; any other initializer's type depends on each variable it names outside the array lengths in it, and a type
+on each variable an array length's value needs.  A cycle of reads alone stays §17.2 `prog.init.var-cycle`'s.  The
+same commit regenerated `spec/rule-ids.txt`, which also moved `stmt.switch.tag` to `constraint-candidate` (docs
+`27051da`'s "is rejected" sentence had left it stale).  Binate `6a918a196` re-vendors `rule-ids.txt` and adds
+conformance spec/09 175_err_var_type_cycle_through_initializer (`var a = len([len(b)]int{})` with `var b =
+h(a).arr`: "variable type cycle involving `a`") and 176_var_type_from_head_not_cycle (`var b = [len(a)]int{1, 2,
+3}` with `var a = h(b)`, a's type h's result: prints `3 3`), both citing the rule.  The checker's side of the rule:
+binate `e7e305386` (a called function literal's head type) and `d992fc50b` (reads outside the array lengths).
+
 ### asm stage 2a3: a `.` label listed where clang registers it — DONE (binate `31c5e7c60`, 2026-10-29, work-2; user: "Separate commit next (Recommended)")
 
 A label made for `.` now takes its mention where the expression parser reads the `.` (noteDotRead), and

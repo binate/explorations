@@ -189,19 +189,6 @@ len(u) }))]int{}` with `var u = [len(w)]int{}` stayed a cycle.  Fix (to design):
 check again the array-length operands that read its placeholder (their kept types dropped), reporting their errors,
 rather than reporting a cycle at once; unit tests of the programs above.
 
-### A variable's type may not depend on itself: the spec has no rule — 🟡 IN PROGRESS (claimed 2026-10-27, work-5/session; user: "1. yes" (to a rule in §9, next to `decl.var`, that a variable's type may not depend on itself); the called function literal's head type DONE binate `e7e305386`, see the done log; found 2026-10-27, work-5, the variable type-cycle tests)
-
-The checker rejects a package variable whose type needs its own type ("variable type cycle",
-check/check_var_placeholder.bn), but the spec has no rule saying so.  What counts as a cycle depends on the
-initializers whose type is known before their operands are checked (varHeadType): a function literal, a composite
-literal whose type is written out, `cast` / `bit_cast`, and a call of a named function, of a generic function's
-instance, of a package variable's method or of a function literal written in place.  Any other initializer's
-type depends on the type of each variable it names outside the array lengths in it (binate `d992fc50b`: "variable type
-cycle" for `var a = len([len(b)]int{})` with `var b = h(a).arr`), and an array length on what its value needs.
-Fix: add `decl.var.type-acyclic` to docs §9.2 after `decl.var.redeclare`, listing those forms (a draft is ready,
-to update for the above and show the user); regenerate binate's scripts/spec-coverage/rule-ids.txt; unit and
-conformance tests citing the rule.
-
 ### A variable type cycle through a function's signature, met while types are collected, says "declare its type" — 🔴 OPEN (minor: diagnostic; found 2026-10-26, work-5, review of the variable type-cycle fix; reproduced; pre-existing)
 
 `type B [len(t)]uint8`, `var t = mk()`, `func mk() [len(t)]int` is rejected, but with "the type of `t` is needed
