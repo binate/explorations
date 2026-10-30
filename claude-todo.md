@@ -70,6 +70,11 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
   release is not warranted by this alone.
 - Decided (user, 2026-10-30): "Rewrite + check" — the two lines rewritten, and a check for the pattern in cmd/bnc's
   cone, landed before the parked-redefinition group rule.
+- Note (temp-5, 2026-10-30): binate `915da8429`, landed 2026-10-30 08:51, already rewrites both lines as `b.LenDepth =
+  b.LenDepth + 1` / `- 1` with TODOs, and three more sites the same way: errVarTypeCycle's `b.CycleErrors++`,
+  notePoisonedLen's `c.Batch.SilentPoisons++` and copy-prop's `sc.stamp++` (found the same day by a gen1-only test
+  failure; see the BUILDER-constraint entry's "Violations found 2026-10-30", which also proposes the check).  What
+  remains here is the check.
 
 ### A sub-word-aligned aggregate returned whole, and in the VM any aggregate load not stored whole, is staged in a copy of its size on the stack — 🟡 MAJOR, IN PROGRESS (claimed 2026-10-29, work-1; user: "Fix it now", then "wait 5 minutes, then land; then continue with that"; the whole-store case is done: binate `bc9a35b70`, `493731135`)
 
