@@ -298,7 +298,7 @@ variable checked while types are collected gives the same follow-on: `type A [le
 and then "declare its type" for one of u and w (found 2026-10-28, work-5, review of the head-typing change).  Fix:
 trace it and report the cycle there alone; unit tests of both programs.
 
-### A variable whose head calls a generic function's instance, or a method of a generic type's instance, whose signature reads the variable is rejected — 🔴 OPEN (minor: valid programs rejected; found 2026-10-29, temp-5, review of the head-call result-type change; reproduced; pre-existing)
+### A variable whose head calls a generic function's instance, or a method of a generic type's instance, whose signature reads the variable is rejected — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; minor: valid programs rejected; found 2026-10-29, temp-5, review of the head-call result-type change; reproduced; pre-existing)
 
 `var t = mk[int](nil)` with `func mk[T any](p *([len(t)]int)) [3]int` is "variable type cycle involving `t`", and
 `var v B[int]; var t = v.m(nil)` with `func (r B[T]) m(p *([len(t)]int)) [3]int` is "declare its type".  By §9.2
