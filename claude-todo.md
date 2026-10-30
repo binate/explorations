@@ -326,7 +326,7 @@ so whether these programs are valid is not decided.  Decide: such cycles judged 
 a conformance error test), or per member (a struct's fields and an interface's methods resolved one at a time on
 demand, with tests).
 
-### A generic type's method copied onto an instance, after an earlier declaration built a type its result's length reads, keeps a zero length — a silent wrong type — 🔴 OPEN MAJOR (found 2026-10-30, temp-5, review of the "method redeclared" fix; reproduced on main `2d98bc5f1`; pre-existing)
+### A generic type's method copied onto an instance, after an earlier declaration built a type its result's length reads, keeps a zero length — a silent wrong type — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; MAJOR; found 2026-10-30, temp-5, review of the "method redeclared" fix; reproduced on main `2d98bc5f1`; pre-existing)
 
 ```
 var g [sizeof(W[int64])]uint8
