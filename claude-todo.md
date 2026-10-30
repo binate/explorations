@@ -3477,7 +3477,7 @@ ship one that runs).
 
 ## REPL
 
-### REPL: whether a parked declaration sees a parked redefinition of a name it uses depends on an earlier parking — decide the rule — 🔴 NEEDS DECISION (found 2026-10-25, work-6, probing the method-value shadowing fix)
+### REPL: whether a parked declaration sees a parked redefinition of a name it uses depends on an earlier parking — decide the rule — 🟡 IN PROGRESS (claimed 2026-10-29, work-6; found 2026-10-25, probing the method-value shadowing fix)
 
 Parked declarations resolve in groups: the strongly connected groups of the graph with an edge from each parked
 declaration to the parked declarations providing the names it MISSES (check/check_pending_retry.bn).  A name a
@@ -3503,7 +3503,8 @@ happened to park.
 - Options: (a) a parked redefinition joins the group of every parked declaration that uses its name, so f sees
   the new h however the others parked; (b) only the names a declaration misses now make edges (refreshed on each
   retry), so f always sees the old h and the e2e cases above change to calling the old definitions.
-- Needs: the user's decision on the rule; then the fix and the e2e cases for the other form.
+- Decided (user, 2026-10-29): (a) — "(a) seems right".
+- Needs: the fix, and e2e cases for the form that now sees the old definition.
 
 ### REPL: an incompatible redefinition of a generic method that a sibling still calls in the old shape — decide the rule — 🔴 OPEN (found 2026-10-03, work-6, review of the generic-methods-at-the-prompt fix; put to the user)
 
