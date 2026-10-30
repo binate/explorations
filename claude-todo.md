@@ -2632,48 +2632,14 @@ A statement with a comment no list prints on its last line is printed twice to r
 (printTrailing, print_trail.bn; see the inner-comment entry), which doubles this per level: with `x := func() int {`
 … `}() /* s */ + 1 // t` in each body, depth 8 takes 61 s, against 1.5 s before binate `cb6028078`.
 
-### bnfmt is not idempotent on some layouts: a lone argument, a string bnfmt splits, function literals — 🟡 IN PROGRESS (claimed 2026-10-23, temp-4; user: "yes" to taking it next) 🟢 LOW (found 2026-10-19, temp-4, fuzzing in the review of the rendering cache; pre-existing)
+### bnfmt: what the non-idempotence work left open: a right-hand side's type arguments, a one-character last part — 🔴 OPEN 🟢 LOW (found 2026-10-23, temp-4, landing binate `ae0e0a63c`; pre-existing)
 
-Formatting a formatted file changes it again in 26 of the ~25,000 files of binate's `scripts/bnfmt-check` corpora
-(`33c49c1b8`, at binate `cb6028078`; gen 16, genb 9, rv 1); the tree's own files are at a fixpoint.  binate
-`ae0e0a63c` fixed eight causes, `f5a890569` a binary chain's column-0 operand measure, `9b58a7bd0` a commented
-one-line block on a `// LONG-LINE ALLOWED` line (see the done file), and `cb6028078`, reserving a statement's
-trailing comments, 11 more.  That makes a trailing comment a tail, as a selector after a call is, so it also starts
-the moves below: 4 of the 3,000 files generated to review `cb6028078` (`gg.hh(x.yyy, x.yyy(cccc,` / `cccc(func(p
-int) int { … }))) // <80 bytes>` moves the argument and expands the literal; the second format keeps it on the head
-line, as with a long selector there).  (Before `33c49c1b8` the corpora were
-scratch copies, which the system's /tmp cleanup deleted; the scripts regenerate them from the same seeds, with the
-files that did not parse fixed, and genb with index expressions, so it went from 24 to 18.)
-binate `844d788c5` fixed one more cause: a one-line block whose list comment a measurement claimed before it printed
-stayed on its line, and a second format expanded it (none in the corpora; 34 of 1,500 files generated with switch
-statements; see the done file).
-
-The 46, minimized, are nearly all one mechanism.  bnfmt keeps some layouts it finds in the source -- an opener alone, a
-string run split across lines, a multi-line block, a wrapped list or chain -- and a first format produces those
-layouts itself, so a second format takes them for the author's and measures differently.  Mostly the first format
-moves an element to a continuation line because its rendering after the previous element breaks earlier inside (in
-fitsPlacedOrMoved, a shorter first line placed than moved: an inner opener alone, a lone function literal moved to
-stay on one line, a string split at the deeper column); the second format keeps the breaks printed at the moved
-position, the two renderings then start alike, and the element moves back (`g(a{f},` / `zzz(hhhhh(func() {` becomes
-`g(a{f}, zzz(hhhhh(func() {`).  Fewer go the other way: a split the first format made is kept at a deeper column,
-runs past the cap, and the element moves on.  Several of the splits leave a one-character last part.  Formatted
-repeatedly, 42 of the 46 stop changing on the second format and 4 on the third; none oscillate.
-
-- Measuring a lone argument with everything after it (printArgList's tail 1) fixes 6 of the 46 and adds 2, and
-  changes 6 tree files, some better (a composite literal or a call kept whole after its opener), some worse (`len(`
-  alone; `patchX64(…)) !=` / `0 || …`).
-
-Decided (user, 2026-10-24, of: format to a fixpoint inside bnfmt; fix the move measure; change the lone-argument rule;
-leave the rest): "Fix the move measure" -- when deciding whether an element moves, measure its placed form with the
-breaks a second format would keep; prototype it and report how many of the 40 it fixes and which tree files change.
-
-Open questions from `ae0e0a63c` (landed as is): pkg/binate/check/check_instances.bn's right-hand side
-`table.NewTable[…](…)` will wrap its type arguments inline (`…, instanceDeclHasher,` / `instanceDeclEq](`) at the
-next CHECK_TOOLS bump, where it moved to a continuation line only because its inline form ran a byte past the cap;
-giving right-hand sides the fill measure's first-line rule instead changes 330 tree files.  And making room for a
-tail can leave a one-character last part (`"hello worl"` / `"d"}, // <85-byte comment>`).  Minor: trailWidth reserves
-nothing for a line comment after a block comment in a gap (`x, /* b */ // c`); a statement's leading `/* a */ // b`
-on a line of its own still prints as two lines (stable).
+pkg/binate/check/check_instances.bn's right-hand side `table.NewTable[…](…)` will wrap its type arguments inline (`…,
+instanceDeclHasher,` / `instanceDeclEq](`) at the next CHECK_TOOLS bump, where it moved to a continuation line only
+because its inline form ran a byte past the cap; giving right-hand sides the fill measure's first-line rule instead
+changes 330 tree files.  And making room for a tail can leave a one-character last part (`"hello worl"` / `"d"}, //
+<85-byte comment>`).  Minor: trailWidth reserves nothing for a line comment after a block comment in a gap (`x, /* b
+*/ // c`); a statement's leading `/* a */ // b` on a line of its own still prints as two lines (stable).
 
 ### bnfmt gives a declaration, group member or struct field the comments of the next one on its line: what remains — 🟡 IN PROGRESS (claimed 2026-10-25, temp-4; user: "let's fix next") 🟢 LOW (found 2026-10-25, temp-4, review of the marked-line fix; pre-existing)
 
@@ -2753,8 +2719,12 @@ an element that wraps -- a call, a composite -- reserves the rest itself; a lone
 An identifier or a selector cannot reserve it, so `ffff…[cccc…]++` with the `]` at column 100 prints 102 wide, and
 `ffff…[cccc…]++ // a trailing cc` and `gggg(ffff…[cccc…]) // a trailing cc` stay 103 wide, while an index that
 itself runs past the cap wraps (`ffff…[` / `cccc…]++`) (bnfmt `bnc-0.0.17-pre3` and the tree's).  Measuring every
-lone element with everything after it is the lone-argument rule the non-idempotence entry tried; giving the whole
+lone element with everything after it is the lone-argument rule the non-idempotence entry tried (done file); giving the whole
 tail only to an element that cannot break, as a string literal has it, is narrower.
+The mismatch also limits binate `b5e5bca15`'s check of a fill decision against a second format (fitsStably,
+print_stable.bn): a lone element measured with less after it than it prints with (printArgList's `exact` false)
+may still take the other place, but may not print a layout read back at either, as that layout was rendered
+with a tail the printer does not use.  Measuring with the tail it prints with would lift the gate.
 
 ### bnfmt's `__c_call` leaves out what follows its `)` — 🔴 OPEN 🟢 LOW (found 2026-10-29, temp-4, testing the non-idempotence prototype; pre-existing)
 
@@ -2762,9 +2732,9 @@ printCCall (print_builtin.bn) takes no tail: it fills its arguments with only it
 follows the call -- a close, a trailing comment -- gets no room.  A string run as the last argument is split to the
 cap, and the line then runs past it: `__c_call("sym", int, "<92 a's>" "<84 a's>") // K2` at four tabs prints its
 last part 101 wide, and inside `g(qqq[…])` 103 (bnfmt at binate `4f58c52e5`).  printBuiltin's other builtins take
-the tail (`1 + tail` for the last operand); pass it to printCCall as well.  It is what leaves one file of the
-`scripts/bnfmt-check` corpora (gen/g1_122) a line past the cap under the non-idempotence prototype, which lays the
-call out at a shallower column.
+the tail (`1 + tail` for the last operand); pass it to printCCall as well.  A prototype of binate `b5e5bca15`,
+laying such a call out at a shallower column, left one file of the `scripts/bnfmt-check` corpora a line past the
+cap; the landed change leaves none.
 
 ## bnlint rules, unused-entity checks & lint skips
 

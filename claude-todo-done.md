@@ -1,3 +1,40 @@
+### bnfmt is not idempotent on some layouts: a lone argument, a string bnfmt splits, function literals — DONE (binate `b5e5bca15`, 2026-10-30, temp-4; user: "Fix the move measure"; landing: "wait 15 minutes, then go ahead and land")
+
+Formatting a formatted file changed it again in 26 of the ~25,000 files of binate's `scripts/bnfmt-check` corpora
+(gen 16, genb 9, rv 1), once binate `ae0e0a63c`, `f5a890569`, `9b58a7bd0`, `844d788c5` and `cb6028078` had fixed other
+causes (see their entries).  Nearly all were one mechanism.  bnfmt keeps some layouts it finds in the source -- an
+opener alone, a string run split across lines, a multi-line block, a wrapped list -- and a first format produced those
+layouts itself when a fill decision (fitsPlacedOrMoved) moved an element to a continuation line or kept it on the
+line, so a second format took them for the author's and decided the other way (`g(a{f},` / `zzz(hhhhh(func() {`
+became `g(a{f}, zzz(hhhhh(func() {`).  Measuring a lone argument with everything after it fixed 6 of the 46 minimized
+cases and broke 2.  Decided (user, 2026-10-24, of: format to a fixpoint inside bnfmt; fix the move measure; change the
+lone-argument rule; leave the rest): "Fix the move measure".
+
+Resolution (binate `b5e5bca15`): when either of an element's two layouts spans lines, fitsStably (print_stable.bn)
+checks the one the decision picks against a second format.  It parses the rendering back (print_reread.bn) and
+renders it at the same place, with the read-back file's own comment cursor and the same checks inside it, and keeps
+the decision when that gives the same text and the second format would decide the same way.  Otherwise it takes the
+other place when that layout holds, then a layout read back at either place, which then prints in place of the
+node (an override keyed like the rendering cache), and else the decision as before.  A list's first element moved
+below an opener left alone stays there under a second format, and the check models that; a keyed item is checked only
+when its key prints the same at both places; a lone element measured with less after it than it prints with gets no
+read-back layout (see the todo entry on the lone element in brackets).  A right-hand side kept inline is checked the
+same way (rhsInlineHolds, print_stable.bn).  Reading an element back without the code around it makes this a close
+model of a second format, not an exact one.
+
+Results: the 26 corpus files are stable and no other corpus file changed (no token or comment changes); the tree's
+7,163 files format the same.  Of ~40,000 files generated for the review, the 9,417 that base formatted
+non-idempotently are stable and none became non-idempotent; 1,368 that base already kept are laid out differently,
+most in a set that puts comments inside the checked layouts.  The function-literal move from `cb6028078`'s review,
+rebuilt from its minimized form (`gg.hh(x.yyy, x.yyy(cccc,` / `cccc(func(p int) int { … }))) // <80 bytes>`), is
+stable too.  The review found one
+file base kept that the prototype made non-idempotent: read-backs did not run the checks inside them; they do.
+Cost: 36% more CPU on the gen corpus (densely nested code), within noise on the tree's `pkg/`.  The format package
+now imports the parser.  Tests: print_stable_test.bn (10), print_reread_test.bn.  Found along the way: printCCall
+takes no tail (todo, "bnfmt's `__c_call` leaves out what follows its `)`").  What the work left open (a right-hand
+side's type arguments at the next CHECK_TOOLS bump, a one-character last part, trailWidth after a block comment) has
+its own todo entry.
+
 ### asm arm32 stage 2c: saturate, parallel add / subtract, select, sum of absolute differences, pack — DONE (binate `1c6638c25`, 2026-10-30, work-2; user: "Take them, same ranges (Recommended)" on clang's other pack spellings)
 
 QADD .. QDSUB, SSAT / USAT (and the 16-bit forms), the 48 parallel add / subtract names (with the old ADDSUBX /
