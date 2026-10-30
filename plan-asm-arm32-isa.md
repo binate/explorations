@@ -82,6 +82,12 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
   sb, ssbb / pssbb, setpan, hlt.  From the 2a review: `svc #K` with K a label difference is taken by bnas; clang:
   "operand must be an immediate in the range [0,0xffffff]".
 - 2j. Coprocessor: mcr / mrc (and 2), mcrr / mrrc (and 2), cdp (and 2), ldc / stc (and 2, L).
+- Exact encoders, per step (user 2026-10-29: "Per step (Recommended)"): `condBits` takes `cond & 0xf` and many
+  encoders `r & 0xf`, so a bad value from a caller is mis-encoded silently; each step makes its class's encoders
+  check their condition and registers instead (2b's arm32_mul.bn does).  The landed 2a / 2a2 encoders (emitDP,
+  Movw / Movt: registers checked, condition not) go with 2c; arm32_branch.bn's CLZ and extends with 2d,
+  arm32_mem.bn with 2e, arm32_ldm.bn with 2g, the rest of arm32_branch.bn with 2h, arm32_sys.bn with 2i,
+  arm32_vfp.bn with stage 3.
 
 ## Stage 1: the feature model — DONE (binate `09f41e4f7`)
 
