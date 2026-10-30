@@ -1080,7 +1080,7 @@ a pool entry able to carry a difference not fixed there, emitted as the data dir
 `.quad _e - _f` with `.subsections_via_symbols` (the word 4), where bnas (fixedDistance's subsections rule) writes
 a SUBTRACTOR pair; check that rule against clang on each architecture before changing either.
 
-### arm32 assembler: condition codes and some register fields are silently masked — 🔴 OPEN, unclaimed (found 2026-09-25 by the T6 b1 review; work-4's 2026-09-25 claim released 2026-10-12 — nobody is on it)
+### arm32 assembler: condition codes and some register fields are silently masked — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; found 2026-09-25 by the T6 b1 review; work-4's 2026-09-25 claim released 2026-10-12 — nobody is on it)
 
 (The Operand2 path, register-offset memory shifts and operand registers, and the clang alias substitutions are
 fail-loud / clang-faithful since `54592d56d`, `889e56d0f` and `b26005483`, see the done log.)  Still silent,
