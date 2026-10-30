@@ -983,7 +983,7 @@ not a constant defined before this line"); clang takes it (E2810004).  Both are 
 ((b) with other messages on AArch64 and x86-64) and predate the arm32 work.  **Fix:** decide each with the user
 first — (a) may be deliberate (it catches a misspelt name) — then match clang or record the decision.
 
-### asm: `.set` / `.equ` (and `.equiv` / `.eqv`) are unknown directives — 🔴 OPEN, unclaimed (found 2026-10-27, work-2, the arm32 data-processing harness)
+### asm: `.set` / `.equ` (and `.equiv` / `.eqv`) are unknown directives — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; found 2026-10-27, work-2, the arm32 data-processing harness)
 
 bnas defines a constant only as `name = expr`.  clang also takes `.set name, expr` and `.equ name, expr` (probed on arm32:
 `.equ K, 4` / `add r0, r1, #K` is E2810004 in clang, "unknown directive" in bnas), and has the related `.equiv`
