@@ -231,6 +231,16 @@ spelling is `*([3]int32)`) and still passed, expecting one checker error.  Fix: 
 program does not parse (a test that means to pass unparsable source says so, through a helper of its own), then fix
 the tests that turn out not to parse.
 
+### Other packages' unit tests may also check what the parser recovered from a program that does not parse — 🔴 OPEN (minor: test accuracy; found 2026-10-29, temp-5, fixing the checker's tests)
+
+The checker's tests now stop on a program that does not parse (mustParse, check/types_test.bn).  Other packages'
+tests parse programs too, and some never read `p.Errors()`: `ParseFile()` sites in irgen (49), vm (39), lint (10),
+format (10), codegen (6), loader (5), interp (4), repl (3), native/x64, native/arm32, native/aarch64 and buildcfg
+(1 each), plus e2e host programs (e2e/xmiface.sh, e2e/xmhfa.sh).  A test whose program does not parse then tests
+what the parser recovered (eight checker tests did, five of them a parser rejection checked as the checker's).
+Fix: per package, route the parses through a helper that fails on a parse error, as the checker's tests do, and
+fix the tests that turn out not to parse.
+
 ### An importer's `sizeof` / `alignof` of a type its `.bni` declares later crashes the compiler — 🔴 OPEN MAJOR (found 2026-10-17, work-5, review of the `.bni` constant `len` change; reproduced; pre-existing)
 
 `const Z uint = sizeof(S)` followed by `type S struct { x int64; y int64 }` in `q.bni`, with an importer's
