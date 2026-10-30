@@ -86,6 +86,13 @@ suites grew ~20% in the same span.**
 - Not looked at: comp-comp-comp (one 30-min shard; 20-30 min since late September, cancelled about half the
   time).  CI's gen1 build also went from 76-89 s to 180-212 s over the same span.
 
+**Progress on (a)** (int-int conformance/001_hello, instructions retired, perf/ab-binaries.sh, median of 5):
+- binate `331ebd2ea` (landed 2026-10-29): irgen caches overlayFileImports' alias maps per base and import list
+  instead of rebuilding one per declaration per pass — 36.76G -> 31.40G (-14.6%).
+- Next: mem2reg's per-alloca whole-function scans (a use index; drafted), the per-slice whole-function passes of
+  load forwarding's extract coalescing, struct registration's copy-per-append of Module.Structs and linear
+  lookupStructIdx.
+
 Options (decision needed): (a) profile and fix the load pipeline's superlinear phases (cmd/bni's load is also
 bni's start-up cost for every user); (b) more shards or a longer cap for the int-int lanes
 (.github/workflows/{conformance,unit}-tests.yml); (c) stop re-loading cmd/bni for every test in int-int (one outer
