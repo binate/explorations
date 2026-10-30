@@ -1162,7 +1162,7 @@ check/check_layout_wait.bn) — reports it again where it reads the instance.  F
 that cannot wait builds the waiting instance for the last time first, so the cycle is reported where it closes and
 the read finds a built layout; unit tests for both forms.
 
-### An array length left without a value by a reported error is taken as 0, and a second, false error follows — 🔴 OPEN (minor: an extra error after a real one; found 2026-10-28, work-7, probing the variable and function forms of the abstract-declaration wait; reproduced on main; pre-existing)
+### An array length left without a value by a reported error is taken as 0, and a second, false error follows — 🟡 IN PROGRESS (claimed 2026-10-29, temp-5/session, self-drive; minor: an extra error after a real one; found 2026-10-28, work-7, probing the variable and function forms of the abstract-declaration wait; reproduced on main; pre-existing)
 
 `const A = B; const B = A; func g() [A]uint8 { var r [3]uint8; return r }` reports the constant cycle and then
 "cannot assign [3]uint8 to [0]uint8" at `return r`; so does `type B struct { a [sizeof(B)]uint8 }` with `func g()
