@@ -108,18 +108,6 @@ the instances it names from the length it could not read.  Fix: a method whose c
 not kept — taken back as a definition on demand is (enterDemandFrame, undoBatchMethods), to be copied again when next
 selected or back-filled — with a conformance test printing the lengths.
 
-### The checker accepts a constant cycle through a generic instance's field, and IR-gen panics — 🟡 IN PROGRESS (claimed 2026-10-29, temp-5/session, self-drive; fixed on main by binate `80f71625a` (found 2026-10-30), its regression tests not landed yet; MAJOR: an internal-error crash on an invalid program; found 2026-10-28, work-7, review of the constant form of the abstract-declaration wait; reproduced on main, also before binate `f7e99b80b`; pre-existing)
-
-`type Bx[T any] struct { a [S]uint8; t T }`, `var gv Bx[int64]`, `const S = len(gv.a)` (in either order) passes the
-type checker, and bnc then stops with "panic: internal error: IR generation cannot evaluate a constant the type
-checker accepted".  It is a cycle — S is the length of gv.a, whose length is S — and the same without generics
-(`type B struct { a [S]uint8; t int }`, `var gv B`) is "cyclic type definition involving `B`".  Root cause not traced:
-gv's type builds Bx[int64], whose declaration (resolved with its type parameters abstract) and build read S on
-demand, whose `len(gv.a)` reads a field of Bx[int64] while it is built (a member read of a type not built yet
-waits, check/check_member_read.bn; layout frames, check/check_layout_wait.bn); somewhere on the last, no-wait round
-that read or S's resolution is dropped without an error, leaving S with no value.  Fix: find where the cycle's error
-is lost and report it (one error), with a conformance error test (it panics today) and a unit test.
-
 ### CI red: the slow lanes hit their job time limits — unit int-int shards, conformance int-int and comp-comp-comp — 🟡 IN PROGRESS on option (a) (claimed 2026-10-28, work-3; user: "both", then "(a)") (filed 2026-10-28, work-3)
 
 Unit run 40643666280 (at f7e99b80b): builder-comp-int-int shards 3, 5 and 6 of 12 cancelled at the 45-minute limit.
@@ -193,21 +181,6 @@ console (as pkg/builtins/testing/sys already does), or have the runner print thr
 (its source says it must use the real pkg/std/fmt).  Only after that can the failing tests be found; the
 `native/arm32` link overflow and the arena exhaustion remain size problems.
 
-### A parameterized impl lets a managed pointer to its instance satisfy a constraint — `g[@W[int]]` is accepted through `impl W[K]` — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; MAJOR; found 2026-10-16, work-6, review of the spec status cleanup; split out of the pointer-impl decision entry 2026-10-17; reproduced; pre-existing)
-
-With `impl W[K] : lang.Orderable` (`func (w W[K]) Compare(o W[K]) int`) and `func g[U lang.Orderable](u U) int {
-return 7 }`, `g[@W[int]](w)` is accepted and prints 7, although no reading of the receiver shape lets `impl W[K]`
-make `@W[int]` satisfy Orderable; the plain counterpart, `impl P : lang.Orderable` with `g[@P](p)`, is rejected
-("type argument @P does not satisfy constraint Orderable").  With a constraint call in g (`u.Compare(u)`) the
-program is rejected inside the instance instead, with a misleading error ("cannot assign @W[int] to W[int] (in
-g[@W[int]], …)").  Cause: typeSatisfiesConstraint (check/check_generic.bn) checks a parameterized impl with
-genericImplSatisfies (check/types_assignable_iface.bn), the interface-value construction helper, which matches the
-receiver with the construction site's smoothing (receiverAssignable), so `@W[int]` matches `W[K]`.  Fix: match a
-type argument against a parameterized impl's substituted receiver as the plain arm matches a plain impl's
-(Identical), adjusted to whatever the pointer-impl decision above settles for `impl *W[K]`.  Covered by
-conformance spec/12-generics/119_err_satisfy_generic_impl_managed_ptr (binate `0051d4792`, expected to fail in every
-mode).
-
 ### IR-gen spells every type argument out in an instance's name — instances whose arguments share a type get exponentially long names — 🔴 NEEDS DECISION (found 2026-10-26, work-7, testing the abstract-instance change's shared-argument walk; reproduced on main; pre-existing)
 
 - **Symptom:** `type Pair[A any, B any] struct { a *A; b *B }`, `type P0 = Pair[int, int]`, `type Pk = Pair[P(k-1), P(k-1)]` up to n, and `var x Pn`, with no type error, compiles in 2.6 s at n = 18, 31 s at 22, and more than 120 s at 24 (main at `3b3b6ef2d`); the time is in IR-gen, after the checker.
@@ -224,32 +197,6 @@ mode).
   checkValueEmbedding runs (before finishDeclBatch) is not counted as opaque at the declaration, and since
   pointeeEmbedsOpaque stops at an instance whose type arguments cannot bring an opaque type in, a later `*G[...]`
   would not judge it again — an opaque type held by value could be accepted.  Needs a repro attempt first.
-
-### `len` of an array variable whose type is inferred is taken as a read — a false initialization cycle — 🟡 IN PROGRESS (claimed 2026-10-29, temp-5/session, self-drive; minor; found 2026-10-28, work-5, probing the placeholder MAJOR's part 2; reproduced; pre-existing)
-
-`var a = len(b)` with `var b = [3]int{a, 0, 0}` is rejected "variable initialization cycle involving `a`", though
-`len` of an array does not read it (builtin.len); with `var b [3]int = [3]int{a, 0, 0}` it compiles
-(TestVarInitLenOfArrayNotARead covers only declared types).  `var a = len(b.arr)` with `var b = mk(a)` is rejected
-the same way.  The initialization order (resolveTopLevelVarOrder, check/check_var_resolve.bn) is computed at the end
-of collection, before pass 2 checks the initializers, so declaredType finds no type for b (its symbol is not defined
-yet, and its initializer has no ResolvedTypeID) and `len`'s operand is walked as a read.  Fix (to decide): give
-declaredType a variable's head type (varHeadType), or compute the order after pass 2; a unit test and a conformance
-test.
-
-### A variable taking its own length in a call its type comes through is called an initialization cycle, not a type cycle — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; minor: diagnostic; found 2026-10-29, temp-5, review of the init-order-after-pass-2 change; reproduced)
-
-`var d = hi(len(d)).arr` (`func hi(n int) S`, S holding an `arr [3]int`) is "variable initialization cycle involving
-`d`".  d's initializer spells no type at its head and names d outside an array length, so its type depends on
-itself (§9.2 decl.var.type-acyclic); and `len(d)` reads d only if d is not an array.  d's check reads its own
-placeholder there, so `len(d)`'s operand is the error type and d's own type comes out the error type too: the
-initialization order, found after pass 2 (check/check_var_resolve.bn), cannot tell that d would be an array, counts
-`len(d)` as a read, and reports the cycle of reads.  The same with another variable between: `var b = hi(a).arr`
-and `var a = len(b) + 0` (a's `len(b)` reads b's placeholder) is "variable initialization cycle involving `b`" (the
-unit test TestVarPlaceholderReadThroughLenIsTypeCycle pins only that one cycle is reported).  Taking the variable's
-final type for such a read instead does not work: when a type cycle is reported the variable's type becomes the
-error type, and the views during and after pass 2 then disagree (a double report).  Fix: when the only reads that
-make a variable's cycle are `len` of placeholders read while its type is found, report the type cycle
-(judgeSelfReads, check/check_var_free_reads.bn); unit tests of both programs.
 
 ### An array length checked while its variable's type is found takes that variable's placeholder for an error: its errors are lost, and a variable read before its turn is a false cycle — 🟠 BACK-BURNERED (temp-5, 2026-10-30: a fix reviewed unsound, archived on binate branch `archive/20261030-dim-read-recheck`; minor: a valid program rejected, and ill-typed code that is never compiled accepted; found 2026-10-28, work-5, review of the placeholder MAJOR's part 2; reproduced; the false cycle since binate `4fa186628`, the rest pre-existing)
 
@@ -288,69 +235,6 @@ resolved during head typing that reads the placeholder (`type T [len(u)]uint8`, 
 panic); (4) the re-check runs outside a const group's iota context ("undefined: iota").  A sound fix needs: a
 judgment for every declaration that read a placeholder whose value the enclosing length did not need (constants
 included), no dropping of errors that belong to other declarations, and the re-check's full context.
-
-### A variable type cycle through a function's signature, met while types are collected, says "declare its type" — 🟡 IN PROGRESS (claimed 2026-10-29, temp-5/session, self-drive; minor: diagnostic; found 2026-10-26, work-5, review of the variable type-cycle fix; reproduced; pre-existing)
-
-`type B [len(t)]uint8`, `var t = mk()`, `func mk() [len(t)]int` is rejected, but with "the type of `t` is needed
-while the package's types are collected ..., but its initializer uses declarations not collected yet: declare its
-type"; t's type is mk's result, whose length reads t, so the error is "variable type cycle involving `t`".  B's
-length checks t on demand while types are collected, and t's call defines mk on demand
-(batchFuncOnDemand), whose signature reads t while t is checked; the check of t is deferred, and when it is checked
-again (recheckDeferredVars, check/check_decl_batch_var.bn) nothing is reported, so the deferred variable gets
-errVarNeededDuringCollection.  Why the check again does not meet the cycle is not traced.  A cycle through a
-variable checked while types are collected gives the same follow-on: `type A [len(u)]int`, `var u = [len(w)]int{5,
-6, 7}`, `var w = mk(u).arr` with `func mk(p [3]int) S` (S holding an `arr [3]int`) reports the variable type cycle
-and then "declare its type" for one of u and w (found 2026-10-28, work-5, review of the head-typing change).  Fix:
-trace it and report the cycle there alone; unit tests of both programs.
-
-### A variable whose head calls a generic function's instance, or a method of a generic type's instance, whose signature reads the variable is rejected — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; minor: valid programs rejected; found 2026-10-29, temp-5, review of the head-call result-type change; reproduced; pre-existing)
-
-`var t = mk[int](nil)` with `func mk[T any](p *([len(t)]int)) [3]int` is "variable type cycle involving `t`", and
-`var v B[int]; var t = v.m(nil)` with `func (r B[T]) m(p *([len(t)]int)) [3]int` is "declare its type".  By §9.2
-decl.var.type-acyclic t's type is the instance's one result, `[3]int`, which does not depend on t; only the
-parameter does.  calleeResult (check/check_var_placeholder.bn) takes a non-generic function's or method's result
-type alone while its signature is not defined yet (definingFuncResult), but an instance's result is found by
-instantiating the whole signature (checkInstantiateOrIndex / the instance's method set), whose parameter reads t.
-Fix: resolve an instance's result type alone, with its type arguments bound, before its signature; unit tests of
-both programs.
-
-### The checker's unit tests ignore parse errors, so a test whose program does not parse passes on what is left — 🟡 IN PROGRESS (claimed 2026-10-29, temp-5/session, self-drive; minor: test accuracy; found 2026-10-28, work-5, writing the head-typing tests)
-
-checkSrc (check/types_test.bn) and the other helpers that parse a test's program (`p.ParseFile()` in
-bni_scope_test.bn, check_const_bare_test.bn, check_decl_func_test.bn and more) never read `p.Errors()`, so a
-program with a syntax error is checked as the parser recovered it.  Two rewritten tests in
-check_decl_batch_var_test.bn wrote a pointer to an array as `*[3]int32` (raw-slice sugar, a parse error; the
-spelling is `*([3]int32)`) and still passed, expecting one checker error.  Fix: make the helpers fail a test whose
-program does not parse (a test that means to pass unparsable source says so, through a helper of its own), then fix
-the tests that turn out not to parse.
-
-### Other packages' unit tests may also check what the parser recovered from a program that does not parse — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; minor: test accuracy; found 2026-10-29, temp-5, fixing the checker's tests)
-
-The checker's tests now stop on a program that does not parse (mustParse, check/types_test.bn).  Other packages'
-tests parse programs too, and some never read `p.Errors()`: `ParseFile()` sites in irgen (49), vm (39), lint (10),
-format (10), codegen (6), loader (5), interp (4), repl (3), native/x64, native/arm32, native/aarch64 and buildcfg
-(1 each), plus e2e host programs (e2e/xmiface.sh, e2e/xmhfa.sh).  A test whose program does not parse then tests
-what the parser recovered (eight checker tests did, five of them a parser rejection checked as the checker's).
-Fix: per package, route the parses through a helper that fails on a parse error, as the checker's tests do, and
-fix the tests that turn out not to parse.
-
-### An importer's `sizeof` / `alignof` of a type its `.bni` declares later crashes the compiler — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; MAJOR; found 2026-10-17, work-5, review of the `.bni` constant `len` change; reproduced; pre-existing)
-
-`const Z uint = sizeof(S)` followed by `type S struct { x int64; y int64 }` in `q.bni`, with an importer's
-`var a [q.Z]int8`, panics: "internal error: an array length the type checker did not resolve reached IR
-generation" (also `alignof(S)` and `sizeof([2]S)`; the single-package form compiles and prints 16).  The
-importer evaluates the `.bni` constant while building the `.bni` scope (BuildingIfaceScope), when S is still a
-pass-1 placeholder: checkerEnv.Type (check/check_constval.bn) sees it as embedding an opaque type and returns
-POISONED without reporting anything — a status that means "its error is already reported" — so the importer's
-`[q.Z]` reports nothing and the unresolved length reaches IR-gen.  Fix: in that context return NOT_CONST, never a
-silent POISONED (the importer then rejects `[q.Z]` "array length must be a constant integer"), and properly make a
-`.bni` constant's evaluation see the `.bni`'s later types (resolve them first, as collectConstDeps does for later
-constants), so the program compiles.  A conformance test for the crash (the program above) and for a later
-named array type under `len` (`const R int = len(Row{})` before `type Row [8]int16`, also rejected today).
-
-**Worse than a crash (2026-10-30, temp-5):** built from binate `6a918a196`, bnc compiles the program above (an
-importer `main` with `var a [q.Z]int8`, `testing.Println(len(a))`) and it prints `0` — `a` is silently a `[0]int8`,
-where `sizeof(S)` is 16.  Silent wrong code on main.
 
 ### Instance-check diagnostics: a second instance's violation is hidden, and an instance formed through a generic's field is placed at that field — 🔴 OPEN (minor: diagnostics; found 2026-10-16, work-5, review of the generic-type method-signature sizing; pre-existing)
 
@@ -397,17 +281,6 @@ LLVM lanes (builder-comp, -comp-comp, -comp-comp-comp; CI run 40645707398 at 5e5
 "stack frame size (2147483704) exceeds limit (2147483647) in function 'bn_F1_4_main1_9_copyBytes'
 [-Werror,-Wframe-larger-than]" ("clang failed compiling main").  The test has .error markers only for the 32-bit lanes.
 
-### An array length reading a composite literal of a type declared later, or a parent interface's method, is rejected while the package's types are collected — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; a valid program rejected; found 2026-10-27, work-7, probing the member-read fix, binate `f7e99b80b`; reproduced on main; pre-existing)
-
-`type X struct { b [len(Z{}.c)]uint8 }` with `type Z struct { c [16]uint8 }` declared after it is rejected "cannot
-use an opaque type by value" and "cannot access field on this type" (Z declared first, it compiles): nothing
-collects the literal's type before its fields are read.  `interface P { m() [16]uint8 }`, `interface I : P { n()
-int }`, `var i *I`, `type X struct { b [len(i.m())]uint8 }` — all declared in that order — is rejected "cannot
-access field on this type": an interface's parents are resolved only once the whole batch is collected
-(resolvePendingIfaceParents, check/check_interface.bn), so a method it inherits is not there during collection.
-Fix: collect a composite literal's type on demand (prepareLayout) where collection has not reached it; resolve an
-interface's parents on demand when a method is looked up on it during collection; unit tests for both.
-
 ### A member read is a cycle when another member of its type depends on the reader — the checker judges it per type, not per member — 🔴 NEEDS DECISION (found 2026-10-27, work-7, review of the member-read fix; pre-existing, before binate `f7e99b80b` as "cannot access field on this type")
 
 `type X struct { b [len(p.c)]uint8 }`, `var p *Z`, `type Z struct { c [16]uint8; d [sizeof(X)]uint8 }` is "cyclic
@@ -420,14 +293,6 @@ definition involving `I1`": I1's methods are added together, and `k` is read whi
 so whether these programs are valid is not decided.  Decide: such cycles judged per type (say so in the spec, with
 a conformance error test), or per member (a struct's fields and an interface's methods resolved one at a time on
 demand, with tests).
-
-### A field read through a pointer to a type declared later that has no such field is "cannot access field on this type" — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; minor: a misleading diagnostic; found 2026-10-27, work-7, review of the member-read fix; pre-existing)
-
-`type X struct { b [len(p.c)]uint8 }`, `var p *Z`, `type Z struct { E }`, `type E struct { c [16]uint8 }` is
-"cannot access field on this type" at `p.c`; in a function body the same read is "undefined: c" (Binate promotes
-nothing from an embedded field).  Z's declaration has no field `c`, so the member read does not collect Z
-(check/check_member_read.bn, fieldPath), and the selector then finds Z with no underlying type.  Fix: where neither
-the declaration's fields nor its methods have the name, report "undefined: c", with a unit test.
 
 ### A build that waits for a layout still builds the instances it names from the length it could not read, and reports their errors — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
 
@@ -450,26 +315,6 @@ struct with `[0]uint8` (`n.p = &x`, x an A[int], is "cannot assign *struct { a [
 [0]uint8; t int }").  A generic alias's target is resolved for its arguments (instantiateGenericAlias) in no layout
 frame that can wait, unlike a generic type's instance (check/check_layout_wait.bn).  Fix: let the alias target's
 resolution wait as an instance's build does, and be resolved again once the layout is built, with a unit test.
-
-### An invalid array length makes the array `[0]T`, so its uses report follow-on errors — 🟡 IN PROGRESS (claimed 2026-10-29, temp-5/session, self-drive; minor: a follow-on diagnostic; found 2026-10-26, work-5, probing the `len(nosuch)` change; reproduced; pre-existing)
-
-`func f() [-1]int { var r [3]int; return r }` reports "array length must be non-negative" and then "cannot assign
-[3]int to [0]int"; a variable length (`[n]int`), `[true]int` and an undefined name do the same.  resolveTypeExpr
-(check/resolve_type.bn) builds `[0]T` whenever evalArrayLen's length is not known, which covers a length already
-reported invalid as well as one not known yet (re-resolved later).  Fix: have evalArrayLen tell the two apart and
-resolve an invalid length to the error type, as resolveTypeExpr does for `[...]T` outside a composite literal, with
-a unit test pinning a single error.
-
-### A deferred early read of a variable loses the errors of the constants it resolved — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; minor: a lost diagnostic; found 2026-10-25, work-5, review of the on-demand methods change; reproduced)
-
-`batchVarOnDemand` (check/check_decl_batch.bn), deferring a variable's check while types are collected, drops every
-error since its mark (`dropChecksSince`) and leaves the functions it defined on demand to collection, which reports
-their errors again.  A constant first resolved during that check is not taken back: it stays resolved
-(`c.ConstResolved`), and its own error is gone.  `type B [len(tbl)]uint8`, `var tbl = mk()`, `func mk() [N]int`,
-`const N = undefinedThing` reports "array length must be a constant integer" and "declare its type", but not
-"undefined: undefinedThing".  A method in mk's place behaves the same (methods are defined on demand since binate
-`7206c4652`).  The program is rejected either way.  Fix: take back the constants (and the types
-collected on demand) resolved inside the deferred check, so they are resolved again and report their own errors.
 
 ### A deferred early read of a variable leaves the function instances its check built cached — 🔴 OPEN (minor: a misleading diagnostic; found 2026-10-19, work-5, review of the on-demand functions change; by reasoning)
 
@@ -714,7 +559,7 @@ notePoisonedLen's `c.Batch.SilentPoisons++` (`a12d578cb`), and copy-prop's `sc.s
 has undefined behavior there.  Seen as a false "variable type cycle" under builder-comp only (gen1 did not count
 array-length depth); copy-prop's site is in gen1's optimizer, which runs when gen1 builds gen2 at -O2, so gen2 built
 since 2026-10-18 may be affected (CI's gen2/gen3 modes have not shown it; the bnc-0.0.17 pre-releases predate all
-five).  Fixed (rewritten as `x.f = x.f + 1`, with TODOs) in temp-5's batch, not landed yet.  The 2026-09-30 scan's
+five).  Fixed (rewritten as `x.f = x.f + 1`, with TODOs) by binate `915da8429`.  The 2026-09-30 scan's
 guarantee did not hold: proposal (not wired up): a hygiene check that rejects a field `++` / `--` opening a block or
 following an `if` / `for` / `switch` in cmd/bnc's cone until the BUILDER is bumped.
 
@@ -1217,18 +1062,6 @@ cannot wait — a type being collected, or a constant resolved on demand in that
 check/check_layout_wait.bn) — reports it again where it reads the instance.  Fix: report a cycle once, e.g. a read
 that cannot wait builds the waiting instance for the last time first, so the cycle is reported where it closes and
 the read finds a built layout; unit tests for both forms.
-
-### An array length left without a value by a reported error is taken as 0, and a second, false error follows — 🟡 IN PROGRESS (claimed 2026-10-29, temp-5/session, self-drive; minor: an extra error after a real one; found 2026-10-28, work-7, probing the variable and function forms of the abstract-declaration wait; reproduced on main; pre-existing)
-
-`const A = B; const B = A; func g() [A]uint8 { var r [3]uint8; return r }` reports the constant cycle and then
-"cannot assign [3]uint8 to [0]uint8" at `return r`; so does `type B struct { a [sizeof(B)]uint8 }` with `func g()
-[sizeof(B)]uint8 { … return r }` (the cyclic type, then the same).  The array length is POISONED — its error
-already reported — but the array type is made with length 0, which the body's `return` then mismatches.  Through a
-generic the same shows with the wait for a function's signature: `type Box[T any] struct { a [len(g())]uint8; t T }`
-with `func g() [sizeof(Box[int])]uint8 { var r [sizeof(Box[int])]uint8; return r }` is "cyclic type definition
-involving `Box`" and then "cannot assign [8]uint8 to [0]uint8".  Fix: a type whose array length has no value
-because of an error already reported is the error type (or is otherwise kept from reporting again); unit tests
-expecting exactly the one error for each form.
 
 ### A generic interface's method that selects a generic type's method, whose signature builds an instance naming the interface, is a false "method redeclared" — 🔴 OPEN (a valid program rejected; found 2026-10-29, work-7, review of the copied-method zero-length fix; reproduced on main; pre-existing)
 

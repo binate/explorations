@@ -1,3 +1,198 @@
+### The checker accepts a constant cycle through a generic instance's field, and IR-gen panics — DONE (binate `80f71625a`, 2026-10-30, temp-5, self-drive; user: "go ahead and land; then self-drive for another 20 bugs"; fixed on main by binate `80f71625a` (found 2026-10-30), its regression tests binate `12f1ac147`; MAJOR: an internal-error crash on an invalid program; found 2026-10-28, work-7, review of the constant form of the abstract-declaration wait; reproduced on main, also before binate `f7e99b80b`; pre-existing)
+
+`type Bx[T any] struct { a [S]uint8; t T }`, `var gv Bx[int64]`, `const S = len(gv.a)` (in either order) passes the
+type checker, and bnc then stops with "panic: internal error: IR generation cannot evaluate a constant the type
+checker accepted".  It is a cycle — S is the length of gv.a, whose length is S — and the same without generics
+(`type B struct { a [S]uint8; t int }`, `var gv B`) is "cyclic type definition involving `B`".  Root cause not traced:
+gv's type builds Bx[int64], whose declaration (resolved with its type parameters abstract) and build read S on
+demand, whose `len(gv.a)` reads a field of Bx[int64] while it is built (a member read of a type not built yet
+waits, check/check_member_read.bn; layout frames, check/check_layout_wait.bn); somewhere on the last, no-wait round
+that read or S's resolution is dropped without an error, leaving S with no value.  Fix: find where the cycle's error
+is lost and report it (one error), with a conformance error test (it panics today) and a unit test.
+
+**Resolution:** fixed by binate `80f71625a`; regression tests binate `12f1ac147` — check: regression tests for a constant cycle through a generic instance's field.
+
+### A parameterized impl lets a managed pointer to its instance satisfy a constraint — `g[@W[int]]` is accepted through `impl W[K]` — DONE (binate `f0151369f`, 2026-10-30, temp-5, self-drive; user: "go ahead and land; then self-drive for another 20 bugs"; MAJOR; found 2026-10-16, work-6, review of the spec status cleanup; split out of the pointer-impl decision entry 2026-10-17; reproduced; pre-existing)
+
+With `impl W[K] : lang.Orderable` (`func (w W[K]) Compare(o W[K]) int`) and `func g[U lang.Orderable](u U) int {
+return 7 }`, `g[@W[int]](w)` is accepted and prints 7, although no reading of the receiver shape lets `impl W[K]`
+make `@W[int]` satisfy Orderable; the plain counterpart, `impl P : lang.Orderable` with `g[@P](p)`, is rejected
+("type argument @P does not satisfy constraint Orderable").  With a constraint call in g (`u.Compare(u)`) the
+program is rejected inside the instance instead, with a misleading error ("cannot assign @W[int] to W[int] (in
+g[@W[int]], …)").  Cause: typeSatisfiesConstraint (check/check_generic.bn) checks a parameterized impl with
+genericImplSatisfies (check/types_assignable_iface.bn), the interface-value construction helper, which matches the
+receiver with the construction site's smoothing (receiverAssignable), so `@W[int]` matches `W[K]`.  Fix: match a
+type argument against a parameterized impl's substituted receiver as the plain arm matches a plain impl's
+(Identical), adjusted to whatever the pointer-impl decision above settles for `impl *W[K]`.  Covered by
+conformance spec/12-generics/119_err_satisfy_generic_impl_managed_ptr (binate `0051d4792`, expected to fail in every
+mode).
+
+**Resolution:** binate `f0151369f` — check: a pointer type argument does not satisfy a constraint through a parameterized impl of another receiver shape.
+
+### `len` of an array variable whose type is inferred is taken as a read — a false initialization cycle — DONE (binate `85be97a0b`, 2026-10-30, temp-5, self-drive; user: "go ahead and land; then self-drive for another 20 bugs"; minor; found 2026-10-28, work-5, probing the placeholder MAJOR's part 2; reproduced; pre-existing)
+
+`var a = len(b)` with `var b = [3]int{a, 0, 0}` is rejected "variable initialization cycle involving `a`", though
+`len` of an array does not read it (builtin.len); with `var b [3]int = [3]int{a, 0, 0}` it compiles
+(TestVarInitLenOfArrayNotARead covers only declared types).  `var a = len(b.arr)` with `var b = mk(a)` is rejected
+the same way.  The initialization order (resolveTopLevelVarOrder, check/check_var_resolve.bn) is computed at the end
+of collection, before pass 2 checks the initializers, so declaredType finds no type for b (its symbol is not defined
+yet, and its initializer has no ResolvedTypeID) and `len`'s operand is walked as a read.  Fix (to decide): give
+declaredType a variable's head type (varHeadType), or compute the order after pass 2; a unit test and a conformance
+test.
+
+**Resolution:** binate `85be97a0b` — check: find the variable initialization order after pass 2, so len of an inferred-type array is no read.
+
+### A variable taking its own length in a call its type comes through is called an initialization cycle, not a type cycle — DONE (binate `2d98bc5f1`, 2026-10-30, temp-5, self-drive; user: "go ahead and land; then self-drive for another 20 bugs"; minor: diagnostic; found 2026-10-29, temp-5, review of the init-order-after-pass-2 change; reproduced)
+
+`var d = hi(len(d)).arr` (`func hi(n int) S`, S holding an `arr [3]int`) is "variable initialization cycle involving
+`d`".  d's initializer spells no type at its head and names d outside an array length, so its type depends on
+itself (§9.2 decl.var.type-acyclic); and `len(d)` reads d only if d is not an array.  d's check reads its own
+placeholder there, so `len(d)`'s operand is the error type and d's own type comes out the error type too: the
+initialization order, found after pass 2 (check/check_var_resolve.bn), cannot tell that d would be an array, counts
+`len(d)` as a read, and reports the cycle of reads.  The same with another variable between: `var b = hi(a).arr`
+and `var a = len(b) + 0` (a's `len(b)` reads b's placeholder) is "variable initialization cycle involving `b`" (the
+unit test TestVarPlaceholderReadThroughLenIsTypeCycle pins only that one cycle is reported).  Taking the variable's
+final type for such a read instead does not work: when a type cycle is reported the variable's type becomes the
+error type, and the views during and after pass 2 then disagree (a double report).  Fix: when the only reads that
+make a variable's cycle are `len` of placeholders read while its type is found, report the type cycle
+(judgeSelfReads, check/check_var_free_reads.bn); unit tests of both programs.
+
+**Resolution:** binate `2d98bc5f1` — check: a variable whose only cycle of reads is the length of a placeholder is a type cycle.
+
+### A variable type cycle through a function's signature, met while types are collected, says "declare its type" — DONE (binate `e0fe45981`, 2026-10-30, temp-5, self-drive; user: "go ahead and land; then self-drive for another 20 bugs"; minor: diagnostic; found 2026-10-26, work-5, review of the variable type-cycle fix; reproduced; pre-existing)
+
+`type B [len(t)]uint8`, `var t = mk()`, `func mk() [len(t)]int` is rejected, but with "the type of `t` is needed
+while the package's types are collected ..., but its initializer uses declarations not collected yet: declare its
+type"; t's type is mk's result, whose length reads t, so the error is "variable type cycle involving `t`".  B's
+length checks t on demand while types are collected, and t's call defines mk on demand
+(batchFuncOnDemand), whose signature reads t while t is checked; the check of t is deferred, and when it is checked
+again (recheckDeferredVars, check/check_decl_batch_var.bn) nothing is reported, so the deferred variable gets
+errVarNeededDuringCollection.  Why the check again does not meet the cycle is not traced.  A cycle through a
+variable checked while types are collected gives the same follow-on: `type A [len(u)]int`, `var u = [len(w)]int{5,
+6, 7}`, `var w = mk(u).arr` with `func mk(p [3]int) S` (S holding an `arr [3]int`) reports the variable type cycle
+and then "declare its type" for one of u and w (found 2026-10-28, work-5, review of the head-typing change).  Fix:
+trace it and report the cycle there alone; unit tests of both programs.
+
+**Resolution:** binate `e0fe45981` — check: a variable's head call of a function whose signature is being resolved takes its result type.
+
+### A variable whose head calls a generic function's instance, or a method of a generic type's instance, whose signature reads the variable is rejected — DONE (binate `e4437c590`, 2026-10-30, temp-5, self-drive; user: "go ahead and land; then self-drive for another 20 bugs"; minor: valid programs rejected; found 2026-10-29, temp-5, review of the head-call result-type change; reproduced; pre-existing)
+
+`var t = mk[int](nil)` with `func mk[T any](p *([len(t)]int)) [3]int` is "variable type cycle involving `t`", and
+`var v B[int]; var t = v.m(nil)` with `func (r B[T]) m(p *([len(t)]int)) [3]int` is "declare its type".  By §9.2
+decl.var.type-acyclic t's type is the instance's one result, `[3]int`, which does not depend on t; only the
+parameter does.  calleeResult (check/check_var_placeholder.bn) takes a non-generic function's or method's result
+type alone while its signature is not defined yet (definingFuncResult), but an instance's result is found by
+instantiating the whole signature (checkInstantiateOrIndex / the instance's method set), whose parameter reads t.
+Fix: resolve an instance's result type alone, with its type arguments bound, before its signature; unit tests of
+both programs.
+
+**Resolution:** binate `e4437c590` — check: a variable's head call of a generic instance takes the instance's result type alone.
+
+### The checker's unit tests ignore parse errors, so a test whose program does not parse passes on what is left — DONE (binate `f2203d4a8`, 2026-10-30, temp-5, self-drive; user: "go ahead and land; then self-drive for another 20 bugs"; minor: test accuracy; found 2026-10-28, work-5, writing the head-typing tests)
+
+checkSrc (check/types_test.bn) and the other helpers that parse a test's program (`p.ParseFile()` in
+bni_scope_test.bn, check_const_bare_test.bn, check_decl_func_test.bn and more) never read `p.Errors()`, so a
+program with a syntax error is checked as the parser recovered it.  Two rewritten tests in
+check_decl_batch_var_test.bn wrote a pointer to an array as `*[3]int32` (raw-slice sugar, a parse error; the
+spelling is `*([3]int32)`) and still passed, expecting one checker error.  Fix: make the helpers fail a test whose
+program does not parse (a test that means to pass unparsable source says so, through a helper of its own), then fix
+the tests that turn out not to parse.
+
+**Resolution:** binate `f2203d4a8` — check tests: a test's program that does not parse stops the run.
+
+### Other packages' unit tests may also check what the parser recovered from a program that does not parse — DONE (binate `7d7e08c1a`, 2026-10-30, temp-5, self-drive; user: "go ahead and land; then self-drive for another 20 bugs"; minor: test accuracy; found 2026-10-29, temp-5, fixing the checker's tests)
+
+The checker's tests now stop on a program that does not parse (mustParse, check/types_test.bn).  Other packages'
+tests parse programs too, and some never read `p.Errors()`: `ParseFile()` sites in irgen (49), vm (39), lint (10),
+format (10), codegen (6), loader (5), interp (4), repl (3), native/x64, native/arm32, native/aarch64 and buildcfg
+(1 each), plus e2e host programs (e2e/xmiface.sh, e2e/xmhfa.sh).  A test whose program does not parse then tests
+what the parser recovered (eight checker tests did, five of them a parser rejection checked as the checker's).
+Fix: per package, route the parses through a helper that fails on a parse error, as the checker's tests do, and
+fix the tests that turn out not to parse.
+
+**Resolution:** binate `7d7e08c1a` — tests: a test's program that does not parse stops the run, in every package's tests.
+
+### An importer's `sizeof` / `alignof` of a type its `.bni` declares later crashes the compiler — DONE (binate `9d9d725dd`, 2026-10-30, temp-5, self-drive; user: "go ahead and land; then self-drive for another 20 bugs"; MAJOR; found 2026-10-17, work-5, review of the `.bni` constant `len` change; reproduced; pre-existing)
+
+`const Z uint = sizeof(S)` followed by `type S struct { x int64; y int64 }` in `q.bni`, with an importer's
+`var a [q.Z]int8`, panics: "internal error: an array length the type checker did not resolve reached IR
+generation" (also `alignof(S)` and `sizeof([2]S)`; the single-package form compiles and prints 16).  The
+importer evaluates the `.bni` constant while building the `.bni` scope (BuildingIfaceScope), when S is still a
+pass-1 placeholder: checkerEnv.Type (check/check_constval.bn) sees it as embedding an opaque type and returns
+POISONED without reporting anything — a status that means "its error is already reported" — so the importer's
+`[q.Z]` reports nothing and the unresolved length reaches IR-gen.  Fix: in that context return NOT_CONST, never a
+silent POISONED (the importer then rejects `[q.Z]` "array length must be a constant integer"), and properly make a
+`.bni` constant's evaluation see the `.bni`'s later types (resolve them first, as collectConstDeps does for later
+constants), so the program compiles.  A conformance test for the crash (the program above) and for a later
+named array type under `len` (`const R int = len(Row{})` before `type Row [8]int16`, also rejected today).
+
+**Worse than a crash (2026-10-30, temp-5):** built from binate `6a918a196`, bnc compiles the program above (an
+importer `main` with `var a [q.Z]int8`, `testing.Println(len(a))`) and it prints `0` — `a` is silently a `[0]int8`,
+where `sizeof(S)` is 16.  Silent wrong code on main.
+
+**Resolution:** binate `9d9d725dd` — check: a .bni constant's size, alignment or length of a type its .bni declares later is that type's.
+
+### An array length reading a composite literal of a type declared later, or a parent interface's method, is rejected while the package's types are collected — DONE (binate `eaab16c9c`, 2026-10-30, temp-5, self-drive; user: "go ahead and land; then self-drive for another 20 bugs"; a valid program rejected; found 2026-10-27, work-7, probing the member-read fix, binate `f7e99b80b`; reproduced on main; pre-existing)
+
+`type X struct { b [len(Z{}.c)]uint8 }` with `type Z struct { c [16]uint8 }` declared after it is rejected "cannot
+use an opaque type by value" and "cannot access field on this type" (Z declared first, it compiles): nothing
+collects the literal's type before its fields are read.  `interface P { m() [16]uint8 }`, `interface I : P { n()
+int }`, `var i *I`, `type X struct { b [len(i.m())]uint8 }` — all declared in that order — is rejected "cannot
+access field on this type": an interface's parents are resolved only once the whole batch is collected
+(resolvePendingIfaceParents, check/check_interface.bn), so a method it inherits is not there during collection.
+Fix: collect a composite literal's type on demand (prepareLayout) where collection has not reached it; resolve an
+interface's parents on demand when a method is looked up on it during collection; unit tests for both.
+
+**Resolution:** binate `eaab16c9c` — check: an array length may read a later type's composite literal, or an inherited interface method, while types are collected.
+
+### A field read through a pointer to a type declared later that has no such field is "cannot access field on this type" — DONE (binate `3614139df`, 2026-10-30, temp-5, self-drive; user: "go ahead and land; then self-drive for another 20 bugs"; minor: a misleading diagnostic; found 2026-10-27, work-7, review of the member-read fix; pre-existing)
+
+`type X struct { b [len(p.c)]uint8 }`, `var p *Z`, `type Z struct { E }`, `type E struct { c [16]uint8 }` is
+"cannot access field on this type" at `p.c`; in a function body the same read is "undefined: c" (Binate promotes
+nothing from an embedded field).  Z's declaration has no field `c`, so the member read does not collect Z
+(check/check_member_read.bn, fieldPath), and the selector then finds Z with no underlying type.  Fix: where neither
+the declaration's fields nor its methods have the name, report "undefined: c", with a unit test.
+
+**Resolution:** binate `3614139df` — check: a member a later type's declaration lacks is undefined while types are collected.
+
+### An invalid array length makes the array `[0]T`, so its uses report follow-on errors — DONE (binate `6a7867e0b`, 2026-10-30, temp-5, self-drive; user: "go ahead and land; then self-drive for another 20 bugs"; minor: a follow-on diagnostic; found 2026-10-26, work-5, probing the `len(nosuch)` change; reproduced; pre-existing)
+
+`func f() [-1]int { var r [3]int; return r }` reports "array length must be non-negative" and then "cannot assign
+[3]int to [0]int"; a variable length (`[n]int`), `[true]int` and an undefined name do the same.  resolveTypeExpr
+(check/resolve_type.bn) builds `[0]T` whenever evalArrayLen's length is not known, which covers a length already
+reported invalid as well as one not known yet (re-resolved later).  Fix: have evalArrayLen tell the two apart and
+resolve an invalid length to the error type, as resolveTypeExpr does for `[...]T` outside a composite literal, with
+a unit test pinning a single error.
+
+**Resolution:** binate `6a7867e0b` — check: an array whose length is invalid is the error type, not [0]T.
+
+### A deferred early read of a variable loses the errors of the constants it resolved — DONE (binate `67eadbd4c`, 2026-10-30, temp-5, self-drive; user: "go ahead and land; then self-drive for another 20 bugs"; minor: a lost diagnostic; found 2026-10-25, work-5, review of the on-demand methods change; reproduced)
+
+`batchVarOnDemand` (check/check_decl_batch.bn), deferring a variable's check while types are collected, drops every
+error since its mark (`dropChecksSince`) and leaves the functions it defined on demand to collection, which reports
+their errors again.  A constant first resolved during that check is not taken back: it stays resolved
+(`c.ConstResolved`), and its own error is gone.  `type B [len(tbl)]uint8`, `var tbl = mk()`, `func mk() [N]int`,
+`const N = undefinedThing` reports "array length must be a constant integer" and "declare its type", but not
+"undefined: undefinedThing".  A method in mk's place behaves the same (methods are defined on demand since binate
+`7206c4652`).  The program is rejected either way.  Fix: take back the constants (and the types
+collected on demand) resolved inside the deferred check, so they are resolved again and report their own errors.
+
+**Resolution:** binate `67eadbd4c` — check: a variable's check deferred while types are collected keeps the errors of the constants it resolved.
+
+### An array length left without a value by a reported error is taken as 0, and a second, false error follows — DONE (binate `6a7867e0b`, 2026-10-30, temp-5, self-drive; user: "go ahead and land; then self-drive for another 20 bugs"; minor: an extra error after a real one; found 2026-10-28, work-7, probing the variable and function forms of the abstract-declaration wait; reproduced on main; pre-existing)
+
+`const A = B; const B = A; func g() [A]uint8 { var r [3]uint8; return r }` reports the constant cycle and then
+"cannot assign [3]uint8 to [0]uint8" at `return r`; so does `type B struct { a [sizeof(B)]uint8 }` with `func g()
+[sizeof(B)]uint8 { … return r }` (the cyclic type, then the same).  The array length is POISONED — its error
+already reported — but the array type is made with length 0, which the body's `return` then mismatches.  Through a
+generic the same shows with the wait for a function's signature: `type Box[T any] struct { a [len(g())]uint8; t T }`
+with `func g() [sizeof(Box[int])]uint8 { var r [sizeof(Box[int])]uint8; return r }` is "cyclic type definition
+involving `Box`" and then "cannot assign [8]uint8 to [0]uint8".  Fix: a type whose array length has no value
+because of an error already reported is the error type (or is otherwise kept from reporting again); unit tests
+expecting exactly the one error for each form.
+
+**Resolution:** binate `6a7867e0b` — check: an array whose length is invalid is the error type, not [0]T.
+
 ### A method of a generic type's instance, whose copied signature builds an instance that selects it, was "undefined" — DONE (binate `af5f060bf`, 2026-10-29, work-7; user: "1. yes, but wait 7 minutes first.")
 
 `type Bx[T any] struct { a [len(hv.m())]uint8; t T }`, `var hv H[int64]`, `type H[T any] struct { z T }`, `func (h
