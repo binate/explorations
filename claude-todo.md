@@ -171,7 +171,7 @@ mode).
   pointeeEmbedsOpaque stops at an instance whose type arguments cannot bring an opaque type in, a later `*G[...]`
   would not judge it again — an opaque type held by value could be accepted.  Needs a repro attempt first.
 
-### `len` of an array variable whose type is inferred is taken as a read — a false initialization cycle — 🔴 OPEN (minor; found 2026-10-28, work-5, probing the placeholder MAJOR's part 2; reproduced; pre-existing)
+### `len` of an array variable whose type is inferred is taken as a read — a false initialization cycle — 🟡 IN PROGRESS (claimed 2026-10-29, temp-5/session, self-drive; minor; found 2026-10-28, work-5, probing the placeholder MAJOR's part 2; reproduced; pre-existing)
 
 `var a = len(b)` with `var b = [3]int{a, 0, 0}` is rejected "variable initialization cycle involving `a`", though
 `len` of an array does not read it (builtin.len); with `var b [3]int = [3]int{a, 0, 0}` it compiles
