@@ -1,3 +1,12 @@
+### asm arm32 stage 2c: saturate, parallel add / subtract, select, sum of absolute differences, pack — DONE (binate `1c6638c25`, 2026-10-30, work-2; user: "Take them, same ranges (Recommended)" on clang's other pack spellings)
+
+QADD .. QDSUB, SSAT / USAT (and the 16-bit forms), the 48 parallel add / subtract names (with the old ADDSUBX /
+SUBADDX), SEL, USAD8 / USADA8 and PKHBT / PKHTB: exact encoders (arm32_media.bn) and their parser
+(parse/arm32_media.bn), matching clang over ~5,800 cases but the decided pkhtb 0 / 33.  Like clang, bnas gates
+only SSAT16 .. PKHTB and SSAT / USAT's shift (ARMv6), not QADD, unshifted SSAT or the parallel forms.  The
+per-step exact-encoder work: emitDP, Movw / Movt and Adr check their condition (condOk).  The review found `$4` shift
+amounts, SSAT's case rule, the pack spellings and label differences as widths; all fixed before landing.
+
 ### The pinned BUILDER compiles a field `++` in an `if` body as unreachable; e2e/repl.sh could not build bni — DONE (duplicate; fixed on main by binate `915da8429`, temp-5; 2026-10-30, work-6)
 
 Logged 2026-10-29 (work-6) after `e2e/repl.sh` failed at "FAIL: bni build failed:": its gen1, built without `-O2`,

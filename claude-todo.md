@@ -846,7 +846,7 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### asm arm32: an ARM feature model gating instructions as clang does, and the forms it lacks — 🟡 IN PROGRESS (claimed 2026-10-26, work-2; stage 1, the feature model, DONE binate `09f41e4f7`; stage 2's steps 2a, data processing, DONE binate `4925d2d0c` and 2a2, `:lower16:` / `:upper16:`, DONE binate `37cfd247a`, 2a3, the `.` label's symbol order, DONE binate `31c5e7c60`, 2b, the multiplies and divides, DONE binate `5fa9deadf`; see the done log; found 2026-10-25, work-2, the `.ARM.attributes` work; user: "Attributes now, gating next (Recommended)")
+### asm arm32: an ARM feature model gating instructions as clang does, and the forms it lacks — 🟡 IN PROGRESS (claimed 2026-10-26, work-2; stage 1, the feature model, DONE binate `09f41e4f7`; stage 2's steps 2a, data processing, DONE binate `4925d2d0c` and 2a2, `:lower16:` / `:upper16:`, DONE binate `37cfd247a`, 2a3, the `.` label's symbol order, DONE binate `31c5e7c60`, 2b, the multiplies and divides, DONE binate `5fa9deadf`, 2c, saturate / parallel / pack, DONE binate `1c6638c25`; see the done log; found 2026-10-25, work-2, the `.ARM.attributes` work; user: "Attributes now, gating next (Recommended)")
 
 clang gates arm32 instructions by the target's features, which `.cpu` and `.fpu` change: a CPU without VFP (generic,
 arm7tdmi, xscale) rejects VFP instructions, a Thumb-only CPU (cortex-m*) switches to Thumb mode (bnas: an error), `.fpu
