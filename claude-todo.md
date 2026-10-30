@@ -322,7 +322,7 @@ reads W[int64] while it is built (`var Q [len(W[int64]{}.p.a)]uint8` after W).  
 m (or B[int64]) keeps the length its build could not read; tests: the program above (each early form), and the
 regression program generic-iface-method-selects-copied-method with the impl before m.
 
-### A generic function's constraint naming a length that depends on a type parameter is not resolved at instantiation — 🔴 OPEN (a valid program rejected; found 2026-10-30, temp-5, review of the shadowing-bound fix; reproduced on main `2d98bc5f1`; pre-existing)
+### A generic function's constraint naming a length that depends on a type parameter is not resolved at instantiation — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; a valid program rejected; found 2026-10-30, temp-5, review of the shadowing-bound fix; reproduced on main `2d98bc5f1`; pre-existing)
 
 `func outer[T Eq[[sizeof(U)]uint8], U any](t T) int`, with `interface Eq[T any] { eq(o T) bool }` and `impl *N :
 Eq[[8]uint8]`: `outer[*N, int64](&n)` is "type argument *N does not satisfy constraint Eq[[0]uint8]", and so is
