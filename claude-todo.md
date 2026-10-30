@@ -71,27 +71,22 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 - Decided (user, 2026-10-30): "Rewrite + check" — the two lines rewritten, and a check for the pattern in cmd/bnc's
   cone, landed before the parked-redefinition group rule.
 
-### An aggregate with no word alignment copied whole through pointers is staged in a copy of its size on the stack — a 16 MiB struct of bytes overflows it; 1718's 2 GiB one is why the LLVM x86-64 lanes are red — 🟡 MAJOR, IN PROGRESS (claimed 2026-10-29, work-1; user: "Fix it now"; found 2026-10-29, work-1, root-causing conformance 1718's CI failure; pre-existing)
+### A sub-word-aligned aggregate returned whole, and in the VM any aggregate load not stored whole, is staged in a copy of its size on the stack — 🟡 MAJOR, IN PROGRESS (claimed 2026-10-29, work-1; user: "Fix it now", then "wait 5 minutes, then land; then continue with that"; the whole-store case is done: binate `bc9a35b70`, `493731135`)
 
-`*d = *s` with `type Page struct { b [0x1000000]uint8 }` and both on the heap crashes (SIGSEGV) on the LLVM and
-native backends and is "runtime error: stack overflow" in the VM; 4 MiB works, and so does a 16 MiB struct of
-int32.  The load of `*s` is copied into a frame region (an LLVM `alloca`; in the VM, its stack) the size of the
-aggregate, then that copy into `*d`.  Root cause (compiled modes): native/common's AggLoadElision
-(common_aggload_elision.bn) returns AGG_LOAD_COPIED for any aggregate with AlignOf() < 4 before looking at its
-uses, to keep word-wise consumers (call-argument / return marshals) off a possibly unaligned source on
-strict-align arm32 — which also catches a load whose one use is a whole store (storedWhole), the case it
-otherwise classifies AGG_LOAD_IN_PLACE_OVERLAPPING and the backends copy as memmove does.  The LLVM backend and
-the native backends both ask it.  The VM copies EVERY aggregate load into a frame region of its own
-(BC_LOAD_AGGREGATE, vm/lower_memory.bn), whatever its alignment: a 16 MiB struct of int32 copied the same way
-overflows its 8 MiB stack too.  Conformance
-1718_offsets_past_2gib's copyBytes (`*d = *s`, a 2 GiB struct of bytes) gets a 2 GiB frame, which clang rejects on
-x86-64 ("stack frame size (2147483704) exceeds limit (2147483647)"): the LLVM lanes (builder-comp, -comp-comp,
--comp-comp-comp) have been red on main since binate `650f83fc5` (work-3's note under the int64-layout entry).
-Proposed fix: classify a whole store of a sub-word-aligned aggregate AGG_LOAD_IN_PLACE_OVERLAPPING too, once
-each backend's overlapping store copies a sub-word-aligned source correctly (LLVM: memmove; x64 / aarch64:
-unaligned access is fine; arm32: the memmove path must go byte by byte for such a source), so no region is
-planned; and the same for the VM's load + store.  Test: conformance 1722_copy_large_byte_struct (xfail.all; bare
-metal xfailed for its 4 MiB heap arena), not yet landed.
+`return *s` with `type Page struct { b [0x500000]uint8 }` (5 MiB; `s` on the heap, the result stored into a heap
+object) crashes (SIGSEGV) on the LLVM and native backends, while the same with `[0x140000]int32` prints the right
+value: the callee copies the load into a frame region the size of the aggregate, beside the caller's result slot,
+so the program needs twice the stack.  Root cause (compiled modes): native/common's AggLoadElision keeps every load
+of an aggregate with AlignOf() < 4 copied (AGG_LOAD_COPIED) unless it is stored whole (AGG_LOAD_IN_PLACE_OVERLAPPING),
+to keep word-wise consumers (the return / call-argument marshals) off a possibly unaligned source on strict-align
+arm32; a word-aligned load returned whole (returnedWhole) is AGG_LOAD_IN_PLACE.  The VM gives every aggregate load
+but one stored whole its own frame region (BC_LOAD_AGGREGATE, vm/lower_memory.bn; inPlaceStoredLoads exempts only
+the whole store), so `return *s` of a large aggregate of any alignment needs a region its size in the 8 MiB VM stack
+(from the code; not probed yet).  By-value arguments are the separate entry on the native double copy of by-value
+aggregate arguments (1720).  Proposed fix: a sub-word-aligned load returned whole read in place, its return marshal
+copying a possibly unaligned source safely on arm32; in the VM, a load returned whole read in place, copied into the
+result at the return.  Tests: a conformance test returning a large struct of bytes, and one of int32 for the VM, not
+yet written.
 
 ### A method copied onto an instance while a layout its signature reads is still built keeps the zero length it was resolved with — 🟡 IN PROGRESS (claimed 2026-10-29, work-7/session; user: "let's fix that in the commit right after; you can choose which goes first (maybe this)") (MAJOR: a valid program compiled with a wrong array type, silently; found 2026-10-29, work-7, probing the method-copy wait; reproduced on main; pre-existing)
 

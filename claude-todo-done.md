@@ -1,3 +1,18 @@
+### An aggregate with no word alignment copied whole through pointers was staged in a copy of its size on the stack — DONE (binate `bc9a35b70`, `493731135`, 2026-10-30, work-1; user: "Fix it now (Recommended)"; landing: "wait 5 minutes, then land; then continue with that")
+
+`*d = *s` with `type Page struct { b [0x1000000]uint8 }`, both on the heap, crashed (SIGSEGV) on the LLVM and native
+backends and was "runtime error: stack overflow" in the VM (a 16 MiB struct of int32 too, in the VM), and conformance
+1718's 2 GiB copy gave clang a 2 GiB frame, which it rejects on x86-64: the LLVM x86-64 lanes were red on main since
+binate `650f83fc5`.  Resolution: native/common's AggLoadElision classifies a whole store of a sub-word-aligned
+aggregate of more than 16 bytes AGG_LOAD_IN_PLACE_OVERLAPPING, so no region is planned and the store copies as
+memmove does; arm32 gains a byte-wise overlap-safe copy, emitAggMemmoveBytewiseArm32 (`bc9a35b70`).  The VM reads
+such a load (of any alignment) in place, a BC_MOV of the source's address, and copies the store with a new
+BC_MEMMOVE, unless a fault pad names the load (`493731135`).  Tests: conformance 1722_copy_large_byte_struct (16 MiB;
+bare metal xfailed: its 4 MiB heap arena cannot hold the two objects) and 1723_copy_overlapping_byte_struct (67- and
+813-byte moves in both directions); unit tests on the elision, the arm32 byte-wise copy, codegen's rt.MemMove and the
+VM lowering.  Still open (todo): a sub-word-aligned aggregate returned whole, and in the VM any aggregate load not
+stored whole, staged the same way.
+
 ### The checker accepts a constant cycle through a generic instance's field, and IR-gen panics — DONE (binate `80f71625a`, 2026-10-30, temp-5, self-drive; user: "go ahead and land; then self-drive for another 20 bugs"; fixed on main by binate `80f71625a` (found 2026-10-30), its regression tests binate `12f1ac147`; MAJOR: an internal-error crash on an invalid program; found 2026-10-28, work-7, review of the constant form of the abstract-declaration wait; reproduced on main, also before binate `f7e99b80b`; pre-existing)
 
 `type Bx[T any] struct { a [S]uint8; t T }`, `var gv Bx[int64]`, `const S = len(gv.a)` (in either order) passes the
