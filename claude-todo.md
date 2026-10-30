@@ -47,6 +47,21 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
+### A method copied onto an instance while a layout its signature reads is still built keeps the zero length it was resolved with — 🔴 OPEN (MAJOR: a valid program compiled with a wrong array type, silently; found 2026-10-29, work-7, probing the method-copy wait; reproduced on main; pre-existing)
+
+`type Bx[T any] struct { a [len(hv.m())]uint8; t T }`, `type H[T any] struct { z T }`, `var hv H[int64]`, `func (h
+*H[T]) m() [sizeof(W[T])]uint8 { … }`, `type W[T any] struct { v T; p *Bx[T] }`, `var Q [len(W[int64]{}.p.a)]uint8`
+compiles, and the program prints 0 for `len(hv.m())` and `len(Q)` while `sizeof(W[int64])` prints 16; the same with
+Q's length as a struct field's or a function's result type.  The pinned BUILDER (bnc-0.0.17-pre3) rejects the program
+("array length must be a constant integer").  Traced: collecting Q builds W[int64] and Bx[int64], whose build selects
+hv.m(), and m is copied onto H[int64] on demand (attachInstanceMethods → copyPlaceholderMethods,
+check/check_generic_backfill.bn).  Likely its signature takes sizeof(W[int64]) while W[int64] is still being built, a
+read that waits (check/check_layout_wait.bn) and leaves the length 0, and the copy, in no frame that is done again,
+keeps m with `[0]uint8`, which Bx[int64], built again, reads.  Related: the entry on a waiting build that still builds
+the instances it names from the length it could not read.  Fix: a method whose copied signature makes a frame wait is
+not kept — taken back as a definition on demand is (enterDemandFrame, undoBatchMethods), to be copied again when next
+selected or back-filled — with a conformance test printing the lengths.
+
 ### The checker accepts a constant cycle through a generic instance's field, and IR-gen panics — 🔴 OPEN (MAJOR: an internal-error crash on an invalid program; found 2026-10-28, work-7, review of the constant form of the abstract-declaration wait; reproduced on main, also before binate `f7e99b80b`; pre-existing)
 
 `type Bx[T any] struct { a [S]uint8; t T }`, `var gv Bx[int64]`, `const S = len(gv.a)` (in either order) passes the
