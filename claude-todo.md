@@ -967,7 +967,7 @@ and relocation are `.Ltmp2`, bnas's `.Ltmp0`.  bnas numbers only the generated l
 `.Ltmp2`).  **Fix:** number generated labels as clang numbers its temporaries, probed against clang where a
 listed one follows unlisted ones (numeric labels, pool entries, `.` labels).
 
-### asm aarch64 Mach-O: `adrp x0, .@PAGE` / `add x0, x0, .@PAGEOFF` are rejected — 🔴 OPEN, unclaimed (found 2026-10-28, work-2, the review of the arm32 `:lower16:` work)
+### asm aarch64 Mach-O: `adrp x0, .@PAGE` / `add x0, x0, .@PAGEOFF` are rejected — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; found 2026-10-28, work-2, the review of the arm32 `:lower16:` work)
 
 bnas: "unexpected token after an operand (expected ',' or end of line)" at `.@PAGE`.  clang (`--target=arm64-apple-macos`)
 takes both: ARM64_RELOC_PAGE21 against the function's symbol and ARM64_RELOC_ADDEND 0x4 + ARM64_RELOC_PAGEOFF12 for
