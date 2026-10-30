@@ -1019,7 +1019,7 @@ which then stays in the symbol table — so the linker can interwork or add a ve
 by both).  The assemble tests compare those objects by their symbols only.  **Fix:** decide each with the user
 (clang's choice, or keep bnas's), then follow it and make the cases full-layout goldens.
 
-### asm text: `;` as a statement separator — 🔴 OPEN, unclaimed (found 2026-10-27, work-2, review of the arm32 data-processing step)
+### asm text: `;` as a statement separator — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; found 2026-10-27, work-2, review of the arm32 data-processing step)
 
 clang takes `;` between statements on one line in ARM code (`add r0, r1; nop`); bnas's lexer rejects the line.  Probe
 which targets clang takes it on (ARM; AArch64 and x86-64 may differ — on some, `;` starts a comment or separates as
