@@ -1038,7 +1038,7 @@ generic directives in any case (`.GLOBAL`, `.ASCII`, `.FPU`, `.EABI_ATTRIBUTE`) 
 (`.TEXT`: "unknown directive"); bnas matches every directive name as written.  **Fix:** decide each with the user;
 for (a), string tokens carrying their escape errors to the directives that decode them.
 
-### asm Mach-O: a literal-pool load of a forward label difference is rejected (`_f: ldr x1, =(_e - _f)` … `_e:`) — 🔴 OPEN, unclaimed (found 2026-10-24, work-2, review of the LC_DATA_IN_CODE change)
+### asm Mach-O: a literal-pool load of a forward label difference is rejected (`_f: ldr x1, =(_e - _f)` … `_e:`) — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; found 2026-10-24, work-2, review of the LC_DATA_IN_CODE change)
 
 `bnas -target darwin-aarch64` rejects `_f: ldr x1, =(_e - _f)` / ` ret` / `_e: ret` with "a difference of locations
 in different sections or atoms is not a number", where clang assembles it into the pool with no relocation.  bnas
