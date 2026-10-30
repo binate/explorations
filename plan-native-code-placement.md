@@ -344,11 +344,12 @@ As a result, `if bad { panic(…) }` compiles to a forward jcc that is not taken
 
 **Not cold:** `ivrd.present` and `fv_refdec` (`gen_util_refcount.bn:134-185`). They run whenever the value's data pointer is non-null; `OP_REFDEC` itself decides whether the count reaches zero.
 
-**Out of reach for this pass (Question 1):** the following paths are emitted inline while lowering a single instruction, so they are not IR blocks and the pass cannot move them.
-- **Bounds check.** `cmp; jb ok; call BoundsFail` takes a branch on every in-bounds check (`x64_guards.bn:33-55`, `aarch64_guards.bn:37-57`, `arm32_dispatch.bn:285-311`). The division check works the same way.
-  - The fix would be a `jae` to a stub placed after the function's last block. The stub would be named with `common.BoundsLabel(…, fail=true)` (`common_names.bn:30-42`), which exists but is unused.
-  - The stub never returns and sees the same registers as the check site, so moving it out of line is mechanical.
-- **RefDec destroy path.** On x64, `jnz skip` is taken whenever the count stays above zero (`x64_managed.bn:133-180`; also `aarch64_refcount.bn:132-198` and `arm32_refcount.bn:128-182`). Stubs for this path would need a jump back to the main line.
+**Inline failure paths (Question 1, decided 2026-10-30):** these are emitted inline while lowering a single instruction, so they are not IR blocks and the layout pass cannot move them.
+- **Bounds check.** `cmp; jb ok; <args>; call rt.BoundsFail; ok:` takes a branch on every in-bounds check on all three backends (`x64_guards.bn:33-55`, `aarch64_guards.bn:37-57`, `arm32_dispatch.bn:285-311`). LLVM sends the failure to a block ending in `unreachable`, which its block placement puts at the end of the function. On `s = s + a[ix[i]]` in a loop (native built by bnc-0.0.17-pre3, LLVM by the pinned BUILDER), LLVM's loop takes 1 branch per iteration and native's takes 3: two from the loop shape, which rotation reduces to one, and the bounds check's `jb`.
+  - **Decided: move them out of line as the step right after block layout**, with their own switch value and A/B. The check becomes a never-taken `jae` to a stub after the function's last block; the stub loads the two operands and calls `rt.BoundsFail`, and is named with `common.BoundsLabel(…, fail=true)` (`common_names.bn:30-42`), which exists but is unused.
+  - `BoundsFail` never returns, so a stub needs only the registers recorded at the check, and moving it out of line is mechanical. aa64's branch islands cover a stub out of conditional-branch range.
+- **Division and shift checks** are not inline branches: all three backends call `rt.DivCheck` / `rt.ShiftCheck` on every execution, and LLVM emits the same calls. Not part of this work.
+- **RefDec destroy path.** On x64, `jnz skip` is taken whenever the count stays above zero (`x64_managed.bn:133-180`; also `aarch64_refcount.bn:132-198` and `arm32_refcount.bn:128-182`). LLVM keeps its `ZeroRefDestroy` call inline behind `jne` as well (same probe), and the path runs once for every object freed. **Decided: stays inline.**
 
 ### 5. Plan and plumbing (`native/common`)
 
@@ -544,6 +545,7 @@ Each commit can land on its own and is approved separately. SOURCE output stays 
 8. LOOPS mode: the LOOPS plan and `AlignTop` at loop tops, with conformance under `loops`. About 40 + 120.
 9. The new `layout_loops.py` fields and `ab.py --arm-work-flags`. About 100 + 120.
 10. The A/B. Then, if you decide to, flip the default and update the byte-pinned tests.
+11. Out-of-line bounds-check failure paths on all three backends (§4, decided 2026-10-30), behind their own switch value, then their own A/B.
 
 Commits 3-5 change only branch shapes, on today's block order. Commit 8 changes only the order, with the shape code already in place. So a conformance failure points at a single change. The backward conditional branches that first appear in commit 8 are already unit-tested in commits 3-5.
 
@@ -559,7 +561,7 @@ Commits 3-5 change only branch shapes, on today's block order. Commit 8 changes 
 
 ### Questions for the user
 
-1. Should the bounds-check and division-check failure paths move out of line as the next step, with their own A/B? I recommend it. And should the RefDec slow path, whose stubs need a jump back, follow, or stay inline?
+1. Decided 2026-10-30: bounds-check failure paths move out of line as the step right after block layout, with their own switch value and A/B; the RefDec destroy path stays inline; division and shift checks are calls on both backends and are not part of this work (§4).
 2. Should the decision to make `loops` the default use the placement selection rule (Holm-corrected, at least 40 seeds, benchmark geomean plus self-compile)? And should all three backends share one default, decided from the x64 and aa64 timings plus arm32's static report, or should each architecture get its own?
 3. x64 short branches: should they be the next step, backward branches first and then relaxation for forward branches (my recommendation), or should backward short branches be folded into this work?
 4. Should an unrotated x64 loop top that is entered by fall-through stay aligned? I suggest keeping it and deciding in the alignment-policy step.
