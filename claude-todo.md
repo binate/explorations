@@ -57,18 +57,7 @@ the `b T` form runs).
 
 ## MAJOR
 
-### A constant and a variable whose type's array length is the constant, the constant being the variable's length, pass the type checker, and IR-gen panics — 🟡 IN PROGRESS (claimed 2026-10-31, work-7/session; user: "Right after this commit (Recommended)") (MAJOR: an internal-error crash on an invalid program; found 2026-10-30, work-7, review of the `.bni` variables-and-functions change; reproduced on main at binate `9b0fff72c`; pre-existing)
-
-`const K = len(V)` with `var V [K]int` in a `.bn`, in either order, passes the checker with no error, and bnc then
-stops with "panic: internal error: IR generation cannot evaluate a constant the type checker accepted" (K first) or
-"IR-gen has no type for the checker's <error> (compiler bug)" (V first).  It is a cycle: K is V's length, whose length
-is K.  The same declarations in a `.bni` are reported ("constant definition cycle involving `K`" and "array length
-must be a constant integer").  Root cause not traced: the batch resolves K on demand while V is collected, or V on
-demand (batchVarOnDemand) while K is resolved, and the read that closes the cycle is dropped without an error, leaving
-K with no value (compare the entry, done, on a constant cycle through a generic instance's field, binate `80f71625a`).
-Fix: report the cycle, once, with a conformance error test and a unit test for both orders.
-
-### A constant read while a variable's type is found, though that type does not depend on it, is resolved without a value for good: valid programs crash in IR-gen or are rejected — 🔴 OPEN (MAJOR: valid programs crash the compiler; found 2026-10-31, work-7, review of the constant-variable length cycle fix; reproduced on main at binate `3fdd773a9`; pre-existing)
+### A constant read while a variable's type is found, though that type does not depend on it, is resolved without a value for good: valid programs crash in IR-gen or are rejected — 🟡 IN PROGRESS (claimed 2026-10-31, work-7/session; user: "wait 7 minutes, then land; then work on the new MAJOR") (MAJOR: valid programs crash the compiler; found 2026-10-31, work-7, review of the constant-variable length cycle fix; reproduced on main at binate `3fdd773a9`; pre-existing)
 
 `func f(x int) [3]int`, `var V [len(f(K))]int`, `const K = len(V)` is valid -- V's length needs only f's result type,
 so V is `[3]int` and K is 3 -- but bnc panics in IR-gen ("IR generation cannot evaluate a constant the type checker
@@ -81,7 +70,7 @@ source and target to be the same size" (V's size is not known yet).
 
 Cause: V's array length resolves K on demand while V's type is being found, and K's `len(V)` reads V's placeholder
 (check_var_placeholder.bn), so K is resolved without a value -- recorded resolved (ConstResolved), POISONED -- and
-stays so once V has its type.  The constant-variable length cycle fix (in progress, not landed yet) records such a
+stays so once V has its type.  The constant-variable length cycle fix (binate `e595ee5bb`) records such a
 constant's variable (noteConstPoisoner) and blames it only while its placeholder stands, so these are not reported as
 V's cycle; its check_var_placeholder_test.bn TestVarTypeCycleConstReadInLengthArgNotCycle pins only that.  Fix:
 resolve such a constant again once the variable has its type -- undo its resolution (its binding, ConstResolved, what

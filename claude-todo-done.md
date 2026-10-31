@@ -1,3 +1,24 @@
+### A constant and a variable whose type's array length is the constant, the constant being the variable's length, pass the type checker, and IR-gen panics — DONE (binate `e595ee5bb`, 2026-10-31, work-7; user: "Right after this commit (Recommended)", then "wait 7 minutes, then land; then work on the new MAJOR")
+
+MAJOR, an internal-error crash on an invalid program (found 2026-10-30, work-7, review of the `.bni`
+variables-and-functions change; pre-existing): `const K = len(V)` with `var V [K]int` in a `.bn`, in either order,
+passed the checker, and IR-gen panicked ("IR generation cannot evaluate a constant the type checker accepted", or
+"IR-gen has no type for the checker's <error>").  V's length resolved K on demand while V's type was found, K's
+`len(V)` read V's placeholder, so K was resolved without a value and with no error, and V's length read K so, with no
+error either.  resolveConstByName now records, for a constant left without a value with nothing reported, the
+variable whose placeholder its initializer takes `len` of -- through operators, other constants, a bare group
+member's repeated initializer, and an index, slice, selector, unary operator or call on the variable
+(noteConstPoisoner, check/check_var_placeholder.bn); an array length that reads such a constant while that
+placeholder still stands takes the placeholder as what poisoned it (notePoisonedConst, from checkerEnv.Const), and
+evalArrayLen reports "variable type cycle involving `V`", once.  About 50 crashing shapes (either order, group
+members, operators, chains of constants and variables, element and callee calls) report one cycle each; over 518
+probes nothing else changed.  Tests: check_var_placeholder_test.bn TestVarTypeCycleThroughConst and
+TestVarTypeCycleConstReadInLengthArgNotCycle, conformance regressions/var-type-cycle-through-const.  Filed, not fixed
+here: a valid program whose variable's type does not depend on the constant crashes the same way (MAJOR;
+regressions/const-read-in-var-length-call-arg, xfailed), and the same declarations in a `.bni` are reported as a
+constant cycle and a length error (minor; a `.bni` change that reported one cycle twice is archived on binate branch
+`archive/20261031-bni-prewalk-skips-variable-being-defined`).
+
 ### bnlint's managed-func-raw-capture missed function literals in a local `var ( … )` group — DONE (binate `29d724b22`, 2026-10-31, temp-4; user: "Fix both first (Recommended)", then "wait 4 minutes, then go ahead; then continue")
 
 A lint false negative (found 2026-10-30, temp-4, review of keeping one-member groups; pre-existing):
