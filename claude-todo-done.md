@@ -4174,6 +4174,17 @@ reader's reason.  Tests: `relocSectionChecks` on an ELF64 RELA and an ELF32 REL 
 `TestReadObjectRejectsNonRelocatable`, `TestReadArchiveBadMemberReason`.  Checked that clang C objects (`-g`,
 `-ffunction-sections`, `-O0` / `-O1`) still link on x86-64, aarch64 and arm32.
 
+### native code placement, block layout commit 1: condition inversion in the assembler — DONE (binate `8a359925c`, 2026-10-31)
+
+A sub-step of the open "native code placement" entry in `claude-todo.md` (block layout design in
+`plan-native-code-placement.md`). `x64.InvertCC`, `arm32.InvertCond` and `aarch64.InvertCond` return the
+condition that holds exactly when the given one does not (`cond ^ 1`), for flipping a conditional branch so
+the other target falls through. Each rejects what has no inverse with an assembler error and -1: x64 outside
+CC_O..CC_G; arm32 AL and outside EQ..AL; aarch64 AL and NV (both execute as always) and outside 0..15.
+aarch64.bni's COND_NV comment now says it executes as always. Reviewed: no blockers. The arm32 encoders that
+mask the condition are the open masked-field entry (claimed by temp-5; `plan-asm-arm32-isa.md` makes each
+encoder class exact step by step).
+
 ### native code placement: the selection guard is Holm-corrected over the workloads — DONE (binate `3f95bef54`, 2026-10-28)
 
 A sub-step of the open "native code placement" entry in `claude-todo.md` (user decision 2026-10-20: "maybe correct
