@@ -2740,6 +2740,10 @@ expanded it spans lines there and stays (tried 2026-10-26: two files of the scri
 non-idempotent).  The fix needs a measure that does not depend on how the source laid the operand out.
 A statement's or group member's trailing comment is such a tail too (binate `cb6028078`): `m int = a * func(p int)
 int {` … `} // <60 bytes>` breaks before `func`, for nothing (3 of the 3,000 files generated to review that commit).
+A call whose lone name moves below its opener for what follows the list (binate `7f3478608`) spans lines the
+same way: `total := base + computeTheAdjustedOffsetForTheCurrentFrameAndSlot(frame) // <41 bytes>` prints
+`total := base +` / `computeThe…(` / `frame) // …`, where `total := base + computeThe…(` / `frame) // …`
+fits (print_trail_test.bn pins the three lines).
 
 ### bnfmt aligns a run across a comment before an element on its line, which it moves to a line of its own — 🔴 OPEN 🟢 LOW (found 2026-10-28, temp-4, review of the marked method-and-field fix; pre-existing)
 
@@ -2753,20 +2757,6 @@ x` / `/* p */ bbbb = 2 // y` in a `var` or `const` group, and with `case 1: g() 
 b` (bnfmt `bnc-0.0.17-pre3` and the tree's).  The second format is stable.  An interface method's comment
 (`/* p */ F() int`) moves to a line of its own the same way, with no run to break.  A run should break at any comment that
 prints on a line of its own between two elements, or such a comment should stay on its element's line.
-
-### bnfmt's lone element in brackets leaves out what follows the close — 🟡 IN PROGRESS (claimed 2026-10-26, temp-4; user: "take on the todos") 🟢 LOW (found 2026-10-26, temp-4, review of the statement trailing-comment fix; pre-existing)
-
-printArgList (print_wrap.bn) measures whether a lone element fits after its opener with only the close after it, as
-an element that wraps -- a call, a composite -- reserves the rest itself; a lone string literal gets the whole tail.
-An identifier or a selector cannot reserve it, so `ffff…[cccc…]++` with the `]` at column 100 prints 102 wide, and
-`ffff…[cccc…]++ // a trailing cc` and `gggg(ffff…[cccc…]) // a trailing cc` stay 103 wide, while an index that
-itself runs past the cap wraps (`ffff…[` / `cccc…]++`) (bnfmt `bnc-0.0.17-pre3` and the tree's).  Measuring every
-lone element with everything after it is the lone-argument rule the non-idempotence entry tried (done file); giving the whole
-tail only to an element that cannot break, as a string literal has it, is narrower.
-The mismatch also limits binate `b5e5bca15`'s check of a fill decision against a second format (fitsStably,
-print_stable.bn): a lone element measured with less after it than it prints with (printArgList's `exact` false)
-may still take the other place, but may not print a layout read back at either, as that layout was rendered
-with a tail the printer does not use.  Measuring with the tail it prints with would lift the gate.
 
 ### bnfmt's `__c_call` leaves out what follows its `)` — 🔴 OPEN 🟢 LOW (found 2026-10-29, temp-4, testing the non-idempotence prototype; pre-existing)
 

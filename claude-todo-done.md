@@ -1,3 +1,35 @@
+### bnfmt's lone element in brackets leaves out what follows the close — DONE (binate `7f3478608`, 2026-10-30, temp-4; user: "take on the todos", "yes" to taking it next; landing: "yes, go ahead")
+
+printArgList (print_wrap.bn) measured a lone element after its opener with only the close after it: an element that
+wraps -- a call, a composite -- reserves the rest itself as it wraps, and only a lone string literal got the whole
+tail.  An identifier or a selector cannot reserve it, so `ffff…[cccc…]++` with the `]` at column 100 printed 102
+wide, and `gggg(ffff…[cccc…]) // a trailing cc` 103.
+
+Resolution (binate `7f3478608`): a lone element that cannot break (unbreakable: a name, a literal other than a
+string, an empty composite, a type of names; a selector, prefix operator, type assertion, slice or empty call on such
+operands; a builtin whose operands are a type and such values) is measured with everything after the list, as a
+string literal is, and moves below its opener when that does not fit.  A right-hand side stays inline whenever its
+own wrap fits there, so with that a value base moved whole to a continuation line would stay inline, wrapped at such
+an element (`var out … = make_slice(@T, len(` / `methods))`; 4 generated corpus files).  Decided (user, 2026-10-30,
+of: move it whole; keep it inline): "Move it whole" -- rhsInlineFits measures the inline form with those elements kept
+on their openers' lines (loneStays, a mode the rendering cache and the read-back memo key on), so such a value moves
+whole when it fits on the continuation, and rhsInlineHolds reads a moved value back the same way.  A composite's lone
+element counts too (user: "Extend it"): printStrList had always given it the whole tail, so base kept `var x = T{` /
+`name}.zz` inline.  The statements of a function literal in the value print outside the mode (the review found
+identical bodies formatting differently in a right-hand side), and a value with no such element (hasLoneUnbreakable)
+is measured as it prints: measuring every right-hand side in the mode made function literals nested in right-hand
+sides up to 6 times slower to format.
+
+Results: in the scripts/bnfmt-check corpora 28 files change, 25 lose a line over the cap, none gains one, none
+becomes non-idempotent; the tree formats the same.  Cost: about 8% more CPU on the gen corpus and 5% on the tree's
+pkg/ (both measured under load), about 20% for function literals nested 6 deep in right-hand sides with comments.
+Tests: print_wrap_lone_test.bn, print_rendermemo_test.bn (the cache keys on the mode), print_trail_test.bn (a
+statement whose call's lone argument moves for its trailing comment, and one whose comment fits no layout).  Not
+changed: a lone element that wraps is still measured with only its close, so the break goes to the innermost opener
+(`q = hhh…(k(` / `nil)).zz // c`, where `hhh…(` / `k(nil)).zz // c` fits), and fitsStably's `exact` gate stays for
+it; measuring it with the whole tail is the lone-argument rule the non-idempotence entry tried.  An operator chain
+measures a call that now spans lines by all its bytes: see the todo entry on operator chains.
+
 ### A generic type's method copied onto an instance, after an earlier declaration built a type its result's length reads, keeps a zero length — a silent wrong type — DONE (binate `b770fccd4`, 2026-10-30, temp-5, self-drive; landing: "go ahead")
 
 ```
