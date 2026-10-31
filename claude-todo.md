@@ -171,12 +171,24 @@ suites grew ~20% in the same span.**
 - Negative result (not landed): replacing pickSlots' lowest-free-slot linear scan with two heaps made the load
   4.2% SLOWER — pickSlots went from 65 to 188 of ~4000 samples.  The scan is short on real functions, and each
   heap level costs several out-of-line vec Get/Set calls.  Don't retry it in that form.
-- Total so far ~37% fewer instructions per int-int test (the per-change ratios compounded).  Check CI's next
+- binate `9beabc2bb` (landed 2026-10-30; user: "go ahead with opaqueRulesKept"): the checker keeps the types whose
+  by-value structure reaches no opaque candidate (Checker.OpaqueFree), so the by-value opaque walk answers for them
+  without re-walking a large pointee (`c @Checker`) at every declaration; every Underlying write goes through
+  setUnderlying, which empties the set on a clear or replacement -- 25.43G -> 24.96G (-1.8%, median of 9).
+- Total so far ~38% fewer instructions per int-int test (the per-change ratios compounded).  Check CI's next
   conformance / unit int-int durations before deciding whether shards or caps still need changing.
 - Then: irbuild.BlockIndexIn's linear scan (O(blocks^2) in buildSuccsPreds,
   pruneUnreachableBlocks, assertPhiEntriesArePreds), the append-built Preds / dominator children / DF sets in
   iropt/dom.bn, the rest of the VM's slot assignment (assignSlots; pickSlots is ~1.6%), the fault-pad cleanup
-  emission in irgen, and the checker's opaqueRulesKept walk (~2.4%).
+  emission in irgen, and the checker's requireFitting size walk (~0.7%).
+
+### checker_state.bn is at 488 of 500 lines: split the Checker struct into sub-structs — OPEN (filed 2026-10-30, work-3)
+
+pkg/binate/check/checker_state.bn is almost entirely the `Checker` struct declaration, so it cannot be split by
+moving declarations; adding a field (as `9beabc2bb` did, Checker.OpaqueFree) brings it closer to the 500-line cap.
+Group related fields into sub-structs held by one field each, as `Stamps @stampTables` and `Instances
+@InstanceState` already are (candidates: the generic declaration tables, the pending / tentative state, the
+loop / switch / defer context flags), and update their uses.
 
 Options (decision needed): (a) profile and fix the load pipeline's superlinear phases (cmd/bni's load is also
 bni's start-up cost for every user); (b) more shards or a longer cap for the int-int lanes
