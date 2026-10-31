@@ -47,6 +47,20 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
+### bnas arm32: a data-processing operand naming `.` without `#` drops the location -- `mov r0, (.+8)` is `mov r0, #8` -- 🔴 OPEN (MAJOR: silent wrong code; found 2026-10-30, work-2, review of the arm32 loads-and-stores step; reproduced on binate main `c8d407930`; pre-existing)
+
+- **Symptom:** an unprefixed data-processing operand that starts with `(` or a number and names `.` assembles as
+  the bare addend: `mov r0, (.+8)` → `mov r0, #8` (`E3A00008`), `add r0, r1, 8+.` → `add r0, r1, #8`, `sub r0,
+  r1, (.-4)` → `sub r0, r1, #4`, `cmp r0, (.)` → `cmp r0, #0`.  clang rejects each ("immediate expression for mov
+  requires :lower16: or :upper16" for MOV, "unsupported relocation type" for the others), as bnas already does with
+  the `#` spelling (`'.' (the current location) is not a number here`).
+- **Root cause:** `parseArm32Operand` (pkg/binate/asm/parse/arm32.bn), its unprefixed numeric branch: it parses
+  with `parseSymExpr`, turns a result with a symbol into a label operand, and passes anything else -- a result
+  relative to `.` (`r.Dot`) included -- to `arm32ImmOf(p, r.Val)`, so the location is dropped and only its addend
+  encoded.
+- **Fix:** reject an `r.Dot` result there with clang's messages; a load's or store's PC-relative `(.+8)` target goes
+  through the load / store parser's own target path, not this branch.  Test: each spelling above rejected.
+
 ### A type whose walk is still on the stack counts as prepared when a `sizeof` reads it by value: a valid program gets a wrong array length, and a layout cycle is accepted — 🔴 OPEN (MAJOR: valid programs compiled with a wrong array type, silently, and an invalid one accepted; found 2026-10-30, work-7, review of the slice-reach fix; reproduced on main; pre-existing)
 
 `type N struct { v int64; a [sizeof(M)]uint8 }`, `type M struct { s *[]D }`, `type D struct { n N; e *[]E }`, `type E
