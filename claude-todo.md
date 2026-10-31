@@ -1129,6 +1129,35 @@ do (check/check_member_read.bn, batchMethodOnDemand): put the `.bni`'s methods o
 and resolve a later type or interface when a member or a literal of it is needed; then type a method's call too.
 Tests: unit tests for each form, and a conformance test.
 
+### A `.bni` constant reading a variable whose type names the constant is reported otherwise than in a `.bn`, and one reading such a variable without needing its type is rejected — 🔴 OPEN (minor: a valid program rejected, and cycles reported with other or extra errors; found 2026-10-31, work-7, review of the constant-variable length cycle fix; reproduced on main at binate `3fdd773a9`; pre-existing)
+
+In a `.bni` (an importer building the package's scope), against a `.bn` twin of the same declarations: `func f(x
+[3]int) [3]int`, `const K = len(f(V))`, `var V [K]int` (either order) is "constant definition cycle involving `K`" and
+"array length must be a constant integer", also with the package's `.bn` defining f and V, where the `.bn` twin
+compiles and prints 3 (`len(f(V))` needs only f's result type).  `const K = len(V)` with `var V [K]int` (either
+order), and `var A [len(B)]int; const K = len(A); var B [K]int`, get the same two errors, where the `.bn` reports one
+"variable type cycle involving `V`" (`A`) once its crash is fixed.  `const K = len(A) + len(B); var A [K]int; var B
+[K]int` is the K cycle and two length errors, `var U [K]int; const K = len(V); var V [K]int` the K cycle and one,
+where the `.bn` reports the K cycle alone.  `type T [K]int; const K = len(V); var V T` is "the initializer of constant
+`K` is not a constant expression", where the `.bn` says "cyclic type definition involving `T`".
+
+Causes: resolveBniConstByName's pre-walk defines a variable its initializer names (defineBniVarByName) with an empty
+visiting list, so a variable being defined (BniBuild.VarsDefining) is defined again, and the nested definition finds
+the constant being resolved: a constant cycle; a length that reads the constant once its cycle is reported says it is
+no constant, where the batch's is left without a value silently (not traced further); and bniVarOnDemand reports any
+read of a variable being defined as a type cycle, where the batch defines it with a placeholder and blames it only
+when it leaves an array length without a value (placeholderPoisoned, and notePoisonedConst through a constant).
+Skipping a variable in VarsDefining in the pre-walk alone (tried with the crash fix) makes the second group match but
+reports the third's K cycle with "variable type cycle involving `A`" besides, and still rejects the first.  Fix: give
+the `.bni` build the batch's judgment -- a read of a variable being defined has the error type, and is a cycle only
+when a length is left without a value by it, directly or through a constant -- skip a variable being defined in the
+pre-walk, and report nothing more for a length reading a constant whose error is reported; a unit test per shape
+against its `.bn` twin.
+
+Related, in a `.bn`: `const K = len(V); var V T; type T [K]int` (the variable before the type) is "len argument must
+be slice or array" and "the initializer of constant `K` is not a constant expression" (V's type T is still being
+collected when K reads it), where with the type first it is "cyclic type definition involving `T`".
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
