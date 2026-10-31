@@ -466,6 +466,16 @@ Independent of the host's width:
 Fix: each is an error (fail loud) where the value does not fit its field; a data region in a zero-fill section
 is rejected (it holds no instructions to keep a disassembler out of).
 
+### asm object writers: narrow index fields bind the wrong symbol or section past their range, with no error — 🔴 OPEN (minor: needs over 16M symbols or about 65,000 sections; found 2026-10-31, work-1, review of the 4 GiB checks; pre-existing; by reading)
+
+- A relocation's symbol index is 24 bits in ELF32 (r_info, `ri32 << 8` in elf.bn) and in Mach-O (r_symbolnum,
+  `& 0x00FFFFFF` in macho_reloc.bn and macho_pair.bn): past 2^24 symbols it names another symbol.
+- ELF's section count and indices are 16 bits (e_shnum in elf.bn, st_shndx in elf_symtab.bn): from 0xFF00 the
+  indices are reserved (SHN_LORESERVE), and the gABI's escape (SHN_XINDEX, an SHT_SYMTAB_SHNDX section, the
+  real count in section 0's sh_size) is not written; nothing caps the count.  The Mach-O writer does check its
+  255-section limit (macho_sect.bn).
+Fix: an error past each field's range, or (ELF sections) the SHN_XINDEX encoding, as clang writes it.
+
 ### asm Mach-O writer: init / fini / preinit arrays are rejected — map them to `__mod_init_func` / `__mod_term_func`? — 🔴 NEEDS DECISION (found 2026-10-15, work-2, review of the section-flags change)
 
 The Mach-O writer (`machoSectionsOk`, pkg/binate/asm/macho/macho_sect.bn) rejects a section named
