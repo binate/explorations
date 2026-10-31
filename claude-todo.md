@@ -85,7 +85,7 @@ struct { a *[]Ti-1; b *[]Ui-1 }` / `type Ui` the same, takes 0.7 s to compile at
 it is reached by value, and each call walks the type's parts with a fresh visit set, so a type reached softly through
 two paths is walked once per path.  Fix: record the types prepared softly as well, so each is walked once per mode.
 
-### A call's large aggregate result kept in a local needs its size twice on the stack (compiled at -O0; the VM at any level) — 🟡 MAJOR, claimed 2026-10-29, work-1; asked 2026-10-30 whether to fix it now, no answer yet (the return cases are done: binate `02db3265e`, `12034603e`; the whole-store case: `bc9a35b70`, `493731135`)
+### A call's large aggregate result kept in a local needs its size twice on the stack (compiled at -O0; the VM at any level) — 🟡 MAJOR, IN PROGRESS (claimed 2026-10-29, work-1; user, 2026-10-30, asked whether to fix it now: "yes") (the return cases are done: binate `02db3265e`, `12034603e`; the whole-store case: `bc9a35b70`, `493731135`)
 
 `var r Page = get(&src)`, or `get(&src).b[i]` (IR-gen keeps the result in a temporary), with a 4.5 MiB result needs
 twice that, at any alignment.  Compiled, at the default -O0 only: the local's OP_ALLOC, which zero-fills it
