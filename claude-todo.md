@@ -213,6 +213,25 @@ console (as pkg/builtins/testing/sys already does), or have the runner print thr
 (its source says it must use the real pkg/std/fmt).  Only after that can the failing tests be found; the
 `native/arm32` link overflow and the arena exhaustion remain size problems.
 
+### CI red: main's 32-bit-host unit lane (`builder-comp_arm32_linux`) fails link, asm/assemble, check and irgen — tests that assume a 64-bit host — 🔴 OPEN (filed 2026-10-31, work-1, seen while validating the int64 asm change; reproduced in CI on main at binate `d1e3f86fa`, run 41160559090)
+
+The unit-test lane that runs on a 32-bit host (`scripts/unittest/run.sh builder-comp_arm32_linux`; it runs here
+in docker) is red on main; the finished runs of 2026-10-30 failed too, with a varying set of packages.  At
+`d1e3f86fa`:
+- `pkg/binate/link`: `emit_dynmacho_test.bn:224` does not compile — `@[]int{0x80000400, …}`, a constant past
+  2^31 in an `int` (from `097becf64`).  Fix: hold the flags in `uint32`.
+- `pkg/binate/asm/assemble` TestAssembleFileDotPage (`assemble_alias_test.bn`, from `eecd157ed`): reads
+  relocation words into `int` and tests `(word >> 28) == 10` for ARM64_RELOC_ADDEND; on a 32-bit host the word
+  0xA… is a negative int, so it never matches.  Fix: read the words as `uint32`.
+- `pkg/binate/check` TestBniConstOfLaterTypeLayout, TestBniInstanceReadsTypeBeingResolvedSoftly,
+  TestBniInstanceReadsConstReadingTypeBeingResolved, TestBniInstanceWaitsThroughFlush (from `9b0fff72c`): the
+  embedded programs hard-code 64-bit sizes (`var k [16]uint8 = x.a`, `x.a` being `[sizeof(W2[int64])]uint8`), so
+  on the 32-bit target they fail ("cannot assign [8]uint8 to [16]uint8").  Fix: sizes the same on every target,
+  or the test's target pinned.
+- `pkg/binate/irgen`: the test binary panics, "internal error: IR-gen has no type for the checker's <error>
+  (compiler bug)"; the panic hides which test — run irgen's tests on the lane to find it.  Possibly the same
+  64-bit size assumption, in a test that does not check for checker errors before generating IR.
+
 ### IR-gen spells every type argument out in an instance's name — instances whose arguments share a type get exponentially long names — 🔴 NEEDS DECISION (found 2026-10-26, work-7, testing the abstract-instance change's shared-argument walk; reproduced on main; pre-existing)
 
 - **Symptom:** `type Pair[A any, B any] struct { a *A; b *B }`, `type P0 = Pair[int, int]`, `type Pk = Pair[P(k-1), P(k-1)]` up to n, and `var x Pn`, with no type error, compiles in 2.6 s at n = 18, 31 s at 22, and more than 120 s at 24 (main at `3b3b6ef2d`); the time is in IR-gen, after the checker.
