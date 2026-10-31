@@ -2768,6 +2768,15 @@ Declarations, group members, struct fields and imports stop at the next node's c
 - A comment between a signature's `)` and its results goes into the body: `func f(a int) /* c */ int {` prints
   `/* c */` on a line of its own as the body's first (bnfmt `bnc-0.0.17-pre3` and the tree's).
 
+### bnfmt's drop of an empty `var ( )` / `const ( )` / `type ( )` group leaves a stray space before its comment, or three blank lines — 🔴 OPEN 🟢 LOW (found 2026-10-31, temp-4, review of keeping one-member groups; reproduced with bnfmt `bnc-0.0.17-pre3`; pre-existing)
+
+printGroupDecl drops an empty group (it has no member to recover its keyword from), but its callers still write
+what goes around a declaration.  `var ( ) // c` at top level prints ` // c`, and `var ( ) // d` in a block prints
+`\t // d`; a second format removes the space.  A comment-free top-level empty group between two declarations leaves
+three blank lines there, which a second format makes one.  So neither is idempotent.  Fix: drop the group where its
+caller lays it out (printDecls, the block loop), its comments going on lines of their own, or keep it as written by
+recording its keyword on the DECL_GROUP node; tests: goldens for both, formatted twice.
+
 ### bnfmt moves a statement's trailing comment to a line of its own after a comment inside it that no list prints — 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing)
 
 A comment inside a statement that no list prints (an operand's, in `x := 1 + /* c */` / `2 // d`) is still pending
