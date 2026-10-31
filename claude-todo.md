@@ -483,7 +483,7 @@ Fix: probe each guard-sized step of a large frame in the native prologues (touch
 give the LLVM backend's functions the matching "probe-stack" attribute, and decide the bare-metal behaviour (no
 guard page there).  Test: a recursion with a frame past the guard size that overflows must fault, not corrupt.
 
-### Native backends copy a by-value aggregate argument read through a pointer twice — on arm32 three 1 GiB arguments pass the 4 GiB frame — 🔴 OPEN (found 2026-10-28, work-1, int64 layout 4c-2's conformance test 1720; pre-existing)
+### Native backends copy a by-value aggregate argument read through a pointer twice — on arm32 three 1 GiB arguments pass the 4 GiB frame — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session — user: "For 5: yes, go ahead and take that next") (found 2026-10-28, work-1, int64 layout 4c-2's conformance test 1720; pre-existing)
 `f(*p, *p, *p)` with f taking three by-value 1 GiB arrays: the native backends give each `*p` load its own frame
 region (emitAggLoad) and then copy it into the outgoing-args area, so the frame holds every argument twice.  With
 `Big` 64 KiB, native arm32 gives `direct` a frame of 0x60030 bytes (3 load regions + 3 argument copies); at 1 GiB
