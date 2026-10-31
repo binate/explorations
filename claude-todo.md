@@ -173,11 +173,21 @@ suites grew ~20% in the same span.**
   compiled code changes (more forwarding, 134 conformance tests), all passing on LLVM / native aa64 / VM.
 - binate `461ecfd0e` (landed 2026-10-30; user: "let's pursue that"): fault ops whose live set matches the last pad's
   share it — 30.33G -> 25.32G (-16.5%); compiled output identical after renumbering value ids.
-- Total so far ~34% fewer instructions per int-int test (the per-change ratios compounded).  Check CI's next
+- binate `5aa43b358`, `746754eed`, `b61059d79` (landed 2026-10-30; user: "let's keep going"): the named-type
+  pre-registration passes build a declaration's qualified name only for a type they register (-2.6%);
+  Module.Consts grows through a vec (ir.RegisterModuleConst / TruncateModuleConsts) instead of an Append copy per
+  constant (-1.0%); BC_FUNC_HANDLE memoizes each site's extern lookup until the next RegisterExtern, where every
+  release of a struct with a dtor probed the extern table and missed (~300k probes per run) (-0.3%).  Together
+  26.41G -> 25.38G (-3.9%, median of 9); compiled output identical.
+- Negative result (not landed): replacing pickSlots' lowest-free-slot linear scan with two heaps made the load
+  4.2% SLOWER — pickSlots went from 65 to 188 of ~4000 samples.  The scan is short on real functions, and each
+  heap level costs several out-of-line vec Get/Set calls.  Don't retry it in that form.
+- Total so far ~37% fewer instructions per int-int test (the per-change ratios compounded).  Check CI's next
   conformance / unit int-int durations before deciding whether shards or caps still need changing.
 - Then: irbuild.BlockIndexIn's linear scan (O(blocks^2) in buildSuccsPreds,
   pruneUnreachableBlocks, assertPhiEntriesArePreds), the append-built Preds / dominator children / DF sets in
-  iropt/dom.bn, the VM's slot assignment (assignSlots), and the fault-pad cleanup emission in irgen.
+  iropt/dom.bn, the rest of the VM's slot assignment (assignSlots; pickSlots is ~1.6%), the fault-pad cleanup
+  emission in irgen, and the checker's opaqueRulesKept walk (~2.4%).
 
 Options (decision needed): (a) profile and fix the load pipeline's superlinear phases (cmd/bni's load is also
 bni's start-up cost for every user); (b) more shards or a longer cap for the int-int lanes
