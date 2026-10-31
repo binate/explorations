@@ -212,8 +212,21 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
      global goes to bss (its storage is all zero; the initializer runs at start-up), and a zero-fill section
      holds no bytes in the assembler (Section.ZeroFill, countZeroFill: fails loud past the host's int or a
      32-bit target's 4 GiB).  A 3 GB global compiles on native aa64.  crt0 clears no bss — QEMU's ELF loader
-     zero-fills it, as for the LLVM backend's bss.  4f-2 (open): bss lengths, symbol offsets and local-common
-     sizes in int64 through asm / elf / macho / link, for a 32-bit host.
+     zero-fills it, as for the LLVM backend's bss.  4f-2 (in progress 2026-10-31, work-1): bss lengths, symbol
+     offsets and local-common sizes in int64 through asm / elf / macho / link, for a 32-bit host.  A section's
+     length and its symbols' offsets are target quantities: on a 32-bit host a bss past 2 GiB overflows
+     Section.Len (int) and a symbol after a 4 GiB object overflows Symbol.Offset (uint).  A data section's length
+     always fits the host (its bytes are held), so only a zero-fill section's needs more, but one type for both
+     keeps every reader honest.  Steps, each landed alone:
+     - 4f-2a. asm: Section.Len int64, Symbol.Offset / CurrentOffset / DefineLocalAt uint64, Zero / countZeroFill
+       in int64; every user (asm/*, elf, macho, the native backends) adapts, found by the compiler.  Indexing a
+       data section's bytes narrows its length fail-loud (it is always held, so never fails).
+     - 4f-2b. link: InputSection.Size / OutOffset and symbol values uint64; a zero-fill input section sized
+       without host memory.
+     - 4f-2c. native bss globals' zero runs from the type's int64 width (common_data_global's HostInt goes);
+       `.comm` / `.lcomm` (asm_common) and the parser's `.zero` / `.space` / `.skip` sizes in int64.
+     - Tests: sizes and offsets past 2^31 and 2^32 in asm / elf / macho / link unit tests, run on the
+       builder-comp_arm32_linux unit-test lane (a 32-bit host, in docker here) as well as the 64-bit host.
    Order (revised 2026-10-18, after reading x64's helpers): 4d before 4e, so each backend helper's offset
    parameter moves to int64 once (4e's field offsets flow into the same helpers as the frame offsets):
    - 4d-1. DONE `8d5ed266a` (2026-10-19): native/common: RegMap's frame tables and frame fields int64; PlanFrame
