@@ -1099,7 +1099,7 @@ the prompt is checked with none.  A prompt statement `var hb H[int16]`, with `ty
 flush inside the copy.  Fix: reproduce it in the REPL's tests first; then give a prompt's statements the state the
 batch carries for these waits (the starts and DeclReadWaited), with a REPL unit test.
 
-### A `.bni`'s variables and functions named before their declarations, and a constant reached through a type argument, are rejected — 🔴 OPEN (minor: valid programs rejected; found 2026-10-30, work-7, review of the `.bni` on-demand resolution; reproduced on main; pre-existing)
+### A `.bni`'s variables and functions named before their declarations, and a constant reached through a type argument, are rejected — 🟡 IN PROGRESS (claimed 2026-10-30, work-7/session; user: "Separate commit after (Recommended)") (minor: valid programs rejected; found 2026-10-30, work-7, review of the `.bni` on-demand resolution; reproduced on main; pre-existing)
 
 In a `.bni`, with `type Bx[T any] struct { a [len(V)]uint8; t T }` and `type U struct { p *Bx[int64] }` before `var V
 [4]int`, building Bx[int64] is "array length must be a constant integer"; with `[len(f())]uint8` before `func f()
