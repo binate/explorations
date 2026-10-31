@@ -47,7 +47,7 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 
 ## MAJOR
 
-### bnas arm32: a data-processing operand naming `.` without `#` drops the location -- `mov r0, (.+8)` is `mov r0, #8` -- 🔴 OPEN (MAJOR: silent wrong code; found 2026-10-30, work-2, review of the arm32 loads-and-stores step; reproduced on binate main `c8d407930`; pre-existing)
+### bnas arm32: a data-processing operand naming `.` without `#` drops the location -- `mov r0, (.+8)` is `mov r0, #8` -- 🟡 IN PROGRESS (claimed 2026-10-30, work-2; user: "Fix now, own commit (Recommended)"; MAJOR: silent wrong code; found 2026-10-30, work-2, review of the arm32 loads-and-stores step; reproduced on binate main `c8d407930`; pre-existing)
 
 - **Symptom:** an unprefixed data-processing operand that starts with `(` or a number and names `.` assembles as
   the bare addend: `mov r0, (.+8)` → `mov r0, #8` (`E3A00008`), `add r0, r1, 8+.` → `add r0, r1, #8`, `sub r0,
