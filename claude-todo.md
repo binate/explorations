@@ -347,8 +347,8 @@ arguments past disp32.  Stage 4d-3 landed (binate `b108193b0`): native aarch64 f
 assembler.  Stage 4d-4 landed (binate `f2264bbe4`): native arm32.  Stage 4d-5 landed (binate `842db9d45`): the
 RegMap's frame lookups return int64 (the int forms and FrameInt gone); stage 4d is done.  Remaining
 (plan-int64-layout.md): 4e field / element offsets and copy sizes DONE (binate `87830f726` common, `650f83fc5` x64, `b771afffa` aarch64, `3beb3cc38` arm32); 4c callconv's stack layout DONE (binate `e88c25dba`, `a171e6ddd`, `4b7288ed8`, `f0eedbd5d`
-+ `11a94b739`, `f57b123a5`); 4f-2 bss lengths and symbol offsets in int64 for a 32-bit host (in progress 2026-10-31,
-work-1); 5 VM / interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the
++ `11a94b739`, `f57b123a5`); 4f-2 bss lengths and symbol offsets in int64 for a 32-bit host: 4f-2a asm DONE
+(binate `2e4b91230`), 4f-2b link and 4f-2c the parser's directive bound open (work-1); 5 VM / interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the
 32-bit lane.
 The CI red from stage 4e (conformance 1718's 2 GiB copy on the LLVM x86-64 lanes, noted 2026-10-28 by work-3) is
 fixed: the copy is no longer staged on the stack (binate `bc9a35b70`).
@@ -462,6 +462,20 @@ is word-aligned; through the #[c_export] trampoline's CRET_ADAPT_SRET path the b
 1-aligned tuple such as `(int8, [3]int8, [3]int8)` (C sret, 7 bytes) at an odd address gets unaligned stores —
 a fault on strict-alignment bare metal.  Fix with the rest: decide by the buffer's guaranteed alignment
 (AlignOf of the tuple / result), not offset parity alone.
+
+### asm object writers silently truncate past 4 GiB: ELF32 section sizes and offsets, Mach-O section offsets, a data region in a zero-fill section — 🟡 IN PROGRESS (claimed 2026-10-31, work-1; user: "yes, after is fine") (found 2026-10-31, work-1, review of binate `2e4b91230`; pre-existing; by reading)
+
+Independent of the host's width:
+- The ELF32 writer's address-sized fields (`BinBuf.WriteAddr`, elf_util.bn) keep a value's low 32 bits, so a
+  held section of 4 GiB or more on a 32-bit target (sh_size, sh_offset) or e_shoff past 4 GiB is written
+  truncated.  (A zero-fill section's length is already capped at 4 GiB there, by countZeroFill.)
+- Mach-O section_64's `offset` and `reloff` (macho.bn) are 32-bit: past 4 GiB of regular content they are
+  written truncated.
+- A data region (`.data_region`, asm.BeginDataRegion) is accepted in a zero-fill section; on Mach-O its
+  data-in-code offset (`addr + Start`, 32 bits) is truncated past 4 GiB, and a huge region wraps the entry
+  count on a 32-bit host.
+Fix: each is an error (fail loud) where the value does not fit its field; a data region in a zero-fill section
+is rejected (it holds no instructions to keep a disassembler out of).
 
 ### asm Mach-O writer: init / fini / preinit arrays are rejected — map them to `__mod_init_func` / `__mod_term_func`? — 🔴 NEEDS DECISION (found 2026-10-15, work-2, review of the section-flags change)
 

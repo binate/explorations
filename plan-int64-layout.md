@@ -218,13 +218,21 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
      Section.Len (int) and a symbol after a 4 GiB object overflows Symbol.Offset (uint).  A data section's length
      always fits the host (its bytes are held), so only a zero-fill section's needs more, but one type for both
      keeps every reader honest.  Steps, each landed alone:
-     - 4f-2a. asm: Section.Len int64, Symbol.Offset / CurrentOffset / DefineLocalAt uint64, Zero / countZeroFill
-       in int64; every user (asm/*, elf, macho, the native backends) adapts, found by the compiler.  Indexing a
-       data section's bytes narrows its length fail-loud (it is always held, so never fails).
+     - 4f-2a. DONE `2e4b91230` (2026-10-31): asm Section.Len, MapMark.Offset and DataRegion.Start / End int64;
+       Symbol.Offset, CurrentOffset, DefineLocalAt and DefineAlias uint64; AtomStartAt and Zero int64.  A section
+       that holds its bytes narrows its length through asm.HeldLen (fails loud); a count that would take it past
+       the host's int is an assembler error, and the section and object-writer buffers' doubling no longer wraps
+       (buf.GrowCap).  Moved with it, because Zero's int64 count reached them: the ELF / Mach-O writers' sizes,
+       addresses and symbol values, the Mach-O atom lookups, the parser's label differences and aliases (its two
+       host-width alias checks gone), the native bss globals' zero runs (types.HostInt gone) and `.comm` /
+       `.lcomm` sizes (asm_common).
      - 4f-2b. link: InputSection.Size / OutOffset and symbol values uint64; a zero-fill input section sized
        without host memory.
-     - 4f-2c. native bss globals' zero runs from the type's int64 width (common_data_global's HostInt goes);
-       `.comm` / `.lcomm` (asm_common) and the parser's `.zero` / `.space` / `.skip` sizes in int64.
+     - 4f-2c. the parser's directive counts (`.zero` / `.space` / `.skip`, `.comm` / `.lcomm` sizes) are bounded
+       at 1 GiB by maxDirectiveBytes, whose comment gives two reasons: a larger count is more likely a typo, and
+       every count fits a 32-bit host's int.  The second no longer holds; whether a zero-fill section's
+       directives take more is a decision for the user.  (The bound's comment and parse_common's "a local
+       common's bytes are held in bss" are stale either way.)
      - Tests: sizes and offsets past 2^31 and 2^32 in asm / elf / macho / link unit tests, run on the
        builder-comp_arm32_linux unit-test lane (a 32-bit host, in docker here) as well as the 64-bit host.
    Order (revised 2026-10-18, after reading x64's helpers): 4d before 4e, so each backend helper's offset
