@@ -1,3 +1,28 @@
+### A host or native call of a VM function returning an aggregate left its result image on the VM stack — DONE (binate `dd403f9f8`, 2026-10-30, work-1; user: "then fix those next (you can batch them together before asking to land)"; landing: "wait 5 minutes, then go ahead")
+
+execFunc moved a retbuf-returning callee's result image down to the stack top it started from and left vm.SP past
+it; TrampolineAggregate, TrampolinePacked and CallFuncAggregate copied the image out and never put vm.SP back, and
+CallFunc's host could not, so every host call, and every call of a VM function value from compiled code, returning an
+aggregate kept the result's size of VM stack for good.  Resolution: execFunc leaves vm.SP where it found it and hands
+back the image where the callee left it, intact until the next push onto the VM stack; every caller reads or copies
+it before calling into the VM again (CallFunc's and CallByVMFunc's documentation says so).  Tests:
+TestCallFuncAggregateKeepsNoStack, the vm.SP checks in TestTrampolineAggregateCopiesMultiReturn.
+
+### A by-value aggregate was loaded in whole words past its end, on aarch64 and in x64's shims — DONE (binate `a692554f6`, `d1e3f86fa`, 2026-10-30, work-1; user: "then fix those next (you can batch them together before asking to land)"; landing: "wait 5 minutes, then go ahead")
+
+An aggregate passed or returned in registers, or a by-value user argument a closure / function-value shim loads
+through the pointer it is passed, was loaded as whole 8-byte words from a pointer that, for a load AggLoadElision
+reads in place, is the source: a 12-byte {int32 x3} read 4 bytes past its end, which faults when it ends where mapped
+memory does.  aarch64 (`a692554f6`): calls, returns, multi-value returns and every shim; loadAggWordAA64 loads a word
+no further than the aggregate's end (one load of a 4-, 2- or 1-byte last word, an LDUR of the 8 bytes ending at the
+end shifted right, or exact pieces for 3 to 7 bytes).  x64 (`d1e3f86fa`): calls and returns were already exact
+(loadWordBytesX64), but the shims and emitSseShimArgFromPtr's INTEGER eightbyte were not, and a shim copying an
+aggregate of more than 128 bytes on the stack copied its size rounded up to whole words; loadAggWordX64 (no temp
+register) and exact copy sizes.  Tests: both helpers' code; the closure and function-value shims for six shapes of a
+function value taking a 12-byte struct; a 132-byte stack copy; aarch64's `return *p` / `put(*p)` sites; and, end to
+end on macOS arm64, structs ending at an inaccessible page passed and returned through native code (each case faulted
+before).  Still open (todo): closure captures loaded in whole words past the closure struct.
+
 ### An instance's `sizeof` of a type not built yet: rejected in a `.bni`'s own declarations — DONE (binate `9b0fff72c`, 2026-10-30, work-7; user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]"; landing: "wait 5 minutes, then go ahead") (minor)
 
 While an importer builds a package's scope from its `.bni` (buildScopeFromFile, in declaration order, a constant after

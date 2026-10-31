@@ -97,29 +97,6 @@ onto the caller's stack and it is then copied into the local's region; the VM ha
 whose declaration stores its initializer whole (or emits the slot before evaluating it), and the VM gets call-result
 slots -- a call whose result is stored whole into a confined local is handed the local as its result's destination.
 
-### A host or native call of a VM function returning an aggregate leaves its result image on the VM stack — 🟡 MAJOR, IN PROGRESS (claimed 2026-10-30, work-1; user: "then fix those next (you can batch them together before asking to land)"; found 2026-10-30, work-1, review of the VM return-reservation fix; pre-existing; checked in code, not probed)
-
-execFunc (vm/vm_exec_helpers.bn) moves a retbuf-returning callee's result image down to the stack top it started from
-and leaves vm.SP past it (`savedSP = savedSP + ((sz + 7) & ~7)`, then `vm.SP = savedSP`), so its caller can read the
-image; TrampolineAggregate and TrampolinePacked (vm_trampoline.bn) and CallFuncAggregate (call_aggregate.bn) copy the
-image out and never put vm.SP back.  So each such call keeps the result's size, rounded to 8, of VM stack: a host, or
-a compiled program calling a VM function value, that calls a function returning a 32-byte struct in a loop would get
-"runtime error: stack overflow" after about 260,000 calls on an 8 MiB stack (inferred).  When native code called from
-bytecode calls back into the VM, the outer statement's SP_RESTORE reclaims it, but until then the image sits above
-that statement's reservation.  Proposed fix: each execFunc caller that reads a relocated image restores vm.SP to its
-value before the call once it has copied the image out.  Test: a VM unit test calling CallFuncAggregate, and a
-function value through TrampolineAggregate / TrampolinePacked, many times, checking vm.SP returns to where it started.
-
-### aarch64: an aggregate of at most 16 bytes returned in registers from in place is loaded in whole words, past its end — 🟡 MAJOR (latent), IN PROGRESS (claimed 2026-10-30, work-1; user: "then fix those next (you can batch them together before asking to land)"; found 2026-10-30, work-1, review; pre-existing; checked in code, not probed)
-
-aarch64_return.bn's in-register aggregate return loads ceil(size / 8) whole 8-byte words from the value's pointer
-(`aarch64.Ldr(a, true, argReg(ri), aarch64.MemImm(ptr, 8 * ri))`).  For a load AggLoadElision reads in place (at most
-16 bytes, word-aligned, nothing that writes in between) that pointer is the source, so `func get(p *S) S { return *p
-}` with `S{a, b, c int32}` (12 bytes) reads [p+8, p+16), 4 bytes past the object: a crash when the object ends at an
-unmapped page.  x64 loads exact widths (loadWordBytesX64); arm32's in-register case is one word of at most 4 bytes.
-Not checked: whether aarch64's by-value argument marshals read an in-place source the same way.  Proposed fix: load
-the last word at its exact width, as x64 does.  Test: a unit test pinning the loads of a 12-byte in-place return.
-
 ### Closure shims load captures from the closure struct in whole words, past the struct's end — 🔴 OPEN (minor, latent; found 2026-10-30, work-1, review of the shim over-read fix; pre-existing; checked in code, not probed)
 
 The closure struct (the record a capturing closure value points at, allocated by rt.Alloc at the struct's natural
