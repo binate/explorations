@@ -199,7 +199,7 @@ suites grew ~20% in the same span.**
   iropt/dom.bn, the rest of the VM's slot assignment (assignSlots; pickSlots is ~1.6%), the fault-pad cleanup
   emission in irgen, and the checker's requireFitting size walk (~0.7%).
 
-### checker_state.bn is at 488 of 500 lines: split the Checker struct into sub-structs — OPEN (filed 2026-10-30, work-3)
+### checker_state.bn is at 488 of 500 lines: split the Checker struct into sub-structs — 🟡 IN PROGRESS (claimed 2026-10-31, work-3; user: "let's split Checker first, then take on the other candidates") (filed 2026-10-30, work-3)
 
 pkg/binate/check/checker_state.bn is almost entirely the `Checker` struct declaration, so it cannot be split by
 moving declarations; adding a field (as `9beabc2bb` did, Checker.OpaqueFree) brings it closer to the 500-line cap.
