@@ -57,7 +57,7 @@ the `b T` form runs).
 
 ## MAJOR
 
-### A constant and a variable whose type's array length is the constant, the constant being the variable's length, pass the type checker, and IR-gen panics — 🔴 OPEN (MAJOR: an internal-error crash on an invalid program; found 2026-10-30, work-7, review of the `.bni` variables-and-functions change; reproduced on main at binate `9b0fff72c`; pre-existing)
+### A constant and a variable whose type's array length is the constant, the constant being the variable's length, pass the type checker, and IR-gen panics — 🟡 IN PROGRESS (claimed 2026-10-31, work-7/session; user: "Right after this commit (Recommended)") (MAJOR: an internal-error crash on an invalid program; found 2026-10-30, work-7, review of the `.bni` variables-and-functions change; reproduced on main at binate `9b0fff72c`; pre-existing)
 
 `const K = len(V)` with `var V [K]int` in a `.bn`, in either order, passes the checker with no error, and bnc then
 stops with "panic: internal error: IR generation cannot evaluate a constant the type checker accepted" (K first) or
