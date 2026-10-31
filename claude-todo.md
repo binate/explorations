@@ -57,6 +57,17 @@ the `b T` form runs).
 
 ## MAJOR
 
+### A constant and a variable whose type's array length is the constant, the constant being the variable's length, pass the type checker, and IR-gen panics — 🔴 OPEN (MAJOR: an internal-error crash on an invalid program; found 2026-10-30, work-7, review of the `.bni` variables-and-functions change; reproduced on main at binate `9b0fff72c`; pre-existing)
+
+`const K = len(V)` with `var V [K]int` in a `.bn`, in either order, passes the checker with no error, and bnc then
+stops with "panic: internal error: IR generation cannot evaluate a constant the type checker accepted" (K first) or
+"IR-gen has no type for the checker's <error> (compiler bug)" (V first).  It is a cycle: K is V's length, whose length
+is K.  The same declarations in a `.bni` are reported ("constant definition cycle involving `K`" and "array length
+must be a constant integer").  Root cause not traced: the batch resolves K on demand while V is collected, or V on
+demand (batchVarOnDemand) while K is resolved, and the read that closes the cycle is dropped without an error, leaving
+K with no value (compare the entry, done, on a constant cycle through a generic instance's field, binate `80f71625a`).
+Fix: report the cycle, once, with a conformance error test and a unit test for both orders.
+
 ### A type whose walk is still on the stack counts as prepared when a `sizeof` reads it by value: a valid program gets a wrong array length, and a layout cycle is accepted — 🔴 OPEN (MAJOR: valid programs compiled with a wrong array type, silently, and an invalid one accepted; found 2026-10-30, work-7, review of the slice-reach fix; reproduced on main; pre-existing)
 
 `type N struct { v int64; a [sizeof(M)]uint8 }`, `type M struct { s *[]D }`, `type D struct { n N; e *[]E }`, `type E
