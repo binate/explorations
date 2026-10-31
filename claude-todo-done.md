@@ -1,3 +1,38 @@
+### A `.bni`'s variables and functions named before their declarations, and a constant reached through a type argument, are rejected — DONE (binate `3fdd773a9`, 2026-10-31, work-7; user: "Separate commit after (Recommended)", then "wait 18 minutes, then land")
+
+Found 2026-10-30, work-7, review of the `.bni` on-demand resolution; minor (valid programs rejected); reproduced on main; pre-existing:
+In a `.bni`, with `type Bx[T any] struct { a [len(V)]uint8; t T }` and `type U struct { p *Bx[int64] }` before `var V
+[4]int`, building Bx[int64] is "array length must be a constant integer"; with `[len(f())]uint8` before `func f()
+[6]int`, also "undefined: f".  The same in a `.bn` prints 4 and 6: the batch defines a variable or a function an array
+length names on demand (batchVarOnDemand, batchFuncOnDemand), the `.bni` build only its constants (and its types, since
+binate `9b0fff72c`).  And `const S = sizeof(N)`, `type N struct { b Box2[M] }`, `type M struct { a [S]uint8 }`, `type
+Box2[T any] struct { p *T }` is "constant definition cycle involving `S`" and "array length must be a constant
+integer" (the `.bn` prints 8 8): the constant's pre-walk (collectTypeExprNames, check/bni_scope_const.bn) takes a type
+argument as held by value, though Box2 holds it through a pointer.  A real cycle is also reported with more errors
+than in a `.bn`: `const S = sizeof(Bx[int64])` with `type Bx[T any] struct { a [S]uint8; t T }` is a constant cycle
+and "array length must be a constant integer", where the `.bn` reports one cyclic type.  Also found by the review of
+the `.bni` on-demand resolution: a `.bni` constant `const S = len(f[int]())` (`func f[T any]() [3]int`) is no constant
+to an importer (`var a [q.S]int` is "array length must be a constant integer"; the `.bn` takes it); an alias inside a
+`sizeof` layout cycle (`type N struct { v int64; next *Box[X] }`, `type X struct { b A }`, `type A =
+[sizeof(X)]uint8`) is also "invalid recursive type alias A" with that resolution (main reports opaque-type errors),
+where the `.bn` reports only the cyclic type; and `var V [len(V)]uint8` is "array length must be a constant integer",
+where the `.bn` says "variable type cycle involving `V`". Fix: define them on demand as the batch does, walk a type
+argument as its generic holds it, and report what the `.bn` reports; unit tests for each.
+
+Landed as binate `3fdd773a9`.  A `.bni`'s variables and functions are defined on demand (bniVarOnDemand,
+bniFuncOnDemand), each a frame of its own undone when it reads a layout not built yet; a variable read while it is
+defined waits, or is a variable type cycle reported once, after which it has the error type.  The functions are
+defined in the scope the declarations resolve in (not over an import of the same name), and a call operand of `len`
+naming a function is typed in a `.bni` build (bniCallTyped; a method's call stays unchecked).  Pass 2 runs in the
+batch's order (resolveBniDecls, check/bni_scope_decls.bn): types, interfaces, functions and variables, then each type
+holding itself by value in declaration order (checkBniValueEmbedding), then the constants.  The pre-walk no longer
+walks type arguments or generic types, and a type counts as being resolved during its dependency walk.  A length
+poisoned in a `.bni` build is invalid, so its array is the error type, which checkBniVarMatch and checkBniSigMatch
+take as no mismatch.  Over 150 probes with a `.bn` twin report what the twin does, except the `.bn` crash on a
+constant-variable length cycle (MAJOR entry), member reads of later `.bni` types (open entry) and the order of two
+errors (as on main).  Tests: bni_scope_by_name_test.bn, bni_scope_decls_test.bn, check_decl_pass2_test.bn; conformance
+regressions/bni-var-func-named-early.
+
 ### Native backends copied a by-value aggregate argument read through a pointer twice — on arm32 three 1 GiB arguments passed the 4 GiB frame — DONE (binate `b7e477302`, 2026-10-31, temp-5; user: "For 5: yes, go ahead and take that next", then "wait 15 minutes, then land; let's discuss the questions one by one while we wait")
 
 Found 2026-10-28, work-1, int64 layout 4c-2's conformance test 1720; pre-existing:
