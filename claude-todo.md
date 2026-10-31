@@ -1116,6 +1116,22 @@ where the `.bn` reports only the cyclic type; and `var V [len(V)]uint8` is "arra
 where the `.bn` says "variable type cycle involving `V`". Fix: define them on demand as the batch does, walk a type
 argument as its generic holds it, and report what the `.bn` reports; unit tests for each.
 
+### A call in a `.bni` array length that needs a member of a `.bni` type — a method, a field of a type declared later, an interface's method, a composite literal of a later type — is rejected — 🔴 OPEN (minor: valid programs rejected; found 2026-10-30, work-7, review of the `.bni` variables-and-functions change; reproduced on main; pre-existing; user: "Separate entry, next (Recommended)")
+
+A `.bni` array length or constant may call a `.bni` function (with the change resolving a `.bni`'s variables and
+functions on demand), but not when the call needs a member: `const S = len(V.M())` with `type T struct { x int }`,
+`func (t T) M() [3]int`, `var V T` is no constant to an importer (`var a [q.S]int` is "array length must be a constant
+integer"; a `.bn` takes it); in a type's length, `[len(V.M())]uint8` is rejected, as are `[len(V.fn())]uint8` with V's
+struct type declared later ("cannot access field on this type"), `[len(I0.M())]uint8` with the interface I0 declared
+after it, and `[len(f(T{}))]uint8` with T declared later ("cannot use an opaque type by value", misleadingly: T is not
+resolved yet).  The importer's `.bni` build does not put the `.bni`'s methods on its types while its declarations are
+resolved (they are collected by the declaring package's check, collectMethodDecl), and resolves a later type or
+interface only where its layout is read (prepareBniType), not where its fields, its method set or a composite literal
+of it are; a method's call is left unchecked (bniCallTyped).  Fix: resolve them on demand as the batch's member reads
+do (check/check_member_read.bn, batchMethodOnDemand): put the `.bni`'s methods on a type when a selection needs one,
+and resolve a later type or interface when a member or a literal of it is needed; then type a method's call too.
+Tests: unit tests for each form, and a conformance test.
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
