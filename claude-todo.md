@@ -2821,14 +2821,6 @@ cap; the landed change leaves none.
 
 ## bnlint rules, unused-entity checks & lint skips
 
-### bnlint's managed-func-raw-capture misses function literals in a local `var ( … )` group — 🟡 IN PROGRESS (claimed 2026-10-30, temp-4; user: "Fix both first") (minor: a lint false negative; found 2026-10-30, temp-4, review of keeping one-member groups; pre-existing)
-
-`walkStmtFuncLits` (pkg/binate/lint/func_value_escape.bn) walks a declaration statement's `DeclRef.Value` only.
-A group's node has no Value, so its members' initializers are never walked: with `p` a raw pointer to a local,
-`var ( f @func() int = func() int { return p.N } )` is not flagged, though `var f @func() int = func() int {
-return p.N }` is.  A one-member group reaches it too once the parser keeps it as a group.  Fix: also walk each
-member of `DeclRef.Decls`; test it with a one-member and a two-member group.
-
 ### bnlint: flag a pointer-receiver method value on a composite literal (`S{…}.PGet`) — 🔴 OPEN (proposed 2026-09-30 by the review of the method-value fixes; decided: add later)
 
 A pointer-receiver method value on an addressable composite literal captures the

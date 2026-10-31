@@ -1,3 +1,12 @@
+### bnlint's managed-func-raw-capture missed function literals in a local `var ( … )` group — DONE (binate `29d724b22`, 2026-10-31, temp-4; user: "Fix both first (Recommended)", then "wait 4 minutes, then go ahead; then continue")
+
+A lint false negative (found 2026-10-30, temp-4, review of keeping one-member groups; pre-existing):
+`walkStmtFuncLits` (lint/func_value_escape.bn) walked a declaration statement's `DeclRef.Value` only, and a group's
+node has none, so `var ( f @func() int = func() int { return p.N } )` with p a raw pointer to a local went
+unflagged.  `walkDeclFuncLits` now walks the initializer and each member's.  Tests: a two-member and a one-member
+local var group, counting the diagnostics (the one-member test depends on the fix once the parser keeps a
+one-member group).  A bnlint built from the tree finds nothing new in the tree.
+
 ### A `.bni`'s variables and functions named before their declarations, and a constant reached through a type argument, are rejected — DONE (binate `3fdd773a9`, 2026-10-31, work-7; user: "Separate commit after (Recommended)", then "wait 18 minutes, then land")
 
 Found 2026-10-30, work-7, review of the `.bni` on-demand resolution; minor (valid programs rejected); reproduced on main; pre-existing:
