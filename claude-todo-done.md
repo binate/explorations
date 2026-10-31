@@ -1,3 +1,12 @@
+### asm arm32 stage 2e, part 2: LDRD / STRD and PLD / PLDW / PLI; the VFP encoders become asm/arm32/vfp -- DONE (binate `ef8444c43` and `e93b3d6fc`, 2026-10-30, work-2; user: "Peel VFP now (Recommended)", then "wait 5 minutes, then land")
+
+Ldrd / Strd and Pld / Pldw / Pli: exact encoders and their parser (parse/arm32_memd.bn), matching clang over ~900
+cases with byte-identical whole objects (R_ARM_LDRS_PC_G0 / R_ARM_LDR_PC_G0).  The review found three one-register
+LDRD differences (R12 on ARMv8, a PC-relative target, `$4` post-indexed), all fixed before landing.  The step took
+pkg/binate/asm/arm32.bni past its 1000-line cap, so the VFP encoders, their constants and tests moved to the
+sub-package pkg/binate/asm/arm32/vfp (arm32 exports Emit32 / CondOk / RegOk for it; the native backend's 28 files
+call vfp.*), reviewed as a faithful move.
+
 ### A call's large aggregate result kept in a local needed its size twice on the stack — DONE (binate `996f3c3d2`, `a341d6fca`, 2026-10-31, work-1; user: "yes" to fixing it now and to landing)
 
 `var r Page = get(&src)`, or `get(&src).b[i]` (IR-gen keeps the result in a temporary), with a 4.5 MiB result needed

@@ -20,7 +20,8 @@ forms it lacks".  User (2026-10-26): "Staged series, gating first (Recommended)"
    extend / extend-add, bitfield, reverse, select / pack / usad8, ldrd / strd, the T-forms, exclusives, pld / pli,
    barriers, hints, system (mrs / msr, cps, setend, srs / rfe, smc / hvc / eret, udf), coprocessor (mcr / mrc / mcrr
    / mrrc / cdp / ldc / stc), `blx <label>`; each gated.
-3. **VFPv3 / v4** (the FPU part of the model: `.fpu`, d16 / d32, fp16, vfp4, fp-armv8).
+3. **VFPv3 / v4** (the FPU part of the model: `.fpu`, d16 / d32, fp16, vfp4, fp-armv8), in the sub-package
+   asm/arm32/vfp (binate `e93b3d6fc`).
 4. **NEON** (incl. the v8 crypto forms).
 
 ## Stage 2: the complete A32 core
@@ -90,10 +91,14 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
   absolute address in clang, refused as for a branch); clang crashes on `ldrh r0, [pc]`, which bnas encodes.  The
   review also found bnas silently dropping `.` from a data-processing operand (`mov r0, (.+8)` was `mov r0, #8`):
   fixed, binate `b5000e152`.
-  Part 2 next: ldrd / strd in every addressing mode (Rt even, not r14, Rt2 = Rt + 1, as clang checks; `r12, sp`
-  taken; the single-register `ldrd r0, [r4]`; no shifted index; writeback with Rt / Rt2 as the base refused, "base
-  register needs to be different from destination registers"), and pld / pldw / pli (`pld .+8`, `ldrd r0, r1, .+8`
-  PC-relative too).
+  Part 2 DONE (binate `ef8444c43`): ldrd / strd (Rt even, below r14, Rt2 = Rt + 1, `r12, sp`; the one-register
+  form before a memory operand only, r12 there from ARMv8, no register post-index; clang's writeback-clash
+  messages) and pld / pldw / pli (unconditional, offset forms, PC-relative), ~900 cases and whole objects against
+  clang.  clang's gates kept: ldrd's offset and PC-relative forms from ARMv5TE but its writeback forms on any
+  architecture, pli from ARMv7, pldw with the MP extension.  It took arm32.bni past its 1000-line cap, so the VFP
+  encoders moved to the sub-package asm/arm32/vfp first (binate `e93b3d6fc`, user 2026-10-30: "Peel VFP now
+  (Recommended)"); arm32.bni is ~840 lines, so 2f..2j will likely need another class peeled (system /
+  coprocessor).
 - 2f. Exclusives and ordering: ldrex / strex (b, h, d), clrex, swp / swpb, the v8 acquire / release forms (lda / stl
   / ldaex / stlex families).
 - 2g. Block transfer: ldm / stm ia / ib / da / db, writeback, `^`, push / pop forms.
