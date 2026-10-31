@@ -1,3 +1,36 @@
+### An instance's `sizeof` of a type not built yet: rejected in a `.bni`'s own declarations — DONE (binate `9b0fff72c`, 2026-10-30, work-7; user: "let's take on all the open entries, starting with 4; then we can take on [T Eq[T]]"; landing: "wait 5 minutes, then go ahead") (minor)
+
+While an importer builds a package's scope from its `.bni` (buildScopeFromFile, in declaration order, a constant after
+the names its initializer mentions), a generic instance built meanwhile could not read a type or a constant that order
+had not reached.  With `type Box[T any] struct { a [sizeof(T)]uint8 }`, `type N struct { v int64; next *Box[N] }` was
+"an opaque type", and so was `p *Box[M]` before `type M`; with `type Bx[T any] struct { a [S]uint8; t T }`, `const S =
+sizeof(W[int64])` (`type W[T any] struct { v T; p *Bx[T] }`) and `type U struct { p *Bx[int64] }` before `const S = 5`
+were "array length must be a constant integer"; the same in a `.bn` compiles.  Resolution (binate `9b0fff72c`): the
+`.bni`'s types and constants are resolved on demand as the batch resolves a `.bn`'s (check/bni_scope_demand.bn): a
+type whose layout an instance reads (prepareLayout, prepareBniType), a constant an instance's build names
+(lookupDeclOnDemand, bniConstOnDemand).  Each declaration resolved on the way — a constant, a variable, a type or an
+alias — is a frame of its own, undone when it reads a layout not built yet, its name bound as before in both scopes
+(restoreBniBinding); a read of one being resolved makes a build started after it wait, and the flush's last round
+waits until no `.bni` declaration is being resolved (bniDeclResolving); a type being resolved, reached through a
+slice's element, is no opaque type.  Two reviews: the first found a variable or alias defined during a resolution that
+waited kept a wrong length (0 for 16, silently), the slice case, and the crash below; the second found the by-value
+cycle check, run inside a build that waited, dropped its error and voided the field anyway, so an invalid program was
+accepted and bnc crashed — nothing is prepared inside a build that waits now.  The `.bni` variables and the type
+pre-walk moved to check/bni_scope_by_name.bn.  Still open (todo): a `.bni`'s variables and functions named before
+their declarations, a false constant cycle through a type argument, a `len(f[int]())` constant, and diagnostics that
+differ from a `.bn`'s (the `.bni` minors entry); and, found along the way, the slice-reach miscompile (done, binate
+`7ebd47a44`) and a type whose walk is on the stack counting as prepared (MAJOR, todo).  Tests:
+check/bni_scope_demand_test.bn; conformance regressions/bni-instance-reads-later-decl.
+
+### A `.bni` type that holds itself by value, reached through an instance's `sizeof`, crashed the compiler — DONE (binate `9b0fff72c`, 2026-10-30, work-7; user: "Fold into .bni commit (Recommended)") (MAJOR: a compiler crash on an invalid program)
+
+`type Box[T any] struct { a [sizeof(T)]uint8 }`, `type N struct { v int64; p *Box[A] }`, `type A struct { b B }`,
+`type B struct { a A }` in `q.bni` made bnc exit with a segfault and no message; the `.bn` reports "recursive type".
+Building Box[A] read A's layout, and nothing checked the `.bni`'s types for holding themselves by value first.
+Resolution (binate `9b0fff72c`, with the `.bni` on-demand resolution): prepareBniType reports a type holding itself by
+value (checkTypeByValueCycle), which breaks the cycle, before the layout is read, and prepares nothing inside a build
+that waits already (where the error would be dropped).  Test: TestBniInstanceReadsTypeCycle.
+
 ### bnfmt's lone element in brackets leaves out what follows the close — DONE (binate `7f3478608`, 2026-10-30, temp-4; user: "take on the todos", "yes" to taking it next; landing: "yes, go ahead")
 
 printArgList (print_wrap.bn) measured a lone element after its opener with only the close after it: an element that
