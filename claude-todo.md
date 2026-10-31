@@ -330,40 +330,6 @@ so whether these programs are valid is not decided.  Decide: such cycles judged 
 a conformance error test), or per member (a struct's fields and an interface's methods resolved one at a time on
 demand, with tests).
 
-### A generic type's method copied onto an instance, after an earlier declaration built a type its result's length reads, keeps a zero length — a silent wrong type — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; MAJOR; found 2026-10-30, temp-5, review of the "method redeclared" fix; reproduced on main `2d98bc5f1`; fixed on main by binate `b770fccd4`, which landed before this entry was filed — the review's compiler predated it; a regression test for this shape not landed yet)
-
-```
-var g [sizeof(W[int64])]uint8
-type H[T any] struct { z T }
-var hv H[int64]
-func (h *H[T]) m() [sizeof(W[T])]uint8 { var r [sizeof(W[T])]uint8; return r }
-type W[T any] struct { v T; j *B[T] }
-type B[T any] struct { a [len(hv.m())]uint8 }
-func main() { var b B[int64]; testing.Println(len(hv.m()), sizeof(W[int64]), len(g), len(b.a)) }
-```
-compiles and prints `0 16 16 0`, where it should print `16 16 16 16`: H[int64]'s m returns `[0]uint8`, and B[int64]'s
-`a` is `[0]uint8`.  The same with `const S = sizeof(W[int64])` or `func early() [sizeof(W[int64])]uint8` as the
-early declaration; without it the program prints `16 16 16`, and with a non-generic receiver it is right.  With an
-interface `J[T any] { k() [len(hv.m())]uint8 }` in B's place, J[int64]'s k is `[0]uint8`: `var x
-[sizeof(W[int64])]uint8 = hv.m()` is "cannot assign [0]uint8 to [24]uint8", and an impl of J[int64] whose k returns
-`[sizeof(W[int64])]uint8`, declared before m, is "type Impl does not implement J[int64] (method `k` has wrong
-signature)" — the second error the "method redeclared" entry (binate fix pending, temp-5) listed; that fix's tests
-place the impl after m.  The early declaration builds W[int64] (and B[int64], whose length selects hv.m()) before
-collection reaches m.  Root cause not traced; binate `b770fccd4` fixed the sibling case where the copied signature
-reads W[int64] while it is built (`var Q [len(W[int64]{}.p.a)]uint8` after W).  Fix: trace where H[int64]'s copy of
-m (or B[int64]) keeps the length its build could not read; tests: the program above (each early form), and the
-regression program generic-iface-method-selects-copied-method with the impl before m.
-
-### A generic function's constraint naming a length that depends on a type parameter is not resolved at instantiation — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; a valid program rejected; found 2026-10-30, temp-5, review of the shadowing-bound fix; reproduced on main `2d98bc5f1`; pre-existing)
-
-`func outer[T Eq[[sizeof(U)]uint8], U any](t T) int`, with `interface Eq[T any] { eq(o T) bool }` and `impl *N :
-Eq[[8]uint8]`: `outer[*N, int64](&n)` is "type argument *N does not satisfy constraint Eq[[0]uint8]", and so is
-outer's forwarding call `inner[T, U](t)` to `func inner[V Eq[[sizeof(W)]uint8], W any]` ("… (in outer[*N, int64],
-instantiated at …)").  instantiateGenericFunc substitutes the abstract constraint (substituteTypeParams), which keeps a
-length depending on a type parameter at its placeholder, 0; checkInstantiationConstraints resolves a generic type's
-constraints with its parameters bound.  Fix: resolve a generic function's constraints for the type arguments the same
-way; tests: the call and the forwarding above.
-
 ### In a generic's own check, a constraint whose length depends on the generic's type parameter is judged with the placeholder length — valid programs rejected — 🔴 OPEN (a valid program rejected; found 2026-10-30, temp-5, reviews of the generic-function constraint fix; pre-existing)
 
 With `interface Eq[T any] { eq(o T) bool }`, `func inner[T Eq[[sizeof(U)]uint8], U any](t T) int`, `type G[T
@@ -459,43 +425,6 @@ should match clang the same way.  Before lowering it, check what relies on it wi
 64-bit globals in `__data` and ARM64_RELOC_UNSIGNED slots ld requires 8-aligned — native data globals request
 their alignment (EmitDataGlobal), so find anything else.  No null-entry hazard here (Mach-O rejects arrays).
 
-### bnld firmware-arm driver: `_sdata` / `_edata` / `__bss_start` / `__bss_end` are not word-aligned — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; found 2026-10-15, work-2, review of the ELF alignment change; latent: the driver is structure-checked, not booted)
-
-`drivers/firmware-arm.bn` defines the data / bss boundary symbols at dot with no `AlignDot(4)`, but a startup
-routine copies `.data` and zeroes `.bss` a word at a time between them.  The start symbols were 16-aligned only
-because the asm ELF writer over-aligned every section (no longer: a byte-only `.data` is 1-aligned, as clang's);
-the end symbols never were.  `runtime/baremetal_arm32/baremetal.ld` aligns them (`ALIGN(4)`).  Fix: align dot to
-4 before each boundary symbol, and check the driver's symbol values in its builder unit test.
-
-### bnld: an input symbol's ELF type is ignored — an IFUNC or TLS symbol, or a GNU_UNIQUE binding, is linked as an ordinary one — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; found 2026-10-15, work-2, scoping asm `.type`; latent)
-
-bnld's ELF reader (`readSymbols`, pkg/binate/link/parse_elf.bn) keeps st_info's binding and drops its type, so a
-symbol typed STT_GNU_IFUNC (`__attribute__((ifunc))`, glibc's static string functions) is linked as a plain
-function — a call reaches the resolver, not the function it returns — and an STT_TLS symbol as a plain address,
-both silently.  A binding of STB_GNU_UNIQUE (10) is none of local / global / weak.  Do: reject these inputs with an
-error naming the symbol until bnld implements them (IFUNC: an IRELATIVE relocation in a static link, or the
-symbol's type kept in a dynamic one; unique: as global, as ld.lld does).  An STT_TLS symbol is rejected already
-(binate `4d91dc223`), until the TLS series links it.  The asm can produce an IFUNC symbol once `.type` lands.
-
-### bnld Mach-O reader: a section type it does not handle is read as data — S_GB_ZEROFILL gets the header bytes — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; found 2026-10-17, work-2, review of the asm TLS change; latent)
-
-`machoSectionKind` (pkg/binate/link/parse_macho.bn) treats only S_ZEROFILL as zero-fill and every other section type
-as data or rodata, copying `size` bytes from the section's file offset.  A zero-fill section of another type has
-offset 0, so S_GB_ZEROFILL (0xc) and S_THREAD_LOCAL_ZEROFILL (0x12) get the object's Mach-O header as their
-contents, silently.  Types with linker semantics bnld does not implement are also taken as plain data: S_COALESCED
-(0xb, one copy kept across objects), the literal- and symbol-pointer and stub types (5–8, 0x10), S_INTERPOSING (0xd),
-S_DTRACE_DOF (0xf), the thread-local types (0x11–0x15) and S_INIT_FUNC_OFFSETS (0x16).  Fix: handle each type clang
-or ld64 can put in an object, or reject it with an error naming the section (the thread-local types are rejected
-already, binate `4d91dc223`).
-
-### asm Mach-O `@GOTPAGEOFF`: accepts STR / LDR D / PRFM, which ld64 refuses to link — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; found 2026-10-18, work-2, review of the asm `@TLVPPAGEOFF` change; loud at link time)
-
-The aarch64 parser takes `sym@GOTPAGEOFF` on every 8-byte transfer (`isa.GotSlotTransferOk`: LDR / STR of X or D,
-PRFM), as clang assembles them, but ld64 links ARM64_RELOC_GOT_LOAD_PAGEOFF12 only on an LDR (or ADD): `str x1,
-[x0, _d@GOTPAGEOFF]` fails with "relocation on non-LDR/ADD instruction".  ELF's `:got_lo12:` is fine with the
-whole set.  Fix: on Mach-O take only what ld64 links (check LDR D and PRFM against ld64 too), as `@TLVPPAGEOFF`
-takes only `ldr Xt` (binate, the `@TLVPPAGE` change).
-
 ### Thread-local storage in the assembler and bnld (the TLS series) — 🟡 IN PROGRESS (claimed 2026-10-17, work-2; user: "let's continue with the items on the list"; scope user 2026-10-09: "All, staged"; 2026-10-17: "All three arches (Recommended)")
 
 Nothing handles TLS today: the assembler rejects `.tdata` / `.tbss`, `%tls_object` and every TLS operator;
@@ -565,21 +494,6 @@ Fix: probe each guard-sized step of a large frame in the native prologues (touch
 give the LLVM backend's functions the matching "probe-stack" attribute, and decide the bare-metal behaviour (no
 guard page there).  Test: a recursion with a frame past the guard size that overflows must fault, not corrupt.
 
-### A variadic call's backing array is not size-checked — on a 32-bit target, two 1 GiB arguments end in an internal error, not "type is too large" — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; found 2026-10-27, work-1, review of int64 layout 4e-4; pre-existing; minor: fails loud)
-IR-gen builds a variadic call's backing array as `[n]T` (irgen/gen_variadic.bn) after the checker, which checks
-only the types the program writes (check_too_large.bn), so an `[n]T` past the target's maximum object size (spec
-type.layout.max-size; 2^31 - 1 on a 32-bit target) reaches layout, where types.Size() panics: "internal error: a
-type too large for the target reached layout (the checker rejects it)".  Every backend (the panic is in types);
-the host target compiles the same program.  Repro (`--target arm32-baremetal`):
-```
-type Big [1 << 30]uint8
-func use(xs ...Big) int { return len(xs) }
-func main() { var a Big; var b Big; _ = use(a, b) }
-```
-Fix: the checker rejects a variadic call whose packed arguments (n of the element type) pass the maximum object
-size, with the same "type is too large" error.  Test: conformance 1719 (binate `8b25f89ee`) expects that error on
-the five arm32 modes, xfailed there until the fix.
-
 ### Native backends copy a by-value aggregate argument read through a pointer twice — on arm32 three 1 GiB arguments pass the 4 GiB frame — 🔴 OPEN (found 2026-10-28, work-1, int64 layout 4c-2's conformance test 1720; pre-existing)
 `f(*p, *p, *p)` with f taking three by-value 1 GiB arrays: the native backends give each `*p` load its own frame
 region (emitAggLoad) and then copy it into the outgoing-args area, so the frame holds every argument twice.  With
@@ -590,16 +504,6 @@ a doubled frame.  Fix: elide the load's region when the loaded value only feeds 
 place, as AggLoadElision does for other uses), copying from the source to the argument slot.  Covered by conformance 1720 (binate `e320b4e07`),
 xfailed on the two native arm32 modes until the fix.
 
-### Array `==` / `!=` unrolls one comparison per element — a large array blows up compile time and IR size — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; found 2026-10-18, work-1, review of int64 layout stage 2; pre-existing)
-
-irgen/gen_eq_aggregate.bn emitAggregateEq compares an array element by element, fully unrolled in straight-line
-IR (its own TODO says so): `var a, b [1<<24]int; a == b` emits ~100M IR instructions, and `[1<<40]struct{}` (legal
-on a 64-bit target) never finishes compiling.  Fix: the loop form genArrayCopy uses (a counted loop over the
-elements with a bool accumulator slot), at least past a small element count; a conformance test comparing a large
-array (equal, and unequal at the last element).  An element of size 0 has no data, so such an array compares equal
-with no compare at all (review of int64 layout stage 3: `var a, b [1 << 16]E; a == b` with `E` a `struct {}` emits
-590k lines of LLVM IR, and conformance 1700's `Z` compared with `==` never finishes compiling).
-
 ### A struct `==` / `!=` unrolls every scalar leaf of nested structs — compile time exponential in the nesting depth — 🔴 OPEN, unclaimed (found 2026-10-30, temp-5, review of the array-equality loop; pre-existing)
 
 The array-equality change (a loop past 16 leaves) bounds an array's compare, not a struct's: `type S0 struct { a, b
@@ -608,18 +512,6 @@ int }`, `type Si struct { a, b S(i-1) }` and `x == y` on S14 emit 32768 `icmp eq
 is unrolled.  **Fix:** outline a per-type equality function past a leaf budget (memoized per type, linkonce as the
 copy helpers are — `genArrayCopy` / `ensureArrayCopy`), called from the compare; a unit test on the IR size of a
 deep nest and a conformance test.
-
-### `var s [N]char = "…"` emits per-byte IR for the whole array — a large array blows up compile time and IR size — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; found 2026-10-18, work-1, int64 layout stage 3; pre-existing)
-
-codegen/emit_strings.bn lowers OP_RODATA_ARRAY by storing every byte of the `[N x i8]` slot one at a time
-(emitInlineByteStores, the zero-padding tail too), then loads the slot as an SSA `[N x i8]` value, which the store
-to the variable decomposes again leaf by leaf (an OP_RODATA_ARRAY is not a memory-backed bulk value,
-emit_bulk_value.bn): `var s [20000]char = "hi"` emits ~100k IR lines (40k GEPs + byte stores, 20k extractvalues +
-stores).  The native backends' lowering is unchecked.  Fix: store the literal's bytes, zero the tail with one bulk
-zero-fill (emitMemZero), and make the value memory-backed (or have IR-gen store into the variable's slot
-directly); a conformance test with a large zero-padded array.  Past 2^31 bytes (a 64-bit
-target) int64 layout stage 3 (`651ea270e`) made it the internal error "an aggregate too large for i32
-offsets is emitted leaf by leaf".
 
 ### No CI lane runs the LLVM arm32 bare-metal mode at -O2 — 🔴 OPEN (raised 2026-09-30, work-1; awaiting a user decision)
 
@@ -995,13 +887,6 @@ and relocation are `.Ltmp2`, bnas's `.Ltmp0`.  bnas numbers only the generated l
 `.Ltmp2`).  **Fix:** number generated labels as clang numbers its temporaries, probed against clang where a
 listed one follows unlisted ones (numeric labels, pool entries, `.` labels).
 
-### asm aarch64 Mach-O: `adrp x0, .@PAGE` / `add x0, x0, .@PAGEOFF` are rejected — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; found 2026-10-28, work-2, the review of the arm32 `:lower16:` work)
-
-bnas: "unexpected token after an operand (expected ',' or end of line)" at `.@PAGE`.  clang (`--target=arm64-apple-macos`)
-takes both: ARM64_RELOC_PAGE21 against the function's symbol and ARM64_RELOC_ADDEND 0x4 + ARM64_RELOC_PAGEOFF12 for
-the `add` (`.` made a symbol plus addend).  **Fix:** let a `@PAGE` / `@PAGEOFF` suffix follow `.` (and `. ± N`) as it
-follows a name, checked against clang's relocations.
-
 ### asm: two general differences from clang — a symbol defined nowhere needs `.global`, and a constant cannot be used before its definition — 🔴 OPEN, unclaimed (found 2026-10-28, work-2, the arm32 2a review's probe lists)
 
 (a) A reference to a symbol the file never defines (`b R0`, `bl SL`, `ldr r0, K`) is an error in bnas ("undefined symbol
@@ -1015,19 +900,6 @@ first — (a) may be deliberate (it catches a misspelt name) — then match clan
 behaves the same with `=`, checked against the bnc-0.0.17-pre3 bnas): `b K` then `.set K, 4` is rejected ("a constant
 must be defined before use"), and on Mach-O a forward `.set D, l2 - l1` between non-temporary labels is rejected
 ("…different sections or atoms is not a number"), where clang folds it to 8.
-
-### Unit tests: a check that fails with an empty message passes — `return fail(x.ErrorMsg)` when no error was set — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; MAJOR: tests that report green while their check fails; found 2026-10-30, temp-5, review of the asm `;` separator)
-
-A `testing.TestResult` is a string, "" a pass, and every test package's `fail(msg)` helper returns msg as it is.
-A check that expects an error and reports the error text (`if !x.HasError || !contains(x.ErrorMsg, …) { return
-fail(x.ErrorMsg) }`) therefore PASSES when no error happens at all: the message is empty.  It hid a real break —
-asm/parse's TestParseLineStrayCharacterIsFatal stayed green after `;` became a statement separator on x86-64
-(the line assembled, ErrorMsg was "", the test passed).  293 `return fail(<a message or error variable>)`
-sites in 81 test files (most in pkg/binate/asm/*, also link, native/*, irgen, check, codegen, iropt, types/abi)
-can do the same whenever the variable can be empty on the failing path.  **Fix:** make each package's `fail`
-(65 of them, one per test package) never return "": an empty msg becomes a fixed "check failed (empty failure
-message)"; then run every changed package's tests and root-cause whatever turns red — those are checks that
-have been failing silently.
 
 ### asm aarch64: a memory offset of a `.` or label difference differs from clang — 🔴 OPEN, unclaimed (found 2026-10-30, temp-5, review of the `.@PAGEOFF` memory-offset change; pre-existing for the `#` spellings)
 
@@ -1053,13 +925,6 @@ ld64 lists it as `[referenced dynamically] external`.  Only a lookup by name (dl
 **Fix:** list it in `buildMachoSymtab` with REFERENCED_DYNAMICALLY (0x10) in n_desc, as ld64 does, checked with
 `nm -m` against an ld64-linked executable.
 
-### asm: `.set` / `.equ` (and `.equiv` / `.eqv`) are unknown directives — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; found 2026-10-27, work-2, the arm32 data-processing harness)
-
-bnas defines a constant only as `name = expr`.  clang also takes `.set name, expr` and `.equ name, expr` (probed on arm32:
-`.equ K, 4` / `add r0, r1, #K` is E2810004 in clang, "unknown directive" in bnas), and has the related `.equiv`
-and `.eqv`; bnas knows none of them on any architecture.  **Fix:** the directives in `parse_directive.bn` on top of
-the `=` path (`parseConstDef`), each probed against clang first (`.equiv` redefining a name, `.eqv`'s evaluation).
-
 ### asm ELF: two layout differences from clang — an instruction in a data section, and arm32 `bl` to a local label — 🔴 OPEN, unclaimed (found 2026-10-26, work-2, comparing arm32 objects with clang's for the `.ARM.attributes` work)
 
 With `.ARM.attributes` matching, bnas's arm32 objects are byte-identical to clang's (`arm-linux-gnueabihf` /
@@ -1070,12 +935,6 @@ the same section is resolved by bnas; clang keeps an R_ARM_CALL / R_ARM_JUMP24 r
 which then stays in the symbol table — so the linker can interwork or add a veneer (`b` / `b<cond>` match: resolved
 by both).  The assemble tests compare those objects by their symbols only.  **Fix:** decide each with the user
 (clang's choice, or keep bnas's), then follow it and make the cases full-layout goldens.
-
-### asm text: `;` as a statement separator — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; found 2026-10-27, work-2, review of the arm32 data-processing step)
-
-clang takes `;` between statements on one line in ARM code (`add r0, r1; nop`); bnas's lexer rejects the line.  Probe
-which targets clang takes it on (ARM; AArch64 and x86-64 may differ — on some, `;` starts a comment or separates as
-well), then split statements in prepareLine / parseLine as clang does.
 
 ### asm text: string escapes and directive-name case differ from clang — 🔴 OPEN, unclaimed (found 2026-10-26, work-2, review of the `.ARM.attributes` change)
 
@@ -1112,16 +971,6 @@ a pool entry able to carry a difference not fixed there, emitted as the data dir
 (emitMachoDifference).  Related, for the data directives too: clang folds the backward `_f: nop` / `_e: ret` /
 `.quad _e - _f` with `.subsections_via_symbols` (the word 4), where bnas (fixedDistance's subsections rule) writes
 a SUBTRACTOR pair; check that rule against clang on each architecture before changing either.
-
-### arm32 assembler: condition codes and some register fields are silently masked — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; found 2026-09-25 by the T6 b1 review; work-4's 2026-09-25 claim released 2026-10-12 — nobody is on it)
-
-(The Operand2 path, register-offset memory shifts and operand registers, and the clang alias substitutions are
-fail-loud / clang-faithful since `54592d56d`, `889e56d0f` and `b26005483`, see the done log.)  Still silent,
-re-checked 2026-10-12: (b) `condBits` (`arm32.bn`) masks `cond & 0xf` for every encoder: cond 16 silently
-becomes EQ, cond 15 lands in the unconditional space (a different instruction).  (c) `Bx`, `Blx`, `Mul` and
-`Mla` (`arm32_branch.bn`) mask register numbers `& 0xf` with no validation (MOVW/MOVT and the VFP core
-transfers were not re-checked).  **Fix:** validate `cond` in `condBits`; reuse `isCoreReg` in those encoders;
-golden bnas-vs-clang tests.
 
 ### native: folded-away values still get PlanFrame slots — 🔴 OPEN, unclaimed (work-4's claim, riding the T6 LinearScan step, released 2026-10-12) (found 2026-09-25; the dispatcher silent-return part DONE binate `d9e2d82b3`, see the done log)
 
@@ -1223,17 +1072,6 @@ on main at binate `b770fccd4`).
 Fix: report a cycle once, e.g. a read
 that cannot wait builds the waiting instance for the last time first, so the cycle is reported where it closes and
 the read finds a built layout; unit tests for each form.
-
-### A generic interface's method that selects a generic type's method, whose signature builds an instance naming the interface, is a false "method redeclared" — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; a valid program rejected; found 2026-10-29, work-7, review of the copied-method zero-length fix; reproduced on main; pre-existing)
-
-`interface J[T any] { k() [len(hv.m())]uint8 }`, `type H[T any] struct { z T }`, `var hv H[int64]`, `func (h *H[T])
-m() [sizeof(W[T])]uint8 { … }`, `type W[T any] struct { v T; j *J[T] }` is "method m redeclared on type H" at m's
-declaration; with J declared after m, and an `impl *Impl : J[int64]` whose k returns `[16]uint8`, it is that and "type
-Impl does not implement J[int64] (method `k` has wrong signature)".  With m's signature not building W (`[8]uint8`)
-both compile, J generic or not.  Root cause not traced; a guess: m is defined on demand while J's instance is built
-and W[int64] is not, the definition is taken back (undoBatchMethods) without its method on H's placeholder
-(collectGenericMethodDecl's AddMethod), and collection's own definition then finds it there.  Fix: trace it, and take
-back what the on-demand definition added, with a unit test for both forms.
 
 ### At the REPL, a statement whose build reads a declaration or a method copy still being resolved does not wait for it — 🔴 OPEN (minor: a valid statement at the prompt rejected; found 2026-10-29, work-7, review of the method-copy wait; from reading the code, not reproduced; pre-existing)
 
@@ -2729,25 +2567,6 @@ immediate starts only at a digit or `-` (`parseX64Operand`, `pkg/binate/asm/pars
 
 ## bnld (self-hosted linker)
 
-### bnld dynamic Mach-O: `__mh_execute_header` is not defined — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; minor; found 2026-10-11, work-2, review of the Mach-O constructors change; pre-existing)
-
-ld64 defines `__mh_execute_header` (C `_mh_execute_header`) as the executable's Mach-O header — the address
-bnld gives `___dso_handle` (`LinkDynMacho`, `machoDynHeaderAddr`).  bnld does not define it, so a reference
-becomes a dynamic import dyld cannot bind (a load failure) or, for a direct ADRP reference, a link error.  Fix:
-define it in `LinkDynMacho` as `___dso_handle` is (`referencedNotDefined` → `withImageSym` → `setAbsValue` to the
-header address), with a unit test alongside `TestLinkDynMachoInitFuncAndDsoHandle`.
-
-### bnld dynamic Mach-O: llvm-objdump rejects the rebase table ("bad segIndex (too large)") — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; minor, tools only; found 2026-10-11, work-2, review of the Mach-O constructors change; pre-existing)
-
-`llvm-objdump --macho --rebase` on a bnld-linked dynamic Mach-O stops with "truncated or malformed object (for
-REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB bad segIndex (too large) for opcode at: 0x1)", though dyld loads and
-rebases the same binary correctly (e2e `bnld-macho-dynamic.sh`).  Cause unknown.  One difference from ld64's
-output: bnld's dynamic writer (`EmitDynMachoExec`) writes `section_64` records only for `__mod_init_func` /
-`__mod_term_func`, none for `__TEXT`'s `__text` / `__stubs` / `__const` or `__DATA`'s `__data` / `__got` /
-`__bss`, where ld64 writes one per section.  Fix: find the check in llvm's MachOObjectFile that fails, then make
-the output satisfy it (most likely a record per output section, as ld64 writes, which also lets otool / lldb
-name the sections of bnld output).
-
 ### bnld's Mach-O reader has no general section-relative (non-extern) reloc support — 🟢 ENHANCEMENT
 
 `parse_macho` resolves only EXTERN (symbol-indexed) relocations; a non-extern
@@ -2820,13 +2639,6 @@ st.Funcs and comparing each instance's type arguments (typeListsIdentical), so a
 O(n^2) comparisons.  The tree's largest package drain checks 93 instances, so it does not show today.  Checking 16384
 instances of conformance 090's fan-out family (24.6 s natively), funcInstance with IdenticalStrict and ResolveAlias under it were over half of
 the samples.  Fix: index the instances by declaration and type arguments.
-
-### The lexer builds its comment list with slices.Append — quadratic in a file's comments — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive) 🟢 LOW (found 2026-10-19, temp-4, review of the builtin-opener fix; pre-existing)
-
-`pkg/binate/lexer/scan.bn` appends each comment to `l.comments` with `slices.Append`, which copies the
-list every time: a comment-collecting lex (bnfmt) of a file with 160k comments takes ~90 s.  Real files
-have a few hundred.  Build it in a vec, as the parser's builtin records are (binate `fd8e5836b`); the
-lexer's Save / Restore would keep the vec's length and pop back to it.
 
 ### bnfmt's time grows exponentially with the nesting depth of function literals — 🟢 LOW (found 2026-10-19, temp-4, review of the rendering cache; calls and composites fixed in binate `922992893`)
 
@@ -2965,23 +2777,6 @@ closures that all return 2.  Flag a capturing `*func` literal or method value in
 loop whose value is stored into a variable, element or field declared outside the loop
 body (or otherwise outlives the iteration), pointing at `@func` for independent
 closures.
-
-### bnlint: flag `bit_cast` of a function literal to a raw or named-raw function-value type — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; proposed 2026-09-30 by the review of the cast-operand hint fix; decided: add later)
-
-`bit_cast` reinterprets its operand as it is typed (`conv.bit-cast`), so it gives a
-function literal no destination hint: `bit_cast(*func(int) int, func(x int) int {…})`
-makes the literal a heap `@func` statement temporary and reinterprets it as a raw
-closure that dangles after the statement.  Flag it, pointing at `cast` (which makes
-the literal a frame closure).
-
-### bnlint: flag an `@func` temporary borrowed by a `*func` destination past its statement — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; proposed 2026-09-30 by the review of the cast-operand hint fix; decided: add later)
-
-`var h *func(int) int = cast(@func(int) int, func…)` or `= mk(7)` (with
-`mk` returning `@func`) borrows a statement temporary as a raw `*func`; the temporary
-is released at the end of the statement and `h` dangles (user error per the
-memory-management rules — the compiler does not extend the temporary).  Flag a
-`*func` variable / field / element initialized or assigned from an `@func`-typed call
-result or cast that is not otherwise owned.
 
 ### Raw-slice escape: decide whether a BROADER best-effort escape lint is wanted — 🟡 NEEDS DECISION
 The original framing ("demote the raw-slice escape TYPE ERROR to a linter rule")
@@ -3571,17 +3366,6 @@ var cb Cell[int]                             cannot assign int8 to int (in Cell[
 - Related: the entry above (an incompatible redefinition of a generic method a sibling still calls).
 - Needs: the user's rule for what an existing instance is checked against when a method is added; then the fix, with
   a repl test of this session.
-
-### A constraint instance naming a type parameter that shadows a predeclared type compares equal to the predeclared one's — 🟡 IN PROGRESS (claimed 2026-10-30, temp-5/session, self-drive; MINOR; found 2026-10-16, work-6, review of the Self-constraint proposal; reproduced; pre-existing)
-
-`func inner[U Eq[int]](u U) int`, `func outer[int any, T Eq[int]](t T) { report(inner[T](t)) }`: the declaration
-check accepts `inner[T]`.  typeSatisfiesConstraint's type-parameter arm (check/check_generic.bn) compares T's bound
-`Eq[<outer's int>]` with `Eq[<predeclared int>]` by Pkg and Name, and an instance's Name is its mangled name
-(`Eq[int]`), which prints a type parameter bare.  `outer[bool, S]` (with `impl S : Eq[bool]`) is then rejected
-only by the per-instance check ("type argument S does not satisfy constraint Eq[int] (in outer[bool, S], …)"),
-and an `outer` that is never instantiated is accepted.  No wrong code.  Fix: compare instance interfaces by their
-generic declaration and type arguments, not by mangled name; isDescendantInterface and implCoversInterface compare
-the same way.
 
 ### `readonly T` does not satisfy T's constraint, though `readonly int` satisfies `int`'s — 🔴 NEEDS DECISION (found 2026-10-16, work-6, review of the Self-constraint proposal; reproduced; pre-existing)
 
