@@ -57,7 +57,7 @@ the `b T` form runs).
 
 ## MAJOR
 
-### A type declared in full twice is accepted when one declaration is in a `type ( … )` group: the later one is silently dropped — 🔴 OPEN (MAJOR: an invalid program accepted, a definition silently ignored; found 2026-10-30, temp-4, review of keeping one-member groups; reproduced with bnc-0.0.17-pre3 and with a bnc built from main `d1e3f86fa` plus the one-member-group parser change, which does not touch the reproducer; pre-existing)
+### A type declared in full twice is accepted when one declaration is in a `type ( … )` group: the later one is silently dropped — 🟡 IN PROGRESS (claimed 2026-10-30, temp-4; user: "Fix both first") (MAJOR: an invalid program accepted, a definition silently ignored; found 2026-10-30, temp-4, review of keeping one-member groups; reproduced with bnc-0.0.17-pre3 and with a bnc built from main `d1e3f86fa` plus the one-member-group parser change, which does not touch the reproducer; pre-existing)
 
 `checkTypeRedeclFrom` (pkg/binate/check/check_type_redecl.bn) compares each full type declaration only with the
 earlier entries of the same list, and it recurses into a group with the group's member list, so a group member is
@@ -2774,7 +2774,7 @@ cap; the landed change leaves none.
 
 ## bnlint rules, unused-entity checks & lint skips
 
-### bnlint's managed-func-raw-capture misses function literals in a local `var ( … )` group — 🔴 OPEN (minor: a lint false negative; found 2026-10-30, temp-4, review of keeping one-member groups; pre-existing)
+### bnlint's managed-func-raw-capture misses function literals in a local `var ( … )` group — 🟡 IN PROGRESS (claimed 2026-10-30, temp-4; user: "Fix both first") (minor: a lint false negative; found 2026-10-30, temp-4, review of keeping one-member groups; pre-existing)
 
 `walkStmtFuncLits` (pkg/binate/lint/func_value_escape.bn) walks a declaration statement's `DeclRef.Value` only.
 A group's node has no Value, so its members' initializers are never walked: with `p` a raw pointer to a local,
