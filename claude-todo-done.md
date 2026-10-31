@@ -1,3 +1,18 @@
+### bnas arm32: a data-processing operand naming `.` without `#` dropped the location -- `mov r0, (.+8)` was `mov r0, #8` -- DONE (binate `b5000e152`, 2026-10-30, work-2; user: "Fix now, own commit (Recommended)")
+
+MAJOR, silent wrong code, found by the review of the arm32 loads-and-stores step: parseArm32Operand's unprefixed
+numeric branch made an immediate of a result relative to `.`, keeping only its addend (`add r0, r1, 8+.` was `add r0,
+r1, #8`).  It now refuses it, as clang does; an operand starting with `.` takes the same path, so `.-lbl` is the
+number it comes to (clang's reading; bnas had refused it).  Test: TestArm32DataProcLocationRefused.
+
+### asm arm32 stage 2e, part 1: loads and stores exact, the T forms -- DONE (binate `fc4a352de`, 2026-10-30, work-2; user: "Land both now")
+
+LDR / STR / LDRB / STRB, LDRH / STRH / LDRSB / LDRSH and LDRT .. LDRSHT: exact encoders (arm32_mem.bn,
+arm32_memh.bn), clang's checks (writeback with Rt as the base, LDRB / STRB's PC without writeback, the T forms'
+operands), the negative zero as SubIndex on a zero offset; parseArm32LoadStore with clang's spellings (unprefixed
+offsets, `#lbl` targets, `.`-relative targets, the halfword `$4` post-index).  ~4,100 cases against clang; the
+kept differences are in plan-asm-arm32-isa.md.  The review's parser findings were fixed before landing.
+
 ### Instance-check diagnostics: an instance formed through a generic struct's field is placed at that field, with no `via` — DONE (no longer reproduces; checked 2026-10-30, temp-5; found 2026-10-16, work-5, review of the generic-type method-signature sizing)
 
 An instance formed through a generic struct's field (`Outer[Opaque]` with a field `b Bx[T]`) was reported as

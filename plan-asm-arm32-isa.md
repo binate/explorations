@@ -79,13 +79,21 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
   a pack's amount, SVC / BKPT, MOVW / MOVT, shift-instruction amounts, branch / ADR targets): no `-`, `+` or `~`
   at the start without `#` / `$`, and a negative zero (`#-0`, `#-1+1`) out of range, ADR's SUB form; and makes
   SVC / BKPT refuse a label difference.
-- 2e. Loads and stores: ldr / str / ldrb / strb, ldrh / strh / ldrsb / ldrsh, ldrd / strd in every addressing mode
-  (immediate, register, scaled register, pre / post-index, writeback, literal), the T forms, pld / pldw / pli.
-  From the 2a review: a label difference as a post-indexed immediate (`ldr r0, [r1], #b-a`) is taken by bnas;
-  clang: "invalid instruction".  An offset written as a 32-bit pattern (`ldr r0, [r1, #K]`, K = 0xFFFFFFFF) is an
-  error in bnas ("magnitude must fit 4095"); clang reads it as -1.  From the 2d review: clang's memory offset
-  takes a negative zero as a subtract (`ldr r0, [r1, #-0]` and `#-1+1` are E5110000, U = 0; post-index and
-  ldrh / ldrd the same) -- check bnas.
+- 2e. Loads and stores, in two parts.  Part 1 DONE (binate `fc4a352de`): ldr / str / ldrb / strb, ldrh / strh /
+  ldrsb / ldrsh and the T forms, exact (arm32_mem.bn, arm32_memh.bn) and parsed by parseArm32LoadStore, ~4,100
+  cases against clang; the negative zero (U clear), unprefixed offsets, `#lbl` targets, the writeback-clash
+  messages, and the 2a review's post-indexed label difference (now refused) are in.  Kept differences (user
+  2026-10-30, "Land both now" over "Change `[r1, N]` first"): `ldr r0, [r1, N]`, N a constant, is the offset N
+  (clang: "register expected"); an offset is the number written (clang cuts it to 32 bits: a halfword's post-index
+  takes `#0xFFFFFFFF` as -1, and `#-4294967296` is a negative zero); a `#` target on a conditional halfword load
+  (`ldrheq r0, #lbl`, which clang refuses, bnas takes); a label difference as a target (`ldr r0, lbl-.`, an
+  absolute address in clang, refused as for a branch); clang crashes on `ldrh r0, [pc]`, which bnas encodes.  The
+  review also found bnas silently dropping `.` from a data-processing operand (`mov r0, (.+8)` was `mov r0, #8`):
+  fixed, binate `b5000e152`.
+  Part 2 next: ldrd / strd in every addressing mode (Rt even, not r14, Rt2 = Rt + 1, as clang checks; `r12, sp`
+  taken; the single-register `ldrd r0, [r4]`; no shifted index; writeback with Rt / Rt2 as the base refused, "base
+  register needs to be different from destination registers"), and pld / pldw / pli (`pld .+8`, `ldrd r0, r1, .+8`
+  PC-relative too).
 - 2f. Exclusives and ordering: ldrex / strex (b, h, d), clrex, swp / swpb, the v8 acquire / release forms (lda / stl
   / ldaex / stlex families).
 - 2g. Block transfer: ldm / stm ia / ib / da / db, writeback, `^`, push / pop forms.
@@ -97,12 +105,9 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
   cps, setend, srs / rfe, nop / yield / wfe / wfi / sev / sevl / dbg / csdb / esb, dmb / dsb / isb with options,
   sb, ssbb / pssbb, setpan, hlt.
 - 2j. Coprocessor: mcr / mrc (and 2), mcrr / mrrc (and 2), cdp (and 2), ldc / stc (and 2, L).
-- Exact encoders, per step (user 2026-10-29: "Per step (Recommended)"): `condBits` takes `cond & 0xf` and many
-  encoders `r & 0xf`, so a bad value from a caller is mis-encoded silently; each step makes its class's encoders
-  check their condition and registers instead (2b's arm32_mul.bn does).  The landed 2a / 2a2 encoders (emitDP,
-  Movw / Movt: registers checked, condition not) go with 2c; arm32_branch.bn's CLZ and extends with 2d,
-  arm32_mem.bn with 2e, arm32_ldm.bn with 2g, the rest of arm32_branch.bn with 2h, arm32_sys.bn with 2i,
-  arm32_vfp.bn with stage 3.
+- Exact encoders: DONE for every encoder.  The steps through 2e made their classes' encoders check their condition
+  and registers; binate `d90f4ce8c` (temp-5, a separate todo) did the rest -- arm32_branch.bn, arm32_ldm.bn,
+  arm32_sys.bn, arm32_vfp.bn -- and `condBits` no longer masks.  Later steps keep each new encoder so.
 - Outside the steps, found by the 2d reviews (bnas and clang differ; none is yet assigned):
   - A quoted register (`add "r0", r1, r2`, `clz "r0", r1`) is taken by bnas -- the Rd parse does not check that the
     token is a name; clang: "operand must be a register".
