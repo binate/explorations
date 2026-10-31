@@ -68,6 +68,28 @@ demand (batchVarOnDemand) while K is resolved, and the read that closes the cycl
 K with no value (compare the entry, done, on a constant cycle through a generic instance's field, binate `80f71625a`).
 Fix: report the cycle, once, with a conformance error test and a unit test for both orders.
 
+### A constant read while a variable's type is found, though that type does not depend on it, is resolved without a value for good: valid programs crash in IR-gen or are rejected — 🔴 OPEN (MAJOR: valid programs crash the compiler; found 2026-10-31, work-7, review of the constant-variable length cycle fix; reproduced on main at binate `3fdd773a9`; pre-existing)
+
+`func f(x int) [3]int`, `var V [len(f(K))]int`, `const K = len(V)` is valid -- V's length needs only f's result type,
+so V is `[3]int` and K is 3 -- but bnc panics in IR-gen ("IR generation cannot evaluate a constant the type checker
+accepted"); so does K read in a function literal's body in V's length (`var V [len(func() [3]int { var a [3]int; _ =
+K; return a }())]int`).  An array length reading K elsewhere (`var Z [K]int`, `type T [K]int`, a local `var a [K]int`,
+`const J = sizeof([K]int)`) is silently the error type too.  Variants rejected with an error instead: `var V
+[len(W)]int; type S struct { a [3]int; k int }; var W = S{k: K}.a; const K = len(V)` is "variable type cycle involving
+`V`" (W's type does not depend on K), and `const K = len(bit_cast([3]int, V)); var V [K]int` is "bit_cast requires the
+source and target to be the same size" (V's size is not known yet).
+
+Cause: V's array length resolves K on demand while V's type is being found, and K's `len(V)` reads V's placeholder
+(check_var_placeholder.bn), so K is resolved without a value -- recorded resolved (ConstResolved), POISONED -- and
+stays so once V has its type.  The constant-variable length cycle fix (in progress, not landed yet) records such a
+constant's variable (noteConstPoisoner) and blames it only while its placeholder stands, so these are not reported as
+V's cycle; its check_var_placeholder_test.bn TestVarTypeCycleConstReadInLengthArgNotCycle pins only that.  Fix:
+resolve such a constant again once the variable has its type -- undo its resolution (its binding, ConstResolved, what
+its check recorded on its syntax) when the variable is defined with a type, as a layout frame that waits is undone, or
+treat it as not known yet while the placeholder stands -- and judge an operand whose type is a placeholder in a check
+like bit_cast's sizes as an error reported; conformance regressions/const-read-in-var-length-call-arg (xfailed until
+then) and a unit test per shape.
+
 ### A type whose walk is still on the stack counts as prepared when a `sizeof` reads it by value: a valid program gets a wrong array length, and a layout cycle is accepted — 🔴 OPEN (MAJOR: valid programs compiled with a wrong array type, silently, and an invalid one accepted; found 2026-10-30, work-7, review of the slice-reach fix; reproduced on main; pre-existing)
 
 `type N struct { v int64; a [sizeof(M)]uint8 }`, `type M struct { s *[]D }`, `type D struct { n N; e *[]E }`, `type E
