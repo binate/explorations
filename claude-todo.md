@@ -320,14 +320,12 @@ sizes with Size(); native aa64 materializes an add / sub immediate past 16 MiB. 
 arguments past disp32.  Stage 4d-3 landed (binate `b108193b0`): native aarch64 frame offsets in int64 through the
 assembler.  Stage 4d-4 landed (binate `f2264bbe4`): native arm32.  Stage 4d-5 landed (binate `842db9d45`): the
 RegMap's frame lookups return int64 (the int forms and FrameInt gone); stage 4d is done.  Remaining
-(plan-int64-layout.md): 4e field / element offsets and copy sizes DONE (binate `87830f726` common, `650f83fc5` x64, `b771afffa` aarch64, `3beb3cc38` arm32); 4c callconv's stack layout (in progress 2026-10-27, work-1; with outgoing stack
-arguments past 2 GiB, which native x64 rejects at compile time); 4f-2 bss lengths and symbol offsets in int64 for a
-32-bit host; 5 VM / interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the
+(plan-int64-layout.md): 4e field / element offsets and copy sizes DONE (binate `87830f726` common, `650f83fc5` x64, `b771afffa` aarch64, `3beb3cc38` arm32); 4c callconv's stack layout DONE (binate `e88c25dba`, `a171e6ddd`, `4b7288ed8`, `f0eedbd5d`
++ `11a94b739`, `f57b123a5`); 4f-2 bss lengths and symbol offsets in int64 for a 32-bit host (in progress 2026-10-31,
+work-1); 5 VM / interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the
 32-bit lane.
-CI red from stage 4e (noted 2026-10-28, work-3): conformance 1718_offsets_past_2gib (binate `650f83fc5`) fails on the
-LLVM lanes (builder-comp, -comp-comp, -comp-comp-comp; CI run 40645707398 at 5e54b7554) — clang rejects main's frame:
-"stack frame size (2147483704) exceeds limit (2147483647) in function 'bn_F1_4_main1_9_copyBytes'
-[-Werror,-Wframe-larger-than]" ("clang failed compiling main").  The test has .error markers only for the 32-bit lanes.
+The CI red from stage 4e (conformance 1718's 2 GiB copy on the LLVM x86-64 lanes, noted 2026-10-28 by work-3) is
+fixed: the copy is no longer staged on the stack (binate `bc9a35b70`).
 
 ### A member read is a cycle when another member of its type depends on the reader — the checker judges it per type, not per member — 🔴 NEEDS DECISION (found 2026-10-27, work-7, review of the member-read fix; pre-existing, before binate `f7e99b80b` as "cannot access field on this type")
 
