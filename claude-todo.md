@@ -130,6 +130,28 @@ unmapped page.  x64 loads exact widths (loadWordBytesX64); arm32's in-register c
 Not checked: whether aarch64's by-value argument marshals read an in-place source the same way.  Proposed fix: load
 the last word at its exact width, as x64 does.  Test: a unit test pinning the loads of a 12-byte in-place return.
 
+### Closure shims load captures from the closure struct in whole words, past the struct's end — 🔴 OPEN (minor, latent; found 2026-10-30, work-1, review of the shim over-read fix; pre-existing; checked in code, not probed)
+
+The closure struct (the record a capturing closure value points at, allocated by rt.Alloc at the struct's natural
+size) lays its captures out at their natural offsets, but the shims load a capture as whole 8-byte words:
+aarch64_closure_shim.bn (register and spill capture loads), aarch64_closure_shim_aggregate.bn,
+x64_closure_shim_spill.bn and x64_closure_shim_aggregate_spill.bn (word loads, and copy loops over 8 * words).
+With captures {int32; {int32 x3}} the 12-byte capture sits at offset 4 of a 16-byte struct, and its words at 4 and
+12 read bytes 16..19, past the struct's end.  On hosted targets malloc's granularity keeps that inside the block, so
+a fault is practically impossible, but it reads memory that is not the object's.  Proposed fix: load each capture no
+further than its end (loadAggWordAA64 / loadAggWordX64 at the capture's address and size), or round the closure
+struct's allocation up to whole words.
+
+### interp's RunFuncTyped refuses aggregate results over 64 bytes for a reason that no longer holds — 🔴 OPEN (minor; found 2026-10-30, work-1, review of the VM return-stack fix)
+
+interp/runfunc_typed.bn rejects a result whose AggregateReturnSize exceeds 64 bytes ("interp: aggregate return too
+large (> 64 bytes)") and a struct over 64 bytes within a result (marshalableIn), because "the retbuf must fit
+CallFuncAggregate's copy window"; CallFuncAggregate copies a result image of any size (the caller sizes the retbuf),
+so a host calling RunFuncTyped on a function returning a larger value is refused for nothing.  Stale comments of the
+same kind: vm/call_iface_host.bn ("execFunc's 64-byte result window") and vm/vm_exec_helpers.bn's execFunc header
+("execExtern's rt.CallDtor arm", which no longer calls it).  Proposed fix: drop the cap, with a test returning a
+larger struct through RunFuncTyped, and the stale comments.
+
 ### CI red: the slow lanes hit their job time limits — unit int-int shards, conformance int-int and comp-comp-comp — 🟡 IN PROGRESS on option (a) (claimed 2026-10-28, work-3; user: "both", then "(a)") (filed 2026-10-28, work-3)
 
 Unit run 40643666280 (at f7e99b80b): builder-comp-int-int shards 3, 5 and 6 of 12 cancelled at the 45-minute limit.
