@@ -1,3 +1,28 @@
+### Native backends copied a by-value aggregate argument read through a pointer twice — on arm32 three 1 GiB arguments passed the 4 GiB frame — DONE (binate `b7e477302`, 2026-10-31, temp-5; user: "For 5: yes, go ahead and take that next", then "wait 15 minutes, then land; let's discuss the questions one by one while we wait")
+
+Found 2026-10-28, work-1, int64 layout 4c-2's conformance test 1720; pre-existing:
+`f(*p, *p, *p)` with f taking three by-value 1 GiB arrays: the native backends give each `*p` load its own frame
+region (emitAggLoad) and then copy it into the outgoing-args area, so the frame holds every argument twice.  With
+`Big` 64 KiB, native arm32 gives `direct` a frame of 0x60030 bytes (3 load regions + 3 argument copies); at 1 GiB
+native arm32 rejects it ("the frame of main.direct is larger than the target allows (at most 4294967295 bytes)")
+where LLVM arm32 compiles it, copying straight into the argument area.  The 64-bit native backends compile it with
+a doubled frame.  Fix: elide the load's region when the loaded value only feeds a by-value call argument (read in
+place, as AggLoadElision does for other uses), copying from the source to the argument slot.  Covered by conformance 1720 (binate `e320b4e07`),
+xfailed on the two native arm32 modes until the fix.
+
+Resolution: AggLoadElision (native/common) reads such a load in place when its one use is a by-value argument of a
+direct, function-value, interface, indirect or handle call (not `__c_call`) and nothing between the load and the
+call writes or frees memory (passedWhole, common_aggload_whole.bn).  OP_STACK_CHECK_FV / OP_STACK_CHECK_IM now
+count as writing nothing (iropt.OpWritesNothing), as OP_STACK_CHECK already did, since the compiled backends emit
+nothing for the VM's stack checks; without that, function-value and interface calls kept both copies.  On aarch64
+an in-place load still gets an argument region the callee may write (planArgCopies), so its frame keeps the
+arguments' size; x86-64 and arm32 copy straight from the source into the argument registers and outgoing area.
+With 64 KiB arguments: x86-64 `direct` 0x60040 -> 0x30040 bytes, arm32 0x60030 -> 0x30030, an x86-64 function-value
+call 0x300b0 -> 0xb0.  1720's two native arm32 xfails are removed.  Tests: native/common
+(common_aggload_whole_test.bn, TestArgCopyInPlaceLoad), iropt (op_memory_test.bn), and conformance
+regressions/byvalue-arg-from-source (callees that write the source through a pointer and then their parameter, by
+every call shape, from a pointer, a global, a heap element and a field at an odd offset).
+
 ### A type declared in full twice was accepted when one declaration was in a `type ( … )` group: the later one silently dropped — DONE (binate `a9a9e1cd1`, 2026-10-31, temp-4; user: "Fix both first (Recommended)", then "wait 10 minutes, then land; then continue")
 
 MAJOR, an invalid program accepted (found 2026-10-30, temp-4, review of keeping one-member groups; pre-existing):
