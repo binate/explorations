@@ -45,6 +45,16 @@ I : lang.Orderable { Put(b *OBox[Self]) int }` and `type OBox[T lang.Orderable]`
 *OBox[P])` (Self is P) is rejected, since P does not satisfy Orderable (the impl is for *P), and spelled `Put(b
 *OBox[*P])` it does not match I.
 
+The same question, from a `Self` parameter (an entry of 2026-07-03, folded in here 2026-10-30, temp-5):
+`interface Eq { eq(other Self) bool }` with `impl *Bag : Eq` and `func (b *Bag) eq(other Bag) bool`.  On binate
+main `d1e3f86fa`, `func areEq[T Eq](a T, b T) bool { return a.eq(b) }` is rejected at `areEq[*Bag]` ("cannot
+assign *Bag to Bag (in areEq[*Bag], …)"), as `eq[PP]` above is, and `areEq[T Eq](a T, b Bag)` calling `a.eq(b)` is
+rejected in the generic ("cannot assign Bag to T"): a constraint call takes Self as T.  That entry's third
+reading, binding Self to T's base type in a constraint call, cannot be judged in the generic's own check, where T
+has no base type.  Under either decision above both programs stay rejected, with an accurate error: at
+`areEq[*Bag]` (`*Bag` does not satisfy Eq), or at the impl (Self is `*Bag`, so `eq` must take a `*Bag`; written so,
+the `b T` form runs).
+
 ## MAJOR
 
 ### bnas arm32: a data-processing operand naming `.` without `#` drops the location -- `mov r0, (.+8)` is `mov r0, #8` -- 🟡 IN PROGRESS (claimed 2026-10-30, work-2; user: "Fix now, own commit (Recommended)"; MAJOR: silent wrong code; found 2026-10-30, work-2, review of the arm32 loads-and-stores step; reproduced on binate main `c8d407930`; pre-existing)
@@ -273,14 +283,15 @@ panic); (4) the re-check runs outside a const group's iota context ("undefined: 
 judgment for every declaration that read a placeholder whose value the enclosing length did not need (constants
 included), no dropping of errors that belong to other declarations, and the re-check's full context.
 
-### Instance-check diagnostics: a second instance's violation is hidden, and an instance formed through a generic's field is placed at that field — 🔴 OPEN (minor: diagnostics; found 2026-10-16, work-5, review of the generic-type method-signature sizing; pre-existing)
+### Instance-check diagnostics: an error two instances make at one position names only the first instance — 🔴 NEEDS DECISION (minor: diagnostics; found 2026-10-16, work-5, review of the generic-type method-signature sizing; pre-existing)
 
-contextualizeInstanceErrors drops an error another instance already reported at the same position, so with
-`Bx[Opaque]` and `Bx[Op2]` (both bad) only the first is named.  And an instance formed through a generic struct's
-field (`Outer[Opaque]` with a field `b Bx[T]`) is reported as instantiated at that field inside the generic, with
-no `via Outer[Opaque]`; through a generic function the `via` chain is right.  The program is rejected either way.
-Fix: keep one error per instance (or name every instance at a shared position), and record the root
-instantiation for an instance formed through a field.
+contextualizeInstanceErrors drops an error another instance already reported at the same position
+(instanceErrorReported), so `func g[T any]() uint8 { return cast(uint8, sizeof(T) * 100) }` called as `g[int32]()`
+and `g[int64]()` reports "constant does not fit the cast target type … (in g[int32], instantiated at …)" and nothing
+for g[int64] (checked 2026-10-30, temp-5, on binate main `d1e3f86fa`).  The program is rejected either way.  This
+is the tested policy: check's TestInstanceBodyErrorOnce ("The same error at the same position in two instances is
+reported once").  **Decision:** keep it (and close this entry), or name every instance — an error each, or one
+error listing them — and change that test.
 
 ### Does populateInstantiatedInterface's speculative (`userFacing` false) path still have a valid-program case? — 🔴 OPEN (cleanup question; found 2026-10-16, work-5, review of the generic-type method-signature sizing)
 
@@ -2783,43 +2794,6 @@ ALSO need a decision to lint conformance.  Lower priority: §9.7 makes it progra
 and owning the backing is the trivial fix.
 
 ## Hygiene checks: tier dependencies & file length
-
-### `Self`-parameter method is uncallable through a generic constraint (Self binds to the type param, not its base) — 🟠 OPEN (2026-07-03)
-
-**Severity: minor (obscure `Self` corner; the fix is a semantics decision, not a
-clear defect).** A `Self`-parameter interface method — `eq(other Self)`,
-`grab(rest *[]Self)`, or a variadic `merge(others ...Self)` — is satisfiable and
-directly callable, but **cannot be called THROUGH a generic constraint** when the
-type param is a pointer, because the two `Self` resolutions disagree:
-
-- **Impl-satisfaction** (`methodSigSatisfies`, `check_impl.bn`): `Self` → the impl's
-  **base named type** (`named = recv.ReceiverBaseNamed()`, e.g. `Bag`). Correct, and
-  matches §11 — `010`'s `eq(other Self)` is satisfied by `eq(other Square)` (a value).
-- **Constraint-call binding** (`tryTypeParamMethodCall`, `check_method.bn`):
-  `substituteSelf(param, recvType)` uses `recvType` = the **type param** (`T` = `*Bag`).
-
-So inside `func f[T Eq](a T, b Bag) { a.eq(b) }`, `eq` expects `*Bag` (Self→T) while
-the impl takes `Bag` (Self→base) → "cannot assign Bag to T". **General** — not
-composite- or variadic-specific (the plain `eq(other Self)` reproduces it).
-
-- **Consequence:** a `Self`-parameter method can't be invoked via a constraint with
-  a pointer type param — and a constraint is the ONLY path that reaches such methods
-  (they're object-unsafe through an interface value). So the variadics Phase 6c
-  `substituteSelf`-recursion in `tryTypeParamMethodCall` (correct code) has no
-  end-to-end test.
-- **Repro:** `interface Eq { eq(other Self) bool }` + `impl *Bag` /
-  `func (b *Bag) eq(other Bag) bool` + `func areEq[T Eq](a T, b Bag) bool { return
-  a.eq(b) }`.
-- **NOT a bug in impl-satisfaction** — that works; `*[]Self` is satisfiable and
-  `conformance/regressions/iface-self-in-composite` is a POSITIVE test. (The earlier
-  "satisfaction fails" framing was a test error: the repro impl used `*[]*Bag` where
-  `Self=Bag` wants `*[]Bag`.)
-- **Fix is a semantics decision** — should the constraint call bind `Self` to
-  `base(T)` (matching impl-satisfaction), or should impl-satisfaction use the
-  receiver form? Deferred pending that decision; **do not fix without one**.
-- **Discovered:** 2026-07-03, adding variadics Phase 6 coverage.
-
----
 
 ### `print(42)` and friends: how do primitives implement interfaces? — DESIGN OPEN
 - **Problem**: with the current rules, `int` (and other predeclared
