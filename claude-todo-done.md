@@ -1,3 +1,19 @@
+### A call's large aggregate result kept in a local needed its size twice on the stack — DONE (binate `996f3c3d2`, `a341d6fca`, 2026-10-31, work-1; user: "yes" to fixing it now and to landing)
+
+`var r Page = get(&src)`, or `get(&src).b[i]` (IR-gen keeps the result in a temporary), with a 4.5 MiB result needed
+twice that.  Compiled, at -O0 only: the local's zero-filling OP_ALLOC sat between the call and the store, so
+CallResultSlots refused the slot; IR-gen now marks NoZeroInit a slot it stores whole right after allocating it (the
+declarations, and the temporaries through allocStored), and the call writes into the local (`996f3c3d2`).  VM, at
+any level (`a341d6fca`): a load returned whole is read in place and BC_RETURN copies every result image out
+(deliverResult), so the callee needs no region; a direct call whose result CallResultSlots sends into a local
+delivers it there (BC_CALL Src2: the local's frame offset; the callee's BC_RETURN or an extern writes it there, the
+store is a BC_NOP, no image is reserved), its own register holding the slot's address for a fault pad, and a slot a
+pad able to run before the store names is not delivered into; the slot's OP_ALLOC, which may run after the call,
+zeroes nothing.  The review found a fault before the store leaking the delivered result (fixed before landing).
+Tests: conformance 1726; the IR-gen NoZeroInit test; the VM's result-slot lowering, copy-out, fault-before-store
+and managed-element tests; the codegen sret / zero-fill tests updated.  This closes the large-aggregate stack-copy
+MAJOR (the whole-store and return cases are binate `bc9a35b70`, `493731135`, `02db3265e`, `12034603e`).
+
 ### bnas arm32: a data-processing operand naming `.` without `#` dropped the location -- `mov r0, (.+8)` was `mov r0, #8` -- DONE (binate `b5000e152`, 2026-10-30, work-2; user: "Fix now, own commit (Recommended)")
 
 MAJOR, silent wrong code, found by the review of the arm32 loads-and-stores step: parseArm32Operand's unprefixed

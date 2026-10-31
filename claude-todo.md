@@ -107,18 +107,6 @@ struct { a *[]Ti-1; b *[]Ui-1 }` / `type Ui` the same, takes 0.7 s to compile at
 it is reached by value, and each call walks the type's parts with a fresh visit set, so a type reached softly through
 two paths is walked once per path.  Fix: record the types prepared softly as well, so each is walked once per mode.
 
-### A call's large aggregate result kept in a local needs its size twice on the stack (compiled at -O0; the VM at any level) — 🟡 MAJOR, IN PROGRESS (claimed 2026-10-29, work-1; user, 2026-10-30, asked whether to fix it now: "yes") (the return cases are done: binate `02db3265e`, `12034603e`; the whole-store case: `bc9a35b70`, `493731135`)
-
-`var r Page = get(&src)`, or `get(&src).b[i]` (IR-gen keeps the result in a temporary), with a 4.5 MiB result needs
-twice that, at any alignment.  Compiled, at the default -O0 only: the local's OP_ALLOC, which zero-fills it
-(`llvm.memset` of the whole size), sits between the call and the store, so CallResultSlots refuses the slot and the
-result gets a `.sret` buffer of its own; from -O1 the dead-store pass marks the slot NoZeroInit and the call writes into
-the local (4.5 MiB crashes at -O0, works at -O1, on LLVM and native).  VM, at any level: BC_RETURN relocates the result
-onto the caller's stack and it is then copied into the local's region; the VM has no call-result slots (3.75 MiB is
-"runtime error: stack overflow" on the 8 MiB VM stack, 3.5 MiB works).  Proposed fix: IR-gen marks NoZeroInit a local
-whose declaration stores its initializer whole (or emits the slot before evaluating it), and the VM gets call-result
-slots -- a call whose result is stored whole into a confined local is handed the local as its result's destination.
-
 ### Closure shims load captures from the closure struct in whole words, past the struct's end — 🔴 OPEN (minor, latent; found 2026-10-30, work-1, review of the shim over-read fix; pre-existing; checked in code, not probed)
 
 The closure struct (the record a capturing closure value points at, allocated by rt.Alloc at the struct's natural
