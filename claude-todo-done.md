@@ -1,3 +1,15 @@
+### A type declared in full twice was accepted when one declaration was in a `type ( … )` group: the later one silently dropped — DONE (binate `a9a9e1cd1`, 2026-10-31, temp-4; user: "Fix both first (Recommended)", then "wait 10 minutes, then land; then continue")
+
+MAJOR, an invalid program accepted (found 2026-10-30, temp-4, review of keeping one-member groups; pre-existing):
+`checkTypeRedeclFrom` compared a group member only with its own group's members, so `type ( S struct { a int }; U
+int )` and a later `type S struct { a int; b int }` compiled with S's first layout, and so did two groups defining
+`S` and a `.bni` / `.bn` pair where either side used a group.  `checkTypeRedeclaration` (check/check_type_redecl.bn)
+now collects every full type declaration package-wide (`collectFullTypeDecls`, carrying a group's FromBNI to its
+members) and compares each with every earlier one; the forward-alias and forward-generic errors are reported as the
+declarations are collected, so they now come before any redeclaration error.  Tests: conformance 1727 (a `.bni`
+group against a plain `.bn` declaration, the reverse, and two `.bn` groups) and unit tests for the orders within a
+file and the reported line.
+
 ### asm arm32 stage 2e, part 2: LDRD / STRD and PLD / PLDW / PLI; the VFP encoders become asm/arm32/vfp -- DONE (binate `ef8444c43` and `e93b3d6fc`, 2026-10-30, work-2; user: "Peel VFP now (Recommended)", then "wait 5 minutes, then land")
 
 Ldrd / Strd and Pld / Pldw / Pli: exact encoders and their parser (parse/arm32_memd.bn), matching clang over ~900

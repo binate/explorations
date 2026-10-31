@@ -57,21 +57,6 @@ the `b T` form runs).
 
 ## MAJOR
 
-### A type declared in full twice is accepted when one declaration is in a `type ( … )` group: the later one is silently dropped — 🟡 IN PROGRESS (claimed 2026-10-30, temp-4; user: "Fix both first") (MAJOR: an invalid program accepted, a definition silently ignored; found 2026-10-30, temp-4, review of keeping one-member groups; reproduced with bnc-0.0.17-pre3 and with a bnc built from main `d1e3f86fa` plus the one-member-group parser change, which does not touch the reproducer; pre-existing)
-
-`checkTypeRedeclFrom` (pkg/binate/check/check_type_redecl.bn) compares each full type declaration only with the
-earlier entries of the same list, and it recurses into a group with the group's member list, so a group member is
-compared only with its own group's members, never with a top-level declaration or another group's.
-`collectTypeDecl` keeps the first definition without an error, and `checkDuplicateDecls` /
-`checkBniDuplicateDecls` leave type/type pairs to this pass.  So `type ( S struct { a int }; U int )` followed by
-`type S struct { a int; b int }` compiles, and `S` has the first layout (the program runs).  Two groups that
-both define `S` behave the same way, and so does a `.bni` / `.bn` pair when either declares the type in a group:
-the `.bn`'s layout is ignored.  A one-member `type ( S … )` reaches it too once the parser keeps it as a group
-(the bnfmt comments entry); the pinned bnc rejects that form only because its parser collapses the group.
-Fix: compare each full declaration with every earlier one package-wide -- flatten the groups first, carrying a
-group's FromBNI to its members, as `collectNamedDecls` does.  Tests: conformance error tests for a top-level
-declaration after a group member, two groups, and a `.bni` group against a plain `.bn` declaration and the reverse.
-
 ### A constant and a variable whose type's array length is the constant, the constant being the variable's length, pass the type checker, and IR-gen panics — 🔴 OPEN (MAJOR: an internal-error crash on an invalid program; found 2026-10-30, work-7, review of the `.bni` variables-and-functions change; reproduced on main at binate `9b0fff72c`; pre-existing)
 
 `const K = len(V)` with `var V [K]int` in a `.bn`, in either order, passes the checker with no error, and bnc then
