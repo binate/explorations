@@ -325,7 +325,7 @@ so whether these programs are valid is not decided.  Decide: such cycles judged 
 a conformance error test), or per member (a struct's fields and an interface's methods resolved one at a time on
 demand, with tests).
 
-### In a generic's own check, a constraint whose length depends on the generic's type parameter is judged with the placeholder length — valid programs rejected — 🔴 OPEN (a valid program rejected; found 2026-10-30, temp-5, reviews of the generic-function constraint fix; pre-existing)
+### In a generic's own check, a constraint whose length depends on the generic's type parameter is judged with the placeholder length — valid programs rejected — 🔴 OPEN (invalid programs accepted too; found 2026-10-30, temp-5, reviews of the generic-function constraint fix; pre-existing)
 
 With `interface Eq[T any] { eq(o T) bool }`, `func inner[T Eq[[sizeof(U)]uint8], U any](t T) int`, `type G[T
 Eq[[sizeof(U)]uint8], U any] struct { t T }` and `impl *N : Eq[[8]uint8]`: `func fwd[U any](n *N) int { return
@@ -342,6 +342,28 @@ with T bound `any` was accepted.  Fix (to design): decide such a constraint per 
 (constraint, arguments, position) on the generic and judge it in each instance's check with the arguments bound,
 as body checks are — or make those instance resolutions judge the constraints of the instantiations they form;
 keep a type-parameter argument judged at the declaration.
+
+Review of design (a) (2026-10-31, temp-5; reproduced on binate main `b7e477302`): a dependent length is held as a
+flag and a placeholder 0 (ArrayLenDependent), so `[sizeof(U)]uint8` and `[2 * sizeof(X)]uint8` are one type and one
+cached instance, and substituting an instance's arguments gives the same type back.  Hence: (1) invalid programs
+accepted: with `func sigb[V Eq[[sizeof(U)]uint8], U any, X any](g *G[V, X]) int`, `sigb[*N, int64, int32](nil)`
+compiles and runs, though `G[*N, int32]` needs `*N : Eq[[4]uint8]` (V's bound and G's constraint compare equal as
+placeholders); likewise through a struct field whose generic interface's method forms the instance.  A use of
+`G[*N, int32]`'s method in the body is caught by its instance check ("cannot assign [4]uint8 to [8]uint8"), so no
+wrong code was found.  (2) valid programs rejected: `func fwd2[V Eq[[8]uint8]](v V) int { return inner[V, int64](v)
+}` is "type argument V does not satisfy constraint Eq[[0]uint8]" (a call with an abstract argument substitutes into
+the callee's declaration-time constraint instead of resolving it for the arguments, as generic types do); `impl
+*Box[K] : Eq[[2 * sizeof(K)]uint8]` with `var e *Eq[[16]uint8] = &b` (b a `Box[int64]`) is "type Box[int64] does
+not implement Eq[[0]uint8]", with no generic's own check involved (genericImplSatisfiesConstraint substitutes the
+impl's interface list); a generic interface's method signature and a generic alias's target are rejected as fwd is,
+and neither has an instance check.  (3) with `func fA[U any](k *K[[sizeof(U)]uint8, *N])` and `func fB[X any](k
+*K[[2 * sizeof(X)]uint8, *N])` only fA is reported: fB's use hits fA's cache entry and is never judged.  So the
+records in (a) cannot hold resolved types.  Also from the review: a recorded judgment must use the generic's own
+impl view, not the instance's; deferred signature / field checks (PendingConstraintCheck) do not know their
+enclosing generic; and interface-only generics (bni's injected packages, bnlint's dependencies) have no abstract
+check, so nothing would be recorded for them.  Decision pending (user): a hybrid (judge each constraint from source
+when an instance's types are resolved, in the generic's declaration view), or a dependent length that keeps its
+expression, so substitution gives the real length.
 
 ### A build that waits for a layout still builds the instances it names from the length it could not read, and reports their errors — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
 
