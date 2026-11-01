@@ -2684,6 +2684,17 @@ nothing currently reaches the reject (the only section-relative relocs are in th
 unwind sections), so this stays parked until a real clang/LLVM object needs a
 section-relative reloc in a KEPT section.
 
+### bnld arm32: a call to an undefined weak symbol branches to address 0, not to the next instruction — 🔴 OPEN, unclaimed (found 2026-11-01, work-2, review of the R_ARM_CALL interworking change; pre-existing)
+
+AAELF32 says a branch (R_ARM_CALL, R_ARM_JUMP24) to an undefined weak reference is treated as a
+jump to the next instruction; lld (`getARMUndefinedRelativeWeakVA`) and GNU ld do that.  bnld
+resolves the symbol to 0 (`choiceAddr`), so the branch targets address 0: in an image placed
+more than 32 MiB above 0 a guarded call (`if (&f) f()`) fails to link ("branch out of range"),
+and below that the call goes to 0 (a BLX in Thumb state).  No test yet.  **Fix:** in Relocate,
+when a branch's reference is a weak symbol nothing defines, patch it to branch to P + 4 (a BLX
+becoming BL), as lld does, with a unit test; and check whether bnld's AArch64 CALL26 / JUMP26
+has the same gap.
+
 ## bnfmt (self-hosted formatter)
 
 ### bnfmt moves a comment inside a declaration's header — 🟢 LOW (found 2026-10-18, temp-4, review of the import-section fix; pre-existing)
