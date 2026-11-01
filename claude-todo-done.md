@@ -1,3 +1,16 @@
+### bnfmt: a comment between a grouped type member's name and its type went to the previous member, or above the member — DONE (binate `20dc3a4ab`, 2026-10-31, temp-4; user: "wait 8 minutes, then land")
+
+A member of a `type ( … )` group took the `type` keyword's position, where a var or const member is at its name.  So
+bnfmt took a comment between a type member's name and its type for the previous member's when the two shared a line
+(`A int; B /* c */ bool` gave `/* c */` to A), and otherwise put it on a line of its own above the member, which a
+second format took as the end of the alignment run.  The member is now positioned at its name (parseTypeDecl), bnfmt
+reads every member's Pos alike (memberStartPos is gone), and the comment trails its member, as a var member's does.  A
+checker diagnostic about a grouped type member points at its name, so two members' identical errors (each holding
+itself by value) are no longer merged into one.  The review found that a member spanning lines with such a comment now
+meets the inner-comment problem var members already had (recorded under that entry), and that the width-check
+sub-problem now reaches type members too.  Tests: parser positions; format goldens (generic, alias, forward and marked
+members); checker line pins and two recursive members of one group; conformance 1727's exact positions.
+
 ### asm arm32 stage 2g: block transfers -- DONE (binate `f34e5cf63`, 2026-10-31, work-2; user: "Land now")
 
 LDM / STM in every mode and alias, writeback, `^`, PUSH / POP checked against clang over ~970 cases: bnas already
