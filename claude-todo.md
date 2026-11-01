@@ -2741,13 +2741,10 @@ changes 330 tree files.  And making room for a tail can leave a one-character la
 ### bnfmt gives a declaration, group member or struct field the comments of the next one on its line: what remains — 🟡 IN PROGRESS (claimed 2026-10-25, temp-4; user: "let's fix next") 🟢 LOW (found 2026-10-25, temp-4, review of the marked-line fix; pre-existing)
 
 Declarations, group members, struct fields and imports stop at the next node's comments (binate `1b66c0a0a`), a
-one-member `var (` / `type (` block stays a group (binate `43f0b1bb0`), and a grouped type member is positioned at its
-name (binate `20dc3a4ab`).  Until CHECK_TOOLS is past `43f0b1bb0`, hygiene's pinned bnfmt (`bnc-0.0.17-pre3`) still
-collapses a one-member block, so writing one in a formatted directory fails `bnfmt-format`.  Left:
-- A group's comment alignment checks the width of a member's first trailing comment only, so `j = 1 /* j */ // <80
-  chars>` can be aligned out to 111 columns.
-  A comment between a type member's name and its type is its first trailing comment, so `B /* c */ bool // <52 chars>`
-  after a 40-character member is aligned out to 109 columns.
+one-member `var (` / `type (` block stays a group (binate `43f0b1bb0`), a grouped type member is positioned at its
+name (binate `20dc3a4ab`), and a group's comment alignment measures every comment after a member (binate `7576ed4bf`).
+Until CHECK_TOOLS is past `43f0b1bb0`, hygiene's pinned bnfmt (`bnc-0.0.17-pre3`) still collapses a one-member block,
+so writing one in a formatted directory fails `bnfmt-format`.  Left:
 - In `#[build(...)] /* f */ import (`, the comment moves above the annotation block.
 - A case kept on one line with its body prints the body with no comment cursor, so the comments after its label and
   between its statements go after the last: `case 1: a() /* c */; b()` prints `case 1: a(); b() /* c */` (bnfmt

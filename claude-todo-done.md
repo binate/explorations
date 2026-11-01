@@ -1,3 +1,14 @@
+### bnfmt: a group's comment alignment measured only a member's first trailing comment — DONE (binate `7576ed4bf`, 2026-11-01, temp-4; user: "wait 4 minutes, then go ahead")
+
+groupRunCommentColumn drops a run's alignment when aligning a member's comments would take them past 100 columns, but
+it measured only the member's first trailing comment, so `j = 1 /* j */ // <77 chars>` was aligned out to 123 columns,
+and, with the comment between a type member's name and its type trailing the member (binate `20dc3a4ab`), `B /* c */
+bool // <49 chars>` out to 106.  It now adds up every comment after the member on its line (memberTrailWidth), as the
+struct and switch aligners do, but counts a `// LONG-LINE ALLOWED` among them where those do not, so a marked line
+keeps its layout (counted as zero width, the marker would pad one test's line from 110 to 129 columns).  Tests:
+print_group_width_test.bn (var, type and marked-line cases; the existing width guard moved there).  The bnfmt before
+and after the change format all 8096 tracked `.bn` / `.bni` files the same.
+
 ### CI red on the 32-bit-host unit lane: pkg/binate/link's tests did not compile — DONE (binate `74fd4cd6f`, 2026-10-31, work-1)
 
 Part of the open entry "main's 32-bit-host unit lane (`builder-comp_arm32_linux`) fails link, asm/assemble, check and
