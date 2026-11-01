@@ -230,9 +230,10 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
        without host memory.
      - 4f-2c. the parser's directive counts (`.zero` / `.space` / `.skip`, `.comm` / `.lcomm` sizes) are bounded
        at 1 GiB by maxDirectiveBytes, whose comment gives two reasons: a larger count is more likely a typo, and
-       every count fits a 32-bit host's int.  The second no longer holds; whether a zero-fill section's
-       directives take more is a decision for the user.  (The bound's comment and parse_common's "a local
-       common's bytes are held in bss" are stale either way.)
+       every count fits a 32-bit host's int.  The second no longer holds.  User decision (2026-10-31): "I think
+       they should be allowed" -- in a zero-fill section the counts go past 1 GiB, bounded by what the section
+       can count (countZeroFill: 4 GiB on a 32-bit target); a section that holds its bytes keeps the 1 GiB
+       guard.  (In progress 2026-10-31, work-1.)
      - Tests: sizes and offsets past 2^31 and 2^32 in asm / elf / macho / link unit tests, run on the
        builder-comp_arm32_linux unit-test lane (a 32-bit host, in docker here) as well as the 64-bit host.
    Order (revised 2026-10-18, after reading x64's helpers): 4d before 4e, so each backend helper's offset
