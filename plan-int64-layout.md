@@ -226,8 +226,11 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
        addresses and symbol values, the Mach-O atom lookups, the parser's label differences and aliases (its two
        host-width alias checks gone), the native bss globals' zero runs (types.HostInt gone) and `.comm` /
        `.lcomm` sizes (asm_common).
-     - 4f-2b. link: InputSection.Size / OutOffset and symbol values uint64; a zero-fill input section sized
-       without host memory.
+     - 4f-2b. DONE `b45e12cd8` (2026-10-31): link: InputSection.Size / OutOffset, InputSymbol.Value / Size, Layout's
+       per-kind sizes, segment file / memory sizes (p_filesz / p_memsz, static and dynamic ELF) and __DATA's
+       vmsize (Mach-O) uint64; held bytes narrow through a checked hostInt, with an error first where input can
+       make them too large; the readers take values and sizes whole (Layout bounds a malformed near-2^64 size);
+       an ELF32 image past 4 GiB is an error.  (With it `74fd4cd6f`: link's tests compile on the 32-bit lane.)
      - 4f-2c. the parser's directive counts (`.zero` / `.space` / `.skip`, `.comm` / `.lcomm` sizes) are bounded
        at 1 GiB by maxDirectiveBytes, whose comment gives two reasons: a larger count is more likely a typo, and
        every count fits a 32-bit host's int.  The second no longer holds.  User decision (2026-10-31): "I think

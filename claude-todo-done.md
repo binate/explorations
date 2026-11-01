@@ -1,3 +1,11 @@
+### CI red on the 32-bit-host unit lane: pkg/binate/link's tests did not compile — DONE (binate `74fd4cd6f`, 2026-10-31, work-1)
+
+Part of the open entry "main's 32-bit-host unit lane (`builder-comp_arm32_linux`) fails link, asm/assemble, check and
+irgen" (its other packages stay open there).  `emit_dynmacho_test.bn` held a dynamic Mach-O's section flags in an
+`@[]int`, and 0x80000400 does not fit a 32-bit int, so the package's tests did not compile on that lane (from
+`097becf64`).  The flags are int64, what `u32` returns.  Fixed with the int64 plan's linker step (binate `b45e12cd8`),
+which needed link's tests on that lane.
+
 ### bnfmt: a comment between a grouped type member's name and its type went to the previous member, or above the member — DONE (binate `20dc3a4ab`, 2026-10-31, temp-4; user: "wait 8 minutes, then land")
 
 A member of a `type ( … )` group took the `type` keyword's position, where a var or const member is at its name.  So
