@@ -1,3 +1,43 @@
+### A constant read while a variable's type is found, though that type does not depend on it, is resolved without a value for good: valid programs crash in IR-gen or are rejected -- DONE (binate `930f9643c`, 2026-10-31, work-7; user: "wait 8 minutes, then land")
+
+`func f(x int) [3]int`, `var V [len(f(K))]int`, `const K = len(V)` is valid -- V's length needs only f's result type,
+so V is `[3]int` and K is 3 -- but bnc panics in IR-gen ("IR generation cannot evaluate a constant the type checker
+accepted"); so does K read in a function literal's body in V's length (`var V [len(func() [3]int { var a [3]int; _ =
+K; return a }())]int`).  An array length reading K elsewhere (`var Z [K]int`, `type T [K]int`, a local `var a [K]int`,
+`const J = sizeof([K]int)`) is silently the error type too.  Variants rejected with an error instead: `var V
+[len(W)]int; type S struct { a [3]int; k int }; var W = S{k: K}.a; const K = len(V)` is "variable type cycle involving
+`V`" (W's type does not depend on K), and `const K = len(bit_cast([3]int, V)); var V [K]int` is "bit_cast requires the
+source and target to be the same size" (V's size is not known yet).
+
+Cause: V's array length resolves K on demand while V's type is being found, and K's `len(V)` reads V's placeholder
+(check_var_placeholder.bn), so K is resolved without a value -- recorded resolved (ConstResolved), POISONED -- and
+stays so once V has its type.  The constant-variable length cycle fix (binate `e595ee5bb`) records such a
+constant's variable (noteConstPoisoner) and blames it only while its placeholder stands, so these are not reported as
+V's cycle; its check_var_placeholder_test.bn TestVarTypeCycleConstReadInLengthArgNotCycle pins only that.  Fix:
+resolve such a constant again once the variable has its type -- undo its resolution (its binding, ConstResolved, what
+its check recorded on its syntax) when the variable is defined with a type, as a layout frame that waits is undone, or
+treat it as not known yet while the placeholder stands -- and judge an operand whose type is a placeholder in a check
+like bit_cast's sizes as an error reported; conformance regressions/const-read-in-var-length-call-arg (xfailed until
+then) and a unit test per shape.
+
+Done: a constant whose resolution reads a variable's placeholder, or reads such a constant, is recorded pending
+(check_const_pending.bn), and those reads count as its own, not as those of a variable's check around it.  While a
+placeholder it read stands, it keeps its value-less resolution, so an array length whose value needs it is still the
+variable's cycle; once none stands, its resolution is undone (binding, ConstResolved, its syntax's annotations) and it
+is resolved again when next read (resolveDeclOnDemand) or by name (resolveConstByName, which finishTopLevelConsts
+calls for each constant).  A group's bare member is pending with the member it repeats, and a variable whose
+initializer read a pending constant is checked again after the constants (recheckStaleVars).  So every shape above
+but the bit_cast one compiles and prints the right values, and `const K = len(g(V))` with V a `[5]int` and `func
+g(x [3]int) [4]int`, accepted before, reports its error.  Tests: check_const_pending_test.bn (a revert of each piece
+fails one), conformance regressions/const-read-while-var-typed; regressions/const-read-in-var-length-call-arg is no
+longer expected to fail.  Not fixed: the bit_cast shape still reports the false size error from K's first
+resolution.  Skipping the size comparison for an operand of the error type fixed it but let `var V
+[len(bit_cast([4]int, V)) + 1]int` compile (the review), so it was dropped; the case is filed in the back-burnered
+entry on array lengths checked against a placeholder.  Also filed, from testing and the review: an array length left
+without a value by the placeholder blamed as the variable's cycle where its own length does not need it, and a
+constant read while it is being resolved, where its value is not needed, as a false constant definition cycle (each
+with an expected-fail conformance test).
+
 ### bnfmt: a one-member `var ( … )` / `type ( … )` block lost its keyword's position and moved its comments — DONE (binate `43f0b1bb0`, 2026-10-31, temp-4; user: "Keep the group (Recommended)", then "wait 4 minutes, then land. What is the wider marker rule?")
 
 The parser collapsed a one-member `var (` / `type (` block to a plain `var` / `type` whose Pos was the member's name,

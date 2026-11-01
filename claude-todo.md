@@ -57,28 +57,6 @@ the `b T` form runs).
 
 ## MAJOR
 
-### A constant read while a variable's type is found, though that type does not depend on it, is resolved without a value for good: valid programs crash in IR-gen or are rejected — 🟡 IN PROGRESS (claimed 2026-10-31, work-7/session; user: "wait 7 minutes, then land; then work on the new MAJOR") (MAJOR: valid programs crash the compiler; found 2026-10-31, work-7, review of the constant-variable length cycle fix; reproduced on main at binate `3fdd773a9`; pre-existing)
-
-`func f(x int) [3]int`, `var V [len(f(K))]int`, `const K = len(V)` is valid -- V's length needs only f's result type,
-so V is `[3]int` and K is 3 -- but bnc panics in IR-gen ("IR generation cannot evaluate a constant the type checker
-accepted"); so does K read in a function literal's body in V's length (`var V [len(func() [3]int { var a [3]int; _ =
-K; return a }())]int`).  An array length reading K elsewhere (`var Z [K]int`, `type T [K]int`, a local `var a [K]int`,
-`const J = sizeof([K]int)`) is silently the error type too.  Variants rejected with an error instead: `var V
-[len(W)]int; type S struct { a [3]int; k int }; var W = S{k: K}.a; const K = len(V)` is "variable type cycle involving
-`V`" (W's type does not depend on K), and `const K = len(bit_cast([3]int, V)); var V [K]int` is "bit_cast requires the
-source and target to be the same size" (V's size is not known yet).
-
-Cause: V's array length resolves K on demand while V's type is being found, and K's `len(V)` reads V's placeholder
-(check_var_placeholder.bn), so K is resolved without a value -- recorded resolved (ConstResolved), POISONED -- and
-stays so once V has its type.  The constant-variable length cycle fix (binate `e595ee5bb`) records such a
-constant's variable (noteConstPoisoner) and blames it only while its placeholder stands, so these are not reported as
-V's cycle; its check_var_placeholder_test.bn TestVarTypeCycleConstReadInLengthArgNotCycle pins only that.  Fix:
-resolve such a constant again once the variable has its type -- undo its resolution (its binding, ConstResolved, what
-its check recorded on its syntax) when the variable is defined with a type, as a layout frame that waits is undone, or
-treat it as not known yet while the placeholder stands -- and judge an operand whose type is a placeholder in a check
-like bit_cast's sizes as an error reported; conformance regressions/const-read-in-var-length-call-arg (xfailed until
-then) and a unit test per shape.
-
 ### A type whose walk is still on the stack counts as prepared when a `sizeof` reads it by value: a valid program gets a wrong array length, and a layout cycle is accepted — 🔴 OPEN (MAJOR: valid programs compiled with a wrong array type, silently, and an invalid one accepted; found 2026-10-30, work-7, review of the slice-reach fix; reproduced on main; pre-existing)
 
 `type N struct { v int64; a [sizeof(M)]uint8 }`, `type M struct { s *[]D }`, `type D struct { n N; e *[]E }`, `type E
@@ -289,6 +267,46 @@ resolved during head typing that reads the placeholder (`type T [len(u)]uint8`, 
 panic); (4) the re-check runs outside a const group's iota context ("undefined: iota").  A sound fix needs: a
 judgment for every declaration that read a placeholder whose value the enclosing length did not need (constants
 included), no dropping of errors that belong to other declarations, and the re-check's full context.
+
+**Also (2026-10-31, work-7, found by the review of the fix for constants resolved without a value):** with `func
+g4(x [4]int) [4]int`, `var V [len(g4(V)) + 1]int` compiles -- V is a `[5]int`, which g4's parameter rejects -- and
+so does `var V [len(cast([4]int, V)) + 1]int`.  A check made against the placeholder can also report a false error:
+`const K = len(bit_cast([3]int, V))` with `var V [K]int` is "bit_cast requires the source and target to be the same
+size", though V is a `[3]int`.  K is resolved again once V has its type (binate `930f9643c`), but the error from its first
+resolution stands.  Skipping the size comparison for an operand of the error type fixed that case, but it let `var V
+[len(bit_cast([4]int, V)) + 1]int` compile, since nothing checks V's own length again.  That case waits for this
+entry's re-check of the operands that read a placeholder.
+
+### An array length evaluated while a variable's type is found and left without a value by its placeholder is blamed as its type cycle, even where the variable's own length does not need it — 🔴 OPEN (minor: valid programs rejected; found 2026-10-31, work-7, testing the fix for constants resolved without a value and by its review; reproduced on main at binate `e595ee5bb`; pre-existing)
+
+With `func f(x int) [3]int` (whose result type alone is a length's operand's type in `[len(f(K))]`) and `type S
+struct { a [3]int; k int }`, each of these is valid -- V's own length needs no value of what is left without one, so V
+is a `[3]int` and K is 3 (spec decl.var.type-acyclic) -- but is "variable type cycle involving `V`": `func f2(x T)
+[3]int`, `var V [len(f2(T{}))]int`, `type T [K]int`, `const K = len(V)` (f2's parameter type T, resolved while V's type
+is found; with `type T` declared before V it compiles and prints 3); `var V [len(f(K))]int` with `const K = cast(int,
+sizeof([len(V)]int))` (a length in the constant's own initializer); `var V [len(W)]int`, `var W = S{k: len([K]int{})}.a`,
+`const K = len(V)` (a length in another variable's initializer); and `var V [len(f(K))]int`, `var W [L]int`, `const K =
+len(W)`, `const L = len(V)` (another variable's declared type).  An array length evaluated while V's placeholder
+stands that the placeholder leaves without a value, directly or through a constant (placeholderPoisoned,
+notePoisonedConst), is V's cycle wherever it is; the constant is resolved again once V has its type, but a type, a
+signature or another variable's type resolved meanwhile keeps the error.  Fix (to design): blame V only for a length
+whose value V's own length needs (f2's result type does not need T's layout), and otherwise resolve what holds it
+again once V has its type, as a pending constant is (compare the back-burnered entry on array lengths checked against
+a placeholder, whose design needs the same judgment); conformance regressions/type-reads-const-while-var-typed
+(xfailed until then) and a unit test per shape.
+
+### A constant read while it is being resolved, where its value is not needed, is a false constant definition cycle — 🔴 OPEN (minor: valid programs rejected; found 2026-10-31, work-7, testing the fix for constants resolved without a value and by its review; reproduced on main at binate `e595ee5bb`; pre-existing)
+
+With `func f(x int) [3]int` and `type S struct { a [3]int; k int }`, each of these is valid but is "constant definition
+cycle involving `K`": `var V [len(f(K))]int`, `var U [len(f(K))]int`, `const K = len(V) + len(U)` (each length needs
+only f's result type: K is 6); `var D = S{k: K}.a`, `const K = len(D)` (D's type needs no value of K: K is 3); and
+`var V = [len(f(K))]int{}`, `const K = len(V)`.  K's resolution reads a variable whose type it needs (U, D, V), whose
+type is found then, and that reads K -- as f's argument, a field's value -- while K is on the resolution stack
+(ConstResolving); resolveConstByName reports any such read as a cycle, though only K's type is needed there.  (The
+first is resolved on demand by V's length, the others by finishTopLevelConsts, which takes K before the variable.)
+Fix (to design): a read of a constant being resolved where its value is not needed could take it as a variable's
+placeholder is taken, the reading declaration resolved again once the constant is resolved; conformance
+regressions/const-read-as-arg-while-resolved (xfailed until then) and a unit test per shape.
 
 ### Instance-check diagnostics: an error two instances make at one position names only the first instance — 🔴 NEEDS DECISION (minor: diagnostics; found 2026-10-16, work-5, review of the generic-type method-signature sizing; pre-existing)
 
