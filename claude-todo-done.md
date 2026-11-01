@@ -1,3 +1,10 @@
+### asm arm32 stage 2f: exclusives, load-acquire / store-release, SWP, CLREX -- DONE (binate `ae3d7ce99`, 2026-10-31, work-2; user: "Land now")
+
+LDREX / STREX (B, H, D), LDAEX / STLEX (B, H, D), LDA / STL (B, H), SWP / SWPB and CLREX: exact encoders
+(arm32_excl.bn, a family API with EX_* sizes) and their parser (parse/arm32_excl.bn), matching clang over ~5,400
+cases (the review's included: every CPU in the table, all conditions, operand edges).  The every-encoder condition
+test now covers them and the 2e encoders.  The review found only message order and a clang bug kept as a difference.
+
 ### checker_state.bn was at 488 of 500 lines: split the Checker struct into sub-structs — DONE (binate `ef430b6fa`, 2026-10-31, work-3)
 
 pkg/binate/check/checker_state.bn is almost entirely the `Checker` struct declaration, so it cannot be split by

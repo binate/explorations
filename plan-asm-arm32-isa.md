@@ -99,8 +99,11 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
   encoders moved to the sub-package asm/arm32/vfp first (binate `e93b3d6fc`, user 2026-10-30: "Peel VFP now
   (Recommended)"); arm32.bni is ~840 lines, so 2f..2j will likely need another class peeled (system /
   coprocessor).
-- 2f. Exclusives and ordering: ldrex / strex (b, h, d), clrex, swp / swpb, the v8 acquire / release forms (lda / stl
-  / ldaex / stlex families).
+- 2f. DONE (binate `ae3d7ce99`).  Exclusives and ordering: ldrex / strex (b, h, d), ldaex / stlex (b, h, d), lda /
+  stl (b, h), swp / swpb, clrex -- exact (arm32_excl.bn: Ldrex / Strex / Lda / Stl / Swp / Clrex with EX_* sizes),
+  ~5,400 cases against clang.  clang's gates: acquire / release from ARMv8, swp only before it, clrex from ARMv6K,
+  none on the other exclusives.  Kept difference: before ARMv8 clang takes a second memory operand as a
+  doubleword's Rt2 (`ldrexd r12, [sp], [r0]`, a clang bug); bnas refuses it.
 - 2g. Block transfer: ldm / stm ia / ib / da / db, writeback, `^`, push / pop forms.
 - 2h. Branches: b, bl, blx <label>, blx <reg>, bx, bxj.  From the 2a review: `adr r0, <label>` with a label named
   like a register (`r1`, `sp`, `v1`) is taken by bnas; clang: "invalid operand for instruction" (`b r1` to such a
@@ -113,7 +116,8 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
 - Exact encoders: DONE for every encoder.  The steps through 2e made their classes' encoders check their condition
   and registers; binate `d90f4ce8c` (temp-5, a separate todo) did the rest -- arm32_branch.bn, arm32_ldm.bn,
   arm32_sys.bn, arm32_vfp.bn -- and `condBits` no longer masks.  Later steps keep each new encoder so.
-- Outside the steps, found by the 2d reviews (bnas and clang differ; none is yet assigned):
+- Outside the steps, found by the 2d and 2f reviews (bnas and clang differ; none is yet assigned):
+  - No `.req` directive (`foo .req r1`, a register alias), which clang takes for every register kind.
   - A quoted register (`add "r0", r1, r2`, `clz "r0", r1`) is taken by bnas -- the Rd parse does not check that the
     token is a name; clang: "operand must be a register".
   - `.arm`, `.code 16` / `.code 32`, `.thumb` and `.syntax` are unknown directives in bnas (clang takes `.arm`,
