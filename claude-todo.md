@@ -165,7 +165,12 @@ suites grew ~20% in the same span.**
 - The unit int-int lane is limited by test execution, not load: at `3fdd773a9` ten of twelve shards took 11-37 min
   and shards 3 and 6 still hit the 45-min cap; shard 6 runs pkg/binate/check's ~1800 tests doubly interpreted.
   Fixing it is a sharding change (balance by measured time or split a heavy package's tests), the user's call.
-- Total so far ~38% fewer instructions per int-int test (the per-change ratios compounded).  Check CI's next
+- binate `4dcba7e9d`, `c17fbf62c` (landed 2026-10-31; user: "keep working through the constant-factor
+  candidates"): the rewrite after mem2reg / load forwarding / field forwarding / slice-extract coalescing checks
+  each operand in its own walk instead of a second whole-function walk (-0.64%), and applyPromotion keeps a
+  block that gains and loses nothing instead of rebuilding it (-0.70%) -- 25.56G -> 25.24G (-1.25%, median of 9);
+  compiled output identical.
+- Total so far ~39% fewer instructions per int-int test (the per-change ratios compounded).  Check CI's next
   conformance / unit int-int durations before deciding whether shards or caps still need changing.
 - Then: irbuild.BlockIndexIn's linear scan (O(blocks^2) in buildSuccsPreds,
   pruneUnreachableBlocks, assertPhiEntriesArePreds), the append-built Preds / dominator children / DF sets in
