@@ -295,6 +295,15 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
      layout), 4f-2.
    Tests compile functions holding the large frames / offsets without calling them, so they need no memory.
 5. VM / interp: VM memory is host memory, so its layout narrows at allocation (`HostInt`), failing loud.
+   In progress 2026-11-01 (work-1), two steps:
+   - 5a. The VM plans a function's frame in int64 and rejects one past the target's limit (types.FrameLimit,
+     as the native backends do: conformance 1710's xfail on builder-comp_arm32_linux_int) or past what this
+     host can hold, as a lowering error.  User decision (2026-11-01): "A sounds right" -- checked after the
+     optimization passes, in lowering (the frame the VM allocates, as the native backends check theirs), over
+     a LoadCheck-time check of the unoptimized frame; bni and `bni --test` report it through LowerModule's
+     errors, the REPL through new checks at its lowering sites.
+   - 5b. The rest of vm / interp's layout calls (SizeOf / FieldOffset / ArrayLenHost, ~56 sites) take the
+     int64 forms and narrow (HostInt) where host memory is used, ready for stage 6.
 6. Remove the int forms of `SizeOf()` / `FieldOffset()` / `TrailingPadding()` / `ArrayLenHost()`; end to end
    on the 32-bit lane: a program with a > 2 GB type for a 64-bit target compiles through both backends.
 
