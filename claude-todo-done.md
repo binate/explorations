@@ -1,3 +1,18 @@
+### bnfmt: a one-member `var ( … )` / `type ( … )` block lost its keyword's position and moved its comments — DONE (binate `43f0b1bb0`, 2026-10-31, temp-4; user: "Keep the group (Recommended)", then "wait 4 minutes, then land. What is the wider marker rule?")
+
+The parser collapsed a one-member `var (` / `type (` block to a plain `var` / `type` whose Pos was the member's name,
+so `var a = 1; var ( // c` / `b = 2` / `)` gave `// c` to `a`, the member's trailing comment moved to a line of its
+own after the declaration, and a `// LONG-LINE ALLOWED` on the member's line was not looked for.  Such a block now
+stays a DECL_GROUP, as a one-member `const (` already did, and bnfmt prints it as written.  A `// LONG-LINE ALLOWED`
+after a group's `)` on its last member's last line is that member's, so the member keeps its line (lastMemberMarked,
+print_longline.bn).  For a group on one line that was the user's choice ("Last member's (Recommended)"); the review
+found that without the same rule for a group spanning lines, a one-member block ending `x = <long> ) // LONG-LINE
+ALLOWED` would wrap where it did not before, so the rule covers that too (and the same layout with more members,
+which already wrapped).  Its prerequisites landed first: a type declared in full twice, once as a group member, is
+rejected (`a9a9e1cd1`), and bnlint's managed-func-raw-capture walks a local group's members (`29d724b22`).  Tests:
+conformance 1728_one_member_groups (top level, a generic type, local groups, a `.bni` and its `.bn`), parser
+position tests, and format goldens (print_group_marker_test.bn).
+
 ### asm arm32 stage 2f: exclusives, load-acquire / store-release, SWP, CLREX -- DONE (binate `ae3d7ce99`, 2026-10-31, work-2; user: "Land now")
 
 LDREX / STREX (B, H, D), LDAEX / STLEX (B, H, D), LDA / STL (B, H), SWP / SWPB and CLREX: exact encoders

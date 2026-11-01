@@ -2714,16 +2714,10 @@ changes 330 tree files.  And making room for a tail can leave a one-character la
 
 ### bnfmt gives a declaration, group member or struct field the comments of the next one on its line: what remains — 🟡 IN PROGRESS (claimed 2026-10-25, temp-4; user: "let's fix next") 🟢 LOW (found 2026-10-25, temp-4, review of the marked-line fix; pre-existing)
 
-Declarations, group members, struct fields and imports stop at the next node's comments (binate `1b66c0a0a`).  Left:
-- A one-member `var ( … )` is parsed as a plain `var` whose Pos is the member's name, so the `var` keyword's position is
-  lost and `var a = 1; var ( // c` / `b = 2` / `)` gives `// c` to `a`.  The parser should record the keyword.
-  The same collapse (parseVarDecl, parseTypeDecl) moves the member's trailing comment to a line of its own after
-  the declaration: `type (` / `F int // c` / `)` prints `type F int`, a blank line, then `// c`; `var (` / `x = 1 // d` /
-  `)` likewise (bnfmt `bnc-0.0.17-pre3` and the tree's).  A one-member `const (` stays a group (for `iota`) and
-  keeps its comment.
-  The collapsed declaration's End is stamped past the `)` (parseTopLevelDecl in parser.bn; parse_stmt.bn for a
-  local one), so the comment is not on End's line; and the declaration then spans lines, so a `// LONG-LINE
-  ALLOWED` on its member's line is not looked for: the member wraps and the marker goes on a line of its own.
+Declarations, group members, struct fields and imports stop at the next node's comments (binate `1b66c0a0a`), and a
+one-member `var (` / `type (` block stays a group (binate `43f0b1bb0`).  Until CHECK_TOOLS is past `43f0b1bb0`,
+hygiene's pinned bnfmt (`bnc-0.0.17-pre3`) still collapses such a block, so writing one in a formatted directory
+fails `bnfmt-format`.  Left:
 - A comment between a grouped type member's name and its type goes to the previous member: the member's Pos is the
   `type` keyword's (parseTypeSpec), not its name's.
   When the member starts its line, the comment goes on a line of its own above it, which is not idempotent: the
