@@ -1,3 +1,34 @@
+### A call in a `.bni` array length that needs a member of a `.bni` type — a method, a field of a type declared later, an interface's method, a composite literal of a later type — is rejected -- DONE (binate `4d1b48fcd`, 2026-11-01, work-7)
+
+A `.bni` array length or constant may call a `.bni` function (with the change resolving a `.bni`'s variables and
+functions on demand), but not when the call needs a member: `const S = len(V.M())` with `type T struct { x int }`,
+`func (t T) M() [3]int`, `var V T` is no constant to an importer (`var a [q.S]int` is "array length must be a constant
+integer"; a `.bn` takes it); in a type's length, `[len(V.M())]uint8` is rejected, as are `[len(V.fn())]uint8` with V's
+struct type declared later ("cannot access field on this type"), `[len(I0.M())]uint8` with the interface I0 declared
+after it, and `[len(f(T{}))]uint8` with T declared later ("cannot use an opaque type by value", misleadingly: T is not
+resolved yet).  The importer's `.bni` build does not put the `.bni`'s methods on its types while its declarations are
+resolved (they are collected by the declaring package's check, collectMethodDecl), and resolves a later type or
+interface only where its layout is read (prepareBniType), not where its fields, its method set or a composite literal
+of it are; a method's call is left unchecked (bniCallTyped).  Fix: resolve them on demand as the batch's member reads
+do (check/check_member_read.bn, batchMethodOnDemand): put the `.bni`'s methods on a type when a selection needs one,
+and resolve a later type or interface when a member or a literal of it is needed; then type a method's call too.
+Tests: unit tests for each form, and a conformance test.
+
+Done: every `len` operand in a `.bni`'s array length or constant is checked where an importer builds the scope, and
+what a member read needs is readied on demand (check/bni_member_read.bn): a later type whose declaration gives it a
+field of the name is resolved, a later interface given its methods and parents, the types a composite literal holds
+by value resolved, and a `.bni` method defined into a table of the build (BniBuild.Methods), not onto the type, to
+which the package's own check gives its methods.  An instance of one of the `.bni`'s generic types built meanwhile
+takes its methods when one is selected or once every declaration is resolved (bniCopiesLater), the generic's methods
+are stashed before anything resolves, and a copy records its start so that a selection of a method not copied yet
+waits (enterMethodCopy).  bniCallTyped is gone.  Two adversarial reviews: the first found a false cycle where a
+method copied at an instance's build read the declaration that built it (now copied later), the second a copy that
+could not wait (now recorded).  Tests: check/bni_member_read_test.bn (a revert of each piece fails one), conformance
+regressions/bni-member-read-in-length; over 575 `.bni` probes, 82 valid programs now compile as their `.bn` twins
+do, and none main compiles is rejected.  Filed from the reviews: a `.bni`'s impls not seen in the build
+(regressions/bni-impl-in-length, xfailed), instance methods not ready (regressions/bni-instance-method-not-ready,
+xfailed), and a type's length reading a variable of the type, a false cycle in a `.bn` (decided valid).
+
 ### bnfmt: a group's comment alignment measured only a member's first trailing comment — DONE (binate `7576ed4bf`, 2026-11-01, temp-4; user: "wait 4 minutes, then go ahead")
 
 groupRunCommentColumn drops a run's alignment when aligning a member's comments would take them past 100 columns, but

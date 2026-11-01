@@ -1153,21 +1153,42 @@ the prompt is checked with none.  A prompt statement `var hb H[int16]`, with `ty
 flush inside the copy.  Fix: reproduce it in the REPL's tests first; then give a prompt's statements the state the
 batch carries for these waits (the starts and DeclReadWaited), with a REPL unit test.
 
-### A call in a `.bni` array length that needs a member of a `.bni` type — a method, a field of a type declared later, an interface's method, a composite literal of a later type — is rejected — 🟡 IN PROGRESS (claimed 2026-10-31, work-7/session; user: "Separate entry, next (Recommended)") (minor: valid programs rejected; found 2026-10-30, work-7, review of the `.bni` variables-and-functions change; reproduced on main; pre-existing; user: "Separate entry, next (Recommended)")
+### A `.bni`'s impl is not seen while an importer builds its scope: an array length or a constant passing a type to a function of an interface it implements is rejected — 🟡 IN PROGRESS (claimed 2026-11-01, work-7/session; user: "then take on items 1 and 2") (minor: valid programs rejected; found 2026-10-31, work-7, review of the `.bni` member-read fix; reproduced on main at binate `930f9643c`; pre-existing)
 
-A `.bni` array length or constant may call a `.bni` function (with the change resolving a `.bni`'s variables and
-functions on demand), but not when the call needs a member: `const S = len(V.M())` with `type T struct { x int }`,
-`func (t T) M() [3]int`, `var V T` is no constant to an importer (`var a [q.S]int` is "array length must be a constant
-integer"; a `.bn` takes it); in a type's length, `[len(V.M())]uint8` is rejected, as are `[len(V.fn())]uint8` with V's
-struct type declared later ("cannot access field on this type"), `[len(I0.M())]uint8` with the interface I0 declared
-after it, and `[len(f(T{}))]uint8` with T declared later ("cannot use an opaque type by value", misleadingly: T is not
-resolved yet).  The importer's `.bni` build does not put the `.bni`'s methods on its types while its declarations are
-resolved (they are collected by the declaring package's check, collectMethodDecl), and resolves a later type or
-interface only where its layout is read (prepareBniType), not where its fields, its method set or a composite literal
-of it are; a method's call is left unchecked (bniCallTyped).  Fix: resolve them on demand as the batch's member reads
-do (check/check_member_read.bn, batchMethodOnDemand): put the `.bni`'s methods on a type when a selection needs one,
-and resolve a later type or interface when a member or a literal of it is needed; then type a method's call too.
-Tests: unit tests for each form, and a conformance test.
+With `interface I { M() int }`, `type T struct { x int }`, `func (t *T) M() int`, `impl *T : I`, `var V T` and `func
+F(i *I) [3]int` in a `.bni` (the package's `.bn` defining M, V and F), `const S = len(F(&V))` and `type N struct { a
+[len(F(&V))]uint8 }` are "cannot assign *T to *I" while an importer builds the package's scope, where a `.bn` twin
+compiles and prints `3 3`; so with T from another, already checked package.  buildScopeFromFile registers none of
+the `.bni`'s impl declarations (resolveBniDecl has no DECL_IMPL case; the package's own check collects them), so
+assignability to the interface finds no impl.  Fix: register the `.bni`'s impls where its declarations resolve, as
+its methods are defined there (bni_member_read.bn), without the package's own check then finding them twice;
+conformance regressions/bni-impl-in-length (xfailed until then) and a unit test.
+
+### A method of a `.bni`'s generic instance that the instance cannot take yet is rejected where an array length or a constant selects it: one a copied signature selects before its copy, or one of an instance whose layout waits — 🟡 IN PROGRESS (claimed 2026-11-01, work-7/session; user: "then take on items 1 and 2") (minor: valid programs rejected; found 2026-10-31, work-7, review of the `.bni` member-read fix; reproduced on main at binate `930f9643c`, as "array length must be a constant integer"; pre-existing)
+
+In a `.bni`, `type Box[X any] struct { a [2]X }`, `func (b Box[X]) A() [len(B.C())]X`, `func (b Box[X]) C() [3]X`,
+`var B Box[int]`, `const SA = len(B.A())` is "undefined: C" while an importer builds the scope: copying Box[int]'s
+methods where SA selects A, A's signature selects C, not copied yet, and with no instance's build around the copy
+nothing can wait for it (bniMethodCopyReadWaits).  And `const SG = len(F())`, `type Gen[X any] struct { a [SG -
+1]X }`, `func (g Gen[X]) Get() [3]X`, `func F() [len(G.Get())]int`, `var G Gen[int]` is "cyclic type definition
+involving `Gen`": Gen[int]'s layout waits for SG, and an instance whose layout waits takes no methods
+(attachInstanceMethods), though its methods do not depend on its layout.  A `.bn` twin of both prints `3 3 2`; with
+Get declared after F, the `.bn` reports the same cycle (an order dependence of its own).  Fix (to design): copy the
+one method a copy in progress selects on demand (guarded against one that selects itself), and give an instance
+whose layout waits the methods a selection needs; conformance regressions/bni-instance-method-not-ready (xfailed
+until then) and a unit test for each.
+
+### A type whose array length reads a variable of that type, needing only the variable's type's name, is a false cycle in a `.bn` (a `.bni` accepts it) — 🔴 OPEN, decided valid (user 2026-11-01: "For 3, I think it is valid, since all that's required for f's type (signature) is the forward decl of T, not the definition of T.") (minor: a valid program rejected; found 2026-10-31, work-7, testing the `.bni` member-read fix; reproduced on main at binate `930f9643c`; pre-existing)
+
+`type T struct { a [len(f(V))]int }`, `func f(t T) [3]int`, `var V T` is "cyclic type definition involving `T`" (at
+V's declaration) in a `.bn`, and so is `f(&V)` with `func f(t *T) [3]int`, and `V.M()` with `func (t T) M()
+[3]int`; the same declarations in a `.bni` are accepted (T's a is a `[3]int`), and with `var V *T` both accept.  The
+length needs f's (M's) result type, and V's type only to be assignable to f's parameter, not T's layout.  The
+spec's `type.named.value-acyclic` covers a type holding itself by value and `decl.var.type-acyclic` a variable's type
+depending on itself; neither says whether a type's length may read a variable of that type.  Decided valid: f's
+signature needs only T's declaration, not its definition.  Fix: the `.bn` check's cycle is false -- find where reading
+V makes T's layout wait on itself and let the read need only T's declaration; say so in the spec (beside
+`type.named.value-acyclic`); conformance and unit tests, `.bn` and `.bni`, for each shape above.
 
 ### A `.bni` constant reading a variable whose type names the constant is reported otherwise than in a `.bn`, and one reading such a variable without needing its type is rejected — 🔴 OPEN (minor: a valid program rejected, and cycles reported with other or extra errors; found 2026-10-31, work-7, review of the constant-variable length cycle fix; reproduced on main at binate `3fdd773a9`; pre-existing)
 
