@@ -1,3 +1,9 @@
+### asm arm32 stage 2g: block transfers -- DONE (binate `f34e5cf63`, 2026-10-31, work-2; user: "Land now")
+
+LDM / STM in every mode and alias, writeback, `^`, PUSH / POP checked against clang over ~970 cases: bnas already
+took what clang takes with the same words but for `push {sp}` (STR SP, [SP, #-4]!), refused since the 2e STR
+writeback-clash check; Push now encodes its one-register form itself.  Golden test arm32_ldm_golden_test.bn.
+
 ### A constant read while a variable's type is found, though that type does not depend on it, is resolved without a value for good: valid programs crash in IR-gen or are rejected -- DONE (binate `930f9643c`, 2026-10-31, work-7; user: "wait 8 minutes, then land")
 
 `func f(x int) [3]int`, `var V [len(f(K))]int`, `const K = len(V)` is valid -- V's length needs only f's result type,

@@ -104,7 +104,10 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
   ~5,400 cases against clang.  clang's gates: acquire / release from ARMv8, swp only before it, clrex from ARMv6K,
   none on the other exclusives.  Kept difference: before ARMv8 clang takes a second memory operand as a
   doubleword's Rt2 (`ldrexd r12, [sp], [r0]`, a clang bug); bnas refuses it.
-- 2g. Block transfer: ldm / stm ia / ib / da / db, writeback, `^`, push / pop forms.
+- 2g. DONE (binate `f34e5cf63`).  Block transfer: ldm / stm ia / ib / da / db, the fd / ea aliases (clang takes no
+  fa / ed), writeback, `^`, push / pop.  bnas already matched clang over ~970 cases but for `push {sp}`, refused
+  since 2e's STR writeback clash; Push now encodes its one-register STR itself.  clang's warnings (unsorted or
+  repeated registers, PC in the list) are not copied; the words match.
 - 2h. Branches: b, bl, blx <label>, blx <reg>, bx, bxj.  From the 2a review: `adr r0, <label>` with a label named
   like a register (`r1`, `sp`, `v1`) is taken by bnas; clang: "invalid operand for instruction" (`b r1` to such a
   label is fine in both).  From the 2d review: a branch to a number past +/-32 MiB (`b #0x2000000`) clang wraps
