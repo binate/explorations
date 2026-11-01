@@ -1,3 +1,14 @@
+### bnfmt: in `#[build(...)] /* f */ import (`, the comment moves above the annotation block — DECLINED, by design (2026-11-01, temp-4; user: "Keep it above (Recommended)")
+
+bnfmt splits an import group into one import per line, each carrying the group's annotations, and sorts them.  Every
+comment in the group's header (inside `#[...]`, after `]`, after `import`, after `(`, or on its own line before the
+first spec) goes on a line of its own before the group's imports, above the first one's annotations, as binate
+`bf091b2ed` designed it; TestFormatAnnotatedGroupHeaderComment pins the own-line form, and the same-line block comment
+is placed the same way.  A single import or a declaration keeps such a comment after its annotations, but the group's
+annotations have no one place to put it after: after the first printed import's, it would read as that import's and
+move with it when the run is sorted again.  Above them it stays at the head of the group's imports, which sort after
+it among themselves.
+
 ### A call in a `.bni` array length that needs a member of a `.bni` type — a method, a field of a type declared later, an interface's method, a composite literal of a later type — is rejected -- DONE (binate `4d1b48fcd`, 2026-11-01, work-7)
 
 A `.bni` array length or constant may call a `.bni` function (with the change resolving a `.bni`'s variables and

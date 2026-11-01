@@ -2777,7 +2777,6 @@ one-member `var (` / `type (` block stays a group (binate `43f0b1bb0`), a groupe
 name (binate `20dc3a4ab`), and a group's comment alignment measures every comment after a member (binate `7576ed4bf`).
 Until CHECK_TOOLS is past `43f0b1bb0`, hygiene's pinned bnfmt (`bnc-0.0.17-pre3`) still collapses a one-member block,
 so writing one in a formatted directory fails `bnfmt-format`.  Left:
-- In `#[build(...)] /* f */ import (`, the comment moves above the annotation block.
 - A case kept on one line with its body prints the body with no comment cursor, so the comments after its label and
   between its statements go after the last: `case 1: a() /* c */; b()` prints `case 1: a(); b() /* c */` (bnfmt
   `bnc-0.0.17-pre3` and the tree's).  Its width checks measure every comment on its line there too, as a second
