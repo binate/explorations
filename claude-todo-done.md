@@ -1,3 +1,18 @@
+### CI red: main's 32-bit-host unit lane failed link, asm/assemble, check and irgen — tests that assumed a 64-bit host — DONE (binate `74fd4cd6f`, `cb22ecfb1`, 2026-11-01, work-1)
+
+Filed 2026-10-31, work-1, while validating the int64 asm change (CI on main at binate `d1e3f86fa`, run 41160559090).
+The unit-test lane that runs on a 32-bit host (`scripts/unittest/run.sh builder-comp_arm32_linux`, in docker here)
+failed four packages whose tests assumed a 64-bit host.  link: `emit_dynmacho_test.bn` held a section-flags constant
+past 2^31 in an `@[]int`, so the package's tests did not compile (binate `74fd4cd6f`).  asm/assemble
+TestAssembleFileDotPage read Mach-O relocation info words into an int and tested `word >> 28` for
+ARM64_RELOC_ADDEND, a word with its top bit set: it reads the word whole (tlsU64).  check: five `.bni` resolution
+tests (TestBniConstOfLaterTypeLayout, TestBniConstThroughTypeArgument, TestBniInstanceReadsTypeBeingResolvedSoftly,
+TestBniInstanceReadsConstReadingTypeBeingResolved, TestBniInstanceWaitsThroughFlush) hard-code a 64-bit target's
+pointer and raw-slice sizes: they pin a 64-bit target and restore the old one (pinTarget64).  irgen
+TestGenZeroLeafArrayEqIsTrue compiled `[1 << 40]E`, a length a 32-bit target's int cannot hold, so the checker
+rejected it and IR-gen, handed the error type, panicked and took down the package's test binary: the test pins a
+64-bit target, and its helper reports a checker error as a failed case (binate `cb22ecfb1`).
+
 ### bnfmt: in `#[build(...)] /* f */ import (`, the comment moves above the annotation block — DECLINED, by design (2026-11-01, temp-4; user: "Keep it above (Recommended)")
 
 bnfmt splits an import group into one import per line, each carrying the group's annotations, and sorts them.  Every
