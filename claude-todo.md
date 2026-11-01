@@ -1145,7 +1145,7 @@ the prompt is checked with none.  A prompt statement `var hb H[int16]`, with `ty
 flush inside the copy.  Fix: reproduce it in the REPL's tests first; then give a prompt's statements the state the
 batch carries for these waits (the starts and DeclReadWaited), with a REPL unit test.
 
-### A call in a `.bni` array length that needs a member of a `.bni` type — a method, a field of a type declared later, an interface's method, a composite literal of a later type — is rejected — 🔴 OPEN (minor: valid programs rejected; found 2026-10-30, work-7, review of the `.bni` variables-and-functions change; reproduced on main; pre-existing; user: "Separate entry, next (Recommended)")
+### A call in a `.bni` array length that needs a member of a `.bni` type — a method, a field of a type declared later, an interface's method, a composite literal of a later type — is rejected — 🟡 IN PROGRESS (claimed 2026-10-31, work-7/session; user: "Separate entry, next (Recommended)") (minor: valid programs rejected; found 2026-10-30, work-7, review of the `.bni` variables-and-functions change; reproduced on main; pre-existing; user: "Separate entry, next (Recommended)")
 
 A `.bni` array length or constant may call a `.bni` function (with the change resolving a `.bni`'s variables and
 functions on demand), but not when the call needs a member: `const S = len(V.M())` with `type T struct { x int }`,
