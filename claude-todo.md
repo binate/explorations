@@ -188,14 +188,6 @@ suites grew ~20% in the same span.**
   iropt/dom.bn, the rest of the VM's slot assignment (assignSlots; pickSlots is ~1.6%), the fault-pad cleanup
   emission in irgen, and the checker's requireFitting size walk (~0.7%).
 
-### checker_state.bn is at 488 of 500 lines: split the Checker struct into sub-structs — 🟡 IN PROGRESS (claimed 2026-10-31, work-3; user: "let's split Checker first, then take on the other candidates") (filed 2026-10-30, work-3)
-
-pkg/binate/check/checker_state.bn is almost entirely the `Checker` struct declaration, so it cannot be split by
-moving declarations; adding a field (as `9beabc2bb` did, Checker.OpaqueFree) brings it closer to the 500-line cap.
-Group related fields into sub-structs held by one field each, as `Stamps @stampTables` and `Instances
-@InstanceState` already are (candidates: the generic declaration tables, the pending / tentative state, the
-loop / switch / defer context flags), and update their uses.
-
 Options (decision needed): (a) profile and fix the load pipeline's superlinear phases (cmd/bni's load is also
 bni's start-up cost for every user); (b) more shards or a longer cap for the int-int lanes
 (.github/workflows/{conformance,unit}-tests.yml); (c) stop re-loading cmd/bni for every test in int-int (one outer

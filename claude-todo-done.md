@@ -1,3 +1,17 @@
+### checker_state.bn was at 488 of 500 lines: split the Checker struct into sub-structs — DONE (binate `ef430b6fa`, 2026-10-31, work-3)
+
+pkg/binate/check/checker_state.bn is almost entirely the `Checker` struct declaration, so it cannot be split by
+moving declarations; adding a field (as `9beabc2bb` did, Checker.OpaqueFree) brings it closer to the 500-line cap.
+Group related fields into sub-structs held by one field each, as `Stamps @stampTables` and `Instances
+@InstanceState` already are (candidates: the generic declaration tables, the pending / tentative state, the
+loop / switch / defer context flags), and update their uses.
+
+Done: the generic-declaration and instantiation fields moved into `Checker.Generics` (genericState,
+checker_generics.bn; the fields lost their "Generic" prefix) and the REPL's declaration-at-a-time state into
+`Checker.Repl` (replState, checker_repl.bn); every use goes through the new path, nothing else changed.
+checker_state.bn is 335 lines.  The batch-order fields (Const* / Var*) and the statement-context flags stay
+in Checker.
+
 ### asm object writers silently truncated past 4 GiB: ELF32 section sizes and offsets, Mach-O section offsets, a data region in a zero-fill section — DONE (binate `fb6ecb59b`, 2026-10-31, work-1)
 
 Found 2026-10-31, work-1, review of binate `2e4b91230`; pre-existing.  Every file offset an ELF32 object records
