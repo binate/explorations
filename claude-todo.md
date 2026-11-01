@@ -339,7 +339,7 @@ assembler.  Stage 4d-4 landed (binate `f2264bbe4`): native arm32.  Stage 4d-5 la
 RegMap's frame lookups return int64 (the int forms and FrameInt gone); stage 4d is done.  Remaining
 (plan-int64-layout.md): 4e field / element offsets and copy sizes DONE (binate `87830f726` common, `650f83fc5` x64, `b771afffa` aarch64, `3beb3cc38` arm32); 4c callconv's stack layout DONE (binate `e88c25dba`, `a171e6ddd`, `4b7288ed8`, `f0eedbd5d`
 + `11a94b739`, `f57b123a5`); 4f-2 bss lengths and symbol offsets in int64 for a 32-bit host DONE (binate
-`2e4b91230` asm, `80435510b` the parser's zero-fill counts, `b45e12cd8` link); 5 VM / interp (HostInt at allocation); 6 remove the int accessors, and an end-to-end test on the
+`2e4b91230` asm, `80435510b` the parser's zero-fill counts, `b45e12cd8` link); 5 VM / interp (HostInt at allocation) in progress (2026-11-01, work-1); 6 remove the int accessors, and an end-to-end test on the
 32-bit lane.
 The CI red from stage 4e (conformance 1718's 2 GiB copy on the LLVM x86-64 lanes, noted 2026-10-28 by work-3) is
 fixed: the copy is no longer staged on the stack (binate `bc9a35b70`).
