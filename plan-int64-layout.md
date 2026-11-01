@@ -233,7 +233,9 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
        every count fits a 32-bit host's int.  The second no longer holds.  User decision (2026-10-31): "I think
        they should be allowed" -- in a zero-fill section the counts go past 1 GiB, bounded by what the section
        can count (countZeroFill: 4 GiB on a 32-bit target); a section that holds its bytes keeps the 1 GiB
-       guard.  (In progress 2026-10-31, work-1.)
+       guard.  DONE `80435510b` (2026-10-31): `.zero`, a `.fill` of zeros, `.lcomm` / `.local` + `.comm` and
+       `.tbss` take counts past 1 GiB in bss / tbss; a held section, a non-zero `.fill` and alignments keep
+       the bound.
      - Tests: sizes and offsets past 2^31 and 2^32 in asm / elf / macho / link unit tests, run on the
        builder-comp_arm32_linux unit-test lane (a 32-bit host, in docker here) as well as the 64-bit host.
    Order (revised 2026-10-18, after reading x64's helpers): 4d before 4e, so each backend helper's offset
