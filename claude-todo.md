@@ -991,7 +991,7 @@ ld64 lists it as `[referenced dynamically] external`.  Only a lookup by name (dl
 **Fix:** list it in `buildMachoSymtab` with REFERENCED_DYNAMICALLY (0x10) in n_desc, as ld64 does, checked with
 `nm -m` against an ld64-linked executable.
 
-### asm ELF: two layout differences from clang — an instruction in a data section, and arm32 `bl` to a local label — 🔴 OPEN, unclaimed (found 2026-10-26, work-2, comparing arm32 objects with clang's for the `.ARM.attributes` work)
+### asm ELF: two layout differences from clang — an instruction in a data section, and arm32 `bl` to a local label — (a) 🔴 OPEN, unclaimed; (b) 🟡 IN PROGRESS (claimed 2026-11-01, work-2, with arm32 step 2h; user: "Follow clang (Recommended)") (found 2026-10-26, work-2, comparing arm32 objects with clang's for the `.ARM.attributes` work)
 
 With `.ARM.attributes` matching, bnas's arm32 objects are byte-identical to clang's (`arm-linux-gnueabihf` /
 `arm-none-eabi`, `-march=armv7ve`) but for these (and the held-back first `$d`, kept by decision):
