@@ -452,20 +452,6 @@ is word-aligned; through the #[c_export] trampoline's CRET_ADAPT_SRET path the b
 a fault on strict-alignment bare metal.  Fix with the rest: decide by the buffer's guaranteed alignment
 (AlignOf of the tuple / result), not offset parity alone.
 
-### asm object writers silently truncate past 4 GiB: ELF32 section sizes and offsets, Mach-O section offsets, a data region in a zero-fill section — 🟡 IN PROGRESS (claimed 2026-10-31, work-1; user: "yes, after is fine") (found 2026-10-31, work-1, review of binate `2e4b91230`; pre-existing; by reading)
-
-Independent of the host's width:
-- The ELF32 writer's address-sized fields (`BinBuf.WriteAddr`, elf_util.bn) keep a value's low 32 bits, so a
-  held section of 4 GiB or more on a 32-bit target (sh_size, sh_offset) or e_shoff past 4 GiB is written
-  truncated.  (A zero-fill section's length is already capped at 4 GiB there, by countZeroFill.)
-- Mach-O section_64's `offset` and `reloff` (macho.bn) are 32-bit: past 4 GiB of regular content they are
-  written truncated.
-- A data region (`.data_region`, asm.BeginDataRegion) is accepted in a zero-fill section; on Mach-O its
-  data-in-code offset (`addr + Start`, 32 bits) is truncated past 4 GiB, and a huge region wraps the entry
-  count on a 32-bit host.
-Fix: each is an error (fail loud) where the value does not fit its field; a data region in a zero-fill section
-is rejected (it holds no instructions to keep a disassembler out of).
-
 ### asm object writers: narrow index fields bind the wrong symbol or section past their range, with no error — 🔴 OPEN (minor: needs over 16M symbols or about 65,000 sections; found 2026-10-31, work-1, review of the 4 GiB checks; pre-existing; by reading)
 
 - A relocation's symbol index is 24 bits in ELF32 (r_info, `ri32 << 8` in elf.bn) and in Mach-O (r_symbolnum,

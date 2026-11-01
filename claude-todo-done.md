@@ -1,3 +1,18 @@
+### asm object writers silently truncated past 4 GiB: ELF32 section sizes and offsets, Mach-O section offsets, a data region in a zero-fill section — DONE (binate `fb6ecb59b`, 2026-10-31, work-1)
+
+Found 2026-10-31, work-1, review of binate `2e4b91230`; pre-existing.  Every file offset an ELF32 object records
+(sh_offset, sh_size, e_shoff) and every one a Mach-O object records (a section's offset and reloff, the symbol,
+string and data-in-code tables') is 32 bits, and the writers kept the low 32 bits of a larger value.  Each writer
+now refuses an object whose file passes 4 GiB; the ELF32 writer also refuses a zero-fill section of 4 GiB or more
+itself (asm caps one there only when its word size is 4); the Mach-O writer refuses a relocation more than 2 GiB
+into its section (r_address's top bit marks a scattered one; found by the review) and a data region whose
+data-in-code offset would pass 32 bits (machoDataRegionsFit).  A data region in a zero-fill section is not rejected
+outright (clang accepts one), only one past the object's first 4 GiB.  Tests: macho_wide_test.bn
+TestWriteMachoDataRegionPast4GiB (a region ending at 4 GiB is written, a byte later is an error) and
+elf_wide_test.bn TestWriteElf32BssPast4GiBIsError (4 GiB - 1 written, 4 GiB an error); the file-size and relocation
+checks need a 2 or 4 GiB section in memory, so no unit test reaches them.  The review also found 24-bit symbol
+indices and 16-bit ELF section indices that wrap silently, filed separately.
+
 ### A constant and a variable whose type's array length is the constant, the constant being the variable's length, pass the type checker, and IR-gen panics — DONE (binate `e595ee5bb`, 2026-10-31, work-7; user: "Right after this commit (Recommended)", then "wait 7 minutes, then land; then work on the new MAJOR")
 
 MAJOR, an internal-error crash on an invalid program (found 2026-10-30, work-7, review of the `.bni`
