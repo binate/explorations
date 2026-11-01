@@ -159,6 +159,12 @@ suites grew ~20% in the same span.**
   by-value structure reaches no opaque candidate (Checker.OpaqueFree), so the by-value opaque walk answers for them
   without re-walking a large pointee (`c @Checker`) at every declaration; every Underlying write goes through
   setUnderlying, which empties the set on a clear or replacement -- 25.43G -> 24.96G (-1.8%, median of 9).
+- binate `b3ca1e996` (landed 2026-10-31): the loader reads a source file straight into a buffer of its fstat size.
+  Not a speed-up (sys time 0.115 s median either way): the profile's `read` samples were not the syscall count,
+  which the change cuts by only a few hundred for cmd/bni's cone.  Landed for the exact-size buffers.
+- The unit int-int lane is limited by test execution, not load: at `3fdd773a9` ten of twelve shards took 11-37 min
+  and shards 3 and 6 still hit the 45-min cap; shard 6 runs pkg/binate/check's ~1800 tests doubly interpreted.
+  Fixing it is a sharding change (balance by measured time or split a heavy package's tests), the user's call.
 - Total so far ~38% fewer instructions per int-int test (the per-change ratios compounded).  Check CI's next
   conformance / unit int-int durations before deciding whether shards or caps still need changing.
 - Then: irbuild.BlockIndexIn's linear scan (O(blocks^2) in buildSuccsPreds,
