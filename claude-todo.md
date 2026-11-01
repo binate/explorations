@@ -206,7 +206,8 @@ The unit-test lane that runs on a 32-bit host (`scripts/unittest/run.sh builder-
 in docker) is red on main; the finished runs of 2026-10-30 failed too, with a varying set of packages.  At
 `d1e3f86fa`:
 - `pkg/binate/link`: `emit_dynmacho_test.bn:224` does not compile — `@[]int{0x80000400, …}`, a constant past
-  2^31 in an `int` (from `097becf64`).  Fix: hold the flags in `uint32`.
+  2^31 in an `int` (from `097becf64`).  Fix: hold the flags in `int64` (what `u32` returns).  🟡 IN PROGRESS
+  (claimed 2026-10-31, work-1: the int64 linker step needs link's tests on this lane).
 - `pkg/binate/asm/assemble` TestAssembleFileDotPage (`assemble_alias_test.bn`, from `eecd157ed`): reads
   relocation words into `int` and tests `(word >> 28) == 10` for ARM64_RELOC_ADDEND; on a 32-bit host the word
   0xA… is a negative int, so it never matches.  Fix: read the words as `uint32`.
