@@ -205,7 +205,7 @@ console (as pkg/builtins/testing/sys already does), or have the runner print thr
 (its source says it must use the real pkg/std/fmt).  Only after that can the failing tests be found; the
 `native/arm32` link overflow and the arena exhaustion remain size problems.
 
-### CI red: main's 32-bit-host unit lane (`builder-comp_arm32_linux`) fails link, asm/assemble, check and irgen — tests that assume a 64-bit host — 🔴 OPEN (filed 2026-10-31, work-1, seen while validating the int64 asm change; reproduced in CI on main at binate `d1e3f86fa`, run 41160559090)
+### CI red: main's 32-bit-host unit lane (`builder-comp_arm32_linux`) fails link, asm/assemble, check and irgen — tests that assume a 64-bit host — 🟡 IN PROGRESS (claimed 2026-11-01, work-1; user: "let's take the 3 open packages, then do stage 5") (filed 2026-10-31, work-1, seen while validating the int64 asm change; reproduced in CI on main at binate `d1e3f86fa`, run 41160559090; link fixed by `74fd4cd6f`)
 
 The unit-test lane that runs on a 32-bit host (`scripts/unittest/run.sh builder-comp_arm32_linux`; it runs here
 in docker) is red on main; the finished runs of 2026-10-30 failed too, with a varying set of packages.  At
