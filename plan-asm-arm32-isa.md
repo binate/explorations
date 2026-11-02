@@ -124,7 +124,14 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
   and the Cortex-R52s).  splitMnem now keeps clang's never-split list (`sb` broke `sbcs` in review).  Kept
   differences: bare cpsie / cpsid (clang: CPS #2 / #3) are errors; SETEND's ARMv8 deprecation warning is not
   copied.
-- 2j. Coprocessor: mcr / mrc (and 2), mcrr / mrrc (and 2), cdp (and 2), ldc / stc (and 2, L).
+- 2j. DONE (binate `9170c4d75`; user: "asm/arm32/sys (Recommended)").  Coprocessor: mcr / mrc (and 2), mcrr /
+  mrrc (and 2), cdp (and 2), ldc / stc (and 2, L), the encoders in asm/arm32/sys; a label is a new fixup,
+  FIX_LDC_PC, resolved in place only (clang has no relocation for it); `pr15` / `cr1` as clang reads them --
+  ~2,300 cases and the gates from ARMv4 to ARMv9-A against clang.  Kept differences: a label or `.±N` not a
+  multiple of 4 away is an error (clang encodes a wrong offset); the cp10 / cp11 warning is not copied.
+  Message-only differences (both reject): `mrcs` / `ldcs` / `stcs` / `mrrcs` ("can not set flags"; clang reads `cs`
+  as a condition, "invalid instruction" -- the shared splitMnem order, as 2b's `smmuls`); MCRR / MRRC with PC (the
+  range; clang says "invalid instruction" and lists it).
 - Exact encoders: DONE for every encoder.  The steps through 2e made their classes' encoders check their condition
   and registers; binate `d90f4ce8c` (temp-5, a separate todo) did the rest -- arm32_branch.bn, arm32_ldm.bn,
   arm32_sys.bn, arm32_vfp.bn -- and `condBits` no longer masks.  Later steps keep each new encoder so.

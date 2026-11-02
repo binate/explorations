@@ -1,3 +1,14 @@
+### asm arm32 stage 2j: coprocessor instructions -- DONE (binate `9170c4d75`, 2026-11-02, work-2; user: "asm/arm32/sys (Recommended)", "actually go ahead now")
+
+Every arm32 coprocessor instruction clang takes -- MCR / MRC, MCRR / MRRC, CDP, LDC / STC with their 2 forms and the
+L loads / stores -- exact encoders in asm/arm32/sys (Mcr, Mrc, Mcrr, Mrrc, Cdp, Ldc, Stc, LdcOption, StcOption) and
+the parser (arm32_cp.bn); a label is a new fixup, arm32.FIX_LDC_PC, resolved in place only (clang has no relocation
+for it).  ARMv8 keeps only p14 / p15 and drops CDP and the 2 forms.  Checked over ~2,300 cases against clang; the
+earlier lists and every mnemonic with each condition and `s` suffix unchanged.  The review caught `cr1` / `pr15`
+(which clang reads), a subtracted nonzero offset the encoder mis-encoded silently, a `c2` label and clang's
+messages; all fixed before landing.  Kept differences: a label or `.±N` not a multiple of 4 away is an error; the
+cp10 / cp11 warning is not copied.
+
 ### Target setup that leaned on the host's defaults: bnlint `--target` and bnc's host key — DONE (binate `5667c0343`, 2026-11-02, work-1; user: "it seems like the former should just be fixed?")
 
 `buildcfg.TargetFor(cfg)` gives the target a build config implies (layout, arch, float ABI); bnc's `--target`
