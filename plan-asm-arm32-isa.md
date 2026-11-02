@@ -108,10 +108,14 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
   fa / ed), writeback, `^`, push / pop.  bnas already matched clang over ~970 cases but for `push {sp}`, refused
   since 2e's STR writeback clash; Push now encodes its one-register STR itself.  clang's warnings (unsorted or
   repeated registers, PC in the list) are not copied; the words match.
-- 2h. Branches: b, bl, blx <label>, blx <reg>, bx, bxj.  From the 2a review: `adr r0, <label>` with a label named
-  like a register (`r1`, `sp`, `v1`) is taken by bnas; clang: "invalid operand for instruction" (`b r1` to such a
-  label is fine in both).  From the 2d review: a branch to a number past +/-32 MiB (`b #0x2000000`) clang wraps
-  into the offset field (EA800000); bnas rejects it, deliberately.
+- 2h. DONE (binate `e7ea2d33a`, with bnld `600b9da73`).  Branches: b, bl, blx <label> (BlxLabel / BlxOffset, the H bit),
+  blx <reg>, bx, bxj (ungated, as clang takes it).  Following clang (user: "Follow clang (Recommended)"), a BL /
+  BL<cond> / BLX to any symbol stays a relocation, `.L` labels listed, `.±N` a label made at `.`; `(PLT)` is part
+  of the expression primary on every PC-relative target and keeps the relocation; a branch number is read as 32
+  bits; a name clang reads as a register (arm32RegisterName) is no ADR / literal-load / preload / BLX-label
+  operand.  bnld picks BL or BLX for R_ARM_CALL by the target function's instruction set, gated on an input's
+  Tag_CPU_arch >= ARMv5T, as lld.  Kept differences: `blx<cond> label`, a relocated BLX whose addend is not a
+  multiple of 4, a branch number past 32 bits and one past +/-32 MiB (`b #0x2000000`, clang wraps it) are errors.
 - 2i. System and hints: svc, bkpt, udf, hvc, smc, eret, mrs / msr (APSR / CPSR / SPSR fields, banked registers),
   cps, setend, srs / rfe, nop / yield / wfe / wfi / sev / sevl / dbg / csdb / esb, dmb / dsb / isb with options,
   sb, ssbb / pssbb, setpan, hlt.
@@ -122,12 +126,20 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
 - Outside the steps, found by the 2d and 2f reviews (bnas and clang differ; none is yet assigned):
   - No `.req` directive (`foo .req r1`, a register alias), which clang takes for every register kind.
   - A quoted register (`add "r0", r1, r2`, `clz "r0", r1`) is taken by bnas -- the Rd parse does not check that the
-    token is a name; clang: "operand must be a register".
+    token is a name; clang: "operand must be a register".  (BX / BXJ / BLX check it.)
   - `.arm`, `.code 16` / `.code 32`, `.thumb` and `.syntax` are unknown directives in bnas (clang takes `.arm`,
     `.code 32` and `.syntax unified` in ARM code; `.thumb` / `.code 16` switch to Thumb, which bnas has none of).
   - A `$` right before a character literal (`svc $'a'`): clang reads the symbol `$'a'`, bnas `$` and then 0x61.
   - The expression parser: no `!` (logical not; clang `svc #!0` is 1), no quoted symbol names (`bl "lbl"`), and
     clang reads `'\0'` as 0x30, where bnas rejects the escape.
+- Outside the steps, found by the 2h review:
+  - A numeric local label's `.Ltmp<n>` name: clang numbers every instance in the order it makes them, bnas only
+    the instances listed (elf_symtab.bn), so `1: nop` / `2: nop` / `bl 2b` lists `.Ltmp1` in clang, `.Ltmp0` in
+    bnas.  Since 2h every `bl` / `blx` to a numeric label lists it (before, only a cross-section reference did).
+  - `C = 4` then `b C(PLT)`: clang relocates against the absolute symbol C (R_ARM_JUMP24); bnas takes `(PLT)` only
+    after a label or an alias, so it is an error there.
+  - A forward label difference in an addend (`bl lbl+(l2-l1)` before `l1`, `l2`, `lbl`): clang lists the locals
+    `lbl l2 l1`, bnas `l2 l1 lbl` (the first pass, pending, does not record `lbl`); every reference form has it.
 
 ## Stage 1: the feature model — DONE (binate `09f41e4f7`)
 

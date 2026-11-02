@@ -911,7 +911,7 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### asm arm32: an ARM feature model gating instructions as clang does, and the forms it lacks — 🟡 IN PROGRESS (claimed 2026-10-26, work-2; stage 1, the feature model, DONE binate `09f41e4f7`; stage 2's steps 2a, data processing, DONE binate `4925d2d0c` and 2a2, `:lower16:` / `:upper16:`, DONE binate `37cfd247a`, 2a3, the `.` label's symbol order, DONE binate `31c5e7c60`, 2b, the multiplies and divides, DONE binate `5fa9deadf`, 2c, saturate / parallel / pack, DONE binate `1c6638c25`, 2d, extend / bitfield / reverse / CLZ, DONE binate `c8501ae76` with `c8d407930`, 2e part 1, the loads and stores, DONE binate `fc4a352de`, 2e part 2, LDRD / STRD and the preloads, DONE binate `ef8444c43` (with the VFP encoders moved to asm/arm32/vfp, `e93b3d6fc`), 2f, exclusives / acquire-release / SWP / CLREX, DONE binate `ae3d7ce99`, 2g, block transfers, DONE binate `f34e5cf63`; see the done log; found 2026-10-25, work-2, the `.ARM.attributes` work; user: "Attributes now, gating next (Recommended)")
+### asm arm32: an ARM feature model gating instructions as clang does, and the forms it lacks — 🟡 IN PROGRESS (claimed 2026-10-26, work-2; stage 1, the feature model, DONE binate `09f41e4f7`; stage 2's steps 2a, data processing, DONE binate `4925d2d0c` and 2a2, `:lower16:` / `:upper16:`, DONE binate `37cfd247a`, 2a3, the `.` label's symbol order, DONE binate `31c5e7c60`, 2b, the multiplies and divides, DONE binate `5fa9deadf`, 2c, saturate / parallel / pack, DONE binate `1c6638c25`, 2d, extend / bitfield / reverse / CLZ, DONE binate `c8501ae76` with `c8d407930`, 2e part 1, the loads and stores, DONE binate `fc4a352de`, 2e part 2, LDRD / STRD and the preloads, DONE binate `ef8444c43` (with the VFP encoders moved to asm/arm32/vfp, `e93b3d6fc`), 2f, exclusives / acquire-release / SWP / CLREX, DONE binate `ae3d7ce99`, 2g, block transfers, DONE binate `f34e5cf63`, 2h, branches, DONE binate `e7ea2d33a` with bnld `600b9da73`; see the done log; found 2026-10-25, work-2, the `.ARM.attributes` work; user: "Attributes now, gating next (Recommended)")
 
 clang gates arm32 instructions by the target's features, which `.cpu` and `.fpu` change: a CPU without VFP (generic,
 arm7tdmi, xscale) rejects VFP instructions, a Thumb-only CPU (cortex-m*) switches to Thumb mode (bnas: an error), `.fpu
@@ -974,16 +974,12 @@ ld64 lists it as `[referenced dynamically] external`.  Only a lookup by name (dl
 **Fix:** list it in `buildMachoSymtab` with REFERENCED_DYNAMICALLY (0x10) in n_desc, as ld64 does, checked with
 `nm -m` against an ld64-linked executable.
 
-### asm ELF: two layout differences from clang — an instruction in a data section, and arm32 `bl` to a local label — (a) 🔴 OPEN, unclaimed; (b) 🟡 IN PROGRESS (claimed 2026-11-01, work-2, with arm32 step 2h; user: "Follow clang (Recommended)") (found 2026-10-26, work-2, comparing arm32 objects with clang's for the `.ARM.attributes` work)
+### asm ELF: an instruction in a data section aligns the section to 4, where clang leaves it 1 — 🔴 OPEN, unclaimed (found 2026-10-26, work-2, comparing arm32 objects with clang's for the `.ARM.attributes` work; its part (b), arm32 `bl` to a local label, DONE binate `e7ea2d33a`, see the done log)
 
-With `.ARM.attributes` matching, bnas's arm32 objects are byte-identical to clang's (`arm-linux-gnueabihf` /
-`arm-none-eabi`, `-march=armv7ve`) but for these (and the held-back first `$d`, kept by decision):
-(a) An instruction in a data section (`.section data` / `.uint8 1` / `bx lr`; on AArch64 `ret`) gives the section
-alignment 4 in bnas, 1 in clang (arm32 and AArch64; x86-64 matches).  (b) arm32 `bl g` / `bl<cond> g` to a label in
-the same section is resolved by bnas; clang keeps an R_ARM_CALL / R_ARM_JUMP24 relocation — for a `.L` label too,
-which then stays in the symbol table — so the linker can interwork or add a veneer (`b` / `b<cond>` match: resolved
-by both).  The assemble tests compare those objects by their symbols only.  **Fix:** decide each with the user
-(clang's choice, or keep bnas's), then follow it and make the cases full-layout goldens.
+An instruction in a data section (`.section data` / `.uint8 1` / `bx lr`; on AArch64 `ret`) gives the section
+alignment 4 in bnas, 1 in clang (arm32 and AArch64; x86-64 matches).  The assemble tests compare those objects by
+their symbols only.  **Fix:** decide with the user (clang's choice, or keep bnas's), then follow it and make the
+cases full-layout goldens.
 
 ### asm text: string escapes and directive-name case differ from clang — 🔴 OPEN, unclaimed (found 2026-10-26, work-2, review of the `.ARM.attributes` change)
 

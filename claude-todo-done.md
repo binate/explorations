@@ -1,3 +1,16 @@
+### asm arm32 stage 2h: branches; `bl` to a local label stays a relocation; bnld's R_ARM_CALL interworks -- DONE (binate `e7ea2d33a` and bnld `600b9da73`, 2026-11-01, work-2; user: "Follow clang (Recommended)")
+
+Every branch form clang takes, checked against clang (the branch cases, the gates, ~60 whole objects byte for byte).
+bnas: BLX <label> (BlxLabel / BlxOffset, H the target's bit 1) from ARMv5T, BXJ; a BL / BL<cond> / BLX to any symbol
+stays a relocation as clang leaves it (the ELF-layout todo's part (b)), `.L` labels listed, `.±N` a label made at
+`.`; `(PLT)` part of the expression primary on every PC-relative target, keeping the relocation (asm.Fixup.Keep);
+branch numbers read as 32 bits; a name clang reads as a register (arm32RegisterName) no ADR / literal-load / preload
+/ BLX-label operand.  bnld: R_ARM_CALL picks BL or BLX by the target function's instruction set (InputSymbol.Func,
+bit 0 of a Thumb function's address), reads a BLX's H bit, and makes a BL BLX only when some input's
+`.ARM.attributes` Tag_CPU_arch is ARMv5T or later (InputObject.ArmBlx), as lld; veneer cases are errors.  Kept
+differences: `blx<cond> label`, a relocated BLX addend not a multiple of 4, branch numbers past 32 bits.  Found on the
+way: the bnld undefined-weak branch todo; three differences in the plan's "outside the steps" list.
+
 ### CI red: main's 32-bit-host unit lane failed link, asm/assemble, check and irgen — tests that assumed a 64-bit host — DONE (binate `74fd4cd6f`, `cb22ecfb1`, 2026-11-01, work-1)
 
 Filed 2026-10-31, work-1, while validating the int64 asm change (CI on main at binate `d1e3f86fa`, run 41160559090).
