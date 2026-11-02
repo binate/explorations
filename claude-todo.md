@@ -83,6 +83,22 @@ gen.mono.instances' `Box[P]` example, iface.self.constraint's Note.
 
 ## MAJOR
 
+### bnfmt takes ~96 s on nested calls and composites again, so its VM unit-test shards time out — 🔴 OPEN (MAJOR: three CI unit lanes red; found 2026-11-02, work-3, reading the CI logs of the slow unit shards; bisected)
+
+pkg/binate/format's `TestFormatDeepNesting` (print_rendermemo_test.bn: calls nested 24 deep, composites 16 deep,
+each checked for a fixpoint) takes 96 s natively on main (`ced393e75`); every other test of the package takes under
+0.3 s.  It exists to keep formatting time polynomial in the nesting depth of calls and composites (binate
+`922992893`), but it checks only the output, so the slowdown passes it.  Bisected (the package's test binary
+finishing within 45 s vs not; ~1 s before): the first bad commit is binate `b5e5bca15` ("bnfmt: a fill decision
+keeps a layout a second format keeps", 2026-10-29).
+Under the VM (~50-100x slower) the test takes hours, so the unit shard holding pkg/binate/format never finishes:
+builder-comp-int and builder-comp-comp-int shard 3/6 cancelled at 30 min with format their first package and
+unfinished, and builder-comp-int-int shard 3/12 stuck in TestFormatDeepNesting when cancelled at 45 min (run
+41327131340 at `b60abc653`).
+Fix: find what `b5e5bca15` renders afresh per level that the rendering cache (print_rendermemo.bn) used to hit,
+and restore the bound; give the test a bound it can check (a count of renders, say) so a repeat fails it.  See
+also the LOW entry on nested function literals ("bnfmt's time grows exponentially ...").
+
 ### A chain of more than about 1023 named types gets false errors, a false cycle, or a compiler crash — 🔴 NEEDS DECISION: lift the bound or catalogue a limit (valid programs rejected, or bnc crashing; found 2026-11-02, work-1, review of the spec §7.13.10 wording; reproduced at binate `6aa3e58e1` with a change touching neither types nor check; pre-existing)
 
 `StripWrappers` (pkg/binate/types/types_query.bn) gives up -- returns nil -- after 1024 named steps, and its doc
