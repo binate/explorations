@@ -2896,7 +2896,7 @@ b` (bnfmt `bnc-0.0.17-pre3` and the tree's).  The second format is stable.  An i
 (`/* p */ F() int`) moves to a line of its own the same way, with no run to break.  A run should break at any comment that
 prints on a line of its own between two elements, or such a comment should stay on its element's line.
 
-### bnfmt's `__c_call` leaves out what follows its `)` — 🔴 OPEN 🟢 LOW (found 2026-10-29, temp-4, testing the non-idempotence prototype; pre-existing)
+### bnfmt's `__c_call` leaves out what follows its `)` — 🟡 IN PROGRESS (claimed 2026-11-01, temp-4; user: "yes") 🟢 LOW (found 2026-10-29, temp-4, testing the non-idempotence prototype; pre-existing)
 
 printCCall (print_builtin.bn) takes no tail: it fills its arguments with only its own `)` after the last, so what
 follows the call -- a close, a trailing comment -- gets no room.  A string run as the last argument is split to the
