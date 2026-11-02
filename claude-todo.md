@@ -2823,7 +2823,7 @@ changes 330 tree files.  And making room for a tail can leave a one-character la
 <85-byte comment>`).  Minor: trailWidth reserves nothing for a line comment after a block comment in a gap (`x, /* b
 */ // c`); a statement's leading `/* a */ // b` on a line of its own still prints as two lines (stable).
 
-### bnfmt: a marked string-run statement in a function literal argument moves on a second format — 🔴 OPEN 🟢 LOW (found 2026-11-01, temp-4, testing the `__c_call` tail fix; stable under bnfmt `bnc-0.0.17-pre3`)
+### bnfmt: a marked string-run statement in a function literal argument moves on a second format — 🟡 IN PROGRESS (claimed 2026-11-02, temp-4; user: "yes, we should do all of them") 🟢 LOW (found 2026-11-01, temp-4, testing the `__c_call` tail fix; stable under bnfmt `bnc-0.0.17-pre3`)
 
 `scripts/bnfmt-check/gen_mix.py --dense 120 1000 <dir>` writes `g120_126.bn`, which bnfmt at binate `a8e36b6da`
 formats differently a second time, as it did before the `__c_call` change: in a composite after a `__c_call` with a
