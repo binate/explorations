@@ -314,7 +314,10 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
    - 6a. DONE `bcccdfd21` (2026-11-02).  SizeOf / FieldOffset / ArrayLenHost removed (TrailingPadding was already
      int64).  With it, `76a0aaf4c`: bnc's 64-bit --target keys set the LP64 layout -- they had kept the host's,
      ILP32 on a 32-bit host, which the end-to-end test would have met.
-   - 6b. The end-to-end test: next.
+   - 6b. DONE `6aa3e58e1` (2026-11-02).  cmd/bnc/layout_past_2gib_test.bn compiles a layout program (a field past
+     2 GiB, an element and a copy over 2 GiB, a heap make, a 2 GiB zero global, sizeof) and a frame program (a
+     3 GiB frame, 4.5 GiB of by-value arguments) for aarch64 and x86-64, through LLVM IR and native ELF / Mach-O
+     objects, with no IR passes and with every pass; it passes on builder-comp_arm32_linux.  The plan is done.
 
 Call sites today (non-test): native ~235 (aarch64 65, arm32 63, x64 55, common 30, callconv 14, fold 8),
 codegen 60, types 55, vm 32, irgen 30, check 22, interp 12, ir 8, others ~15.

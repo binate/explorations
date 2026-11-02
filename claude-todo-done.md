@@ -1,3 +1,29 @@
+### int64 layout, stages 2-6: IR, LLVM codegen, native backends, VM — a 32-bit-hosted compiler fails loud on a > 2 GB type for a 64-bit target until they carry int64 — DONE (binate `6aa3e58e1`, the end-to-end test, 2026-11-02, work-1; claimed 2026-10-15, work-1; resumed 2026-10-18 after the MAJORs and the aggregate-copy items, per
+the user's 2026-10-15 order: "MAJORs first, then back"; the CRITICAL's continuation, done/plan-int64-layout.md)
+
+Stage 1 landed (binate `56c30e545`, docs `dc6444c`): types lays out in int64 and the checker rejects a type too
+large for the target; the rest of the compiler still narrows to the host's int through the transitional
+accessors (SizeOf / FieldOffset / TrailingPadding / ArrayLenHost / HostInt), which fail loud on a 32-bit host
+for a type of 2^31 bytes or more.  Stage 2 landed (binate `addbb15a2`, 2026-10-18): ir / irgen / irbuild / irdata /
+iropt / types/abi read layout in int64, and the shared records (irdata's data terms, type-info records, retbuf sizes)
+are int64.  Stage 3 landed (binate `651ea270e`, 2026-10-18): the LLVM backend writes sizes and offsets from the
+int64 API.  Stage 4a / 4b landed (binate `73d8d968f`, `845a85f52`, 2026-10-18): the shared native layer compares
+sizes with Size(); native aa64 materializes an add / sub immediate past 16 MiB.  Stage 4f-1 landed (binate
+`25ffa73f0`): native zero globals go to bss, which the assembler counts without holding.  Stage 4d-1 landed
+(binate `8d5ed266a`): native frame tables in int64, a frame past the target's address space a compile error
+(spec §21.4 row, docs `1501abe`; user decision 2026-10-18 "Address space").  The LLVM frame check landed (binate
+`1246f0e68`, `3279fc9ac`, `519dd78fa`).  Stage 4d-2 landed (binate `74f8e652e`): native x64 frame slots and incoming
+arguments past disp32.  Stage 4d-3 landed (binate `b108193b0`): native aarch64 frame offsets in int64 through the
+assembler.  Stage 4d-4 landed (binate `f2264bbe4`): native arm32.  Stage 4d-5 landed (binate `842db9d45`): the
+RegMap's frame lookups return int64 (the int forms and FrameInt gone); stage 4d is done.  Then
+(done/plan-int64-layout.md): 4e field / element offsets and copy sizes DONE (binate `87830f726` common, `650f83fc5` x64, `b771afffa` aarch64, `3beb3cc38` arm32); 4c callconv's stack layout DONE (binate `e88c25dba`, `a171e6ddd`, `4b7288ed8`, `f0eedbd5d`
++ `11a94b739`, `f57b123a5`); 4f-2 bss lengths and symbol offsets in int64 for a 32-bit host DONE (binate
+`2e4b91230` asm, `80435510b` the parser's zero-fill counts, `b45e12cd8` link); 5 VM / interp DONE (binate `5697ae15e` frame limit, `df14ecdec` the int64 accessors); 6 remove the int accessors DONE (binate `bcccdfd21`, with `76a0aaf4c`: bnc's 64-bit --target keys set the LP64 layout); an end-to-end test on the
+32-bit lane DONE (binate `6aa3e58e1`: cmd/bnc compiles types past 2 GiB for aarch64 and x86-64 through both
+backends, and passes on builder-comp_arm32_linux).
+The CI red from stage 4e (conformance 1718's 2 GiB copy on the LLVM x86-64 lanes, noted 2026-10-28 by work-3) is
+fixed: the copy is no longer staged on the stack (binate `bc9a35b70`).
+
 ### `bnc --target` for a 64-bit target kept the host's sizes — DONE (binate `76a0aaf4c`, 2026-11-02, work-1; user: "Fix now, own commit")
 
 applyTarget set the layout only for the arm32 keys; the x86_64 / aarch64 keys stamped only the arch, so a
