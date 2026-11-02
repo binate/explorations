@@ -116,7 +116,8 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
   operand.  bnld picks BL or BLX for R_ARM_CALL by the target function's instruction set, gated on an input's
   Tag_CPU_arch >= ARMv5T, as lld.  Kept differences: `blx<cond> label`, a relocated BLX whose addend is not a
   multiple of 4, a branch number past 32 bits and one past +/-32 MiB (`b #0x2000000`, clang wraps it) are errors.
-- 2i. System and hints: svc, bkpt, udf, hvc, smc, eret, mrs / msr (APSR / CPSR / SPSR fields, banked registers),
+- 2i. (The system class is its own sub-package, asm/arm32/sys -- NOP / SVC / BKPT moved there first, binate
+  `743ec8d07`; user: "Peel all to asm/arm32/sys (Recommended)".)  System and hints: svc, bkpt, udf, hvc, smc, eret, mrs / msr (APSR / CPSR / SPSR fields, banked registers),
   cps, setend, srs / rfe, nop / yield / wfe / wfi / sev / sevl / dbg / csdb / esb, dmb / dsb / isb with options,
   sb, ssbb / pssbb, setpan, hlt.
 - 2j. Coprocessor: mcr / mrc (and 2), mcrr / mrrc (and 2), cdp (and 2), ldc / stc (and 2, L).
