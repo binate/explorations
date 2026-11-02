@@ -1,3 +1,33 @@
+### A method of a `.bni`'s generic instance that the instance cannot take yet is rejected where an array length or a constant selects it: one a copied signature selects before its copy, or one of an instance whose layout waits -- DONE (binate `7e61ac730`, 2026-11-01, work-7)
+
+In a `.bni`, `type Box[X any] struct { a [2]X }`, `func (b Box[X]) A() [len(B.C())]X`, `func (b Box[X]) C() [3]X`,
+`var B Box[int]`, `const SA = len(B.A())` is "undefined: C" while an importer builds the scope: copying Box[int]'s
+methods where SA selects A, A's signature selects C, not copied yet, and with no instance's build around the copy
+nothing can wait for it (bniMethodCopyReadWaits).  And `const SG = len(F())`, `type Gen[X any] struct { a [SG -
+1]X }`, `func (g Gen[X]) Get() [3]X`, `func F() [len(G.Get())]int`, `var G Gen[int]` is "cyclic type definition
+involving `Gen`": Gen[int]'s layout waits for SG, and an instance whose layout waits takes no methods
+(attachInstanceMethods), though its methods do not depend on its layout.  A `.bn` twin of both prints `3 3 2`; with
+Get declared after F, the `.bn` reports the same cycle (an order dependence of its own).  Fix (to design): copy the
+one method a copy in progress selects on demand (guarded against one that selects itself), and give an instance
+whose layout waits the methods a selection needs; conformance regressions/bni-instance-method-not-ready (xfailed
+until then) and a unit test for each.
+
+Done: copyMethodOnDemand copies the method a selection needs onto an instance that takes its generic's methods later
+— one whose build waits for a layout, or an instance of a `.bni`'s generic during that `.bni`'s build — and only that
+one, as a copy in progress (copyLaterMethod), so a build the copy starts that selects it again waits; and, during a
+copy in progress, a method of a generic recorded from a `.bni` in declaration order (GenericMethodEntry.DeclOrder)
+that a copied signature selects before its turn.  A package's own generic records each method after those it
+selects, so there such a selection is a cycle its declaration reports.  attachInstanceMethods still gives a waiting
+instance nothing, and undoInstanceBuild keeps a non-interface instance's copied methods (a flush at the copy's end
+builds the waiting instance again).  Two reviews found that copying every method onto a waiting instance gave
+siblings that read its layout a false cycle, that copying on demand during a package's own copy reported a method
+cycle twice, and that a single copy that was no copy in progress could not wait for a build it started; each is a
+unit test now.  Also fixed: a `.bni` sibling reading the constant being resolved (`Sz() [S]X`, "undefined: F" on
+main), and an imported generic's waiting instance.  Tests: check/check_method_copy_demand_test.bn (a revert of each
+piece fails a test), conformance regressions/bni-instance-method-not-ready (no longer xfailed; extended with the
+sibling and a `.bn` twin).  Over 630 corpus probes and 811 review probes, none main compiles is rejected; 14 and 295
+now compile, and `.bn`/`.bni` twin mismatches fell from 34 to 23 and 182 to 29 (the rest also mismatch on main).
+
 ### bnfmt: a comment in a function's signature went onto the body's first line — DONE (binate `810abb9f6`, 2026-11-01, temp-4; user: "yes, go ahead")
 
 The last part of "bnfmt gives a declaration, group member or struct field the comments of the next one on its line:

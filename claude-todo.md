@@ -1202,23 +1202,9 @@ is built, reads W[int]'s layout, which reads Box[int]'s.  A second shape: `func 
 [sizeof(Box[X])]uint8 { … }` declared before `type Box[X any] struct { t [sizeof(X)]uint8 }`, `func (b Box[X]) Get()
 [3]X { … }`, `var B Box[N]`, `type N struct { v int64; arr [len(B.Get())]int; p *Box[N] }` is the same error at
 Other's `sizeof`; with Other declared after N, or without N's `arr`, it compiles (printing 40 on a 64-bit target), and so does its
-`.bni` twin with the fix of the entry below.  Root cause unknown — needs investigation: where the copy is made when
+`.bni` twin since binate `7e61ac730`.  Root cause unknown — needs investigation: where the copy is made when
 its read of the instance's layout cannot wait.  Fix: to design; a conformance test of each shape (xfailed until then)
 and unit tests.
-
-### A method of a `.bni`'s generic instance that the instance cannot take yet is rejected where an array length or a constant selects it: one a copied signature selects before its copy, or one of an instance whose layout waits — 🟡 IN PROGRESS (claimed 2026-11-01, work-7/session; user: "then take on items 1 and 2") (minor: valid programs rejected; found 2026-10-31, work-7, review of the `.bni` member-read fix; reproduced on main at binate `930f9643c`, as "array length must be a constant integer"; pre-existing)
-
-In a `.bni`, `type Box[X any] struct { a [2]X }`, `func (b Box[X]) A() [len(B.C())]X`, `func (b Box[X]) C() [3]X`,
-`var B Box[int]`, `const SA = len(B.A())` is "undefined: C" while an importer builds the scope: copying Box[int]'s
-methods where SA selects A, A's signature selects C, not copied yet, and with no instance's build around the copy
-nothing can wait for it (bniMethodCopyReadWaits).  And `const SG = len(F())`, `type Gen[X any] struct { a [SG -
-1]X }`, `func (g Gen[X]) Get() [3]X`, `func F() [len(G.Get())]int`, `var G Gen[int]` is "cyclic type definition
-involving `Gen`": Gen[int]'s layout waits for SG, and an instance whose layout waits takes no methods
-(attachInstanceMethods), though its methods do not depend on its layout.  A `.bn` twin of both prints `3 3 2`; with
-Get declared after F, the `.bn` reports the same cycle (an order dependence of its own).  Fix (to design): copy the
-one method a copy in progress selects on demand (guarded against one that selects itself), and give an instance
-whose layout waits the methods a selection needs; conformance regressions/bni-instance-method-not-ready (xfailed
-until then) and a unit test for each.
 
 ### A type whose array length reads a variable of that type, needing only the variable's type's name, is a false cycle in a `.bn` (a `.bni` accepts it) — 🔴 OPEN, decided valid (user 2026-11-01: "For 3, I think it is valid, since all that's required for f's type (signature) is the forward decl of T, not the definition of T.") (minor: a valid program rejected; found 2026-10-31, work-7, testing the `.bni` member-read fix; reproduced on main at binate `930f9643c`; pre-existing)
 
