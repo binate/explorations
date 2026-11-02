@@ -2681,6 +2681,8 @@ but the comment moves.  The AST records no position for a declaration's name or 
 `]`, which placing these comments needs.  Related: an empty annotation block `#[]`, which bnfmt drops on
 purpose, leaves an empty line in its place, so a doc comment above it no longer touches its declaration
 (conformance/spec/16-packages/071_annotation_degenerate.bn).
+The function-signature part (`func /* c */ f() {}`) is in progress under "bnfmt gives a declaration, group member or
+struct field the comments of the next one on its line: what remains" (claimed, temp-4).
 
 ### bnfmt moves a comment in some lists below its statement — 🟢 LOW (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
 
@@ -2696,6 +2698,9 @@ opener position the AST does not record, and in an empty list (`f(/* c */ )`, `T
 that takes these would claim them as `claimGap` does.  binate `scripts/bnfmt-check`'s comment check (`33c49c1b8`)
 finds a comment moved past another in 686 of its corpus files (580 of the comment-injected tree copies, mostly
 `func f(/* c */ a T, …)`, whose comment goes into the body; `r, /* c */ e = …`, whose goes after the statement).
+The parts in a function declaration's or literal's signature (its type-parameter list, the opener of its parameter or
+result list) are in progress under "bnfmt gives a declaration, group member or struct field the comments of the next
+one on its line: what remains" (claimed, temp-4).
 
 ### bnfmt indents a function literal's body from its parameters' continuation line — 🟢 LOW (found 2026-10-18, temp-4, testing the list-comment fix; pre-existing)
 
@@ -2751,8 +2756,18 @@ name (binate `20dc3a4ab`), a group's comment alignment measures every comment af
 and a case kept on one line keeps its comments where they are (binate `249ba747f`).  Until CHECK_TOOLS is past
 `43f0b1bb0`, hygiene's pinned bnfmt (`bnc-0.0.17-pre3`) still collapses a one-member block, so writing one in a
 formatted directory fails `bnfmt-format`.  Left:
-- A comment between a signature's `)` and its results goes into the body: `func f(a int) /* c */ int {` prints
-  `/* c */` on a line of its own as the body's first (bnfmt `bnc-0.0.17-pre3` and the tree's).
+- A comment in a function's signature that no list prints goes onto the body's first line: before the name (`func /*
+  a */ f`), after it, after the parameters' `(`, inside a parameter (`a /* d */ int`), before `)`, between `)` and the
+  results (`func f(a int) /* c */ int {`), after the results, in a receiver or in a type-parameter list (bnfmt
+  `bnc-0.0.17-pre3` and the tree's).  A line comment after `(` or a trailing `,` goes there with a blank line after
+  it (`func f1( // a` / `x int) int {`), and a one-line body expands for it.  With no body (a `.bni`, an interface
+  method) they go after the signature; in a function literal, on a line of their own after its statement.  All are
+  idempotent.  The signature printers take no cursor, the parameter list no opener, and the AST records no position
+  for a declaration's name or its parameters' `(` / `)`.  Decided (user, 2026-11-01: "Keep it in place
+  (Recommended)"): the signature prints each comment where the source put it, as a call's arguments do, the parser
+  recording those positions -- `.bn` and `.bni` signatures, receivers, type parameters, interface methods and
+  function literals.  This takes over the signature parts of "bnfmt moves a comment inside a declaration's header"
+  and "bnfmt moves a comment in some lists below its statement".
 
 ### bnfmt's drop of an empty `var ( )` / `const ( )` / `type ( )` group leaves a stray space before its comment, or three blank lines — 🔴 OPEN 🟢 LOW (found 2026-10-31, temp-4, review of keeping one-member groups; reproduced with bnfmt `bnc-0.0.17-pre3`; pre-existing)
 
@@ -2776,6 +2791,17 @@ block comment between its name and that type or value (`S /* c */ struct {` … 
 own after the member, then a blank line, and a second format ends the alignment run at that blank line, so the
 comments of the members after it align differently (found 2026-10-31 in a review of positioning type members at their
 names).
+
+### bnfmt moves a comment in a block's header into the block — 🔴 OPEN 🟢 LOW (found 2026-11-01, temp-4, probing the signature-comment bullet; pre-existing)
+
+A comment between a statement's or a type's header and its `{`, or after the `{` on its line, is printed by no node,
+so emitLeadingComments's fallback puts it on the block's first line: `if x /* c */ {`, `for i := 0; i < n; i++ /* d
+*/ {`, `{ /* f */` and `func h() { /* g */` print the comment as the block's first line, `switch n /* e */ {` above
+its first case and `type S /* s */ struct {` above its first field (bnfmt `bnc-0.0.17-pre3` and the tree's).  Each
+output is valid and idempotent, but the comment moves.  Kept apart from the signature fix (user, 2026-11-01:
+"Separate todo entry (Recommended)").  Related: "bnfmt moves a comment inside a declaration's header" (an
+interface's header comments go above its first method), and "bnfmt moves a statement's trailing comment to a line of
+its own after a comment inside it that no list prints".
 
 ### bnfmt's operator chain moves a function literal to a continuation line for what follows its last line — 🟢 LOW (found 2026-10-26, temp-4, working on the statement trailing-comment entry; pre-existing)
 
