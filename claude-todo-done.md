@@ -1,3 +1,12 @@
+### `bnc --target` for a 64-bit target kept the host's sizes — DONE (binate `76a0aaf4c`, 2026-11-02, work-1; user: "Fix now, own commit")
+
+applyTarget set the layout only for the arm32 keys; the x86_64 / aarch64 keys stamped only the arch, so a
+32-bit-hosted bnc laid out 4-byte pointers and int for a 64-bit target, with no error.  setLP64Layout now sets the
+LP64 layout for them; cmd/bnc/target_layout_test.bn applies each key over the hard-float arm32 target and checks
+the layout, arch, float ABI and int's size.  Found designing int64 layout stage 6's end-to-end test.  The
+review's related pre-existing cases (bnlint --target, the arm32 host key, arch-only unit tests) are a separate
+todo entry.
+
 ### asm arm32 stage 2i: system and hint instructions -- DONE (binate `9473afec6`, with the move of NOP / SVC / BKPT into asm/arm32/sys, `743ec8d07`, 2026-11-02, work-2; user: "Peel all to asm/arm32/sys (Recommended)", "Land now")
 
 Every arm32 system and hint instruction clang takes, exact encoders in asm/arm32/sys (Hint, Dbg, Udf, Hvc, Hlt,

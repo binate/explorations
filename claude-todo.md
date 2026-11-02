@@ -83,24 +83,6 @@ gen.mono.instances' `Box[P]` example, iface.self.constraint's Note.
 
 ## MAJOR
 
-### `bnc --target` for a 64-bit target keeps the host's sizes: a 32-bit-hosted bnc lays out aarch64 / x86-64 code as ILP32 — 🟡 IN PROGRESS (claimed 2026-11-01, work-1; user: "Fix now, own commit") (MAJOR: silent wrong layout when a 32-bit-hosted bnc cross-compiles; no shipped bundle is 32-bit; found 2026-11-01, work-1, int64 layout stage 6; by reading, not yet reproduced)
-
-`applyTarget` (cmd/bnc/target.bn) calls `types.SetTarget` only for the arm32 keys (through `setArm32Layout`).  The
-`x86_64-linux`, `x86_64-darwin`, `aarch64-linux` and `aarch64-darwin` keys only stamp `types.SetArch`, on the comment
-"LP64 layout is already the default".  The default is the HOST's sizes (`types.initTarget` takes `sizeof(*uint8)` and
-`sizeof(int)`), so on a 32-bit host those keys keep PointerSize and IntSize 4 with a 64-bit arch: `int` and pointers
-laid out 4 bytes wide for an aarch64 / x86-64 target, every struct offset, frame and call wrong, with no error.
-initTarget's own comment says cross-compiling drivers "still call SetTarget explicitly"; applyTarget does not.
-
-No shipped bundle is 32-bit (release.yml builds linux-x64, linux-arm64 and macos-arm64), so only a bnc built for arm32
-hits it -- the configuration int64 layout stage 6 is about (a 32-bit host compiling a > 2 GB type for a 64-bit
-target), which is how it was found.
-
-Fix: the four 64-bit keys call `types.SetTarget` with LP64 sizes (PointerSize 8, IntSize 8, MaxAlign 8) before
-`SetArch`, as setArm32Layout does for ILP32.  Test: a cmd/bnc unit test checking `types.GetTarget()` after
-applyTarget for each key; it can fail only on the 32-bit unit-test lane (`builder-comp_arm32_linux`), where the
-default is ILP32.  Not yet written: the unit-test runner marks expected failures per package, not per test.
-
 ### Target setup that still leans on the host's defaults: bnlint `--target`, bnc's "host" key on an arm32-linux host, and unit tests that stamp only an arch — 🔴 NEEDS DECISION (found 2026-11-01, work-1, review of the `bnc --target` LP64 fix; pre-existing; by reading)
 
 The same mistake as the `bnc --target` LP64 entry above, in three more places:
@@ -409,7 +391,7 @@ assembler.  Stage 4d-4 landed (binate `f2264bbe4`): native arm32.  Stage 4d-5 la
 RegMap's frame lookups return int64 (the int forms and FrameInt gone); stage 4d is done.  Remaining
 (plan-int64-layout.md): 4e field / element offsets and copy sizes DONE (binate `87830f726` common, `650f83fc5` x64, `b771afffa` aarch64, `3beb3cc38` arm32); 4c callconv's stack layout DONE (binate `e88c25dba`, `a171e6ddd`, `4b7288ed8`, `f0eedbd5d`
 + `11a94b739`, `f57b123a5`); 4f-2 bss lengths and symbol offsets in int64 for a 32-bit host DONE (binate
-`2e4b91230` asm, `80435510b` the parser's zero-fill counts, `b45e12cd8` link); 5 VM / interp DONE (binate `5697ae15e` frame limit, `df14ecdec` the int64 accessors); 6 (in progress 2026-11-01, work-1) remove the int accessors, and an end-to-end test on the
+`2e4b91230` asm, `80435510b` the parser's zero-fill counts, `b45e12cd8` link); 5 VM / interp DONE (binate `5697ae15e` frame limit, `df14ecdec` the int64 accessors); 6 (in progress 2026-11-01, work-1) remove the int accessors DONE (binate `bcccdfd21`, with `76a0aaf4c`: bnc's 64-bit --target keys set the LP64 layout); an end-to-end test on the
 32-bit lane.
 The CI red from stage 4e (conformance 1718's 2 GiB copy on the LLVM x86-64 lanes, noted 2026-10-28 by work-3) is
 fixed: the copy is no longer staged on the stack (binate `bc9a35b70`).
