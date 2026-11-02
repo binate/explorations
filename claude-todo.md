@@ -102,6 +102,26 @@ The same mistake as the `bnc --target` LP64 entry above, in three more places:
   the 32-bit unit-test lane (`builder-comp_arm32_linux`), a target that does not exist.  Fix: set the LP64 layout
   with the arch (a shared test helper), and restore the target after.
 
+### A chain of more than about 1023 named types gets false errors, a false cycle, or a compiler crash — 🔴 NEEDS DECISION: lift the bound or catalogue a limit (valid programs rejected, or bnc crashing; found 2026-11-02, work-1, review of the spec §7.13.10 wording; reproduced at binate `6aa3e58e1` with a change touching neither types nor check; pre-existing)
+
+`StripWrappers` (pkg/binate/types/types_query.bn) gives up -- returns nil -- after 1024 named steps, and its doc
+says every type the checker accepts peels fully.  But the checker's cycle check (`namedTypeDefIsCyclic`) walks
+only the underlyings already filled in, so a chain declared top-down (`type N0 N1`, `type N1 N2`, ...,
+`type Nk struct { a int; b int }`) gets past it at any depth:
+
+- k = 1000: compiles and runs.
+- k = 1023, fields of an N0 local assigned: "cannot assign to a non-addressable value", "cannot assign untyped
+  int to void".
+- k = 1100, an N0 local and `sizeof(N0)` printed: the checker accepts it, then bnc dies with SIGSEGV (a nil
+  dereference in irgen's genDecl, from lldb).
+- k = 1100 declared bottom-up, fields assigned: a false "cyclic type definition involving `N75`".
+
+No probe gave a wrong size or offset silently.  The limit is not in spec §21.4 (`conf.implementation.limits`).
+
+Fix, either way: no crash and no false errors.  The choice: lift the bound (peel without a step cap, with a cycle
+check that covers every chain it can be handed, partly filled ones included), or make the depth a catalogued
+implementation limit (§21.4, with a minimum) diagnosed at the declaration.
+
 ### A type whose walk is still on the stack counts as prepared when a `sizeof` reads it by value: a valid program gets a wrong array length, and a layout cycle is accepted — 🔴 OPEN (MAJOR: valid programs compiled with a wrong array type, silently, and an invalid one accepted; found 2026-10-30, work-7, review of the slice-reach fix; reproduced on main; pre-existing)
 
 `type N struct { v int64; a [sizeof(M)]uint8 }`, `type M struct { s *[]D }`, `type D struct { n N; e *[]E }`, `type E
