@@ -83,7 +83,7 @@ gen.mono.instances' `Box[P]` example, iface.self.constraint's Note.
 
 ## MAJOR
 
-### `bnc --target` for a 64-bit target keeps the host's sizes: a 32-bit-hosted bnc lays out aarch64 / x86-64 code as ILP32 — 🔴 NEEDS DECISION (MAJOR: silent wrong layout when a 32-bit-hosted bnc cross-compiles; no shipped bundle is 32-bit; found 2026-11-01, work-1, int64 layout stage 6; by reading, not yet reproduced)
+### `bnc --target` for a 64-bit target keeps the host's sizes: a 32-bit-hosted bnc lays out aarch64 / x86-64 code as ILP32 — 🟡 IN PROGRESS (claimed 2026-11-01, work-1; user: "Fix now, own commit") (MAJOR: silent wrong layout when a 32-bit-hosted bnc cross-compiles; no shipped bundle is 32-bit; found 2026-11-01, work-1, int64 layout stage 6; by reading, not yet reproduced)
 
 `applyTarget` (cmd/bnc/target.bn) calls `types.SetTarget` only for the arm32 keys (through `setArm32Layout`).  The
 `x86_64-linux`, `x86_64-darwin`, `aarch64-linux` and `aarch64-darwin` keys only stamp `types.SetArch`, on the comment
