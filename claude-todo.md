@@ -1188,6 +1188,21 @@ the prompt is checked with none.  A prompt statement `var hb H[int16]`, with `ty
 flush inside the copy.  Fix: reproduce it in the REPL's tests first; then give a prompt's statements the state the
 batch carries for these waits (the starts and DeclReadWaited), with a REPL unit test.
 
+### A generic method copied onto an instance, whose signature takes a size that depends on that instance, is rejected as a cycle in a `.bn` in some declaration orders — 🔴 OPEN (minor: valid programs rejected; found 2026-11-01, work-7, review of the `.bni` generic-instance method fix; on main at binate `e8fd48049`; pre-existing)
+
+In a single-file `.bn`, `type W[X any] struct { b [sizeof(Box[X])]uint8 }`, `func (b Box[X]) Sz() [sizeof(W[X])]X
+{ … }`, `type Box[X any] struct { a [2]X; w *W[X] }`, `var B Box[int]` with `len(B.Sz())` in main is "cyclic type
+definition involving `Box`" at W's `sizeof(Box[X])`, with Box declared first too.  Box[int] holds W[int] through a
+pointer, so there is no cycle: with `var B` declared before Sz the program prints 24 (on a 64-bit target), and so
+does it in a `.bni` an importer builds.  The copy of Sz onto Box[int], made while Box[int]
+is built, reads W[int]'s layout, which reads Box[int]'s.  A second shape: `func (b Box[X]) Other()
+[sizeof(Box[X])]uint8 { … }` declared before `type Box[X any] struct { t [sizeof(X)]uint8 }`, `func (b Box[X]) Get()
+[3]X { … }`, `var B Box[N]`, `type N struct { v int64; arr [len(B.Get())]int; p *Box[N] }` is the same error at
+Other's `sizeof`; with Other declared after N, or without N's `arr`, it compiles (printing 40 on a 64-bit target), and so does its
+`.bni` twin with the fix of the entry below.  Root cause unknown — needs investigation: where the copy is made when
+its read of the instance's layout cannot wait.  Fix: to design; a conformance test of each shape (xfailed until then)
+and unit tests.
+
 ### A method of a `.bni`'s generic instance that the instance cannot take yet is rejected where an array length or a constant selects it: one a copied signature selects before its copy, or one of an instance whose layout waits — 🟡 IN PROGRESS (claimed 2026-11-01, work-7/session; user: "then take on items 1 and 2") (minor: valid programs rejected; found 2026-10-31, work-7, review of the `.bni` member-read fix; reproduced on main at binate `930f9643c`, as "array length must be a constant integer"; pre-existing)
 
 In a `.bni`, `type Box[X any] struct { a [2]X }`, `func (b Box[X]) A() [len(B.C())]X`, `func (b Box[X]) C() [3]X`,
