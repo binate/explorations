@@ -1,3 +1,17 @@
+### bnfmt left room for ` {` after a signature whose empty body prints `{}`, one byte short — DONE (binate `3dd0b8e8f`, 2026-11-02, temp-4; user: "wait 4 minutes, then go ahead")
+
+A function body written empty over two lines prints as `{}`, but a signature's width checks left room for ` {` only,
+so a signature that fit with ` {` ended a byte past the cap, and more with what follows the `}` on its line -- a
+trailing comment, a function literal's enclosing close: `func f(firstParameterName int, secondParameterName int,
+thirdParameterName int, fourthParamXY int) {` / `}` printed a 101-byte line.  A signature now leaves room for ` {}`
+and what follows it when its body prints empty (printFuncSig through funcBodyLen, printFuncLit through emptyBody).
+A line comment a declaration's signature leaves pending -- one in its result type -- goes into the body, which then
+does not print `{}`, so for a signature with such a comment funcBodyLen renders the signature once in scratch to see
+whether one is left pending.  The tree's 8,156 files and the bnfmt-check corpora format as before; a review over
+about 15,000 generated declarations and literals found every overflow fixed and none introduced (`var w = func(...)
+{}` now wraps its parameters instead of breaking after `=`, as it does with a non-empty body).  Tests:
+TestSignatureLeavesRoomForAnEmptyBody, TestSignatureLeavesRoomForWhatItsBodyPrintsAfterItsComments.
+
 ### int64 layout, stages 2-6: IR, LLVM codegen, native backends, VM — a 32-bit-hosted compiler fails loud on a > 2 GB type for a 64-bit target until they carry int64 — DONE (binate `6aa3e58e1`, the end-to-end test, 2026-11-02, work-1; claimed 2026-10-15, work-1; resumed 2026-10-18 after the MAJORs and the aggregate-copy items, per
 the user's 2026-10-15 order: "MAJORs first, then back"; the CRITICAL's continuation, done/plan-int64-layout.md)
 

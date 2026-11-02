@@ -2866,14 +2866,6 @@ output is valid and idempotent, but the comment moves.  Kept apart from the sign
 interface's header comments go above its first method), and "bnfmt moves a statement's trailing comment to a line of
 its own after a comment inside it that no list prints".
 
-### bnfmt leaves room for ` {` after a signature whose empty body prints `{}`, one byte short — 🟡 IN PROGRESS (claimed 2026-11-02, temp-4; user: "yes, we should do all of them") 🟢 LOW (found 2026-11-01, temp-4, review of the signature-comment fix; pre-existing)
-
-A function body written empty over two lines (`{` / `}`) prints as `{}`, but the signature's width checks leave
-room for ` {` only (printFuncSig's `after`), so a signature that fits with ` {` ends one byte past the cap:
-`func f(firstParameterName int, secondParameterName int, thirdParameterName int, fourthParamXY int) {` / `}` prints
-a 101-byte line (bnfmt `bnc-0.0.17-pre3` and the tree's).  Fix: leave room for what the body prints on that line
-(` {}` for an empty one); test: that golden.
-
 ### parser: a bracket element read neither as an expression nor as a type loses its expression reading's records — 🔴 OPEN 🟢 LOW (found 2026-11-01, temp-4, review of the signature-comment fix; pre-existing)
 
 parseBracketExprOrType reads an element as an expression and, when that does not end the element, rewinds
