@@ -196,7 +196,10 @@ suites grew ~20% in the same span.**
   each operand in its own walk instead of a second whole-function walk (-0.64%), and applyPromotion keeps a
   block that gains and loses nothing instead of rebuilding it (-0.70%) -- 25.56G -> 25.24G (-1.25%, median of 9);
   compiled output identical.
-- Total so far ~39% fewer instructions per int-int test (the per-change ratios compounded).  Check CI's next
+- binate `4021da218`, `58bff26c4` (landed 2026-11-01): the VM slot planner's lowest-free-slot search scans the
+  table's items instead of growing it a step at a time (-0.65%), and its liveness walk reads instruction ids from a
+  flat table built with the plan (-0.24%); builder-comp-int 3816/0.
+- Total so far ~40% fewer instructions per int-int test (the per-change ratios compounded).  Check CI's next
   conformance / unit int-int durations before deciding whether shards or caps still need changing.
 - Then: irbuild.BlockIndexIn's linear scan (O(blocks^2) in buildSuccsPreds,
   pruneUnreachableBlocks, assertPhiEntriesArePreds), the append-built Preds / dominator children / DF sets in
