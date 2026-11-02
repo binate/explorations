@@ -1222,6 +1222,22 @@ loader deduplicates across files (loader_merge.bn), where a `.bni` and a `.bn` m
 the duplicate import in check_layout_wait_copy_test.bn and any other in the tree (a repo-wide sweep, embedded
 sources included); conformance error tests and unit tests.
 
+### A main program of several files does not scope its imports per file: a file may use another file's import, and two files may not bind one name to different packages — 🔴 OPEN (minor: invalid programs accepted, valid ones rejected; found 2026-11-02, work-7, checking the import-once rule per file; reproduced with a compiler built from binate `7e61ac730`; pre-existing)
+
+bnc and bni take a main program of several `.bn` files (`bnc a.bn b.bn`).  The loader merges them (LoadRoot /
+MergeFiles), and the checker checks the merge with `Check`, which registers every file's imports in one scope —
+while a package's files each get their own import scope (checkPackageImpl / buildFileScopes, binate `cf0d1cadb`).  So
+a main program whose a.bn imports `pkg/builtins/testing` and whose b.bn calls `testing.Println` without importing it
+builds and runs; and one whose a.bn has `import t "pkg/builtins/testing"` and b.bn `import t "pkg/builtins/lang"` is
+rejected ("`t` is imported more than once (pkg/builtins/testing and pkg/builtins/lang); give one of them an explicit
+alias"), which a package's two files may do.  Whether IR-gen resolves a main program's qualifiers per file is
+unchecked.  The spec says nothing of imports being file-scoped (§9.6 `decl.scope.levels` lists universe, package and
+block scopes), so a rule is needed there too.  Fix: check a main program's files as a package's are, with an import
+scope per file; the import-once change (not yet landed) adds `Checker.CheckProgram(merged, files)` and
+`CheckProgramPersistent`, which the bnc, interpreter and REPL drivers call with LoadRoot's per-file ASTs, so the file
+scopes can be built there.  Tests: to add — unit tests through CheckProgram, expected to fail until the fix, and an
+e2e case (the conformance runner builds a main program from one main.bn).
+
 ### A generic method copied onto an instance, whose signature takes a size that depends on that instance, is rejected as a cycle in a `.bn` in some declaration orders — 🔴 OPEN (minor: valid programs rejected; found 2026-11-01, work-7, review of the `.bni` generic-instance method fix; on main at binate `e8fd48049`; pre-existing)
 
 In a single-file `.bn`, `type W[X any] struct { b [sizeof(Box[X])]uint8 }`, `func (b Box[X]) Sz() [sizeof(W[X])]X
