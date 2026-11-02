@@ -2866,15 +2866,6 @@ output is valid and idempotent, but the comment moves.  Kept apart from the sign
 interface's header comments go above its first method), and "bnfmt moves a statement's trailing comment to a line of
 its own after a comment inside it that no list prints".
 
-### parser: a bracket element read neither as an expression nor as a type loses its expression reading's records — 🟡 IN PROGRESS (claimed 2026-11-02, temp-4; user: "yes, we should do all of them") 🟢 LOW (found 2026-11-01, temp-4, review of the signature-comment fix; pre-existing)
-
-parseBracketExprOrType reads an element as an expression and, when that does not end the element, rewinds
-(restoreParseState) and reads it as a type; when that fails too, it goes back to the expression reading's state
-(afterExpr).  restoreParseState only drops records past the saved counts (ast.File.BuiltinOpeners,
-ast.File.Signatures), so the records the first rewind dropped stay lost.  Both readings fail only in a file with a
-syntax error, which no formatter formats, so nothing reads them -- latent.  Fix: let a saved state carry the
-records it may need to put back (or save the vectors' items), so a rewind forward restores them.
-
 ### bnfmt's operator chain moves a function literal to a continuation line for what follows its last line — 🟢 LOW (found 2026-10-26, temp-4, working on the statement trailing-comment entry; pre-existing)
 
 printBinaryWrapped keeps an operand on the line when binOperandWidth plus the operand's tail fits there

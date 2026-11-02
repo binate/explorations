@@ -1,3 +1,18 @@
+### parser: a bracket element read neither as an expression nor as a type lost its expression reading's records — DONE (binate `a2a2d6931`, 2026-11-02, temp-4; user: "Yes, go ahead")
+
+parseBracketExprOrType reads an element that starts with `*` or `(` as an expression, rewinds and reads it as a type
+when that does not end the element, and goes back to the state after the expression (afterExpr) when the type
+reading fails too.  A snapshot kept only the counts of the builtin-call and signature records
+(ast.File.BuiltinOpeners, ast.File.Signatures), so that forward restore could not put back the records the rewind
+dropped: `_ = x[*len(y) z]` lost len's record, `_ = x[*func(a int) int { return a }(1) z]` the literal's signature.
+Latent: both readings fail only in a file with a syntax error, which the formatter does not format.
+saveParseStateSince now saves afterExpr with the records made since `start`, and a restore drops what was recorded
+after the records a snapshot keeps and puts the carried ones back; a snapshot also notes the last record it keeps,
+and a restore or saveParseStateSince from one whose kept records the parser no longer has (fewer, or another one
+last) panics -- the old forward restore trips it.  The snapshot code moved from parser.bn (431 lines) into
+parse_state.bn.  Tests: TestRestoreParseStateRecords, TestParseBracketElemReadNeitherWayKeepsRecords (a builtin
+call, a literal's signature, such an element nested in another, a record made after one).
+
 ### bnfmt left room for ` {` after a signature whose empty body prints `{}`, one byte short — DONE (binate `3dd0b8e8f`, 2026-11-02, temp-4; user: "wait 4 minutes, then go ahead")
 
 A function body written empty over two lines prints as `{}`, but a signature's width checks left room for ` {` only,
