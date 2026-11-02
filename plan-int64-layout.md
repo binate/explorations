@@ -296,7 +296,7 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
    Tests compile functions holding the large frames / offsets without calling them, so they need no memory.
 5. VM / interp: VM memory is host memory, so its layout narrows at allocation (`HostInt`), failing loud.
    In progress 2026-11-01 (work-1), two steps:
-   - 5a. The VM plans a function's frame in int64 and rejects one past the target's limit (types.FrameLimit,
+   - 5a. DONE `5697ae15e` (2026-11-01).  The VM plans a function's frame in int64 and rejects one past the target's limit (types.FrameLimit,
      as the native backends do: conformance 1710's xfail on builder-comp_arm32_linux_int) or past what this
      host can hold, as a lowering error.  User decision (2026-11-01): "A sounds right" -- checked after the
      optimization passes, in lowering (the frame the VM allocates, as the native backends check theirs), over
