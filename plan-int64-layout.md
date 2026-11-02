@@ -307,7 +307,7 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
      load error, and a frame the host cannot hold loads with a size the VM's stack check refuses, so calling it
      is the recoverable stack-overflow fault (as a native call overflows its stack).  The frame sum saturates as
      the native planner's does (two locals near 2^63 wrapped).
-   - 5b. The rest of vm / interp's layout calls (SizeOf / FieldOffset / ArrayLenHost, ~56 sites) take the
+   - 5b. DONE `df14ecdec` (2026-11-01).  The rest of vm / interp's layout calls (SizeOf / FieldOffset / ArrayLenHost, ~56 sites) take the
      int64 forms and narrow (HostInt) where host memory is used, ready for stage 6.
 6. Remove the int forms of `SizeOf()` / `FieldOffset()` / `TrailingPadding()` / `ArrayLenHost()`; end to end
    on the 32-bit lane: a program with a > 2 GB type for a 64-bit target compiles through both backends.
