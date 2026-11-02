@@ -153,6 +153,42 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
   - A forward label difference in an addend (`bl lbl+(l2-l1)` before `l1`, `l2`, `lbl`): clang lists the locals
     `lbl l2 l1`, bnas `l2 l1 lbl` (the first pass, pending, does not record `lbl`); every reference form has it.
 
+## Stage 3: VFP (asm/arm32/vfp)
+
+The FPU half of the feature model and every VFP instruction clang takes, a class per step, each landed with clang
+accept / reject goldens and gates and its encoders exact (asm/arm32/vfp's existing ones, which the native backend
+uses, kept or rebuilt on the general ones).  Each class takes its pre-UAL names too (fadds, fldd, fmrx, ..) where
+clang does.
+
+clang's facts so far (Apple clang 21; bnas's targets as bnc drives clang: Linux `--target=arm-linux-gnueabihf
+-march=armv7ve`, bare metal `--target=arm-none-eabi -march=armv7ve -mfloat-abi=soft`):
+- Linux starts with VFPv3, 32 D registers and NEON (no VFPv4, no half conversions); bare metal with no FP at all
+  (`vadd.f32` is "instruction requires: VFP2").
+- `.fpu` sets the FP features: vfpv2 (16 D registers -- `d16` is "operand must be a register in range [d0, d15]" --
+  and no `vmov` immediate), vfpv3, vfpv3-d16, vfpv4 (vfma, half conversions), neon (VFPv3 + NEON), fp-armv8
+  (vrint*, vcvtb to f64), crypto-neon-fp-armv8 (+ AES / SHA2 under ARMv8), softvfp / none (no FP).
+- `.arch` and `.cpu` set them too, on either target: armv6 none, armv7-a VFPv3 + NEON, armv8-a
+  crypto-neon-fp-armv8; cortex-a8 VFPv3 + NEON, cortex-a9 the same with half conversions, arm1176jzf-s VFPv2,
+  cortex-a53 crypto-neon-fp-armv8.
+- `.f16` arithmetic needs full FP16 (ARMv8.2's fp16), on by no default; vjcvt needs ARMv8.3.
+- Messages: "instruction requires: VFP2" / "double precision VFP" / "VFP4" / "half-float conversions" / "FPARMv8"
+  / "NEON" / "full half-float" / "FPARMv8 armv8.3a"; a NEON instruction without NEON is "invalid instruction, any
+  one of the following would fix this".
+
+Steps:
+- 3a. The FP feature model and the arithmetic class.  FP bits (VFP2, VFP3, VFP4, FP-ARMv8, double precision, 32 D
+  registers, half conversions, full FP16, NEON, AES, SHA2), set by the target, `.fpu`, `.arch`, `.cpu` (each CPU's
+  default FPU) and `.arch_extension` through clang's implication closure; then vadd / vsub / vmul / vnmul / vdiv,
+  vmla / vmls / vnmla / vnmls, vfma / vfms / vfnma / vfnms, vabs / vneg / vsqrt, vcmp / vcmpe (and `#0`), in .f32 /
+  .f64 / .f16.
+- 3b. Moves: vmov (registers, the VFPv3 immediate, core <-> single, two cores <-> a double or two singles, a core
+  <-> a D register's 32-bit lane), vmrs / vmsr (FPSCR, FPEXC, FPSID, MVFR0-2, FPINST / FPINST2, APSR_nzcv),
+  vmov.f16, vins / vmovx.
+- 3c. Conversions and ARMv8's FP: vcvt (f32 <-> f64, integer, fixed point), vcvtr, vcvtb / vcvtt, vcvta / n / p / m,
+  vrinta / n / p / m / r / z / x, vsel*, vmaxnm / vminnm, vjcvt.
+- 3d. Loads and stores: vldr / vstr (an offset, a label), vldm / vstm (IA / DB, writeback, S and D lists, the X
+  forms), vpush / vpop.
+
 ## Stage 1: the feature model — DONE (binate `09f41e4f7`)
 
 ### clang's facts (Apple clang 21, `--target=arm-linux-gnueabihf -march=armv7ve`; probes in the session scratchpad)
