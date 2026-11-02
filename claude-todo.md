@@ -177,10 +177,14 @@ suites grew ~20% in the same span.**
   iropt/dom.bn, the rest of the VM's slot assignment (assignSlots; pickSlots is ~1.6%), the fault-pad cleanup
   emission in irgen, and the checker's requireFitting size walk (~0.7%).
 
-Options (decision needed): (a) profile and fix the load pipeline's superlinear phases (cmd/bni's load is also
-bni's start-up cost for every user); (b) more shards or a longer cap for the int-int lanes
-(.github/workflows/{conformance,unit}-tests.yml); (c) stop re-loading cmd/bni for every test in int-int (one outer
-bni running many inner programs) -- a harness change that alters what the lane exercises.
+Decision (2026-11-01; user: "We should do more shards and a longer cap; say, 10 shards and a 60 minute cap or
+whatever.  For the unit lane, do we have the ability to shard a single package's tests?"): even after (a), every
+conformance int-int shard was cancelled at 30 min having run ~43% of its tests (run at b45e12cd8).  Landed
+binate `93e37afc5` (conformance int-int: 10 shards, 60-min cap) and `684a1218a` (unit lanes: pkg/binate/check and
+pkg/binate/irgen -- ~1800 and ~800 tests, split out of types / ir without the int-int lane's INTINT_HEAVY entry or
+a .split.vm marker -- are test-sharded; a local shard 1/12 ran 220 of their tests).  Remaining: confirm on the
+next completed CI runs that every int-int shard, conformance and unit, finishes within its cap; then close this.
+Option (c) -- one outer bni loading cmd/bni once for many tests -- was not taken.
 
 ### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🔴 NEEDS DECISION, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
