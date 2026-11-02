@@ -1191,6 +1191,18 @@ the prompt is checked with none.  A prompt statement `var hb H[int16]`, with `ty
 flush inside the copy.  Fix: reproduce it in the REPL's tests first; then give a prompt's statements the state the
 batch carries for these waits (the starts and DeclReadWaited), with a REPL unit test.
 
+### A file may import the same package more than once — 🟡 IN PROGRESS (claimed 2026-11-01, work-7/session; user: "duplicate imports shouldn't be allowed. (nor imports of the same package assigning different import names)") (minor: invalid programs accepted; found 2026-11-01, work-7: pkg/binate/check/check_layout_wait_copy_test.bn on main imports pkg/binate/buf twice)
+
+The checker accepts a package imported twice in one file: under the same name (registerImportsInto,
+check/bni_scope.bn, leaves "a redundant re-import" to definePkg's overwrite), under two names (`import a "p"` and
+`import b "p"`, each bound), and a blank import repeated or beside a named one (taken as "legitimately repeatable").
+Only two different packages under one name are rejected (errDuplicateImport).  The spec (§16.3 `pkg.import`) says
+nothing either way; the user's ruling is that none of these is allowed.  Fix: a spec rule in §16.3 (a file imports
+a package at most once, under any name), checked per source file — not on a package's merged import list, which the
+loader deduplicates across files (loader_merge.bn), where a `.bni` and a `.bn` may each import the package; remove
+the duplicate import in check_layout_wait_copy_test.bn and any other in the tree (a repo-wide sweep, embedded
+sources included); conformance error tests and unit tests.
+
 ### A generic method copied onto an instance, whose signature takes a size that depends on that instance, is rejected as a cycle in a `.bn` in some declaration orders — 🔴 OPEN (minor: valid programs rejected; found 2026-11-01, work-7, review of the `.bni` generic-instance method fix; on main at binate `e8fd48049`; pre-existing)
 
 In a single-file `.bn`, `type W[X any] struct { b [sizeof(Box[X])]uint8 }`, `func (b Box[X]) Sz() [sizeof(W[X])]X
