@@ -1,5 +1,5 @@
 # Plan: native code placement (x64, aarch64, arm32)
-Status: tooling designed (2026-10-12); decisions taken 2026-10-15 (below); tooling commit 1 (placement seed) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report, `layout.py`) landed as binate `f05342e5d` (2026-10-18); tooling commit 3 (timing driver, `ab.py` / `stats.py`) landed as binate `4f9e3c75b` (2026-10-18), its short-run refusal as `0a6a3aeaf`; tooling commit 4 (probe) landed as binate `053d743c1` (2026-10-19); phase-0 calibration run on the x86 VM 2026-10-19/20 (results below); user decisions 2026-10-20: the per-workload guard gets a Holm correction over the workloads, and on this VM x64 decisions use the benchmark geomean and the self-compile while per-benchmark claims are timed on the aa64 machines. The Holm change landed as binate `3f95bef54` (2026-10-28). Block layout (design below; its four questions decided 2026-10-30): commit 1, the condition-inversion helpers (`x64.InvertCC`, `arm32.InvertCond`, `aarch64.InvertCond`), landed as binate `8a359925c` (2026-10-31); next, commit 2 (plumbing and the hidden switch). Tracked in `claude-todo.md` ("native code placement").
+Status: tooling designed (2026-10-12); decisions taken 2026-10-15 (below); tooling commit 1 (placement seed) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report, `layout.py`) landed as binate `f05342e5d` (2026-10-18); tooling commit 3 (timing driver, `ab.py` / `stats.py`) landed as binate `4f9e3c75b` (2026-10-18), its short-run refusal as `0a6a3aeaf`; tooling commit 4 (probe) landed as binate `053d743c1` (2026-10-19); phase-0 calibration run on the x86 VM 2026-10-19/20 (results below); user decisions 2026-10-20: the per-workload guard gets a Holm correction over the workloads, and on this VM x64 decisions use the benchmark geomean and the self-compile while per-benchmark claims are timed on the aa64 machines. The Holm change landed as binate `3f95bef54` (2026-10-28). Block layout (design below; its four questions decided 2026-10-30): commit 1, the condition-inversion helpers (`x64.InvertCC`, `arm32.InvertCond`, `aarch64.InvertCond`), landed as binate `8a359925c` (2026-10-31); commit 2, the plan plumbing and the hidden `-fnative-block-layout` switch, landed as binate `779bdd51e` (2026-11-01), in a package of its own, `native/blockplan` (§5); next, commit 3 (x64 elision and inversion). Tracked in `claude-todo.md` ("native code placement").
 ## Why
 
 Identical machine code runs at very different speeds depending on where it lands, on the x86 test host
@@ -351,7 +351,15 @@ As a result, `if bad { panic(…) }` compiles to a forward jcc that is not taken
 - **Division and shift checks** are not inline branches: all three backends call `rt.DivCheck` / `rt.ShiftCheck` on every execution, and LLVM emits the same calls. Not part of this work.
 - **RefDec destroy path.** On x64, `jnz skip` is taken whenever the count stays above zero (`x64_managed.bn:133-180`; also `aarch64_refcount.bn:132-198` and `arm32_refcount.bn:128-182`). LLVM keeps its `ZeroRefDestroy` call inline behind `jne` as well (same probe), and the path runs once for every object freed. **Decided: stays inline.**
 
-### 5. Plan and plumbing (`native/common`)
+### 5. Plan and plumbing (`native/blockplan`)
+
+As landed (binate `779bdd51e`), the plan is the package `pkg/binate/native/blockplan`, beside `native/place`, not a
+file of `native/common`: in `common` it would have taken `common.bni` to 1010 lines against its 1000-line cap
+(user decision 2026-11-01).  `common.EmitObject` checks the mode with `blockplan.BlockLayoutCheck`, as it does
+`place.PlaceCheck`.  `ArchEmitter` also gains `AlignsLoops()`, and `PlanBlocks(f, mode, alignLoops)` runs
+`ComputeLoopHeaders` only for a backend that aligns loops (x64), so on aarch64 and arm32 `AlignTop` is empty.
+A backend checks the plan with `CheckBlockPlan`, takes `next` from `PlanNext`, and ends each block with
+`CheckBlockEnd` (the guard).  The text below is the design as written.
 
 A new file `common_block_plan.bn`, about 90 lines (`common.bni` is 922 lines), holds:
 - the constants `BLOCK_LAYOUT_SOURCE` (0), `BLOCK_LAYOUT_FALLTHROUGH` and `BLOCK_LAYOUT_LOOPS`, with `BlockLayoutByName` and `BlockLayoutName`;

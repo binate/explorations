@@ -4951,6 +4951,23 @@ reader's reason.  Tests: `relocSectionChecks` on an ELF64 RELA and an ELF32 REL 
 `TestReadObjectRejectsNonRelocatable`, `TestReadArchiveBadMemberReason`.  Checked that clang C objects (`-g`,
 `-ffunction-sections`, `-O0` / `-O1`) still link on x86-64, aarch64 and arm32.
 
+### native code placement, block layout commit 2: block plans and the hidden switch — DONE (binate `779bdd51e`, 2026-11-01)
+
+A sub-step of the open "native code placement" entry in `claude-todo.md` (block layout design in
+`plan-native-code-placement.md`). A new package `pkg/binate/native/blockplan` holds the layout modes (SOURCE,
+the default, and FALLTHROUGH), `BlockPlan { Order, AlignTop, FallThrough }`, `PlanBlocks` and the checks
+(`CheckBlockPlan`, `PlanNext`, `CheckBlockEnd`); it is its own package because `native/common.bni` was at its
+1000-line cap (user decision 2026-11-01). `common.EmitObject` takes the mode and hands each function's plan to
+`ArchEmitter.EmitFunc`; the new `ArchEmitter.AlignsLoops` keeps aarch64 and arm32 from running the loop
+analysis. Each backend emits its blocks in `plan.Order`, lowers terminators through `emitTerm` (still always an
+explicit transfer), and fails a function in which code follows a block's terminator (on aarch64 before the
+branch-island check). `native.Options.BlockLayout` reaches all three backends; bnc's hidden
+`-fnative-block-layout=source|fallthrough` has the error rules of the `-fnative-place-*` switches.
+Validated: objects byte-identical before and after, and with no flag, `source` and `fallthrough`, on x86-64,
+aarch64 and arm32 at -O0 and -O2 (12 conformance programs and two packages, and all of `cmd/bnc`, so the guard
+never fired). The landing rebase (55 commits) needed two type fixes for upstream's `uint64` assembler offsets
+and `int64` section lengths, which a clean rebase did not show.
+
 ### native code placement, block layout commit 1: condition inversion in the assembler — DONE (binate `8a359925c`, 2026-10-31)
 
 A sub-step of the open "native code placement" entry in `claude-todo.md` (block layout design in
