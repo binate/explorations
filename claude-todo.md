@@ -2830,6 +2830,15 @@ changes 330 tree files.  And making room for a tail can leave a one-character la
 <85-byte comment>`).  Minor: trailWidth reserves nothing for a line comment after a block comment in a gap (`x, /* b
 */ // c`); a statement's leading `/* a */ // b` on a line of its own still prints as two lines (stable).
 
+### bnfmt: a marked string-run statement in a function literal argument moves on a second format — 🔴 OPEN 🟢 LOW (found 2026-11-01, temp-4, testing the `__c_call` tail fix; stable under bnfmt `bnc-0.0.17-pre3`)
+
+`scripts/bnfmt-check/gen_mix.py --dense 120 1000 <dir>` writes `g120_126.bn`, which bnfmt at binate `a8e36b6da`
+formats differently a second time, as it did before the `__c_call` change: in a composite after a `__c_call` with a
+line comment among its arguments, `h(func() {` keeps its literal on `h(`'s line, with a `// LONG-LINE ALLOWED`
+string-run statement in it whose parts stay as written; a second format moves the literal below `h(` and the value
+below `_ =`, and merges the marked line's parts into one string.  The pinned bnfmt formats it stably, so a change
+after `bnc-0.0.17-pre3` brought it in.  `minimize.py shrink` cuts it to about 600 bytes.
+
 ### bnfmt's drop of an empty `var ( )` / `const ( )` / `type ( )` group leaves a stray space before its comment, or three blank lines — 🔴 OPEN 🟢 LOW (found 2026-10-31, temp-4, review of keeping one-member groups; reproduced with bnfmt `bnc-0.0.17-pre3`; pre-existing)
 
 printGroupDecl drops an empty group (it has no member to recover its keyword from), but its callers still write
@@ -2911,16 +2920,6 @@ x` / `/* p */ bbbb = 2 // y` in a `var` or `const` group, and with `case 1: g() 
 b` (bnfmt `bnc-0.0.17-pre3` and the tree's).  The second format is stable.  An interface method's comment
 (`/* p */ F() int`) moves to a line of its own the same way, with no run to break.  A run should break at any comment that
 prints on a line of its own between two elements, or such a comment should stay on its element's line.
-
-### bnfmt's `__c_call` leaves out what follows its `)` — 🟡 IN PROGRESS (claimed 2026-11-01, temp-4; user: "yes") 🟢 LOW (found 2026-10-29, temp-4, testing the non-idempotence prototype; pre-existing)
-
-printCCall (print_builtin.bn) takes no tail: it fills its arguments with only its own `)` after the last, so what
-follows the call -- a close, a trailing comment -- gets no room.  A string run as the last argument is split to the
-cap, and the line then runs past it: `__c_call("sym", int, "<92 a's>" "<84 a's>") // K2` at four tabs prints its
-last part 101 wide, and inside `g(qqq[…])` 103 (bnfmt at binate `4f58c52e5`).  printBuiltin's other builtins take
-the tail (`1 + tail` for the last operand); pass it to printCCall as well.  A prototype of binate `b5e5bca15`,
-laying such a call out at a shallower column, left one file of the `scripts/bnfmt-check` corpora a line past the
-cap; the landed change leaves none.
 
 ## bnlint rules, unused-entity checks & lint skips
 

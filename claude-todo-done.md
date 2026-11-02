@@ -1,3 +1,15 @@
+### bnfmt's `__c_call` left out what follows its `)` — DONE (binate `a8e36b6da`, 2026-11-01, temp-4; user: "yes")
+
+printCCall took no tail, so what follows a `__c_call` on its line -- a close, a trailing comment -- got no room, and a
+string run as its last argument ran past the cap: `x = __c_call("sym", int, "<92 a's>" "<84 a's>") // K2` at four
+tabs and `g(qqq[__c_call("sym", int, "<92 a's>" "<88 a's>")])` were each 101 wide.  printBuiltin now passes its tail
+on to printCCall, as to the other builtins, so a `__c_call` lays out as a call of the same width does (a review
+compared the two in ~19,000 generated contexts).  TestStableNestedChecked's nested `__c_call`s then laid out stably
+without the check of the decisions inside a read-back layout (print_stable.bn), so the test no longer covered that
+check; its input is now one that needs it, found among 30,000 files of gen_mix.py (seeds 101-130) and minimized.  With
+that check off, the bnfmt-check corpora's 25,000 files format as with it on.  On the corpora 59 generated files
+change, 39 with fewer lines over the cap and none wider.  Test: TestCCallLeavesRoomForWhatFollowsIt.
+
 ### A method of a `.bni`'s generic instance that the instance cannot take yet is rejected where an array length or a constant selects it: one a copied signature selects before its copy, or one of an instance whose layout waits -- DONE (binate `7e61ac730`, 2026-11-01, work-7)
 
 In a `.bni`, `type Box[X any] struct { a [2]X }`, `func (b Box[X]) A() [len(B.C())]X`, `func (b Box[X]) C() [3]X`,
