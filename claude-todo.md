@@ -83,25 +83,6 @@ gen.mono.instances' `Box[P]` example, iface.self.constraint's Note.
 
 ## MAJOR
 
-### Target setup that still leans on the host's defaults: bnlint `--target`, bnc's "host" key on an arm32-linux host, and unit tests that stamp only an arch — 🟡 IN PROGRESS (claimed 2026-11-02, work-1; user: "it seems like the former should just be fixed?") (found 2026-11-01, work-1, review of the `bnc --target` LP64 fix; pre-existing; by reading)
-
-The same mistake as the `bnc --target` LP64 entry above, in three more places:
-
-- **bnlint `--target` checks under the host's layout** (minor: lint diagnostics).  `resolveLintConfig`
-  (cmd/bnlint/main.bn) maps the key to a BuildConfig for build constraints and never calls `types.SetTarget`, so
-  `bnlint --target arm32-linux` on a 64-bit host type-checks with 8-byte `int` and pointers: int-fit errors, a type
-  too large for the target and `sizeof`-dependent array lengths come out as for LP64.  Fix: share bnc's target
-  application (the layout, arch and float ABI per key) with bnlint.
-- **bnc's "host" key on an arm32-linux host leaves the float ABI soft** (latent wrong code: only a bnc built for
-  arm32 linux reaches it, and none ships).  `applyTarget("host")` stamps only the arch, so FloatABI stays the
-  default (soft) though the host is gnueabihf (hard-float), and `targetTriple` stays empty; a float passed to a C
-  call would go in core registers where the host's libc expects VFP ones.  Fix: the host key applies the host's own
-  target setup (for an arm32 linux host, what "arm32-linux" applies).
-- **Unit tests that stamp `types.SetArch(ARCH_X64 / ARCH_AA64)` without `SetTarget`** (25 test files, e.g.
-  `types/abi/sysv_test.bn`, `codegen/emit_ccall_test.bn`) test a 64-bit arch with 4-byte `int` and pointers on
-  the 32-bit unit-test lane (`builder-comp_arm32_linux`), a target that does not exist.  Fix: set the LP64 layout
-  with the arch (a shared test helper), and restore the target after.
-
 ### A chain of more than about 1023 named types gets false errors, a false cycle, or a compiler crash — 🔴 NEEDS DECISION: lift the bound or catalogue a limit (valid programs rejected, or bnc crashing; found 2026-11-02, work-1, review of the spec §7.13.10 wording; reproduced at binate `6aa3e58e1` with a change touching neither types nor check; pre-existing)
 
 `StripWrappers` (pkg/binate/types/types_query.bn) gives up -- returns nil -- after 1024 named steps, and its doc

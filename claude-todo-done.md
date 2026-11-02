@@ -1,3 +1,18 @@
+### Target setup that leaned on the host's defaults: bnlint `--target` and bnc's host key — DONE (binate `5667c0343`, 2026-11-02, work-1; user: "it seems like the former should just be fixed?")
+
+`buildcfg.TargetFor(cfg)` gives the target a build config implies (layout, arch, float ABI); bnc's `--target`
+keys and its host key set it (the host key used to stamp only the arch, so an arm32 linux host kept a soft float
+ABI), and bnlint's `--target` sets it (it used to type-check under its own host's layout).  Tests: buildcfg per
+key and for the host; bnc's host key over the soft arm32 target against the host's build constants; bnlint
+linting a 2^31-byte type, clean for x86_64-linux and too large for arm32-linux.  Found by the review of the `bnc
+--target` LP64 fix (`76a0aaf4c`).
+
+The entry's third item, "unit tests that stamp only an arch", was wrong: those tests call their package's
+`setTarget64()` helper, which sets the LP64 layout, before stamping the arch (the one exception,
+types/abi's TestArm32HardFloatGate, stamps aa64 over arm32 on purpose).  Not done here: interp and the REPL
+(bni) set a host BuildConfig but not the target, so bni's IR-gen classifies with an unknown arch; no misbehavior
+found (the VM reads only size-based ABI helpers) -- offered to the user as a follow-up.
+
 ### parser: a bracket element read neither as an expression nor as a type lost its expression reading's records — DONE (binate `a2a2d6931`, 2026-11-02, temp-4; user: "Yes, go ahead")
 
 parseBracketExprOrType reads an element that starts with `*` or `(` as an expression, rewinds and reads it as a type
