@@ -2757,20 +2757,10 @@ changes 330 tree files.  And making room for a tail can leave a one-character la
 
 Declarations, group members, struct fields and imports stop at the next node's comments (binate `1b66c0a0a`), a
 one-member `var (` / `type (` block stays a group (binate `43f0b1bb0`), a grouped type member is positioned at its
-name (binate `20dc3a4ab`), and a group's comment alignment measures every comment after a member (binate `7576ed4bf`).
-Until CHECK_TOOLS is past `43f0b1bb0`, hygiene's pinned bnfmt (`bnc-0.0.17-pre3`) still collapses a one-member block,
-so writing one in a formatted directory fails `bnfmt-format`.  Left:
-- A case kept on one line with its body prints the body with no comment cursor, so the comments after its label and
-  between its statements go after the last: `case 1: a() /* c */; b()` prints `case 1: a(); b() /* c */` (bnfmt
-  `bnc-0.0.17-pre3` and the tree's).  Its width checks measure every comment on its line there too, as a second
-  format finds them (binate `26c2ba240`), so a case with a comment before its `:` expands for it, though the label
-  line the comment then goes on cannot hold it: `case <85 a's> /* cccccccccc */: g() // d` prints a 109-wide label
-  line ending `: /* cccccccccc */` (on one line it is 118 wide).  Printed where they are, the comments should be
-  measured there, and that case would keep its line.  When its last statement ends on a later source line (`case 6:
-  a() /* x */; b(c,` / `d) // e`), emitTrailingCommentBefore stops at the label line's pending comment, and both go
-  on lines of their own before the next case; a second format sees an own-line comment there and ends the case's
-  alignment run at it, so the run's bodies move (not idempotent; found 2026-10-26 in a review of the switch cases'
-  trailing-comment room).
+name (binate `20dc3a4ab`), a group's comment alignment measures every comment after a member (binate `7576ed4bf`),
+and a case kept on one line keeps its comments where they are (binate `249ba747f`).  Until CHECK_TOOLS is past
+`43f0b1bb0`, hygiene's pinned bnfmt (`bnc-0.0.17-pre3`) still collapses a one-member block, so writing one in a
+formatted directory fails `bnfmt-format`.  Left:
 - A comment between a signature's `)` and its results goes into the body: `func f(a int) /* c */ int {` prints
   `/* c */` on a line of its own as the body's first (bnfmt `bnc-0.0.17-pre3` and the tree's).
 

@@ -1,3 +1,21 @@
+### bnfmt: a case kept on one line moved its comments after its last statement — DONE (binate `249ba747f`, 2026-11-01, temp-4; user: "wait 8 minutes, then land")
+
+A case kept on one line with its body printed the body with no comment cursor, so the comments after its label and
+between its statements went after the last (`case 1: a() /* c */; b()` printed `case 1: a(); b() /* c */`); when its
+last statement ended on a later source line, they went on lines of their own, and a second format moved the run's
+bodies.  Its width checks measured every comment there too, so `case <85 a's> /* cccccccccc */: g() // d` expanded
+into a 109-wide label line that could not hold the comment.  Now printCaseRun writes a label's comments after the
+label and printCaseBodyInline each statement's after it; the statements still print without a cursor, as
+renderCaseBody measures them, so a block in one stays on the line and a comment inside one goes after it.  The width
+checks measure each comment where it goes (caseCommentWidth), so that case keeps its 118-wide line (one that fits
+neither way keeps its line, binate `26c2ba240`), and a label's comments count as part of the label for the run's
+alignment (casePrefixWidth).  The width checks moved to print_switch_width.bn, their tests to
+print_switch_width_test.bn (renamed from print_trail_switch_test.bn).  An adversarial review found three bugs, fixed
+before landing: statements wrapped for a comment before them on a kept or marked line, the run's alignment left out
+the comments between statements, and alignment could lengthen a line already past the cap.  Tests: four in
+print_switch_width_test.bn.  The review's 6154 probe and sweep inputs format stably; before the review's fixes, the
+bnfmt formatted all 8098 tracked `.bn` / `.bni` files as main's does.
+
 ### asm arm32 stage 2h: branches; `bl` to a local label stays a relocation; bnld's R_ARM_CALL interworks -- DONE (binate `e7ea2d33a` and bnld `600b9da73`, 2026-11-01, work-2; user: "Follow clang (Recommended)")
 
 Every branch form clang takes, checked against clang (the branch cases, the gates, ~60 whole objects byte for byte).
