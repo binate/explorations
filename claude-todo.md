@@ -231,9 +231,19 @@ whatever.  For the unit lane, do we have the ability to shard a single package's
 conformance int-int shard was cancelled at 30 min having run ~43% of its tests (run at b45e12cd8).  Landed
 binate `93e37afc5` (conformance int-int: 10 shards, 60-min cap) and `684a1218a` (unit lanes: pkg/binate/check and
 pkg/binate/irgen -- ~1800 and ~800 tests, split out of types / ir without the int-int lane's INTINT_HEAVY entry or
-a .split.vm marker -- are test-sharded; a local shard 1/12 ran 220 of their tests).  Remaining: confirm on the
-next completed CI runs that every int-int shard, conformance and unit, finishes within its cap; then close this.
-Option (c) -- one outer bni loading cmd/bni once for many tests -- was not taken.
+a .split.vm marker -- are test-sharded; a local shard 1/12 ran 220 of their tests).  Option (c) -- one outer bni
+loading cmd/bni once for many tests -- was not taken.
+
+Results (2026-11-02): conformance int-int is green -- run 41492044503 at 9473afec6, all 10 shards passed in
+30.7-54.0 min (the slowest has 6 min to spare; 12 shards would give margin).  The unit change made the unit int-int
+lane worse: test-sharding loads check and irgen under the double VM on EVERY shard, so the shortest shard went
+10.8 -> 34.9 min and 8-9 of 12 shards hit the 45-min cap (runs at 5697ae15e / 7e61ac730 / a8e36b6da), against 2 of
+12 before (b60abc653).  Reverted: binate `ced393e75`.  Still open:
+- Unit int-int: the two shards holding check (~1800 tests) and irgen (~800) whole still pass 45 min.  Options:
+  split a heavy package's tests across a FEW shards only (a run.sh change), or give those shards a longer cap.
+  Measure first how long each package takes whole on CI.
+- Single-VM unit lanes (builder-comp-int, builder-comp-comp-int): shard 3/6 is cancelled at 30 min, before and
+  after the change -- find what that shard holds.
 
 ### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🔴 NEEDS DECISION, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
