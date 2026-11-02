@@ -301,7 +301,12 @@ bss sizes without materializing them — part of stage 4, needed by stage 6's en
      host can hold, as a lowering error.  User decision (2026-11-01): "A sounds right" -- checked after the
      optimization passes, in lowering (the frame the VM allocates, as the native backends check theirs), over
      a LoadCheck-time check of the unoptimized frame; bni and `bni --test` report it through LowerModule's
-     errors, the REPL through new checks at its lowering sites.
+     errors, the REPL through new checks at its lowering sites.  Review (2026-11-01): a host-limit load error
+     (half the host's int) broke 1711 / 1720 on builder-comp_arm32_linux_int (3 GiB frames under the target's
+     4 GiB) and spec §21.4's "modes must agree"; user decision: "A sounds fine" -- only the target limit is a
+     load error, and a frame the host cannot hold loads with a size the VM's stack check refuses, so calling it
+     is the recoverable stack-overflow fault (as a native call overflows its stack).  The frame sum saturates as
+     the native planner's does (two locals near 2^63 wrapped).
    - 5b. The rest of vm / interp's layout calls (SizeOf / FieldOffset / ArrayLenHost, ~56 sites) take the
      int64 forms and narrow (HostInt) where host memory is used, ready for stage 6.
 6. Remove the int forms of `SizeOf()` / `FieldOffset()` / `TrailingPadding()` / `ArrayLenHost()`; end to end
