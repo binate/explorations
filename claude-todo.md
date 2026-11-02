@@ -83,7 +83,7 @@ gen.mono.instances' `Box[P]` example, iface.self.constraint's Note.
 
 ## MAJOR
 
-### Target setup that still leans on the host's defaults: bnlint `--target`, bnc's "host" key on an arm32-linux host, and unit tests that stamp only an arch — 🔴 NEEDS DECISION (found 2026-11-01, work-1, review of the `bnc --target` LP64 fix; pre-existing; by reading)
+### Target setup that still leans on the host's defaults: bnlint `--target`, bnc's "host" key on an arm32-linux host, and unit tests that stamp only an arch — 🟡 IN PROGRESS (claimed 2026-11-02, work-1; user: "it seems like the former should just be fixed?") (found 2026-11-01, work-1, review of the `bnc --target` LP64 fix; pre-existing; by reading)
 
 The same mistake as the `bnc --target` LP64 entry above, in three more places:
 
