@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### Constraint calls through `impl *P` / `impl @M` give wrong results — needs a spec decision — 🔴 NEEDS DECISION (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
+### Constraint calls through `impl *P` / `impl @M` give wrong results — 🔴 OPEN, DECIDED 2026-11-01: Self is the impl's receiver type (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
 
 ```
 type P struct { v int }
@@ -54,6 +54,12 @@ reading, binding Self to T's base type in a constraint call, cannot be judged in
 has no base type.  Under either decision above both programs stay rejected, with an accurate error: at
 `areEq[*Bag]` (`*Bag` does not satisfy Eq), or at the impl (Self is `*Bag`, so `eq` must take a `*Bag`; written so,
 the `b T` form runs).
+
+**Decided 2026-11-01** (user: "Go with your recs, but get focused adversarial reviews of them"): `Self` is the
+impl's receiver type -- `*P` for `impl *P : I`, `@M` for `impl @M : I`, `P` for `impl P : I` -- so `impl *P :
+lang.Comparable` takes `Compare(o *P)`, and `impl *W[K]` makes `*W[int]` satisfy a constraint, not `W[int]`.  A
+focused review of the decision is running (temp-5); then the spec text listed above, the checker and conformance
+008 / 011 / 012.
 
 ## MAJOR
 
@@ -397,9 +403,10 @@ and neither has an instance check.  (3) with `func fA[U any](k *K[[sizeof(U)]uin
 records in (a) cannot hold resolved types.  Also from the review: a recorded judgment must use the generic's own
 impl view, not the instance's; deferred signature / field checks (PendingConstraintCheck) do not know their
 enclosing generic; and interface-only generics (bni's injected packages, bnlint's dependencies) have no abstract
-check, so nothing would be recorded for them.  Decision pending (user): a hybrid (judge each constraint from source
-when an instance's types are resolved, in the generic's declaration view), or a dependent length that keeps its
-expression, so substitution gives the real length.
+check, so nothing would be recorded for them.  Decided 2026-11-01 (user: "Go with your recs, but get focused
+adversarial reviews of them"), over a hybrid (judge each constraint from source when an instance's types are
+resolved, in the generic's declaration view): a dependent length keeps its expression, so substitution gives the
+real length, with (a)'s per-instance judgment on top; a focused review of that design is running (temp-5).
 
 ### A build that waits for a layout still builds the instances it names from the length it could not read, and reports their errors — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
 
