@@ -83,6 +83,24 @@ gen.mono.instances' `Box[P]` example, iface.self.constraint's Note.
 
 ## MAJOR
 
+### `bnc --target` for a 64-bit target keeps the host's sizes: a 32-bit-hosted bnc lays out aarch64 / x86-64 code as ILP32 — 🔴 NEEDS DECISION (MAJOR: silent wrong layout when a 32-bit-hosted bnc cross-compiles; no shipped bundle is 32-bit; found 2026-11-01, work-1, int64 layout stage 6; by reading, not yet reproduced)
+
+`applyTarget` (cmd/bnc/target.bn) calls `types.SetTarget` only for the arm32 keys (through `setArm32Layout`).  The
+`x86_64-linux`, `x86_64-darwin`, `aarch64-linux` and `aarch64-darwin` keys only stamp `types.SetArch`, on the comment
+"LP64 layout is already the default".  The default is the HOST's sizes (`types.initTarget` takes `sizeof(*uint8)` and
+`sizeof(int)`), so on a 32-bit host those keys keep PointerSize and IntSize 4 with a 64-bit arch: `int` and pointers
+laid out 4 bytes wide for an aarch64 / x86-64 target, every struct offset, frame and call wrong, with no error.
+initTarget's own comment says cross-compiling drivers "still call SetTarget explicitly"; applyTarget does not.
+
+No shipped bundle is 32-bit (release.yml builds linux-x64, linux-arm64 and macos-arm64), so only a bnc built for arm32
+hits it -- the configuration int64 layout stage 6 is about (a 32-bit host compiling a > 2 GB type for a 64-bit
+target), which is how it was found.
+
+Fix: the four 64-bit keys call `types.SetTarget` with LP64 sizes (PointerSize 8, IntSize 8, MaxAlign 8) before
+`SetArch`, as setArm32Layout does for ILP32.  Test: a cmd/bnc unit test checking `types.GetTarget()` after
+applyTarget for each key; it can fail only on the 32-bit unit-test lane (`builder-comp_arm32_linux`), where the
+default is ILP32.  Not yet written: the unit-test runner marks expected failures per package, not per test.
+
 ### A type whose walk is still on the stack counts as prepared when a `sizeof` reads it by value: a valid program gets a wrong array length, and a layout cycle is accepted — 🔴 OPEN (MAJOR: valid programs compiled with a wrong array type, silently, and an invalid one accepted; found 2026-10-30, work-7, review of the slice-reach fix; reproduced on main; pre-existing)
 
 `type N struct { v int64; a [sizeof(M)]uint8 }`, `type M struct { s *[]D }`, `type D struct { n N; e *[]E }`, `type E
