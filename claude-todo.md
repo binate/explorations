@@ -1234,8 +1234,9 @@ is built, reads W[int]'s layout, which reads Box[int]'s.  A second shape: `func 
 [3]X { … }`, `var B Box[N]`, `type N struct { v int64; arr [len(B.Get())]int; p *Box[N] }` is the same error at
 Other's `sizeof`; with Other declared after N, or without N's `arr`, it compiles (printing 40 on a 64-bit target), and so does its
 `.bni` twin since binate `7e61ac730`.  Root cause unknown — needs investigation: where the copy is made when
-its read of the instance's layout cannot wait.  Fix: to design; a conformance test of each shape (xfailed until then)
-and unit tests.
+its read of the instance's layout cannot wait.  Fix: to design, with unit tests.  Tests: conformance
+regressions/generic-method-size-through-instance (the first shape) and regressions/generic-method-own-size-declared-first
+(the second), xfailed, since binate `aa74464a4`.
 
 ### A type whose array length reads a variable of that type, needing only the variable's type's name, is a false cycle in a `.bn` (a `.bni` accepts it) — 🔴 OPEN, decided valid (user 2026-11-01: "For 3, I think it is valid, since all that's required for f's type (signature) is the forward decl of T, not the definition of T.") (minor: a valid program rejected; found 2026-10-31, work-7, testing the `.bni` member-read fix; reproduced on main at binate `930f9643c`; pre-existing)
 
