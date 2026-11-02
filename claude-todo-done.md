@@ -1,3 +1,26 @@
+### bnfmt: a comment in a function's signature went onto the body's first line — DONE (binate `810abb9f6`, 2026-11-01, temp-4; user: "yes, go ahead")
+
+The last part of "bnfmt gives a declaration, group member or struct field the comments of the next one on its line:
+what remains" (the others: binate `1b66c0a0a`, `43f0b1bb0`, `20dc3a4ab`, `7576ed4bf`, `249ba747f`; the import
+annotation's comment kept above the block by design).  A comment in a signature that no list printed -- before or
+after the name, after `(`, inside a parameter, before `)`, between `)` and the results, after them, in a receiver or
+a type-parameter list -- went onto the body's first line (`func f(a int) /* c */ int {`), a line comment after `(`
+or a trailing `,` with a blank line after it, and a one-line body expanded for it; in a `.bni` signature or an
+interface method they went after the signature.  Decided (user: "Keep it in place (Recommended)"): the parser
+records each signature's delimiters (ast.File.Signatures, as it records builtin calls' openers), and the signature
+printers (print_sig.bn) claim each gap's comments by position, as a list does.  A list takes the comments before its
+close: on the last element's line when the close and what follows fit there too (or on a marked line), else after
+a trailing comma in a parameter or type-parameter list, the close on a line of its own.  Still on the body's first
+line, in order with the signature's later comments: a line comment inside a receiver's type, a lone result's or a
+result list's last, which has no legal place in the signature.  Moved: a comment inside a parameter's type goes
+after its comma, as in any list; one after a variadic `...` before it (the AST keeps no position for the `...`).
+The parameter list now starts from its `(`'s line, not the `func` keyword's.  One adversarial review; fixed from
+it: a comment before `)` measured without the `)` and what follows (107-byte lines), a trailing comma added on
+marked lines, comments reordered around a fallback, parameters wrapped more than needed.  Tests: parser
+TestParseSignatures, format print_sig_test.bn (nine goldens).  The tree's 8120 files format as before, and on
+`scripts/bnfmt-check`'s corpora the change puts back in order the comments of 530 comment-injected files and moves
+none.  Filed: the other block headers' comments, an empty body's `{}` width, the parser rewind's records.
+
 ### A `.bni`'s impl is not seen while an importer builds its scope: an array length or a constant passing a type to a function of an interface it implements is rejected -- DONE (binate `e8fd48049`, 2026-11-01, work-7)
 
 With `interface I { M() int }`, `type T struct { x int }`, `func (t *T) M() int`, `impl *T : I`, `var V T` and `func
