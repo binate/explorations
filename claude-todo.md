@@ -2866,6 +2866,15 @@ own after the member, then a blank line, and a second format ends the alignment 
 comments of the members after it align differently (found 2026-10-31 in a review of positioning type members at their
 names).
 
+### parser: a selector takes whatever token follows its `.` as its name — 🔴 OPEN 🟢 LOW (found 2026-11-02, temp-4, minimizing a bnfmt repro; pre-existing)
+
+continuePostfix (pkg/binate/parser/parse_postfix.bn) reads the token after a `.` that does not open a type assertion
+as the selector's name without checking that it is an identifier: `h().)` parses with no error, as a selector named
+`)`, and bnfmt formats it as written; `x.+` is a selector named `+`.  The checker then rejects the program, with a
+message that does not name the syntax error: `undefined: )`, `cannot access field on this type` (gen1 from binate
+`a2a2d6931`).  It surfaced because minimize.py kept such a file (it only needs bnfmt to format it).  Fix: expect
+token.IDENT after the `.` (a parse error naming the token found); test: a parser unit test for `h().)` and `x.+`.
+
 ### bnfmt moves a comment in a block's header into the block — 🔴 OPEN 🟢 LOW (found 2026-11-01, temp-4, probing the signature-comment bullet; pre-existing)
 
 A comment between a statement's or a type's header and its `{`, or after the `{` on its line, is printed by no node,
