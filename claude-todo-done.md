@@ -1,3 +1,13 @@
+### asm arm32 stage 2i: system and hint instructions -- DONE (binate `9473afec6`, with the move of NOP / SVC / BKPT into asm/arm32/sys, `743ec8d07`, 2026-11-02, work-2; user: "Peel all to asm/arm32/sys (Recommended)", "Land now")
+
+Every arm32 system and hint instruction clang takes, exact encoders in asm/arm32/sys (Hint, Dbg, Udf, Hvc, Hlt,
+Smc, Eret; Mrs, Msr, MsrImm, MrsBanked, MsrBanked; Cps, Setend, Srs, Rfe, Setpan; Dmb, Dsb, Isb, Sb) and the parser
+(arm32_sys.bn, arm32_psr.bn, arm32_cps.bn), gated as clang gates them (a new armFDB bit for DFB).  Checked over
+~2,100 cases and ~800 gate contexts against clang; the earlier lists and every mnemonic with each condition and `s`
+suffix unchanged.  The review caught `sb` making `sbcs` read as SB with CS (every bare-metal link broke before
+landing); splitMnem now keeps clang's never-split list.  Kept differences: bare cpsie / cpsid are errors; SETEND's
+ARMv8 deprecation warning is not copied.
+
 ### bnfmt's `__c_call` left out what follows its `)` — DONE (binate `a8e36b6da`, 2026-11-01, temp-4; user: "yes")
 
 printCCall took no tail, so what follows a `__c_call` on its line -- a close, a trailing comment -- got no room, and a

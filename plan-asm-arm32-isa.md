@@ -116,10 +116,14 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
   operand.  bnld picks BL or BLX for R_ARM_CALL by the target function's instruction set, gated on an input's
   Tag_CPU_arch >= ARMv5T, as lld.  Kept differences: `blx<cond> label`, a relocated BLX whose addend is not a
   multiple of 4, a branch number past 32 bits and one past +/-32 MiB (`b #0x2000000`, clang wraps it) are errors.
-- 2i. (The system class is its own sub-package, asm/arm32/sys -- NOP / SVC / BKPT moved there first, binate
-  `743ec8d07`; user: "Peel all to asm/arm32/sys (Recommended)".)  System and hints: svc, bkpt, udf, hvc, smc, eret, mrs / msr (APSR / CPSR / SPSR fields, banked registers),
-  cps, setend, srs / rfe, nop / yield / wfe / wfi / sev / sevl / dbg / csdb / esb, dmb / dsb / isb with options,
-  sb, ssbb / pssbb, setpan, hlt.
+- 2i. DONE (binate `9473afec6`, after the move of NOP / SVC / BKPT into the sub-package asm/arm32/sys, binate
+  `743ec8d07`; user: "Peel all to asm/arm32/sys (Recommended)").  System and hints: svc / swi, bkpt, udf, hvc,
+  hlt, smc / smi, hint, dbg, setpan, the named hints (also clrbhb, tsb csync, trap), eret, sb, ssbb / pssbb, dfb,
+  dmb / dsb / isb with options, mrs / msr (field masks, banked registers, immediates), cps / cpsie / cpsid, srs /
+  rfe, setend -- ~2,100 cases and the gates over ~800 contexts against clang; a new feature bit armFDB (ARMv8-R
+  and the Cortex-R52s).  splitMnem now keeps clang's never-split list (`sb` broke `sbcs` in review).  Kept
+  differences: bare cpsie / cpsid (clang: CPS #2 / #3) are errors; SETEND's ARMv8 deprecation warning is not
+  copied.
 - 2j. Coprocessor: mcr / mrc (and 2), mcrr / mrrc (and 2), cdp (and 2), ldc / stc (and 2, L).
 - Exact encoders: DONE for every encoder.  The steps through 2e made their classes' encoders check their condition
   and registers; binate `d90f4ce8c` (temp-5, a separate todo) did the rest -- arm32_branch.bn, arm32_ldm.bn,
