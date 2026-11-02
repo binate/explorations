@@ -255,11 +255,12 @@ Results (2026-11-02): conformance int-int is green -- run 41492044503 at 9473afe
 lane worse: test-sharding loads check and irgen under the double VM on EVERY shard, so the shortest shard went
 10.8 -> 34.9 min and 8-9 of 12 shards hit the 45-min cap (runs at 5697ae15e / 7e61ac730 / a8e36b6da), against 2 of
 12 before (b60abc653).  Reverted: binate `ced393e75`.  Still open:
-- Unit int-int: the two shards holding check (~1800 tests) and irgen (~800) whole still pass 45 min.  Options:
-  split a heavy package's tests across a FEW shards only (a run.sh change), or give those shards a longer cap.
-  Measure first how long each package takes whole on CI.
-- Single-VM unit lanes (builder-comp-int, builder-comp-comp-int): shard 3/6 is cancelled at 30 min, before and
-  after the change -- find what that shard holds.
+- Unit int-int: at b60abc653 shard 6/12 had started 759 tests in ~37 min when cancelled, in pkg/binate/check
+  (TestExpandBuildBudget), so check whole needs over an hour there.  Options: split a heavy package's tests
+  across a FEW shards only (a run.sh change), or give that shard a longer cap.
+- Shard 3 of every VM unit lane (builder-comp-int 3/6, builder-comp-comp-int 3/6, builder-comp-int-int 3/12) is
+  pkg/binate/format's TestFormatDeepNesting, 96 s natively since binate `b5e5bca15`: see the MAJOR entry "bnfmt
+  takes ~96 s on nested calls and composites again".
 
 ### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🔴 NEEDS DECISION, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
