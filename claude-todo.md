@@ -1136,17 +1136,6 @@ the prompt is checked with none.  A prompt statement `var hb H[int16]`, with `ty
 flush inside the copy.  Fix: reproduce it in the REPL's tests first; then give a prompt's statements the state the
 batch carries for these waits (the starts and DeclReadWaited), with a REPL unit test.
 
-### A `.bni`'s impl is not seen while an importer builds its scope: an array length or a constant passing a type to a function of an interface it implements is rejected — 🟡 IN PROGRESS (claimed 2026-11-01, work-7/session; user: "then take on items 1 and 2") (minor: valid programs rejected; found 2026-10-31, work-7, review of the `.bni` member-read fix; reproduced on main at binate `930f9643c`; pre-existing)
-
-With `interface I { M() int }`, `type T struct { x int }`, `func (t *T) M() int`, `impl *T : I`, `var V T` and `func
-F(i *I) [3]int` in a `.bni` (the package's `.bn` defining M, V and F), `const S = len(F(&V))` and `type N struct { a
-[len(F(&V))]uint8 }` are "cannot assign *T to *I" while an importer builds the package's scope, where a `.bn` twin
-compiles and prints `3 3`; so with T from another, already checked package.  buildScopeFromFile registers none of
-the `.bni`'s impl declarations (resolveBniDecl has no DECL_IMPL case; the package's own check collects them), so
-assignability to the interface finds no impl.  Fix: register the `.bni`'s impls where its declarations resolve, as
-its methods are defined there (bni_member_read.bn), without the package's own check then finding them twice;
-conformance regressions/bni-impl-in-length (xfailed until then) and a unit test.
-
 ### A method of a `.bni`'s generic instance that the instance cannot take yet is rejected where an array length or a constant selects it: one a copied signature selects before its copy, or one of an instance whose layout waits — 🟡 IN PROGRESS (claimed 2026-11-01, work-7/session; user: "then take on items 1 and 2") (minor: valid programs rejected; found 2026-10-31, work-7, review of the `.bni` member-read fix; reproduced on main at binate `930f9643c`, as "array length must be a constant integer"; pre-existing)
 
 In a `.bni`, `type Box[X any] struct { a [2]X }`, `func (b Box[X]) A() [len(B.C())]X`, `func (b Box[X]) C() [3]X`,

@@ -1,3 +1,25 @@
+### A `.bni`'s impl is not seen while an importer builds its scope: an array length or a constant passing a type to a function of an interface it implements is rejected -- DONE (binate `e8fd48049`, 2026-11-01, work-7)
+
+With `interface I { M() int }`, `type T struct { x int }`, `func (t *T) M() int`, `impl *T : I`, `var V T` and `func
+F(i *I) [3]int` in a `.bni` (the package's `.bn` defining M, V and F), `const S = len(F(&V))` and `type N struct { a
+[len(F(&V))]uint8 }` are "cannot assign *T to *I" while an importer builds the package's scope, where a `.bn` twin
+compiles and prints `3 3`; so with T from another, already checked package.  buildScopeFromFile registers none of
+the `.bni`'s impl declarations (resolveBniDecl has no DECL_IMPL case; the package's own check collects them), so
+assignability to the interface finds no impl.  Fix: register the `.bni`'s impls where its declarations resolve, as
+its methods are defined there (bni_member_read.bn), without the package's own check then finding them twice;
+conformance regressions/bni-impl-in-length (xfailed until then) and a unit test.
+
+Done: a package's impls are collected before its other declarations (check/impl_collect_first.bn) — the
+`.bn` batch's first, the `.bni` build's for the build only (dropped at its end; the package's own check collects
+them again), a generic receiver's with a stand-in placeholder, since the build registers none.  The `.bn` had the
+same gap: an impl declared after a type whose length needed it was missed.  Assignability also readies the
+extension clauses of the package's own interfaces it goes through — an impl's interfaces, a generic impl's, a
+widened interface value's — clauses only, never methods (a review found readying methods gave a false cycle where
+an unrelated interface's method read the layout).  Tests: check/impl_collect_first_test.bn (a revert of each
+piece fails a test or the stdlib's build), the two declare-its-type tests whose example was a later impl now check
+cleanly, conformance regressions/bni-impl-in-length (no longer xfailed; extended to child and widened interfaces
+and a `.bn` twin); over 605 probes, 24 now compile as their twins do, none main compiles is rejected.
+
 ### bnfmt: a case kept on one line moved its comments after its last statement — DONE (binate `249ba747f`, 2026-11-01, temp-4; user: "wait 8 minutes, then land")
 
 A case kept on one line with its body printed the body with no comment cursor, so the comments after its label and
