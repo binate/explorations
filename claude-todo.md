@@ -32,8 +32,8 @@ reproduced): a plain impl's receiver must equal the type argument (`impl *P : la
 satisfy it), while a parameterized impl's receiver is matched with the call-site receiver smoothing
 (genericImplSatisfies uses receiverAssignable).  `impl *W[K] : lang.Orderable` (`func (w *W[K]) Compare(o W[K])
 int`) makes `W[int]` satisfy it, and `g[W[int]](w)` with `g[U lang.Orderable](u U) int { return u.Compare(u) }`
-runs.  (It also lets `impl W[K]` make `@W[int]` satisfy it, which neither reading allows: the MAJOR entry on
-`g[@W[int]]`.)  The spec takes both sides too: gen.impl.generic-recv says `impl
+runs.  (It also let `impl W[K]` make `@W[int]` satisfy it; fixed by binate
+`f0151369f`.)  The spec takes both sides too: gen.impl.generic-recv says `impl
 *Cursor[T] : Iterator[T]` asserts that `Cursor[T]` satisfies `Iterator[T]`.  Text to revise with the decision:
 §11.9 iface.self ("substituted by the implementing named type"), §11.3 iface.impl.coverage ("with `Self`
 substituted by `R`'s named type"), gen.impl.generic-recv, gen.satisfy's receiver clause, gen.mono.constraint-call,
@@ -57,9 +57,29 @@ the `b T` form runs).
 
 **Decided 2026-11-01** (user: "Go with your recs, but get focused adversarial reviews of them"): `Self` is the
 impl's receiver type -- `*P` for `impl *P : I`, `@M` for `impl @M : I`, `P` for `impl P : I` -- so `impl *P :
-lang.Comparable` takes `Compare(o *P)`, and `impl *W[K]` makes `*W[int]` satisfy a constraint, not `W[int]`.  A
-focused review of the decision is running (temp-5); then the spec text listed above, the checker and conformance
-008 / 011 / 012.
+lang.Comparable` takes `Compare(o *P)`, and `impl *W[K]` makes `*W[int]` satisfy a constraint, not `W[int]`.
+
+The review of the decision (2026-11-01, temp-5) found (ii) sound and preferable to (i), with these to settle.  (1)
+Satisfaction must match the receiver strictly on `readonly` (Identical strips it at every depth): today `impl *Q :
+lang.Hashable` makes `*readonly Q` satisfy Hashable, and `h[*readonly Q]` then fails inside the instance ("cannot
+call method Hash: receiver type *readonly Q not assignable to *Q (in h[*readonly Q], …)"; reproduced on binate main
+`b7e477302`).  And `Self` must be defined for `impl readonly *Q` (proposed: the receiver with only the handle's
+outer `readonly` dropped, so `*Q`), `impl *readonly P` (`*readonly P`) and `impl readonly V`; this ties to the
+`readonly T` entry ("`readonly T` does not satisfy T's constraint").  (2) A value-producing `Self` method (`Clone()
+Self`) cannot be implemented soundly on a pointer impl (it returns a raw `*P`), so such interfaces belong on `impl
+P`; and a type gets one receiver shape per `Self`-using interface: today `impl P : Comparable`, `impl *P :
+Hashable` and `impl @P : Orderable` share one `Compare(o P)`, where (ii) needs three signatures for one method
+name.  A breaking change, to state in §11.3.  (3) Dropping the parameterized-impl smoothing reaches interfaces with
+no `Self`: `impl *Cursor[T] : iter.Iterator[T]` (vec, set, setfn, table) stops making `Cursor[int]` satisfy
+Iterator (no generic in the tree constrains on Iterator / Iterable).  (4) Separate, under either reading: `impl P :
+lang.Comparable` with `func (s *P) Compare(o P)` passes a generic's own check of `mk[T](a).Compare(b)` and fails
+only in `eq[P]` ("cannot call pointer-receiver method Compare on a non-addressable value").  Also from the review:
+opaque types favor (ii) (an opaque `H` cannot take `Compare(o H)` by value); IR-gen, the backends and the VM need
+no change (`Self` never reaches IR-gen); the tree impact is wider than 008 / 011 / 012 -- conformance 389, 391,
+1009, 1010, regressions/iface-self-in-composite, spec/11-interfaces 010, 064, 067, 068, unit tests in check
+(check_self_test.bn, check_type_stamps_test.bn) and interp (call_iface_test.bn), and the examples repo's containers
+README and tally.bni prose, no library code; spec text beyond the list above: gen.satisfy's strict receiver match,
+gen.mono.instances' `Box[P]` example, iface.self.constraint's Note.
 
 ## MAJOR
 
@@ -406,7 +426,32 @@ enclosing generic; and interface-only generics (bni's injected packages, bnlint'
 check, so nothing would be recorded for them.  Decided 2026-11-01 (user: "Go with your recs, but get focused
 adversarial reviews of them"), over a hybrid (judge each constraint from source when an instance's types are
 resolved, in the generic's declaration view): a dependent length keeps its expression, so substitution gives the
-real length, with (a)'s per-instance judgment on top; a focused review of that design is running (temp-5).
+real length, with (a)'s per-instance judgment on top; the review of that design reopened the decision (below).
+
+Review of (S) (2026-11-01, temp-5): it does not remove per-instance resolution from source, because a type can hold
+dependent constructs other than a length's value: `impl *Box[K] : Eq[[len([...]uint8{cast(uint8, sizeof(K) *
+40)})]uint8]` (the length is 1 for every K; the element's fit depends on K) with `var e *Eq[[1]uint8] = &b` (b a
+`Box[int64]`) compiles and runs on binate main `b7e477302`, though 320 does not fit uint8; in a function signature
+the same is caught, since signatures are resolved again per instance.  And structural identity of length
+expressions is not the language's identity (type.array.form: equal lengths): `[sizeof(U) + 0]` and `[sizeof(U)]`
+are identical for every U, so (S) needs a three-valued abstract identity (identical / unknown / different) reaching
+through instance type arguments, each comparison deferring "unknown" to a per-instance check -- which main lacks
+too: `func f1[U any](q *G[[8]uint8]) int { var p *G[[sizeof(U)]uint8] = q; return len(p.t) }` is "cannot assign
+*G[[8]uint8] to *G[[0]uint8]", though f1[int64] is valid (assignableDeferringDependent does not look through named
+types).  Also on main: a correct `impl *Box[K] : Eq[[sizeof(K)]uint8]` with `func (b *Box[K]) eq(o
+[sizeof(K)]uint8) int` fails as soon as `Box[int64]` is named ("type Box[int64] does not implement Eq[[0]uint8]
+(method `eq` has wrong signature) (in the impl for Box[int64], ...)"; checkInstanceImpls substitutes the
+placeholder); and `interface I[T any] : J[[sizeof(T) + 1]uint8] { m() int }` with `interface J[T any] : I[T] {}`,
+never instantiated, is "interface extension cycle ... via `J[[0]uint8]`" (whether a chain that grows without bound
+is valid is for the spec; under (S) it would not close, as today only the placeholder collapse bounds it).  The
+review's verdict: the hybrid as the base -- per-instance resolution from source at every site that now only
+substitutes (impl interface lists in checkInstanceImpls and genericImplSatisfiesConstraint, interface method
+signatures and parents, alias targets, the DerivingInstanceSig derivations), with abstract dependent comparisons
+deferred -- and (S) only for its abstract-level gains (separate cache entries, clearer messages, a sound
+declaration-time decision for a type-parameter argument).  A spec question either way: a type-parameter argument
+whose bound or constraint has a dependent length (`f4[V Eq[[sizeof(X)]uint8], U any, X any]` calling `inner[V, U]`)
+is decided at the declaration (gen.satisfy, gen.mono.check; rejects valid instances) or per instance (needs a spec
+exception).  Decision pending (user).
 
 ### A build that waits for a layout still builds the instances it names from the length it could not read, and reports their errors — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
 
