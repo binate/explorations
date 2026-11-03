@@ -157,6 +157,13 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
     E3A00000; `.long` and every architecture's immediates the same); bnas's expression parser takes one only as
     VCMP's zero (Parser.ExprZeroReals, a zero literal as 0).  Needs an exact decimal-to-binary64 conversion.
 
+- Outside the steps, found in step 3b:
+  - AArch64 FMOV's immediate: LLVM rounds the literal to IEEE binary64 first (every size), then wants an exact
+    8-bit encoding -- `fmov d0, #1.0000000000000001`, `fmov s0, #1.00000000000000001` and `fmov h0,
+    #1.0000000000000001` assemble -- while bnas wants the literal's exact decimal value ("immediate not
+    representable"); `fmov s0, #1.00000001` both reject.  arm32's float_round.bn (exact decimal bounds around
+    each 8-bit candidate) does the same at single precision; binary64's half-ulp bounds would serve here.
+
 ## Stage 3: VFP (asm/arm32/vfp)
 
 The FPU half of the feature model and every VFP instruction clang takes, a class per step, each landed with clang
@@ -195,9 +202,17 @@ Steps:
   default FPU) and `.arch_extension` through clang's implication closure; then vadd / vsub / vmul / vnmul / vdiv,
   vmla / vmls / vnmla / vnmls, vfma / vfms / vfnma / vfnms, vabs / vneg / vsqrt, vcmp / vcmpe (and `#0`), in .f32 /
   .f64 / .f16.
-- 3b. Moves: vmov (registers, the VFPv3 immediate, core <-> single, two cores <-> a double or two singles, a core
-  <-> a D register's 32-bit lane), vmrs / vmsr (FPSCR, FPEXC, FPSID, MVFR0-2, FPINST / FPINST2, APSR_nzcv),
-  vmov.f16, vins / vmovx.
+- 3b. Moves, DONE (binate `e94c5234e`): encoders VmovReg, VmovImm, VmovCoresToSingles / VmovSinglesToCores,
+  VmovCoreToLane / VmovLaneToCore, Vmrs / Vmsr with the system registers, VmovHalfToCore / VmovCoreToHalf, Vins,
+  Vmovx (the backend's VmovF32 / VmovF64 / VmrsApsrNzcv on them); the parser with clang's pre-UAL names (fcpys /
+  fcpyd, fmrs / fmsr / fmdrr / fmrrd / fmdhr / fmdlr, fconsts / fconstd taking the 8-bit encoding, fmrx / fmxr /
+  fmstat), a floating-point immediate rounded to single precision as clang rounds it (float_round.bn, exact
+  decimal bounds), a lane as a constant expression, the gates (the FP registers; VFPv2 for the typed and pair
+  forms, lane writes and the pre-UAL names; VFPv3 for immediates; ARMv8's FP for MVFR2; FP16 for .F16 / VINS /
+  VMOVX) and NEON's forms as "instruction requires: NEON".  ~5,800 cases against clang.  Kept differences: some
+  multi-candidate messages give the note that applies; `#1.0+0` gets the lexer's "invalid sign in float literal"
+  (clang: "invalid floating point immediate"); a difference of undefined labels as a lane gets the expression
+  parser's message.  NEON's forms (`vmov.i32 d0, #1`, `vmov d0, d1`, Q registers) wait for stage 4.
 - 3c. Conversions and ARMv8's FP: vcvt (f32 <-> f64, integer, fixed point), vcvtr, vcvtb / vcvtt, vcvta / n / p / m,
   vrinta / n / p / m / r / z / x, vsel*, vmaxnm / vminnm, vjcvt.
 - 3d. Loads and stores: vldr / vstr (an offset, a label), vldm / vstm (IA / DB, writeback, S and D lists, the X

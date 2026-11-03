@@ -1,3 +1,19 @@
+### asm arm32 stage 3b: the VFP moves -- DONE (binate `e94c5234e`, 2026-11-02, work-2; user: "wait 6 minutes, then land")
+
+VMOV in its VFP forms (register copies, the VFPv3 immediate, core <-> single, two cores <-> a double or two
+singles, a core <-> a D register's 32-bit lane), VMRS / VMSR with FPSID, FPSCR, MVFR0 .. MVFR2, FPEXC, FPINST,
+FPINST2 and APSR_nzcv, VMOV.F16, VINS / VMOVX, gated by the FP features with clang's messages; exact encoders in
+asm/arm32/vfp (the native backend's VmovF32, VmovF64 and VmrsApsrNzcv rebuilt on them, words unchanged); clang's
+pre-UAL names (fcpys, fcpyd, fmrs, fmsr, fmdrr, fmrrd, fmdhr, fmdlr, fconsts, fconstd, fmrx, fmxr, fmstat) with its
+per-name rules for conditions, `.w` and types; a floating-point immediate rounded to single precision before its
+8-bit encoding is looked for, as clang does (asm/parse/float_round.bn compares the literal with each candidate's
+rounding bounds exactly, in decimal); a lane as a constant expression.  NEON's forms are "instruction requires:
+NEON" without NEON, "not supported yet" with it.  ~5,800 cases against clang with no difference outside NEON's
+forms and the kept messages (plan-asm-arm32-isa.md 3b); the earlier arm32 lists (20,519 cases) unchanged.  The
+review found no critical or major issue; its minor findings, and two found by the final comparison (a 64-bit
+type on an S <-> core transfer was taken; a label as a lane got the expression parser's message), were fixed
+before landing.
+
 ### A file may import the same package more than once — DONE (binate `eaf5c546b`, docs `0eb6f34`, 2026-11-02, work-7; user: "duplicate imports shouldn't be allowed. (nor imports of the same package assigning different import names)"; landed on "yes")
 
 The checker accepted a package imported twice in one file: under the same name (left to definePkg's overwrite),
