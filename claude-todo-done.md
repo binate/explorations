@@ -1,3 +1,18 @@
+### bnfmt: a fill's fallbacks counted `// LONG-LINE ALLOWED` lines, and a lone element had none — DONE (binate `a67c67d8c`, 2026-11-02, temp-4; user: "wait 8 minutes, then go ahead")
+
+Part of the open entry on a marked string-run statement in a function literal argument, which keeps what is left.
+When the decision's layout of a fill element does not hold on a second format, fitsStably falls back to the other
+place's layout, then to a layout read back from a second format (setOverride).  Its width checks used layoutWidth,
+which counts a marked line, and measured with a tail of 1 -- how a list's lone element is measured -- while the
+element prints with the list's end tail, and a lone element (printArgList's, fillExprList's, printStrList's) got no
+read-back fallback at all; so `gen_mix.py --dense 120 1000`'s `g120_126.bn` moved on a second format.  fitsStably now
+takes the tail the element prints with (printTail, passed down through exprFitsAt / itemFitsAt), measures with
+cappedWidth (widestLine skipping marked lines), and takes a read-back layout only when it reads back unchanged with
+that tail (printsWithTail), so no unmarked line goes past the cap (a review found a 101-byte one otherwise).  Tests:
+TestStableMarkedLineNotCounted, TestStableLoneArgReadBack, TestStableReadBackKeepsTheCap.  The tree and the
+bnfmt-check corpora format as before; of 16,200 generated files, 10 unstable ones became stable and none became
+unstable or wider.
+
 ### asm arm32 stage 3a part 1: the FP and SIMD features -- DONE (binate `e22a55b98`, 2026-11-02, work-2; user: "wait 4 minutes, then go ahead")
 
 The FP half of the arm32 feature model, as clang tracks it: Parser.Arm32FP holds LLVM's FP features (the FP
