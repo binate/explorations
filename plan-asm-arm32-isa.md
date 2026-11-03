@@ -172,6 +172,19 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
     or several) where bnas says "invalid operand for instruction" / "invalid floating point immediate"; both
     reject.
 
+- Outside the steps, found in step 3d:
+  - An `s` after an unknown name: clang reports its flag-setting error for any mnemonic ending in `s` it cannot
+    split otherwise (`foos r0` is "instruction 'foo' can not set flags, but 's' suffix specified", `ldrss`,
+    `vldrss`, `vfoos` the same), where bnas says "unknown instruction" or "expected register".
+  - A PC-relative label fixup out of reach or misaligned (B, ADR, LDR, LDC, VLDR): bnas's one message ("the
+    reference to 'x' is out of range or misaligned for its instruction"), where clang's is per fixup ("out of
+    range pc-relative fixup value", "invalid value for this fixup" for VLDR.16, ...).
+  - A quoted symbol name in a VLDR / LDR / LDC target (`vldr s0, "lbl"`) is "invalid load / store target"; the
+    expression parser's quoted names (above) would let it through.
+  - A floating-point literal other than zero ends the expression parse where it stands (ExprZeroReals), so a
+    syntax error after it (`[r0, #1.5 + ]`, `lsl #(1.5]`) is not clang's message, and arithmetic on it
+    (`#1.5 - 1.5`, a number to clang) is refused -- part of the binary64 conversion above.
+
 ## Stage 3: VFP (asm/arm32/vfp)
 
 The FPU half of the feature model and every VFP instruction clang takes, a class per step, each landed with clang
@@ -235,8 +248,22 @@ Steps:
   operands are read; a few expression errors keep the expression parser's wording; a vmovq with a condition, `.w`
   or .f16 before a floating-point immediate (clang picks its FP-immediate parser by the name as written, so it reads
   an integer there).  NEON's forms wait for stage 4.
-- 3d. Loads and stores: vldr / vstr (an offset, a label), vldm / vstm (IA / DB, writeback, S and D lists, the X
-  forms), vpush / vpop.
+- 3d. Loads and stores.  Part 1, VLDR / VSTR, DONE (binate `41e48f8b0`; with it `bf748398c`, the conversion matcher
+  moved into arm32_match*.bn for every VFP instruction): encoders Vldr / Vstr (.16 / .32 / .64, the backend's Vldr32
+  .. Vstr64 on them), FIX_LDC16_PC (VLDR.16's PC-relative halfword offset); the parser (arm32_vldr.bn) on the
+  matcher, which now reads a memory operand as clang's parseMemory does (offset, index with a shift, alignment, and
+  their messages), system registers and `!`.  clang's facts: plain VLDR needs only the FP registers, .32 / .64 (and
+  their token aliases) and the pre-UAL flds / fldd / fsts / fstd VFPv2, .16 the 16-bit FP registers (and is
+  unpredicable); .f16 and .8 are no VLDR types; `#-0` clears U; `#lbl` is a label; VLDR.16 takes a label and `.±N`
+  (fixup_arm_pcrel_9: an odd offset is "invalid value for this fixup", checked before the range); the M-profile
+  forms (fpscr, fpscr_nzcvqc, fpcxtns / fpcxts, vpr, p0) are near misses in ARM code, their address any base but PC,
+  or a label; an `s` before or after the condition is the flag-setting error, naming what is left after clang splits
+  the condition off the end and then the `s`; a floating-point literal is a number (its bit pattern), not a label.
+  ~7,200 cases against clang.  Kept differences: a label or `.±N` no multiple of 4 away (.32 / .64) is an error
+  (clang encodes another address); the "unsupported relocation type" error names the coprocessor or VFP load /
+  store, as LDC's does; a constant's name as an offset without `#` is the offset, as in LDR (2c's); an offset whose
+  low 32 bits clang reads as `#-0` (`#-2147483648`) is out of range, as in LDR.  Part 2: vldm / vstm (IA / DB,
+  writeback, S and D lists, the X forms), vpush / vpop, and the pre-UAL multiples.
 
 ## Stage 1: the feature model — DONE (binate `09f41e4f7`)
 

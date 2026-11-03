@@ -1,3 +1,16 @@
+### asm arm32 stage 3d part 1: VLDR / VSTR as clang takes them -- DONE (binate `41e48f8b0`, 2026-11-03, work-2; user: "yes")
+
+VLDR / VSTR of an S or D register with an offset, PC as the base, a label or `.±N`; VLDR.16 / VSTR.16 with full
+FP16, a label too; the pre-UAL flds / fldd / fsts / fstd; M-profile's system-register forms as near misses.  Exact
+encoders Vldr / Vstr in asm/arm32/vfp (the backend's Vldr32 .. Vstr64 on them, words unchanged), FIX_LDC16_PC, and
+the parser on the VCVT matcher, moved into arm32_match*.bn for every VFP instruction (`bf748398c`), which now reads a
+memory operand, a `:lower16:`-style prefix, a system register and `!` as clang does.  ~7,200 cases against clang;
+kept differences in plan-asm-arm32-isa.md 3d.  Two reviews: the first found that VLDR.16 to a label is clang's (the
+earlier "clang rejects it" came from a probe without FP16), the memory operand's messages, a smallest-int overflow in
+the VLDR / LDC encoders and the LDC fixup, and M-profile's address rules, all fixed; its `[r0, K]` point is 2c's kept
+difference (user 2026-10-30).  The second found three small reader points, fixed.  General gaps it turned up are in
+the plan's "Outside the steps, found in step 3d".
+
 ### bnfmt takes ~96 s on nested calls and composites again, so its VM unit-test shards time out -- DONE (binate `cb3bb52e6`, 2026-11-03, temp-4; user: "wait 11 minutes, then go ahead") (MAJOR: three CI unit lanes red; found 2026-11-02, work-3, reading the CI logs of the slow unit shards; bisected to binate `b5e5bca15`)
 
 Binate `b5e5bca15` checks a fill decision whose layouts span lines against a second format: the layout is read back
