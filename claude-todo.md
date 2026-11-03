@@ -410,7 +410,7 @@ Fix (to design): a read of a constant being resolved where its value is not need
 placeholder is taken, the reading declaration resolved again once the constant is resolved; conformance
 regressions/const-read-as-arg-while-resolved (xfailed until then) and a unit test per shape.
 
-### Instance-check diagnostics: an error two instances make at one position names only the first instance — 🔴 OPEN, DECIDED 2026-11-02: one error naming every instance, unclaimed (minor: diagnostics; found 2026-10-16, work-5, review of the generic-type method-signature sizing; pre-existing)
+### Instance-check diagnostics: an error two instances make at one position names only the first instance — 🟡 IN PROGRESS (claimed 2026-11-03, work-3, self-drive batch), DECIDED 2026-11-02: one error naming every instance (minor: diagnostics; found 2026-10-16, work-5, review of the generic-type method-signature sizing; pre-existing)
 
 contextualizeInstanceErrors drops an error another instance already reported at the same position
 (instanceErrorReported), so `func g[T any]() uint8 { return cast(uint8, sizeof(T) * 100) }` called as `g[int32]()`
