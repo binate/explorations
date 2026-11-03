@@ -81,6 +81,14 @@ no change (`Self` never reaches IR-gen); the tree impact is wider than 008 / 011
 README and tally.bni prose, no library code; spec text beyond the list above: gen.satisfy's strict receiver match,
 gen.mono.instances' `Box[P]` example, iface.self.constraint's Note.
 
+**Decided 2026-11-02** (user: "Go with your recs"): (1) satisfaction matches the receiver strictly, `readonly`
+included, and `Self` is the receiver type with only the handle's outer `readonly` dropped (`*Q` for `impl readonly
+*Q`, `*readonly P` for `impl *readonly P`, `V` for `impl readonly V`); (2) its two consequences come with (ii) --
+one receiver shape per `Self`-using interface, and value-producing `Self` methods on `impl P` -- and §11.3 states
+them as a breaking change; (3) a parameterized impl's receiver matches the type argument strictly, as a plain
+impl's does, for every interface, so `impl *Cursor[T]` makes only `*Cursor[int]` satisfy Iterator.  (4) is its own
+question, still to put to the user.
+
 ## MAJOR
 
 ### bnfmt takes ~96 s on nested calls and composites again, so its VM unit-test shards time out — 🟡 IN PROGRESS (claimed 2026-11-02, temp-4; user: "yes") (MAJOR: three CI unit lanes red; found 2026-11-02, work-3, reading the CI logs of the slow unit shards; bisected)
@@ -444,7 +452,7 @@ so whether these programs are valid is not decided.  Decide: such cycles judged 
 a conformance error test), or per member (a struct's fields and an interface's methods resolved one at a time on
 demand, with tests).
 
-### In a generic's own check, a constraint whose length depends on the generic's type parameter is judged with the placeholder length — valid programs rejected — 🔴 OPEN (invalid programs accepted too; found 2026-10-30, temp-5, reviews of the generic-function constraint fix; pre-existing)
+### In a generic's own check, a constraint whose length depends on the generic's type parameter is judged with the placeholder length — valid programs rejected — 🔴 OPEN, DECIDED 2026-11-02: resolve per instance from source (invalid programs accepted too; found 2026-10-30, temp-5, reviews of the generic-function constraint fix; pre-existing)
 
 With `interface Eq[T any] { eq(o T) bool }`, `func inner[T Eq[[sizeof(U)]uint8], U any](t T) int`, `type G[T
 Eq[[sizeof(U)]uint8], U any] struct { t T }` and `impl *N : Eq[[8]uint8]`: `func fwd[U any](n *N) int { return
@@ -508,7 +516,13 @@ deferred -- and (S) only for its abstract-level gains (separate cache entries, c
 declaration-time decision for a type-parameter argument).  A spec question either way: a type-parameter argument
 whose bound or constraint has a dependent length (`f4[V Eq[[sizeof(X)]uint8], U any, X any]` calling `inner[V, U]`)
 is decided at the declaration (gen.satisfy, gen.mono.check; rejects valid instances) or per instance (needs a spec
-exception).  Decision pending (user).
+exception).
+
+Decided 2026-11-02 (user: "Go with your recs"): the hybrid as the base, as the review of (S) lays it out -- resolve
+an instance's types from source, in the generic's declaration view, at every site that now only substitutes, and
+give a generic's own comparisons that depend on a type parameter a third answer, unknown, judged again per
+instance.  (S) is not part of it; it comes back with the spec question, since a declaration-time decision needs it
+to be sound.  The spec question is still to put to the user, before the fix reaches type-parameter arguments.
 
 ### A build that waits for a layout still builds the instances it names from the length it could not read, and reports their errors — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
 
@@ -1049,19 +1063,25 @@ and relocation are `.Ltmp2`, bnas's `.Ltmp0`.  bnas numbers only the generated l
 `.Ltmp2`).  **Fix:** number generated labels as clang numbers its temporaries, probed against clang where a
 listed one follows unlisted ones (numeric labels, pool entries, `.` labels).
 
-### asm: two general differences from clang — a symbol defined nowhere needs `.global`, and a constant cannot be used before its definition — 🔴 OPEN, unclaimed (found 2026-10-28, work-2, the arm32 2a review's probe lists)
+### asm: two general differences from clang — a symbol defined nowhere needs `.global`, and a constant cannot be used before its definition — 🔴 OPEN, DECIDED 2026-11-02: match clang on both, unclaimed (found 2026-10-28, work-2, the arm32 2a review's probe lists)
 
 (a) A reference to a symbol the file never defines (`b R0`, `bl SL`, `ldr r0, K`) is an error in bnas ("undefined symbol
 'R0' (declare it .global if it is defined elsewhere)", from `asm.bn`); clang makes it an undefined symbol for the
 linker.  (b) A constant used before its definition (`add r0, r1, #K` and then `K = 4`) is an error in bnas ("'K' is
 not a constant defined before this line"); clang takes it (E2810004).  Both are rejected on all three architectures
-((b) with other messages on AArch64 and x86-64) and predate the arm32 work.  **Fix:** decide each with the user
-first — (a) may be deliberate (it catches a misspelt name) — then match clang or record the decision.
+((b) with other messages on AArch64 and x86-64) and predate the arm32 work.
 
 (b) also covers the forms `.set` / `.equ` / `.equiv` took on (2026-10-30, temp-5, review of the `.set` change; each
 behaves the same with `=`, checked against the bnc-0.0.17-pre3 bnas): `b K` then `.set K, 4` is rejected ("a constant
 must be defined before use"), and on Mach-O a forward `.set D, l2 - l1` between non-temporary labels is rejected
 ("…different sections or atoms is not a number"), where clang folds it to 8.
+
+**Decided 2026-11-02** (user: "Go with your recs"): match clang on both, on all three architectures.  (a) A symbol
+the file never defines is an undefined symbol for the linker; a form whose reference the object format cannot
+express is rejected with a message saying so.  (b) A constant may be used before its definition (`=`, `.set`,
+`.equ`, `.equiv`).  An encoding can depend on the value (an arm32 immediate, the size of an x86-64 immediate or
+displacement), so forward constants are evaluated before encoding: in a pre-pass for those that read no label
+address, after layout for those that do (`l2 - l1`).
 
 ### asm aarch64: a memory offset of a `.` or label difference differs from clang — 🔴 OPEN, unclaimed (found 2026-10-30, temp-5, review of the `.@PAGEOFF` memory-offset change; pre-existing for the `#` spellings)
 
