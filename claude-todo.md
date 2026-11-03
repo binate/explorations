@@ -91,7 +91,7 @@ question, still to put to the user.
 
 ## MAJOR
 
-### The parser rejects a composite literal in a builtin call's parentheses in an `if` / `for` / `switch` header, and bnfmt drops parentheses into that form — 🔴 OPEN (MAJOR: valid code rejected, and bnfmt writes a file that no longer parses; found 2026-11-03, temp-4, review of the bnfmt deep-nesting fix; reproduced with bnfmt built from binate `c3430ce64`, parser unchanged on main through `01b55dccb`; pre-existing)
+### The parser rejects a composite literal in a builtin call's parentheses in an `if` / `for` / `switch` header, and bnfmt drops parentheses into that form — 🟡 IN PROGRESS (claimed 2026-11-03, temp-4; user: "yes") (MAJOR: valid code rejected, and bnfmt writes a file that no longer parses; found 2026-11-03, temp-4, review of the bnfmt deep-nesting fix; reproduced with bnfmt built from binate `c3430ce64`, parser unchanged on main through `01b55dccb`; pre-existing)
 
 `if len(S{1}) {}` is rejected (`expected ), got {`), while `if f(S{1}) {}` parses: parseCallExpr clears the D4
 composite-literal suppression (`noCompositeLit`) for a call's arguments, and the builtin calls' operand parsing
