@@ -161,49 +161,6 @@ struct { a *[]Ti-1; b *[]Ui-1 }` / `type Ui` the same, takes 0.7 s to compile at
 it is reached by value, and each call walks the type's parts with a fresh visit set, so a type reached softly through
 two paths is walked once per path.  Fix: record the types prepared softly as well, so each is walked once per mode.
 
-### Native closure shims load captures in whole words — a negative narrow signed capture is wrong at -O1+, and the loads read past the closure struct — 🟡 IN PROGRESS (claimed 2026-11-02, work-3, self-drive batch) (MAJOR, silent wrong code; the over-read found 2026-10-30, work-1, review of the shim over-read fix; the wrong value found 2026-11-02, work-3, probing it; pre-existing)
-
-The closure struct (the record a capturing closure value points at, allocated by rt.Alloc at the struct's natural
-size) lays its captures out at their natural offsets, but the shims load a capture as whole 8-byte words:
-aarch64_closure_shim.bn (register and spill capture loads), aarch64_closure_shim_aggregate.bn,
-x64_closure_shim_spill.bn and x64_closure_shim_aggregate_spill.bn (word loads, and copy loops over 8 * words).
-With captures {int32; {int32 x3}} the 12-byte capture sits at offset 4 of a 16-byte struct, and its words at 4 and
-12 read bytes 16..19, past the struct's end.  On hosted targets malloc's granularity keeps that inside the block, so
-a fault is practically impossible, but it reads memory that is not the object's.  Proposed fix: load each capture no
-further than its end (loadAggWordAA64 / loadAggWordX64 at the capture's address and size), or round the closure
-struct's allocation up to whole words.
-
-**Wrong code, not only an over-read (probed 2026-11-02).**  A narrow integer capture (int8 / int16 / int32,
-uint8 / uint16 / uint32) is loaded as a whole 8-byte word, so its register holds the capture's bytes zero-extended
-(a zeroed allocation) or with the next capture's bytes above them, while the native backends keep a sub-word value
-sign- / zero-extended in its 64-bit register (aarch64_emit_params.bn, normalizeNarrowRegParam) and compare at 64
-bits once -O1 promotes the param.  `var a int32 = -5; run(func() bool { return a == -5 })` prints false on native
-aa64 and x64 at -O1 and -O2 (true at -O0 and on LLVM); `int8 -3` the same; two uint16 captures 40000 and 3 compare
-false because each one's load carries the other's bytes.  Fix: load each capture at its own width and extension
-(the param-load rule), no further than its end -- which also ends the over-read.  arm32 (4-byte words, so an int8 /
-int16 capture) to be checked the same way.
-
-### interp's RunFuncTyped refuses aggregate results over 64 bytes for a reason that no longer holds — 🟡 IN PROGRESS (claimed 2026-11-02, work-3, self-drive batch) (minor; found 2026-10-30, work-1, review of the VM return-stack fix)
-
-interp/runfunc_typed.bn rejects a result whose AggregateReturnSize exceeds 64 bytes ("interp: aggregate return too
-large (> 64 bytes)") and a struct over 64 bytes within a result (marshalableIn), because "the retbuf must fit
-CallFuncAggregate's copy window"; CallFuncAggregate copies a result image of any size (the caller sizes the retbuf),
-so a host calling RunFuncTyped on a function returning a larger value is refused for nothing.  Stale comments of the
-same kind: vm/call_iface_host.bn ("execFunc's 64-byte result window") and vm/vm_exec_helpers.bn's execFunc header
-("execExtern's rt.CallDtor arm", which no longer calls it).  Proposed fix: drop the cap, with a test returning a
-larger struct through RunFuncTyped, and the stale comments.
-
-### vm.CallFuncAggregate copies the 8-rounded result size, past the end of a result image read in place — 🟡 IN PROGRESS (claimed 2026-11-03, work-3, self-drive batch) (minor; found 2026-11-03, work-3, review of the RunFuncTyped cap removal; checked in code, not probed)
-
-CallFuncAggregate (vm/call_aggregate.bn) MemCopies retbufSize bytes from the address execFunc returns, and its callers
-size the retbuf by abi.AggregateReturnSize, which rounds the result image up to 8.  A top-level BC_RETURN returns the
-image's address wherever it lies (vm_exec.bn: retVal = regs[Src1]; deliverResult's comment: "in the callee's frame or
-wherever the source of a load read in place lies"), so a function returning an odd-sized struct it read in place --
-a by-address param returned unchanged (the host's Value.Bytes, allocated at the struct's natural size), a global --
-has up to 7 bytes past the object copied into the retbuf's padding.  The trampolines copy f.ResultRetbufBytes (the
-natural size) instead.  Proposed fix: copy the natural image size (f.ResultRetbufBytes) and leave the padding zero;
-a test returning a 3-byte struct param through RunFuncTyped.
-
 ### CI red: the slow lanes hit their job time limits — unit int-int shards, conformance int-int and comp-comp-comp — 🟡 IN PROGRESS on option (a) (claimed 2026-10-28, work-3; user: "both", then "(a)") (filed 2026-10-28, work-3)
 
 Unit run 40643666280 (at f7e99b80b): builder-comp-int-int shards 3, 5 and 6 of 12 cancelled at the 45-minute limit.
@@ -430,20 +387,6 @@ Fix (to design): a read of a constant being resolved where its value is not need
 placeholder is taken, the reading declaration resolved again once the constant is resolved; conformance
 regressions/const-read-as-arg-while-resolved (xfailed until then) and a unit test per shape.
 
-### Instance-check diagnostics: an error two instances make at one position names only the first instance — 🟡 IN PROGRESS (claimed 2026-11-03, work-3, self-drive batch), DECIDED 2026-11-02: one error naming every instance (minor: diagnostics; found 2026-10-16, work-5, review of the generic-type method-signature sizing; pre-existing)
-
-contextualizeInstanceErrors drops an error another instance already reported at the same position
-(instanceErrorReported), so `func g[T any]() uint8 { return cast(uint8, sizeof(T) * 100) }` called as `g[int32]()`
-and `g[int64]()` reports "constant does not fit the cast target type … (in g[int32], instantiated at …)" and nothing
-for g[int64] (checked 2026-10-30, temp-5, on binate main `d1e3f86fa`).  The program is rejected either way.  This
-is the tested policy: check's TestInstanceBodyErrorOnce ("The same error at the same position in two instances is
-reported once").
-
-**Decided 2026-11-02** (user: "(b) is fine"): one error that names every instance making it, in the order they are
-checked -- `… (in g[int32], instantiated at p.bn:8:7; in g[int64], instantiated at p.bn:8:20)` -- with no cap on
-the list.  An error the generic's own declaration check reported still covers every instance, as now.
-TestInstanceBodyErrorOnce then expects both names in the one error.
-
 ### Does populateInstantiatedInterface's speculative (`userFacing` false) path still have a valid-program case? — 🔴 OPEN (cleanup question; found 2026-10-16, work-5, review of the generic-type method-signature sizing)
 
 The split exists so an impl-match probe that instantiates an interface (`Consumer[Wrap[Op]]` probing `Wrap[Op]`'s
@@ -573,28 +516,6 @@ signature naming a dropped instance type, so the fix needs care.  Also noted by 
 a lookup made from an imported generic's instance-signature scope (which sets `c.curPkgPath` to the generic's home)
 could define a same-named local function on demand, and `enterPackageDecl` does not reset `curPkgPath`.
 
-### The LLVM backend declares a function's own sret parameter `align 8` whatever the result's alignment; a C caller's buffer may be less aligned — 🟡 IN PROGRESS (claimed 2026-11-03, work-3, self-drive batch) (found 2026-10-09, work-1, review of the returned-local change; pre-existing; plausible, not yet reproduced)
-
-A function returning through sret is defined `define void @f(ptr sret(%T) align 8 %v.retbuf, ...)`
-(emit_debug.bn), promising LLVM an 8-aligned buffer for every T.  Binate callers keep that promise (an LLVM
-`.sret` buffer is declared `align 8` by writeResultBufAlign; native frame regions are 8-aligned), but a C caller
-reaching the function through #[c_export] — the alias, or an __c_entry thunk, hands a single sret aggregate's
-C pointer straight through — aligns its buffer only to alignof(T): 4 for a struct of int32s, 1 for a char array.
-LLVM may then access the buffer with instructions that need 8-byte alignment (LDRD / STRD, NEON on arm32, which
-fault on a strict-alignment target).  The native backends assume nothing.  The return-time copy into the buffer
-relied on it already; the returned-local change (a local living in the buffer for the whole function) widens
-the exposure.  Fix: spell the define line's alignment from T (its AlignOf, as byvalArgAlign does for by-value
-arguments) — at least for functions a C caller can reach; reproduce first with an e2e C caller passing a
-4-aligned, not 8-aligned, buffer to a #[c_export] function returning a struct of int32s, on arm32.
-Same assumption elsewhere (found 2026-10-13, review of the shim retbuf exact-size fix): the LLVM func-value /
-closure shims forward `%retbuf` as `ptr sret(...) align 8` (emit_funcvals_shim.bn, emit_funcvals_closure.bn) —
-abi/03 promises the retbuf only AlignOf; every current dispatch caller 8-aligns it, so latent.  Native arm32
-storeMultiRetGpFieldArm32 picks word (STR / STRH) vs byte stores by the field offset's parity, assuming the base
-is word-aligned; through the #[c_export] trampoline's CRET_ADAPT_SRET path the base is the C caller's buffer, so a
-1-aligned tuple such as `(int8, [3]int8, [3]int8)` (C sret, 7 bytes) at an odd address gets unaligned stores —
-a fault on strict-alignment bare metal.  Fix with the rest: decide by the buffer's guaranteed alignment
-(AlignOf of the tuple / result), not offset parity alone.
-
 ### asm object writers: narrow index fields bind the wrong symbol or section past their range, with no error — 🔴 OPEN (minor: needs over 16M symbols or about 65,000 sections; found 2026-10-31, work-1, review of the 4 GiB checks; pre-existing; by reading)
 
 - A relocation's symbol index is 24 bits in ELF32 (r_info, `ri32 << 8` in elf.bn) and in Mach-O (r_symbolnum,
@@ -693,15 +614,6 @@ class).  clang probes such frames on its own targets (macOS: `___chkstk_darwin`;
 Fix: probe each guard-sized step of a large frame in the native prologues (touch every page, or a probe loop),
 give the LLVM backend's functions the matching "probe-stack" attribute, and decide the bare-metal behaviour (no
 guard page there).  Test: a recursion with a frame past the guard size that overflows must fault, not corrupt.
-
-### A struct `==` / `!=` unrolls every scalar leaf of nested structs — compile time exponential in the nesting depth — 🟡 IN PROGRESS (claimed 2026-11-02, work-3, self-drive batch; user: "follow the self-driving bug fixing instructions ... for N=10 bugs") (found 2026-10-30, temp-5, review of the array-equality loop; pre-existing)
-
-The array-equality change (a loop past 16 leaves) bounds an array's compare, not a struct's: `type S0 struct { a, b
-int }`, `type Si struct { a, b S(i-1) }` and `x == y` on S14 emit 32768 `icmp eq` (1.7 s), doubling with each level
-(about 30 lines of source give 2^31 compares), and a loop over `[2]S30` does not help, as each element's compare
-is unrolled.  **Fix:** outline a per-type equality function past a leaf budget (memoized per type, linkonce as the
-copy helpers are — `genArrayCopy` / `ensureArrayCopy`), called from the compare; a unit test on the IR size of a
-deep nest and a conformance test.
 
 ### No CI lane runs the LLVM arm32 bare-metal mode at -O2 — 🔴 OPEN (raised 2026-09-30, work-1; awaiting a user decision)
 
@@ -1079,8 +991,8 @@ listed one follows unlisted ones (numeric labels, pool entries, `.` labels).
 
 ### asm: a name `.local` declares, referenced and never defined — an error in bnas, an undefined LOCAL symbol in clang — 🔴 NEEDS DECISION (found 2026-11-03, work-3, the undefined-name change)
 
-bnas makes a name the file neither defines nor declares an undefined global symbol, as clang does (work-3 batch).
-For a name `.local` declared and never defined (`.local lx` / `bl lx`), clang lists lx as an undefined symbol with
+bnas makes a name the file neither defines nor declares an undefined global symbol, as clang does (binate `7635c907e`).
+For a name `.local` declared and never defined (`.local lx` / `bl lx`; or through a local alias, or in a difference), clang lists lx as an undefined symbol with
 STB_LOCAL binding (readelf: `NOTYPE LOCAL DEFAULT UND lx`, with `.hidden lx` LOCAL HIDDEN UND), which no link can
 resolve; bnas reports it at the end of the file ("'lx' is declared .local and never defined: an undefined symbol is
 global", parse checkLocalsDefined).  Options: (a) keep the error (recommended: the object is unusable either way, and
@@ -1094,25 +1006,21 @@ not yet known that is Mach-O's rule (`L…`), where arm32, which has no Mach-O o
 `fixedDistance` and `emitDataDifference` take it.  So on arm32 with the format unknown, `.type .Lx, %function` with
 no reference to `.Lx` enters it as a global, and `.type Lx, %function` is skipped.  Latent: only an in-process
 Parser user that never calls `SetTargetOs` reaches it (AssembleFile sets arm32's format before parsing).  Fix: take
-the format as the undefined-name change's `objFormatHere` does (asm/parse undefined_symbol.bn, not yet landed) in
+the format as the undefined-name change's `objFormatHere` does (asm/parse undefined_symbol.bn, binate `7635c907e`) in
 both steps, with a test through `arm32SourceIn(…, asm.OBJ_UNKNOWN)`.
 
-### asm: two general differences from clang — a symbol defined nowhere needs `.global`, and a constant cannot be used before its definition — 🟡 IN PROGRESS on (a) (claimed 2026-11-03, work-3, self-drive batch; (b) unclaimed), DECIDED 2026-11-02: match clang on both (found 2026-10-28, work-2, the arm32 2a review's probe lists)
+### asm: two general differences from clang — a symbol defined nowhere needs `.global`, and a constant cannot be used before its definition — 🔴 OPEN on (b) (unclaimed; (a) DONE, binate `7635c907e`), DECIDED 2026-11-02: match clang on both (found 2026-10-28, work-2, the arm32 2a review's probe lists)
 
-(a) A reference to a symbol the file never defines (`b R0`, `bl SL`, `ldr r0, K`) is an error in bnas ("undefined symbol
-'R0' (declare it .global if it is defined elsewhere)", from `asm.bn`); clang makes it an undefined symbol for the
-linker.  (b) A constant used before its definition (`add r0, r1, #K` and then `K = 4`) is an error in bnas ("'K' is
-not a constant defined before this line"); clang takes it (E2810004).  Both are rejected on all three architectures
-((b) with other messages on AArch64 and x86-64) and predate the arm32 work.
+(b) A constant used before its definition (`add r0, r1, #K` and then `K = 4`) is an error in bnas ("'K' is
+not a constant defined before this line"); clang takes it (E2810004).  It is rejected on all three architectures
+(with other messages on AArch64 and x86-64) and predates the arm32 work.
 
 (b) also covers the forms `.set` / `.equ` / `.equiv` took on (2026-10-30, temp-5, review of the `.set` change; each
 behaves the same with `=`, checked against the bnc-0.0.17-pre3 bnas): `b K` then `.set K, 4` is rejected ("a constant
 must be defined before use"), and on Mach-O a forward `.set D, l2 - l1` between non-temporary labels is rejected
 ("…different sections or atoms is not a number"), where clang folds it to 8.
 
-**Decided 2026-11-02** (user: "Go with your recs"): match clang on both, on all three architectures.  (a) A symbol
-the file never defines is an undefined symbol for the linker; a form whose reference the object format cannot
-express is rejected with a message saying so.  (b) A constant may be used before its definition (`=`, `.set`,
+**Decided 2026-11-02** (user: "Go with your recs"): match clang on both, on all three architectures.  (b) A constant may be used before its definition (`=`, `.set`,
 `.equ`, `.equiv`).  An encoding can depend on the value (an arm32 immediate, the size of an x86-64 immediate or
 displacement), so forward constants are evaluated before encoding: in a pre-pass for those that read no label
 address, after layout for those that do (`l2 - l1`).
@@ -1126,13 +1034,6 @@ bnas folds a `.`-difference at parse time, so `ldp x1, x2, [x0, #. - .]`, `ldr x
 rejects it; and an offset led by a name (`ldr x1, [x0, g-.]`, g a later label) is rejected ("expected a page
 offset") where clang on ELF encodes `ldr x1, [x0, #8]`.  **Fix:** probe each against clang (ELF and Mach-O) and
 match it in `aarch64_addr.bn` / `aarch64_items_sym.bn`.
-
-### asm: a self-referential constant is accepted, and a constant then a `.comm` of its name is rejected — 🟡 IN PROGRESS (claimed 2026-11-03, work-3, self-drive batch) (found 2026-10-30, temp-5, review of the `.set` change; pre-existing: each behaves the same with `=`, checked against the bnc-0.0.17-pre3 bnas)
-
-(a) `.set K, K+4` or `.equiv K, K` (or `K = K + 4`) with no use of K is accepted with nothing emitted; clang reports
-"cyclic dependency detected".  (b) `.set K, 4` then `.comm K, 4` is rejected; clang accepts it.  **Fix:** probe both
-against clang on all three architectures and both object formats (what clang's `.comm` does to K's value, and
-whether a later use of a cyclic K differs), then match it in `parse_const.bn` / the `.comm` path.
 
 ### bnld dynamic Mach-O: `__mh_execute_header` is not in the output symbol table — 🔴 OPEN, unclaimed (minor: lookup by name only; found 2026-10-30, temp-5, review of the `__mh_execute_header` change)
 
@@ -2918,14 +2819,6 @@ line the literal starts on.
 (`ast.File.BuiltinOpeners`); printing the operands as an item list (a type item, then the value) would
 give them the value-argument builtins' wrapping and comments.
 
-### The checker finds a generic function's instance by scanning every instance — quadratic in a package's instance count — 🟡 IN PROGRESS (claimed 2026-11-03, work-3, self-drive batch) 🟢 LOW (found 2026-10-25, work-7, profiling a total cap on instance checks for 5a; pre-existing)
-
-funcInstance (check/check_instances.bn) looks an instance up on every naming of a generic function by scanning
-st.Funcs and comparing each instance's type arguments (typeListsIdentical), so a package that names n instances does
-O(n^2) comparisons.  The tree's largest package drain checks 93 instances, so it does not show today.  Checking 16384
-instances of conformance 090's fan-out family (24.6 s natively), funcInstance with IdenticalStrict and ResolveAlias under it were over half of
-the samples.  Fix: index the instances by declaration and type arguments.
-
 ### IR-gen finds a generic's instances by scanning them by name — compile time superlinear in a package's instance count — 🔴 OPEN 🟢 LOW (found 2026-11-03, work-3, measuring the checker's instance index)
 
 With the checker's funcInstance indexed (binate work-3 batch, "check: find a generic function's instance by an index"),
@@ -2978,15 +2871,6 @@ block comment between its name and that type or value (`S /* c */ struct {` … 
 own after the member, then a blank line, and a second format ends the alignment run at that blank line, so the
 comments of the members after it align differently (found 2026-10-31 in a review of positioning type members at their
 names).
-
-### parser: a selector takes whatever token follows its `.` as its name — 🟡 IN PROGRESS (claimed 2026-11-03, work-3, self-drive batch) 🟢 LOW (found 2026-11-02, temp-4, minimizing a bnfmt repro; pre-existing)
-
-continuePostfix (pkg/binate/parser/parse_postfix.bn) reads the token after a `.` that does not open a type assertion
-as the selector's name without checking that it is an identifier: `h().)` parses with no error, as a selector named
-`)`, and bnfmt formats it as written; `x.+` is a selector named `+`.  The checker then rejects the program, with a
-message that does not name the syntax error: `undefined: )`, `cannot access field on this type` (gen1 from binate
-`a2a2d6931`).  It surfaced because minimize.py kept such a file (it only needs bnfmt to format it).  Fix: expect
-token.IDENT after the `.` (a parse error naming the token found); test: a parser unit test for `h().)` and `x.+`.
 
 ### bnfmt moves a comment in a block's header into the block — 🔴 OPEN 🟢 LOW (found 2026-11-01, temp-4, probing the signature-comment bullet; pre-existing)
 

@@ -1,3 +1,75 @@
+### asm: a symbol defined nowhere needs `.global` (part (a) of "two general differences from clang") -- DONE (binate `7635c907e`, 2026-11-03, work-3; user: "wait 4 minutes, then go ahead and land")
+
+The parser's Finish declares a name the file neither defines nor declares an undefined global (declareExterns), as
+clang makes it, after alias uses fold and before the last `.size` / `.type` pass; a label difference treats it as
+external on its second pass, as a declared one.  The assembler's Finalize stays strict, for the native backends'
+in-process emitters (a missing block label must not become an external).  A temporary label must still be defined;
+a `.local` name defined nowhere is an error (its own NEEDS DECISION entry).  Three review rounds.  Part (b),
+forward constants, stays open.
+
+### The checker finds a generic function's instance by scanning every instance — quadratic in a package's instance count -- DONE (binate `1e1bb0d3d`, 2026-11-03, work-3; user: "wait 4 minutes, then go ahead and land")
+
+InstanceState.FuncIndex keys each instance by its declaration and type arguments (instTypeHash, which follows
+IdenticalStrict; equality typeListsIdentical).  --emit-llvm on 3000 / 12000 instances (user CPU, the LLVM output
+identical): 0.64-0.68 s -> 0.57-0.59 s and 9.0-9.3 s -> 7.7 s; most of the rest is IR-gen's own scans (its own
+entry).  Tests: TestInstTypeHashFollowsIdentity, TestFuncInstanceIndexOneInstancePerArgs.
+
+### parser: a selector takes whatever token follows its `.` as its name -- DONE (binate `e7fecb7e7`, 2026-11-03, work-3; user: "wait 4 minutes, then go ahead and land")
+
+continuePostfix, parseIdentOrCompositeLit, parseNamedType and parseStructField expect an identifier after the `.`
+(`expected IDENT, got )`).  Test: TestParseSelectorNeedsName (each path fails with its fix reverted).
+
+### asm: a self-referential constant is accepted, and a constant then a `.comm` of its name is rejected -- DONE (binate `1ff848d5b`, 2026-11-03, work-3; user: "wait 4 minutes, then go ahead and land")
+
+parseConstDef reports a value naming the constant itself (`.set K, K+4`, `.equiv K, K`, `.set A, B` then `.set B,
+A`), as clang's "cyclic dependency detected"; `.comm` / `.lcomm` drop a number constant of the name, as clang does
+(an alias's or `.equiv`'s name still cannot become a common).  Tests: TestConstCyclicRejected,
+TestCommonAfterNumberConstant.
+
+### Instance-check diagnostics: an error two instances make at one position names only the first instance -- DONE (binate `a621d6eed`, 2026-11-03, work-3; user: "wait 4 minutes, then go ahead and land")
+
+The one error names every instance making it, in check order (`… (in g[int32], instantiated at test.bn:3:26; in
+g[int64], instantiated at test.bn:3:39)`); instanceErrorAt matches the message exactly or with its instance list,
+and a REPL declaration's tentative check edits no other declaration's error (InstanceState.EditFloor).  Tests:
+TestInstanceBodyErrorOnce, TestReplParkedMemberAddsNoInstanceToEarlierError.
+
+### The LLVM backend declares a function's own sret parameter `align 8` whatever the result's alignment; a C caller's buffer may be less aligned -- DONE (binate `b5337c6a7`, 2026-11-03, work-3; user: "wait 4 minutes, then go ahead and land")
+
+The define, an extern declare, the C entry and the function-value / closure shims spell the result's alignment
+(writeSretParamAlign; a shim's tuple, its most aligned result), and a call handing the function's own buffer on
+promises no more (currentFuncSretTyp).  Native arm32's tuple store through a caller's buffer and the pack shims'
+single-result store keep to the buffer's guaranteed alignment (storeMultiReturnTupleFieldsAlignedArm32,
+storeRetbufBytesArm32).  Neither was seen to fault.  Tests: TestSretParamAlignIsTheResultTypes,
+TestSretExternDeclAlignIsTheResultTypes, TestStoreTupleShimSubwordAlignedBufferArm32,
+TestStoreRetbufBytesByAlignmentArm32.
+
+### vm.CallFuncAggregate copies the 8-rounded result size, past the end of a result image read in place -- DONE (binate `d0a278594`, 2026-11-03, work-3; user: "wait 4 minutes, then go ahead and land")
+
+It copies the image's natural size (ResultRetbufBytes, at most retbufSize), as the trampolines do, so `return *p`
+of a struct whose size is not a multiple of 8 no longer copies the bytes after p's pointee into the retbuf's
+padding.  Test: TestCallFuncAggregateCopiesTheImageSize (a 19-byte struct from a host buffer).
+
+### Native closure shims load captures in whole words — a negative narrow signed capture is wrong at -O1+, and the loads read past the closure struct -- DONE (binate `8786e4cae`, 2026-11-03, work-3; user: "wait 4 minutes, then go ahead and land")
+
+loadCaptureWordAA64 / X64 / Arm32 load a scalar capture at its own width, extended as its type says, and an
+aggregate's word no further than its end; a pieced capture (3, 5, 6 or 7 bytes) first copies the base to X16 / R11
+(R10 for a far x86-64 one); arm32 goes byte-wise only for an aggregate aligned below the word.  Tests: conformance
+1734 (fails on all three native backends at -O2 without the change), each backend's unit tests.
+
+### interp's RunFuncTyped refuses aggregate results over 64 bytes for a reason that no longer holds -- DONE (binate `e04c54ea7`, 2026-11-03, work-3; user: "wait 4 minutes, then go ahead and land")
+
+The 64-byte caps in RunFuncTyped (a result image, a struct in a result or argument) and CallIfaceMethod are gone:
+the VM copies a result image of any size, and the host sizes the retbuf by abi.AggregateReturnSize.  Tests: a
+160-byte tuple, a struct of 20 ints and a @[]char through RunFuncTyped and an interface method.
+
+### A struct `==` / `!=` unrolls every scalar leaf of nested structs — compile time exponential in the nesting depth -- DONE (binate `17969ce1b`, 2026-11-03, work-3; user: "wait 4 minutes, then go ahead and land")
+
+A struct comparison compares its own fields inline, but a field (or an array's element) that is a struct with
+more than 16 scalar leaves is a call to that type's linkonce equality helper `__eq_<MangleTypeArg>` (irgen
+gen_eq_helper.bn), so the IR grows with the nesting depth, not the leaf count; the call gets the block's fault pad.
+Tests: conformance 1732, 1733 (a stack overflow in a helper, recoverable in the VM), irgen unit tests.  The
+inliner never inlining these helper calls is its own entry.
+
 ### asm arm32 stage 3c: the VFP conversions and ARMv8's FP instructions -- DONE (binate `470159517`, 2026-11-03, work-2; user: "yes, go ahead")
 
 VCVT between precisions, with 32-bit integers and with fixed point; VCVTR; VCVTB / VCVTT with half precision and
