@@ -303,6 +303,15 @@ lane worse: test-sharding loads check and irgen under the double VM on EVERY sha
   pkg/binate/format's TestFormatDeepNesting, 96 s natively since binate `b5e5bca15`: see the MAJOR entry "bnfmt
   takes ~96 s on nested calls and composites again".
 
+**INTINT_PARTS (binate `01b55dccb`) did not fix the unit int-int lane** (checked 2026-11-03, work-3, CI run
+41592909161 at `01b55dccb`): 8 of its 12 shards were cancelled at the 45-min cap, against 2 before the sharding
+changes.  Each of check's six parts (shards 5-10) and irgen's part 2 (shard 4) ran into the cap, the check part in
+shard 9 after 30 min on its own; shard 2 hit it in its light batch.  A part costs about as much as the whole
+package: under the double VM the cost of a test binary is mostly loading the package's cone (as the per-test
+analysis above found for conformance), not running its tests, so splitting one package's tests across k shards
+pays that load k times.  Needs a decision: revert INTINT_PARTS (back to the two shards over the cap), or keep it and
+cut the load cost first (option (a)'s work, now for the unit runner's load of check / irgen / link).
+
 ### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🔴 NEEDS DECISION, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
 `builder-comp_arm32_baremetal` runs each package's test binary in QEMU `virt` with `-m 16M`, linked by
