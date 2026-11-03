@@ -182,7 +182,7 @@ same kind: vm/call_iface_host.bn ("execFunc's 64-byte result window") and vm/vm_
 ("execExtern's rt.CallDtor arm", which no longer calls it).  Proposed fix: drop the cap, with a test returning a
 larger struct through RunFuncTyped, and the stale comments.
 
-### vm.CallFuncAggregate copies the 8-rounded result size, past the end of a result image read in place — 🔴 OPEN (minor; found 2026-11-03, work-3, review of the RunFuncTyped cap removal; checked in code, not probed)
+### vm.CallFuncAggregate copies the 8-rounded result size, past the end of a result image read in place — 🟡 IN PROGRESS (claimed 2026-11-03, work-3, self-drive batch) (minor; found 2026-11-03, work-3, review of the RunFuncTyped cap removal; checked in code, not probed)
 
 CallFuncAggregate (vm/call_aggregate.bn) MemCopies retbufSize bytes from the address execFunc returns, and its callers
 size the retbuf by abi.AggregateReturnSize, which rounds the result image up to 8.  A top-level BC_RETURN returns the
