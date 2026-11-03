@@ -20,9 +20,10 @@ linting a 2^31-byte type, clean for x86_64-linux and too large for arm32-linux. 
 
 The entry's third item, "unit tests that stamp only an arch", was wrong: those tests call their package's
 `setTarget64()` helper, which sets the LP64 layout, before stamping the arch (the one exception,
-types/abi's TestArm32HardFloatGate, stamps aa64 over arm32 on purpose).  Not done here: interp and the REPL
-(bni) set a host BuildConfig but not the target, so bni's IR-gen classifies with an unknown arch; no misbehavior
-found (the VM reads only size-based ABI helpers) -- offered to the user as a follow-up.
+types/abi's TestArm32HardFloatGate, stamps aa64 over arm32 on purpose).  Follow-up DONE (binate `19c6dbef4`,
+2026-11-02; user: "yes"): interp.New, the REPL's NewKernel and bni's test mode set the host's target too
+(buildcfg.UseHostTarget), so bni's IR-gen classifies with the host's arch as bnc's host build does; nothing
+observable changed (the VM runs both thunk shapes alike).
 
 ### parser: a bracket element read neither as an expression nor as a type lost its expression reading's records — DONE (binate `a2a2d6931`, 2026-11-02, temp-4; user: "Yes, go ahead")
 
