@@ -176,7 +176,11 @@ clang's facts so far (Apple clang 21; bnas's targets as bnc drives clang: Linux 
   one of the following would fix this".
 
 Steps:
-- 3a. The FP feature model and the arithmetic class.  FP bits (VFP2, VFP3, VFP4, FP-ARMv8, double precision, 32 D
+- 3a. The FP feature model and the arithmetic class.  Part 1, the model, DONE (binate `e22a55b98`): LLVM's 29 FP
+  features with their implications in Parser.Arm32FP, set by the target (Linux VFPv3 + NEON, bare metal none, not
+  even the FP registers), `.fpu`, `.arch` (armv7ve as armv7-a, armv8-r ARMv8's FP SP D16 -- clang crashes only
+  writing an object whose last `.arch` is one of them), `.cpu` and `.arch_extension`; ~220 clang goldens, ~12,000
+  sequences in review.  Part 2, the arithmetic class, is next.  FP bits (VFP2, VFP3, VFP4, FP-ARMv8, double precision, 32 D
   registers, half conversions, full FP16, NEON, AES, SHA2), set by the target, `.fpu`, `.arch`, `.cpu` (each CPU's
   default FPU) and `.arch_extension` through clang's implication closure; then vadd / vsub / vmul / vnmul / vdiv,
   vmla / vmls / vnmla / vnmls, vfma / vfms / vfnma / vfnms, vabs / vneg / vsqrt, vcmp / vcmpe (and `#0`), in .f32 /

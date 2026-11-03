@@ -1,3 +1,15 @@
+### asm arm32 stage 3a part 1: the FP and SIMD features -- DONE (binate `e22a55b98`, 2026-11-02, work-2; user: "wait 4 minutes, then go ahead")
+
+The FP half of the arm32 feature model, as clang tracks it: Parser.Arm32FP holds LLVM's FP features (the FP
+registers and their 16- / 64-bit moves, double precision, 32 D registers, VFPv2 / v3 / v4 / ARMv8 FP in LLVM's
+restricted forms, the half conversions, full FP16, FP16FML, NEON, AES, SHA2, crypto, dot products, BF16, i8mm) with
+LLVM's implications (set with what a feature implies, clear with what implies it).  The target starts them
+(SetTargetOs: Linux VFPv3 + NEON, bare metal none); `.fpu` (getFPUFeatures, synonyms), `.arch`, `.cpu` and
+`.arch_extension` fp / simd / crypto / aes / sha2 / fp16 change them.  ~220 clang goldens in the tests; the review
+modelled it in Python against clang over ~12,000 sequences (0 differences) and caught armv7ve / armv8-r, which I
+had left unchanged believing clang fails on them (it fails only writing an object whose last `.arch` is one).  No
+instruction is gated by them yet (3a part 2).
+
 ### asm arm32 stage 2j: coprocessor instructions -- DONE (binate `9170c4d75`, 2026-11-02, work-2; user: "asm/arm32/sys (Recommended)", "actually go ahead now")
 
 Every arm32 coprocessor instruction clang takes -- MCR / MRC, MCRR / MRRC, CDP, LDC / STC with their 2 forms and the
