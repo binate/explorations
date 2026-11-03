@@ -150,7 +150,7 @@ struct { a *[]Ti-1; b *[]Ui-1 }` / `type Ui` the same, takes 0.7 s to compile at
 it is reached by value, and each call walks the type's parts with a fresh visit set, so a type reached softly through
 two paths is walked once per path.  Fix: record the types prepared softly as well, so each is walked once per mode.
 
-### Closure shims load captures from the closure struct in whole words, past the struct's end — 🟡 IN PROGRESS (claimed 2026-11-02, work-3, self-drive batch) (minor, latent; found 2026-10-30, work-1, review of the shim over-read fix; pre-existing; checked in code, not probed)
+### Native closure shims load captures in whole words — a negative narrow signed capture is wrong at -O1+, and the loads read past the closure struct — 🟡 IN PROGRESS (claimed 2026-11-02, work-3, self-drive batch) (MAJOR, silent wrong code; the over-read found 2026-10-30, work-1, review of the shim over-read fix; the wrong value found 2026-11-02, work-3, probing it; pre-existing)
 
 The closure struct (the record a capturing closure value points at, allocated by rt.Alloc at the struct's natural
 size) lays its captures out at their natural offsets, but the shims load a capture as whole 8-byte words:
@@ -161,6 +161,16 @@ With captures {int32; {int32 x3}} the 12-byte capture sits at offset 4 of a 16-b
 a fault is practically impossible, but it reads memory that is not the object's.  Proposed fix: load each capture no
 further than its end (loadAggWordAA64 / loadAggWordX64 at the capture's address and size), or round the closure
 struct's allocation up to whole words.
+
+**Wrong code, not only an over-read (probed 2026-11-02).**  A narrow integer capture (int8 / int16 / int32,
+uint8 / uint16 / uint32) is loaded as a whole 8-byte word, so its register holds the capture's bytes zero-extended
+(a zeroed allocation) or with the next capture's bytes above them, while the native backends keep a sub-word value
+sign- / zero-extended in its 64-bit register (aarch64_emit_params.bn, normalizeNarrowRegParam) and compare at 64
+bits once -O1 promotes the param.  `var a int32 = -5; run(func() bool { return a == -5 })` prints false on native
+aa64 and x64 at -O1 and -O2 (true at -O0 and on LLVM); `int8 -3` the same; two uint16 captures 40000 and 3 compare
+false because each one's load carries the other's bytes.  Fix: load each capture at its own width and extension
+(the param-load rule), no further than its end -- which also ends the over-read.  arm32 (4-byte words, so an int8 /
+int16 capture) to be checked the same way.
 
 ### interp's RunFuncTyped refuses aggregate results over 64 bytes for a reason that no longer holds — 🟡 IN PROGRESS (claimed 2026-11-02, work-3, self-drive batch) (minor; found 2026-10-30, work-1, review of the VM return-stack fix)
 
