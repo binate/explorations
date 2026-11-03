@@ -119,6 +119,16 @@ Fix, either way: no crash and no false errors.  The choice: lift the bound (peel
 check that covers every chain it can be handed, partly filled ones included), or make the depth a catalogued
 implementation limit (§21.4, with a minimum) diagnosed at the declaration.
 
+Analysis (2026-11-02, work-1, asked by the user: "Can we properly detect cycles, instead of just relying on a step
+bound?"): a real cycle is caught -- when its last member is declared, every other member is filled, so the walk
+from it returns to it (through readonly too: ResolveAliasAndConst strips it) -- and the 1024 bound only misfires.
+But `namedTypeDefIsCyclic` compares NAMES, not types: `type T cycx.T` (another package's T) is rejected as "cyclic
+type definition involving `T`" (valid program rejected; confirmed with binate `5667c0343` and released
+bnc-0.0.17-pre3; `type U cycx.T` compiles).  Proposed fix, no limit needed: compare identity, and walk with
+two-pointer (tortoise / hare) cycle detection in both namedTypeDefIsCyclic and StripWrappers, which ends on any
+loop and never misreports a long chain; make sizeOf / alignOf's named step (a recursion per step today) a loop,
+so a very deep chain cannot exhaust the compiler's stack either.
+
 ### A type whose walk is still on the stack counts as prepared when a `sizeof` reads it by value: a valid program gets a wrong array length, and a layout cycle is accepted — 🔴 OPEN (MAJOR: valid programs compiled with a wrong array type, silently, and an invalid one accepted; found 2026-10-30, work-7, review of the slice-reach fix; reproduced on main; pre-existing)
 
 `type N struct { v int64; a [sizeof(M)]uint8 }`, `type M struct { s *[]D }`, `type D struct { n N; e *[]E }`, `type E
