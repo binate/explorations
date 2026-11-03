@@ -182,6 +182,17 @@ same kind: vm/call_iface_host.bn ("execFunc's 64-byte result window") and vm/vm_
 ("execExtern's rt.CallDtor arm", which no longer calls it).  Proposed fix: drop the cap, with a test returning a
 larger struct through RunFuncTyped, and the stale comments.
 
+### vm.CallFuncAggregate copies the 8-rounded result size, past the end of a result image read in place — 🔴 OPEN (minor; found 2026-11-03, work-3, review of the RunFuncTyped cap removal; checked in code, not probed)
+
+CallFuncAggregate (vm/call_aggregate.bn) MemCopies retbufSize bytes from the address execFunc returns, and its callers
+size the retbuf by abi.AggregateReturnSize, which rounds the result image up to 8.  A top-level BC_RETURN returns the
+image's address wherever it lies (vm_exec.bn: retVal = regs[Src1]; deliverResult's comment: "in the callee's frame or
+wherever the source of a load read in place lies"), so a function returning an odd-sized struct it read in place --
+a by-address param returned unchanged (the host's Value.Bytes, allocated at the struct's natural size), a global --
+has up to 7 bytes past the object copied into the retbuf's padding.  The trampolines copy f.ResultRetbufBytes (the
+natural size) instead.  Proposed fix: copy the natural image size (f.ResultRetbufBytes) and leave the padding zero;
+a test returning a 3-byte struct param through RunFuncTyped.
+
 ### CI red: the slow lanes hit their job time limits — unit int-int shards, conformance int-int and comp-comp-comp — 🟡 IN PROGRESS on option (a) (claimed 2026-10-28, work-3; user: "both", then "(a)") (filed 2026-10-28, work-3)
 
 Unit run 40643666280 (at f7e99b80b): builder-comp-int-int shards 3, 5 and 6 of 12 cancelled at the 45-minute limit.
@@ -1354,6 +1365,18 @@ quote numbers from this file (they go stale):**
   x64/arm32 codegen changes (a revert looks "neutral"). Measure non-host
   backends by static instruction/reload counting on a `--target` build, or on
   real hardware/CI.
+
+### The inliner never inlines a call emitted by bare local name -- the struct equality helpers and the dtor helper calls — 🔴 OPEN (found 2026-11-03, work-3, review of the struct-equality helper)
+
+irbuild.EmitCallLocal stores the callee's bare name (`__eq_<type>`, irutil.MsElemsDtorName, DtorNameForType) in the
+call's StrVal, while the callee's ir.Func is named by ir.NewFunc's QualifyName (`<pkg>.__eq_<type>`), and the
+inliner resolves a callee by an exact name match (iropt/inline_facts.bn lookupFunc, ir.LookupModuleFunc) -- so
+these calls are never inline candidates.  Callers: irgen/gen_eq_helper.bn, gen_dtor_emit.bn, gen_dtor_emit_bodies.bn,
+gen_dtor_emit_ms.bn, irbuild/emit_refdec.bn.  On the native backends at -O a nested struct field past 16 leaves
+always pays an out-of-line call to its equality helper, and a managed-slice's elements dtor call likewise, where
+LLVM can inline the linkonce_odr helper itself.  Proposed fix: resolve a bare local callee by its qualified name
+(QualifyName(m.PkgPath, StrVal)) in the inliner's lookup, then measure (perf/ab-binaries.sh) whether inlining the
+equality and dtor helpers pays at their sizes.
 
 ### IR-level optimizations for large-aggregate copies — shared by every backend — 🟡 IN PROGRESS (raised 2026-09-30, work-1; user decision: "This and other optimizations are what we need"; claimed 2026-09-30, work-1)
 
