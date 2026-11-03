@@ -162,7 +162,7 @@ a fault is practically impossible, but it reads memory that is not the object's.
 further than its end (loadAggWordAA64 / loadAggWordX64 at the capture's address and size), or round the closure
 struct's allocation up to whole words.
 
-### interp's RunFuncTyped refuses aggregate results over 64 bytes for a reason that no longer holds — 🔴 OPEN (minor; found 2026-10-30, work-1, review of the VM return-stack fix)
+### interp's RunFuncTyped refuses aggregate results over 64 bytes for a reason that no longer holds — 🟡 IN PROGRESS (claimed 2026-11-02, work-3, self-drive batch) (minor; found 2026-10-30, work-1, review of the VM return-stack fix)
 
 interp/runfunc_typed.bn rejects a result whose AggregateReturnSize exceeds 64 bytes ("interp: aggregate return too
 large (> 64 bytes)") and a struct over 64 bytes within a result (marshalableIn), because "the retbuf must fit
