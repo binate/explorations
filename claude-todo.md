@@ -1078,18 +1078,22 @@ ld64 lists it as `[referenced dynamically] external`.  Only a lookup by name (dl
 **Fix:** list it in `buildMachoSymtab` with REFERENCED_DYNAMICALLY (0x10) in n_desc, as ld64 does, checked with
 `nm -m` against an ld64-linked executable.
 
-### asm ELF: an instruction in a data section aligns the section to 4, where clang leaves it 1 — 🔴 OPEN, unclaimed (found 2026-10-26, work-2, comparing arm32 objects with clang's for the `.ARM.attributes` work; its part (b), arm32 `bl` to a local label, DONE binate `e7ea2d33a`, see the done log)
+### asm ELF: an instruction in a data section aligns the section to 4, where clang leaves it 1 — 🔴 OPEN, DECIDED 2026-11-02: keep bnas's alignment, unclaimed (found 2026-10-26, work-2, comparing arm32 objects with clang's for the `.ARM.attributes` work; its part (b), arm32 `bl` to a local label, DONE binate `e7ea2d33a`, see the done log)
 
 An instruction in a data section (`.section data` / `.uint8 1` / `bx lr`; on AArch64 `ret`) gives the section
 alignment 4 in bnas, 1 in clang (arm32 and AArch64; x86-64 matches).  The assemble tests compare those objects by
-their symbols only.  **Fix:** decide with the user (clang's choice, or keep bnas's), then follow it and make the
-cases full-layout goldens.
+their symbols only.
 
 Probed 2026-11-02 (temp-5): every arm32 and AArch64 instruction raises its section's alignment to 4 (MinAlign in
 each emit32), as GNU as does (binate-ci's arm-linux-gnueabihf-as and aarch64-linux-gnu-as give the data section 4);
 clang leaves it 1, and on arm32 also leaves an executable section other than `.text` (`.section mycode,"ax"`
 holding `bx lr`) at 1, where AArch64 clang gives that one 4.  Neither clang nor GNU as pads (after `.uint8 1` the
 instruction is at offset 1), and MinAlign adds no padding either.
+
+**Decided 2026-11-02** (user: "(a)"): keep bnas's rule, GNU as's -- a section holding an arm32 or AArch64
+instruction is aligned to at least 4 -- as a deliberate difference from clang, whose alignment 1 lets the linker
+place code at an address that is not a multiple of 4.  **Fix:** make the assemble tests' cases full-layout goldens
+of bnas's layout, each noting the difference from clang.
 
 ### asm text: string escapes and directive-name case differ from clang — 🔴 OPEN, unclaimed (found 2026-10-26, work-2, review of the `.ARM.attributes` change)
 
