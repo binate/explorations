@@ -1068,7 +1068,7 @@ and relocation are `.Ltmp2`, bnas's `.Ltmp0`.  bnas numbers only the generated l
 `.Ltmp2`).  **Fix:** number generated labels as clang numbers its temporaries, probed against clang where a
 listed one follows unlisted ones (numeric labels, pool entries, `.` labels).
 
-### asm: two general differences from clang — a symbol defined nowhere needs `.global`, and a constant cannot be used before its definition — 🔴 OPEN, DECIDED 2026-11-02: match clang on both, unclaimed (found 2026-10-28, work-2, the arm32 2a review's probe lists)
+### asm: two general differences from clang — a symbol defined nowhere needs `.global`, and a constant cannot be used before its definition — 🟡 IN PROGRESS on (a) (claimed 2026-11-03, work-3, self-drive batch; (b) unclaimed), DECIDED 2026-11-02: match clang on both (found 2026-10-28, work-2, the arm32 2a review's probe lists)
 
 (a) A reference to a symbol the file never defines (`b R0`, `bl SL`, `ldr r0, K`) is an error in bnas ("undefined symbol
 'R0' (declare it .global if it is defined elsewhere)", from `asm.bn`); clang makes it an undefined symbol for the
