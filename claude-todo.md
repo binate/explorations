@@ -653,7 +653,7 @@ Fix: probe each guard-sized step of a large frame in the native prologues (touch
 give the LLVM backend's functions the matching "probe-stack" attribute, and decide the bare-metal behaviour (no
 guard page there).  Test: a recursion with a frame past the guard size that overflows must fault, not corrupt.
 
-### A struct `==` / `!=` unrolls every scalar leaf of nested structs — compile time exponential in the nesting depth — 🔴 OPEN, unclaimed (found 2026-10-30, temp-5, review of the array-equality loop; pre-existing)
+### A struct `==` / `!=` unrolls every scalar leaf of nested structs — compile time exponential in the nesting depth — 🟡 IN PROGRESS (claimed 2026-11-02, work-3, self-drive batch; user: "follow the self-driving bug fixing instructions ... for N=10 bugs") (found 2026-10-30, temp-5, review of the array-equality loop; pre-existing)
 
 The array-equality change (a loop past 16 leaves) bounds an array's compare, not a struct's: `type S0 struct { a, b
 int }`, `type Si struct { a, b S(i-1) }` and `x == y` on S14 emit 32768 `icmp eq` (1.7 s), doubling with each level
