@@ -1,3 +1,16 @@
+### Named-type cycles: found exactly, with no step bound; a `.bni` cycle checked; a type named after another package's no cycle — DONE (binate `2ee7354fe`, 2026-11-02, work-1; user: "yes" to exact cycle detection, "Fold into this change" for the `.bni` MAJOR)
+
+The cycle check (`namedTypeDefIsCyclic`) compared NAMES, so `type T p.T` was a false cycle, and took 1024 steps
+for one, so a long chain declared tail first was too; StripWrappers and five other peels gave up after 1024
+steps, so a long chain declared head first got false errors and crashed IR-gen; and a cycle in an imported `.bni`
+was never checked (bnc overflowed its stack in sizeOf).  Each walk now carries a chainGuard (Brent's method,
+private copies in types and check, since types.bni is at its cap; StripWrappers starts it at step 32), the check
+follows the types themselves, and the `.bni` resolver runs it.  Tests: types and check unit tests (5000- and
+1500-deep chains, loops, six cycle shapes, each checker walk on a loop), conformance 1729 (`type T nameimp.T`),
+1730 (1100-deep chains, both orders) and 1731 (three cycles in an imported `.bni`).  The analysis: a real cycle
+was always caught when its last member was declared; the bound only misfired.  Left open: the caps outside the
+checker (IR-gen, lint) as a follow-up, and deep nesting in general (the compiler's stack) as its own entry.
+
 ### asm arm32 stage 3b: the VFP moves -- DONE (binate `e94c5234e`, 2026-11-02, work-2; user: "wait 6 minutes, then land")
 
 VMOV in its VFP forms (register copies, the VFPv3 immediate, core <-> single, two cores <-> a double or two

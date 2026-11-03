@@ -107,45 +107,13 @@ Fix: find what `b5e5bca15` renders afresh per level that the rendering cache (pr
 and restore the bound; give the test a bound it can check (a count of renders, say) so a repeat fails it.  See
 also the LOW entry on nested function literals ("bnfmt's time grows exponentially ...").
 
-### A cycle of named types declared in an imported `.bni` is never rejected, and bnc segfaults — 🟡 IN PROGRESS (claimed 2026-11-02, work-1; user: "Fold into this change", the exact cycle-check fix) (MAJOR: an invalid program crashes the compiler; found 2026-11-02, work-1, review of the exact cycle-check change; reproduced at binate `19c6dbef4` and with the change; pre-existing)
+### Step caps outside the checker: IR-gen's opaqueExportUnder stops at 1024 steps, two lint walks at 64 named steps — 🟡 IN PROGRESS (claimed 2026-11-02, work-1; user: "Yes, as a follow-up commit") (found 2026-11-02, work-1, review of the exact cycle-check change)
 
-`resolveTypeDeclInScope` (pkg/binate/check/bni_scope.bn, ~line 234) fills a `.bni` named type's underlying with
-`setUnderlying` and never runs `namedTypeDefIsCyclic` / `errCyclicType`, as collectTypeDecl does for a `.bn`
-declaration.  So `type A B; type B A`, `type A A` or `type A readonly A` in an imported package's `.bni` is
-accepted, and the first layout query recurses through the loop (`types.sizeOf`) until bnc's stack overflows
-(rc=139) -- even when main only calls a function of the package.  The same cycle in the package's `.bn` is
-rejected ("cyclic type definition involving `A`").  Fix: run the cycle check where the `.bni` declaration is
-filled, and break the cycle as collectTypeDecl does; an importer conformance test (`.error`) for each shape.
-
-### A chain of more than about 1023 named types gets false errors, a false cycle, or a compiler crash — 🟡 IN PROGRESS (claimed 2026-11-02, work-1; user: "yes" to exact cycle detection, no limit) (valid programs rejected, or bnc crashing; found 2026-11-02, work-1, review of the spec §7.13.10 wording; reproduced at binate `6aa3e58e1` with a change touching neither types nor check; pre-existing)
-
-`StripWrappers` (pkg/binate/types/types_query.bn) gives up -- returns nil -- after 1024 named steps, and its doc
-says every type the checker accepts peels fully.  But the checker's cycle check (`namedTypeDefIsCyclic`) walks
-only the underlyings already filled in, so a chain declared top-down (`type N0 N1`, `type N1 N2`, ...,
-`type Nk struct { a int; b int }`) gets past it at any depth:
-
-- k = 1000: compiles and runs.
-- k = 1023, fields of an N0 local assigned: "cannot assign to a non-addressable value", "cannot assign untyped
-  int to void".
-- k = 1100, an N0 local and `sizeof(N0)` printed: the checker accepts it, then bnc dies with SIGSEGV (a nil
-  dereference in irgen's genDecl, from lldb).
-- k = 1100 declared bottom-up, fields assigned: a false "cyclic type definition involving `N75`".
-
-No probe gave a wrong size or offset silently.  The limit is not in spec §21.4 (`conf.implementation.limits`).
-
-Fix, either way: no crash and no false errors.  The choice: lift the bound (peel without a step cap, with a cycle
-check that covers every chain it can be handed, partly filled ones included), or make the depth a catalogued
-implementation limit (§21.4, with a minimum) diagnosed at the declaration.
-
-Analysis (2026-11-02, work-1, asked by the user: "Can we properly detect cycles, instead of just relying on a step
-bound?"): a real cycle is caught -- when its last member is declared, every other member is filled, so the walk
-from it returns to it (through readonly too: ResolveAliasAndConst strips it) -- and the 1024 bound only misfires.
-But `namedTypeDefIsCyclic` compares NAMES, not types: `type T cycx.T` (another package's T) is rejected as "cyclic
-type definition involving `T`" (valid program rejected; confirmed with binate `5667c0343` and released
-bnc-0.0.17-pre3; `type U cycx.T` compiles).  Proposed fix, no limit needed: compare identity, and walk with
-two-pointer (tortoise / hare) cycle detection in both namedTypeDefIsCyclic and StripWrappers, which ends on any
-loop and never misreports a long chain; make sizeOf / alignOf's named step (a recursion per step today) a loop,
-so a very deep chain cannot exhaust the compiler's stack either.
+`pkg/binate/irbuild/emit_refdec.bn` `opaqueExportUnder` stops at 1024 steps (past a longer chain over an opaque
+type it can pick no destructor), and `pkg/binate/lint/borrowable_char_param_util.bn` and
+`pkg/binate/lint/iface_borrow_escape_util.bn` stop at 64 named steps (wrong lint answers past 64).  IR-gen and lint
+see only accepted programs, so a named chain there ends; a walk that follows pointers can still loop and needs a
+guard.  Same fix as the checker's (binate `2ee7354fe`).
 
 ### Deep nesting -- of types or of expressions -- is bounded only by the compiler's stack; spec §21.4 lists no nesting limit — 🔴 NEEDS DECISION: a catalogued limit with a diagnostic, or iterative walks (found 2026-11-02, work-1, planning the named-type cycle-check fix; user: "Separate todo: a nesting limit"; by reading)
 
