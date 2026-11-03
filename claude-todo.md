@@ -263,8 +263,10 @@ lane worse: test-sharding loads check and irgen under the double VM on EVERY sha
 10.8 -> 34.9 min and 8-9 of 12 shards hit the 45-min cap (runs at 5697ae15e / 7e61ac730 / a8e36b6da), against 2 of
 12 before (b60abc653).  Reverted: binate `ced393e75`.  Still open:
 - Unit int-int: at b60abc653 shard 6/12 had started 759 tests in ~37 min when cancelled, in pkg/binate/check
-  (TestExpandBuildBudget), so check whole needs over an hour there.  Options: split a heavy package's tests
-  across a FEW shards only (a run.sh change), or give that shard a longer cap.
+  (TestExpandBuildBudget), so check whole needs over an hour there.  Landed binate `01b55dccb` (user: "yes"):
+  INTINT_PARTS runs check in 6 parts, irgen and link in 2, each part an invocation of its own on a shard of its
+  own (a local shard 1/12 ran irgen's part 1 of 2: 405 tests).  Remaining: confirm on the next completed unit run
+  that no int-int shard but format's (the MAJOR below) passes 45 min; then close this entry.
 - Shard 3 of every VM unit lane (builder-comp-int 3/6, builder-comp-comp-int 3/6, builder-comp-int-int 3/12) is
   pkg/binate/format's TestFormatDeepNesting, 96 s natively since binate `b5e5bca15`: see the MAJOR entry "bnfmt
   takes ~96 s on nested calls and composites again".
