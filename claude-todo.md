@@ -553,7 +553,7 @@ signature naming a dropped instance type, so the fix needs care.  Also noted by 
 a lookup made from an imported generic's instance-signature scope (which sets `c.curPkgPath` to the generic's home)
 could define a same-named local function on demand, and `enterPackageDecl` does not reset `curPkgPath`.
 
-### The LLVM backend declares a function's own sret parameter `align 8` whatever the result's alignment; a C caller's buffer may be less aligned — 🔴 OPEN (found 2026-10-09, work-1, review of the returned-local change; pre-existing; plausible, not yet reproduced)
+### The LLVM backend declares a function's own sret parameter `align 8` whatever the result's alignment; a C caller's buffer may be less aligned — 🟡 IN PROGRESS (claimed 2026-11-03, work-3, self-drive batch) (found 2026-10-09, work-1, review of the returned-local change; pre-existing; plausible, not yet reproduced)
 
 A function returning through sret is defined `define void @f(ptr sret(%T) align 8 %v.retbuf, ...)`
 (emit_debug.bn), promising LLVM an 8-aligned buffer for every T.  Binate callers keep that promise (an LLVM
