@@ -99,7 +99,7 @@ Fix: find what `b5e5bca15` renders afresh per level that the rendering cache (pr
 and restore the bound; give the test a bound it can check (a count of renders, say) so a repeat fails it.  See
 also the LOW entry on nested function literals ("bnfmt's time grows exponentially ...").
 
-### A chain of more than about 1023 named types gets false errors, a false cycle, or a compiler crash — 🔴 NEEDS DECISION: lift the bound or catalogue a limit (valid programs rejected, or bnc crashing; found 2026-11-02, work-1, review of the spec §7.13.10 wording; reproduced at binate `6aa3e58e1` with a change touching neither types nor check; pre-existing)
+### A chain of more than about 1023 named types gets false errors, a false cycle, or a compiler crash — 🟡 IN PROGRESS (claimed 2026-11-02, work-1; user: "yes" to exact cycle detection, no limit) (valid programs rejected, or bnc crashing; found 2026-11-02, work-1, review of the spec §7.13.10 wording; reproduced at binate `6aa3e58e1` with a change touching neither types nor check; pre-existing)
 
 `StripWrappers` (pkg/binate/types/types_query.bn) gives up -- returns nil -- after 1024 named steps, and its doc
 says every type the checker accepts peels fully.  But the checker's cycle check (`namedTypeDefIsCyclic`) walks
