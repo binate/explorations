@@ -1,3 +1,27 @@
+### A file may import the same package more than once — DONE (binate `eaf5c546b`, docs `0eb6f34`, 2026-11-02, work-7; user: "duplicate imports shouldn't be allowed. (nor imports of the same package assigning different import names)"; landed on "yes")
+
+The checker accepted a package imported twice in one file: under the same name (left to definePkg's overwrite),
+under two names (each bound), and a blank import repeated or beside a named one.  Only two different packages under
+one name were rejected (errDuplicateImport).  Found through check_layout_wait_copy_test.bn, which imported
+pkg/binate/buf twice.
+
+Fix: spec §16.3 `pkg.import.once` (docs `0eb6f34`): a source file imports a package at most once, whatever names
+its imports bind (`_` included); the rule is per file, so each file of a package, its `.bni` included, may import
+it; an import a build constraint drops does not count.  checkImportsOnce (check/bni_scope_collision.bn) reads each
+file's own import list -- the loader's merged list (MergeFiles deduplicates by alias and path across files) would
+miss an exact repeat and flag two files' different names.  checkPackageImpl passes a package's files and `.bni`; the
+new `Checker.CheckProgram(merged, files)` / `CheckProgramPersistent` take a main program's per-file ASTs from
+LoadRoot, and bnc, the interpreter and the REPL session call them.  A package checked for its declarations only (a
+dependency; bnlint) is not reported, as with checkImportDeclCollisions.  `bnc --test` drops a repeated package
+argument (uniquePaths), so its generated runner imports each package once.  errDuplicateImport now reads "`name`
+names two imported packages (p1 and p2); give one of them an explicit alias".  Tests: conformance
+spec/16-packages/124_err_import_once; 1446 reworked as 1446_same_package_imported_by_each_file; 1390 imports a
+package of its own; check/import_dup_test.bn; e2e repl `setup-import-twice`; cmd/bnc TestUniquePaths.
+
+Left as they were: the REPL's mid-session prompt imports (a later prompt may import a package again or rebind its
+name, e2e repl Case 47) -- whether the rule applies there was put to the user; and a main program's imports are not
+scoped per file (its own entry in claude-todo.md).
+
 ### bnfmt: a marked string-run statement in a function literal argument moved on a second format — DONE (binate `c3430ce64`, 2026-11-02, temp-4; user: "wait 4 minutes, then go ahead")
 
 A statement spanning lines whose last line ends in `// LONG-LINE ALLOWED` formats unmarked: its code is laid out to

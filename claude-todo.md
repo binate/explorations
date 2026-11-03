@@ -1265,18 +1265,6 @@ the prompt is checked with none.  A prompt statement `var hb H[int16]`, with `ty
 flush inside the copy.  Fix: reproduce it in the REPL's tests first; then give a prompt's statements the state the
 batch carries for these waits (the starts and DeclReadWaited), with a REPL unit test.
 
-### A file may import the same package more than once — 🟡 IN PROGRESS (claimed 2026-11-01, work-7/session; user: "duplicate imports shouldn't be allowed. (nor imports of the same package assigning different import names)") (minor: invalid programs accepted; found 2026-11-01, work-7: pkg/binate/check/check_layout_wait_copy_test.bn on main imports pkg/binate/buf twice)
-
-The checker accepts a package imported twice in one file: under the same name (registerImportsInto,
-check/bni_scope.bn, leaves "a redundant re-import" to definePkg's overwrite), under two names (`import a "p"` and
-`import b "p"`, each bound), and a blank import repeated or beside a named one (taken as "legitimately repeatable").
-Only two different packages under one name are rejected (errDuplicateImport).  The spec (§16.3 `pkg.import`) says
-nothing either way; the user's ruling is that none of these is allowed.  Fix: a spec rule in §16.3 (a file imports
-a package at most once, under any name), checked per source file — not on a package's merged import list, which the
-loader deduplicates across files (loader_merge.bn), where a `.bni` and a `.bn` may each import the package; remove
-the duplicate import in check_layout_wait_copy_test.bn and any other in the tree (a repo-wide sweep, embedded
-sources included); conformance error tests and unit tests.
-
 ### A main program of several files does not scope its imports per file: a file may use another file's import, and two files may not bind one name to different packages — 🔴 OPEN (minor: invalid programs accepted, valid ones rejected; found 2026-11-02, work-7, checking the import-once rule per file; reproduced with a compiler built from binate `7e61ac730`; pre-existing)
 
 bnc and bni take a main program of several `.bn` files (`bnc a.bn b.bn`).  The loader merges them (LoadRoot /
@@ -1288,7 +1276,7 @@ rejected ("`t` is imported more than once (pkg/builtins/testing and pkg/builtins
 alias"), which a package's two files may do.  Whether IR-gen resolves a main program's qualifiers per file is
 unchecked.  The spec says nothing of imports being file-scoped (§9.6 `decl.scope.levels` lists universe, package and
 block scopes), so a rule is needed there too.  Fix: check a main program's files as a package's are, with an import
-scope per file; the import-once change (not yet landed) adds `Checker.CheckProgram(merged, files)` and
+scope per file; the import-once change (binate `eaf5c546b`) added `Checker.CheckProgram(merged, files)` and
 `CheckProgramPersistent`, which the bnc, interpreter and REPL drivers call with LoadRoot's per-file ASTs, so the file
 scopes can be built there.  Tests: to add — unit tests through CheckProgram, expected to fail until the fix, and an
 e2e case (the conformance runner builds a main program from one main.bn).
