@@ -107,14 +107,6 @@ Fix: find what `b5e5bca15` renders afresh per level that the rendering cache (pr
 and restore the bound; give the test a bound it can check (a count of renders, say) so a repeat fails it.  See
 also the LOW entry on nested function literals ("bnfmt's time grows exponentially ...").
 
-### Step caps outside the checker: IR-gen's opaqueExportUnder stops at 1024 steps, two lint walks at 64 named steps — 🟡 IN PROGRESS (claimed 2026-11-02, work-1; user: "Yes, as a follow-up commit") (found 2026-11-02, work-1, review of the exact cycle-check change)
-
-`pkg/binate/irbuild/emit_refdec.bn` `opaqueExportUnder` stops at 1024 steps (past a longer chain over an opaque
-type it can pick no destructor), and `pkg/binate/lint/borrowable_char_param_util.bn` and
-`pkg/binate/lint/iface_borrow_escape_util.bn` stop at 64 named steps (wrong lint answers past 64).  IR-gen and lint
-see only accepted programs, so a named chain there ends; a walk that follows pointers can still loop and needs a
-guard.  Same fix as the checker's (binate `2ee7354fe`).
-
 ### Deep nesting -- of types or of expressions -- is bounded only by the compiler's stack; spec §21.4 lists no nesting limit — 🔴 NEEDS DECISION: a catalogued limit with a diagnostic, or iterative walks (found 2026-11-02, work-1, planning the named-type cycle-check fix; user: "Separate todo: a nesting limit"; by reading)
 
 About fifteen recursive walks in check and types recurse once per level of a type's nesting -- through a named

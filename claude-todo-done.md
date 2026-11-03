@@ -1,3 +1,12 @@
+### Step caps outside the checker: IR-gen's opaqueExportUnder (1024), lint's named-type peels and peelTexprWrappers (64) — DONE (binate `51ddb5725`, 2026-11-02, work-1; user: "Yes, as a follow-up commit")
+
+Both see only checked programs, whose chains of named types end now that the checker finds every cycle (binate
+`2ee7354fe`; every place that fills a named type's underlying either runs the cycle check or cannot form one --
+the scalar prefill tracks declarations in progress), and a type expression is a tree, so the walks lost their caps.
+Tests: opaqueExportUnder through 2000 named types, an alias and readonly; lint's peels through 100 named types and
+100 parentheses.  The fixed-depth walks the same sweep found (check_dependent's two, irgen's isAbstractType) are in
+the deep-nesting entry.
+
 ### Named-type cycles: found exactly, with no step bound; a `.bni` cycle checked; a type named after another package's no cycle — DONE (binate `2ee7354fe`, 2026-11-02, work-1; user: "yes" to exact cycle detection, "Fold into this change" for the `.bni` MAJOR)
 
 The cycle check (`namedTypeDefIsCyclic`) compared NAMES, so `type T p.T` was a false cycle, and took 1024 steps
