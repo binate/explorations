@@ -1086,6 +1086,17 @@ resolve; bnas reports it at the end of the file ("'lx' is declared .local and ne
 global", parse checkLocalsDefined).  Options: (a) keep the error (recommended: the object is unusable either way, and
 the error names the mistake); (b) write clang's undefined local symbol.
 
+### asm/parse: with the object format unknown, `applySymbolAttrs` / `applyVisibilities` take arm32's temporary labels by Mach-O's rule — 🔴 OPEN (found 2026-11-03, work-3, a review of the undefined-name change)
+
+`Finish`'s attribute steps decide whether a name is a temporary label with `asm.IsTemporaryLabel(name,
+p.Asm.ObjFormat)` (parse_symtype.bn `applySymbolAttrs`, parse_visibility.bn `applyVisibilities`).  With the format
+not yet known that is Mach-O's rule (`L…`), where arm32, which has no Mach-O output, is ELF (`.L…`), as
+`fixedDistance` and `emitDataDifference` take it.  So on arm32 with the format unknown, `.type .Lx, %function` with
+no reference to `.Lx` enters it as a global, and `.type Lx, %function` is skipped.  Latent: only an in-process
+Parser user that never calls `SetTargetOs` reaches it (AssembleFile sets arm32's format before parsing).  Fix: take
+the format as the undefined-name change's `objFormatHere` does (asm/parse undefined_symbol.bn, not yet landed) in
+both steps, with a test through `arm32SourceIn(…, asm.OBJ_UNKNOWN)`.
+
 ### asm: two general differences from clang — a symbol defined nowhere needs `.global`, and a constant cannot be used before its definition — 🟡 IN PROGRESS on (a) (claimed 2026-11-03, work-3, self-drive batch; (b) unclaimed), DECIDED 2026-11-02: match clang on both (found 2026-10-28, work-2, the arm32 2a review's probe lists)
 
 (a) A reference to a symbol the file never defines (`b R0`, `bl SL`, `ldr r0, K`) is an error in bnas ("undefined symbol
