@@ -1087,7 +1087,7 @@ rejects it; and an offset led by a name (`ldr x1, [x0, g-.]`, g a later label) i
 offset") where clang on ELF encodes `ldr x1, [x0, #8]`.  **Fix:** probe each against clang (ELF and Mach-O) and
 match it in `aarch64_addr.bn` / `aarch64_items_sym.bn`.
 
-### asm: a self-referential constant is accepted, and a constant then a `.comm` of its name is rejected — 🔴 OPEN, unclaimed (found 2026-10-30, temp-5, review of the `.set` change; pre-existing: each behaves the same with `=`, checked against the bnc-0.0.17-pre3 bnas)
+### asm: a self-referential constant is accepted, and a constant then a `.comm` of its name is rejected — 🟡 IN PROGRESS (claimed 2026-11-03, work-3, self-drive batch) (found 2026-10-30, temp-5, review of the `.set` change; pre-existing: each behaves the same with `=`, checked against the bnc-0.0.17-pre3 bnas)
 
 (a) `.set K, K+4` or `.equiv K, K` (or `K = K + 4`) with no use of K is accepted with nothing emitted; clang reports
 "cyclic dependency detected".  (b) `.set K, 4` then `.comm K, 4` is rejected; clang accepts it.  **Fix:** probe both
