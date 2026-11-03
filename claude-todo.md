@@ -388,15 +388,19 @@ Fix (to design): a read of a constant being resolved where its value is not need
 placeholder is taken, the reading declaration resolved again once the constant is resolved; conformance
 regressions/const-read-as-arg-while-resolved (xfailed until then) and a unit test per shape.
 
-### Instance-check diagnostics: an error two instances make at one position names only the first instance — 🔴 NEEDS DECISION (minor: diagnostics; found 2026-10-16, work-5, review of the generic-type method-signature sizing; pre-existing)
+### Instance-check diagnostics: an error two instances make at one position names only the first instance — 🔴 OPEN, DECIDED 2026-11-02: one error naming every instance, unclaimed (minor: diagnostics; found 2026-10-16, work-5, review of the generic-type method-signature sizing; pre-existing)
 
 contextualizeInstanceErrors drops an error another instance already reported at the same position
 (instanceErrorReported), so `func g[T any]() uint8 { return cast(uint8, sizeof(T) * 100) }` called as `g[int32]()`
 and `g[int64]()` reports "constant does not fit the cast target type … (in g[int32], instantiated at …)" and nothing
 for g[int64] (checked 2026-10-30, temp-5, on binate main `d1e3f86fa`).  The program is rejected either way.  This
 is the tested policy: check's TestInstanceBodyErrorOnce ("The same error at the same position in two instances is
-reported once").  **Decision:** keep it (and close this entry), or name every instance — an error each, or one
-error listing them — and change that test.
+reported once").
+
+**Decided 2026-11-02** (user: "(b) is fine"): one error that names every instance making it, in the order they are
+checked -- `… (in g[int32], instantiated at p.bn:8:7; in g[int64], instantiated at p.bn:8:20)` -- with no cap on
+the list.  An error the generic's own declaration check reported still covers every instance, as now.
+TestInstanceBodyErrorOnce then expects both names in the one error.
 
 ### Does populateInstantiatedInterface's speculative (`userFacing` false) path still have a valid-program case? — 🔴 OPEN (cleanup question; found 2026-10-16, work-5, review of the generic-type method-signature sizing)
 
@@ -1081,6 +1085,12 @@ An instruction in a data section (`.section data` / `.uint8 1` / `bx lr`; on AAr
 alignment 4 in bnas, 1 in clang (arm32 and AArch64; x86-64 matches).  The assemble tests compare those objects by
 their symbols only.  **Fix:** decide with the user (clang's choice, or keep bnas's), then follow it and make the
 cases full-layout goldens.
+
+Probed 2026-11-02 (temp-5): every arm32 and AArch64 instruction raises its section's alignment to 4 (MinAlign in
+each emit32), as GNU as does (binate-ci's arm-linux-gnueabihf-as and aarch64-linux-gnu-as give the data section 4);
+clang leaves it 1, and on arm32 also leaves an executable section other than `.text` (`.section mycode,"ax"`
+holding `bx lr`) at 1, where AArch64 clang gives that one 4.  Neither clang nor GNU as pads (after `.uint8 1` the
+instruction is at offset 1), and MinAlign adds no padding either.
 
 ### asm text: string escapes and directive-name case differ from clang — 🔴 OPEN, unclaimed (found 2026-10-26, work-2, review of the `.ARM.attributes` change)
 
