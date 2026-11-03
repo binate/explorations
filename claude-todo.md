@@ -2941,7 +2941,7 @@ own after the member, then a blank line, and a second format ends the alignment 
 comments of the members after it align differently (found 2026-10-31 in a review of positioning type members at their
 names).
 
-### parser: a selector takes whatever token follows its `.` as its name — 🔴 OPEN 🟢 LOW (found 2026-11-02, temp-4, minimizing a bnfmt repro; pre-existing)
+### parser: a selector takes whatever token follows its `.` as its name — 🟡 IN PROGRESS (claimed 2026-11-03, work-3, self-drive batch) 🟢 LOW (found 2026-11-02, temp-4, minimizing a bnfmt repro; pre-existing)
 
 continuePostfix (pkg/binate/parser/parse_postfix.bn) reads the token after a `.` that does not open a type assertion
 as the selector's name without checking that it is an identifier: `h().)` parses with no error, as a selector named
