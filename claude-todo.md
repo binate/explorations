@@ -99,6 +99,16 @@ Fix: find what `b5e5bca15` renders afresh per level that the rendering cache (pr
 and restore the bound; give the test a bound it can check (a count of renders, say) so a repeat fails it.  See
 also the LOW entry on nested function literals ("bnfmt's time grows exponentially ...").
 
+### A cycle of named types declared in an imported `.bni` is never rejected, and bnc segfaults — 🔴 OPEN (MAJOR: an invalid program crashes the compiler; found 2026-11-02, work-1, review of the exact cycle-check change; reproduced at binate `19c6dbef4` and with the change; pre-existing)
+
+`resolveTypeDeclInScope` (pkg/binate/check/bni_scope.bn, ~line 234) fills a `.bni` named type's underlying with
+`setUnderlying` and never runs `namedTypeDefIsCyclic` / `errCyclicType`, as collectTypeDecl does for a `.bn`
+declaration.  So `type A B; type B A`, `type A A` or `type A readonly A` in an imported package's `.bni` is
+accepted, and the first layout query recurses through the loop (`types.sizeOf`) until bnc's stack overflows
+(rc=139) -- even when main only calls a function of the package.  The same cycle in the package's `.bn` is
+rejected ("cyclic type definition involving `A`").  Fix: run the cycle check where the `.bni` declaration is
+filled, and break the cycle as collectTypeDecl does; an importer conformance test (`.error`) for each shape.
+
 ### A chain of more than about 1023 named types gets false errors, a false cycle, or a compiler crash — 🟡 IN PROGRESS (claimed 2026-11-02, work-1; user: "yes" to exact cycle detection, no limit) (valid programs rejected, or bnc crashing; found 2026-11-02, work-1, review of the spec §7.13.10 wording; reproduced at binate `6aa3e58e1` with a change touching neither types nor check; pre-existing)
 
 `StripWrappers` (pkg/binate/types/types_query.bn) gives up -- returns nil -- after 1024 named steps, and its doc
