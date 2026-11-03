@@ -1068,6 +1068,15 @@ and relocation are `.Ltmp2`, bnas's `.Ltmp0`.  bnas numbers only the generated l
 `.Ltmp2`).  **Fix:** number generated labels as clang numbers its temporaries, probed against clang where a
 listed one follows unlisted ones (numeric labels, pool entries, `.` labels).
 
+### asm: a name `.local` declares, referenced and never defined — an error in bnas, an undefined LOCAL symbol in clang — 🔴 NEEDS DECISION (found 2026-11-03, work-3, the undefined-name change)
+
+bnas makes a name the file neither defines nor declares an undefined global symbol, as clang does (work-3 batch).
+For a name `.local` declared and never defined (`.local lx` / `bl lx`), clang lists lx as an undefined symbol with
+STB_LOCAL binding (readelf: `NOTYPE LOCAL DEFAULT UND lx`, with `.hidden lx` LOCAL HIDDEN UND), which no link can
+resolve; bnas reports it at the end of the file ("'lx' is declared .local and never defined: an undefined symbol is
+global", parse checkLocalsDefined).  Options: (a) keep the error (recommended: the object is unusable either way, and
+the error names the mistake); (b) write clang's undefined local symbol.
+
 ### asm: two general differences from clang — a symbol defined nowhere needs `.global`, and a constant cannot be used before its definition — 🟡 IN PROGRESS on (a) (claimed 2026-11-03, work-3, self-drive batch; (b) unclaimed), DECIDED 2026-11-02: match clang on both (found 2026-10-28, work-2, the arm32 2a review's probe lists)
 
 (a) A reference to a symbol the file never defines (`b R0`, `bl SL`, `ldr r0, K`) is an error in bnas ("undefined symbol
@@ -2896,6 +2905,15 @@ st.Funcs and comparing each instance's type arguments (typeListsIdentical), so a
 O(n^2) comparisons.  The tree's largest package drain checks 93 instances, so it does not show today.  Checking 16384
 instances of conformance 090's fan-out family (24.6 s natively), funcInstance with IdenticalStrict and ResolveAlias under it were over half of
 the samples.  Fix: index the instances by declaration and type arguments.
+
+### IR-gen finds a generic's instances by scanning them by name — compile time superlinear in a package's instance count — 🔴 OPEN 🟢 LOW (found 2026-11-03, work-3, measuring the checker's instance index)
+
+With the checker's funcInstance indexed (binate work-3 batch, "check: find a generic function's instance by an index"),
+`--emit-llvm` on a program naming n instances of one generic (`g[T0]() … g[Tn]()`, each Ti a struct) takes 0.58 s
+at n = 3000 and 7.7 s at n = 12000 (user CPU), 13x for 4x.  `sample` at n = 12000: irutil.Streq about 40% of the
+samples, under IR-gen's ensureInstantiated and matchInstanceCopy (irgen), with Type.Identical / IdenticalStrict /
+NamedIdentityName under them, and the checker's keepInstanceBody, checkDuplicateDecls and collectDeclNames after.
+Fix: index IR-gen's instances by name (and the checker's remaining per-instance scans) as funcInstance's are.
 
 ### bnfmt's time grows exponentially with the nesting depth of function literals — 🟢 LOW (found 2026-10-19, temp-4, review of the rendering cache; calls and composites fixed in binate `922992893`)
 
