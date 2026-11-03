@@ -164,6 +164,14 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
     representable"); `fmov s0, #1.00000001` both reject.  arm32's float_round.bn (exact decimal bounds around
     each 8-bit candidate) does the same at single precision; binary64's half-ulp bounds would serve here.
 
+- Outside the steps, found in step 3c:
+  - For stage 4: clang takes a condition on NEON's predicable forms in ARM code and drops it (`vcvteq.f32.s32 d0,
+    d1` is F3BB0601, as with none); follow it or reject is stage 4's decision.
+  - 3b's VMOV immediate with a type clang does not read as floating point (`vmov.d d0, #1.0`, `vmov.f64 d0, #0`):
+    clang's message comes from its matcher (the register copy's "operand must be a register in range [d0, d15]",
+    or several) where bnas says "invalid operand for instruction" / "invalid floating point immediate"; both
+    reject.
+
 ## Stage 3: VFP (asm/arm32/vfp)
 
 The FPU half of the feature model and every VFP instruction clang takes, a class per step, each landed with clang
@@ -213,8 +221,20 @@ Steps:
   multi-candidate messages give the note that applies; `#1.0+0` gets the lexer's "invalid sign in float literal"
   (clang: "invalid floating point immediate"); a difference of undefined labels as a lane gets the expression
   parser's message.  NEON's forms (`vmov.i32 d0, #1`, `vmov d0, d1`, Q registers) wait for stage 4.
-- 3c. Conversions and ARMv8's FP: vcvt (f32 <-> f64, integer, fixed point), vcvtr, vcvtb / vcvtt, vcvta / n / p / m,
-  vrinta / n / p / m / r / z / x, vsel*, vmaxnm / vminnm, vjcvt.
+- 3c. Conversions and ARMv8's FP, DONE (binate `470159517`; with it `7d6efc934`, clang's `.d` and q aliases on the
+  3a / 3b instructions): encoders VcvtFP, VcvtFromInt, VcvtToInt, VcvtFixed, VcvtHalf, VcvtBF16, VcvtRound, Vjcvt,
+  Vrint, Vsel, Vmaxnm (the backend's VcvtF64F32 .. VcvtU32F64 on them).  The parser (arm32_cvt*.bn) models clang's
+  matcher: the mnemonic split (vcvtal is VCVT with AL, vcvtaal VCVTA), the pre-UAL names whole only, then a table of
+  each name's VFP, NEON and MVE encodings matched with clang's near-miss rules and FilterNearMisses' de-duplication
+  (a non-AL condition is an operand, out of step with an encoding that has no condition operand), so the messages
+  are clang's.  clang's facts: fixed-point VCVT is gated on VFPv2 (VFPI's default), not VFPv3; LLVM's FBits16 /
+  FBits32 classes are 0..17 and 1..33, so clang takes #17 / #33 and wraps them; `.f` / `.d` are token aliases of
+  `.f32` / `.f64` everywhere; MVE's encodings are offered in ARM code too ("instruction requires: mve.fp").  ~10,700
+  cases against clang.  Kept differences: #17 / #33 are errors; no "did you mean" suggestions; a non-zero
+  floating-point literal in the fraction bits is an error; a name clang lacks is "invalid instruction" before its
+  operands are read; a few expression errors keep the expression parser's wording; a vmovq with a condition, `.w`
+  or .f16 before a floating-point immediate (clang picks its FP-immediate parser by the name as written, so it reads
+  an integer there).  NEON's forms wait for stage 4.
 - 3d. Loads and stores: vldr / vstr (an offset, a label), vldm / vstm (IA / DB, writeback, S and D lists, the X
   forms), vpush / vpop.
 

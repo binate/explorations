@@ -1,3 +1,24 @@
+### asm arm32 stage 3c: the VFP conversions and ARMv8's FP instructions -- DONE (binate `470159517`, 2026-11-03, work-2; user: "yes, go ahead")
+
+VCVT between precisions, with 32-bit integers and with fixed point; VCVTR; VCVTB / VCVTT with half precision and
+BFloat16; VCVTA / VCVTN / VCVTP / VCVTM; VJCVT; VRINTA .. VRINTX; VSEL*; VMAXNM / VMINNM; the pre-UAL names fsitos ..
+ftouizd.  Exact encoders in asm/arm32/vfp (the native backend's VCVT encoders rebuilt on them, words unchanged).  The
+parser models clang's matcher -- the mnemonic split, a table of each name's VFP / NEON / MVE encodings, clang's
+near-miss rules and de-duplication, a non-AL condition as an operand -- so words, acceptance and messages match
+clang over ~10,700 cases and the gates in sixteen FP contexts, but for NEON's forms and the kept differences
+(plan-asm-arm32-isa.md 3c).  Two reviews: the first found a latent major issue (a condition was ignored in
+matching, so NEON's VRINTZ / MVE forms would have taken it silently once NEON is emitted) and minor ones, all
+fixed or kept; the second found the vmovq FP-immediate quirk (kept) and minor message points, fixed.
+
+### asm arm32: clang's .d and q aliases on the VFP arithmetic and VMOV -- DONE (binate `7d6efc934`, 2026-11-03, work-2; user: "yes, go ahead")
+
+Found in step 3c: clang reads `.d` as `.f64` wherever a VFP type is a token (vadd.d, vcmp.d d0, #0, fsqrts.d,
+vmov.d d0, d1, vmov.d r0, r1, d0, fmdrr.d; not VMOV's floating-point immediate), and with NEON vaddq / vsubq /
+vmulq / vabsq / vmovq / vcvtq as the instructions without the q (no instruction without NEON; an `s` after one its
+flag-setting error, a `.n` its narrow error).  bnas rejected them all.  arm32VfpType and VMOV's types read `.d`;
+arm32QAlias drops the q at the top of parseArm32Instruction.  Kept difference: a vmovq with a condition, `.w` or
+.f16 before a floating-point immediate (clang's FP-immediate parser goes by the name as written).
+
 ### Step caps outside the checker: IR-gen's opaqueExportUnder (1024), lint's named-type peels and peelTexprWrappers (64) — DONE (binate `51ddb5725`, 2026-11-02, work-1; user: "Yes, as a follow-up commit")
 
 Both see only checked programs, whose chains of named types end now that the checker finds every cycle (binate
