@@ -1,3 +1,16 @@
+### asm arm32 stage 3a part 2: the VFP arithmetic instructions -- DONE (binate `b398ec32a`, 2026-11-02, work-2; user: "yes")
+
+VADD / VSUB / VMUL / VNMUL / VDIV, VMLA / VMLS / VNMLA / VNMLS, VFMA / VFMS / VFNMA / VFNMS, VABS / VNEG / VSQRT,
+VCMP / VCMPE (register or #0) in .F32 / .F64 / .F16, gated by the FP features (VFP2, VFP4, double precision, 32 D
+registers, full FP16) with clang's messages and its matcher's near-miss rule; exact encoders Arith3 / Arith2 /
+CmpZero in asm/arm32/vfp (the native backend's VaddF32 .. VcmpeF64 rebuilt on them, words unchanged); clang's
+pre-UAL names with its per-name rules (conditions and `.w` only on fsubs / fsubd / fsqrts / fsqrtd / fcmpzs /
+fcmpzd; fsqrts / fsqrtd typeless VSQRT; two-operand only for fadds / faddd / fmuls / fmuld / fdivs / fdivd);
+`.w` anywhere, `.n` an error; VCMP's #0 as a constant expression (Parser.ExprZeroReals: a zero floating-point
+literal is 0).  The shared lexer now gives clang's "invalid sign in float literal" (`0.0+0`).  ~7,400 cases and
+the gates in ten contexts against clang, 0 differences apart from the kept ones (plan-asm-arm32-isa.md 3a) and the
+NEON forms (stage 4).  The review found no critical or major issue; its minor findings were fixed before landing.
+
 ### bnfmt: a fill's fallbacks counted `// LONG-LINE ALLOWED` lines, and a lone element had none — DONE (binate `a67c67d8c`, 2026-11-02, temp-4; user: "wait 8 minutes, then go ahead")
 
 Part of the open entry on a marked string-run statement in a function literal argument, which keeps what is left.

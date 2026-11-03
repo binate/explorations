@@ -152,6 +152,10 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
     after a label or an alias, so it is an error there.
   - A forward label difference in an addend (`bl lbl+(l2-l1)` before `l1`, `l2`, `lbl`): clang lists the locals
     `lbl l2 l1`, bnas `l2 l1 lbl` (the first pass, pending, does not record `lbl`); every reference form has it.
+- Outside the steps, found in step 3a:
+  - clang reads a floating-point literal in any expression as its IEEE binary64 bit pattern (`mov r0, #0.0` is
+    E3A00000; `.long` and every architecture's immediates the same); bnas's expression parser takes one only as
+    VCMP's zero (Parser.ExprZeroReals, a zero literal as 0).  Needs an exact decimal-to-binary64 conversion.
 
 ## Stage 3: VFP (asm/arm32/vfp)
 
@@ -180,7 +184,13 @@ Steps:
   features with their implications in Parser.Arm32FP, set by the target (Linux VFPv3 + NEON, bare metal none, not
   even the FP registers), `.fpu`, `.arch` (armv7ve as armv7-a, armv8-r ARMv8's FP SP D16 -- clang crashes only
   writing an object whose last `.arch` is one of them), `.cpu` and `.arch_extension`; ~220 clang goldens, ~12,000
-  sequences in review.  Part 2, the arithmetic class, is next.  FP bits (VFP2, VFP3, VFP4, FP-ARMv8, double precision, 32 D
+  sequences in review.  Part 2, the arithmetic class, DONE (binate `b398ec32a`): encoders Arith3 / Arith2 / CmpZero
+  (the backend's VaddF32 .. VcmpeF64 on them), the parser with clang's pre-UAL rules, `.w` / `.n`, VSQRT with no
+  type, VCMP's #0, the gates and clang's matcher messages (near misses); the lexer's "invalid sign in float
+  literal".  ~7,400 cases and the gates in ten contexts against clang.  Kept differences: a nonzero floating-point
+  literal in VCMP's #0 is an error (clang folds its bit pattern: `#(1.0 - 1.0)`, `#1e-400` are zero to it); some
+  multi-candidate messages give the note that applies.  NEON forms (`vadd.f32 d0, ..`) wait for stage 4.
+  The plan as written: FP bits (VFP2, VFP3, VFP4, FP-ARMv8, double precision, 32 D
   registers, half conversions, full FP16, NEON, AES, SHA2), set by the target, `.fpu`, `.arch`, `.cpu` (each CPU's
   default FPU) and `.arch_extension` through clang's implication closure; then vadd / vsub / vmul / vnmul / vdiv,
   vmla / vmls / vnmla / vnmls, vfma / vfms / vfnma / vfnms, vabs / vneg / vsqrt, vcmp / vcmpe (and `#0`), in .f32 /
