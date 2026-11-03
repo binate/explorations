@@ -127,6 +127,13 @@ expression's nesting.  So a deep enough nesting (a chain of named types, `[1][1]
 expressions, each with a minimum) and diagnose them where they are formed, or make the walks iterative (explicit
 work lists).  Not the named-type cycle check's 1024 bound, which the cycle-check fix removes.
 
+Some walks instead stop at a fixed nesting depth and give a wrong answer past it (found 2026-11-02, work-1, the
+sweep for step caps): check_dependent.bn's containsDependentArrayDepth and identicalUpToDependentDepth (64 levels:
+false / "identical only if both nil"), and irgen's isAbstractType in gen_type_differential.bn (32 levels: counted
+abstract).  A nesting limit would bound these too; iterative walks would drop them.  (check_generic_expand_flow.bn's
+expandArgFlow counts an alias chain past 64 as growing -- a generic-expansion rule, beside §21.4's instantiation
+limits, not this.)
+
 ### A type whose walk is still on the stack counts as prepared when a `sizeof` reads it by value: a valid program gets a wrong array length, and a layout cycle is accepted — 🔴 OPEN (MAJOR: valid programs compiled with a wrong array type, silently, and an invalid one accepted; found 2026-10-30, work-7, review of the slice-reach fix; reproduced on main; pre-existing)
 
 `type N struct { v int64; a [sizeof(M)]uint8 }`, `type M struct { s *[]D }`, `type D struct { n N; e *[]E }`, `type E
