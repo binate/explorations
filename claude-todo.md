@@ -2889,7 +2889,7 @@ line the literal starts on.
 (`ast.File.BuiltinOpeners`); printing the operands as an item list (a type item, then the value) would
 give them the value-argument builtins' wrapping and comments.
 
-### The checker finds a generic function's instance by scanning every instance — quadratic in a package's instance count — 🟢 LOW (found 2026-10-25, work-7, profiling a total cap on instance checks for 5a; pre-existing)
+### The checker finds a generic function's instance by scanning every instance — quadratic in a package's instance count — 🟡 IN PROGRESS (claimed 2026-11-03, work-3, self-drive batch) 🟢 LOW (found 2026-10-25, work-7, profiling a total cap on instance checks for 5a; pre-existing)
 
 funcInstance (check/check_instances.bn) looks an instance up on every naming of a generic function by scanning
 st.Funcs and comparing each instance's type arguments (typeListsIdentical), so a package that names n instances does
