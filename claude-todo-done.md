@@ -1,3 +1,15 @@
+### asm: a name `.local` declares, referenced and never defined — an error in bnas, an undefined LOCAL symbol in clang -- DONE, DECIDED 2026-11-03: keep the error (work-3; user: "2: keeping an error seems sensible.")
+
+bnas keeps reporting it (asm/parse checkLocalsDefined, binate `7635c907e`): the object clang writes is unusable
+either way, and the error names the mistake.  The question as it was put:
+
+bnas makes a name the file neither defines nor declares an undefined global symbol, as clang does (binate `7635c907e`).
+For a name `.local` declared and never defined (`.local lx` / `bl lx`; or through a local alias, or in a difference), clang lists lx as an undefined symbol with
+STB_LOCAL binding (readelf: `NOTYPE LOCAL DEFAULT UND lx`, with `.hidden lx` LOCAL HIDDEN UND), which no link can
+resolve; bnas reports it at the end of the file ("'lx' is declared .local and never defined: an undefined symbol is
+global", parse checkLocalsDefined).  Options: (a) keep the error (recommended: the object is unusable either way, and
+the error names the mistake); (b) write clang's undefined local symbol.
+
 ### asm: a symbol defined nowhere needs `.global` (part (a) of "two general differences from clang") -- DONE (binate `7635c907e`, 2026-11-03, work-3; user: "wait 4 minutes, then go ahead and land")
 
 The parser's Finish declares a name the file neither defines nor declares an undefined global (declareExterns), as

@@ -260,14 +260,17 @@ lane worse: test-sharding loads check and irgen under the double VM on EVERY sha
   pkg/binate/format's TestFormatDeepNesting, 96 s natively since binate `b5e5bca15`: see the MAJOR entry "bnfmt
   takes ~96 s on nested calls and composites again".
 
-**INTINT_PARTS (binate `01b55dccb`) did not fix the unit int-int lane** (checked 2026-11-03, work-3, CI run
-41592909161 at `01b55dccb`): 8 of its 12 shards were cancelled at the 45-min cap, against 2 before the sharding
-changes.  Each of check's six parts (shards 5-10) and irgen's part 2 (shard 4) ran into the cap, the check part in
-shard 9 after 30 min on its own; shard 2 hit it in its light batch.  A part costs about as much as the whole
-package: under the double VM the cost of a test binary is mostly loading the package's cone (as the per-test
-analysis above found for conformance), not running its tests, so splitting one package's tests across k shards
-pays that load k times.  Needs a decision: revert INTINT_PARTS (back to the two shards over the cap), or keep it and
-cut the load cost first (option (a)'s work, now for the unit runner's load of check / irgen / link).
+**INTINT_PARTS (binate `01b55dccb`) did not fix the unit int-int lane** (CI run 41592909161 at `01b55dccb`, read
+2026-11-03, work-3): 8 of its 12 shards were cancelled at the 45-min cap, against 2 before.  Each check part shares its
+shard with that shard's light and heavy batches, which run first, so it starts 12-22 min in, and loads check for 6-7
+min.  In four of the six parts one test then ran 11-14 min and was still running at the cancel: TestExpandBuildBudget
+(a build stopped at 4096 instances), TestBuildBudgetChainOfGenerics (chains of 100 generics),
+TestInstanceImplRecursionBounded (an instance recursion bound) and TestPostponedMethodChainAccepted (a chain of 300
+generics) -- tests that drive the checker to one of its caps on purpose, cheap compiled, over 10 min each under the
+double VM.  Parts 4 and 5 ran 170 and 184 tests in 25 and 22 min and were cut off mid-way.  So the load is not the main
+cost (a note here first said it was); the cap-driving tests are.  Needs a decision: revert INTINT_PARTS, give the parts
+shards of their own, and/or make those tests cheap under int-int (smaller instances of the same caps, or run only in
+the compiled lanes).
 
 ### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🔴 NEEDS DECISION, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
@@ -988,15 +991,6 @@ and relocation are `.Ltmp2`, bnas's `.Ltmp0`.  bnas numbers only the generated l
 (`elf_symtab.bn` ltmpName); clang numbers each temporary it creates (here the third numeric-label instance is
 `.Ltmp2`).  **Fix:** number generated labels as clang numbers its temporaries, probed against clang where a
 listed one follows unlisted ones (numeric labels, pool entries, `.` labels).
-
-### asm: a name `.local` declares, referenced and never defined — an error in bnas, an undefined LOCAL symbol in clang — 🔴 NEEDS DECISION (found 2026-11-03, work-3, the undefined-name change)
-
-bnas makes a name the file neither defines nor declares an undefined global symbol, as clang does (binate `7635c907e`).
-For a name `.local` declared and never defined (`.local lx` / `bl lx`; or through a local alias, or in a difference), clang lists lx as an undefined symbol with
-STB_LOCAL binding (readelf: `NOTYPE LOCAL DEFAULT UND lx`, with `.hidden lx` LOCAL HIDDEN UND), which no link can
-resolve; bnas reports it at the end of the file ("'lx' is declared .local and never defined: an undefined symbol is
-global", parse checkLocalsDefined).  Options: (a) keep the error (recommended: the object is unusable either way, and
-the error names the mistake); (b) write clang's undefined local symbol.
 
 ### asm/parse: with the object format unknown, `applySymbolAttrs` / `applyVisibilities` take arm32's temporary labels by Mach-O's rule — 🔴 OPEN (found 2026-11-03, work-3, a review of the undefined-name change)
 
