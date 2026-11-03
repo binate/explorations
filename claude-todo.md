@@ -83,7 +83,7 @@ gen.mono.instances' `Box[P]` example, iface.self.constraint's Note.
 
 ## MAJOR
 
-### bnfmt takes ~96 s on nested calls and composites again, so its VM unit-test shards time out — 🔴 OPEN (MAJOR: three CI unit lanes red; found 2026-11-02, work-3, reading the CI logs of the slow unit shards; bisected)
+### bnfmt takes ~96 s on nested calls and composites again, so its VM unit-test shards time out — 🟡 IN PROGRESS (claimed 2026-11-02, temp-4; user: "yes") (MAJOR: three CI unit lanes red; found 2026-11-02, work-3, reading the CI logs of the slow unit shards; bisected)
 
 pkg/binate/format's `TestFormatDeepNesting` (print_rendermemo_test.bn: calls nested 24 deep, composites 16 deep,
 each checked for a fixpoint) takes 96 s natively on main (`ced393e75`); every other test of the package takes under
