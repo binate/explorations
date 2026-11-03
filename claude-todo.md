@@ -2873,25 +2873,6 @@ changes 330 tree files.  And making room for a tail can leave a one-character la
 <85-byte comment>`).  Minor: trailWidth reserves nothing for a line comment after a block comment in a gap (`x, /* b
 */ // c`); a statement's leading `/* a */ // b` on a line of its own still prints as two lines (stable).
 
-### bnfmt: a marked string-run statement in a function literal argument moves on a second format — 🟡 IN PROGRESS (claimed 2026-11-02, temp-4; user: "yes, we should do all of them") 🟢 LOW (found 2026-11-01, temp-4, testing the `__c_call` tail fix; stable under bnfmt `bnc-0.0.17-pre3`)
-
-The fill's fallbacks no longer count a marked line, and a lone element has them (binate `a67c67d8c`, in the done
-file), so the entry's first repro (`gen_mix.py --dense 120 1000`'s `g120_126.bn`) is stable.  What is left:
-fitsPlacedOrMoved still counts a `// LONG-LINE ALLOWED` line in the widths it compares (firstLineLen,
-laterLinesWidth), and printStringLit lays a marked line's string run out by its column.  Repro (bnfmt at binate
-`a67c67d8c`), in `func g()` four `if` blocks deep, with `"a*n"` an n-byte string of a's and q a 36-byte name: `_ =
-h(func() { _ = "a*36" "a*37" "a*29" +`, then `"a*25" "a*18" "a*28" "a*16" // LONG-LINE ALLOWED`, then `} + q).field`
-(the parts written with no space between them).  The first format keeps the literal on `h(`'s line and merges each
-line's parts (the marked line is one 87-byte string); a second format, given that string, moves the literal below
-`h(` and the value below `_ =`, and splits the marked line's string at the cap, leaving `"a"` on a line of its own
-(the marker after it).  3 of 16,200 generated files (lone function-literal arguments with string runs, near the cap)
-do this.
-
-Measuring fitsPlacedOrMoved's widths without marked lines made those 3 stable, but 10 other generated files unstable:
-a marked line's single long string fits on the first format and is split on the second.  So the fix also needs a
-marked line's own string layout to come out the same from either input -- a string on a line the marker exempts
-should not be split at the cap, or should be split the same way from its parts and from their merge.
-
 ### bnfmt's drop of an empty `var ( )` / `const ( )` / `type ( )` group leaves a stray space before its comment, or three blank lines — 🔴 OPEN 🟢 LOW (found 2026-10-31, temp-4, review of keeping one-member groups; reproduced with bnfmt `bnc-0.0.17-pre3`; pre-existing)
 
 printGroupDecl drops an empty group (it has no member to recover its keyword from), but its callers still write

@@ -1,3 +1,30 @@
+### bnfmt: a marked string-run statement in a function literal argument moved on a second format — DONE (binate `c3430ce64`, 2026-11-02, temp-4; user: "wait 4 minutes, then go ahead")
+
+A statement spanning lines whose last line ends in `// LONG-LINE ALLOWED` formats unmarked: its code is laid out to
+the cap, and printStringLit merges or splits that line's string run by its column.  The layout decisions around it
+measured that line with its comment (fitsPlacedOrMoved's firstLineLen / laterLinesWidth, printRhsValue through
+longestLineWidth, rhsInlineHolds through layoutWidth), while fitsStably's fallbacks left it out, so its width
+depended on how its strings happened to be written, and a second format flipped the decision (`_ = h(func() { ... //
+LONG-LINE ALLOWED } + q).field` moved the literal below `h(` and left `"a"` on a line of its own).  The fallbacks'
+own fix (binate `a67c67d8c`, below) left 3 of 16,200 generated files unstable; measuring fitsPlacedOrMoved without
+marked lines made those stable but 10 others unstable.
+
+Fix: cappedLineLen measures a line as the cap holds its code -- up to the comments that end it when they hold the
+marker (the text of a `// see x // LONG-LINE ALLOWED` or `/* x */ // LONG-LINE ALLOWED` comment is not code),
+otherwise all of it; marker text in a string literal marks nothing.  fitsPlacedOrMoved (firstCappedLen,
+laterLinesWidth), longestLineWidth(Tail) and cappedWidth (fitsStably, rhsInlineHolds) measure with it; layoutWidth
+is gone.  Of the 16,200 generated files the 3 became stable, none newly unstable or wider; of 12,000 more and 24,028
+aimed at marker comments, none is unstable (the `a67c67d8c` build: 3 and 31).  The tree formats as before; 9 corpus
+files change, all stable.  The review found the first draft cut a line at the marker text (text before the marker,
+block comments and marker text in strings counted wrong); fixed as it proposed.
+
+Kept, though no generated input reaches them now (user: "Keep them (Recommended)"): `a67c67d8c`'s fallback width
+limit and the lone element's read-back.  No test pins them, nor this commit's print_stable.bn part (cappedWidth in
+fitsStably / rhsInlineHolds: no output difference on 52,228 files).  The two tests that reached them print other
+stable layouts now and were renamed TestStableMarkedRunStaysAfterOpener and TestStableLoneArgMarkedRun.  New tests:
+TestCappedLineLen, TestMarkedRunLiteralArgStable, TestFillMarkedLineToMarker, TestRhsMarkedLineToMarker,
+TestMarkedTextBeforeMarker, TestMarkerTextInStringNotMarker.
+
 ### asm arm32 stage 3a part 2: the VFP arithmetic instructions -- DONE (binate `b398ec32a`, 2026-11-02, work-2; user: "yes")
 
 VADD / VSUB / VMUL / VNMUL / VDIV, VMLA / VMLS / VNMLA / VNMLS, VFMA / VFMS / VFNMA / VFNMS, VABS / VNEG / VSQRT,
