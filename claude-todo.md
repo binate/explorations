@@ -91,6 +91,17 @@ question, still to put to the user.
 
 ## MAJOR
 
+### The parser rejects a composite literal in a builtin call's parentheses in an `if` / `for` / `switch` header, and bnfmt drops parentheses into that form — 🔴 OPEN (MAJOR: valid code rejected, and bnfmt writes a file that no longer parses; found 2026-11-03, temp-4, review of the bnfmt deep-nesting fix; reproduced with bnfmt built from binate `c3430ce64`, parser unchanged on main through `01b55dccb`; pre-existing)
+
+`if len(S{1}) {}` is rejected (`expected ), got {`), while `if f(S{1}) {}` parses: parseCallExpr clears the D4
+composite-literal suppression (`noCompositeLit`) for a call's arguments, and the builtin calls' operand parsing
+(parse_builtin.bn: `len`, `cast`, `__c_call` and the rest) does not.  The spec says entering parentheses clears it
+(`expr.disambiguation.d4-paren`).  bnfmt drops the parentheses of `if (len(S{1})) {}`, `if (cast(int, S{1})) {}` and
+`if (__c_call("sym", int, S{1})) {}` as redundant and writes `if len(S{1}) {}` and the like, which the parser then
+rejects.  Fix: save, clear and restore `noCompositeLit` around a builtin call's parenthesized operands, as
+parseCallExpr does.  Tests: parser cases for each builtin form in an `if`, `for` and `switch` header, and a bnfmt
+golden for the parentheses it drops.
+
 ### bnfmt takes ~96 s on nested calls and composites again, so its VM unit-test shards time out — 🟡 IN PROGRESS (claimed 2026-11-02, temp-4; user: "yes") (MAJOR: three CI unit lanes red; found 2026-11-02, work-3, reading the CI logs of the slow unit shards; bisected)
 
 pkg/binate/format's `TestFormatDeepNesting` (print_rendermemo_test.bn: calls nested 24 deep, composites 16 deep,
