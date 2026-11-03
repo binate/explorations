@@ -150,7 +150,7 @@ struct { a *[]Ti-1; b *[]Ui-1 }` / `type Ui` the same, takes 0.7 s to compile at
 it is reached by value, and each call walks the type's parts with a fresh visit set, so a type reached softly through
 two paths is walked once per path.  Fix: record the types prepared softly as well, so each is walked once per mode.
 
-### Closure shims load captures from the closure struct in whole words, past the struct's end — 🔴 OPEN (minor, latent; found 2026-10-30, work-1, review of the shim over-read fix; pre-existing; checked in code, not probed)
+### Closure shims load captures from the closure struct in whole words, past the struct's end — 🟡 IN PROGRESS (claimed 2026-11-02, work-3, self-drive batch) (minor, latent; found 2026-10-30, work-1, review of the shim over-read fix; pre-existing; checked in code, not probed)
 
 The closure struct (the record a capturing closure value points at, allocated by rt.Alloc at the struct's natural
 size) lays its captures out at their natural offsets, but the shims load a capture as whole 8-byte words:
