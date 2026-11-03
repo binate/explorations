@@ -102,22 +102,6 @@ rejects.  Fix: save, clear and restore `noCompositeLit` around a builtin call's 
 parseCallExpr does.  Tests: parser cases for each builtin form in an `if`, `for` and `switch` header, and a bnfmt
 golden for the parentheses it drops.
 
-### bnfmt takes ~96 s on nested calls and composites again, so its VM unit-test shards time out — 🟡 IN PROGRESS (claimed 2026-11-02, temp-4; user: "yes") (MAJOR: three CI unit lanes red; found 2026-11-02, work-3, reading the CI logs of the slow unit shards; bisected)
-
-pkg/binate/format's `TestFormatDeepNesting` (print_rendermemo_test.bn: calls nested 24 deep, composites 16 deep,
-each checked for a fixpoint) takes 96 s natively on main (`ced393e75`); every other test of the package takes under
-0.3 s.  It exists to keep formatting time polynomial in the nesting depth of calls and composites (binate
-`922992893`), but it checks only the output, so the slowdown passes it.  Bisected (the package's test binary
-finishing within 45 s vs not; ~1 s before): the first bad commit is binate `b5e5bca15` ("bnfmt: a fill decision
-keeps a layout a second format keeps", 2026-10-29).
-Under the VM (~50-100x slower) the test takes hours, so the unit shard holding pkg/binate/format never finishes:
-builder-comp-int and builder-comp-comp-int shard 3/6 cancelled at 30 min with format their first package and
-unfinished, and builder-comp-int-int shard 3/12 stuck in TestFormatDeepNesting when cancelled at 45 min (run
-41327131340 at `b60abc653`).
-Fix: find what `b5e5bca15` renders afresh per level that the rendering cache (print_rendermemo.bn) used to hit,
-and restore the bound; give the test a bound it can check (a count of renders, say) so a repeat fails it.  See
-also the LOW entry on nested function literals ("bnfmt's time grows exponentially ...").
-
 ### Deep nesting -- of types or of expressions -- is bounded only by the compiler's stack; spec §21.4 lists no nesting limit — 🔴 NEEDS DECISION: a catalogued limit with a diagnostic, or iterative walks (found 2026-11-02, work-1, planning the named-type cycle-check fix; user: "Separate todo: a nesting limit"; by reading)
 
 About fifteen recursive walks in check and types recurse once per level of a type's nesting -- through a named
@@ -255,10 +239,11 @@ lane worse: test-sharding loads check and irgen under the double VM on EVERY sha
   (TestExpandBuildBudget), so check whole needs over an hour there.  Landed binate `01b55dccb` (user: "yes"):
   INTINT_PARTS runs check in 6 parts, irgen and link in 2, each part an invocation of its own on a shard of its
   own (a local shard 1/12 ran irgen's part 1 of 2: 405 tests).  Remaining: confirm on the next completed unit run
-  that no int-int shard but format's (the MAJOR below) passes 45 min; then close this entry.
-- Shard 3 of every VM unit lane (builder-comp-int 3/6, builder-comp-comp-int 3/6, builder-comp-int-int 3/12) is
-  pkg/binate/format's TestFormatDeepNesting, 96 s natively since binate `b5e5bca15`: see the MAJOR entry "bnfmt
-  takes ~96 s on nested calls and composites again".
+  that no int-int shard but format's (the next item) passes 45 min; then close this entry.
+- Shard 3 of every VM unit lane (builder-comp-int 3/6, builder-comp-comp-int 3/6, builder-comp-int-int 3/12) was
+  pkg/binate/format's TestFormatDeepNesting, 96 s natively since binate `b5e5bca15`.  Binate `cb3bb52e6` brings
+  the package's unit tests to 7 s natively (54 s before).  Remaining: confirm on the next completed unit run
+  that those three shards finish.
 
 **INTINT_PARTS (binate `01b55dccb`) did not fix the unit int-int lane** (CI run 41592909161 at `01b55dccb`, read
 2026-11-03, work-3): 8 of its 12 shards were cancelled at the 45-min cap, against 2 before.  Each check part shares its
@@ -2821,6 +2806,25 @@ at n = 3000 and 7.7 s at n = 12000 (user CPU), 13x for 4x.  `sample` at n = 1200
 samples, under IR-gen's ensureInstantiated and matchInstanceCopy (irgen), with Type.Identical / IdenticalStrict /
 NamedIdentityName under them, and the checker's keepInstanceBody, checkDuplicateDecls and collectDeclNames after.
 Fix: index IR-gen's instances by name (and the checker's remaining per-instance scans) as funcInstance's are.
+
+### bnfmt's time still grows exponentially with the nesting depth of calls and of keyed composites holding calls — 🔴 OPEN (the rest of the MAJOR "bnfmt takes ~96 s on nested calls and composites again", whose CI timeouts binate `cb3bb52e6` fixed; found 2026-11-03, temp-4, measuring that fix; user: "wait 11 minutes, then go ahead" to filing it on its own)
+
+A fill decision whose layouts span lines is checked against a second format (binate `b5e5bca15`): its layout is read
+back (print_reread.bn) and rendered at both of the element's places, and the decisions inside it are checked in turn,
+at every depth.  Binate `cb3bb52e6` parses each text read back once, shares the renderings of readings back by shape
+(print_reread_shape.bn), and renders a layout that reads back to its element's own shape from the element's cache, so
+the file itself renders as many layouts as before `b5e5bca15`.  But a layout read back at another place is a new one,
+whose decisions read their own elements' layouts back, so nested calls' readings back still multiply with the depth,
+more slowly than at `c3430ce64`.  User CPU of a first format, before `b5e5bca15` / at `c3430ce64` / at `cb3bb52e6`:
+calls 36 deep 0.17 s / 49 s / 2.7 s; keyed composites holding calls, on one line, 12 deep 0.09 s / 31 s / 0.87 s, and
+16 deep 0.45 s / over 5 min / 6.9 s.  TestFormatDeepNestingRenders (print_rendermemo_test.bn) bounds the renderings
+at its depths (calls 32 deep, composites 16 deep), not the growth.
+Stopping the checks at a fixed depth is not a fix: a first format that models a second format checking fewer levels
+than the second really checks disagrees with it (stopped one reading back deep, 129 of 590 generated nests of calls
+formatted unstably, and a statement's layout depended on what was read back before it; TestStableNestedRunCheckedDeep
+and TestStableLayoutIndependentOfOrder pin both).  Fix: a way to know what a second format decides for a layout read
+back at a new place without rendering its readings back afresh at each depth -- a new model of the check, not more
+caching.
 
 ### bnfmt's time grows exponentially with the nesting depth of function literals — 🟢 LOW (found 2026-10-19, temp-4, review of the rendering cache; calls and composites fixed in binate `922992893`)
 

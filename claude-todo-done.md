@@ -1,3 +1,19 @@
+### bnfmt takes ~96 s on nested calls and composites again, so its VM unit-test shards time out -- DONE (binate `cb3bb52e6`, 2026-11-03, temp-4; user: "wait 11 minutes, then go ahead") (MAJOR: three CI unit lanes red; found 2026-11-02, work-3, reading the CI logs of the slow unit shards; bisected to binate `b5e5bca15`)
+
+Binate `b5e5bca15` checks a fill decision whose layouts span lines against a second format: the layout is read back
+and rendered at both of the element's places, with the decisions inside it checked in turn.  Each reading back parsed
+its text afresh and rendered it with a cache of its own, so the cost compounded with the depth: TestFormatDeepNesting
+(calls 24 deep, composites 16 deep) took 96 s natively, against about 1 s, and the VM unit lanes' shard holding
+pkg/binate/format timed out.  `cb3bb52e6` parses a text read back once per formatting and keeps one cache for it,
+renders readings back without comments by shape (print_reread_shape.bn), and renders a layout that reads back to its
+element's own shape from the element's cache.  The package's unit tests take 7 s natively, against 54 s; the output
+is unchanged on the tree, the bnfmt-check corpora, 52,228 generated files and 3,290 nests built to stress readings
+back.  A first version also stopped the checks one reading back deep; review showed that a first format then
+disagrees with the second (129 of 590 nests of calls unstable), and the limit was dropped.
+TestFormatDeepNestingRenders bounds the renderings at the test's depths.  Deeper nests still grow exponentially: the
+bnfmt entry "bnfmt's time still grows exponentially with the nesting depth of calls and of keyed composites holding
+calls".
+
 ### asm: a name `.local` declares, referenced and never defined — an error in bnas, an undefined LOCAL symbol in clang -- DONE, DECIDED 2026-11-03: keep the error (work-3; user: "2: keeping an error seems sensible.")
 
 bnas keeps reporting it (asm/parse checkLocalsDefined, binate `7635c907e`): the object clang writes is unusable
