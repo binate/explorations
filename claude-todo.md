@@ -129,6 +129,18 @@ two-pointer (tortoise / hare) cycle detection in both namedTypeDefIsCyclic and S
 loop and never misreports a long chain; make sizeOf / alignOf's named step (a recursion per step today) a loop,
 so a very deep chain cannot exhaust the compiler's stack either.
 
+### Deep nesting -- of types or of expressions -- is bounded only by the compiler's stack; spec §21.4 lists no nesting limit — 🔴 NEEDS DECISION: a catalogued limit with a diagnostic, or iterative walks (found 2026-11-02, work-1, planning the named-type cycle-check fix; user: "Separate todo: a nesting limit"; by reading)
+
+About fifteen recursive walks in check and types recurse once per level of a type's nesting -- through a named
+type's underlying, an array's element, a struct's field: prepareLayoutIn, typeReachesNamedByValue, holdsItselfIn,
+collectLiteralTypes, ensureMembersIn, instanceNotBuiltOf, collectExportOwners, typeMentionsParam, AssignableTo's
+named steps, sizeOf / alignOf, among others -- and the parser, the checker and IR-gen recurse per level of an
+expression's nesting.  So a deep enough nesting (a chain of named types, `[1][1]...[1]int`, structs in structs,
+`((((...))))`) exhausts the compiler's stack rather than getting a diagnostic, and §21.4
+(`conf.implementation.limits`) catalogues no such limit.  Choice: catalogue nesting-depth limits (types and
+expressions, each with a minimum) and diagnose them where they are formed, or make the walks iterative (explicit
+work lists).  Not the named-type cycle check's 1024 bound, which the cycle-check fix removes.
+
 ### A type whose walk is still on the stack counts as prepared when a `sizeof` reads it by value: a valid program gets a wrong array length, and a layout cycle is accepted — 🔴 OPEN (MAJOR: valid programs compiled with a wrong array type, silently, and an invalid one accepted; found 2026-10-30, work-7, review of the slice-reach fix; reproduced on main; pre-existing)
 
 `type N struct { v int64; a [sizeof(M)]uint8 }`, `type M struct { s *[]D }`, `type D struct { n N; e *[]E }`, `type E
