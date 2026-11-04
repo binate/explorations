@@ -86,8 +86,16 @@ included, and `Self` is the receiver type with only the handle's outer `readonly
 *Q`, `*readonly P` for `impl *readonly P`, `V` for `impl readonly V`); (2) its two consequences come with (ii) --
 one receiver shape per `Self`-using interface, and value-producing `Self` methods on `impl P` -- and §11.3 states
 them as a breaking change; (3) a parameterized impl's receiver matches the type argument strictly, as a plain
-impl's does, for every interface, so `impl *Cursor[T]` makes only `*Cursor[int]` satisfy Iterator.  (4) is its own
-question, still to put to the user.
+impl's does, for every interface, so `impl *Cursor[T]` makes only `*Cursor[int]` satisfy Iterator.  (4) Decided
+2026-11-03 (user: "(a) sounds fine"): a value impl (`impl P`) may not implement an interface method with a `*P` or
+`*readonly P` receiver, since an impl has no value whose address a call could take; the impl is rejected, and such
+a type writes `impl *P : I` (whose `Self`-using methods then take `*P`).  Every call through a constraint then
+works on any receiver, so gen.mono.check's declaration-time guarantee holds; iface.impl.coverage states the rule.
+Today `impl P : lang.Comparable` with `func (s *P) Compare(o P)` passes the generic's own check of
+`mk[T](a).Compare(b)`, and the instance fails ("cannot call pointer-receiver method Compare on a non-addressable
+value (in eqTemp[P], ...)", binate main `51ddb5725`).  Interface values do not change: `&t` gives a
+`*lang.Stringer` under `impl *Tag` as it does under `impl Tag` (probed).  Tree impact: conformance
+spec/20-tier0/002_lang_iface_type_explicit_import.bn only; no library, e2e or examples code has such an impl.
 
 ## MAJOR
 
