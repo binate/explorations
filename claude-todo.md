@@ -3261,6 +3261,15 @@ urgency (no current miscompile; the writable placement is safe, just unhardened)
 
 ## Testing: harness, runners & conformance coverage
 
+### interp's unit tests run programs whose check failed: loadSelfContained ignores the checker's errors — 🔴 OPEN (minor: tests can pass on ill-typed programs; found 2026-11-04, temp-5, the Self-is-the-receiver change; pre-existing)
+
+`loadSelfContainedNoInit` (pkg/binate/interp/runfunc_typed_test.bn) runs `c.CheckPackage` and goes on to IR-gen and
+lower the program whatever the checker reported; so do init_test.bn's and wrap_test.bn's loaders (53 uses of
+loadSelfContained alone).  TestInterpCallIfaceMethodSelfRejected kept passing with its impl rejected ("type B does
+not implement Eqer (method `equal` has wrong signature)") once `Self` became the receiver type, because the call it
+checks is refused before the impl matters.  Fix: the loaders fail the test on a check error (return the errors, or a
+nil Interp that each caller reports), and every interp test whose program does not check is corrected.
+
 ### Conformance harness: `pkg0.testing` `--test`-only rules are not conformance-testable
 
 1. **GAP (harness limitation, not a defect) — `pkg0.testing.testfunc` + `pkg0.testing.run` are not
