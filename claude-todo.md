@@ -113,7 +113,7 @@ spec/20-tier0/002_lang_iface_type_explicit_import.bn only; no library, e2e or ex
 
 ## MAJOR
 
-### bnfmt drops the parentheses around a raw-slice literal that a postfix operator follows, writing a file that no longer parses — 🔴 OPEN (MAJOR: bnfmt writes files that no longer parse; found 2026-11-04, temp-4, probes for the header array-literal parentheses entry; pre-existing)
+### bnfmt drops the parentheses around a raw-slice literal that a postfix operator follows, writing a file that no longer parses — 🟡 IN PROGRESS (claimed 2026-11-04, temp-4, folded into the fix for the header array-literal parentheses; user: "Fold it in (Recommended)") (MAJOR: bnfmt writes files that no longer parse; found 2026-11-04, temp-4, probes for the header array-literal parentheses entry; pre-existing)
 
 A raw-slice literal is a UnaryExpr, not a PrimaryExpr (binate.ebnf: `UnaryExpr = … | RawSliceLiteral`), so a postfix
 operator after one needs parentheses: `(*[]int{1})[0]`, `(*[]int{1})[0:1]`, `(*[]int{1}).n`.  bnfmt drops a
