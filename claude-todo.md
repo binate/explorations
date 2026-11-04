@@ -99,6 +99,28 @@ spec/20-tier0/002_lang_iface_type_explicit_import.bn only; no library, e2e or ex
 
 ## MAJOR
 
+### VM: a closure's narrow captures are read as whole words — a negative int8 / int16 / int32 capture compares wrong, and a sub-word one carries its neighbour's bytes — 🔴 OPEN (MAJOR: silent wrong values in every VM mode; main's VM conformance lanes red on 1734 since binate `8786e4cae`; found 2026-11-04, work-1, validation of the deep-nesting types walks; pre-existing)
+
+`var a int32 = -5; var g *func() bool = func() bool { return a == -5 }; g()` prints false under the VM
+(`builder-comp-int`), as does `c == -3` for an `int8` capture and `u == 40000 && v == 3` for two `uint16` captures;
+`cast(int, a)` in the body gives -5.  Called directly or through a `*func` parameter alike.  Compiled (LLVM, and the
+native backends since `8786e4cae`) prints true.
+
+Root cause (read, not yet traced through every path): `writeCaptures` (`pkg/binate/vm/vm_trampoline.bn`) copies
+each capture that is neither by pointer nor `CaptureWide` with `bit_cast(*int, captureStructAddr + ofs)[0]` -- a
+whole word, whatever the capture's size and signedness -- so a sub-word capture arrives zero-extended or with the
+next capture's bytes above it, and reads past the closure struct's end when the last capture is shorter than a
+word.  This is the native shims' defect that `8786e4cae` fixed (loadCaptureWord*: load a scalar capture at its own
+width, extended as its type says).  Check the in-VM call path too (`vm_exec_funcref.bn`'s COMPILED_CLOSURE arm).
+
+Test: conformance 1734_closure_narrow_captures, which landed with `8786e4cae` validated on the native backends only;
+it fails in builder-comp-int, builder-comp-comp-int, builder-comp-int-int and builder-comp_arm32_linux_int (CI run
+41765971407 on `0de45d0d6`, and every main run since).  No xfail markers were added.
+
+Fix: in `writeCaptures`, load a scalar capture at its field type's size, sign- or zero-extended by its type (the
+same rule as the native loadCaptureWord*), with the size and signedness recorded per capture at lowering
+(`lower_func.bn`, beside `CaptureOffsets` / `CaptureWide`).
+
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
 Freeing a long chain through managed-slices (`type Cell struct { rest @[]Cell; v int }`, 300,000 links, the last
