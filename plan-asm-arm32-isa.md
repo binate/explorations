@@ -298,6 +298,15 @@ Steps:
   veor, vbsl / vbit / vbif, vceq / vcge / vcgt / vacge / vacgt / vtst (and their reversed-operand aliases), vabd /
   vaba, vmax / vmin, vpadd / vpmax / vpmin, vmul / vmla / vmls (integer, polynomial, float), vqdmulh / vqrdmulh,
   vrecps / vrsqrts, vshl / vrshl / vqshl / vqrshl by register, vfma / vfms, NEON's vmaxnm / vminnm.
+  Part 1, DONE (binate `311d4b282`): asm/arm32/neon (Three) and the parser (arm32_neon3.bn) for the NEON-only names,
+  with MVE's encodings of them as near misses (its instruction definitions only: its aliases want Thumb code, and
+  clang's FilterNearMisses drops a near miss that needs Thumb mode and another feature), every NEON q alias (vcleq
+  alone as VCLE), a lane read as an operand of its own.  clang's facts: every NEON form carries a condition operand,
+  which is why clang takes a condition and drops it; its token aliases let .s / .u stand for .i, .p8 and .f32 for
+  VTST's sizes, .d / .f64 for the bitwise ones' .64; VBIC takes a type only with three operands, VORN none; VCLE /
+  VCLT / VACLE / VACLT and the register shifts swap Vn and Vm; MVE's VQDMULH has .S8.  ~6,000 cases against clang,
+  ~12,000 in review.  Part 2: vadd / vsub / vmul / vmla / vmls / vfma / vfms with 3a's VFP forms on the matcher, and
+  vmaxnm / vminnm's NEON forms.
 - 4b. Three registers of different lengths and two registers and a scalar: vaddl / vaddw / vsubl / vsubw, vaddhn /
   vraddhn / vsubhn / vrsubhn, vabal / vabdl, vmlal / vmlsl / vmull (vmull.p8, vmull.p64), vqdmlal / vqdmlsl /
   vqdmull; vmul / vmla / vmls / vmull / vmlal / vmlsl / vqdmulh / vqrdmulh / vqdmull / vqdmlal / vqdmlsl by a

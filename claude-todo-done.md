@@ -1,3 +1,13 @@
+### asm arm32 stage 4a part 1: asm/arm32/neon and NEON's three registers of the same length -- DONE (binate `311d4b282`, 2026-11-03, work-2; user: "yes")
+
+The first NEON step: the sub-package asm/arm32/neon with an exact encoder for the three-same group (Three), and the
+parser for its 38 NEON-only names (vhadd .. vqrshl) on the near-miss matcher, with clang's tables -- each data type,
+D and Q, the two-operand forms, the swapped VCLE / VCLT / VACLE / VACLT and register shifts -- and MVE's encodings
+of the same names as near misses.  Every NEON q alias is taken; a lane (`d2[1]`) is an operand of its own.  A
+condition on these unconditional instructions is an error (user 2026-11-03, "Reject (Recommended)"; clang drops it).
+~6,000 cases against clang, ~12,000 in review.  The review found clang's q aliases of these names missing, MVE tests
+that could not fail and two lane edge cases, all fixed.
+
 ### The parser rejects a composite literal in a builtin call's parentheses in an `if` / `for` / `switch` header, and bnfmt drops parentheses into that form -- DONE (binate `0de45d0d6`, docs `b23f2e7`, 2026-11-03, temp-4; user: "wait 4 minutes, then go ahead") (MAJOR: valid code rejected, and bnfmt wrote files that no longer parsed; found 2026-11-03, temp-4, review of the bnfmt deep-nesting fix; pre-existing)
 
 The builtin calls' operand parsing (parse_builtin.bn) kept the D4 composite-literal suppression of a header, while
