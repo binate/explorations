@@ -112,6 +112,17 @@ queued, and the outermost ZeroRefDestroy drains the queue -- in the runtime, the
 paths alike.  Check first whether the spec pins an order of destruction that a queue would change (§18).  Test: a
 conformance test building and dropping a 1,000,000-node list, on every mode.
 
+### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
+
+Freeing a long chain through managed-slices (`type Cell struct { rest @[]Cell; v int }`, 300,000 links, the last
+reference to the head dropped) overflows the VM's stack in the generated element-cleanup calls
+(`__dtor_ms_elems_Cell` -> `__dtor_Cell` -> ..., ordinary BC_CALLs, not the destructor-frame pushes that raise
+CleanupDepth), and the overflow is raised as a recoverable fault with no pad to run, so bni panics with "vm:
+recoverable fault with no cleanup pad (lowering bug)" (rc=134).  A chain through `@T` fields overflows in the
+destructor-frame pushes instead and reports "fault raised during cleanup (dtor/pad), fatal: runtime error: stack
+overflow".  Freeing a chain that deep is the program's job (spec §18 note: detach link by link); the fix here is
+the diagnostic -- a stack overflow inside a destructor's calls is fatal and says so, whichever calls it is in.
+
 ### Deep nesting -- of types or of expressions -- is bounded only by the compiler's stack; spec §21.4 lists no nesting limit — 🟡 IN PROGRESS (claimed 2026-11-03, work-1; user: "Let's rewrite them as loops, since that seems better regardless. We may *also* want to impose an implementation limit (in case some path leads to recursion)") (found 2026-11-02, work-1, planning the named-type cycle-check fix; user: "Separate todo: a nesting limit"; by reading)
 
 About fifteen recursive walks in check and types recurse once per level of a type's nesting -- through a named
