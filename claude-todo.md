@@ -2872,7 +2872,7 @@ own after the member, then a blank line, and a second format ends the alignment 
 comments of the members after it align differently (found 2026-10-31 in a review of positioning type members at their
 names).
 
-### bnfmt moves a comment in a block's header into the block — 🔴 OPEN 🟢 LOW (found 2026-11-01, temp-4, probing the signature-comment bullet; pre-existing)
+### bnfmt moves a comment in a block's header into the block — 🟡 IN PROGRESS (claimed 2026-11-03, temp-4) 🟢 LOW (found 2026-11-01, temp-4, probing the signature-comment bullet; pre-existing)
 
 A comment between a statement's or a type's header and its `{`, or after the `{` on its line, is printed by no node,
 so emitLeadingComments's fallback puts it on the block's first line: `if x /* c */ {`, `for i := 0; i < n; i++ /* d
