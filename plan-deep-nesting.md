@@ -58,6 +58,18 @@ recursive, so far more than 75).
    computed once (memoized, iteratively) where its layout is prepared, a §21.4 limit with a diagnostic at the
    declaration.  Not needed once step 1 is complete; useful if some walk stays recursive.
 
+## Progress
+
+- Stage 1 (types), part 1 DONE: binate `994ef2214` (2026-11-03) -- layout (sizeOf / alignOf loops, layStructs from a
+  kept stack, a direct path for a struct holding no struct still to lay out).  cmd/bnc's IR identical before and
+  after; no compile-time change in an interleaved A/B.  Deep tests skip the bare-metal and double-VM unit-test lanes.
+- Stage 1 next: the rest of types' recursive walks -- type naming (typeNameImpl / renderAnonStructName),
+  Identical / instArgsIdentical, IdenticalStrict, NeedsDestruction / needsDestruction, ReceiverBaseNamed,
+  MentionsSelf / FuncMentionsSelf.
+- Found on the way: freeing a deep structure recurses through destructors; decided as the program's responsibility
+  (spec §18.2 note, docs `2ccb03d`), so the stages' tests release their deep types a link at a time, and the
+  compiler must not drop a deep type graph whole either.
+
 ## Decisions (2026-11-03)
 
 - Step 1, all of it, staged: user "All of them, staged (Recommended)".
