@@ -33,6 +33,16 @@ the rest is still referenced (`for head != nil { head = head.next }`, mem.assign
 filed: the VM's misleading message for an overflow in a destructor's plain calls, and run-time stack exhaustion
 being unspecified in Chapter 21.
 
+### asm arm32 stage 4a part 3: the VFP's data processing and its pre-UAL names on the matcher -- DONE (binate `1e97c1512`, 2026-11-04, work-2; user: "wait 4 minutes, then land; then continue")
+
+3a's hand-written VFP parser is gone: it missed near misses clang counts, so 2,054 of 6,600 cases of its names had
+another message than clang's, and its pre-UAL names took only the VFP forms.  Every VFP data-processing name is on
+the matcher with NEON's and MVE's encodings (arm32_varith.bn, arm32_neon2.bn, the driver arm32_vdp.bn); the pre-UAL
+names are clang's mnemonic aliases (fadds d0, d1, d2 is NEON's VADD.F32) and instruction aliases, split as clang
+splits a mnemonic (faddseq is fadd with an `s`; fmacs.w is fma with CS) (arm32_vfp_preual.bn).  15,240 cases
+against clang agree but NEON's VABS / VNEG (4d); ~200,000 in review, which found the operands of a mnemonic that is
+no instruction unread (fixed, a q alias without NEON too) and two older gaps, recorded in the plan.
+
 ### asm arm32 stage 4a part 2: the names the VFP shares with NEON on the matcher -- DONE (binate `eb4693315`, 2026-11-03, work-2; user: "yes, go ahead")
 
 vadd / vsub / vmul / vmla / vmls / vfma / vfms move from 3a's hand-written VFP parser onto the near-miss matcher in

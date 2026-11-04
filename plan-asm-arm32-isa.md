@@ -321,8 +321,12 @@ Steps:
   lists, and a shift after a register read as clang reads it (arm32_match_shift.bn; it was a stray token).  38,880
   cases against clang (9 names, 9 FP settings) agree but the condition policy and the by-scalar forms (4b), which
   until then are errors of another kind (`vmul.f32 d0, d1, d2[0]`) and make clang's near misses for `vmla.f32 q0, q1,
-  d2`; ~100,000 in review.  Part 3 (next, before 4b; user 2026-11-03, "yes, go ahead"): 3a's other names on the
-  matcher.  Found in part 2, older than it: 3a's hand-written parser, which keeps vnmul /
+  d2`; ~100,000 in review.  Part 3, DONE (binate `1e97c1512`; user 2026-11-03, "yes, go ahead"): 3a's parser
+  retired, every VFP data-processing name on the matcher (arm32_varith.bn; the driver arm32_vdp.bn, NEON's VABS /
+  VNEG offered in arm32_neon2.bn, MVE's as near misses), the pre-UAL names as clang's mnemonic and instruction
+  aliases (arm32_vfp_preual.bn), a mnemonic that is no instruction "invalid instruction" after its operands (a q
+  alias without NEON too).  15,240 cases against clang agree but NEON's VABS / VNEG (4d); ~200,000 in review.
+  Found in part 2, older than it: 3a's hand-written parser, which keeps vnmul /
   vdiv, vnmla / vnmls, vfnma / vfnms, vabs / vneg / vsqrt, vcmp / vcmpe and the pre-UAL names, misses near misses
   clang counts -- the two-operand forms', the other types', NEON's -- so 2,054 of 6,600 of those names' cases
   (types, register kinds, operand counts, conditions; five FP settings) have another message than clang's, the
