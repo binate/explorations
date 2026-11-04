@@ -124,7 +124,7 @@ bare array or slice literal in a block's header" would expose it there too.  Fix
 parenthesizes a composite literal whose type is a raw slice (TEXPR_SLICE); tests: goldens for index, slice and
 selector heads, in a statement and in a header.
 
-### VM: a closure's narrow captures are read as whole words — a negative int8 / int16 / int32 capture compares wrong, and a sub-word one carries its neighbour's bytes — 🔴 OPEN (MAJOR: silent wrong values in every VM mode; main's VM conformance lanes red on 1734 since binate `8786e4cae`; found 2026-11-04, work-1, validation of the deep-nesting types walks; pre-existing)
+### VM: a closure's narrow captures are read as whole words — a negative int8 / int16 / int32 capture compares wrong, and a sub-word one carries its neighbour's bytes — 🟡 IN PROGRESS (claimed 2026-11-04, work-1; user: "yes"; MAJOR: silent wrong values in every VM mode; main's VM conformance lanes red on 1734 since binate `8786e4cae`; found 2026-11-04, work-1, validation of the deep-nesting types walks; pre-existing)
 
 `var a int32 = -5; var g *func() bool = func() bool { return a == -5 }; g()` prints false under the VM
 (`builder-comp-int`), as does `c == -3` for an `int8` capture and `u == 40000 && v == 3` for two `uint16` captures;
