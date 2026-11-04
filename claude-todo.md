@@ -91,7 +91,7 @@ question, still to put to the user.
 
 ## MAJOR
 
-### Freeing a long chain of managed objects recurses once per object: a 100,000-node linked list crashes a native build when it is freed — 🔴 OPEN (MAJOR: a valid program crashes; found 2026-11-03, work-1, deep-nesting stage 1's tests; reproduced at binate `51ddb5725`; pre-existing)
+### Freeing a long chain of managed objects recurses once per object: a 100,000-node linked list crashes a native build when it is freed — 🟡 IN PROGRESS (claimed 2026-11-03, work-1; user: "Fix destruction first") (MAJOR: a valid program crashes; found 2026-11-03, work-1, deep-nesting stage 1's tests; reproduced at binate `51ddb5725`; pre-existing)
 
 Releasing the last reference to an object runs `rt.ZeroRefDestroy`, which calls the type's generated destructor,
 which releases each managed field -- and a field whose count reaches zero runs `ZeroRefDestroy` again, inside.  So
