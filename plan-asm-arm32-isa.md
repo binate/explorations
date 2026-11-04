@@ -337,6 +337,11 @@ Steps:
   vraddhn / vsubhn / vrsubhn, vabal / vabdl, vmlal / vmlsl / vmull (vmull.p8, vmull.p64), vqdmlal / vqdmlsl /
   vqdmull; vmul / vmla / vmls / vmull / vmlal / vmlsl / vqdmulh / vqrdmulh / vqdmull / vqdmlal / vqdmlsl by a
   scalar.
+  Part 1, DONE (binate `f61776f39`): asm/arm32/neon's Diff and the parser (arm32_neondiff.bn) for the long, wide
+  and narrowing ones, the matcher's "aes" and .p64 (VMULL.P64: ARMv8 with AES, no NEON, no condition operand;
+  clang's rule that a mnemonic starting vmull and ending .p64 is never predicable).  49,536 cases against clang
+  agree but the by-scalar forms (part 2); ~18,000 in review, which found .p64 dropped after VLDM (fixed).
+  Part 2: the by-scalar forms.
 - 4c. Shifts by an immediate: vshr / vsra / vrshr / vrsra / vsri, vshl / vsli, vqshl / vqshlu, the narrowing vshrn /
   vrshrn / vqshrn / vqshrun / vqrshrn / vqrshrun, vshll and vmovl, NEON's fixed-point vcvt.
 - 4d. Two registers, miscellaneous: vrev16 / 32 / 64, vpaddl / vpadal, vcls / vclz / vcnt, vmvn, vqabs / vqneg, vabs

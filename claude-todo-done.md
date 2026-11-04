@@ -33,6 +33,15 @@ the rest is still referenced (`for head != nil { head = head.next }`, mem.assign
 filed: the VM's misleading message for an overflow in a destructor's plain calls, and run-time stack exhaustion
 being unspecified in Chapter 21.
 
+### asm arm32 stage 4b part 1: NEON's three registers of different lengths -- DONE (binate `f61776f39`, 2026-11-04, work-2; user: "yes")
+
+asm/arm32/neon's Diff encodes the long (VADDL .. VQDMULL), wide (VADDW, VSUBW) and narrowing (VADDHN .. VRSUBHN)
+NEON instructions, VMULL.P8 and .P64 among them; arm32_neondiff.bn matches them in the VFP / NEON parser, with
+VADDW / VSUBW's two-operand form.  The matcher gains clang's "aes" feature and the .p64 type (VMULL.P64 wants
+ARMv8 and AES, not NEON); a mnemonic that starts with vmull and ends with .p64 is never predicable to clang.
+49,536 cases against clang agree but the by-scalar forms (part 2); ~18,000 in review, which found .p64 dropped
+after VLDM (it was kept as an unknown type before) and the .p64 rule too narrow, both fixed.
+
 ### asm arm32 stage 4a part 3: the VFP's data processing and its pre-UAL names on the matcher -- DONE (binate `1e97c1512`, 2026-11-04, work-2; user: "wait 4 minutes, then land; then continue")
 
 3a's hand-written VFP parser is gone: it missed near misses clang counts, so 2,054 of 6,600 cases of its names had
