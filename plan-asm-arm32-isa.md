@@ -165,8 +165,6 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
     each 8-bit candidate) does the same at single precision; binary64's half-ulp bounds would serve here.
 
 - Outside the steps, found in step 3c:
-  - For stage 4: clang takes a condition on NEON's predicable forms in ARM code and drops it (`vcvteq.f32.s32 d0,
-    d1` is F3BB0601, as with none); follow it or reject is stage 4's decision.
   - 3b's VMOV immediate with a type clang does not read as floating point (`vmov.d d0, #1.0`, `vmov.f64 d0, #0`):
     clang's message comes from its matcher (the register copy's "operand must be a register in range [d0, d15]",
     or several) where bnas says "invalid operand for instruction" / "invalid floating point immediate"; both
@@ -277,6 +275,47 @@ Steps:
   numbering: it hangs on `{d0-s1}` and `{s0-vpr}`, or ends at D31); clang's FLDMX / FSTMX leave the D bit clear
   (`fldmiax r0, {d31}` is its word for D15), where bnas sets it as GNU as does (user 2026-11-03, "yes" to landing it
   so); clang's warnings are not copied.
+
+## Stage 4: NEON (asm/arm32/neon)
+
+Every Advanced SIMD instruction clang takes in ARM code, a class per step (the ARM ARM's encoding groups), each
+landed with clang accept / reject goldens and gates: the encoders exact, in a new sub-package asm/arm32/neon
+(importing arm32, never the reverse; the VFP encoders stay in asm/arm32/vfp; CLAUDE.md's list of BUILDER-compiled
+packages gains it), the parser on the near-miss matcher (arm32_match*.bn), whose NEON encodings today only shape VFP
+messages and report a NEON match as "not supported yet".  The VFP mnemonics' NEON forms (`vadd.f32 d0, d1, d2`,
+NEON's VCVT and VRINT*) come with their class.
+
+Decided: a condition on an unconditional NEON instruction is an error, clang's own wording for an unpredicable one,
+"instruction 'vadd' is not predicable, but condition code specified" (user 2026-11-03, "Reject (Recommended)");
+clang drops the condition silently (`vaddeq.i32 d0, d1, d2` is F2210802, as `vadd.i32`; `vld1eq.8`, `vmoveq.i32 d0,
+#1`, `vcvteq.f32.s32 d0, d1` the same), GNU as rejects it ("instruction cannot be conditional").  NEON's conditional
+forms (VDUP from a core register, VMOV between a core register and a scalar) keep theirs (`vdupeq.32 d0, r0` is
+0E800B10).
+
+Steps:
+- 4a. The NEON operand model (D and Q registers, data types and their aliases, the two-operand forms) and three
+  registers of the same length: vadd / vsub, vhadd / vrhadd / vhsub, vqadd / vqsub, vand / vbic / vorr / vorn /
+  veor, vbsl / vbit / vbif, vceq / vcge / vcgt / vacge / vacgt / vtst (and their reversed-operand aliases), vabd /
+  vaba, vmax / vmin, vpadd / vpmax / vpmin, vmul / vmla / vmls (integer, polynomial, float), vqdmulh / vqrdmulh,
+  vrecps / vrsqrts, vshl / vrshl / vqshl / vqrshl by register, vfma / vfms, NEON's vmaxnm / vminnm.
+- 4b. Three registers of different lengths and two registers and a scalar: vaddl / vaddw / vsubl / vsubw, vaddhn /
+  vraddhn / vsubhn / vrsubhn, vabal / vabdl, vmlal / vmlsl / vmull (vmull.p8, vmull.p64), vqdmlal / vqdmlsl /
+  vqdmull; vmul / vmla / vmls / vmull / vmlal / vmlsl / vqdmulh / vqrdmulh / vqdmull / vqdmlal / vqdmlsl by a
+  scalar.
+- 4c. Shifts by an immediate: vshr / vsra / vrshr / vrsra / vsri, vshl / vsli, vqshl / vqshlu, the narrowing vshrn /
+  vrshrn / vqshrn / vqshrun / vqrshrn / vqrshrun, vshll and vmovl, NEON's fixed-point vcvt.
+- 4d. Two registers, miscellaneous: vrev16 / 32 / 64, vpaddl / vpadal, vcls / vclz / vcnt, vmvn, vqabs / vqneg, vabs
+  / vneg, the comparisons with #0, vswp / vtrn / vuzp / vzip, vmovn / vqmovn / vqmovun, vshll by the size, NEON's
+  vcvt (half, integer and float) and vrint* / vcvta .. vcvtm, vrecpe / vrsqrte; the crypto aese / aesd / aesmc /
+  aesimc, sha1h / sha1su1 / sha256su0.
+- 4e. One register and a modified immediate, and the moves: vmov / vorr / vmvn / vbic by an immediate, vmov between
+  registers (vorr), vext, vtbl / vtbx, vdup from a scalar and from a core register, NEON's vmov between a core
+  register and a scalar.
+- 4f. Element and structure loads and stores: vld1 .. vld4 / vst1 .. vst4, multiple structures, one lane and all
+  lanes, the alignment, write-back and a register post-index.
+- 4g. ARMv8's and later additions: sha1c / sha1p / sha1m / sha1su0, sha256h / sha256h2 / sha256su1; vqrdmlah /
+  vqrdmlsh (v8.1); vsdot / vudot, vfmal / vfmsl (v8.2); vcmla / vcadd (v8.3); the BFloat16 and Int8 matrix forms
+  (vdot.bf16, vmmla, vfmab / vfmat, vsmmla / vummla / vusmmla, vusdot / vsudot).
 
 ## Stage 1: the feature model — DONE (binate `09f41e4f7`)
 
