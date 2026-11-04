@@ -261,11 +261,14 @@ no test, 131 s, subtracted): compiled / single VM / double VM -- TestExpandBuild
 / 15.5 min, TestPostponedMethodChainAccepted 0.08 s / 3.8 s / 12 min.  The double VM costs ~200x the single VM, which
 costs ~50-70x compiled; CI's runner loads check ~3x slower than this Mac (6-7 min), so two of these take hours each
 there, and no sharding fits them in a 45-min shard.  Their sizes are tied to constant caps (MAX_INSTANCES_PER_BUILD
-4096, which the spec's §21.4 sets as a floor; MAX_INSTANCE_DEPTH and MAX_BUILD_NESTING 128).  Needs a decision: skip
-such tests in the int-int lane (a per-test .skip for check; the compiled and single-VM lanes keep them), or give the
-caps a test-only lower setting; and whether to revert INTINT_PARTS.  Other check tests may be as slow (part 4's
-TestReplDepthErrorRepeated ran 2 min before its cancel): timing every check test on the single VM, x200, would list
-them.
+4096, which the spec's §21.4 sets as a floor; MAX_INSTANCE_DEPTH and MAX_BUILD_NESTING 128).  **Decided 2026-11-03** (user: "yes", to skipping them in
+the int-int lane only, after timing every check test): binate `ab4a44959` skips there the 13 check tests taking 0.5 s or
+more on the single VM (113 of check's 119 s; all fast compiled), via pkg-binate-check.skip.builder-comp-int-int.
+INTINT_PARTS stays: check whole would still need ~90 min on CI.  With the skip, each check part (304-305 tests) took 7-9
+min of user CPU locally under the double VM, its load included -- ~19-23 min at CI's speed.  Open: confirm on CI that
+the int-int shards finish under 45 min.  In run 41592909161 shards 5 and 6 spent 22 min on their light and heavy
+batches before their check part, so those may still be tight (rebalance the light batch if so); irgen's part 2 (shard
+4) and shard 2's light batch also hit the cap there, not yet looked at.
 
 ### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🔴 NEEDS DECISION, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
