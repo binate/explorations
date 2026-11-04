@@ -113,6 +113,17 @@ spec/20-tier0/002_lang_iface_type_explicit_import.bn only; no library, e2e or ex
 
 ## MAJOR
 
+### bnfmt drops the parentheses around a raw-slice literal that a postfix operator follows, writing a file that no longer parses — 🔴 OPEN (MAJOR: bnfmt writes files that no longer parse; found 2026-11-04, temp-4, probes for the header array-literal parentheses entry; pre-existing)
+
+A raw-slice literal is a UnaryExpr, not a PrimaryExpr (binate.ebnf: `UnaryExpr = … | RawSliceLiteral`), so a postfix
+operator after one needs parentheses: `(*[]int{1})[0]`, `(*[]int{1})[0:1]`, `(*[]int{1}).n`.  bnfmt drops a
+primary's parentheses, and printPostfixHead (print_expr.bn) puts them back only around a binary or unary head, so
+`x := (*[]int{1})[0]` prints `x := *[]int{1}[0]`, which the parser rejects (`expected ; or }`; bnfmt
+`bnc-0.0.17-pre3` and the tree's).  In a header the D4 parentheses hide it now; the fix for "bnfmt parenthesizes a
+bare array or slice literal in a block's header" would expose it there too.  Fix: printPostfixHead also
+parenthesizes a composite literal whose type is a raw slice (TEXPR_SLICE); tests: goldens for index, slice and
+selector heads, in a statement and in a header.
+
 ### VM: a closure's narrow captures are read as whole words — a negative int8 / int16 / int32 capture compares wrong, and a sub-word one carries its neighbour's bytes — 🔴 OPEN (MAJOR: silent wrong values in every VM mode; main's VM conformance lanes red on 1734 since binate `8786e4cae`; found 2026-11-04, work-1, validation of the deep-nesting types walks; pre-existing)
 
 `var a int32 = -5; var g *func() bool = func() bool { return a == -5 }; g()` prints false under the VM
