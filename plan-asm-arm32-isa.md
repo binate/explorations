@@ -306,7 +306,14 @@ Steps:
   VTST's sizes, .d / .f64 for the bitwise ones' .64; VBIC takes a type only with three operands, VORN none; VCLE /
   VCLT / VACLE / VACLT and the register shifts swap Vn and Vm; MVE's VQDMULH has .S8.  ~6,000 cases against clang,
   ~12,000 in review.  Part 2: vadd / vsub / vmul / vmla / vmls / vfma / vfms with 3a's VFP forms on the matcher, and
-  vmaxnm / vminnm's NEON forms.
+  vmaxnm / vminnm's NEON forms.  Found in part 2, older than it: 3a's hand-written parser, which keeps vnmul /
+  vdiv, vnmla / vnmls, vfnma / vfnms, vabs / vneg / vsqrt, vcmp / vcmpe and the pre-UAL names, misses near misses
+  clang counts -- the two-operand forms', the other types', NEON's -- so 2,054 of 6,600 of those names' cases
+  (types, register kinds, operand counts, conditions; five FP settings) have another message than clang's, the
+  encodings agree but NEON's vabs / vneg (4d) (`vdiv.f32 s0, s1, s32`: clang's "any one of the following", here
+  the S range; `vsqrt.f32 d0, d1, d2`: "invalid instruction", here "too many operands"; `vcmp.f32 d0, d1`:
+  "invalid operand for instruction", here "invalid instruction").  The fix is those names on the matcher too
+  (proposed: part 3).
 - 4b. Three registers of different lengths and two registers and a scalar: vaddl / vaddw / vsubl / vsubw, vaddhn /
   vraddhn / vsubhn / vrsubhn, vabal / vabdl, vmlal / vmlsl / vmull (vmull.p8, vmull.p64), vqdmlal / vqdmlsl /
   vqdmull; vmul / vmla / vmls / vmull / vmlal / vmlsl / vqdmulh / vqrdmulh / vqdmull / vqdmlal / vqdmlsl by a
