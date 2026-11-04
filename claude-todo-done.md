@@ -1,3 +1,14 @@
+### asm arm32 stage 3d part 2: VLDM / VSTM, VPUSH / VPOP and FLDMX / FSTMX as clang takes them -- DONE (binate `d328c3eca`, 2026-11-03, work-2; user: "yes")
+
+VLDM / VSTM (IA / DB, write-back, S and D lists, data-type suffixes ignored), VPUSH / VPOP with their types, the X
+forms FLDMIAX .. FSTMDBX and their VFPv2 aliases; M-profile's VLLDM / VLSTM / VSCCLRM as near misses.  Exact
+encoders (Vldm, Vstm, Fldmx, Fstmx, Vpush, Vpop), a register-list reader on clang's parseRegisterList with its
+messages, core registers and lists as operand kinds the matcher names, and "armv8m.main" among the features.
+~8,100 cases against clang; kept differences in plan-asm-arm32-isa.md 3d (a cross-class range; FLDMX's D bit set
+as GNU as sets it, which clang clears -- put to the user at landing).  One review: Q16..Q31 were taken in a list
+(the encoder refused them, so only the messages were wrong), fixed; minor doc and naming points fixed.  With it
+stage 3 (VFP) is done.
+
 ### asm arm32 stage 3d part 1: VLDR / VSTR as clang takes them -- DONE (binate `41e48f8b0`, 2026-11-03, work-2; user: "yes")
 
 VLDR / VSTR of an S or D register with an offset, PC as the base, a label or `.±N`; VLDR.16 / VSTR.16 with full

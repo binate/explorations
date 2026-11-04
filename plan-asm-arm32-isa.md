@@ -175,7 +175,9 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
 - Outside the steps, found in step 3d:
   - An `s` after an unknown name: clang reports its flag-setting error for any mnemonic ending in `s` it cannot
     split otherwise (`foos r0` is "instruction 'foo' can not set flags, but 's' suffix specified", `ldrss`,
-    `vldrss`, `vfoos` the same), where bnas says "unknown instruction" or "expected register".
+    `vldrss`, `vfoos` the same), where bnas says "unknown instruction" or "expected register".  And clang reads
+    an unknown name's operands before it reports the name, so their errors come first (`fldmiad r0!!, {d0}` is
+    "unexpected token in argument list", `vldmfd r0, {d0` "'}' expected").
   - A PC-relative label fixup out of reach or misaligned (B, ADR, LDR, LDC, VLDR): bnas's one message ("the
     reference to 'x' is out of range or misaligned for its instruction"), where clang's is per fixup ("out of
     range pc-relative fixup value", "invalid value for this fixup" for VLDR.16, ...).
@@ -262,8 +264,19 @@ Steps:
   ~7,200 cases against clang.  Kept differences: a label or `.±N` no multiple of 4 away (.32 / .64) is an error
   (clang encodes another address); the "unsupported relocation type" error names the coprocessor or VFP load /
   store, as LDC's does; a constant's name as an offset without `#` is the offset, as in LDR (2c's); an offset whose
-  low 32 bits clang reads as `#-0` (`#-2147483648`) is out of range, as in LDR.  Part 2: vldm / vstm (IA / DB,
-  writeback, S and D lists, the X forms), vpush / vpop, and the pre-UAL multiples.
+  low 32 bits clang reads as `#-0` (`#-2147483648`) is out of range, as in LDR.  Part 2, VLDM / VSTM, VPUSH / VPOP
+  and FLDMX / FSTMX, DONE (binate `d328c3eca`): encoders Vldm / Vstm, Fldmx / Fstmx, Vpush / Vpop; a register-list
+  reader on clang's parseRegisterList (arm32_match_list.bn); the parser (arm32_vldm.bn), M-profile's VLLDM / VLSTM /
+  VSCCLRM as near misses.  clang's facts: VLDM, VPUSH and FLDMX need only the FP registers, the FLDMX aliases
+  fldmfdx / fldmeax / fstmfdx / fstmeax VFPv2 (checked after the operands); clang has no fldmias-style pre-UAL
+  names, only the X forms; VLDM / VSTM ignore every data-type suffix clang has (isDataTypeToken), VPUSH / VPOP take
+  .8 .. .64 through their aliases; only VLDMIA / VSTMIA without write-back refuse a D list past 16 ("list of
+  registers must be at least 1 and at most 16"), the write-back forms, VPUSH and FLDMX encoding one; in a list
+  D16..D31 need 32 D registers but Q8..Q15 do not; a `^` after a list is an operand.  ~8,100 cases against clang.
+  Kept differences: a range ending in another class is "invalid register in register list" (clang walks its register
+  numbering: it hangs on `{d0-s1}` and `{s0-vpr}`, or ends at D31); clang's FLDMX / FSTMX leave the D bit clear
+  (`fldmiax r0, {d31}` is its word for D15), where bnas sets it as GNU as does (user 2026-11-03, "yes" to landing it
+  so); clang's warnings are not copied.
 
 ## Stage 1: the feature model — DONE (binate `09f41e4f7`)
 
