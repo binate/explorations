@@ -1,6 +1,6 @@
 # Plan: deep nesting -- iterative type walks, and nesting limits
 
-Status: planning 2026-11-03 (work-1).  claude-todo.md: "Deep nesting -- of types or of expressions -- is bounded only
+Status: decided 2026-11-03 (work-1); stage 1 (types) in progress.  claude-todo.md: "Deep nesting -- of types or of expressions -- is bounded only
 by the compiler's stack".  User (2026-11-03): "Let's rewrite them as loops, since that seems better regardless. We
 may *also* want to impose an implementation limit (in case some path leads to recursion)".
 
@@ -58,10 +58,9 @@ recursive, so far more than 75).
    computed once (memoized, iteratively) where its layout is prepared, a §21.4 limit with a diagnostic at the
    declaration.  Not needed once step 1 is complete; useful if some walk stays recursive.
 
-## Open questions (for the user)
+## Decisions (2026-11-03)
 
-- Scope of step 1: every semantic-type walk across the compiler (the ~65 above plus the mutually recursive ones --
-  a large, staged effort), or a subset.
-- Step 2 instead of converting the AST walks to loops (converting them is a rewrite of the parser, the checker's
-  expression checks and IR-gen's expression lowering).
-- The limits' minimums (step 2, and step 3 if wanted).
+- Step 1, all of it, staged: user "All of them, staged (Recommended)".
+- AST walks: user "Parser-enforced nesting limit (Recommended)" -- step 2, not converting them.
+- Open: the source nesting limit's minimum (asked when stage 2 is designed); step 3 (a type-depth backstop) not
+  decided, revisit once step 1 is done.
