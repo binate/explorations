@@ -5,6 +5,20 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
+### pkg/binate/interp's unit tests corrupt the heap on Linux — "malloc(): unaligned tcache chunk detected", every unit lane red — 🔴 OPEN (CRITICAL: heap corruption; found 2026-11-04, work-3, reading main's CI; probably work-3's batch)
+
+Every Linux unit lane (builder-comp, -comp-comp, -comp-comp-comp, -int 2/6 and 3/6, -comp-comp-int 2/6 and 3/6,
+native_x64, arm32_linux) fails pkg/binate/interp with glibc's "malloc(): unaligned tcache chunk detected" / Aborted,
+after TestNewEmptyPkgsDefaultsToStandard passes (the test after it is TestNewCustomPkgsRespected; glibc reports at a
+later malloc, not at the bad write).  macOS (native aa64, unit) passes: its malloc does not check.  The last unit run
+that finished before work-3's batch (a67c67d8c) passed interp; the first after it (cb3bb52e6, run 41676179815) and
+every run since fail it -- the runs between were cancelled, so other commits in a67c67d8c..cb3bb52e6 are not ruled out.
+Prime suspects, both on this path: binate `e04c54ea7` (RunFuncTyped / CallIfaceMethod take aggregate results of any
+size: the host's retbuf sized by abi.AggregateReturnSize, the trampolines copying the callee's ResultRetbufBytes) and
+`d0a278594` (CallFuncAggregate copies the image's natural size).  A write past a retbuf, or a retbuf sized below what
+is copied into it, would do this.  Not yet root-caused.  Next: run interp's test binary under macOS libgmalloc
+(DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib) or in the binate-ci Docker image, which stops at the bad write.
+
 ### Constraint calls through `impl *P` / `impl @M` give wrong results — 🟡 IN PROGRESS (claimed 2026-11-03, temp-5), DECIDED 2026-11-01: Self is the impl's receiver type (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
 
 ```
@@ -1325,6 +1339,14 @@ against its `.bn` twin.
 Related, in a `.bn`: `const K = len(V); var V T; type T [K]int` (the variable before the type) is "len argument must
 be slice or array" and "the initializer of constant `K` is not a constant expression" (V's type T is still being
 collected when K reads it), where with the type first it is "cyclic type definition involving `T`".
+
+### conformance 1733_stack_overflow_in_eq_helper times out on builder-comp_arm32_linux_int — 🔴 OPEN (minor: a CI lane red; found 2026-11-04, work-3, reading main's CI)
+
+The VM stack-overflow test that landed with `17969ce1b` (a deep recursion through a struct's `__eq_` helper, expected
+to stop with "stack overflow") prints `before` and then times out on the arm32 Linux VM lane (qemu; CI run
+41789394763, job "builder-comp_arm32_linux_int 3/3"), where 1105_stack_overflow passes.  It was not run on that lane
+before landing.  Find whether it is only slow there (each level compares a large struct before recursing) or does
+not stop, then make the recursion cheaper or fix what does not stop -- not an xfail unless the lane cannot run it.
 
 ## Performance
 
