@@ -185,6 +185,16 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
     syntax error after it (`[r0, #1.5 + ]`, `lsl #(1.5]`) is not clang's message, and arithmetic on it
     (`#1.5 - 1.5`, a number to clang) is refused -- part of the binary64 conversion above.
 
+- Outside the steps, found in step 4a (part 3's review; older than it, and as much for core names):
+  - A name nothing takes, with no `s`: clang's "invalid instruction" once its operands are read, where bnas says
+    "expected register": `vdivs s0, s1, s2` (VDI with VS), `vnmuls` (VNMU with LS), `vcmpeqe`, `vnegq s0, s1` (no
+    q alias), `fnmuls`, `fsubeq`; with the `s` item of step 3d (`fabss`, `fcmpes`, `vqabss` are clang's
+    flag-setting error), one fallback for a name nothing takes.
+  - The expression parser where an operand is read: an error in an expression clang reads is a near miss of the
+    instruction to clang (`vcmp.f32 s0, #0*lbl`, `#und-und`: "invalid instruction, any one of the following would
+    fix this:"), the expression's own message here; clang reads `#[0]` as 0 (`vcmp.f32 s0, #[0]`, `mov r0,
+    #[0]`), and a floating-point literal that rounds to zero (`#1e-400`, `#2e-324`) as 0.
+
 ## Stage 3: VFP (asm/arm32/vfp)
 
 The FPU half of the feature model and every VFP instruction clang takes, a class per step, each landed with clang
