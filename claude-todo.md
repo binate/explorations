@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### Constraint calls through `impl *P` / `impl @M` give wrong results — 🔴 OPEN, DECIDED 2026-11-01: Self is the impl's receiver type (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
+### Constraint calls through `impl *P` / `impl @M` give wrong results — 🟡 IN PROGRESS (claimed 2026-11-03, temp-5), DECIDED 2026-11-01: Self is the impl's receiver type (found 2026-09-30, work-4, review of design B's per-instance checking; reproduced on BUILDER bnc-0.0.16; pre-existing)
 
 ```
 type P struct { v int }
