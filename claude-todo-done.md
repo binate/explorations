@@ -12,6 +12,17 @@ the rest is still referenced (`for head != nil { head = head.next }`, mem.assign
 filed: the VM's misleading message for an overflow in a destructor's plain calls, and run-time stack exhaustion
 being unspecified in Chapter 21.
 
+### asm arm32 stage 4a part 2: the names the VFP shares with NEON on the matcher -- DONE (binate `eb4693315`, 2026-11-03, work-2; user: "yes, go ahead")
+
+vadd / vsub / vmul / vmla / vmls / vfma / vfms move from 3a's hand-written VFP parser onto the near-miss matcher in
+the NEON three-same parser: one table per name holds the VFP's encodings (arm32_varith.bn), NEON's (assembled) and
+MVE's (near misses); MVE's vmlas / vfmas are names of their own.  The matcher gains VFP4; NEON's vmaxnm / vminnm
+assemble (matchFormSIMDNoCond); clang's whole-name and keeps-`s` lists are complete; the operand reader takes a
+shift after a register as clang does (arm32_match_shift.bn).  38,880 cases against clang agree but the condition
+policy and the by-scalar forms (4b); ~100,000 in review, which found the shift gap (a stray token before, and a
+message regression for vmlas / vfmas / vfma) and three nits, all fixed.  Found here, older: 3a's other names miss
+clang's near misses (2,054 of 6,600 messages), part 3.
+
 ### asm arm32 stage 4a part 1: asm/arm32/neon and NEON's three registers of the same length -- DONE (binate `311d4b282`, 2026-11-03, work-2; user: "yes")
 
 The first NEON step: the sub-package asm/arm32/neon with an exact encoder for the three-same group (Three), and the

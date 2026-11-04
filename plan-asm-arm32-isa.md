@@ -305,15 +305,20 @@ Steps:
   which is why clang takes a condition and drops it; its token aliases let .s / .u stand for .i, .p8 and .f32 for
   VTST's sizes, .d / .f64 for the bitwise ones' .64; VBIC takes a type only with three operands, VORN none; VCLE /
   VCLT / VACLE / VACLT and the register shifts swap Vn and Vm; MVE's VQDMULH has .S8.  ~6,000 cases against clang,
-  ~12,000 in review.  Part 2: vadd / vsub / vmul / vmla / vmls / vfma / vfms with 3a's VFP forms on the matcher, and
-  vmaxnm / vminnm's NEON forms.  Found in part 2, older than it: 3a's hand-written parser, which keeps vnmul /
+  ~12,000 in review.  Part 2, DONE (binate `eb4693315`): vadd / vsub / vmul / vmla / vmls / vfma / vfms on the
+  matcher in arm32_neon3.bn, their VFP forms (arm32_varith.bn), NEON's and MVE's in one table, MVE's vmlas / vfmas,
+  the matcher's VFP4, NEON's vmaxnm / vminnm assembled (matchFormSIMDNoCond), clang's whole-name and keeps-`s`
+  lists, and a shift after a register read as clang reads it (arm32_match_shift.bn; it was a stray token).  38,880
+  cases against clang (9 names, 9 FP settings) agree but the condition policy and the by-scalar forms (4b), which
+  until then are errors of another kind (`vmul.f32 d0, d1, d2[0]`) and make clang's near misses for `vmla.f32 q0, q1,
+  d2`; ~100,000 in review.  Part 3 (next, before 4b; user 2026-11-03, "yes, go ahead"): 3a's other names on the
+  matcher.  Found in part 2, older than it: 3a's hand-written parser, which keeps vnmul /
   vdiv, vnmla / vnmls, vfnma / vfnms, vabs / vneg / vsqrt, vcmp / vcmpe and the pre-UAL names, misses near misses
   clang counts -- the two-operand forms', the other types', NEON's -- so 2,054 of 6,600 of those names' cases
   (types, register kinds, operand counts, conditions; five FP settings) have another message than clang's, the
   encodings agree but NEON's vabs / vneg (4d) (`vdiv.f32 s0, s1, s32`: clang's "any one of the following", here
   the S range; `vsqrt.f32 d0, d1, d2`: "invalid instruction", here "too many operands"; `vcmp.f32 d0, d1`:
-  "invalid operand for instruction", here "invalid instruction").  The fix is those names on the matcher too
-  (proposed: part 3).
+  "invalid operand for instruction", here "invalid instruction").  The fix is those names on the matcher too.
 - 4b. Three registers of different lengths and two registers and a scalar: vaddl / vaddw / vsubl / vsubw, vaddhn /
   vraddhn / vsubhn / vrsubhn, vabal / vabdl, vmlal / vmlsl / vmull (vmull.p8, vmull.p64), vqdmlal / vqdmlsl /
   vqdmull; vmul / vmla / vmls / vmull / vmlal / vmlsl / vqdmulh / vqrdmulh / vqdmull / vqdmlal / vqdmlsl by a
