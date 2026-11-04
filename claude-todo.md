@@ -2932,6 +2932,10 @@ A var group member whose type or value spans lines does the same with a block co
 or value (`v /* c */ struct {` … `}`): the comment goes on a line of its own after the member, then a blank line, and a second format ends the alignment run at that blank line, so the
 comments of the members after it align differently (found 2026-10-31 in a review of positioning type members at their
 names; a type member's comment stays between its name and its type since binate `79fb50f9c`).
+A line comment inside a block's header that no list prints, such as one in an `if`'s condition, goes to the
+block's first line with a blank line after it: `if a && // c` / `b {` / `g()` prints `if a && b {` / `// c` / a
+blank line / `g()` (bnfmt `bnc-0.0.17-pre3` and the tree's since binate `79fb50f9c`, which keeps a header's other
+comments in place).
 
 ### bnfmt's operator chain moves a function literal to a continuation line for what follows its last line — 🟢 LOW (found 2026-10-26, temp-4, working on the statement trailing-comment entry; pre-existing)
 
@@ -2950,6 +2954,14 @@ A call whose lone name moves below its opener for what follows the list (binate 
 same way: `total := base + computeTheAdjustedOffsetForTheCurrentFrameAndSlot(frame) // <41 bytes>` prints
 `total := base +` / `computeThe…(` / `frame) // …`, where `total := base + computeThe…(` / `frame) // …`
 fits (print_trail_test.bn pins the three lines).
+
+### bnfmt parenthesizes a bare array or slice literal in a block's header — 🟡 IN PROGRESS (claimed 2026-11-04, temp-4; user: "let's remove the optional parens next") (🟢 LOW; found 2026-11-03, temp-4, the fix for composite literals in a builtin call in a header)
+
+Since binate `0de45d0d6` the parser takes an array, slice or managed-slice literal bare in an `if` / `for` /
+`switch` header (spec §13.11's D4), but bnfmt still writes parentheses around one there, written bare or not:
+`for v in @[]int{1} {` prints `for v in (@[]int{1}) {`, and `if @[]int{1}[0] > 0 {}` prints `if (@[]int{1})[0] > 0
+{}` (bnfmt `bnc-0.0.17-pre3` and the tree's).  Fix: parenthesize only a literal of a named type there (`S{1}`, which
+the parser still reads as the block's `{`); tests: goldens for each literal kind, bare and parenthesized.
 
 ### bnfmt aligns a run across a comment before an element on its line, which it moves to a line of its own — 🔴 OPEN 🟢 LOW (found 2026-10-28, temp-4, review of the marked method-and-field fix; pre-existing)
 
