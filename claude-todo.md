@@ -2798,12 +2798,12 @@ has the same gap.
 ### bnfmt moves a comment inside a declaration's header — 🟢 LOW (found 2026-10-18, temp-4, review of the import-section fix; pre-existing)
 
 A comment between a declaration's keyword and its name is placed by no node (a function's is, since binate
-`810abb9f6`): `var /* c */ x int` prints `var x int /* c */` (and a struct field's, `b /* c */ int`, prints `b int
+`810abb9f6`, and a type declaration's since binate `79fb50f9c`): `var /* c */ x int` prints `var x int /* c */` (and a struct field's, `b /* c */ int`, prints `b int
 /* c */`), and `package /* c */ "t"` prints the comment after the path; an interface's go above its first method
 (`interface /* k */ I /* n */ {`).  A comment after the `]` of an annotation block that
 spans lines goes below the block.  Each output is valid and idempotent,
-but the comment moves.  The AST records no position for a declaration's name or an annotation block's
-`]`, which placing these comments needs.  Related: an empty annotation block `#[]`, which bnfmt drops on
+but the comment moves.  The AST records no position for a var's, a const's or an interface's name or an
+annotation block's `]`, which placing these comments needs.  Related: an empty annotation block `#[]`, which bnfmt drops on
 purpose, leaves an empty line in its place, so a doc comment above it no longer touches its declaration
 (conformance/spec/16-packages/071_annotation_degenerate.bn).
 
@@ -2906,22 +2906,10 @@ last line.  So both comments go on lines of their own after the statement (`x :=
 `// LONG-LINE ALLOWED` there no longer marks the line (bnfmt `bnc-0.0.17-pre3` and the tree's).  On one line, the
 inner comment goes after the statement (`p = 1 + /* z */ 2` prints `p = 1 + 2 /* z */`).  A line comment inside
 cannot simply join the trailing one (`// c // d` lexes as one comment).
-A group member (a var's, or a type's since binate `20dc3a4ab`) whose type or value spans lines does the same with a
-block comment between its name and that type or value (`S /* c */ struct {` … `}`): the comment goes on a line of its
-own after the member, then a blank line, and a second format ends the alignment run at that blank line, so the
+A var group member whose type or value spans lines does the same with a block comment between its name and that type
+or value (`v /* c */ struct {` … `}`): the comment goes on a line of its own after the member, then a blank line, and a second format ends the alignment run at that blank line, so the
 comments of the members after it align differently (found 2026-10-31 in a review of positioning type members at their
-names).
-
-### bnfmt moves a comment in a block's header into the block — 🟡 IN PROGRESS (claimed 2026-11-03, temp-4) 🟢 LOW (found 2026-11-01, temp-4, probing the signature-comment bullet; pre-existing)
-
-A comment between a statement's or a type's header and its `{`, or after the `{` on its line, is printed by no node,
-so emitLeadingComments's fallback puts it on the block's first line: `if x /* c */ {`, `for i := 0; i < n; i++ /* d
-*/ {`, `{ /* f */` and `func h() { /* g */` print the comment as the block's first line, `switch n /* e */ {` above
-its first case and `type S /* s */ struct {` above its first field (bnfmt `bnc-0.0.17-pre3` and the tree's).  Each
-output is valid and idempotent, but the comment moves.  Kept apart from the signature fix (user, 2026-11-01:
-"Separate todo entry (Recommended)").  Related: "bnfmt moves a comment inside a declaration's header" (an
-interface's header comments go above its first method), and "bnfmt moves a statement's trailing comment to a line of
-its own after a comment inside it that no list prints".
+names; a type member's comment stays between its name and its type since binate `79fb50f9c`).
 
 ### bnfmt's operator chain moves a function literal to a continuation line for what follows its last line — 🟢 LOW (found 2026-10-26, temp-4, working on the statement trailing-comment entry; pre-existing)
 

@@ -1,3 +1,24 @@
+### bnfmt moves a comment in a block's header into the block — DONE (binate `79fb50f9c`, 2026-11-03, temp-4; user: "wait 4 minutes, then go ahead") (found 2026-11-01, temp-4, probing the signature-comment bullet; pre-existing)
+
+A comment between a statement's or a type's header and its `{`, or after the `{` on its line, or elsewhere in an
+`if`'s, `for`'s, switch's or `defer`'s header, went onto the block's first line (`if x /* c */ {`, `{ /* f */`, `func
+h() { /* g */`, `switch n /* e */ {` above the first case, `type S /* s */ struct {` above the first field), a line
+comment after a keyword or `;` with a blank line after it.  binate `79fb50f9c`: the parser records the header tokens
+the nodes do not keep (ast.File.Headers: `else`, a three-clause `for`'s `;`s, a `for` over a collection's `,` and
+`in`, a type switch's bound name, `:=` and `.(type)`, a switch's and a struct type's `{`) and a type declaration's
+name and type-parameter brackets as a signature, rolled back on a rewind; the header printers (print_header.bn) claim
+each gap's comments by position, as a list does, and claim the comments after a `{` on its line, for which the
+header's last expression, a three-clause loop's condition or a signature leaves room.  Decided (user): a line comment
+where a newline may follow stays in place, the header going on at a continuation line or the `{` on a line of its own
+("In place (Recommended)"); the type-declaration name gaps are included ("Include it (Recommended)"), so a type group
+member's `B /* c */ bool` stays too.  A block comment inside a condition that no list prints now goes before the `{`.
+Unchanged: an alias's comment before its `=`, interfaces, a var member's comment after its name ("bnfmt moves a
+comment inside a declaration's header"), a line comment inside a condition, which still goes on the block's first
+line with a blank line after it.  One adversarial review; fixed from it: the comments after a `{` were written by a
+cursor walk that stopped at an earlier pending comment, so the header wrapped for comments that went into the block
+and a second format undid the wrap; a three-clause loop left them no room; a struct indented from a continuation
+line; two test lines were over 100.
+
 ### Freeing a long chain of managed objects recurses once per object — DONE as the program's responsibility (docs `2ccb03d`, 2026-11-03, work-1; user: "Yes, let's go with 1, rather than a complex non-solution that keeps a hazard but makes it even more mysterious (even if less likely). Yes, we should add a spec note.")
 
 Releasing the last reference to a long chain nests one destruction per link (rt.RefDec / ZeroRefDestroy -> the
