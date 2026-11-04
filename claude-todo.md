@@ -3551,6 +3551,18 @@ ship one that runs).
 
 ## REPL
 
+### REPL: a constraint use of a pointer type argument does not wait for its impl, and impl keys ignore the receiver's shape — 🔴 OPEN (minor: a forward reference rejected at the prompt; found 2026-11-04, temp-5, review of the Self-is-the-receiver change; by reading, not probed in a REPL; pre-existing)
+
+A type argument satisfies a constraint only through an impl whose receiver it is (gen.satisfy), so `impl *Box : Sizer`
+serves `sz[*Box]` and not `sz[Box]`.  But reportConstraintMiss (pkg/binate/check/check_generic.bn) parks a use on an
+impl not yet declared only when the type argument, alias and `readonly` peeled, is a named type: `sz[Box]` waits on
+`Box:Sizer` (TestPendingCastAndConstraintWaitOnImpl), while `sz[*Box]` typed before `impl *Box : Sizer` is an error
+at once.  And the keys name only the receiver's base type (implRecvKeyName, implBound): a parked `sz[Box]` is woken
+by `impl *Box : Sizer` and then fails, and an `impl Box : Sizer` already made counts as binding a `*Box` use, so it
+is reported rather than parked.  Fix: peel one raw or managed pointer level in reportConstraintMiss, as
+noteMissingImpl does for conversions, and key a constraint use on its receiver shape (`*Box:Sizer`), so only an impl
+with that receiver wakes it or counts as binding it; REPL tests for each.
+
 ### REPL: an incompatible redefinition of a generic method that a sibling still calls in the old shape — decide the rule — 🔴 OPEN (found 2026-10-03, work-6, review of the generic-methods-at-the-prompt fix; put to the user)
 
 `type Cur[T any] struct { v T }`, `func (c *Cur[T]) Get() T { return c.v }`, `func (c *Cur[T]) Twice() T
