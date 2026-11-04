@@ -99,19 +99,6 @@ spec/20-tier0/002_lang_iface_type_explicit_import.bn only; no library, e2e or ex
 
 ## MAJOR
 
-### Freeing a long chain of managed objects recurses once per object: a 100,000-node linked list crashes a native build when it is freed — 🟡 IN PROGRESS (claimed 2026-11-03, work-1; user: "Fix destruction first") (MAJOR: a valid program crashes; found 2026-11-03, work-1, deep-nesting stage 1's tests; reproduced at binate `51ddb5725`; pre-existing)
-
-Releasing the last reference to an object runs `rt.ZeroRefDestroy`, which calls the type's generated destructor,
-which releases each managed field -- and a field whose count reaches zero runs `ZeroRefDestroy` again, inside.  So
-freeing a chain of N objects (a linked list `type Node struct { next @Node; v int }`, a deep type graph) nests N
-destructor calls, several frames each: a list of 100,000 nodes overflows the stack of a native aarch64 build when
-dropped, and 1,000,000 an LLVM build (rc=139; the frames are `ZeroRefDestroy` / `__dtor_Node` repeated).  The
-compiler hits it too: types 200,000 levels deep, freed at the end of a unit test, crash in `__dtor_Type` /
-`__dtor_Field`.  Fix: make destruction iterative -- an object whose count reaches zero while a destructor runs is
-queued, and the outermost ZeroRefDestroy drains the queue -- in the runtime, the native backends' and the VM's
-paths alike.  Check first whether the spec pins an order of destruction that a queue would change (§18).  Test: a
-conformance test building and dropping a 1,000,000-node list, on every mode.
-
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
 Freeing a long chain through managed-slices (`type Cell struct { rest @[]Cell; v int }`, 300,000 links, the last
@@ -122,6 +109,16 @@ recoverable fault with no cleanup pad (lowering bug)" (rc=134).  A chain through
 destructor-frame pushes instead and reports "fault raised during cleanup (dtor/pad), fatal: runtime error: stack
 overflow".  Freeing a chain that deep is the program's job (spec §18 note: detach link by link); the fix here is
 the diagnostic -- a stack overflow inside a destructor's calls is fatal and says so, whichever calls it is in.
+
+### Run-time stack exhaustion is unspecified: not a defined panic, not undefined behaviour, not an implementation limit -- and the modes fail differently — 🔴 NEEDS DECISION (found 2026-11-03, work-1, review of the spec §18 deep-free note)
+
+Chapter 21 says nothing about a program exhausting its stack at run time (deep recursion, or freeing a deep
+structure, spec §18.2's note): it is not a defined panic (§21.8), not listed as undefined behaviour (§21.6), and not
+an implementation limit (§21.4's rows are compile-time limits with a diagnostic, `conf.implementation.limits`).
+The modes differ: compiled code (LLVM and native) dies with SIGSEGV (rc=139) and no message, the VM reports a
+fatal "stack overflow" panic (rc=134).  Choice: make it a defined fatal error with a diagnostic in every mode (a
+guard page / stack probe in compiled code), or catalogue it as implementation-defined -- a §21.4-style row whose
+form is mode-dependent, like §21.5's -- or undefined behaviour.
 
 ### Deep nesting -- of types or of expressions -- is bounded only by the compiler's stack; spec §21.4 lists no nesting limit — 🟡 IN PROGRESS (claimed 2026-11-03, work-1; user: "Let's rewrite them as loops, since that seems better regardless. We may *also* want to impose an implementation limit (in case some path leads to recursion)") (found 2026-11-02, work-1, planning the named-type cycle-check fix; user: "Separate todo: a nesting limit"; by reading)
 

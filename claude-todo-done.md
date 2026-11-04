@@ -1,3 +1,17 @@
+### Freeing a long chain of managed objects recurses once per object — DONE as the program's responsibility (docs `2ccb03d`, 2026-11-03, work-1; user: "Yes, let's go with 1, rather than a complex non-solution that keeps a hazard but makes it even more mysterious (even if less likely). Yes, we should add a spec note.")
+
+Releasing the last reference to a long chain nests one destruction per link (rt.RefDec / ZeroRefDestroy -> the
+generated destructor -> a field's release -> ...), so a 100,000-node linked list overflows a native build's stack
+when dropped, 1,000,000 an LLVM build's and the VM's.  A runtime queue (destructions past depth 64 queued, run before
+the outermost release returns, in rt and the VM) was written and reviewed but not landed: chains through
+managed-slice backings bypass it (their elements are destroyed by generated code, not the runtime), and queue memory
+is on the order of the structure in the worst case (a wide structure at depth), so it only moves the hazard and makes
+it rarer and more mysterious.  Decision: the program's responsibility.  Spec §18.2 now has a note: destruction
+recurses, the chain's length (a tree's depth) counts, and a program releases a very long chain a link at a time while
+the rest is still referenced (`for head != nil { head = head.next }`, mem.assign.copy-then-destroy).  Follow-ups
+filed: the VM's misleading message for an overflow in a destructor's plain calls, and run-time stack exhaustion
+being unspecified in Chapter 21.
+
 ### asm arm32 stage 4a part 1: asm/arm32/neon and NEON's three registers of the same length -- DONE (binate `311d4b282`, 2026-11-03, work-2; user: "yes")
 
 The first NEON step: the sub-package asm/arm32/neon with an exact encoder for the three-same group (Three), and the
