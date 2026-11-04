@@ -1,6 +1,6 @@
 # Plan: deep nesting -- iterative type walks, and nesting limits
 
-Status: decided 2026-11-03 (work-1); stage 1 (types) in progress.  claude-todo.md: "Deep nesting -- of types or of expressions -- is bounded only
+Status: decided 2026-11-03 (work-1); stage 1 (types) done, stage types/abi next.  claude-todo.md: "Deep nesting -- of types or of expressions -- is bounded only
 by the compiler's stack".  User (2026-11-03): "Let's rewrite them as loops, since that seems better regardless. We
 may *also* want to impose an implementation limit (in case some path leads to recursion)".
 
@@ -63,9 +63,15 @@ recursive, so far more than 75).
 - Stage 1 (types), part 1 DONE: binate `994ef2214` (2026-11-03) -- layout (sizeOf / alignOf loops, layStructs from a
   kept stack, a direct path for a struct holding no struct still to lay out).  cmd/bnc's IR identical before and
   after; no compile-time change in an interleaved A/B.  Deep tests skip the bare-metal and double-VM unit-test lanes.
-- Stage 1 next: the rest of types' recursive walks -- type naming (typeNameImpl / renderAnonStructName),
-  Identical / instArgsIdentical, IdenticalStrict, NeedsDestruction / needsDestruction, ReceiverBaseNamed,
-  MentionsSelf / FuncMentionsSelf.
+- Stage 1 (types), part 2 DONE: binate `85c8cb4ed` (2026-11-04) -- Identical / IdenticalStrict from a stack of
+  pairs (types_identical_walk.bn), NeedsDestruction deciding held structs from a stack (types_destruction.bn), type
+  names written into one builder from a stack of pieces (whole names returned directly), MentionsSelf /
+  FuncMentionsSelf from a stack, ReceiverBaseNamed a loop.  cmd/bnc's LLVM IR (x86-64, arm32) and native objects
+  (aarch64, x86-64, arm32) identical before and after; instructions retired +0.17%, inside the 0.2% run-to-run
+  spread, and a profile puts at most ~0.05% of the compile in the changed walks.  Review: no defect.
+  Left for step 3: Identical on a looping composite with no named type in the loop (`A = *A` against `B = *B`)
+  now loops instead of overflowing the stack; the checker rejects such aliases first, so believed unreachable.
+- Next: stage types/abi (hfaFold, sysvMarkNonFloat, sysvFloatBits, sysvLeafCount, sysvLeafWidthAtBase).
 - Found on the way: freeing a deep structure recurses through destructors; decided as the program's responsibility
   (spec §18.2 note, docs `2ccb03d`), so the stages' tests release their deep types a link at a time, and the
   compiler must not drop a deep type graph whole either.
