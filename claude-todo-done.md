@@ -1,3 +1,18 @@
+### The parser rejects a composite literal in a builtin call's parentheses in an `if` / `for` / `switch` header, and bnfmt drops parentheses into that form -- DONE (binate `0de45d0d6`, docs `b23f2e7`, 2026-11-03, temp-4; user: "wait 4 minutes, then go ahead") (MAJOR: valid code rejected, and bnfmt wrote files that no longer parsed; found 2026-11-03, temp-4, review of the bnfmt deep-nesting fix; pre-existing)
+
+The builtin calls' operand parsing (parse_builtin.bn) kept the D4 composite-literal suppression of a header, while
+parseCallExpr cleared it for a call's arguments, so `if len(S{1}.items) > 0 {` was rejected, and bnfmt dropped the
+parentheses of `if (len(S{1})) {` into that form.  The review of the fix found the same for a function literal's body
+(`if func() bool { return S{1}.ok }() {`, valid code) and for an index's later elements, array lengths and a
+literal's elements (`for v in @[]S{S{1}} {`, valid; `if m[a, S{1}] {`, which bnfmt also wrote); the user chose that
+any bracket clears the suppression ("Any bracket clears (Rec.)") and that the function-literal case be folded in
+("Fold it in (Recommended)").  binate `0de45d0d6`: every expression inside a bracket goes through
+parseExprAllowComposite, a builtin call clears the suppression once its `(` follows (`if len x {` keeps its block),
+and a block clears it for its statements.  docs `b23f2e7`: §13.11's D4 and expr.disambiguation.d4-paren, §14's
+paragraph and binate.ebnf's D4 note say so, recognize an array, slice or managed-slice literal bare, and drop the
+notes calling the parenthesized escape defective.  bnfmt still parenthesizes a bare array or slice literal in a
+header (`for v in (@[]int{1}) {`), which is now optional.
+
 ### asm arm32 stage 3d part 2: VLDM / VSTM, VPUSH / VPOP and FLDMX / FSTMX as clang takes them -- DONE (binate `d328c3eca`, 2026-11-03, work-2; user: "yes")
 
 VLDM / VSTM (IA / DB, write-back, S and D lists, data-type suffixes ignored), VPUSH / VPOP with their types, the X
