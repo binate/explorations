@@ -253,9 +253,19 @@ min.  In four of the six parts one test then ran 11-14 min and was still running
 TestInstanceImplRecursionBounded (an instance recursion bound) and TestPostponedMethodChainAccepted (a chain of 300
 generics) -- tests that drive the checker to one of its caps on purpose, cheap compiled, over 10 min each under the
 double VM.  Parts 4 and 5 ran 170 and 184 tests in 25 and 22 min and were cut off mid-way.  So the load is not the main
-cost (a note here first said it was); the cap-driving tests are.  Needs a decision: revert INTINT_PARTS, give the parts
-shards of their own, and/or make those tests cheap under int-int (smaller instances of the same caps, or run only in
-the compiled lanes).
+cost (a note here first said it was); the cap-driving tests are.
+
+Measured 2026-11-03 (work-3, binate `7635c907e`, this Mac, user CPU; the double VM's load of check, `--run` matching
+no test, 131 s, subtracted): compiled / single VM / double VM -- TestExpandBuildBudget 0.92 s / 62 s / over 85 min
+(killed at 90), TestBuildBudgetChainOfGenerics 0.44 s / 21 s / 69 min, TestInstanceImplRecursionBounded 0.08 s / 4.6 s
+/ 15.5 min, TestPostponedMethodChainAccepted 0.08 s / 3.8 s / 12 min.  The double VM costs ~200x the single VM, which
+costs ~50-70x compiled; CI's runner loads check ~3x slower than this Mac (6-7 min), so two of these take hours each
+there, and no sharding fits them in a 45-min shard.  Their sizes are tied to constant caps (MAX_INSTANCES_PER_BUILD
+4096, which the spec's §21.4 sets as a floor; MAX_INSTANCE_DEPTH and MAX_BUILD_NESTING 128).  Needs a decision: skip
+such tests in the int-int lane (a per-test .skip for check; the compiled and single-VM lanes keep them), or give the
+caps a test-only lower setting; and whether to revert INTINT_PARTS.  Other check tests may be as slow (part 4's
+TestReplDepthErrorRepeated ran 2 min before its cancel): timing every check test on the single VM, x200, would list
+them.
 
 ### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🔴 NEEDS DECISION, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
