@@ -498,7 +498,18 @@ Decided 2026-11-02 (user: "Go with your recs"): the hybrid as the base, as the r
 an instance's types from source, in the generic's declaration view, at every site that now only substitutes, and
 give a generic's own comparisons that depend on a type parameter a third answer, unknown, judged again per
 instance.  (S) is not part of it; it comes back with the spec question, since a declaration-time decision needs it
-to be sound.  The spec question is still to put to the user, before the fix reaches type-parameter arguments.
+to be sound.  The spec question decided 2026-11-03 (user: "(b) sounds fine"): a type-parameter argument is decided
+per instance for the length comparison only.  The declaration's check still rejects a bound that cannot give the
+constraint for any type arguments (no bound, another interface, a different element type, two unequal fixed
+lengths); where the only difference is a dependent length the comparison is unknown, and each instance makes it, as
+gen.mono.check already defers array identity for such a length.  gen.mono.check's "not re-established" bullet gets
+that exception; (S) stays out.  Probed on binate main `311d4b282`, with `inner[T Eq[[sizeof(U)]uint8], U any]` and
+`impl *N : Eq[[8]uint8]`: `outer[V Eq[[sizeof(U)]uint8], U any]`, `f4[V Eq[[sizeof(X)]uint8], U any, X any]` and
+`f5[V Eq[[sizeof(U) + 0]uint8], U any]` forwarding to `inner[V, U]` are accepted today (every dependent length is a
+placeholder 0, equal to every other), and `f4[*N, int32, int64]` is caught in the instance (each instance's check
+judges its generic calls again with the real types); `f6[V Eq[[8]uint8], U any]` is rejected at the declaration
+("type argument V does not satisfy constraint Eq[[0]uint8]") though `f6[*N, int64]` is valid -- accepted under (b),
+with `f6[*N, int32]` an error in the instance.
 
 ### A build that waits for a layout still builds the instances it names from the length it could not read, and reports their errors — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
 
