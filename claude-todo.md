@@ -91,6 +91,19 @@ question, still to put to the user.
 
 ## MAJOR
 
+### Freeing a long chain of managed objects recurses once per object: a 100,000-node linked list crashes a native build when it is freed — 🔴 OPEN (MAJOR: a valid program crashes; found 2026-11-03, work-1, deep-nesting stage 1's tests; reproduced at binate `51ddb5725`; pre-existing)
+
+Releasing the last reference to an object runs `rt.ZeroRefDestroy`, which calls the type's generated destructor,
+which releases each managed field -- and a field whose count reaches zero runs `ZeroRefDestroy` again, inside.  So
+freeing a chain of N objects (a linked list `type Node struct { next @Node; v int }`, a deep type graph) nests N
+destructor calls, several frames each: a list of 100,000 nodes overflows the stack of a native aarch64 build when
+dropped, and 1,000,000 an LLVM build (rc=139; the frames are `ZeroRefDestroy` / `__dtor_Node` repeated).  The
+compiler hits it too: types 200,000 levels deep, freed at the end of a unit test, crash in `__dtor_Type` /
+`__dtor_Field`.  Fix: make destruction iterative -- an object whose count reaches zero while a destructor runs is
+queued, and the outermost ZeroRefDestroy drains the queue -- in the runtime, the native backends' and the VM's
+paths alike.  Check first whether the spec pins an order of destruction that a queue would change (§18).  Test: a
+conformance test building and dropping a 1,000,000-node list, on every mode.
+
 ### Deep nesting -- of types or of expressions -- is bounded only by the compiler's stack; spec §21.4 lists no nesting limit — 🟡 IN PROGRESS (claimed 2026-11-03, work-1; user: "Let's rewrite them as loops, since that seems better regardless. We may *also* want to impose an implementation limit (in case some path leads to recursion)") (found 2026-11-02, work-1, planning the named-type cycle-check fix; user: "Separate todo: a nesting limit"; by reading)
 
 About fifteen recursive walks in check and types recurse once per level of a type's nesting -- through a named
