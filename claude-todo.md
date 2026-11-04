@@ -5,7 +5,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### pkg/binate/interp's unit tests corrupt the heap on Linux — "malloc(): unaligned tcache chunk detected", every unit lane red — 🔴 OPEN (CRITICAL: heap corruption; found 2026-11-04, work-3, reading main's CI; probably work-3's batch)
+### pkg/binate/interp's unit tests corrupt the heap on Linux — "malloc(): unaligned tcache chunk detected", every unit lane red — 🟡 IN PROGRESS (claimed 2026-11-04, work-3; user: "look into the corruption") (CRITICAL: heap corruption; found 2026-11-04, work-3, reading main's CI; probably work-3's batch)
 
 Every Linux unit lane (builder-comp, -comp-comp, -comp-comp-comp, -int 2/6 and 3/6, -comp-comp-int 2/6 and 3/6,
 native_x64, arm32_linux) fails pkg/binate/interp with glibc's "malloc(): unaligned tcache chunk detected" / Aborted,
