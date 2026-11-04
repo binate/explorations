@@ -350,7 +350,7 @@ console (as pkg/builtins/testing/sys already does), or have the runner print thr
   pointeeEmbedsOpaque stops at an instance whose type arguments cannot bring an opaque type in, a later `*G[...]`
   would not judge it again — an opaque type held by value could be accepted.  Needs a repro attempt first.
 
-### An array length checked while its variable's type is found takes that variable's placeholder for an error: its errors are lost, and a variable read before its turn is a false cycle — 🟡 IN PROGRESS (claimed 2026-11-03, temp-5, designing a plan doc; user: "we can design it now"; back-burnered 2026-10-30: a fix reviewed unsound, archived on binate branch `archive/20261030-dim-read-recheck`; minor: a valid program rejected, and ill-typed code that is never compiled accepted; found 2026-10-28, work-5, review of the placeholder MAJOR's part 2; reproduced; the false cycle since binate `4fa186628`, the rest pre-existing)
+### An array length checked while its variable's type is found takes that variable's placeholder for an error: its errors are lost, and a variable read before its turn is a false cycle — 🟡 IN PROGRESS (claimed 2026-11-03, temp-5; plan: explorations/plan-placeholder-reads.md, one project with the next two entries (user 2026-11-04: "go with your recs"), the plan reviewed again before implementing; back-burnered 2026-10-30: a fix reviewed unsound, archived on binate branch `archive/20261030-dim-read-recheck`; minor: a valid program rejected, and ill-typed code that is never compiled accepted; found 2026-10-28, work-5, review of the placeholder MAJOR's part 2; reproduced; the false cycle since binate `4fa186628`, the rest pre-existing)
 
 `var u = [len(pick(func() int { return len(u) }))]int{}` (`func pick(f @func() int) [3]int`) compiles, as
 TestVarTypeCycleFuncLitBodyNotCycle pins (the length is pick's result's, and the literal is never compiled), but
@@ -397,7 +397,7 @@ resolution stands.  Skipping the size comparison for an operand of the error typ
 [len(bit_cast([4]int, V)) + 1]int` compile, since nothing checks V's own length again.  That case waits for this
 entry's re-check of the operands that read a placeholder.
 
-### An array length evaluated while a variable's type is found and left without a value by its placeholder is blamed as its type cycle, even where the variable's own length does not need it — 🔴 OPEN (minor: valid programs rejected; found 2026-10-31, work-7, testing the fix for constants resolved without a value and by its review; reproduced on main at binate `e595ee5bb`; pre-existing)
+### An array length evaluated while a variable's type is found and left without a value by its placeholder is blamed as its type cycle, even where the variable's own length does not need it — 🟡 IN PROGRESS (claimed 2026-11-04, temp-5, with the entry above, per explorations/plan-placeholder-reads.md) (minor: valid programs rejected; found 2026-10-31, work-7, testing the fix for constants resolved without a value and by its review; reproduced on main at binate `e595ee5bb`; pre-existing)
 
 With `func f(x int) [3]int` (whose result type alone is a length's operand's type in `[len(f(K))]`) and `type S
 struct { a [3]int; k int }`, each of these is valid -- V's own length needs no value of what is left without one, so V
@@ -415,7 +415,7 @@ again once V has its type, as a pending constant is (compare the back-burnered e
 a placeholder, whose design needs the same judgment); conformance regressions/type-reads-const-while-var-typed
 (xfailed until then) and a unit test per shape.
 
-### A constant read while it is being resolved, where its value is not needed, is a false constant definition cycle — 🔴 OPEN (minor: valid programs rejected; found 2026-10-31, work-7, testing the fix for constants resolved without a value and by its review; reproduced on main at binate `e595ee5bb`; pre-existing)
+### A constant read while it is being resolved, where its value is not needed, is a false constant definition cycle — 🟡 IN PROGRESS (claimed 2026-11-04, temp-5, with the entries above, per explorations/plan-placeholder-reads.md) (minor: valid programs rejected; found 2026-10-31, work-7, testing the fix for constants resolved without a value and by its review; reproduced on main at binate `e595ee5bb`; pre-existing)
 
 With `func f(x int) [3]int` and `type S struct { a [3]int; k int }`, each of these is valid but is "constant definition
 cycle involving `K`": `var V [len(f(K))]int`, `var U [len(f(K))]int`, `const K = len(V) + len(U)` (each length needs
