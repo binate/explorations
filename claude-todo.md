@@ -91,7 +91,7 @@ question, still to put to the user.
 
 ## MAJOR
 
-### Deep nesting -- of types or of expressions -- is bounded only by the compiler's stack; spec §21.4 lists no nesting limit — 🔴 NEEDS DECISION: a catalogued limit with a diagnostic, or iterative walks (found 2026-11-02, work-1, planning the named-type cycle-check fix; user: "Separate todo: a nesting limit"; by reading)
+### Deep nesting -- of types or of expressions -- is bounded only by the compiler's stack; spec §21.4 lists no nesting limit — 🟡 IN PROGRESS (claimed 2026-11-03, work-1; user: "Let's rewrite them as loops, since that seems better regardless. We may *also* want to impose an implementation limit (in case some path leads to recursion)") (found 2026-11-02, work-1, planning the named-type cycle-check fix; user: "Separate todo: a nesting limit"; by reading)
 
 About fifteen recursive walks in check and types recurse once per level of a type's nesting -- through a named
 type's underlying, an array's element, a struct's field: prepareLayoutIn, typeReachesNamedByValue, holdsItselfIn,
