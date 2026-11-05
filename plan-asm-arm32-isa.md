@@ -370,10 +370,15 @@ Steps:
   left shift's amount as any expression and wraps it (vshl.i8 d0, d1, #63 is #7; #-1 and undefined symbols
   assemble), an error here past 0..e-1 or not a constant ("operand must be an immediate in the range [0,7]" ..),
   as for its wrapped VCVT fraction bits and branch offsets.  33,696 cases against clang agree but a condition and
-  those; ~37,000 in review, no bug.  Part 2: the narrowing and long ones (vshrn .. vqrshrun, vshll, vmovl).
+  those; ~37,000 in review, no bug.
+  Part 2, DONE (binate `d9efabbd2`): Shift's narrowing and long forms and the parser for vshrn / vrshrn / vqshrn /
+  vqrshrn / vqshrun / vqrshrun (Dd, Qm, #1..e/2), vshll (#1..e-1, and by the size: its other encoding, .I / .S /
+  .U) and vmovl (vshll #0), the matcher's VSHLL ranges (named, "[1,7]" .. "[1,31]", "[8,8]" .. "[32,32]").  ~30,000
+  cases against clang agree but a condition; ~330 more in review, which found no bug.  The core sweep's case lists,
+  lost to the scratchpad's cleanup, were regenerated from the session transcript (20,026 cases, none changed).
   Part 3: NEON's fixed-point vcvt.
 - 4d. Two registers, miscellaneous: vrev16 / 32 / 64, vpaddl / vpadal, vcls / vclz / vcnt, vmvn, vqabs / vqneg, vabs
-  / vneg, the comparisons with #0, vswp / vtrn / vuzp / vzip, vmovn / vqmovn / vqmovun, vshll by the size, NEON's
+  / vneg, the comparisons with #0, vswp / vtrn / vuzp / vzip, vmovn / vqmovn / vqmovun, NEON's
   vcvt (half, integer and float) and vrint* / vcvta .. vcvtm, vrecpe / vrsqrte; the crypto aese / aesd / aesmc /
   aesimc, sha1h / sha1su1 / sha256su0.
 - 4e. One register and a modified immediate, and the moves: vmov / vorr / vmvn / vbic by an immediate, vmov between
