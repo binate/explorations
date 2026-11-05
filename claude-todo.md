@@ -2918,7 +2918,7 @@ three blank lines there, which a second format makes one.  So neither is idempot
 caller lays it out (printDecls, the block loop), its comments going on lines of their own, or keep it as written by
 recording its keyword on the DECL_GROUP node; tests: goldens for both, formatted twice.
 
-### bnfmt moves a statement's trailing comment to a line of its own after a comment inside it that no list prints — 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing)
+### bnfmt moves a statement's trailing comment to a line of its own after a comment inside it that no list prints — 🟡 IN PROGRESS (claimed 2026-11-05, temp-4, self-drive batch, starting from a line comment in a condition; user: "let's take them on, one by one") 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing)
 
 A comment inside a statement that no list prints (an operand's, in `x := 1 + /* c */` / `2 // d`) is still pending
 in the cursor when the statement ends, and emitTrailingCommentBefore stops at it, as it is not on the statement's
