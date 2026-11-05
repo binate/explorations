@@ -2815,6 +2815,16 @@ parseSwitchStmt (parse_stmt.bn) parses the tag, or the binder's scrutinee, as a 
 rejecting it.  Fix: reject a scrutinee that is a binary or unary expression or a raw-slice literal unless it is
 parenthesized (ast.Expr.Parenthesized); tests: parser tests rejecting each, and accepting the parenthesized forms.
 
+### bnfmt drops the author's parentheses around a chain's left operand of the same precedence when the chain wraps — 🔴 OPEN 🟢 LOW (found 2026-11-05, temp-4, review of the operator-chain comments fix; pre-existing)
+
+An author-parenthesized binary operand keeps its parentheses (printBinOperand, print_expr.bn), but flattenChain
+(print_chain.bn) flattens a left operand of the chain's precedence whether parenthesized or not, so a chain that
+wraps (printBinaryWrapped) loses them: `x := (aaaa… / bbbb…) / cccc… / dddd` prints `x := aaaa… / bbbb… /` /
+`cccc… / dddd`, while a chain on one line keeps them (`y := (aa / bb) / cc`).  The program is the same (the
+operators associate left).  bnfmt `bnc-0.0.17-pre3` and the tree's; the operator-chain comments fix wraps more chains
+(a line comment between operands), so 4 of 701 fuzzed files the review generated hit it.  Fix: continuesChain stops
+at a Parenthesized left operand; tests: a wrapped chain keeping them.
+
 ### bnfmt moves a comment inside a declaration's header — 🟢 LOW (found 2026-10-18, temp-4, review of the import-section fix; pre-existing)
 
 A comment between a declaration's keyword and its name is placed by no node (a function's is, since binate
