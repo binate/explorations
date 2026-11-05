@@ -5651,6 +5651,25 @@ reader's reason.  Tests: `relocSectionChecks` on an ELF64 RELA and an ELF32 REL 
 `TestReadObjectRejectsNonRelocatable`, `TestReadArchiveBadMemberReason`.  Checked that clang C objects (`-g`,
 `-ffunction-sections`, `-O0` / `-O1`) still link on x86-64, aarch64 and arm32.
 
+### native x64: a branch whose condition is nil fails with an error — DONE (binate `038cdf18f`, 2026-11-05)
+
+Found by the review of the one-target follow-up below. The OP_BRANCH guard in `emitJumpOrBranch` reported "a branch
+without both targets and a condition" but checked only that the branch had an argument; with a nil one the compiler
+crashed reading its ID (and under `fallthrough` a one-target branch became a jump with no error). The guard now rejects
+it; `TestEmitTermRejectsMalformed` covers every malformed jump and branch, and crashes with the fix undone. aarch64 and
+arm32 have the same gap (open entry in `claude-todo.md`; user: separate commits).
+
+### native code placement, block layout commit 3 follow-up: a one-target branch is a jump whenever the plan falls through — DONE (binate `85113ffce`, 2026-11-05)
+
+A sub-step of the open "native code placement" entry in `claude-todo.md`. Commit 3 lowered a branch whose then- and
+else-block are one block as a jump only when a block was laid out after it, so under `fallthrough` a function's last
+block kept `jcc L; jmp L`. User decision 2026-11-05 (land commit 3 as it was, then this): x64's `emitTerm` and
+`emitJumpOrBranch` take `fallThrough` (the plan's `FallThrough`) and make such a branch a jump whenever it is set;
+SOURCE and `emitInstr` pass false, so their code does not change. aarch64 and arm32 take the same flag in their
+commits. Validated: `cmd/bnc`'s objects byte-identical before and after on x86-64 at -O0 and -O2 with no flag,
+`source` and `fallthrough` (no such branch ends a function in `cmd/bnc`); unit tests, each failing when the flag is
+not passed or the old rule is restored; a sixth of native x64 conformance under `fallthrough` (748 passed).
+
 ### native code placement, block layout commit 3: x64 falls through to the next block — DONE (binate `8b6b38ab0`, 2026-11-05)
 
 A sub-step of the open "native code placement" entry in `claude-todo.md` (block layout design in

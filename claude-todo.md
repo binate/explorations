@@ -1942,8 +1942,8 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   binate `3f95bef54` (2026-10-28). Block layout (design in the plan; its questions decided 2026-10-30): commit 1 (condition-inversion
   helpers) landed as binate `8a359925c` (2026-10-31), commit 2 (plan plumbing in `native/blockplan`,
   `-fnative-block-layout`) as `779bdd51e` (2026-11-01), commit 3 (x64 elision and inversion) as `8b6b38ab0`
-  (2026-11-05); next a follow-up making a branch whose two arms are one block a single jmp whenever the plan
-  falls through (user decision 2026-11-05), then commit 4 (aarch64) and the rest of the series,
+  (2026-11-05), its follow-up making a branch whose two arms are one block a jump whenever the plan falls
+  through (user decision 2026-11-05) as `85113ffce`; next commit 4 (aarch64) and the rest of the series,
   then the placement policies; a JCC-erratum mitigation experiment is motivated by the blockLiveBefore
   result. User
   decisions on commit 3 (2026-10-18): keep the selection order (the Decisions rule, geomean first), keep
@@ -3152,6 +3152,14 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
   (`pkg/binate/irbuild/verify.bn`) checks block structure, phi ownership and constant ranges but not operand
   counts, so nothing proves those inputs impossible.  Fix: check each op's operand count and required types in
   the verifier (then the guards are dead and can go), or make each guard record `a.SetError`.
+
+- **Native aarch64 / arm32: a branch whose condition is nil crashes the compiler** — 🟡 IN PROGRESS (claimed
+  2026-11-05; user: "in a separate commit (or commits)") (found 2026-11-05, review of the x64 block-layout
+  follow-up).  The OP_BRANCH guard (`aarch64_dispatch.bn`'s case, `arm32_dispatch.bn`'s `emitBranch`) reports "a
+  branch without both targets and a condition" but checks only `len(ins.Args) < 1`; with `ins.Args[0]` nil,
+  `emitCondBranch` / `emitBranch` read its ID and the compiler crashes.  Valid IR always gives a branch its
+  condition.  x64 had the same gap, fixed as binate `038cdf18f` (`TestEmitTermRejectsMalformed`).  Fix: the same check in
+  both guards, with a test each.
 
 - **Checker rejects valid alias uses in const / untyped-literal contexts** — 🔵 OPEN (found
   2026-09-26).  Spec type.alias.transparency: an alias is its target in every context.  But with
