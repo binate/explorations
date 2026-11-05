@@ -348,7 +348,11 @@ Steps:
   and narrowing ones, the matcher's "aes" and .p64 (VMULL.P64: ARMv8 with AES, no NEON, no condition operand;
   clang's rule that a mnemonic starting vmull and ending .p64 is never predicable).  49,536 cases against clang
   agree but the by-scalar forms (part 2); ~18,000 in review, which found .p64 dropped after VLDM (fixed).
-  Part 2: the by-scalar forms.
+  Part 2, DONE (binate `ade353377`): asm/arm32/neon's Scalar and the parser (arm32_neonscalar.bn) for the
+  by-scalar forms among the names' other encodings (VMUL's Vd, Dm[x] too, so fmuls / fmacs as well), the
+  matcher's scalar register (D0..D7, D0..D15) and lane (0..3, 0..1, a lane's low 32 bits) kinds.  29,040 cases
+  against clang agree but a condition; ~50,000 in review, which found the encoder cutting a lane to 32 bits
+  before its range check (fixed).  A floating-point lane is the binary64 item's.
 - 4c. Shifts by an immediate: vshr / vsra / vrshr / vrsra / vsri, vshl / vsli, vqshl / vqshlu, the narrowing vshrn /
   vrshrn / vqshrn / vqshrun / vqrshrn / vqrshrun, vshll and vmovl, NEON's fixed-point vcvt.
 - 4d. Two registers, miscellaneous: vrev16 / 32 / 64, vpaddl / vpadal, vcls / vclz / vcnt, vmvn, vqabs / vqneg, vabs

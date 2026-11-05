@@ -88,6 +88,16 @@ the rest is still referenced (`for head != nil { head = head.next }`, mem.assign
 filed: the VM's misleading message for an overflow in a destructor's plain calls, and run-time stack exhaustion
 being unspecified in Chapter 21.
 
+### asm arm32 stage 4b part 2: NEON's two registers and a scalar -- DONE (binate `ade353377`, 2026-11-04, work-2; user: "wait 4 minutes, then go ahead")
+
+asm/arm32/neon's Scalar encodes the by-scalar NEON instructions (VMLA, VMLS, VMUL; the long VMLAL, VMLSL, VMULL
+and saturating VQDMLAL, VQDMLSL, VQDMULL; VQDMULH, VQRDMULH); arm32_neonscalar.bn adds their encodings to the
+names' three-same and three-different-lengths lists (VMUL's Vd, Dm[x] form too).  The matcher gains the scalar
+register and lane kinds (a lane's low 32 bits, as clang keeps them) and a fourth operand.  29,040 cases against
+clang agree but a condition; ~50,000 in review, which found the encoder cutting a lane to 32 bits before its
+range check (a silent mis-encoding for a direct caller, fixed) and the expression parser's comparisons, `[e]`
+grouping and lane messages missing (recorded in the plan).
+
 ### asm arm32 stage 4b part 1: NEON's three registers of different lengths -- DONE (binate `f61776f39`, 2026-11-04, work-2; user: "yes")
 
 asm/arm32/neon's Diff encodes the long (VADDL .. VQDMULL), wide (VADDW, VSUBW) and narrowing (VADDHN .. VRSUBHN)
