@@ -2802,6 +2802,16 @@ has the same gap.
 
 ## bnfmt (self-hosted formatter)
 
+### The parser accepts a type switch whose scrutinee is not a postfix expression (`switch a + b.(type)`, `switch *p.(type)`) — 🔴 OPEN (minor: ill-formed code accepted; found 2026-11-04, temp-4, probing the type-switch scrutinee fix; pre-existing)
+
+binate.ebnf and spec `stmt.type-switch` take `"switch" [ identifier ":=" ] PostfixExpr "." "(" "type" ")"`, but
+parseSwitchStmt (parse_stmt.bn) parses the tag, or the binder's scrutinee, as a whole expression and then looks for
+`.(type)`, so `switch a + b.(type) {`, `switch *p.(type) {` and `switch -x.(type) {` parse as type switches on
+`a + b`, `*p` and `-x`.  bnfmt has printed a parenthesized scrutinee of those kinds that way (the type-switch
+scrutinee MAJOR's fix puts the parentheses back), so files it formatted may hold the form: check the tree before
+rejecting it.  Fix: reject a scrutinee that is a binary or unary expression or a raw-slice literal unless it is
+parenthesized (ast.Expr.Parenthesized); tests: parser tests rejecting each, and accepting the parenthesized forms.
+
 ### bnfmt moves a comment inside a declaration's header — 🟢 LOW (found 2026-10-18, temp-4, review of the import-section fix; pre-existing)
 
 A comment between a declaration's keyword and its name is placed by no node (a function's is, since binate
