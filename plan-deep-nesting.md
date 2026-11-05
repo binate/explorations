@@ -108,7 +108,17 @@ recursive, so far more than 75).
   +0.1% instructions compiling cmd/bnc, all from part 1 (part 0 neutral) -- the push / pop of the parts of a type
   that has parts; down from +0.22% after a root step, fast paths for leaf roots and late visited sets.  Removing
   the rest would need a stack of raw pointers.  User: "go ahead now, actually".
-- Next: stage check part 2 (the collectors with side effects).
+- Found while starting check part 2 (2026-11-05): deep DECLARATION chains (`type T0 struct { n T1 }`, `type T1
+  struct { n T2 }`, ...) are quadratic in the checker even with no recursion -- each declaration's check walks what it
+  holds by value (layoutDependsOnTypeParam, typeReachesNamedByValue, checkValueEmbedding, a layout query), the whole
+  chain below it: 2,000 types check in 0.9 s, 20,000 in 111 s (20,000 unrelated types: 5 s).  With a `sizeof` of the
+  chain's head the 20,000 chain still crashes, in prepareLayout's recursion (prepareLayoutIn <-> prepareBatchType /
+  prepareBniType: a stateful mutual recursion collecting declarations on demand; its bookkeeping lists TypesWalking /
+  TypesCollecting / TypesPrepared are searched linearly, TypesWalking appended by copying).
+  Decision (user, 2026-11-05): "Both, limit first" -- step 3's type-depth limit now, so nothing crashes or hangs; then
+  the remaining conversions (check part 2 on) and the memoization of per-type answers across declarations as later
+  stages.
+- Next: step 3, the type-depth limit (design questions to the user first).
 - Found on the way: freeing a deep structure recurses through destructors; decided as the program's responsibility
   (spec §18.2 note, docs `2ccb03d`), so the stages' tests release their deep types a link at a time, and the
   compiler must not drop a deep type graph whole either.
