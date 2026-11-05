@@ -1,3 +1,29 @@
+### bnfmt parenthesizes a bare array or slice literal in a block's header -- DONE (binate `f668dbd23`, 2026-11-04, temp-4; user: "let's remove the optional parens next", then "yes, go ahead") (🟢 LOW; found 2026-11-03, temp-4, the fix for composite literals in a builtin call in a header)
+
+bnfmt parenthesized every composite literal at the left edge of an `if` / `for` / `switch` header (D4), so `for v
+in @[]int{1} {` printed as `for v in (@[]int{1}) {`, though the parser reads an array, raw-slice or managed-slice
+literal bare there since binate `0de45d0d6`.  binate `f668dbd23`: printComposite (print_expr.bn) parenthesizes only
+a literal of a type name there (`S{1}`, `pkg.T{}`, `V[int]{}`); TestStmtD4ArrayAndSliceLiteralsBare covers each
+literal kind in each header position.  Probing it turned up two pre-existing MAJORs that the D4 parentheses hid in a
+header, fixed in the same commit (next two entries; user: "Fold it in (Recommended)", "Around the literal
+(Recommended)").  Conformance 1388, 1401 and 1403 still parenthesize such a literal in a header, as the pinned bnfmt
+(`bnc-0.0.17-pre3`, which hygiene formats with) does; they take the bare form once CHECK_TOOLS has this change.
+docs `06f77d3` makes binate.ebnf's note above IfStmt name only a type name's literal.
+
+### bnfmt drops the parentheses around a raw-slice literal that a postfix operator follows, writing a file that no longer parses -- DONE (binate `f668dbd23`, 2026-11-04, temp-4; user: "Fold it in (Recommended)", then "yes, go ahead") (MAJOR: bnfmt wrote files that no longer parsed; found 2026-11-04, temp-4, probes for the header array-literal parentheses entry; pre-existing)
+
+A raw-slice literal is a UnaryExpr in the grammar, so `(*[]int{1})[0]` needs its parentheses, and bnfmt printed
+`*[]int{1}[0]`, which does not parse.  binate `f668dbd23`: printPostfixHead (print_expr.bn) parenthesizes a
+raw-slice literal head as it does a unary one; TestPrintExprRawSliceLitHead (index, slice, selector,
+type-assertion and call heads) and header cases in TestStmtD4ArrayAndSliceLiteralsBare.
+
+### bnfmt prints a `*` dereference tight against an array literal, which the parser reads as a raw-slice literal's start -- DONE (binate `f668dbd23`, 2026-11-04, temp-4; user: "Around the literal (Recommended)", then "yes, go ahead") (MAJOR: bnfmt wrote files that no longer parsed; found 2026-11-04, temp-4, review of the header array-literal parentheses fix; pre-existing)
+
+printUnary writes `*` tight to its operand, and `*` then `[` begins a raw-slice literal (D3), so
+`x := *([2]*int{p, q})[0]` printed as `x := *[2]*int{p, q}[0]`, which does not parse.  binate `f668dbd23`:
+printComposite (print_expr.bn) parenthesizes an array literal written right after a `*` (`*([2]*int{p, q})[0]`);
+TestPrintExprDerefArrayLit and header cases in TestStmtD4ArrayAndSliceLiteralsBare.
+
 ### pkg/binate/interp's unit tests corrupt the heap on Linux — "malloc(): unaligned tcache chunk detected", every unit lane red -- DONE (binate `783338d19`, 2026-11-04, work-3; user: "look into the corruption", then "wait 8 minutes, then go ahead")
 
 Not from work-3's batch's code: RunFuncTyped / CallIfaceMethod passed a by-value struct argument holding a managed

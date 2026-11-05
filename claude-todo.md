@@ -7,16 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### bnfmt prints a `*` dereference tight against an array literal, which the parser reads as a raw-slice literal's start — 🟡 IN PROGRESS (claimed 2026-11-04, temp-4, folded into the fix for the header array-literal parentheses; user: "Around the literal (Recommended)") (MAJOR: bnfmt writes files that no longer parse; found 2026-11-04, temp-4, review of the header array-literal parentheses fix; pre-existing)
-
-printUnary (print_expr.bn) writes its operator tight against the operand, and bnfmt drops the parentheses around a
-primary, so `x := *([2]*int{p, q})[0]` prints `x := *[2]*int{p, q}[0]`, and `*([...]int{1})` prints
-`*[...]int{1}`; the parser takes `*` then `[` as a raw-slice literal (binate.ebnf D3: a bare `*[` not followed by
-`]` is an error) and rejects them (`expected ], got INT`; bnfmt `bnc-0.0.17-pre3` and the tree's).  In a header the
-D4 parentheses hide it; the fix for the header array-literal parentheses would expose it there.  Fix: parenthesize
-an array literal printed right after a unary `*` (`*([2]*int{p, q})[0]`, as a header prints it now), or the whole
-operand of a `*` that starts with one (`*([2]*int{p, q}[0])`); tests: goldens in a statement and in a header.
-
 ### bnfmt drops the parentheses around a type switch's composite-literal scrutinee, writing a file that no longer parses — 🔴 OPEN (MAJOR: bnfmt writes files that no longer parse; found 2026-11-04, temp-4, review of the header array-literal parentheses fix; pre-existing)
 
 printTypeSwitch (print_switch.bn) prints its scrutinee with printExpr, outside the header's D4 context, as its
@@ -25,17 +15,6 @@ scrutinee), so `switch (S{1}).(type) {` and `switch v := (S{1}).(type) {` print 
 the parser takes as the block's (`expected default, got INT`; bnfmt `bnc-0.0.17-pre3` and the tree's).  Fix: print
 the scrutinee with printExprCond, so D4 applies, and correct the comment; tests: goldens with a type-name literal
 scrutinee, with a binder and without.
-
-### bnfmt drops the parentheses around a raw-slice literal that a postfix operator follows, writing a file that no longer parses — 🟡 IN PROGRESS (claimed 2026-11-04, temp-4, folded into the fix for the header array-literal parentheses; user: "Fold it in (Recommended)") (MAJOR: bnfmt writes files that no longer parse; found 2026-11-04, temp-4, probes for the header array-literal parentheses entry; pre-existing)
-
-A raw-slice literal is a UnaryExpr, not a PrimaryExpr (binate.ebnf: `UnaryExpr = … | RawSliceLiteral`), so a postfix
-operator after one needs parentheses: `(*[]int{1})[0]`, `(*[]int{1})[0:1]`, `(*[]int{1}).n`.  bnfmt drops a
-primary's parentheses, and printPostfixHead (print_expr.bn) puts them back only around a binary or unary head, so
-`x := (*[]int{1})[0]` prints `x := *[]int{1}[0]`, which the parser rejects (`expected ; or }`; bnfmt
-`bnc-0.0.17-pre3` and the tree's).  In a header the D4 parentheses hide it now; the fix for "bnfmt parenthesizes a
-bare array or slice literal in a block's header" would expose it there too.  Fix: printPostfixHead also
-parenthesizes a composite literal whose type is a raw slice (TEXPR_SLICE); tests: goldens for index, slice and
-selector heads, in a statement and in a header.
 
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
@@ -2941,14 +2920,6 @@ A call whose lone name moves below its opener for what follows the list (binate 
 same way: `total := base + computeTheAdjustedOffsetForTheCurrentFrameAndSlot(frame) // <41 bytes>` prints
 `total := base +` / `computeThe…(` / `frame) // …`, where `total := base + computeThe…(` / `frame) // …`
 fits (print_trail_test.bn pins the three lines).
-
-### bnfmt parenthesizes a bare array or slice literal in a block's header — 🟡 IN PROGRESS (claimed 2026-11-04, temp-4; user: "let's remove the optional parens next") (🟢 LOW; found 2026-11-03, temp-4, the fix for composite literals in a builtin call in a header)
-
-Since binate `0de45d0d6` the parser takes an array, slice or managed-slice literal bare in an `if` / `for` /
-`switch` header (spec §13.11's D4), but bnfmt still writes parentheses around one there, written bare or not:
-`for v in @[]int{1} {` prints `for v in (@[]int{1}) {`, and `if @[]int{1}[0] > 0 {}` prints `if (@[]int{1})[0] > 0
-{}` (bnfmt `bnc-0.0.17-pre3` and the tree's).  Fix: parenthesize only a literal of a named type there (`S{1}`, which
-the parser still reads as the block's `{`); tests: goldens for each literal kind, bare and parenthesized.
 
 ### bnfmt aligns a run across a comment before an element on its line, which it moves to a line of its own — 🔴 OPEN 🟢 LOW (found 2026-10-28, temp-4, review of the marked method-and-field fix; pre-existing)
 
