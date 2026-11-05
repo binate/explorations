@@ -141,6 +141,16 @@ recursive, so far more than 75).
   - Tests: conformance -- a chain at the limit compiles; one past it is an error (by-value structs, a pointer chain,
     an interface method chain, a chain passing the limit inside an inline type); check unit tests of the depth
     computation (cycles, DAGs, memo).
+  - Found while implementing (2026-11-05, 20,000-deep generated programs): cutting a chain only once, at the type
+    where it first passes the limit, leaves the types above the cut walkable to their full depth -- quadratic again
+    -- so a chain is cut every 1024 levels (19 errors for 20,000 struct declarations, each reported type does nest
+    too deeply).  With that, checking is linear in the chain's length but slow: 13-60 s for 20,000 declarations
+    (struct, pointer, interface chains; the per-declaration walks still go up to 1024 levels) -- the memoization
+    stage's job.  A `sizeof` of a deep chain read during collection crashed in prepareLayout's on-demand recursion
+    before the post-collection pass runs; prepareLayoutIn now counts levels as the depth does and stops past the
+    limit (no report: the post-collection pass reports the chain).  Chains of named types over named types
+    (`type N0 N1`, `type N1 N2`, ...) add no depth (names are transparent) and are not covered by the limit, but scale
+    badly on main too: 2,000 in 3.4 s, 20,000 over 150 s -- a separate item, not yet looked into.
 - Found on the way: freeing a deep structure recurses through destructors; decided as the program's responsibility
   (spec §18.2 note, docs `2ccb03d`), so the stages' tests release their deep types a link at a time, and the
   compiler must not drop a deep type graph whole either.
