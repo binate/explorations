@@ -354,6 +354,18 @@ Fix (to design): a read of a constant being resolved where its value is not need
 placeholder is taken, the reading declaration resolved again once the constant is resolved; conformance
 regressions/const-read-as-arg-while-resolved (xfailed until then) and a unit test per shape.
 
+### A `bit_cast` whose operand's layout is still being built skips its size check: an ill-sized `bit_cast` in an array length is accepted — 🔴 OPEN (minor: ill-typed code that is never compiled accepted; found 2026-11-04, temp-5, review of the placeholder-reads decisions; reproduced on binate main `b52e54139`; pre-existing)
+
+`var V S` with `type S struct { y uint8; x [len(bit_cast([8]uint8, V))]uint8 }` compiles and prints 8 and 9: a
+9-byte S taken for an `[8]uint8`.  So does `var V [3]S` with `type S struct { x [len(bit_cast([24]uint8, V))]uint8 }`
+(V is 72 bytes).  With `type S` declared before V the first is "cyclic type definition involving `S`".  S's length is checked while S is
+collected, when V's layout is not built, and `checkBitCastShapes` (check_c_interop.bn) compares the sizes only when
+both are known (`SizeIfFits`), so it says nothing.  Fix: a size check whose operand's layout is still being built
+waits for it (the layout wait, check_layout_wait.bn) or is made again once it is built; tests for both declaration
+orders and for a correctly sized `bit_cast` (`x [len(bit_cast([8]uint8, V))]uint8` alone in S, valid: 8).  The
+placeholder-reads plan (explorations/plan-placeholder-reads.md) touches the same check, for an operand of the error
+type.
+
 ### Does populateInstantiatedInterface's speculative (`userFacing` false) path still have a valid-program case? — 🔴 OPEN (cleanup question; found 2026-10-16, work-5, review of the generic-type method-signature sizing)
 
 The split exists so an impl-match probe that instantiates an interface (`Consumer[Wrap[Op]]` probing `Wrap[Op]`'s
