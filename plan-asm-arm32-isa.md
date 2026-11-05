@@ -207,6 +207,9 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
     `vldr d0, 1b` is right).  And an undefined symbol minus itself (`#und-und`) is "a difference of locations in
     different sections or atoms is not a number" here, clang's operand message ("operand must be an immediate in
     the range [1,8]").  Found by step 4c part 1's review.
+  - An integer literal past 64 bits is "integer literal does not fit 64 bits" here, clang's "literal value out of
+    range for directive" (in an instruction's operand as in a directive: `mov r0, #0x10000000000000000`).  Found
+    by step 4c part 2's review.
 
 ## Stage 3: VFP (asm/arm32/vfp)
 
