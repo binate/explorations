@@ -196,6 +196,11 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
     instruction to clang (`vcmp.f32 s0, #0*lbl`, `#und-und`: "invalid instruction, any one of the following would
     fix this:"), the expression's own message here; clang reads `#[0]` as 0 (`vcmp.f32 s0, #[0]`, `mov r0,
     #[0]`), and a floating-point literal that rounds to zero (`#1e-400`, `#2e-324`) as 0.
+  - The expression parser has no comparison operators (clang's true is -1: `.long 3 > 2` is 0xffffffff; a lane
+    `d2[3 > 2]` "invalid operand for instruction", here "unexpected character '>'") and reads `[e]` as no grouping
+    (`vmul.i16 d0, d1, d2[[0]]` and `svc #[1]` assemble in clang).  In a NEON lane clang's messages differ for
+    `d2[1 ? 2 : 3]` ("']' expected"), `d2[3 / 0]` and `d2[undef-undef]` ("immediate value expected for vector
+    index"), `d2[0x]` ("invalid hexadecimal number").  Found by step 4b part 2's review.
 
 ## Stage 3: VFP (asm/arm32/vfp)
 
