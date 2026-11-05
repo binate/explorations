@@ -1,6 +1,6 @@
 # Plan: deep nesting -- iterative type walks, and nesting limits
 
-Status: decided 2026-11-03 (work-1); stage 1 (types) done, stage types/abi next.  claude-todo.md: "Deep nesting -- of types or of expressions -- is bounded only
+Status: decided 2026-11-03 (work-1); stages types and types/abi done, stage check next.  claude-todo.md: "Deep nesting -- of types or of expressions -- is bounded only
 by the compiler's stack".  User (2026-11-03): "Let's rewrite them as loops, since that seems better regardless. We
 may *also* want to impose an implementation limit (in case some path leads to recursion)".
 
@@ -71,7 +71,16 @@ recursive, so far more than 75).
   spread, and a profile puts at most ~0.05% of the compile in the changed walks.  Review: no defect.
   Left for step 3: Identical on a looping composite with no named type in the loop (`A = *A` against `B = *B`)
   now loops instead of overflowing the stack; the checker rejects such aliases first, so believed unreachable.
-- Next: stage types/abi (hfaFold, sysvMarkNonFloat, sysvFloatBits, sysvLeafCount, sysvLeafWidthAtBase).
+- Stage types/abi DONE: binate `3e75af43c` (2026-11-04) -- hfaFold from a stack of parts (a non-aggregate answered
+  at once), the four SysV walks as loops over one leaf list (sysvListLeaves).  New `types.BeginLayoutQuery` /
+  `EndLayoutQuery` hold one layout query open across a walk: each Size / Offset call was its own query, so a walk
+  asking at every level of a deep aggregate re-laid the levels below at each level (quadratic; the 200,000-level
+  tests did not finish).  Later stages walking deep types and asking sizes need the same.  types.bni is at 990 of
+  its 1000-line cap (claude-todo: split it before the next addition; user "Add now, file a split todo").  cmd/bnc's
+  IR (3 targets), native objects (3 targets) and 169 ABI-shaped conformance tests' IR (3 targets) identical before
+  and after; instructions retired within the run-to-run spread (the first version cost +0.8% on native aarch64
+  until hfaFold answered scalars directly).
+- Next: stage check (36 walks in the inventory above).
 - Found on the way: freeing a deep structure recurses through destructors; decided as the program's responsibility
   (spec §18.2 note, docs `2ccb03d`), so the stages' tests release their deep types a link at a time, and the
   compiler must not drop a deep type graph whole either.
