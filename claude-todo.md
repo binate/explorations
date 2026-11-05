@@ -383,7 +383,7 @@ so whether these programs are valid is not decided.  Decide: such cycles judged 
 a conformance error test), or per member (a struct's fields and an interface's methods resolved one at a time on
 demand, with tests).
 
-### In a generic's own check, a constraint whose length depends on the generic's type parameter is judged with the placeholder length — valid programs rejected — 🔴 OPEN, DECIDED 2026-11-02: resolve per instance from source (invalid programs accepted too; found 2026-10-30, temp-5, reviews of the generic-function constraint fix; pre-existing)
+### In a generic's own check, a constraint whose length depends on the generic's type parameter is judged with the placeholder length — valid programs rejected — 🟡 IN PROGRESS (claimed 2026-11-04, temp-5; user: "go with your recs, and continue working"), DECIDED 2026-11-02: resolve per instance from source (invalid programs accepted too; found 2026-10-30, temp-5, reviews of the generic-function constraint fix; pre-existing)
 
 With `interface Eq[T any] { eq(o T) bool }`, `func inner[T Eq[[sizeof(U)]uint8], U any](t T) int`, `type G[T
 Eq[[sizeof(U)]uint8], U any] struct { t T }` and `impl *N : Eq[[8]uint8]`: `func fwd[U any](n *N) int { return
