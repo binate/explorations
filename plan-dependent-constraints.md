@@ -143,7 +143,8 @@ for every instance judgment, deferred ones included.  Section 8.
 Each lands alone and keeps the tree green; a deferral at the declaration (3.1) lands only with or after the
 instance judgment that makes up for it (3.2-3.4).
 
-1. **Impl interface lists from source** (3.4): fixes (C) and the uint8 overflow.
+1. **Impl interface lists from source** (3.4): fixes (C) and the uint8 overflow.  DONE, binate `d669cf25b`
+   (2026-11-05).
 2. **Attribution and duplicates** (3.5), so that the next step's new judgments read well and are not repeated.
 3. **Concrete instantiations judged where formed** (3.2): fixes sigb, the method signature, the impl list, sw4/W3.
 4. **`Self` in interface instances** (3.3).

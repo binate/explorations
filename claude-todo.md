@@ -458,6 +458,9 @@ instantiations); and inside an instance a deferred judgment sees every impl (Imp
 not only those visible where the instantiation is written (they differ only for an impl private to the generic's own
 package's `.bn`).
 
+Plan: explorations/plan-dependent-constraints.md (v3).  Step 1, an impl's interface list resolved per instance from
+source, DONE: binate `d669cf25b` (2026-11-05; see the done log).
+
 ### Inside a generic's instance, a type argument satisfies a constraint through an impl private to another package's `.bn` — 🔴 OPEN (an invalid program accepted; found 2026-11-04, temp-5, review of design C for the dependent-length constraints; reproduced on binate main `b52e54139`; pre-existing)
 
 Package r3lib's `.bni` declares `interface Tag[T any] { tag() int }`, `func inner[T Tag[[sizeof(X)]uint8], X

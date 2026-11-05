@@ -1,3 +1,17 @@
+### Dependent-length constraints, step 1: an impl's interface list resolved per instance from source — DONE (binate `d669cf25b`, 2026-11-05, temp-5; user: "wait 4 minutes, then go ahead") (step 1 of explorations/plan-dependent-constraints.md, for the open entry "In a generic's own check, a constraint whose length depends on the generic's type parameter …")
+
+An impl on a generic type whose interface list holds a length depending on the type's parameter (`impl *Box[K] :
+Eq[[sizeof(K)]uint8]`) was matched for an instance by substituting the arguments into its abstract types, which kept
+the length's placeholder: `var e *Eq[[8]uint8] = &b` (b a Box[int64]) was "cannot assign", the instance's impl check
+"does not implement Eq[[0]uint8]", and an error only one instance's list has (320 not fitting uint8) went unreported.
+binate `d669cf25b`: the impl records its declaration and scope; resolveImplForArgs resolves its receiver and list
+from a copy with the binders bound (as an instance, in the asking use's lender class); satisfaction probes read it from
+the instance's cache entry (implInstance, dropping only the errors in the impl's own declaration); the instance's impl
+check resolves it again, reports, and keeps the copy, from which IR-gen mints the vtable rows (genericImplRefs).  The
+review found, in the first version, spurious opaque-type errors across packages (instances named in the impl's lender
+class) and a lost error with an IR-gen panic (the probe dropped other instances' build errors); both fixed.  Tests:
+conformance spec/12-generics 152-155, unit tests in check_impl_instance_test.bn, the type-differential tests.
+
 ### A generic type's, interface's or alias's constraint that names a later type parameter is judged without that parameter's bound — DONE (binate `4b685d01b`, 2026-11-05, temp-5; user: "wait 12 minutes, then land") (found 2026-11-04, temp-5, review of the dependent-constraint plan; pre-existing)
 
 `type K4[T Hk[G2[V]], V Eq[[8]uint8]] struct { v V }` (G2's parameter bounded by `Eq[[8]uint8]`), and the same as an
