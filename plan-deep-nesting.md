@@ -100,6 +100,15 @@ recursive, so far more than 75).
     ifaceFullMethods.
   Mutually recursive walks (a walk calling a helper that calls it back) are not in the inventory; each part looks
   for them in the functions it converts.
+- Stage check parts 0 and 1 DONE: binate `4f72a70ba` (typeVisits indexed past 16 types) and `f524158f1` (the twelve
+  searches from a shared work list, typeWalk in check_type_stack.bn; each walk looks at its root itself and pushes
+  only its parts; containsDependentArray's 64-level cap removed; AggregateComparable / typeMentionsNamed /
+  containsDependentArray start a visited set after 32 steps), 2026-11-05.  1,950 error and type-rule conformance
+  programs' output, diagnostics and rc identical before and after; cmd/bnc's IR and objects identical.  Cost: about
+  +0.1% instructions compiling cmd/bnc, all from part 1 (part 0 neutral) -- the push / pop of the parts of a type
+  that has parts; down from +0.22% after a root step, fast paths for leaf roots and late visited sets.  Removing
+  the rest would need a stack of raw pointers.  User: "go ahead now, actually".
+- Next: stage check part 2 (the collectors with side effects).
 - Found on the way: freeing a deep structure recurses through destructors; decided as the program's responsibility
   (spec §18.2 note, docs `2ccb03d`), so the stages' tests release their deep types a link at a time, and the
   compiler must not drop a deep type graph whole either.
