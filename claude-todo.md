@@ -2869,7 +2869,7 @@ samples, under IR-gen's ensureInstantiated and matchInstanceCopy (irgen), with T
 NamedIdentityName under them, and the checker's keepInstanceBody, checkDuplicateDecls and collectDeclNames after.
 Fix: index IR-gen's instances by name (and the checker's remaining per-instance scans) as funcInstance's are.
 
-### bnfmt's time still grows exponentially with the nesting depth of calls and of keyed composites holding calls — 🔴 OPEN (the rest of the MAJOR "bnfmt takes ~96 s on nested calls and composites again", whose CI timeouts binate `cb3bb52e6` fixed; found 2026-11-03, temp-4, measuring that fix; user: "wait 11 minutes, then go ahead" to filing it on its own)
+### bnfmt's time still grows exponentially with the nesting depth of calls and of keyed composites holding calls — 🟡 IN PROGRESS (claimed 2026-11-05, temp-4, self-drive batch; user: "let's take them on, one by one") (the rest of the MAJOR "bnfmt takes ~96 s on nested calls and composites again", whose CI timeouts binate `cb3bb52e6` fixed; found 2026-11-03, temp-4, measuring that fix; user: "wait 11 minutes, then go ahead" to filing it on its own)
 
 A fill decision whose layouts span lines is checked against a second format (binate `b5e5bca15`): its layout is read
 back (print_reread.bn) and rendered at both of the element's places, and the decisions inside it are checked in turn,
