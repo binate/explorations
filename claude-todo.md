@@ -191,10 +191,14 @@ there, and no sharding fits them in a 45-min shard.  Their sizes are tied to con
 the int-int lane only, after timing every check test): binate `ab4a44959` skips there the 13 check tests taking 0.5 s or
 more on the single VM (113 of check's 119 s; all fast compiled), via pkg-binate-check.skip.builder-comp-int-int.
 INTINT_PARTS stays: check whole would still need ~90 min on CI.  With the skip, each check part (304-305 tests) took 7-9
-min of user CPU locally under the double VM, its load included -- ~19-23 min at CI's speed.  Open: confirm on CI that
-the int-int shards finish under 45 min.  In run 41592909161 shards 5 and 6 spent 22 min on their light and heavy
-batches before their check part, so those may still be tight (rebalance the light batch if so); irgen's part 2 (shard
-4) and shard 2's light batch also hit the cap there, not yet looked at.
+min of user CPU locally under the double VM, its load included -- ~19-23 min at CI's speed.  Landed binate `d25871bb5`
+(2026-11-04, work-3; user: "yes to both", then "wait 8 minutes, then land"): run 41938392436 showed the shards
+disagreeing about their share -- the runner listed packages in find's (per-runner) order, so check's part 1 ran on two
+shards, neither link part ran, and some light packages ran twice or never -- now sorted; the lane drops format (~325 s
+of tests on the single VM), asm/* (macho ~100 min on CI, assemble ~23, elf ~18) and cmd/bnc (~30) by skip-pkg markers;
+and its light packages go to the shards by cost (INTINT_LIGHT_COST / INTINT_PART_COST in run.sh), every shard ~32-37
+min by the estimates (simulated with a stub runner, under dash too).  Open: confirm on the next completed unit run
+that every int-int shard finishes under 45 min, and correct INTINT_*_COST from the measured times if not.
 
 ### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🔴 NEEDS DECISION, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
