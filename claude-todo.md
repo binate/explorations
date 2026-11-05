@@ -21,7 +21,7 @@ is copied into it, would do this.  Not yet root-caused.  Next: run interp's test
 
 ## MAJOR
 
-### bnfmt prints a `*` dereference tight against an array literal, which the parser reads as a raw-slice literal's start — 🔴 OPEN (MAJOR: bnfmt writes files that no longer parse; found 2026-11-04, temp-4, review of the header array-literal parentheses fix; pre-existing)
+### bnfmt prints a `*` dereference tight against an array literal, which the parser reads as a raw-slice literal's start — 🟡 IN PROGRESS (claimed 2026-11-04, temp-4, folded into the fix for the header array-literal parentheses; user: "Around the literal (Recommended)") (MAJOR: bnfmt writes files that no longer parse; found 2026-11-04, temp-4, review of the header array-literal parentheses fix; pre-existing)
 
 printUnary (print_expr.bn) writes its operator tight against the operand, and bnfmt drops the parentheses around a
 primary, so `x := *([2]*int{p, q})[0]` prints `x := *[2]*int{p, q}[0]`, and `*([...]int{1})` prints
