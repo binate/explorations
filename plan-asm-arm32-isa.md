@@ -375,7 +375,9 @@ Steps:
   vqrshrn / vqshrun / vqrshrun (Dd, Qm, #1..e/2), vshll (#1..e-1, and by the size: its other encoding, .I / .S /
   .U) and vmovl (vshll #0), the matcher's VSHLL ranges (named, "[1,7]" .. "[1,31]", "[8,8]" .. "[32,32]").  ~30,000
   cases against clang agree but a condition; ~330 more in review, which found no bug.  The core sweep's case lists,
-  lost to the scratchpad's cleanup, were regenerated from the session transcript (20,026 cases, none changed).
+  lost to the scratchpad's cleanup, were regenerated from the session transcript (none changed by this part) and
+  now live in binate's scripts/bnas-sweep (`66f39a558`): `sweep.py <old bnas> <new bnas>` over 14,087 cases, by
+  class, reporting changed objects (sections, relocations, symbols), changed errors and crashes.
   Part 3: NEON's fixed-point vcvt.
 - 4d. Two registers, miscellaneous: vrev16 / 32 / 64, vpaddl / vpadal, vcls / vclz / vcnt, vmvn, vqabs / vqneg, vabs
   / vneg, the comparisons with #0, vswp / vtrn / vuzp / vzip, vmovn / vqmovn / vqmovun, NEON's
