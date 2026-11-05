@@ -21,6 +21,25 @@ is copied into it, would do this.  Not yet root-caused.  Next: run interp's test
 
 ## MAJOR
 
+### bnfmt prints a `*` dereference tight against an array literal, which the parser reads as a raw-slice literal's start — 🔴 OPEN (MAJOR: bnfmt writes files that no longer parse; found 2026-11-04, temp-4, review of the header array-literal parentheses fix; pre-existing)
+
+printUnary (print_expr.bn) writes its operator tight against the operand, and bnfmt drops the parentheses around a
+primary, so `x := *([2]*int{p, q})[0]` prints `x := *[2]*int{p, q}[0]`, and `*([...]int{1})` prints
+`*[...]int{1}`; the parser takes `*` then `[` as a raw-slice literal (binate.ebnf D3: a bare `*[` not followed by
+`]` is an error) and rejects them (`expected ], got INT`; bnfmt `bnc-0.0.17-pre3` and the tree's).  In a header the
+D4 parentheses hide it; the fix for the header array-literal parentheses would expose it there.  Fix: parenthesize
+an array literal printed right after a unary `*` (`*([2]*int{p, q})[0]`, as a header prints it now), or the whole
+operand of a `*` that starts with one (`*([2]*int{p, q}[0])`); tests: goldens in a statement and in a header.
+
+### bnfmt drops the parentheses around a type switch's composite-literal scrutinee, writing a file that no longer parses — 🔴 OPEN (MAJOR: bnfmt writes files that no longer parse; found 2026-11-04, temp-4, review of the header array-literal parentheses fix; pre-existing)
+
+printTypeSwitch (print_switch.bn) prints its scrutinee with printExpr, outside the header's D4 context, as its
+comment says parseTypeSwitchTail forbids a composite literal there.  It does not (parse_assert.bn takes any
+scrutinee), so `switch (S{1}).(type) {` and `switch v := (S{1}).(type) {` print `switch S{1}.(type) {`, whose `{`
+the parser takes as the block's (`expected default, got INT`; bnfmt `bnc-0.0.17-pre3` and the tree's).  Fix: print
+the scrutinee with printExprCond, so D4 applies, and correct the comment; tests: goldens with a type-name literal
+scrutinee, with a binder and without.
+
 ### bnfmt drops the parentheses around a raw-slice literal that a postfix operator follows, writing a file that no longer parses — 🟡 IN PROGRESS (claimed 2026-11-04, temp-4, folded into the fix for the header array-literal parentheses; user: "Fold it in (Recommended)") (MAJOR: bnfmt writes files that no longer parse; found 2026-11-04, temp-4, probes for the header array-literal parentheses entry; pre-existing)
 
 A raw-slice literal is a UnaryExpr, not a PrimaryExpr (binate.ebnf: `UnaryExpr = … | RawSliceLiteral`), so a postfix
