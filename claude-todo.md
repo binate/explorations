@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### bnfmt drops the parentheses around a type switch's composite-literal scrutinee, writing a file that no longer parses — 🔴 OPEN (MAJOR: bnfmt writes files that no longer parse; found 2026-11-04, temp-4, review of the header array-literal parentheses fix; pre-existing)
+### bnfmt drops the parentheses around a type switch's composite-literal scrutinee, writing a file that no longer parses — 🟡 IN PROGRESS (claimed 2026-11-04, temp-4; user: "Next, own commit (Recommended)") (MAJOR: bnfmt writes files that no longer parse; found 2026-11-04, temp-4, review of the header array-literal parentheses fix; pre-existing)
 
 printTypeSwitch (print_switch.bn) prints its scrutinee with printExpr, outside the header's D4 context, as its
 comment says parseTypeSwitchTail forbids a composite literal there.  It does not (parse_assert.bn takes any
