@@ -2797,7 +2797,7 @@ has the same gap.
 
 ## bnfmt (self-hosted formatter)
 
-### The parser accepts a type switch whose scrutinee is not a postfix expression (`switch a + b.(type)`, `switch *p.(type)`) — 🔴 OPEN (minor: ill-formed code accepted; found 2026-11-04, temp-4, probing the type-switch scrutinee fix; pre-existing)
+### The parser accepts a type switch whose scrutinee is not a postfix expression (`switch a + b.(type)`, `switch *p.(type)`) — 🟡 IN PROGRESS (claimed 2026-11-05, temp-4, self-drive batch; user: "let's take them on, one by one") (minor: ill-formed code accepted; found 2026-11-04, temp-4, probing the type-switch scrutinee fix; pre-existing)
 
 binate.ebnf and spec `stmt.type-switch` take `"switch" [ identifier ":=" ] PostfixExpr "." "(" "type" ")"`, but
 parseSwitchStmt (parse_stmt.bn) parses the tag, or the binder's scrutinee, as a whole expression and then looks for
