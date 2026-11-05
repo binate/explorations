@@ -1,3 +1,16 @@
+### pkg/binate/interp's unit tests corrupt the heap on Linux — "malloc(): unaligned tcache chunk detected", every unit lane red -- DONE (binate `783338d19`, 2026-11-04, work-3; user: "look into the corruption", then "wait 8 minutes, then go ahead")
+
+Not from work-3's batch's code: RunFuncTyped / CallIfaceMethod passed a by-value struct argument holding a managed
+reference by the address of the host Value's own image, while a Binate callee owns such a parameter (a caller hands
+it a field-RefInc'd copy, `__copy_T`) and destroys it -- so the call consumed the Value's references and the host's
+Release() dropped them again.  The batch's TestRunFuncTypedLargeStruct was the first test to pass such a struct;
+macOS Guard Malloc (DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib) stopped in it.  marshalArgs now passes such an
+argument as a copy whose references it RefIncs (ownedArgCopy / retainImage), and a call that would not start (a nil
+receiver; a VM function whose first frame does not fit the stack) is refused before any copy is made (the VM's
+FuncStartError / IfaceMethodStartError), so the host never releases a copy.  Two review rounds (the first found a
+leak and a narrow double free in an earlier, after-the-call release; the second a test frame that fit the stack on
+ILP32).  The compiled-caller counterpart (a trampoline whose VM callee's entry frame does not fit) is its own entry.
+
 ### VM: a closure's narrow captures are read as whole words — a negative int8 / int16 / int32 capture compares wrong, and a sub-word one carries its neighbour's bytes — DONE (binate `f76c2b674`, 2026-11-04, work-1; user: "yes") (MAJOR: silent wrong values in every VM mode; main's VM conformance lanes red on 1734 since binate `8786e4cae`; found 2026-11-04, work-1, validation of the deep-nesting types walks)
 
 `var a int32 = -5; g := func() bool { return a == -5 }; g()` printed false under the VM, as did an `int8`

@@ -5,20 +5,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### pkg/binate/interp's unit tests corrupt the heap on Linux — "malloc(): unaligned tcache chunk detected", every unit lane red — 🟡 IN PROGRESS (claimed 2026-11-04, work-3; user: "look into the corruption") (CRITICAL: heap corruption; found 2026-11-04, work-3, reading main's CI; probably work-3's batch)
-
-Every Linux unit lane (builder-comp, -comp-comp, -comp-comp-comp, -int 2/6 and 3/6, -comp-comp-int 2/6 and 3/6,
-native_x64, arm32_linux) fails pkg/binate/interp with glibc's "malloc(): unaligned tcache chunk detected" / Aborted,
-after TestNewEmptyPkgsDefaultsToStandard passes (the test after it is TestNewCustomPkgsRespected; glibc reports at a
-later malloc, not at the bad write).  macOS (native aa64, unit) passes: its malloc does not check.  The last unit run
-that finished before work-3's batch (a67c67d8c) passed interp; the first after it (cb3bb52e6, run 41676179815) and
-every run since fail it -- the runs between were cancelled, so other commits in a67c67d8c..cb3bb52e6 are not ruled out.
-Prime suspects, both on this path: binate `e04c54ea7` (RunFuncTyped / CallIfaceMethod take aggregate results of any
-size: the host's retbuf sized by abi.AggregateReturnSize, the trampolines copying the callee's ResultRetbufBytes) and
-`d0a278594` (CallFuncAggregate copies the image's natural size).  A write past a retbuf, or a retbuf sized below what
-is copied into it, would do this.  Not yet root-caused.  Next: run interp's test binary under macOS libgmalloc
-(DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib) or in the binate-ci Docker image, which stops at the bad write.
-
 ## MAJOR
 
 ### bnfmt prints a `*` dereference tight against an array literal, which the parser reads as a raw-slice literal's start — 🟡 IN PROGRESS (claimed 2026-11-04, temp-4, folded into the fix for the header array-literal parentheses; user: "Around the literal (Recommended)") (MAJOR: bnfmt writes files that no longer parse; found 2026-11-04, temp-4, review of the header array-literal parentheses fix; pre-existing)
