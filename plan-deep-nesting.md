@@ -80,7 +80,26 @@ recursive, so far more than 75).
   IR (3 targets), native objects (3 targets) and 169 ABI-shaped conformance tests' IR (3 targets) identical before
   and after; instructions retired within the run-to-run spread (the first version cost +0.8% on native aarch64
   until hfaFold answered scalars directly).
-- Next: stage check (36 walks in the inventory above).
+- Stage check: IN PROGRESS (2026-11-04, work-1).  Inventory (self-recursive on a type's parts, a lower bound): 47,
+  of which 12 walk SYNTAX and are left to step 2's nesting limit (collectTypeExprNames, collectTypeExprConstDeps,
+  checkBniValueEmbedding, typeHasNodeAt, typeMentionsIota, typeExprNames, checkValueEmbedding, listBatchDecls,
+  expandWalkType, fieldPath, copyTypeExprStamps, declaredType).  The 35 semantic ones, in parts (one commit each):
+  - Part 0: `typeVisits` (the visited set most walks share) scans a list, so a walk entering n types is O(n^2) --
+    a 200,000-deep type would hang instead of crash.  Keep the scan for a few entries, then index the addresses in
+    a `pkg/std/set` (in the BUILDER bundle).  Check the other visit structures (layoutVisits, opaqueWalk) likewise.
+  - Part 1, searches over parts: holdsErrTypeByValueIn, containsTypeParam, containsDependentArrayDepth,
+    containsByValueTypeParamIn, typeMentionsNamed, typeMentionsParam, typeReachesNamedByValue,
+    layoutDependsOnTypeParamIn, mentionsTypeParamIn, mentionsTypeWhere, holdsItselfIn, AggregateComparable.
+  - Part 2, collectors with side effects (order kept exactly): collectLiteralTypes, ensureMembersIn,
+    collectTypeInstances, collectExportOwners, prepareLayoutIn, instanceNotBuiltOf.
+  - Part 3, pairwise: identicalUpToDependentDepth, unsafeRetypeIn, DropsConstStrict, addsReadonlyAt, AssignableTo.
+  - Part 4, transformers rebuilt bottom-up from a stack: substituteTypeParams, substituteSelf,
+    peelNamedKeepReadonly; and instTypeHash's fold.
+  - Part 5, the opaque walks: embedsOpaqueByValueSeen, partsPointToOpaqueEmbedding, funcSignaturesSized,
+    ifaceSignaturesKept, partsMayBreak, aliasIfacesKept.  Part 6, interface parents: mergeIfaceMethods,
+    ifaceFullMethods.
+  Mutually recursive walks (a walk calling a helper that calls it back) are not in the inventory; each part looks
+  for them in the functions it converts.
 - Found on the way: freeing a deep structure recurses through destructors; decided as the program's responsibility
   (spec §18.2 note, docs `2ccb03d`), so the stages' tests release their deep types a link at a time, and the
   compiler must not drop a deep type graph whole either.
