@@ -1,3 +1,10 @@
+### conformance 1733_stack_overflow_in_eq_helper times out on builder-comp_arm32_linux_int -- DONE (binate `139823df9`, 2026-11-04, work-3; user: "Look into 1733", then "yes to both")
+
+Only slow: each recursion level compared two S8 (512 leaves, 31 helper calls; struct equality does not
+short-circuit), 1.9 s on the host VM, past the lane's 20 seconds a test under qemu.  It now compares two S4 through
+S4's helper (32 leaves, one call; the helper's frame still larger than rec's, so the overflow lands in it): 0.14 s
+on the host VM, 6 s on the arm32 Linux VM lane (Docker).
+
 ### bnfmt parenthesizes a bare array or slice literal in a block's header -- DONE (binate `f668dbd23`, 2026-11-04, temp-4; user: "let's remove the optional parens next", then "yes, go ahead") (🟢 LOW; found 2026-11-03, temp-4, the fix for composite literals in a builtin call in a header)
 
 bnfmt parenthesized every composite literal at the left edge of an `if` / `for` / `switch` header (D4), so `for v

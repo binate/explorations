@@ -1316,14 +1316,6 @@ Related, in a `.bn`: `const K = len(V); var V T; type T [K]int` (the variable be
 be slice or array" and "the initializer of constant `K` is not a constant expression" (V's type T is still being
 collected when K reads it), where with the type first it is "cyclic type definition involving `T`".
 
-### conformance 1733_stack_overflow_in_eq_helper times out on builder-comp_arm32_linux_int — 🟡 IN PROGRESS (claimed 2026-11-04, work-3; user: "Look into 1733") (minor: a CI lane red; found 2026-11-04, work-3, reading main's CI)
-
-The VM stack-overflow test that landed with `17969ce1b` (a deep recursion through a struct's `__eq_` helper, expected
-to stop with "stack overflow") prints `before` and then times out on the arm32 Linux VM lane (qemu; CI run
-41789394763, job "builder-comp_arm32_linux_int 3/3"), where 1105_stack_overflow passes.  It was not run on that lane
-before landing.  Find whether it is only slow there (each level compares a large struct before recursing) or does
-not stop, then make the recursion cheaper or fix what does not stop -- not an xfail unless the lane cannot run it.
-
 ### VM: a compiled caller's owned struct argument leaks when the VM callee's first frame does not fit the stack — 🔴 OPEN (a leak on a fault path; found 2026-11-04, work-3, a review of the interp owned-argument fix; read, not reproduced)
 
 A compiled caller hands a VM function value an argument the callee owns (a struct holding a managed reference: a
