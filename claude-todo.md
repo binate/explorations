@@ -1180,21 +1180,6 @@ annotations: `#[build]`, `#[c_export]`); whether it constrains the function's ow
 inlining of it, or both; what the VM does (its frames are never removed); and whether `debug.Callers`
 should then promise those frames.
 
-### A generic type's, interface's or alias's constraint that names a later type parameter is judged without that parameter's bound: valid programs rejected — 🟡 IN PROGRESS (claimed 2026-11-04, temp-5; user: "Go with your recs") (minor: a valid program rejected; found 2026-11-04, temp-5, review of the dependent-constraint plan; reproduced on binate main `b52e54139`; pre-existing)
-
-With `interface Hk[T any] { hk() int }`, `type G2[A Eq[[8]uint8]] struct { a A }` and `interface Eq[T any] { eq(o T)
-int }`: `type K4[T Hk[G2[V]], V Eq[[8]uint8]] struct { v V }`, `interface K6[T Hk[G2[V]], V Eq[[8]uint8]] { m() int
-}` and `type K7[T Hk[G2[V]], V Eq[[8]uint8]] = G2[V]` are each "type argument V does not satisfy constraint
-Eq[[8]uint8]" at the declaration, though spec gen.typeparams.scope lets every constraint in the list name every
-parameter of it, a later one too.  The function form (`func k4f[T Hk[G2[V]], V Eq[[8]uint8]](t T) int`) and the
-reversed order (`type K5[V Eq[[8]uint8], T Hk[G2[V]]]`) are accepted.  Not root-caused: T's constraint seems to be
-judged before V has its bound.  The comment in `instantiateGenericFunc` (check_generic.bn: "a forward reference
-`use[T Container[X], X any]` is already rejected at decl time by installTypeParamScope's in-order scoping") does not
-match functions either, which accept it.  Fix: give each parameter its bound before any constraint in the list is
-judged, for types, interfaces and aliases as for functions, with a test of each form.  The dependent-constraint plan
-(explorations/plan-dependent-constraints.md) needed later parameters' bounds for its bound rule, which design C
-(decided 2026-11-04) drops.
-
 ### A cycle through a generic's layout is reported once at each place that reads it — 🔴 OPEN (minor: one cycle reported twice; found 2026-10-28, work-7, review of the constant form of the abstract-declaration wait; reproduced on main for a type being collected; pre-existing)
 
 `type Cyc[T any] struct { v T; a [sizeof(Cyc[T])]uint8 }` with `type N struct { v int64; a [sizeof(Cyc[int8])]uint8

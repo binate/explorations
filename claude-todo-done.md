@@ -1,3 +1,21 @@
+### A generic type's, interface's or alias's constraint that names a later type parameter is judged without that parameter's bound — DONE (binate `4b685d01b`, 2026-11-05, temp-5; user: "wait 12 minutes, then land") (found 2026-11-04, temp-5, review of the dependent-constraint plan; pre-existing)
+
+`type K4[T Hk[G2[V]], V Eq[[8]uint8]] struct { v V }` (G2's parameter bounded by `Eq[[8]uint8]`), and the same as an
+interface and an alias, were "type argument V does not satisfy constraint Eq[[8]uint8]", though spec
+gen.typeparams.scope lets a constraint name a later parameter: defineTypeParams resolved the list's constraints in
+order and judged each instantiation at once, before V had its bound (a function's constraints, resolved while
+declarations are collected, were deferred anyway).  binate `4b685d01b`: resolveTypeParamConstraints records the
+constraint checks a list's constraints make (listDefersConstraints) and makes them once every parameter has its bound
+(replayPendingChecks, split out of recheckDeferredConstraints); only the constraint check waits, so an instantiation
+in a constraint is otherwise user-facing where it is named.  Two reviews found, in its first versions, misses lost
+when the replay latched in a layout frame that waits for a layout (the check itself can make it wait: the replay now
+undoes the latch, unmarkConstraintsChecked), an interface instance's size error lost and then reported twice, and
+(the unit tests) `Self` arguments judged twice.  Tests: conformance spec/12-generics 149 (valid: type with and
+without methods, interface, alias, method, impl, function, a generic call in a constraint's length), 150 and 151
+(misses, in blocked builds too), and unit tests in check_deferred_constraints_test.bn.  Left open, found by the
+reviews: a constraint miss lost when an instance waits for a layout (the same latch flaw in
+checkNewInstanceConstraints), and an instance's check seeing other packages' private impls.
+
 ### bnfmt drops the parentheses around a type switch's composite-literal scrutinee, writing a file that no longer parses -- DONE (binate `386577b4f`, 2026-11-05, temp-4; user: "Next, own commit (Recommended)", then "yes, go for it") (MAJOR: bnfmt wrote files that no longer parsed; found 2026-11-04, temp-4, review of the header array-literal parentheses fix; pre-existing)
 
 printTypeSwitch printed its scrutinee with printExpr, outside the header's D4 context, so `switch (S{1}).(type) {`
