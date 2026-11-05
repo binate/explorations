@@ -201,6 +201,12 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
     (`vmul.i16 d0, d1, d2[[0]]` and `svc #[1]` assemble in clang).  In a NEON lane clang's messages differ for
     `d2[1 ? 2 : 3]` ("']' expected"), `d2[3 / 0]` and `d2[undef-undef]` ("immediate value expected for vector
     index"), `d2[0x]` ("invalid hexadecimal number").  Found by step 4b part 2's review.
+  - An operand the matcher reads (arm32_match_ops.bn) does not report clang's "directional label undefined" for
+    a backward local label with no definition before it (`vshr.s8 d0, d1, #1b`, `vcvt.f32.s32 s0, s0, #1b`,
+    `vldr d0, [r0, #1b]`): it is no constant there, so the range's or the operand's message instead (a bare
+    `vldr d0, 1b` is right).  And an undefined symbol minus itself (`#und-und`) is "a difference of locations in
+    different sections or atoms is not a number" here, clang's operand message ("operand must be an immediate in
+    the range [1,8]").  Found by step 4c part 1's review.
 
 ## Stage 3: VFP (asm/arm32/vfp)
 
