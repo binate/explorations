@@ -118,7 +118,29 @@ recursive, so far more than 75).
   Decision (user, 2026-11-05): "Both, limit first" -- step 3's type-depth limit now, so nothing crashes or hangs; then
   the remaining conversions (check part 2 on) and the memoization of per-type answers across declarations as later
   stages.
-- Next: step 3, the type-depth limit (design questions to the user first).
+- Step 3, the type-depth limit -- decisions (user, 2026-11-05): measure "Every part (Recommended)"; value "1024, at
+  least 256 (Recommended)"; checked at "Each declaration (Recommended)".  Design:
+  - The measure: a type's nesting depth is the number of types in the longest chain of types each a part of the one
+    before -- an element (pointer, slice, array, readonly, interface value), a field, a parameter or result, a type
+    argument, an interface's method signature or parent -- where a named type counts as its underlying type and an
+    alias as what it denotes (so each `type Ti struct { n Ti+1 }` adds one level), and a chain ends where it reaches a
+    type already on it (a cycle, through a pointer, slice or function type).
+  - Where: a pass over a batch's declarations (checkTypeDepths) right after collection, before checkValueEmbedding --
+    the four callers of collectDecls + checkValueEmbedding (package, file, REPL, pending decls).  A profile of 8,000-
+    deep chains, declared top-first and bottom-first, puts ~99% of the time in checkValueEmbedding's checks
+    (requireSizedType -> layoutDependsOnTypeParam, typeReachesNamedByValue); collection itself is cheap, so no check
+    during collection is needed.  Generic declarations are skipped (their instances are bounded by the
+    instantiation-chain limit); aliases are not types of their own.
+  - How: depths computed with no recursion (an explicit stack of frames, post-order), memoized per type for the
+    batch; a type on the current path contributes nothing (the cycle cut).  A named type whose depth passes 1024 is
+    reported at its declaration ("type T nests too deeply: more than 1024 levels") and poisoned -- its underlying
+    becomes the error type, as a type holding itself by value has its field poisoned -- so the types holding it stop
+    there: one error per chain, at the type where it passes the limit, and the later walks see a bounded type.
+  - Spec: a new rule in the type-declaration section (decl or type chapter) and a §21.4 row ("Maximum nesting depth
+    of a type ... (an implementation limit, conf.implementation.limits; at least 256)"), focused review of the edit.
+  - Tests: conformance -- a chain at the limit compiles; one past it is an error (by-value structs, a pointer chain,
+    an interface method chain, a chain passing the limit inside an inline type); check unit tests of the depth
+    computation (cycles, DAGs, memo).
 - Found on the way: freeing a deep structure recurses through destructors; decided as the program's responsibility
   (spec §18.2 note, docs `2ccb03d`), so the stages' tests release their deep types a link at a time, and the
   compiler must not drop a deep type graph whole either.
