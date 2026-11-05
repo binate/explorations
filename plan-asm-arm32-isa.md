@@ -156,6 +156,8 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
   - clang reads a floating-point literal in any expression as its IEEE binary64 bit pattern (`mov r0, #0.0` is
     E3A00000; `.long` and every architecture's immediates the same); bnas's expression parser takes one only as
     VCMP's zero (Parser.ExprZeroReals, a zero literal as 0).  Needs an exact decimal-to-binary64 conversion.
+    A NEON lane the same (found in step 4b): clang keeps the pattern's low 32 bits, so `vmul.i16 d0, d1, d2[1.0]`
+    is lane 0, where bnas takes a floating-point lane as none (the matcher keeps an integer lane's low 32 bits).
 
 - Outside the steps, found in step 3b:
   - AArch64 FMOV's immediate: LLVM rounds the literal to IEEE binary64 first (every size), then wants an exact
