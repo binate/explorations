@@ -1,3 +1,42 @@
+### Constraint calls through `impl *P` / `impl @M` give wrong results — DONE (binate `b52e54139`, docs `bfdc85d`, examples `3224050`, 2026-11-04, temp-5; user: "wait 3 minutes, then go ahead") (found 2026-09-30, work-4, review of design B's per-instance checking; pre-existing)
+
+```
+type P struct { v int }
+impl *P : lang.Comparable
+func (s *P) Compare(o P) int { return s.v - o.v }   // Self was the named type P
+func eq[T lang.Comparable](a T, b T) bool { return a.Compare(b) == 0 }
+// eq[*P](&p1, &p2) with p1.v == p2.v == 3
+```
+bnc-0.0.16 printed `false` for equal values (silent wrong code, the `@M` analogue too); after design B's
+per-instance body check (binate `fe95d7de8`) the instance was rejected inside the generic with a misleading
+`cannot assign PP to P (in eq[PP], …)`.  `*P` satisfied the constraint while `Self` was the named type `P`, so a
+constraint call passed a `*P` where the method took a `P`.  Reconciling at lowering could not work with `Self`
+inside a type argument (`OBox[*P]` and `OBox[P]` differ in layout), and `impl *P : I` with `Put(b *OBox[Self])`
+could not be written at all.  The checker also answered satisfaction two ways: a plain impl's receiver had to
+equal the type argument, while a parameterized impl's was matched with receiver smoothing (`impl *W[K]` made
+`W[int]` satisfy).
+
+Decided by the user ("Go with your recs, but get focused adversarial reviews of them", 2026-11-01; "Go with your
+recs", 2026-11-02; "(a) sounds fine", 2026-11-03) and landed in binate `b52e54139`:
+- `Self` is the impl's receiver type with only an outer `readonly` dropped (check `implSelf`): `*P` for `impl *P`,
+  `@M` for `impl @M`, `*readonly P` for `impl *readonly P`, `*Q` for `impl readonly *Q`, `P` for `impl P` and
+  `impl readonly P`.  So `impl *P : lang.Comparable` takes `Compare(o *P)`, a type has one receiver shape per
+  `Self`-using interface, and a value-producing `Self` method (`Clone() Self`) belongs on `impl P`.
+- A type argument satisfies a constraint through an impl only when it is exactly that impl's receiver
+  (`constraintRecvMatches` = `sigTypeIdenticalStrict`): no receiver smoothing, `readonly` significant below the
+  outermost level, parameterized impls included -- `impl *Cursor[T]` makes only `*Cursor[int]` satisfy Iterator.
+  The type argument's own outer `readonly` is still ignored (the open `readonly T` entry).
+- A value impl cannot use a method with a raw-pointer receiver (`receiverTakesAddress`: "method `M` has a pointer
+  receiver, which an impl on a value receiver cannot use"), so every call through a constraint works on any
+  receiver.
+- A wrong-signature error says what `Self` is, and the note naming a private impl (`hiddenImplPkg`) matches
+  receivers as satisfaction does.
+Interface-value construction and method-call smoothing did not change.  Tests: conformance spec/11-interfaces
+108-110 and spec/12-generics 145-148 (each failing before the change and passing after), and the existing
+conformance and unit tests moved to the rule.  Spec: docs `bfdc85d` (§10.5, §11.3, §11.9, §12.1, §12.3, §12.4 and
+the index; the Provisional notes on the pointer-receiver impl shape removed).  Examples: `3224050` (containers
+README and tally.bni prose).
+
 ### bnfmt moves a comment in a block's header into the block — DONE (binate `79fb50f9c`, 2026-11-03, temp-4; user: "wait 4 minutes, then go ahead") (found 2026-11-01, temp-4, probing the signature-comment bullet; pre-existing)
 
 A comment between a statement's or a type's header and its `{`, or after the `{` on its line, or elsewhere in an
