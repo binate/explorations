@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### bnfmt drops the parentheses around a decimal integer literal that a `.` postfix follows, writing a file that no longer parses — 🔴 OPEN (MAJOR: bnfmt writes files that no longer parse; found 2026-11-04, temp-4, review of the type-switch scrutinee fix; pre-existing)
+### bnfmt drops the parentheses around a decimal integer literal that a `.` postfix follows, writing a file that no longer parses — 🟡 IN PROGRESS (claimed 2026-11-04, temp-4, folded into the type-switch scrutinee fix; user: "Fold it in (Recommended)") (MAJOR: bnfmt writes files that no longer parse; found 2026-11-04, temp-4, review of the type-switch scrutinee fix; pre-existing)
 
 bnfmt drops a primary's parentheses, and printPostfixHead (print_expr.bn) puts them back only around a binary,
 unary or raw-slice head, so `var s = (1).String()` prints `var s = 1.String()` and `x := (1).y` prints `x := 1.y`;
