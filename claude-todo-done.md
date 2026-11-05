@@ -1,3 +1,20 @@
+### bnfmt drops the parentheses around a type switch's composite-literal scrutinee, writing a file that no longer parses -- DONE (binate `386577b4f`, 2026-11-05, temp-4; user: "Next, own commit (Recommended)", then "yes, go for it") (MAJOR: bnfmt wrote files that no longer parsed; found 2026-11-04, temp-4, review of the header array-literal parentheses fix; pre-existing)
+
+printTypeSwitch printed its scrutinee with printExpr, outside the header's D4 context, so `switch (S{1}).(type) {`
+printed as `switch S{1}.(type) {`, which does not parse; the parentheses of a binary, unary or raw-slice scrutinee
+went too, though the grammar takes a PostfixExpr before `.(type)` (the parser's leniency there is its own entry).
+binate `386577b4f`: printTypeSwitch prints the scrutinee as the head of the `.(type)` postfix (printDotHead) in the
+D4 context, and leaves room for `.(type) {` and the comments around it, as the other headers do (the review found
+a scrutinee 8 bytes over the cap); TestTypeSwitchScrutineeParens and TestTypeSwitchScrutineeLeavesRoom.
+
+### bnfmt drops the parentheses around a decimal integer literal that a `.` postfix follows, writing a file that no longer parses -- DONE (binate `386577b4f`, 2026-11-05, temp-4; user: "Fold it in (Recommended)", then "yes, go for it") (MAJOR: bnfmt wrote files that no longer parsed; found 2026-11-04, temp-4, review of the type-switch scrutinee fix; pre-existing)
+
+`(1).String()` printed as `1.String()`, which the lexer reads as the float `1.` then `String`.  binate `386577b4f`:
+printDotHead (print_expr.bn), the head printer of a selector, a type assertion and a type switch, parenthesizes a
+number literal that the `.` would lex differently after: an integer with no `0x` / `0o` / `0b` prefix, and a float
+ending in `.` (`(1.).y`, which printed as `1..y`).  An index or call head stays bare (`10295[i]`).
+TestPrintExprNumberLitHead.
+
 ### conformance 1733_stack_overflow_in_eq_helper times out on builder-comp_arm32_linux_int -- DONE (binate `139823df9`, 2026-11-04, work-3; user: "Look into 1733", then "yes to both")
 
 Only slow: each recursion level compared two S8 (512 leaves, 31 helper calls; struct equality does not

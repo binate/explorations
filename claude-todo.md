@@ -7,23 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### bnfmt drops the parentheses around a decimal integer literal that a `.` postfix follows, writing a file that no longer parses — 🟡 IN PROGRESS (claimed 2026-11-04, temp-4, folded into the type-switch scrutinee fix; user: "Fold it in (Recommended)") (MAJOR: bnfmt writes files that no longer parse; found 2026-11-04, temp-4, review of the type-switch scrutinee fix; pre-existing)
-
-bnfmt drops a primary's parentheses, and printPostfixHead (print_expr.bn) puts them back only around a binary,
-unary or raw-slice head, so `var s = (1).String()` prints `var s = 1.String()` and `x := (1).y` prints `x := 1.y`;
-the lexer reads `1.` as a float, and the parser rejects both (bnfmt `bnc-0.0.17-pre3` and the tree's).  `0x1`,
-`1.5` and other literal heads are fine.  Fix: printPostfixHead also parenthesizes a decimal integer literal head
-(one with no `0x` / `0o` / `0b` prefix); tests: goldens for selector, method-call and type-assertion heads.
-
-### bnfmt drops the parentheses around a type switch's composite-literal scrutinee, writing a file that no longer parses — 🟡 IN PROGRESS (claimed 2026-11-04, temp-4; user: "Next, own commit (Recommended)") (MAJOR: bnfmt writes files that no longer parse; found 2026-11-04, temp-4, review of the header array-literal parentheses fix; pre-existing)
-
-printTypeSwitch (print_switch.bn) prints its scrutinee with printExpr, outside the header's D4 context, as its
-comment says parseTypeSwitchTail forbids a composite literal there.  It does not (parse_assert.bn takes any
-scrutinee), so `switch (S{1}).(type) {` and `switch v := (S{1}).(type) {` print `switch S{1}.(type) {`, whose `{`
-the parser takes as the block's (`expected default, got INT`; bnfmt `bnc-0.0.17-pre3` and the tree's).  Fix: print
-the scrutinee with printExprCond, so D4 applies, and correct the comment; tests: goldens with a type-name literal
-scrutinee, with a binder and without.
-
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
 Freeing a long chain through managed-slices (`type Cell struct { rest @[]Cell; v int }`, 300,000 links, the last
@@ -2827,8 +2810,8 @@ has the same gap.
 binate.ebnf and spec `stmt.type-switch` take `"switch" [ identifier ":=" ] PostfixExpr "." "(" "type" ")"`, but
 parseSwitchStmt (parse_stmt.bn) parses the tag, or the binder's scrutinee, as a whole expression and then looks for
 `.(type)`, so `switch a + b.(type) {`, `switch *p.(type) {` and `switch -x.(type) {` parse as type switches on
-`a + b`, `*p` and `-x`.  bnfmt has printed a parenthesized scrutinee of those kinds that way (the type-switch
-scrutinee MAJOR's fix puts the parentheses back), so files it formatted may hold the form: check the tree before
+`a + b`, `*p` and `-x`.  bnfmt printed a parenthesized scrutinee of those kinds that way before binate
+`386577b4f`, so files it formatted may hold the form (the tree held none at that commit): check again before
 rejecting it.  Fix: reject a scrutinee that is a binary or unary expression or a raw-slice literal unless it is
 parenthesized (ast.Expr.Parenthesized); tests: parser tests rejecting each, and accepting the parenthesized forms.
 
