@@ -490,6 +490,19 @@ All -- or, at least, never through an impl private to a package other than the g
 for the dependent-length constraints (the entry above) widens the judgments made inside instances, so it inherits
 this fix.
 
+### A constraint miss in a generic's field is never reported when the instance it names waits for a layout — 🔴 OPEN (an invalid program accepted; found 2026-11-04, temp-5, review of the later-parameter constraint fix; reproduced on binate main `b52e54139`; pre-existing)
+
+With `interface Eq { eq() int }`, `interface Hk[T any] { hk() int }`, `interface Sz[T any] { sz() int }`, `type G2[A
+Eq] struct { a A }`, `impl *N : Eq`, `type Y[T any] struct { x X[int8]; t T }`, `type X[T any] struct { k K[T, *N,
+T]; t T }` and `type K[A Sz[[4]uint8], V any, B Hk[G2[V]]] struct { a A }`, X's field is reported four times ("type
+argument T does not satisfy constraint Sz[[4]uint8]", "… Hk[G2[*N]]", and the same for int8, at X[int8]); with
+`Sz[[sizeof(X[int8])]uint8]` as A's constraint none of the four is reported (only K's own V miss is).  By the
+review's reading, not traced: K's instance's build waits for X[int8]'s layout (A's `sizeof`), `checkNewInstanceConstraints`
+latches the check (`markConstraintsChecked`) before it reports, a report made while the instance's frame is
+`LayoutBlocked` is dropped, and the rebuild (`buildInstance`) does not check again.  Fix: latch only outside a blocked
+frame, as the later-parameter fix's replay does (binate, not yet landed), and check the constraints again when the
+instance is built again; a conformance test with and without the `sizeof`.
+
 ### A build that waits for a layout still builds the instances it names from the length it could not read, and reports their errors — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
 
 `type Other[T any] struct { x T }`, `func (o *Other[T]) q() int { return 32 / cast(int, sizeof(T)) }`, `type Box[T
