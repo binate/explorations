@@ -327,6 +327,17 @@ resolution stands.  Skipping the size comparison for an operand of the error typ
 [len(bit_cast([4]int, V)) + 1]int` compile, since nothing checks V's own length again.  That case waits for this
 entry's re-check of the operands that read a placeholder.
 
+**Decided 2026-11-04** (user: "C seems ok. Go with your recs, but get focused reviews of the decisions."), on
+the three questions from the second review of the plan's v2 (F1, F2, F10):
+- F1 (a): keep the spec.  An initializer with no type at its head depends on every variable its array lengths need,
+  so the spec's `var a = len([len(b)]int{})` with `var b = h(a).arr` stays a cycle (as
+  regressions/var-type-cycle-read-in-call pins), and so does `var V [len(W)]int`, `var W = S{k:
+  len([K]int{})}.a`, `const K = len(V)` (W's type depends on K), dropped from the next entry's valid examples.
+- F2 (a): `var V [3]S` with `type S struct { x [len(V)]int }` is valid -- V's type needs only S's declaration, as
+  for a signature (decided 2026-11-01), so `len(V)` is 3 in either declaration order; `var V S` with `type S
+  [len(V)]int` stays a cycle, reported as S's.
+- F10 (a): constants in a `.bni` get entry 3's fix too, so a `.bn` and a `.bni` agree on `const K = len(F(K))`.
+
 ### An array length evaluated while a variable's type is found and left without a value by its placeholder is blamed as its type cycle, even where the variable's own length does not need it — 🟡 IN PROGRESS (claimed 2026-11-04, temp-5, with the entry above, per explorations/plan-placeholder-reads.md) (minor: valid programs rejected; found 2026-10-31, work-7, testing the fix for constants resolved without a value and by its review; reproduced on main at binate `e595ee5bb`; pre-existing)
 
 With `func f(x int) [3]int` (whose result type alone is a length's operand's type in `[len(f(K))]`) and `type S
@@ -334,8 +345,7 @@ struct { a [3]int; k int }`, each of these is valid -- V's own length needs no v
 is a `[3]int` and K is 3 (spec decl.var.type-acyclic) -- but is "variable type cycle involving `V`": `func f2(x T)
 [3]int`, `var V [len(f2(T{}))]int`, `type T [K]int`, `const K = len(V)` (f2's parameter type T, resolved while V's type
 is found; with `type T` declared before V it compiles and prints 3); `var V [len(f(K))]int` with `const K = cast(int,
-sizeof([len(V)]int))` (a length in the constant's own initializer); `var V [len(W)]int`, `var W = S{k: len([K]int{})}.a`,
-`const K = len(V)` (a length in another variable's initializer); and `var V [len(f(K))]int`, `var W [L]int`, `const K =
+sizeof([len(V)]int))` (a length in the constant's own initializer); and `var V [len(f(K))]int`, `var W [L]int`, `const K =
 len(W)`, `const L = len(V)` (another variable's declared type).  An array length evaluated while V's placeholder
 stands that the placeholder leaves without a value, directly or through a constant (placeholderPoisoned,
 notePoisonedConst), is V's cycle wherever it is; the constant is resolved again once V has its type, but a type, a
@@ -462,6 +472,19 @@ placeholder 0, equal to every other), and `f4[*N, int32, int64]` is caught in th
 judges its generic calls again with the real types); `f6[V Eq[[8]uint8], U any]` is rejected at the declaration
 ("type argument V does not satisfy constraint Eq[[0]uint8]") though `f6[*N, int64]` is valid -- accepted under (b),
 with `f6[*N, int32]` an error in the instance.
+
+**Decided 2026-11-04** (user: "C seems ok. Go with your recs, but get focused reviews of the decisions."), after
+two reviews of a design that marked each deferred judgment for the instances to judge (explorations/
+plan-dependent-constraints.md v1 and v2; marks were lost on the copies the checker resolves from): design C.  The
+declaration's check defers a judgment that involves a length depending on a type parameter; every concrete
+instantiation is judged where it is formed -- a build, an instance's signature, method signatures, constraints and
+impl interface lists, `Self` in an interface instance -- its errors naming the instance; an impl's interface list is
+resolved from source per instance.  Two differences from decision (b) and the spec, accepted: a type-parameter
+argument deferred so is judged per instance through impls, not by comparing its bound with the constraint (they
+differ only for an interface whose methods do not mention its type argument, with a type implementing two of its
+instantiations); and inside an instance a deferred judgment sees every impl (ImplView.All, as instance checks do),
+not only those visible where the instantiation is written (they differ only for an impl private to the generic's own
+package's `.bn`).
 
 ### A build that waits for a layout still builds the instances it names from the length it could not read, and reports their errors — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
 
