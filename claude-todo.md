@@ -1286,6 +1286,19 @@ to stop with "stack overflow") prints `before` and then times out on the arm32 L
 before landing.  Find whether it is only slow there (each level compares a large struct before recursing) or does
 not stop, then make the recursion cheaper or fix what does not stop -- not an xfail unless the lane cannot run it.
 
+### VM: a compiled caller's owned struct argument leaks when the VM callee's first frame does not fit the stack — 🔴 OPEN (a leak on a fault path; found 2026-11-04, work-3, a review of the interp owned-argument fix; read, not reproduced)
+
+A compiled caller hands a VM function value an argument the callee owns (a struct holding a managed reference: a
+field-RefInc'd copy, `__copy_T`) and moves it into the call.  If the VM callee's first frame does not fit the VM's
+stack, `execFunc` returns FAULTED before the callee starts, so it never destroys that copy, and the trampoline
+(`TrampolineAggregate` / `TrampolineScalar` / `TrampolinePacked`, pkg/binate/vm/vm_trampoline.bn) returns without
+releasing it -- the copy's references leak.  (Compiled code treats the call's stack check as a no-op and has no pad
+for a VM fault.)  The host API has the same shape and refuses such a call before handing anything over
+(`FuncStartError` / `IfaceMethodStartError`, from the interp owned-argument fix); the trampolines need the same
+answer: check the callee's entry frame before taking the arguments, or release the owned ones (by the callee's
+parameter types) when its entry push fails.  Test: a compiled program calling a VM func value whose frame exceeds
+the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
