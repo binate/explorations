@@ -3081,6 +3081,17 @@ language extension, not a bug fix.
 
 ## Language-feature proposals
 
+### Unary `+`: the spec says there is none, the toolchain implements it — 🔴 NEEDS DECISION (found 2026-11-05, temp-4, review of the type-switch scrutinee fix)
+
+Spec `expr.unary` (docs/spec/13-expressions.md, since docs `305eb2f`, 2026-06-12) lists `-`, `!`, `~`, `*`, `&`
+and says "There is **no unary `+`**"; binate.ebnf's UnaryExpr has no `+` either.  binate `7bd6ce505` (2026-07-01,
+"support unary + as a numeric identity (§5.7)" -- §5.7 is now Integer literals) made the parser
+(parseUnaryExpr, parse_expr.bn), the checker (check_expr_unary.bn: a numeric operand, the type and an untyped value
+carried through) and IR-gen take it, with conformance `spec/13-expressions/036_unary_plus` tagged `expr.unary`.
+Options: (a) follow the spec: drop unary `+` from the parser, checker and IR-gen, and turn 036 into an error test;
+(b) keep it: add `+` to `expr.unary` and UnaryExpr in the spec and grammar.  Recommendation: (a), as the spec says
+so in so many words and nothing in the tree outside 036 uses it -- unless unary `+` was wanted when it was added.
+
 ### Switch `fallthrough` — proposal
 - Not in the current grammar (`grammar.ebnf`). Binate switch cases are implicit-break (Go-style), but there's no opt-in for Go's `fallthrough` keyword.
 - Would add one reserved keyword, one AST statement kind (`STMT_FALLTHROUGH`), and one IR lowering (branch to the next case's entry block, skipping its case-value check).
