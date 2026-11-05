@@ -499,9 +499,14 @@ argument T does not satisfy constraint Sz[[4]uint8]", "… Hk[G2[*N]]", and the 
 `Sz[[sizeof(X[int8])]uint8]` as A's constraint none of the four is reported (only K's own V miss is).  By the
 review's reading, not traced: K's instance's build waits for X[int8]'s layout (A's `sizeof`), `checkNewInstanceConstraints`
 latches the check (`markConstraintsChecked`) before it reports, a report made while the instance's frame is
-`LayoutBlocked` is dropped, and the rebuild (`buildInstance`) does not check again.  Fix: latch only outside a blocked
-frame, as the later-parameter fix's replay does (binate, not yet landed), and check the constraints again when the
-instance is built again; a conformance test with and without the `sizeof`.
+`LayoutBlocked` is dropped, and the rebuild (`buildInstance`) does not check again.  With `V Eq` in K (K's own list
+valid) the program compiles and runs, all four misses lost (a second review, 2026-11-04).  Latching only outside a
+blocked frame is not enough: the check itself can block the frame (it resolves the constraint for the arguments,
+which may read a layout not built yet), so latch, check, and undo the latch if the frame is blocked afterwards (as the
+later-parameter fix's replay does, binate, not yet landed: `unmarkConstraintsChecked`); and since an instance's
+rebuild does not resolve the use again, the entry must keep the dropped check (position, view, naming) and make it
+when the instance is built again.  The same applies to the cache-hit arm and the alias arm of
+`instantiateGenericDeclWithArgs`.  A conformance test with and without the `sizeof`.
 
 ### A build that waits for a layout still builds the instances it names from the length it could not read, and reports their errors — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
 
