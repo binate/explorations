@@ -1304,7 +1304,7 @@ answer: check the callee's entry frame before taking the arguments, or release t
 parameter types) when its entry push fails.  Test: a compiled program calling a VM func value whose frame exceeds
 the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
 
-### conformance 1730_long_named_type_chains runs out the arm32 Linux VM lane's 20 seconds — 🔴 OPEN (minor: a CI lane red; found 2026-11-05, work-3, reading main's CI)
+### conformance 1730_long_named_type_chains runs out the arm32 Linux VM lane's 20 seconds — 🟡 IN PROGRESS (claimed 2026-11-05, work-3; user: "Let's do (b)") (minor: a CI lane red; found 2026-11-05, work-3, reading main's CI)
 
 1730 (from binate `2ee7354fe`: long chains of named types the cycle check walks) fails on builder-comp_arm32_linux_int
 at the runner's 20-second cap per test under qemu (conformance run 42062852673, job "builder-comp_arm32_linux_int
