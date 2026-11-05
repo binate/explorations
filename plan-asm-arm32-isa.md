@@ -361,6 +361,14 @@ Steps:
   before its range check (fixed).  A floating-point lane is the binary64 item's.
 - 4c. Shifts by an immediate: vshr / vsra / vrshr / vrsra / vsri, vshl / vsli, vqshl / vqshlu, the narrowing vshrn /
   vrshrn / vqshrn / vqshrun / vqrshrn / vqrshrun, vshll and vmovl, NEON's fixed-point vcvt.
+  Part 1, DONE (binate `05e0557a8`): asm/arm32/neon's Shift and the parser (arm32_neonshift.bn) for the
+  same-length ones (vshr / vsra / vrshr / vrsra / vsri, vshl / vsli, vqshl / vqshlu), MVE's as near misses, the
+  matcher's right-shift (named, clang's "[1,8]" ..) and MVE's left-shift ranges.  Kept difference: clang takes a
+  left shift's amount as any expression and wraps it (vshl.i8 d0, d1, #63 is #7; #-1 and undefined symbols
+  assemble), an error here past 0..e-1 or not a constant ("operand must be an immediate in the range [0,7]" ..),
+  as for its wrapped VCVT fraction bits and branch offsets.  33,696 cases against clang agree but a condition and
+  those; ~37,000 in review, no bug.  Part 2: the narrowing and long ones (vshrn .. vqrshrun, vshll, vmovl).
+  Part 3: NEON's fixed-point vcvt.
 - 4d. Two registers, miscellaneous: vrev16 / 32 / 64, vpaddl / vpadal, vcls / vclz / vcnt, vmvn, vqabs / vqneg, vabs
   / vneg, the comparisons with #0, vswp / vtrn / vuzp / vzip, vmovn / vqmovn / vqmovun, vshll by the size, NEON's
   vcvt (half, integer and float) and vrint* / vcvta .. vcvtm, vrecpe / vrsqrte; the crypto aese / aesd / aesmc /

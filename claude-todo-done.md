@@ -134,6 +134,16 @@ the rest is still referenced (`for head != nil { head = head.next }`, mem.assign
 filed: the VM's misleading message for an overflow in a destructor's plain calls, and run-time stack exhaustion
 being unspecified in Chapter 21.
 
+### asm arm32 stage 4c part 1: NEON's shifts by an immediate -- DONE (binate `05e0557a8`, 2026-11-04, work-2; user: "wait 4 minutes, then land")
+
+asm/arm32/neon's Shift encodes the same-length NEON shifts by an immediate (VSHR, VSRA, VRSHR, VRSRA, VSRI by
+1..e; VSHL, VSLI, VQSHL, VQSHLU by 0..e-1); arm32_neonshift.bn matches them (Vd, Vm, #n and Vd, #n), MVE's of the
+same names as near misses, VSHL / VQSHL's beside their by-register forms.  The matcher gains NEON's right-shift
+ranges (named) and MVE's left-shift ones, each named by a table.  Kept difference: clang wraps a left shift's
+amount (any expression), an error here past 0..e-1 or not a constant.  33,696 cases against clang agree but a
+condition and the wrapped amounts; ~37,000 in review, no bug (three comment nits; two older operand gaps
+recorded in the plan); lint caught a kind reached only by arithmetic on the constants.
+
 ### asm arm32 stage 4b part 2: NEON's two registers and a scalar -- DONE (binate `ade353377`, 2026-11-04, work-2; user: "wait 4 minutes, then go ahead")
 
 asm/arm32/neon's Scalar encodes the by-scalar NEON instructions (VMLA, VMLS, VMUL; the long VMLAL, VMLSL, VMULL
