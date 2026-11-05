@@ -1,3 +1,19 @@
+### VM: a closure's narrow captures are read as whole words — a negative int8 / int16 / int32 capture compares wrong, and a sub-word one carries its neighbour's bytes — DONE (binate `f76c2b674`, 2026-11-04, work-1; user: "yes") (MAJOR: silent wrong values in every VM mode; main's VM conformance lanes red on 1734 since binate `8786e4cae`; found 2026-11-04, work-1, validation of the deep-nesting types walks)
+
+`var a int32 = -5; g := func() bool { return a == -5 }; g()` printed false under the VM, as did an `int8`
+capture and two `uint16` captures side by side: `writeCaptures` (`pkg/binate/vm/vm_trampoline.bn`) read every
+capture not passed by address or as a register pair as a whole word, so a sub-word capture arrived
+zero-extended or with the next capture's bytes above it, and the read went past the closure struct when its last
+capture was narrower than a word -- the VM's copy of the native shims' defect `8786e4cae` fixed.
+
+Fix: lowerCaptures (new `lower_closure.bn`, with captureNeedsPtrPass) records each scalar capture's load width and
+signedness (CaptureBytes / CaptureSigned, from scalarLoadBytes / scalarLoadSigned, now lowerLoad's own rule), and
+writeCaptures reads it with loadSubWord, the sub-word read BC_LOAD8 now shares (finishing with narrowToWidth;
+inlined in the LLVM-built bni).  Tests: conformance 1734 (now passes in builder-comp-int, all 3826; and the 168
+closure tests on builder-comp_arm32_linux_int); vm unit tests TestLowerFuncNarrowCaptures,
+TestWriteCapturesNarrow (fails against the old writeCaptures), TestLoadSubWord, TestScalarLoadBytesAndSign; e2e
+xmfuncvalue / xmclosure.  Review: correct; its comment, test and unused-import findings fixed before landing.
+
 ### Constraint calls through `impl *P` / `impl @M` give wrong results — DONE (binate `b52e54139`, docs `bfdc85d`, examples `3224050`, 2026-11-04, temp-5; user: "wait 3 minutes, then go ahead") (found 2026-09-30, work-4, review of design B's per-instance checking; pre-existing)
 
 ```
