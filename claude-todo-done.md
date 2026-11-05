@@ -5602,6 +5602,23 @@ reader's reason.  Tests: `relocSectionChecks` on an ELF64 RELA and an ELF32 REL 
 `TestReadObjectRejectsNonRelocatable`, `TestReadArchiveBadMemberReason`.  Checked that clang C objects (`-g`,
 `-ffunction-sections`, `-O0` / `-O1`) still link on x86-64, aarch64 and arm32.
 
+### native code placement, block layout commit 3: x64 falls through to the next block — DONE (binate `8b6b38ab0`, 2026-11-05)
+
+A sub-step of the open "native code placement" entry in `claude-todo.md` (block layout design in
+`plan-native-code-placement.md`). Under `-fnative-block-layout=fallthrough`, x64 leaves out a jump to the block
+laid out next, and a branch whose then-block is next becomes one Jcc on the inverted condition to the else-block
+(`x64.InvertCC`; only integer compares fuse into x64 branches, so cc^1 is exact). The lowering is
+`emitJumpOrBranch` in `x64_term.bn`, shared by `emitInstr` (no next block) and `emitTerm`. Validated on the base
+it was written on: `cmd/bnc`'s 77 objects byte-identical before and after with no flag and with `source` on
+x86-64 Linux and macOS, aarch64 and arm32 at -O0 and -O2, and `fallthrough` equal to `source` on aarch64 and
+arm32; under `fallthrough` x86-64 code is 0.52% smaller at -O0 and 0.48% at -O2; full native x64 conformance
+with `fallthrough` 3829 passed, 0 failed; a bnc built under `fallthrough` compiles `cmd/bnc` to the same objects
+and passed 145 conformance tests run by hand. Re-validated after a 54-commit rebase (build, unit tests, and under
+`fallthrough` the tests main changed and a sixth of the suite). User decisions 2026-11-05: no x64 test of the
+block loop's `CheckBlockEnd` call (valid IR cannot reach it on x64); a branch whose two arms are one block keeps
+`jcc; jmp` in a function's last block under `fallthrough`, with a follow-up making it a single jmp whenever the
+plan falls through.
+
 ### native code placement, block layout commit 2: block plans and the hidden switch — DONE (binate `779bdd51e`, 2026-11-01)
 
 A sub-step of the open "native code placement" entry in `claude-todo.md` (block layout design in

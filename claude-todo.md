@@ -1966,7 +1966,9 @@ stores). x64 native/llvm user CPU is ~4.5× (0.19s vs 0.04s at N=4000). What rem
   seed-by-seed builds); the Holm correction of the selection guard (user decision 2026-10-20) landed as
   binate `3f95bef54` (2026-10-28). Block layout (design in the plan; its questions decided 2026-10-30): commit 1 (condition-inversion
   helpers) landed as binate `8a359925c` (2026-10-31), commit 2 (plan plumbing in `native/blockplan`,
-  `-fnative-block-layout`) as `779bdd51e` (2026-11-01); next commit 3 (x64 elision and inversion),
+  `-fnative-block-layout`) as `779bdd51e` (2026-11-01), commit 3 (x64 elision and inversion) as `8b6b38ab0`
+  (2026-11-05); next a follow-up making a branch whose two arms are one block a single jmp whenever the plan
+  falls through (user decision 2026-11-05), then commit 4 (aarch64) and the rest of the series,
   then the placement policies; a JCC-erratum mitigation experiment is motivated by the blockLiveBefore
   result. User
   decisions on commit 3 (2026-10-18): keep the selection order (the Decisions rule, geomean first), keep

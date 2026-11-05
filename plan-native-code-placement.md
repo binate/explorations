@@ -1,5 +1,5 @@
 # Plan: native code placement (x64, aarch64, arm32)
-Status: tooling designed (2026-10-12); decisions taken 2026-10-15 (below); tooling commit 1 (placement seed) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report, `layout.py`) landed as binate `f05342e5d` (2026-10-18); tooling commit 3 (timing driver, `ab.py` / `stats.py`) landed as binate `4f9e3c75b` (2026-10-18), its short-run refusal as `0a6a3aeaf`; tooling commit 4 (probe) landed as binate `053d743c1` (2026-10-19); phase-0 calibration run on the x86 VM 2026-10-19/20 (results below); user decisions 2026-10-20: the per-workload guard gets a Holm correction over the workloads, and on this VM x64 decisions use the benchmark geomean and the self-compile while per-benchmark claims are timed on the aa64 machines. The Holm change landed as binate `3f95bef54` (2026-10-28). Block layout (design below; its four questions decided 2026-10-30): commit 1, the condition-inversion helpers (`x64.InvertCC`, `arm32.InvertCond`, `aarch64.InvertCond`), landed as binate `8a359925c` (2026-10-31); commit 2, the plan plumbing and the hidden `-fnative-block-layout` switch, landed as binate `779bdd51e` (2026-11-01), in a package of its own, `native/blockplan` (§5); next, commit 3 (x64 elision and inversion). Tracked in `claude-todo.md` ("native code placement").
+Status: tooling designed (2026-10-12); decisions taken 2026-10-15 (below); tooling commit 1 (placement seed) landed as binate `417f660bd` (2026-10-16); tooling commit 2 (static report, `layout.py`) landed as binate `f05342e5d` (2026-10-18); tooling commit 3 (timing driver, `ab.py` / `stats.py`) landed as binate `4f9e3c75b` (2026-10-18), its short-run refusal as `0a6a3aeaf`; tooling commit 4 (probe) landed as binate `053d743c1` (2026-10-19); phase-0 calibration run on the x86 VM 2026-10-19/20 (results below); user decisions 2026-10-20: the per-workload guard gets a Holm correction over the workloads, and on this VM x64 decisions use the benchmark geomean and the self-compile while per-benchmark claims are timed on the aa64 machines. The Holm change landed as binate `3f95bef54` (2026-10-28). Block layout (design below; its four questions decided 2026-10-30): commit 1, the condition-inversion helpers (`x64.InvertCC`, `arm32.InvertCond`, `aarch64.InvertCond`), landed as binate `8a359925c` (2026-10-31); commit 2, the plan plumbing and the hidden `-fnative-block-layout` switch, landed as binate `779bdd51e` (2026-11-01), in a package of its own, `native/blockplan` (§5); commit 3, x64 elision and inversion, landed as binate `8b6b38ab0` (2026-11-05); next, a follow-up making a branch whose two arms are one block a single `jmp` whenever the plan falls through (user decision 2026-11-05, §6 x64), then commit 4 (aarch64). Tracked in `claude-todo.md` ("native code placement").
 ## Why
 
 Identical machine code runs at very different speeds depending on where it lands, on the x86 test host
@@ -406,6 +406,17 @@ Branch fusion only fuses integer compares (`fold/branch_fuse.bn:20-22`), so `cc^
 - The check runs in every mode, and SOURCE output does not change.
 
 **x64**
+
+As landed (binate `8b6b38ab0`), the terminator code is `emitJumpOrBranch` in `x64_term.bn` (the file commit 2 made for
+`emitTerm`), shared by `emitInstr` (no next block) and `emitTerm`.  A branch whose two arms are one block becomes a
+jump only when `next` is set, so SOURCE output stays byte-identical; under FALLTHROUGH it keeps a redundant `jcc`
+in a function's last block.  User decisions 2026-11-05: land that, then, before the aarch64 commit, pass the
+terminator code a flag saying whether the plan falls through and make such a branch a single `jmp` whenever it
+does (aarch64 and arm32 take the same flag); and no x64 test of the block loop's `CheckBlockEnd` call, since valid
+IR cannot reach it on x64 (no terminator is retention-safe, so registers are spilled and cleared before it, and
+`emitTerm` reports a fall-through only with a non-nil `next`), relying on blockplan's `TestCheckBlockEnd` and the
+terminator tests.  The list below is the design as written.
+
 - A new file `x64_branch_term.bn` takes over the terminator code in `x64_dispatch.bn:175-211`.
 - When the then-arm is next: fused branches emit `Jcc(InvertCC(a, cc), else)`, unfused ones emit `test; jz else`.
 - When the else-arm is next: fused branches emit `Jcc(cc, then)`, unfused ones emit `test; jnz then`.
