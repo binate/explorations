@@ -3002,6 +3002,14 @@ and owning the backing is the trivial fix.
 
 ## Hygiene checks: tier dependencies & file length
 
+### `pkg/binate/types.bni` is at ~990 of its 1000-line cap — move a coherent group of declarations to a subpackage — 🔴 OPEN (found 2026-11-04, work-1, deep-nesting stage types/abi)
+
+A package has one `.bni`, so making room means moving declarations out, as `check` and `types/abi` were.  The
+deep-nesting stage types/abi added `BeginLayoutQuery` / `EndLayoutQuery` (980 -> 990 lines); user (2026-11-04):
+"Add now, file a split todo".  Candidate: the ~160-line checker-support section at the end (`RetriedDecl` and the
+other types the checker keeps in `types`) -- find what it holds and why it lives in `types` before moving it.
+Later deep-nesting stages may need more `types` API, so do this before the next addition.
+
 ### `print(42)` and friends: how do primitives implement interfaces? — DESIGN OPEN
 - **Problem**: with the current rules, `int` (and other predeclared
   primitives) can't implement interfaces. Methods can only be
