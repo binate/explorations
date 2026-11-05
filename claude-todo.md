@@ -463,6 +463,25 @@ instantiations); and inside an instance a deferred judgment sees every impl (Imp
 not only those visible where the instantiation is written (they differ only for an impl private to the generic's own
 package's `.bn`).
 
+### Inside a generic's instance, a type argument satisfies a constraint through an impl private to another package's `.bn` — 🔴 OPEN (an invalid program accepted; found 2026-11-04, temp-5, review of design C for the dependent-length constraints; reproduced on binate main `b52e54139`; pre-existing)
+
+Package r3lib's `.bni` declares `interface Tag[T any] { tag() int }`, `func inner[T Tag[[sizeof(X)]uint8], X
+any](t T) int` and `func outer[V Tag[[sizeof(U)]uint8], U any, X any](v V) int { return inner[V, X](v) }`; package
+r3dep's `.bni` declares `type T` with `impl *T : r3lib.Tag[[8]uint8]`, and its `.bn` a private `impl *T :
+r3lib.Tag[[4]uint8]`.  In main, `r3lib.outer[*r3dep.T, int64, int32](&t)` compiles and prints 5 -- `inner[V, X]` is
+satisfied, inside outer's instance, through the private Tag[[4]uint8] impl -- while the direct `r3lib.inner[*r3dep.T,
+int32](&t)` is "type argument *T does not satisfy constraint Tag[[4]uint8]: the matching impl is private to package
+pkg/r3dep".  An instance's check sees every impl (`ImplView.All`, impl_private.bn: `implViewHere` sets All when the
+instance is bound), which assumes each judgment it makes was already made in the right view at the declaration;
+this one was not (the declaration took the two dependent lengths for equal placeholders).  By reading, not probed:
+a run that loads r3dep from its `.bni` alone has no private impl to see, so whether the program is accepted depends
+on what the run checks from source (checking should depend only on a package's sources and its dependencies' `.bni`
+files).  Fix: judge an instance's constraints in the view the spec gives (gen.mono.check: a type a root
+instantiation supplies, with the root's impls; a type written in the generic, with those where it is written), not
+All -- or, at least, never through an impl private to a package other than the generic's and the root's.  Design C
+for the dependent-length constraints (the entry above) widens the judgments made inside instances, so it inherits
+this fix.
+
 ### A build that waits for a layout still builds the instances it names from the length it could not read, and reports their errors — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
 
 `type Other[T any] struct { x T }`, `func (o *Other[T]) q() int { return 32 / cast(int, sizeof(T)) }`, `type Box[T
