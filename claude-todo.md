@@ -2869,7 +2869,7 @@ samples, under IR-gen's ensureInstantiated and matchInstanceCopy (irgen), with T
 NamedIdentityName under them, and the checker's keepInstanceBody, checkDuplicateDecls and collectDeclNames after.
 Fix: index IR-gen's instances by name (and the checker's remaining per-instance scans) as funcInstance's are.
 
-### bnfmt's time still grows exponentially with the nesting depth of calls and of keyed composites holding calls — 🟡 IN PROGRESS (claimed 2026-11-05, temp-4, self-drive batch; user: "let's take them on, one by one") (the rest of the MAJOR "bnfmt takes ~96 s on nested calls and composites again", whose CI timeouts binate `cb3bb52e6` fixed; found 2026-11-03, temp-4, measuring that fix; user: "wait 11 minutes, then go ahead" to filing it on its own)
+### bnfmt's time still grows exponentially with the nesting depth of calls and of keyed composites holding calls — 🔴 NEEDS DECISION (back-burnered 2026-11-05, temp-4, self-drive batch: the fix is a choice of model) (the rest of the MAJOR "bnfmt takes ~96 s on nested calls and composites again", whose CI timeouts binate `cb3bb52e6` fixed; found 2026-11-03, temp-4, measuring that fix; user: "wait 11 minutes, then go ahead" to filing it on its own)
 
 A fill decision whose layouts span lines is checked against a second format (binate `b5e5bca15`): its layout is read
 back (print_reread.bn) and rendered at both of the element's places, and the decisions inside it are checked in turn,
@@ -2887,6 +2887,20 @@ formatted unstably, and a statement's layout depended on what was read back befo
 and TestStableLayoutIndependentOfOrder pin both).  Fix: a way to know what a second format decides for a layout read
 back at a new place without rendering its readings back afresh at each depth -- a new model of the check, not more
 caching.
+Measured 2026-11-05 (binate `d7741e3e0`'s bnfmt, user CPU): calls 24 / 28 / 32 / 36 deep 0.06 / 0.20 / 0.86 /
+3.9 s (about 1.45x a level); keyed composites holding calls 8 / 12 / 16 deep 0.06 / 1.2 / 9.1 s (about 1.65x).
+Each distinct layout is rendered once per place already (the rereads and shape caches); what multiplies is the
+generations: a layout read back at the other place is new source, whose fill decisions read their own elements'
+layouts back at new places in turn, so the distinct sources at depth d grow with the generations behind them.
+Options: (a) past a fixed depth of fill decisions, lay elements out by a policy that ignores the source's breaks
+(one that a second format, seeing the first's output, also follows -- e.g. a deep element always moves when it
+spans lines), so no check is needed there and the first and second formats agree by construction; this changes how
+very deep nests format; (b) an inductive check: take an element's inner decisions as holding (each was checked at
+its own level) and read back only the element's own breaks, rendering its inner elements from their own nodes at
+the new places -- cheaper, but the depth-1 cut tried before was unstable for 129 of 590 nests, so it needs proof
+that the induction holds; (c) accept the growth (real code nests far less deep; 36-deep calls take 3.9 s) and
+close the entry.  Recommendation: (a), with the depth past what real code reaches (12 or so), as the one that
+stays stable by construction.
 
 ### bnfmt's time grows exponentially with the nesting depth of function literals — 🟢 LOW (found 2026-10-19, temp-4, review of the rendering cache; calls and composites fixed in binate `922992893`)
 
