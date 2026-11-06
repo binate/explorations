@@ -378,10 +378,15 @@ Steps:
   lost to the scratchpad's cleanup, were regenerated from the session transcript (none changed by this part) and
   now live in binate's scripts/bnas-sweep (`66f39a558`): `sweep.py <old bnas> <new bnas>` over 14,087 cases, by
   class, reporting changed objects (sections, relocations, symbols), changed errors and crashes.
-  Part 3: NEON's fixed-point vcvt.
+  Part 3, DONE (binate `f9c6efb8f`): asm/arm32/neon's Cvt and the conversion parser's NEON VCVT between floating
+  point and integers (F32 with S32 / U32, F16 with S16 / U16), by 1..e fraction bits and -- #0, or none -- the
+  integer conversion, which 4d listed; the pre-UAL names on D and Q registers too.  Kept difference: fraction bits
+  past 1..e or not a constant are an error ("[1,32]" / "[1,16]"), which clang wraps into another instruction (#33
+  is VMOV by an immediate) or, for one it does not evaluate while parsing, a different word each run.  12,780
+  cases against clang agree but those, a condition and 4d's conversions; ~640 more in review, no bug.
 - 4d. Two registers, miscellaneous: vrev16 / 32 / 64, vpaddl / vpadal, vcls / vclz / vcnt, vmvn, vqabs / vqneg, vabs
   / vneg, the comparisons with #0, vswp / vtrn / vuzp / vzip, vmovn / vqmovn / vqmovun, NEON's
-  vcvt (half, integer and float) and vrint* / vcvta .. vcvtm, vrecpe / vrsqrte; the crypto aese / aesd / aesmc /
+  vcvt (half and BFloat16) and vrint* / vcvta .. vcvtm, vrecpe / vrsqrte; the crypto aese / aesd / aesmc /
   aesimc, sha1h / sha1su1 / sha256su0.
 - 4e. One register and a modified immediate, and the moves: vmov / vorr / vmvn / vbic by an immediate, vmov between
   registers (vorr), vext, vtbl / vtbx, vdup from a scalar and from a core register, NEON's vmov between a core
