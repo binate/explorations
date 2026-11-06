@@ -1,3 +1,21 @@
+### Dependent-length constraints, step 3: an instance's derived types judge the concrete instantiations they form — DONE (binate `d11cd29ef`, 2026-11-05, temp-5; user: "go ahead and land") (step 3 of explorations/plan-dependent-constraints.md, for the open entry "In a generic's own check, a constraint whose length depends on the generic's type parameter …")
+
+An instance's signature, the method signatures copied onto it, a function's constraints resolved for a call's type
+arguments and an impl's interface list resolved for an instance formed their instantiations unjudged
+(DerivingInstanceSig made them not user-facing), so `sigb[*N, int64, int32]`, whose parameter is `*G[*N, int32]`,
+compiled, and an instance first formed there was never judged (sw4 then W3 compiled; W3 then sw4 did not).  binate
+`d11cd29ef`: each concrete instantiation formed in a derivation is judged there (judgeDerived), in ImplView.All,
+latched apart from a use's check (ImplView.Derived), so a use still sizes an interface instance and a derivation
+does not; a satisfaction probe and a variable's head type judge nothing (Generics.Speculative), but an instance built
+meanwhile judges as any build; a declaration's miss, reported only at the first site naming an instantiation, is
+recorded on it and noted at the other sites its own check reaches (InstanceState.DeclMissSites, cleared per REPL
+input), so an instance's miss there repeats it.  Conformance spec/12-generics 156-163.  One focused adversarial
+review: fixed a valid program rejected (the replay sized a derived interface instance), an instance first built in a
+probe never judged, sizing once per entry dropping a use's site (replaced by the separate latch), the noted sites
+kept across REPL inputs, and stale docs.  Left: a derived judgment made while an argument's layout is being built is
+lost -- added to the open entry "A constraint miss in a generic's field is never reported when the instance it names
+waits for a layout" (claimed, temp-5); a derived miss is reported once per instantiation, naming its first instance.
+
 ### Dependent-length constraints, step 2: an error found working on an instance names it, and a declaration's miss is not repeated — DONE (binate `43e760718`, 2026-11-05, temp-5; user: "wait 8 minutes, then go ahead") (step 2 of explorations/plan-dependent-constraints.md, for the open entry "In a generic's own check, a constraint whose length depends on the generic's type parameter …")
 
 An error found while an instance was built, its methods' signatures copied, a function instance's signature

@@ -460,7 +460,9 @@ package's `.bn`).
 
 Plan: explorations/plan-dependent-constraints.md (v3).  Step 1, an impl's interface list resolved per instance from
 source, DONE: binate `d669cf25b` (2026-11-05; see the done log).  Step 2, errors found working on an instance
-naming it and a declaration's miss not repeated, DONE: binate `43e760718` (2026-11-05; see the done log).
+naming it and a declaration's miss not repeated, DONE: binate `43e760718` (2026-11-05; see the done log).  Step 3,
+the concrete instantiations an instance's derived types form judged there, DONE: binate `d11cd29ef` (2026-11-05; see
+the done log).
 
 ### Inside a generic's instance, a type argument satisfies a constraint through an impl private to another package's `.bn` — 🔴 OPEN (an invalid program accepted; found 2026-11-04, temp-5, review of design C for the dependent-length constraints; reproduced on binate main `b52e54139`; pre-existing)
 
