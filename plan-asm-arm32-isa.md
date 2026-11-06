@@ -392,8 +392,11 @@ Steps:
   comparisons with 0 included) and the parser (arm32_neon2.bn) for 22 names: vrev*, vpaddl / vpadal, vcls / vclz /
   vcnt, vmvn, vqabs / vqneg, vabs / vneg, vswp, vtrn / vuzp / vzip (vuzp.32 / vzip.32 on D registers as vtrn.32,
   clang's word), vmovn / vqmovn / vqmovun, vrecpe / vrsqrte; MVE's encodings as near misses.  38,016 cases against
-  clang agree but a condition; ~4,300 more in review, no bug.  Part 2: the comparisons with #0 (among the
-  three-register comparisons' encodings).  Part 3: NEON's vcvt (half, BFloat16), vrint* / vcvta .. vcvtm, the crypto.
+  clang agree but a condition; ~4,300 more in review, no bug.
+  Part 2, DONE (binate `e74dd75bb`): the comparisons with #0 (vceq / vcge / vcgt / vcle / vclt Vd, Vm, #0 and Vd,
+  #0, among the three-register comparisons' encodings; vcle / vclt #0 their own encodings).  17,928 cases against
+  clang agree but a condition; ~210 zero spellings and more in review, no bug.
+  Part 3: NEON's vcvt (half, BFloat16), vrint* / vcvta .. vcvtm, the crypto.
 - 4e. One register and a modified immediate, and the moves: vmov / vorr / vmvn / vbic by an immediate, vmov between
   registers (vorr), vext, vtbl / vtbx, vdup from a scalar and from a core register, NEON's vmov between a core
   register and a scalar.  vmvn by an immediate's encodings also join 4d's register forms' near misses: `vmvn d0,
