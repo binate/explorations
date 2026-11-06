@@ -2812,16 +2812,6 @@ has the same gap.
 
 ## bnfmt (self-hosted formatter)
 
-### The parser accepts a type switch whose scrutinee is not a postfix expression (`switch a + b.(type)`, `switch *p.(type)`) — 🟡 IN PROGRESS (claimed 2026-11-05, temp-4, self-drive batch; user: "let's take them on, one by one") (minor: ill-formed code accepted; found 2026-11-04, temp-4, probing the type-switch scrutinee fix; pre-existing)
-
-binate.ebnf and spec `stmt.type-switch` take `"switch" [ identifier ":=" ] PostfixExpr "." "(" "type" ")"`, but
-parseSwitchStmt (parse_stmt.bn) parses the tag, or the binder's scrutinee, as a whole expression and then looks for
-`.(type)`, so `switch a + b.(type) {`, `switch *p.(type) {` and `switch -x.(type) {` parse as type switches on
-`a + b`, `*p` and `-x`.  bnfmt printed a parenthesized scrutinee of those kinds that way before binate
-`386577b4f`, so files it formatted may hold the form (the tree held none at that commit): check again before
-rejecting it.  Fix: reject a scrutinee that is a binary or unary expression or a raw-slice literal unless it is
-parenthesized (ast.Expr.Parenthesized); tests: parser tests rejecting each, and accepting the parenthesized forms.
-
 ### bnfmt drops the author's parentheses around a chain's left operand of the same precedence when the chain wraps — 🔴 OPEN 🟢 LOW (found 2026-11-05, temp-4, review of the operator-chain comments fix; pre-existing)
 
 An author-parenthesized binary operand keeps its parentheses (printBinOperand, print_expr.bn), but flattenChain
@@ -2952,22 +2942,21 @@ three blank lines there, which a second format makes one.  So neither is idempot
 caller lays it out (printDecls, the block loop), its comments going on lines of their own, or keep it as written by
 recording its keyword on the DECL_GROUP node; tests: goldens for both, formatted twice.
 
-### bnfmt moves a statement's trailing comment to a line of its own after a comment inside it that no list prints — 🟡 IN PROGRESS (claimed 2026-11-05, temp-4, self-drive batch, starting from a line comment in a condition; user: "let's take them on, one by one") 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing)
+### bnfmt moves a statement's trailing comment to a line of its own after a comment inside it that no list or operator chain prints — 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the operator chains' part done in binate `df21fe656`)
 
-A comment inside a statement that no list prints (an operand's, in `x := 1 + /* c */` / `2 // d`) is still pending
-in the cursor when the statement ends, and emitTrailingCommentBefore stops at it, as it is not on the statement's
-last line.  So both comments go on lines of their own after the statement (`x := 1 + 2`, `/* c */`, `// d`), and a
-`// LONG-LINE ALLOWED` there no longer marks the line (bnfmt `bnc-0.0.17-pre3` and the tree's).  On one line, the
-inner comment goes after the statement (`p = 1 + /* z */ 2` prints `p = 1 + 2 /* z */`).  A line comment inside
-cannot simply join the trailing one (`// c // d` lexes as one comment).
+A comment inside a statement that no list or operator chain prints (in a unary operand, `x := -/* c */` / `y // d`)
+is still pending in the cursor when the statement ends, and emitTrailingCommentBefore stops at it, as it is not on
+the statement's last line.  So both comments go on lines of their own after the statement (`x := -y`, `/* c */`,
+`// d`), and a `// LONG-LINE ALLOWED` there no longer marks the line (bnfmt `bnc-0.0.17-pre3` and the tree's).  On
+one line, the inner comment goes after the statement (`p = -/* z */ q` prints `p = -q /* z */`).  A line comment
+inside cannot simply join the trailing one (`// c // d` lexes as one comment).
 A var group member whose type or value spans lines does the same with a block comment between its name and that type
 or value (`v /* c */ struct {` … `}`): the comment goes on a line of its own after the member, then a blank line, and a second format ends the alignment run at that blank line, so the
 comments of the members after it align differently (found 2026-10-31 in a review of positioning type members at their
 names; a type member's comment stays between its name and its type since binate `79fb50f9c`).
-A line comment inside a block's header that no list prints, such as one in an `if`'s condition, goes to the
-block's first line with a blank line after it: `if a && // c` / `b {` / `g()` prints `if a && b {` / `// c` / a
-blank line / `g()` (bnfmt `bnc-0.0.17-pre3` and the tree's since binate `79fb50f9c`, which keeps a header's other
-comments in place).
+A line comment inside a block's header that no list or chain prints (in a unary operand of an `if`'s condition,
+`if !// c` / `x {`) goes to the block's first line with a blank line after it (TestHeaderBraceCommentsPassALeftComment
+pins it).
 
 ### bnfmt's operator chain moves a function literal to a continuation line for what follows its last line — 🟢 LOW (found 2026-10-26, temp-4, working on the statement trailing-comment entry; pre-existing)
 

@@ -1,3 +1,28 @@
+### The parser accepts a type switch whose scrutinee is not a postfix expression (`switch a + b.(type)`, `switch *p.(type)`) -- DONE (binate `98b5b280e`, 2026-11-05, temp-4; user: "let's take them on, one by one", then "wait 4 minutes, then go ahead") (minor: ill-formed code accepted; found 2026-11-04, temp-4, probing the type-switch scrutinee fix; pre-existing)
+
+binate.ebnf and spec `stmt.type-switch` take a PostfixExpr before `.(type)`, but parseSwitchStmt parsed a whole
+expression and then looked for `.(type)`.  binate `98b5b280e`: checkTypeSwitchScrutinee (parse_assert.bn) rejects a
+binary or unary scrutinee, or a raw-slice literal, unless it is parenthesized, with the error at its first token;
+TestParseTypeSwitchScrutineeIsPostfix.  No file in the tree used the form.  Until CHECK_TOOLS moves past binate
+`386577b4f`, the pinned bnfmt (`bnc-0.0.17-pre3`) still drops such a scrutinee's parentheses, writing the form this
+rejects; no file has one.  Its review found the spec and the toolchain disagreeing on unary `+` (a NEEDS DECISION
+entry).
+
+### bnfmt moves a comment between an operator chain's operands out of the statement -- DONE (binate `df21fe656`, 2026-11-05, temp-4; user: "let's take them on, one by one", then "wait 4 minutes, then go ahead") (🟢 LOW, the operator chains' part of the comment-inside-a-statement entry; found 2026-10-26 and 2026-11-04, temp-4)
+
+A comment between the operands of a binary-operator chain had no printer, so it went after the statement, before a
+header's `{`, or -- a line comment in a condition -- to the block's first line with a blank line after it, and the
+statement's trailing comment then went on a line of its own.  binate `df21fe656`: a chain claims the comments in each
+gap between its operands by position, as a list does, keyed by its first operator's position; a block comment stays
+before or after its operator, a line comment after an operator ends the line and the next operand starts a
+continuation line (`if a && // c` / `b {`), and an operand leaves room for the comments around the operator after
+it.  Its first review found that rendering each operand afresh, to let the lists in it claim their comments first,
+made chains nested in each other's left operands print 2^d times; that rendering now goes through the rendering cache
+(claimAfterExpr), and TestChainCommentsNestedLeftPrintFew bounds it.  The entry keeps comments inside a unary operand
+and the var group member case.  Filed from the reviews: a wrapped chain dropping the parentheses around a left
+operand of its precedence (pre-existing), and nested calls holding chains with comments growing exponentially (in
+the growth entry).
+
 ### Dependent-length constraints, step 1: an impl's interface list resolved per instance from source — DONE (binate `d669cf25b`, 2026-11-05, temp-5; user: "wait 4 minutes, then go ahead") (step 1 of explorations/plan-dependent-constraints.md, for the open entry "In a generic's own check, a constraint whose length depends on the generic's type parameter …")
 
 An impl on a generic type whose interface list holds a length depending on the type's parameter (`impl *Box[K] :
