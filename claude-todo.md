@@ -529,7 +529,7 @@ Q[int64]` compiles (main reports the miss "(in I[int64, int32], ...)"): the redo
 never names J again.  Nothing in a waiting build tells an instance formed from an unread length from a real one; once
 a waiting build builds no new instance (the other entry), (3) is sound.
 
-### A build that waits for a layout still builds the instances it names from the length it could not read, and reports their errors — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
+### A build that waits for a layout still builds the instances it names from the length it could not read, and reports their errors — 🟡 IN PROGRESS (claimed 2026-11-05, temp-5) (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
 
 `type Other[T any] struct { x T }`, `func (o *Other[T]) q() int { return 32 / cast(int, sizeof(T)) }`, `type Box[T
 any] struct { a *Other[[sizeof(T)]uint8]; t int }`, `type N struct { v int64; p *Box[N] }` is rejected "division by
