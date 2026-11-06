@@ -2897,7 +2897,7 @@ formatted unstably, and a statement's layout depended on what was read back befo
 and TestStableLayoutIndependentOfOrder pin both).  Fix: a way to know what a second format decides for a layout read
 back at a new place without rendering its readings back afresh at each depth -- a new model of the check, not more
 caching.
-Measured 2026-11-05 (binate `d7741e3e0`'s bnfmt, user CPU): calls 24 / 28 / 32 / 36 deep 0.06 / 0.20 / 0.86 /
+Measured 2026-11-05 (a tree build of that day, user CPU): calls 24 / 28 / 32 / 36 deep 0.06 / 0.20 / 0.86 /
 3.9 s (about 1.45x a level); keyed composites holding calls 8 / 12 / 16 deep 0.06 / 1.2 / 9.1 s (about 1.65x).
 Each distinct layout is rendered once per place already (the rereads and shape caches); what multiplies is the
 generations: a layout read back at the other place is new source, whose fill decisions read their own elements'
