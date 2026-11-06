@@ -2912,8 +2912,8 @@ that the induction holds; (c) accept the growth (real code nests far less deep; 
 close the entry.  Recommendation: (a), with the depth past what real code reaches (12 or so), as the one that
 stays stable by construction.
 Chains with comments between their operands, nested in calls' arguments (`f(f(a /* c */ + v, w) /* k */ * u …)`),
-grow the same way, about 1.6x a level, with or without the chain comments fix (binate `d9a5ab7ae`, not yet landed:
-16 deep 0.42 s before it, 1.6 s with it; found by its review).
+grow the same way, about 1.6x a level, with or without the fix that prints those comments in place (16 deep 0.42 s
+before it, 1.6 s with it; found by its review).
 
 ### bnfmt's time grows exponentially with the nesting depth of function literals — 🟢 LOW (found 2026-10-19, temp-4, review of the rendering cache; calls and composites fixed in binate `922992893`)
 
