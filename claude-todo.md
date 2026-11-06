@@ -3105,7 +3105,7 @@ language extension, not a bug fix.
 
 ## Language-feature proposals
 
-### Unary `+`: the spec says there is none, the toolchain implements it — 🔴 NEEDS DECISION (found 2026-11-05, temp-4, review of the type-switch scrutinee fix)
+### Unary `+`: the spec says there is none, the toolchain implements it — 🟡 IN PROGRESS (claimed 2026-11-05, temp-4; DECIDED, user: "Let's update the spec and the grammar.") (found 2026-11-05, temp-4, review of the type-switch scrutinee fix)
 
 Spec `expr.unary` (docs/spec/13-expressions.md, since docs `305eb2f`, 2026-06-12) lists `-`, `!`, `~`, `*`, `&`
 and says "There is **no unary `+`**"; binate.ebnf's UnaryExpr has no `+` either.  binate `7bd6ce505` (2026-07-01,
