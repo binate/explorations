@@ -514,6 +514,21 @@ binate main before `d11cd29ef` accepts both programs (no derived judgment).  The
 (`checkNewInstanceConstraints`, the cache-hit and alias arms) undoes its latch when the frame is blocked, and the
 dropped check is made again.
 
+Three designs reviewed (2026-11-05, temp-5, not landed), each with a regression; the fix depends on the entry "A build
+that waits for a layout still builds the instances it names from the length it could not read".  (1) Make the dropped
+check again in the instance's rebuild: a false "cyclic type definition" when the check reads the instance the build
+waits for (this entry's own example).  (2) Defer every check made in a waiting frame, latched, to the flush
+(flushPendingChecks): a false miss for an instance formed from a length the waiting build read as 0 -- with `type
+Q[T any] struct { v T; p *X[T] }`, `type X[T any] struct { k KA[*Box[Q[T]], [sizeof(Q[T])]uint8]; t T }` and `type
+KA[A Eq[B], B any] = *A`, "*Box[Q[int64]] does not satisfy constraint Eq[[0]uint8]".  (3) Make the check in a layout
+frame of its own (so its reads wait alone, not the build) and skip it while any frame waits, the frame's redo naming
+it again: a lost miss when a new instance with real arguments is built inside the waiting build -- with `type J[A
+Eq[[sizeof(B)]uint8], B any] struct { a A }`, `type I[T any, U any] struct { j J[*Box[T], U]; t T }`, `type Q[T any]
+struct { v T; p *X[T, int32] }` and `type X[T any, U any] struct { a [sizeof(Q[T])]uint8; i I[T, U] }`, `var q
+Q[int64]` compiles (main reports the miss "(in I[int64, int32], ...)"): the redo hits I[int64, int32]'s cache and
+never names J again.  Nothing in a waiting build tells an instance formed from an unread length from a real one; once
+a waiting build builds no new instance (the other entry), (3) is sound.
+
 ### A build that waits for a layout still builds the instances it names from the length it could not read, and reports their errors — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
 
 `type Other[T any] struct { x T }`, `func (o *Other[T]) q() int { return 32 / cast(int, sizeof(T)) }`, `type Box[T
