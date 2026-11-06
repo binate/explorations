@@ -388,9 +388,16 @@ Steps:
   / vneg, the comparisons with #0, vswp / vtrn / vuzp / vzip, vmovn / vqmovn / vqmovun, NEON's
   vcvt (half and BFloat16) and vrint* / vcvta .. vcvtm, vrecpe / vrsqrte; the crypto aese / aesd / aesmc /
   aesimc, sha1h / sha1su1 / sha256su0.
+  Part 1, DONE (binate `a3f2517d8`): asm/arm32/neon's Two (the whole two-register miscellaneous group, the
+  comparisons with 0 included) and the parser (arm32_neon2.bn) for 22 names: vrev*, vpaddl / vpadal, vcls / vclz /
+  vcnt, vmvn, vqabs / vqneg, vabs / vneg, vswp, vtrn / vuzp / vzip (vuzp.32 / vzip.32 on D registers as vtrn.32,
+  clang's word), vmovn / vqmovn / vqmovun, vrecpe / vrsqrte; MVE's encodings as near misses.  38,016 cases against
+  clang agree but a condition; ~4,300 more in review, no bug.  Part 2: the comparisons with #0 (among the
+  three-register comparisons' encodings).  Part 3: NEON's vcvt (half, BFloat16), vrint* / vcvta .. vcvtm, the crypto.
 - 4e. One register and a modified immediate, and the moves: vmov / vorr / vmvn / vbic by an immediate, vmov between
   registers (vorr), vext, vtbl / vtbx, vdup from a scalar and from a core register, NEON's vmov between a core
-  register and a scalar.
+  register and a scalar.  vmvn by an immediate's encodings also join 4d's register forms' near misses: `vmvn d0,
+  d1, #0` is "too many operands for instruction" until then, clang's "invalid instruction, any one of ...".
 - 4f. Element and structure loads and stores: vld1 .. vld4 / vst1 .. vst4, multiple structures, one lane and all
   lanes, the alignment, write-back and a register post-index.
 - 4g. ARMv8's and later additions: sha1c / sha1p / sha1m / sha1su0, sha256h / sha256h2 / sha256su1; vqrdmlah /
