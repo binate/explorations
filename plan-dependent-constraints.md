@@ -146,6 +146,8 @@ instance judgment that makes up for it (3.2-3.4).
 1. **Impl interface lists from source** (3.4): fixes (C) and the uint8 overflow.  DONE, binate `d669cf25b`
    (2026-11-05).
 2. **Attribution and duplicates** (3.5), so that the next step's new judgments read well and are not repeated.
+   DONE, binate `43e760718` (2026-11-05): errors named as reported, from a stack of what is being worked on;
+   repeats matched by generic, parameter and position, with DeclLevel meaning no concrete arguments bound.
 3. **Concrete instantiations judged where formed** (3.2): fixes sigb, the method signature, the impl list, sw4/W3.
 4. **`Self` in interface instances** (3.3).
 5. **The declaration's deferrals** (3.1), a family per commit if the diff is large: fixes (A).

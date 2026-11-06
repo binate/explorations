@@ -1,3 +1,21 @@
+### Dependent-length constraints, step 2: an error found working on an instance names it, and a declaration's miss is not repeated — DONE (binate `43e760718`, 2026-11-05, temp-5; user: "wait 8 minutes, then go ahead") (step 2 of explorations/plan-dependent-constraints.md, for the open entry "In a generic's own check, a constraint whose length depends on the generic's type parameter …")
+
+An error found while an instance was built, its methods' signatures copied, a function instance's signature
+derived or an alias target resolved named no instance (gen.mono.check wants the instance and its chain), and a
+declaration's constraint miss was reported again by each instance in its types (`Eq[[0]uint8]`, then `Eq[[8]uint8]`,
+`Eq[[4]uint8]` at one position).  binate `43e760718`: errors are named as reported (reportCheckError,
+nameReportedError, check_instance_naming.bn) from InstanceState.Naming, the instances being worked on and their
+declarations, with an entry naming none for what is resolved on its own (an abstract resolution or instance, a
+demand frame); types.CheckError records Named and, for a miss, the generic, the parameter and DeclLevel (no concrete
+arguments bound: InstanceState.Concrete, kept on a recorded check for its replay); an instance's miss repeating a
+declaration's is dropped or folded into it, a declaration's error supersedes the same error an earlier build named,
+and Checker.ErrorsAbsorbed fails an instance's check for errors merged or dropped.  Three review rounds: the first
+found the first design (an after-the-fact window named by position) mislabeling nested abstract builds and missing
+method copies, rebuilds and aliases; the second and third, placeholder instances named as concrete, forward-reference
+duplicates, the replay's level, aliases, REPL scan indices and the failure count -- all fixed, each a unit test in
+check_instance_naming_test.bn.  Left: an instance built later than it was named may chain to the instance being built
+then; a method signature's error lists the instance and its method check ("in W[int64], …; in W[int64].m, …").
+
 ### The parser accepts a type switch whose scrutinee is not a postfix expression (`switch a + b.(type)`, `switch *p.(type)`) -- DONE (binate `98b5b280e`, 2026-11-05, temp-4; user: "let's take them on, one by one", then "wait 4 minutes, then go ahead") (minor: ill-formed code accepted; found 2026-11-04, temp-4, probing the type-switch scrutinee fix; pre-existing)
 
 binate.ebnf and spec `stmt.type-switch` take a PostfixExpr before `.(type)`, but parseSwitchStmt parsed a whole
