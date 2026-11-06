@@ -481,7 +481,7 @@ All -- or, at least, never through an impl private to a package other than the g
 for the dependent-length constraints (the entry above) widens the judgments made inside instances, so it inherits
 this fix.
 
-### A constraint miss in a generic's field is never reported when the instance it names waits for a layout — 🔴 OPEN (an invalid program accepted; found 2026-11-04, temp-5, review of the later-parameter constraint fix; reproduced on binate main `b52e54139`; pre-existing)
+### A constraint miss in a generic's field is never reported when the instance it names waits for a layout — 🟡 IN PROGRESS (claimed 2026-11-05, temp-5) (an invalid program accepted; found 2026-11-04, temp-5, review of the later-parameter constraint fix; reproduced on binate main `b52e54139`; pre-existing)
 
 With `interface Eq { eq() int }`, `interface Hk[T any] { hk() int }`, `interface Sz[T any] { sz() int }`, `type G2[A
 Eq] struct { a A }`, `impl *N : Eq`, `type Y[T any] struct { x X[int8]; t T }`, `type X[T any] struct { k K[T, *N,
@@ -494,10 +494,23 @@ latches the check (`markConstraintsChecked`) before it reports, a report made wh
 valid) the program compiles and runs, all four misses lost (a second review, 2026-11-04).  Latching only outside a
 blocked frame is not enough: the check itself can block the frame (it resolves the constraint for the arguments,
 which may read a layout not built yet), so latch, check, and undo the latch if the frame is blocked afterwards (as the
-later-parameter fix's replay does, binate, not yet landed: `unmarkConstraintsChecked`); and since an instance's
+later-parameter fix's replay does, binate `4b685d01b`: `unmarkConstraintsChecked`); and since an instance's
 rebuild does not resolve the use again, the entry must keep the dropped check (position, view, naming) and make it
 when the instance is built again.  The same applies to the cache-hit arm and the alias arm of
 `instantiateGenericDeclWithArgs`.  A conformance test with and without the `sizeof`.
+
+A judgment of an instance's derived types (binate `d11cd29ef`) is lost the same way.  With `interface Eq[T any] {
+eq(o T) int }`, `type Box[K any] struct { k K }`, `impl *Box[K] : Eq[[sizeof(K)]uint8]` (its `eq` takes
+`[sizeof(K)]uint8`), `type G[T Eq[[sizeof(U)]uint8], U any] struct { t T }`, `type Holder[X any, Y any] struct { h
+int }`, `func (h *Holder[X, Y]) m(g *G[*Box[X], Y]) int` and `type R[T any] struct { v T; w int64; next
+*Holder[R[T], int32] }`, `var h Holder[R[int64], int32]` with `h.m(nil)` compiles, while `Holder[int64, int32]` is
+rejected ("type argument *Box[int64] does not satisfy constraint Eq[[4]uint8] (in Holder[int64, int32], ...)").  By
+the reading of the review that found it (step 3 of the dependent-length constraints, 2026-11-05), not traced:
+Holder[R[int64], int32] is built, and m copied onto it, while R[int64] is being built, so the check of
+G[*Box[R[int64]], int32] reads sizeof(R[int64]), the frame waits, and the report of the latched check is dropped.
+binate main before `d11cd29ef` accepts both programs (no derived judgment).  The fix covers both: every latch site
+(`checkNewInstanceConstraints`, the cache-hit and alias arms) undoes its latch when the frame is blocked, and the
+dropped check is made again.
 
 ### A build that waits for a layout still builds the instances it names from the length it could not read, and reports their errors — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
 
