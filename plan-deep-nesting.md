@@ -151,6 +151,30 @@ recursive, so far more than 75).
     limit (no report: the post-collection pass reports the chain).  Chains of named types over named types
     (`type N0 N1`, `type N1 N2`, ...) add no depth (names are transparent) and are not covered by the limit, but scale
     badly on main too: 2,000 in 3.4 s, 20,000 over 150 s -- a separate item, not yet looked into.
+- Step 3 status (2026-11-05): implemented and validated, NOT landed -- waiting on the memoization stage below.  The
+  design changed after two reviews: the measure is exact and order-independent (cycles of definitions by Tarjan's
+  algorithm; inside a definition D, a chain that has gone through a pointer / slice / interface value / parameter /
+  result / type argument / interface signature or parent stops before a definition in a cycle with D -- per
+  declaration, not per type object, so a separately built `*func(Node)` counts the same as a shared one); aliases and
+  blank `type _` are measured and only reported; a cut poisons only the parts past the limit (struct fields,
+  interface signature parameters / results, parents); a by-value cycle is reported as a recursive type where the
+  measure closes it; the prepareLayoutIn level guard is gone (a layout read past the limit is the next step).  Spec
+  text drafted and reviewed (no Constraint tag: "may be rejected").  Double-VM cost of conformance 303 / 304: ~7
+  min each, from the per-declaration walks (below).  User (2026-11-05): "let's do the planned memoization stage
+  first".
+- Stage memoization -- IN PROGRESS (claimed 2026-11-05, work-1).  Per-type answers kept across a batch's
+  declarations, so a chain is walked once, not once per declaration.  Profile at 1024 levels (instructions checking
+  the program; empty 0.43G, 1024 unrelated types 0.61G): struct chain 4.78G, pointer chain 29.13G, interface chain
+  0.50G, pointer ring 0.63G.  Pointer chain: pointeeEmbedsOpaqueIn (formationRulesKept / pointsToOpaqueEmbedding)
+  walks to the ultimate pointee from each declaration with a list of names it copies on append and scans
+  linearly -- cubic.  Struct chain: checkValueEmbedding's per-declaration checks, each walking the by-value chain
+  below -- size queries (requireFittingType -> types.Size, no layout memo across declarations),
+  layoutDependsOnTypeParam, checkTypeByValueCycle's typeReachesNamedByValue.  Plan: memoize the pointee answer
+  (per type and view, outside instance frames), layoutDependsOnTypeParam (per type), by-value cycle membership
+  (per batch), and layout across the batch -- each invalidated when a type changes (noteTypeGraphChanged) or the
+  view's context does.  Separately, at 20,000 declarations the remaining time is quadratic in the NUMBER of
+  declarations (loader MergeFiles, checkDuplicateDecls, Scope.Define's append, checkTypeRedeclaration, IR-gen's
+  removePendingNamedType, slices.Append of decl lists) -- not part of this stage; to be raised.
 - Found on the way: freeing a deep structure recurses through destructors; decided as the program's responsibility
   (spec §18.2 note, docs `2ccb03d`), so the stages' tests release their deep types a link at a time, and the
   compiler must not drop a deep type graph whole either.
