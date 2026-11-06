@@ -197,8 +197,12 @@ disagreeing about their share -- the runner listed packages in find's (per-runne
 shards, neither link part ran, and some light packages ran twice or never -- now sorted; the lane drops format (~325 s
 of tests on the single VM), asm/* (macho ~100 min on CI, assemble ~23, elf ~18) and cmd/bnc (~30) by skip-pkg markers;
 and its light packages go to the shards by cost (INTINT_LIGHT_COST / INTINT_PART_COST in run.sh), every shard ~32-37
-min by the estimates (simulated with a stub runner, under dash too).  Open: confirm on the next completed unit run
-that every int-int shard finishes under 45 min, and correct INTINT_*_COST from the measured times if not.
+min by the estimates (simulated with a stub runner, under dash too).  In CI run 42065159197 (at
+4b685d01b) all 12 int-int shards passed, in 20-41 min, each running what the simulation gave it; check's six parts
+took 14-27 min each, so binate `b930dd829` (2026-11-05, work-3; user: "(a)", then "wait 4 minutes, then land") runs
+check in seven parts on the shard the six left free, with INTINT_PART_COST from CI's times (check 20, irgen 15, link
+20): every shard ~32-36 min by the estimates.  Open: confirm on the next completed unit run, and correct the costs
+from its times if a shard nears 45 min.
 
 ### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🔴 NEEDS DECISION, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
