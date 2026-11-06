@@ -1,3 +1,14 @@
+### Unary `+`: the spec said there is none, the toolchain implements it -- DONE (docs `beae5ce`, 2026-11-05, temp-4; user: "Does Go have a unary +?", then "Let's update the spec and the grammar.") (found 2026-11-05, temp-4, review of the type-switch scrutinee fix)
+
+Spec `expr.unary` (since docs `305eb2f`) said "There is **no unary `+`**", and binate.ebnf's UnaryExpr had no `+`,
+while binate `7bd6ce505` made the parser, checker and IR-gen take it as a numeric identity (conformance
+spec/13-expressions/036_unary_plus).  The user chose the toolchain's side.  docs `beae5ce`: expr.unary defines `+x`
+(a numeric operand, its value unchanged, of its type; an untyped constant stays untyped), the precedence table and
+D8 list `+` among the prefix operators, an untyped non-constant integer expression stays one under it
+(expr.shift.untyped-value, and the type flowing down through its operand, as the checker does for any unary), and
+UnaryExpr gains `"+" UnaryExpr`; Annex A regenerated, the rule-IDs unchanged.  No test rejects `+` on a
+non-numeric operand (the checker's "unary + requires numeric operand").
+
 ### Dependent-length constraints, step 3: an instance's derived types judge the concrete instantiations they form — DONE (binate `d11cd29ef`, 2026-11-05, temp-5; user: "go ahead and land") (step 3 of explorations/plan-dependent-constraints.md, for the open entry "In a generic's own check, a constraint whose length depends on the generic's type parameter …")
 
 An instance's signature, the method signatures copied onto it, a function's constraints resolved for a call's type
