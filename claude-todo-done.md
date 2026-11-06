@@ -1,3 +1,11 @@
+### IR-gen is cubic in a package's named non-struct types, so conformance 1730_long_named_type_chains runs out the arm32 Linux VM lane's 20 seconds and 35 min of a conformance int-int shard -- DONE (binate `b6cb84aee`, 2026-11-05, work-3; user: "yes" to fixing IR-gen instead of shrinking the test, then "wait 4 minutes, then go ahead")
+
+Module.TypeAliases is built and indexed as Structs is (RegisterModuleTypeAlias / TypeAliasIndexLookup in
+pkg/binate/ir), and GenCtx.PendingNamedTypes is a set, snapshotted as a list by a REPL entry.  bnc's front end on
+chains of 1101 / 2202 named types (both orders): 5.0 -> 0.31 s, 46 -> 1.0 s; 1730 takes 2 s on the arm32 Linux VM lane
+and 26 s double-VM locally.  The --emit-llvm output of the 177 conformance tests declaring named non-struct types is
+unchanged.  1730 itself is unchanged.
+
 ### Unary `+`: the spec said there is none, the toolchain implements it -- DONE (docs `beae5ce`, 2026-11-05, temp-4; user: "Does Go have a unary +?", then "Let's update the spec and the grammar.") (found 2026-11-05, temp-4, review of the type-switch scrutinee fix)
 
 Spec `expr.unary` (since docs `305eb2f`) said "There is **no unary `+`**", and binate.ebnf's UnaryExpr had no `+`,

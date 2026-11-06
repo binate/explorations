@@ -1320,21 +1320,6 @@ answer: check the callee's entry frame before taking the arguments, or release t
 parameter types) when its entry push fails.  Test: a compiled program calling a VM func value whose frame exceeds
 the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
 
-### IR-gen is cubic in a package's named non-struct types, so conformance 1730_long_named_type_chains runs out the arm32 Linux VM lane's 20 seconds and 35 min of a conformance int-int shard — 🟡 IN PROGRESS (claimed 2026-11-05, work-3; user: "Let's do (b)", then "yes" to fixing IR-gen instead of shrinking the test) (minor: a CI lane red; found 2026-11-05, work-3, reading main's CI)
-
-1730 (from binate `2ee7354fe`: long chains of named types the cycle check walks) fails on builder-comp_arm32_linux_int
-at the runner's 20-second cap per test under qemu (conformance run 42062852673, job "builder-comp_arm32_linux_int
-1/3"; earlier runs show it at [20s]); it takes 4.5 s on the host VM.  1733 had the same cause and became 0.14 s on the
-host VM / 6 s on that lane by a smaller instance of what it tests (binate `139823df9`).  Make 1730's chains as short
-as its point needs, or split it, so that it fits the lane; not an xfail unless the lane cannot run it.
-
-Cause (2026-11-05, work-3): IR-gen, not the test -- bnc's front end takes 0.24 / 0.77 / 5.77 s for chains of 275 / 550 /
-1101 (both orders), the VM the same shape; `sample` puts it in irgen's removePendingNamedType (it rebuilds
-GenCtx.PendingNamedTypes with slices.Append, O(n^2) per removal, one removal per declaration), slices.Append and
-MemZero, with isPendingNamedType and lookupTypeAlias scanning their lists per call.  1730 cannot shrink below the
-1024 steps it exists to pass.  Conformance int-int shard 5 spent 2091 s on it (run 42062852673).  Fix: a set of
-pending names, an index of TypeAliases by name, the lists built with vec.
-
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
