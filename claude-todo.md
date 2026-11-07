@@ -201,8 +201,11 @@ min by the estimates (simulated with a stub runner, under dash too).  In CI run 
 4b685d01b) all 12 int-int shards passed, in 20-41 min, each running what the simulation gave it; check's six parts
 took 14-27 min each, so binate `b930dd829` (2026-11-05, work-3; user: "(a)", then "wait 4 minutes, then land") runs
 check in seven parts on the shard the six left free, with INTINT_PART_COST from CI's times (check 20, irgen 15, link
-20): every shard ~32-36 min by the estimates.  Open: confirm on the next completed unit run, and correct the costs
-from its times if a shard nears 45 min.
+20): every shard ~32-36 min by the estimates.  In unit run 42162719837 (at b930dd829) all 12
+int-int shards passed in 24-39 min.  The sort (`d25871bb5`) also made builder-comp-comp-int place all of
+pkg/binate/check (915 s there) on shard 3/6 every run, past its 30-min job limit; binate `5ebd28e28` (2026-11-06,
+work-3; user: "ok", then "yes") splits check's tests across the single-VM lanes' shards (pkg-binate-check.split.vm).
+Open: confirm on the next completed unit run that the int-int and single-VM shards finish in time.
 
 ### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🔴 NEEDS DECISION, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
