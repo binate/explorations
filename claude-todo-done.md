@@ -14,8 +14,8 @@ spec/13-expressions/036_unary_plus).  The user chose the toolchain's side.  docs
 (a numeric operand, its value unchanged, of its type; an untyped constant stays untyped), the precedence table and
 D8 list `+` among the prefix operators, an untyped non-constant integer expression stays one under it
 (expr.shift.untyped-value, and the type flowing down through its operand, as the checker does for any unary), and
-UnaryExpr gains `"+" UnaryExpr`; Annex A regenerated, the rule-IDs unchanged.  No test rejects `+` on a
-non-numeric operand (the checker's "unary + requires numeric operand").
+UnaryExpr gains `"+" UnaryExpr`; Annex A regenerated, the rule-IDs unchanged.  binate `53ac81e5d` adds conformance
+spec/13-expressions/071, rejecting `+` on a bool and a string (user: "Yes, add it (Recommended)").
 
 ### Dependent-length constraints, step 3: an instance's derived types judge the concrete instantiations they form — DONE (binate `d11cd29ef`, 2026-11-05, temp-5; user: "go ahead and land") (step 3 of explorations/plan-dependent-constraints.md, for the open entry "In a generic's own check, a constraint whose length depends on the generic's type parameter …")
 
