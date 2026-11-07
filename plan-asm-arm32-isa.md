@@ -400,14 +400,19 @@ Steps:
   VCVTA .. VCVTM, the crypto) and the conversion parser's NEON forms (half and BFloat16 vcvt, vrint* on D / Q with
   clang's .f32.f32, vcvta .. vcvtm); nothing is matched without being assembled now, so the matcher's not-assembled
   kinds and their "not supported yet" are gone.  15,576 vrint* / vcvta .. vcvtm cases against clang agree; ~4,000
-  more in review, no bug.  Part 3b: the crypto names (aese / aesd / aesmc / aesimc, sha1h / sha1su1 / sha256su0).
+  more in review, no bug.
+  Part 3b, DONE (binate `566cee05b`): the crypto names (aese / aesd / aesmc / aesimc .8, sha1h / sha1su1 / sha256su0
+  .32, on Q registers, AES or SHA2 with ARMv8) through a new entry for mnemonics starting aes / sha1 / sha256, which
+  takes clang's rule that none of those takes an `s` or a condition, a name or not; the matcher's "sha2" feature.
+  11,565 cases against clang agree but "did you mean"; review, no defect.  4d is complete.
 - 4e. One register and a modified immediate, and the moves: vmov / vorr / vmvn / vbic by an immediate, vmov between
   registers (vorr), vext, vtbl / vtbx, vdup from a scalar and from a core register, NEON's vmov between a core
   register and a scalar.  vmvn by an immediate's encodings also join 4d's register forms' near misses: `vmvn d0,
   d1, #0` is "too many operands for instruction" until then, clang's "invalid instruction, any one of ...".
 - 4f. Element and structure loads and stores: vld1 .. vld4 / vst1 .. vst4, multiple structures, one lane and all
   lanes, the alignment, write-back and a register post-index.
-- 4g. ARMv8's and later additions: sha1c / sha1p / sha1m / sha1su0, sha256h / sha256h2 / sha256su1; vqrdmlah /
+- 4g. ARMv8's and later additions: sha1c / sha1p / sha1m / sha1su0, sha256h / sha256h2 / sha256su1 (through 4d's
+  crypto entry these are "invalid instruction" until then, clang's words or feature messages); vqrdmlah /
   vqrdmlsh (v8.1); vsdot / vudot, vfmal / vfmsl (v8.2); vcmla / vcadd (v8.3); the BFloat16 and Int8 matrix forms
   (vdot.bf16, vmmla, vfmab / vfmat, vsmmla / vummla / vusmmla, vusdot / vsudot).
 
