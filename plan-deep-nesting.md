@@ -147,8 +147,9 @@ recursive, so far more than 75).
     too deeply).  With that, checking is linear in the chain's length but slow: 13-60 s for 20,000 declarations
     (struct, pointer, interface chains; the per-declaration walks still go up to 1024 levels) -- the memoization
     stage's job.  A `sizeof` of a deep chain read during collection crashed in prepareLayout's on-demand recursion
-    before the post-collection pass runs; prepareLayoutIn now counts levels as the depth does and stops past the
-    limit (no report: the post-collection pass reports the chain).  Chains of named types over named types
+    before the post-collection pass runs; prepareLayoutIn was made to count levels and stop past the limit (no
+    report), but that did not land with `3114621b7` (its prepareLayoutIn had no cutoff, and a deep read crashed
+    until `7fc716db6`).  Chains of named types over named types
     (`type N0 N1`, `type N1 N2`, ...) add no depth (names are transparent) and are not covered by the limit, but scale
     badly on main too: 2,000 in 3.4 s, 20,000 over 150 s -- a separate item, not yet looked into.
 - Step 3 DONE: binate `3114621b7` (the type-depth limit, landed 2026-11-06), spec docs `7a69627`.  The design changed
@@ -159,9 +160,8 @@ recursive, so far more than 75).
   shared one); aliases and blank `type _` are measured and only reported; a cut poisons only the parts past the limit
   (struct fields, interface signature parameters / results, parents); a by-value cycle is reported as a recursive
   type where the measure closes it; an opaque type outside its package is one level.  Spec: no Constraint tag ("may
-  be rejected"), a constraint-candidate.  Next -- IN PROGRESS (claimed 2026-11-06, work-1; user: "yes"): a layout
-  read that walks past the limit reports at that position, with prepareLayoutIn / prepareBatchType / prepareBniType
-  made an explicit frame machine (indexed TypesWalking / TypesCollecting / TypesPrepared / TypesCollected).
+  be rejected"), a constraint-candidate.  Next (user: "yes"): a layout read past the limit reported at that
+  position, prepareLayout made an explicit frame machine -- DONE below.
 - Stage memoization DONE: binate `7eb817dd8` (the pointer rule's answers kept across a batch), `10094a641`
   (concrete layouts kept), `db60c6121` (the by-value cycle check only where the depth walk met a by-value cycle),
   `f550149b5` (one layout query held across checkValueEmbedding, restarted on each type change), `07b29d367`
@@ -177,6 +177,27 @@ recursive, so far more than 75).
 - Found on the way: freeing a deep structure recurses through destructors; decided as the program's responsibility
   (spec §18.2 note, docs `2ccb03d`), so the stages' tests release their deep types a link at a time, and the
   compiler must not drop a deep type graph whole either.
+- Layout-read step DONE: binate `7fc716db6` (landed 2026-11-07; user: "yes"; with the blocked-build cycle fix, user:
+  "folded in is fine").  prepareLayout is an explicit frame machine (check_layout_prepare.bn).  On main every deep
+  read crashed: seven 20,000-deep probes (a `sizeof`, a read after another, a generic type's and a generic
+  function's type argument, a variable's type, an inline `[1][1]T0`, a chain through a slice) now give errors.  The
+  design after two reviews: no type is changed at the read -- a first version cut a declared chain there, which
+  cascaded (304 reported Z2 once Z0's pointer cycle was cut) and in a waiting instance build kept its cut while its
+  report was dropped.  The walk finds each type's by-value height (fields, array elements, a named type's
+  underlying; a slice's element is walked and adds none), memoized per visited set and kept per prepared
+  declaration (TypesPrepared: declaration -> height), so a later read stopping at one sees it; a read reaching, by
+  value or through a slice, a type higher than 1024 is reported at the read ("type T nests too deeply", by
+  TypeName) and its layout not read; a too-deep generic function's type argument becomes the error type.  A
+  declaration whose walk meets one another read is walking keeps no height.  TypesCollecting / TypesCollected /
+  TypesWalking are indexed (declSet).  cmd/bnc's IR identical; of 1985 corpus programs only 304 differs (its read
+  reported, pinned at line 15); the 156 layout-reading conformance tests pass on the VM; the deep unit tests (skipped
+  on int-int and bare metal by "TestDeep") take 89 s on the single VM; cmd/bnc's compile unchanged within noise.
+  Remaining: collection itself still recurses -- a `.bni` chain an importer reads crashes in resolveBniTypeByName,
+  a deep type used as a generic's type argument crashes in collectExportOwners (part 2), and `sizeof` / constant
+  chains are resolved recursively; a read made inside another read's walk takes a declaration being walked as ready
+  (claude-todo, "A type whose walk is still on the stack counts as prepared", MAJOR); reading a long chain is
+  quadratic (claude-todo, "Preparing a layout during collection is quadratic").  Next: check parts 2-6, the parser
+  nesting limit, then irutil / ir, irgen, codegen, native, vm / interp, lint.
 
 ## Decisions (2026-11-03)
 

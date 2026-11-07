@@ -1,3 +1,14 @@
+### A by-value cycle met while a layout is prepared in an instance build that waits was broken but never reported -- DONE (binate `7fc716db6`, 2026-11-07, work-1; user: "folded in is fine", then "yes") (MAJOR: an invalid program accepted; found 2026-11-06, work-1, review of the prepareLayout frame machine; pre-existing)
+
+`type Box[T any] struct { a [sizeof(T)]uint8 }`, `type P struct { q Q; r R }`, `type R struct { p P }`, `type N struct
+{ p *Box[P]; v int64 }`, `type Q struct { x [sizeof(N)]uint8 }` passed the checker and IR-gen then panicked ("a
+struct holds itself by value"): P's layout walk, in Box[P]'s build while N was collected, met the cycle after Q's
+`sizeof(N)` had made the build wait, and checkTypeByValueCycle poisoned P's field while its report was dropped (the
+frame LayoutBlocked); P, collected in its turn, was not undone, so nothing after found the cycle.  Fixed in the
+prepareLayout frame machine change: the check is skipped in a blocked layout frame (checkCycleUnlessBlocked,
+check/check_layout_prepare.bn), and made when the build is done again.  Tests: conformance
+regressions/value-cycle-in-waiting-instance-build, check TestValueCycleInWaitingBuild (fails with the guard dropped).
+
 ### A constraint miss in a generic's field is never reported when the instance it names waits for a layout — DONE (binate `868d8f2bf`, 2026-11-06, temp-5; user: "yes, go ahead"; on binate `9e4ef8ba3`, the waiting-build fix)
 
 Found 2026-11-04 (temp-5, review of the later-parameter fix): a constraint check that read the layout of an instance
