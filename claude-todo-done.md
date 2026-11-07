@@ -1,3 +1,24 @@
+### A build that waits for a layout still builds the instances it names from the length it could not read, and reports their errors — DONE (binate `9e4ef8ba3`, 2026-11-06, temp-5; user: "yes, go ahead"; with binate `3faba31f6`, the checker's records moved from types to check)
+
+Found 2026-10-28 (work-7): `type Other[T any] struct { x T }` with `q() int { return 32 / cast(int, sizeof(T)) }`,
+`type Box[T any] struct { a *Other[[sizeof(T)]uint8]; t int }` and `type N struct { v int64; p *Box[N] }` was
+rejected "division by zero (in Other[[0]uint8].q ...)": Box[N]'s build waited for N's layout, went on with the
+length as 0, and the instances it named from it were built in frames of their own, their errors reported.  binate
+`9e4ef8ba3`: an instance or generic function instance first named where the resolution waits (resolutionWaits) is
+provisional (check/check_held.bn) -- built as any is, but what its build reports and the checks it queues are held,
+and given out where the program names it in a resolution that is kept; one formed from the unread length is never
+named so.  Deferred records carry the holding they were made in (and are not made when made where the resolution
+waits); no constraint check latches while its report is held; giving out is undone with dropped reports (a batch
+var set aside, a parked REPL declaration); a given-out error is marked CheckError.Released and does not count as
+the own error of the check it is given out in; a release gives out each constraint miss once, children first.
+Designs before it: postponing such instances unbuilt (archived on a dated branch; a kept probe memo held an unbuilt
+interface, a miss was lost).  Four review rounds of the held design (a constant resolved on demand, a release inside
+a dropped window, a waiting provisional build's children, deferred collection checks, a deferred record latching
+the real check, duplicate misses), all fixed with tests: conformance spec/12-generics 164-178, check_held_test.bn.
+CheckError gained a field with types.bni at its 1000-line cap, so the checker's records (CheckError, PendingDecl,
+RetriedDecl) moved to check.bni first (binate `3faba31f6`; user: "Split the file. Stop suggesting raising the
+fucking caps.").
+
 ### IR-gen is cubic in a package's named non-struct types, so conformance 1730_long_named_type_chains runs out the arm32 Linux VM lane's 20 seconds and 35 min of a conformance int-int shard -- DONE (binate `b6cb84aee`, 2026-11-05, work-3; user: "yes" to fixing IR-gen instead of shrinking the test, then "wait 4 minutes, then go ahead")
 
 Module.TypeAliases is built and indexed as Structs is (RegisterModuleTypeAlias / TypeAliasIndexLookup in

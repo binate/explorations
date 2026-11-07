@@ -534,20 +534,9 @@ Eq[[sizeof(B)]uint8], B any] struct { a A }`, `type I[T any, U any] struct { j J
 struct { v T; p *X[T, int32] }` and `type X[T any, U any] struct { a [sizeof(Q[T])]uint8; i I[T, U] }`, `var q
 Q[int64]` compiles (main reports the miss "(in I[int64, int32], ...)"): the redo hits I[int64, int32]'s cache and
 never names J again.  Nothing in a waiting build tells an instance formed from an unread length from a real one; once
-a waiting build builds no new instance (the other entry), (3) is sound.
-
-### A build that waits for a layout still builds the instances it names from the length it could not read, and reports their errors — 🟡 IN PROGRESS (claimed 2026-11-05, temp-5) (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
-
-`type Other[T any] struct { x T }`, `func (o *Other[T]) q() int { return 32 / cast(int, sizeof(T)) }`, `type Box[T
-any] struct { a *Other[[sizeof(T)]uint8]; t int }`, `type N struct { v int64; p *Box[N] }` is rejected "division by
-zero in constant expression (in Other[[0]uint8].q, instantiated at … via Box[N])"; with `y [sizeof(T) - 1]uint8` in
-Other in place of q, "array length is too large".  Box[N]'s build reads sizeof(N) while N is collected and waits
-(check/check_layout_wait.bn), but goes on resolving with the length as 0, and names Other[[0]uint8]: that instance
-is built in a frame of its own that does not wait, so its errors are reported, and it stays cached.  The same
-happens inside a generic's declaration resolved abstractly (`type Box[T any] struct { a *Other[[sizeof(N)]uint8];
-t T }`, `type N struct { v int64; p *Box[int] }`).  Without the member that breaks on a zero length the programs
-compile and print the right lengths.  Fix: build no new instance inside a build that waits, as skipDemand resolves
-no declaration on demand there (or build it uncached, its errors dropped), with unit tests for both forms.
+a waiting build builds no new instance (the other entry), (3) is sound.  That entry is fixed (binate `9e4ef8ba3`,
+2026-11-06) another way: a build begun where the resolution waits is provisional, what it reports held (see the
+done log); (3) is to be redone on it, not yet landed.
 
 ### A generic alias of a struct type that takes the size of a type being collected is a false cycle — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
 
