@@ -5806,6 +5806,16 @@ reader's reason.  Tests: `relocSectionChecks` on an ELF64 RELA and an ELF32 REL 
 `TestReadObjectRejectsNonRelocatable`, `TestReadArchiveBadMemberReason`.  Checked that clang C objects (`-g`,
 `-ffunction-sections`, `-O0` / `-O1`) still link on x86-64, aarch64 and arm32.
 
+### IR verifier: a branch whose condition is nil is "branch missing cond" — DONE (binate `506cd0dd0`, 2026-11-07)
+
+Found by the review of the aarch64 / arm32 nil-condition guards (entry below); user 2026-11-07: "yes, add that check
+as a separate commit". `checkSuccessors` (`pkg/binate/irbuild/verify.bn`) reported "branch missing cond" only for a
+branch with no arguments; it now reports a nil condition too (VERR_NIL_SUCCESSOR). `TestVerifyBranchMissingCond`
+checks both shapes are the one violation, by code and message, and fails with the fix undone. Validated also with a
+third of `builder-comp` conformance under `--verify-ir` (1370 passed, no "branch missing cond") and
+`e2e/verify-ir.sh` (bnc, bni, bnas, bnlint verify clean). The verifier is opt-in; making `EmitBranch` itself reject
+a nil condition is the open todo entry that follows.
+
 ### native aarch64 / arm32: a branch whose condition is nil fails with an error — DONE (binate `008cad996`,
 `9ab34507e`, 2026-11-07)
 
