@@ -407,8 +407,18 @@ Steps:
   11,565 cases against clang agree but "did you mean"; review, no defect.  4d is complete.
 - 4e. One register and a modified immediate, and the moves: vmov / vorr / vmvn / vbic by an immediate, vmov between
   registers (vorr), vext, vtbl / vtbx, vdup from a scalar and from a core register, NEON's vmov between a core
-  register and a scalar.  vmvn by an immediate's encodings also join 4d's register forms' near misses: `vmvn d0,
-  d1, #0` is "too many operands for instruction" until then, clang's "invalid instruction, any one of ...".
+  register and a scalar.
+  - Part 1a, vorr / vbic / vand / vmvn by an immediate (with MVE's near misses; it also gives `vmvn d0, d1, #0`
+    clang's "invalid instruction, any one of ..."): validated and reviewed, not yet landed.  Decided (user
+    2026-11-06, "Reject (Recommended)"): clang's negative zero, `#-0` (-2^31 to clang, so `vorr.i32 d0, #-0` is
+    VORR.I32 #0x80000000), is no modified immediate here.  Kept: values past the data type's range (clang's
+    truncation; `vand.i16 #~0xab00` and `vmvn.i32 #~0xab000000` too), a condition, and a floating-point literal
+    (the binary64 gap: clang takes `vmvn.i16 d0, #1.5` by its pattern's low bits).
+  - Part 1b, VMOV: decided (user 2026-11-06, "Move VMOV onto the matcher (Recommended)"): one candidate list
+    for all of VMOV's encodings (VFP, NEON, MVE near misses, the pre-UAL names), replacing the hand-written
+    arm32_vmov*.bn, whose immediate reader takes only a literal under 2^20 and whose messages for the shapes
+    VFP and NEON share are its own (`vmov.i32 s0, #1`).  First, 3b's VMOV case lists (~5,800 cases) go into
+    scripts/bnas-sweep's corpus so the sweep guards the VFP forms through the move.
 - 4f. Element and structure loads and stores: vld1 .. vld4 / vst1 .. vst4, multiple structures, one lane and all
   lanes, the alignment, write-back and a register post-index.
 - 4g. ARMv8's and later additions: sha1c / sha1p / sha1m / sha1su0, sha256h / sha256h2 / sha256su1 (through 4d's
