@@ -409,7 +409,7 @@ Steps:
   registers (vorr), vext, vtbl / vtbx, vdup from a scalar and from a core register, NEON's vmov between a core
   register and a scalar.
   - Part 1a, vorr / vbic / vand / vmvn by an immediate (with MVE's near misses; it also gives `vmvn d0, d1, #0`
-    clang's "invalid instruction, any one of ..."): validated and reviewed, not yet landed.  Decided (user
+    clang's "invalid instruction, any one of ..."): DONE (binate `ebc47296d`).  Decided (user
     2026-11-06, "Reject (Recommended)"): clang's negative zero, `#-0` (-2^31 to clang, so `vorr.i32 d0, #-0` is
     VORR.I32 #0x80000000), is no modified immediate here.  Kept: values past the data type's range (clang's
     truncation; `vand.i16 #~0xab00` and `vmvn.i32 #~0xab000000` too), a condition, and a floating-point literal
