@@ -5731,6 +5731,16 @@ reader's reason.  Tests: `relocSectionChecks` on an ELF64 RELA and an ELF32 REL 
 `TestReadObjectRejectsNonRelocatable`, `TestReadArchiveBadMemberReason`.  Checked that clang C objects (`-g`,
 `-ffunction-sections`, `-O0` / `-O1`) still link on x86-64, aarch64 and arm32.
 
+### native aarch64 / arm32: a branch whose condition is nil fails with an error — DONE (binate `008cad996`,
+`9ab34507e`, 2026-11-07)
+
+The same gap as the x64 entry below (user 2026-11-05: separate commits): the OP_BRANCH guard (aarch64's case in
+`emitInstr`, arm32's `emitBranch`) checked only that the branch had an argument, so a nil condition crashed the
+compiler reading its ID. Each guard now rejects it, and each backend's `TestEmitTermRejectsMalformed` checks that
+every malformed jump and branch fails with its guard's error (each crashes with its fix undone). A review asked for
+the error text to be checked; x64's test got the same check as binate `1845e172e`. The review also found the IR
+verifier's "branch missing cond" check has the gap; that is the remaining step of the todo entry.
+
 ### native x64: a branch whose condition is nil fails with an error — DONE (binate `038cdf18f`, 2026-11-05)
 
 Found by the review of the one-target follow-up below. The OP_BRANCH guard in `emitJumpOrBranch` reported "a branch

@@ -3226,15 +3226,11 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
   counts, so nothing proves those inputs impossible.  Fix: check each op's operand count and required types in
   the verifier (then the guards are dead and can go), or make each guard record `a.SetError`.
 
-- **Native aarch64 / arm32: a branch whose condition is nil crashes the compiler** — 🟡 IN PROGRESS (claimed
-  2026-11-05; user: "in a separate commit (or commits)") (found 2026-11-05, review of the x64 block-layout
-  follow-up).  The OP_BRANCH guard (`aarch64_dispatch.bn`'s case, `arm32_dispatch.bn`'s `emitBranch`) reports "a
-  branch without both targets and a condition" but checks only `len(ins.Args) < 1`; with `ins.Args[0]` nil,
-  `emitCondBranch` / `emitBranch` read its ID and the compiler crashes.  Valid IR always gives a branch its
-  condition.  x64 had the same gap, fixed as binate `038cdf18f` (`TestEmitTermRejectsMalformed`).  Fix: the same check in
-  both guards, with a test each.  Also the IR verifier: `checkSuccessors` (`pkg/binate/irbuild/verify.bn`)
-  reports "branch missing cond" only for an empty `Args`, so a nil condition passes it; add that check, with a
-  verifier test, as a separate commit (user 2026-11-07: "yes, add that check as a separate commit").
+- **IR verifier: a branch whose condition is nil passes `checkSuccessors`** — 🟡 IN PROGRESS (claimed 2026-11-05;
+  user 2026-11-07: "yes, add that check as a separate commit") (found 2026-11-05, review of the native backends'
+  nil-condition guards).  `checkSuccessors` (`pkg/binate/irbuild/verify.bn`) reports "branch missing cond" only
+  for an empty `Args`, so a branch whose condition is nil passes the verifier, and only the native backends' guards
+  (binate `038cdf18f`, `008cad996`, `9ab34507e`) catch it.  Fix: report it there too, with a verifier test.
 
 - **Checker rejects valid alias uses in const / untyped-literal contexts** — 🔵 OPEN (found
   2026-09-26).  Spec type.alias.transparency: an alias is its target in every context.  But with
