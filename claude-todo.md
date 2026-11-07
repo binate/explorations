@@ -3086,6 +3086,9 @@ deep-nesting stage types/abi added `BeginLayoutQuery` / `EndLayoutQuery` (980 ->
 "Add now, file a split todo".  Candidate: the ~160-line checker-support section at the end (`RetriedDecl` and the
 other types the checker keeps in `types`) -- find what it holds and why it lives in `types` before moving it.
 Later deep-nesting stages may need more `types` API, so do this before the next addition.
+Waiting on it: the checker's restartHeldLayout (binate `f550149b5`) ends and begins the layout query it holds on each
+type change, which starts a new layout generation only when no other query is open; a `types` call giving the open
+queries' depth would let it fail loud instead of reusing stale layouts (review of the memoization stage).
 
 ### `print(42)` and friends: how do primitives implement interfaces? — DESIGN OPEN
 - **Problem**: with the current rules, `int` (and other predeclared
