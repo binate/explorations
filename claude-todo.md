@@ -1331,7 +1331,7 @@ answer: check the callee's entry frame before taking the arguments, or release t
 parameter types) when its entry push fails.  Test: a compiled program calling a VM func value whose frame exceeds
 the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
 
-### check's TestConstraintListKeepsIfaceSizing, TestConstraintListSizesInstanceOnce and TestDerivedRecordNotSized fail on the ILP32 unit lane (builder-comp_arm32_linux) — 🔴 OPEN (minor: a CI lane red; found 2026-11-06, work-3, reading main's CI)
+### check's TestConstraintListKeepsIfaceSizing, TestConstraintListSizesInstanceOnce and TestDerivedRecordNotSized fail on the ILP32 unit lane (builder-comp_arm32_linux) — 🟡 IN PROGRESS (claimed 2026-11-07, work-3; user: "look into the things that are still red") (minor: a CI lane red; found 2026-11-06, work-3, reading main's CI)
 
 The three tests (added in binate `4b685d01b` and `d11cd29ef`) size an instance over `[0x4000000000000000]uint8`, a
 length a 32-bit target cannot hold, so on builder-comp_arm32_linux the checker reports "array length is too large"
