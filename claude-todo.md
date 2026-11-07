@@ -77,6 +77,16 @@ being collected with no instance to wait for, a false cycle — only D's soft wa
 on N.  The third should report the cycle.  Tests: conformance tests printing the lengths in both orders, and the cycle
 as an error test.
 
+Two more symptoms (2026-11-06, work-1, review of the prepareLayout frame machine; both reproduced on main): with
+`type X struct { a [sizeof(D)]uint8 }`, `type D struct { s @[]E; c C0 }`, `type E struct { a [sizeof(D)]uint8 }` and
+C0 .. C3 a chain of structs ending in an `int64`, a valid program is rejected (`cannot take sizeof/alignof of an
+opaque type` at E's `sizeof(D)`): E's read, made while X's read walks D, checks D for an opaque type and finds C0 not
+collected yet.  With C0 .. C19999 declared first, each holding the next in eight nested one-element arrays, the
+checker crashes (SIGSEGV, instanceNotBuiltOf recursing down the chain under layoutNotBuilt): E's read takes D as
+ready, and the walks after it go down D's chain.  The frame machine change
+(not yet landed) keeps no height from a walk that met such a declaration, so only the read made inside the walk is
+affected, not later ones.  Tests with the fix: these two programs (the crash at 20,000 is a probe, not a unit test).
+
 ### Preparing a layout walks a type graph reached only through slices as a tree — compile time exponential in its depth — 🔴 OPEN (minor: compile time; found 2026-10-30, work-7, review of the slice-reach fix; reproduced on main; pre-existing)
 
 `type X struct { a [sizeof(T22)]uint8 }` with `type T0 struct { v int64 }`, `type U0` the same, and each `type Ti
