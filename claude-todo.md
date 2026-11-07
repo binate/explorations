@@ -47,7 +47,7 @@ abstract).  A nesting limit would bound these too; iterative walks would drop th
 expandArgFlow counts an alias chain past 64 as growing -- a generic-expansion rule, beside §21.4's instantiation
 limits, not this.)
 
-### A type whose walk is still on the stack counts as prepared when a `sizeof` reads it by value: a valid program gets a wrong array length, and a layout cycle is accepted — 🔴 OPEN (MAJOR: valid programs compiled with a wrong array type, silently, and an invalid one accepted; found 2026-10-30, work-7, review of the slice-reach fix; reproduced on main; pre-existing)
+### A type whose walk is still on the stack counts as prepared when a `sizeof` reads it by value: a valid program gets a wrong array length, and a layout cycle is accepted — 🟡 IN PROGRESS (claimed 2026-11-07, work-1; user: "Don't collect it (Recommended)": the layout walk stops at a slice, a batch type not collected yet is pending, not opaque, during collection, and a sizeof operand that met one is checked again after it) (MAJOR: valid programs compiled with a wrong array type, silently, and an invalid one accepted; found 2026-10-30, work-7, review of the slice-reach fix; reproduced on main; pre-existing)
 
 `type N struct { v int64; a [sizeof(M)]uint8 }`, `type M struct { s *[]D }`, `type D struct { n N; e *[]E }`, `type E
 struct { a [sizeof(D)]uint8 }` compiles with E's array 24 bytes long while `sizeof(D)` is 40 (64-bit); with E declared
