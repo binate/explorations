@@ -159,9 +159,9 @@ recursive, so far more than 75).
   shared one); aliases and blank `type _` are measured and only reported; a cut poisons only the parts past the limit
   (struct fields, interface signature parameters / results, parents); a by-value cycle is reported as a recursive
   type where the measure closes it; an opaque type outside its package is one level.  Spec: no Constraint tag ("may
-  be rejected"), a constraint-candidate.  Next (sequencing, not deferral, told to the user): a layout read that walks
-  past the limit reports at that position, with prepareLayoutIn / prepareBatchType / prepareBniType made an
-  explicit frame machine (indexed TypesWalking / TypesCollecting / TypesPrepared / TypesCollected).
+  be rejected"), a constraint-candidate.  Next -- IN PROGRESS (claimed 2026-11-06, work-1; user: "yes"): a layout
+  read that walks past the limit reports at that position, with prepareLayoutIn / prepareBatchType / prepareBniType
+  made an explicit frame machine (indexed TypesWalking / TypesCollecting / TypesPrepared / TypesCollected).
 - Stage memoization DONE: binate `7eb817dd8` (the pointer rule's answers kept across a batch), `10094a641`
   (concrete layouts kept), `db60c6121` (the by-value cycle check only where the depth walk met a by-value cycle),
   `f550149b5` (one layout query held across checkValueEmbedding, restarted on each type change), `07b29d367`
