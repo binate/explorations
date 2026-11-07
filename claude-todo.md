@@ -47,7 +47,7 @@ abstract).  A nesting limit would bound these too; iterative walks would drop th
 expandArgFlow counts an alias chain past 64 as growing -- a generic-expansion rule, beside §21.4's instantiation
 limits, not this.)
 
-### A by-value cycle met while a layout is prepared in an instance build that waits is broken but never reported: the checker accepts it, and IR-gen panics — 🔴 OPEN (MAJOR: an invalid program accepted; found 2026-11-06, work-1, review of the prepareLayout frame machine; reproduced on main; pre-existing)
+### A by-value cycle met while a layout is prepared in an instance build that waits is broken but never reported: the checker accepts it, and IR-gen panics — 🟡 IN PROGRESS (claimed 2026-11-06, work-1; user: "folded in is fine", into the prepareLayout frame machine change) (MAJOR: an invalid program accepted; found 2026-11-06, work-1, review of the prepareLayout frame machine; reproduced on main; pre-existing)
 
 `type Box[T any] struct { a [sizeof(T)]uint8 }`, `type P struct { q Q; r R }`, `type R struct { p P }`, `type N struct
 { p *Box[P]; v int64 }`, `type Q struct { x [sizeof(N)]uint8 }` and an empty `main` pass the checker; IR-gen then
