@@ -7,6 +7,20 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### bnfmt deletes a line comment after an operator of a chain nested past 12 lists — 🔴 OPEN 🟠 MAJOR (found 2026-11-07, temp-4, review of the wrapped-chain parentheses fix; on main since binate `5262e31c9`)
+
+Past STABLE_LIST_DEPTH (12) nested lists, printBinary no longer asks whether the source wrapped a chain
+(print_chain.bn), so a chain with a line comment after one of its operators can take the one-line form
+(printBinarySingle): binarySingleFits sees no comment there, as claimInlineGap leaves a line comment pending.  That
+form drops the comment when a rendering that wrapped the chain (printBinaryWrapped, at a shallower list depth) has
+claimed it already, and otherwise leaves it pending, so it moves to after the statement.  The tree's bnfmt deletes
+`// c4` from `x := hh(hh(…(13 deep)…hh(<45-byte name>, (da ^ // c4` / `d))))))))))))))`; 12 deep it keeps it, and
+bnfmt `bnc-0.0.17-pre3` (before the cap) keeps it.  Data loss under `bnfmt -w`, though only in code nested that deep.
+Fix: the one-line form writes a comment after an operator that needs a line break where it is (claimGap,
+writeGapComments, the next operand on a continuation line), and binarySingleFits rejects a chain with one, so a deep
+chain wraps there as a shallow one does; tests: line comments after operators of chains 13 lists deep, as a list's
+element, an operand and a call's argument.
+
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
 Freeing a long chain through managed-slices (`type Cell struct { rest @[]Cell; v int }`, 300,000 links, the last
