@@ -217,7 +217,7 @@ pkg/binate/check (915 s there) on shard 3/6 every run, past its 30-min job limit
 work-3; user: "ok", then "yes") splits check's tests across the single-VM lanes' shards (pkg-binate-check.split.vm).
 Open: confirm on the next completed unit run that the int-int and single-VM shards finish in time.
 
-### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🟡 IN PROGRESS on (a) (c) (d) (claimed 2026-11-07, work-3), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
+### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🟡 IN PROGRESS on (a) (b) (c) (d) (claimed 2026-11-07, work-3), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
 `builder-comp_arm32_baremetal` runs each package's test binary in QEMU `virt` with `-m 16M`, linked by
 runtime/baremetal_arm32/baremetal.ld (`RAM LENGTH = 16M`: code, data, `.bss` — including the 4 MiB heap arena,
@@ -245,6 +245,12 @@ are xfailed): yes.  (b) routing bare-metal os.Stdout / Stderr to the semihosting
 consider alternatives" -- open.  (c) more RAM for the lane's test runs (QEMU `virt` up to 1 GiB) and a larger arena,
 leaving real programs' 16 MiB layout: ok.  (d) shard the lane like the other unit lanes (it timed out at its
 30-min job limit in pkg/binate/check, unit run 42162719837): yes.
+Then (user: "yes"): (b) the generated test runner prints through pkg/builtins/testing (testing.Print /
+Println: semihosting on bare metal, write(2) elsewhere) instead of pkg/std/fmt -> os.Stdout, which stays without a
+console on bare metal; (c) the linker script defines the layout -- baremetal.ld keeps 16 MiB and a 4 MiB heap, now a
+region it defines rather than a static array in rt; crt0 loads _stack_top from it; `bnc --test` for bare metal links a
+test script with more RAM, the heap the rest; the runner passes QEMU the matching -m.  (d) waits on (b): locally
+pkg/binate/check ran ~2 h under bare-metal QEMU with no output, so its cost is unknown.
 
 ### IR-gen spells every type argument out in an instance's name — instances whose arguments share a type get exponentially long names — 🔴 NEEDS DECISION (found 2026-10-26, work-7, testing the abstract-instance change's shared-argument walk; reproduced on main; pre-existing)
 
