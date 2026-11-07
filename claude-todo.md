@@ -2815,7 +2815,7 @@ has the same gap.
 
 ## bnfmt (self-hosted formatter)
 
-### bnfmt drops the author's parentheses around a chain's left operand of the same precedence when the chain wraps — 🔴 OPEN 🟢 LOW (found 2026-11-05, temp-4, review of the operator-chain comments fix; pre-existing)
+### bnfmt drops the author's parentheses around a chain's left operand of the same precedence when the chain wraps — 🟡 IN PROGRESS (claimed 2026-11-07, temp-4) 🟢 LOW (found 2026-11-05, temp-4, review of the operator-chain comments fix; pre-existing)
 
 An author-parenthesized binary operand keeps its parentheses (printBinOperand, print_expr.bn), but flattenChain
 (print_chain.bn) flattens a left operand of the chain's precedence whether parenthesized or not, so a chain that
