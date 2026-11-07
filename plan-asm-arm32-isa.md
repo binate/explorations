@@ -419,6 +419,30 @@ Steps:
     arm32_vmov*.bn, whose immediate reader takes only a literal under 2^20 and whose messages for the shapes
     VFP and NEON share are its own (`vmov.i32 s0, #1`).  3b's VMOV case lists are in scripts/bnas-sweep's
     corpus (binate `1767bedce`: vmov.txt, vmov-ctx.txt, 4,954 cases) to guard the VFP forms through the move.
+    Baseline (bnas at binate `1767bedce` against clang 22 on that corpus): 128 encodings differ, all NEON's
+    forms ("not supported yet"); 1,478 both-reject cases differ in message, mostly the multi-candidate
+    messages ("invalid instruction" / "any one of ..." where bnas names one operand), the rest recorded gaps
+    (did-you-mean, an `s` after an unknown name).  Design:
+    - Candidates, clang's VMOV table in ARM state.  VFP: VMOVD .f64 D, D (FPRegs64); VMOVS .f32 S, S and
+      untyped (FPRegs); VMOVRS / VMOVSR untyped and .8 / .16 / .32 (FPRegs); VMOVRRD / VMOVDRR untyped and
+      .f64; VMOVRRS / VMOVSRR (an S pair, sequential); VMOVRH / VMOVHR .f16 (FPRegs16, rGPR); FCONSTS / D /
+      H .f32 / .f64 / .f16 (VFP3, DP, full FP16); VGETLNi32 / VSETLNi32 .32 and untyped (FPRegs).  NEON:
+      VGETLN .s8 / .u8 / .s16 / .u16 and VSETLN .8 / .16 (conditional); VMOV by an immediate .i8 / .i16 /
+      .i32 / .i64 / .f32 on D and Q with clang's aliases (byte and 16 / 32-bit replicates, VMOV.I32 as VMVN
+      of the inversion, .f32 with VMOV.I32's values for `#0.0`); the copy as VORR (untyped or any type, D, D
+      and Q, Q).  MVE's as near misses (VMOV by an immediate on Q0 .. Q7, to and from a lane, the Q-lane
+      pair moves).  The pre-UAL names as clang maps them (fcpys / fcpyd, fmrs / fmsr, fmrrd / fmdrr, fmrrs /
+      fmsrr as the names; fmdhr / fmdlr / fmrdh / fmrdl, fconsts / fconstd as aliases).
+    - Operand reading: clang's parseFPImm for a vmov with .f16 / .f32 / .f64 and for fconsts / fconstd
+      (`#` or `$`, a `-`, a real as single-precision bits with the sign toggled, an integer 0 .. 255 the
+      encoding for fconst*, else "invalid floating point immediate"); new kinds for the FP immediates
+      (isFPImm), VMOV's immediate classes and replicates, lanes by element size (D0 .. D31).
+    - Encoders: NEON's 8- and 16-bit lane moves (asm/arm32/neon); the rest exist (vfp's moves, ModImm,
+      Three for VORR).
+    - arm32_vmov.bn / arm32_vmov_form.bn / arm32_vmov_alias.bn go; their tests become the matcher's.
+    - Validation: clang on the VMOV corpus (every change from the baseline toward clang, or a kept
+      difference), the sweep (its CHANGED / MESSAGE triaged against that), the usual gen1 / unit / e2e /
+      runtime / hygiene.
 - 4f. Element and structure loads and stores: vld1 .. vld4 / vst1 .. vst4, multiple structures, one lane and all
   lanes, the alignment, write-back and a register post-index.
 - 4g. ARMv8's and later additions: sha1c / sha1p / sha1m / sha1su0, sha256h / sha256h2 / sha256su1 (through 4d's
