@@ -501,7 +501,7 @@ naming it and a declaration's miss not repeated, DONE: binate `43e760718` (2026-
 the concrete instantiations an instance's derived types form judged there, DONE: binate `d11cd29ef` (2026-11-05; see
 the done log).
 
-### Inside a generic's instance, a type argument satisfies a constraint through an impl private to another package's `.bn` — 🔴 OPEN (an invalid program accepted; found 2026-11-04, temp-5, review of design C for the dependent-length constraints; reproduced on binate main `b52e54139`; pre-existing)
+### Inside a generic's instance, a type argument satisfies a constraint through an impl private to another package's `.bn` — 🟡 IN PROGRESS (claimed 2026-11-06, temp-5) (an invalid program accepted; found 2026-11-04, temp-5, review of design C for the dependent-length constraints; reproduced on binate main `b52e54139`; pre-existing)
 
 Package r3lib's `.bni` declares `interface Tag[T any] { tag() int }`, `func inner[T Tag[[sizeof(X)]uint8], X
 any](t T) int` and `func outer[V Tag[[sizeof(U)]uint8], U any, X any](v V) int { return inner[V, X](v) }`; package
