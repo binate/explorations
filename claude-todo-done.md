@@ -8,6 +8,8 @@ frame LayoutBlocked); P, collected in its turn, was not undone, so nothing after
 prepareLayout frame machine change: the check is skipped in a blocked layout frame (checkCycleUnlessBlocked,
 check/check_layout_prepare.bn), and made when the build is done again.  Tests: conformance
 regressions/value-cycle-in-waiting-instance-build, check TestValueCycleInWaitingBuild (fails with the guard dropped).
+The same held in a `.bni` (the `.bni` frame's check), where the cycle went unreported entirely: check
+TestBniValueCycleInWaitingBuild (binate `f4ac9da6b`) fails with that frame's guard dropped.
 
 ### A constraint miss in a generic's field is never reported when the instance it names waits for a layout — DONE (binate `868d8f2bf`, 2026-11-06, temp-5; user: "yes, go ahead"; on binate `9e4ef8ba3`, the waiting-build fix)
 
