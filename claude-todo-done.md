@@ -1,3 +1,9 @@
+### check's TestConstraintListKeepsIfaceSizing, TestConstraintListSizesInstanceOnce and TestDerivedRecordNotSized fail on the ILP32 unit lane (builder-comp_arm32_linux) -- DONE (binate `220b1efd6`, 2026-11-07, work-3; user: "look into the things that are still red", then "yes, go ahead and land")
+
+They check for a 64-bit target (checkSrcLP64), as check_default_int_fit_test.bn's tests of 64-bit limits do; on a
+32-bit one the checker rejects their array lengths first.  pkg/binate/check passes on builder-comp_arm32_linux
+(1917 tests, Docker) and natively.
+
 ### bnfmt's time grows exponentially with the nesting depth of calls and of keyed composites holding calls -- DONE (binate `5262e31c9`, 2026-11-06, temp-4; user: "Depth-capped policy (Rec.)", then "wait 4 minutes, then go ahead") (the rest of the MAJOR "bnfmt takes ~96 s on nested calls and composites again"; found 2026-11-03, temp-4)
 
 Each fill decision checked against a second format read its layout back and rendered it at both places, and a layout

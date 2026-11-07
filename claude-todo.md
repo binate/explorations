@@ -221,7 +221,7 @@ pkg/binate/check (915 s there) on shard 3/6 every run, past its 30-min job limit
 work-3; user: "ok", then "yes") splits check's tests across the single-VM lanes' shards (pkg-binate-check.split.vm).
 Open: confirm on the next completed unit run that the int-int and single-VM shards finish in time.
 
-### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🔴 NEEDS DECISION, RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
+### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🟡 IN PROGRESS on (a) (c) (d) (claimed 2026-11-07, work-3), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
 `builder-comp_arm32_baremetal` runs each package's test binary in QEMU `virt` with `-m 16M`, linked by
 runtime/baremetal_arm32/baremetal.ld (`RAM LENGTH = 16M`: code, data, `.bss` — including the 4 MiB heap arena,
@@ -243,6 +243,12 @@ package's count for the same reason).  NEEDS DECISION: route bare-metal os.Stdou
 console (as pkg/builtins/testing/sys already does), or have the runner print through pkg/builtins/testing
 (its source says it must use the real pkg/std/fmt).  Only after that can the failing tests be found; the
 `native/arm32` link overflow and the arena exhaustion remain size problems.
+**Decided 2026-11-07** (user, on the four points put to them): (a) xfail pkg/binate/asm/assemble on the lane (its
+tests write object files to a temporary directory; bare metal has no filesystem, as asm/elf, asm/macho and asm/x64
+are xfailed): yes.  (b) routing bare-metal os.Stdout / Stderr to the semihosting console: "wrong, and we should
+consider alternatives" -- open.  (c) more RAM for the lane's test runs (QEMU `virt` up to 1 GiB) and a larger arena,
+leaving real programs' 16 MiB layout: ok.  (d) shard the lane like the other unit lanes (it timed out at its
+30-min job limit in pkg/binate/check, unit run 42162719837): yes.
 
 ### IR-gen spells every type argument out in an instance's name — instances whose arguments share a type get exponentially long names — 🔴 NEEDS DECISION (found 2026-10-26, work-7, testing the abstract-instance change's shared-argument walk; reproduced on main; pre-existing)
 
@@ -1344,14 +1350,6 @@ for a VM fault.)  The host API has the same shape and refuses such a call before
 answer: check the callee's entry frame before taking the arguments, or release the owned ones (by the callee's
 parameter types) when its entry push fails.  Test: a compiled program calling a VM func value whose frame exceeds
 the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
-
-### check's TestConstraintListKeepsIfaceSizing, TestConstraintListSizesInstanceOnce and TestDerivedRecordNotSized fail on the ILP32 unit lane (builder-comp_arm32_linux) — 🟡 IN PROGRESS (claimed 2026-11-07, work-3; user: "look into the things that are still red") (minor: a CI lane red; found 2026-11-06, work-3, reading main's CI)
-
-The three tests (added in binate `4b685d01b` and `d11cd29ef`) size an instance over `[0x4000000000000000]uint8`, a
-length a 32-bit target cannot hold, so on builder-comp_arm32_linux the checker reports "array length is too large"
-instead of the error each expects ("the size of Big[[0x4000000000000000]uint8]'s method must be reported").  Red in
-unit runs 42156734341 (b6cb84aee) and 42162719837 (b930dd829).  Pick an array length past the target's limit on
-every target (by the target's word size), or check the expected error per target.
 
 ## Performance
 
