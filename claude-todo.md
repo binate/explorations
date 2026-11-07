@@ -3178,6 +3178,8 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
   nil-condition guards).  `checkSuccessors` (`pkg/binate/irbuild/verify.bn`) reports "branch missing cond" only
   for an empty `Args`, so a branch whose condition is nil passes the verifier, and only the native backends' guards
   (binate `038cdf18f`, `008cad996`, `9ab34507e`) catch it.  Fix: report it there too, with a verifier test.
+  Then (user 2026-11-07: "Yes, every compile should catch it"): `irbuild.EmitBranch` panics with an internal
+  error on a nil condition, so a normal compile (no `--verify-ir`) catches it in IR-gen.
 
 - **Checker rejects valid alias uses in const / untyped-literal contexts** — 🔵 OPEN (found
   2026-09-26).  Spec type.alias.transparency: an alias is its target in every context.  But with
