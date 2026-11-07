@@ -47,6 +47,20 @@ abstract).  A nesting limit would bound these too; iterative walks would drop th
 expandArgFlow counts an alias chain past 64 as growing -- a generic-expansion rule, beside §21.4's instantiation
 limits, not this.)
 
+### A by-value cycle met while a layout is prepared in an instance build that waits is broken but never reported: the checker accepts it, and IR-gen panics — 🔴 OPEN (MAJOR: an invalid program accepted; found 2026-11-06, work-1, review of the prepareLayout frame machine; reproduced on main; pre-existing)
+
+`type Box[T any] struct { a [sizeof(T)]uint8 }`, `type P struct { q Q; r R }`, `type R struct { p P }`, `type N struct
+{ p *Box[P]; v int64 }`, `type Q struct { x [sizeof(N)]uint8 }` and an empty `main` pass the checker; IR-gen then
+panics ("internal error: a struct holds itself by value").  Box[P] is built while N is collected; P's layout walk
+(prepareBatchType, check/check_decl_layout.bn) reaches R, then P (still being walked), and finishes R with
+checkTypeByValueCycle, which reports the cycle and poisons R's field -- but Q's `sizeof(N)` has made the instance build
+wait, its frame LayoutBlocked, and a report in a blocked frame is dropped (reportCheckError).  The build is undone and
+done again, but R was collected in its turn, not on demand, so its poisoned field stays, and the build done again,
+checkTypeDepths and checkValueEmbedding find no cycle.  A type must not be changed where the report explaining the
+change is dropped: skip the check (its poisoning with it) in a blocked frame; the build done again or
+checkValueEmbedding finds the cycle.  The same family as the constraint checks lost in a LayoutBlocked frame (below).
+Test: this program as a conformance error test ("recursive type").
+
 ### A type whose walk is still on the stack counts as prepared when a `sizeof` reads it by value: a valid program gets a wrong array length, and a layout cycle is accepted — 🔴 OPEN (MAJOR: valid programs compiled with a wrong array type, silently, and an invalid one accepted; found 2026-10-30, work-7, review of the slice-reach fix; reproduced on main; pre-existing)
 
 `type N struct { v int64; a [sizeof(M)]uint8 }`, `type M struct { s *[]D }`, `type D struct { n N; e *[]E }`, `type E
@@ -2886,6 +2900,18 @@ line the literal starts on.
 (`cast( // c` / `int, x)`) goes after the statement.  The parser records these calls' `(` already
 (`ast.File.BuiltinOpeners`); printing the operands as an item list (a type item, then the value) would
 give them the value-argument builtins' wrapping and comments.
+
+### Preparing a layout during collection is quadratic in the length of the chain it reads — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-06, work-1, review of the prepareLayout frame machine; pre-existing)
+
+A read while the declarations are collected of a chain of n struct declarations, each holding the next (`type X
+struct { a [sizeof(T0)]uint8 }` over T0 .. T(n-1)), prepares every declaration of the chain, and two steps for each
+are linear in the chain: checkTypeByValueCycle after each declaration's walk walks all it holds by value (~54% of
+the time, sampled), and batchTypeDeclOf finds a named type's declaration by scanning the batch's types by name
+(findDeclIn, ~15%).  With prepareLayout as a frame machine (not yet landed; on main such a read of 20,000 crashes in
+its recursion): 2.5 s for 5,000, 12 s for 10,000 and 92 s for 20,000, against 9 s for 20,000 with no read.  Fix:
+index the batch's type declarations by name, and check a by-value cycle only for the declarations on a cycle the
+walk met (a declaration reached by value while its walk is still going), as checkTypeDepths' valueAcyclic does
+after collection.
 
 ### Checking is quadratic in a package's number of declarations — 🔴 OPEN 🟢 LOW (found 2026-11-05, work-1, deep-nesting memoization stage)
 
