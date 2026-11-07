@@ -1,3 +1,20 @@
+### A constraint miss in a generic's field is never reported when the instance it names waits for a layout — DONE (binate `868d8f2bf`, 2026-11-06, temp-5; user: "yes, go ahead"; on binate `9e4ef8ba3`, the waiting-build fix)
+
+Found 2026-11-04 (temp-5, review of the later-parameter fix): a constraint check that read the layout of an instance
+still being built (K's `Sz[[sizeof(X[int8])]uint8]` checked in X[int8]'s build; `Holder[R[int64], int32]`'s method
+copied while R[int64] was built) made the build wait; the build's reports were dropped, and the check, latched
+already, was never made again.  binate `868d8f2bf`: the check is made in a layout frame of its own
+(layoutFrame.Check, check/check_constraint_judge.bn), which waits alone; one that waited is made once the instances
+being built are (pendingConstraints), held as where it was made; one named where the resolution waits is not made,
+the resolution done again naming it again; an instance's own check is its naming's (held as the build naming it); a
+held check's latch is set when its build is given out (holdLatch), the cache-hit arm giving out first; a build done
+again names its first build's chain (BuildWork).  The cache-hit, alias, new-instance and replay paths go through
+judgeInstantiation.  Three earlier designs failed review (a false cycle from making the check in the rebuild; false
+misses from deferring checks of instances formed from an unread length; a lost miss when skipping a check in a
+waiting build), which needed the waiting-build fix first (done log, `9e4ef8ba3`); on that base, one round found an
+instance's own check given out at a site that never names it.  Conformance spec/12-generics 179-187,
+check_constraint_judge_test.bn.
+
 ### check's TestConstraintListKeepsIfaceSizing, TestConstraintListSizesInstanceOnce and TestDerivedRecordNotSized fail on the ILP32 unit lane (builder-comp_arm32_linux) -- DONE (binate `220b1efd6`, 2026-11-07, work-3; user: "look into the things that are still red", then "yes, go ahead and land")
 
 They check for a 64-bit target (checkSrcLP64), as check_default_int_fit_test.bn's tests of 64-bit limits do; on a

@@ -151,8 +151,8 @@ instance judgment that makes up for it (3.2-3.4).
 3. **Concrete instantiations judged where formed** (3.2): fixes sigb, the method signature, the impl list, sw4/W3.
    DONE, binate `d11cd29ef` (2026-11-05): judged in ImplView.All, latched apart from a use's check; a probe's
    resolution judges nothing, but an instance it builds judges as any build; a declaration's miss noted at each site
-   its own check reaches.  A judgment made while an argument's layout is built is still lost (the todo entry on
-   layout waits, which now has this case).
+   its own check reaches.  A judgment made while an argument's layout is built was lost; fixed with the layout-wait
+   entry, binate `868d8f2bf` (2026-11-06).
 4. **`Self` in interface instances** (3.3).
 5. **The declaration's deferrals** (3.1), a family per commit if the diff is large: fixes (A).
 6. **Spec** (section 5), with step 5.

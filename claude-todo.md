@@ -520,54 +520,6 @@ All -- or, at least, never through an impl private to a package other than the g
 for the dependent-length constraints (the entry above) widens the judgments made inside instances, so it inherits
 this fix.
 
-### A constraint miss in a generic's field is never reported when the instance it names waits for a layout — 🟡 IN PROGRESS (claimed 2026-11-05, temp-5) (an invalid program accepted; found 2026-11-04, temp-5, review of the later-parameter constraint fix; reproduced on binate main `b52e54139`; pre-existing)
-
-With `interface Eq { eq() int }`, `interface Hk[T any] { hk() int }`, `interface Sz[T any] { sz() int }`, `type G2[A
-Eq] struct { a A }`, `impl *N : Eq`, `type Y[T any] struct { x X[int8]; t T }`, `type X[T any] struct { k K[T, *N,
-T]; t T }` and `type K[A Sz[[4]uint8], V any, B Hk[G2[V]]] struct { a A }`, X's field is reported four times ("type
-argument T does not satisfy constraint Sz[[4]uint8]", "… Hk[G2[*N]]", and the same for int8, at X[int8]); with
-`Sz[[sizeof(X[int8])]uint8]` as A's constraint none of the four is reported (only K's own V miss is).  By the
-review's reading, not traced: K's instance's build waits for X[int8]'s layout (A's `sizeof`), `checkNewInstanceConstraints`
-latches the check (`markConstraintsChecked`) before it reports, a report made while the instance's frame is
-`LayoutBlocked` is dropped, and the rebuild (`buildInstance`) does not check again.  With `V Eq` in K (K's own list
-valid) the program compiles and runs, all four misses lost (a second review, 2026-11-04).  Latching only outside a
-blocked frame is not enough: the check itself can block the frame (it resolves the constraint for the arguments,
-which may read a layout not built yet), so latch, check, and undo the latch if the frame is blocked afterwards (as the
-later-parameter fix's replay does, binate `4b685d01b`: `unmarkConstraintsChecked`); and since an instance's
-rebuild does not resolve the use again, the entry must keep the dropped check (position, view, naming) and make it
-when the instance is built again.  The same applies to the cache-hit arm and the alias arm of
-`instantiateGenericDeclWithArgs`.  A conformance test with and without the `sizeof`.
-
-A judgment of an instance's derived types (binate `d11cd29ef`) is lost the same way.  With `interface Eq[T any] {
-eq(o T) int }`, `type Box[K any] struct { k K }`, `impl *Box[K] : Eq[[sizeof(K)]uint8]` (its `eq` takes
-`[sizeof(K)]uint8`), `type G[T Eq[[sizeof(U)]uint8], U any] struct { t T }`, `type Holder[X any, Y any] struct { h
-int }`, `func (h *Holder[X, Y]) m(g *G[*Box[X], Y]) int` and `type R[T any] struct { v T; w int64; next
-*Holder[R[T], int32] }`, `var h Holder[R[int64], int32]` with `h.m(nil)` compiles, while `Holder[int64, int32]` is
-rejected ("type argument *Box[int64] does not satisfy constraint Eq[[4]uint8] (in Holder[int64, int32], ...)").  By
-the reading of the review that found it (step 3 of the dependent-length constraints, 2026-11-05), not traced:
-Holder[R[int64], int32] is built, and m copied onto it, while R[int64] is being built, so the check of
-G[*Box[R[int64]], int32] reads sizeof(R[int64]), the frame waits, and the report of the latched check is dropped.
-binate main before `d11cd29ef` accepts both programs (no derived judgment).  The fix covers both: every latch site
-(`checkNewInstanceConstraints`, the cache-hit and alias arms) undoes its latch when the frame is blocked, and the
-dropped check is made again.
-
-Three designs reviewed (2026-11-05, temp-5, not landed), each with a regression; the fix depends on the entry "A build
-that waits for a layout still builds the instances it names from the length it could not read".  (1) Make the dropped
-check again in the instance's rebuild: a false "cyclic type definition" when the check reads the instance the build
-waits for (this entry's own example).  (2) Defer every check made in a waiting frame, latched, to the flush
-(flushPendingChecks): a false miss for an instance formed from a length the waiting build read as 0 -- with `type
-Q[T any] struct { v T; p *X[T] }`, `type X[T any] struct { k KA[*Box[Q[T]], [sizeof(Q[T])]uint8]; t T }` and `type
-KA[A Eq[B], B any] = *A`, "*Box[Q[int64]] does not satisfy constraint Eq[[0]uint8]".  (3) Make the check in a layout
-frame of its own (so its reads wait alone, not the build) and skip it while any frame waits, the frame's redo naming
-it again: a lost miss when a new instance with real arguments is built inside the waiting build -- with `type J[A
-Eq[[sizeof(B)]uint8], B any] struct { a A }`, `type I[T any, U any] struct { j J[*Box[T], U]; t T }`, `type Q[T any]
-struct { v T; p *X[T, int32] }` and `type X[T any, U any] struct { a [sizeof(Q[T])]uint8; i I[T, U] }`, `var q
-Q[int64]` compiles (main reports the miss "(in I[int64, int32], ...)"): the redo hits I[int64, int32]'s cache and
-never names J again.  Nothing in a waiting build tells an instance formed from an unread length from a real one; once
-a waiting build builds no new instance (the other entry), (3) is sound.  That entry is fixed (binate `9e4ef8ba3`,
-2026-11-06) another way: a build begun where the resolution waits is provisional, what it reports held (see the
-done log); (3) is to be redone on it, not yet landed.
-
 ### A generic alias of a struct type that takes the size of a type being collected is a false cycle — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
 
 `type A[T any] = struct { a [sizeof(N)]uint8; t T }` with `type N struct { v int64; w int64; p *A[int] }` is
