@@ -1339,6 +1339,14 @@ answer: check the callee's entry frame before taking the arguments, or release t
 parameter types) when its entry push fails.  Test: a compiled program calling a VM func value whose frame exceeds
 the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
 
+### check's TestConstraintListKeepsIfaceSizing, TestConstraintListSizesInstanceOnce and TestDerivedRecordNotSized fail on the ILP32 unit lane (builder-comp_arm32_linux) — 🔴 OPEN (minor: a CI lane red; found 2026-11-06, work-3, reading main's CI)
+
+The three tests (added in binate `4b685d01b` and `d11cd29ef`) size an instance over `[0x4000000000000000]uint8`, a
+length a 32-bit target cannot hold, so on builder-comp_arm32_linux the checker reports "array length is too large"
+instead of the error each expects ("the size of Big[[0x4000000000000000]uint8]'s method must be reported").  Red in
+unit runs 42156734341 (b6cb84aee) and 42162719837 (b930dd829).  Pick an array length past the target's limit on
+every target (by the target's word size), or check the expected error per target.
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
