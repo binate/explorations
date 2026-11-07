@@ -252,6 +252,40 @@ region it defines rather than a static array in rt; crt0 loads _stack_top from i
 test script with more RAM, the heap the rest; the runner passes QEMU the matching -m.  (d) waits on (b): locally
 pkg/binate/check ran ~2 h under bare-metal QEMU with no output, so its cost is unknown.
 
+**2026-11-07 (work-3):** (a) and (b) are committed and await landing; the lane now shows each package's count.
+check's ~2 h with no output was not test cost: its test binary (with the fmt-based runner) overflowed its ~0.77 MB
+of stack into the arena and hung on the resulting data abort (see the two "Bare metal:" entries below).  With (b)
+the same package runs 768 tests in 4.6 s under QEMU, then aborts with `rt.RawAlloc: arena exhausted` at
+TestExpandBuildBudget, which (c)'s larger test heap addresses.  So (d)'s premise does not hold; whether the lane
+still needs sharding is to be measured after (c).
+
+### Bare metal: a CPU fault hangs forever -- no exception vectors, so a data abort or undefined instruction is never reported — 🔴 OPEN MAJOR (found 2026-11-07, work-3, diagnosing the bare-metal unit lane's check hang)
+
+runtime/baremetal_arm32/crt0.s installs no exception vector table (VBAR stays 0, QEMU `virt`'s flash) and sets up no
+abort / undefined-mode stack, so any CPU fault on bare metal -- a data abort, an undefined instruction, a prefetch
+abort -- jumps into the empty flash at 0x0-0x1c and loops there taking further exceptions, with no output and no
+exit.  A run then waits for its outer timeout (the unit lane's 30-min job limit, a conformance runner's `timeout
+10`).  Found as: pkg/binate/check's bare-metal test binary, built with the fmt-based runner, hung in QEMU; `-d int`
+showed one Data Abort (DFAR 0x8000000c) and then an endless run of Undefined Instruction exceptions (PC 0x14, SP 0).
+Fix: a vector table in crt0 (VBAR pointed at it) with abort / undefined-mode stacks, whose handlers print the fault
+kind, the faulting PC and DFAR / IFAR through semihosting and exit nonzero (SYS_EXIT_EXTENDED), as rt's own fatal
+errors do.  Test: a bare-metal conformance test that loads from an unmapped address must fail at once with the
+diagnostic, not time out.
+
+### Bare metal: a stack overflow silently overwrites the heap -- nothing guards the stack's lower end — 🔴 NEEDS DECISION (MAJOR; found 2026-11-07, work-3, same diagnosis)
+
+On arm32 bare metal the stack grows down from `_stack_top` (the top of RAM) toward the heap with nothing between
+them: no MMU guard page, no stack-limit check.  A deep enough recursion writes its frames over the top of the heap,
+corrupting the allocator's block tags and free-list links, and the program faults or misbehaves far from the cause.
+Found as: check's bare-metal test binary (fmt-based runner) had ~0.77 MB of stack above its 4 MiB arena; a test
+overflowed it, the allocator later followed a corrupted free-list link (`setPrev` storing to 0x8000000c), and the
+data abort hung (entry above).  With the stack moved 16 MiB higher (crt0's `movt` patched, QEMU `-m 32M`) the same
+binary ran on to `rt.RawAlloc: arena exhausted`.  Related: "Neither backend probes the stack for a large frame"
+(its bare-metal behaviour is undecided) and "Run-time stack exhaustion is unspecified".  Options: enable the MMU on
+bare metal with an unmapped guard region below the stack (the fault then reports through the vector table), or a
+stack-limit check in each prologue against a linker-script symbol (the scripts already know the stack's lower
+bound, the heap's end).
+
 ### IR-gen spells every type argument out in an instance's name — instances whose arguments share a type get exponentially long names — 🔴 NEEDS DECISION (found 2026-10-26, work-7, testing the abstract-instance change's shared-argument walk; reproduced on main; pre-existing)
 
 - **Symptom:** `type Pair[A any, B any] struct { a *A; b *B }`, `type P0 = Pair[int, int]`, `type Pk = Pair[P(k-1), P(k-1)]` up to n, and `var x Pn`, with no type error, compiles in 2.6 s at n = 18, 31 s at 22, and more than 120 s at 24 (main at `3b3b6ef2d`); the time is in IR-gen, after the checker.
