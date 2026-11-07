@@ -1,3 +1,23 @@
+### bnfmt's time grows exponentially with the nesting depth of calls and of keyed composites holding calls -- DONE (binate `5262e31c9`, 2026-11-06, temp-4; user: "Depth-capped policy (Rec.)", then "wait 4 minutes, then go ahead") (the rest of the MAJOR "bnfmt takes ~96 s on nested calls and composites again"; found 2026-11-03, temp-4)
+
+Each fill decision checked against a second format read its layout back and rendered it at both places, and a layout
+read back at a new place is new source, so the readings back multiplied with the depth of nested lists (calls 36 deep
+3.9 s, keyed composites holding calls 16 deep 9.1 s, about 1.45 to 1.65 times a level).  The user chose a
+depth-capped layout policy.  binate `5262e31c9` (print_deep.bn): past STABLE_LIST_DEPTH (12) nested lists a list, and
+the chains and string runs directly in its elements, ignore the source's breaks; an element stays on its line only
+when its one-line form fits there (deepFits), else it moves; a comment-free list decides whether it fits on one line
+by its elements' one-line forms; so a first and a second format agree there and its fill decisions are not checked.
+Above the cap the readings back render the deep part by a shape without its positions' lines, and renderings and
+readings back are keyed by depth (depthKey); a list's items are rendered at the depth they print at (the review found
+them a level shallower, which split every rendering by depth).  An element holding a function literal, or a struct
+or function type, keeps the check (holdsBlock), so nests of those are not bounded (the function-literal growth entry).
+No tree file nests lists deeper than 8, so the tree formats as before.  After: calls 36 deep 0.26 s, 64 deep 5.1 s;
+keyed composites holding calls 16 deep 0.13 s, 32 deep 1.7 s; multi-line keyed composites 24 deep 0.07 s (0.64 s
+before).  What remains grows polynomially.  Very deep nests format differently: past 20 lists the indentation can
+take a line past 100 columns.  Tests: TestDeepListIgnoresSourceBreaks, TestDeepListRendersGrowSlowly,
+TestDeepHoldsBlock (print_deep_test.bn); TestFormatDeepNestingRenders's bounds tightened (calls 32 deep 9,500
+renderings, multi-line composites 16 deep 2,300).
+
 ### A build that waits for a layout still builds the instances it names from the length it could not read, and reports their errors — DONE (binate `9e4ef8ba3`, 2026-11-06, temp-5; user: "yes, go ahead"; with binate `3faba31f6`, the checker's records moved from types to check)
 
 Found 2026-10-28 (work-7): `type Other[T any] struct { x T }` with `q() int { return 32 / cast(int, sizeof(T)) }`,

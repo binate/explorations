@@ -2907,42 +2907,6 @@ samples, under IR-gen's ensureInstantiated and matchInstanceCopy (irgen), with T
 NamedIdentityName under them, and the checker's keepInstanceBody, checkDuplicateDecls and collectDeclNames after.
 Fix: index IR-gen's instances by name (and the checker's remaining per-instance scans) as funcInstance's are.
 
-### bnfmt's time still grows exponentially with the nesting depth of calls and of keyed composites holding calls — 🟡 IN PROGRESS (claimed 2026-11-05, temp-4; DECIDED, user: "Depth-capped policy (Rec.)", option (a) below) (the rest of the MAJOR "bnfmt takes ~96 s on nested calls and composites again", whose CI timeouts binate `cb3bb52e6` fixed; found 2026-11-03, temp-4, measuring that fix; user: "wait 11 minutes, then go ahead" to filing it on its own)
-
-A fill decision whose layouts span lines is checked against a second format (binate `b5e5bca15`): its layout is read
-back (print_reread.bn) and rendered at both of the element's places, and the decisions inside it are checked in turn,
-at every depth.  Binate `cb3bb52e6` parses each text read back once, shares the renderings of readings back by shape
-(print_reread_shape.bn), and renders a layout that reads back to its element's own shape from the element's cache, so
-the file itself renders as many layouts as before `b5e5bca15`.  But a layout read back at another place is a new one,
-whose decisions read their own elements' layouts back, so nested calls' readings back still multiply with the depth,
-more slowly than at `c3430ce64`.  User CPU of a first format, before `b5e5bca15` / at `c3430ce64` / at `cb3bb52e6`:
-calls 36 deep 0.17 s / 49 s / 2.7 s; keyed composites holding calls, on one line, 12 deep 0.09 s / 31 s / 0.87 s, and
-16 deep 0.45 s / over 5 min / 6.9 s.  TestFormatDeepNestingRenders (print_rendermemo_test.bn) bounds the renderings
-at its depths (calls 32 deep, composites 16 deep), not the growth.
-Stopping the checks at a fixed depth is not a fix: a first format that models a second format checking fewer levels
-than the second really checks disagrees with it (stopped one reading back deep, 129 of 590 generated nests of calls
-formatted unstably, and a statement's layout depended on what was read back before it; TestStableNestedRunCheckedDeep
-and TestStableLayoutIndependentOfOrder pin both).  Fix: a way to know what a second format decides for a layout read
-back at a new place without rendering its readings back afresh at each depth -- a new model of the check, not more
-caching.
-Measured 2026-11-05 (a tree build of that day, user CPU): calls 24 / 28 / 32 / 36 deep 0.06 / 0.20 / 0.86 /
-3.9 s (about 1.45x a level); keyed composites holding calls 8 / 12 / 16 deep 0.06 / 1.2 / 9.1 s (about 1.65x).
-Each distinct layout is rendered once per place already (the rereads and shape caches); what multiplies is the
-generations: a layout read back at the other place is new source, whose fill decisions read their own elements'
-layouts back at new places in turn, so the distinct sources at depth d grow with the generations behind them.
-Options: (a) past a fixed depth of fill decisions, lay elements out by a policy that ignores the source's breaks
-(one that a second format, seeing the first's output, also follows -- e.g. a deep element always moves when it
-spans lines), so no check is needed there and the first and second formats agree by construction; this changes how
-very deep nests format; (b) an inductive check: take an element's inner decisions as holding (each was checked at
-its own level) and read back only the element's own breaks, rendering its inner elements from their own nodes at
-the new places -- cheaper, but the depth-1 cut tried before was unstable for 129 of 590 nests, so it needs proof
-that the induction holds; (c) accept the growth (real code nests far less deep; 36-deep calls take 3.9 s) and
-close the entry.  Recommendation: (a), with the depth past what real code reaches (12 or so), as the one that
-stays stable by construction.
-Chains with comments between their operands, nested in calls' arguments (`f(f(a /* c */ + v, w) /* k */ * u …)`),
-grow the same way, about 1.6x a level, with or without the fix that prints those comments in place (16 deep 0.42 s
-before it, 1.6 s with it; found by its review).
-
 ### bnfmt's time grows exponentially with the nesting depth of function literals — 🟢 LOW (found 2026-10-19, temp-4, review of the rendering cache; calls and composites fixed in binate `922992893`)
 
 Function literals nested in each other's bodies still format in time exponential in the depth: with
@@ -2954,6 +2918,8 @@ under a fresh comment cursor (`literalBodyCursor`), so nothing in its body hits 
 A statement with a comment no list prints on its last line is printed twice to reserve the comments after it
 (printTrailing, print_trail.bn; see the inner-comment entry), which doubles this per level: with `x := func() int {`
 … `}() /* s */ + 1 // t` in each body, depth 8 takes 61 s, against 1.5 s before binate `cb6028078`.
+The cap past 12 nested lists (binate `5262e31c9`) does not bound these: an element holding a function literal
+keeps the read-back check, as a block's layout follows its source.
 
 ### bnfmt: what the non-idempotence work left open: a right-hand side's type arguments, a one-character last part — 🔴 OPEN 🟢 LOW (found 2026-10-23, temp-4, landing binate `ae0e0a63c`; pre-existing)
 
