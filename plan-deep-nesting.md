@@ -196,8 +196,9 @@ recursive, so far more than 75).
   a deep type used as a generic's type argument crashes in collectExportOwners (part 2), and `sizeof` / constant
   chains are resolved recursively; a read made inside another read's walk takes a declaration being walked as ready
   (claude-todo, "A type whose walk is still on the stack counts as prepared", MAJOR); reading a long chain is
-  quadratic (claude-todo, "Preparing a layout during collection is quadratic").  Next: check parts 2-6, the parser
-  nesting limit, then irutil / ir, irgen, codegen, native, vm / interp, lint.
+  quadratic (claude-todo, "Preparing a layout during collection is quadratic").  Next -- IN PROGRESS (2026-11-07,
+  work-1; user: "let's do the remaining work"): check parts 2-6 and collection's recursion, the parser nesting limit,
+  then irutil / ir, irgen, codegen, native, vm / interp, lint.
 
 ## Decisions (2026-11-03)
 
