@@ -109,3 +109,35 @@ Unit tests in check: normalize, the classes, the latch keys, the re-judgment and
 
 No change where no package's private impl can serve an instance's arguments.  Otherwise: one extra class per such
 root (its body checks again), and the re-judgment of the build's records at a naming in another root.
+
+## 8. Review 1 (2026-11-06): not ready
+
+Probes under the session scratchpad's review-view/, with main `868d8f2bf`'s compiler.
+1. MAJOR: fact 2 is false.  A `.bn`-only method or parameterized impl of a `.bni` generic type is checked for every
+   instance of the type, other packages' included (`checkTypeTypeInstance`, `checkInstanceImpls`): main naming
+   `gm2.W[int64]` is rejected for gm2's private `priv` (filed as its own entry, `36269a0ad`).  With it, a private
+   member's own view gives its package's private impls to types main supplies (leak), and a member written in a
+   `.bn` loses its package's impls when the carried root is another package (false rejection).  Fixing that entry
+   first (check private members only for chains rooted in their package's `.bn`) restores fact 2.
+2. MAJOR: "records each constraint judgment the build makes" misses judgments: those deferred while declarations
+   are collected (`recordPendingConstraintCheck`, replayed after the build), on a layout wait
+   (`deferConstraintCheck`) or a function signature (`deferFuncConstraintCheck`); and those skipped because the
+   judged instance was latched already in the same view (S's build judges `W[*T, int32]`, S2's skips it, so S2 has
+   no record).  Every naming a build makes would have to be recorded, latched or deferred.
+3. MAJOR: a build's Root is not always its first naming's: a layout-wait rebuild, a postponed build, a waited
+   function signature redone and a held build's release all run under a later naming.  Root would be stored on the
+   entry, and the re-judgment made at a release too, under judgeInstantiation's latch rules.
+4. A generic alias's target is bound like an instance but is as written at the use: normalizing against the
+   alias's arguments drops the use's package; the target must be judged in the use's view.
+5. Derived judgments made with `Bound == 0` (`checkInstanceImpls`, method copies, a function instance's signature)
+   take Inst / Root from `Current` or the entry, not from `Bound`.
+6. Section 5 understates the difference: any generic's written type the arguments also mention sees the root's
+   private impls (G's `.bni` writing `inner[*dep.T, X]`, named from R with a private `impl *dep.T`).
+7. Verified: facts 1, 3, 4 (multi-file path; with no per-file scopes `scopeForFile` falls back to the package
+   scope and `Bni` is false in a `.bni` generic's instance), and normalization's soundness for root-supplied types
+   (the walk must collect named types and generic declarations, not packages).
+
+Direction for v2 (to be decided with the user): judge the namings a build makes for an instance whose arguments a
+private impl could serve in each of the instance's classes rather than in the build -- in a struct or function
+instance's per-class check, and for an interface instance at each new class -- so no judgment depends on which
+naming made the build.
