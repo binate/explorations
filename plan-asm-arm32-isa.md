@@ -417,8 +417,8 @@ Steps:
   - Part 1b, VMOV: decided (user 2026-11-06, "Move VMOV onto the matcher (Recommended)"): one candidate list
     for all of VMOV's encodings (VFP, NEON, MVE near misses, the pre-UAL names), replacing the hand-written
     arm32_vmov*.bn, whose immediate reader takes only a literal under 2^20 and whose messages for the shapes
-    VFP and NEON share are its own (`vmov.i32 s0, #1`).  First, 3b's VMOV case lists (~5,800 cases) go into
-    scripts/bnas-sweep's corpus so the sweep guards the VFP forms through the move.
+    VFP and NEON share are its own (`vmov.i32 s0, #1`).  3b's VMOV case lists are in scripts/bnas-sweep's
+    corpus (binate `1767bedce`: vmov.txt, vmov-ctx.txt, 4,954 cases) to guard the VFP forms through the move.
 - 4f. Element and structure loads and stores: vld1 .. vld4 / vst1 .. vst4, multiple structures, one lane and all
   lanes, the alignment, write-back and a register post-index.
 - 4g. ARMv8's and later additions: sha1c / sha1p / sha1m / sha1su0, sha256h / sha256h2 / sha256su1 (through 4d's
