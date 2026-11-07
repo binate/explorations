@@ -3229,7 +3229,9 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
   branch without both targets and a condition" but checks only `len(ins.Args) < 1`; with `ins.Args[0]` nil,
   `emitCondBranch` / `emitBranch` read its ID and the compiler crashes.  Valid IR always gives a branch its
   condition.  x64 had the same gap, fixed as binate `038cdf18f` (`TestEmitTermRejectsMalformed`).  Fix: the same check in
-  both guards, with a test each.
+  both guards, with a test each.  Also the IR verifier: `checkSuccessors` (`pkg/binate/irbuild/verify.bn`)
+  reports "branch missing cond" only for an empty `Args`, so a nil condition passes it; add that check, with a
+  verifier test, as a separate commit (user 2026-11-07: "yes, add that check as a separate commit").
 
 - **Checker rejects valid alias uses in const / untyped-literal contexts** — 🔵 OPEN (found
   2026-09-26).  Spec type.alias.transparency: an alias is its target in every context.  But with
