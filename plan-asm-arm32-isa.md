@@ -396,7 +396,11 @@ Steps:
   Part 2, DONE (binate `e74dd75bb`): the comparisons with #0 (vceq / vcge / vcgt / vcle / vclt Vd, Vm, #0 and Vd,
   #0, among the three-register comparisons' encodings; vcle / vclt #0 their own encodings).  17,928 cases against
   clang agree but a condition; ~210 zero spellings and more in review, no bug.
-  Part 3: NEON's vcvt (half, BFloat16), vrint* / vcvta .. vcvtm, the crypto.
+  Part 3a, DONE (binate `c36c6a87d`): Two's rest of the group (VCVT.F16.F32 / BF16.F32 / F32.F16, VRINTN .. VRINTP,
+  VCVTA .. VCVTM, the crypto) and the conversion parser's NEON forms (half and BFloat16 vcvt, vrint* on D / Q with
+  clang's .f32.f32, vcvta .. vcvtm); nothing is matched without being assembled now, so the matcher's not-assembled
+  kinds and their "not supported yet" are gone.  15,576 vrint* / vcvta .. vcvtm cases against clang agree; ~4,000
+  more in review, no bug.  Part 3b: the crypto names (aese / aesd / aesmc / aesimc, sha1h / sha1su1 / sha256su0).
 - 4e. One register and a modified immediate, and the moves: vmov / vorr / vmvn / vbic by an immediate, vmov between
   registers (vorr), vext, vtbl / vtbx, vdup from a scalar and from a core register, NEON's vmov between a core
   register and a scalar.  vmvn by an immediate's encodings also join 4d's register forms' near misses: `vmvn d0,
