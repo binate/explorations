@@ -217,7 +217,7 @@ pkg/binate/check (915 s there) on shard 3/6 every run, past its 30-min job limit
 work-3; user: "ok", then "yes") splits check's tests across the single-VM lanes' shards (pkg-binate-check.split.vm).
 Open: confirm on the next completed unit run that the int-int and single-VM shards finish in time.
 
-### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🟡 IN PROGRESS on (a) (b) (c) (d) (claimed 2026-11-07, work-3), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
+### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🟡 IN PROGRESS on (c) (d) (claimed 2026-11-07, work-3), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
 `builder-comp_arm32_baremetal` runs each package's test binary in QEMU `virt` with `-m 16M`, linked by
 runtime/baremetal_arm32/baremetal.ld (`RAM LENGTH = 16M`: code, data, `.bss` — including the 4 MiB heap arena,
@@ -252,14 +252,14 @@ region it defines rather than a static array in rt; crt0 loads _stack_top from i
 test script with more RAM, the heap the rest; the runner passes QEMU the matching -m.  (d) waits on (b): locally
 pkg/binate/check ran ~2 h under bare-metal QEMU with no output, so its cost is unknown.
 
-**2026-11-07 (work-3):** (a) and (b) are committed and await landing; the lane now shows each package's count.
+**2026-11-07 (work-3):** (a) and (b) landed (done log); the lane now shows each package's count.
 check's ~2 h with no output was not test cost: its test binary (with the fmt-based runner) overflowed its ~0.77 MB
 of stack into the arena and hung on the resulting data abort (see the two "Bare metal:" entries below).  With (b)
 the same package runs 768 tests in 4.6 s under QEMU, then aborts with `rt.RawAlloc: arena exhausted` at
 TestExpandBuildBudget, which (c)'s larger test heap addresses.  So (d)'s premise does not hold; whether the lane
 still needs sharding is to be measured after (c).
 
-### Bare metal: a CPU fault hangs forever -- no exception vectors, so a data abort or undefined instruction is never reported — 🔴 OPEN MAJOR (found 2026-11-07, work-3, diagnosing the bare-metal unit lane's check hang)
+### Bare metal: a CPU fault hangs forever -- no exception vectors, so a data abort or undefined instruction is never reported — 🟡 IN PROGRESS (claimed 2026-11-07, work-3, to follow (c) of the bare-metal release blocker; user: "yes to both questions") MAJOR (found 2026-11-07, work-3, diagnosing the bare-metal unit lane's check hang)
 
 runtime/baremetal_arm32/crt0.s installs no exception vector table (VBAR stays 0, QEMU `virt`'s flash) and sets up no
 abort / undefined-mode stack, so any CPU fault on bare metal -- a data abort, an undefined instruction, a prefetch

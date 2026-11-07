@@ -1,3 +1,14 @@
+### Bare-metal unit lane: (a) asm/assemble xfailed, (b) the test runner's report reaches the console — DONE (binate `cc45cd035`, `0ede3993f`, 2026-11-07, work-3; user: "yes, go ahead and land; (a) sounds right. (b) is wrong, and we should consider alternatives. (c) sounds ok. (d) sounds fine.", then "yes" to the runner printing through pkg/builtins/testing, then "yes to both questions")
+
+Two of the four pieces of the release blocker "CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM
+region" (still in the todo for (c) and (d)).  (a) `cc45cd035`: pkg/binate/asm/assemble is an expected failure on
+builder-comp_arm32_baremetal (its tests write object files to a temporary directory; bare metal has no
+filesystem).  (b) `0ede3993f`: the generated test runner (cmd/bnc/gen_test_runner.bn) prints its RUN / PASS / FAIL
+lines and summary through pkg/builtins/testing (write(2) hosted, semihosting on bare metal) instead of pkg/std/fmt
+-> os.Stdout, which has no console on bare metal, so every bare-metal package's report was lost.  A hosted test
+binary's output is byte-identical (checked on a package with a passing and a failing test).  With it,
+pkg/binate/check's bare-metal run shows 768 tests passing in 4.6 s before `rt.RawAlloc: arena exhausted`.
+
 ### A by-value cycle met while a layout is prepared in an instance build that waits was broken but never reported -- DONE (binate `7fc716db6`, 2026-11-07, work-1; user: "folded in is fine", then "yes") (MAJOR: an invalid program accepted; found 2026-11-06, work-1, review of the prepareLayout frame machine; pre-existing)
 
 `type Box[T any] struct { a [sizeof(T)]uint8 }`, `type P struct { q Q; r R }`, `type R struct { p P }`, `type N struct
