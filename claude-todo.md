@@ -2887,6 +2887,17 @@ line the literal starts on.
 (`ast.File.BuiltinOpeners`); printing the operands as an item list (a type item, then the value) would
 give them the value-argument builtins' wrapping and comments.
 
+### Checking is quadratic in a package's number of declarations — 🔴 OPEN 🟢 LOW (found 2026-11-05, work-1, deep-nesting memoization stage)
+
+With each declaration's type walks kept across a batch (the deep-nesting memoization stage, not yet landed), what is
+still superlinear in a package with many declarations grows with their number, not their nesting: bnc
+`--emit-llvm` takes 0.61 billion instructions for 1024 unrelated struct declarations and 2.43 billion for 4000.
+`sample` of 4000-declaration programs: loader.MergeFiles; the checker's checkTypeRedeclaration, checkDuplicateDecls,
+preRegisterTypeNames and defineType (Scope.Define appends each symbol with slices.Append, which copies); and
+slices.Append of declaration lists.  IR-gen's pending named types and type aliases became a set and an index in
+binate `b6cb84aee`.  Fix: index what these scan by name (a Scope already indexes its names past a threshold), and
+build the lists with vec.
+
 ### IR-gen finds a generic's instances by scanning them by name — compile time superlinear in a package's instance count — 🔴 OPEN 🟢 LOW (found 2026-11-03, work-3, measuring the checker's instance index)
 
 With the checker's funcInstance indexed (binate work-3 batch, "check: find a generic function's instance by an index"),
