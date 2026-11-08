@@ -225,6 +225,16 @@ recursive, so far more than 75).
   no defect.  Found: the container retypes, and AssignableTo through a chain of named types, are quadratic in depth
   (claude-todo, LOW, pre-existing).  Next: part 4 (substituteTypeParams, substituteSelf, peelNamedKeepReadonly,
   instTypeHash's fold).
+- Stage check part 4 DONE: binate `b7b173d77` (landed 2026-11-08; user: "wait 4 minutes, then go ahead").
+  substituteTypeParams and substituteSelf share one walk (check_subst_walk.bn) that rebuilds a type from its parts
+  taken from a work list, re-entrant (an instance whose arguments change is instantiated, which can substitute in
+  turn); the by-value bracket, Identical vs identity, and rebuild-always vs keep-unchanged are kept exactly.  A type
+  whose parts are all leaves is substituted with no work list: through the work list alone compiling cmd/bnc took
+  ~0.27% more instructions, with it -0.03% (within the spread).  peelNamedKeepReadonly and instTypeHash are loops.
+  cmd/bnc's IR and 2012 corpus programs identical; 548 generic / Self conformance tests pass on LLVM and the VM.
+  Review: no defect (one allocation note, folded in).  Next: part 5's rest (partsPointToOpaqueEmbedding,
+  funcSignaturesSized, ifaceSignaturesKept, partsMayBreak, aliasIfacesKept), part 6 (mergeIfaceMethods,
+  ifaceFullMethods), then collection's recursion.
 
 ## Decisions (2026-11-03)
 
