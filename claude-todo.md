@@ -3249,7 +3249,7 @@ The one remaining, open-ended piece:
   on coarse statement-line backfill. No columns.
 - No `llvm.dbg.value` (only `dbg.declare` for allocas).
 
-### The native backends emit no debug info: implement DWARF in them — 🔴 OPEN MAJOR; rejecting `-g --backend native` until then 🟡 IN PROGRESS (claimed 2026-11-08, work-3) (found 2026-11-07, work-3, checking bare-metal `-g` links; user: "if native backends indeed produce no debug info (double check this), then: (a) this is a MAJOR TODO to implement DWARF, (b) yes, we should reject")
+### The native backends emit no debug info: implement DWARF in them — 🔴 OPEN MAJOR (found 2026-11-07, work-3, checking bare-metal `-g` links; user: "if native backends indeed produce no debug info (double check this), then: (a) this is a MAJOR TODO to implement DWARF, (b) yes, we should reject")
 
 All of the DWARF above is the LLVM backend's (LLVM debug metadata).  `-g` reaches only codegen.SetDebugInfo and
 clang's `-g` (cmd/bnc/compile.bn applySwitches; main.bn / test.bn's links); no native package reads it.  Checked
@@ -3258,7 +3258,7 @@ arm32-baremetal): the objects of a `-g -c --backend native` build -- main and de
 sections, where the LLVM backend's carry them in 7-8 of 7-9 objects.
 - (a) MAJOR: DWARF emission in the native backends (line tables first: `.debug_line` from the IR's source
   positions, then subprograms, variables and types, as the LLVM backend has), on all three architectures.
-- (b) Until then bnc rejects `-g` with `--backend native` rather than ignoring it.
+- (b) Until then bnc rejects `-g` with `--backend native` rather than ignoring it: done (binate `44972c53c`).
 
 ### bnc builds with LLVM for any `--backend` value but `native` -- a misspelt backend is silently LLVM — 🟡 IN PROGRESS (claimed 2026-11-08, work-3; user: "yes, an unknown --backend value should be an error") (found 2026-11-08, work-3, adding the `-g --backend native` rejection)
 

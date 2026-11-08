@@ -1,3 +1,10 @@
+### bnc rejects `-g` with `--backend native` — DONE (binate `44972c53c`, 2026-11-08, work-3; user: "(b) yes, we should reject", then "wait 8 minutes, then go ahead")
+
+The native backends emit no debug info (checked on every native target; the open MAJOR entry "The native backends
+emit no debug info: implement DWARF in them" tracks the fix), so `-g` / `--debug` with `--backend native` built a
+program with none and said nothing.  `44972c53c`: bnc's argument parsing rejects the combination
+("the native backends emit no debug info"); cmd/bnc TestParseArgsDebugNeedsLLVM.
+
 ### The conformance runner strips the bare-metal CPU-fault report, as it strips host signal messages — DONE (binate `23524484b`, 2026-11-08, work-3; user: "yes, I think the conformance runner should strip those lines", then "yes")
 
 scripts/lib/strip-signal-msgs.sh also strips crt0's `fatal: <exception> at pc 0x<8 hex>[, address 0x<8 hex>]` line
