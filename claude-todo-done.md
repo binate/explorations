@@ -5844,6 +5844,18 @@ reader's reason.  Tests: `relocSectionChecks` on an ELF64 RELA and an ELF32 REL 
 `TestReadObjectRejectsNonRelocatable`, `TestReadArchiveBadMemberReason`.  Checked that clang C objects (`-g`,
 `-ffunction-sections`, `-O0` / `-O1`) still link on x86-64, aarch64 and arm32.
 
+### irbuild: `EmitJump` and `EmitBranch` panic on a nil condition or target — DONE (binate `63da9e969`, 2026-11-08)
+
+Found by the review of the verifier's nil-condition check (entry below); user 2026-11-07: "Yes, every compile should
+catch it", nil targets too, and no test of the panic itself ("we're just asserting an invariant/precondition"). The
+verifier runs only under `--verify-ir`; on a normal compile a nil condition or target reached the backends (the LLVM
+backend reads it, the VM lowering reads a nil condition and turns a nil target into a jump to the function's start).
+`EmitJump` / `EmitBranch` now state the precondition and panic with an internal error naming the block and function.
+No caller passes nil (all 65 non-test call sites read by the review); validated with the unit tests of every package
+that calls them, `e2e/verify-ir.sh` (IR-gen over the whole toolchain) and a third of `builder-comp` conformance. A new
+`TestVerifyBranchNilTarget` covers the verifier's "branch has nil then/else" check, which had no test. The review
+also found the VM lowering's jump-to-start fallback, now its own todo entry.
+
 ### IR verifier: a branch whose condition is nil is "branch missing cond" — DONE (binate `506cd0dd0`, 2026-11-07)
 
 Found by the review of the aarch64 / arm32 nil-condition guards (entry below); user 2026-11-07: "yes, add that check

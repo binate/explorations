@@ -3240,16 +3240,6 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
   counts, so nothing proves those inputs impossible.  Fix: check each op's operand count and required types in
   the verifier (then the guards are dead and can go), or make each guard record `a.SetError`.
 
-- **irbuild: `EmitBranch` accepts a nil condition, so only `--verify-ir` catches it in IR-gen** — 🟡 IN PROGRESS
-  (claimed 2026-11-07; user 2026-11-07: "Yes, every compile should catch it") (found 2026-11-07, review of the
-  verifier's nil-condition check, binate `506cd0dd0`).  The verifier is opt-in, so on a normal compile a branch
-  whose condition is nil reaches the backends: the native ones report an error (binate `038cdf18f`, `008cad996`,
-  `9ab34507e`), while the LLVM backend (`codegen/emit_instr.bn`, OP_BRANCH) and the VM lowering
-  (`vm/lower_instr.bn`) read `Args[0].ID` with no check.  Fix: `EmitBranch` panics with an internal error on a
-  nil condition.  Asked of the user 2026-11-07: whether a nil target in `EmitJump` / `EmitBranch` panics too; and
-  how to test it (no unit test can see a panic, as Binate has no recover): a step in `e2e/verify-ir.sh`, which
-  already builds gen1, or no test, as for `EmitBitCast`'s internal-error panic.
-
 - **VM lowering: a jump or branch to a block not in the function silently jumps to its first instruction** —
   🟡 IN PROGRESS (claimed 2026-11-08; user: "yes" to failing loud) (found 2026-11-07, review of the `EmitJump` /
   `EmitBranch` nil preconditions; by reading).
