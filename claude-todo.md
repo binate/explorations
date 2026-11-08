@@ -251,6 +251,10 @@ bound, the heap's end).
 Exception vectors in crt0 (which report a CPU fault and exit) do not cover it: conformance 1105's runaway
 recursion runs down through the heap, .bss and the image itself, overwriting the handlers too, and still hangs
 (a QEMU memory dump showed the vector table and vec_report rewritten; found reviewing the vector-table change).
+**User, 2026-11-08:** "for bare-metal: a stack-limit check is too costly (at most, it could be optional), and not all
+arm32 have MMUs."  So neither option fits every target: an MMU guard region is possible only where there is an MMU
+(QEMU `virt`'s cortex-a15 has one), and a prologue stack-limit check, if any, an opt-in.  Still to decide: which of
+those to build, and when.
 
 ### IR-gen spells every type argument out in an instance's name — instances whose arguments share a type get exponentially long names — 🔴 NEEDS DECISION (found 2026-10-26, work-7, testing the abstract-instance change's shared-argument walk; reproduced on main; pre-existing)
 
@@ -3245,15 +3249,16 @@ The one remaining, open-ended piece:
   on coarse statement-line backfill. No columns.
 - No `llvm.dbg.value` (only `dbg.declare` for allocas).
 
-### The native backends emit no debug info -- `bnc -g --backend native` silently drops `-g` — 🔴 OPEN (found 2026-11-07, work-3, checking bare-metal `-g` links; needs a decision on the interim behaviour)
+### The native backends emit no debug info: implement DWARF in them — 🔴 OPEN MAJOR; rejecting `-g --backend native` until then 🟡 IN PROGRESS (claimed 2026-11-08, work-3) (found 2026-11-07, work-3, checking bare-metal `-g` links; user: "if native backends indeed produce no debug info (double check this), then: (a) this is a MAJOR TODO to implement DWARF, (b) yes, we should reject")
 
-All of the DWARF above is the LLVM backend's (LLVM debug metadata).  With `-g`, a native build compiles and runs but
-carries no debug sections at all: the main object of a small program has 4 `__debug` sections from the LLVM backend
-and none from the native one on aa64 (macOS), and an arm32-baremetal program has 8 `.debug_*` sections from LLVM and
-none from native.  Nothing reports that the flag was ignored.  The fix is DWARF emission in the native backends (line
-tables first: `.debug_line` from the IR's source positions, then subprograms, variables and types, as the LLVM
-backend has); until then `-g` with `--backend native` should probably be rejected rather than ignored -- that
-interim choice is the user's.
+All of the DWARF above is the LLVM backend's (LLVM debug metadata).  `-g` reaches only codegen.SetDebugInfo and
+clang's `-g` (cmd/bnc/compile.bn applySwitches; main.bn / test.bn's links); no native package reads it.  Checked
+2026-11-08 on every native target (aarch64-darwin, x86_64-darwin, x86_64-linux, aarch64-linux, arm32-linux,
+arm32-baremetal): the objects of a `-g -c --backend native` build -- main and dependencies alike -- carry no debug
+sections, where the LLVM backend's carry them in 7-8 of 7-9 objects.
+- (a) MAJOR: DWARF emission in the native backends (line tables first: `.debug_line` from the IR's source
+  positions, then subprograms, variables and types, as the LLVM backend has), on all three architectures.
+- (b) Until then bnc rejects `-g` with `--backend native` rather than ignoring it.
 
 ### Static-managed sentinel — deferred follow-ups (optimizations, not correctness) — 🟢 LOW
 Follow-ups split out of the (now-done) static-managed sentinel landing:
