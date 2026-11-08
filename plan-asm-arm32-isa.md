@@ -471,12 +471,14 @@ Steps:
     no write-back, `!` or a register post-index; the ARM ARM's alignment and register-range rules.  DONE
     (binate `b53c15e42`: neon.Elems, ElemLane, ElemDup; LDST_PLAIN / LDST_WB for the address forms, named
     apart from parse's own POST_NONE).
-  - Part 2, the parser's multiple-structure forms: the address operand's alignment value (arm32MatchAlign reads
-    it but keeps only that there is one), clang's alignment classes (AlignedMemory, None / 16 / 32 / 64 /
-    64or128 / 64or128or256, named: "alignment must be 64, 128 or omitted", ...), write-back, the post-index
-    register; the lists 4e's reader reads (spaced pairs and quads, VecListDPairSpaced / ThreeQ / FourQ).
-  - Part 3, one lane and all lanes (the indexed and all-lanes list classes, the Dup alignment classes).  clang
-    assembles many of these through pseudo-instructions (VLD1LNdAsm_8, ...) it rewrites in processInstruction.
+  - Parts 2 and 3, the parser: every form clang takes -- multiple structures, one lane and all lanes, the
+    alignment, `!` and a register post-index -- matched against the forms clang's table lists (402, generated
+    with llvm-tblgen from LLVM 22.1.5's .td files) in its order; the lists by kind families (spaced, all lanes,
+    one lane by element size), the address classes (AlignedMemory / DupAlignedMemory, one kind each, named).
+    Landed as one change, since the one-lane and all-lanes forms shape the multiple-structure forms' messages.
+    DONE (binate `0f8a54555`): 31,213 cases against clang 21 agree but for the kept differences -- a condition,
+    a Q register alone with no lane in the list place, a PC base (UNPREDICTABLE), SP as the post-index from
+    ARMv8 (clang's [Rn]!), and a list holding a core or S register.
 - 4g. ARMv8's and later additions: sha1c / sha1p / sha1m / sha1su0, sha256h / sha256h2 / sha256su1 (through 4d's
   crypto entry these are "invalid instruction" until then, clang's words or feature messages); vqrdmlah /
   vqrdmlsh (v8.1); vsdot / vudot, vfmal / vfmsl (v8.2); vcmla / vcadd (v8.3); the BFloat16 and Int8 matrix forms
