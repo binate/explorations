@@ -512,7 +512,7 @@ All -- or, at least, never through an impl private to a package other than the g
 for the dependent-length constraints (the entry above) widens the judgments made inside instances, so it inherits
 this fix.
 
-### A `.bn`-only method or parameterized impl of a `.bni` generic type is checked for instances other packages name: a dependency's private code decides whether main compiles — 🔴 OPEN (a valid program rejected, and checking that depends on a dependency's `.bn`; found 2026-11-06, temp-5, review of the instance impl-view plan; reproduced on binate main `868d8f2bf`; pre-existing)
+### A `.bn`-only method or parameterized impl of a `.bni` generic type is checked for instances other packages name: a dependency's private code decides whether main compiles — 🟡 IN PROGRESS (claimed 2026-11-08, temp-5; a valid program rejected, and checking that depends on a dependency's `.bn`; found 2026-11-06, temp-5, review of the instance impl-view plan; reproduced on binate main `868d8f2bf`; pre-existing)
 
 gm2's `.bni` declares `type W[U any] struct { u U }` with `func (w *W[U]) pub() int`; its `.bn` a private method
 `func (w *W[U]) priv() int { var a [sizeof(U) - 9]uint8; return len(a) }`.  main's `var w gm2.W[int64];
