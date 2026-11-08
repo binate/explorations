@@ -451,6 +451,11 @@ Steps:
     - Validation: clang on the VMOV corpus (every change from the baseline toward clang, or a kept
       difference), the sweep (its CHANGED / MESSAGE triaged against that), the usual gen1 / unit / e2e /
       runtime / hygiene.
+  - Part 2, VEXT and VDUP (from a core register, conditional; from a lane): DONE (binate `f9d90a6a4`).  10,115
+    cases against clang: no encoding differs (did-you-mean for vdupq / vextq the messages that do); VEXT's
+    index ranges are clang's named ones (matcher kinds Imm0_1 .. Imm0_15).
+  - Part 3, VTBL / VTBX: needs clang's NEON vector lists (parseVectorList: one to four consecutive D
+    registers, `{d0-d3}`, a Q register as two D registers), which 4f's loads and stores extend.
 - 4f. Element and structure loads and stores: vld1 .. vld4 / vst1 .. vst4, multiple structures, one lane and all
   lanes, the alignment, write-back and a register post-index.
 - 4g. ARMv8's and later additions: sha1c / sha1p / sha1m / sha1su0, sha256h / sha256h2 / sha256su1 (through 4d's
