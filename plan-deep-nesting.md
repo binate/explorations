@@ -199,6 +199,12 @@ recursive, so far more than 75).
   quadratic (claude-todo, "Preparing a layout during collection is quadratic").  Next -- IN PROGRESS (2026-11-07,
   work-1; user: "let's do the remaining work"): check parts 2-6 and collection's recursion, the parser nesting limit,
   then irutil / ir, irgen, codegen, native, vm / interp, lint.
+- Stage check part 2 DONE: binate `6d028e9b1` (landed 2026-11-07; user: "wait 8 minutes, then go ahead").
+  collectExportOwners, collectTypeInstances (its interfaces a typeVisits, not a list), instanceNotBuiltOf and
+  ensureMembersIn take a type's parts from typeWalk in the recursion's order (collectLiteralTypes already did, and
+  prepareLayoutIn is the frame machine).  A 200,000-deep chain (pointers, structs, named types, interfaces each the
+  next's parent) crashed each; five TestDeep* tests now walk them.  cmd/bnc's IR and 1994 corpus programs' output
+  identical; instructions +0.15% on average, within the spread.  Review: no defect.
 
 ## Decisions (2026-11-03)
 
