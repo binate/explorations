@@ -1,3 +1,29 @@
+### A type whose walk is still on the stack counted as prepared when a `sizeof` read it by value: wrong array lengths, an accepted layout cycle, a valid program rejected, a deep chain crashing -- DONE (binate `e6581426d`, `b6ad6b5b3`, 2026-11-07, work-1; user: "Don't collect it (Recommended)", then "Defer at every site (Recommended)", then "wait 8 minutes, then land") (MAJOR; found 2026-10-30, work-7)
+
+The layout read during collection walked a slice's element too, collecting the declarations it reached so that
+`sizeof(@[]N)` before N would not find N opaque; collecting out of order, mid-walk, let a collection read the layout
+of a type the walk was still inside.  binate `b6ad6b5b3`: the walk stops at a slice; while declarations are
+collected (or a `.bni`'s resolved) a type they define not collected or resolved yet is pending, not opaque
+(typePending; TypesCollected now records in-turn collection too), and a type whose size depends on one fits for now
+(fitsTarget, sizeAwaitsPending); every opaque check that reports and meets a pending type is made again when
+collection or the `.bni` build ends (check_opaque_recheck.bn): array lengths, sizeof / alignof, make, make_slice,
+unsafe_cast's target, a value-recovery assertion, bit_cast, the C boundary (isCArgType -> requireCArgType), variadic
+packing, requireSizedType, requireFormedType, requireFormedArg, requireOpaqueRules, requireCallSigKept and
+requireFitting -- `const K uint = sizeof(@[]S)` with a later `type S q.Opaque` is still rejected.  A read reaching a
+declaration another read is walking is a layout cycle, reported.  binate `e6581426d` (before it): the opaque walk
+(embedsOpaqueByValueSeen) on the work list, as the walks after a read follow slices.  An error found by a deferred
+check is not named for the instance being built when it was first made.  Tests: conformance
+regressions/sizeof-later-type-through-slice, sizeof-cycle-through-type-being-walked,
+sizeof-slice-element-collected-in-turn (all three fail on the old checker); check TestOpaqueRecheck* and
+TestBniOpaqueNamedTypeReportedInBuild, TestDeepEmbedsOpaqueByValue.  Open, asked of the user: the cycle rule now
+applies in both declaration orders to `E{p *([sizeof(F)]uint8)}` with F holding D holding E (main rejected it in one
+order); the spec does not say whether a layout read inside a pointer's element type is part of the cycle.
+
+### Preparing a layout walked a type graph reached only through slices as a tree -- compile time exponential in its depth -- DONE (binate `b6ad6b5b3`, 2026-11-07, work-1) (minor; found 2026-10-30, work-7)
+
+`type X struct { a [sizeof(T22)]uint8 }` over Ti / Ui each holding the two below through slices took 4.3 s at depth
+22.  Moot since binate `b6ad6b5b3`: the layout read does not walk a slice's element at all.
+
 ### bnfmt drops the author's parentheses around a chain's left operand of the same precedence when the chain wraps -- DONE (binate `478a157a6`, 2026-11-07, temp-4; user: "let's work on the open things", then "wair 4 minutes, then land") (LOW; found 2026-11-05, temp-4, review of the operator-chain comments fix; pre-existing)
 
 An author-parenthesized binary operand keeps its parentheses (printBinOperand, print_expr.bn), but flattenChain

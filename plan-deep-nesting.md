@@ -205,6 +205,14 @@ recursive, so far more than 75).
   prepareLayoutIn is the frame machine).  A 200,000-deep chain (pointers, structs, named types, interfaces each the
   next's parent) crashed each; five TestDeep* tests now walk them.  cmd/bnc's IR and 1994 corpus programs' output
   identical; instructions +0.15% on average, within the spread.  Review: no defect.
+- Stage check part 5, first walk, DONE with the slice-element fix: binate `e6581426d` (embedsOpaqueByValueSeen on the
+  work list; a type parameter the frame binds walked as its argument in a nested walk with no frame) and `b6ad6b5b3`
+  (the layout read stops at a slice; pending types, deferred opaque and size checks), landed 2026-11-07 (user: "wait
+  8 minutes, then land"; design: "Don't collect it (Recommended)", "Defer at every site (Recommended)").  cmd/bnc's
+  IR and 2012 corpus programs identical; 788 / 772 layout, opaque, C-interop and cast conformance tests pass on LLVM
+  / the VM; instructions +0.14%, within the spread.  Left of part 5: partsPointToOpaqueEmbedding, funcSignaturesSized,
+  ifaceSignaturesKept, partsMayBreak, aliasIfacesKept.  Found by the review: an array length's sizeof never applies
+  the pointer rule (claude-todo, MAJOR, pre-existing).
 
 ## Decisions (2026-11-03)
 
