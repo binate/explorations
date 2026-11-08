@@ -213,6 +213,18 @@ recursive, so far more than 75).
   / the VM; instructions +0.14%, within the spread.  Left of part 5: partsPointToOpaqueEmbedding, funcSignaturesSized,
   ifaceSignaturesKept, partsMayBreak, aliasIfacesKept.  Found by the review: an array length's sizeof never applies
   the pointer rule (claude-todo, MAJOR, pre-existing).
+- Stage check part 3 DONE: binate `be689d3e7` (landed 2026-11-08; user: "wait 8 minutes, then go ahead").  The
+  pairwise walks take their pairs from work lists: the readonly walks (DropsConstStrict, dropsConst,
+  signaturesMatchStrict, sigTypeIdenticalStrict, addsReadonlyAt) share one walk over (rule, src, dst) pairs
+  (readonly_walk.bn); identicalUpToDependentLengths compares its pairs from typeWalk, and its 64-level cap (a false
+  reject past 64 levels) is gone; the container retypes and AssignableTo's decay through named types are loops.  A
+  pair of one type is not walked (types sharing parts were walked once per path, exponentially), and a function type
+  inside two signatures already found identical is not asked Identical again.  The deep tests (200,000 levels)
+  crash, time out or hit the cap on the old code.  cmd/bnc's IR and 2012 corpus programs identical; 383 cast /
+  unsafe_cast / readonly conformance tests pass on LLVM and the VM; instructions +0.02%, within the spread.  Review:
+  no defect.  Found: the container retypes, and AssignableTo through a chain of named types, are quadratic in depth
+  (claude-todo, LOW, pre-existing).  Next: part 4 (substituteTypeParams, substituteSelf, peelNamedKeepReadonly,
+  instTypeHash's fold).
 
 ## Decisions (2026-11-03)
 
