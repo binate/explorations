@@ -3260,6 +3260,12 @@ sections, where the LLVM backend's carry them in 7-8 of 7-9 objects.
   positions, then subprograms, variables and types, as the LLVM backend has), on all three architectures.
 - (b) Until then bnc rejects `-g` with `--backend native` rather than ignoring it.
 
+### bnc builds with LLVM for any `--backend` value but `native` -- a misspelt backend is silently LLVM — 🟡 IN PROGRESS (claimed 2026-11-08, work-3; user: "yes, an unknown --backend value should be an error") (found 2026-11-08, work-3, adding the `-g --backend native` rejection)
+
+cmd/bnc/args.bn never validates `--backend`: every check is `streq(result.Backend, "native")`, so `--backend natvie`
+(or any other word) builds with the LLVM backend without a word.  Fix: accept "", "llvm" and "native", and make any
+other value an argument error naming the two backends.
+
 ### Static-managed sentinel — deferred follow-ups (optimizations, not correctness) — 🟢 LOW
 Follow-ups split out of the (now-done) static-managed sentinel landing:
 - **String-literal null-backing unification**: can the string-literal
