@@ -235,13 +235,6 @@ followed (the two "Bare metal:" entries below), not test cost.  Its follow-ups l
 green locally: 71 packages pass, 18 xfail, in 482 s.  Open: confirm on CI's next unit run that the bare-metal lane
 is green and inside its job limit -- then (d), sharding it, is not needed, and this entry is done.
 
-### The conformance runner strips the bare-metal CPU-fault report, as it strips host signal messages — 🟡 IN PROGRESS (claimed 2026-11-07, work-3; user: "yes, I think the conformance runner should strip those lines")
-
-crt0's exception vectors (binate `d9ecc87e8`) print `fatal: <exception> at pc 0x...[, address 0x...]` and exit 1;
-scripts/lib/strip-signal-msgs.sh strips the host's out-of-band signal-death messages from a test's output but not
-this line, so conformance 385_iface_nil_dispatch (which expects the abort) still fails on both bare-metal modes on
-that line alone.  Strip it too, and drop 385's bare-metal xfail.
-
 ### Bare metal: a stack overflow silently overwrites the heap -- nothing guards the stack's lower end — 🔴 NEEDS DECISION (MAJOR; found 2026-11-07, work-3, same diagnosis)
 
 On arm32 bare metal the stack grows down from `_stack_top` (the top of RAM) toward the heap with nothing between

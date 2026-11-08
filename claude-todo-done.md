@@ -1,3 +1,11 @@
+### The conformance runner strips the bare-metal CPU-fault report, as it strips host signal messages — DONE (binate `23524484b`, 2026-11-08, work-3; user: "yes, I think the conformance runner should strip those lines", then "yes")
+
+scripts/lib/strip-signal-msgs.sh also strips crt0's `fatal: <exception> at pc 0x<8 hex>[, address 0x<8 hex>]` line
+(exact form only), with strip and pass-through cases in its hygiene smoke test.  Three tests expecting a
+nil-interface dispatch to abort now pass on both bare-metal backends and lost their xfails: 385_iface_nil_dispatch,
+spec/11-interfaces/081_dispatch_nil_abort_compiled, spec/19-execution/010_divergence_abort_form_nil_iface; every
+other bare-metal xfail still fails under --check-xpass.
+
 ### A type whose walk is still on the stack counted as prepared when a `sizeof` read it by value: wrong array lengths, an accepted layout cycle, a valid program rejected, a deep chain crashing -- DONE (binate `e6581426d`, `b6ad6b5b3`, 2026-11-07, work-1; user: "Don't collect it (Recommended)", then "Defer at every site (Recommended)", then "wait 8 minutes, then land") (MAJOR; found 2026-10-30, work-7)
 
 The layout read during collection walked a slice's element too, collecting the declarations it reached so that
