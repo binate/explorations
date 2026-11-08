@@ -3290,6 +3290,16 @@ The one remaining, open-ended piece:
   on coarse statement-line backfill. No columns.
 - No `llvm.dbg.value` (only `dbg.declare` for allocas).
 
+### The native backends emit no debug info -- `bnc -g --backend native` silently drops `-g` — 🔴 OPEN (found 2026-11-07, work-3, checking bare-metal `-g` links; needs a decision on the interim behaviour)
+
+All of the DWARF above is the LLVM backend's (LLVM debug metadata).  With `-g`, a native build compiles and runs but
+carries no debug sections at all: the main object of a small program has 4 `__debug` sections from the LLVM backend
+and none from the native one on aa64 (macOS), and an arm32-baremetal program has 8 `.debug_*` sections from LLVM and
+none from native.  Nothing reports that the flag was ignored.  The fix is DWARF emission in the native backends (line
+tables first: `.debug_line` from the IR's source positions, then subprograms, variables and types, as the LLVM
+backend has); until then `-g` with `--backend native` should probably be rejected rather than ignored -- that
+interim choice is the user's.
+
 ### Static-managed sentinel — deferred follow-ups (optimizations, not correctness) — 🟢 LOW
 Follow-ups split out of the (now-done) static-managed sentinel landing:
 - **String-literal null-backing unification**: can the string-literal
