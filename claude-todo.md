@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### bnfmt deletes a line comment after an operator of a chain nested past 12 lists — 🔴 OPEN 🟠 MAJOR (found 2026-11-07, temp-4, review of the wrapped-chain parentheses fix; on main since binate `5262e31c9`)
+### bnfmt deletes a line comment after an operator of a chain nested past 12 lists — 🟡 IN PROGRESS (claimed 2026-11-07, temp-4) 🟠 MAJOR (found 2026-11-07, temp-4, review of the wrapped-chain parentheses fix; on main since binate `5262e31c9`)
 
 Past STABLE_LIST_DEPTH (12) nested lists, printBinary no longer asks whether the source wrapped a chain
 (print_chain.bn), so a chain with a line comment after one of its operators can take the one-line form
