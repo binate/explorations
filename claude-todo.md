@@ -309,6 +309,9 @@ binary ran on to `rt.RawAlloc: arena exhausted`.  Related: "Neither backend prob
 bare metal with an unmapped guard region below the stack (the fault then reports through the vector table), or a
 stack-limit check in each prologue against a linker-script symbol (the scripts already know the stack's lower
 bound, the heap's end).
+Exception vectors in crt0 (which report a CPU fault and exit) do not cover it: conformance 1105's runaway
+recursion runs down through the heap, .bss and the image itself, overwriting the handlers too, and still hangs
+(a QEMU memory dump showed the vector table and vec_report rewritten; found reviewing the vector-table change).
 
 ### IR-gen spells every type argument out in an instance's name — instances whose arguments share a type get exponentially long names — 🔴 NEEDS DECISION (found 2026-10-26, work-7, testing the abstract-instance change's shared-argument walk; reproduced on main; pre-existing)
 
