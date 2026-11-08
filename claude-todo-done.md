@@ -1,3 +1,14 @@
+### Bare-metal unit lane: (c) the linker script defines the heap; test binaries get 256 MiB — DONE (binate `6b46c3244`, 2026-11-07, work-3; user: "(c) sounds ok", then "yes" to the design, then "yes" to landing)
+
+Part (c) of the release blocker "CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region" (its
+follow-ups stay in the todo).  The linker script now defines the whole bare-metal layout: baremetal_sections.ld holds
+the output sections; baremetal.ld (a program) keeps 16 MiB of RAM and a 4 MiB heap; baremetal_test.ld (a `bnc
+--test` binary) has 256 MiB, the heap taking all but a 16 MiB stack, and the unit runner gives QEMU -m 256M; the heap
+is the symbols __heap_start / __heap_end, read by rt through __c_global (as uint8) and checked once on first use;
+crt0.s loads `ldr sp, =_stack_top`.  With the bigger test heap the 4 MiB-arena markers went (the asm/aarch64 xfail,
+the TestDeep / TestLayoutDeep skips of types, types/abi and check).  Validated: the whole lane in 526 s locally, a
+276-test bare-metal conformance sample on the LLVM and native backends, the two bare-metal e2e scripts.
+
 ### Bare-metal unit lane: (a) asm/assemble xfailed, (b) the test runner's report reaches the console — DONE (binate `cc45cd035`, `0ede3993f`, 2026-11-07, work-3; user: "yes, go ahead and land; (a) sounds right. (b) is wrong, and we should consider alternatives. (c) sounds ok. (d) sounds fine.", then "yes" to the runner printing through pkg/builtins/testing, then "yes to both questions")
 
 Two of the four pieces of the release blocker "CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM

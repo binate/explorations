@@ -231,7 +231,7 @@ pkg/binate/check (915 s there) on shard 3/6 every run, past its 30-min job limit
 work-3; user: "ok", then "yes") splits check's tests across the single-VM lanes' shards (pkg-binate-check.split.vm).
 Open: confirm on the next completed unit run that the int-int and single-VM shards finish in time.
 
-### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🟡 IN PROGRESS on (c) (d) (claimed 2026-11-07, work-3), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
+### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🟡 IN PROGRESS on the follow-ups below (claimed 2026-11-07, work-3), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
 `builder-comp_arm32_baremetal` runs each package's test binary in QEMU `virt` with `-m 16M`, linked by
 runtime/baremetal_arm32/baremetal.ld (`RAM LENGTH = 16M`: code, data, `.bss` — including the 4 MiB heap arena,
@@ -266,12 +266,20 @@ region it defines rather than a static array in rt; crt0 loads _stack_top from i
 test script with more RAM, the heap the rest; the runner passes QEMU the matching -m.  (d) waits on (b): locally
 pkg/binate/check ran ~2 h under bare-metal QEMU with no output, so its cost is unknown.
 
-**2026-11-07 (work-3):** (a) and (b) landed (done log); the lane now shows each package's count.
-check's ~2 h with no output was not test cost: its test binary (with the fmt-based runner) overflowed its ~0.77 MB
-of stack into the arena and hung on the resulting data abort (see the two "Bare metal:" entries below).  With (b)
-the same package runs 768 tests in 4.6 s under QEMU, then aborts with `rt.RawAlloc: arena exhausted` at
-TestExpandBuildBudget, which (c)'s larger test heap addresses.  So (d)'s premise does not hold; whether the lane
-still needs sharding is to be measured after (c).
+**2026-11-07 (work-3):** (a), (b) and (c) landed (done log).  The whole lane now runs in 526 s locally, 65 packages
+passing; check's ~2 h with no output had been a stack overflow into its arena and a hang on the data abort that
+followed (the two "Bare metal:" entries below), not test cost.  Follow-ups, in progress:
+- skip the 11 tests that need a filesystem ("cannot create a temporary directory": asm/parse 5, irgen 4, loader 1,
+  native/arm32 1), as native/arm32's TestEmitObject already is;
+- iropt's TestThreadConstPhiSendsAndLoopFalseEdgeToExit reads freed memory on every target (the bare-metal
+  allocator traps it as a double free; macOS shows it under libgmalloc): the test helper boolParam makes an
+  OP_PARAM nothing owns, and andLoop leaves it only in a phi, whose operands do not own -- fix: make it with
+  irbuild.NewParamRef, so f.ParamRefs owns it;
+- the linker scripts (user: "yes" to both recommendations): bnc passes baremetal_sections.ld as its own -T before
+  the layout script, with an ASSERT that the heap follows .bss (INCLUDE looks in the link's working directory
+  before -L, so a stray file there replaces it); and the link uses --orphan-handling=error, with the
+  non-allocated sections routed (an unrouted NOBITS section, e.g. a C object's .noinit, is placed on the heap).
+(d), sharding the lane: not needed if CI's lane time confirms the local one.
 
 ### Bare metal: a CPU fault hangs forever -- no exception vectors, so a data abort or undefined instruction is never reported — 🟡 IN PROGRESS (claimed 2026-11-07, work-3, to follow (c) of the bare-metal release blocker; user: "yes to both questions") MAJOR (found 2026-11-07, work-3, diagnosing the bare-metal unit lane's check hang)
 
