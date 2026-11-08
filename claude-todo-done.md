@@ -1,3 +1,28 @@
+### bnfmt moves a comment inside an expression or a simple statement to after the statement -- DONE (binate `cb2e44b85`, `6d60b00d6`, `27bdebd4b`, `43d112b0a`, 2026-11-08, temp-4; user: "let's work on the open things", "Whole class (Recommended)", "The name, everywhere (Recommended)", then "wait 12 minutes, then go ahead") (LOW; found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the declarations' and composites' gaps stay open in claude-todo.md)
+
+A comment inside a statement that no list or operator chain printed was still pending in the cursor when the
+statement ended, so it went after the statement (`p = -/* z */ q` printed `p = -q /* z */`), or, with the statement
+spanning lines, onto a line of its own after it together with the statement's trailing comment (`x := -/* c */` /
+`y // d`); a line comment inside a loop's header (`for i := // c`) went to the block's first line.
+- binate `cb2e44b85` (lexer): a collected comment records the positions of the real tokens before and after it
+  (token.Comment After / Before), so the formatter can find the comments in a gap whose ends the tree does not
+  record (after a selector's `.`).
+- binate `6d60b00d6` (parser): a selector read by the postfix loop records its member name as its Pos, as a
+  qualified name does, so `f().x`'s member errors point at the name; a qualified composite type starts at its
+  package name.
+- binate `27bdebd4b` (print_exprgaps.bn, print_expr.bn, print_builtin.bn): comments after a prefix operator, around
+  a selector's and a type assertion's `.`, before a call's `(` and an index's `[`, after a slice's `[` and `:`, and
+  among a type-operand builtin's operands print where they stand.  Tests: TestExprCommentsStayInPlace,
+  TestExprCommentsInHeaders, TestExprCommentsInListsAndDeepNests, TestExprCommentsInTypeOperandBuiltins
+  (print_exprgaps_test.bn); TestParseSelectorPosIsName; TestCommentAfterBefore.
+- binate `43d112b0a` (print_stmtgaps.bn, print_stmt.bn, print_stmtwrap.bn): comments between an assignment's
+  left-hand expressions, before and after its operator (`=`, `:=`, compound, `++` / `--`), after `return` and between
+  its values, and in a loop's init and post print where they stand, and count in the statement's layout.  Tests:
+  TestStmtCommentsStayInPlace, TestStmtCommentsCountInTheLayout (print_stmtgaps_test.bn),
+  TestHeaderBraceCommentsAfterAnInnerLineComment.
+Over the corpus (about 30,000 files) and 803 files with comments injected into these gaps, the new bnfmt never
+loses, reorders or adds a comment, changes a token, breaks idempotence or widens a line where the old one did not.
+
 ### bnc rejects `-g` with `--backend native` — DONE (binate `44972c53c`, 2026-11-08, work-3; user: "(b) yes, we should reject", then "wait 8 minutes, then go ahead")
 
 The native backends emit no debug info (checked on every native target; the open MAJOR entry "The native backends
