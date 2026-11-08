@@ -465,6 +465,16 @@ Steps:
   4e is complete.
 - 4f. Element and structure loads and stores: vld1 .. vld4 / vst1 .. vst4, multiple structures, one lane and all
   lanes, the alignment, write-back and a register post-index.
+  - Part 1, the encoders (asm/arm32/neon): multiple structures (1111 0100 0DL0 nnnn dddd tttt ssaa mmmm, the type
+    from the structure count, registers and spacing), one lane (1111 0100 1DL0 nnnn dddd ssNN iiii mmmm, the
+    index, spacing and alignment in iiii) and all lanes (1111 0100 1D10 nnnn dddd 11NN ssTa mmmm), each with
+    no write-back, `!` or a register post-index; the ARM ARM's alignment and register-range rules.
+  - Part 2, the parser's multiple-structure forms: the address operand's alignment value (arm32MatchAlign reads
+    it but keeps only that there is one), clang's alignment classes (AlignedMemory, None / 16 / 32 / 64 /
+    64or128 / 64or128or256, named: "alignment must be 64, 128 or omitted", ...), write-back, the post-index
+    register; the lists 4e's reader reads (spaced pairs and quads, VecListDPairSpaced / ThreeQ / FourQ).
+  - Part 3, one lane and all lanes (the indexed and all-lanes list classes, the Dup alignment classes).  clang
+    assembles many of these through pseudo-instructions (VLD1LNdAsm_8, ...) it rewrites in processInstruction.
 - 4g. ARMv8's and later additions: sha1c / sha1p / sha1m / sha1su0, sha256h / sha256h2 / sha256su1 (through 4d's
   crypto entry these are "invalid instruction" until then, clang's words or feature messages); vqrdmlah /
   vqrdmlsh (v8.1); vsdot / vudot, vfmal / vfmsl (v8.2); vcmla / vcadd (v8.3); the BFloat16 and Int8 matrix forms
