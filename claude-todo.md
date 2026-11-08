@@ -3589,7 +3589,7 @@ is reported rather than parked.  Fix: peel one raw or managed pointer level in r
 noteMissingImpl does for conversions, and key a constraint use on its receiver shape (`*Box:Sizer`), so only an impl
 with that receiver wakes it or counts as binding it; REPL tests for each.
 
-### REPL: an incompatible redefinition of a generic method that a sibling still calls in the old shape — decide the rule — 🔴 OPEN (found 2026-10-03, work-6, review of the generic-methods-at-the-prompt fix; put to the user)
+### REPL: an incompatible redefinition of a generic method that a sibling still calls in the old shape — decide the rule — 🟡 IN PROGRESS (claimed 2026-11-08, work-6; found 2026-10-03, work-6, review of the generic-methods-at-the-prompt fix)
 
 `type Cur[T any] struct { v T }`, `func (c *Cur[T]) Get() T { return c.v }`, `func (c *Cur[T]) Twice() T
 { return c.Get() }`, then `func (c *Cur[T]) Get(k int) int { return k }`: with an instance of Cur already
@@ -3608,8 +3608,12 @@ User (2026-10-14), to (B) for generics with parked declarations unchanged: "That
 resolve where it was declared, and an instance reuses the declaration-time check's records
 (plan-irgen-checker-types.md decision 7).  For generic METHODS that suggests replacing the proposal above: a
 sibling keeps calling the old (shadowed) method, which stays instantiable — to confirm with the user.
+- Decided (user, 2026-11-08): generic methods follow decision 7 — a sibling keeps calling the old (shadowed) method,
+  which stays instantiable — replacing the reject proposal; signatures are compared at the generic level; decision 7
+  is implemented now, and the instance-body use recording of binate `38b4fcd11` goes with it ("that sounds fine.
+  let's implement decision 7").  Re-checked on main `23524484b`: the four sessions above behave as described.
 
-### REPL: adding a method to a generic type checks its existing instances again against names redefined since — the method is rejected for an error in a sibling's old body — 🔴 OPEN (MAJOR: valid input rejected; found 2026-10-30, work-6, review of the parked-redefinition group rule; reproduced on main before that change)
+### REPL: adding a method to a generic type checks its existing instances again against names redefined since — the method is rejected for an error in a sibling's old body — 🟡 IN PROGRESS (claimed 2026-11-08, work-6, with decision 7: the entry above) (MAJOR: valid input rejected; found 2026-10-30, work-6, review of the parked-redefinition group rule; reproduced on main before that change)
 
 ```
 func g() int { return 1000 }
