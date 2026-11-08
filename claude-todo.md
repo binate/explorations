@@ -283,18 +283,12 @@ followed (the two "Bare metal:" entries below), not test cost.  Its follow-ups l
 green locally: 71 packages pass, 18 xfail, in 482 s.  Open: confirm on CI's next unit run that the bare-metal lane
 is green and inside its job limit -- then (d), sharding it, is not needed, and this entry is done.
 
-### Bare metal: a CPU fault hangs forever -- no exception vectors, so a data abort or undefined instruction is never reported — 🟡 IN PROGRESS (claimed 2026-11-07, work-3, to follow (c) of the bare-metal release blocker; user: "yes to both questions") MAJOR (found 2026-11-07, work-3, diagnosing the bare-metal unit lane's check hang)
+### The conformance runner strips the bare-metal CPU-fault report, as it strips host signal messages — 🟡 IN PROGRESS (claimed 2026-11-07, work-3; user: "yes, I think the conformance runner should strip those lines")
 
-runtime/baremetal_arm32/crt0.s installs no exception vector table (VBAR stays 0, QEMU `virt`'s flash) and sets up no
-abort / undefined-mode stack, so any CPU fault on bare metal -- a data abort, an undefined instruction, a prefetch
-abort -- jumps into the empty flash at 0x0-0x1c and loops there taking further exceptions, with no output and no
-exit.  A run then waits for its outer timeout (the unit lane's 30-min job limit, a conformance runner's `timeout
-10`).  Found as: pkg/binate/check's bare-metal test binary, built with the fmt-based runner, hung in QEMU; `-d int`
-showed one Data Abort (DFAR 0x8000000c) and then an endless run of Undefined Instruction exceptions (PC 0x14, SP 0).
-Fix: a vector table in crt0 (VBAR pointed at it) with abort / undefined-mode stacks, whose handlers print the fault
-kind, the faulting PC and DFAR / IFAR through semihosting and exit nonzero (SYS_EXIT_EXTENDED), as rt's own fatal
-errors do.  Test: a bare-metal conformance test that loads from an unmapped address must fail at once with the
-diagnostic, not time out.
+crt0's exception vectors (binate `d9ecc87e8`) print `fatal: <exception> at pc 0x...[, address 0x...]` and exit 1;
+scripts/lib/strip-signal-msgs.sh strips the host's out-of-band signal-death messages from a test's output but not
+this line, so conformance 385_iface_nil_dispatch (which expects the abort) still fails on both bare-metal modes on
+that line alone.  Strip it too, and drop 385's bare-metal xfail.
 
 ### Bare metal: a stack overflow silently overwrites the heap -- nothing guards the stack's lower end — 🔴 NEEDS DECISION (MAJOR; found 2026-11-07, work-3, same diagnosis)
 

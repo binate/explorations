@@ -1,3 +1,13 @@
+### Bare metal: a CPU fault hung forever -- no exception vectors — DONE (binate `d9ecc87e8`, 2026-11-07, work-3; user: "yes to both questions", then "go ahead and land")
+
+crt0.s installed no exception vectors, so a data abort, undefined instruction or prefetch abort on arm32 bare metal
+looped in the empty flash at address 0 with no output (the bare-metal unit lane's check package hung its whole job
+that way).  `d9ecc87e8`: _start points VBAR at a vector table (with an ISB); each handler reports
+`fatal: <exception> at pc 0x<pc>[, address 0x<DFAR/IFAR>]` from supervisor mode on its own stack through semihosting
+and exits 1; e2e/arm32-baremetal-fault-report.sh checks a data abort, an undefined instruction and a prefetch abort
+(the pc exactly for the two asm probes).  A runaway stack overflow still hangs (it overwrites the handlers too) --
+see the open "Bare metal: a stack overflow silently overwrites the heap" entry.
+
 ### Bare-metal unit lane follow-ups: filesystem tests skipped, an iropt test's use-after-free, the linker scripts — DONE (binate `2d975993d`, `a10005a8b`, `46461b41e`, 2026-11-07, work-3; user: "yes" to the linker-script recommendations, then "yes" to landing)
 
 Follow-ups of (c) of the release blocker "CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region".
