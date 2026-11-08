@@ -61,6 +61,17 @@ abstract).  A nesting limit would bound these too; iterative walks would drop th
 expandArgFlow counts an alias chain past 64 as growing -- a generic-expansion rule, beside §21.4's instantiation
 limits, not this.)
 
+### An array length's `sizeof` / `alignof` never applies the pointer-to-embedding rule: an ill-formed operand is accepted — 🔴 OPEN (MAJOR: an invalid program accepted; found 2026-11-07, work-1, review of the slice-element layout fix; reproduced on main; pre-existing)
+
+With `pkg/q` exporting `type Opaque` (its `.bni` only), `type S q.Opaque` and `type X struct { a [sizeof(*([2]S))]uint8
+}` compile, in either declaration order; `const K uint = sizeof(*([2]S))` is rejected ("cannot form a pointer to a type
+that embeds an opaque type by value").  validateDimExpr (check/eval_const_int.bn) checks an array length's `sizeof` /
+`alignof` operand only for embedding an opaque type by value -- it mirrors the opaque part of checkBuiltinCall's
+sizeof arm, not its rules on forming a type (requireFormedType) or its size limit (requireFitting) -- and the array
+length's expression is not checked anywhere else.  Fix: hold the operand to the whole check checkBuiltinCall makes
+(checkValueOfType, check_opaque_recheck.bn once the slice-element fix lands).  Test: the program above as a conformance
+error test, in both orders.
+
 ### A type whose walk is still on the stack counts as prepared when a `sizeof` reads it by value: a valid program gets a wrong array length, and a layout cycle is accepted — 🟡 IN PROGRESS (claimed 2026-11-07, work-1; user: "Don't collect it (Recommended)": the layout walk stops at a slice, a batch type not collected yet is pending, not opaque, during collection, and a sizeof operand that met one is checked again after it) (MAJOR: valid programs compiled with a wrong array type, silently, and an invalid one accepted; found 2026-10-30, work-7, review of the slice-reach fix; reproduced on main; pre-existing)
 
 `type N struct { v int64; a [sizeof(M)]uint8 }`, `type M struct { s *[]D }`, `type D struct { n N; e *[]E }`, `type E
