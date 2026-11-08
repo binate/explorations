@@ -199,6 +199,19 @@ IR-gen cannot map is an internal error, never `int`.
    CurrentImportPkg-as-resolution, the import overlay for generic bodies, RegisterGenericBodyDeps and the
    bare-name precedence rules.  (Coordinate with plan-constant-evaluator.md, which targets IR-gen's own
    constant evaluator and its CurrentImportPkg const lookup.)
+6b. **Decision 7: a generic keeps the bindings of its declaration** (user 2026-11-08: "yes, follow the plan" — after
+   stage 6, on its records).  An instance's check and its IR use the generic's declaration-time records, never the
+   live session scope: a generic method's sibling keeps calling the old (shadowed) method, a generic body keeps the
+   function or variable it named when a REPL redefinition shadows it, and a shadowed generic stays instantiable.
+   Needs: shadowed functions and generics reachable by hidden names in IR-gen and the VM (as shadowed variables are;
+   the VM now unbinds a shadowed function, reachable only through callers' cached pointers), and instance names that
+   do not collide with the new definition's (stage 5's naming).  Signatures are compared at the generic level (`Get()
+   T` → `Get() int` shadows, also for `Cur[int]`; user 2026-11-08).  Remove with it the use recording in the bodies
+   of the instances a parked REPL group names (binate `38b4fcd11`: recordingUses' InstanceState.RecordUses /
+   NewBodies / BodyIsNew, InstWork.Requeued): a body then binds what it bound at its declaration, so a parked
+   declaration has nothing to wait for there.  Resolves the todo entries "an incompatible redefinition of a generic
+   method that a sibling still calls" and "adding a method to a generic type checks its existing instances again"
+   (their sessions become e2e cases).
 7. **Delete the legacy and no-checker paths; convert the tests.**  ~84 irgen test files build IR without a
    checker (223 genFromSource calls in 44 files, 56 genFromSourcePkg in 17, 42 files building GenCtx by
    hand), plus GenModule(nil) helpers in codegen and the native iface tests; many are white-box tests of
