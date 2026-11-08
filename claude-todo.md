@@ -2890,6 +2890,24 @@ slices.Append of declaration lists.  IR-gen's pending named types and type alias
 binate `b6cb84aee`.  Fix: index what these scan by name (a Scope already indexes its names past a threshold), and
 build the lists with vec.
 
+### The container retypes and AssignableTo's decay through named types are quadratic in depth — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-08, work-1, deep-nesting check part 3; pre-existing)
+
+The checker's container retypes ask, at each level of a chain of containers, questions that walk every level below
+it: isUnsafeAggregateLeafRetype asks Identical (and SizeIfFits) of each level's elements, and isAggregateLeafRetype /
+bitPreservingElem ask Identical and the readonly checks (elemReadonlyKept: DropsConstStrict, addsReadonlyAt).  So a
+retype of containers n deep whose elements match down to the bottom (`@[]@[]…int8` to `@[]@[]…uint8`) takes time
+quadratic in n: with the walks made loops (deep-nesting check part 3), a 200,000-level one ran 4 minutes without
+finishing, and the deep test puts named types on the source side, where each level's checks stop at once.  A declared
+container type is cut at 1024 levels (type.named.depth) and an inline one will be bounded by the parser's nesting
+limit, so this is at most ~10^6 steps per retype.  AssignableTo decays a chain of named types over named types (`type
+N0 N1`, `type N1 N2`, …) one name at a time, and each step walks the rest of the chain -- ComparabilityKind
+(StripWrappers), and ensureMembers while instances wait -- and names add no depth, so no limit bounds the chain
+(plan-deep-nesting.md, step 3: such chains scale badly).  Fix: isUnsafeAggregateLeafRetype can ask Identical of the
+deepest pair only (elements identical at one level are identical at every level below, which the walk then
+reaches); the cast retype needs its readonly checks made one level at a time, which differs from the whole-type
+check wherever that check stops at a named type and the per-level one looks below it; AssignableTo can carry a
+decayed side's stripped kind down the chain.
+
 ### IR-gen finds a generic's instances by scanning them by name — compile time superlinear in a package's instance count — 🔴 OPEN 🟢 LOW (found 2026-11-03, work-3, measuring the checker's instance index)
 
 With the checker's funcInstance indexed (binate work-3 batch, "check: find a generic function's instance by an index"),
