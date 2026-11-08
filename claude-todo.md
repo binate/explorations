@@ -3253,6 +3253,18 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
   Fix: fail loud instead of returning 0 (an internal-error panic, or a lowering error if the VM lowering has a
   path for one), after checking with a `builder-comp-int` run that nothing relies on the 0.
 
+- **Native and LLVM backends: a jump or branch to another function's block can land on a block of its own** —
+  🔵 OPEN (found 2026-11-08, review of the VM's outside-target lowering error; by reading).  The compiled
+  backends name a target by its label: the native ones as `L<function symbol>__<label>` (x64 `blockLabel`,
+  likewise aarch64 / arm32), LLVM as the function-local `%<label>` (`codegen/emit_instr.bn`).  `ir.AddBlock`'s
+  labels (`<name>.<index>`) are unique only within a function, and every function's first block is `entry.0`, so
+  a target that is another function's block whose label one of this function's blocks also has resolves to that
+  block with no error; one with no such label fails as an undefined label.  Valid IR never has such a target, but
+  the optimizer builds and retargets terminators itself (a cloned terminator the inliner failed to remap would
+  still name the callee's block), and the IR verifier runs only under `--verify-ir`.  The VM now reports it as a
+  lowering error.  Fix: before emitting a function, check that every jump and branch target is one of its blocks
+  (`SetError` on the native backends, an internal error on LLVM), with a test per backend.
+
 - **Checker rejects valid alias uses in const / untyped-literal contexts** — 🔵 OPEN (found
   2026-09-26).  Spec type.alias.transparency: an alias is its target in every context.  But with
   `type I8 = int8`: `type N I8; fn(-5)` / `var n N = 3` → "cannot assign untyped int to N" (while
