@@ -155,7 +155,8 @@ condition and flag form, clang's aliases and shorthands), the cases pinned as in
 - Outside the steps, found in step 3a:
   - clang reads a floating-point literal in any expression as its IEEE binary64 bit pattern (`mov r0, #0.0` is
     E3A00000; `.long` and every architecture's immediates the same); bnas's expression parser takes one only as
-    VCMP's zero (Parser.ExprZeroReals, a zero literal as 0).  Needs an exact decimal-to-binary64 conversion.
+    VCMP's zero (Parser.ExprZeroReals, a zero literal as 0).  The exact conversion exists: pkg/std/strconv's
+    ParseFloat (correctly rounded, hex floats too), used by 4e part 1b for VMOV's single-precision immediates.
     A NEON lane the same (found in step 4b): clang keeps the pattern's low 32 bits, so `vmul.i16 d0, d1, d2[1.0]`
     is lane 0, where bnas takes a floating-point lane as none (the matcher keeps an integer lane's low 32 bits).
 
@@ -414,7 +415,14 @@ Steps:
     VORR.I32 #0x80000000), is no modified immediate here.  Kept: values past the data type's range (clang's
     truncation; `vand.i16 #~0xab00` and `vmvn.i32 #~0xab000000` too), a condition, and a floating-point literal
     (the binary64 gap: clang takes `vmvn.i16 d0, #1.5` by its pattern's low bits).
-  - Part 1b, VMOV: decided (user 2026-11-06, "Move VMOV onto the matcher (Recommended)"): one candidate list
+  - Part 1b, VMOV: DONE (binate `f9d283b5e`).  Against the VMOV corpus: 10 encodings and 423 messages differ
+    (from 128 and 1,478), none newly; left: NEON copies with a condition (kept), VMRS / VMSR messages,
+    did-you-mean, an `s` after an unknown name, a real literal in an integer VMOV (the binary64 gap), a lane
+    as a label difference.  Its floating-point immediates are exact (strconv.ParseFloat at 32 bits; the
+    8-bit-only float_round.bn went), clang's parseFPImm placement rule, its whole-name vs split-name
+    aliases, and its negative zero as a value whose low 32 bits are 0 (matcher immediates only; the core
+    instructions keep rejecting -0x100000000 as past the 32-bit range).
+    Decided (user 2026-11-06, "Move VMOV onto the matcher (Recommended)"): one candidate list
     for all of VMOV's encodings (VFP, NEON, MVE near misses, the pre-UAL names), replacing the hand-written
     arm32_vmov*.bn, whose immediate reader takes only a literal under 2^20 and whose messages for the shapes
     VFP and NEON share are its own (`vmov.i32 s0, #1`).  3b's VMOV case lists are in scripts/bnas-sweep's
