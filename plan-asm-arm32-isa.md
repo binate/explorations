@@ -454,8 +454,15 @@ Steps:
   - Part 2, VEXT and VDUP (from a core register, conditional; from a lane): DONE (binate `f9d90a6a4`).  10,115
     cases against clang: no encoding differs (did-you-mean for vdupq / vextq the messages that do); VEXT's
     index ranges are clang's named ones (matcher kinds Imm0_1 .. Imm0_15).
-  - Part 3, VTBL / VTBX: needs clang's NEON vector lists (parseVectorList: one to four consecutive D
-    registers, `{d0-d3}`, a Q register as two D registers), which 4f's loads and stores extend.
+  - Part 3, VTBL / VTBX and clang's vector-list reader (arm32_match_veclist.bn, for 4f too): DONE (binate
+    `645fcf307`).  Kept (user 2026-11-07, landed with them): a register other than D / Q in a list (clang
+    computes lists on its own register numbering: `{r0}` {d0}, `{d31, fpinst2}` three; its messages differ
+    where it errors by that numbering, `{r1-d2}` "bad range"); a Q register alone with no lane at a list
+    or D place (clang's first D register of it, `vtbl.8 d0, q1, d2` the list {d2}).  Recorded gaps: clang's
+    generic list message for `{d1-r2}` where the vector-list reader does not run ("duplicated register
+    (fpinst2) in register list"); a lone `$` in an expression ("invalid token in expression", which
+    bnas's expression parser never says).
+  4e is complete.
 - 4f. Element and structure loads and stores: vld1 .. vld4 / vst1 .. vst4, multiple structures, one lane and all
   lanes, the alignment, write-back and a register post-index.
 - 4g. ARMv8's and later additions: sha1c / sha1p / sha1m / sha1su0, sha256h / sha256h2 / sha256su1 (through 4d's
