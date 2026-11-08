@@ -468,7 +468,9 @@ Steps:
   - Part 1, the encoders (asm/arm32/neon): multiple structures (1111 0100 0DL0 nnnn dddd tttt ssaa mmmm, the type
     from the structure count, registers and spacing), one lane (1111 0100 1DL0 nnnn dddd ssNN iiii mmmm, the
     index, spacing and alignment in iiii) and all lanes (1111 0100 1D10 nnnn dddd 11NN ssTa mmmm), each with
-    no write-back, `!` or a register post-index; the ARM ARM's alignment and register-range rules.
+    no write-back, `!` or a register post-index; the ARM ARM's alignment and register-range rules.  DONE
+    (binate `b53c15e42`: neon.Elems, ElemLane, ElemDup; LDST_PLAIN / LDST_WB for the address forms, named
+    apart from parse's own POST_NONE).
   - Part 2, the parser's multiple-structure forms: the address operand's alignment value (arm32MatchAlign reads
     it but keeps only that there is one), clang's alignment classes (AlignedMemory, None / 16 / 32 / 64 /
     64or128 / 64or128or256, named: "alignment must be 64, 128 or omitted", ...), write-back, the post-index
