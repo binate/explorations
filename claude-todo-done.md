@@ -1,3 +1,17 @@
+### Bare-metal unit lane follow-ups: filesystem tests skipped, an iropt test's use-after-free, the linker scripts — DONE (binate `2d975993d`, `a10005a8b`, `46461b41e`, 2026-11-07, work-3; user: "yes" to the linker-script recommendations, then "yes" to landing)
+
+Follow-ups of (c) of the release blocker "CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region".
+`2d975993d`: the 11 tests that need a filesystem ("cannot create a temporary directory": asm/parse 5, irgen's
+TestTypeDifferential* 4, loader 1, native/arm32 1) are skipped on the bare-metal lane.  `a10005a8b`: iropt's
+TestThreadConstPhiSendsAndLoopFalseEdgeToExit read freed memory on every target (trapped by the bare-metal allocator
+as a double free; a segfault in ir.PhiVal under macOS libgmalloc): the test helper boolParam made an OP_PARAM nothing
+owned, and andLoop left it only in a phi, whose operands do not own; it now makes it with irbuild.NewParamRef.
+`46461b41e`: bnc passes baremetal_sections.ld as its own -T beside the layout script (INCLUDE was looked up in the
+link's working directory first); the heap starts at ALIGN(__bss_end, 8), so the scripts' order does not matter;
+the link uses --orphan-handling=error with every input section named (an unnamed NOBITS section such as a C object's
+.noinit had landed on the heap), pinned by e2e/arm32-baremetal-orphan-section.sh.  Validated: the whole bare-metal
+unit lane green (71 passed), full bare-metal conformance on LLVM and native (3838 each), the bare-metal e2e scripts.
+
 ### Bare-metal unit lane: (c) the linker script defines the heap; test binaries get 256 MiB — DONE (binate `6b46c3244`, 2026-11-07, work-3; user: "(c) sounds ok", then "yes" to the design, then "yes" to landing)
 
 Part (c) of the release blocker "CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region" (its
