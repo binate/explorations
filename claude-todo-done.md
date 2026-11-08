@@ -1,3 +1,34 @@
+### bnfmt drops the author's parentheses around a chain's left operand of the same precedence when the chain wraps -- DONE (binate `478a157a6`, 2026-11-07, temp-4; user: "let's work on the open things", then "wair 4 minutes, then land") (LOW; found 2026-11-05, temp-4, review of the operator-chain comments fix; pre-existing)
+
+An author-parenthesized binary operand keeps its parentheses (printBinOperand, print_expr.bn), but flattenChain
+(print_chain.bn) flattens a left operand of the chain's precedence whether parenthesized or not, so a chain that
+wraps (printBinaryWrapped) loses them: `x := (aaaa… / bbbb…) / cccc… / dddd` prints `x := aaaa… / bbbb… /` /
+`cccc… / dddd`, while a chain on one line keeps them (`y := (aa / bb) / cc`).  The program is the same (the
+operators associate left).  bnfmt `bnc-0.0.17-pre3` and the tree's; the operator-chain comments fix wraps more chains
+(a line comment between operands), so 4 of 701 fuzzed files the review generated hit it.
+binate `478a157a6` (print_chain.bn): continuesChain stops at an author-parenthesized left operand, which is then one
+operand of the chain and keeps its parentheses wherever the chain breaks.  Tests: TestChainWrappedKeepsLeftParens,
+TestChainWrappedParensKeepComments, TestDeepChainParensKeepLineComments (print_chain_test.bn).  Over the corpus the
+output changes only in the 5 files whose parentheses are now kept.
+
+### bnfmt deletes a line comment after an operator of a chain nested past 12 lists -- DONE (binate `137a1aedf`, 2026-11-07, temp-4; user: "Fix deletion first (Recommended)", then "wair 4 minutes, then land") (MAJOR; found 2026-11-07, temp-4, review of the wrapped-chain parentheses fix; on main since binate `5262e31c9`)
+
+Past STABLE_LIST_DEPTH (12) nested lists, printBinary no longer asks whether the source wrapped a chain
+(print_chain.bn), so a chain with a line comment after one of its operators can take the one-line form
+(printBinarySingle): binarySingleFits sees no comment there, as claimInlineGap leaves a line comment pending.  That
+form drops the comment when a rendering that wrapped the chain (printBinaryWrapped, at a shallower list depth) has
+claimed it already, and otherwise leaves it pending, so it moves to after the statement.  The tree's bnfmt deletes
+`// c4` from `x := hh(hh(…(13 deep)…hh(<45-byte name>, (da ^ // c4` / `d))))))))))))))`; 12 deep it keeps it, and
+bnfmt `bnc-0.0.17-pre3` (before the cap) keeps it.  Data loss under `bnfmt -w`, though only in code nested that deep.
+binate `137a1aedf` (print_expr.bn, print_chain.bn): the one-line form (printBinarySingle) writes a comment after an
+operator that needs a line break where it is (claimGap, writeGapComments) and starts the next operand on a
+continuation line, and binarySingleFits rejects a chain with one (inlineHold), so past the cap a chain wraps there
+as a shallower one does.  The continuation indent is taken from the chain's first line before its left operand
+prints: the review found it growing at every operator in a `// LONG-LINE ALLOWED` case label, which prints its
+chains on one line.  Tests: TestDeepChainKeepsLineComments, TestDeepChainWrapsBeforeALongLineComment
+(print_deep_test.bn), TestLongLineCaseLabelChainComments (print_longline_test.bn).  In the reviews' probes the old
+build loses or moves 183 comments the new one keeps, and none the other way.
+
 ### Bare metal: a CPU fault hung forever -- no exception vectors — DONE (binate `d9ecc87e8`, 2026-11-07, work-3; user: "yes to both questions", then "go ahead and land")
 
 crt0.s installed no exception vectors, so a data abort, undefined instruction or prefetch abort on arm32 bare metal
