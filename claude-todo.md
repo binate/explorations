@@ -7,6 +7,24 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### An instance whose arguments nest a pointer to an opaque embedding two levels deep is accepted, and IR-gen invents the opaque type's layout — 🔴 OPEN (MAJOR: an invalid program accepted and lowered; found 2026-11-08, work-1, review of the deep-nesting argument walk; reproduced on main; pre-existing)
+
+With `type Opaque` (no definition) and `type W[T any] struct { v T }`, `func f(a W[*W[[1]Opaque]])` is rejected ("cannot
+form a pointer to a type that embeds an opaque type by value"), but `W[*W[*W[[1]Opaque]]]` and deeper compile (rc 0),
+and the LLVM IR gets a made-up layout for `Opaque` (`%..._W1_a1_N1_4_main6_Opaque = type <{ [1 x i64] }>`, 3 of them at
+two levels, 4 at three), which the pointer rule exists to prevent (conformance 851).  `type L[T any] struct { n *T }`
+with `*L[*L[*L[[1]Opaque]]]` is missed the same way.  Cause (the review's reading, not yet confirmed by a fix): the
+pointee walk shares the enclosing walk's `opaqueWalk` for the argument check of each instance it passes -- the sharing
+keeps nested arguments from being judged again at every level.  In the pointee walk of `*W[*W[[1]O]]`, the argument
+check of `W[*W[[1]O]]` enters `*W[[1]O]` and finds that it breaks a rule, but the pointee walk takes that only as "go
+on", and its chain ends at a struct with no opaque type by value, so it answers false; the parts walk then reaches
+`*W[[1]O]` again through the instance's arguments, finds it entered, and takes it as having broken no rule.  So
+argsMayBringOpaque answers false for the outer instance, and partsPointToOpaqueEmbedding never walks the instance
+structure that would report it: the walk's rule "entered means judged and broke no rule, or on the current path" does
+not hold once the pointee walk shares it.  Fix idea: record each part's answer in the walk (true / false / in
+progress) rather than a visited bit, so a part reached again gives its answer.  Test: a conformance error test of the
+program above (and the L variant), expected to fail until fixed -- to add.
+
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
 Freeing a long chain through managed-slices (`type Cell struct { rest @[]Cell; v int }`, 300,000 links, the last
