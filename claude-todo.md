@@ -3251,7 +3251,8 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
   already builds gen1, or no test, as for `EmitBitCast`'s internal-error panic.
 
 - **VM lowering: a jump or branch to a block not in the function silently jumps to its first instruction** —
-  🔵 OPEN (found 2026-11-07, review of the `EmitJump` / `EmitBranch` nil preconditions; by reading).
+  🟡 IN PROGRESS (claimed 2026-11-08; user: "yes" to failing loud) (found 2026-11-07, review of the `EmitJump` /
+  `EmitBranch` nil preconditions; by reading).
   `findBlockOffset` (`pkg/binate/vm/lower_func_helpers.bn`) returns 0 when the target is neither one of the
   function's blocks nor one of its fault pads -- a nil target, or a block of another function -- and OP_JUMP /
   OP_BRANCH lowering (`vm/lower_instr.bn`) uses that as the bytecode offset, so the VM re-enters the function at
