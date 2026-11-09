@@ -482,7 +482,15 @@ Steps:
 - 4g. ARMv8's and later additions: sha1c / sha1p / sha1m / sha1su0, sha256h / sha256h2 / sha256su1 (through 4d's
   crypto entry these are "invalid instruction" until then, clang's words or feature messages); vqrdmlah /
   vqrdmlsh (v8.1); vsdot / vudot, vfmal / vfmsl (v8.2); vcmla / vcadd (v8.3); the BFloat16 and Int8 matrix forms
-  (vdot.bf16, vmmla, vfmab / vfmat, vsmmla / vummla / vusmmla, vusdot / vsudot).
+  (vdot.bf16, vmmla, vfmab / vfmat, vsmmla / vummla / vusmmla, vusdot / vsudot).  One part (encoders, parser,
+  tests, a clang comparison) per family:
+  - Part 1, SHA1C / SHA1P / SHA1M / SHA1SU0, SHA256H / SHA256H2 / SHA256SU1 (neon.Three, .32 on three Q
+    registers): DONE (binate `79f9ea946`; 2,019 cases against clang, every encoding agreeing).
+  - Part 2, VQRDMLAH / VQRDMLSH: three-same and by scalar (.S16 / .S32), NEON with ARMv8.1 (a matcher feature bit
+    "armv8.1a"), MVE's VQRDMLAH a near miss.
+  - Part 3, VSDOT / VUDOT and VFMAL / VFMSL (vector and indexed).
+  - Part 4, VCMLA / VCADD (the rotations, vector and indexed).
+  - Part 5, the BFloat16 and Int8 matrix forms.
 
 ## Stage 1: the feature model — DONE (binate `09f41e4f7`)
 
