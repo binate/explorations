@@ -1,3 +1,17 @@
+### A named pointer to an instance of itself (`type NP *W[NP]`) hung the checker — DONE (binate `e42535af7`, 2026-11-08, work-1; user: "also fix the hang next", then "yes, go ahead; then continue") (MAJOR; found 2026-11-08, work-1, review of the argument-walk fix; pre-existing)
+
+With `type W[T any] struct { v T }`, the legal declaration `type NP *W[NP]` made bnc run until killed (a stack-overflow
+crash before the argument walk moved to an explicit call stack, binate `ec144a05a`).  The argument walk's parts call
+on a named type that is no instance went on into its pointee walk without entering the type, and the pointee walk
+judges the arguments of the instance W[NP] it passes, which lead back to NP -- a fresh pointee walk each time, its
+names met fresh too.  Fix (binate `e42535af7`): the parts call enters the named type in the walk before its pointee
+walk, as it does every other part, so met again it gives its answer (it broke a rule, or not, or it is on the
+current path); the tail call into the pointee walk keeps the entered part, so a true answer is recorded for the named
+type.  Corpus: only 1736 changed (compiles now); 567 opaque and generic conformance tests pass on LLVM and the VM;
+cmd/bnc's IR identical.  Review: no answer changed (4,500 fuzzed programs identical wherever the old checker
+finished).  Tests: conformance 1736 (binate `b9487204d`, its `.xfail.all` removed), check's
+TestArgsWalkNamedPointerToOwnInstance and TestArgsWalkNamedTypeMetAgainBreaks.
+
 ### A `.bn`-only method or parameterized impl of a `.bni` generic type was checked for instances other packages name: a dependency's private code decided whether main compiled — DONE (binate `c985aca4c`, docs `d0951ef`, 2026-11-08, temp-5; user: "yes, go ahead and claim that and fix it", option A for run time, then "wait 8 minutes, then land") (a valid program rejected, and checking that depended on a dependency's `.bn`; found 2026-11-06, temp-5, review of the instance impl-view plan; pre-existing)
 
 gm2's `.bni` declares `type W[U any] struct { u U }` with a public method; its `.bn` a private method `priv` whose body

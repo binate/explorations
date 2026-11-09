@@ -36,19 +36,6 @@ interface target only through an impl whose receiver the box's own kind reaches 
 managed pointer, and the satisfaction lookup checks it; conformance on every mode.  Probes: the session
 scratchpad's review-pm/q9, q9c, q8b.
 
-### A named pointer to an instance of itself (`type NP *W[NP]`) hangs the checker — 🟡 IN PROGRESS (claimed 2026-11-08, work-1; user: "also fix the hang next") (MAJOR: the compiler hangs on a valid program; found 2026-11-08, work-1, review of the argument-walk fix; reproduced on main; pre-existing)
-
-With `type W[T any] struct { v T }`, the legal declaration `type NP *W[NP]` (the recursion goes through a pointer)
-makes bnc run until killed, its memory growing (~470 MB after 13 s); compilers before the argument walk moved to an
-explicit call stack (binate `ec144a05a`) crash with a stack overflow (rc 139) instead.  Cause (the review's reading,
-from a `sample` in bringRun / stepBringArgs / stepBringPointee / bringPartsStart): in the argument walk
-(check_opaque_args_walk.bn), a bringParts call on a named type that is no instance tail-calls a pointee walk without
-entering the type in the walk, and the pointee walk calls bringArgs on an instance it passes without entering the
-instance either, so NP -> W[NP] -> NP repeats with nothing marked visited.  Fix: enter the named type (or the
-instance) in the walk before going on through it, so a cycle through a named type ends -- keeping the answers the
-recorded-breaks rule gives (a part reached again gives its answer).  Test: conformance
-1736_type_named_pointer_to_own_instance (binate `b9487204d`), `.xfail.all` until fixed.
-
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
 Freeing a long chain through managed-slices (`type Cell struct { rest @[]Cell; v int }`, 300,000 links, the last
