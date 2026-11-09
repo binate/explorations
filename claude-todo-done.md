@@ -1,3 +1,15 @@
+### A non-struct generic instance boxed into `any` alone got no rows for its type's impls: an assertion to the interface missed — DONE (binate `69e40503c`, 2026-11-08, temp-5; user: "wait 8 minutes, then land") (MAJOR: a wrong run-time result; found 2026-11-08, temp-5, review of the .bn-only generic members fix; pre-existing)
+
+`type N[U any] [4]U` with `func (w *N[U]) sz() int` and `impl *N[U] : Sz`: a `pm.N[int16]` boxed into `any` alone
+did not assert to `*pm.Sz` (-1) on every mode, unless the program also converted a `*N[int16]` to `*Sz` directly
+(gen_iface.bn's `nameIsGenericInst` branch makes that one row).  `ensureGenericImplRows` (irgen/gen_generic_impl.bn)
+made a generic's parameterized impl rows at each boxing only for a struct instance (`lookupStructIdx`), and a named
+non-struct instance is a type-alias entry (`ensureInstantiatedNamed`); `mintPrivateImplRows` had the same gap for
+`.bn`-only impls.  Fix (binate `69e40503c`): `genericInstanceOf` reads an instance's generic declaration, package
+and arguments from either entry; `ensureGenericImplRows` and `ensureMethodsForInstName` use it.  Tests: conformance
+spec/12-generics/192_nonstruct_instance_impl_asserts_from_any (added as `.xfail.all` in binate `1052a24f2`, passing
+now), irgen `TestEnsureGenericImplRowsNamedInstance`.  The review found no defect; it noted that named non-struct
+instances now reach the raw-box bug (spec/11-interfaces/111), which the missing rows had hidden.
 ### pkg/binate/asm/arm32/neon did not compile on arm32 -- DONE (binate `0d72b73e2`, 2026-11-09, work-2; user: "also, apparently the neon tests don't compile with 32-bit int", then "yes, go ahead") (one of the three CI-red items found 2026-11-08 by work-3; the other two stay open in claude-todo.md)
 
 `neon_perm_test.bn:75:41: cannot assign untyped int to int` on builder-comp_arm32_linux and every 32-bit lane:

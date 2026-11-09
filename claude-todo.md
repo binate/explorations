@@ -28,22 +28,6 @@ the cycle is reported.  Cause unknown -- some check of the interface instance (i
 to N1) reads N1's layout before N1's cycle is cut.  Found in 13 of 2,800 fuzzed programs.  Test: a conformance error
 test of the program above, `.xfail.all` until fixed -- to add.
 
-### A non-struct generic instance boxed into `any` alone gets no rows for its type's impls: an assertion to the interface misses — 🟡 IN PROGRESS (claimed 2026-11-08, temp-5) (MAJOR: a wrong run-time result; found 2026-11-08, temp-5, review of the .bn-only generic members fix; reproduced with a compiler built from binate `23524484b`; pre-existing)
-
-`type N[U any] [4]U` with `func (w *N[U]) sz() int { return 30 }` and a public `impl *N[U] : Sz`
-(`interface Sz { sz() int }`), all in pkg/pm's `.bni`; main's `var w pm.N[int16]; var a *any = &w;
-t, ok := a.(*pm.Sz)` gets `ok == false` (prints -1) on LLVM and native aa64, though N[int16] has the impl
-(§11.12 `iface.assert`).  It hits only when the program never converts a `*N[int16]` to `*Sz` directly (such a
-conversion masks it).  Cause:
-`ensureGenericImplRows` (irgen/gen_generic_impl.bn), called at each boxing, returns unless the boxed type is a
-registered struct instance (`lookupStructIdx`), so a named non-struct instance (`ensureInstantiatedNamed`)
-never gets its parameterized impls' rows; `mintPrivateImplRows` inherits the gap for `.bn`-only impls.  Fix:
-find the instance's generic declaration and arguments for a named non-struct instance too (its type-alias
-entry, as `ensureMethodsForInstName` does) and mint the rows; conformance on LLVM, the VM and the native
-modes, for a public impl and for a `.bn`-only one its own package names.  Probes: the session scratchpad's
-review-pm/q6, q6b, q6c.  Test: conformance spec/12-generics/192_nonstruct_instance_impl_asserts_from_any
-(`.xfail.all`, binate `1052a24f2`; -1 on LLVM, the VM and native aa64).
-
 ### A raw pointer boxed into `any` asserts to an interface whose impl takes a managed receiver, then calls it — 🔴 OPEN (MAJOR: memory corruption — a bus error on native; found 2026-11-08, temp-5, review of the .bn-only generic members fix; reproduced with a compiler built from binate `23524484b`; pre-existing)
 
 pkg/pm's `.bni`: `type T struct { u int16 }`, `func (w @T) sz() int`, `impl @T : Sz`.  main:
@@ -59,6 +43,8 @@ managed pointer, and the satisfaction lookup checks it; conformance on every mod
 scratchpad's review-pm/q9, q9c, q8b.  Test: conformance spec/11-interfaces/111_raw_box_assert_managed_impl_misses
 (`.xfail.all`, binate `1052a24f2`): in one package LLVM aborts and native aa64 segfaults; the VM runs the
 method (prints 30 / 40).
+Named non-struct generic instances (`impl @N[U] : Sz` with `type N[U any] [2]U`) hit it too since binate
+`69e40503c` gave them their impl rows -- before, the assertion missed (-1) and hid the crash.
 
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
