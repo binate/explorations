@@ -7,6 +7,34 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### A non-struct generic instance boxed into `any` alone gets no rows for its type's impls: an assertion to the interface misses — 🔴 OPEN (MAJOR: a wrong run-time result; found 2026-11-08, temp-5, review of the .bn-only generic members fix; reproduced with a compiler built from binate `23524484b`; pre-existing)
+
+`type N[U any] [4]U` with `func (w *N[U]) sz() int { return 30 }` and a public `impl *N[U] : Sz`
+(`interface Sz { sz() int }`), all in pkg/pm's `.bni`; main's `var w pm.N[int16]; var a *any = &w;
+t, ok := a.(*pm.Sz)` gets `ok == false` (prints -1) on LLVM and native aa64, though N[int16] has the impl
+(§11.12 `iface.assert`).  It hits only when the program also converts a `*N[int16]` to `*Sz` directly.  Cause:
+`ensureGenericImplRows` (irgen/gen_generic_impl.bn), called at each boxing, returns unless the boxed type is a
+registered struct instance (`lookupStructIdx`), so a named non-struct instance (`ensureInstantiatedNamed`)
+never gets its parameterized impls' rows; `mintPrivateImplRows` inherits the gap for `.bn`-only impls.  Fix:
+find the instance's generic declaration and arguments for a named non-struct instance too (its type-alias
+entry, as `ensureMethodsForInstName` does) and mint the rows; conformance on LLVM, the VM and the native
+modes, for a public impl and for a `.bn`-only one its own package names.  Probes: the session scratchpad's
+review-pm/q6, q6b, q6c.
+
+### A raw pointer boxed into `any` asserts to an interface whose impl takes a managed receiver, then calls it — 🔴 OPEN (MAJOR: memory corruption — a bus error on native; found 2026-11-08, temp-5, review of the .bn-only generic members fix; reproduced with a compiler built from binate `23524484b`; pre-existing)
+
+pkg/pm's `.bni`: `type T struct { u int16 }`, `func (w @T) sz() int`, `impl @T : Sz`.  main:
+`var v pm.T; var a *any = &v; s, ok := a.(*pm.Sz)` succeeds and `s.sz()` runs the `@T` method on the raw
+`*T` -- native aa64 dies with SIGBUS, LLVM prints 30 -- though the static conversion `var s *pm.Sz = &v` is
+rejected (the impl needs a managed receiver).  Generic receivers too (`impl @W[U] : Sz`).  §11.12
+`iface.assert` matches "an `impl … : J` anywhere in the program" by the dynamic type with its `*`/`@`
+stripped, saying nothing of the impl's receiver kind; only `iface.assert.readonly` restricts the match, for a
+box of a `readonly` object.  Fix (needs a spec amendment, so the user's call on the wording): match an
+interface target only through an impl whose receiver the box's own kind reaches (a raw box does not reach an
+`@T` impl), as `iface.assert.readonly` does for readonly -- the box records whether it was made from a
+managed pointer, and the satisfaction lookup checks it; conformance on every mode.  Probes: the session
+scratchpad's review-pm/q9, q9c, q8b.
+
 ### A named pointer to an instance of itself (`type NP *W[NP]`) hangs the checker — 🔴 OPEN (MAJOR: the compiler hangs on a valid program; found 2026-11-08, work-1, review of the argument-walk fix; reproduced on main; pre-existing)
 
 With `type W[T any] struct { v T }`, the legal declaration `type NP *W[NP]` (the recursion goes through a pointer)
