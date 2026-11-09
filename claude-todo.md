@@ -2918,6 +2918,18 @@ reaches); the cast retype needs its readonly checks made one level at a time, wh
 check wherever that check stops at a named type and the per-level one looks below it; AssignableTo can carry a
 decayed side's stripped kind down the chain.
 
+### The walks over an interface's ancestors take time exponential in a ladder of diamonds — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-09, work-1, review of the deep-nesting ancestor walks; pre-existing)
+
+None of the walks over an interface's parents keeps a visited set, so an interface reached by two paths is walked
+once per path: on a ladder of diamonds (`I_k : A_k, B_k`, with `A_k : I_k+1` and `B_k : I_k+1`) they take time
+exponential in its height -- mergeIfaceMethods and ifaceFullMethods (check_iface_extends.bn) at each interface's
+declaration and impl, types.LookupInterfaceMethod on a miss, ifaceReaches (the parent cycle check, at each
+declaration), isDescendantInterface on a miss, appendParentKeys and ifaceHasAncestorKey (check_pending_impl.bn).
+The deep-nesting stage made them iterative (binate `d6ed98769` and the ancestor walks' follow-up) but kept the
+revisits, to change no answer or diagnostic.  Fix: a visited set (typeVisits) in each -- the searches and the
+name-deduped lists answer the same with one; mergeIfaceMethods would then report a conflict reached by two paths
+once, not once per path, which is a change in diagnostics to decide (addCheckError keeps repeats).
+
 ### IR-gen finds a generic's instances by scanning them by name — compile time superlinear in a package's instance count — 🔴 OPEN 🟢 LOW (found 2026-11-03, work-3, measuring the checker's instance index)
 
 With the checker's funcInstance indexed (binate work-3 batch, "check: find a generic function's instance by an index"),
