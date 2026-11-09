@@ -36,7 +36,7 @@ Progress: stage 1 — landed binate `08e9b84b1` (2026-10-17).  bnld rejects thre
 until stages 5–9 link it — landed binate `4d91dc223` (2026-10-17).  Stage 2a — landed binate `54d587043`
 (2026-10-17); 2b — landed binate `7df7a13b2` (2026-10-18; deliberate rejects beyond the design: `.tlsdesccall`
 must be followed by `blr` / a `blra*`, and no addend on a slot or descriptor reference); 2c — landed binate
-`0b78c67a8` (2026-10-18; `@TLVPPAGEOFF` on `ldr Xt` only, which is all ld64 links there).  Next: stage 3.
+`0b78c67a8` (2026-10-18; `@TLVPPAGEOFF` on `ldr Xt` only, which is all ld64 links there).  Stage 3 design below (2026-11-09).  Next: 3a.
 
 1. **Assembler: thread-local sections and symbols** (all arches, both formats).  ELF: SHF_TLS (the `T`
    flag; `.tdata*` / `.tbss*` imply it, `.tbss*` NOBITS), `%tls_object` / `@tls_object` → STT_TLS, a symbol
@@ -95,6 +95,52 @@ Deliberate rejects (clang accepts): a number after any TLS operator (clang folds
 thread-local (clang retypes the `.data` label STT_TLS — nonsense either way); `ldr Rt, :tlsdesc:sym` (clang
 emits a plain R_AARCH64_LD_PREL_LO19, dropping the descriptor); any TLS operator on Mach-O (ELF-only, as the
 MOVW group).
+
+## Stage 3 design: the x86-64 TLS operators (surveyed 2026-11-09, clang 22, Intel syntax)
+
+Commits: (3a) on ELF, the operators in a memory operand, segment overrides, and the `data16` / `rex64` /
+segment prefix instructions; (3b) `@tlscall`, with the CALL / JMP through memory it needs, and the operators in
+data directives; (3c) Mach-O `@TLVP`; (3d) the operators in the positions the x86-64 parser reads for no symbol
+yet — an immediate (`offset x@TPOFF`), GCC's `x@gottpoff[rip]` (`disp[base]`) and a bare `x@TPOFF` operand with
+no segment override — built with the plain-symbol forms of those positions (x64 parser coverage, the item after
+this stage).
+
+What clang accepts (each its own fixup kind, never resolved at assembly time; operators case-insensitive):
+- `@TPOFF` / `@DTPOFF` (R_X86_64_TPOFF32 / DTPOFF32, absolute, the addend kept) as a memory operand's
+  displacement, with or without base and index (`[rax + x@TPOFF + 8]`, `[rbx + rcx*4 + x@DTPOFF]`, `[x@TPOFF]`
+  the absolute [disp32]), always a disp32 (mod=10, or SIB 0x25), in any instruction taking memory.
+- `[rip + x@GOTTPOFF]` / `@TLSGD` / `@TLSLD` / `@tlsdesc` (R_X86_64_GOTTPOFF / TLSGD / TLSLD /
+  GOTPC32_TLSDESC, PC-relative: addend -4, less any immediate after the field), in any instruction taking memory.
+- `call qword ptr [rax + x@tlscall]` (ff 10; R_X86_64_TLSDESC_CALL at the instruction's first byte, addend 0).
+- A segment override `es: cs: ss: ds: fs: gs:` before a memory operand (after its size), bracketed or a bare
+  displacement (`qword ptr fs:0`, `fs:x@TPOFF`, GCC's spelling), its prefix (26 2E 36 3E 64 65) emitted first,
+  before 66 and REX; and `data16` (66), `rex64` (48) and the six segment names as instructions of their own,
+  alone or before another on the line (`data16 data16 rex64 call __tls_get_addr@PLT`), emitted as written.
+- Data: `.uint32` / `.int32` `x@TPOFF` / `x@DTPOFF` (TPOFF32 / DTPOFF32), `.uint64` / `.int64` (TPOFF64 /
+  DTPOFF64), with an addend.
+- `offset x@TPOFF` / `@DTPOFF` as an imm32 (TPOFF32 / DTPOFF32): mov r32 (B8+r), mov r64 (C7 /0), the ALU
+  group's 81 /n, push (68), imul r, r/m, imm32 (69) — never an imm8 form.
+- Mach-O: `[rip + _x@TLVP]` (X86_64_RELOC_TLV, pcrel, 4 bytes, extern; the field 0) — ld64 links it on
+  `mov r64` and `lea r64` and rejects `add` ("GOT load fixup does not point to a movq instruction"); on `mov r32`
+  or with an addend it links and the program crashes.
+- ELF: a symbol a TLS operator names is STT_TLS (elfTlsRelocsOk for EM_X86_64), with aarch64's checks (defined in
+  a thread-local section, not absolute).
+
+Deliberate rejects (clang accepts them, assembling something else or nothing a link can use):
+- A slot or descriptor operator (`@GOTTPOFF`, `@TLSGD`, `@TLSLD`, `@tlsdesc`) anywhere but `[rip + sym@OP]`:
+  `[rbx + x@TLSGD]`, `fs:[x@GOTTPOFF]`, `offset x@GOTTPOFF`, `.uint32 x@TLSGD` (clang relocates them all); with an
+  addend (clang drops `+ 4` after `@GOTTPOFF` on a mov and keeps it after `@TLSGD` — a slot plus an addend is
+  nothing, the stage 2 precedent); with a segment override (the load would read fs.base plus the slot's address).
+- `@TPOFF` / `@DTPOFF` in `[rip + …]` (clang: the absolute relocation with addend -4).
+- A subtracted TLS symbol: `[rax - x@TPOFF]`, `[rip - x@GOTTPOFF]` (clang adds it).
+- `@tlscall` anywhere but `call qword ptr [r64 + sym@tlscall]` (no index, segment, displacement or addend): clang
+  takes it on mov / lea / jmp / rip, with an addend, as `call x@tlscall` and in `.uint64`.
+- A TLS operator in a 1- or 2-byte datum (clang relocates `.uint16 x@TPOFF` with TPOFF32) or in a difference
+  (clang drops the `- .` of `.uint32 x@TPOFF - .`).
+- `@TLVP` anywhere but `mov r64, qword ptr [rip + _x@TLVP]` / `lea r64, [rip + _x@TLVP]` with no addend or
+  segment override; every ELF operator on Mach-O (clang: "unsupported symbol modifier in relocation") and `@TLVP`
+  on ELF.
+- A numeric local label (`1b@TPOFF`; clang: "unknown token in expression").
 
 ## Scope decision
 
