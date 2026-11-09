@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### An instance whose arguments nest a pointer to an opaque embedding two levels deep is accepted, and IR-gen invents the opaque type's layout — 🔴 OPEN (MAJOR: an invalid program accepted and lowered; found 2026-11-08, work-1, review of the deep-nesting argument walk; reproduced on main; pre-existing)
+### An instance whose arguments nest a pointer to an opaque embedding two levels deep is accepted, and IR-gen invents the opaque type's layout — 🟡 IN PROGRESS (claimed 2026-11-08, work-1; user: "let's do it next") (MAJOR: an invalid program accepted and lowered; found 2026-11-08, work-1, review of the deep-nesting argument walk; reproduced on main; pre-existing)
 
 With `type Opaque` (no definition) and `type W[T any] struct { v T }`, `func f(a W[*W[[1]Opaque]])` is rejected ("cannot
 form a pointer to a type that embeds an opaque type by value"), but `W[*W[*W[[1]Opaque]]]` and deeper compile (rc 0),
