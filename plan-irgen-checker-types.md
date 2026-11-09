@@ -180,9 +180,10 @@ IR-gen cannot map is an internal error, never `int`.
      no-checker irgen tests reached them and now check their source; --emit-llvm byte-identical (3298, 64-bit;
      bnc's main module).  Its REPL prerequisite: a resolved group's functions are declared before any is
      generated (binate `3cd936143`).
-     4d2b IN PROGRESS (work-6): genSelector's catch-all (no arm matches) becomes a compile-time internal error, not
-     a runtime panic, once an instrumented compiler shows it never fires (user 2026-11-08: "Compile-time error").
-     4d2c next (work-6): the type of a local `var` declared without one and of a single `:=` binding comes from the
+     4d2b DONE (binate `91e44506b`, 2026-11-08): genSelector's catch-all (no arm matches) is a compile-time
+     internal error, not a runtime panic (user 2026-11-08: "Compile-time error"); it fired nowhere (self-compile,
+     builder-comp, builder-comp-int, the REPL e2e, the unit tests of every package that runs IR-gen in-process).
+     4d2c IN PROGRESS (work-6): the type of a local `var` declared without one and of a single `:=` binding comes from the
      checker — Decl.ResolvedTypeID (defineDeclVar records it) and a new checker record for each `:=` name — and
      IR-gen's inference and the int default go (user 2026-11-08: "From the checker").
 5. **Registries keyed by checker identity, names from it.**  Key by checker Type identity (a pointer memo) —
