@@ -287,6 +287,10 @@ is green and inside its job limit -- then (d), sharding it, is not needed, and t
 - **pkg/binate/check's test binary dies on native aa64** (builder-comp_native_aa64-comp_native_aa64): no output after
   `=== RUN TestDeepTypeLimitAlias` (the LLVM lanes pass it) -- likely a crash, e.g. a stack overflow in the
   natively compiled checker; not reproduced locally yet.
+- **pkg/binate/check's TestDeepContainerRetypes exhausts the bare-metal arena** (builder-comp_arm32_baremetal, at
+  binate `9d84c4643`, with the bare-metal stack guard (not yet landed) and the same without it): `rt.RawAlloc: arena
+  exhausted` from a test heap of ~240 MiB, so the test allocates past that (quadratic memory in depth, or a leak --
+  cf. "The container retypes and AssignableTo's named-type decay are quadratic in depth").
 
 ### Bare metal: a stack overflow silently overwrites the heap -- nothing guards the stack's lower end — 🟡 IN PROGRESS: an optional MMU guard region (claimed 2026-11-08, work-3) (MAJOR; found 2026-11-07, work-3, same diagnosis)
 
