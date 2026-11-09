@@ -1,3 +1,20 @@
+### pkg/binate/format's tests: a comment inside deeply nested calls multiplied bnfmt's renderings -- DONE (binate `08de98de2`, 2026-11-09, temp-4; user: "also, apparently now the format tests are very slow (and are problematic in some lanes on CI); there might be a todo for this", "yes", then "wait 12 minutes, then land") (the format part of "CI red on main"; TestDeepListRendersGrowSlowly stays open in claude-todo.md)
+
+Four of the five slow format tests hold a comment inside deeply nested calls.  Two causes: a layout read back to
+check that it is stable (fitsStably) which held a comment was rendered afresh, under a comment cursor and cache of
+its own, never sharing renderings by shape as a layout without comments does; and past STABLE_LIST_DEPTH the
+one-line width shortcut (deepFlatList) was off whenever a comment cursor existed.  binate `08de98de2`: a reading
+back with comments renders by shape too, its comments part of the shape (each one's text, whether it starts its
+line, and its place among the node's positions, with the number of those positions); a rendering made afresh records
+the comments it claims and the keys it claims them by, relative to its node, and one taken from the shared
+renderings makes the same claims (print_reread_cmts.bn); past STABLE_LIST_DEPTH the one-line width counts the
+comments between the elements (argsFlatWidth).  Calls nested 24 deep with a comment: 740,507 renderings -> 13,697
+(14,267 without the comment).  User CPU on the tests' inputs (optimized bnfmt): TestDeepChainKeepsLineComments 2.21
+-> 0.47 s, TestDeepChainParensKeepLineComments 1.36 -> 0.27, TestExprCommentsInListsAndDeepNests 0.81 -> 0.20,
+TestDeepChainWrapsBeforeALongLineComment 0.55 -> 0.13; the package's unit tests 16-19 s locally, against 25-77 s
+before.  Output identical to the previous bnfmt on the corpus (~25,600 files), 2,583 files with comments injected
+and ~7,000 generated deep commented nests.  TestCommentedNestRendersAsUncommented pins the render counts.
+
 ### Bare metal: a stack overflow silently overwrote the heap -- an MMU stack guard — DONE (binate `0a570706c`, 2026-11-09, work-3; user: "for bare-metal: a stack-limit check is too costly (at most, it could be optional), and not all arm32 have MMUs", "we should add an optional MMU guard region, but it should be suitably optional/dependent on MMU support", "1. on by default sounds fine. 2. A bnc flag is fine, but remember that bnld is/will be our first-class linker", then "wait 8 minutes, then land")
 
 On arm32 bare metal the stack grew from the top of RAM into the heap with nothing between them: an overflow
