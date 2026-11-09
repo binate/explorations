@@ -35,7 +35,7 @@ interface target only through an impl whose receiver the box's own kind reaches 
 managed pointer, and the satisfaction lookup checks it; conformance on every mode.  Probes: the session
 scratchpad's review-pm/q9, q9c, q8b.
 
-### A named pointer to an instance of itself (`type NP *W[NP]`) hangs the checker — 🔴 OPEN (MAJOR: the compiler hangs on a valid program; found 2026-11-08, work-1, review of the argument-walk fix; reproduced on main; pre-existing)
+### A named pointer to an instance of itself (`type NP *W[NP]`) hangs the checker — 🟡 IN PROGRESS (claimed 2026-11-08, work-1; user: "also fix the hang next") (MAJOR: the compiler hangs on a valid program; found 2026-11-08, work-1, review of the argument-walk fix; reproduced on main; pre-existing)
 
 With `type W[T any] struct { v T }`, the legal declaration `type NP *W[NP]` (the recursion goes through a pointer)
 makes bnc run until killed, its memory growing (~470 MB after 13 s); compilers before the argument walk moved to an
@@ -45,26 +45,8 @@ from a `sample` in bringRun / stepBringArgs / stepBringPointee / bringPartsStart
 entering the type in the walk, and the pointee walk calls bringArgs on an instance it passes without entering the
 instance either, so NP -> W[NP] -> NP repeats with nothing marked visited.  Fix: enter the named type (or the
 instance) in the walk before going on through it, so a cycle through a named type ends -- keeping the answers the
-recorded-breaks rule gives (a part reached again gives its answer).  Test: a conformance test of the declaration
-(it must compile), `.xfail.all` until fixed -- to add.
-
-### An instance whose arguments nest a pointer to an opaque embedding two levels deep is accepted, and IR-gen invents the opaque type's layout — 🟡 IN PROGRESS (claimed 2026-11-08, work-1; user: "let's do it next") (MAJOR: an invalid program accepted and lowered; found 2026-11-08, work-1, review of the deep-nesting argument walk; reproduced on main; pre-existing)
-
-With `type Opaque` (no definition) and `type W[T any] struct { v T }`, `func f(a W[*W[[1]Opaque]])` is rejected ("cannot
-form a pointer to a type that embeds an opaque type by value"), but `W[*W[*W[[1]Opaque]]]` and deeper compile (rc 0),
-and the LLVM IR gets a made-up layout for `Opaque` (`%..._W1_a1_N1_4_main6_Opaque = type <{ [1 x i64] }>`, 3 of them at
-two levels, 4 at three), which the pointer rule exists to prevent (conformance 851).  `type L[T any] struct { n *T }`
-with `*L[*L[*L[[1]Opaque]]]` is missed the same way.  Cause (the review's reading, not yet confirmed by a fix): the
-pointee walk shares the enclosing walk's `opaqueWalk` for the argument check of each instance it passes -- the sharing
-keeps nested arguments from being judged again at every level.  In the pointee walk of `*W[*W[[1]O]]`, the argument
-check of `W[*W[[1]O]]` enters `*W[[1]O]` and finds that it breaks a rule, but the pointee walk takes that only as "go
-on", and its chain ends at a struct with no opaque type by value, so it answers false; the parts walk then reaches
-`*W[[1]O]` again through the instance's arguments, finds it entered, and takes it as having broken no rule.  So
-argsMayBringOpaque answers false for the outer instance, and partsPointToOpaqueEmbedding never walks the instance
-structure that would report it: the walk's rule "entered means judged and broke no rule, or on the current path" does
-not hold once the pointee walk shares it.  Fix idea: record each part's answer in the walk (true / false / in
-progress) rather than a visited bit, so a part reached again gives its answer.  Test: conformance
-1735_err_opaque_pointer_embedding_nested_args (binate `e9a846e1a`), `.xfail.all` until fixed.
+recorded-breaks rule gives (a part reached again gives its answer).  Test: conformance
+1736_type_named_pointer_to_own_instance (binate `b9487204d`), `.xfail.all` until fixed.
 
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 

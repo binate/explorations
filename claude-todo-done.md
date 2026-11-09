@@ -1,3 +1,20 @@
+### An instance whose arguments nest a pointer to an opaque embedding two levels deep was accepted, and IR-gen invented the opaque type's layout — DONE (binate `ed444c512`, 2026-11-08, work-1; user: "let's do it next", then "yes, go ahead and land them") (MAJOR; found 2026-11-08, work-1, review of the deep-nesting argument walk; pre-existing)
+
+`W[*W[[1]Opaque]]` (with `type W[T any] struct { v T }`) was rejected, but `W[*W[*W[[1]Opaque]]]`, `*L[*L[*L[[1]Opaque]]]`
+(`type L[T any] struct { n *T }`) and deeper compiled, and IR-gen laid out the opaque type.  Whether an instance's
+type arguments may bring an opaque type is one walk over the arguments' parts, entering each once; a part entered
+before counted as judged and breaking no rule, or on the current path.  But a pointee walk judges the arguments of
+each instance it passes in the same walk and takes their breaking a rule only as leave to go on (its own answer can be
+false), so the walk went on past a part that broke a rule, reached it again through the enclosing instance's
+arguments, and took it for one that broke none.  Fix (binate `ed444c512`): the walk records the parts found to break
+a rule (opaqueWalk.brokeHere / brokePure / brokeNone); a bringParts call records the part it entered when it returns
+true, and a part reached again gives its answer (bringEnter), false still for one on the current path; bringParts no
+longer tail-calls into its element, so the call that entered a part is there to record it; the walk's frames are let
+go after a walk past 256.  Corpus: only 1735 changed (rejected now); 566 opaque and generic conformance tests pass on
+LLVM and the VM.  Review: no defect; it found the `type NP *W[NP]` hang (claude-todo, MAJOR).  Tests: conformance 1735
+(binate `e9a846e1a`; its `.xfail.all` removed, each case's error pinned to its line: two and three levels, an array on
+the way, a named pointer type `type M *K[*M, *W[[1]Opaque]]`) and check's TestArgsWalkPartReachedAgainBreaks.
+
 ### bnfmt moves a comment inside a var or const declaration to after the statement -- DONE (binate `01a1df8a7`, `8d796d5f6`, 2026-11-08, temp-4; user: "let's work on the open things", "Whole class (Recommended)", then "wait 16 minutes, then land") (LOW; found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the composites' and types' gaps stay open in claude-todo.md)
 
 A comment between a var or const declaration's keyword and name, name and type, type and `=`, or after `=` went after
