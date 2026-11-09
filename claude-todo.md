@@ -302,6 +302,13 @@ arm32 have MMUs."  So neither option fits every target: an MMU guard region is p
 (QEMU `virt`'s cortex-a15 has one), and a prologue stack-limit check, if any, an opt-in.
 **Decided 2026-11-08 (user):** "we should add an optional MMU guard region, but it should be suitably
 optional/dependent on MMU support".
+Then (user): "1. on by default sounds fine. 2. A bnc flag is fine, but remember that bnld is/will be our first-class
+linker".  Design (work-3): crt0 calls bn_stack_guard_init, from runtime/baremetal_arm32/stack_guard.s by default or
+a no-op stack_guard_off.s under bnc's -fno-baremetal-stack-guard -- an input object, so any linker (lld or bnld) takes
+it, with no --defsym or linker-script DEFINED().  The init reads ID_MMFR0 and only on a VMSA CPU builds a
+short-descriptor identity map (attributes as with the MMU off) with a 64 KiB unmapped guard at the bottom of the stack
+(ALIGN(__heap_end, 64K), from the layout symbols any linker must define), and turns the MMU on; a data abort inside
+the guard reports "fatal: stack overflow".
 
 ### IR-gen spells every type argument out in an instance's name — instances whose arguments share a type get exponentially long names — 🔴 NEEDS DECISION (found 2026-10-26, work-7, testing the abstract-instance change's shared-argument walk; reproduced on main; pre-existing)
 
