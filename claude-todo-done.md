@@ -1,3 +1,17 @@
+### pkg/binate/format's tests: TestDeepListRendersGrowSlowly -- past STABLE_LIST_DEPTH bnfmt rendered an element both where it would stay and where it went -- DONE (binate `2c3c3effa`, 2026-11-09, temp-4; user: "also, apparently now the format tests are very slow (and are problematic in some lanes on CI); there might be a todo for this", then "wait 8 minutes, then land") (the last slow test of the format part of "CI red on main"; the CI confirmation stays open in claude-todo.md)
+
+The test (calls nested 32 and 40 deep, no comments) took ~12 s natively.  Past STABLE_LIST_DEPTH an element stays on
+its line when its one-line form fits there (deepFits), but exprFitsAt first rendered it at that place, only so that
+its rendering claimed the comments in it before the gap after it; an element that then moved to a continuation line
+was rendered there too, and the lists inside each rendering did the same, so the call k levels deep was rendered
+about k^2 times and the nest's renderings grew with about the fourth power of its depth (9,501 for calls 32 deep,
+25,817 for 40, 101,792 for 56).  `2c3c3effa`: past STABLE_LIST_DEPTH exprFitsAt renders the element's one-line form
+first (it claims the same comments) and takes the gap after the element from it (trailTail); the renderings grow
+linearly (3,941 / 4,589 / 5,708).  TestDeepListRendersGrowSlowly 5.8 -> 3.2 s of user time natively; bnfmt on calls
+48 deep 1.41 -> 0.55 s.  Its bound went from 4 to 5/4 times and TestFormatDeepNestingRenders's from 15,000 to 6,000
+renderings; both fail with the change reverted.  Output identical to the previous bnfmt on the corpus (~25,600
+files) and ~7,100 generated deep commented nests.
+
 ### pkg/binate/format's tests: a comment inside deeply nested calls multiplied bnfmt's renderings -- DONE (binate `08de98de2`, 2026-11-09, temp-4; user: "also, apparently now the format tests are very slow (and are problematic in some lanes on CI); there might be a todo for this", "yes", then "wait 12 minutes, then land") (the format part of "CI red on main"; TestDeepListRendersGrowSlowly stays open in claude-todo.md)
 
 Four of the five slow format tests hold a comment inside deeply nested calls.  Two causes: a layout read back to

@@ -276,15 +276,15 @@ is green and inside its job limit -- then (d), sharding it, is not needed, and t
 
 ### CI red on main (unit run at binate `8d796d5f6`, 2026-11-09): slow format tests time lanes out, check dies on native aa64 (the NEON test fixed, binate `0d72b73e2`) — 🔴 OPEN (found 2026-11-08, work-3, reading CI; all three still apply at binate `9d84c4643`; not work-3's areas, unclaimed)
 
-- **pkg/binate/format's tests: TestDeepListRendersGrowSlowly takes ~12 s natively** -- 🟡 IN PROGRESS (claimed
-  2026-11-08, temp-4/session; the test is temp-4's own, from its deep-nesting work).  The package took ~143 s
-  natively (M-series host; 53 s user CPU), 136 s of it in five tests; under QEMU it took 722 s of the bare-metal unit
-  lane's 30-min job, which then timed out, and the single-VM lanes' shard 1/6 (builder-comp-int,
-  builder-comp-comp-int) timed out on the package after codegen.  The four with a comment inside deep nests were the
-  formatter rendering every layout read back with a comment afresh (done log, binate `08de98de2`); the package's unit
-  tests now take 16-19 s locally.  Open: TestDeepListRendersGrowSlowly (no comments) -- find whether the formatter
-  is super-linear on its input or the test is oversized, and fix that; then confirm on CI's next unit run that the
-  lanes no longer time out on the package.
+- **pkg/binate/format's tests: confirm the lanes no longer time out on the package** -- 🟡 IN PROGRESS (claimed
+  2026-11-08, temp-4/session).  The package took ~143 s natively (M-series host; 53 s user CPU), 136 s of it in five
+  tests; under QEMU it took 722 s of the bare-metal unit lane's 30-min job, which then timed out, and the single-VM
+  lanes' shard 1/6 (builder-comp-int, builder-comp-comp-int) timed out on the package after codegen.  All five are
+  fixed (done log, binate `08de98de2` and `2c3c3effa`); the package's test binary now runs its 416 tests in ~11.5 s of
+  user CPU locally.  Open: confirm on CI's next unit run after binate `2c3c3effa` that the lanes no longer time out on
+  the package.  At large depths most of the time left is holdsBlock walking an element's whole subtree on each call
+  (~16% at calls 40 deep) and scans of rendered text; caching holdsBlock per node is the candidate (put to the user
+  2026-11-09, no decision yet).
 - **pkg/binate/check's test binary dies on native aa64** (builder-comp_native_aa64-comp_native_aa64): no output after
   `=== RUN TestDeepTypeLimitAlias` (the LLVM lanes pass it) -- likely a crash, e.g. a stack overflow in the
   natively compiled checker; not reproduced locally yet.
