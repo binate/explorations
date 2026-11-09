@@ -194,6 +194,15 @@ IR-gen cannot map is an internal error, never `int`.
      initializer against the variable's type too).
      The checker also records each multi-value `:=` name's type, which genShortVar's multi-value path does not read
      yet (it uses lookupFuncResults / multiReturnFieldTypes).
+     4d3 DONE (binate `90e674c4b`, 2026-11-09): a type assertion's recovered type and a composite literal's type come
+     from the checker's record of the expression (assertedType, compositeDeclType); a global's composite-literal
+     initializer takes resolveGlobalVarType's general checker path.  The differential found the only syntax readings
+     at these sites to be six inferred-length literals (`[...]T{…}`), now the literal's `[N]T`; the checker no longer
+     stamps a `[...]` length, and reading one from syntax, or meeting an unstamped array-literal key, is an internal
+     error.  --emit-llvm byte-identical (2734 single-file programs on the host, 2732 on arm32-linux; 363
+     multi-package; cmd/bnc's 53 packages).
+     Left in stage 4: global variable types — resolveGlobalVarType still infers `var g = 42` from the literal's kind
+     (the "var / global types (existing Decl.ResolvedTypeID)" above).
 5. **Registries keyed by checker identity, names from it.**  Key by checker Type identity (a pointer memo) —
    the mapper's memo and lazy, self-sufficient registration from the checker type (fields, method sets,
    parents) come here (moved from stage 2: the audit found no lookup gap at the switched sites) —
