@@ -1,3 +1,19 @@
+### `g := Box[int].Get` (a method expression off a generic type instance, bound by `:=`) crashed IR-gen — DONE (binate `710e52d5d`, 2026-11-08, work-6; user: "yes to both questions", then "wait 12 minutes, then land.")
+
+From the forwarder-audit entry ("Loud miscompiles / wrong rejections found by the forwarder audit").  A method
+expression off a generic type instance, initializing a variable that takes its type from it: `var f =
+Box[int].Peek` gave invalid LLVM (`extractvalue operand must be aggregate type`), a native link failure, a VM
+SIGSEGV locally and the ICE "unresolved selector in IR-gen" cross-package; `g := Box[int].Get` panicked with
+"unresolved identifier Box in IR-gen" ("unresolved selector in IR-gen: home.Box" off another package's type).
+- binate `997a195c1` (plan-irgen-checker-types 4d2c): a local `var` without a type takes the checker's type and
+  lowers its initializer against it (genExprOrFuncRef), which fixed the `var` form.
+- binate `710e52d5d`: genShortVarOne lowers a `:=` initializer the same way, with the type the checker records
+  on the name; the shape becomes a function value only in genExprOrFuncRef, given a function-value target.  It
+  also fixes the forms inside a generic function (`Box[T].Get`) and off a generic type that is not a struct
+  (`Sl[int].Count`).  --emit-llvm byte-identical for every other program of the conformance corpus (host and
+  arm32-linux) and cmd/bnc's 53 packages.  Test: conformance spec/10-functions/223_method_expr_generic_inferred
+  (LLVM, native aa64, VM).  The review found no defect.
+
 ### A non-struct generic instance boxed into `any` alone got no rows for its type's impls: an assertion to the interface missed — DONE (binate `69e40503c`, 2026-11-08, temp-5; user: "wait 8 minutes, then land") (MAJOR: a wrong run-time result; found 2026-11-08, temp-5, review of the .bn-only generic members fix; pre-existing)
 
 `type N[U any] [4]U` with `func (w *N[U]) sz() int` and `impl *N[U] : Sz`: a `pm.N[int16]` boxed into `any` alone

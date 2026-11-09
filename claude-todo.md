@@ -997,14 +997,6 @@ Each needs a test (xfail'd) + triage; grouped here so none is lost.
   read as a value is an error`, not yet landed when written), `pkg.T.M` is rejected earlier with "T is a
   type, not a value" (checkSelectorExpr checks `pkg.T` as an expression before the method lookup) — the
   error text above changes; the fix still needs the qualified-type branch before checkExpr(c, e.X).
-- 🟡 IN PROGRESS (claimed 2026-11-08, work-6 — user: "yes to both questions")
-  **Generic method expression as a value** (`var f = Box[int].Peek`) → invalid LLVM (`extractvalue
-  operand must be aggregate type`), native link failure, VM SIGSEGV (local) / ICE `unresolved selector
-  in IR-gen` (cross-package).
-  Since binate `997a195c1` (2026-11-08: a local `var` without a type lowers its initializer against the
-  checker's type) the `var` form works, locally and cross-package, on LLVM and native.  The `:=` form
-  still panics at compile time: `g := Box[int].Get` → "unresolved identifier Box in IR-gen",
-  `g := home.Box[int].Get` → "unresolved selector in IR-gen: home.Box".
 - **Bare universe `any` in an impl list or extension clause** (`impl T : any`, `interface X : any`) is
   keyed to the declaring package (`main.any`) → undefined `@__ifaceid…main…any`, VM out-of-bounds
   (`gen_impl.bn:133,347`, `gen_iface_registry.bn:166`; check the universe first like

@@ -190,7 +190,8 @@ IR-gen cannot map is an internal error, never `int`.
      irgen's test helpers now check every test program first (`82a160e68`).  --emit-llvm byte-identical (2730
      single-file programs, host and arm32-linux; 358 multi-package; cmd/bnc's 53 packages), native objects identical
      on aa64 / x64 / arm32.  It fixed `u := 2.5` boxed into an interface (a compile crash; conformance spec/09 181)
-     and `var s = Box[int].Get`; `s := Box[int].Get` still fails (genShortVarOne lowers its initializer untyped).
+     and `var s = Box[int].Get`; `s := Box[int].Get` was fixed after it (binate `710e52d5d`: genShortVarOne lowers its
+     initializer against the variable's type too).
      The checker also records each multi-value `:=` name's type, which genShortVar's multi-value path does not read
      yet (it uses lookupFuncResults / multiReturnFieldTypes).
 5. **Registries keyed by checker identity, names from it.**  Key by checker Type identity (a pointer memo) —
