@@ -266,7 +266,8 @@ is green and inside its job limit -- then (d), sharding it, is not needed, and t
 
 ### CI red on main (unit run at binate `8d796d5f6`, 2026-11-09): slow format tests time lanes out, a NEON test does not compile for arm32, check dies on native aa64 — 🔴 OPEN (found 2026-11-08, work-3, reading CI; all three still apply at binate `9d84c4643`; not work-3's areas, unclaimed)
 
-- **pkg/binate/format's tests take ~143 s natively** (M-series host; 53 s user CPU), five of them 136 s:
+- **pkg/binate/format's tests take ~143 s natively** -- 🟡 IN PROGRESS (claimed 2026-11-08, temp-4/session; the five
+  tests are temp-4's own, from its deep-nesting and comment work) (M-series host; 53 s user CPU), five of them 136 s:
   TestDeepChainKeepsLineComments 50 s, TestDeepChainParensKeepLineComments 47 s, TestExprCommentsInListsAndDeepNests
   17 s, TestDeepListRendersGrowSlowly 12 s, TestDeepChainWrapsBeforeALongLineComment 11 s (the formatter's deep-nesting
   and comment work of 2026-11-05..08).  Under QEMU the package took 722 s of the bare-metal unit lane's 30-min job,
