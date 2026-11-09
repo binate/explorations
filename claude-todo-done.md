@@ -1,3 +1,17 @@
+### Bare metal: a stack overflow silently overwrote the heap -- an MMU stack guard — DONE (binate `0a570706c`, 2026-11-09, work-3; user: "for bare-metal: a stack-limit check is too costly (at most, it could be optional), and not all arm32 have MMUs", "we should add an optional MMU guard region, but it should be suitably optional/dependent on MMU support", "1. on by default sounds fine. 2. A bnc flag is fine, but remember that bnld is/will be our first-class linker", then "wait 8 minutes, then land")
+
+On arm32 bare metal the stack grew from the top of RAM into the heap with nothing between them: an overflow
+overwrote the allocator's tags and free lists (check's bare-metal test binary hung that way), and a runaway recursion
+ran through the image and the exception vectors.  `0a570706c`: crt0.s calls bn_stack_guard_init
+(runtime/baremetal_arm32/stack_guard.s), which on a VMSA core (ID_MMFR0) identity-maps memory with the MMU-off data
+attributes, leaves 64 KiB at the bottom of the stack (ALIGN(__heap_end, 64K)) unmapped and turns the MMU on (clearing
+WXN, UWXN, TRE, AFE); a data abort inside the guard reports "fatal: stack overflow".  On by default; bnc's
+-fno-baremetal-stack-guard links stack_guard_off.s (a no-op) instead -- an input object, so any linker takes it.
+1105_stack_overflow passes on both bare-metal backends (its xfail went); e2e/arm32-baremetal-fault-report.sh covers a
+recursion, a store to the guard (and its edges), and the flag.  Documented cost: instruction fetches become
+strongly-ordered (no I-cache) on a core whose boot code turned it on.  A frame larger than 64 KiB can still step over
+the guard ("Neither backend probes the stack for a large frame").
+
 ### asm arm32: an ARM feature model gating instructions as clang does, and the forms it lacks -- DONE (2026-11-09, work-2; the last commit binate `3077a9b9f`; user: "Staged series, gating first (Recommended)", then "continue" through the stages) (found 2026-10-25, work-2, the `.ARM.attributes` work)
 
 The staged series of done/plan-asm-arm32-isa.md, each step landed with clang accept / reject goldens: (1) the

@@ -271,35 +271,6 @@ is green and inside its job limit -- then (d), sharding it, is not needed, and t
   exhausted` from a test heap of ~240 MiB, so the test allocates past that (quadratic memory in depth, or a leak --
   cf. "The container retypes and AssignableTo's named-type decay are quadratic in depth").
 
-### Bare metal: a stack overflow silently overwrites the heap -- nothing guards the stack's lower end — 🟡 IN PROGRESS: an optional MMU guard region (claimed 2026-11-08, work-3) (MAJOR; found 2026-11-07, work-3, same diagnosis)
-
-On arm32 bare metal the stack grows down from `_stack_top` (the top of RAM) toward the heap with nothing between
-them: no MMU guard page, no stack-limit check.  A deep enough recursion writes its frames over the top of the heap,
-corrupting the allocator's block tags and free-list links, and the program faults or misbehaves far from the cause.
-Found as: check's bare-metal test binary (fmt-based runner) had ~0.77 MB of stack above its 4 MiB arena; a test
-overflowed it, the allocator later followed a corrupted free-list link (`setPrev` storing to 0x8000000c), and the
-data abort hung (entry above).  With the stack moved 16 MiB higher (crt0's `movt` patched, QEMU `-m 32M`) the same
-binary ran on to `rt.RawAlloc: arena exhausted`.  Related: "Neither backend probes the stack for a large frame"
-(its bare-metal behaviour is undecided) and "Run-time stack exhaustion is unspecified".  Options: enable the MMU on
-bare metal with an unmapped guard region below the stack (the fault then reports through the vector table), or a
-stack-limit check in each prologue against a linker-script symbol (the scripts already know the stack's lower
-bound, the heap's end).
-Exception vectors in crt0 (which report a CPU fault and exit) do not cover it: conformance 1105's runaway
-recursion runs down through the heap, .bss and the image itself, overwriting the handlers too, and still hangs
-(a QEMU memory dump showed the vector table and vec_report rewritten; found reviewing the vector-table change).
-**User, 2026-11-08:** "for bare-metal: a stack-limit check is too costly (at most, it could be optional), and not all
-arm32 have MMUs."  So neither option fits every target: an MMU guard region is possible only where there is an MMU
-(QEMU `virt`'s cortex-a15 has one), and a prologue stack-limit check, if any, an opt-in.
-**Decided 2026-11-08 (user):** "we should add an optional MMU guard region, but it should be suitably
-optional/dependent on MMU support".
-Then (user): "1. on by default sounds fine. 2. A bnc flag is fine, but remember that bnld is/will be our first-class
-linker".  Design (work-3): crt0 calls bn_stack_guard_init, from runtime/baremetal_arm32/stack_guard.s by default or
-a no-op stack_guard_off.s under bnc's -fno-baremetal-stack-guard -- an input object, so any linker (lld or bnld) takes
-it, with no --defsym or linker-script DEFINED().  The init reads ID_MMFR0 and only on a VMSA CPU builds a
-short-descriptor identity map (attributes as with the MMU off) with a 64 KiB unmapped guard at the bottom of the stack
-(ALIGN(__heap_end, 64K), from the layout symbols any linker must define), and turns the MMU on; a data abort inside
-the guard reports "fatal: stack overflow".
-
 ### IR-gen spells every type argument out in an instance's name — instances whose arguments share a type get exponentially long names — 🔴 NEEDS DECISION (found 2026-10-26, work-7, testing the abstract-instance change's shared-argument walk; reproduced on main; pre-existing)
 
 - **Symptom:** `type Pair[A any, B any] struct { a *A; b *B }`, `type P0 = Pair[int, int]`, `type Pk = Pair[P(k-1), P(k-1)]` up to n, and `var x Pn`, with no type error, compiles in 2.6 s at n = 18, 31 s at 22, and more than 120 s at 24 (main at `3b3b6ef2d`); the time is in IR-gen, after the checker.
