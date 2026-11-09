@@ -173,7 +173,7 @@ IR-gen cannot map is an internal error, never `int`.
      dummy-constant paths (function literal, interface call, method value, composite literal, a struct with no
      fields) are internal errors; an instrumented compiler saw none fire (self-compile, builder-comp,
      builder-comp-int, e2e); --emit-llvm byte-identical (3291, 64- and 32-bit; bnc's main module).
-     4d2 in progress.  4d2a DONE (binate `ce70a1f8e`, 2026-10-24): nine int defaults (multi-value binding /
+     4d2 DONE.  4d2a DONE (binate `ce70a1f8e`, 2026-10-24): nine int defaults (multi-value binding /
      assignment components, indexed / ranged / assigned elements, an unregistered call's result, `*p`, `-x`, a
      missing field) and the unlowered expression / builtin / statement kinds are internal errors; an instrumented
      compiler saw none of the nine fire (self-compile, builder-comp, builder-comp-int, the REPL e2e); four
@@ -183,9 +183,16 @@ IR-gen cannot map is an internal error, never `int`.
      4d2b DONE (binate `91e44506b`, 2026-11-08): genSelector's catch-all (no arm matches) is a compile-time
      internal error, not a runtime panic (user 2026-11-08: "Compile-time error"); it fired nowhere (self-compile,
      builder-comp, builder-comp-int, the REPL e2e, the unit tests of every package that runs IR-gen in-process).
-     4d2c IN PROGRESS (work-6): the type of a local `var` declared without one and of a single `:=` binding comes from the
-     checker — Decl.ResolvedTypeID (defineDeclVar records it) and a new checker record for each `:=` name — and
-     IR-gen's inference and the int default go (user 2026-11-08: "From the checker").
+     4d2c DONE (binate `82a160e68` + `997a195c1`, 2026-11-08): the type of a local `var` declared without one, of
+     each `:=` name and of a range loop's hidden operand copy comes from the checker — Decl.ResolvedTypeID, a new
+     record on each `:=` name (defineShortVar), the operand's record — and IR-gen's inference and the int default
+     are gone (user 2026-11-08: "From the checker"); a local constant IR-gen does not register is an internal error.
+     irgen's test helpers now check every test program first (`82a160e68`).  --emit-llvm byte-identical (2730
+     single-file programs, host and arm32-linux; 358 multi-package; cmd/bnc's 53 packages), native objects identical
+     on aa64 / x64 / arm32.  It fixed `u := 2.5` boxed into an interface (a compile crash; conformance spec/09 181)
+     and `var s = Box[int].Get`; `s := Box[int].Get` still fails (genShortVarOne lowers its initializer untyped).
+     The checker also records each multi-value `:=` name's type, which genShortVar's multi-value path does not read
+     yet (it uses lookupFuncResults / multiReturnFieldTypes).
 5. **Registries keyed by checker identity, names from it.**  Key by checker Type identity (a pointer memo) —
    the mapper's memo and lazy, self-sufficient registration from the checker type (fields, method sets,
    parents) come here (moved from stage 2: the audit found no lookup gap at the switched sites) —
