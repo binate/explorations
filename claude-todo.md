@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### A named pointer to itself through readonly (`type N1 *readonly N1`) hangs the checker — 🔴 OPEN (MAJOR: the compiler hangs on a valid program; found 2026-11-08, work-1, review of the opaque rules' work lists; reproduced on main; pre-existing)
+### A named pointer to itself through readonly (`type N1 *readonly N1`) hangs the checker — 🟡 IN PROGRESS (claimed 2026-11-08, work-1; user: "fix the hang and crash next") (MAJOR: the compiler hangs on a valid program; found 2026-11-08, work-1, review of the opaque rules' work lists; reproduced on main; pre-existing)
 
 `type N1 *readonly N1` makes bnc run until killed; `type N1 *N1`, `*readonly *N1`, `[1]*readonly N1` and `struct { p
 *readonly N1 }` compile.  A `sample` puts it in the pointer rule's walk with the answers kept (stepBringPointeeKept,
@@ -19,7 +19,7 @@ meets a type again whatever it is -- record the pointer types it peels (a typeVi
 wrappers off the current type before the names-met check.  Test: a conformance test of the declaration (it must
 compile), `.xfail.all` until fixed -- to add.
 
-### An invalid by-value cycle used as an interface instance's argument panics the compiler ("a cyclic type reached layout") — 🔴 OPEN (a crash on an invalid program instead of its error; found 2026-11-08, work-1, fuzzing in the review of the opaque rules' work lists; reproduced on main; pre-existing)
+### An invalid by-value cycle used as an interface instance's argument panics the compiler ("a cyclic type reached layout") — 🟡 IN PROGRESS (claimed 2026-11-08, work-1; user: "fix the hang and crash next") (a crash on an invalid program instead of its error; found 2026-11-08, work-1, fuzzing in the review of the opaque rules' work lists; reproduced on main; pre-existing)
 
 `interface L[B any] { LN(f *B) }`, `type N1 [1]N1` and `func f(b @L[N1]) {}` panic with `internal error: a cyclic type
 reached layout (the checker rejects it)` (pkg/binate/types/layout_structs.bn:128, rc 134) instead of reporting the

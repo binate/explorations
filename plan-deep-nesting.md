@@ -245,6 +245,17 @@ recursive, so far more than 75).
   (user: "let's do it next").  Left of part 5: partsPointToOpaqueEmbedding, funcSignaturesSized,
   ifaceSignaturesKept, aliasIfacesKept (the rules, points-to and alias walks), and trimming the walk's frames after
   a deep walk (~600,000 kept after the deep test).
+- Stage check part 5 DONE: binate `40e356da0` (landed 2026-11-08; user: "1. yes.") -- the opaque rules
+  (opaqueRulesKept, formationRulesKept, funcSignaturesSized, signaturePartKept, ifaceInstanceKept, ifaceSignaturesKept)
+  one work list of judgements, the first broken rule reported and ending it (check_opaque_rules_walk.bn); the pointer
+  rule's walk over a type's parts one work list ended by the first hit (check_opaque_points_walk.bn); aliasIfacesKept
+  on typeWalk.  An instance's structure, and an interface instance's signatures, wait behind its arguments as items.
+  cmd/bnc's IR and 2023 corpus programs identical; 571 opaque and generic conformance tests pass on LLVM and the VM.
+  Each walk judges its first item directly and passes items by pointer: pushed and copied, they cost +0.27%
+  instructions compiling cmd/bnc (six rounds, each one more), now +0.005%.  Review: no change (8,000 fuzzed
+  programs); it found two pre-existing bugs (claude-todo: `type N1 *readonly N1` hangs; an invalid by-value cycle
+  as an interface instance's argument panics), fixed next (user: "fix the hang and crash next").  Also landed with
+  part 5: ed444c512 and e42535af7 (the argument walk records broken parts; enters a named type).
 
 ## Decisions (2026-11-03)
 
