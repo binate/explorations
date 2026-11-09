@@ -1,3 +1,21 @@
+### bnfmt moves a comment inside a var or const declaration to after the statement -- DONE (binate `01a1df8a7`, `8d796d5f6`, 2026-11-08, temp-4; user: "let's work on the open things", "Whole class (Recommended)", then "wait 16 minutes, then land") (LOW; found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the composites' and types' gaps stay open in claude-todo.md)
+
+A comment between a var or const declaration's keyword and name, name and type, type and `=`, or after `=` went after
+the declaration (`var v /* c */ int = 1 // d` printed `var v int = 1 /* c */ // d`); a group member with a block
+comment between its name and a type spanning lines (`v /* c */ struct {` … `}`), or between its type and `=`
+(`X int /* c */ = 0x7`), changed its group's trailing-comment alignment on a second format.
+- binate `01a1df8a7` (parser): a comment-collecting parse gives each var or const spec an ast.Header record with the
+  positions of its name (Binder) and its `=` (Assign, a new field).  The comments' neighbouring tokens cannot give
+  these gaps' ends: the parser keeps no position for a value's parentheses, so a value starting with `(` hides the
+  end of the gap after `=` (tried: six fuzz files changed on a second format).  Test: TestParseValueSpecHeaders.
+- binate `8d796d5f6` (print_declgaps.bn, print_decl.bn, print_stmtgaps.bn, print_longline.bn): the comments in those
+  gaps print where they stand, in a single declaration, in a function body and in a group member; a comment before
+  `=` counts in the type's room, so a long type wraps for it; a `// LONG-LINE ALLOWED` group line counts its inline
+  comments once in its run's alignment.  Tests: TestDeclCommentsStayInPlace, TestDeclCommentsCountInTheLayout
+  (print_declgaps_test.bn), TestGroupMemberCommentsAfterNameAndBeforeClose.
+Over the corpus (about 25,600 files) and 1,383 files with comments injected into these gaps, the new bnfmt never
+loses, reorders or adds a comment, changes a token, breaks idempotence or widens a line where the old one did not.
+
 ### bnc built with LLVM for any `--backend` value but `native` -- a misspelt backend was silently LLVM — DONE (binate `9d84c4643`, 2026-11-08, work-3; user: "yes, an unknown --backend value should be an error", then "wait 12 minutes, then land")
 
 cmd/bnc/args.bn never validated `--backend`: every use asked `streq(result.Backend, "native")`, so `--backend natvie`

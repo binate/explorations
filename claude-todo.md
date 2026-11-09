@@ -2972,28 +2972,33 @@ three blank lines there, which a second format makes one.  So neither is idempot
 caller lays it out (printDecls, the block loop), its comments going on lines of their own, or keep it as written by
 recording its keyword on the DECL_GROUP node; tests: goldens for both, formatted twice.
 
-### bnfmt moves a comment inside a declaration or a composite to after the statement — 🟡 IN PROGRESS (claimed 2026-11-07, temp-4) 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the operator chains' part done in binate `df21fe656`, the expressions' and simple statements' in binate `27bdebd4b` and `43d112b0a`)
+### bnfmt moves a comment inside a composite or a type, or before a `)` or `]`, to after the statement — 🟡 IN PROGRESS (claimed 2026-11-07, temp-4) 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the operator chains' part done in binate `df21fe656`, the expressions', simple statements' and declarations' in binate `27bdebd4b`, `43d112b0a` and `8d796d5f6`)
 
 A comment inside a statement that nothing prints where it stands is still pending in the cursor when the statement
-ends.  On one line it goes after the statement (`var v /* c */ int = 1 // d` prints `var v int = 1 /* c */ // d`);
+ends.  On one line it goes after the statement (`x := T{k: /* c */ v} // d` prints `x := T{k: v} /* c */ // d`);
 when the statement spans lines, emitTrailingCommentBefore stops at it, as it is not on the statement's last line, so
 both comments go on lines of their own after the statement, and a `// LONG-LINE ALLOWED` there no longer marks the
 line.  A line comment inside cannot simply join the trailing one (`// c // d` lexes as one comment).  Each gap left
-can claim its comments by position now that a comment records the tokens around it (token.Comment After / Before):
-- a var / const declaration: between the name and the type, the type and `=`, and after `=` (a single `var` finds
-  its comments by After == the declaration's Pos, the name-to-type gap by Before == the type's start, the gaps around
-  `=` by Before == the value's start and beforeTokenStart).  A group member whose type or value spans lines does the
-  same with a block comment between its name and that type or value (`v /* c */ struct {` … `}`): the comment goes
-  on a line of its own after the member, then a blank line, and a second format ends the alignment run at that blank
-  line, so the comments of the members after it align differently (found 2026-10-31 in a review of positioning type
-  members at their names; a type member's comment stays between its name and its type since binate `79fb50f9c`).
-  A const group member with a block comment between its type and `=` (`X int /* c */ = 0x7`) likewise changes its
-  group's trailing-comment alignment on a second format (seen 2026-11-08 in the comment-injection sweep).
+can claim its comments by position now that a comment records the tokens around it (token.Comment After / Before),
+or by positions the parser records where it drops a gap's end, as a var or const spec's ast.Header does (Binder,
+Assign):
 - a composite's key and its value (`T{k: /* c */ v}`);
 - a composite's type and its `{` (`T /* c */ {1}`);
 - inside a type, and inside a qualified type name (`p./* c */ Box[int]{1}` moves the comment out of the call);
 - right before a `)` or `]` whose position the tree does not record: after a type assertion's type
-  (`x.(T /* c */)`), a slice's last bound, and a builtin's last operand.
+  (`x.(T /* c */)`), a slice's last bound, and a builtin's last operand;
+- right after a `(` the source keeps around an expression, whose position the parser does not record (it keeps
+  only the Parenthesized flag): `x = (/* c */ a + b) * c` prints `x = /* c */ (a + b) * c`, stable after (seen
+  2026-11-08 working on the declarations' gaps).
+
+### bnfmt gives a var's type no room for the ` = <value>` after it — 🟢 LOW (found 2026-11-08, temp-4, working on the declarations' comment gaps; pre-existing)
+
+printValueSpec (print_declgaps.bn) prints a declaration's type with a tail of 0 when no comment follows it, so a
+type that just fits keeps the line, and ` = <value>` goes on after it past the limit: a one-line `var zz
+*func(<three types>) (int, bool) = nil` whose type ends at column 99 prints 105 wide, with bnfmt `bnc-0.0.17-pre3`
+and the tree's.  A comment before `=` already gets room (its width plus 2 for ` =`).  The fix gives the type a tail
+of 2 whenever a value follows, so the type wraps for ` =` and the value goes on after it or on its continuation
+line; check the corpus for the layouts it moves.
 
 ### bnfmt's operator chain moves a function literal to a continuation line for what follows its last line — 🟢 LOW (found 2026-10-26, temp-4, working on the statement trailing-comment entry; pre-existing)
 
