@@ -256,6 +256,15 @@ recursive, so far more than 75).
   programs); it found two pre-existing bugs (claude-todo: `type N1 *readonly N1` hangs; an invalid by-value cycle
   as an interface instance's argument panics), fixed next (user: "fix the hang and crash next").  Also landed with
   part 5: ed444c512 and e42535af7 (the argument walk records broken parts; enters a named type).
+- Stage check part 6 DONE: binate `d6ed98769` (landed 2026-11-09; user: "wait 4 minutes, then land") --
+  mergeIfaceMethods and ifaceFullMethods take an interface's parents from a work list (ifaceFrames), parents before
+  own methods, an interface reached by two paths still walked once per path (a chain of diamonds stays exponential:
+  walking each once would drop the repeated conflict reports addCheckError keeps).  cmd/bnc's IR and 2030 corpus
+  programs identical; 721 / 720 interface conformance tests pass on LLVM / the VM; instructions -0.01%.  Also landed
+  on the way, from part 5's reviews: binate `3daf1f33b` (`type N1 *readonly N1` hung the pointer walk) and `3c4df0747`
+  (a by-value cycle reached before its declaration was checked panicked).  The review found parent walks the
+  inventory missed, still recursive: ifaceReaches, types.LookupInterfaceMethod, isDescendantInterface,
+  check_pending_impl's appendParentKeys / ifaceHasAncestorKey -- next, then collection's recursion.
 
 ## Decisions (2026-11-03)
 
