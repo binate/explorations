@@ -557,31 +557,6 @@ All -- or, at least, never through an impl private to a package other than the g
 for the dependent-length constraints (the entry above) widens the judgments made inside instances, so it inherits
 this fix.
 
-### A `.bn`-only method or parameterized impl of a `.bni` generic type is checked for instances other packages name: a dependency's private code decides whether main compiles — 🟡 IN PROGRESS (claimed 2026-11-08, temp-5; a valid program rejected, and checking that depends on a dependency's `.bn`; found 2026-11-06, temp-5, review of the instance impl-view plan; reproduced on binate main `868d8f2bf`; pre-existing)
-
-gm2's `.bni` declares `type W[U any] struct { u U }` with `func (w *W[U]) pub() int`; its `.bn` a private method
-`func (w *W[U]) priv() int { var a [sizeof(U) - 9]uint8; return len(a) }`.  main's `var w gm2.W[int64];
-w.pub()` is rejected: `gm2/gm2.bn:4:19: array length is too large (in W[int64].priv, instantiated at main.bn:7:13)`.
-`checkTypeTypeInstance` (check_instance_body.bn) checks every method of the generic's package for each instance,
-`.bn`-only ones included, and `checkInstanceImpls` every parameterized impl, private ones included (a private `impl
-*W[U] : Sz[[sizeof(U) - 9]uint8]` gives "in the impl for W[int64]" the same way).  A `.bn`-only method or impl is
-package-private (pkg.bni.generic.once, pkg.export): only that package's `.bn` can call or bind it, so its instances
-exist only for chains rooted there, and main -- which reads gm2's `.bni` alone under separate compilation -- has no
-such member.  Whether main compiles depends on whether gm2's `.bn` is checked in the same run.  Fix: check a
-generic's `.bn`-only methods and parameterized impls only for instances named in a chain rooted in its package's
-`.bn` (an instance named both there and elsewhere gets a class of its own for them), with a gen.mono.check
-clarification in the spec; conformance tests for the method and the impl, named from another package (valid) and
-from the package's own `.bn` (the error).  The instance impl-view plan (explorations/plan-instance-impl-view.md)
-relies on it: with it, every `.bn` generic body in a chain belongs to the root's package.
-
-Decided 2026-11-08 (user, option A): a `.bn`-only parameterized impl likewise applies to an instance only
-through its package's own chains, at run time too: amend `iface.assert` ("an impl private to another package's
-`.bn` counts" holds for the instances that package's chains name); importers never build a vtable from another
-package's private impl, and the package's module emits one for every instance its chains name, not only those it
-boxes.  Found by the fix's review: the importer still built the vtable and no longer emitted the method (null slot:
-a segfault on LLVM, a link failure on native).  Also: vtable construction fails loud on a method it cannot find;
-IR-gen's "package has a .bni" test must see a `.bni` whose types are all in a `type ( ... )` group.
-
 ### A generic alias of a struct type that takes the size of a type being collected is a false cycle — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
 
 `type A[T any] = struct { a [sizeof(N)]uint8; t T }` with `type N struct { v int64; w int64; p *A[int] }` is

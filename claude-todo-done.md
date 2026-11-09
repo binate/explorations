@@ -1,3 +1,28 @@
+### A `.bn`-only method or parameterized impl of a `.bni` generic type was checked for instances other packages name: a dependency's private code decided whether main compiled — DONE (binate `c985aca4c`, docs `d0951ef`, 2026-11-08, temp-5; user: "yes, go ahead and claim that and fix it", option A for run time, then "wait 8 minutes, then land") (a valid program rejected, and checking that depended on a dependency's `.bn`; found 2026-11-06, temp-5, review of the instance impl-view plan; pre-existing)
+
+gm2's `.bni` declares `type W[U any] struct { u U }` with a public method; its `.bn` a private method `priv` whose body
+is invalid for `U = int64` (`[sizeof(U) - 9]uint8`).  main's `var w gm2.W[int64]; w.pub()` was rejected for `priv`:
+`checkTypeTypeInstance` checked every method of the generic's package for each instance, and `checkInstanceImpls`
+every parameterized impl, `.bn`-only ones included, so whether main compiled depended on whether gm2's `.bn` was
+checked in the same run.
+
+Fix (binate `c985aca4c`): an instance's check state is per lender class and chain root (`InstCheckState.ChainRoot`):
+the package the chain naming it is rooted in, kept only when it is the instance's generic's own package
+(check/chain_root.bn: `chainRootAt`, `chainRootFor`, `memberInChain`).  The root is carried through builds
+(`InstanceState.BuildChainRoot`), instance work (`InstWork.ChainRoot`), function-instance signatures and interface
+instances' classes.  A `.bn`-only method is copied onto and checked for an instance, and a `.bn`-only parameterized
+impl checked for it, only in its package's own chains.  At run time (option A): IR-gen no longer stashes another
+package's `.bn`-only generic methods or parameterized impls from an import (`privateToImport`, which tells a `.bni`
+declaration by its position, so a `.bni` whose types are all in a `type ( ... )` group counts); the package's own
+module makes the vtable rows of its `.bn`-only parameterized impls for every instance its chains name
+(`mintPrivateImplRows`); and a generic-instance vtable row naming a method the module does not emit is an internal
+error (`requireGenericImplMethods`), not a null slot.  Spec (docs `d0951ef`): `gen.mono.check` says such members
+belong to an instantiation only through chains rooted in their package, and `iface.assert` that such an impl counts
+for an instantiation only when its package's chains name it.  Tests: conformance spec/12-generics 188-191 (named from
+another package; the errors in the package's own chains; a private impl asserted in its package's chains and missed
+from main's, `1 30 -1`; a `.bni` with its types in a group), check `chain_root_test.bn`, irgen `TestPrivateToImport`.
+The fix's second review found two older MAJOR run-time bugs, filed as their own entries (a non-struct generic
+instance boxed into `any` alone gets no impl rows; a raw pointer boxed into `any` asserts to a managed-receiver impl).
 ### An instance whose arguments nest a pointer to an opaque embedding two levels deep was accepted, and IR-gen invented the opaque type's layout — DONE (binate `ed444c512`, 2026-11-08, work-1; user: "let's do it next", then "yes, go ahead and land them") (MAJOR; found 2026-11-08, work-1, review of the deep-nesting argument walk; pre-existing)
 
 `W[*W[[1]Opaque]]` (with `type W[T any] struct { v T }`) was rejected, but `W[*W[*W[[1]Opaque]]]`, `*L[*L[*L[[1]Opaque]]]`

@@ -119,6 +119,8 @@ Probes under the session scratchpad's review-view/, with main `868d8f2bf`'s comp
    member's own view gives its package's private impls to types main supplies (leak), and a member written in a
    `.bn` loses its package's impls when the carried root is another package (false rejection).  Fixing that entry
    first (check private members only for chains rooted in their package's `.bn`) restores fact 2.
+   Fixed by binate `c985aca4c` (2026-11-08): private members are checked only in chains rooted in their
+   package (its `.bn` or its `.bni`).
 2. MAJOR: "records each constraint judgment the build makes" misses judgments: those deferred while declarations
    are collected (`recordPendingConstraintCheck`, replayed after the build), on a layout wait
    (`deferConstraintCheck`) or a function signature (`deferFuncConstraintCheck`); and those skipped because the
