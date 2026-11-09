@@ -273,7 +273,8 @@ is green and inside its job limit -- then (d), sharding it, is not needed, and t
   which then timed out with every package so far passing; the single-VM lanes' shard 1/6 (builder-comp-int,
   builder-comp-comp-int) timed out on the package after codegen, very likely the same one.  Needs: find whether the
   formatter is super-linear on these inputs (a real performance bug) or the tests are oversized, and fix that.
-- **pkg/binate/asm/arm32/neon does not compile on arm32** (builder-comp_arm32_linux, and every 32-bit lane):
+- **pkg/binate/asm/arm32/neon does not compile on arm32** -- 🟡 IN PROGRESS (claimed 2026-11-09, work-2/session; the
+  test is work-2's own, from the VEXT encoders) (builder-comp_arm32_linux, and every 32-bit lane):
   `neon_perm_test.bn:75:41: cannot assign untyped int to int` -- `Ext(bad[15], 64, Q0, Q1, Q2, (1 << 61) + 1)` passes a
   constant past arm32's 32-bit `int`.
 - **pkg/binate/check's test binary dies on native aa64** (builder-comp_native_aa64-comp_native_aa64): no output after
