@@ -1,3 +1,27 @@
+### A named pointer to itself through readonly (`type N1 *readonly N1`) hung the checker — DONE (binate `3daf1f33b`, 2026-11-09, work-1; user: "fix the hang and crash next", then "yes") (MAJOR; found 2026-11-08, work-1, review of the opaque rules' work lists; pre-existing)
+
+The pointer rule's walk (pointeeEmbedsOpaque) enters each named type it is at in its set of names met; from N1 it went
+to `readonly N1`, and from there peelFieldAccessBase peeled the readonly and N1 together to the pointer `*readonly N1`,
+so the walk was never at N1 again and never stopped.  Fix (binate `3daf1f33b`): the walk peels with pointeeBase,
+which enters each named type it passes in the names met; met again, the chain has gone round, and the walk answers
+false as for any chain that does.  Review: no answer changed where the old checker finished (~8,500 fuzzed programs).
+Tests: conformance 1737 (directly, through an alias, through a generic's instance) and check's
+TestPointeeWalkNamedPointerThroughReadonly and TestPointeeWalkThroughReadonlyStillRejects.
+
+### A by-value cycle reached before its declaration was checked panicked the compiler ("a cyclic type reached layout") — DONE (binate `3c4df0747`, 2026-11-09, work-1; user: "fix the hang and crash next", then "yes") (a crash on an invalid program; found 2026-11-08, work-1, fuzzing in the review of the opaque rules' work lists; pre-existing)
+
+`interface L[B any] { LN(f *B) }`, `type N1 [1]N1` and `func f(b @L[N1]) {}` panicked instead of reporting N1's
+cycle, and so did N1 reached as a parent interface's argument, by `sizeof` in an interface instance's method's array
+length, by a generic instance's method, or through an alias declared before it.  Two windows let a size be asked of a
+type that holds itself by value before checkValueEmbedding reported and cut the cycle: the checks collectDecls replays
+at its end, and checkValueEmbedding's own declaration-by-declaration order.  Fix (binate `3c4df0747`): while
+collectDecls runs (Checker.DeclsCollecting) fitsTarget skips a type that holds itself by value (sizeAwaitsCycleCut),
+and so does a constant's `sizeof` / `alignof` (constTypeOf); checkValueEmbedding cuts every declaration's cycle first
+(cutDeclCycles), then checks their sizes.  The first version covered only the replay's fitsTarget; a second review's
+fuzzing (504 combinations: 220 panics on main, 56 left) found the other two.  Tests: conformance 1738 (six cycles,
+each reached a different way, each reported at its declaration) and check's TestValueCycleAsIfaceInstanceArgReported
+and TestValueCyclesReachedEarlyReported.
+
 ### `g := Box[int].Get` (a method expression off a generic type instance, bound by `:=`) crashed IR-gen — DONE (binate `710e52d5d`, 2026-11-08, work-6; user: "yes to both questions", then "wait 12 minutes, then land.")
 
 From the forwarder-audit entry ("Loud miscompiles / wrong rejections found by the forwarder audit").  A method
