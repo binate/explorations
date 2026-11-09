@@ -288,7 +288,7 @@ followed (the two "Bare metal:" entries below), not test cost.  Its follow-ups l
 green locally: 71 packages pass, 18 xfail, in 482 s.  Open: confirm on CI's next unit run that the bare-metal lane
 is green and inside its job limit -- then (d), sharding it, is not needed, and this entry is done.
 
-### CI red on main (unit run at binate `8d796d5f6`, 2026-11-09): slow format tests time lanes out, a NEON test does not compile for arm32, check dies on native aa64 — 🔴 OPEN (found 2026-11-08, work-3, reading CI; all three still apply at binate `9d84c4643`; not work-3's areas, unclaimed)
+### CI red on main (unit run at binate `8d796d5f6`, 2026-11-09): slow format tests time lanes out, check dies on native aa64 (the NEON test fixed, binate `0d72b73e2`) — 🔴 OPEN (found 2026-11-08, work-3, reading CI; all three still apply at binate `9d84c4643`; not work-3's areas, unclaimed)
 
 - **pkg/binate/format's tests take ~143 s natively** -- 🟡 IN PROGRESS (claimed 2026-11-08, temp-4/session; the five
   tests are temp-4's own, from its deep-nesting and comment work) (M-series host; 53 s user CPU), five of them 136 s:
@@ -298,10 +298,6 @@ is green and inside its job limit -- then (d), sharding it, is not needed, and t
   which then timed out with every package so far passing; the single-VM lanes' shard 1/6 (builder-comp-int,
   builder-comp-comp-int) timed out on the package after codegen, very likely the same one.  Needs: find whether the
   formatter is super-linear on these inputs (a real performance bug) or the tests are oversized, and fix that.
-- **pkg/binate/asm/arm32/neon does not compile on arm32** -- 🟡 IN PROGRESS (claimed 2026-11-09, work-2/session; the
-  test is work-2's own, from the VEXT encoders) (builder-comp_arm32_linux, and every 32-bit lane):
-  `neon_perm_test.bn:75:41: cannot assign untyped int to int` -- `Ext(bad[15], 64, Q0, Q1, Q2, (1 << 61) + 1)` passes a
-  constant past arm32's 32-bit `int`.
 - **pkg/binate/check's test binary dies on native aa64** (builder-comp_native_aa64-comp_native_aa64): no output after
   `=== RUN TestDeepTypeLimitAlias` (the LLVM lanes pass it) -- likely a crash, e.g. a stack overflow in the
   natively compiled checker; not reproduced locally yet.

@@ -1,3 +1,11 @@
+### pkg/binate/asm/arm32/neon did not compile on arm32 -- DONE (binate `0d72b73e2`, 2026-11-09, work-2; user: "also, apparently the neon tests don't compile with 32-bit int", then "yes, go ahead") (one of the three CI-red items found 2026-11-08 by work-3; the other two stay open in claude-todo.md)
+
+`neon_perm_test.bn:75:41: cannot assign untyped int to int` on builder-comp_arm32_linux and every 32-bit lane:
+TestNeonPermRejects passed VEXT the index `(1 << 61) + 1`, a constant past a 32-bit `int` (work-2's own test, from
+the VEXT encoders).  The two indexes whose bytes wrap the int are now built from `sizeof(int)` (2^(bits - 3) + 1
+eight-byte elements, 2^(bits - 2) + 1 two-byte ones), the same at either width; the package's tests pass on
+builder-comp_arm32_baremetal (QEMU) and the host.
+
 ### bnfmt moves a comment inside a composite literal to after the statement -- DONE (binate `c9f8b41d9`, `17701aeb7`, 2026-11-08, temp-4; user: "let's work on the open things", "Whole class (Recommended)", then "wait 6 minutes, then go ahead") (LOW; found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the types' and closing brackets' gaps stay open in claude-todo.md)
 
 A comment between a composite's type and its `{` (`T /* c */ {1}`), or before or after a keyed element's `:`, went
