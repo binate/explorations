@@ -1,5 +1,7 @@
 # Plan: a comprehensive, feature-gated arm32 assembler
 
+**DONE (2026-11-09):** all four stages landed; the last commit binate `3077a9b9f`.
+
 Tracked by the claude-todo.md entry "asm arm32: an ARM feature model gating instructions as clang does, and the
 forms it lacks".  User (2026-10-26): "Staged series, gating first (Recommended)".
 
