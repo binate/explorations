@@ -1027,22 +1027,18 @@ block-reference sets), sort intervals with an O(n log n) sort, and move function
 `vec.Vec` (amortized) — starting with the sites these profiles name, then a sweep of loop-built
 `slices.Append` sites.  Needs a decision on scope/order.
 
-### asm arm32: an ARM feature model gating instructions as clang does, and the forms it lacks — 🟡 IN PROGRESS (claimed 2026-10-26, work-2; stage 1, the feature model, DONE binate `09f41e4f7`; stage 2's steps 2a, data processing, DONE binate `4925d2d0c` and 2a2, `:lower16:` / `:upper16:`, DONE binate `37cfd247a`, 2a3, the `.` label's symbol order, DONE binate `31c5e7c60`, 2b, the multiplies and divides, DONE binate `5fa9deadf`, 2c, saturate / parallel / pack, DONE binate `1c6638c25`, 2d, extend / bitfield / reverse / CLZ, DONE binate `c8501ae76` with `c8d407930`, 2e part 1, the loads and stores, DONE binate `fc4a352de`, 2e part 2, LDRD / STRD and the preloads, DONE binate `ef8444c43` (with the VFP encoders moved to asm/arm32/vfp, `e93b3d6fc`), 2f, exclusives / acquire-release / SWP / CLREX, DONE binate `ae3d7ce99`, 2g, block transfers, DONE binate `f34e5cf63`, 2h, branches, DONE binate `e7ea2d33a` with bnld `600b9da73`, 2i, system and hints, DONE binate `9473afec6` (with the asm/arm32/sys move `743ec8d07`), 2j, coprocessor, DONE binate `9170c4d75`; stage 3 step 3a, the FP feature model, DONE binate `e22a55b98`, and the VFP arithmetic, DONE binate `b398ec32a`, step 3b, the VFP moves, DONE binate `e94c5234e`, step 3c, the conversions and ARMv8's FP, DONE binate `470159517` (with the `.d` / q aliases `7d6efc934`), step 3d part 1, VLDR / VSTR, DONE binate `41e48f8b0` (with the matcher move `bf748398c`), step 3d part 2, VLDM / VSTM / VPUSH / FLDMX, DONE binate `d328c3eca` (stage 3 done), stage 4 step 4a part 1, NEON's three-same, DONE binate `311d4b282`, part 2, the names the VFP shares, DONE binate `eb4693315`, part 3, the VFP's data processing on the matcher, DONE binate `1e97c1512`, step 4b part 1, three registers of different lengths, DONE binate `f61776f39`, part 2, the by-scalar forms, DONE binate `ade353377`, step 4c part 1, the same-length shifts by an immediate, DONE binate `05e0557a8`; see the done log; found 2026-10-25, work-2, the `.ARM.attributes` work; user: "Attributes now, gating next (Recommended)")
+### asm arm32: clang's messages bnas does not give yet -- 🔴 OPEN, unclaimed (LOW; recorded 2026-11-09, work-2, through the arm32 ISA plan, done/plan-asm-arm32-isa.md)
 
-clang gates arm32 instructions by the target's features, which `.cpu` and `.fpu` change: a CPU without VFP (generic,
-arm7tdmi, xscale) rejects VFP instructions, a Thumb-only CPU (cortex-m*) switches to Thumb mode (bnas: an error), `.fpu
-softvfp` / a d16 FPU narrows VFP, and the architecture version gates the rest.  bnas has no feature model, and its
-arm32 text parser has only ~55 mnemonics (data processing, loads / stores, block transfers, branches, mul / mla /
-umull / smull, sdiv / udiv, clz, nop, svc, bkpt) — no VFP, NEON, barriers, exclusives, media / saturating / bitfield,
-system or coprocessor instructions — and asm/arm32's encoders cover only what the native backend uses (the basic A32
-set and ~40 VFP forms).  Named gaps so far: `vmov.f64 d0, #1.0`, d16–d31 (`vadd.f64 d20, d1, d2`), `dmb ish`,
-`blx <label>` ("expected register for BLX").  ARM's `.arch <name>` (`.arch armv7-a`), which sets the architecture
-version, collides with bnas's own `.arch arm32` and is to be settled here.
-User (2026-10-26): "Staged series, gating first (Recommended)" — **(1)** a feature model (architecture version, FPU,
-extensions, set by the target, `.cpu`, `.fpu`) gating the current set as clang does; **(2)** the complete A32 core,
-an exact, range-checked encoder layer like aarch64/isa plus its parser; **(3)** VFPv3 / v4; **(4)** NEON — each landed
-separately, with clang accept / reject goldens.  Then back to TLS stage 3 and the rest of the queue.  Plan and
-clang's facts: plan-asm-arm32-isa.md.
+bnas assembles the arm32 instructions clang takes (stages 1-4 of the ISA plan) with clang's encodings and, where
+both reject, mostly clang's messages; these message differences are left (no encoding differs):
+- A name that names no instruction: clang suggests some ("invalid instruction, did you mean: vld1, vld2?") where bnas
+  says "invalid instruction", or "expected register" for a name that starts none bnas knows; clang reads an `s`
+  after any unknown name as a flag-setting suffix ("instruction 'vqrdml' can not set flags, ...").
+- VMRS / VMSR in some feature contexts: `vmrs r0, mvfr0` (and mvfr1, fpexc, fpsid) with `.fpu none` is clang's
+  several-fixes message where bnas names VFP2; mvfr2 bnas names FPARMv8.
+- clang's generic register-list message for `{d1-r2}` where its vector-list reader does not run ("duplicated
+  register (fpinst2) in register list"); a lone `$` in an expression ("invalid token in expression"); a VMOV lane
+  written as a label difference; `#1.0+0` (the lexer's message).
 
 ### asm ELF: a listed generated label is named `.Ltmp<n>` counting only the labels bnas lists, where clang counts every temporary — 🔴 OPEN, unclaimed (found 2026-10-29, work-2, the review of the arm32 `.` symbol order)
 

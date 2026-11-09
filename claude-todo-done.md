@@ -1,3 +1,12 @@
+### asm arm32: an ARM feature model gating instructions as clang does, and the forms it lacks -- DONE (2026-11-09, work-2; the last commit binate `3077a9b9f`; user: "Staged series, gating first (Recommended)", then "continue" through the stages) (found 2026-10-25, work-2, the `.ARM.attributes` work)
+
+The staged series of done/plan-asm-arm32-isa.md, each step landed with clang accept / reject goldens: (1) the
+feature model (binate `09f41e4f7`); (2) the complete A32 core, steps 2a .. 2j (`4925d2d0c` .. `9170c4d75`); (3) the
+VFP, steps 3a .. 3d (`e22a55b98` .. `d328c3eca`); (4) NEON, steps 4a .. 4g (`311d4b282` .. `3077a9b9f`), every
+NEON-family mnemonic of clang's table known (all 157 audited against clang's messages).  Each step's commits,
+comparison numbers and kept differences are in the plan; the message differences left are the open entry "asm
+arm32: clang's messages bnas does not give yet".
+
 ### A named pointer to itself through readonly (`type N1 *readonly N1`) hung the checker — DONE (binate `3daf1f33b`, 2026-11-09, work-1; user: "fix the hang and crash next", then "yes") (MAJOR; found 2026-11-08, work-1, review of the opaque rules' work lists; pre-existing)
 
 The pointer rule's walk (pointeeEmbedsOpaque) enters each named type it is at in its set of names met; from N1 it went
