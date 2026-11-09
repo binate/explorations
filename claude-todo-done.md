@@ -1,3 +1,10 @@
+### bnc built with LLVM for any `--backend` value but `native` -- a misspelt backend was silently LLVM — DONE (binate `9d84c4643`, 2026-11-08, work-3; user: "yes, an unknown --backend value should be an error", then "wait 12 minutes, then land")
+
+cmd/bnc/args.bn never validated `--backend`: every use asked `streq(result.Backend, "native")`, so `--backend natvie`
+built with the LLVM backend without a word.  `9d84c4643`: bnc accepts llvm (the default), native or nothing, and
+reports any other value as an argument error ("unknown --backend <name> (llvm or native)"); cmd/bnc
+TestParseArgsBackendKnown.  Every `--backend` the tree's scripts pass is llvm or native.
+
 ### bnfmt moves a comment inside an expression or a simple statement to after the statement -- DONE (binate `cb2e44b85`, `6d60b00d6`, `27bdebd4b`, `43d112b0a`, 2026-11-08, temp-4; user: "let's work on the open things", "Whole class (Recommended)", "The name, everywhere (Recommended)", then "wait 12 minutes, then go ahead") (LOW; found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the declarations' and composites' gaps stay open in claude-todo.md)
 
 A comment inside a statement that no list or operator chain printed was still pending in the cursor when the
