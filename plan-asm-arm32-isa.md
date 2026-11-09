@@ -489,7 +489,8 @@ Steps:
   - Part 2, VQRDMLAH / VQRDMLSH: three-same and by scalar (.S16 / .S32), NEON with ARMv8.1 (a matcher feature bit
     "armv8.1a"), MVE's VQRDMLAH a near miss.  DONE (binate `e0acc4529`; 646 cases against clang, every encoding
     agreeing but a condition, kept).
-  - Part 3, VSDOT / VUDOT and VFMAL / VFMSL (vector and indexed).
+  - Part 3, VSDOT / VUDOT and VFMAL / VFMSL (vector and indexed): DONE (binate `032cbb8d5`; 2,260 cases against
+    clang, every scalar register and lane of the by-scalar forms among them, agree but did-you-mean).
   - Part 4, VCMLA / VCADD (the rotations, vector and indexed).
   - Part 5, the BFloat16 and Int8 matrix forms.
 
