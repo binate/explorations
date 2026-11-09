@@ -7,6 +7,19 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### A named pointer to an instance of itself (`type NP *W[NP]`) hangs the checker — 🔴 OPEN (MAJOR: the compiler hangs on a valid program; found 2026-11-08, work-1, review of the argument-walk fix; reproduced on main; pre-existing)
+
+With `type W[T any] struct { v T }`, the legal declaration `type NP *W[NP]` (the recursion goes through a pointer)
+makes bnc run until killed, its memory growing (~470 MB after 13 s); compilers before the argument walk moved to an
+explicit call stack (binate `ec144a05a`) crash with a stack overflow (rc 139) instead.  Cause (the review's reading,
+from a `sample` in bringRun / stepBringArgs / stepBringPointee / bringPartsStart): in the argument walk
+(check_opaque_args_walk.bn), a bringParts call on a named type that is no instance tail-calls a pointee walk without
+entering the type in the walk, and the pointee walk calls bringArgs on an instance it passes without entering the
+instance either, so NP -> W[NP] -> NP repeats with nothing marked visited.  Fix: enter the named type (or the
+instance) in the walk before going on through it, so a cycle through a named type ends -- keeping the answers the
+recorded-breaks rule gives (a part reached again gives its answer).  Test: a conformance test of the declaration
+(it must compile), `.xfail.all` until fixed -- to add.
+
 ### An instance whose arguments nest a pointer to an opaque embedding two levels deep is accepted, and IR-gen invents the opaque type's layout — 🟡 IN PROGRESS (claimed 2026-11-08, work-1; user: "let's do it next") (MAJOR: an invalid program accepted and lowered; found 2026-11-08, work-1, review of the deep-nesting argument walk; reproduced on main; pre-existing)
 
 With `type Opaque` (no definition) and `type W[T any] struct { v T }`, `func f(a W[*W[[1]Opaque]])` is rejected ("cannot
