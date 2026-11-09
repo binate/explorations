@@ -12,7 +12,8 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 `type N[U any] [4]U` with `func (w *N[U]) sz() int { return 30 }` and a public `impl *N[U] : Sz`
 (`interface Sz { sz() int }`), all in pkg/pm's `.bni`; main's `var w pm.N[int16]; var a *any = &w;
 t, ok := a.(*pm.Sz)` gets `ok == false` (prints -1) on LLVM and native aa64, though N[int16] has the impl
-(§11.12 `iface.assert`).  It hits only when the program also converts a `*N[int16]` to `*Sz` directly.  Cause:
+(§11.12 `iface.assert`).  It hits only when the program never converts a `*N[int16]` to `*Sz` directly (such a
+conversion masks it).  Cause:
 `ensureGenericImplRows` (irgen/gen_generic_impl.bn), called at each boxing, returns unless the boxed type is a
 registered struct instance (`lookupStructIdx`), so a named non-struct instance (`ensureInstantiatedNamed`)
 never gets its parameterized impls' rows; `mintPrivateImplRows` inherits the gap for `.bn`-only impls.  Fix:
