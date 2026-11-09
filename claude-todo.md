@@ -22,8 +22,8 @@ on", and its chain ends at a struct with no opaque type by value, so it answers 
 argsMayBringOpaque answers false for the outer instance, and partsPointToOpaqueEmbedding never walks the instance
 structure that would report it: the walk's rule "entered means judged and broke no rule, or on the current path" does
 not hold once the pointee walk shares it.  Fix idea: record each part's answer in the walk (true / false / in
-progress) rather than a visited bit, so a part reached again gives its answer.  Test: a conformance error test of the
-program above (and the L variant), expected to fail until fixed -- to add.
+progress) rather than a visited bit, so a part reached again gives its answer.  Test: conformance
+1735_err_opaque_pointer_embedding_nested_args (binate `e9a846e1a`), `.xfail.all` until fixed.
 
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 

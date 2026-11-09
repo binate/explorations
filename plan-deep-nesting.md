@@ -235,6 +235,16 @@ recursive, so far more than 75).
   Review: no defect (one allocation note, folded in).  Next: part 5's rest (partsPointToOpaqueEmbedding,
   funcSignaturesSized, ifaceSignaturesKept, partsMayBreak, aliasIfacesKept), part 6 (mergeIfaceMethods,
   ifaceFullMethods), then collection's recursion.
+- Stage check part 5, the argument / pointee walk, DONE: binate `ec144a05a` (landed 2026-11-08; user: "wait 4 minutes,
+  then go ahead").  argsMayBringOpaque(In), argMayHoldOpaque, partsMayBreak and pointeeEmbedsOpaque(In / Kept) recursed
+  on each other; they run as one walk on an explicit call stack (check_opaque_args_walk.bn), each a step function
+  that returns, tail-calls or starts a call and is resumed with its answer; frames reused across walks, re-entrant.
+  cmd/bnc's IR and 2012 corpus programs identical; 77 opaque conformance tests pass on LLVM and the VM; instructions
+  +0.02%.  Review: no defect; it found a pre-existing MAJOR (claude-todo, "An instance whose arguments nest a pointer
+  to an opaque embedding two levels deep is accepted"; test binate `e9a846e1a`, conformance 1735), to be fixed next
+  (user: "let's do it next").  Left of part 5: partsPointToOpaqueEmbedding, funcSignaturesSized,
+  ifaceSignaturesKept, aliasIfacesKept (the rules, points-to and alias walks), and trimming the walk's frames after
+  a deep walk (~600,000 kept after the deep test).
 
 ## Decisions (2026-11-03)
 
