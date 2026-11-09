@@ -551,6 +551,14 @@ clarification in the spec; conformance tests for the method and the impl, named 
 from the package's own `.bn` (the error).  The instance impl-view plan (explorations/plan-instance-impl-view.md)
 relies on it: with it, every `.bn` generic body in a chain belongs to the root's package.
 
+Decided 2026-11-08 (user, option A): a `.bn`-only parameterized impl likewise applies to an instance only
+through its package's own chains, at run time too: amend `iface.assert` ("an impl private to another package's
+`.bn` counts" holds for the instances that package's chains name); importers never build a vtable from another
+package's private impl, and the package's module emits one for every instance its chains name, not only those it
+boxes.  Found by the fix's review: the importer still built the vtable and no longer emitted the method (null slot:
+a segfault on LLVM, a link failure on native).  Also: vtable construction fails loud on a method it cannot find;
+IR-gen's "package has a .bni" test must see a `.bni` whose types are all in a `type ( ... )` group.
+
 ### A generic alias of a struct type that takes the size of a type being collected is a false cycle — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
 
 `type A[T any] = struct { a [sizeof(N)]uint8; t T }` with `type N struct { v int64; w int64; p *A[int] }` is
