@@ -487,7 +487,8 @@ Steps:
   - Part 1, SHA1C / SHA1P / SHA1M / SHA1SU0, SHA256H / SHA256H2 / SHA256SU1 (neon.Three, .32 on three Q
     registers): DONE (binate `79f9ea946`; 2,019 cases against clang, every encoding agreeing).
   - Part 2, VQRDMLAH / VQRDMLSH: three-same and by scalar (.S16 / .S32), NEON with ARMv8.1 (a matcher feature bit
-    "armv8.1a"), MVE's VQRDMLAH a near miss.
+    "armv8.1a"), MVE's VQRDMLAH a near miss.  DONE (binate `e0acc4529`; 646 cases against clang, every encoding
+    agreeing but a condition, kept).
   - Part 3, VSDOT / VUDOT and VFMAL / VFMSL (vector and indexed).
   - Part 4, VCMLA / VCADD (the rotations, vector and indexed).
   - Part 5, the BFloat16 and Int8 matrix forms.
