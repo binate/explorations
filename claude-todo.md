@@ -277,7 +277,23 @@ followed (the two "Bare metal:" entries below), not test cost.  Its follow-ups l
 green locally: 71 packages pass, 18 xfail, in 482 s.  Open: confirm on CI's next unit run that the bare-metal lane
 is green and inside its job limit -- then (d), sharding it, is not needed, and this entry is done.
 
-### Bare metal: a stack overflow silently overwrites the heap -- nothing guards the stack's lower end — 🔴 NEEDS DECISION (MAJOR; found 2026-11-07, work-3, same diagnosis)
+### CI red on main (unit run at binate `8d796d5f6`, 2026-11-09): slow format tests time lanes out, a NEON test does not compile for arm32, check dies on native aa64 — 🔴 OPEN (found 2026-11-08, work-3, reading CI; all three still apply at binate `9d84c4643`; not work-3's areas, unclaimed)
+
+- **pkg/binate/format's tests take ~143 s natively** (M-series host; 53 s user CPU), five of them 136 s:
+  TestDeepChainKeepsLineComments 50 s, TestDeepChainParensKeepLineComments 47 s, TestExprCommentsInListsAndDeepNests
+  17 s, TestDeepListRendersGrowSlowly 12 s, TestDeepChainWrapsBeforeALongLineComment 11 s (the formatter's deep-nesting
+  and comment work of 2026-11-05..08).  Under QEMU the package took 722 s of the bare-metal unit lane's 30-min job,
+  which then timed out with every package so far passing; the single-VM lanes' shard 1/6 (builder-comp-int,
+  builder-comp-comp-int) timed out on the package after codegen, very likely the same one.  Needs: find whether the
+  formatter is super-linear on these inputs (a real performance bug) or the tests are oversized, and fix that.
+- **pkg/binate/asm/arm32/neon does not compile on arm32** (builder-comp_arm32_linux, and every 32-bit lane):
+  `neon_perm_test.bn:75:41: cannot assign untyped int to int` -- `Ext(bad[15], 64, Q0, Q1, Q2, (1 << 61) + 1)` passes a
+  constant past arm32's 32-bit `int`.
+- **pkg/binate/check's test binary dies on native aa64** (builder-comp_native_aa64-comp_native_aa64): no output after
+  `=== RUN TestDeepTypeLimitAlias` (the LLVM lanes pass it) -- likely a crash, e.g. a stack overflow in the
+  natively compiled checker; not reproduced locally yet.
+
+### Bare metal: a stack overflow silently overwrites the heap -- nothing guards the stack's lower end — 🟡 IN PROGRESS: an optional MMU guard region (claimed 2026-11-08, work-3) (MAJOR; found 2026-11-07, work-3, same diagnosis)
 
 On arm32 bare metal the stack grows down from `_stack_top` (the top of RAM) toward the heap with nothing between
 them: no MMU guard page, no stack-limit check.  A deep enough recursion writes its frames over the top of the heap,
@@ -295,8 +311,9 @@ recursion runs down through the heap, .bss and the image itself, overwriting the
 (a QEMU memory dump showed the vector table and vec_report rewritten; found reviewing the vector-table change).
 **User, 2026-11-08:** "for bare-metal: a stack-limit check is too costly (at most, it could be optional), and not all
 arm32 have MMUs."  So neither option fits every target: an MMU guard region is possible only where there is an MMU
-(QEMU `virt`'s cortex-a15 has one), and a prologue stack-limit check, if any, an opt-in.  Still to decide: which of
-those to build, and when.
+(QEMU `virt`'s cortex-a15 has one), and a prologue stack-limit check, if any, an opt-in.
+**Decided 2026-11-08 (user):** "we should add an optional MMU guard region, but it should be suitably
+optional/dependent on MMU support".
 
 ### IR-gen spells every type argument out in an instance's name — instances whose arguments share a type get exponentially long names — 🔴 NEEDS DECISION (found 2026-10-26, work-7, testing the abstract-instance change's shared-argument walk; reproduced on main; pre-existing)
 
