@@ -22,7 +22,7 @@ forms it lacks".  User (2026-10-26): "Staged series, gating first (Recommended)"
    / mrrc / cdp / ldc / stc), `blx <label>`; each gated.
 3. **VFPv3 / v4** (the FPU part of the model: `.fpu`, d16 / d32, fp16, vfp4, fp-armv8), in the sub-package
    asm/arm32/vfp (binate `e93b3d6fc`).
-4. **NEON** (incl. the v8 crypto forms).
+4. **NEON** (incl. the v8 crypto forms).  DONE (binate `3077a9b9f`, the last of it).
 
 ## Stage 2: the complete A32 core
 
@@ -303,7 +303,11 @@ Steps:
   (`fldmiax r0, {d31}` is its word for D15), where bnas sets it as GNU as does (user 2026-11-03, "yes" to landing it
   so); clang's warnings are not copied.
 
-## Stage 4: NEON (asm/arm32/neon)
+## Stage 4: NEON (asm/arm32/neon) — DONE (binate `3077a9b9f`, 2026-11-09)
+
+All 157 mnemonics of clang's table that need a NEON-family feature (NEON, the crypto ones, the dot product, FP16FML,
+BF16, the Int8 matrix multiply) are known to bnas: each, given wrong operands and given none, gets clang's message
+(314 cases, none differing).
 
 Every Advanced SIMD instruction clang takes in ARM code, a class per step (the ARM ARM's encoding groups), each
 landed with clang accept / reject goldens and gates: the encoders exact, in a new sub-package asm/arm32/neon
@@ -494,7 +498,9 @@ Steps:
   - Part 4, VCMLA / VCADD (the rotations, vector and indexed): DONE (binate `963e3beff`; 2,176 cases against clang,
     a sweep of scalar registers, lanes and rotations among them, agree but did-you-mean).  Kept: a lane written as
     a floating-point literal is an error (clang keeps its bit pattern's low 32 bits: `d2[1.0]` is lane 0).
-  - Part 5, the BFloat16 and Int8 matrix forms.
+  - Part 5, the BFloat16 and Int8 matrix forms: DONE (binate `3077a9b9f`; 766 cases against clang, sweeps of
+    single-bit registers and of every scalar register and lane among them, agree but did-you-mean; a matcher
+    feature bit "8-bit integer matrix multiply").  4g is complete.
 
 ## Stage 1: the feature model — DONE (binate `09f41e4f7`)
 
