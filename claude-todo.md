@@ -2984,19 +2984,20 @@ three blank lines there, which a second format makes one.  So neither is idempot
 caller lays it out (printDecls, the block loop), its comments going on lines of their own, or keep it as written by
 recording its keyword on the DECL_GROUP node; tests: goldens for both, formatted twice.
 
-### bnfmt moves a comment inside a composite or a type, or before a `)` or `]`, to after the statement — 🟡 IN PROGRESS (claimed 2026-11-07, temp-4) 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the operator chains' part done in binate `df21fe656`, the expressions', simple statements' and declarations' in binate `27bdebd4b`, `43d112b0a` and `8d796d5f6`)
+### bnfmt moves a comment inside a type, or before a `)` or `]`, out of its place — 🟡 IN PROGRESS (claimed 2026-11-07, temp-4) 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the operator chains' part done in binate `df21fe656`, the expressions', simple statements', declarations' and composites' in binate `27bdebd4b`, `43d112b0a`, `8d796d5f6` and `17701aeb7`)
 
 A comment inside a statement that nothing prints where it stands is still pending in the cursor when the statement
-ends.  On one line it goes after the statement (`x := T{k: /* c */ v} // d` prints `x := T{k: v} /* c */ // d`);
+ends.  On one line it goes after the statement (`x := y.(T /* c */) // d` prints `x := y.(T) /* c */ // d`);
 when the statement spans lines, emitTrailingCommentBefore stops at it, as it is not on the statement's last line, so
 both comments go on lines of their own after the statement, and a `// LONG-LINE ALLOWED` there no longer marks the
 line.  A line comment inside cannot simply join the trailing one (`// c // d` lexes as one comment).  Each gap left
 can claim its comments by position now that a comment records the tokens around it (token.Comment After / Before),
 or by positions the parser records where it drops a gap's end, as a var or const spec's ast.Header does (Binder,
 Assign):
-- a composite's key and its value (`T{k: /* c */ v}`);
-- a composite's type and its `{` (`T /* c */ {1}`);
-- inside a type, and inside a qualified type name (`p./* c */ Box[int]{1}` moves the comment out of the call);
+- inside a type, and inside a qualified type name: the comment goes after the type (`var a p./* c */ T = 1` prints
+  `var a p.T /* c */ = 1`, a parameter's likewise), into the next list gap (`cast(p./* c */ T, w)` prints
+  `cast(p.T, /* c */ w)`), or before a composite's `{` (`p.Box[int] /* c */{1}`); a line comment inside a
+  composite's qualified type name (`p. // c` / `Box{1}`) still goes after the statement;
 - right before a `)` or `]` whose position the tree does not record: after a type assertion's type
   (`x.(T /* c */)`), a slice's last bound, and a builtin's last operand;
 - right after a `(` the source keeps around an expression, whose position the parser does not record (it keeps

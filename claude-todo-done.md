@@ -1,3 +1,22 @@
+### bnfmt moves a comment inside a composite literal to after the statement -- DONE (binate `c9f8b41d9`, `17701aeb7`, 2026-11-08, temp-4; user: "let's work on the open things", "Whole class (Recommended)", then "wait 6 minutes, then go ahead") (LOW; found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the types' and closing brackets' gaps stay open in claude-todo.md)
+
+A comment between a composite's type and its `{` (`T /* c */ {1}`), or before or after a keyed element's `:`, went
+into the list's gap after the element's comma (`T{k: /* c */ v, w: 1}` printed `T{k: v, /* c */ w: 1}`), or after
+the statement when the element was the last; a line comment after the `:` went after the comma.
+- binate `c9f8b41d9` (parser): a comment-collecting parse records each keyed element's `:` among the headers
+  (ast.Header's new Colon), as the Element keeps no position; the formatter finds it as the last record before the
+  value.  The composite body and element parsers moved to parse_composite.bn.  Test: TestParseElementColonHeaders.
+- binate `17701aeb7` (print_compgaps.bn, print_expr.bn, print_listitem.bn, print_lineshare.bn): those comments
+  print where they stand and count in the layout -- the type wraps to leave room for a comment before the `{`, and
+  an element is measured with its key and what follows it before the value (keyPrefix), past STABLE_LIST_DEPTH
+  too; a block comment inside a composite's type goes before its `{`.  Tests: TestCompositeCommentsStayInPlace,
+  TestCompositeCommentsCountInTheLayout (print_compgaps_test.bn); TestTrailingCommentsAfterAnInnerComment now uses
+  gaps nothing prints yet.
+Over the corpus (about 25,600 files) and 2,583 files with comments injected (1,200 into composites), the new bnfmt
+never loses, reorders or adds a comment, changes a token, breaks idempotence or widens a line where the old one did
+not.  A review's two MINOR findings (no room on the type for a comment before `{`; the deep-list measure untested)
+were fixed before landing.
+
 ### A named pointer to an instance of itself (`type NP *W[NP]`) hung the checker — DONE (binate `e42535af7`, 2026-11-08, work-1; user: "also fix the hang next", then "yes, go ahead; then continue") (MAJOR; found 2026-11-08, work-1, review of the argument-walk fix; pre-existing)
 
 With `type W[T any] struct { v T }`, the legal declaration `type NP *W[NP]` made bnc run until killed (a stack-overflow
