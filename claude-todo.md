@@ -20,7 +20,8 @@ never gets its parameterized impls' rows; `mintPrivateImplRows` inherits the gap
 find the instance's generic declaration and arguments for a named non-struct instance too (its type-alias
 entry, as `ensureMethodsForInstName` does) and mint the rows; conformance on LLVM, the VM and the native
 modes, for a public impl and for a `.bn`-only one its own package names.  Probes: the session scratchpad's
-review-pm/q6, q6b, q6c.
+review-pm/q6, q6b, q6c.  Test: conformance spec/12-generics/192_nonstruct_instance_impl_asserts_from_any
+(`.xfail.all`, binate `1052a24f2`; -1 on LLVM, the VM and native aa64).
 
 ### A raw pointer boxed into `any` asserts to an interface whose impl takes a managed receiver, then calls it — 🔴 OPEN (MAJOR: memory corruption — a bus error on native; found 2026-11-08, temp-5, review of the .bn-only generic members fix; reproduced with a compiler built from binate `23524484b`; pre-existing)
 
@@ -34,7 +35,9 @@ box of a `readonly` object.  Fix (needs a spec amendment, so the user's call on 
 interface target only through an impl whose receiver the box's own kind reaches (a raw box does not reach an
 `@T` impl), as `iface.assert.readonly` does for readonly -- the box records whether it was made from a
 managed pointer, and the satisfaction lookup checks it; conformance on every mode.  Probes: the session
-scratchpad's review-pm/q9, q9c, q8b.
+scratchpad's review-pm/q9, q9c, q8b.  Test: conformance spec/11-interfaces/111_raw_box_assert_managed_impl_misses
+(`.xfail.all`, binate `1052a24f2`): in one package LLVM aborts and native aa64 segfaults; the VM runs the
+method (prints 30 / 40).
 
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
