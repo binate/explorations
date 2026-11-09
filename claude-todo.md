@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### A non-struct generic instance boxed into `any` alone gets no rows for its type's impls: an assertion to the interface misses — 🔴 OPEN (MAJOR: a wrong run-time result; found 2026-11-08, temp-5, review of the .bn-only generic members fix; reproduced with a compiler built from binate `23524484b`; pre-existing)
+### A non-struct generic instance boxed into `any` alone gets no rows for its type's impls: an assertion to the interface misses — 🟡 IN PROGRESS (claimed 2026-11-08, temp-5) (MAJOR: a wrong run-time result; found 2026-11-08, temp-5, review of the .bn-only generic members fix; reproduced with a compiler built from binate `23524484b`; pre-existing)
 
 `type N[U any] [4]U` with `func (w *N[U]) sz() int { return 30 }` and a public `impl *N[U] : Sz`
 (`interface Sz { sz() int }`), all in pkg/pm's `.bni`; main's `var w pm.N[int16]; var a *any = &w;
