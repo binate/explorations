@@ -491,7 +491,9 @@ Steps:
     agreeing but a condition, kept).
   - Part 3, VSDOT / VUDOT and VFMAL / VFMSL (vector and indexed): DONE (binate `032cbb8d5`; 2,260 cases against
     clang, every scalar register and lane of the by-scalar forms among them, agree but did-you-mean).
-  - Part 4, VCMLA / VCADD (the rotations, vector and indexed).
+  - Part 4, VCMLA / VCADD (the rotations, vector and indexed): DONE (binate `963e3beff`; 2,176 cases against clang,
+    a sweep of scalar registers, lanes and rotations among them, agree but did-you-mean).  Kept: a lane written as
+    a floating-point literal is an error (clang keeps its bit pattern's low 32 bits: `d2[1.0]` is lane 0).
   - Part 5, the BFloat16 and Int8 matrix forms.
 
 ## Stage 1: the feature model — DONE (binate `09f41e4f7`)
