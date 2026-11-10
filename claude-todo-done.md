@@ -1,3 +1,16 @@
+### pkg/binate/format: holdsBlock walked an element's whole subtree each time it was asked -- DONE (binate `0c1dbfcc0`, 2026-11-09, temp-4; user: "yes, add that cache; then go back to the open bnfmt items", then "wait 7 minutes, then go ahead") (from the format part of "CI red on main")
+
+Past STABLE_LIST_DEPTH an element is asked whether it holds a block (a function literal, or a struct or function
+type) at each of its renderings and again by each list around it (deepFlatList), and holdsBlock walked its whole
+subtree every time: asking about every call of a nest 40 deep, twice, walked 3,360 nodes; in a sample of bnfmt on
+calls 128 deep holdsBlock and typeHoldsBlock were on top of the stack in about 19% of the samples.  `0c1dbfcc0`:
+holdsBlock keeps its answer per node in a table keyed by the node's identity (each text read back is parsed as `var _
+= (text)`, so nodes of different readings back share kinds and positions), dropped with the rendering cache, and asks
+about a node's children through itself, so each node is walked once (81 nodes for that nest;
+TestDeepHoldsBlockWalksEachNodeOnce).  bnfmt's user time: calls 48 deep 0.42 -> 0.36 s, 64 deep 0.72 -> 0.63, 128
+deep 3.79 -> 3.00; the package's test binary 9.0-10.6 -> 8.3-8.6 s.  Output identical to the previous bnfmt on
+~7,100 deep and commented files.
+
 ### pkg/binate/format's tests: TestDeepListRendersGrowSlowly -- past STABLE_LIST_DEPTH bnfmt rendered an element both where it would stay and where it went -- DONE (binate `2c3c3effa`, 2026-11-09, temp-4; user: "also, apparently now the format tests are very slow (and are problematic in some lanes on CI); there might be a todo for this", then "wait 8 minutes, then land") (the last slow test of the format part of "CI red on main"; the CI confirmation stays open in claude-todo.md)
 
 The test (calls nested 32 and 40 deep, no comments) took ~12 s natively.  Past STABLE_LIST_DEPTH an element stays on

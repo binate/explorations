@@ -305,11 +305,9 @@ is green and inside its job limit -- then (d), sharding it, is not needed, and t
   2026-11-08, temp-4/session).  The package took ~143 s natively (M-series host; 53 s user CPU), 136 s of it in five
   tests; under QEMU it took 722 s of the bare-metal unit lane's 30-min job, which then timed out, and the single-VM
   lanes' shard 1/6 (builder-comp-int, builder-comp-comp-int) timed out on the package after codegen.  All five are
-  fixed (done log, binate `08de98de2` and `2c3c3effa`); the package's test binary now runs its 416 tests in ~11.5 s of
-  user CPU locally.  Open: confirm on CI's next unit run after binate `2c3c3effa` that the lanes no longer time out on
-  the package.  At large depths most of the time left is holdsBlock walking an element's whole subtree on each call
-  (~16% at calls 40 deep) and scans of rendered text; caching holdsBlock per node is the candidate -- 🟡 IN PROGRESS
-  (user 2026-11-09: "yes, add that cache"; temp-4/session).
+  fixed (done log, binate `08de98de2` and `2c3c3effa`), and holdsBlock keeps its answer per node (binate
+  `0c1dbfcc0`); the package's test binary now runs its 417 tests in ~8.5 s of user CPU locally.  Open: confirm on CI's
+  next unit run after binate `0c1dbfcc0` that the lanes no longer time out on the package.
 - **pkg/binate/check's test binary dies on native aa64** (builder-comp_native_aa64-comp_native_aa64): no output after
   `=== RUN TestDeepTypeLimitAlias` (the LLVM lanes pass it) -- likely a crash, e.g. a stack overflow in the
   natively compiled checker; not reproduced locally yet.
