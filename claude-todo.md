@@ -2925,7 +2925,7 @@ once per path: on a ladder of diamonds (`I_k : A_k, B_k`, with `A_k : I_k+1` and
 exponential in its height -- mergeIfaceMethods and ifaceFullMethods (check_iface_extends.bn) at each interface's
 declaration and impl, types.LookupInterfaceMethod on a miss, ifaceReaches (the parent cycle check, at each
 declaration), isDescendantInterface on a miss, appendParentKeys and ifaceHasAncestorKey (check_pending_impl.bn).
-The deep-nesting stage made them iterative (binate `d6ed98769` and the ancestor walks' follow-up) but kept the
+The deep-nesting stage made them iterative (binate `d6ed98769`, `87a0432de`) but kept the
 revisits, to change no answer or diagnostic.  Fix: a visited set (typeVisits) in each -- the searches and the
 name-deduped lists answer the same with one; mergeIfaceMethods would then report a conflict reached by two paths
 once, not once per path, which is a change in diagnostics to decide (addCheckError keeps repeats).

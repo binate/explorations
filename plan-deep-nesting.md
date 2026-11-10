@@ -265,6 +265,12 @@ recursive, so far more than 75).
   (a by-value cycle reached before its declaration was checked panicked).  The review found parent walks the
   inventory missed, still recursive: ifaceReaches, types.LookupInterfaceMethod, isDescendantInterface,
   check_pending_impl's appendParentKeys / ifaceHasAncestorKey -- next, then collection's recursion.
+- The other interface-ancestor walks DONE: binate `87a0432de` (landed 2026-11-09; user: "yes, go ahead") --
+  types.LookupInterfaceMethod (ifaceLookups), ifaceReaches, isDescendantInterface, appendParentKeys,
+  ifaceHasAncestorKey from work lists, the same pre-order and early stop; pushParentTypes shared with the instance
+  walks.  cmd/bnc's IR and 2030 corpus programs identical; 724 interface conformance tests pass on LLVM and the VM.
+  Review: no defect.  None of the ancestor walks keeps a visited set: a ladder of diamonds is exponential
+  (claude-todo, LOW).  Next: collection's recursion (resolveBniTypeByName on `.bni` chains; sizeof / constant chains).
 
 ## Decisions (2026-11-03)
 
