@@ -6165,6 +6165,18 @@ reader's reason.  Tests: `relocSectionChecks` on an ELF64 RELA and an ELF32 REL 
 `TestReadObjectRejectsNonRelocatable`, `TestReadArchiveBadMemberReason`.  Checked that clang C objects (`-g`,
 `-ffunction-sections`, `-O0` / `-O1`) still link on x86-64, aarch64 and arm32.
 
+### VM lowering: a jump or branch to a block outside its function is a lowering error — DONE (binate `5aea70ad2`,
+2026-11-10)
+
+Found by the review of the `EmitJump` / `EmitBranch` preconditions (entry below); user 2026-11-08: "yes".
+`findBlockOffset` (`pkg/binate/vm/lower_func_helpers.bn`) returned 0 for a target in neither of the function's lists
+(blocks, fault pads) -- nil, another function's block, or one a pass dropped -- so the VM re-entered the function at its
+start with no error. It now records a lowering error naming the function (`noteLowerErr`), and the lowering entry point
+stops with an internal error (`failOnLowerErrs`), as for a frame past the limit. `TestFindBlockOffsetRejectsOutsideTarget`
+covers a jump to another function's block, a nil jump target and a nil else-block, and fails with the fix undone. The full
+`builder-comp-int` suite passed (3876) with no such report, so nothing relied on the 0. The review found the same
+defect class in the compiled backends (labels unique only within a function); that is its own todo entry.
+
 ### irbuild: `EmitJump` and `EmitBranch` panic on a nil condition or target — DONE (binate `63da9e969`, 2026-11-08)
 
 Found by the review of the verifier's nil-condition check (entry below); user 2026-11-07: "Yes, every compile should

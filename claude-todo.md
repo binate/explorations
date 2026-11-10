@@ -3261,21 +3261,9 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
   counts, so nothing proves those inputs impossible.  Fix: check each op's operand count and required types in
   the verifier (then the guards are dead and can go), or make each guard record `a.SetError`.
 
-- **VM lowering: a jump or branch to a block not in the function silently jumps to its first instruction** —
-  🟡 IN PROGRESS (claimed 2026-11-08; user: "yes" to failing loud) (found 2026-11-07, review of the `EmitJump` /
-  `EmitBranch` nil preconditions; by reading).
-  `findBlockOffset` (`pkg/binate/vm/lower_func_helpers.bn`) returns 0 when the target is neither one of the
-  function's blocks nor one of its fault pads -- a nil target, or a block of another function -- and OP_JUMP /
-  OP_BRANCH lowering (`vm/lower_instr.bn`) uses that as the bytecode offset, so the VM re-enters the function at
-  its start with no error.  Valid IR never has such a target, and IR-gen's `EmitJump` / `EmitBranch` now panic on a
-  nil one, but the optimizer builds and retargets jumps itself (`iropt/inline_multiblock.bn`, `inline_pads.bn`,
-  `ir_phi_elim.bn`, `thread_jumps.bn`, `thread_const_phi.bn`, `fold_branch.bn`), and the verifier runs only under
-  `--verify-ir` and only after IR-gen, so a bug there would run as a silent loop or a wrong result under bni.
-  Fix: fail loud instead of returning 0 (an internal-error panic, or a lowering error if the VM lowering has a
-  path for one), after checking with a `builder-comp-int` run that nothing relies on the 0.
-
 - **Native and LLVM backends: a jump or branch to another function's block can land on a block of its own** —
-  🔵 OPEN (found 2026-11-08, review of the VM's outside-target lowering error; by reading).  The compiled
+  🟡 IN PROGRESS (claimed 2026-11-10; user: "do that fix after landing") (found 2026-11-08, review of the VM's
+  outside-target lowering error; by reading).  The compiled
   backends name a target by its label: the native ones as `L<function symbol>__<label>` (x64 `blockLabel`,
   likewise aarch64 / arm32), LLVM as the function-local `%<label>` (`codegen/emit_instr.bn`).  `ir.AddBlock`'s
   labels (`<name>.<index>`) are unique only within a function, and every function's first block is `entry.0`, so
