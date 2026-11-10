@@ -36,7 +36,7 @@ Progress: stage 1 — landed binate `08e9b84b1` (2026-10-17).  bnld rejects thre
 until stages 5–9 link it — landed binate `4d91dc223` (2026-10-17).  Stage 2a — landed binate `54d587043`
 (2026-10-17); 2b — landed binate `7df7a13b2` (2026-10-18; deliberate rejects beyond the design: `.tlsdesccall`
 must be followed by `blr` / a `blra*`, and no addend on a slot or descriptor reference); 2c — landed binate
-`0b78c67a8` (2026-10-18; `@TLVPPAGEOFF` on `ldr Xt` only, which is all ld64 links there).  Stage 3 design below (2026-11-09).  Next: 3a.
+`0b78c67a8` (2026-10-18; `@TLVPPAGEOFF` on `ldr Xt` only, which is all ld64 links there).  Stage 3 design below (2026-11-09); 3a — landed binate `ed7d60e28` (2026-11-09).  Next: 3b.
 
 1. **Assembler: thread-local sections and symbols** (all arches, both formats).  ELF: SHF_TLS (the `T`
    flag; `.tdata*` / `.tbss*` imply it, `.tbss*` NOBITS), `%tls_object` / `@tls_object` → STT_TLS, a symbol

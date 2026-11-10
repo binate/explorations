@@ -2804,6 +2804,12 @@ since `c361a10e8`) — "Support it, later", after the label-difference work; and
 (`mov rax, [lbl]`, clang R_X86_64_32S; only `[rip + lbl]` is supported) — "Add to completeness list".  An
 immediate starts only at a digit or `-` (`parseX64Operand`, `pkg/binate/asm/parse/x64.bn`), so `mov eax, ~8`,
 `mov eax, ~(~1)` and `mov eax, (1 + 2)` are rejected where clang takes them (found 2026-10-06 by review).
+Found 2026-11-09 (review of the x86-64 TLS operators, binate `ed7d60e28`), no wrong code: clang takes and bnas
+rejects `[x + rip]` (`rip` not first), a parenthesized term `[rax + (x@TPOFF)]`, an explicit `+ 0` after a slot
+operator (`[rip + x@GOTTPOFF + 0]`) and a `#` comment; bnas takes and clang rejects an explicitly scaled RSP index
+(`[rsp*1 + rax]`, swapped into the base) and an expression before a `[rip + ...]` operator whose addend comes to 0
+(`[rip + x + 4 - 4@GOTTPOFF]`, `[rip + (x)@GOTTPOFF]`: the operator applies to the whole expression there, to the
+symbol in any other memory operand).
 
 ## bnld (self-hosted linker)
 
