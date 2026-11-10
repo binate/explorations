@@ -47,7 +47,7 @@ does a named struct's literal.
   named type's name included), as genCompositeAddr does.
 - Test: a conformance test calling both (none yet).
 
-### A raw pointer boxed into `any` asserts to an interface whose impl takes a managed receiver, then calls it — 🔴 OPEN (MAJOR: memory corruption — a bus error on native; found 2026-11-08, temp-5, review of the .bn-only generic members fix; reproduced with a compiler built from binate `23524484b`; pre-existing)
+### A raw pointer boxed into `any` asserts to an interface whose impl takes a managed receiver, then calls it — 🟡 IN PROGRESS (claimed 2026-11-09, temp-5) (MAJOR: memory corruption — a bus error on native; found 2026-11-08, temp-5, review of the .bn-only generic members fix; reproduced with a compiler built from binate `23524484b`; pre-existing)
 
 pkg/pm's `.bni`: `type T struct { u int16 }`, `func (w @T) sz() int`, `impl @T : Sz`.  main:
 `var v pm.T; var a *any = &v; s, ok := a.(*pm.Sz)` succeeds and `s.sz()` runs the `@T` method on the raw
@@ -64,6 +64,12 @@ scratchpad's review-pm/q9, q9c, q8b.  Test: conformance spec/11-interfaces/111_r
 method (prints 30 / 40).
 Named non-struct generic instances (`impl @N[U] : Sz` with `type N[U any] [2]U`) hit it too since binate
 `69e40503c` gave them their impl rows -- before, the assertion missed (-1) and hid the crash.
+
+Decided 2026-11-09 (user: "Box records origin"): as `iface.assert.readonly` does for readonly, a box records
+whether it was made from a managed pointer; a box made from a raw pointer matches an interface target only
+through an impl a raw pointer can supply (a value, `*T` or `*readonly T` receiver), never an `@T` one; a box
+made from a managed pointer matches every impl, also when reached through a borrowed `*any`.  Rejected: letting
+the asserted operand's kind decide (it would miss a `*any` borrowed from a managed box).
 
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
