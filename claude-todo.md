@@ -7,6 +7,20 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### bnfmt writes a file that does not parse: a line comment in the last operand of a builtin without a type operand goes before its `)` — 🔴 OPEN (MAJOR: bnfmt turns valid source into source that does not parse; found 2026-11-10, temp-4, working on the comment-gap entry's closes; since binate `d2c6178e7`)
+
+`x := len(y.(p. // c` / `T))` formats as `x := len(y.(p.T) // c` / `)`: the line break after `)` ends the statement
+(a semicolon goes in), so the output does not parse -- `bnfmt -w` writes it and exits 0.  The same for `box`, `same`
+and the other builtins without a type operand.  Since `d2c6178e7` a list claims the comments from its last
+element's start to its close that nothing else prints (argsCloserGap, print_closegaps.bn), and puts a line comment
+there after a trailing comma, the close on the next line (writeCloserGap); but a builtin's operands take no trailing
+comma (the parser rejects `len(x,)`), so the line break follows the operand's last token.  A line comment reaches
+that gap when nothing inside the operand prints it: one inside a type (here a qualified name's, in an assertion).
+Before `d2c6178e7` it went on a line of its own after the statement.  A spread's `...` lets a line break follow
+(`g(y.(p.T)... // c` / `)` parses).  Fix: a list that takes no trailing comma and ends in no spread claims only
+block comments on one line before its close (claimInlineGap), leaving a line comment pending as before; test: the
+case above formats to output that parses and formats again the same.
+
 ### A native assertion misses a box the VM made of a bytecode type, whose satisfaction lives only in the VM's registry — 🔴 OPEN (MAJOR: a wrong run-time result across modes; found 2026-11-10, temp-5, review of the raw-box origin fix; reproduced with a host built from binate `007aabfb8`; pre-existing)
 
 A bytecode type `L` with `impl *L : xr.G` (G from a native-injected package `xr`) is boxed in the VM -- `var gl *xr.G
