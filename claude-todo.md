@@ -20,14 +20,20 @@ scratchpad rb/mainrepro).  Fix: needs a design -- native code reached with a VM-
 satisfaction entries (the VM registering them into the native registry, or SatLookup consulting the VM's); then an
 e2e test.
 
-### An interface assertion to `any` misses a present value whose type has no `(T, any)` row — 🟡 IN PROGRESS (claimed 2026-11-10, temp-5) (MAJOR: a wrong run-time result; found 2026-11-10, temp-5, review of the raw-box origin fix; reproduced with a compiler built from binate `007aabfb8`, LLVM and native; pre-existing)
+### A native package's type with no satisfaction entries gets a VM-made TypeInfo record, so a native concrete assertion on a box made in bytecode misses — 🔴 OPEN (MAJOR: a wrong run-time result across modes; found 2026-11-09, temp-5, review of the raw-box origin fix; from reading the code, not yet reproduced; pre-existing)
 
-`interface G`, `impl *T : G`, `var g *G = &t`: `_, ok := g.(*any)` gives ok=false, for a managed box too, though
-§11.12 `iface.assert` says `any` is satisfied by every present `x`.  An `any` target is lowered like any interface
-target, as a satisfaction lookup (irgen/gen_assert_iface.bn), which hits only where some module emitted a `(T, any)`
-row (a box into `any`).  Fix: lower an `any` target -- expression, comma-ok and type-switch forms -- as a presence
-check: a non-null vtable hits, recovering `{data, vtable}` (every vtable starts with the any-block, as the static
-upcast uses).
+`RegisterPackageSatEntries` (pkg/binate/vm/extern_register.bn) binds a native-only injected package's
+`__typeinfo.<T>` records into the VM's data-symbol table only through the package's satisfaction entries.  A type
+with none -- no impls at all; or, for T's readonly variant, no impl a readonly object may reach -- has no native
+record there, so when a bytecode module boxes it, `materializeTypeInfos` (pkg/binate/vm/lower_typeinfo.bn) mints a
+VM-owned record.  A native `x.(*T)` on that box compares the box's canonical record (the VM-owned one) with its
+native `&__typeinfo.<T>` and misses; the same assertion in bytecode hits (spec §7.13.14: the RESULT must agree across
+modes).  The VM binds T's record through a registered raw-origin variant's canonical word
+(vm/lower_typeinfo.bn bindViaOriginVariant), so the gap is a type none of whose records reaches the VM.
+Fix: list every record a package defines in its descriptor (a `TypeInfos` table beside `SatEntries`) and register
+them all, or have the VM resolve an unregistered `__typeinfo.<T>` of a native package by name.  Needs an e2e repro
+first (e2e/injected-iface-runfunc.sh is a model): a native-injected package exporting a struct with no impls, and a
+bytecode program that boxes one and passes it to a native function asserting `.(*T)`.
 
 ### A value-receiver method called directly on a composite literal of a named array or slice type fails to link — 🟡 IN PROGRESS (claimed 2026-11-10, work-6) (MAJOR: valid code fails to build; found 2026-11-09, work-6, review of plan-irgen-checker-types.md 4d3; reproduced with a compiler built from binate `3077a9b9f`, LLVM and native; pre-existing)
 
@@ -49,30 +55,6 @@ does a named struct's literal.
 - Fix: take a composite-literal receiver's type from compositeDeclType (the checker's record of the literal, a
   named type's name included), as genCompositeAddr does.
 - Test: a conformance test calling both (none yet).
-
-### A raw pointer boxed into `any` asserts to an interface whose impl takes a managed receiver, then calls it — 🟡 IN PROGRESS (claimed 2026-11-09, temp-5) (MAJOR: memory corruption — a bus error on native; found 2026-11-08, temp-5, review of the .bn-only generic members fix; reproduced with a compiler built from binate `23524484b`; pre-existing)
-
-pkg/pm's `.bni`: `type T struct { u int16 }`, `func (w @T) sz() int`, `impl @T : Sz`.  main:
-`var v pm.T; var a *any = &v; s, ok := a.(*pm.Sz)` succeeds and `s.sz()` runs the `@T` method on the raw
-`*T` -- native aa64 dies with SIGBUS, LLVM prints 30 -- though the static conversion `var s *pm.Sz = &v` is
-rejected (the impl needs a managed receiver).  Generic receivers too (`impl @W[U] : Sz`).  §11.12
-`iface.assert` matches "an `impl … : J` anywhere in the program" by the dynamic type with its `*`/`@`
-stripped, saying nothing of the impl's receiver kind; only `iface.assert.readonly` restricts the match, for a
-box of a `readonly` object.  Fix (needs a spec amendment, so the user's call on the wording): match an
-interface target only through an impl whose receiver the box's own kind reaches (a raw box does not reach an
-`@T` impl), as `iface.assert.readonly` does for readonly -- the box records whether it was made from a
-managed pointer, and the satisfaction lookup checks it; conformance on every mode.  Probes: the session
-scratchpad's review-pm/q9, q9c, q8b.  Test: conformance spec/11-interfaces/111_raw_box_assert_managed_impl_misses
-(`.xfail.all`, binate `1052a24f2`): in one package LLVM aborts and native aa64 segfaults; the VM runs the
-method (prints 30 / 40).
-Named non-struct generic instances (`impl @N[U] : Sz` with `type N[U any] [2]U`) hit it too since binate
-`69e40503c` gave them their impl rows -- before, the assertion missed (-1) and hid the crash.
-
-Decided 2026-11-09 (user: "Box records origin"): as `iface.assert.readonly` does for readonly, a box records
-whether it was made from a managed pointer; a box made from a raw pointer matches an interface target only
-through an impl a raw pointer can supply (a value, `*T` or `*readonly T` receiver), never an `@T` one; a box
-made from a managed pointer matches every impl, also when reached through a borrowed `*any`.  Rejected: letting
-the asserted operand's kind decide (it would miss a `*any` borrowed from a managed box).
 
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 

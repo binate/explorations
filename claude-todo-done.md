@@ -1,3 +1,40 @@
+### An interface assertion to `any` missed a present value whose type had no `(T, any)` row — DONE (binate `d5c58602c`, 2026-11-10, temp-5; user: "wait 8 minutes, then land") (MAJOR: a wrong run-time result; found 2026-11-10, temp-5, review of the raw-box origin fix; pre-existing)
+
+`interface G`, `impl *T : G`, `var g *G = &t`: `_, ok := g.(*any)` gave ok=false (the expression form aborted with
+"main.T is not any"), though §11.12 `iface.assert` says `any` is satisfied by every present `x`: an `any` target was
+lowered as a satisfaction lookup, which hits only where some module boxed the type into `any`.  Fix (binate
+`d5c58602c`): an `any` target takes no lookup (emitTargetSubvtable); a present value hits with its own vtable, as the
+static upcast uses.  Tests: conformance spec/11-interfaces/113, irgen TestGenAssertAnyTargetTakesNoLookup.
+
+### A raw pointer boxed into `any` asserted to an interface whose impl takes a managed receiver, then called it — DONE (binate `8a4003434`, docs `fcab2f9`, 2026-11-10, temp-5; user: "wait 8 minutes, then land") (MAJOR: memory corruption — a bus error on native; found 2026-11-08, temp-5, review of the .bn-only generic members fix; pre-existing)
+
+`var v pm.T; var a *any = &v; s, ok := a.(*pm.Sz)` succeeded for `impl @T : Sz` and `s.sz()` ran the `@T` method on
+the raw `*T` (native aa64 SIGBUS, LLVM printed 30), though the static conversion is rejected.  Decided 2026-11-09
+(user: "Box records origin"): a box records whether it was made from a managed pointer, and one made from a raw
+pointer matches an interface target only through an impl a raw pointer can supply (value, `*T`, `*readonly T`).
+Spec: docs `fcab2f9` adds §11.12 `iface.assert.origin`, a "canonical" row in the §7.13.14 TypeInfo table, and the
+§7.13.8 / §20.3 wording that follows.
+
+Fix (binate `8a4003434`): a declared named type T gets raw-origin variant receiver identities (`__raw_T`, and the
+readonly variant of it) with rows only for impls a raw pointer can supply; a box made from a raw pointer takes the
+variant's vtable.  Every TypeInfo record gets a 12th word, its canonical record (the record of its boxes' dynamic
+type: itself, or T's own for a raw-origin variant); `reflect.TypeOf` returns it and a concrete assertion compares
+it.  Found on the way and fixed in the same commit:
+- reflect.TypeOf returning the variant's record broke fmt's cycle guard (conformance 1163) -- hence the canonical
+  word.
+- `reflect.TypeOf` of an unset interface read slot 1 of a null vtable: `fmt.Println` of a nil interface segfaulted
+  on LLVM and native (pre-existing); it now returns nil in every mode (conformance 1739).
+- pkg/builtins/lang's primitive impls were getting raw-origin rows no box uses (52 vtables); predeclared types now
+  get none, and an impl with a managed receiver on one fails loud.
+- A native-injected package that boxes a raw `*T` into `any` registers T's raw-origin variant record in the VM but
+  perhaps not T's own; the VM now binds T's record to the one the variant names as canonical
+  (bindViaOriginVariant) instead of making its own, with which a bytecode `.(*T)` missed (e2e
+  injected-raw-box-assert).
+Cost: bnc grows 232 KB (2.4%), 65 KB of it read-only data.  Tests: conformance spec/11-interfaces/111 (was
+`.xfail.all`), 112, 1739; e2e injected-raw-box-assert; irgen/ir/irutil/irdata/vm unit tests.  Three adversarial
+reviews: the second found the bytecode miss above, after concrete assertions moved to the canonical record.  Left
+open: a native package's type none of whose records reach the VM gets a VM-made one (its own MAJOR entry).
+
 ### bnfmt moves a comment before a list's close to after the statement -- DONE (binate `91a0c17ee`, `d2c6178e7`, `9edd1343f`, 2026-11-10, temp-4; user: "yes, add that cache; then go back to the open bnfmt items", then "wait 4 minutes, then land") (LOW; found 2026-11-09, temp-4; pre-existing; the types', assertions', slices', type-operand builtins', `__c_call`'s, function types' results' and kept parentheses' gaps stay open in claude-todo.md)
 
 A comment before a list's close went after the statement: `g(x, n /* c */)` printed `g(x, n) /* c */`, `g[int /*
