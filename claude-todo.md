@@ -2925,7 +2925,10 @@ the time, sampled), and batchTypeDeclOf finds a named type's declaration by scan
 crashed in its recursion): 34 s for 20,000, against 5.4 s with no read (user CPU).  Fix:
 index the batch's type declarations by name, and check a by-value cycle only for the declarations on a cycle the
 walk met (a declaration reached by value while its walk is still going), as checkTypeDepths' valueAcyclic does
-after collection.
+after collection.  An importer's checks of a `.bni`'s chain of structs are quadratic the same way:
+checkBniValueEmbedding runs checkTypeByValueCycle for each declaration (two thirds of the 34 s of a 12,000-struct
+chain read by `sizeof`), so bni_by_name_walk_test.bn's struct chain is 3,000 long, short of where the old by-name
+recursion crashed (~10,500).
 
 ### Checking is quadratic in a package's number of declarations — 🔴 OPEN 🟢 LOW (found 2026-11-05, work-1, deep-nesting memoization stage)
 
@@ -2935,8 +2938,12 @@ still superlinear in a package with many declarations grows with their number, n
 `sample` of 4000-declaration programs: loader.MergeFiles; the checker's checkTypeRedeclaration, checkDuplicateDecls,
 preRegisterTypeNames and defineType (Scope.Define appends each symbol with slices.Append, which copies); and
 slices.Append of declaration lists.  IR-gen's pending named types and type aliases became a set and an index in
-binate `b6cb84aee`.  Fix: index what these scan by name (a Scope already indexes its names past a threshold), and
-build the lists with vec.
+binate `b6cb84aee`.  The by-name resolution (binate `f55523b7e`) scans the same way: findBniTypeDecl / findBniVarDecl /
+findConstDecl search the declarations by name (a `.bni` constant's declared type `int` searches them all), and
+ConstResolved / ConstResolving, a `.bni`'s TypesResolving / BniTypesResolved and enterBniDeclResolution's list are
+appended by copying and searched linearly, so its deep unit tests take ~450 s on a single-VM lane, and its `.bni`
+variable chain is 6,000 long, short of where the old recursion crashed (~12,000).  Fix: index what these scan by name
+(a Scope already indexes its names past a threshold), and build the lists with vec.
 
 ### The container retypes and AssignableTo's decay through named types are quadratic in depth — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-08, work-1, deep-nesting check part 3; pre-existing)
 

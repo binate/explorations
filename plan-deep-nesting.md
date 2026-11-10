@@ -272,6 +272,29 @@ recursive, so far more than 75).
   Review: no defect.  None of the ancestor walks keeps a visited set: a ladder of diamonds is exponential
   (claude-todo, LOW).  Next: collection's recursion (resolveBniTypeByName on `.bni` chains; sizeof / constant chains).
 
+- Collection's by-name resolution DONE: binate `f55523b7e` (landed 2026-11-09; user: "yes, go ahead") --
+  resolveConstByName and the `.bni`'s resolveBniTypeByName / resolveBniConstByName / defineBniVarByName run as one
+  walk on an explicit stack of calls (check_by_name_walk.bn, bni_by_name_walk.bn), the same side effects in the same
+  order.  20,000-deep chains of constants (`.bn` and `.bni`), `.bni` variables and `.bni` constants alternating with
+  `sizeof` types compile; a `.bni` chain of 20,000 structs is reported as nesting too deeply.  cmd/bnc's IR and 2030
+  corpus programs identical; 743 constant / `.bni` / `sizeof` conformance tests pass on LLVM and the VM; -0.10%
+  instructions.  Review: no defect.  Kept with the user's "yes, go ahead": the deep `.bni` variable (6,000) and
+  struct (3,000) tests are shorter than where the old recursion crashed (~12,000, ~10,500), as the checker's lists and
+  an importer's by-value checks are quadratic (claude-todo, "Checking is quadratic in a package's number of
+  declarations", "Preparing a layout during collection is quadratic"); the seven deep tests take ~450 s on a
+  single-VM lane.
+  Still recursive (20,000-deep probes crash), through general checking code, not a by-name resolver: `sizeof` in a
+  type's array length (`type T0 [sizeof(T1)]uint8`, `.bn` and `.bni`; crashed at ~920 levels); type and interface
+  aliases (`type A0 = A1`, `interface J0 = J1`; ~2,500); a `.bn` constant reading a type whose array length is the
+  next constant (`const C = sizeof(T)`, `type T [C']uint8`; ~400); function signatures (`func f0() [len(f1())]int8`,
+  `.bn` and `.bni`; ~880); `.bn` variables (`var A0 [len(A1)]int8`; ~1,200).  Interface parent chains report nesting
+  too deeply; named types over named types (`type N0 N1`) take 207 s at 20,000 but do not crash.  Decided (user,
+  2026-11-09: "resolve first, I guess?"; "let's do that work next"): a declaration's dependencies are resolved first
+  -- before its own resolution, the declarations its array lengths, initializer and type expressions would resolve on
+  demand (constants, variables, functions, types whose layouts `sizeof` / `alignof` read and what those hold by
+  value, pending aliases) are resolved on the by-name walk, so the on-demand resolutions inside find them done; one
+  being resolved is left to the on-demand path, which reports the cycle as now.  No implementation limit.  Next -- IN
+  PROGRESS (2026-11-09, work-1); then the parser nesting limit.
 ## Decisions (2026-11-03)
 
 - Step 1, all of it, staged: user "All of them, staged (Recommended)".
