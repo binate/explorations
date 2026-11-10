@@ -29,7 +29,7 @@ row (a box into `any`).  Fix: lower an `any` target -- expression, comma-ok and 
 check: a non-null vtable hits, recovering `{data, vtable}` (every vtable starts with the any-block, as the static
 upcast uses).
 
-### A value-receiver method called directly on a composite literal of a named array or slice type fails to link — 🔴 OPEN (MAJOR: valid code fails to build; found 2026-11-09, work-6, review of plan-irgen-checker-types.md 4d3; reproduced with a compiler built from binate `3077a9b9f`, LLVM and native; pre-existing)
+### A value-receiver method called directly on a composite literal of a named array or slice type fails to link — 🟡 IN PROGRESS (claimed 2026-11-10, work-6) (MAJOR: valid code fails to build; found 2026-11-09, work-6, review of plan-irgen-checker-types.md 4d3; reproduced with a compiler built from binate `3077a9b9f`, LLVM and native; pre-existing)
 
 ```
 type Row [3]int
