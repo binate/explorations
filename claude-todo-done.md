@@ -1,3 +1,34 @@
+### bnfmt moves a comment before a list's close to after the statement -- DONE (binate `91a0c17ee`, `d2c6178e7`, `9edd1343f`, 2026-11-10, temp-4; user: "yes, add that cache; then go back to the open bnfmt items", then "wait 4 minutes, then land") (LOW; found 2026-11-09, temp-4; pre-existing; the types', assertions', slices', type-operand builtins', `__c_call`'s, function types' results' and kept parentheses' gaps stay open in claude-todo.md)
+
+A comment before a list's close went after the statement: `g(x, n /* c */)` printed `g(x, n) /* c */`, `g[int /*
+c */](x)` printed `g[int] /* c */(x)`, and in `T{` / `1,` / `2, // c` / `}` the `// c` went on a line of its own
+after the statement, a blank line after it.  The syntax tree records no close's position.
+- binate `91a0c17ee` (lexer, parser, token, ast): a comment-collecting lexer pairs each opening bracket with its
+  close (token.Bracket; brackets.bn), keeping the pairs across the parser's Save / Restore, and the parsed file
+  carries them (ast.File.Brackets); the compiler's lexer records nothing.  Tests: brackets_test.bn,
+  TestParseFileBrackets.
+- binate `d2c6178e7` (print_closegaps.bn, print_wrap.bn, print_expr.bn, print_builtin.bn, print_listcomments.bn,
+  the read-back files): a call, an index, a composite, a type-argument list, a function type's parameters and a
+  builtin's operands without a type operand take, in source order, the comments from the last element's start to
+  the close that nothing prints, and count them in the layout; a line comment goes after a trailing comma (none
+  after a `...` spread), the close on a line of its own; an empty list keeps its comments between its brackets.
+  Read-back shapes key on the closes too.  Tests: print_closegaps_test.bn; TestTrailingCommentsAfterAnInnerComment
+  now puts `/* z */` before the list's close.
+- binate `9edd1343f`: what prints on one line wherever it starts (unbreakable and its kin) moved from print_wrap.bn
+  (485 lines) to print_unbreakable.bn.
+Against the bnfmt of main before it: the tree's 7,623 files unchanged; with comments injected before closes (393
+files of block comments, 1,500 of line comments after added trailing commas, 1,500 of comments before two closes in
+a row) no comment is lost, reordered or added, no token changes, and every output reformats to itself; the generated
+statement mixes lose 34 comment-order findings the old bnfmt had.  17 files get a line past 100 columns, each a long
+comment kept in place where the line cannot make room (15 of those source lines were past the cap already).  Two
+reviews: the first found comments reordered (`g(x /* a */, /* b */)` printed `g(x /* b */) /* a */`) and a read-back
+shape shared by a call with a comment before its close and the same call without one, both fixed and tested; the
+second (about 1,700 probes) found no correctness defect, and its layout finding (a block then a line comment before a
+close counted only the first) was fixed.  Composites nested 48 deep with a comment before every close take 3.3 s of
+user time instead of 0.4.
+A comment before a slice's `:` or a type-operand builtin's `,` goes after the separator, as a list's comment before a
+comma does; the todo entry no longer lists those two.
+
 ### asm: an alias with an addend gave a GOT / thread-local slot or descriptor reference an addend -- DONE (binate `007aabfb8`, 2026-11-09, work-2; MAJOR wrong code, found by review of the x86-64 TLS stage 3b; user: "fix MAJOR 2 now before 3c")
 
 An alias of a symbol not defined in the file (`y = x + 8`) is folded into its uses at Finish (`foldUnlistedAliasUses`
