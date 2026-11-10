@@ -295,6 +295,25 @@ recursive, so far more than 75).
   value, pending aliases) are resolved on the by-name walk, so the on-demand resolutions inside find them done; one
   being resolved is left to the on-demand path, which reports the cycle as now.  No implementation limit.  Next -- IN
   PROGRESS (2026-11-09, work-1); then the parser nesting limit.
+- Dependencies first, stage 1 DONE: binate `0a0df0630` (landed 2026-11-10; user: "that seems fine, and go ahead and
+  land") -- collectBatchTypeDecl is a call on the by-name walk (check_by_name_batch.bn): marked as being collected, it
+  resolves what its array lengths read, in evaluation order (the batch's constants, as on demand; the batch's types
+  whose layouts they read, each collected with the types it holds by value -- taken from its type as resolved, marked
+  as walked meanwhile, recorded in TypesReadied), then is collected; a batch constant resolves the types whose layouts
+  its initializer reads the same way.  Reads are resolved ahead only through the forms the scans model
+  (check_by_name_reads.bn: names, literals, unary and binary operators, builtins, composite literals; layout reads only
+  from `sizeof` / `alignof` / `bit_cast` operands and composite literals); the first other read -- a call, a selector,
+  an instance, an alias, a name other than a batch constant -- and every read after it stay in place.
+  DeclBatch.TypeIndex indexes the batch's types by name.  20,000-deep `sizeof`-length chains, type / constant
+  alternations and struct-field chains compile; cmd/bnc's IR and 2030 corpus programs identical; instructions within
+  noise.  Five review rounds; of 148 probe programs, old checker vs new, only invalid programs whose reading length has
+  an error of its own differ: the order of the same errors (six), and one extra, real cycle error after an operand that
+  fails (`[cast(int, 1.5) + K]`) -- accepted (user: "that seems fine").  Found on the way (claude-todo, minor, tests to
+  add): an alias reaching itself through a distinct type is a false recursive alias in one declaration order; a
+  variable's length read makes an instance's build report a false cycle in one order.
+  Next -- still recursive at 20,000 (a few hundred to ~2,500 levels): aliases (`type A0 = A1`, `interface J0 = J1`,
+  pending and finished), functions (`len(f())`), variables (`len(v)`) and methods in a `.bn`, and the `.bni`
+  counterparts (`sizeof` lengths, aliases, functions); then the parser nesting limit.
 ## Decisions (2026-11-03)
 
 - Step 1, all of it, staged: user "All of them, staged (Recommended)".
