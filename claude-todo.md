@@ -7,25 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### asm: an alias with an addend gives a GOT / thread-local slot or descriptor reference an addend, past its "no addend" check — 🟡 IN PROGRESS (claimed 2026-11-09, work-2; MAJOR: wrong code; found 2026-11-09, work-2, review of the x86-64 TLS stage 3b; pre-existing for `@GOTPCREL`)
-
-`y = x + 8` with x not defined in the file, then `mov rax, qword ptr [rip + y@GOTPCREL]`: bnas emits
-R_X86_64_REX_GOTPCRELX against x + 4 (the -4 included), which reads 8 bytes past x's GOT slot, and lld does not
-relax it (its addend is not -4).  clang rejects it ("expected relocatable expression").  Likewise `[rip +
-y@GOTTPOFF]` / `@TLSGD` / `@tlsdesc` (x + 4) and `call qword ptr [rax + y@tlscall]` (TLSDESC_CALL x + 8), each a
-form whose "takes no addend" check (parseX64RipSpec's `rr.Val != 0`, x64.ripTlsOk, the TLS descriptor call's
-`mem.Disp != 0`) passed because the parser saw `y` with no addend.  aarch64 the same: `adrp x0, :gottprel:y`,
-`:tlsdesc:y`, `ldr x0, [x0, :gottprel_lo12:y]`, `:got:y` all relocate against x + 8 — clang does too there, but
-it contradicts bnas's own rule (no addend on a slot or descriptor reference, and the decision of 2026-10-14 to
-keep rejecting GOT addends on ELF).  Mach-O's writer rejects it ("this relocation cannot carry an addend").
-Cause: at Finish, an alias whose target is not defined here is folded into its uses (`foldUnlistedAliasUses` →
-`renameUses`, `pkg/binate/asm/parse/parse_alias.bn`), which adds the alias's offset to every fixup naming it,
-whatever its kind, after the parser's and the encoders' addend checks ran.  An alias of a symbol defined here
-keeps the reference on the alias (no addend), as clang does.  Fix: `renameUses` rejects a nonzero offset on a
-fixup kind that takes no addend — x86-64 FIX_GOTPCREL and FIX_GOTTPOFF .. FIX_TLSCALL; aarch64's GOT kinds
-(FIX_ADRP_GOT_HI21, FIX_LD_GOT_LO12, FIX_LD_GOTPAGE_LO15, FIX_LD_GOT_PREL19), its initial-exec and TLSDESC kinds
-and the TLVP pair — naming the alias and its line; with tests on each arch.
-
 ### A value-receiver method called directly on a composite literal of a named array or slice type fails to link — 🔴 OPEN (MAJOR: valid code fails to build; found 2026-11-09, work-6, review of plan-irgen-checker-types.md 4d3; reproduced with a compiler built from binate `3077a9b9f`, LLVM and native; pre-existing)
 
 ```

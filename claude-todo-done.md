@@ -1,3 +1,19 @@
+### asm: an alias with an addend gave a GOT / thread-local slot or descriptor reference an addend -- DONE (binate `007aabfb8`, 2026-11-09, work-2; MAJOR wrong code, found by review of the x86-64 TLS stage 3b; user: "fix MAJOR 2 now before 3c")
+
+An alias of a symbol not defined in the file (`y = x + 8`) is folded into its uses at Finish (`foldUnlistedAliasUses`
+-> `renameUses`, `pkg/binate/asm/parse/parse_alias.bn`), each use then naming x plus the alias's addend, after the
+parser's and encoders' "takes no addend" checks had passed on `y`.  So x86-64 `mov rax, qword ptr [rip + y@GOTPCREL]`
+was R_X86_64_REX_GOTPCRELX against x + 4 (8 bytes past x's GOT slot, not relaxable; clang rejects the use), likewise
+`@GOTTPOFF` / `@TLSGD` / `@TLSLD` / `@tlsdesc` / `@tlscall`; AArch64 ELF's `:got:` family and initial-exec / TLSDESC
+references took x + 8 (as clang's do, but bnas rejects the addend written there); Mach-O's writer rejected them with no
+line.  `007aabfb8`: the fold rejects a nonzero addend when a fixup naming the alias takes none (fixupTakesNoAddend:
+x86-64 FIX_GOTPCREL and FIX_GOTTPOFF .. FIX_TLSCALL; AArch64's GOT kinds, the TLVP pair and isTlsSlotKind), at the
+alias's definition, named as written (a redefined alias's hidden alias too, also in "is an alias before the start of
+its section").  TestAliasAddendOnSlotRejected / Where / WhereTaken.  Left as is (review, low): `call y@PLT` through
+such an alias is a PC32 call to x + 8, as `call x + 8` is (the fixup records no `@PLT`; the "@PLT takes a plain
+symbol" rule is bypassed, no wrong code); an x86-64 operand whose value waits for a second pass is an error there
+(clang takes `call y` with `y = x + (L2 - L1)` defined before L1).
+
 ### pkg/binate/format: holdsBlock walked an element's whole subtree each time it was asked -- DONE (binate `0c1dbfcc0`, 2026-11-09, temp-4; user: "yes, add that cache; then go back to the open bnfmt items", then "wait 7 minutes, then go ahead") (from the format part of "CI red on main")
 
 Past STABLE_LIST_DEPTH an element is asked whether it holds a block (a function literal, or a struct or function

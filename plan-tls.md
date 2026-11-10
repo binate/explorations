@@ -37,8 +37,8 @@ until stages 5–9 link it — landed binate `4d91dc223` (2026-10-17).  Stage 2a
 (2026-10-17); 2b — landed binate `7df7a13b2` (2026-10-18; deliberate rejects beyond the design: `.tlsdesccall`
 must be followed by `blr` / a `blra*`, and no addend on a slot or descriptor reference); 2c — landed binate
 `0b78c67a8` (2026-10-18; `@TLVPPAGEOFF` on `ldr Xt` only, which is all ld64 links there).  Stage 3 design below (2026-11-09); 3a — landed binate `ed7d60e28` (2026-11-09); 3b — landed binate `d7a1706fc` (2026-11-09; also rejected: a
-call or jump through a thread-local slot, and a datum's addend mixing + or - with | ^ & << >>).  Next: the
-alias-addend MAJOR in claude-todo (user, 2026-11-09: fix it before 3c), then 3c.
+call or jump through a thread-local slot, and a datum's addend mixing + or - with | ^ & << >>).  The
+alias-addend MAJOR the 3b review found — fixed, binate `007aabfb8`.  Next: 3c.
 
 1. **Assembler: thread-local sections and symbols** (all arches, both formats).  ELF: SHF_TLS (the `T`
    flag; `.tdata*` / `.tbss*` imply it, `.tbss*` NOBITS), `%tls_object` / `@tls_object` → STT_TLS, a symbol
