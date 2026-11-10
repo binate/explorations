@@ -3295,6 +3295,32 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
   lowering error.  Fix: before emitting a function, check that every jump and branch target is one of its blocks
   (`SetError` on the native backends, an internal error on LLVM), with a test per backend.
 
+- **Native, LLVM and VM: a phi entry naming another function's block reaches a block of its own** — 🔵 OPEN
+  (found 2026-11-10, review of the backends' jump-target check; by reading).  A phi names each predecessor by
+  block, and nothing outside `--verify-ir` (`VERR_BAD_PHI_PRED`) checks that it is one of the function's.
+  LLVM's `blockExitLabel` (`codegen/emit_phi_pred.bn`) falls back to the block's own label for a block of
+  another function, so the `phi` names this function's block of that label.  `iropt.EliminatePhis`, which the
+  native backends (`common.EmitObject`, before the jump-target check) and the VM (`vm/lower_func.bn`,
+  `vm/lower_frame_check.bn`) run, takes the predecessors from the phi's own entries, so `placeCopiesForEdge`
+  splices the copies into the other function's block (or redirects its branch to a new `phicrit` block) and
+  this function's real edge gets none: a wrong value with no error.  Valid IR never has such an entry; an
+  optimizer bug (an inliner remap, a pass that retargets edges) would.  Fix: check every phi entry's block --
+  nil, another function's (`Func` is not f) or a fault pad (`IsFaultPad`), as `irbuild.ForeignJumpError` does
+  for jump targets -- before `EliminatePhis` on native and in the VM, and in `emitFuncDbg` on LLVM, with a test
+  per backend.
+
+- **IR: a block label can come back after a pass drops a block, so a stale jump to the dropped block would
+  reach the new one** — 🔵 OPEN, decision needed (found 2026-11-10, review of the backends' jump-target check;
+  by reading).  `ir.AddBlock` numbers a label by the current `len(f.Blocks)` (`ir/ir.bn`), and mem2reg,
+  fold_branch and thread_jumps drop blocks from `f.Blocks`, so a block added after a drop can take a dropped
+  block's label.  A jump left pointing at the dropped block is still `Func == f`, so
+  `irbuild.ForeignJumpError` passes it; both compiled backends would then name the new block -- a silent
+  miscompile.  Without the reuse it names an undefined label, which the assembler or clang rejects.  Latent:
+  the inliner (`inl`, `inlcont`) runs before the pruning passes, and the only block added after them is phi
+  elimination's `phicrit`.  Options: number labels from a per-function counter that never goes back (labels
+  then stay unique for the function's life, so a stale jump always names an undefined label), or have
+  `ForeignJumpError` check membership in `f.Blocks` (a per-function address table, O(blocks)).
+
 - **Checker rejects valid alias uses in const / untyped-literal contexts** — 🔵 OPEN (found
   2026-09-26).  Spec type.alias.transparency: an alias is its target in every context.  But with
   `type I8 = int8`: `type N I8; fn(-5)` / `var n N = 3` → "cannot assign untyped int to N" (while
