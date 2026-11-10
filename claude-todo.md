@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### asm: an alias with an addend gives a GOT / thread-local slot or descriptor reference an addend, past its "no addend" check — 🔴 OPEN (MAJOR: wrong code; found 2026-11-09, work-2, review of the x86-64 TLS stage 3b; pre-existing for `@GOTPCREL`)
+### asm: an alias with an addend gives a GOT / thread-local slot or descriptor reference an addend, past its "no addend" check — 🟡 IN PROGRESS (claimed 2026-11-09, work-2; MAJOR: wrong code; found 2026-11-09, work-2, review of the x86-64 TLS stage 3b; pre-existing for `@GOTPCREL`)
 
 `y = x + 8` with x not defined in the file, then `mov rax, qword ptr [rip + y@GOTPCREL]`: bnas emits
 R_X86_64_REX_GOTPCRELX against x + 4 (the -4 included), which reads 8 bytes past x's GOT slot, and lld does not
