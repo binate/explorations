@@ -7,6 +7,19 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### A native assertion misses a box the VM made of a bytecode type, whose satisfaction lives only in the VM's registry — 🔴 OPEN (MAJOR: a wrong run-time result across modes; found 2026-11-10, temp-5, review of the raw-box origin fix; reproduced with a host built from binate `007aabfb8`; pre-existing)
+
+A bytecode type `L` with `impl *L : xr.G` (G from a native-injected package `xr`) is boxed in the VM -- `var gl *xr.G
+= &l; var up *any = gl`, or managed -- and passed to a native `xr` function that asserts `a.(*G)` / `a.(@G)`: the
+native assertion misses (prints -1; expected L's `Get()`).  A native-made box passed back the same way hits.  The
+`(L, G)` satisfaction entry is in the VM's registry only (vm lowerImplVtables -> registerSatEntry), while native code
+looks the VM-made record of L up in rt.SatLookup's native registry, which has no entry for it.  Repro: a host like
+e2e/injected-raw-box-assert.sh's, injecting `xr` with `interface G { Get() int }` and `func CallViaAny(a *any) int
+{ g, ok := a.(*G); if !ok { return -1 }; return g.Get() }`, running a VM program that defines L as above (session
+scratchpad rb/mainrepro).  Fix: needs a design -- native code reached with a VM-made value has to see the VM's
+satisfaction entries (the VM registering them into the native registry, or SatLookup consulting the VM's); then an
+e2e test.
+
 ### An interface assertion to `any` misses a present value whose type has no `(T, any)` row — 🟡 IN PROGRESS (claimed 2026-11-10, temp-5) (MAJOR: a wrong run-time result; found 2026-11-10, temp-5, review of the raw-box origin fix; reproduced with a compiler built from binate `007aabfb8`, LLVM and native; pre-existing)
 
 `interface G`, `impl *T : G`, `var g *G = &t`: `_, ok := g.(*any)` gives ok=false, for a managed box too, though
