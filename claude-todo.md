@@ -3033,6 +3033,16 @@ Assign):
 - right after a `(` the source keeps around an expression, whose position the parser does not record (it keeps
   only the Parenthesized flag): `x = (/* c */ a + b) * c` prints `x = /* c */ (a + b) * c`, stable after (seen
   2026-11-08 working on the declarations' gaps).
+- before ANY list's close, not only the three above (found 2026-11-09): a call's, an index's, a composite's and a
+  generic instantiation's (`g(x, n /* c */)` prints `g(x, n) /* c */`, `g[int /* c */](x)` prints `g[int] /* c
+  */(x)`; `T{` / `1,` / `2, // c` / `}` puts `// c` on a line of its own after the statement, a blank line after
+  it); and before a slice's `:` (`s[a /* c */:b]` prints `s[a:/* c */ b]`) and a type-operand builtin's `,`
+  (`cast(int /* c */, n)` prints `cast(int, /* c */ n)`).  The tree records no close's position.  Plan: a
+  comment-collecting lexer keeps its bracket tokens (rewound by Restore, as its comments are), the parser pairs them
+  (a new ast.File record of each opener and its close), and each list claims the gap before its close as a
+  parameter list does (writeCloserGap, closerTail: a line comment there goes after a trailing comma, the close on a
+  line of its own); the assertion's, slice's, builtin's and parentheses' closes and the gap after a kept `(` find
+  their brackets the same way.
 
 ### bnfmt gives a var's type no room for the ` = <value>` after it — 🟢 LOW (found 2026-11-08, temp-4, working on the declarations' comment gaps; pre-existing)
 
