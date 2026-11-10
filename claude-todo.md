@@ -7,6 +7,15 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### An interface assertion to `any` misses a present value whose type has no `(T, any)` row — 🟡 IN PROGRESS (claimed 2026-11-10, temp-5) (MAJOR: a wrong run-time result; found 2026-11-10, temp-5, review of the raw-box origin fix; reproduced with a compiler built from binate `007aabfb8`, LLVM and native; pre-existing)
+
+`interface G`, `impl *T : G`, `var g *G = &t`: `_, ok := g.(*any)` gives ok=false, for a managed box too, though
+§11.12 `iface.assert` says `any` is satisfied by every present `x`.  An `any` target is lowered like any interface
+target, as a satisfaction lookup (irgen/gen_assert_iface.bn), which hits only where some module emitted a `(T, any)`
+row (a box into `any`).  Fix: lower an `any` target -- expression, comma-ok and type-switch forms -- as a presence
+check: a non-null vtable hits, recovering `{data, vtable}` (every vtable starts with the any-block, as the static
+upcast uses).
+
 ### A value-receiver method called directly on a composite literal of a named array or slice type fails to link — 🔴 OPEN (MAJOR: valid code fails to build; found 2026-11-09, work-6, review of plan-irgen-checker-types.md 4d3; reproduced with a compiler built from binate `3077a9b9f`, LLVM and native; pre-existing)
 
 ```
