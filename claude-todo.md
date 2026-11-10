@@ -1280,6 +1280,26 @@ scope per file; the import-once change (binate `eaf5c546b`) added `Checker.Check
 scopes can be built there.  Tests: to add — unit tests through CheckProgram, expected to fail until the fix, and an
 e2e case (the conformance runner builds a main program from one main.bn).
 
+### An alias whose array length reads a composite of a type pointing back at the alias is a "recursive alias" in one declaration order — 🔴 OPEN (minor: a valid program rejected; found 2026-11-09, work-1, review of the deep-nesting dependencies-first stage; on main at binate `f55523b7e`; pre-existing)
+
+`type A = [len([2]U{})]uint8` declared before `type U struct { p *A }` is "invalid recursive type alias A" at U's `*A`;
+with U declared first the program compiles (`len(a)` is 2).  Spec `type.alias.acyclic` forbids an alias's target
+reaching the alias "directly or through other aliases"; here it goes through the distinct type U, behind a pointer, so
+the program is valid.  The composite `[2]U{}` in A's length collects U on demand while A is being resolved
+(ALIAS_RESOLVING), and U's field type `*A` names A, which resolvePendingAliasNamed reports as recursive.  Fix: needs
+design -- an alias being resolved, reached through a distinct type behind a pointer, is not a cycle.  Tests: to add
+(conformance, xfailed).
+
+### A layout read from a variable's array length makes an instance's build report a false cycle, in one declaration order — 🔴 OPEN (minor: a valid program rejected; found 2026-11-09, work-1, review of the deep-nesting dependencies-first stage; on main at binate `f55523b7e`; pre-existing)
+
+`var v [sizeof(R)]int` declared first, then `type R struct { p P }`, `type P struct { b *Box[R] }` and `type Box[X any]
+struct { pad [sizeof(X)]uint8 }`: "cyclic type definition involving `R` (in Box[R], instantiated at" P's field);
+with the variable declared last the program compiles.  R's size is P's, a pointer's, so there is no cycle.  The same
+happens through `var v [K]int` with `const K = sizeof(R)`.  The reviewer's hypothesis, unverified: the read comes
+from a variable's length, where no type is being collected, so when flushLayoutWaits builds no instance in a round it
+goes on to the last build, which does not wait, and reports the cycle while R is still being walked.  Related: the
+entry below.  Root cause: to investigate.  Tests: to add (conformance, xfailed).
+
 ### A generic method copied onto an instance, whose signature takes a size that depends on that instance, is rejected as a cycle in a `.bn` in some declaration orders — 🔴 OPEN (minor: valid programs rejected; found 2026-11-01, work-7, review of the `.bni` generic-instance method fix; on main at binate `e8fd48049`; pre-existing)
 
 In a single-file `.bn`, `type W[X any] struct { b [sizeof(Box[X])]uint8 }`, `func (b Box[X]) Sz() [sizeof(W[X])]X
