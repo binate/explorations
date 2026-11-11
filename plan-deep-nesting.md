@@ -358,9 +358,21 @@ recursive, so far more than 75).
   at each stop and crashes, as before the walk (stage 1 reported 20,000 errors); one with an undefined name in every
   link already did -- bounded only by step 3 (a type-depth backstop, undecided).
   Tests for a stop at a walked type and through two types' parts: binate `2d3a436a7` (landed 2026-11-11).
-  Next: methods -- a chain `func (S0) M() [len(S1{}.M())]int8` ... crashes between 700 and 1,000 links (21 frames a
-  link: batchMethodOnDemand -> defineBatchMethod -> collectMethodDecl -> ... -> tryMethodCall); then the parser
-  nesting limit, then IR-gen (type alias chains among the first).
+- Dependencies first, stage 4a (a batch's methods) DONE: binate `2e53f11da` (landed 2026-11-11; user: "yes, go ahead;
+  then continue") -- a chain `func (S0) M() [len(S1{}.M())]int8` ... crashed at 700 to 1,000 links (21 frames a link).
+  defineBatchMethod is a walk call (check_by_name_methods.bn) resolving its signature's reads ahead; the scan models
+  `recv.M(args)` on a receiver whose type it can name (a composite literal `T{}` / `(&T{})`, a name, a call of a
+  function by name: three method read kinds, the receiver's name kept beside the read), and a method read defines the
+  method ahead as batchMethodOnDemand would -- a name the type has a field of (the selection calls the field, spec
+  expr.member), a method being defined or not declared on the type, and any other receiver stop the reads; a method
+  whose receiver collection rejects reads nothing ahead.  The batch's methods are indexed by receiver base name
+  (MethodsByRecv / MethodsNext) for batchMethodDeclFor, methodNotDefined and memberAbsentFromDecl.  20,000-link chains
+  on literals, variables and calls compile (40 to 110 s at `--emit-llvm`, mostly the LLVM backend's addStructDef:
+  claude-todo's quadratic-declarations entry); cmd/bnc's IR and 2045 corpus programs identical.  Review: a field of
+  the name was not taken first (a valid program rejected as a cycle) and a rejected receiver's signature errors came
+  first -- both fixed, with tests; the index matched to the old scan for a qualified generic receiver.
+  Next: the `.bni`'s methods (bniMethodOnDemand; pushBniReadFrom stops at a method read); then the parser nesting
+  limit, then IR-gen (type alias chains among the first).
 ## Decisions (2026-11-03)
 
 - Step 1, all of it, staged: user "All of them, staged (Recommended)".

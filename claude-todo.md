@@ -2937,18 +2937,21 @@ recursion crashed (~10,500).
 
 ### Checking is quadratic in a package's number of declarations — 🔴 OPEN 🟢 LOW (found 2026-11-05, work-1, deep-nesting memoization stage)
 
-With each declaration's type walks kept across a batch (the deep-nesting memoization stage, landed 2026-11-06), what is
-still superlinear in a package with many declarations grows with their number, not their nesting: bnc
-`--emit-llvm` takes 0.61 billion instructions for 1024 unrelated struct declarations and 2.43 billion for 4000.
-`sample` of 4000-declaration programs: loader.MergeFiles; the checker's checkTypeRedeclaration, checkDuplicateDecls,
+With each declaration's type walks kept across a batch (the deep-nesting memoization stage, landed 2026-11-06), what
+is still superlinear in a package with many declarations grows with their number, not their nesting: bnc `--emit-llvm`
+takes 0.61 billion instructions for 1024 unrelated struct declarations and 2.43 billion for 4000.  `sample` of
+4000-declaration programs: loader.MergeFiles; the checker's checkTypeRedeclaration, checkDuplicateDecls,
 preRegisterTypeNames and defineType (Scope.Define appends each symbol with slices.Append, which copies); and
-slices.Append of declaration lists.  IR-gen's pending named types and type aliases became a set and an index in
-binate `b6cb84aee`.  The by-name resolution (binate `f55523b7e`) scans the same way: findBniTypeDecl / findBniVarDecl /
+slices.Append of declaration lists.  IR-gen's pending named types and type aliases became a set and an index in binate
+`b6cb84aee`.  The by-name resolution (binate `f55523b7e`) scans the same way: findBniTypeDecl / findBniVarDecl /
 findConstDecl search the declarations by name (a `.bni` constant's declared type `int` searches them all), and
 ConstResolved / ConstResolving, a `.bni`'s TypesResolving / BniTypesResolved and enterBniDeclResolution's list are
 appended by copying and searched linearly, so its deep unit tests take ~450 s on a single-VM lane, and its `.bni`
-variable chain is 6,000 long, short of where the old recursion crashed (~12,000).  Fix: index what these scan by name
-(a Scope already indexes its names past a threshold), and build the lists with vec.
+variable chain is 6,000 long, short of where the old recursion crashed (~12,000).  The batch methods stage (binate
+`2e53f11da`) appends MethodsDefined / MethodsUndo / MethodsDefining the same way, and the LLVM backend's addStructDef
+looks a struct definition up by name in a list (irutil.Streq), quadratic in a program's struct types: most of the 40
+to 110 s a 20,000-link method chain takes at `--emit-llvm`.  Fix: index what these scan by name (a Scope already
+indexes its names past a threshold), and build the lists with vec.
 
 ### Checking a chain of named types over named types takes time superlinear in its length — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-10, work-1, deep-nesting dependencies-first stage 2; pre-existing)
 
