@@ -2975,6 +2975,15 @@ appended by copying and searched linearly, so its deep unit tests take ~450 s on
 variable chain is 6,000 long, short of where the old recursion crashed (~12,000).  Fix: index what these scan by name
 (a Scope already indexes its names past a threshold), and build the lists with vec.
 
+### Checking a chain of named types over named types takes time superlinear in its length — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-10, work-1, deep-nesting dependencies-first stage 2; pre-existing)
+
+A chain `type N0 N1`, ..., `type Nn int8` of n declarations: checkDeclsEmbedding's requireSizedType runs the opaque
+rules for each declaration (opaqueRulesKept -> pointeeEmbedsOpaque -> stepBringPointeeKept), and pointeeBase peels the
+rest of the chain for each one, entering every name in a nameVisits table -- O(n^2) table operations, most of the time
+in the table's name equality (sampled).  A unit test of 6,000 declarations took 212 s in check's test binary; bnc
+took 207 s at 20,000 (plan-deep-nesting.md).  Fix: keep pointeeBase's answer per named type across the batch, as the
+pointer rule's answers are kept (opaqueRulesKept), or peel a chain of names once.
+
 ### The container retypes and AssignableTo's decay through named types are quadratic in depth — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-08, work-1, deep-nesting check part 3; pre-existing)
 
 The checker's container retypes ask, at each level of a chain of containers, questions that walk every level below
