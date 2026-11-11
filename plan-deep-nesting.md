@@ -343,9 +343,22 @@ recursive, so far more than 75).
   read in order (pushBniReadFrom).  20,000-deep `.bni` `sizeof`-length and function-signature chains compile; cmd/bnc's
   IR and 2035 corpus programs identical; review: no program, valid or invalid, changes.  The review found, in stage 1:
   a layout read of the batch type being collected does not stop the reads (`type T [sizeof(T) + K]uint8` with K =
-  sizeof(T) also reports K's cycle) -- fixed next, as the self-read stops of the later stages.
-  Next: that fix; methods (`len(S{}.M())`, still recursing); then the parser nesting limit, then IR-gen (type alias
-  chains among the first).
+  sizeof(T) also reports K's cycle) -- fixed in the stage below.
+- Dependencies first, the collecting-type stop DONE: binate `d26a860d6` (landed 2026-11-11; user: "yes, go ahead") --
+  a layout read of a batch type being collected or walked stops the reads (it and the reads after it are made in
+  place, as the recursive checker made them); a type collected for a layout read that finds one among its by-value
+  parts is marked (cycled) and stops its reader's reads; a `.bni` type being resolved stops a layout read the same
+  way.  A composite literal's types are reads of their own kind (readLiteral): a literal of a type being collected
+  reads nothing of it (collectLiteralTypes), so it needs nothing, and a type collected for a literal reads its parts
+  as the literal does -- as layout reads they stopped valid chains, which recursed again (the review's 20,000-link
+  `len([1]A_i{}) + sizeof(A_i+1)` chain crashed).  cmd/bnc's IR and 2039 corpus programs identical; full conformance
+  on builder-comp and builder-comp-int.  The review's probes now match the recursive checker but for the accepted
+  extra-cycle-error class (a failing constant or variable read does not stop its reader's later reads).  A trade-off:
+  an invalid chain with a cycle in every link (`type A_i [sizeof(A_i) + sizeof(A_i+1)]uint8`, 20,000 links) recurses
+  at each stop and crashes, as before the walk (stage 1 reported 20,000 errors); one with an undefined name in every
+  link already did -- bounded only by step 3 (a type-depth backstop, undecided).
+  Next: methods (`len(S{}.M())`, still recursing); then the parser nesting limit, then IR-gen (type alias chains among
+  the first).
 ## Decisions (2026-11-03)
 
 - Step 1, all of it, staged: user "All of them, staged (Recommended)".
