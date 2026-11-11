@@ -40,7 +40,9 @@ must be followed by `blr` / a `blra*`, and no addend on a slot or descriptor ref
 call or jump through a thread-local slot, and a datum's addend mixing + or - with | ^ & << >>).  The
 alias-addend MAJOR the 3b review found — fixed, binate `007aabfb8`; 3c — landed binate `858380bd5` (2026-11-10; `@TLVP` on
 `mov r64` only: a `lea` links into a crash, see below).  Stage 3d design below (2026-11-10); 3d1 — landed binate `1685462f9` (2026-11-10; also: a number
-after `offset` is that immediate, as clang takes a constant's name there).  Next: 3d2.
+after `offset` is that immediate, as clang takes a constant's name there); 3d2 — landed binate `ab5e933e5`
+(2026-11-11; also: several bracket groups, `rip` anywhere, CALL / JMP through `x[rbx]`).  Stage 3 is complete.  Next:
+the x86-64 parser coverage (claude-todo.md), then stage 4.
 
 1. **Assembler: thread-local sections and symbols** (all arches, both formats).  ELF: SHF_TLS (the `T`
    flag; `.tdata*` / `.tbss*` imply it, `.tbss*` NOBITS), `%tls_object` / `@tls_object` → STT_TLS, a symbol

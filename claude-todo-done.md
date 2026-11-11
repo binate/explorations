@@ -1,3 +1,14 @@
+### asm x64: absolute symbol addressing, `N[rbx]`, `[x + rip]`, `+ 0` beside a slot operator — DONE (binate `ab5e933e5`, 2026-11-11, TLS stage 3d2)
+
+From the x86-64 parser coverage entry: forms clang takes that bnas rejected — a symbol as a memory operand's
+absolute displacement (`mov rax, [lbl]`, R_X86_64_32S; user 2026-10-06: "Add to completeness list"), `N[rbx]`,
+`[x + rip]`, an explicit `+ 0` after a slot operator (`[rip + x@GOTTPOFF + 0]`) — and an operator after an
+expression in `[rip + ...]` (`[rip + x + 4 - 4@GOTTPOFF]`, `[rip + (x)@GOTTPOFF]`), which bnas took and clang
+rejects, now an error.  binate `ab5e933e5` (the TLS stage 3d2 change): a memory operand's terms take one symbol,
+the displacement may be written before the brackets, bracket groups sum, `rip` is a term anywhere, and an operator
+follows its symbol's name.  `call [N]` assembles on main as well.  `dword ptr N` without brackets stays an error,
+deliberately: clang reads it as the immediate N.
+
 ### A provisional build's reports escaped its hold: a check deferred in an abstract one's build, replayed, an alias's target, and a check waiting for a layout there — DONE (binate `a0e733996`, 2026-11-10, temp-5; landed on "yes, go ahead; then continue") (a valid program rejected; found 2026-11-10, temp-5, reviews of design C step 4; pre-existing)
 
 Three valid programs were rejected with an error from a provisional build (an instance first built while a layout it

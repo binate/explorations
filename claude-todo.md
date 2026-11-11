@@ -578,8 +578,14 @@ section or STT_TLS symbol, a Mach-O S_THREAD_LOCAL_* section) until it links it 
 (2026-10-17); stage 2a, the aa64 local-exec / local-dynamic operators (`:tprel_*:`, `:dtprel_*:`) — landed
 binate `54d587043` (2026-10-17); 2b, initial-exec / TLSDESC (`:gottprel*:`, `:tlsdesc*:`, `.tlsdesccall`,
 `:tlsdesc_auth*:`) — landed binate `7df7a13b2` (2026-10-18); 2c, Mach-O `@TLVPPAGE` / `@TLVPPAGEOFF` — landed binate
-`0b78c67a8` (2026-10-18; a TLV program assembled here links with ld64 and runs).  Stage 2 is complete.  Next: stage 3,
-the x86-64 operators.
+`0b78c67a8` (2026-10-18; a TLV program assembled here links with ld64 and runs).  Stage 2 is complete.  Stage 3,
+the x86-64 operators: 3a, a memory operand's `@TPOFF` / `@DTPOFF`, segment overrides and prefix instructions — landed
+binate `ed7d60e28` (2026-11-09); 3b, CALL / JMP through memory, `@tlscall` and thread-local data — `d7a1706fc`
+(2026-11-09; an alias-addend fix it surfaced, `007aabfb8`); 3c, Mach-O `@TLVP` — `858380bd5` (2026-11-10, after the
+SSE encoders moved to `asm/x64/sse`, `f01e251f3`); 3d1, a symbol as an immediate (`offset x`, `offset x@TPOFF`) and
+`movabs` — `1685462f9` (2026-11-10); 3d2, a symbol in a memory operand, the displacement before the brackets and
+`rip` anywhere — `ab5e933e5` (2026-11-11).  Stage 3 is complete.  Next (user, 2026-10-18): the x86-64 parser
+coverage entry (bnas section), then stage 4, the arm32 operators.
 
 ### bnld: the firmware-arm and script-arm drivers do not place arm32's unwind index — 🔴 NEEDS DECISION (found 2026-10-16, work-2, the `.ARM.exidx` change)
 
@@ -2801,7 +2807,7 @@ known nearby label is always rel32 (`e9` / `0f 8x`) where clang relaxes to rel8 
 TEST immediate forms on AL / AX / EAX / RAX use the ModR/M encodings (`cmp al, 1` is `80 f8 01`, `test eax,
 imm32` is `f7 c0 …`) where clang uses the accumulator short forms (`3c 01`, `a9 …`; likewise `05`, `2d`,
 `25`, `0d`, `35`, `3d` for add / sub / and / or / xor / cmp); (b) forms clang accepts that bnas rejects (no wrong
-code): `dword ptr N` without brackets, `N[rbx]`, `call [N]` / `jmp N` (to an absolute address), `[rip + N]`
+code): `jmp N` / `call N` (to an absolute address), `[rip + N]`
 (R_X86_64_PC32 against the absolute address), `shl eax, N` (an APX form), a displacement past 32 bits (clang
 keeps the low 32), constants whose labels come later in an operand, and a label difference across Mach-O
 atoms.  **aarch64 → ELF is DONE** (`846802a77`): `bnas -target linux-aarch64`
@@ -2816,16 +2822,12 @@ the GOT `:got:`/`:got_lo12:` operands remain absent from the text parser (the na
 backend emits those via the library, not text asm; and bnld rejects GOT relocs — a
 hermetic linker — so there is no consumer for them yet).  Also wanted on the x64 side (user, 2026-10-06):
 32-bit addressing in memory operands (`[eax]`, `[ebx + ecx*4]`, clang's 0x67 address-size prefix; rejected
-since `c361a10e8`) — "Support it, later", after the label-difference work; and absolute symbol addressing
-(`mov rax, [lbl]`, clang R_X86_64_32S; only `[rip + lbl]` is supported) — "Add to completeness list".  An
+since `c361a10e8`) — "Support it, later", after the label-difference work.  An
 immediate starts only at a digit or `-` (`parseX64Operand`, `pkg/binate/asm/parse/x64.bn`), so `mov eax, ~8`,
 `mov eax, ~(~1)` and `mov eax, (1 + 2)` are rejected where clang takes them (found 2026-10-06 by review).
 Found 2026-11-09 (review of the x86-64 TLS operators, binate `ed7d60e28`), no wrong code: clang takes and bnas
-rejects `[x + rip]` (`rip` not first), a parenthesized term `[rax + (x@TPOFF)]`, an explicit `+ 0` after a slot
-operator (`[rip + x@GOTTPOFF + 0]`) and a `#` comment; bnas takes and clang rejects an explicitly scaled RSP index
-(`[rsp*1 + rax]`, swapped into the base) and an expression before a `[rip + ...]` operator whose addend comes to 0
-(`[rip + x + 4 - 4@GOTTPOFF]`, `[rip + (x)@GOTTPOFF]`: the operator applies to the whole expression there, to the
-symbol in any other memory operand).
+rejects a parenthesized term `[rax + (x@TPOFF)]` and a `#` comment; bnas takes and clang rejects an explicitly
+scaled RSP index (`[rsp*1 + rax]`, swapped into the base).
 Found 2026-11-10 (the TLS stage 3d surveys, plan-tls.md), no wrong code: CALL / JMP through `[rip +
 x@GOTPCREL]` (GCC's `-fno-plt` call; clang R_X86_64_GOTPCRELX / X86_64_RELOC_GOT) is rejected — x64.CallMem /
 JmpMem take no GOT operand ("unsupported operand kinds") — and `movabs`'s moffs forms (`movabs rax, [x]`, A0-A3
