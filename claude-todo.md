@@ -244,15 +244,6 @@ is green and inside its job limit -- then (d), sharding it, is not needed, and t
   fixed (done log, binate `08de98de2` and `2c3c3effa`), and holdsBlock keeps its answer per node (binate
   `0c1dbfcc0`); the package's test binary now runs its 417 tests in ~8.5 s of user CPU locally.  Open: confirm on CI's
   next unit run after binate `0c1dbfcc0` that the lanes no longer time out on the package.
-- 🟡 IN PROGRESS (claimed 2026-11-10, work-3) **pkg/binate/check's TestDeepContainerRetypes exhausts the bare-metal arena** (builder-comp_arm32_baremetal, at
-  binate `9d84c4643`, with the bare-metal stack guard (not yet landed) and the same without it): `rt.RawAlloc: arena
-  exhausted` from a test heap of ~240 MiB.  Root cause (2026-11-10): no leak -- the test holds three 200,000-deep
-  chains (~800,000 types.Type, 280 bytes each on 32-bit, 520 on 64-bit; 574 MB peak on the host).  Fix chosen:
-  restructure the test to hold one target chain at a time (now 425 MB on the host; it passes on bare metal).  But
-  13 of check's 72 deep tests peak at 260-480 MB on the host, and TestDeepOpaqueRules (479 MB) and
-  TestDeepSignaturesMatchStrict (456 MB) still run the bare-metal heap out, so (user: "yes, do 2b") bare-metal test
-  binaries get 512 MiB of RAM (baremetal_test.ld, the unit runner's QEMU -m), ~490 MiB of heap.
-  The test's restructure landed (binate `72a601204`); the 512 MiB change is being validated.
 - **Update, unit run at binate `08de98de2` (2026-11-09):** the arm32 NEON test now compiles (binate `0d72b73e2`).
   The bare-metal lane now finishes inside its limit (23.5 min, format 274 s, down from 737 s), failing only on
   check's TestDeepContainerRetypes.  Still timing out: builder-comp-int 1/6 (format 1104 s under the VM, then cut off
@@ -260,6 +251,8 @@ is green and inside its job limit -- then (d), sharding it, is not needed, and t
   shards 2, 6 and 8 of 12, cut off with no package finished.  native aa64 still dies in check's
   TestDeepTypeLimitAlias.  Conformance, e2e and perf have not finished a run since a GitHub release-download outage
   (HTTP 504) reddened the 710e52d5d set; later runs were all cancelled by newer pushes.
+  Since then (2026-11-10, work-3): check's TestDeepTypeLimitAlias passes natively on aa64 (binate `288044551`),
+  and check's whole suite passes on the bare-metal lane locally (binate `72a601204`, `be5bcd88d`; done log).
 
 ### IR-gen spells every type argument out in an instance's name — instances whose arguments share a type get exponentially long names — 🔴 NEEDS DECISION (found 2026-10-26, work-7, testing the abstract-instance change's shared-argument walk; reproduced on main; pre-existing)
 

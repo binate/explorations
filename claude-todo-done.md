@@ -1,3 +1,13 @@
+### check's deep tests ran the bare-metal test heap out — DONE (binate `72a601204` and `be5bcd88d`, 2026-11-10, work-3; user: "go ahead with 1a and 2a", "wait 12 minutes, then go ahead; and yes, do 2b", then "yes")
+
+builder-comp_arm32_baremetal's check run failed with `rt.RawAlloc: arena exhausted` from a ~240 MiB test heap.  No
+leak: TestDeepContainerRetypes held three 200,000-deep type chains (~800,000 types.Type, 280 bytes each on 32-bit,
+574 MB peak on the host), and 13 of check's 72 deep tests peak at 260-480 MB on the host.  `72a601204`: the test
+builds one target chain, checks against it and drops it before the next (425 MB on the host).  `be5bcd88d`: the
+bare-metal test linker script gives test binaries 512 MiB of RAM, and the unit runner passes QEMU `-m 512M` (~490 MiB
+of heap), so TestDeepOpaqueRules (479 MB) and TestDeepSignaturesMatchStrict (456 MB) fit.  The full bare-metal unit
+lane locally: 72 passed, 0 failed, 18 xfail, 2861 s on a loaded host.
+
 ### Dependent-length constraints, step 4: `Self` judged in each concrete instance of a generic interface — DONE (binate `13715b122`, 2026-11-10, temp-5; user: "go with your recs, and continue working" (open question 1: judged per instance), landed on "wait 20 minutes, then land; then fix the ordering") (step 4 of explorations/plan-dependent-constraints.md, for the open entry "In a generic's own check, a constraint whose length depends on the generic's type parameter …")
 
 `interface I3[U any, X any] : Eq[[sizeof(U)]uint8] { m(x *G[Self, X]) int }`, with `type G[T Eq[[sizeof(U)]uint8], U
