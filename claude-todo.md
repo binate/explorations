@@ -508,6 +508,20 @@ naming it and a declaration's miss not repeated, DONE: binate `43e760718` (2026-
 the concrete instantiations an instance's derived types form judged there, DONE: binate `d11cd29ef` (2026-11-05; see
 the done log).
 
+### A generic interface whose own `Self` judgment fails repeats it for each concrete instance named in a declaration after the first — 🟡 IN PROGRESS (claimed 2026-11-10, temp-5; user: "then fix the ordering") (minor: a repeated error; found 2026-11-10, temp-5, review of design C step 4, which it comes with)
+
+With `interface Eq[T any] { eq(o T) int }`, `type G[T Eq[[sizeof(U)]uint8], U any] struct { t T }` and `interface
+I[U any] : Eq[[4]uint8] { m(x *G[Self, int64]) int }`, the globals `var a *I[int64]`, `var b *I[int32]` and `var c
+*I[int16]` (or three such fields) give the declaration's miss, "type argument Self does not satisfy constraint
+Eq[[8]uint8] (interface I[U] does not extend Eq[[8]uint8])", and then the same miss for I[int32] and for I[int16]
+("... (in I[int32], instantiated at ...)"), all at the `Self`.  Named in a function body, only the declaration's
+miss is reported.  Each concrete instance judges its own `Self` (design C step 4), and an instance's miss that
+repeats the declaration's is folded into it (foldInstanceMiss), but an instance named in a declaration is judged
+during collection, before the declaration's own check (checkGenericDeclAbstract, in the body phase) has run, and
+only the first such miss is folded.  Fix (user 2026-11-10: "fix the ordering"): make the interface's
+declaration-level `Self` judgments before its instances', so each instance's repeat is recognized as the
+declaration's miss; with a conformance test.
+
 ### A provisional build's reports escape its hold: a check deferred in an abstract one's build, replayed, and an alias's target — 🟡 IN PROGRESS (claimed 2026-11-10, temp-5) (a valid program rejected; found 2026-11-10, temp-5, review of design C step 4; reproduced on binate main `2470d9ddc`; pre-existing)
 
 With `type Other[A any, T any] struct { j *J[*EqBox[A], [sizeof(A) + 16 - sizeof(A)]uint8]; t T }`, `type
