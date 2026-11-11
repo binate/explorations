@@ -314,6 +314,19 @@ recursive, so far more than 75).
   Next -- still recursive at 20,000 (a few hundred to ~2,500 levels): aliases (`type A0 = A1`, `interface J0 = J1`,
   pending and finished), functions (`len(f())`), variables (`len(v)`) and methods in a `.bn`, and the `.bni`
   counterparts (`sizeof` lengths, aliases, functions); then the parser nesting limit.
+- Dependencies first, stage 2 (aliases) DONE: binate `783aa3185` (landed 2026-11-10; user: "yes, go ahead") --
+  resolvePendingAliasNamed starts a by-name walk call (check_by_name_alias.bn) that enters the alias's scope and demand
+  frame, marks it ALIAS_RESOLVING, resolves what its target reads (a new read kind, readAlias, for a pending alias named
+  in a type expression, resolved ahead in order; one being resolved stops the reads, so its recursion is reported
+  where it was), then resolves it with the same body.  The scalar prefill (resolveBuiltinScalarTypeDecls ->
+  prefillDecl) resolves the declaration a type names first from an explicit stack.  20,000-deep interface-alias
+  chains check; type-alias chains get through the checker and crash in IR-gen (registerModuleTypeDecl /
+  registerPkgTypeDecl).  cmd/bnc's IR and 2033 corpus programs identical.  Review: no valid program changes; an
+  alias's target is now resolved ahead too, so the accepted error-order class (and the extra cycle error after a
+  failing operand) is reachable through aliases.  Found on the way (claude-todo, LOW): checking a chain of named types
+  over named types is superlinear (pointeeBase per declaration; 6,000 took 212 s in a unit test).
+  Next: functions (`len(f())`), variables (`len(v)`) and methods in a `.bn`, the `.bni`'s `sizeof` lengths and
+  functions; then the parser nesting limit, then IR-gen (type alias chains among the first).
 ## Decisions (2026-11-03)
 
 - Step 1, all of it, staged: user "All of them, staged (Recommended)".
