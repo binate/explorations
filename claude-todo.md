@@ -7,16 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### A `.bni` `var` with an initializer is accepted, and an importer cannot see an untyped one — 🟡 IN PROGRESS (claimed 2026-11-10, work-6; user: "take on the new major and minor bugs afterwards") (minor: an invalid declaration accepted, reported as an unrelated error at its use; found 2026-11-10, work-6, review of the package-variable type change; reproduced with a compiler built from binate `d5c58602c`; pre-existing)
-
-A `.bni`-only `pkg/bo` declaring `var Y = 5` and `var Z int`: the package checks and IR-gen emits an extern for
-Y, but `fmt.Println(bo.Z, bo.Y)` in an importer fails with `undefined: Y` -- the `.bni` scope (findBniVarDecl /
-bni_scope_decls) binds only vars with a type.  Spec §16 (the `.bni` `var` item) says a `.bni` `var X T` has no
-initializer and marks a stray one _Unenforced_: "a conforming implementation should reject it".
-- Fix: reject an initializer on a `.bni` `var` in the checker, at the declaration, and drop the spec's
-  _Unenforced_ note.
-- Test: a conformance error test (none yet).
-
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
 Freeing a long chain through managed-slices (`type Cell struct { rest @[]Cell; v int }`, 300,000 links, the last

@@ -1,3 +1,18 @@
+### A `.bni` `var` with an initializer was accepted, and an importer could not see an untyped one — DONE (binate `f03d87bbb`, docs `b8d315c`, 2026-11-10, work-6; user: "take on the new major and minor bugs afterwards"; landed on "yes, go ahead") (minor: an invalid declaration accepted, reported as an unrelated error at its use; found 2026-11-10, work-6, review of the package-variable type change; reproduced with a compiler built from binate `d5c58602c`; pre-existing)
+
+A `.bni`-only `pkg/bo` declaring `var Y = 5` and `var Z int`: the package checked and IR-gen emitted an extern for
+Y, but `fmt.Println(bo.Z, bo.Y)` in an importer failed with `undefined: Y` -- the `.bni` scope (findBniVarDecl /
+bni_scope_decls) binds only vars with a type.  Spec §16 (the `.bni` `var` item) said a `.bni` `var X T` has no
+initializer and marked a stray one _Unenforced_.
+- Fixed: the checker reports each `.bni` `var` written with an initializer at its declaration
+  (`checkBniVarInitializers`, check_decl_pass2.bn), top-level or in a group, `.bni`-only packages included, under
+  bnc, bni and `--test`.  The spec gains the constraint `decl.var.extern.no-init` (§9.2); §16.5's _Unenforced_
+  note now points at it (docs `b8d315c`).
+- Tests: conformance spec/09 182_err_var_extern_initializer (typed, untyped, grouped, `.bni`-only); 1481 dropped
+  its initializer case.
+- Left as is: for `var Z = 6` an importer still also reports `undefined: Z`, after the new error.  IR-gen still
+  leaves `.bni` vars out of `__init` (they are extern; its unit test runs without the checker).
+
 ### `box` of a composite literal of a named managed-slice type boxed the underlying type — DONE (binate `b08d21c0b`, 2026-11-10, work-6; user: "take on the new major and minor bugs afterwards"; landed on "wait 11 minutes, then go ahead") (MAJOR: a compiler panic on valid code, and a wrong assertion result; found 2026-11-10, work-6, review of the composite-literal method-receiver fix; pre-existing)
 
 ```
