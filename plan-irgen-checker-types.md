@@ -201,8 +201,14 @@ IR-gen cannot map is an internal error, never `int`.
      stamps a `[...]` length, and reading one from syntax, or meeting an unstamped array-literal key, is an internal
      error.  --emit-llvm byte-identical (2734 single-file programs on the host, 2732 on arm32-linux; 363
      multi-package; cmd/bnc's 53 packages).
-     Left in stage 4: global variable types — resolveGlobalVarType still infers `var g = 42` from the literal's kind
-     (the "var / global types (existing Decl.ResolvedTypeID)" above).
+     4d4 DONE (binate `ad052a8f3`, 2026-11-10): a package variable declared without a type takes the checker's
+     Decl.ResolvedTypeID (resolveGlobalVarType; an unrecorded one is an internal error); the literal-kind inference is
+     left only for builds without a checker (stage 7 deletes it).  --emit-llvm byte-identical (2736 single-file
+     programs on the host, 2734 on arm32-linux; 364 multi-package; cmd/bnc's 53 packages).  Landed with it (binate
+     `3bd6572f3`): a method call's receiver type name comes from the checker's record of the receiver
+     (methodRecvBaseTypeName), so a value method called on a named array or slice literal names its type's method.
+     That completes the stage 4 work list; still open from 4d2c: genShortVar's multi-value path reads
+     lookupFuncResults / multiReturnFieldTypes, not the multi-value `:=` records.
 5. **Registries keyed by checker identity, names from it.**  Key by checker Type identity (a pointer memo) —
    the mapper's memo and lazy, self-sufficient registration from the checker type (fields, method sets,
    parents) come here (moved from stage 2: the audit found no lookup gap at the switched sites) —
