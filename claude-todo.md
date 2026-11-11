@@ -244,13 +244,6 @@ is green and inside its job limit -- then (d), sharding it, is not needed, and t
   fixed (done log, binate `08de98de2` and `2c3c3effa`), and holdsBlock keeps its answer per node (binate
   `0c1dbfcc0`); the package's test binary now runs its 417 tests in ~8.5 s of user CPU locally.  Open: confirm on CI's
   next unit run after binate `0c1dbfcc0` that the lanes no longer time out on the package.
-- 🟡 IN PROGRESS (claimed 2026-11-10, work-3; user: "take a look at 1 and 2") **pkg/binate/check's test binary dies on native aa64** (builder-comp_native_aa64-comp_native_aa64): no output after
-  `=== RUN TestDeepTypeLimitAlias` (the LLVM lanes pass it).  Root cause (2026-11-10): a stack overflow in the
-  parser -- `type A = [1]...[1]int` 1024 deep holds parseType + parseTypeInner per level, and parseTypeInner's frame
-  is 9,760 bytes native (6,480 LLVM: its 42 token.Pos copies, 10 token.Token temporaries -- a discarded
-  `p.expect(...)` result gets an sret buffer and a copy to destroy -- with no slot shared between sites), so the 8 MiB
-  stack runs out at level 663 (LLVM needs ~6.8 MB).  Fix chosen (user: "go ahead with 1a and 2a"): the parser parses
-  a chain of type prefixes (`[N]`, `*`, `@`, `readonly`, `[]`) with a loop, not one frame pair per level.
 - 🟡 IN PROGRESS (claimed 2026-11-10, work-3) **pkg/binate/check's TestDeepContainerRetypes exhausts the bare-metal arena** (builder-comp_arm32_baremetal, at
   binate `9d84c4643`, with the bare-metal stack guard (not yet landed) and the same without it): `rt.RawAlloc: arena
   exhausted` from a test heap of ~240 MiB.  Root cause (2026-11-10): no leak -- the test holds three 200,000-deep
@@ -259,6 +252,7 @@ is green and inside its job limit -- then (d), sharding it, is not needed, and t
   13 of check's 72 deep tests peak at 260-480 MB on the host, and TestDeepOpaqueRules (479 MB) and
   TestDeepSignaturesMatchStrict (456 MB) still run the bare-metal heap out, so (user: "yes, do 2b") bare-metal test
   binaries get 512 MiB of RAM (baremetal_test.ld, the unit runner's QEMU -m), ~490 MiB of heap.
+  The test's restructure landed (binate `72a601204`); the 512 MiB change is being validated.
 - **Update, unit run at binate `08de98de2` (2026-11-09):** the arm32 NEON test now compiles (binate `0d72b73e2`).
   The bare-metal lane now finishes inside its limit (23.5 min, format 274 s, down from 737 s), failing only on
   check's TestDeepContainerRetypes.  Still timing out: builder-comp-int 1/6 (format 1104 s under the VM, then cut off

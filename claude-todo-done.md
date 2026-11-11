@@ -1,3 +1,14 @@
+### check's test binary died on native aa64 -- the parser overflowed the stack on a 1024-deep type — DONE (binate `288044551`, 2026-11-10, work-3; user: "take a look at 1 and 2", "go ahead with 1a and 2a", then "wait 12 minutes, then go ahead")
+
+builder-comp_native_aa64-comp_native_aa64's check run died (SIGSEGV) in TestDeepTypeLimitAlias: `type A = [1]...[1]int`
+1024 deep held parseType + parseTypeInner per level, and parseTypeInner's frame was 9,760 bytes native (6,480 LLVM),
+so the 8 MiB stack ran out at level 663.  `288044551`: parseType reads a chain of type prefixes (`readonly`, `*`,
+`@`, `[N]`, `[]`, `[...]`) in a loop (parse_type_chain.bn), and parses a function value's parameters and results
+itself, so 1023-deep `*func()` result and parameter chains parse natively too; the "expected type" error node keeps
+End = Pos.  AST unchanged (bnfmt from the old and new parser identical on 8,525 files); check (2012) and the parser
+(266) pass natively.  Struct nesting near 1024 still overflows natively -- the open entry on the native-built
+compiler's parser frames.  With it, binate `72a601204` (TestDeepContainerRetypes holds one target chain at a time).
+
 ### A `.bni` `var` with an initializer was accepted, and an importer could not see an untyped one — DONE (binate `f03d87bbb`, docs `b8d315c`, 2026-11-10, work-6; user: "take on the new major and minor bugs afterwards"; landed on "yes, go ahead") (minor: an invalid declaration accepted, reported as an unrelated error at its use; found 2026-11-10, work-6, review of the package-variable type change; reproduced with a compiler built from binate `d5c58602c`; pre-existing)
 
 A `.bni`-only `pkg/bo` declaring `var Y = 5` and `var Z int`: the package checked and IR-gen emitted an extern for
