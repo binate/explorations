@@ -160,8 +160,10 @@ instance judgment that makes up for it (3.2-3.4).
    escaped their hold, found reviewing it.
 5. **The declaration's deferrals** (3.1), a family per commit if the diff is large: fixes (A).  Constraint
    satisfaction DONE, binate `77ef9401d` (2026-11-11): a miss is reported only when it holds with every dependent
-   length matching any length (constraintMissDeferred, a loose satisfaction walk); left: identity / assignability
-   / `==` / `same`, interface values, an impl's coverage, duplicate parents.
+   length matching any length (constraintMissDeferred, a loose satisfaction walk).  Identity through an instance's
+   type arguments (assignment, `==`, `same`) DONE, binate `e5df2581f` (2026-11-11; holdsDependentLength).  Left:
+   function-value signatures, adding `readonly` and the managed -> raw borrow (next, user 2026-11-11: "then do the
+   next three"), interface values, an impl's coverage, duplicate parents.
 6. **Spec** (section 5), with step 5.
 
 ## 5. Spec

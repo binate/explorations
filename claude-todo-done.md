@@ -1,3 +1,15 @@
+### Dependent-length constraints, step 5, identity through an instance's type arguments: an assignment, `==` and `same` defer a dependent length — DONE (binate `e5df2581f`, 2026-11-11, temp-5; landed on "wait 11 minutes, then go ahead; then do the next three") (step 5 of explorations/plan-dependent-constraints.md, for the open entry "In a generic's own check, a constraint whose length depends on the generic's type parameter …")
+
+`var p *G1[[sizeof(U)]uint8] = q` (q a `*G1[[8]uint8]`) was rejected in a generic's own check, as were `p == q`,
+`same` on `*([sizeof(U)]uint8)` and `*([8]uint8)`, interface values of an interface's instances and an assignment
+through a managed pointer: the dependent-length deferral's gate (containsDependentArray) did not look through a
+named type, and `same` compared with Identical alone.  binate `e5df2581f`: holdsDependentLength looks through an
+instance's type arguments and an interface value's interface, and assignability (so `==`) and `same` defer through
+identicalDeferringDependent; each instance judges ("cannot assign *G1[[8]uint8] to *G1[[4]uint8] (in f1[int32],
+...)").  Conformance spec/12-generics 203-205; check unit tests.  One focused review: no unsound accept; it found
+three valid forms still rejected beside this deferral -- function-value signatures, adding `readonly`, the managed
+-> raw borrow -- the next commit (user: "then do the next three"); a test gap and a duplicated helper fixed.
+
 ### The native-built compiler overflowed its stack on types nested within the 1024 limit — DONE (binate `20b98a7ba` and `788ff5285`, 2026-11-11, work-3; user: "yes", then "wait 7 minutes, then go ahead" for each)
 
 A type nested 1007-1011 levels deep (structs in structs) crashed the native-built bnc: four parser frames a level,
