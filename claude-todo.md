@@ -673,9 +673,10 @@ a conformance test.
 
 A valid type nested 1007-1011 levels deep -- under type.named.depth's 1024 -- crashes the native-built bnc (SIGSEGV,
 8 MiB stack): nested structs (`struct { f struct { f ... int } }`: parseType + parseTypeInner + parseStructType +
-parseStructField, 8,224 bytes of native frame per level) and function values in parameters (`*func(*func(...))`).
-The parser's loop over type prefixes covers `[N]` / `*` / `@` / `readonly` chains (and `*func() ...` result chains,
-once its marker change lands); these forms still take a call per level.  Underneath is frame size: parseTypePrefix
+parseStructField, 8,224 bytes of native frame per level).  The parser's loop over type prefixes (not yet landed)
+covers `[N]` / `*` / `@` / `readonly` chains, and with parseFuncTypeBody called from parseType rather than inside
+the prefix reader, 1023-deep `*func() ...` result chains and `*func(*func(...))` parameter chains parse under the
+native-built bnc too (checked); a struct still takes a call per level.  Underneath is frame size: parseTypePrefix
 is 4,192 bytes native (2.2 KB LLVM) for code that builds one node, parseTypeInner was 9,760 (6,480 LLVM) -- each
 `p.tok.Pos` read and each call returning a struct gets a stack slot of its own (a discarded `p.expect(...)` result
 an sret buffer plus a copy made only to destroy it), and neither backend shares a slot between sites whose
