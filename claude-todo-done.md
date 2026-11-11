@@ -1,3 +1,20 @@
+### bnfmt wrote a file that did not parse: a line comment in the last operand of a builtin without a type operand went before its `)` — DONE (binate `d74c57c97`, 2026-11-10, temp-4; user: "yes, go ahead with that", landed on "wait 3 minutes, then go ahead") (MAJOR: bnfmt turned valid source into source that did not parse; found 2026-11-10, temp-4, working on the comment-gap entry's closes; since binate `d2c6178e7`)
+
+`x := len(y.(p. // c` / `T))` formatted as `x := len(y.(p.T) // c` / `)`, which does not parse (the line break after
+`)` ends the statement), and `bnfmt -w` wrote it; the same for `box`, `same` and the other builtins without a type
+operand.  Since `d2c6178e7` a list claims the comments from its last element's start to its close that nothing else
+prints, and puts a line comment there after a trailing comma, the close on the next line; a builtin's operands take
+no trailing comma, so the line break followed the operand.
+- Fix: argsCloserGap (print_closegaps.bn) takes `inline`, set when the list takes no trailing comma and ends in no
+  spread, and then claims through claimInlineGap: only block comments on one line, which stay before the `)`.  A
+  line comment stays pending and prints after the statement, as before `d2c6178e7`; a call around the builtin
+  takes it after its own trailing comma.
+- Test: TestCloserLineCommentInABuiltinGoesAfterTheStatement (print_closegaps_test.bn: `len`, `box`, `same`, a
+  block comment, a call around the builtin); it fails without the fix.
+- The review found two pre-existing problems, recorded in the comment-gap and alignment entries: a comment left
+  pending prints after those a later list claims before its close, and a comment moved out of an element keeps an
+  alignment run that a second format breaks.
+
 ### A value-receiver method called directly on a composite literal of a named array or slice type fails to link — DONE (binate `3bd6572f3`, 2026-11-10, work-6; user: "go ahead and work on 1, then 3, then 2 (feel free to self-drive and stack the commits)", then "yes, go ahead") (MAJOR: valid code fails to build; found 2026-11-09, work-6, review of plan-irgen-checker-types.md 4d3; reproduced with a compiler built from binate `3077a9b9f`, LLVM and native; pre-existing)
 
 ```
