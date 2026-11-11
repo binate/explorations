@@ -68,3 +68,13 @@ under the native-built bnc, and the frames are near LLVM's.
     after the home check.  aarch64's OP_CALL_HANDLE does not save a handle homed in an argument register before
     placing the arguments (OP_CALL_INDIRECT and x64 do); not reproduced in three probes (the allocator put the
     handle in x4 / x27), and only rt's `_call_dtor` / `_call_free_fn` produce the op.
+- Step 2 DONE: binate `788ff5285` (2026-11-11).  The allocator's passes record each value's live span (noteLiveSpans);
+  PlanFrame packs the slots of the values with spans first, nearest SP (planSharedSpills / packSpillSlots: first fit
+  by span start); a homed call / OP_BOX result's kept slot spans its own position only.  aarch64 frames: parseType
+  768, parseTypeInner 1,248, parseStructType 1,952, parseStructField 1,744 (a struct level 5,712), parseTypePrefix
+  2,448, parsePrimaryExpr 4,800.  Conformance spec/07-types/305 (struct / array / pointer / func-value nestings at the
+  1024 limit, written as one type expression each) passes in all 11 modes; a native bnc from before step 1 dies on it.
+  Validated: native aa64 / x64 / arm32 bare-metal full conformance (3915 / 3915 / 3870, 0 failed), arm32 Linux subset.
+- Where the parser's frame bytes are now (all its functions, aarch64, after step 1): allocas 41%, aggregate value
+  regions 28%, scalar spill slots 12% (step 2 shares these), aggregate pointer slots 9%.  So steps 3-4 (regions and
+  allocas by lifetime) and 5 (IR-gen's copies) hold most of what is left of the gap to LLVM.
