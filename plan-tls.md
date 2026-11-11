@@ -38,7 +38,8 @@ until stages 5–9 link it — landed binate `4d91dc223` (2026-10-17).  Stage 2a
 must be followed by `blr` / a `blra*`, and no addend on a slot or descriptor reference); 2c — landed binate
 `0b78c67a8` (2026-10-18; `@TLVPPAGEOFF` on `ldr Xt` only, which is all ld64 links there).  Stage 3 design below (2026-11-09); 3a — landed binate `ed7d60e28` (2026-11-09); 3b — landed binate `d7a1706fc` (2026-11-09; also rejected: a
 call or jump through a thread-local slot, and a datum's addend mixing + or - with | ^ & << >>).  The
-alias-addend MAJOR the 3b review found — fixed, binate `007aabfb8`.  Next: 3c.
+alias-addend MAJOR the 3b review found — fixed, binate `007aabfb8`; 3c — landed binate `858380bd5` (2026-11-10; `@TLVP` on
+`mov r64` only: a `lea` links into a crash, see below).  Next: 3d.
 
 1. **Assembler: thread-local sections and symbols** (all arches, both formats).  ELF: SHF_TLS (the `T`
    flag; `.tdata*` / `.tbss*` imply it, `.tbss*` NOBITS), `%tls_object` / `@tls_object` → STT_TLS, a symbol
@@ -123,8 +124,10 @@ What clang accepts (each its own fixup kind, never resolved at assembly time; op
 - `offset x@TPOFF` / `@DTPOFF` as an imm32 (TPOFF32 / DTPOFF32): mov r32 (B8+r), mov r64 (C7 /0), the ALU
   group's 81 /n, push (68), imul r, r/m, imm32 (69) — never an imm8 form.
 - Mach-O: `[rip + _x@TLVP]` (X86_64_RELOC_TLV, pcrel, 4 bytes, extern; the field 0) — ld64 links it on
-  `mov r64` and `lea r64` and rejects `add` ("GOT load fixup does not point to a movq instruction"); on `mov r32`
-  or with an addend it links and the program crashes.
+  `mov r64` and rejects `add` ("GOT load fixup does not point to a movq instruction"); on `mov r32` or with an
+  addend it links and the program crashes.  (Corrected 2026-11-10 by the 3c review: `lea r64` links too, but for a
+  variable a dylib defines ld64 points it at a slot holding the descriptor's address and the call through it
+  crashes; ld_classic refuses it.  The survey had tried only a variable in the same image.)
 - ELF: a symbol a TLS operator names is STT_TLS (elfTlsRelocsOk for EM_X86_64), with aarch64's checks (defined in
   a thread-local section, not absolute).
 
@@ -139,8 +142,7 @@ Deliberate rejects (clang accepts them, assembling something else or nothing a l
   takes it on mov / lea / jmp / rip, with an addend, as `call x@tlscall` and in `.uint64`.
 - A TLS operator in a 1- or 2-byte datum (clang relocates `.uint16 x@TPOFF` with TPOFF32) or in a difference
   (clang drops the `- .` of `.uint32 x@TPOFF - .`).
-- `@TLVP` anywhere but `mov r64, qword ptr [rip + _x@TLVP]` / `lea r64, [rip + _x@TLVP]` with no addend or
-  segment override; every ELF operator on Mach-O (clang: "unsupported symbol modifier in relocation") and `@TLVP`
+- `@TLVP` anywhere but `mov r64, qword ptr [rip + _x@TLVP]` with no addend or segment override (`lea` included); every ELF operator on Mach-O (clang: "unsupported symbol modifier in relocation") and `@TLVP`
   on ELF.
 - A numeric local label (`1b@TPOFF`; clang: "unknown token in expression").
 
