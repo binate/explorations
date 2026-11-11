@@ -1,3 +1,27 @@
+### A value-receiver method called directly on a composite literal of a named array or slice type fails to link — DONE (binate `3bd6572f3`, 2026-11-10, work-6; user: "go ahead and work on 1, then 3, then 2 (feel free to self-drive and stack the commits)", then "yes, go ahead") (MAJOR: valid code fails to build; found 2026-11-09, work-6, review of plan-irgen-checker-types.md 4d3; reproduced with a compiler built from binate `3077a9b9f`, LLVM and native; pre-existing)
+
+```
+type Row [3]int
+func (r Row) Mid() int { return r[1] }
+type Ints @[]int
+func (s Ints) First() int { return s[0] }
+... Row{4, 5, 6}.Mid()     // undefined symbol bn_F1_4_main2_0_3_Mid
+... Ints{7, 8}.First()     // undefined symbol bn_F1_4_main2_0_5_First
+```
+
+Through a variable (`r.Mid()`), as a method value (`Row{…}.Mid`) and with a pointer receiver it works, and so
+does a named struct's literal.
+- Cause: genMethodCall (irgen/gen_method.bn) names the method after `baseNamedTypeName(recv.Typ)`, and genExpr of
+  a composite literal returns its value at the UNDERLYING type (an array literal's storage is an alloca of `[3]int`,
+  a managed-slice literal's value an `@[]int`), so the receiver's type name is empty and the call names a method of
+  no type (`main..Mid`).  A named struct's literal keeps its name: its alloca is of the named struct.
+- Fix: genMethodCall takes the receiver's base type name from the checker's record of the receiver expression
+  (methodRecvBaseTypeName), as method values already did; without a checker it keeps the IR type.  The record of
+  `*p` is already the pointee, so a named pointer's own method through a deref (`(*pnp).m()`, `type NP *H`) keeps
+  its name -- the first version peeled one more pointer and broke conformance 1436 and spec 095.
+- Test: conformance 1740_method_on_named_array_literal (local and imported `Row` / `Ints` literals, a deferred
+  call, a call in a generic body, a generic named array's literal).
+
 ### An interface assertion to `any` missed a present value whose type had no `(T, any)` row — DONE (binate `d5c58602c`, 2026-11-10, temp-5; user: "wait 8 minutes, then land") (MAJOR: a wrong run-time result; found 2026-11-10, temp-5, review of the raw-box origin fix; pre-existing)
 
 `interface G`, `impl *T : G`, `var g *G = &t`: `_, ok := g.(*any)` gave ok=false (the expression form aborted with

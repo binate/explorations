@@ -49,27 +49,6 @@ them all, or have the VM resolve an unregistered `__typeinfo.<T>` of a native pa
 first (e2e/injected-iface-runfunc.sh is a model): a native-injected package exporting a struct with no impls, and a
 bytecode program that boxes one and passes it to a native function asserting `.(*T)`.
 
-### A value-receiver method called directly on a composite literal of a named array or slice type fails to link — 🟡 IN PROGRESS (claimed 2026-11-10, work-6) (MAJOR: valid code fails to build; found 2026-11-09, work-6, review of plan-irgen-checker-types.md 4d3; reproduced with a compiler built from binate `3077a9b9f`, LLVM and native; pre-existing)
-
-```
-type Row [3]int
-func (r Row) Mid() int { return r[1] }
-type Ints @[]int
-func (s Ints) First() int { return s[0] }
-... Row{4, 5, 6}.Mid()     // undefined symbol bn_F1_4_main2_0_3_Mid
-... Ints{7, 8}.First()     // undefined symbol bn_F1_4_main2_0_5_First
-```
-
-Through a variable (`r.Mid()`), as a method value (`Row{…}.Mid`) and with a pointer receiver it works, and so
-does a named struct's literal.
-- Cause: genMethodCall (irgen/gen_method.bn) names the method after `baseNamedTypeName(recv.Typ)`, and genExpr of
-  a composite literal returns its value at the UNDERLYING type (an array literal's storage is an alloca of `[3]int`,
-  a managed-slice literal's value an `@[]int`), so the receiver's type name is empty and the call names a method of
-  no type (`main..Mid`).  A named struct's literal keeps its name: its alloca is of the named struct.
-- Fix: take a composite-literal receiver's type from compositeDeclType (the checker's record of the literal, a
-  named type's name included), as genCompositeAddr does.
-- Test: a conformance test calling both (none yet).
-
 ### `box` of a composite literal of a named managed-slice type boxes the underlying type — 🔴 OPEN (MAJOR: a compiler panic on valid code, and a wrong assertion result; found 2026-11-10, work-6, review of the composite-literal method-receiver fix; reproduced with a compiler built from binate `d5c58602c`; pre-existing)
 
 ```
