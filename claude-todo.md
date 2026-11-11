@@ -3021,7 +3021,7 @@ changes 330 tree files.  And making room for a tail can leave a one-character la
 <85-byte comment>`).  Minor: trailWidth reserves nothing for a line comment after a block comment in a gap (`x, /* b
 */ // c`); a statement's leading `/* a */ // b` on a line of its own still prints as two lines (stable).
 
-### bnfmt formats a call holding a `__c_call`, sliced, differently a second time — 🔴 OPEN 🟢 LOW (found 2026-11-10, temp-4, review of the slice / assertion / builtin close-comment change; since binate `a8e36b6da`)
+### bnfmt formats a call holding a `__c_call`, sliced, differently a second time — 🟡 IN PROGRESS (claimed 2026-11-10, temp-4) 🟢 LOW (found 2026-11-10, temp-4, review of the slice / assertion / builtin close-comment change; since binate `a8e36b6da`)
 
 `_ = g5(bb,` / `cast(T, __c_call("ffff", int, <y×20>, <y×20>, <z×17>)))[g4(<w×90>):]` formats keeping `cast(…)` on
 a continuation line of its own, 103 columns wide up to `[g4(`, with `<w×90>):]` below; a second format joins
@@ -3032,6 +3032,9 @@ at each).  Cause not yet known.  A guess to check first: the head `g5(…)` rese
 sliceSuffixWidth measures it, by its bound rendered at column 0 -- the whole `[g4(<w×90>):]` while the source keeps
 `g4(…)` on one line, only `[g4(` once the first format has put its argument on a line of its own -- so the reservation
 changes between the formats, and since `a8e36b6da` the `__c_call` inside counts it.
+Confirmed (2026-11-10): that is the cause, and nested slices hit it too once a slice can break after its `:`.
+Fix under review: the head leaves room for a bound only up to the bound's first break, rendered from past the cap
+(boundShare), and a type assertion's type leaves room for its `)` (printTypeTail).
 
 ### bnfmt's drop of an empty `var ( )` / `const ( )` / `type ( )` group leaves a stray space before its comment, or three blank lines — 🔴 OPEN 🟢 LOW (found 2026-10-31, temp-4, review of keeping one-member groups; reproduced with bnfmt `bnc-0.0.17-pre3`; pre-existing)
 
