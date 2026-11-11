@@ -1,3 +1,23 @@
+### A provisional build's reports escaped its hold: a check deferred in an abstract one's build, replayed, an alias's target, and a check waiting for a layout there — DONE (binate `a0e733996`, 2026-11-10, temp-5; landed on "yes, go ahead; then continue") (a valid program rejected; found 2026-11-10, temp-5, reviews of design C step 4; pre-existing)
+
+Three valid programs were rejected with an error from a provisional build (an instance first built while a layout it
+reads is not built yet, from the length not read, whose reports are held unless the program names it,
+check_held.bn), each because a push of a naming of no instance clears the holding: a constraint check recorded in an
+abstract provisional build, replayed with its naming pushed after its hold (replayPendingChecks, both loops) --
+`Other[[0]uint8, T]` in a Box[T] named while N is collected, "type argument *EqBox[[0]uint8] does not satisfy
+constraint Eq[[16]uint8]"; a generic alias's target with abstract type arguments (`GA2[Self, U, X]` in a provisional
+I3 instance's method), "division by zero in constant expression (in R[[0]uint8], ...)"; and a check in such a target
+that waits for a layout, made later (makeDeferredConstraintCheck).  binate `a0e733996`: the replays push the naming,
+then hold as recorded; instantiateGenericAlias keeps the use's hold across its naming push (the target is as if
+written at the use), so deferSelfConstraintCheck no longer copies it.  Conformance spec/12-generics 197-199 (each
+rejected before, each valid on arm32 too); check unit tests TestReplayedCheckOfAbstractProvisionalBuildHeld,
+TestAliasTargetInProvisionalBuildHeld and TestDeferredCheckInProvisionalAliasTargetHeld, each failing with its own
+fix reverted.  One focused review: no over-holding (a provisional instance the program names still gives its real
+error out once); it built the third reproducer; fixed an over-long comment line, the commit message and test 197's
+comment.  Left, unverified: holdWork reads the raw InstanceState.Holding where holdReport and holdLatch skip a hold
+given out -- an instance check could go into a record never given out again, if a hold were given out while a naming
+push is open and restored when it is popped; not shown reachable.
+
 ### A generic interface whose own `Self` judgment failed repeated it for each concrete instance named in a declaration after the first — DONE (binate `fb93b5931`, 2026-11-10, temp-5; user: "then fix the ordering", landed on "wait 4 minutes, then land; then continue") (minor: a repeated error; found 2026-11-10, temp-5, review of design C step 4; since binate `13715b122`)
 
 With `interface I[U any] : Eq[[4]uint8] { m(x *G[Self, int64]) int }` (G's constraint `Eq[[sizeof(U)]uint8]`), the

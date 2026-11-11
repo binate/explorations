@@ -496,31 +496,6 @@ concrete instantiations an instance's derived types form judged there, DONE: bin
 done log).  Step 4, `Self` judged in each concrete instance of a generic interface, DONE: binate `13715b122`
 (2026-11-10; see the done log).
 
-### A provisional build's reports escape its hold: a check deferred in an abstract one's build, replayed, and an alias's target — 🟡 IN PROGRESS (claimed 2026-11-10, temp-5) (a valid program rejected; found 2026-11-10, temp-5, review of design C step 4; reproduced on binate main `2470d9ddc`; pre-existing)
-
-With `type Other[A any, T any] struct { j *J[*EqBox[A], [sizeof(A) + 16 - sizeof(A)]uint8]; t T }`, `type
-Box[T any] struct { a Other[[sizeof(N)]uint8, T]; t T }` and `type N struct { v int64; p *Box[int] }` (EqBox and J as
-in check_held_test.bn's TestDeferredCheckOfProvisionalBuildHeld), the program is rejected with "type argument
-*EqBox[[0]uint8] does not satisfy constraint Eq[[16]uint8]": the `[0]` is the placeholder for sizeof(N), not read
-yet, and sizeof(N) is 16.  The abstract instance `Other[[0]uint8, T]` is built provisionally, its reports held
-(check_held.bn); a constraint check deferred in that build is recorded with Held set and Work nil, and
-replayPendingChecks calls holdAs(p.Held) before pushInstanceNaming(p.Work, ...), whose push of no instance clears
-the holding, so the replayed miss is given out.  The PendingFuncChecks loop in replayPendingChecks has the same order,
-and makeDeferredConstraintCheck pushes the naming with no holdAs at all.  With a concrete provisional instance
-(`Other[[sizeof(N)]uint8, int]`) the program prints 1.  Fix: push the naming, then holdAs(p.Held), in all three
-places, with a conformance test.
-
-The same loss of the hold by another path (found 2026-11-10, temp-5, re-review of design C step 4; pre-existing):
-instantiateGenericAlias pushes a naming of no instance when the alias's type arguments are abstract (`Self` among
-them always is), and that push clears the holding, so what the instances its target forms report escapes a
-provisional build.  With `type R[T any] struct { y [32 / sizeof(T)]uint8 }`, `type GA2[T Eq[[sizeof(U)]uint8], U
-any, X any] = P2[G[T, X], R[U]]` (P2 a struct of pointers to its two arguments) and `interface I3[U any, X any] :
-Eq[[sizeof(U)]uint8] { m(x *GA2[Self, U, X]) int }`, named as `*I3[[sizeof(N)]uint8, [16]uint8]` in a Box as above,
-the provisional I3[[0]uint8, [16]uint8] reports "division by zero in constant expression (in R[[0]uint8], ...)";
-written without the alias (`m(x *P2[G[Self, X], R[U]])`) the program prints 1.  Fix: keep the use site's holding
-across an alias target's naming push (the target is as if written at the use); design C step 4 (binate `13715b122`)
-copies the use's holding into its `Self` records (deferSelfConstraintCheck), which can then go.
-
 ### Inside a generic's instance, a type argument satisfies a constraint through an impl private to another package's `.bn` — 🟡 IN PROGRESS (claimed 2026-11-06, temp-5) (an invalid program accepted; found 2026-11-04, temp-5, review of design C for the dependent-length constraints; reproduced on binate main `b52e54139`; pre-existing)
 
 Package r3lib's `.bni` declares `interface Tag[T any] { tag() int }`, `func inner[T Tag[[sizeof(X)]uint8], X
