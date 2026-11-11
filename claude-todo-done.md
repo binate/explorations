@@ -1,3 +1,24 @@
+### bnfmt moves a block comment before a slice's `]`, a type assertion's `)`, or a type-operand builtin's or `__c_call`'s `)` to after the statement — DONE (binate `64dce165e`, 2026-11-10, temp-4; part of the comment-gap entry in claude-todo.md; landed on "wait 16 minutes, then land") (LOW; pre-existing)
+
+`x.(T /* c */)` printed `x.(T) /* c */`, and so did `s[a:n /* c */]`, `cast(int, n /* c */)`, `make_slice(int, n
+/* c */)` and `__c_call("f", int, x /* c */)`.
+- Fix (print_inlineclose.bn, print_expr.bn, print_builtin.bn, print_closegaps.bn, print_reread_cmts.bn): these
+  closes take the block comments on one line before them (claimInlineGap: sliceCloserGap, assertCloserGap,
+  cCallCloserGap), find the close among the bracket pairs (pairedClose, openAfter) and count the comments in the
+  layout: the last bound, the type or the last operand leaves room for them, and a slice's low bound for the high
+  bound's share of its line.  A line comment there still goes after the statement (a line break before the close
+  would end it).  A block comment inside an asserted type goes before its `)` (`x.(p./* c */ T)` prints `x.(p.T /*
+  c */)`).  A type assertion's `(` and `)` anchor its read-back shape.
+- Tests: print_inlineclose_test.bn; TestCloserCommentsInReadBackShapes checks `y.(T)` against `y.(T /* c15 */)`.
+  Seven revert checks each fail a test.
+- Against the bnfmt of main before it: the tree's 7,730 files unchanged; 4,859 files with about 15,000 comments
+  injected before these closes (3,893 differ) and the older injected corpora (397 differ): no comment lost or
+  reordered, no token changed, and every output reformats to itself.
+- Review: a slice's bounds left no room for what follows them, so one input reformatted differently and two ran
+  wide; fixed before landing, which also brings a comment-free slice from 102 columns to 100.  Left: a slice that
+  cannot break still runs wide (the slice break, in progress in the comment-gap entry).  The review also turned up
+  the `__c_call` regression filed on its own.
+
 ### check's test binary died on native aa64 -- the parser overflowed the stack on a 1024-deep type — DONE (binate `288044551`, 2026-11-10, work-3; user: "take a look at 1 and 2", "go ahead with 1a and 2a", then "wait 12 minutes, then go ahead")
 
 builder-comp_native_aa64-comp_native_aa64's check run died (SIGSEGV) in TestDeepTypeLimitAlias: `type A = [1]...[1]int`

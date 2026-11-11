@@ -3062,7 +3062,7 @@ three blank lines there, which a second format makes one.  So neither is idempot
 caller lays it out (printDecls, the block loop), its comments going on lines of their own, or keep it as written by
 recording its keyword on the DECL_GROUP node; tests: goldens for both, formatted twice.
 
-### bnfmt moves a comment inside a type, or before a `)` or `]`, out of its place — 🟡 IN PROGRESS (claimed 2026-11-07, temp-4) 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the operator chains' part done in binate `df21fe656`, the expressions', simple statements', declarations' and composites' in binate `27bdebd4b`, `43d112b0a`, `8d796d5f6` and `17701aeb7`; the lists' closes in binate `91a0c17ee` and `d2c6178e7`)
+### bnfmt moves a comment inside a type, or before a `)` or `]`, out of its place — 🟡 IN PROGRESS (claimed 2026-11-07, temp-4) 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the operator chains' part done in binate `df21fe656`, the expressions', simple statements', declarations' and composites' in binate `27bdebd4b`, `43d112b0a`, `8d796d5f6` and `17701aeb7`; the lists' closes in binate `91a0c17ee` and `d2c6178e7`; the slices', type assertions', type-operand builtins' and `__c_call`'s closes in binate `64dce165e`)
 
 A comment inside a statement that nothing prints where it stands is still pending in the cursor when the statement
 ends.  On one line it goes after the statement (`x := y.(T /* c */) // d` prints `x := y.(T) /* c */ // d`);
@@ -3076,13 +3076,11 @@ Assign):
   `var a p.T /* c */ = 1`, a parameter's likewise), into the next list gap (`cast(p./* c */ T, w)` prints
   `cast(p.T, /* c */ w)`), or before a composite's `{` (`p.Box[int] /* c */{1}`); a line comment inside a
   composite's qualified type name (`p. // c` / `Box{1}`) still goes after the statement;
-- right before a `)` or `]` whose position the tree does not record (each can find it, as a list's close does,
-  among the bracket pairs a comment-collecting parse records: ast.File.Brackets, pairedClose in
-  print_closegaps.bn): after a type assertion's type (`x.(T /* c */)` prints `x.(T) /* c */`), a slice's last
-  bound (`s[a:n /* c */]`), a type-operand builtin's last operand (`make_slice(int, n /* c */)`, `cast(int, n /*
-  c */)`), `__c_call`'s last argument, a function type's last result (`func() (int, bool /* c */)`; printResults
-  passes no opener), and an expression the source keeps in parentheses (`(a + b /* c */) * c` prints `(a + b) /*
-  c */ * c`);
+- right before a `)` whose position the tree does not record (each can find it, as a list's close does, among the
+  bracket pairs a comment-collecting parse records: ast.File.Brackets, pairedClose / openAfter in
+  print_closegaps.bn): after a function type's last result (`func() (int, bool /* c */)`; printResults passes no
+  opener), and after an expression the source keeps in parentheses (`(a + b /* c */) * c` prints `(a + b) /* c */
+  * c`);
 - right after a `(` the source keeps around an expression, whose position the parser does not record (it keeps
   only the Parenthesized flag): `x = (/* c */ a + b) * c` prints `x = /* c */ (a + b) * c`, stable after (seen
   2026-11-08 working on the declarations' gaps).
@@ -3092,6 +3090,12 @@ comments change order: `x := y.(p. // c` / `T) + g(1 /* d */)` prints `x := y.(p
 (bnfmt `bnc-0.0.17-pre3` keeps `// c` before `/* d */`, both after the statement; since binate `d2c6178e7`).
 Printing the comments inside types in place removes it (seen 2026-11-10 in a review of the fix for a builtin's
 line comment before its `)`).
+
+In progress (2026-11-10, temp-4; user: "yes, do the slice break as the next commit"): a slice cannot break, so a
+block comment kept before its `]`, or a long bound, leaves a line past the cap where nothing before it can wrap:
+`v := x[g0(<b×24>, <y×20>).(T /* <25 bytes> */):<b×43>]` prints 153 wide (the bnfmt of main before binate
+`64dce165e` put that comment after the `:`, where the line could break).  A slice with a high bound breaks after
+its `:`, the high bound moving to a continuation line when it does not fit after it.
 
 ### bnfmt gives a var's type no room for the ` = <value>` after it — 🟢 LOW (found 2026-11-08, temp-4, working on the declarations' comment gaps; pre-existing)
 
