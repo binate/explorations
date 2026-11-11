@@ -515,6 +515,20 @@ naming it and a declaration's miss not repeated, DONE: binate `43e760718` (2026-
 the concrete instantiations an instance's derived types form judged there, DONE: binate `d11cd29ef` (2026-11-05; see
 the done log).
 
+### A constraint check deferred in an abstract provisional instance's build is given out when replayed — 🟡 IN PROGRESS (claimed 2026-11-10, temp-5) (a valid program rejected; found 2026-11-10, temp-5, review of design C step 4; reproduced on binate main `2470d9ddc`; pre-existing)
+
+With `type Other[A any, T any] struct { j *J[*EqBox[A], [sizeof(A) + 16 - sizeof(A)]uint8]; t T }`, `type
+Box[T any] struct { a Other[[sizeof(N)]uint8, T]; t T }` and `type N struct { v int64; p *Box[int] }` (EqBox and J as
+in check_held_test.bn's TestDeferredCheckOfProvisionalBuildHeld), the program is rejected with "type argument
+*EqBox[[0]uint8] does not satisfy constraint Eq[[16]uint8]": the `[0]` is the placeholder for sizeof(N), not read
+yet, and sizeof(N) is 16.  The abstract instance `Other[[0]uint8, T]` is built provisionally, its reports held
+(check_held.bn); a constraint check deferred in that build is recorded with Held set and Work nil, and
+replayPendingChecks calls holdAs(p.Held) before pushInstanceNaming(p.Work, ...), whose push of no instance clears
+the holding, so the replayed miss is given out.  The PendingFuncChecks loop in replayPendingChecks has the same order,
+and makeDeferredConstraintCheck pushes the naming with no holdAs at all.  With a concrete provisional instance
+(`Other[[sizeof(N)]uint8, int]`) the program prints 1.  Fix: push the naming, then holdAs(p.Held), in all three
+places, with a conformance test.
+
 ### Inside a generic's instance, a type argument satisfies a constraint through an impl private to another package's `.bn` — 🟡 IN PROGRESS (claimed 2026-11-06, temp-5) (an invalid program accepted; found 2026-11-04, temp-5, review of design C for the dependent-length constraints; reproduced on binate main `b52e54139`; pre-existing)
 
 Package r3lib's `.bni` declares `interface Tag[T any] { tag() int }`, `func inner[T Tag[[sizeof(X)]uint8], X
