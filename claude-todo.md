@@ -3040,6 +3040,13 @@ Confirmed (2026-11-10): that is the cause, and nested slices hit it too once a s
 Fix under review: the head leaves room for a bound only up to the bound's first break, rendered from past the cap
 (boundShare), and a type assertion's type leaves room for its `)` (printTypeTail).
 
+### bnfmt joins a slice's string-run low bound onto its head's line, past the cap — 🔴 OPEN 🟢 LOW (found 2026-11-10, temp-4, review of the slice break; pre-existing, bnfmt `bnc-0.0.17-pre3` does the same)
+
+`v := g(<h×20>,` / `<e×68>)[` / `"<s×47>"` / `"xxxx":]` (the `[` alone in the source, the string run below it)
+formats to `v := g(<h×20>, <e×68>)["<s×47>"`, one line 149 wide, with `"xxxx":]` below it.  The call joins its
+arguments though the string run cannot make room after them.  Cause not yet known; a string run is written split or
+merged by where it lands, so the head's measure of it is a first suspect.
+
 ### bnfmt's drop of an empty `var ( )` / `const ( )` / `type ( )` group leaves a stray space before its comment, or three blank lines — 🔴 OPEN 🟢 LOW (found 2026-10-31, temp-4, review of keeping one-member groups; reproduced with bnfmt `bnc-0.0.17-pre3`; pre-existing)
 
 printGroupDecl drops an empty group (it has no member to recover its keyword from), but its callers still write
@@ -3077,6 +3084,9 @@ comments change order: `x := y.(p. // c` / `T) + g(1 /* d */)` prints `x := y.(p
 (bnfmt `bnc-0.0.17-pre3` keeps `// c` before `/* d */`, both after the statement; since binate `d2c6178e7`).
 Printing the comments inside types in place removes it (seen 2026-11-10 in a review of the fix for a builtin's
 line comment before its `)`).
+A slice's `:` takes a comment left pending inside its low bound the same way: in `w := q[a[x:` / `// c1` / `] +
+/* c2 */ y:hi]` the inner slice's line comment before its `]` prints after the outer `:`, after `/* c2 */` (bnfmt
+`bnc-0.0.17-pre3` prints both after the statement, in order; seen 2026-11-10 in the slice break's review).
 
 In progress (2026-11-10, temp-4; user: "yes, do the slice break as the next commit"): a slice cannot break, so a
 block comment kept before its `]`, or a long bound, leaves a line past the cap where nothing before it can wrap:
