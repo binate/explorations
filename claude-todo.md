@@ -7,29 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### `box` of a composite literal of a named managed-slice type boxes the underlying type — 🟡 IN PROGRESS (claimed 2026-11-10, work-6; user: "take on the new major and minor bugs afterwards") (MAJOR: a compiler panic on valid code, and a wrong assertion result; found 2026-11-10, work-6, review of the composite-literal method-receiver fix; reproduced with a compiler built from binate `d5c58602c`; pre-existing)
-
-```
-type Ints @[]int
-func (s Ints) First() int { return s[0] }
-interface Firster { First() int }
-impl Ints : Firster
-... var f @Firster = box(Ints{7, 8})   // panic: internal error: a pointer source for an interface value has no box
-... var a @any = box(Ints{11, 12})
-... _, ok = a.(@Ints)                   // false: the box's dynamic type is @[]int
-```
-
-Through a variable (`var v Ints = Ints{11, 12}; box(v)`) both work, as do a named array's or struct's literal
-(`box(Row{…})`) and the address of a managed-slice literal (`var f *Firster = &Ints{3, 4}`).
-- Cause: the `box` lowering (irgen/gen_builtin.bn, the token.BOX arm) types the box from its argument's IR value
-  (`innerTyp = val.Typ`).  A struct or array literal is loaded at compositeDeclType, the checker's record of the
-  literal, so it keeps its name; a managed-slice literal is no aggregate, and its value has the underlying
-  `@[]int`.  wrapAsIfaceValue (gen_iface.bn) then finds no type name for the dynamic type
-  (irutil.ReceiverBaseTypeName), and an `@any` box records `@[]int`.
-- Fix: take the boxed type from the checker's record (the box expression's `@Ints`, or the argument's `Ints`), as
-  the method-call fix takes a literal receiver's type.
-- Test: none yet (reproducers: a conversion to `@Firster`, an assertion of an `@any` box to `@Ints`).
-
 ### A `.bni` `var` with an initializer is accepted, and an importer cannot see an untyped one — 🟡 IN PROGRESS (claimed 2026-11-10, work-6; user: "take on the new major and minor bugs afterwards") (minor: an invalid declaration accepted, reported as an unrelated error at its use; found 2026-11-10, work-6, review of the package-variable type change; reproduced with a compiler built from binate `d5c58602c`; pre-existing)
 
 A `.bni`-only `pkg/bo` declaring `var Y = 5` and `var Z int`: the package checks and IR-gen emits an extern for

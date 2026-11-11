@@ -1,3 +1,31 @@
+### `box` of a composite literal of a named managed-slice type boxed the underlying type — DONE (binate `b08d21c0b`, 2026-11-10, work-6; user: "take on the new major and minor bugs afterwards"; landed on "wait 11 minutes, then go ahead") (MAJOR: a compiler panic on valid code, and a wrong assertion result; found 2026-11-10, work-6, review of the composite-literal method-receiver fix; pre-existing)
+
+```
+type Ints @[]int
+func (s Ints) First() int { return s[0] }
+interface Firster { First() int }
+impl Ints : Firster
+... var f @Firster = box(Ints{7, 8})   // panicked: internal error: a pointer source for an interface value has no box
+... var a @any = box(Ints{11, 12})
+... _, ok = a.(@Ints)                   // was false: the box's dynamic type was @[]int
+```
+
+- Cause: the `box` lowering (irgen/gen_builtin.bn, the token.BOX arm) typed the box from its argument's IR value
+  (`innerTyp = val.Typ`).  A struct or array literal is loaded at compositeDeclType, so it keeps its name; a
+  managed-slice literal's value has the underlying `@[]int`, so wrapAsIfaceValue found no type name for the
+  `@Firster` conversion and an `@any` box recorded `@[]int`.
+- Fix (binate `b08d21c0b`): with a checker, the box takes its type from the checker's record of the box expression
+  (boxedType: the element of the recorded `@T`, `readonly` peeled), and an untyped constant takes that type.  It
+  also corrects other boxes whose argument's IR value type disagreed with the checker: an alias's literal
+  (`box(AI{6})` crashed), a cast to a named raw-slice type (`box(cast(RawInts, …))` now asserts to `@RawInts`), a
+  generic method whose type parameter is renamed from the type's, and a sub-slice of a named slice, which now boxes
+  `@[]int` as spec `type.slice.subslice` says (it boxed `@Ints`).  Compiled IR was byte-identical for every other
+  program in the conformance corpus (host, arm32-linux, multi-package) and for cmd/bnc's 53 packages.
+- Test: conformance 1741_box_named_slice_literal (panicked before; passes on LLVM, the VM and native aa64).
+- Coverage reviewed after landing: no gap.  1741 has a case for each changed form (the literal, an alias, an
+  imported type, a generic instance and a renamed type parameter, a cast, a sub-slice, a plain `@[]int`); the
+  path without a checker is unchanged.
+
 ### A native assertion missed a box the VM made of a bytecode type, whose satisfaction lives only in the VM's registry — DONE (binate `2470d9ddc`, 2026-11-10, temp-5; user: "wait 7 minutes, then go ahead and land") (MAJOR: a wrong run-time result across modes; found 2026-11-10, temp-5, review of the raw-box origin fix; pre-existing)
 
 A bytecode type `L` with `impl *L : xr.G` (G from a native-injected package `xr`), boxed in the VM and passed to a
