@@ -255,12 +255,17 @@ is green and inside its job limit -- then (d), sharding it, is not needed, and t
   `0c1dbfcc0`); the package's test binary now runs its 417 tests in ~8.5 s of user CPU locally.  Open: confirm on CI's
   next unit run after binate `0c1dbfcc0` that the lanes no longer time out on the package.
 - 🟡 IN PROGRESS (claimed 2026-11-10, work-3; user: "take a look at 1 and 2") **pkg/binate/check's test binary dies on native aa64** (builder-comp_native_aa64-comp_native_aa64): no output after
-  `=== RUN TestDeepTypeLimitAlias` (the LLVM lanes pass it) -- likely a crash, e.g. a stack overflow in the
-  natively compiled checker; not reproduced locally yet.
+  `=== RUN TestDeepTypeLimitAlias` (the LLVM lanes pass it).  Root cause (2026-11-10): a stack overflow in the
+  parser -- `type A = [1]...[1]int` 1024 deep holds parseType + parseTypeInner per level, and parseTypeInner's frame
+  is 9,760 bytes native (6,480 LLVM: its 42 token.Pos copies, 10 token.Token temporaries -- a discarded
+  `p.expect(...)` result gets an sret buffer and a copy to destroy -- with no slot shared between sites), so the 8 MiB
+  stack runs out at level 663 (LLVM needs ~6.8 MB).  Fix chosen (user: "go ahead with 1a and 2a"): the parser parses
+  a chain of type prefixes (`[N]`, `*`, `@`, `readonly`, `[]`) with a loop, not one frame pair per level.
 - 🟡 IN PROGRESS (claimed 2026-11-10, work-3) **pkg/binate/check's TestDeepContainerRetypes exhausts the bare-metal arena** (builder-comp_arm32_baremetal, at
   binate `9d84c4643`, with the bare-metal stack guard (not yet landed) and the same without it): `rt.RawAlloc: arena
-  exhausted` from a test heap of ~240 MiB, so the test allocates past that (quadratic memory in depth, or a leak --
-  cf. "The container retypes and AssignableTo's named-type decay are quadratic in depth").
+  exhausted` from a test heap of ~240 MiB.  Root cause (2026-11-10): no leak -- the test holds three 200,000-deep
+  chains (~800,000 types.Type, 280 bytes each on 32-bit, 520 on 64-bit; 574 MB peak on the host).  Fix chosen:
+  restructure the test to hold one target chain at a time.
 - **Update, unit run at binate `08de98de2` (2026-11-09):** the arm32 NEON test now compiles (binate `0d72b73e2`).
   The bare-metal lane now finishes inside its limit (23.5 min, format 274 s, down from 737 s), failing only on
   check's TestDeepContainerRetypes.  Still timing out: builder-comp-int 1/6 (format 1104 s under the VM, then cut off
