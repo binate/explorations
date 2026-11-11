@@ -21,7 +21,7 @@ Before `d2c6178e7` it went on a line of its own after the statement.  A spread's
 block comments on one line before its close (claimInlineGap), leaving a line comment pending as before; test: the
 case above formats to output that parses and formats again the same.
 
-### A native assertion misses a box the VM made of a bytecode type, whose satisfaction lives only in the VM's registry — 🔴 OPEN (MAJOR: a wrong run-time result across modes; found 2026-11-10, temp-5, review of the raw-box origin fix; reproduced with a host built from binate `007aabfb8`; pre-existing)
+### A native assertion misses a box the VM made of a bytecode type, whose satisfaction lives only in the VM's registry — 🟡 IN PROGRESS (claimed 2026-11-10, temp-5; user: "let's take on the bugs first, then do design C step 4") (MAJOR: a wrong run-time result across modes; found 2026-11-10, temp-5, review of the raw-box origin fix; reproduced with a host built from binate `007aabfb8`; pre-existing)
 
 A bytecode type `L` with `impl *L : xr.G` (G from a native-injected package `xr`) is boxed in the VM -- `var gl *xr.G
 = &l; var up *any = gl`, or managed -- and passed to a native `xr` function that asserts `a.(*G)` / `a.(@G)`: the
@@ -34,7 +34,7 @@ scratchpad rb/mainrepro).  Fix: needs a design -- native code reached with a VM-
 satisfaction entries (the VM registering them into the native registry, or SatLookup consulting the VM's); then an
 e2e test.
 
-### A native package's type with no satisfaction entries gets a VM-made TypeInfo record, so a native concrete assertion on a box made in bytecode misses — 🔴 OPEN (MAJOR: a wrong run-time result across modes; found 2026-11-09, temp-5, review of the raw-box origin fix; from reading the code, not yet reproduced; pre-existing)
+### A native package's type with no satisfaction entries gets a VM-made TypeInfo record, so a native concrete assertion on a box made in bytecode misses — 🟡 IN PROGRESS (claimed 2026-11-10, temp-5; user: "let's take on the bugs first, then do design C step 4") (MAJOR: a wrong run-time result across modes; found 2026-11-09, temp-5, review of the raw-box origin fix; from reading the code, not yet reproduced; pre-existing)
 
 `RegisterPackageSatEntries` (pkg/binate/vm/extern_register.bn) binds a native-only injected package's
 `__typeinfo.<T>` records into the VM's data-symbol table only through the package's satisfaction entries.  A type
