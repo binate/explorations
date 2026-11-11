@@ -71,7 +71,7 @@ pattern). Per-arch:
   on `.8b/.16b/.4h/.8h/.2s/.4s/.2d`), lane moves (`MOVI`/`DUP`/`INS`/`UMOV`/`FMOV`),
   packed FP (`FADD`/`FMUL`/`FDIV`/`FCMP` `.2s/.4s/.2d`), and **`DC ZVA`** (cache-line
   zero) for MemZero. The V-register arrangement model (V0–V31 × arrangement specifier).
-- **x64 SSE2/AVX** (`asm/x64/x64_sse.bn` + tests): `MOVDQU`/`MOVDQA`, `PADDD`/`PSUBD`/
+- **x64 SSE2/AVX** (`asm/x64/sse/`, the package `asm/x64/sse`, + tests): `MOVDQU`/`MOVDQA`, `PADDD`/`PSUBD`/
   `PAND`/`PXOR`/`POR`, packed FP (`ADDPS`/`MULPS`/`ADDPD`), broadcasts; plus `rep stosb`
   / wide-SSE fill for MemZero. XMM (and optionally YMM) model.
 - **arm32**: NEON where the target has it, else the scalar path is the fallback (many
