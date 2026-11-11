@@ -3071,6 +3071,12 @@ Assign):
   only the Parenthesized flag): `x = (/* c */ a + b) * c` prints `x = /* c */ (a + b) * c`, stable after (seen
   2026-11-08 working on the declarations' gaps).
 
+A comment left pending also prints after those a later list in the statement claims before its close, so the
+comments change order: `x := y.(p. // c` / `T) + g(1 /* d */)` prints `x := y.(p.T) + g(1 /* d */)` / `// c`
+(bnfmt `bnc-0.0.17-pre3` keeps `// c` before `/* d */`, both after the statement; since binate `d2c6178e7`).
+Printing the comments inside types in place removes it (seen 2026-11-10 in a review of the fix for a builtin's
+line comment before its `)`).
+
 ### bnfmt gives a var's type no room for the ` = <value>` after it — 🟢 LOW (found 2026-11-08, temp-4, working on the declarations' comment gaps; pre-existing)
 
 printValueSpec (print_declgaps.bn) prints a declaration's type with a tail of 0 when no comment follows it, so a
@@ -3109,7 +3115,12 @@ int`) is in no gap, so the element stays in the run; but it prints on a line of 
 x` / `/* p */ bbbb = 2 // y` in a `var` or `const` group, and with `case 1: g() // a` / `/* p */ case 2222: g() //
 b` (bnfmt `bnc-0.0.17-pre3` and the tree's).  The second format is stable.  An interface method's comment
 (`/* p */ F() int`) moves to a line of its own the same way, with no run to break.  A run should break at any comment that
-prints on a line of its own between two elements, or such a comment should stay on its element's line.
+prints on a line of its own between two elements, or such a comment should stay on its element's line.  A comment
+inside an element that goes on a line of its own after it (one inside a type, which nothing prints in place) does
+the same: `var (` / `a int = y.(p. // c` / `T)` / `bb int = 2 // d` / `)` prints `bb int = 2      // d`, aligned
+with `// c` on `a`'s source line, and a second format `bb int = 2 // d`; a struct whose first field is `a
+[len(y.(p. // c` / `T))]int` pads `a  [len(y.(p.T))]int` likewise (bnfmt `bnc-0.0.17-pre3` and the tree's; seen
+2026-11-10 in a review of the fix for a builtin's line comment before its `)`).
 
 ## bnlint rules, unused-entity checks & lint skips
 
