@@ -3028,6 +3028,18 @@ changes 330 tree files.  And making room for a tail can leave a one-character la
 <85-byte comment>`).  Minor: trailWidth reserves nothing for a line comment after a block comment in a gap (`x, /* b
 */ // c`); a statement's leading `/* a */ // b` on a line of its own still prints as two lines (stable).
 
+### bnfmt formats a call holding a `__c_call`, sliced, differently a second time — 🔴 OPEN 🟢 LOW (found 2026-11-10, temp-4, review of the slice / assertion / builtin close-comment change; since binate `a8e36b6da`)
+
+`_ = g5(bb,` / `cast(T, __c_call("ffff", int, <y×20>, <y×20>, <z×17>)))[g4(<w×90>):]` formats keeping `cast(…)` on
+a continuation line of its own, 103 columns wide up to `[g4(`, with `<w×90>):]` below; a second format joins
+`cast(…)` to `bb`'s line and wraps the `__c_call` before its last argument (`… <y×20>,` / `<z×17>)))[g4(` /
+`<w×90>):]`).  No comment is involved.  bnfmt `bnc-0.0.17-pre3` and the parent of `a8e36b6da` (a `__c_call` leaves
+room for what follows it on its line) keep their first output; `a8e36b6da` is the first that does not (bnfmt built
+at each).  Cause not yet known.  A guess to check first: the head `g5(…)` reserves the slice's suffix as
+sliceSuffixWidth measures it, by its bound rendered at column 0 -- the whole `[g4(<w×90>):]` while the source keeps
+`g4(…)` on one line, only `[g4(` once the first format has put its argument on a line of its own -- so the reservation
+changes between the formats, and since `a8e36b6da` the `__c_call` inside counts it.
+
 ### bnfmt's drop of an empty `var ( )` / `const ( )` / `type ( )` group leaves a stray space before its comment, or three blank lines — 🔴 OPEN 🟢 LOW (found 2026-10-31, temp-4, review of keeping one-member groups; reproduced with bnfmt `bnc-0.0.17-pre3`; pre-existing)
 
 printGroupDecl drops an empty group (it has no member to recover its keyword from), but its callers still write
