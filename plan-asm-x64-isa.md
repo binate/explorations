@@ -58,9 +58,8 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
    - 1f. The string instructions at every size, with rep / repe / repne.
    - 1g. Control: enter / leave, loop / loope / loopne / jrcxz, hlt, pause, iret / iretq, int1, CALL / JMP
      through `[rip + x@GOTPCREL]`.
-   - 1h. Jump relaxation: a jump to a label within reach is rel8, as clang's (layout by fragments: the jumps'
-     sizes found by iterating to a fixed point, as clang's relaxation does), so label differences across jumps
-     match clang's.
+   - (Jump relaxation — a jump to a label within reach rel8, as clang's — is step 12 of
+     plan-native-code-placement.md, an `asm/x64` feature there; not in this series.  User 2026-11-11.)
    - 1i. The VEX-encoded integer instructions (BMI1 / BMI2: andn, bextr, blsi, blsmsk, blsr, bzhi, mulx, pdep,
      pext, rorx, sarx, shlx, shrx) and ADX, MOVBE, CRC32 — with the VEX prefix encoder stage 4 builds on.
    - 1j. The system instructions: control / debug register moves, rdmsr / wrmsr, cpuid, rdtsc / rdtscp, the
@@ -75,8 +74,13 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
    push2 / pop2, ccmp / ctest, cfcmov; the AMX tile instructions.
 7. **32-bit address size** (`[eax]`, `[ebx + ecx*4]`, the 0x67 prefix; user 2026-10-06: "Support it, later").
 
-## Decisions needed
+## Decisions
 
-- Scope: all of it, staged in this order — or stop after stage 4 (VEX), with EVEX / APX / AMX later.
-- Jump relaxation (1h): in this series, as clang's encodings are the target.
-- Order: as listed (general-purpose first; the native backend's needs come mostly from it).
+- Scope (user, 2026-11-11: "All, staged (Recommended)"): every instruction clang takes in 64-bit mode, in the
+  order of the stages above.
+- Jump relaxation (user, 2026-11-11: "Leave it to code placement (Recommended)"): not in this series; bnas gets
+  clang's short jumps when plan-native-code-placement.md's step 12 lands.
+
+## Progress
+
+Next: 1a.
