@@ -497,12 +497,13 @@ not only those visible where the instantiation is written (they differ only for 
 package's `.bn`).
 
 Plan: explorations/plan-dependent-constraints.md (v3).  Step 1, an impl's interface list resolved per instance from
-source, DONE: binate `d669cf25b` (2026-11-05; see the done log).  Step 2, errors found working on an instance
-naming it and a declaration's miss not repeated, DONE: binate `43e760718` (2026-11-05; see the done log).  Step 3,
-the concrete instantiations an instance's derived types form judged there, DONE: binate `d11cd29ef` (2026-11-05; see
-the done log).
+source, DONE: binate `d669cf25b` (2026-11-05; see the done log).  Step 2, errors found working on an instance naming
+it and a declaration's miss not repeated, DONE: binate `43e760718` (2026-11-05; see the done log).  Step 3, the
+concrete instantiations an instance's derived types form judged there, DONE: binate `d11cd29ef` (2026-11-05; see the
+done log).  Step 4, `Self` judged in each concrete instance of a generic interface, DONE: binate `13715b122`
+(2026-11-10; see the done log).
 
-### A generic interface whose own `Self` judgment fails repeats it for each concrete instance named in a declaration after the first — 🟡 IN PROGRESS (claimed 2026-11-10, temp-5; user: "then fix the ordering") (minor: a repeated error; found 2026-11-10, temp-5, review of design C step 4, which it comes with)
+### A generic interface whose own `Self` judgment fails repeats it for each concrete instance named in a declaration after the first — 🟡 IN PROGRESS (claimed 2026-11-10, temp-5; user: "then fix the ordering") (minor: a repeated error; found 2026-11-10, temp-5, review of design C step 4; since binate `13715b122`)
 
 With `interface Eq[T any] { eq(o T) int }`, `type G[T Eq[[sizeof(U)]uint8], U any] struct { t T }` and `interface
 I[U any] : Eq[[4]uint8] { m(x *G[Self, int64]) int }`, the globals `var a *I[int64]`, `var b *I[int32]` and `var c
@@ -538,7 +539,7 @@ any, X any] = P2[G[T, X], R[U]]` (P2 a struct of pointers to its two arguments) 
 Eq[[sizeof(U)]uint8] { m(x *GA2[Self, U, X]) int }`, named as `*I3[[sizeof(N)]uint8, [16]uint8]` in a Box as above,
 the provisional I3[[0]uint8, [16]uint8] reports "division by zero in constant expression (in R[[0]uint8], ...)";
 written without the alias (`m(x *P2[G[Self, X], R[U]])`) the program prints 1.  Fix: keep the use site's holding
-across an alias target's naming push (the target is as if written at the use); the step 4 change, not yet landed,
+across an alias target's naming push (the target is as if written at the use); design C step 4 (binate `13715b122`)
 copies the use's holding into its `Self` records (deferSelfConstraintCheck), which can then go.
 
 ### Inside a generic's instance, a type argument satisfies a constraint through an impl private to another package's `.bn` — 🟡 IN PROGRESS (claimed 2026-11-06, temp-5) (an invalid program accepted; found 2026-11-04, temp-5, review of design C for the dependent-length constraints; reproduced on binate main `b52e54139`; pre-existing)

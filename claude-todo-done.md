@@ -1,3 +1,20 @@
+### Dependent-length constraints, step 4: `Self` judged in each concrete instance of a generic interface — DONE (binate `13715b122`, 2026-11-10, temp-5; user: "go with your recs, and continue working" (open question 1: judged per instance), landed on "wait 20 minutes, then land; then fix the ordering") (step 4 of explorations/plan-dependent-constraints.md, for the open entry "In a generic's own check, a constraint whose length depends on the generic's type parameter …")
+
+`interface I3[U any, X any] : Eq[[sizeof(U)]uint8] { m(x *G[Self, X]) int }`, with `type G[T Eq[[sizeof(U)]uint8], U
+any]`, was accepted at I3[int64, int32], whose `Self` extends Eq[[8]uint8] and cannot satisfy G's Eq[[4]uint8]: a
+`Self` constraint check was made only by the declaration's check, where every dependent length is one placeholder.
+binate `13715b122`: a concrete interface instance queues its own `Self` checks, bounded by itself
+(selfBoundBeingBuilt), in ImplView.All, its errors naming the instance; an instance whose type arguments mention a
+type parameter or `Self` judges nothing.  Also judged: an instance first built in a derivation (deriveSelf) and a
+`Self` reaching a generic alias's target (aliasNamings; in a non-generic interface such a `Self` was skipped
+before); a constraint resolved for an instantiation's arguments queues no `Self` check.  Conformance
+spec/12-generics 193-196.  Two adversarial reviews: fixed an instance first built in a derivation never judged, an
+alias's target skipped, a constraint leaving a check queued, and a valid program rejected at a generic interface's
+declaration through an alias.  Left: two pre-existing losses of a provisional build's hold, filed as "A provisional
+build's reports escape its hold …" (claimed, temp-5); a second instance named in a declaration repeats the
+declaration's miss, filed as "A generic interface whose own `Self` judgment fails repeats it …" (claimed, temp-5).
+The spec text comes with steps 5-6.
+
 ### bnfmt moves a block comment before a slice's `]`, a type assertion's `)`, or a type-operand builtin's or `__c_call`'s `)` to after the statement — DONE (binate `64dce165e`, 2026-11-10, temp-4; part of the comment-gap entry in claude-todo.md; landed on "wait 16 minutes, then land") (LOW; pre-existing)
 
 `x.(T /* c */)` printed `x.(T) /* c */`, and so did `s[a:n /* c */]`, `cast(int, n /* c */)`, `make_slice(int, n
