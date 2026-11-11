@@ -222,9 +222,10 @@ IR-gen cannot map is an internal error, never `int`.
    injected-package RegisterPackageVtables / RegisterPackageSatEntries, FuncSig callee lookup, separate
    `bnc --pkg` builds.
    Increments — IN PROGRESS (work-6, 2026-11-10; proposed from a survey of the registration sites):
-   - 5a: the checker records the Type each type declaration declares — `Decl.ResolvedTypeID` on a DECL_TYPE
+   - 5a DONE (binate `9b990f0a1`, 2026-11-10; user: "yes"): the checker records the Type each type declaration declares — `Decl.ResolvedTypeID` on a DECL_TYPE
      (struct, distinct, alias, interface, generic), as DECL_VAR / DECL_FUNC already have — so IR-gen holds a
-     declaration's identity without its name.  Check unit tests; no IR change.
+     declaration's identity without its name.  Check unit tests; no IR change.  A blank `interface _` records
+     none (the depth check never measured one); checkTypeDepths' declaredTypeOf reads the record.
    - 5b: the mapper's memo: GenCtx maps a checker Type pointer to IR-gen's type (named types, named structs,
      interfaces, instances), filled by irTypeFromChecker in lookup mode.  Byte-identical IR.
    - 5c: declarations register from their record.  Seven per-driver passes register named structs, named
