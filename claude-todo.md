@@ -319,10 +319,10 @@ is green and inside its job limit -- then (d), sharding it, is not needed, and t
   fixed (done log, binate `08de98de2` and `2c3c3effa`), and holdsBlock keeps its answer per node (binate
   `0c1dbfcc0`); the package's test binary now runs its 417 tests in ~8.5 s of user CPU locally.  Open: confirm on CI's
   next unit run after binate `0c1dbfcc0` that the lanes no longer time out on the package.
-- **pkg/binate/check's test binary dies on native aa64** (builder-comp_native_aa64-comp_native_aa64): no output after
+- 🟡 IN PROGRESS (claimed 2026-11-10, work-3; user: "take a look at 1 and 2") **pkg/binate/check's test binary dies on native aa64** (builder-comp_native_aa64-comp_native_aa64): no output after
   `=== RUN TestDeepTypeLimitAlias` (the LLVM lanes pass it) -- likely a crash, e.g. a stack overflow in the
   natively compiled checker; not reproduced locally yet.
-- **pkg/binate/check's TestDeepContainerRetypes exhausts the bare-metal arena** (builder-comp_arm32_baremetal, at
+- 🟡 IN PROGRESS (claimed 2026-11-10, work-3) **pkg/binate/check's TestDeepContainerRetypes exhausts the bare-metal arena** (builder-comp_arm32_baremetal, at
   binate `9d84c4643`, with the bare-metal stack guard (not yet landed) and the same without it): `rt.RawAlloc: arena
   exhausted` from a test heap of ~240 MiB, so the test allocates past that (quadratic memory in depth, or a leak --
   cf. "The container retypes and AssignableTo's named-type decay are quadratic in depth").
