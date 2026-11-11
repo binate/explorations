@@ -1,3 +1,19 @@
+### A generic interface whose own `Self` judgment failed repeated it for each concrete instance named in a declaration after the first — DONE (binate `fb93b5931`, 2026-11-10, temp-5; user: "then fix the ordering", landed on "wait 4 minutes, then land; then continue") (minor: a repeated error; found 2026-11-10, temp-5, review of design C step 4; since binate `13715b122`)
+
+With `interface I[U any] : Eq[[4]uint8] { m(x *G[Self, int64]) int }` (G's constraint `Eq[[sizeof(U)]uint8]`), the
+globals `var a *I[int64]`, `var b *I[int32]` and `var c *I[int16]` gave the declaration's miss and the same miss
+again for I[int32] and I[int16]: an instance named in a declaration is built while the batch is collected, and its
+`Self` checks ran at the end of the collection, before the interface's declaration check (checkGenericDeclAbstract),
+which takes the place of only one instance miss reported before it (foldInstanceMiss); so did an instance built in
+the check of a generic declared before the interface.  binate `fb93b5931`: the batch lists its generic interfaces
+whose declaration check is still to come (DeclBatch.IfacesUnchecked), and a concrete instance's `Self` check waits
+for it (awaitsDeclarationCheck), run by declarationSelfChecked; outside a batch (a declaration typed alone at the
+REPL prompt) nothing waits.  Check unit tests TestSelfInstanceRepeatsNoDeclarationMiss and
+TestSelfInstanceRepeatsNoDeclarationMissElsewhere (two and five errors before); no conformance test, since a
+`.error` file cannot pin an error count.  One focused review: no correctness finding; three stale comments fixed; an
+interface declared in the package's own `.bni` with instances in its `.bn` was probed (fixed) but has no test, as
+the unit-test helper does not merge a `.bni`'s interfaces as the loader does.
+
 ### check's deep tests ran the bare-metal test heap out — DONE (binate `72a601204` and `be5bcd88d`, 2026-11-10, work-3; user: "go ahead with 1a and 2a", "wait 12 minutes, then go ahead; and yes, do 2b", then "yes")
 
 builder-comp_arm32_baremetal's check run failed with `rt.RawAlloc: arena exhausted` from a ~240 MiB test heap.  No
