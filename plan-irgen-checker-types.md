@@ -226,8 +226,13 @@ IR-gen cannot map is an internal error, never `int`.
      (struct, distinct, alias, interface, generic), as DECL_VAR / DECL_FUNC already have — so IR-gen holds a
      declaration's identity without its name.  Check unit tests; no IR change.  A blank `interface _` records
      none (the depth check never measured one); checkTypeDepths' declaredTypeOf reads the record.
-   - 5b: the mapper's memo: GenCtx maps a checker Type pointer to IR-gen's type (named types, named structs,
-     interfaces, instances), filled by irTypeFromChecker in lookup mode.  Byte-identical IR.
+   - 5b DROPPED (user 2026-11-10, answering whether to drop it: "Key by checker's name (Recommended)"): no
+     memo keyed by checker Type pointer.  The checker's identity for a named type, named struct or interface is
+     its qualified name plus any instance arguments (types identicalStep: NamedIdentityName, (Pkg, Name), the
+     struct's Name), not the object -- it makes two interface Types for one package interface (the `.bni`
+     load's and preRegisterInterfaces').  So IR-gen's registries stay keyed by qualified name, taken from the
+     checker's Type (5c, 5d), not from `d.Name` or the written text; a REPL shadow is a distinct type through
+     plan-repl-type-shadowing.md approach B's internal name.
    - 5c: declarations register from their record.  Seven per-driver passes register named structs, named
      types (preRegisterNamedTypeDecl / registerTypeDeclEntry) and interfaces (collectInterfaceFromDecl) by
      `d.Name` (gen_module, gen_module_single, gen_module_register, gen_register_import, gen_import,
@@ -238,8 +243,8 @@ IR-gen cannot map is an internal error, never `int`.
      Note (review of 5a, 2026-11-10): a `.bni`'s type and interface Decls are the same nodes in pkg.BNI and
      pkg.Merged, so LoadPackageInterface records them and CheckPackage then overwrites the record with the
      implementation scope's type.  For an interface that is a different Type object from the one importers
-     see (preRegisterInterfaces makes a fresh one and replaces the copied symbol), so a memo keyed by Type
-     pointer (5b) meets two Types for one interface -- they must map to the one registered interface.
+     see (preRegisterInterfaces makes a fresh one and replaces the copied symbol); both name the one registered
+     interface by its (Pkg, Name).
    - 5d: emitted names from the checker's identity: methodQualName (the receiver TypeExpr's record, not
      recvTypeName's text), the dtor / copy helpers, impl rows and typeinfo name what the record maps to.
      Byte-identical until a checker makes two types of one name (plan-repl-type-shadowing.md approach B).
