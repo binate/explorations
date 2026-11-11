@@ -2769,6 +2769,17 @@ after it lands; interim runner is a from-tree `bni`).
 
 ## bnas (self-hosted assembler)
 
+### asm x64: `call A` / `jmp A` to an alias `A = x + 4` is R_X86_64_PC32 where clang's is PLT32 — 🔴 OPEN, unclaimed (found 2026-11-11, work-2, the review of TLS stage 3d2)
+With `A = x + 4`, `call A` (and `jmp A`) assembles to clang's bytes and addend, but its relocation is
+R_X86_64_PC32 x where clang's is R_X86_64_PLT32 x: clang makes a branch to a target written as a lone
+name a PLT reference, the alias's addend riding along, while a written `call x + 4` is PC32 in both.
+In a PIE or `-shared` link against an external x the PC32 one can fail to link (or need a text
+relocation) where clang's object links.  Likely cause: `parseX64Target` (`pkg/binate/asm/parse/x64_instr.bn`)
+and the ELF writer decide "plain" from the resolved addend, not from whether the target was written as
+one name.  Fix: carry "written as one name" to the branch's fixup, so an alias's addend goes with a
+PLT32.  Found by the review of the x64 memory-symbol change (TLS stage 3d2), not caused by it: bnas
+before it does the same.
+
 ### bnas x64 → ELF: typical integer programs LANDED; SSE/exotic-addressing remain — 🟡 PARTIAL
 `bnas -arch x64` → ELF64 landed (`d7e924a2c`): the CLI wiring
 (`x64.ResolveFixups` + `elf.WriteX86_64`) plus the x64 text-parser essentials real
