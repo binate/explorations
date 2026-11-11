@@ -234,6 +234,11 @@ IR-gen cannot map is an internal error, never `int`.
      checker's (Pkg, Name), with fields, underlying, method set and parents from the checker type; the mapper
      registers a type it meets unregistered the same way, so no order leaves one nil.  Declaration order is
      kept (Module.Structs order is emission order), so the IR stays byte-identical.
+     Note (review of 5a, 2026-11-10): a `.bni`'s type and interface Decls are the same nodes in pkg.BNI and
+     pkg.Merged, so LoadPackageInterface records them and CheckPackage then overwrites the record with the
+     implementation scope's type.  For an interface that is a different Type object from the one importers
+     see (preRegisterInterfaces makes a fresh one and replaces the copied symbol), so a memo keyed by Type
+     pointer (5b) meets two Types for one interface -- they must map to the one registered interface.
    - 5d: emitted names from the checker's identity: methodQualName (the receiver TypeExpr's record, not
      recvTypeName's text), the dtor / copy helpers, impl rows and typeinfo name what the record maps to.
      Byte-identical until a checker makes two types of one name (plan-repl-type-shadowing.md approach B).
