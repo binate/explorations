@@ -357,8 +357,10 @@ recursive, so far more than 75).
   an invalid chain with a cycle in every link (`type A_i [sizeof(A_i) + sizeof(A_i+1)]uint8`, 20,000 links) recurses
   at each stop and crashes, as before the walk (stage 1 reported 20,000 errors); one with an undefined name in every
   link already did -- bounded only by step 3 (a type-depth backstop, undecided).
-  Next: methods (`len(S{}.M())`, still recursing); then the parser nesting limit, then IR-gen (type alias chains among
-  the first).
+  Tests for a stop at a walked type and through two types' parts: binate `2d3a436a7` (landed 2026-11-11).
+  Next: methods -- a chain `func (S0) M() [len(S1{}.M())]int8` ... crashes between 700 and 1,000 links (21 frames a
+  link: batchMethodOnDemand -> defineBatchMethod -> collectMethodDecl -> ... -> tryMethodCall); then the parser
+  nesting limit, then IR-gen (type alias chains among the first).
 ## Decisions (2026-11-03)
 
 - Step 1, all of it, staged: user "All of them, staged (Recommended)".
