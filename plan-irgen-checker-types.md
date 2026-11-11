@@ -245,6 +245,19 @@ IR-gen cannot map is an internal error, never `int`.
      implementation scope's type.  For an interface that is a different Type object from the one importers
      see (preRegisterInterfaces makes a fresh one and replaces the copied symbol); both name the one registered
      interface by its (Pkg, Name).
+     5c-1 (work-6, 2026-11-10, in review): every type / interface registration site takes the declaration's name
+     from its record (irgen declaredTypeName: the checker Type's bare Name), not `d.Name`; byte-identical IR.
+     Aliases, blank declarations and declarations with no record keep `d.Name`.  5c-2: one registration routine
+     for the seven passes, fields / underlying / method sets from the checker type, lazy registration.
+     Notes from the 5c-1 review: (a) the no-record fallback exists only for IR-gen unit tests that register
+     unchecked declarations with a checker attached (gen_repl_types_test, gen_repl_test, gen_repl_forward_test,
+     ...; a strict-check run of VM conformance and e2e/repl.sh found no production path) -- once stage 7
+     converts them, a missing record with a checker attached should be an internal error (REPL plan refinement
+     3: loud misses); (b) declaredTypeName drops the qualifier, so a checker / IR-gen package disagreement would
+     surface only as a later irNamedFromChecker / irStructFromChecker miss -- an assertion that the qualifier
+     matches the registering path would catch it at registration; (c) aliases stay keyed by `d.Name`
+     (RegisterModuleTypeAlias keeps the first entry for a name), and methods, impls, generic stashes and
+     interface parents (collectInterfaceParents by ref.Name) by written names -- 5c-2 / 5d / 5e.
    - 5d: emitted names from the checker's identity: methodQualName (the receiver TypeExpr's record, not
      recvTypeName's text), the dtor / copy helpers, impl rows and typeinfo name what the record maps to.
      Byte-identical until a checker makes two types of one name (plan-repl-type-shadowing.md approach B).
