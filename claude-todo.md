@@ -494,7 +494,8 @@ source, DONE: binate `d669cf25b` (2026-11-05; see the done log).  Step 2, errors
 it and a declaration's miss not repeated, DONE: binate `43e760718` (2026-11-05; see the done log).  Step 3, the
 concrete instantiations an instance's derived types form judged there, DONE: binate `d11cd29ef` (2026-11-05; see the
 done log).  Step 4, `Self` judged in each concrete instance of a generic interface, DONE: binate `13715b122`
-(2026-11-10; see the done log).
+(2026-11-10; see the done log).  Step 5, constraint satisfaction, DONE: binate `77ef9401d` (2026-11-11; see the done
+log).
 
 ### Inside a generic's instance, a type argument satisfies a constraint through an impl private to another package's `.bn` — 🟡 IN PROGRESS (claimed 2026-11-06, temp-5) (an invalid program accepted; found 2026-11-04, temp-5, review of design C for the dependent-length constraints; reproduced on binate main `b52e54139`; pre-existing)
 

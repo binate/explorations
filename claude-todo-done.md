@@ -1,3 +1,19 @@
+### Dependent-length constraints, step 5, constraint satisfaction: a miss that depends on a type parameter's length is judged per instance — DONE (binate `77ef9401d`, 2026-11-11, temp-5; landed on "wait 15 minutes, then land; then continue") (step 5 of explorations/plan-dependent-constraints.md, for the open entry "In a generic's own check, a constraint whose length depends on the generic's type parameter …")
+
+With `impl *N : Eq[[8]uint8]` and `func inner[T Eq[[sizeof(U)]uint8], U any](t T) int`, `func fwd[U any](n *N) int {
+return inner[*N, U](n) }` was rejected at its declaration ("*N does not satisfy constraint Eq[[0]uint8]"); so were
+such a constraint in a field, a signature, a generic interface's method, an alias's target and a call in a field's
+length, a type parameter whose bound has the real length, a parameterized impl, an ancestor, and an impl on an alias
+of an instance.  binate `77ef9401d`: the declaration's check reports a miss only when it holds with every length
+that depends on a type parameter matching any length (constraintMissDeferred: typeSatisfiesConstraintIn with loose
+comparisons, identicalUpToDependentLengths now comparing instances by their type arguments); each concrete
+instantiation judges it where it is formed (fwd[int32]: "... Eq[[4]uint8] (in fwd[int32], instantiated at ...)").  A
+side effect, documented: an assignment or `==` whose types hold such a length both outside an instance and in its
+type arguments is deferred too.  Conformance spec/12-generics 200-202, 1742 / 1743 (cross-package); check unit
+tests.  One focused review: no unsound accept; a receiver match I had removed as dead was reachable through an alias
+(restored, tested); the assignability side effect documented and tested; W9's invalid instance and a cross-package
+test added.
+
 ### bnfmt formatted a call holding a `__c_call`, sliced, differently a second time — DONE (binate `9b7c239e9`, 2026-11-11, temp-4; user: "yes, do the slice break as the next commit, then investigate the regression", landed on "wait 11 minutes, then land (and file the 5 cases); then work on the 5 cases") (LOW; found 2026-11-10, temp-4, review of the slice / assertion / builtin close-comment change; since binate `a8e36b6da`)
 
 `_ = g5(bb,` / `cast(T, __c_call("ffff", int, <y×20>, <y×20>, <z×17>)))[g4(<w×90>):]` kept `cast(…)` on a line of

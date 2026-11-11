@@ -158,7 +158,10 @@ instance judgment that makes up for it (3.2-3.4).
    target; then binate `fb93b5931`, an instance's judgments wait for its interface's declaration check, so a miss
    the declaration reports is not repeated; and binate `a0e733996`, three ways a provisional build's reports
    escaped their hold, found reviewing it.
-5. **The declaration's deferrals** (3.1), a family per commit if the diff is large: fixes (A).
+5. **The declaration's deferrals** (3.1), a family per commit if the diff is large: fixes (A).  Constraint
+   satisfaction DONE, binate `77ef9401d` (2026-11-11): a miss is reported only when it holds with every dependent
+   length matching any length (constraintMissDeferred, a loose satisfaction walk); left: identity / assignability
+   / `==` / `same`, interface values, an impl's coverage, duplicate parents.
 6. **Spec** (section 5), with step 5.
 
 ## 5. Spec
