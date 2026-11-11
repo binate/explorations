@@ -221,6 +221,25 @@ IR-gen cannot map is an internal error, never `int`.
    BC_DATA_SYM_ADDR, swapIfaceSuffix), LowerOneFunc's same-name replacement, interp FindInterfaceMethodSlot,
    injected-package RegisterPackageVtables / RegisterPackageSatEntries, FuncSig callee lookup, separate
    `bnc --pkg` builds.
+   Increments — IN PROGRESS (work-6, 2026-11-10; proposed from a survey of the registration sites):
+   - 5a: the checker records the Type each type declaration declares — `Decl.ResolvedTypeID` on a DECL_TYPE
+     (struct, distinct, alias, interface, generic), as DECL_VAR / DECL_FUNC already have — so IR-gen holds a
+     declaration's identity without its name.  Check unit tests; no IR change.
+   - 5b: the mapper's memo: GenCtx maps a checker Type pointer to IR-gen's type (named types, named structs,
+     interfaces, instances), filled by irTypeFromChecker in lookup mode.  Byte-identical IR.
+   - 5c: declarations register from their record.  Seven per-driver passes register named structs, named
+     types (preRegisterNamedTypeDecl / registerTypeDeclEntry) and interfaces (collectInterfaceFromDecl) by
+     `d.Name` (gen_module, gen_module_single, gen_module_register, gen_register_import, gen_import,
+     gen_self_types, gen_repl_types).  Each maps the declaration's Type instead and registers it under the
+     checker's (Pkg, Name), with fields, underlying, method set and parents from the checker type; the mapper
+     registers a type it meets unregistered the same way, so no order leaves one nil.  Declaration order is
+     kept (Module.Structs order is emission order), so the IR stays byte-identical.
+   - 5d: emitted names from the checker's identity: methodQualName (the receiver TypeExpr's record, not
+     recvTypeName's text), the dtor / copy helpers, impl rows and typeinfo name what the record maps to.
+     Byte-identical until a checker makes two types of one name (plan-repl-type-shadowing.md approach B).
+   - 5e: impl rows from the checker's impls with checker substitution: mintGenericImplRows stops resolving a
+     parameterized impl's interface arguments by name, and resolveTypeExpr's abstract-record fallback (4a)
+     goes.
 6. **Value-name resolution.**  The checker records what each identifier / selector Expr resolves to (local,
    parameter, global, constant, function, package, method expression); IR-gen uses it; then delete
    CurrentImportPkg-as-resolution, the import overlay for generic bodies, RegisterGenericBodyDeps and the
