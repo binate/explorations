@@ -49,7 +49,7 @@ them all, or have the VM resolve an unregistered `__typeinfo.<T>` of a native pa
 first (e2e/injected-iface-runfunc.sh is a model): a native-injected package exporting a struct with no impls, and a
 bytecode program that boxes one and passes it to a native function asserting `.(*T)`.
 
-### `box` of a composite literal of a named managed-slice type boxes the underlying type — 🔴 OPEN (MAJOR: a compiler panic on valid code, and a wrong assertion result; found 2026-11-10, work-6, review of the composite-literal method-receiver fix; reproduced with a compiler built from binate `d5c58602c`; pre-existing)
+### `box` of a composite literal of a named managed-slice type boxes the underlying type — 🟡 IN PROGRESS (claimed 2026-11-10, work-6; user: "take on the new major and minor bugs afterwards") (MAJOR: a compiler panic on valid code, and a wrong assertion result; found 2026-11-10, work-6, review of the composite-literal method-receiver fix; reproduced with a compiler built from binate `d5c58602c`; pre-existing)
 
 ```
 type Ints @[]int
@@ -72,7 +72,7 @@ Through a variable (`var v Ints = Ints{11, 12}; box(v)`) both work, as do a name
   the method-call fix takes a literal receiver's type.
 - Test: none yet (reproducers: a conversion to `@Firster`, an assertion of an `@any` box to `@Ints`).
 
-### A `.bni` `var` with an initializer is accepted, and an importer cannot see an untyped one — 🔴 OPEN (minor: an invalid declaration accepted, reported as an unrelated error at its use; found 2026-11-10, work-6, review of the package-variable type change; reproduced with a compiler built from binate `d5c58602c`; pre-existing)
+### A `.bni` `var` with an initializer is accepted, and an importer cannot see an untyped one — 🟡 IN PROGRESS (claimed 2026-11-10, work-6; user: "take on the new major and minor bugs afterwards") (minor: an invalid declaration accepted, reported as an unrelated error at its use; found 2026-11-10, work-6, review of the package-variable type change; reproduced with a compiler built from binate `d5c58602c`; pre-existing)
 
 A `.bni`-only `pkg/bo` declaring `var Y = 5` and `var Z int`: the package checks and IR-gen emits an extern for
 Y, but `fmt.Println(bo.Z, bo.Y)` in an importer fails with `undefined: Y` -- the `.bni` scope (findBniVarDecl /
