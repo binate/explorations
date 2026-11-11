@@ -337,6 +337,15 @@ recursive, so far more than 75).
   fixed; the accepted extra-cycle-error class reachable through a failing variable or function read.
   Next: the `.bni`'s `sizeof` lengths and functions (`len(F())`), methods (`len(S{}.M())`, still recursing); then the
   parser nesting limit, then IR-gen (type alias chains among the first).
+- Dependencies first, stage 3b (the `.bni`'s functions and length reads) DONE: binate `a3cf34e61` (landed 2026-11-10;
+  user: "yes, go ahead; then continue") -- defineBniFunc is a walk call (bni_by_name_func.bn) that resolves what its
+  signature reads ahead; a `.bni` type's call, after its constants and by-value types, resolves what its array lengths
+  read in order (pushBniReadFrom).  20,000-deep `.bni` `sizeof`-length and function-signature chains compile; cmd/bnc's
+  IR and 2035 corpus programs identical; review: no program, valid or invalid, changes.  The review found, in stage 1:
+  a layout read of the batch type being collected does not stop the reads (`type T [sizeof(T) + K]uint8` with K =
+  sizeof(T) also reports K's cycle) -- fixed next, as the self-read stops of the later stages.
+  Next: that fix; methods (`len(S{}.M())`, still recursing); then the parser nesting limit, then IR-gen (type alias
+  chains among the first).
 ## Decisions (2026-11-03)
 
 - Step 1, all of it, staged: user "All of them, staged (Recommended)".
