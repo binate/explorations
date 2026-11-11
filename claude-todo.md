@@ -2786,7 +2786,7 @@ one name.  Fix: carry "written as one name" to the branch's fixup, so an alias's
 PLT32.  Found by the review of the x64 memory-symbol change (TLS stage 3d2), not caused by it: bnas
 before it does the same.
 
-### bnas x64 → ELF: typical integer programs LANDED; SSE/exotic-addressing remain — 🟡 PARTIAL
+### bnas x64 → ELF: typical integer programs LANDED; SSE/exotic-addressing remain — 🟡 PARTIAL; the x86-64 parser coverage 🟡 IN PROGRESS (claimed 2026-11-11, work-2; user 2026-10-18: after the TLS stage 3)
 `bnas -arch x64` → ELF64 landed (`d7e924a2c`): the CLI wiring
 (`x64.ResolveFixups` + `elf.WriteX86_64`) plus the x64 text-parser essentials real
 programs need — **RIP-relative addressing** (`[rip + label]` → a new `OP_RIPLABEL`
