@@ -39,7 +39,7 @@ must be followed by `blr` / a `blra*`, and no addend on a slot or descriptor ref
 `0b78c67a8` (2026-10-18; `@TLVPPAGEOFF` on `ldr Xt` only, which is all ld64 links there).  Stage 3 design below (2026-11-09); 3a — landed binate `ed7d60e28` (2026-11-09); 3b — landed binate `d7a1706fc` (2026-11-09; also rejected: a
 call or jump through a thread-local slot, and a datum's addend mixing + or - with | ^ & << >>).  The
 alias-addend MAJOR the 3b review found — fixed, binate `007aabfb8`; 3c — landed binate `858380bd5` (2026-11-10; `@TLVP` on
-`mov r64` only: a `lea` links into a crash, see below).  Next: 3d.
+`mov r64` only: a `lea` links into a crash, see below).  Stage 3d design below (2026-11-10).  Next: 3d1.
 
 1. **Assembler: thread-local sections and symbols** (all arches, both formats).  ELF: SHF_TLS (the `T`
    flag; `.tdata*` / `.tbss*` imply it, `.tbss*` NOBITS), `%tls_object` / `@tls_object` → STT_TLS, a symbol
@@ -145,6 +145,33 @@ Deliberate rejects (clang accepts them, assembling something else or nothing a l
 - `@TLVP` anywhere but `mov r64, qword ptr [rip + _x@TLVP]` with no addend or segment override (`lea` included); every ELF operator on Mach-O (clang: "unsupported symbol modifier in relocation") and `@TLVP`
   on ELF.
 - A numeric local label (`1b@TPOFF`; clang: "unknown token in expression").
+
+## Stage 3d design: symbols in immediates and the other memory spellings (surveyed 2026-11-10, clang 22)
+
+Commits: (3d1) a symbol as an immediate, `offset sym` (and `@TPOFF` / `@DTPOFF`), with `movabs`; (3d2) a symbol as
+a memory operand's absolute displacement (`[x]`, `[rbx + x]`, a bare `x`) and the `disp[base]` spelling (`8[rbx]`,
+`x@TPOFF[rax]`, `x@gottpoff[rip]`, `x[rip]`).  Both build the plain-symbol forms with the thread-local ones; the
+rest of the x64 parser coverage follows.
+
+3d1, what clang takes on ELF: `offset sym [± n]` as an instruction's immediate, always the full-width field (never
+an imm8 short form) — R_X86_64_32S in a 64-bit operation's sign-extended imm32 (`mov rax`, the ALU group, `test`,
+`push`, `imul r64, r/m, imm`, `mov qword ptr [m]`), R_X86_64_32 / 16 / 8 in a 32- / 16- / 8-bit one, R_X86_64_64 in
+`movabs r64, offset sym` (REX.W B8+r io); `offset sym@TPOFF` / `@DTPOFF` in the imm32 of a 32- or 64-bit operation
+(TPOFF32 / DTPOFF32) and in `movabs` (TPOFF64 / DTPOFF64).  On Mach-O, UNSIGNED of the field's size (`mov eax`,
+`movabs`, `mov ax`); the sign-extended imm32 is an error (clang: "32-bit absolute addressing is not supported in
+64-bit mode").  Library: an OP_IMM with a symbol (x64.ImmSym), its field relocated by the absolute data kinds
+(asm.FIX_DATA_ABS8 / 16 / 32 / 64) or, for the sign-extended imm32, a new x64.FIX_ABS32S (ELF R_X86_64_32S; the
+Mach-O writer's error); x64.MovAbs.  Deliberate rejects (clang takes them): a slot or descriptor operator or `@PLT`
+as an immediate (`offset x@GOTTPOFF` is R_X86_64_GOTTPOFF on an imm32); `@TPOFF` / `@DTPOFF` in an 8- or 16-bit
+field (clang relocates `mov ax, offset x@TPOFF` with TPOFF32); a symbol as a shift count, an INT vector or RET's
+stack release (R_X86_64_8 / 16 — no program means a symbol's address there).  clang errors on `offset` before a
+number or `.`.  bnas emits `test eax, offset x` as F7 C0 where clang has A9 (no accumulator short forms yet).
+
+3d2, what clang takes: a symbol plus numbers as a memory operand's absolute displacement, with or without base and
+index — `[x]`, `[x + 8]`, `[rbx + x]`, `[x + rcx*4]`, and with no brackets `x`, `qword ptr x + 8` — R_X86_64_32S,
+the disp32 forced (x64.MemSym with FIX_ABS32S; on Mach-O an error); the `disp[base]` spelling — `8[rbx]`, `8[rbx +
+rcx*4]`, `x[rbx]`, `x@TPOFF[rax]`, `fs:x@TPOFF[rbx]`, `x[rip]` / `x[rip + 8]` (`[rip + x]`), `x@gottpoff[rip]`,
+`x@tlsgd[rip]`, `x@GOTPCREL[rip]`; and a bare `x@TPOFF` (the absolute [disp32]).  clang rejects `[rbx]8`.
 
 ## Scope decision
 
