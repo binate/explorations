@@ -632,28 +632,16 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### The native-built compiler overflows its stack on types nested within the 1024 limit: the parser's recursive frames are several KB — 🟡 IN PROGRESS (claimed 2026-11-10, work-3, fixes (a) and (b); user: "yes") MAJOR (found 2026-11-10, work-3, review of the parser's type-prefix loop; pre-existing)
+### Native frames are still about 1.5x LLVM's: IR-gen's allocas and the regions of struct values are never shared — 🔴 OPEN (found 2026-11-10, work-3; plan-native-frame-slots.md steps 3-5)
 
-A valid type nested 1007-1011 levels deep -- under type.named.depth's 1024 -- crashes the native-built bnc (SIGSEGV,
-8 MiB stack): nested structs (`struct { f struct { f ... int } }`: parseType + parseTypeInner + parseStructType +
-parseStructField, 8,224 bytes of native frame per level).  The parser's loop over type prefixes (binate `288044551`)
-covers `[N]` / `*` / `@` / `readonly` chains, and with parseFuncTypeBody called from parseType rather than inside
-the prefix reader, 1023-deep `*func() ...` result chains and `*func(*func(...))` parameter chains parse under the
-native-built bnc too (checked); a struct still takes a call per level.  Underneath is frame size: parseTypePrefix
-is 4,192 bytes native (2.2 KB LLVM) for code that builds one node, parseTypeInner was 9,760 (6,480 LLVM) -- each
-`p.tok.Pos` read and each call returning a struct gets a stack slot of its own (a discarded `p.expect(...)` result
-an sret buffer plus a copy made only to destroy it), and neither backend shares a slot between sites whose
-lifetimes do not overlap.  Plan and progress: plan-native-frame-slots.md (step 1 landed, binate `20b98a7ba`: no
-slot for a value homed for its whole life, a struct level 9,584 -> 6,416 bytes native).  Fix: (a) IR-gen -- destroy a
-discarded aggregate result in its sret buffer, read
-`p.tok.Pos`-style fields without an aggregate copy; (b) the native backends -- share stack slots across disjoint
-lifetimes, as LLVM does at -O2; (c) the parser's nesting (plan-deep-nesting.md's parser step) for what stays
-recursive.  Test: a struct and a func-parameter nesting at 1023 levels must compile under the native-built bnc.
-Status (2026-11-11, work-3): with step 2 of the plan (spill slots shared by live span, binate `788ff5285`) a native-built
-bnc compiles 1023-level struct, array, pointer and func-value nestings (new conformance spec/07-types/305; a native
-bnc built by the compiler before step 1 dies on it, SIGSEGV).  Past the limit it still dies before the checker can
-reject it: a 1600-level struct nesting overflows the native-built bnc's parser (1200 and 1400 get "nests too
-deeply") -- the parser nesting limit (plan-deep-nesting.md step 2, work-1) is the fix for that.
+After the plan's steps 1-2 (binate `20b98a7ba`, `788ff5285`) a struct-nesting level of the parser is 5,712 bytes of
+native aarch64 frame against 3,840 for LLVM -O2, parsePrimaryExpr 4,800 against 3,152.  Of the parser's native
+frame bytes, allocas are 41% and the regions of aggregate values 28% (measured after step 1): neither is ever shared
+between disjoint lifetimes, and IR-gen copies a by-value struct argument several times (`p.tok.Pos`: a load, an
+alloca and its copy helper, a reload) and copies a discarded aggregate call result into an alloca only to destroy
+it.  Next: step 3 (regions by their values' lifetimes), step 4 (allocas by lifetime: spec §18.4 mem.scope-exit ends
+a block's locals' storage when the block exits, mem.temporary a temporary's at the end of its statement -- IR-gen
+marks it, the native backends share, the LLVM backend can emit llvm.lifetime.*), step 5 (IR-gen's copies).
 
 ### Neither backend probes the stack for a large frame — a frame past the guard page can step over it — 🔴 OPEN MAJOR (found 2026-10-18, work-1, review of the native aa64 16 MiB fix; pre-existing; needs a decision)
 

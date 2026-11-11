@@ -1,3 +1,16 @@
+### The native-built compiler overflowed its stack on types nested within the 1024 limit — DONE (binate `20b98a7ba` and `788ff5285`, 2026-11-11, work-3; user: "yes", then "wait 7 minutes, then go ahead" for each)
+
+A type nested 1007-1011 levels deep (structs in structs) crashed the native-built bnc: four parser frames a level,
+9,584 bytes of native aarch64 frame (LLVM: 3,840).  The parser's type-prefix loop (binate `288044551`) already took
+`[N]` / `*` / `@` / `readonly` chains and func-value chains off the recursion; what was left was frame size.
+`20b98a7ba`: no spill slot for a value the register allocator homes for its whole life (needsSpillSlot), a third of
+each frame -- a level 6,416.  `788ff5285`: spilled values whose live spans do not meet share a slot
+(planSharedSpills) -- a level 5,712.  Conformance spec/07-types/305 nests a struct, an array, a pointer and a func
+value 1024 levels deep, each as one type expression; a native bnc from before `20b98a7ba` dies on it, and it passes
+in all 11 modes.  Past the 1024 limit the parser still overflows before the checker can reject the type (1600
+levels) -- plan-deep-nesting.md's parser nesting limit (work-1).  The rest of the frame gap is the open entry
+"Native frames are still about 1.5x LLVM's" (plan-native-frame-slots.md steps 3-5).
+
 ### Dependent-length constraints, step 5, constraint satisfaction: a miss that depends on a type parameter's length is judged per instance — DONE (binate `77ef9401d`, 2026-11-11, temp-5; landed on "wait 15 minutes, then land; then continue") (step 5 of explorations/plan-dependent-constraints.md, for the open entry "In a generic's own check, a constraint whose length depends on the generic's type parameter …")
 
 With `impl *N : Eq[[8]uint8]` and `func inner[T Eq[[sizeof(U)]uint8], U any](t T) int`, `func fwd[U any](n *N) int {
