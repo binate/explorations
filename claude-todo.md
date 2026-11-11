@@ -7,34 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### A native assertion misses a box the VM made of a bytecode type, whose satisfaction lives only in the VM's registry — 🟡 IN PROGRESS (claimed 2026-11-10, temp-5; user: "let's take on the bugs first, then do design C step 4") (MAJOR: a wrong run-time result across modes; found 2026-11-10, temp-5, review of the raw-box origin fix; reproduced with a host built from binate `007aabfb8`; pre-existing)
-
-A bytecode type `L` with `impl *L : xr.G` (G from a native-injected package `xr`) is boxed in the VM -- `var gl *xr.G
-= &l; var up *any = gl`, or managed -- and passed to a native `xr` function that asserts `a.(*G)` / `a.(@G)`: the
-native assertion misses (prints -1; expected L's `Get()`).  A native-made box passed back the same way hits.  The
-`(L, G)` satisfaction entry is in the VM's registry only (vm lowerImplVtables -> registerSatEntry), while native code
-looks the VM-made record of L up in rt.SatLookup's native registry, which has no entry for it.  Repro: a host like
-e2e/injected-raw-box-assert.sh's, injecting `xr` with `interface G { Get() int }` and `func CallViaAny(a *any) int
-{ g, ok := a.(*G); if !ok { return -1 }; return g.Get() }`, running a VM program that defines L as above (session
-scratchpad rb/mainrepro).  Fix: needs a design -- native code reached with a VM-made value has to see the VM's
-satisfaction entries (the VM registering them into the native registry, or SatLookup consulting the VM's); then an
-e2e test.
-
-### A native package's type with no satisfaction entries gets a VM-made TypeInfo record, so a native concrete assertion on a box made in bytecode misses — 🟡 IN PROGRESS (claimed 2026-11-10, temp-5; user: "let's take on the bugs first, then do design C step 4") (MAJOR: a wrong run-time result across modes; found 2026-11-09, temp-5, review of the raw-box origin fix; from reading the code, not yet reproduced; pre-existing)
-
-`RegisterPackageSatEntries` (pkg/binate/vm/extern_register.bn) binds a native-only injected package's
-`__typeinfo.<T>` records into the VM's data-symbol table only through the package's satisfaction entries.  A type
-with none -- no impls at all; or, for T's readonly variant, no impl a readonly object may reach -- has no native
-record there, so when a bytecode module boxes it, `materializeTypeInfos` (pkg/binate/vm/lower_typeinfo.bn) mints a
-VM-owned record.  A native `x.(*T)` on that box compares the box's canonical record (the VM-owned one) with its
-native `&__typeinfo.<T>` and misses; the same assertion in bytecode hits (spec §7.13.14: the RESULT must agree across
-modes).  The VM binds T's record through a registered raw-origin variant's canonical word
-(vm/lower_typeinfo.bn bindViaOriginVariant), so the gap is a type none of whose records reaches the VM.
-Fix: list every record a package defines in its descriptor (a `TypeInfos` table beside `SatEntries`) and register
-them all, or have the VM resolve an unregistered `__typeinfo.<T>` of a native package by name.  Needs an e2e repro
-first (e2e/injected-iface-runfunc.sh is a model): a native-injected package exporting a struct with no impls, and a
-bytecode program that boxes one and passes it to a native function asserting `.(*T)`.
-
 ### `box` of a composite literal of a named managed-slice type boxes the underlying type — 🟡 IN PROGRESS (claimed 2026-11-10, work-6; user: "take on the new major and minor bugs afterwards") (MAJOR: a compiler panic on valid code, and a wrong assertion result; found 2026-11-10, work-6, review of the composite-literal method-receiver fix; reproduced with a compiler built from binate `d5c58602c`; pre-existing)
 
 ```
@@ -2380,6 +2352,19 @@ Smaller follow-ups remain:
 See explorations/done/plan-funcvalue-byaddr-abi.md.
 
 ## Cross-mode interface dispatch & compiler/interpreter interop
+
+### A native package linked into a VM host but not injected misses its interface assertions on boxes the VM made — 🔴 OPEN (minor: a wrong run-time result, in a custom host only; found 2026-11-10, temp-5, review of the cross-mode interface-id fix; by reading, latent)
+
+The VM binds a native package's interface identity markers (`__ifaceid.<J>`) to their native addresses only through
+the descriptors of the packages a host injects (RegisterPackageSatEntries: the IfaceIds and SatEntries tables).  A
+native package linked into the host but not injected -- e.g. a dependency of a custom-injected package, as cmd/bnld
+injects pkg/binate/link without its dependencies -- can still receive a box the VM made of a bytecode type, through
+an injected package's call.  If it asserts `x.(*J)` on it and no injected package's code or entries name J, the VM
+keyed the box's `(T, J)` entry on its own marker, and native rt.SatLookup's fallback (satFallbackFn) misses.  With
+the standard inject set it does not arise: of the packages the injected ones import, only pkg/stdx/slices is Binate
+code linked in but not injected, and it makes no interface assertions.  Fix: register every linked package's
+identity tables, not only the injected ones' -- reached the way rt reaches every package's satisfaction entries,
+through the `__pkg_satfrag` graph from the host's root node (which would then need to carry the IfaceIds table too).
 
 ### `__init` dispatcher (+ other main-enumerated structures) assume whole-program enumeration — remaining blockers for opaque binary distribution — 🟡 OPEN
 

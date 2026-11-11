@@ -1,3 +1,25 @@
+### A native assertion missed a box the VM made of a bytecode type, whose satisfaction lives only in the VM's registry — DONE (binate `2470d9ddc`, 2026-11-10, temp-5; user: "wait 7 minutes, then go ahead and land") (MAJOR: a wrong run-time result across modes; found 2026-11-10, temp-5, review of the raw-box origin fix; pre-existing)
+
+A bytecode type `L` with `impl *L : xr.G` (G from a native-injected package `xr`), boxed in the VM and passed to a
+native `xr` function asserting `a.(*G)` / `a.(@G)` or switching on a `*G` case, missed (-1).  Native rt.SatLookup
+falls back to the VM's registry for a bytecode type's box (satFallbackFn), but the VM keyed the `(L, G)` entry on a
+`__ifaceid.<G>` marker it made itself: it bound native interface ids only for pkg/builtins/lang
+(RegisterPackageRttiSyms), and xr, with no impl of G, names G in none of its satisfaction entries.  Fix (binate
+`2470d9ddc`): each package's descriptor lists the markers its code looks a box up with (a new reflect.Package.IfaceIds
+table, from each OP_SAT_LOOKUP's operand: ir.CollectLookupIfaceIdSyms), and RegisterPackageSatEntries binds them and
+each satisfaction entry's own marker to the native addresses; RegisterPackageRttiSyms went.  Test:
+e2e/injected-bytecode-box-assert (its four interface cases printed -1 before).
+
+### A native package's type with no satisfaction entries gets a VM-made TypeInfo record, so a native concrete assertion on a box made in bytecode misses — NOT A BUG (2026-11-10, temp-5; filed 2026-11-09 from reading the code, never reproduced)
+
+The entry reasoned that a type none of whose satisfaction entries reach the VM gets a VM-made record, so a native
+`x.(*T)` on a box the VM made of T misses.  But a native concrete assertion site registers a `(T, any)` entry in its
+own module (irgen typeInfoSymFor / readonlyVariantTypeInfoSymFor -> ensureAnyImplInfo), so the package doing the
+comparison always names T's record -- and its readonly variant's, for a `*readonly T` target -- in its satisfaction
+entries, and the VM binds that native record before lowering any module.  e2e/injected-bytecode-box-assert (binate
+`2470d9ddc`) checks it: a native package with a type U that has no impls asserts `*U` / `*readonly U` on boxes the VM
+made, raw, readonly and managed, and hits -- with and without that commit.
+
 ### bnfmt wrote a file that did not parse: a line comment in the last operand of a builtin without a type operand went before its `)` — DONE (binate `d74c57c97`, 2026-11-10, temp-4; user: "yes, go ahead with that", landed on "wait 3 minutes, then go ahead") (MAJOR: bnfmt turned valid source into source that did not parse; found 2026-11-10, temp-4, working on the comment-gap entry's closes; since binate `d2c6178e7`)
 
 `x := len(y.(p. // c` / `T))` formatted as `x := len(y.(p.T) // c` / `)`, which does not parse (the line break after
