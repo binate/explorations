@@ -153,7 +153,11 @@ instance judgment that makes up for it (3.2-3.4).
    resolution judges nothing, but an instance it builds judges as any build; a declaration's miss noted at each site
    its own check reaches.  A judgment made while an argument's layout is built was lost; fixed with the layout-wait
    entry, binate `868d8f2bf` (2026-11-06).
-4. **`Self` in interface instances** (3.3).
+4. **`Self` in interface instances** (3.3).  DONE, binate `13715b122` (2026-11-10): judged per instance (section 8
+   item 1, under "go with your recs"), with an instance first built in a derivation and a `Self` reaching an alias's
+   target; then binate `fb93b5931`, an instance's judgments wait for its interface's declaration check, so a miss
+   the declaration reports is not repeated; and binate `a0e733996`, three ways a provisional build's reports
+   escaped their hold, found reviewing it.
 5. **The declaration's deferrals** (3.1), a family per commit if the diff is large: fixes (A).
 6. **Spec** (section 5), with step 5.
 
@@ -182,11 +186,13 @@ not per satisfaction probe.
 
 ## 8. Waiting for the user (from the focused review of C, 2026-11-04)
 
-1. `Self` (3.3): §11.9 `iface.self.constraint` decides `Self` once, at the interface's declaration.  Per instance
+1. `Self` (3.3) -- decided per instance (the user's standing "go with your recs", 2026-11-10; step 4): §11.9
+   `iface.self.constraint` decides `Self` once, at the interface's declaration.  Per instance
    (recommended; a third difference, with the spec exception of section 5), or at the declaration -- which without
    length expressions to compare would have to reject every `Self` judgment involving such a length, valid ones
    accepted today included.
-2. The view (3.6): `ImplView.All` lets any package's private impl decide an instance judgment (today's instance
+2. The view (3.6) -- decided as recommended ("go with your recs"): `ImplView.All` lets any package's private impl
+   decide an instance judgment (today's instance
    checks do so already; C extends it to deferred judgments).  Land C as decided and fix the view under its own entry
    (recommended), or give C's deferred judgments the declaration's view now.
 
