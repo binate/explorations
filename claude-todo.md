@@ -650,11 +650,11 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### The native-built compiler overflows its stack on types nested within the 1024 limit: the parser's recursive frames are several KB — 🔴 OPEN MAJOR (found 2026-11-10, work-3, review of the parser's type-prefix loop; pre-existing)
+### The native-built compiler overflows its stack on types nested within the 1024 limit: the parser's recursive frames are several KB — 🟡 IN PROGRESS (claimed 2026-11-10, work-3, fixes (a) and (b); user: "yes") MAJOR (found 2026-11-10, work-3, review of the parser's type-prefix loop; pre-existing)
 
 A valid type nested 1007-1011 levels deep -- under type.named.depth's 1024 -- crashes the native-built bnc (SIGSEGV,
 8 MiB stack): nested structs (`struct { f struct { f ... int } }`: parseType + parseTypeInner + parseStructType +
-parseStructField, 8,224 bytes of native frame per level).  The parser's loop over type prefixes (not yet landed)
+parseStructField, 8,224 bytes of native frame per level).  The parser's loop over type prefixes (binate `288044551`)
 covers `[N]` / `*` / `@` / `readonly` chains, and with parseFuncTypeBody called from parseType rather than inside
 the prefix reader, 1023-deep `*func() ...` result chains and `*func(*func(...))` parameter chains parse under the
 native-built bnc too (checked); a struct still takes a call per level.  Underneath is frame size: parseTypePrefix
