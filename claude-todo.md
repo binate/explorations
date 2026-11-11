@@ -3063,6 +3063,9 @@ line comment before its `)`).
 A slice's `:` takes a comment left pending inside its low bound the same way: in `w := q[a[x:` / `// c1` / `] +
 /* c2 */ y:hi]` the inner slice's line comment before its `]` prints after the outer `:`, after `/* c2 */` (bnfmt
 `bnc-0.0.17-pre3` prints both after the statement, in order; seen 2026-11-10 in the slice break's review).
+The commonest such pending comment in generated nests (most of 62 reorderings in 1,500 probes, seen 2026-11-11):
+a line comment after the `:` of a slice with no high bound, `m[g: // ll` / `]`.  A line break after a `:` is legal,
+so that comment can stay where it is, with the `]` on the next line, as a list's close goes after a line comment.
 
 ### bnfmt's slice break leaves five deep nests worse than before — 🟡 IN PROGRESS (claimed 2026-11-11, temp-4) 🟢 LOW (found 2026-11-10, temp-4, review of the slice break; since binate `436c441f0` / `9b7c239e9`)
 
@@ -3078,6 +3081,12 @@ non-idempotent and 4,171 of them wider.  All five are nests already past the cap
   head.
 The probes are not kept anywhere durable; each case is to be reduced to a small repro and a unit test as it is
 fixed.
+
+### bnfmt does not break a type-argument list nested in another — 🔴 OPEN 🟢 LOW (found 2026-11-11, temp-4, review of the deep slice nest fix; pre-existing, main does the same)
+
+In a generated probe, an asserted type in an `if` condition seven tabs in prints `@[]Box[p.Box[<a×12>, <d×14>,
+<a×9>], <a×16>, <m×23>]]) {` on one line, 108 wide: neither the outer nor the inner type-argument list wraps.  Not
+yet reduced; printTypeListWrapped's measure of an element that is itself an instantiation is the first suspect.
 
 ### bnfmt gives a var's type no room for the ` = <value>` after it — 🟢 LOW (found 2026-11-08, temp-4, working on the declarations' comment gaps; pre-existing)
 
