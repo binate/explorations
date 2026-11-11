@@ -6463,6 +6463,21 @@ reader's reason.  Tests: `relocSectionChecks` on an ELF64 RELA and an ELF32 REL 
 `TestReadObjectRejectsNonRelocatable`, `TestReadArchiveBadMemberReason`.  Checked that clang C objects (`-g`,
 `-ffunction-sections`, `-O0` / `-O1`) still link on x86-64, aarch64 and arm32.
 
+### Native and LLVM backends: a jump or branch to a block outside its function is an error — DONE (binate
+`511db3a7f`, 2026-11-11)
+
+Found by the review of the VM's outside-target lowering error (entry below); user 2026-11-10: "do that fix after
+landing". The compiled backends name a target by its label, unique only within a function, so a target that was
+another function's block reached the function's own block of that label (or no block), and a nil target crashed the
+LLVM backend. `irbuild.ForeignJumpError` describes the first jump or branch whose target is nil, another function's
+block (`Func` is not f) or one of f's fault pads (the new `ir.Block.IsFaultPad`, set by `AddFaultPad`; a pad's label
+can equal a body block's, and the compiled backends never emit pads). Native checks it in `common.EmitObject` after
+`EliminatePhis` and fails the object with the error; LLVM's `emitFuncDbg` panics with it as an internal error, so
+`--emit-llvm` fails too. Tests in irbuild, native/common and codegen, each failing with the check undone. Validation:
+native x64 conformance (2017 + 2018 passed) on the final commit, LLVM conformance before the review's fixes, cmd/bnc
+compiled at -O2 with native x86-64 and LLVM, hygiene. The review found two more gaps of the same class, both their own
+todo entries: phi entries naming another function's block, and a block label reused after a pass drops a block.
+
 ### VM lowering: a jump or branch to a block outside its function is a lowering error — DONE (binate `5aea70ad2`,
 2026-11-10)
 

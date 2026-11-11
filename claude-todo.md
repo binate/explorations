@@ -3312,21 +3312,9 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
   counts, so nothing proves those inputs impossible.  Fix: check each op's operand count and required types in
   the verifier (then the guards are dead and can go), or make each guard record `a.SetError`.
 
-- **Native and LLVM backends: a jump or branch to another function's block can land on a block of its own** —
-  🟡 IN PROGRESS (claimed 2026-11-10; user: "do that fix after landing") (found 2026-11-08, review of the VM's
-  outside-target lowering error; by reading).  The compiled
-  backends name a target by its label: the native ones as `L<function symbol>__<label>` (x64 `blockLabel`,
-  likewise aarch64 / arm32), LLVM as the function-local `%<label>` (`codegen/emit_instr.bn`).  `ir.AddBlock`'s
-  labels (`<name>.<index>`) are unique only within a function, and every function's first block is `entry.0`, so
-  a target that is another function's block whose label one of this function's blocks also has resolves to that
-  block with no error; one with no such label fails as an undefined label.  Valid IR never has such a target, but
-  the optimizer builds and retargets terminators itself (a cloned terminator the inliner failed to remap would
-  still name the callee's block), and the IR verifier runs only under `--verify-ir`.  The VM now reports it as a
-  lowering error.  Fix: before emitting a function, check that every jump and branch target is one of its blocks
-  (`SetError` on the native backends, an internal error on LLVM), with a test per backend.
-
-- **Native, LLVM and VM: a phi entry naming another function's block reaches a block of its own** — 🔵 OPEN
-  (found 2026-11-10, review of the backends' jump-target check; by reading).  A phi names each predecessor by
+- **Native, LLVM and VM: a phi entry naming another function's block reaches a block of its own** — 🟡 IN PROGRESS
+  (claimed 2026-11-11; user: "4. yes") (found 2026-11-10, review of the backends' jump-target check; by
+  reading).  A phi names each predecessor by
   block, and nothing outside `--verify-ir` (`VERR_BAD_PHI_PRED`) checks that it is one of the function's.
   LLVM's `blockExitLabel` (`codegen/emit_phi_pred.bn`) falls back to the block's own label for a block of
   another function, so the `phi` names this function's block of that label.  `iropt.EliminatePhis`, which the
@@ -3340,16 +3328,16 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
   per backend.
 
 - **IR: a block label can come back after a pass drops a block, so a stale jump to the dropped block would
-  reach the new one** — 🔵 OPEN, decision needed (found 2026-11-10, review of the backends' jump-target check;
-  by reading).  `ir.AddBlock` numbers a label by the current `len(f.Blocks)` (`ir/ir.bn`), and mem2reg,
+  reach the new one** — 🟡 IN PROGRESS (claimed 2026-11-11; user: "3. go with your rec") (found 2026-11-10,
+  review of the backends' jump-target check; by reading).  `ir.AddBlock` numbers a label by the current `len(f.Blocks)` (`ir/ir.bn`), and mem2reg,
   fold_branch and thread_jumps drop blocks from `f.Blocks`, so a block added after a drop can take a dropped
   block's label.  A jump left pointing at the dropped block is still `Func == f`, so
   `irbuild.ForeignJumpError` passes it; both compiled backends would then name the new block -- a silent
   miscompile.  Without the reuse it names an undefined label, which the assembler or clang rejects.  Latent:
   the inliner (`inl`, `inlcont`) runs before the pruning passes, and the only block added after them is phi
-  elimination's `phicrit`.  Options: number labels from a per-function counter that never goes back (labels
-  then stay unique for the function's life, so a stale jump always names an undefined label), or have
-  `ForeignJumpError` check membership in `f.Blocks` (a per-function address table, O(blocks)).
+  elimination's `phicrit`.  Decided (user 2026-11-11, "3. go with your rec"): number labels from a per-function
+  counter that never goes back, so labels stay unique for the function's life and a stale jump always names
+  an undefined label (not a membership check in `f.Blocks` on every compile, O(blocks) per function).
 
 - **Checker rejects valid alias uses in const / untyped-literal contexts** — 🔵 OPEN (found
   2026-09-26).  Spec type.alias.transparency: an alias is its target in every context.  But with
