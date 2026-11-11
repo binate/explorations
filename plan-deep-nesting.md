@@ -327,6 +327,16 @@ recursive, so far more than 75).
   over named types is superlinear (pointeeBase per declaration; 6,000 took 212 s in a unit test).
   Next: functions (`len(f())`), variables (`len(v)`) and methods in a `.bn`, the `.bni`'s `sizeof` lengths and
   functions; then the parser nesting limit, then IR-gen (type alias chains among the first).
+- Dependencies first, stage 3a (a batch's variables and functions) DONE: binate `5573fc701` (landed 2026-11-10; user:
+  "wait 4 minutes, then go ahead") -- resolveBatchVarType and defineBatchFunc are walk calls (check_by_name_vars.bn):
+  marked (VarsResolving / FuncsDefining), each resolves what its type or signature reads ahead; a value read of a
+  batch variable with a declared type or a non-generic batch function resolves it ahead as batchVarOnDemand /
+  batchFuncOnDemand would (one bound needs nothing; one being resolved, typed, checked or defined stops the reads);
+  the scan reads a call's callee by name.  20,000-deep variable and function-signature chains compile; cmd/bnc's IR
+  and 2033 corpus programs identical.  Review: no valid program changes; the self-read and double-definition findings
+  fixed; the accepted extra-cycle-error class reachable through a failing variable or function read.
+  Next: the `.bni`'s `sizeof` lengths and functions (`len(F())`), methods (`len(S{}.M())`, still recursing); then the
+  parser nesting limit, then IR-gen (type alias chains among the first).
 ## Decisions (2026-11-03)
 
 - Step 1, all of it, staged: user "All of them, staged (Recommended)".
