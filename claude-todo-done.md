@@ -1,3 +1,36 @@
+### bnfmt formatted a call holding a `__c_call`, sliced, differently a second time — DONE (binate `9b7c239e9`, 2026-11-11, temp-4; user: "yes, do the slice break as the next commit, then investigate the regression", landed on "wait 11 minutes, then land (and file the 5 cases); then work on the 5 cases") (LOW; found 2026-11-10, temp-4, review of the slice / assertion / builtin close-comment change; since binate `a8e36b6da`)
+
+`_ = g5(bb,` / `cast(T, __c_call("ffff", int, <y×20>, <y×20>, <z×17>)))[g4(<w×90>):]` kept `cast(…)` on a line of
+its own the first time and joined it to `bb`'s line the second.  A slice's head left room for its bounds as they
+render on one line from column 0, which depends on how the source laid them out: `g4(…)` fits there, the first
+format put its argument on a line of its own where it printed, and the second measured only `[g4(`.  Since
+`a8e36b6da` the `__c_call` counts that room; nested slices hit the same once a slice could break.
+- Fix (print_slice.bn, print_expr.bn): boundShare renders a bound from past the width cap, where it breaks
+  wherever it can, and the head leaves room for that rendering's first line, as a call's head leaves room only for
+  its `(`.  A type assertion's type leaves room for the `)` and what follows it (printTypeTail): measured that way
+  a generic type's arguments break, and printed without a tail they did not.
+- Tests: TestSliceHeadLeavesRoomToABoundsFirstBreak, TestTypeAssertTypeLeavesRoomForItsClose; each fails without
+  its piece.
+- Validated with the slice break (below): the tree and the injected-comment corpora unchanged.
+
+### A slice could not break, so a long bound, or a comment kept before its `]`, ran past the cap — DONE (binate `436c441f0`, 2026-11-11, temp-4; user: "yes, do the slice break as the next commit", landed on "wait 11 minutes, then land (and file the 5 cases); then work on the 5 cases") (LOW; part of the comment-gap entry in claude-todo.md; pre-existing)
+
+`v := x[g0(<b×24>, <y×20>).(T /* <25 bytes> */):<b×43>]` printed 153 wide.
+- Fix (print_slice.bn, split out of print_expr.bn; print_unbreakable.bn): a slice with a high bound breaks after
+  its `:`, the high bound moving to a continuation line two tabs in from the line the slice starts on when the fill
+  decision (exprFitsAt) moves it, measured and printed one list deeper (listDepth).  The head and the low bound
+  leave room up to the `:` and a line comment after it with the block comments before it (lineEndWidth); the head
+  also leaves room for the comments before and after the `[`.  A slice with a high bound is no longer unbreakable.
+- Tests: print_slice_test.bn (six), and updated TestUnbreakable, TestWrapLoneUnbreakableLeavesRoomAfterClose,
+  TestStableArgNotMovedBack, TestCloserCommentsOfOtherClosesCount; eleven revert checks each fail a test.
+- Against the bnfmt of main before both: the tree's 7,730 files and the injected-comment corpora unchanged; 1,500
+  generated slice-heavy files 620 narrower, 87 non-idempotent outputs fixed, nothing new; the review's 24,052 probes
+  4,171 narrower and 785 non-idempotent outputs fixed, with five regressions left (their own entry).
+- The review found four defects, all fixed before landing: a block comment after the `:` reserved though it moves
+  (a 112-column line), the comments around the `[` not reserved (107), a comment then a string run after the `[`
+  not idempotent, and slices nested in high bounds taking 28 s at 50 levels (now 0.2 s at 40); and two
+  pre-existing problems, filed in claude-todo.md.
+
 ### asm x64: absolute symbol addressing, `N[rbx]`, `[x + rip]`, `+ 0` beside a slot operator — DONE (binate `ab5e933e5`, 2026-11-11, TLS stage 3d2)
 
 From the x86-64 parser coverage entry: forms clang takes that bnas rejected — a symbol as a memory operand's

@@ -3015,21 +3015,6 @@ changes 330 tree files.  And making room for a tail can leave a one-character la
 <85-byte comment>`).  Minor: trailWidth reserves nothing for a line comment after a block comment in a gap (`x, /* b
 */ // c`); a statement's leading `/* a */ // b` on a line of its own still prints as two lines (stable).
 
-### bnfmt formats a call holding a `__c_call`, sliced, differently a second time — 🟡 IN PROGRESS (claimed 2026-11-10, temp-4) 🟢 LOW (found 2026-11-10, temp-4, review of the slice / assertion / builtin close-comment change; since binate `a8e36b6da`)
-
-`_ = g5(bb,` / `cast(T, __c_call("ffff", int, <y×20>, <y×20>, <z×17>)))[g4(<w×90>):]` formats keeping `cast(…)` on
-a continuation line of its own, 103 columns wide up to `[g4(`, with `<w×90>):]` below; a second format joins
-`cast(…)` to `bb`'s line and wraps the `__c_call` before its last argument (`… <y×20>,` / `<z×17>)))[g4(` /
-`<w×90>):]`).  No comment is involved.  bnfmt `bnc-0.0.17-pre3` and the parent of `a8e36b6da` (a `__c_call` leaves
-room for what follows it on its line) keep their first output; `a8e36b6da` is the first that does not (bnfmt built
-at each).  Cause not yet known.  A guess to check first: the head `g5(…)` reserves the slice's suffix as
-sliceSuffixWidth measures it, by its bound rendered at column 0 -- the whole `[g4(<w×90>):]` while the source keeps
-`g4(…)` on one line, only `[g4(` once the first format has put its argument on a line of its own -- so the reservation
-changes between the formats, and since `a8e36b6da` the `__c_call` inside counts it.
-Confirmed (2026-11-10): that is the cause, and nested slices hit it too once a slice can break after its `:`.
-Fix under review: the head leaves room for a bound only up to the bound's first break, rendered from past the cap
-(boundShare), and a type assertion's type leaves room for its `)` (printTypeTail).
-
 ### bnfmt joins a slice's string-run low bound onto its head's line, past the cap — 🔴 OPEN 🟢 LOW (found 2026-11-10, temp-4, review of the slice break; pre-existing, bnfmt `bnc-0.0.17-pre3` does the same)
 
 `v := g(<h×20>,` / `<e×68>)[` / `"<s×47>"` / `"xxxx":]` (the `[` alone in the source, the string run below it)
@@ -3046,7 +3031,7 @@ three blank lines there, which a second format makes one.  So neither is idempot
 caller lays it out (printDecls, the block loop), its comments going on lines of their own, or keep it as written by
 recording its keyword on the DECL_GROUP node; tests: goldens for both, formatted twice.
 
-### bnfmt moves a comment inside a type, or before a `)` or `]`, out of its place — 🟡 IN PROGRESS (claimed 2026-11-07, temp-4) 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the operator chains' part done in binate `df21fe656`, the expressions', simple statements', declarations' and composites' in binate `27bdebd4b`, `43d112b0a`, `8d796d5f6` and `17701aeb7`; the lists' closes in binate `91a0c17ee` and `d2c6178e7`; the slices', type assertions', type-operand builtins' and `__c_call`'s closes in binate `64dce165e`)
+### bnfmt moves a comment inside a type, or before a `)` or `]`, out of its place — 🟡 IN PROGRESS (claimed 2026-11-07, temp-4) 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the operator chains' part done in binate `df21fe656`, the expressions', simple statements', declarations' and composites' in binate `27bdebd4b`, `43d112b0a`, `8d796d5f6` and `17701aeb7`; the lists' closes in binate `91a0c17ee` and `d2c6178e7`; the slices', type assertions', type-operand builtins' and `__c_call`'s closes in binate `64dce165e`, and the slice break they needed in binate `436c441f0`)
 
 A comment inside a statement that nothing prints where it stands is still pending in the cursor when the statement
 ends.  On one line it goes after the statement (`x := y.(T /* c */) // d` prints `x := y.(T) /* c */ // d`);
@@ -3078,11 +3063,20 @@ A slice's `:` takes a comment left pending inside its low bound the same way: in
 /* c2 */ y:hi]` the inner slice's line comment before its `]` prints after the outer `:`, after `/* c2 */` (bnfmt
 `bnc-0.0.17-pre3` prints both after the statement, in order; seen 2026-11-10 in the slice break's review).
 
-In progress (2026-11-10, temp-4; user: "yes, do the slice break as the next commit"): a slice cannot break, so a
-block comment kept before its `]`, or a long bound, leaves a line past the cap where nothing before it can wrap:
-`v := x[g0(<b×24>, <y×20>).(T /* <25 bytes> */):<b×43>]` prints 153 wide (the bnfmt of main before binate
-`64dce165e` put that comment after the `:`, where the line could break).  A slice with a high bound breaks after
-its `:`, the high bound moving to a continuation line when it does not fit after it.
+### bnfmt's slice break leaves five deep nests worse than before — 🟡 IN PROGRESS (claimed 2026-11-11, temp-4) 🟢 LOW (found 2026-11-10, temp-4, review of the slice break; since binate `436c441f0` / `9b7c239e9`)
+
+Of the review's 24,052 generated probes (deep nests of slices, calls, chains, string runs and assertions, comments
+in every gap), five format worse than with the bnfmt before the slice break, which made 785 of them
+non-idempotent and 4,171 of them wider.  All five are nests already past the cap nearby:
+- two get a line past the cap: a block comment after a slice's `[` fits on its line and stays, and the low bound
+  after it does not (the old bnfmt wrapped the head differently, so the comment did not fit and moved to a line of
+  its own);
+- three format differently a second time: a slice that is an outer slice's high bound breaks at its own `:` the
+  first time and at the outer `:` the second, in a nest whose tail holds a string run; a `__c_call` in a call
+  whose slice has a string-run low bound; and a generic type assertion whose type arguments wrap, in a slice's
+  head.
+The probes are not kept anywhere durable; each case is to be reduced to a small repro and a unit test as it is
+fixed.
 
 ### bnfmt gives a var's type no room for the ` = <value>` after it — 🟢 LOW (found 2026-11-08, temp-4, working on the declarations' comment gaps; pre-existing)
 
