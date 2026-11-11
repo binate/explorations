@@ -168,11 +168,28 @@ field (clang relocates `mov ax, offset x@TPOFF` with TPOFF32); a symbol as a shi
 stack release (R_X86_64_8 / 16 — no program means a symbol's address there).  clang errors on `offset` before a
 number or `.`.  bnas emits `test eax, offset x` as F7 C0 where clang has A9 (no accumulator short forms yet).
 
-3d2, what clang takes: a symbol plus numbers as a memory operand's absolute displacement, with or without base and
-index — `[x]`, `[x + 8]`, `[rbx + x]`, `[x + rcx*4]`, and with no brackets `x`, `qword ptr x + 8` — R_X86_64_32S,
-the disp32 forced (x64.MemSym with FIX_ABS32S; on Mach-O an error); the `disp[base]` spelling — `8[rbx]`, `8[rbx +
-rcx*4]`, `x[rbx]`, `x@TPOFF[rax]`, `fs:x@TPOFF[rbx]`, `x[rip]` / `x[rip + 8]` (`[rip + x]`), `x@gottpoff[rip]`,
-`x@tlsgd[rip]`, `x@GOTPCREL[rip]`; and a bare `x@TPOFF` (the absolute [disp32]).  clang rejects `[rbx]8`.
+3d2, what clang takes (surveyed again 2026-11-10 for the design): a memory operand is an optional displacement
+written before any brackets — a symbol plus numbers (one expression, `x + 8`, `8 + x`, `N + x`, `(x)`), the symbol
+optionally with an operator and an addend after it (`x@TPOFF + 8`) — then any number of bracket groups, all summed
+(`8[rbx]`, `x[rbx + 8]`, `x + 8[rbx]`, `N[rbx]`, `x[8]`, `[rbx][rcx*4]`, `x[rbx][8]`, `[x][rbx]`); a group's terms
+are today's plus one symbol term (`[x]`, `[x + 8]`, `[rbx + x]`, `[x + rcx*4]`, `[(x + 8)]`) and `rip` anywhere
+(`x[rip]`, `x[rip + 8]`, `[x + rip]`, `[rip][x]`, `[x@GOTPCREL + rip]`).  With no bracket group the operand is
+memory when it has a symbol (`mov rax, x`, `push x`, `lea rax, x`, `qword ptr x + 8`, `fs:x`, a bare `x@TPOFF`:
+the absolute [disp32]) and otherwise an immediate as today (`N`, `N + 4`).  A plain symbol is R_X86_64_32S on the
+forced disp32 (x64.MemSym with FIX_ABS32S; on Mach-O the writer's error, as clang's "32-bit absolute addressing is
+not supported in 64-bit mode"); beside `rip` it is `[rip + x]` (PC32 / SIGNED); `@TPOFF` / `@DTPOFF` / `@tlscall` and
+the RIP operators as today, wherever written (`x@TPOFF[rax]`, `fs:x@TPOFF[rbx]`, `x@gottpoff[rip]`,
+`x@tlsgd[rip]`, `x@tlsdesc[rip]`, `x@GOTPCREL[rip]`, `call x@tlscall[rax]`).  JMP / CALL take memory in the
+`disp[...]` spelling (`call x[rbx]`, `jmp 8[rbx]`, `call x[rip]`); a bare symbol plus numbers stays a direct
+target.  Deliberate rejects (clang misreads them): a subtracted or negated symbol (`[rbx - x]`, `-x[rbx]`, `8 - x`:
+clang adds x), a scaled symbol (`[x*2]`, `[rbx + x*1]`: clang drops the scale), `rip` beside a base or index
+(`[rip + rbx]`, `x[rip][rbx]`: clang drops rip), a slot, descriptor or `@PLT` operator outside `[rip + ...]`
+(`x@GOTPCREL`, `x@gottpoff[rbx]`, `x@PLT[rbx]`: relocated as nonsense), a number in another group beside a slot
+(`x@GOTPCREL[rip][8]`: the addend rule), a register in the displacement before or without brackets (`x@TPOFF +
+rbx`: clang drops it), and a size with a bare number (`qword ptr 8`: clang an immediate).  clang rejects `[rbx]8`,
+`[rbx]+8`, `x[rbx]@TPOFF` and two symbols.  Left for x64 parser coverage: `movabs`'s moffs forms (`movabs rax, [x]`,
+A1 with R_X86_64_64), and CALL / JMP through `[rip + x@GOTPCREL]` (GCC's `-fno-plt` call; clang GOTPCRELX /
+X86_64_RELOC_GOT; the library takes no GOT operand there).
 
 ## Scope decision
 
