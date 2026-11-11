@@ -39,7 +39,8 @@ must be followed by `blr` / a `blra*`, and no addend on a slot or descriptor ref
 `0b78c67a8` (2026-10-18; `@TLVPPAGEOFF` on `ldr Xt` only, which is all ld64 links there).  Stage 3 design below (2026-11-09); 3a — landed binate `ed7d60e28` (2026-11-09); 3b — landed binate `d7a1706fc` (2026-11-09; also rejected: a
 call or jump through a thread-local slot, and a datum's addend mixing + or - with | ^ & << >>).  The
 alias-addend MAJOR the 3b review found — fixed, binate `007aabfb8`; 3c — landed binate `858380bd5` (2026-11-10; `@TLVP` on
-`mov r64` only: a `lea` links into a crash, see below).  Stage 3d design below (2026-11-10).  Next: 3d1.
+`mov r64` only: a `lea` links into a crash, see below).  Stage 3d design below (2026-11-10); 3d1 — landed binate `1685462f9` (2026-11-10; also: a number
+after `offset` is that immediate, as clang takes a constant's name there).  Next: 3d2.
 
 1. **Assembler: thread-local sections and symbols** (all arches, both formats).  ELF: SHF_TLS (the `T`
    flag; `.tdata*` / `.tbss*` imply it, `.tbss*` NOBITS), `%tls_object` / `@tls_object` → STT_TLS, a symbol
