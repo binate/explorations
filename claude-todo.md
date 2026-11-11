@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### bnfmt writes a file that does not parse: a line comment in the last operand of a builtin without a type operand goes before its `)` — 🔴 OPEN (MAJOR: bnfmt turns valid source into source that does not parse; found 2026-11-10, temp-4, working on the comment-gap entry's closes; since binate `d2c6178e7`)
+### bnfmt writes a file that does not parse: a line comment in the last operand of a builtin without a type operand goes before its `)` — 🟡 IN PROGRESS (claimed 2026-11-10, temp-4; MAJOR: bnfmt turns valid source into source that does not parse; found 2026-11-10, temp-4, working on the comment-gap entry's closes; since binate `d2c6178e7`)
 
 `x := len(y.(p. // c` / `T))` formats as `x := len(y.(p.T) // c` / `)`: the line break after `)` ends the statement
 (a semicolon goes in), so the output does not parse -- `bnfmt -w` writes it and exits 0.  The same for `box`, `same`
