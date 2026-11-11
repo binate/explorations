@@ -649,6 +649,11 @@ discarded aggregate result in its sret buffer, read
 `p.tok.Pos`-style fields without an aggregate copy; (b) the native backends -- share stack slots across disjoint
 lifetimes, as LLVM does at -O2; (c) the parser's nesting (plan-deep-nesting.md's parser step) for what stays
 recursive.  Test: a struct and a func-parameter nesting at 1023 levels must compile under the native-built bnc.
+Status (2026-11-11, work-3): with step 2 of the plan (spill slots shared by live span, not yet landed) a native-built
+bnc compiles 1023-level struct, array, pointer and func-value nestings (new conformance spec/07-types/305; a native
+bnc built by the compiler before step 1 dies on it, SIGSEGV).  Past the limit it still dies before the checker can
+reject it: a 1600-level struct nesting overflows the native-built bnc's parser (1200 and 1400 get "nests too
+deeply") -- the parser nesting limit (plan-deep-nesting.md step 2, work-1) is the fix for that.
 
 ### Neither backend probes the stack for a large frame — a frame past the guard page can step over it — 🔴 OPEN MAJOR (found 2026-10-18, work-1, review of the native aa64 16 MiB fix; pre-existing; needs a decision)
 
