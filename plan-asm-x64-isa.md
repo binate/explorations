@@ -83,4 +83,12 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
 
 ## Progress
 
-Next: 1a.
+- 1a1 — landed binate `acdc70212` (2026-11-11): adc / sbb, the accumulator's short forms of the ALU group and
+  TEST (in the shared encoder, so the native backend emits them too), xchg, the flag instructions (clc / stc /
+  cmc / cld / std / lahf / sahf, pushf / popf), cbw / cwde / cdqe / cwd; the no-operand instructions in one
+  table.  Push of an immediate was already there.
+
+Next: 1a2, the moffs forms (A0-A3: `mov rax, [0x123456789]`, `movabs rax, [x]`; surveyed: clang takes moffs
+for AL / AX / EAX / RAX with an address past a sign-extended 32 bits, and for every `movabs` with memory — a
+symbol's R_X86_64_64, `@TPOFF`'s TPOFF64 — and silently truncates the address for any other register, which is
+an error here).

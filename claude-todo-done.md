@@ -47,6 +47,15 @@ format put its argument on a line of its own where it printed, and the second me
   not idempotent, and slices nested in high bounds taking 28 s at 50 levels (now 0.2 s at 40); and two
   pre-existing problems, filed in claude-todo.md.
 
+### asm x64: the accumulator's short forms of the ALU group and TEST — DONE (binate `acdc70212`, 2026-11-11, plan-asm-x64-isa.md 1a1)
+
+From the x86-64 parser coverage entry (found 2026-10-18): the ALU / TEST immediate forms on AL / AX / EAX / RAX
+used the ModR/M encodings (`cmp al, 1` 80 F8 01, `test eax, imm32` F7 C0) where clang uses the accumulator's
+own (3C 01, A9).  binate `acdc70212`: the shared encoder takes clang's choice — AL's short form always, AX /
+EAX / RAX's where the imm8 form cannot hold a number, a symbol past 8 bits keeping 0x81 (TEST's A8 / A9
+always) — so the native x86-64 backend emits them too.  With adc / sbb, xchg, the flag instructions and cbw /
+cwde / cdqe / cwd, checked against clang 22 over a 3122-line corpus.
+
 ### asm x64: absolute symbol addressing, `N[rbx]`, `[x + rip]`, `+ 0` beside a slot operator — DONE (binate `ab5e933e5`, 2026-11-11, TLS stage 3d2)
 
 From the x86-64 parser coverage entry: forms clang takes that bnas rejected — a symbol as a memory operand's
