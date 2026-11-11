@@ -248,7 +248,13 @@ IR-gen cannot map is an internal error, never `int`.
      5c-1 DONE (binate `612fd477a`, 2026-11-11; user: "wait 19 minutes, then land"): every type / interface registration site takes the declaration's name
      from its record (irgen declaredTypeName: the checker Type's bare Name), not `d.Name`; byte-identical IR.
      Aliases, blank declarations and declarations with no record keep `d.Name`.  5c-2: one registration routine
-     for the seven passes, fields / underlying / method sets from the checker type, lazy registration.
+     for the passes, fields / underlying / method sets from the checker type, lazy registration -- MOVED to after
+     stage 7 (user 2026-11-11, asked whether to merge now or after stage 7: "After stage 7 (Recommended)").  Five
+     passes are production (registerStructTypesFlat + registerAllInterfacesFlat, RegisterImports,
+     RegisterSelfTypes, GeneratePackage, the REPL's GenTypeDecls); GenModule and RegisterImport are test-only.
+     Most of their differences are the per-file import overlays (value names, stage 6; unrecorded syntax) and
+     the checker-less paths (stage 7), so the merge is simpler once those are gone.  Until then a change to
+     declaration registration touches every pass, as 5c-1 did.
      Notes from the 5c-1 review: (a) the no-record fallback exists only for IR-gen unit tests that register
      unchecked declarations with a checker attached (gen_repl_types_test, gen_repl_test, gen_repl_forward_test,
      ...; a strict-check run of VM conformance and e2e/repl.sh found no production path) -- once stage 7
@@ -282,7 +288,7 @@ IR-gen cannot map is an internal error, never `int`.
    declaration has nothing to wait for there.  Resolves the todo entries "an incompatible redefinition of a generic
    method that a sibling still calls" and "adding a method to a generic type checks its existing instances again"
    (their sessions become e2e cases).
-7. **Delete the legacy and no-checker paths; convert the tests.**  ~84 irgen test files build IR without a
+7. **Delete the legacy and no-checker paths; convert the tests.**  Then 5c-2 (stage 5's merged, lazy type registration).  ~84 irgen test files build IR without a
    checker (223 genFromSource calls in 44 files, 56 genFromSourcePkg in 17, 42 files building GenCtx by
    hand), plus GenModule(nil) helpers in codegen and the native iface tests; many are white-box tests of
    internals this deletes.
