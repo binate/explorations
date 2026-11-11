@@ -245,7 +245,7 @@ IR-gen cannot map is an internal error, never `int`.
      implementation scope's type.  For an interface that is a different Type object from the one importers
      see (preRegisterInterfaces makes a fresh one and replaces the copied symbol); both name the one registered
      interface by its (Pkg, Name).
-     5c-1 (work-6, 2026-11-10, in review): every type / interface registration site takes the declaration's name
+     5c-1 DONE (binate `612fd477a`, 2026-11-11; user: "wait 19 minutes, then land"): every type / interface registration site takes the declaration's name
      from its record (irgen declaredTypeName: the checker Type's bare Name), not `d.Name`; byte-identical IR.
      Aliases, blank declarations and declarations with no record keep `d.Name`.  5c-2: one registration routine
      for the seven passes, fields / underlying / method sets from the checker type, lazy registration.
