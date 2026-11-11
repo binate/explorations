@@ -267,6 +267,17 @@ IR-gen cannot map is an internal error, never `int`.
    - 5d: emitted names from the checker's identity: methodQualName (the receiver TypeExpr's record, not
      recvTypeName's text), the dtor / copy helpers, impl rows and typeinfo name what the record maps to.
      Byte-identical until a checker makes two types of one name (plan-repl-type-shadowing.md approach B).
+     5d-1 (work-6, 2026-11-11, in review): methodQualName names a method after its receiver's checker type
+     (methodRecvTypeName: concreteRecord -> ReceiverBaseNamed -> checkerBareName); byte-identical IR.  Thunks,
+     REPL replace / shadow and method-value wrappers derive from that name or the registered type, so they follow.
+     5d-2: impl rows -- recvBaseNameAndPkg (gen_impl.bn, gen_impl_imported.bn) -> the receiver's record; every
+     backend rebuilds method symbols from row.RecvTypeName, so the row is the one point to change; the listed
+     interfaces' names from their records too.  Notes from the 5d-1 review: (a) a method expression `T.M`
+     (methodExprName, gen_bare_name.bn; funcRefName, method-value routing, declareMethodExprTarget) still names
+     from `e.X.Name` and gates on lookupStructIdx(written name) -- once a shadow has an internal name it would bind
+     the OLD T's method; switch it to the record (concreteExprRecord on e.X) before / with stage 8's internal
+     names (stage 6 lists methodExprName among the value-name sites); (b) stage 8's internal names must contain no
+     '.' (checkerBareName cuts at the last one).
    - 5e: impl rows from the checker's impls with checker substitution: mintGenericImplRows stops resolving a
      parameterized impl's interface arguments by name, and resolveTypeExpr's abstract-record fallback (4a)
      goes.
