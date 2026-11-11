@@ -1317,8 +1317,8 @@ with U declared first the program compiles (`len(a)` is 2).  Spec `type.alias.ac
 reaching the alias "directly or through other aliases"; here it goes through the distinct type U, behind a pointer, so
 the program is valid.  The composite `[2]U{}` in A's length collects U on demand while A is being resolved
 (ALIAS_RESOLVING), and U's field type `*A` names A, which resolvePendingAliasNamed reports as recursive.  Fix: needs
-design -- an alias being resolved, reached through a distinct type behind a pointer, is not a cycle.  Tests: to add
-(conformance, xfailed).
+design -- an alias being resolved, reached through a distinct type behind a pointer, is not a cycle.  Test: conformance
+regressions/alias-through-distinct-type-in-length, xfailed (binate `a384b3777`).
 
 ### A layout read from a variable's array length makes an instance's build report a false cycle, in one declaration order — 🔴 OPEN (minor: a valid program rejected; found 2026-11-09, work-1, review of the deep-nesting dependencies-first stage; on main at binate `f55523b7e`; pre-existing)
 
@@ -1328,7 +1328,8 @@ with the variable declared last the program compiles.  R's size is P's, a pointe
 happens through `var v [K]int` with `const K = sizeof(R)`.  The reviewer's hypothesis, unverified: the read comes
 from a variable's length, where no type is being collected, so when flushLayoutWaits builds no instance in a round it
 goes on to the last build, which does not wait, and reports the cycle while R is still being walked.  Related: the
-entry below.  Root cause: to investigate.  Tests: to add (conformance, xfailed).
+entry below.  Root cause: to investigate.  Test: conformance regressions/var-length-reads-instance-holder, xfailed
+(binate `a384b3777`).
 
 ### A generic method copied onto an instance, whose signature takes a size that depends on that instance, is rejected as a cycle in a `.bn` in some declaration orders — 🔴 OPEN (minor: valid programs rejected; found 2026-11-01, work-7, review of the `.bni` generic-instance method fix; on main at binate `e8fd48049`; pre-existing)
 
