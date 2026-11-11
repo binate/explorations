@@ -3349,6 +3349,29 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
   elimination's `phicrit`.  Decided (user 2026-11-11, "3. go with your rec"): number labels from a per-function
   counter that never goes back, so labels stay unique for the function's life and a stale jump always names
   an undefined label (not a membership check in `f.Blocks` on every compile, O(blocks) per function).
+  The review of the counter (2026-11-11) found that premise does not hold: a block dropped from `f.Blocks` is
+  freed at the next `AddBlock`, because `appendBlock` (`ir/ir.bn`) then rebuilds `BlocksVec` and the old builder
+  held the block's last reference (jump targets and phi entries are raw pointers).  On native, phi elimination's
+  `phicrit` split is such an `AddBlock`, just before `common.EmitObject`'s jump check, so a stale jump or phi
+  entry then dangles: the check reads freed memory, and if the memory goes to a new block of f the pointer names
+  a live block of f with a defined label -- silent.  Also, a phi entry naming a dropped block of f passes
+  `irbuild.ForeignPhiPredError` (its `Func` is f), and on native and the VM `EliminatePhis` then puts that
+  edge's copies into the dropped block.  Proposed: keep a dropped block alive as long as its function (keep
+  the old builder, or move dropped blocks to a per-function list), and reject a jump target or phi predecessor
+  that is not in `f.Blocks` (a set built once per check).
+
+- **Native, LLVM and VM: an operand that is another function's value reads this function's value of the same
+  id** — 🔵 OPEN (found 2026-11-11, review of the phi-predecessor check; by reading).  Value ids restart at 0 in
+  every function (`ir.NewFunc`), and every backend names an operand by its id: LLVM's `emitRef` writes `%v<id>`
+  (`codegen/emit_util.bn`), native looks it up by id (`LookupReg`, `LookupHome`, `LookupSpill`, `LookupAlloc`),
+  and the VM's `renumberValues` (`vm/lower_regalloc.bn`) and lowering read its register by id.  So an operand
+  in `ins.Args` that is another function's instruction or parameter silently reads f's value of that id; only
+  an id with no location in f fails (native `SetUnresolvedOperandError`, clang's undefined value).  Nothing
+  checks who owns an ordinary operand, not even `--verify-ir` (it checks phi operands only,
+  `VERR_PHI_VAL_UNOWNED`), and `iropt.assertOperandsInScope` (`iropt/inline_pads.bn`) compares ids, not
+  identity.  Valid IR never has such an operand; an optimizer bug (an inliner remap that misses one) would.
+  Fix: before each backend and the VM lower a function, check that every operand is one of f's own values (find
+  first which operands are legitimately not f's instructions or parameters), with a test per backend.
 
 - **Checker rejects valid alias uses in const / untyped-literal contexts** — 🔵 OPEN (found
   2026-09-26).  Spec type.alias.transparency: an alias is its target in every context.  But with
