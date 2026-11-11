@@ -2840,6 +2840,10 @@ operator (`[rip + x@GOTTPOFF + 0]`) and a `#` comment; bnas takes and clang reje
 (`[rsp*1 + rax]`, swapped into the base) and an expression before a `[rip + ...]` operator whose addend comes to 0
 (`[rip + x + 4 - 4@GOTTPOFF]`, `[rip + (x)@GOTTPOFF]`: the operator applies to the whole expression there, to the
 symbol in any other memory operand).
+Found 2026-11-10 (the TLS stage 3d surveys, plan-tls.md), no wrong code: CALL / JMP through `[rip +
+x@GOTPCREL]` (GCC's `-fno-plt` call; clang R_X86_64_GOTPCRELX / X86_64_RELOC_GOT) is rejected — x64.CallMem /
+JmpMem take no GOT operand ("unsupported operand kinds") — and `movabs`'s moffs forms (`movabs rax, [x]`, A0-A3
+with a 64-bit address, R_X86_64_64) are missing.
 
 ## bnld (self-hosted linker)
 
