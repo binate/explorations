@@ -658,6 +658,21 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
+### The native-built compiler overflows its stack on types nested within the 1024 limit: the parser's recursive frames are several KB — 🔴 OPEN MAJOR (found 2026-11-10, work-3, review of the parser's type-prefix loop; pre-existing)
+
+A valid type nested 1007-1011 levels deep -- under type.named.depth's 1024 -- crashes the native-built bnc (SIGSEGV,
+8 MiB stack): nested structs (`struct { f struct { f ... int } }`: parseType + parseTypeInner + parseStructType +
+parseStructField, 8,224 bytes of native frame per level) and function values in parameters (`*func(*func(...))`).
+The parser's loop over type prefixes covers `[N]` / `*` / `@` / `readonly` chains (and `*func() ...` result chains,
+once its marker change lands); these forms still take a call per level.  Underneath is frame size: parseTypePrefix
+is 4,192 bytes native (2.2 KB LLVM) for code that builds one node, parseTypeInner was 9,760 (6,480 LLVM) -- each
+`p.tok.Pos` read and each call returning a struct gets a stack slot of its own (a discarded `p.expect(...)` result
+an sret buffer plus a copy made only to destroy it), and neither backend shares a slot between sites whose
+lifetimes do not overlap.  Fix: (a) IR-gen -- destroy a discarded aggregate result in its sret buffer, read
+`p.tok.Pos`-style fields without an aggregate copy; (b) the native backends -- share stack slots across disjoint
+lifetimes, as LLVM does at -O2; (c) the parser's nesting (plan-deep-nesting.md's parser step) for what stays
+recursive.  Test: a struct and a func-parameter nesting at 1023 levels must compile under the native-built bnc.
+
 ### Neither backend probes the stack for a large frame — a frame past the guard page can step over it — 🔴 OPEN MAJOR (found 2026-10-18, work-1, review of the native aa64 16 MiB fix; pre-existing; needs a decision)
 
 A function's prologue moves SP down by its whole frame in one step (native: `sub sp, sp, #frame`, now also past 16
