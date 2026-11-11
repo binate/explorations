@@ -642,7 +642,9 @@ native-built bnc too (checked); a struct still takes a call per level.  Undernea
 is 4,192 bytes native (2.2 KB LLVM) for code that builds one node, parseTypeInner was 9,760 (6,480 LLVM) -- each
 `p.tok.Pos` read and each call returning a struct gets a stack slot of its own (a discarded `p.expect(...)` result
 an sret buffer plus a copy made only to destroy it), and neither backend shares a slot between sites whose
-lifetimes do not overlap.  Fix: (a) IR-gen -- destroy a discarded aggregate result in its sret buffer, read
+lifetimes do not overlap.  Plan and progress: plan-native-frame-slots.md (step 1 landed, binate `20b98a7ba`: no
+slot for a value homed for its whole life, a struct level 9,584 -> 6,416 bytes native).  Fix: (a) IR-gen -- destroy a
+discarded aggregate result in its sret buffer, read
 `p.tok.Pos`-style fields without an aggregate copy; (b) the native backends -- share stack slots across disjoint
 lifetimes, as LLVM does at -O2; (c) the parser's nesting (plan-deep-nesting.md's parser step) for what stays
 recursive.  Test: a struct and a func-parameter nesting at 1023 levels must compile under the native-built bnc.

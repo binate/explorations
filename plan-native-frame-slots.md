@@ -57,3 +57,14 @@ under the native-built bnc, and the frames are near LLVM's.
 ## Progress
 
 - 2026-11-10: measured (above); step 1 started.
+- Step 1 DONE: binate `20b98a7ba` (2026-11-11).  A homed value has no slot unless an emitter uses it (a call's
+  result, an OP_BOX's result, an indirect or handle call's target; parameters keep theirs) -- needsSpillSlot.
+  aarch64 frames after it: parseType 1,056, parseTypeInner 1,424, parseStructType 2,016, parseStructField 1,920 (a
+  struct level 6,416, from 9,584), parseTypePrefix 2,992, parsePrimaryExpr 5,360.  Validated: native aa64 full
+  conformance (self-hosted) 3912/0; call-centred subsets on native x64 458/0, arm32 bare metal 450/0, arm32 Linux
+  458/0; the native unit tests; cmd/bnc compiled natively for x64 and arm32.
+  - Left from the review: a homed direct-call result still has a slot it never uses on aarch64 / arm32 (their
+    result collection asks for the slot before the home); step 2's sharing makes it nearly free, or move the ask
+    after the home check.  aarch64's OP_CALL_HANDLE does not save a handle homed in an argument register before
+    placing the arguments (OP_CALL_INDIRECT and x64 do); not reproduced in three probes (the allocator put the
+    handle in x4 / x27), and only rt's `_call_dtor` / `_call_free_fn` produce the op.
