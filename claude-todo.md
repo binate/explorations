@@ -265,7 +265,10 @@ is green and inside its job limit -- then (d), sharding it, is not needed, and t
   binate `9d84c4643`, with the bare-metal stack guard (not yet landed) and the same without it): `rt.RawAlloc: arena
   exhausted` from a test heap of ~240 MiB.  Root cause (2026-11-10): no leak -- the test holds three 200,000-deep
   chains (~800,000 types.Type, 280 bytes each on 32-bit, 520 on 64-bit; 574 MB peak on the host).  Fix chosen:
-  restructure the test to hold one target chain at a time.
+  restructure the test to hold one target chain at a time (now 425 MB on the host; it passes on bare metal).  But
+  13 of check's 72 deep tests peak at 260-480 MB on the host, and TestDeepOpaqueRules (479 MB) and
+  TestDeepSignaturesMatchStrict (456 MB) still run the bare-metal heap out, so (user: "yes, do 2b") bare-metal test
+  binaries get 512 MiB of RAM (baremetal_test.ld, the unit runner's QEMU -m), ~490 MiB of heap.
 - **Update, unit run at binate `08de98de2` (2026-11-09):** the arm32 NEON test now compiles (binate `0d72b73e2`).
   The bare-metal lane now finishes inside its limit (23.5 min, format 274 s, down from 737 s), failing only on
   check's TestDeepContainerRetypes.  Still timing out: builder-comp-int 1/6 (format 1104 s under the VM, then cut off
