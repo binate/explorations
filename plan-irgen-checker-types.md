@@ -278,6 +278,16 @@ IR-gen cannot map is an internal error, never `int`.
      the OLD T's method; switch it to the record (concreteExprRecord on e.X) before / with stage 8's internal
      names (stage 6 lists methodExprName among the value-name sites); (b) stage 8's internal names must contain no
      '.' (checkerBareName cuts at the last one).
+     5d-2 (work-6, 2026-11-11, in review): implRecvKey / implIfaceKey (gen_impl_keys.bn) key both impl collectors'
+     rows on the receiver's and interfaces' records (the receiver as IR-gen registers it -- a generic instance's
+     mangled name, not the checker's `R[[8]uint8]`); byte-identical IR.  `impl T : any` now keys on the universe
+     `any` and builds (it failed on LLVM / native) -- user 2026-11-11, asked whether such an impl is allowed or
+     rejected: "Allowed, a no-op (Recommended)"; conformance 1744.  5d-3: interface parents (collectInterfaceParents
+     by ref.Name / ref.Base.Name; IfaceAncestorClosure builds every impl's ancestor rows from them) and alias targets
+     (mi.AliasTarget = d.TypeRef.Name; box sites canonicalize through them) from records -- also fixes `interface X
+     : any`, the rest of the claude-todo item.  Note from the 5d-2 review: stashedGenericDecl matches the checker's
+     InstDecl by identity, so a REPL re-declaration of a generic interface (stashGenericIfaceDecl keeps the first)
+     would panic there -- unreachable while the checker rejects redefinitions; stage 8 must handle it.
    - 5e: impl rows from the checker's impls with checker substitution: mintGenericImplRows stops resolving a
      parameterized impl's interface arguments by name, and resolveTypeExpr's abstract-record fallback (4a)
      goes.
