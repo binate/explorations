@@ -70,7 +70,7 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
      rejects them everywhere ("'ah' is a register, which cannot stand in an expression"), and the
      operand model cannot express one — Reg 4-7 at SZ8 means SPL..DIL, with a forced REX.  Needs an
      operand form for them (and an error where a REX is needed beside one: `mov ah, r8b`, `mov ah,
-     sil`, as clang's "can't encode 'ah' in an instruction requiring REX prefix").  Found 2026-11-12
+     sil`, as clang's "can't encode 'ah' in an instruction requiring EVEX/REX2/REX prefix").  Found 2026-11-12
      by the 1d review.
 2. **x87**: every form clang takes (memory sizes, st(i) forms, the no-wait aliases).
 3. **SSE through SSE4.2**, AES, CLMUL and SHA (extend `asm/x64/sse`).
