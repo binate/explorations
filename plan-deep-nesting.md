@@ -393,5 +393,10 @@ recursive, so far more than 75).
   crashes first on true nesting -- parens at 1,500-2,000 levels (13 frames a level, one function per precedence
   level), function literals at 500-1,000, blocks / `if`s / calls at 2,000-4,000 -- and the checker on flat chains
   (`y + y + ...` at 4,000-6,000 terms in checkBinaryExpr, `else if` at 3,000-4,000 in checkStmt).
+- Step 2 and type expressions (2026-11-12): conformance 305_type_depth_nested_syntax writes 1,023-level types as
+  single type expressions, compiling under type.named.depth (1,024), and the parser reads type prefixes in a loop for
+  it; so the syntax limit counts expressions, statements, blocks, composite and function literals, and type
+  expressions are left to type.named.depth -- an expression within a type counts from where it starts (user: "Leave
+  to type depth (Recommended)").
 - Open: step 3 (a type-depth backstop) not
   decided, revisit once step 1 is done.
