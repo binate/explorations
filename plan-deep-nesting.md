@@ -371,8 +371,18 @@ recursive, so far more than 75).
   claude-todo's quadratic-declarations entry); cmd/bnc's IR and 2045 corpus programs identical.  Review: a field of
   the name was not taken first (a valid program rejected as a cycle) and a rejected receiver's signature errors came
   first -- both fixed, with tests; the index matched to the old scan for a qualified generic receiver.
-  Next: the `.bni`'s methods (bniMethodOnDemand; pushBniReadFrom stops at a method read); then the parser nesting
-  limit, then IR-gen (type alias chains among the first).
+- Dependencies first, stage 4b (a `.bni`'s methods) DONE: binate `0d1b4a601` (landed 2026-11-11; user: "yes, go ahead;
+  then continue") -- an importer's `.bni` chain `func (s S0) M() [len(S1{}.M())]int8` ... crashed at ~1,000 links
+  (bniMethodOnDemand -> defineBniMethod -> ..., 20 frames a link).  defineBniMethod is a walk call
+  (bni_by_name_method.bn) resolving its receiver's and signature's reads ahead; pushBniReadFrom hands a method read to
+  pushBniMethodReadFrom, which defines the method ahead as bniMethodOnDemand would (a field of the name, a method
+  being defined or not declared, an instance stop).  Review: a `.bni` method two pointer levels down is never kept, so
+  each read defined it again and walked its reads again -- quadratic, or exponential with two reads a link (an invalid
+  program; compile time only) -- now neither read ahead nor reading ahead, with a test; error order: a method defined
+  ahead reports its signature's errors before a reader's earlier in-place ones, as `.bni` functions already did.
+  cmd/bnc's IR and 2049 corpus programs identical; 20,000-link `.bni` chains get through the checker.
+  Next: the parser nesting limit (step 2: its minimum is the open decision), then IR-gen (type alias chains among the
+  first).
 ## Decisions (2026-11-03)
 
 - Step 1, all of it, staged: user "All of them, staged (Recommended)".
