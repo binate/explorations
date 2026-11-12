@@ -267,7 +267,7 @@ IR-gen cannot map is an internal error, never `int`.
    - 5d: emitted names from the checker's identity: methodQualName (the receiver TypeExpr's record, not
      recvTypeName's text), the dtor / copy helpers, impl rows and typeinfo name what the record maps to.
      Byte-identical until a checker makes two types of one name (plan-repl-type-shadowing.md approach B).
-     5d-1 (work-6, 2026-11-11, in review): methodQualName names a method after its receiver's checker type
+     5d-1 DONE (binate `009892417`, 2026-11-11; user: "wait 16 minutes, then go ahead"): methodQualName names a method after its receiver's checker type
      (methodRecvTypeName: concreteRecord -> ReceiverBaseNamed -> checkerBareName); byte-identical IR.  Thunks,
      REPL replace / shadow and method-value wrappers derive from that name or the registered type, so they follow.
      5d-2: impl rows -- recvBaseNameAndPkg (gen_impl.bn, gen_impl_imported.bn) -> the receiver's record; every
