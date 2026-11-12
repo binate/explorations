@@ -278,7 +278,7 @@ IR-gen cannot map is an internal error, never `int`.
      the OLD T's method; switch it to the record (concreteExprRecord on e.X) before / with stage 8's internal
      names (stage 6 lists methodExprName among the value-name sites); (b) stage 8's internal names must contain no
      '.' (checkerBareName cuts at the last one).
-     5d-2 (work-6, 2026-11-11, in review): implRecvKey / implIfaceKey (gen_impl_keys.bn) key both impl collectors'
+     5d-2 DONE (binate `536c5d18c`, 2026-11-11; user: "wait 3 minutes, then land"): implRecvKey / implIfaceKey (gen_impl_keys.bn) key both impl collectors'
      rows on the receiver's and interfaces' records (the receiver as IR-gen registers it -- a generic instance's
      mangled name, not the checker's `R[[8]uint8]`); byte-identical IR.  `impl T : any` now keys on the universe
      `any` and builds (it failed on LLVM / native) -- user 2026-11-11, asked whether such an impl is allowed or
