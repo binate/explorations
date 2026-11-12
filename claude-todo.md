@@ -253,6 +253,12 @@ is green and inside its job limit -- then (d), sharding it, is not needed, and t
   (HTTP 504) reddened the 710e52d5d set; later runs were all cancelled by newer pushes.
   Since then (2026-11-10, work-3): check's TestDeepTypeLimitAlias passes natively on aa64 (binate `288044551`),
   and check's whole suite passes on the bare-metal lane locally (binate `72a601204`, `be5bcd88d`; done log).
+- 🟡 IN PROGRESS (claimed 2026-11-12, work-3; user: "let's go back to the release items for now") **pkg/binate/check's
+  tests time out the VM lanes and now the bare-metal lane.**  Unit run at binate `d26a860d6` (2026-11-11): the
+  bare-metal lane was cut at its 30-min cap 20 min into check (with 512 MiB the deep tests no longer die early, so
+  check runs its whole suite under QEMU); builder-comp-int 5/6 and 6/6 and builder-comp-comp-int 1, 2, 5 and 6 of 6
+  were cut inside check; int-int 1, 4 and 8 of 12 were cut in check's tests.  (The other shards' 4-min failures were
+  an apt DNS outage.)  Measuring what each of check's tests costs under QEMU and the VM.
 
 ### IR-gen spells every type argument out in an instance's name — instances whose arguments share a type get exponentially long names — 🔴 NEEDS DECISION (found 2026-10-26, work-7, testing the abstract-instance change's shared-argument walk; reproduced on main; pre-existing)
 
