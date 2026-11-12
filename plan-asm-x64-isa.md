@@ -98,5 +98,9 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   clang, beside the deliberate rejects: `rol al, x` and `rol ax, cx` are APX new-data-destination forms to clang
   (stage 6).
 
-Next: 1c, the bit instructions — bt / bts / btr / btc (register and immediate), bsf / bsr, lzcnt / tzcnt /
-popcnt, bswap.
+- 1c — landed binate `19982a2a4` (2026-11-12): bt / bts / btr / btc (register or imm8 offset), bsf / bsr,
+  lzcnt / tzcnt / popcnt (segment, 66, F3, REX), bswap of a 32- or 64-bit register.
+
+Next: 1d, cmovcc, and the parser for setcc / movzx / movsx / movsxd (encoders exist).  x64.bni is at 868 of
+its 1000-line cap: split it along a natural boundary (the string / system instructions as sub-packages)
+before a stage brings it near the cap.
