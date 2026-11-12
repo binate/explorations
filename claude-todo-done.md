@@ -1,3 +1,26 @@
+### bnfmt's slice break left five deep nests worse than before — DONE (binate `9f34edb90`, 2026-11-11, temp-4; user: "wait 11 minutes, then land (and file the 5 cases); then work on the 5 cases", chose variant "A: measure only (Recommended)", landed on "wait 8 minutes, then land") (LOW; found 2026-11-10, temp-4, review of the slice break; since binate `436c441f0` / `9b7c239e9`)
+
+Five of the review's probes formatted worse than with the bnfmt before the slice break: three differently a second
+time, two with a line past the cap.
+- A head measured a slice's low bound, and an asserted type, with the source's breaks: a string run on one line is
+  split where it prints, and type arguments a format wraps keep their opener alone, so a second format measured
+  them otherwise.  boundShare now renders a bound by width alone (layOutByWidth, print_deep.bn), and a head leaves
+  room for an asserted type only up to its first break (typeShare), with the comments around its `.(`.
+- A block comment after a slice's `[` that fit stayed though the low bound after it did not (128 columns, main
+  too): the comment goes with the low bound to a continuation line when the head's measure of it does not fit
+  (writeSliceOpenGap).  Block comments then a line comment after a `:` begin a continuation line when they do not
+  fit together (120 columns, main too).
+- Tests: print_slice_test.bn (three), print_assert_test.bn (two, and the asserted-type test moved there); five
+  revert checks each fail a test.
+- Against main's bnfmt: the tree, the injected-comment corpora and 1,500 generated files unchanged but for one
+  narrower; the first review's 24,052 probes 5 non-idempotent outputs fixed, 301 narrower, nothing new; the second
+  review's 12,514 probes 149 fixed, 1,672 narrower, nothing new non-idempotent, 36 past the cap (their own entry).
+- Two reviews.  Rejected along the way: deciding the `[` comments' move by a list's fill decision (81 new
+  non-idempotent probes: it reads the low bound's source breaks), moving a lone line comment after a `:` (a stray
+  space), splitting an overlong part of any cross-line string run (it changed 15 tree files: a right-hand side
+  that moved to a continuation line stayed inline, its run split), and printing the low bound by width alone
+  (see the open entry).
+
 ### Dependent-length constraints, step 5, identity through an instance's type arguments: an assignment, `==` and `same` defer a dependent length — DONE (binate `e5df2581f`, 2026-11-11, temp-5; landed on "wait 11 minutes, then go ahead; then do the next three") (step 5 of explorations/plan-dependent-constraints.md, for the open entry "In a generic's own check, a constraint whose length depends on the generic's type parameter …")
 
 `var p *G1[[sizeof(U)]uint8] = q` (q a `*G1[[8]uint8]`) was rejected in a generic's own check, as were `p == q`,

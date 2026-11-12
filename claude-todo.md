@@ -3061,20 +3061,17 @@ The commonest such pending comment in generated nests (most of 62 reorderings in
 a line comment after the `:` of a slice with no high bound, `m[g: // ll` / `]`.  A line break after a `:` is legal,
 so that comment can stay where it is, with the `]` on the next line, as a list's close goes after a line comment.
 
-### bnfmt's slice break leaves five deep nests worse than before — 🟡 IN PROGRESS (claimed 2026-11-11, temp-4) 🟢 LOW (found 2026-11-10, temp-4, review of the slice break; since binate `436c441f0` / `9b7c239e9`)
+### bnfmt lets a string run the source split across lines run past the cap as a slice's low bound — 🔴 OPEN 🟢 LOW (found 2026-11-11, temp-4, second review of the deep slice nest fix; since binate `9f34edb90`)
 
-Of the review's 24,052 generated probes (deep nests of slices, calls, chains, string runs and assertions, comments
-in every gap), five format worse than with the bnfmt before the slice break, which made 785 of them
-non-idempotent and 4,171 of them wider.  All five are nests already past the cap nearby:
-- two get a line past the cap: a block comment after a slice's `[` fits on its line and stays, and the low bound
-  after it does not (the old bnfmt wrapped the head differently, so the comment did not fit and moved to a line of
-  its own);
-- three format differently a second time: a slice that is an outer slice's high bound breaks at its own `:` the
-  first time and at the outer `:` the second, in a nest whose tail holds a string run; a `__c_call` in a call
-  whose slice has a string-run low bound; and a generic type assertion whose type arguments wrap, in a slice's
-  head.
-The probes are not kept anywhere durable; each case is to be reduced to a small repro and a unit test as it is
-fixed.
+`x := g<36>(<a×20>, <b×12>)["<s×26>"` / `"tt":]` prints its first line 107 wide; main before `9f34edb90` wrapped the
+call.  A slice's head measures its low bound by width alone (boundShare), which leaves a string run room for one
+byte -- a run on one source line is split where it prints -- but a run the author split across lines prints its
+first part as written.  36 of the second review's 12,514 probes.  Tried and rejected (2026-11-11): measuring such a
+run by its first part brings back a reformat instability (a run on one line, split by the first format, is
+measured by its first part by the second); printing the low bound by width alone too (the run written as one
+literal, split where it lands) fixed these but left 4 non-idempotent probes (a function literal in the low bound)
+and 14 past the cap (nested type-argument lists), and merged short runs (`"k" "d"` to `"kd"`) -- the user chose
+the measure-only form.  A fix needs a measure of a split run that a second format reproduces.
 
 ### bnfmt does not break a type-argument list nested in another — 🔴 OPEN 🟢 LOW (found 2026-11-11, temp-4, review of the deep slice nest fix; pre-existing, main does the same)
 
