@@ -88,7 +88,10 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   cmc / cld / std / lahf / sahf, pushf / popf), cbw / cwde / cdqe / cwd; the no-operand instructions in one
   table.  Push of an immediate was already there.
 
-Next: 1a2, the moffs forms (A0-A3: `mov rax, [0x123456789]`, `movabs rax, [x]`; surveyed: clang takes moffs
-for AL / AX / EAX / RAX with an address past a sign-extended 32 bits, and for every `movabs` with memory — a
-symbol's R_X86_64_64, `@TPOFF`'s TPOFF64 — and silently truncates the address for any other register, which is
-an error here).
+- 1a2 — landed binate `03e21a13c` (2026-11-11): the moffs forms of mov and movabs (A0-A3: `mov` with AL / AX /
+  EAX / RAX and an address past a sign-extended 32 bits, `movabs` with any absolute memory operand); a 64-bit
+  address elsewhere, or a MOV of one clang reads as a symbol (a label-difference constant's, a symbol's), is an
+  error, where clang keeps its low 32 bits.  Also: a rejected x86-64 instruction leaves nothing in its section.
+
+Next: 1b, shifts and rotates (rol / ror / rcl / rcr, by 1 / imm8 / cl), shld / shrd, mul and the one-operand
+imul, the two-operand imul with an immediate.

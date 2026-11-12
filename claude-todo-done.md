@@ -111,6 +111,15 @@ format put its argument on a line of its own where it printed, and the second me
   not idempotent, and slices nested in high bounds taking 28 s at 50 levels (now 0.2 s at 40); and two
   pre-existing problems, filed in claude-todo.md.
 
+### asm x64: the moffs forms of mov and movabs — DONE (binate `03e21a13c`, 2026-11-11, plan-asm-x64-isa.md 1a2)
+
+From the x86-64 parser coverage entry (found 2026-11-10 in the TLS stage 3d surveys): `movabs rax, [x]` and the
+other moffs forms (A0-A3, an 8-byte address) were missing.  binate `03e21a13c`: `mov` with AL / AX / EAX / RAX
+and an address past a sign-extended 32 bits, and `movabs` with any absolute memory operand (numbers, symbols —
+R_X86_64_64, `@TPOFF`'s TPOFF64 — wide addends, label-difference constants), as clang encodes them; a 64-bit
+address elsewhere, or a MOV of one clang reads as a symbol, is an error (clang keeps its low 32 bits).  Also: a
+rejected x86-64 instruction leaves no bytes or fixups (a segment override or partial opcode had been left).
+
 ### asm x64: the accumulator's short forms of the ALU group and TEST — DONE (binate `acdc70212`, 2026-11-11, plan-asm-x64-isa.md 1a1)
 
 From the x86-64 parser coverage entry (found 2026-10-18): the ALU / TEST immediate forms on AL / AX / EAX / RAX

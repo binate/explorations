@@ -2825,8 +2825,7 @@ rejects a parenthesized term `[rax + (x@TPOFF)]` and a `#` comment; bnas takes a
 scaled RSP index (`[rsp*1 + rax]`, swapped into the base).
 Found 2026-11-10 (the TLS stage 3d surveys, plan-tls.md), no wrong code: CALL / JMP through `[rip +
 x@GOTPCREL]` (GCC's `-fno-plt` call; clang R_X86_64_GOTPCRELX / X86_64_RELOC_GOT) is rejected — x64.CallMem /
-JmpMem take no GOT operand ("unsupported operand kinds") — and `movabs`'s moffs forms (`movabs rax, [x]`, A0-A3
-with a 64-bit address, R_X86_64_64) are missing.
+JmpMem take no GOT operand ("unsupported operand kinds").
 
 ## bnld (self-hosted linker)
 
