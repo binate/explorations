@@ -2958,7 +2958,7 @@ three blank lines there, which a second format makes one.  So neither is idempot
 caller lays it out (printDecls, the block loop), its comments going on lines of their own, or keep it as written by
 recording its keyword on the DECL_GROUP node; tests: goldens for both, formatted twice.
 
-### bnfmt moves a comment inside a type, or before a `)` or `]`, out of its place — 🟡 IN PROGRESS (claimed 2026-11-07, temp-4) 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the operator chains' part done in binate `df21fe656`, the expressions', simple statements', declarations' and composites' in binate `27bdebd4b`, `43d112b0a`, `8d796d5f6` and `17701aeb7`; the lists' closes in binate `91a0c17ee` and `d2c6178e7`; the slices', type assertions', type-operand builtins' and `__c_call`'s closes in binate `64dce165e`, and the slice break they needed in binate `436c441f0`)
+### bnfmt moves a comment inside a type, or before a `)` or `]`, out of its place — 🟡 IN PROGRESS (claimed 2026-11-07, temp-4) 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the operator chains' part done in binate `df21fe656`, the expressions', simple statements', declarations' and composites' in binate `27bdebd4b`, `43d112b0a`, `8d796d5f6` and `17701aeb7`; the lists' closes in binate `91a0c17ee` and `d2c6178e7`; the slices', type assertions', type-operand builtins' and `__c_call`'s closes in binate `64dce165e`, and the slice break they needed in binate `436c441f0`; the line comment after a slice's `:` with no high bound in binate `c17e85ff4`)
 
 A comment inside a statement that nothing prints where it stands is still pending in the cursor when the statement
 ends.  On one line it goes after the statement (`x := y.(T /* c */) // d` prints `x := y.(T) /* c */ // d`);
@@ -2989,9 +2989,6 @@ line comment before its `)`).
 A slice's `:` takes a comment left pending inside its low bound the same way: in `w := q[a[x:` / `// c1` / `] +
 /* c2 */ y:hi]` the inner slice's line comment before its `]` prints after the outer `:`, after `/* c2 */` (bnfmt
 `bnc-0.0.17-pre3` prints both after the statement, in order; seen 2026-11-10 in the slice break's review).
-The commonest such pending comment in generated nests (most of 62 reorderings in 1,500 probes, seen 2026-11-11):
-a line comment after the `:` of a slice with no high bound, `m[g: // ll` / `]`.  A line break after a `:` is legal,
-so that comment can stay where it is, with the `]` on the next line, as a list's close goes after a line comment.
 
 ### bnfmt lets a string run the source split across lines run past the cap as a slice's low bound — 🔴 OPEN 🟢 LOW (found 2026-11-11, temp-4, second review of the deep slice nest fix; since binate `9f34edb90`)
 
@@ -3010,6 +3007,23 @@ the measure-only form.  A fix needs a measure of a split run that a second forma
 In a generated probe, an asserted type in an `if` condition seven tabs in prints `@[]Box[p.Box[<a×12>, <d×14>,
 <a×9>], <a×16>, <m×23>]]) {` on one line, 108 wide: neither the outer nor the inner type-argument list wraps.  Not
 yet reduced; printTypeListWrapped's measure of an element that is itself an instantiation is the first suspect.
+
+### bnfmt keeps a head from wrapping for a line comment it cannot make room for — 🔴 OPEN 🟢 LOW (found 2026-11-11, temp-4, third review of the no-high-bound slice comment fix; pre-existing for lists and slices with a high bound, since binate `c17e85ff4` for slices without one too)
+
+A line comment that must stay after an element, or after a slice's `:`, gets room in the reservation of what precedes
+it (withTrail: when it fits after one byte on a continuation line).  When even the wrapped head cannot make that room,
+the head's last element fits nowhere and stays where it is, so the code runs past the cap as well as the comment:
+`_ = g(<h×24>, <w×24>)[<p×48>: // <l×31>` / `]` prints 144 wide, where wrapping `<w×24>` keeps the code at 79.
+Tried (2026-11-11, not landed): giving the comment room only when a trial render of the head with it fits.
+It keeps the code in the cap, but more comments kept in place then run past it: 130 of the slice reviews' probes wider than main, against 26.  The fix needs a
+measure of the head's narrowest last line that agrees with how its lists wrap.
+
+### bnfmt gives no room for a comment before a call's `(` or an index's `[` — 🔴 OPEN 🟢 LOW (found 2026-11-11, temp-4, review of the no-high-bound slice comment fix; pre-existing)
+
+`_ = gggggggg(<a×24>, <b×35>) /* <20> */[iiiii]` prints its first line 104 wide (the same with `(iiiii)`): the
+block comment between a call's or an index's head and its opener stays on that line (writeHeadGap), but the head
+reserves only the opener (argsHeadTail).  A slice's head reserves such a comment (printSlice claims it once the
+head is rendered, claimAfterExpr, and adds its width); printCall and printIndex can do the same.
 
 ### bnfmt gives a var's type no room for the ` = <value>` after it — 🟢 LOW (found 2026-11-08, temp-4, working on the declarations' comment gaps; pre-existing)
 

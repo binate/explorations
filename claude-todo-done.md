@@ -1,3 +1,20 @@
+### bnfmt moved a line comment after a slice's `:` with no high bound to after the statement, out of order — DONE (binate `c17e85ff4`, 2026-11-12, temp-4; user: "yes" to taking it on, landed on "wait 8 minutes, then land") (LOW; part of the comment-gap entry in claude-todo.md; seen 2026-11-11 in the deep slice nest reviews)
+
+`_ = f(q[h[m[g: // ll` / `][p:c[bx: // llll` / `k]]]])` printed `// llll` before `// ll`: a slice printed only block
+comments on one line before its `]`, and a line comment there stayed pending until a later list claimed its own.
+- Fix (print_inlineclose.bn, print_slice.bn): a slice with no high bound claims every comment from its low bound's
+  start to its `]` and writes them after the `:` as a list writes those before its close (writeCloserGap); after a
+  line comment the `]` starts a line at the slice's indent.  Block comments ending in a line comment begin a
+  continuation line when they do not fit together (writeNoHighCloserGap), and only such a run gets room in the
+  head's and low bound's reservation, measured alike whichever line the source put it on (noHighRunWidth).
+- Tests: print_slice_comments_test.bn (TestSliceWithNoHighBoundKeepsALineCommentAfterItsColon,
+  TestSliceWithNoHighBoundMeasuresItsCommentsAlike; the other slice comment tests moved there).
+- Against main's bnfmt: the tree and the injected-comment corpora unchanged; every comment reordering in the slice
+  reviews' probes fixed (15 + 75 + 62 + 498), 8 non-idempotent outputs fixed, nothing new; 26 probes wider (19 long
+  line comments now kept after a `:`, 4 block comments kept inline before a `]` as main does, 2 the open
+  head-wrapping entry, 1 other).  Review: a reservation measured with the source's lines (closerBreakTail) made
+  two probes non-idempotent -- fixed.
+
 ### In a generic's own check, a constraint whose length depends on the generic's type parameter was judged with the placeholder length — DONE (design C: binate `d669cf25b`, `43e760718`, `d11cd29ef`, `13715b122`, `77ef9401d`, `e5df2581f`, `dcb857a5d`, `d172aa052`; docs `d0318e1`; 2026-11-11, temp-5) (valid programs rejected, invalid ones accepted; found 2026-10-30, temp-5, reviews of the generic-function constraint fix; pre-existing)
 
 With `interface Eq[T any] { eq(o T) bool }`, `func inner[T Eq[[sizeof(U)]uint8], U any](t T) int`, `type G[T
