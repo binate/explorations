@@ -387,5 +387,11 @@ recursive, so far more than 75).
 
 - Step 1, all of it, staged: user "All of them, staged (Recommended)".
 - AST walks: user "Parser-enforced nesting limit (Recommended)" -- step 2, not converting them.
-- Open: the source nesting limit's minimum (asked when stage 2 is designed); step 3 (a type-depth backstop) not
+- Step 2's limit (2026-11-11): it counts the syntax tree's depth, flat chains included -- a `+` / `||` chain or an
+  `else if` chain is as deep as it is long (user: "Tree depth (Recommended)"); the spec's minimum is 256 and this
+  implementation allows 512 (user: "Min 256, impl 512 (Recommended)").  Measured first (8 MB stack): the parser
+  crashes first on true nesting -- parens at 1,500-2,000 levels (13 frames a level, one function per precedence
+  level), function literals at 500-1,000, blocks / `if`s / calls at 2,000-4,000 -- and the checker on flat chains
+  (`y + y + ...` at 4,000-6,000 terms in checkBinaryExpr, `else if` at 3,000-4,000 in checkStmt).
+- Open: step 3 (a type-depth backstop) not
   decided, revisit once step 1 is done.
