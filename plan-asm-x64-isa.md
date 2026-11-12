@@ -65,6 +65,13 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
    - 1j. The system instructions: control / debug register moves, rdmsr / wrmsr, cpuid, rdtsc / rdtscp, the
      fences, prefetch*, cli / sti, in / out, the descriptor-table loads and stores, sysret / sysenter / sysexit,
      invlpg, wbinvd, xsave / xrstor and the other state-management instructions.
+   - 1k. The high-byte registers AH, BH, CH, DH (no REX allowed beside them): clang takes them
+     wherever an 8-bit register goes (`mov ah, al`, `setne ah`, `movzx eax, ah`); the text parser
+     rejects them everywhere ("'ah' is a register, which cannot stand in an expression"), and the
+     operand model cannot express one — Reg 4-7 at SZ8 means SPL..DIL, with a forced REX.  Needs an
+     operand form for them (and an error where a REX is needed beside one: `mov ah, r8b`, `mov ah,
+     sil`, as clang's "can't encode 'ah' in an instruction requiring REX prefix").  Found 2026-11-12
+     by the 1d review.
 2. **x87**: every form clang takes (memory sizes, st(i) forms, the no-wait aliases).
 3. **SSE through SSE4.2**, AES, CLMUL and SHA (extend `asm/x64/sse`).
 4. **VEX: AVX, AVX2, FMA, F16C** (`asm/x64/avx`): the 2- and 3-byte VEX prefixes, the 256-bit forms, gathers.
