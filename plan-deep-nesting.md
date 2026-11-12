@@ -398,5 +398,10 @@ recursive, so far more than 75).
   it; so the syntax limit counts expressions, statements, blocks, composite and function literals, and type
   expressions are left to type.named.depth -- an expression within a type counts from where it starts (user: "Leave
   to type depth (Recommended)").
+- Step 2, from its review (2026-11-12): a bracket element after an expression, which may be an index or a generic
+  type argument (D5), counts as an expression, and a too-deep expression reading of it is kept and reported rather
+  than read again as a type (user: "Count as expressions (Recommended)"); a parenthesized type counts one level --
+  parentheses add no type depth, so type.named.depth does not bound them, and 100,000 of them crashed the compiler
+  (user: "Count them (Recommended)").
 - Open: step 3 (a type-depth backstop) not
   decided, revisit once step 1 is done.
