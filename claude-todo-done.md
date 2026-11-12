@@ -1,3 +1,19 @@
+### Dependent-length constraints, step 5: function values, readonly, borrows and an impl's coverage defer a dependent length — DONE (binate `dcb857a5d`, 2026-11-11, temp-5; user: "then do the next three", landed on "wait 12 minutes, then land; then continue") (step 5 of explorations/plan-dependent-constraints.md, for the open entry "In a generic's own check, a constraint whose length depends on the generic's type parameter …")
+
+A function value's signature (`var fv *func(*G1[[sizeof(U)]uint8]) int = take8`), adding `readonly` (`*readonly
+G1[[sizeof(U)]uint8]`, `same` across it) and the managed -> raw borrow (`@G1[[8]uint8]` to `*G1[[sizeof(U)]uint8]`)
+were rejected in a generic's own check, beside the assignability deferral.  binate `dcb857a5d`: the comparison up to
+dependent lengths follows Identical (check_dependent_alike.bn: a pair stack with a strict flag, `readonly` seen
+through except in an instance's type arguments, a strict form); sigTypeStep and the borrow arms defer through it.
+As sigTypeStep is shared, a parameterized impl's coverage (`impl *Box[K] : Eq[[sizeof(K)]uint8]` with `eq(o
+[8]uint8)`) is judged per impl instance too -- the plan's "an impl's coverage" family -- and an impl's receiver
+matches up to such a length (constraintRecvMatches), so the loose constraint walk no longer compares receivers.
+Conformance spec/12-generics 206-210, 200/201 extended; check unit tests.  Validation caught a regression
+(147_err_readonly_pointer_arg: `*readonly Q` satisfied a constraint through `impl *Q`, the loose walk's receiver
+fallback now seeing through `readonly`) -- fixed by removing the fallback; a re-review caught that a gate I first
+added rejected three valid programs with the length only on the impl's side (now in tests 200/201).  Two focused
+reviews.
+
 ### bnfmt's slice break left five deep nests worse than before — DONE (binate `9f34edb90`, 2026-11-11, temp-4; user: "wait 11 minutes, then land (and file the 5 cases); then work on the 5 cases", chose variant "A: measure only (Recommended)", landed on "wait 8 minutes, then land") (LOW; found 2026-11-10, temp-4, review of the slice break; since binate `436c441f0` / `9b7c239e9`)
 
 Five of the review's probes formatted worse than with the bnfmt before the slice break: three differently a second
