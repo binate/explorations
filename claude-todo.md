@@ -258,7 +258,13 @@ is green and inside its job limit -- then (d), sharding it, is not needed, and t
   bare-metal lane was cut at its 30-min cap 20 min into check (with 512 MiB the deep tests no longer die early, so
   check runs its whole suite under QEMU); builder-comp-int 5/6 and 6/6 and builder-comp-comp-int 1, 2, 5 and 6 of 6
   were cut inside check; int-int 1, 4 and 8 of 12 were cut in check's tests.  (The other shards' 4-min failures were
-  an apt DNS outage.)  Measuring what each of check's tests costs under QEMU and the VM.
+  an apt DNS outage.)  Measured (locally, per test): under bare-metal QEMU check's suite takes 32 min, 29 of them in
+  the 81 TestDeep tests and 3 in the long-chain tests the int-int lane skips; under the single VM it takes 72 min, 57 of
+  them TestDeep, 11 TestCheckLongNamedChainsAreNotCycles, ~4 the other long-chain tests, ~20 s the other ~1,960 tests.
+  Bare metal DONE: binate `76f999190` restores the skip work-3's `6b46c3244` dropped (plan-deep-nesting's design: the
+  deep tests skip bare metal and int-int), with the int-int list; check now takes under a minute there.  Open, NEEDS
+  DECISION (put to the user 2026-11-12): the single-VM lanes -- skip the int-int list there too, shard check finer,
+  or lower deepLevels.
 
 ### IR-gen spells every type argument out in an instance's name — instances whose arguments share a type get exponentially long names — 🔴 NEEDS DECISION (found 2026-10-26, work-7, testing the abstract-instance change's shared-argument walk; reproduced on main; pre-existing)
 
