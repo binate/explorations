@@ -639,7 +639,7 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### Native frames are still about 1.5x LLVM's: IR-gen's allocas and the regions of struct values are never shared — 🔴 OPEN (found 2026-11-10, work-3; plan-native-frame-slots.md steps 3-5)
+### Native frames are still about 1.5x LLVM's: IR-gen's allocas and the regions of struct values are never shared — 🔴 OPEN (found 2026-11-10, work-3; plan-native-frame-slots.md steps 3-5; steps 4 and 5 queued for work-3 after the release items -- user: "let's go back to the release items for now, but keep steps 4 and 5 in your queue")
 
 After the plan's steps 1-2 (binate `20b98a7ba`, `788ff5285`) a struct-nesting level of the parser is 5,712 bytes of
 native aarch64 frame against 3,840 for LLVM -O2, parsePrimaryExpr 4,800 against 3,152.  Of the parser's native
