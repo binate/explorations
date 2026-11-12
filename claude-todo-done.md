@@ -1,3 +1,15 @@
+### A repeated interface in an impl's list was accepted — DONE (binate `10d92aa4c`, docs `c2e4beb`, 2026-11-12, temp-5; user: "yes, I think repeated interfaces should be an error", landed on "wait 12 minutes, then land") (minor: an invalid program accepted; found 2026-11-11, temp-5, review of design C step 5; pre-existing)
+
+`impl *C : Tag[int], Tag[int]` compiled, as did a repeat through an `interface X = Y` alias.  docs `c2e4beb`: §11.3
+`iface.impl.unique`, and gen.mono.check's list names it.  binate `10d92aa4c`: the impl's coverage check reports each
+interface listed again (reportRepeatedImplIfaces); a parameterized impl's list is judged at the impl for a repeat
+whatever its type arguments and per instance otherwise (`impl *Box[K] : Tag[K], Tag[int]` for Box[int]), a repeat
+through a dependent length per instance; an entry holding an error type is no repeat, in an impl's list or (fixed
+with it) an interface's parents.  Conformance spec/11-interfaces 114-116; check unit tests.  One focused review: no
+missed repeats or false positives (a scan of 1741 impl lists found none in the tree); it found the error-type extra
+error (fixed) and a pre-existing loss of an instance's context with two importers (filed, test 1745 xfail, binate
+`928f6784b`).
+
 ### bnfmt moved a line comment after a slice's `:` with no high bound to after the statement, out of order — DONE (binate `c17e85ff4`, 2026-11-12, temp-4; user: "yes" to taking it on, landed on "wait 8 minutes, then land") (LOW; part of the comment-gap entry in claude-todo.md; seen 2026-11-11 in the deep slice nest reviews)
 
 `_ = f(q[h[m[g: // ll` / `][p:c[bx: // llll` / `k]]]])` printed `// llll` before `// ll`: a slice printed only block

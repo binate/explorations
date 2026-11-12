@@ -414,16 +414,8 @@ without "(in the impl for Wrap[int16], instantiated at ...)"; with one importer 
 spec/12-generics 095_err_generic_impl_instance_imported).  The same holds for the new repeated-interface error.
 Cause unknown -- likely the second package's instance check finds the error already reported (deduplicated by
 position and text) and the naming is dropped or never attached.  Fix: keep the context when an instance's error
-repeats one another package's check reported.  Test: conformance 1744_err_generic_impl_instance_two_importers
-(xfail.all), with the fix's commit or before.
-
-### A repeated interface in an impl's list is accepted — 🟡 IN PROGRESS (claimed 2026-11-11, temp-5; user: "yes, I think repeated interfaces should be an error") (minor: an invalid program accepted; found 2026-11-11, temp-5, review of design C step 5; pre-existing)
-
-`impl *C : Tag[[8]uint8], Tag[[8]uint8]` compiles, and the spec (§11.3) says nothing about it, while an interface's
-parent list rejects a repeat ("duplicate parent interface").  Decided 2026-11-11 (user, above): a repeated interface
-in an impl's list is an error.  Fix: a spec rule in §11.3, the checker's check at the impl's declaration -- a
-parameterized impl whose list holds a length that depends on its binders judged for each instance of it, as
-duplicate parents are (spec gen.mono.check) -- and conformance tests.
+repeats one another package's check reported.  Test: conformance 1745_err_generic_impl_instance_two_importers
+(xfail.all; binate `928f6784b`).
 
 ### Inside a generic's instance, a type argument satisfies a constraint through an impl private to another package's `.bn` — 🟡 IN PROGRESS (claimed 2026-11-06, temp-5) (an invalid program accepted; found 2026-11-04, temp-5, review of design C for the dependent-length constraints; reproduced on binate main `b52e54139`; pre-existing)
 
