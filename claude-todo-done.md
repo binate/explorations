@@ -1,3 +1,15 @@
+### Bare universe `any` in an impl list or extension clause was keyed to the declaring package — DONE (binate `536c5d18c` and `4433296d6`, 2026-11-12, work-6; user, asked whether `impl T : any` is allowed or rejected: "Allowed, a no-op (Recommended)") (a bullet of the forwarder-audit entry "Loud miscompiles / wrong rejections found by the forwarder audit"; found 2026-09-26, work-1)
+
+`impl T : any` and `interface X : any` keyed `any` on a nonexistent `<pkg>.any`: an undefined `__ifaceid` on LLVM
+and native, a VM out-of-bounds write, and (for an extension clause) an interface's own methods dispatched two slots
+early, its parent sized 0 while the emitters laid out its block.  The spec says `any` needs no impl
+(`iface.any.universal`) and is silent on listing it; the user chose to allow it as a no-op.
+- `536c5d18c` keys an impl's listed interfaces on the checker's records, so a listed `any` is the universe one.
+- `4433296d6` takes an interface's parents from the records too, and leaves a listed universe `any` out of both
+  (isUniverseAnyKey): `impl T : any` makes no rows, and `interface X : any` lays out as `interface X`.
+- Tests: conformance 1744_impl_keys_checker_types, 1746_iface_parents_checker_types; irgen
+  TestImplOfUniverseAnyMakesNoRow, TestCollectInterfaceParentsAreTheCheckers.
+
 ### A repeated interface in an impl's list was accepted — DONE (binate `10d92aa4c`, docs `c2e4beb`, 2026-11-12, temp-5; user: "yes, I think repeated interfaces should be an error", landed on "wait 12 minutes, then land") (minor: an invalid program accepted; found 2026-11-11, temp-5, review of design C step 5; pre-existing)
 
 `impl *C : Tag[int], Tag[int]` compiled, as did a repeat through an `interface X = Y` alias.  docs `c2e4beb`: §11.3

@@ -873,16 +873,6 @@ Each needs a test (xfail'd) + triage; grouped here so none is lost.
   read as a value is an error`, not yet landed when written), `pkg.T.M` is rejected earlier with "T is a
   type, not a value" (checkSelectorExpr checks `pkg.T` as an expression before the method lookup) — the
   error text above changes; the fix still needs the qualified-type branch before checkExpr(c, e.X).
-- **Bare universe `any` in an impl list or extension clause** (`impl T : any`, `interface X : any`) is
-  keyed to the declaring package (`main.any`) → undefined `@__ifaceid…main…any`, VM out-of-bounds
-  (`gen_impl.bn:133,347`, `gen_iface_registry.bn:166`; check the universe first like
-  `isInterfaceTypeExpr`, `gen_iface.bn:73-80`) — or should the checker reject it?  Spec is silent:
-  user's call.
-  Update (2026-11-11, work-6): decided -- user, asked whether `impl T : any` is allowed or rejected:
-  "Allowed, a no-op (Recommended)".  The impl-list half is fixed by binate `536c5d18c` (impl rows key
-  their interfaces on the checker's records, so `any` is the universe interface; conformance 1744).  The
-  extension clause `interface X : any` is still keyed by written name: plan-irgen-checker-types.md 5d-3
-  (interface parents from records) fixes it.
 - **The `.bn` checker rejects a forward-referenced interface parent** (`interface LSub : LBase` before
   `LBase` → "undefined: LBase"), violating `decl.order.forward` (the `.bni` scope builder accepts it).
 - **`impl *home.Box[T] : Peeker[T]` in a third package is rejected** ("cannot define methods or impls

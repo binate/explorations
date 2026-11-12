@@ -282,10 +282,12 @@ IR-gen cannot map is an internal error, never `int`.
      rows on the receiver's and interfaces' records (the receiver as IR-gen registers it -- a generic instance's
      mangled name, not the checker's `R[[8]uint8]`); byte-identical IR.  `impl T : any` now keys on the universe
      `any` and builds (it failed on LLVM / native) -- user 2026-11-11, asked whether such an impl is allowed or
-     rejected: "Allowed, a no-op (Recommended)"; conformance 1744.  5d-3: interface parents (collectInterfaceParents
-     by ref.Name / ref.Base.Name; IfaceAncestorClosure builds every impl's ancestor rows from them) and alias targets
-     (mi.AliasTarget = d.TypeRef.Name; box sites canonicalize through them) from records -- also fixes `interface X
-     : any`, the rest of the claude-todo item.  Note from the 5d-2 review: stashedGenericDecl matches the checker's
+     rejected: "Allowed, a no-op (Recommended)"; conformance 1744.  5d-3a DONE (binate `4433296d6`, 2026-11-12;
+     user: "yes, go ahead; then continue"): interface parents from records (ifaceRefKey), and a listed universe `any`
+     left out of parents and impl lists (isUniverseAnyKey), a true no-op; conformance 1746; the claude-todo item is
+     done.  5d-3b: interface alias targets (mi.AliasTarget = d.TypeRef.Name; box sites canonicalize through them)
+     from records -- an alias of a generic instance is instantiated late on purpose (the pending-alias stub), so
+     mapping its record must keep that order or be shown not to need it.  Note from the 5d-2 review: stashedGenericDecl matches the checker's
      InstDecl by identity, so a REPL re-declaration of a generic interface (stashGenericIfaceDecl keeps the first)
      would panic there -- unreachable while the checker rejects redefinitions; stage 8 must handle it.
    - 5e: impl rows from the checker's impls with checker substitution: mintGenericImplRows stops resolving a
