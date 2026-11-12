@@ -1,6 +1,7 @@
 # Plan: constraints and identities that depend on a type parameter's length
 
-Status: design v3 (design C), 2026-11-05 (temp-5).  For the `claude-todo.md` entry "In a generic's own check, a
+Status: DONE — LANDED binate `d669cf25b` … `d172aa052` and docs `d0318e1` (2026-11-11, temp-5; the done log has
+each step).  Design v3 (design C), 2026-11-05 (temp-5).  For the `claude-todo.md` entry "In a generic's own check, a
 constraint whose length depends on the generic's type parameter is judged with the placeholder length — valid
 programs rejected" (claimed 2026-11-04, temp-5).  Decided 2026-11-04 (user: "C seems ok. Go with your recs, but get
 focused reviews of the decisions."): design C, after two reviews of a design that marked each deferred judgment for
@@ -167,7 +168,7 @@ instance judgment that makes up for it (3.2-3.4).
    Function-value signatures, adding `readonly`, the managed -> raw borrow and an impl's coverage DONE, binate
    `dcb857a5d` (2026-11-11; the comparison follows Identical, check_dependent_alike.bn).  Interface values,
    duplicate parents and inherited method conflicts DONE, binate `d172aa052` (2026-11-11).  Step 5 DONE.
-6. **Spec** (section 5), with step 5.
+6. **Spec** (section 5), with step 5.  DONE, docs `d0318e1` (2026-11-11).
 
 ## 5. Spec
 
