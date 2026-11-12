@@ -2924,6 +2924,10 @@ A statement with a comment no list prints on its last line is printed twice to r
 … `}() /* s */ + 1 // t` in each body, depth 8 takes 61 s, against 1.5 s before binate `cb6028078`.
 The cap past 12 nested lists (binate `5262e31c9`) does not bound these: an element holding a function literal
 keeps the read-back check, as a block's layout follows its source.
+Blocks nested on one line are exponential too (2026-11-12, work-1, writing the source nesting limit's tests):
+`func blocks() int { var r int = 0; { { … r = 7 … } } … }` takes 0 s 32 deep, 1.1 s 40 deep, past 60 s 48 deep
+(the tree's bnfmt and the pinned one alike), and a variable initialized with 1 plus 511 more ones takes 12 s.  The
+source nesting limit (pkg.source.nesting, 512 levels) leaves all of these valid, so it does not bound them.
 
 ### bnfmt: what the non-idempotence work left open: a right-hand side's type arguments, a one-character last part — 🔴 OPEN 🟢 LOW (found 2026-10-23, temp-4, landing binate `ae0e0a63c`; pre-existing)
 
