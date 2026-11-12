@@ -1,3 +1,15 @@
+### Dependent-length constraints, step 5: interface values, duplicate parents and method conflicts defer a dependent length — DONE (binate `d172aa052`, 2026-11-11, temp-5; landed on "wait 3 minutes, then go ahead; then continue") (step 5 of explorations/plan-dependent-constraints.md, for the open entry "In a generic's own check, a constraint whose length depends on the generic's type parameter …")
+
+`var e *Eq[[sizeof(U)]uint8] = n`, an upcast from `*J[U]` (J's parent `Eq[[sizeof(U)]uint8]`), the `@Eq` to `*Eq`
+decay, a value borrow, a parameterized impl and managed values were rejected in a generic's own check, as were two
+parents that are one placeholder instance (`Tag[[sizeof(U)]uint8], Tag[[sizeof(X)]uint8]`) and inherited methods
+whose signatures differ only in such a length.  binate `d172aa052`: interface-value construction repeats a failed
+judgment with interfaces compared up to dependent lengths and receivers exactly (so non-generic code is judged as
+before); the duplicate-parent check leaves such parents to each instance; the method-conflict check compares up to
+such lengths.  Conformance spec/12-generics 211-213; check unit tests.  One focused review: no soundness issue
+(non-generic code, cross-package, LLVM and native aa64 runs); it found the method-conflict form, four untested loose
+paths and a weak test condition, all fixed.  Step 5 complete.
+
 ### Dependent-length constraints, step 5: function values, readonly, borrows and an impl's coverage defer a dependent length — DONE (binate `dcb857a5d`, 2026-11-11, temp-5; user: "then do the next three", landed on "wait 12 minutes, then land; then continue") (step 5 of explorations/plan-dependent-constraints.md, for the open entry "In a generic's own check, a constraint whose length depends on the generic's type parameter …")
 
 A function value's signature (`var fv *func(*G1[[sizeof(U)]uint8]) int = take8`), adding `readonly` (`*readonly

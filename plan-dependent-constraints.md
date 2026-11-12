@@ -81,8 +81,10 @@ The judgments, with section 2's cases: constraint satisfaction through a non-par
 assignability (`assignableDeferringDependent`, with `identicalUpToDependentLengths` extended through the type
 arguments of a named instance and of an interface instance), `==`, `same` (check_builtin.bn); interface values
 (`valuePtrSatisfies` and its managed counterpart, `isDescendantHere`, `sameInterface`); a parameterized impl's
-coverage (`methodSigSatisfies`); duplicate parents (`containsTypePtr`, check_iface_extends.bn) and duplicate
-interfaces in an impl's list.
+coverage (`methodSigSatisfies`); duplicate parents (`containsTypePtr`, check_iface_extends.bn) and inherited
+method conflicts (appendIfaceMethodWithConflictCheck).  There is no check of duplicate interfaces in an impl's
+list at all (`impl *C : Tag[[8]uint8], Tag[[8]uint8]` compiles; the spec is silent): whether it should be an
+error is a question put to the user 2026-11-11, open.
 
 ### 3.2 Every concrete instantiation is judged where it is formed
 
@@ -163,8 +165,8 @@ instance judgment that makes up for it (3.2-3.4).
    length matching any length (constraintMissDeferred, a loose satisfaction walk).  Identity through an instance's
    type arguments (assignment, `==`, `same`) DONE, binate `e5df2581f` (2026-11-11; holdsDependentLength).
    Function-value signatures, adding `readonly`, the managed -> raw borrow and an impl's coverage DONE, binate
-   `dcb857a5d` (2026-11-11; the comparison follows Identical, check_dependent_alike.bn).  Left: interface
-   values, duplicate parents.
+   `dcb857a5d` (2026-11-11; the comparison follows Identical, check_dependent_alike.bn).  Interface values,
+   duplicate parents and inherited method conflicts DONE, binate `d172aa052` (2026-11-11).  Step 5 DONE.
 6. **Spec** (section 5), with step 5.
 
 ## 5. Spec

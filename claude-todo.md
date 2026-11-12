@@ -502,7 +502,10 @@ concrete instantiations an instance's derived types form judged there, DONE: bin
 done log).  Step 4, `Self` judged in each concrete instance of a generic interface, DONE: binate `13715b122`
 (2026-11-10; see the done log).  Step 5, constraint satisfaction, DONE: binate `77ef9401d` (2026-11-11; see the done
 log); identity through an instance's type arguments, DONE: binate `e5df2581f` (2026-11-11; see the done log);
-function values, readonly, borrows and an impl's coverage, DONE: binate `dcb857a5d` (2026-11-11; see the done log).
+function values, readonly, borrows and an impl's coverage, DONE: binate `dcb857a5d` (2026-11-11; see the done log);
+interface values, duplicate parents and method conflicts, DONE: binate `d172aa052` (2026-11-11; see the done log).
+Step 5 is complete; left: step 6, the spec text (plan section 5).  Open question (2026-11-11): should a repeated
+interface in an impl's list be an error?  No check exists and the spec is silent.
 
 ### Inside a generic's instance, a type argument satisfies a constraint through an impl private to another package's `.bn` — 🟡 IN PROGRESS (claimed 2026-11-06, temp-5) (an invalid program accepted; found 2026-11-04, temp-5, review of design C for the dependent-length constraints; reproduced on binate main `b52e54139`; pre-existing)
 
