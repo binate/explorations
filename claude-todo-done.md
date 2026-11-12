@@ -1,3 +1,112 @@
+### In a generic's own check, a constraint whose length depends on the generic's type parameter was judged with the placeholder length — DONE (design C: binate `d669cf25b`, `43e760718`, `d11cd29ef`, `13715b122`, `77ef9401d`, `e5df2581f`, `dcb857a5d`, `d172aa052`; docs `d0318e1`; 2026-11-11, temp-5) (valid programs rejected, invalid ones accepted; found 2026-10-30, temp-5, reviews of the generic-function constraint fix; pre-existing)
+
+With `interface Eq[T any] { eq(o T) bool }`, `func inner[T Eq[[sizeof(U)]uint8], U any](t T) int`, `type G[T
+Eq[[sizeof(U)]uint8], U any] struct { t T }` and `impl *N : Eq[[8]uint8]`: `func fwd[U any](n *N) int { return
+inner[*N, U](n) }` and `type W[U any] struct { g *G[*N, U] }` are "type argument *N does not satisfy constraint
+Eq[[0]uint8]" in fwd's and W's own checks, though fwd[int64] and W[int64] are valid (so is `wrap[U any]`'s
+`outer[*N, [sizeof(U)]uint8](n)`).  The constraint, taken for type arguments that mention U, holds `[sizeof(U)]`
+at its placeholder length.  The concrete case (`outer[*N, int64]`) is resolved for its arguments (binate fix
+pending, temp-5).  Skipping such a constraint in the generic's own check is unsound, as a tried fix showed
+(not landed): (1) instance resolutions that set DerivingInstanceSig — function signatures
+(resolveInstanceSignature), generic-struct method signatures, parameterized impls' interface lists, a generic
+function's own constraint — do not judge constraints, so `func sig[U any](g *G[*N, U])` with `sig[int32]` was then
+accepted; (2) gen.satisfy / gen.mono.check decide a type-parameter argument at the declaration, so `inner[T, U]`
+with T bound `any` was accepted.  Fix (to design): decide such a constraint per instance — record the skipped
+(constraint, arguments, position) on the generic and judge it in each instance's check with the arguments bound,
+as body checks are — or make those instance resolutions judge the constraints of the instantiations they form;
+keep a type-parameter argument judged at the declaration.
+
+Review of design (a) (2026-10-31, temp-5; reproduced on binate main `b7e477302`): a dependent length is held as a
+flag and a placeholder 0 (ArrayLenDependent), so `[sizeof(U)]uint8` and `[2 * sizeof(X)]uint8` are one type and one
+cached instance, and substituting an instance's arguments gives the same type back.  Hence: (1) invalid programs
+accepted: with `func sigb[V Eq[[sizeof(U)]uint8], U any, X any](g *G[V, X]) int`, `sigb[*N, int64, int32](nil)`
+compiles and runs, though `G[*N, int32]` needs `*N : Eq[[4]uint8]` (V's bound and G's constraint compare equal as
+placeholders); likewise through a struct field whose generic interface's method forms the instance.  A use of
+`G[*N, int32]`'s method in the body is caught by its instance check ("cannot assign [4]uint8 to [8]uint8"), so no
+wrong code was found.  (2) valid programs rejected: `func fwd2[V Eq[[8]uint8]](v V) int { return inner[V, int64](v)
+}` is "type argument V does not satisfy constraint Eq[[0]uint8]" (a call with an abstract argument substitutes into
+the callee's declaration-time constraint instead of resolving it for the arguments, as generic types do); `impl
+*Box[K] : Eq[[2 * sizeof(K)]uint8]` with `var e *Eq[[16]uint8] = &b` (b a `Box[int64]`) is "type Box[int64] does
+not implement Eq[[0]uint8]", with no generic's own check involved (genericImplSatisfiesConstraint substitutes the
+impl's interface list); a generic interface's method signature and a generic alias's target are rejected as fwd is,
+and neither has an instance check.  (3) with `func fA[U any](k *K[[sizeof(U)]uint8, *N])` and `func fB[X any](k
+*K[[2 * sizeof(X)]uint8, *N])` only fA is reported: fB's use hits fA's cache entry and is never judged.  So the
+records in (a) cannot hold resolved types.  Also from the review: a recorded judgment must use the generic's own
+impl view, not the instance's; deferred signature / field checks (PendingConstraintCheck) do not know their
+enclosing generic; and interface-only generics (bni's injected packages, bnlint's dependencies) have no abstract
+check, so nothing would be recorded for them.  Decided 2026-11-01 (user: "Go with your recs, but get focused
+adversarial reviews of them"), over a hybrid (judge each constraint from source when an instance's types are
+resolved, in the generic's declaration view): a dependent length keeps its expression, so substitution gives the
+real length, with (a)'s per-instance judgment on top; the review of that design reopened the decision (below).
+
+Review of (S) (2026-11-01, temp-5): it does not remove per-instance resolution from source, because a type can hold
+dependent constructs other than a length's value: `impl *Box[K] : Eq[[len([...]uint8{cast(uint8, sizeof(K) *
+40)})]uint8]` (the length is 1 for every K; the element's fit depends on K) with `var e *Eq[[1]uint8] = &b` (b a
+`Box[int64]`) compiles and runs on binate main `b7e477302`, though 320 does not fit uint8; in a function signature
+the same is caught, since signatures are resolved again per instance.  And structural identity of length
+expressions is not the language's identity (type.array.form: equal lengths): `[sizeof(U) + 0]` and `[sizeof(U)]`
+are identical for every U, so (S) needs a three-valued abstract identity (identical / unknown / different) reaching
+through instance type arguments, each comparison deferring "unknown" to a per-instance check -- which main lacks
+too: `func f1[U any](q *G[[8]uint8]) int { var p *G[[sizeof(U)]uint8] = q; return len(p.t) }` is "cannot assign
+*G[[8]uint8] to *G[[0]uint8]", though f1[int64] is valid (assignableDeferringDependent does not look through named
+types).  Also on main: a correct `impl *Box[K] : Eq[[sizeof(K)]uint8]` with `func (b *Box[K]) eq(o
+[sizeof(K)]uint8) int` fails as soon as `Box[int64]` is named ("type Box[int64] does not implement Eq[[0]uint8]
+(method `eq` has wrong signature) (in the impl for Box[int64], ...)"; checkInstanceImpls substitutes the
+placeholder); and `interface I[T any] : J[[sizeof(T) + 1]uint8] { m() int }` with `interface J[T any] : I[T] {}`,
+never instantiated, is "interface extension cycle ... via `J[[0]uint8]`" (whether a chain that grows without bound
+is valid is for the spec; under (S) it would not close, as today only the placeholder collapse bounds it).  The
+review's verdict: the hybrid as the base -- per-instance resolution from source at every site that now only
+substitutes (impl interface lists in checkInstanceImpls and genericImplSatisfiesConstraint, interface method
+signatures and parents, alias targets, the DerivingInstanceSig derivations), with abstract dependent comparisons
+deferred -- and (S) only for its abstract-level gains (separate cache entries, clearer messages, a sound
+declaration-time decision for a type-parameter argument).  A spec question either way: a type-parameter argument
+whose bound or constraint has a dependent length (`f4[V Eq[[sizeof(X)]uint8], U any, X any]` calling `inner[V, U]`)
+is decided at the declaration (gen.satisfy, gen.mono.check; rejects valid instances) or per instance (needs a spec
+exception).
+
+Decided 2026-11-02 (user: "Go with your recs"): the hybrid as the base, as the review of (S) lays it out -- resolve
+an instance's types from source, in the generic's declaration view, at every site that now only substitutes, and
+give a generic's own comparisons that depend on a type parameter a third answer, unknown, judged again per
+instance.  (S) is not part of it; it comes back with the spec question, since a declaration-time decision needs it
+to be sound.  The spec question decided 2026-11-03 (user: "(b) sounds fine"): a type-parameter argument is decided
+per instance for the length comparison only.  The declaration's check still rejects a bound that cannot give the
+constraint for any type arguments (no bound, another interface, a different element type, two unequal fixed
+lengths); where the only difference is a dependent length the comparison is unknown, and each instance makes it, as
+gen.mono.check already defers array identity for such a length.  gen.mono.check's "not re-established" bullet gets
+that exception; (S) stays out.  Probed on binate main `311d4b282`, with `inner[T Eq[[sizeof(U)]uint8], U any]` and
+`impl *N : Eq[[8]uint8]`: `outer[V Eq[[sizeof(U)]uint8], U any]`, `f4[V Eq[[sizeof(X)]uint8], U any, X any]` and
+`f5[V Eq[[sizeof(U) + 0]uint8], U any]` forwarding to `inner[V, U]` are accepted today (every dependent length is a
+placeholder 0, equal to every other), and `f4[*N, int32, int64]` is caught in the instance (each instance's check
+judges its generic calls again with the real types); `f6[V Eq[[8]uint8], U any]` is rejected at the declaration
+("type argument V does not satisfy constraint Eq[[0]uint8]") though `f6[*N, int64]` is valid -- accepted under (b),
+with `f6[*N, int32]` an error in the instance.
+
+**Decided 2026-11-04** (user: "C seems ok. Go with your recs, but get focused reviews of the decisions."), after
+two reviews of a design that marked each deferred judgment for the instances to judge (explorations/
+plan-dependent-constraints.md v1 and v2; marks were lost on the copies the checker resolves from): design C.  The
+declaration's check defers a judgment that involves a length depending on a type parameter; every concrete
+instantiation is judged where it is formed -- a build, an instance's signature, method signatures, constraints and
+impl interface lists, `Self` in an interface instance -- its errors naming the instance; an impl's interface list is
+resolved from source per instance.  Two differences from decision (b) and the spec, accepted: a type-parameter
+argument deferred so is judged per instance through impls, not by comparing its bound with the constraint (they
+differ only for an interface whose methods do not mention its type argument, with a type implementing two of its
+instantiations); and inside an instance a deferred judgment sees every impl (ImplView.All, as instance checks do),
+not only those visible where the instantiation is written (they differ only for an impl private to the generic's own
+package's `.bn`).
+
+Plan: explorations/done/plan-dependent-constraints.md (v3).  Step 1, an impl's interface list resolved per instance from
+source, DONE: binate `d669cf25b` (2026-11-05; see the done log).  Step 2, errors found working on an instance naming
+it and a declaration's miss not repeated, DONE: binate `43e760718` (2026-11-05; see the done log).  Step 3, the
+concrete instantiations an instance's derived types form judged there, DONE: binate `d11cd29ef` (2026-11-05; see the
+done log).  Step 4, `Self` judged in each concrete instance of a generic interface, DONE: binate `13715b122`
+(2026-11-10; see the done log).  Step 5, constraint satisfaction, DONE: binate `77ef9401d` (2026-11-11; see the done
+log); identity through an instance's type arguments, DONE: binate `e5df2581f` (2026-11-11; see the done log);
+function values, readonly, borrows and an impl's coverage, DONE: binate `dcb857a5d` (2026-11-11; see the done log);
+interface values, duplicate parents and method conflicts, DONE: binate `d172aa052` (2026-11-11; see the done log).
+Step 5 is complete.  Step 6, the spec text, DONE: docs `d0318e1` (2026-11-11).  The question whether a repeated
+interface in an impl's list should be an error was answered yes (user 2026-11-11: "yes, I think repeated interfaces
+should be an error") and filed as its own entry.
+
 ### Dependent-length constraints, step 5: interface values, duplicate parents and method conflicts defer a dependent length — DONE (binate `d172aa052`, 2026-11-11, temp-5; landed on "wait 3 minutes, then go ahead; then continue") (step 5 of explorations/plan-dependent-constraints.md, for the open entry "In a generic's own check, a constraint whose length depends on the generic's type parameter …")
 
 `var e *Eq[[sizeof(U)]uint8] = n`, an upcast from `*J[U]` (J's parent `Eq[[sizeof(U)]uint8]`), the `@Eq` to `*Eq`

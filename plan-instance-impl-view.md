@@ -1,7 +1,7 @@
 # Plan: the impls an instance's check sees
 
 Todo entry: "Inside a generic's instance, a type argument satisfies a constraint through an impl private to another
-package's `.bn`" (claimed 2026-11-06, temp-5).  Q2 of plan-dependent-constraints.md section 8 recommended fixing
+package's `.bn`" (claimed 2026-11-06, temp-5).  Q2 of done/plan-dependent-constraints.md section 8 recommended fixing
 this before design C's step 5 (the declaration's deferrals), which moves more judgments into instances.
 
 ## 1. The bug
