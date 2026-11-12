@@ -399,6 +399,18 @@ so whether these programs are valid is not decided.  Decide: such cycles judged 
 a conformance error test), or per member (a struct's fields and an interface's methods resolved one at a time on
 demand, with tests).
 
+### An imported generic impl's instance error loses its instance when two packages form the instance — 🔴 OPEN (minor: an error without its "(in the impl for …, instantiated at …)" context; found 2026-11-11, temp-5, review of the repeated-interface check; reproduced with a compiler built from binate `d172aa052`; pre-existing)
+
+With `impl *Wrap[K] : Sized[K]` in a `.bni` (Sized's method `Put(x [sizeof(T)]uint8)`, Wrap's `Put(x [sizeof(K) +
+6]uint8)`), and both main and an imported package `pkg/b` naming `plib.Wrap[int16]`, the check prints
+"pkg/plib.bni:11:1: type Wrap[int16] does not implement Sized[int16] (method `Put` has wrong signature)" once,
+without "(in the impl for Wrap[int16], instantiated at ...)"; with one importer the context is there (conformance
+spec/12-generics 095_err_generic_impl_instance_imported).  The same holds for the new repeated-interface error.
+Cause unknown -- likely the second package's instance check finds the error already reported (deduplicated by
+position and text) and the naming is dropped or never attached.  Fix: keep the context when an instance's error
+repeats one another package's check reported.  Test: conformance 1744_err_generic_impl_instance_two_importers
+(xfail.all), with the fix's commit or before.
+
 ### A repeated interface in an impl's list is accepted — 🟡 IN PROGRESS (claimed 2026-11-11, temp-5; user: "yes, I think repeated interfaces should be an error") (minor: an invalid program accepted; found 2026-11-11, temp-5, review of design C step 5; pre-existing)
 
 `impl *C : Tag[[8]uint8], Tag[[8]uint8]` compiles, and the spec (§11.3) says nothing about it, while an interface's
