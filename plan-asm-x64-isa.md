@@ -93,5 +93,10 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   address elsewhere, or a MOV of one clang reads as a symbol (a label-difference constant's, a symbol's), is an
   error, where clang keeps its low 32 bits.  Also: a rejected x86-64 instruction leaves nothing in its section.
 
-Next: 1b, shifts and rotates (rol / ror / rcl / rcr, by 1 / imm8 / cl), shld / shrd, mul and the one-operand
-imul, the two-operand imul with an immediate.
+- 1b — landed binate `9cc1c0794` (2026-11-11): rol / ror / rcl / rcr, shld / shrd, mul and the one-operand imul,
+  `imul r, imm` (as `imul r, r, imm`); a shift's count optional (1, or cl for shld / shrd), sal as shl.  Against
+  clang, beside the deliberate rejects: `rol al, x` and `rol ax, cx` are APX new-data-destination forms to clang
+  (stage 6).
+
+Next: 1c, the bit instructions — bt / bts / btr / btc (register and immediate), bsf / bsr, lzcnt / tzcnt /
+popcnt, bswap.
