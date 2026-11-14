@@ -323,6 +323,26 @@ IR-gen cannot map is an internal error, never `int`.
    CurrentImportPkg-as-resolution, the import overlay for generic bodies, RegisterGenericBodyDeps and the
    bare-name precedence rules.  (Coordinate with plan-constant-evaluator.md, which targets IR-gen's own
    constant evaluator and its CurrentImportPkg const lookup.)
+   Increments (2026-11-14, work-6), each with byte-identical code where it claims no change:
+   - 6-1: the record.  checkIdent and checkSelectorExpr's `pkg.X` keep the Symbol they resolved to in a side
+     table beside ExprTypes (a method expression's `T` is already stamped as a type); a package-level Symbol
+     gets its declaring package (set where collectDecls / the .bni loaders define it; HomePkg already gives an
+     exposed one's home); a query `ExprSymbol(e)` with accessors (kind, declaring package or "" for a local,
+     name).  The record is the Symbol, not a name, so that 6b can give a shadowed declaration a hidden name on
+     the same handle.  Checker unit tests; no consumer.  An instance body's records are its checked copy's
+     (InstanceBodies), so a generic body's names come out in its declaring package with no overlay.
+   - 6-2: a value differential (as --x-type-differential was for types): IR-gen notes each read whose by-name
+     answer differs from the record; swept over the corpus before the switch.
+   - 6-3: identifier reads -- genExpr's EXPR_IDENT (local / local const / global / const), lookupVar's
+     bareGlobalIdx fallback, the const lookups -- from the record: a local reads ctx.Vars, anything else its
+     declaring package's qualified name.
+   - 6-4: function references -- funcRefName / namesFunction / funcRefShadowed, genExprOrFuncRef, direct calls,
+     `pkg.F` (buildQualNameHomed) -- from the record.
+   - 6-5: method expressions `T.M` (methodExprName, the 5d-1 review note (a)) and generic heads
+     (instantiationHead) from records.
+   - 6-6: delete CurrentImportPkg-as-resolution, overlayFileImports, RegisterGenericBodyDeps and the bare-name
+     precedence (moduleNamesInScope, definingPkgType, bareGlobalIdx's rules).  Syntax with no record still
+     reads by name until stage 7.
 6b. **Decision 7: a generic keeps the bindings of its declaration** (user 2026-11-08: "yes, follow the plan" — after
    stage 6, on its records).  An instance's check and its IR use the generic's declaration-time records, never the
    live session scope: a generic method's sibling keeps calling the old (shadowed) method, a generic body keeps the
