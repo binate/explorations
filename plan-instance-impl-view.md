@@ -1,6 +1,7 @@
 # Plan: the impls an instance's check sees
 
-Status: design v3 (section 11), 2026-11-13 (temp-5), after review 2 of v2 (section 10); to be reviewed.
+Status: design v3 (section 11) with review 3's amendments (section 12), 2026-11-13 (temp-5); ready to
+implement once the user answers Q1 / Q2.
 
 Todo entry: "Inside a generic's instance, a type argument satisfies a constraint through an impl private to another
 package's `.bn`" (claimed 2026-11-06, temp-5).  Q2 of done/plan-dependent-constraints.md section 8 recommended fixing
@@ -315,3 +316,41 @@ impl (rejected in R too); alias uses from r3dep's `.bn` (accepted) and main (rej
 
 **Questions for the user** (v2's): Q1, accept the remaining difference (recommended); Q2, VRoot normalized
 (recommended), now also the test for which instances re-judge.
+
+## 12. Review 3 (2026-11-13): v3 nearly ready -- amendments
+
+Review 3 re-checked v3 against review 2 (F1-F8 hold, with the gaps below) and read whether the build's own class
+makes the re-resolution a no-op: the constraint checks of struct and interface instances, a generic alias's own
+constraints and deferred replays are latched by view; nested opaque checks are skipped; generic-function calls in
+length expressions, `Self` checks, a REPL TentativeMode check and errors that are no judgment are made again, in the
+same view (the same verdict, merged by position and message: extra work, not a wrong result).  Amendments, part of
+the design:
+- A1 (V3-1, major).  The carried VRoot inside an instance keeps chainRootAt's site rule: a naming written in a `.bn`
+  of a package with a `.bni` carries that package (fact 2); otherwise the enclosing class's VRoot.  (Probe v3site:
+  r3dep's private `g[Z]` calling `r3lib.outer[*T, int64, int32]`, valid, would be rejected without it.)
+- A2 (V3-2).  The entry records the mode its build ran in (`BuildDerived`: a struct instance first built inside a
+  derivation judged its fields as derived, latched under `*derived:`), and a class re-resolves in that mode, the
+  interface re-population too -- so the build's own class is a no-op and a use-only check (an interface instance's
+  sizing) is not added.
+- A3 (V3-3).  Interface instances get per-class check states (firstInstState / instStateFor, replacing IfaceClasses
+  / ifaceClassNew and noteInterfaceInstances' class match) and a third branch in checkInstanceWork; they join chains
+  (depth limit, failure propagation, REPL tracking) -- a behaviour change, tested.  The work is queued at every
+  naming, as queueStructInstance / requeueStructInstance do (a collection-time naming included: replayPendingChecks
+  never requeues), held in a provisional build by holdWork.  The re-population keeps the instance's identity for
+  `Self`: c.SelfBound stays the populated instance while resolving into the scratch.
+- A4 (V3-4).  conversionImplNote's probe stays All (it asks whether every impl would make the conversion work), and
+  its early return on All becomes one on the probe itself, so the note is given inside instances.
+- A5 (V3-5).  The alias's saved use view applies only while the alias's entry is on top of the naming stack
+  (aliasNamings); a build nested in the target keeps Inst and its own BuildVRoot.
+- A6 (V3-6).  namingContext carries VRoot, for the replays that bind at a recorded naming (replayPendingChecks,
+  makeDeferredConstraintCheck, runQueuedSelfChecks).
+- A7 (V3-7).  A derivation outside any build or check (backfillInstantiationMethods, copyMethodOnDemand,
+  copyLaterMethod) judges nothing: every class re-resolves the method's signature in checkInstanceBody.
+  resolveGenericTypeDeclAbstractNow also clears DerivingInstanceSig (today's All hides that it does not).
+- A8 (V3-8).  The gate (some private impl's receiver base among the arguments) is evaluated when the class is
+  checked, not cached at its first naming: a `.bni` load names instances before the `.bn`'s impls are collected.
+
+**Steps** (each lands alone, green): (1) the view, VRoot carried and normalized, classes and latch keys, with A1,
+A4, A6 -- the repro fixed for function and struct instances, struct re-resolution (A2, A8); (2) interface instances'
+per-class states and re-population (A3); (3) aliases and derivations outside builds (A5, A7); (4) the spec's note on
+the remaining difference (if Q1 accepts it).  Tests per section 6, v2's and review 2's lists, and review 3's v3site.
