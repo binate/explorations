@@ -1,3 +1,18 @@
+### bnfmt moved a line comment after a `__c_call`'s `...` to after the statement — DONE (binate `decd60279`, 2026-11-13, temp-4; user: "yes, go ahead" to taking it on, landed on "wait 12 minutes, then land") (LOW; part of the comment-gap entry in claude-todo.md)
+
+`k := __c_call("f", int, a, b, ... // c` / `)` printed `// c` after the statement: a `__c_call`'s `)` printed only
+block comments on one line before it.
+- Fix (print_builtin.bn, print_closegaps.bn, print_inlineclose.bn, print_slice.bn): a `__c_call` whose last item
+  is its `...` claims every comment from the `...` to its `)` and writes them as a slice with no high bound does
+  after its `:` -- that writer (writeNoHighCloserGap) is now writeBreakableCloserGap in print_closegaps.bn, shared
+  by both -- and the head's reservation leaves room for a run of block comments ending in a line comment
+  (closerRunWidth).
+- Tests: print_inlineclose_test.bn (TestCCallKeepsALineCommentAfterItsDots;
+  TestCloserLineCommentsOfOtherClosesGoAfterTheStatement no longer has a `__c_call` case).
+- Against main's bnfmt: the tree and the other corpora (about 25,000 files) unchanged; of 600 generated
+  `__c_call` probes 580 changed, none wider, none newly non-idempotent, 15 narrower.  Review: no defects; a line
+  comment too long to fit after the `...` stays there past the cap, as after a list's last item.
+
 ### Bare universe `any` in an impl list or extension clause was keyed to the declaring package — DONE (binate `536c5d18c` and `4433296d6`, 2026-11-12, work-6; user, asked whether `impl T : any` is allowed or rejected: "Allowed, a no-op (Recommended)") (a bullet of the forwarder-audit entry "Loud miscompiles / wrong rejections found by the forwarder audit"; found 2026-09-26, work-1)
 
 `impl T : any` and `interface X : any` keyed `any` on a nonexistent `<pkg>.any`: an undefined `__ifaceid` on LLVM
