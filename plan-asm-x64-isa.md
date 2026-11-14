@@ -101,6 +101,14 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   the [rsi] / [rdi] it reads — es: alone on [rdi], any segment on [rsi] (ds: there emitting nothing, as clang);
   another register, a displacement or the two swapped is an error, where clang emits the plain instruction
   silently and GNU with a warning.
+- `@GOTPCREL` (user, 2026-11-14: "In 1g (Recommended)"): the general `[rip + x@GOTPCREL]` memory operand, in any
+  instruction clang takes it in, goes into 1g beside CALL / JMP, with clang's relocation per instruction
+  (R_X86_64_GOTPCRELX / REX_GOTPCRELX, plain GOTPCREL when an immediate follows or an addend is written;
+  Mach-O X86_64_RELOC_GOT / GOT_LOAD).
+- Far indirect jmp / call (user, 2026-11-14: "By operand size (Recommended)"): FF /5 / FF /3 encoded as the
+  operand's size defines — `dword ptr` 66 FF (m16:16, as GNU), `fword ptr` FF (m16:32, as both), `tbyte ptr`
+  REX.W FF (m16:64); `ljmp` / `lcall` need a size.  Departs from clang, which drops the 66 / REX.W those
+  sizes call for (and gives `ljmp [rax]` REX.W but `lcall [rax]` none).
 
 ## Progress
 
