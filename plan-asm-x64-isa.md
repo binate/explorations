@@ -92,6 +92,15 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   xadd / cmpxchg / cmpxchg8b / cmpxchg16b / xchg) with a memory destination, else an error, as GNU as; clang
   emits F0 before anything (`lock add rax, rbx`, `lock mov`, `lock nop`: #UD at run time).  A `lock` alone on
   its line emits F0, as clang and GNU (the next line cannot be checked).
+- `rep` (user, 2026-11-14: "As GNU as (Recommended)"): rep / repe / repz / repne / repnz with an instruction on
+  the same line takes only a string instruction (movs / cmps / scas / lods / stos / ins / outs), ret, nop without
+  operands (pause), bsf or bsr (tzcnt / lzcnt), else an error, as are two repeat prefixes or one with xacquire /
+  xrelease (GNU: "same type of prefix used twice"); clang emits F3 / F2 before anything (`rep add eax, ebx`).
+  A rep alone on its line is its byte, as in both.
+- String operands (user, 2026-11-14: "Reject (Recommended)"): an explicit operand of a string instruction must be
+  the [rsi] / [rdi] it reads — es: alone on [rdi], any segment on [rsi] (ds: there emitting nothing, as clang);
+  another register, a displacement or the two swapped is an error, where clang emits the plain instruction
+  silently and GNU with a warning.
 
 ## Progress
 
