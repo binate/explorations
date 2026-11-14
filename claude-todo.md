@@ -485,6 +485,17 @@ position and text) and the naming is dropped or never attached.  Fix: keep the c
 repeats one another package's check reported.  Test: conformance 1745_err_generic_impl_instance_two_importers
 (xfail.all; binate `928f6784b`).
 
+### CI: `ubuntu-latest` is Ubuntu 26.04 now -- the arm32 Linux jobs cannot install qemu-user-static, and bare-metal links fail on `.ARM.exidx` — 🟡 IN PROGRESS (claimed 2026-11-14, work-3; user: "We should do (b)", i.e. move to 26.04 rather than pin 24.04) (found 2026-11-14, work-3, reading CI)
+
+GitHub moved `ubuntu-latest` from ubuntu-24.04 (the green unit run 43269624621, 2026-11-12) to ubuntu-26.04 (runs from
+2026-11-14).  The arm32 Linux jobs (unit, conformance, the e2e arm32-* jobs) stop in setup: "E: Package
+'qemu-user-static' has no installation candidate".  The bare-metal lanes (unit builder-comp_arm32_baremetal;
+conformance builder-comp_native_arm32_baremetal's three shards, not yet looked at) fail to link: GNU arm-none-eabi-ld
+reports ~82,000 undefined references to `__aeabi_unwind_cpp_pr0` / `_pr1` from the `.ARM.exidx` unwind entries the
+new image's clang emits for every function.  Plan (b): the 26.04 package for qemu-user, and no EHABI unwind entries
+naming a personality routine in our bare-metal code (Binate has no exceptions) -- by `nounwind` in the LLVM IR, or by
+the flags the new clang needs -- rather than routing around it with another linker.
+
 ### A package-level variable of a generic container keyed by the package's private type no longer type-checks: main is red — 🔴 OPEN MAJOR (found 2026-11-14, work-3, reading CI; regression from binate `ed737493f`, temp-5's instance-impl-view step 1; temp-5 told)
 
 Since `ed737493f` ("check: an instance's judgments see its view root's private impls, not every impl") pkg/binate/format
