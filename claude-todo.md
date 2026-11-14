@@ -3388,6 +3388,18 @@ page is remapped read-only).  This is a new object-writer feature
 (segment/section/load-command emission); verify on both formats + arm32.  Low
 urgency (no current miscompile; the writable placement is safe, just unhardened).
 
+### A parameterized impl that lists `any` does not build -- 🟡 IN PROGRESS (claimed 2026-11-13, work-6) (found 2026-11-13, work-6, reading mintGenericImplRows for plan-irgen-checker-types 5e)
+- `impl *Box[U] : any` with a `Box[int]` boxed into `any`: the LLVM backend fails with `use of undefined value
+  '@__ifaceid.bn_S1_4_main1_3_any'` -- the row is keyed on the impl's own package (`main.any`, which does not
+  exist), not on the universe `any`.
+- Cause: mintGenericImplRows (irgen gen_generic_impl.bn) keys a parameterized impl's interfaces by their written
+  names.  The non-generic impl collectors key on the checker's records and leave out a listed universe `any`
+  (isUniverseAnyKey, binate `536c5d18c` / `4433296d6`); this path was not changed.  The user decided 2026-11-11
+  that such an impl is allowed and is a no-op.
+- Fix: plan-irgen-checker-types 5e -- key each interface on the checker's instance copy of the impl (ifaceRefKey)
+  and leave out the universe `any`; a conformance test (a parameterized impl listing `any`, a box into `any`
+  asserted to another interface the impl lists) goes in with it.
+
 ## Testing: harness, runners & conformance coverage
 
 ### interp's unit tests run programs whose check failed: loadSelfContained ignores the checker's errors — 🔴 OPEN (minor: tests can pass on ill-typed programs; found 2026-11-04, temp-5, the Self-is-the-receiver change; pre-existing)
