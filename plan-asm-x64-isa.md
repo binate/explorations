@@ -108,6 +108,10 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
 - 1c — landed binate `19982a2a4` (2026-11-12): bt / bts / btr / btc (register or imm8 offset), bsf / bsr,
   lzcnt / tzcnt / popcnt (segment, 66, F3, REX), bswap of a 32- or 64-bit register.
 
-Next: 1d, cmovcc, and the parser for setcc / movzx / movsx / movsxd (encoders exist).  x64.bni is at 868 of
-its 1000-line cap: split it along a natural boundary (the string / system instructions as sub-packages)
-before a stage brings it near the cap.
+- 1d — landed binate `78be67139` (2026-11-12): cmov<cc>; set<cc> (byte register or memory, clang's byte
+  suffix `setneb`), movzx / movsx / movsxd in the parser (an unsized source a byte beside a 16-bit
+  register, otherwise ambiguous; movsxd's a dword); the pe / po condition spellings.  Found: 1k.
+
+Next: 1e, the atomics — the lock prefix (and which instructions take it), xadd, cmpxchg, cmpxchg8b /
+cmpxchg16b.  x64.bni is at 874 of its 1000-line cap: split it along a natural boundary (the string /
+system instructions as sub-packages) before a stage brings it near the cap.
