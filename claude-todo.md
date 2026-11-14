@@ -3347,7 +3347,7 @@ The one remaining, open-ended piece:
   on coarse statement-line backfill. No columns.
 - No `llvm.dbg.value` (only `dbg.declare` for allocas).
 
-### The native backends emit no debug info: implement DWARF in them — 🔴 OPEN MAJOR (found 2026-11-07, work-3, checking bare-metal `-g` links; user: "if native backends indeed produce no debug info (double check this), then: (a) this is a MAJOR TODO to implement DWARF, (b) yes, we should reject")
+### The native backends emit no debug info: implement DWARF in them — 🟡 IN PROGRESS (claimed 2026-11-13, work-3, scoping first; user: "let's go back to the release items for now") MAJOR (found 2026-11-07, work-3, checking bare-metal `-g` links; user: "if native backends indeed produce no debug info (double check this), then: (a) this is a MAJOR TODO to implement DWARF, (b) yes, we should reject")
 
 All of the DWARF above is the LLVM backend's (LLVM debug metadata).  `-g` reaches only codegen.SetDebugInfo and
 clang's `-g` (cmd/bnc/compile.bn applySwitches; main.bn / test.bn's links); no native package reads it.  Checked
