@@ -7,6 +7,21 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### A generic body's `_func_handle(f)` / `__c_entry(f)` names the instantiating package's `f` -- the wrong function, silently — 🔴 OPEN, MAJOR (silent wrong code; found 2026-11-14, work-6, review of plan-irgen-checker-types 6-1; pre-existing, on main at binate `d7f9c914e`)
+
+- **Symptom:** pkg/glib's `.bni` declares `func helper() int` and `func H[T any]() *uint8 { return
+  _func_handle(helper) }`, and main declares a `helper` of its own: `glib.H[int]()` is the handle of main's
+  helper, not glib's -- conformance 1748 prints `false true` (expected `true false`).  `__c_entry(cb)` in a
+  generic body does the same (1749).  Seen with bnc's default (LLVM) backend; IR-gen chooses the name, so the
+  other compiled backends should take the same function (not run).
+- **Cause:** IR-gen lowers a bare operand by its written name, `arg.Name` (gen_builtin.bn's FUNC_HANDLE arm,
+  gen_builtin_ffi.bn's C_ENTRY arm), never qualified with the generic's declaring package (CurrentImportPkg)
+  as funcRefName qualifies a call or a function value.
+- **Fix:** name the function from the checker's record of the operand -- plan-irgen-checker-types stage 6:
+  6-1 records the operand's Symbol with its declaring package, 6-4 makes IR-gen's function references read
+  it.  (A stopgap would qualify the bare name as funcRefName does.)
+- **Tests:** conformance 1748 (`_func_handle`) and 1749 (`__c_entry`), `.xfail.all`.
+
 ### CI red on main since binate `ed737493f`: the checker rejects pkg/binate/format, whose own key types' impls it calls private — 🔴 OPEN, MAJOR (a valid program rejected; every unit-test lane fails; found 2026-11-14, temp-4, building bnfmt from main)
 
 Since `ed737493f` ("check: an instance's judgments see its view root's private impls, not every impl") the tree's
@@ -1307,6 +1322,17 @@ for a VM fault.)  The host API has the same shape and refuses such a call before
 answer: check the callee's entry frame before taking the arguments, or release the owned ones (by the callee's
 parameter types) when its entry push fails.  Test: a compiled program calling a VM func value whose frame exceeds
 the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
+
+### A package-qualified name of a package with no `.bni` reaches the universe: `plib.panic(...)` is accepted, and IR-gen fails with an internal error — 🔴 OPEN (minor: an invalid program gets an internal error; found 2026-11-14, work-6, review of plan-irgen-checker-types 6-1; pre-existing, on main at binate `d7f9c914e`)
+
+- **Symptom:** package pkg/plib has a `.bn` and no `.bni`; main writes `plib.panic("x")`, and bnc fails with
+  "panic: internal error: IR-gen has no signature for the called function pkg/plib.panic (compiler bug)":
+  the checker accepted it.  Conformance 1750 (`.xfail.all`) expects "undefined: panic".
+- **Cause:** checkSelectorExpr looks a qualified name up with `pkgScope.Lookup` (check_expr_access.bn), which
+  walks the scope's parents; a package with no `.bni` is registered with its implementation scope
+  (checkPackageImpl's `registerPackage(c, path, c.PackageScope, false)`), whose parent is the universe.
+  `_func_handle(pkg.F)` and `__c_entry(pkg.F)` (cEntryFuncSym) look up the same way.
+- **Fix:** look a qualified name up in the package's own scope only (`LookupLocal` on the package scope).
 
 ## Performance
 
