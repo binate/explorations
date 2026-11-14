@@ -1,6 +1,6 @@
 # Plan: the impls an instance's check sees
 
-Status: design v2 (section 9), 2026-11-13 (temp-5), replacing v1's records (sections 4, 8); to be reviewed.
+Status: design v3 (section 11), 2026-11-13 (temp-5), after review 2 of v2 (section 10); to be reviewed.
 
 Todo entry: "Inside a generic's instance, a type argument satisfies a constraint through an impl private to another
 package's `.bn`" (claimed 2026-11-06, temp-5).  Q2 of done/plan-dependent-constraints.md section 8 recommended fixing
@@ -226,3 +226,92 @@ class with a VRoot.
 2. Q2: VRoot only when a private impl could serve the arguments (normalize), or always the chain root?  Recommended:
    normalize -- the always-root form multiplies classes (one per package naming the instance) and their re-checks
    for no difference in what they see.
+
+## 10. Review 2 (2026-11-13): v2 needs a v3
+
+Probes under the session scratchpad's s6/review-v2/, with a compiler built from binate `928f6784b`'s tree; the
+section-1 repro still reproduces there.  The approach (each class re-judges from source in its own view) is sound;
+its rules were not:
+- F1 (critical): seeding the empty VRoot as judged is backwards.  A view with more impls only accepts more (every
+  impl query is an existence test), and the usual order is the dependency's `.bn` naming the instance first (VRoot
+  r3dep, accepted) and main last (VRoot empty): main would skip the re-judgment and be accepted -- the bug.
+- F2 (critical): namingContext.ChainRoot is normalized to empty (chainRootFor) once a chain enters another package's
+  generic, so a nested instance would lose its VRoot: pkg/binate/check's `.bn` names `table.Table[...,
+  instanceDeclHasher, ...]` with private hasher impls, and Table's `Cursor` would be judged without them -- the gen1
+  build fails; a three-deep chain rooted in r3dep is falsely rejected.  VRoot must be carried from the enclosing
+  class, as v1's carried(n) did.
+- F3 (major): at a top-level naming in a `.bni`, chainRootAt returns the current package, not empty, so a package's
+  `.bni` generic body could lean on its own `.bn`-private impls (accepted alone, rejected once imported).
+- F4 (major): an alias's target resolution runs in the alias's package and `.bni` position; seeing past the alias
+  namings is not enough -- the use's whole view (Pkg, Bni, Inst, VRoot) must be kept.
+- F5 (medium): Inst from "Current non-nil" reaches an abstract resolution first reached inside a build
+  (resolveGenericTypeDeclAbstractNow sets Bound 0 but leaves Current).
+- F6 (medium): JudgedVRoots' bookkeeping (waits, holds, tentative REPL checks, releases, undo) is unspecified.
+- F7 (medium): re-populating an interface at ifaceClassNew happens at naming time, possibly inside a wait, a
+  collection or a held build; the population mutates the interface (a discard mode is needed); `Self` needs the
+  instance on the naming stack.
+- F8 (minor): resolveFuncInstanceSig sets Building itself; conversionImplNote, deferSelfConstraintCheck and
+  judgeDerived also use All; a struct's whole underlying type (not only fields) is re-resolved; checkFuncInstance's
+  early return; re-resolution errors need naming and contextualizing.
+
+Verified sound: checkInstanceBody already resolves a method's or function instance's signature (receiver included)
+per class; re-resolution hits the caches, queues new classes rather than recursing; deferred judgments record their
+view; normalize is sound and computable when an instance is first named.  The review proposed dropping JudgedVRoots
+for latches keyed by view (section 11).
+
+## 11. Design v3 (2026-11-13)
+
+**The view** (v2's): public impls; the generic's package's private impls when it is declared in a `.bn`; and the
+class's **VRoot**'s private impls.  `ImplView` gains `VRoot` and `Inst`; implVisible as in v2.  Every use of `All`
+for a judgment becomes `Inst` with the class's VRoot -- judgeDerived, deferSelfConstraintCheck, conversionImplNote's
+probe (which bumps Bound) -- and `All` stays only for constraintImplNote's "is there any impl" probe.
+
+**VRoot, carried** (F2, F3).  At a naming outside any instance: normalize(Site, args) -- the naming's package, empty
+in a `.bni` (not chainRootAt's current package).  Inside an instance's build or check: normalize(the enclosing
+class's VRoot, args) -- `InstanceState.BuildVRoot` in a build, `Current.VRoot` in a check -- independent of the
+member root (InstCheckState.ChainRoot, which stays as it is for private members).  normalize(R, args) = R when some
+private impl of R has a receiver base the args mention (named types and the generics of parameterized receivers,
+through type arguments; fields need not be entered: a generic cannot project a field's type), else empty.
+
+**Classes** (v2's): per (lender class, member root, VRoot); InstWork, InstCheckState and an interface instance's
+class records carry VRoot; resolveFuncInstanceSig and bindInstanceAt set BuildVRoot (F8).
+
+**Re-judgment without records** (F1, F6, review 1 finding 3).  In each class of an instance whose arguments mention
+the receiver base of some private impl (of any package -- the class's VRoot may be empty), the class's check
+re-resolves the instance's derived types from source, in its view, as the build resolved them -- not as a
+derivation, so the latches (CheckedViews, keyed by view as below) of the class the build ran in make it a no-op
+there, and a judgment already made in that view is not made again:
+- a struct instance: its whole underlying type expression (fields, or the target of a non-struct generic type, F8),
+  from a clone of the declaration in its home scope with the arguments bound, the result discarded, in
+  checkTypeInstance before the method bodies;
+- a function instance or a method: its signature, already resolved per class by checkInstanceBody -- moved before
+  checkFuncInstance's early return for a generic whose body check failed (F8);
+- a parameterized impl: already per class (checkInstanceImpls);
+- an interface instance: its method signatures and parents resolved from its clone body into a scratch interface
+  (F7), with the instance on the naming stack so `Self` is judged bounded by it -- queued as a work item at the
+  class's first naming that reaches the user (not in a wait, a collection or a held build: the class is recorded
+  only then), made in the instance-check drain.
+
+Errors the re-resolution reports name the instance (pushInstanceNaming, contextualizeInstanceErrors); an error that
+is no judgment (an array length too large) is the build's already, and is deduplicated by position and text.  The
+cost is one re-resolution per extra class of an instance a private impl could serve: rare.
+
+**Latch keys** (v2's): `*derived:` / `*` / own package and Bni / `+` / VRoot; a view with VRoot r3dep and one with
+VRoot empty latch apart.
+
+**Aliases** (F4).  Entering a generic alias's target saves the use's whole view (Pkg, Bni, Inst, VRoot) in aliasUse,
+and implViewHere returns it while the target is resolved: the target is as if written at the use.
+
+**Inst for derived judgments** (F5).  A derived judgment made with Bound 0 (checkInstanceImpls, a method copy, a
+signature) takes Inst and VRoot from the derivation (judgeDerived sets them, as it sets All today), not from
+Current, so an abstract resolution reached inside a build keeps its own view.
+
+**Remaining difference** (v2's, Q1): a written type the arguments also mention sees VRoot's private impls.
+
+**Tests** (section 6 and v2's, plus review 2's): the dependency-first order (r3dep's `.bn` names the instance before
+main; main rejected); a three-deep chain rooted in r3dep (accepted); a struct within a struct shaped like Table /
+Cursor with a private hasher (accepted; and the gen1 build itself); R's `.bni` generic body leaning on R's private
+impl (rejected in R too); alias uses from r3dep's `.bn` (accepted) and main (rejected).
+
+**Questions for the user** (v2's): Q1, accept the remaining difference (recommended); Q2, VRoot normalized
+(recommended), now also the test for which instances re-judge.
