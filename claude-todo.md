@@ -47,6 +47,10 @@ abstract).  A nesting limit would bound these too; iterative walks would drop th
 expandArgFlow counts an alias chain past 64 as growing -- a generic-expansion rule, beside §21.4's instantiation
 limits, not this.)
 
+irgen's isAbstractType is taken by plan-irgen-checker-types 5e-2 (2026-11-14, work-6; user: "go ahead and take
+on that change in 5e"): it stops at named types (an instance's abstractness is in its type arguments) and has no
+depth cap.
+
 ### A generic interface whose type-parameter constraint names a sibling generic interface cannot be instantiated from another package: "undefined" — 🟡 IN PROGRESS (claimed 2026-11-14, temp-5) (MAJOR: a valid program rejected; found 2026-11-13, temp-5, review of the instance view-root change; reproduced with a compiler built from binate main `c1820c444` plus that change, and with an older one; pre-existing)
 
 Package glib's `.bni` declares `interface Tag[T any] { tag() int }` and `interface Getter[V Tag[[8]uint8]] { get()
@@ -3395,18 +3399,6 @@ they become read-only-after-load (the dynamic loader applies relocations, then t
 page is remapped read-only).  This is a new object-writer feature
 (segment/section/load-command emission); verify on both formats + arm32.  Low
 urgency (no current miscompile; the writable placement is safe, just unhardened).
-
-### A parameterized impl that lists `any` does not build -- 🟡 IN PROGRESS (claimed 2026-11-13, work-6) (found 2026-11-13, work-6, reading mintGenericImplRows for plan-irgen-checker-types 5e)
-- `impl *Box[U] : any` with a `Box[int]` boxed into `any`: the LLVM backend fails with `use of undefined value
-  '@__ifaceid.bn_S1_4_main1_3_any'` -- the row is keyed on the impl's own package (`main.any`, which does not
-  exist), not on the universe `any`.
-- Cause: mintGenericImplRows (irgen gen_generic_impl.bn) keys a parameterized impl's interfaces by their written
-  names.  The non-generic impl collectors key on the checker's records and leave out a listed universe `any`
-  (isUniverseAnyKey, binate `536c5d18c` / `4433296d6`); this path was not changed.  The user decided 2026-11-11
-  that such an impl is allowed and is a no-op.
-- Fix: plan-irgen-checker-types 5e -- key each interface on the checker's instance copy of the impl (ifaceRefKey)
-  and leave out the universe `any`; a conformance test (a parameterized impl listing `any`, a box into `any`
-  asserted to another interface the impl lists) goes in with it.
 
 ## Testing: harness, runners & conformance coverage
 

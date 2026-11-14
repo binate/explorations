@@ -1,3 +1,15 @@
+### A parameterized impl that lists `any` did not build — DONE (binate `5d9459712`, 2026-11-14, work-6; landed on "go ahead and land, then continue (and go ahead and take on that change in 5e)")
+
+`impl *Box[U] : any` with a `Box[int]` boxed into `any` failed on LLVM with an undefined
+`@__ifaceid.bn_S1_4_main1_3_any`: mintGenericImplRows keyed a parameterized impl's interfaces by their written
+names, so a listed `any` keyed on the impl's own package.
+- Fix (irgen gen_generic_impl.bn): each interface keys on the checker's record of the ref in its copy of the impl
+  for the instance (ifaceRefKey), and a listed universe `any` is left out (isUniverseAnyKey), as for an
+  unparameterized impl (`536c5d18c` / `4433296d6`).
+- Tests: conformance 1747_generic_impl_keys_checker_types (in another package and in the program's own); irgen
+  TestGenericImplOfUniverseAnyMakesNoRow, TestGenericImplIfaceKeyIsTheCheckers.  Every other module's objects are
+  unchanged (scripts/codegen-ab.sh); review: no defects.
+
 ### bnfmt moved a line comment after a `__c_call`'s `...` to after the statement — DONE (binate `decd60279`, 2026-11-13, temp-4; user: "yes, go ahead" to taking it on, landed on "wait 12 minutes, then land") (LOW; part of the comment-gap entry in claude-todo.md)
 
 `k := __c_call("f", int, a, b, ... // c` / `)` printed `// c` after the statement: a `__c_call`'s `)` printed only

@@ -300,6 +300,14 @@ IR-gen cannot map is an internal error, never `int`.
    - 5e: impl rows from the checker's impls with checker substitution: mintGenericImplRows stops resolving a
      parameterized impl's interface arguments by name, and resolveTypeExpr's abstract-record fallback (4a)
      goes.
+     5e-1 DONE (binate `5d9459712`, 2026-11-14; user: "go ahead and land, then continue (and go ahead and take on
+     that change in 5e)"): mintGenericImplRows keys each interface on the checker's copy of the impl for the
+     instance (ifaceRefKey) and leaves out a listed universe `any`, which failed to build; every module's objects
+     unchanged (codegen-ab.sh) but the new 1747.  5e-2: the abstract-record fallback becomes an internal error.
+     A type-differential sweep (2026-11-13) over every conformance program and cmd/bnc found abstract readings
+     only in 305_type_depth_nested_syntax, as isAbstractType counts a type nested past 32 levels as abstract; it
+     is to stop at named types (an instance's abstractness is in its type arguments) and drop the cap -- taken
+     from the deep-nesting todo entry (user 2026-11-14: "go ahead and take on that change in 5e").
 6. **Value-name resolution.**  The checker records what each identifier / selector Expr resolves to (local,
    parameter, global, constant, function, package, method expression); IR-gen uses it; then delete
    CurrentImportPkg-as-resolution, the import overlay for generic bodies, RegisterGenericBodyDeps and the
