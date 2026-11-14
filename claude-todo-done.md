@@ -1,3 +1,20 @@
+### A generic interface whose type-parameter constraint names a sibling generic interface could not be instantiated from another package — DONE (binate `4d4f25750`, 2026-11-14, temp-5; user: "yes" to doing it first, landed on "yes, go ahead") (MAJOR: a valid program rejected; found 2026-11-13, temp-5, review of the instance view-root change; pre-existing)
+
+Package glib's `.bni` declares `interface Tag[T any] { tag() int }` and `interface Getter[V Tag[[8]uint8]] { get()
+V }`; main, with `impl *X : glib.Tag[[8]uint8]`, writing `var g *glib.Getter[*X]` was rejected: "pkg/glib.bni:7:20:
+undefined: Tag".  When the instantiating package's `.bni` declared a `Tag` of its own, the constraint silently meant
+that one: a type implementing only it was accepted, and one implementing glib's was rejected (found by the review).
+- Cause: `checkInstantiationConstraints` (check_deferred_constraints.bn) set `c.curPkgPath = genericTypeDeclPkg(c,
+  d)`, which knows only generic types and fell back to the current package for an interface.
+- Fix: it takes the package by the declaration's kind (`c.GenericDeclPkg(d)`), and reports a miss with the package
+  being checked restored, so a REPL session type the miss names parks on its missing impl (noteMissingImplOf).
+  With that, a session type as the argument of an imported generic struct, whose impl comes later, also parks;
+  before, it was rejected at once.
+- Tests: conformance 12-generics/218-221 (accepted and rejected, plain and with a `Tag` of the instantiating
+  package's own); check TestPendingImportedGenericConstraintParks.
+- Left open: the miss's message names glib's Tag as bare `Tag` (the todo entry on a type from another package
+  named by its bare name).
+
 ### bnfmt moved a comment inside a type out of its place — DONE (binate `6d97d7e91`, 2026-11-14, temp-4; user: "yes" to taking it on, landed on "wait 4 minutes, then land") (LOW; part of the comment-gap entry in claude-todo.md)
 
 The type printer placed no comment of its own: `var a p./* c */ T = 1` printed `var a p.T /* c */ = 1`,

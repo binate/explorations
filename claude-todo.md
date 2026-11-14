@@ -51,17 +51,16 @@ irgen's isAbstractType is taken by plan-irgen-checker-types 5e-2 (2026-11-14, wo
 on that change in 5e"): it stops at named types (an instance's abstractness is in its type arguments) and has no
 depth cap.
 
-### A generic interface whose type-parameter constraint names a sibling generic interface cannot be instantiated from another package: "undefined" — 🟡 IN PROGRESS (claimed 2026-11-14, temp-5) (MAJOR: a valid program rejected; found 2026-11-13, temp-5, review of the instance view-root change; reproduced with a compiler built from binate main `c1820c444` plus that change, and with an older one; pre-existing)
+### A diagnostic names a type from another package by its bare name: ambiguous where the package being checked has a type of that name — 🔴 OPEN (minor: a misleading message; found 2026-11-14, temp-5, the sibling-constraint fix; pre-existing)
 
-Package glib's `.bni` declares `interface Tag[T any] { tag() int }` and `interface Getter[V Tag[[8]uint8]] { get()
-V }`; main, with `impl *X : glib.Tag[[8]uint8]`, writes `var g *glib.Getter[*X] = nil` and is rejected: "pkg/glib.bni:7:20:
-undefined: Tag", then errors from the error type it leaves.  `checkInstantiationConstraints` (check_deferred_constraints.bn)
-resolves the constraint in the generic's scope but sets `c.curPkgPath = genericTypeDeclPkg(c, d)`, which knows only
-generic types and falls back to the current package for an interface; the unqualified `Tag`, a generic interface found
-through that package (lookupGenericIfaceDeclPkg's fallback), is then looked for in main.  The wrong package also reaches
-namingHere's Site while the constraint is resolved.  Fix: take the package by the declaration's kind
-(`genericIfaceDeclPkg` for an interface, as enterIfaceInstance does), with a conformance test of a generic interface
-instantiated from another package whose constraint names a sibling generic interface (xfail until fixed).
+In conformance 12-generics/221, package app declares its own `interface Tag[T any]`, and `var g *glib.Getter[*X]`
+(glib's Getter is constrained by glib's Tag) is rejected with "type argument *X does not satisfy constraint
+Tag[[8]uint8]": glib's Tag named `Tag`, which in app means app's own.  Messages print types with `TypeName()`
+(types/type_name.bn), which drops a named type's package by design ("Package", not "pkg/binate/loader.Package").
+Proposed fix: name a type declared in another package with its package's name (`glib.Tag`), at least when the
+package being checked declares or imports a type of the same name -- in reportConstraintMiss (check_generic.bn)
+and, if taken generally, in every message that names a type; the general form changes many conformance `.error`
+regexes.
 
 ### An array length's `sizeof` / `alignof` never applies the pointer-to-embedding rule: an ill-formed operand is accepted — 🔴 OPEN (MAJOR: an invalid program accepted; found 2026-11-07, work-1, review of the slice-element layout fix; reproduced on main; pre-existing)
 
