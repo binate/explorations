@@ -117,6 +117,15 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   suffix `setneb`), movzx / movsx / movsxd in the parser (an unsized source a byte beside a 16-bit
   register, otherwise ambiguous; movsxd's a dword); the pe / po condition spellings.  Found: 1k.
 
-Next: 1e, the atomics — the lock prefix (and which instructions take it), xadd, cmpxchg, cmpxchg8b /
-cmpxchg16b.  x64.bni is at 874 of its 1000-line cap: split it along a natural boundary (the string /
-system instructions as sub-packages) before a stage brings it near the cap.
+- 1e — landed binate `a30d6e453` (2026-11-13): xadd, cmpxchg, cmpxchg8b / cmpxchg16b (`xmmword ptr`, SZ128);
+  lock / xacquire / xrelease as prefixes written as instructions; the F0 after any 0x66, clang's order
+  (x64.LockNext: `lock xadd word ptr [rbx], ax` is 66 F0 0F C1 03).  The lock check as decided above, xchg's
+  memory either operand (GNU as takes `lock xchg rax, [rbx]`); another prefix between a lock and its
+  instruction an error (clang's: `lock fs add ...`), one prefix alone after it that prefix's byte (`lock fs` is
+  F0 64, clang's).  `lock lock add ...` / `lock lock` are rejected, as GNU as (clang: one F0) — raised with the
+  user at landing, not yet answered.  An instruction byte while LockNext's flag is set is an assembler error,
+  so a misplaced LockNext fails rather than lock a later instruction.
+
+Next: 1f, the string instructions at every size with rep / repe / repne.  x64.bni is at 923 of its 1000-line
+cap, so 1f's encoders go into a sub-package of their own (as asm/x64/sse), and 1j's system instructions the
+same way.
