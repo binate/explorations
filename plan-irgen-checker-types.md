@@ -324,7 +324,8 @@ IR-gen cannot map is an internal error, never `int`.
    bare-name precedence rules.  (Coordinate with plan-constant-evaluator.md, which targets IR-gen's own
    constant evaluator and its CurrentImportPkg const lookup.)
    Increments (2026-11-14, work-6), each with byte-identical code where it claims no change:
-   - 6-1: the record.  checkIdent and checkSelectorExpr's `pkg.X` keep the Symbol they resolved to in a side
+   - 6-1 DONE (binate `84784aa31`, 2026-11-14; user: "yes, go ahead. Let's do the proper fix."; with the
+     expected-fail conformance tests 1748-1750 in `baf40f6f9`): the record.  checkIdent and checkSelectorExpr's `pkg.X` keep the Symbol they resolved to in a side
      table beside ExprTypes (a method expression's `T` is already stamped as a type); a package-level Symbol
      gets its declaring package (set where collectDecls / the .bni loaders define it; HomePkg already gives an
      exposed one's home); a query `ExprSymbol(e)` with accessors (kind, declaring package or "" for a local,
@@ -342,7 +343,8 @@ IR-gen cannot map is an internal error, never `int`.
    - 6-4: function references -- funcRefName / namesFunction / funcRefShadowed, genExprOrFuncRef, direct calls,
      `pkg.F` (buildQualNameHomed), and the operands of `_func_handle` / `__c_entry` (gen_builtin.bn,
      gen_builtin_ffi.bn; a generic body's bare operand names the wrong function today -- the MAJOR todo entry,
-     conformance 1748 / 1749) -- from the record.
+     conformance 1748 / 1749) -- from the record.  Decided (2026-11-14, user, asked for a stopgap now or the
+     fix here: "Let's do the proper fix."): no stopgap; this increment fixes it.
    - 6-5: method expressions `T.M` (methodExprName, the 5d-1 review note (a)) from their records, and generic
      heads (instantiationHead), which need a record of their own: the generic declaration a head resolves to.
    - 6-6: delete CurrentImportPkg-as-resolution, overlayFileImports, RegisterGenericBodyDeps and the bare-name

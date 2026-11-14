@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### A generic body's `_func_handle(f)` / `__c_entry(f)` names the instantiating package's `f` -- the wrong function, silently — 🔴 OPEN, MAJOR (silent wrong code; found 2026-11-14, work-6, review of plan-irgen-checker-types 6-1; pre-existing, on main at binate `d7f9c914e`)
+### A generic body's `_func_handle(f)` / `__c_entry(f)` names the instantiating package's `f` -- the wrong function, silently — 🟡 IN PROGRESS (claimed 2026-11-14, work-6: plan-irgen-checker-types 6-4), MAJOR (silent wrong code; found 2026-11-14, work-6, review of plan-irgen-checker-types 6-1; pre-existing, on main at binate `d7f9c914e`)
 
 - **Symptom:** pkg/glib's `.bni` declares `func helper() int` and `func H[T any]() *uint8 { return
   _func_handle(helper) }`, and main declares a `helper` of its own: `glib.H[int]()` is the handle of main's
@@ -19,7 +19,8 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
   as funcRefName qualifies a call or a function value.
 - **Fix:** name the function from the checker's record of the operand -- plan-irgen-checker-types stage 6:
   6-1 records the operand's Symbol with its declaring package, 6-4 makes IR-gen's function references read
-  it.  (A stopgap would qualify the bare name as funcRefName does.)
+  it.  Decided (2026-11-14, user, asked for a stopgap now -- qualify the bare name as funcRefName does -- or
+  the fix in 6-4: "Let's do the proper fix."): no stopgap.  6-1 landed as binate `84784aa31`.
 - **Tests:** conformance 1748 (`_func_handle`) and 1749 (`__c_entry`), `.xfail.all`.
 
 ### CI red on main since binate `ed737493f`: the checker rejects pkg/binate/format, whose own key types' impls it calls private — 🔴 OPEN, MAJOR (a valid program rejected; every unit-test lane fails; found 2026-11-14, temp-4, building bnfmt from main)
