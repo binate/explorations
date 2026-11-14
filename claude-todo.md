@@ -531,6 +531,24 @@ All -- or, at least, never through an impl private to a package other than the g
 for the dependent-length constraints (the entry above) widens the judgments made inside instances, so it inherits
 this fix.
 
+### A constraint miss's note names its probe's instances with no view root, adding two false errors — 🔴 OPEN (minor: misleading diagnostics; found 2026-11-14, temp-5, review of the constraint-judgment view-root fix; pre-existing since binate `ed737493f`)
+
+When a type argument misses a constraint because the impl that would serve it is private to another package, the
+note's probe (`constraintImplNote` / `hiddenImplPkg`, check/impl_private.bn) resolves that impl for the argument
+(`implInstance`).  `resolveImplForArgs` resolves it in the impl's own .bn scope, so `namingHere` takes that package as
+the site, the view root normalizes to none, and the instances the resolution names are queued in a class whose check
+cannot see the using package's own private impls.  Repro: pkg/lib's .bni declares `interface Hasher2[K any] { Hash(k
+K) uint }`, `type Default[K lang.Hashable] struct {}` with `func (h Default[K]) Hash(k K) uint`, and `type Table5[K
+any, H Hasher2[K]] struct { h H; k K }`; lib's .bn alone declares `impl Default[K] : Hasher2[K]`; q's .bn declares a
+`key` that is a lang.Hashable only there and uses `lib.Table5[key, lib.Default[key]]` (at package level, in a local,
+or as a generic function's type argument).  Besides the right error ("type argument Default[key] does not satisfy
+constraint Hasher2[key]: the matching impl is private to package pkg/lib"), two false ones follow: "type argument key
+does not satisfy constraint Hashable: the matching impl is private to package pkg/q (in Default[key].Hash, ...)" and
+the same "(in the impl for Default[key], ...)" -- false, since the use is in pkg/q.  Without lib's private impl only
+the right error is reported.  The program is rejected either way.  Fix: the note's probe asks only whether a hidden
+impl would serve, so its resolution should queue no instance check (or name what it names in the use's class, as the
+judgment itself does).  Test: the repro as a unit test pinning exactly the one error.
+
 ### A generic alias of a struct type that takes the size of a type being collected is a false cycle — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
 
 `type A[T any] = struct { a [sizeof(N)]uint8; t T }` with `type N struct { v int64; w int64; p *A[int] }` is
