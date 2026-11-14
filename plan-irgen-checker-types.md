@@ -285,9 +285,11 @@ IR-gen cannot map is an internal error, never `int`.
      rejected: "Allowed, a no-op (Recommended)"; conformance 1744.  5d-3a DONE (binate `4433296d6`, 2026-11-12;
      user: "yes, go ahead; then continue"): interface parents from records (ifaceRefKey), and a listed universe `any`
      left out of parents and impl lists (isUniverseAnyKey), a true no-op; conformance 1746; the claude-todo item is
-     done.  5d-3b: interface alias targets (mi.AliasTarget = d.TypeRef.Name; box sites canonicalize through them)
-     from records -- an alias of a generic instance is instantiated late on purpose (the pending-alias stub), so
-     mapping its record must keep that order or be shown not to need it.  Note from the 5d-2 review: stashedGenericDecl matches the checker's
+     done.  5d-3b DONE (binate `bfec871b2`, 2026-11-13; user: "wait 15 minutes, then land"): an interface
+     alias's target (mi.AliasTarget) comes from its record (d.ResolvedTypeID), the written name only without one;
+     an alias whose record is a generic instance, also through another alias (aliasOfInstance), stays a pending
+     stub, instantiated late as before (conformance 1383 caught the alias-of-an-alias case); byte-identical IR.  An
+     alias of a package's own interface named `any` now targets it, not the universe `any`.  Note from the 5d-2 review: stashedGenericDecl matches the checker's
      InstDecl by identity, so a REPL re-declaration of a generic interface (stashGenericIfaceDecl keeps the first)
      would panic there -- unreachable while the checker rejects redefinitions; stage 8 must handle it.
    - 5e: impl rows from the checker's impls with checker substitution: mintGenericImplRows stops resolving a
