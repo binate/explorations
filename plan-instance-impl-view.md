@@ -2,7 +2,7 @@
 
 Status: design v3 (section 11) with review 3's amendments (section 12), 2026-11-13 (temp-5).  The user's
 decisions (2026-11-13): Q1 accepted (the remaining difference, documented in step 4); Q2 VRoot normalized.
-Step 1 implemented and reviewed (section 13), not yet landed (temp-5).
+Step 1 landed (binate `ed737493f`, section 13); steps 2-4 to do (temp-5).
 
 Todo entry: "Inside a generic's instance, a type argument satisfies a constraint through an impl private to another
 package's `.bn`" (claimed 2026-11-06, temp-5).  Q2 of done/plan-dependent-constraints.md section 8 recommended fixing
