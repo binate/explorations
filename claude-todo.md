@@ -3041,7 +3041,7 @@ block comment between a call's or an index's head and its opener stays on that l
 reserves only the opener (argsHeadTail).  A slice's head reserves such a comment (printSlice claims it once the
 head is rendered, claimAfterExpr, and adds its width); printCall and printIndex can do the same.
 
-### bnfmt gives a var's type no room for the ` = <value>` after it — 🟢 LOW (found 2026-11-08, temp-4, working on the declarations' comment gaps; pre-existing)
+### bnfmt gives a var's type no room for the ` = <value>` after it — 🟡 IN PROGRESS (claimed 2026-11-14, temp-4) 🟢 LOW (found 2026-11-08, temp-4, working on the declarations' comment gaps; pre-existing)
 
 printValueSpec (print_declgaps.bn) prints a declaration's type with a tail of 0 when no comment follows it, so a
 type that just fits keeps the line, and ` = <value>` goes on after it past the limit: a one-line `var zz
