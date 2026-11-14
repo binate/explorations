@@ -3256,45 +3256,23 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
   counts, so nothing proves those inputs impossible.  Fix: check each op's operand count and required types in
   the verifier (then the guards are dead and can go), or make each guard record `a.SetError`.
 
-- **Native, LLVM and VM: a phi entry naming another function's block reaches a block of its own** — 🟡 IN PROGRESS
-  (claimed 2026-11-11; user: "4. yes") (found 2026-11-10, review of the backends' jump-target check; by
-  reading).  A phi names each predecessor by
-  block, and nothing outside `--verify-ir` (`VERR_BAD_PHI_PRED`) checks that it is one of the function's.
-  LLVM's `blockExitLabel` (`codegen/emit_phi_pred.bn`) falls back to the block's own label for a block of
-  another function, so the `phi` names this function's block of that label.  `iropt.EliminatePhis`, which the
-  native backends (`common.EmitObject`, before the jump-target check) and the VM (`vm/lower_func.bn`,
-  `vm/lower_frame_check.bn`) run, takes the predecessors from the phi's own entries, so `placeCopiesForEdge`
-  splices the copies into the other function's block (or redirects its branch to a new `phicrit` block) and
-  this function's real edge gets none: a wrong value with no error.  Valid IR never has such an entry; an
-  optimizer bug (an inliner remap, a pass that retargets edges) would.  Fix: check every phi entry's block --
-  nil, another function's (`Func` is not f) or a fault pad (`IsFaultPad`), as `irbuild.ForeignJumpError` does
-  for jump targets -- before `EliminatePhis` on native and in the VM, and in `emitFuncDbg` on LLVM, with a test
-  per backend.
-
-- **IR: a block label can come back after a pass drops a block, so a stale jump to the dropped block would
-  reach the new one** — 🟡 IN PROGRESS (claimed 2026-11-11; user: "3. go with your rec") (found 2026-11-10,
-  review of the backends' jump-target check; by reading).  `ir.AddBlock` numbers a label by the current `len(f.Blocks)` (`ir/ir.bn`), and mem2reg,
-  fold_branch and thread_jumps drop blocks from `f.Blocks`, so a block added after a drop can take a dropped
-  block's label.  A jump left pointing at the dropped block is still `Func == f`, so
-  `irbuild.ForeignJumpError` passes it; both compiled backends would then name the new block -- a silent
-  miscompile.  Without the reuse it names an undefined label, which the assembler or clang rejects.  Latent:
-  the inliner (`inl`, `inlcont`) runs before the pruning passes, and the only block added after them is phi
-  elimination's `phicrit`.  Decided (user 2026-11-11, "3. go with your rec"): number labels from a per-function
-  counter that never goes back, so labels stay unique for the function's life and a stale jump always names
-  an undefined label (not a membership check in `f.Blocks` on every compile, O(blocks) per function).
-  The review of the counter (2026-11-11) found that premise does not hold: a block dropped from `f.Blocks` is
-  freed at the next `AddBlock`, because `appendBlock` (`ir/ir.bn`) then rebuilds `BlocksVec` and the old builder
-  held the block's last reference (jump targets and phi entries are raw pointers).  On native, phi elimination's
-  `phicrit` split is such an `AddBlock`, just before `common.EmitObject`'s jump check, so a stale jump or phi
-  entry then dangles: the check reads freed memory, and if the memory goes to a new block of f the pointer names
-  a live block of f with a defined label -- silent.  Also, a phi entry naming a dropped block of f passes
-  `irbuild.ForeignPhiPredError` (its `Func` is f), and on native and the VM `EliminatePhis` then puts that
-  edge's copies into the dropped block.  Proposed: keep a dropped block alive as long as its function (keep
-  the old builder, or move dropped blocks to a per-function list), and reject a jump target or phi predecessor
-  that is not in `f.Blocks` (a set built once per check).
+- **IR: a block a pass drops is freed at the next `AddBlock`, so a stale jump or phi entry to it dangles; a phi
+  entry naming a dropped block is not caught** — 🟡 IN PROGRESS (claimed 2026-11-14; user: "2. yes") (found
+  2026-11-11, review of the block-label counter; by reading).  Jump targets and phi entries are raw pointers.  A
+  block dropped from `f.Blocks` (mem2reg, fold_branch, thread_jumps) stays alive only while `BlocksVec`, the builder
+  behind the old list, holds it; the next `ir.AddBlock` rebuilds the builder (`appendBlock`, `ir/ir.bn`) and frees
+  it.  On native, phi elimination's `phicrit` split is such an `AddBlock`, just before `common.EmitObject`'s jump
+  check, so a stale jump or phi entry then dangles: the check reads freed memory, and if the memory goes to a new
+  block of f the pointer names a live block of f with a defined label -- silent (the per-function label counter,
+  binate `abee51b9f`, gives a stale jump an undefined label only while the dropped block is alive).  And a phi
+  entry naming a dropped block of f passes `irbuild.ForeignPhiPredError` (its `Func` is f): on native and the VM
+  `EliminatePhis` puts that edge's copies into the dropped block.  Fix (user 2026-11-14, "2. yes"): keep a dropped
+  block alive as long as its function (keep the old builder, or move dropped blocks to a per-function list), and
+  reject a jump target or phi predecessor that is not in `f.Blocks` (a set built once per check), with tests.
 
 - **Native, LLVM and VM: an operand that is another function's value reads this function's value of the same
-  id** — 🔵 OPEN (found 2026-11-11, review of the phi-predecessor check; by reading).  Value ids restart at 0 in
+  id** — 🟡 IN PROGRESS (claimed 2026-11-14; user: "3. right after that", after the dropped-block fix) (found
+  2026-11-11, review of the phi-predecessor check; by reading).  Value ids restart at 0 in
   every function (`ir.NewFunc`), and every backend names an operand by its id: LLVM's `emitRef` writes `%v<id>`
   (`codegen/emit_util.bn`), native looks it up by id (`LookupReg`, `LookupHome`, `LookupSpill`, `LookupAlloc`),
   and the VM's `renumberValues` (`vm/lower_regalloc.bn`) and lowering read its register by id.  So an operand

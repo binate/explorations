@@ -6767,6 +6767,29 @@ reader's reason.  Tests: `relocSectionChecks` on an ELF64 RELA and an ELF32 REL 
 `TestReadObjectRejectsNonRelocatable`, `TestReadArchiveBadMemberReason`.  Checked that clang C objects (`-g`,
 `-ffunction-sections`, `-O0` / `-O1`) still link on x86-64, aarch64 and arm32.
 
+### Native, LLVM and VM: a phi entry naming a block outside its function is an error — DONE (binate `50cfd4382`,
+2026-11-14)
+
+Found by the review of the backends' jump-target check (entry below); user 2026-11-11: "4. yes". A phi names each
+predecessor by block: LLVM named it by label (another function's block resolved to this function's block of that
+label), and `iropt.EliminatePhis` (native, VM) put the edge's copies into whatever block the entry named, so the
+real edge got none. `irbuild.ForeignPhiPredError` describes the first phi entry whose predecessor is nil, another
+function's block or a fault pad (fault pads hold no phis). Native checks it first in `common.EmitObject`, before phi
+elimination changes anything, and fails the object; the VM records a lowering error in `lowerFunc` and in
+`funcFrameBytes` (behind `FrameCheck` and `LowerModule`, which stop with the internal error before returning any
+frame error), without eliminating the phis; LLVM's `emitFuncDbg` panics with it before the jump check. Tests in
+irbuild, native/common (the other function's block is left unchanged), codegen and vm, each failing with its part
+undone. Validation: VM conformance (2019 + 2021 passed), native x64 conformance at -O2 (2024 + 2027), cmd/bnc
+compiled at -O2 with native x86-64 and LLVM, hygiene.
+
+### IR: a label in a function's Blocks is never given twice — DONE (binate `abee51b9f`, 2026-11-14)
+
+User 2026-11-11: "3. go with your rec". `ir.AddBlock` numbered a label by `len(f.Blocks)`, which a pass dropping
+blocks shortens, so a block added later could take a dropped block's label. It now numbers from `ir.Func.NextBlockNum`,
+which only grows (fault pads keep their own numbering; only the VM sees them, by identity). Tests in ir, and a native
+x64 test that a branch to a dropped block fails on its undefined label. The review found that this holds only while
+the dropped block is alive (the next `AddBlock` frees it); that is its own todo entry.
+
 ### Native and LLVM backends: a jump or branch to a block outside its function is an error — DONE (binate
 `511db3a7f`, 2026-11-11)
 
