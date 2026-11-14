@@ -2,7 +2,7 @@
 
 Status: design v3 (section 11) with review 3's amendments (section 12), 2026-11-13 (temp-5).  The user's
 decisions (2026-11-13): Q1 accepted (the remaining difference, documented in step 4); Q2 VRoot normalized.
-Step 1 in progress (temp-5).
+Step 1 implemented and reviewed (section 13), not yet landed (temp-5).
 
 Todo entry: "Inside a generic's instance, a type argument satisfies a constraint through an impl private to another
 package's `.bn`" (claimed 2026-11-06, temp-5).  Q2 of done/plan-dependent-constraints.md section 8 recommended fixing
@@ -355,3 +355,28 @@ the design:
 A4, A6 -- the repro fixed for function and struct instances, struct re-resolution (A2, A8); (2) interface instances'
 per-class states and re-population (A3); (3) aliases and derivations outside builds (A5, A7); (4) the spec's note on
 the remaining difference (if Q1 accepts it).  Tests per section 6, v2's and review 2's lists, and review 3's v3site.
+
+## 13. Step 1 implemented; review 4 (2026-11-13)
+
+Step 1 as section 12 lists it, with review 4's fixes folded in:
+- R4-F1 (major, fixed): a generic alias's target lost the view root -- `type KT[U any] = r3lib.K[*T, U]` in r3dep's
+  `.bni`, used in r3dep's `.bn`, normalized the use's root against the alias's arguments (`[int64]`), so K[*T, int64]'s
+  method body was judged with none.  An alias's target now binds with the use's root carried, not normalized
+  (bindAliasTarget): the instances it names normalize against their own arguments.  Step 3's A5 must keep this (its
+  "own BuildVRoot" for a build nested in the target is that build's normalization of the carried root).
+- R4-F2 (major, fixed): an instance named in an impl's interface list (`impl *T : HolderOf[H[*T, int64]]`) was named
+  before a later private impl was recorded, so its view root depended on impl order.  A batch now records every
+  impl's receiver before resolving any interface list (collectImplRecv / collectImplIfaces).
+- R4-F5 (minor, fixed): a waited function signature is done again in the class it is next named in, not the first's.
+- R4-F3 (behaviour change, for the user): a `.bni` declaration whose structure forms a concrete judgment needing the
+  same package's private impl -- `type HS[U any] struct { h r3lib.H[*T, U] }`, or the alias `type HT[U any] =
+  r3lib.H[*T, U]`, used or not -- is now rejected at the declaration (it saw every impl before); the same declaration
+  in the `.bn` is accepted.  For HS this is gen.mono.check (a type written in the declaration is judged where
+  written); for the alias it matches the rule the checker already applies to an alias target's own instantiations
+  (unit test TestPrivateImplInAliasesAndParents: judged in the declaration's view).  The error names no instance (as
+  for abstract instances' errors before).
+- R4-F4 (wording for step 4): the remaining difference is section 5's, not v3's: once an instance's view root is R,
+  every type written in a `.bni` generic of its chain sees R's private impls, whether or not the arguments mention it.
+- A judgment latched in one view is reported at its first site only; the program is rejected either way.
+- Side finding (pre-existing, filed in claude-todo.md, MAJOR): a generic interface whose constraint names a sibling
+  generic interface cannot be instantiated from another package.
