@@ -122,8 +122,9 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   (x64.LockNext: `lock xadd word ptr [rbx], ax` is 66 F0 0F C1 03).  The lock check as decided above, xchg's
   memory either operand (GNU as takes `lock xchg rax, [rbx]`); another prefix between a lock and its
   instruction an error (clang's: `lock fs add ...`), one prefix alone after it that prefix's byte (`lock fs` is
-  F0 64, clang's).  `lock lock add ...` / `lock lock` are rejected, as GNU as (clang: one F0) — raised with the
-  user at landing, not yet answered.  An instruction byte while LockNext's flag is set is an assembler error,
+  F0 64, clang's).  `lock lock add ...` / `lock lock` are rejected, as GNU as (clang: one F0) — user
+  2026-11-13: "I think rejecting lock lock (etc.) is fine."  An instruction byte while LockNext's flag is set
+  is an assembler error,
   so a misplaced LockNext fails rather than lock a later instruction.
 
 Next: 1f, the string instructions at every size with rep / repe / repne.  x64.bni is at 923 of its 1000-line
