@@ -381,8 +381,21 @@ recursive, so far more than 75).
   program; compile time only) -- now neither read ahead nor reading ahead, with a test; error order: a method defined
   ahead reports its signature's errors before a reader's earlier in-place ones, as `.bni` functions already did.
   cmd/bnc's IR and 2049 corpus programs identical; 20,000-link `.bni` chains get through the checker.
-  Next: the parser nesting limit (step 2: its minimum is the open decision), then IR-gen (type alias chains among the
-  first).
+- Step 2 (the source nesting limit) DONE: binate `b593eaf8c`, docs `39acb2e` (landed 2026-11-13; user: "yes, go
+  ahead") -- spec pkg.source.nesting (at least 256; 512 here) and its §21.4 row.  The parser counts levels
+  (parse_depth.bn): each expression, statement and block a level below what it is part of (a case body a block, a
+  `for`'s init and post statements, an `else if`'s `if`, a parenthesized type's type); left-grouping chains (binary
+  operators, postfix links, the for clause's operators) are built in loops and measured at their own level, n links
+  holding the first operand n deeper, checked at each link; type expressions are left to type.named.depth; a bracket
+  element counts as an expression.  Past the limit: one error, and the rest of the file reads as its end.  The binary
+  operators are parsed by one precedence-climbing loop (continueBinaryExpr), halving the parser's frames a level --
+  needed at -O0, where a composite literal's 18 frames a level overflowed 8 MB at ~470 levels -- and compiling cmd/bnc
+  takes ~0.3% fewer instructions than before.  Two reviews: five findings fixed (chains checked only at their end,
+  case bodies and `for` clauses a level short, a bracket element's lost error, unbounded parenthesized types), the
+  rewrite's trees and diagnostics identical, chains reported where they start.  bnfmt is exponential in blocks nested
+  on one line (claude-todo, the bnfmt function-literal entry).
+  Next: step 1's remaining stages -- irutil / ir, IR-gen (type alias chains crash in registerModuleTypeDecl /
+  registerPkgTypeDecl), codegen, native, vm / interp, lint.
 ## Decisions (2026-11-03)
 
 - Step 1, all of it, staged: user "All of them, staged (Recommended)".
