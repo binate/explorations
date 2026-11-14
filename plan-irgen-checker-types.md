@@ -308,6 +308,16 @@ IR-gen cannot map is an internal error, never `int`.
      only in 305_type_depth_nested_syntax, as isAbstractType counts a type nested past 32 levels as abstract; it
      is to stop at named types (an instance's abstractness is in its type arguments) and drop the cap -- taken
      from the deep-nesting todo entry (user 2026-11-14: "go ahead and take on that change in 5e").
+     5e-2 DONE (binate `d7f9c914e`, 2026-11-14; user: "wait 4 minutes, then go ahead"): resolveTypeExpr,
+     typeArgExprToType and genericInstanceName map every record, and an abstract one is an internal error
+     (requireConcreteRecord, gen_type_record.bn); a parameterized impl with no checked copy is one too
+     (genericImplRefs).  isAbstractType walks to any depth (into an instance's type arguments, not a named
+     type's definition) and visits each type once.  The 32-level cap had sent DAG-shaped types (`type A_i =
+     struct { x A_{i-1}; y A_{i-1} }`, and the same with `*func(A_{i-1}, A_{i-1})`) to the linear by-name
+     reader; without it they took exponential time (98 s at 26 levels), so the record mapper also maps each
+     alias once per mapping (irAliasFromChecker).  Every module's objects unchanged (codegen-ab.sh); the
+     self-compile runs 0.09% more instructions.  With it, stage 5 is done apart from 5c-2 (after stage 7).
+     Syntax with no record is still read by name.
 6. **Value-name resolution.**  The checker records what each identifier / selector Expr resolves to (local,
    parameter, global, constant, function, package, method expression); IR-gen uses it; then delete
    CurrentImportPkg-as-resolution, the import overlay for generic bodies, RegisterGenericBodyDeps and the

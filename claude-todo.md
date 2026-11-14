@@ -57,14 +57,10 @@ work lists).  Not the named-type cycle check's 1024 bound, which the cycle-check
 
 Some walks instead stop at a fixed nesting depth and give a wrong answer past it (found 2026-11-02, work-1, the
 sweep for step caps): check_dependent.bn's containsDependentArrayDepth and identicalUpToDependentDepth (64 levels:
-false / "identical only if both nil"), and irgen's isAbstractType in gen_type_differential.bn (32 levels: counted
-abstract).  A nesting limit would bound these too; iterative walks would drop them.  (check_generic_expand_flow.bn's
+false / "identical only if both nil").  A nesting limit would bound these too; iterative walks would drop
+them.  (check_generic_expand_flow.bn's
 expandArgFlow counts an alias chain past 64 as growing -- a generic-expansion rule, beside §21.4's instantiation
 limits, not this.)
-
-irgen's isAbstractType is taken by plan-irgen-checker-types 5e-2 (2026-11-14, work-6; user: "go ahead and take
-on that change in 5e"): it stops at named types (an instance's abstractness is in its type arguments) and has no
-depth cap.
 
 ### A diagnostic names a type from another package by its bare name: ambiguous where the package being checked has a type of that name — 🔴 OPEN (minor: a misleading message; found 2026-11-14, temp-5, the sibling-constraint fix; pre-existing)
 
@@ -314,6 +310,20 @@ is green and inside its job limit -- then (d), sharding it, is not needed, and t
 - **Symptom:** `type Pair[A any, B any] struct { a *A; b *B }`, `type P0 = Pair[int, int]`, `type Pk = Pair[P(k-1), P(k-1)]` up to n, and `var x Pn`, with no type error, compiles in 2.6 s at n = 18, 31 s at 22, and more than 120 s at 24 (main at `3b3b6ef2d`); the time is in IR-gen, after the checker.
 - **Root cause (from a sample; the name length by reasoning):** IR-gen's `registerModuleTypeDecl` → `ensureInstantiatedType` → `ensureInstantiatedStruct` (recursing), with the time in `instantiationMangledName` → `mangle.LpWriteArgList` / `lpTypeArgNamed`: the mangled name of `Pair[P(k-1), P(k-1)]` writes its argument's name twice, so the name of `Pn` is 2^n long.
 - **Needs a decision:** the mangling scheme — a backreference to an argument already written in the name (as the Itanium ABI's substitutions do), or a hash for a long argument list.  Whether `ensureInstantiatedStruct`'s recursion is exponential apart from the name is still to check.
+
+### The checker spells an instance's type arguments out in its label — a generic alias nested in itself takes time exponential in the depth — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-14, work-6, review of plan-irgen-checker-types 5e-2; pre-existing)
+
+- **Symptom:** `type P[T any] = *func(T, T)` and `var g P[P[...P[int]...]]`, n deep, with no type error, compiles
+  (`bnc -c`) in 0.13 s at n = 14, 0.75 s at 20, 42 s at 26, and more than 60 s at 40 (binate `d7f9c914e`).  A
+  build of binate `5d9459712`, before it, is no faster: 2.7 s at n = 22, against 3.0 s.
+- **Cause (from a sample at n = 26):** 2935 of 3077 samples are in `instanceLabel` (check_instance_context.bn),
+  called from `newInstWork` (check_instance_body.bn) under `instantiateGenericAlias`: each instance's label
+  `P[<arg>]` is built at once with the argument's `TypeName()`, and the argument `*func(X, X)` names X twice, so
+  the label at level k is 2^k long.  The entry "IR-gen spells every type argument out in an instance's name" is
+  the same shape in IR-gen's mangled names.
+- **Proposed fix:** build `InstWork.Label` only when it is used (the instance-context messages read it, and
+  checkInstanceBody / rejudgeInstanceSignature are handed it -- check what they do with it), then see whether
+  anything after it (IR-gen's mapping of the substituted `*func` type) is still exponential.
 
 ### Postponed abstract instances: three small gaps — a size check that does not enter them, a REPL rollback that keeps a build, and a possible missed opaque check — 🔴 OPEN (minor; found 2026-10-26, work-7, reviews of the abstract-instance change, binate `3fc098581`)
 

@@ -1,3 +1,11 @@
+### irgen's isAbstractType counted a type nested past 32 levels as abstract — DONE (binate `d7f9c914e`, 2026-11-14, work-6; user: "wait 4 minutes, then go ahead"; plan-irgen-checker-types 5e-2)
+
+A part of the todo entry "Deep nesting -- of types or of expressions -- is bounded only by the compiler's stack".
+isAbstractType (now in gen_type_record.bn) recursed with a 32-level cap and called anything deeper abstract, which
+sent conformance 305_type_depth_nested_syntax's deep types to the by-name reader.  It is a loop now, with no cap:
+it walks into an instance's type arguments but not a named type's definition, and visits each type once, so
+DAG-shaped types through aliases stay linear (the record mapper also maps each alias once per mapping).
+
 ### A generic interface whose type-parameter constraint names a sibling generic interface could not be instantiated from another package — DONE (binate `4d4f25750`, 2026-11-14, temp-5; user: "yes" to doing it first, landed on "yes, go ahead") (MAJOR: a valid program rejected; found 2026-11-13, temp-5, review of the instance view-root change; pre-existing)
 
 Package glib's `.bni` declares `interface Tag[T any] { tag() int }` and `interface Getter[V Tag[[8]uint8]] { get()
