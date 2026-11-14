@@ -6767,6 +6767,22 @@ reader's reason.  Tests: `relocSectionChecks` on an ELF64 RELA and an ELF32 REL 
 `TestReadObjectRejectsNonRelocatable`, `TestReadArchiveBadMemberReason`.  Checked that clang C objects (`-g`,
 `-ffunction-sections`, `-O0` / `-O1`) still link on x86-64, aarch64 and arm32.
 
+### IR: a block a pass drops lives as long as its function; a jump or phi naming one is an error — DONE (binate
+`c1820c444`, 2026-11-14)
+
+Found by the review of the block-label counter (entry below); user 2026-11-14: "2. yes" (the fix), "1. yes"
+(landing). A block mem2reg, fold_branch or thread_jumps dropped from `f.Blocks` was freed at the next `ir.AddBlock`
+(which rebuilt `BlocksVec`), so a jump or phi entry left naming it dangled -- on native right before the jump check,
+since phi elimination's `phicrit` split is an `AddBlock` -- and a phi entry naming a dropped block of f passed the
+check and got that edge's copies. `ir.Func.AddedBlocks` now holds every block `AddBlock` adds, so a dropped block
+lives as long as its function, and `irbuild.ForeignJumpError` / `ForeignPhiPredError` reject a target or
+predecessor not in `f.Blocks` ("a block dropped from them"); LLVM's `blockExitLabel` fallback became an internal
+error, and the VM's `findBlockOffset` error says "not one of the function's blocks or fault pads". Tests in ir,
+irbuild, native/common, native/x64, vm and codegen, each failing with its part undone (one leak guard passes either
+way). Validation: native x64 conformance at -O0 and -O2, VM conformance, LLVM conformance at -O2, cmd/bnc compiled
+at -O2 with native x86-64 and LLVM, hygiene. The review found that orphaned fault pads read dropped blocks' values
+(its own todo entry).
+
 ### Native, LLVM and VM: a phi entry naming a block outside its function is an error — DONE (binate `50cfd4382`,
 2026-11-14)
 

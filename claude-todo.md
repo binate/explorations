@@ -3256,19 +3256,18 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
   counts, so nothing proves those inputs impossible.  Fix: check each op's operand count and required types in
   the verifier (then the guards are dead and can go), or make each guard record `a.SetError`.
 
-- **IR: a block a pass drops is freed at the next `AddBlock`, so a stale jump or phi entry to it dangles; a phi
-  entry naming a dropped block is not caught** — 🟡 IN PROGRESS (claimed 2026-11-14; user: "2. yes") (found
-  2026-11-11, review of the block-label counter; by reading).  Jump targets and phi entries are raw pointers.  A
-  block dropped from `f.Blocks` (mem2reg, fold_branch, thread_jumps) stays alive only while `BlocksVec`, the builder
-  behind the old list, holds it; the next `ir.AddBlock` rebuilds the builder (`appendBlock`, `ir/ir.bn`) and frees
-  it.  On native, phi elimination's `phicrit` split is such an `AddBlock`, just before `common.EmitObject`'s jump
-  check, so a stale jump or phi entry then dangles: the check reads freed memory, and if the memory goes to a new
-  block of f the pointer names a live block of f with a defined label -- silent (the per-function label counter,
-  binate `abee51b9f`, gives a stale jump an undefined label only while the dropped block is alive).  And a phi
-  entry naming a dropped block of f passes `irbuild.ForeignPhiPredError` (its `Func` is f): on native and the VM
-  `EliminatePhis` puts that edge's copies into the dropped block.  Fix (user 2026-11-14, "2. yes"): keep a dropped
-  block alive as long as its function (keep the old builder, or move dropped blocks to a per-function list), and
-  reject a jump target or phi predecessor that is not in `f.Blocks` (a set built once per check), with tests.
+- **IR: the passes that drop unreachable blocks leave their fault pads, which go on reading the dropped blocks'
+  values** — 🟡 IN PROGRESS (claimed 2026-11-14; user: "Q2. (iii) yes, and we can do that before D") (found
+  2026-11-14, review of the dropped-block fix; by reading).  mem2reg (`pruneUnreachableBlocks`), fold_branch and
+  thread_jumps drop unreachable blocks from `f.Blocks` but never touch `f.FaultPads`, so a pad whose faulting op
+  was in a dropped block stays and reads that block's values (a pad releases, e.g., a managed call result of its
+  block, `iropt/inline_calls.bn`).  The VM lowers every pad but never branches to an orphan (dead bytecode);
+  native's aggregate-load elision scans pads, so an orphan only makes it more conservative.  It blocks the
+  operand-ownership check (entry below): checked against f's live values, an orphan pad's operands are rejected,
+  and the VM runs mem2reg by default.  Fix: the pruning passes also drop each pad that no live block or live pad
+  reaches (a faulting op's `Instr.PadBlock`, or a pad's own jumps); pads then need what dropped blocks got in
+  binate `c1820c444` -- kept allocated as long as the function (`PadBlock` is a raw pointer) and a label counter
+  that never goes back (`AddFaultPad` numbers by `len(f.FaultPads)`) -- with tests.
 
 - **Native, LLVM and VM: an operand that is another function's value reads this function's value of the same
   id** — 🟡 IN PROGRESS (claimed 2026-11-14; user: "3. right after that", after the dropped-block fix) (found
@@ -3281,8 +3280,15 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
   checks who owns an ordinary operand, not even `--verify-ir` (it checks phi operands only,
   `VERR_PHI_VAL_UNOWNED`), and `iropt.assertOperandsInScope` (`iropt/inline_pads.bn`) compares ids, not
   identity.  Valid IR never has such an operand; an optimizer bug (an inliner remap that misses one) would.
-  Fix: before each backend and the VM lower a function, check that every operand is one of f's own values (find
-  first which operands are legitimately not f's instructions or parameters), with a test per backend.
+  Fix: before each backend and the VM lower a function (and before phi elimination), check that every operand is
+  one of f's own values: an instruction of f.Blocks or f.FaultPads, one of `f.ParamRefs`, or a global ref of the
+  module being lowered (not `f.Mod`, which init, dtor, copy and eq helpers leave unset), with a test per backend;
+  build the owner set from `blk.Instrs`, never `InstrsVec` (passes leave removed instructions there), and rule
+  `irgen/gen_panic.bn`'s detached OP_CONST_NIL in or out.  The VM eliminates phis in the frame check
+  (`funcFrameBytes`) before `lowerFunc` for most functions, and nothing records it, so (user 2026-11-14, "Q1.
+  (b)") `EliminatePhis` sets a flag on `ir.Func` and the check runs only while it is false.  Orphaned fault pads
+  would fail the check on valid programs; the pad-pruning entry above goes first (user: "Q2. (iii) yes, and we
+  can do that before D").
 
 - **Checker rejects valid alias uses in const / untyped-literal contexts** — 🔵 OPEN (found
   2026-09-26).  Spec type.alias.transparency: an alias is its target in every context.  But with
