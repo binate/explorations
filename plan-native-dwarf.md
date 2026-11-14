@@ -1,7 +1,8 @@
 # Native backends: DWARF debug info
 
 Status: SCOPING (claimed 2026-11-13, work-3; claude-todo "The native backends emit no debug info").  Until this
-lands, bnc rejects `-g` with `--backend native` (binate `44972c53c`).
+lands, bnc rejects `-g` with `--backend native` (binate `44972c53c`).  Not a release blocker (user, 2026-11-14: "I
+don't think we need to block release on native debug info").
 
 ## What exists (checked 2026-11-13, binate `907e25509`)
 
