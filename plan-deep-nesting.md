@@ -420,5 +420,12 @@ recursive, so far more than 75).
   `build-bnc.sh --debug`) parser frames average ~1 KB and a nested composite literal costs 18 parser frames, 9 of them
   the one-function-per-precedence ladder, so the parser overflowed 8 MB at ~470 levels.  The binary operators are
   parsed by one precedence-climbing loop instead, keeping 512 (user: "Precedence climbing, 512 (Recommended)").
+- Type syntax (2026-11-14): leaving type expressions to type.named.depth left them unbounded -- that rule checks
+  declared types and layout reads, after parsing, so a variable's anonymous type 2,000 deep compiles and 20,000 deep
+  crashes (struct and function-value types in the parser, arrays / pointers / slices in the checker's
+  resolveTypeExpr).  The parser counts a type expression's own nesting on a second counter, bounded by
+  type.named.depth's 1,024 -- each prefix, struct field type, function value parameter / result, type argument --
+  and reports "type nests too deeply" past it; type.named.depth gains a sentence (user: "Parser limit at 1024
+  (Recommended)").
 - Open: step 3 (a type-depth backstop) not
   decided, revisit once step 1 is done.
