@@ -262,9 +262,11 @@ is green and inside its job limit -- then (d), sharding it, is not needed, and t
   the 81 TestDeep tests and 3 in the long-chain tests the int-int lane skips; under the single VM it takes 72 min, 57 of
   them TestDeep, 11 TestCheckLongNamedChainsAreNotCycles, ~4 the other long-chain tests, ~20 s the other ~1,960 tests.
   Bare metal DONE: binate `76f999190` restores the skip work-3's `6b46c3244` dropped (plan-deep-nesting's design: the
-  deep tests skip bare metal and int-int), with the int-int list; check now takes under a minute there.  Open, NEEDS
-  DECISION (put to the user 2026-11-12): the single-VM lanes -- skip the int-int list there too, shard check finer,
-  or lower deepLevels.
+  deep tests skip bare metal and int-int), with the int-int list; check now takes under a minute there, and CI's
+  bare-metal lane passed in 16 and 20 min on the next two unit runs.  Single-VM DONE: binate `236fc20ec` (user: "1.
+  yes, go for it"; finer sharding not wanted: "2. ok, leave it as-is"): builder-comp-int and builder-comp-comp-int skip
+  the int-int list too (locally check takes 143 s / 214 s on those lanes, builds included).  Open: confirm on CI's
+  next unit run that no single-VM shard times out in check.
 
 ### IR-gen spells every type argument out in an instance's name — instances whose arguments share a type get exponentially long names — 🔴 NEEDS DECISION (found 2026-10-26, work-7, testing the abstract-instance change's shared-argument walk; reproduced on main; pre-existing)
 
