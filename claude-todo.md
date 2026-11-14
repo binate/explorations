@@ -205,6 +205,16 @@ int-int shards passed in 24-39 min.  The sort (`d25871bb5`) also made builder-co
 pkg/binate/check (915 s there) on shard 3/6 every run, past its 30-min job limit; binate `5ebd28e28` (2026-11-06,
 work-3; user: "ok", then "yes") splits check's tests across the single-VM lanes' shards (pkg-binate-check.split.vm).
 Open: confirm on the next completed unit run that the int-int and single-VM shards finish in time.
+2026-11-13 (work-3): in unit runs 43186851510 and 43269624621, 5-6 of the 12 int-int shards ran past the 45-min cap
+again, in a part of check or irgen: a check part takes 15-30 min on CI (4.6-9.0 s each on the single VM, so ~150-200x),
+and every shard first spent ~6 min loading types and ir in an invocation of their own to run 1/12 of their tests
+(single VM: ir's 0.9 s, types' 0.1 s).  binate `907e25509` (user: "We should do 3, and 1") runs types and ir whole,
+each on one shard placed by cost (INTINT_WHOLE), and raises the lane's cap to 60 min; the single-VM lanes skip check's
+deep and long-chain tests (`236fc20ec`).  Open: confirm on the next unit run.  Option (a), bni's load (user: "open a
+todo for 4, though we've already done a bunch of that (not sure if it's regressed; some of the regression may be also
+be a tradeoff between execution perf and load latency)"): re-measure int-int 001_hello's CPU and its load phases
+against the 10-28 numbers above to see whether the load has regressed since, and weigh the load latency the VM
+lowering's IR passes cost the double VM against the execution speed they buy.
 
 ### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🟡 IN PROGRESS: confirm on CI (claimed 2026-11-07, work-3), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
@@ -278,7 +288,8 @@ is green and inside its job limit -- then (d), sharding it, is not needed, and t
   bare-metal lane passed in 16 and 20 min on the next two unit runs.  Single-VM DONE: binate `236fc20ec` (user: "1.
   yes, go for it"; finer sharding not wanted: "2. ok, leave it as-is"): builder-comp-int and builder-comp-comp-int skip
   the int-int list too (locally check takes 143 s / 214 s on those lanes, builds included).  Open: confirm on CI's
-  next unit run that no single-VM shard times out in check.
+  next unit run that no single-VM shard times out in check.  The int-int lane's own overrun (check's parts and an
+  every-shard load of types / ir) is the slow-lanes entry's (binate `907e25509`).
 
 ### IR-gen spells every type argument out in an instance's name — instances whose arguments share a type get exponentially long names — 🔴 NEEDS DECISION (found 2026-10-26, work-7, testing the abstract-instance change's shared-argument walk; reproduced on main; pre-existing)
 
@@ -2095,7 +2106,8 @@ allocation VOLUME — plus rt.BoundsCheck ≈ a third of self-time). Measure at
 
 GREEN via the representative-subset stopgap (`083e1f334`; the full saga —
 skip rounds, test-level sharding, the two O(N²) registration fixes — is in
-the done log): types+ir run test-sharded plus all cheap packages; every
+the done log): types and ir run whole, each on one shard placed by cost
+(binate `907e25509`), as do all cheap packages; every
 compile/run-heavy `.split.vm` package (codegen, vm, native/*, asm/*, lint,
 bnlint, bnfmt, parser, irdata) is skipped in THIS lane only (their logic is
 covered by the single-VM and native lanes). Open:
@@ -2109,8 +2121,8 @@ covered by the single-VM and native lanes). Open:
   `TestEmitDebug` per-test skip (the DWARF path is unprofiled — profile
   before guessing; a 2026-05-13 cache attempt was a net LOSS, done log) and
   `pkg/asm/aarch64` (unprofiled, same hypothesis).
-- Tune the int-int shard count / 45-min cap down once stable;
-  `build_interp_arm32` is still -O0 (possible -O2 follow-up).
+- Tune the int-int shard count / cap down once stable (60 min since binate
+  `907e25509`); `build_interp_arm32` is still -O0 (possible -O2 follow-up).
 
 ## Standard library — pkg/std namespace migration
 
