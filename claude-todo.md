@@ -3292,6 +3292,14 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
   reaches (a faulting op's `Instr.PadBlock`, or a pad's own jumps); pads then need what dropped blocks got in
   binate `c1820c444` -- kept allocated as long as the function (`PadBlock` is a raw pointer) and a label counter
   that never goes back (`AddFaultPad` numbers by `len(f.FaultPads)`) -- with tests.
+  **MAJOR, found while implementing the fix (2026-11-14): bni aborts on a valid program.**  The orphan is not
+  just dead bytecode: load-forwarding's `assertOperandsInScope` (`iropt/inline_pads.bn`) also walks the pads, so
+  after mem2reg (which the VM runs by default) drops a block, its orphaned pad's operand panics the load with
+  `iropt: operand not defined in f (dangling) after inlining / load-forwarding`.  Trigger: dead code after an
+  if / else whose arms both return (IR-gen puts it in a block no path reaches) that declares a managed local and
+  then does something that can fault (`t[k]`).  Reproduced with a bni built from `c1820c444` and with the pre3
+  bundle's bni; the compiled backends (LLVM and native, -O0 and -O2) run it.  The fix for this entry fixes it;
+  its regression test is conformance `1747_err_fault_pad_after_pruned_blocks`.
 
 - **Native, LLVM and VM: an operand that is another function's value reads this function's value of the same
   id** — 🟡 IN PROGRESS (claimed 2026-11-14; user: "3. right after that", after the dropped-block fix) (found
