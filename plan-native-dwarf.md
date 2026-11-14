@@ -41,8 +41,10 @@ don't think we need to block release on native debug info").
 Testing: dump the sections (llvm-dwarfdump / dwarfdump) in unit and e2e tests; e2e line breakpoints and backtraces
 under lldb (macOS) and gdb (Linux, docker) on all three architectures, with both linkers.
 
-## Questions for the user
+## Decisions
 
-- Order, and what the release needs: steps 0-4 give `-g` builds with working file:line breakpoints and symbolized
-  backtraces on every native target; 5 (variables, types) and 6 (CFI) are each a project of their own.
-- DWARF 4 (the LLVM backend's version) or 5.
+- Not a release blocker (user, 2026-11-14: "I don't think we need to block release on native debug info").
+- DWARF 5, and the LLVM backend moves from 4 to 5 too (user, 2026-11-14: "Let's do DWARF 5, and also switch LLVM to
+  5").  DWARF 5 is what Apple clang 21, Ubuntu clang 18 and GCC 13 emit for a plain `-g` (checked 2026-11-14); for
+  steps 0-4 it costs about what 4 does (the indexed string and address forms are optional), its line-table header
+  being the main difference.
