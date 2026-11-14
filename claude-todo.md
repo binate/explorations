@@ -496,7 +496,7 @@ new image's clang emits for every function.  Plan (b): the 26.04 package for qem
 naming a personality routine in our bare-metal code (Binate has no exceptions) -- by `nounwind` in the LLVM IR, or by
 the flags the new clang needs -- rather than routing around it with another linker.
 
-### A package-level variable of a generic container keyed by the package's private type no longer type-checks: main is red — 🔴 OPEN MAJOR (found 2026-11-14, work-3, reading CI; regression from binate `ed737493f`, temp-5's instance-impl-view step 1; temp-5 told)
+### A package-level variable of a generic container keyed by the package's private type no longer type-checks: main is red — 🟡 IN PROGRESS (claimed 2026-11-14, temp-5) MAJOR (found 2026-11-14, work-3, reading CI; regression from binate `ed737493f`, temp-5's instance-impl-view step 1; temp-5 told)
 
 Since `ed737493f` ("check: an instance's judgments see its view root's private impls, not every impl") pkg/binate/format
 and so cmd/bnfmt no longer type-check: "type argument rereadText does not satisfy constraint Hashable: the matching impl
