@@ -289,7 +289,12 @@ IR-gen cannot map is an internal error, never `int`.
      alias's target (mi.AliasTarget) comes from its record (d.ResolvedTypeID), the written name only without one;
      an alias whose record is a generic instance, also through another alias (aliasOfInstance), stays a pending
      stub, instantiated late as before (conformance 1383 caught the alias-of-an-alias case); byte-identical IR.  An
-     alias of a package's own interface named `any` now targets it, not the universe `any`.  Note from the 5d-2 review: stashedGenericDecl matches the checker's
+     alias of a package's own interface named `any` now targets it, not the universe `any`.  Re-check
+     (2026-11-13): the per-increment "byte-identical IR" comparisons above (--emit-llvm) saw only each program's
+     main module and cmd/bnc's packages, never a test's own packages, the runtime or the stdlib.  Comparing every
+     module's object (bnc -c; scripts/codegen-ab.sh) between current main and main with 5a..5d-3b reverted:
+     single 2747 SAME / 713 BOTHFAIL, multi 367 / 125, cmd/bnc SAME; the only other results are 1744 and 1746,
+     which the old compiler cannot build (a listed `any` keyed on the package's own name).  Note from the 5d-2 review: stashedGenericDecl matches the checker's
      InstDecl by identity, so a REPL re-declaration of a generic interface (stashGenericIfaceDecl keeps the first)
      would panic there -- unreachable while the checker rejects redefinitions; stage 8 must handle it.
    - 5e: impl rows from the checker's impls with checker substitution: mintGenericImplRows stops resolving a
