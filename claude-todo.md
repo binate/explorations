@@ -47,7 +47,7 @@ abstract).  A nesting limit would bound these too; iterative walks would drop th
 expandArgFlow counts an alias chain past 64 as growing -- a generic-expansion rule, beside §21.4's instantiation
 limits, not this.)
 
-### A generic interface whose type-parameter constraint names a sibling generic interface cannot be instantiated from another package: "undefined" — 🔴 OPEN (MAJOR: a valid program rejected; found 2026-11-13, temp-5, review of the instance view-root change; reproduced with a compiler built from binate main `c1820c444` plus that change, and with an older one; pre-existing)
+### A generic interface whose type-parameter constraint names a sibling generic interface cannot be instantiated from another package: "undefined" — 🟡 IN PROGRESS (claimed 2026-11-14, temp-5) (MAJOR: a valid program rejected; found 2026-11-13, temp-5, review of the instance view-root change; reproduced with a compiler built from binate main `c1820c444` plus that change, and with an older one; pre-existing)
 
 Package glib's `.bni` declares `interface Tag[T any] { tag() int }` and `interface Getter[V Tag[[8]uint8]] { get()
 V }`; main, with `impl *X : glib.Tag[[8]uint8]`, writes `var g *glib.Getter[*X] = nil` and is rejected: "pkg/glib.bni:7:20:
