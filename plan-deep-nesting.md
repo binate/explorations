@@ -403,5 +403,9 @@ recursive, so far more than 75).
   than read again as a type (user: "Count as expressions (Recommended)"); a parenthesized type counts one level --
   parentheses add no type depth, so type.named.depth does not bound them, and 100,000 of them crashed the compiler
   (user: "Count them (Recommended)").
+- Step 2's margin (2026-11-13): the 512 limit's margin was measured on -O2 bnc; at -O0 (unit-test binaries,
+  `build-bnc.sh --debug`) parser frames average ~1 KB and a nested composite literal costs 18 parser frames, 9 of them
+  the one-function-per-precedence ladder, so the parser overflowed 8 MB at ~470 levels.  The binary operators are
+  parsed by one precedence-climbing loop instead, keeping 512 (user: "Precedence climbing, 512 (Recommended)").
 - Open: step 3 (a type-depth backstop) not
   decided, revisit once step 1 is done.
