@@ -87,6 +87,11 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   order of the stages above.
 - Jump relaxation (user, 2026-11-11: "Leave it to code placement (Recommended)"): not in this series; bnas gets
   clang's short jumps when plan-native-code-placement.md's step 12 lands.
+- `lock` (user, 2026-11-13: "Reject non-lockable (Recommended)"): with an instruction on the same line, `lock`
+  needs a lockable one (add / adc / and / or / sub / sbb / xor / inc / dec / neg / not / bts / btr / btc /
+  xadd / cmpxchg / cmpxchg8b / cmpxchg16b / xchg) with a memory destination, else an error, as GNU as; clang
+  emits F0 before anything (`lock add rax, rbx`, `lock mov`, `lock nop`: #UD at run time).  A `lock` alone on
+  its line emits F0, as clang and GNU (the next line cannot be checked).
 
 ## Progress
 
