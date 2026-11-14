@@ -328,18 +328,23 @@ IR-gen cannot map is an internal error, never `int`.
      table beside ExprTypes (a method expression's `T` is already stamped as a type); a package-level Symbol
      gets its declaring package (set where collectDecls / the .bni loaders define it; HomePkg already gives an
      exposed one's home); a query `ExprSymbol(e)` with accessors (kind, declaring package or "" for a local,
-     name).  The record is the Symbol, not a name, so that 6b can give a shadowed declaration a hidden name on
-     the same handle.  Checker unit tests; no consumer.  An instance body's records are its checked copy's
-     (InstanceBodies), so a generic body's names come out in its declaring package with no overlay.
+     name).  Checker unit tests; no consumer.  An instance body's records are its checked copy's
+     (InstanceBodies), so a generic body's names come out in its declaring package with no overlay.  From its
+     review: a declaration can have more than one Symbol over a check (a typed package variable is defined at
+     collection and again in pass 2), so 6b's hidden names need the declaration's identity, not the Symbol
+     handle; `_func_handle` / `__c_entry` operands are recorded too; a generic function's name in an
+     instantiation (`G[T]`, `pkg.G[T]`) resolves to a generic declaration and has no record, nor `__Package`.
    - 6-2: a value differential (as --x-type-differential was for types): IR-gen notes each read whose by-name
      answer differs from the record; swept over the corpus before the switch.
    - 6-3: identifier reads -- genExpr's EXPR_IDENT (local / local const / global / const), lookupVar's
      bareGlobalIdx fallback, the const lookups -- from the record: a local reads ctx.Vars, anything else its
      declaring package's qualified name.
    - 6-4: function references -- funcRefName / namesFunction / funcRefShadowed, genExprOrFuncRef, direct calls,
-     `pkg.F` (buildQualNameHomed) -- from the record.
-   - 6-5: method expressions `T.M` (methodExprName, the 5d-1 review note (a)) and generic heads
-     (instantiationHead) from records.
+     `pkg.F` (buildQualNameHomed), and the operands of `_func_handle` / `__c_entry` (gen_builtin.bn,
+     gen_builtin_ffi.bn; a generic body's bare operand names the wrong function today -- the MAJOR todo entry,
+     conformance 1748 / 1749) -- from the record.
+   - 6-5: method expressions `T.M` (methodExprName, the 5d-1 review note (a)) from their records, and generic
+     heads (instantiationHead), which need a record of their own: the generic declaration a head resolves to.
    - 6-6: delete CurrentImportPkg-as-resolution, overlayFileImports, RegisterGenericBodyDeps and the bare-name
      precedence (moduleNamesInScope, definingPkgType, bareGlobalIdx's rules).  Syntax with no record still
      reads by name until stage 7.
