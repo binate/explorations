@@ -394,6 +394,17 @@ recursive, so far more than 75).
   case bodies and `for` clauses a level short, a bracket element's lost error, unbounded parenthesized types), the
   rewrite's trees and diagnostics identical, chains reported where they start.  bnfmt is exponential in blocks nested
   on one line (claude-todo, the bnfmt function-literal entry).
+- Type syntax DONE: binate `32b3a1391`, docs `529e430` (landed 2026-11-14; user: "yes, go ahead") -- the parser
+  holds a type expression's own nesting to parser.MaxTypeNesting (1024, type.named.depth's bound; check's
+  maxTypeDepth is defined from it) on a second counter (tdepth): each type written in another -- after a prefix, a
+  struct's field, a function value's parameter / result, a type argument, in an array's length -- a level deeper,
+  a parenthesized type's type at its parentheses' level; a declared struct, an impl's interface, a composite
+  literal's type and an assertion's target count the same way.  Past it: "type nests too deeply: more than 1024
+  levels", one error, the file read no further.  Every type-syntax recursion is now bounded (about 1024 type levels
+  plus 512 source levels).  Review: four findings fixed (a bracket element's type reading past the bound lost to the
+  expression reading's error, three error positions a token late, the two constants untied, the spec wording).
+  Conformance spec/07-types 306.  Seen meanwhile: pkg/binate/format's unit tests do not build on main (claude-todo
+  MAJOR, ed737493f), so format was not run.
   Next: step 1's remaining stages -- irutil / ir, IR-gen (type alias chains crash in registerModuleTypeDecl /
   registerPkgTypeDecl), codegen, native, vm / interp, lint.
 ## Decisions (2026-11-03)
