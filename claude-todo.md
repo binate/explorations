@@ -2845,8 +2845,9 @@ line the literal starts on.
 
 `printBuiltin` (`pkg/binate/format/print_builtin.bn`) writes a builtin with a type operand (`make`,
 `make_slice`, `cast`, `bit_cast`, `unsafe_cast`, `sizeof`, `alignof`, `__c_global`) as `name(` + type +
-`, ` + value with no list logic: a source `cast` / `(int,` / `x)` is joined, and a comment after its `(`
-(`cast( // c` / `int, x)`) goes after the statement.  The parser records these calls' `(` already
+`, ` + value with no list logic: a source `cast` / `(int,` / `x)` is joined.  A comment after its `(` (`cast( //
+c` / `int, x)`) prints in place (since binate `27bdebd4b`), except in a `__c_global`, which prints none of its
+comments (the comment-gap entry).  The parser records these calls' `(` already
 (`ast.File.BuiltinOpeners`); printing the operands as an item list (a type item, then the value) would
 give them the value-argument builtins' wrapping and comments.
 
@@ -2974,37 +2975,32 @@ three blank lines there, which a second format makes one.  So neither is idempot
 caller lays it out (printDecls, the block loop), its comments going on lines of their own, or keep it as written by
 recording its keyword on the DECL_GROUP node; tests: goldens for both, formatted twice.
 
-### bnfmt moves a comment inside a type, or before a `)` or `]`, out of its place — 🟡 IN PROGRESS (claimed 2026-11-07, temp-4) 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the operator chains' part done in binate `df21fe656`, the expressions', simple statements', declarations' and composites' in binate `27bdebd4b`, `43d112b0a`, `8d796d5f6` and `17701aeb7`; the lists' closes in binate `91a0c17ee` and `d2c6178e7`; the slices', type assertions', type-operand builtins' and `__c_call`'s closes in binate `64dce165e`, and the slice break they needed in binate `436c441f0`; the line comment after a slice's `:` with no high bound in binate `c17e85ff4`; the line comment after a `__c_call`'s `...` in binate `decd60279`)
+### bnfmt moves a comment in a `__c_global`, after a `...`, or around a parenthesized expression out of its place — 🟡 IN PROGRESS (claimed 2026-11-07, temp-4) 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the operator chains' part done in binate `df21fe656`, the expressions', simple statements', declarations' and composites' in binate `27bdebd4b`, `43d112b0a`, `8d796d5f6` and `17701aeb7`; the lists' closes in binate `91a0c17ee` and `d2c6178e7`; the slices', type assertions', type-operand builtins' and `__c_call`'s closes in binate `64dce165e`, and the slice break they needed in binate `436c441f0`; the line comment after a slice's `:` with no high bound in binate `c17e85ff4`; the line comment after a `__c_call`'s `...` in binate `decd60279`; the types' in binate `6d97d7e91`)
 
 A comment inside a statement that nothing prints where it stands is still pending in the cursor when the statement
-ends.  On one line it goes after the statement (`x := y.(T /* c */) // d` prints `x := y.(T) /* c */ // d`);
-when the statement spans lines, emitTrailingCommentBefore stops at it, as it is not on the statement's last line, so
-both comments go on lines of their own after the statement, and a `// LONG-LINE ALLOWED` there no longer marks the
-line.  A line comment inside cannot simply join the trailing one (`// c // d` lexes as one comment).  Each gap left
-can claim its comments by position now that a comment records the tokens around it (token.Comment After / Before),
-or by positions the parser records where it drops a gap's end, as a var or const spec's ast.Header does (Binder,
-Assign):
-- inside a type, and inside a qualified type name: the comment goes after the type (`var a p./* c */ T = 1` prints
-  `var a p.T /* c */ = 1`, a parameter's likewise), into the next list gap (`cast(p./* c */ T, w)` prints
-  `cast(p.T, /* c */ w)`), or before a composite's `{` (`p.Box[int] /* c */{1}`); a line comment inside a
-  composite's qualified type name (`p. // c` / `Box{1}`) still goes after the statement;
-- right before a `)` whose position the tree does not record (each can find it, as a list's close does, among the
-  bracket pairs a comment-collecting parse records: ast.File.Brackets, pairedClose / openAfter in
-  print_closegaps.bn): after a function type's last result (`func() (int, bool /* c */)`; printResults passes no
-  opener), and after an expression the source keeps in parentheses (`(a + b /* c */) * c` prints `(a + b) /* c */
-  * c`);
+ends.  On one line it goes with the next comments the statement prints, or after the statement (`y :=
+__c_global(/* a */ "x", int) // d` prints `y := __c_global("x", int) /* a */ // d`); when the statement spans lines,
+emitTrailingCommentBefore stops at it, as it is not on the statement's last line, so both comments go on lines of
+their own after the statement, and a `// LONG-LINE ALLOWED` there no longer marks the line.  A line comment inside
+cannot simply join the trailing one (`// c // d` lexes as one comment).  Each gap left can claim its comments by
+position now that a comment records the tokens around it (token.Comment After / Before), or by positions the parser
+records where it drops a gap's end, as a var or const spec's ast.Header does (Binder, Assign):
+- inside a `__c_global`, which prints none of its comments (printCGlobal, print_builtin.bn): `v := __c_global(/* a */
+  "x" /* b */, /* c */ p./* e */ T /* d */)` prints `v := __c_global("x", p./* e */ T) /* a */ /* b */ /* c */ /* d
+  */` (the comments inside its type print in place);
+- right before a `)` the source keeps around an expression, whose position the tree does not record (it can be
+  found, as a list's close is, among the bracket pairs a comment-collecting parse records: ast.File.Brackets,
+  pairedClose / openAfter in print_closegaps.bn): `(a + b /* c */) * c` prints `(a + b) /* c */ * c`;
 - right after a `(` the source keeps around an expression, whose position the parser does not record (it keeps
   only the Parenthesized flag): `x = (/* c */ a + b) * c` prints `x = /* c */ (a + b) * c`, stable after (seen
-  2026-11-08 working on the declarations' gaps).
+  2026-11-08 working on the declarations' gaps);
+- right after a variadic parameter's `...`, in a signature or a function value: `func f(a int, b ... /* d */ int)`
+  prints `b /* d */ ...int`, and `*func(int, ... /* c */ int)` prints `*func(int, /* c */ ...int)` (bnfmt
+  `bnc-0.0.17-pre3` and the tree's; seen 2026-11-14 in the review of the comments inside types).
 
 A comment left pending also prints after those a later list in the statement claims before its close, so the
-comments change order: `x := y.(p. // c` / `T) + g(1 /* d */)` prints `x := y.(p.T) + g(1 /* d */)` / `// c`
-(bnfmt `bnc-0.0.17-pre3` keeps `// c` before `/* d */`, both after the statement; since binate `d2c6178e7`).
-Printing the comments inside types in place removes it (seen 2026-11-10 in a review of the fix for a builtin's
-line comment before its `)`).
-A slice's `:` takes a comment left pending inside its low bound the same way: in `w := q[a[x:` / `// c1` / `] +
-/* c2 */ y:hi]` the inner slice's line comment before its `]` prints after the outer `:`, after `/* c2 */` (bnfmt
-`bnc-0.0.17-pre3` prints both after the statement, in order; seen 2026-11-10 in the slice break's review).
+comments change order: `y := __c_global("x", // e` / `int) + g(1 /* f */)` prints `y := __c_global("x", int) +
+g(1 /* f */)` / `// e`.
 
 ### bnfmt lets a string run the source split across lines run past the cap as a slice's low bound — 🔴 OPEN 🟢 LOW (found 2026-11-11, temp-4, second review of the deep slice nest fix; since binate `9f34edb90`)
 
@@ -3041,14 +3037,16 @@ block comment between a call's or an index's head and its opener stays on that l
 reserves only the opener (argsHeadTail).  A slice's head reserves such a comment (printSlice claims it once the
 head is rendered, claimAfterExpr, and adds its width); printCall and printIndex can do the same.
 
-### bnfmt gives a var's type no room for the ` = <value>` after it — 🟡 IN PROGRESS (claimed 2026-11-14, temp-4) 🟢 LOW (found 2026-11-08, temp-4, working on the declarations' comment gaps; pre-existing)
+### bnfmt does not wrap a type inside a parameter list, and a parameter whose type keeps comments runs past the cap — 🔴 OPEN 🟢 LOW (found 2026-11-14, temp-4, review of the comments inside types; pre-existing without comments, since binate `6d97d7e91` with them)
 
-printValueSpec (print_declgaps.bn) prints a declaration's type with a tail of 0 when no comment follows it, so a
-type that just fits keeps the line, and ` = <value>` goes on after it past the limit: a one-line `var zz
-*func(<three types>) (int, bool) = nil` whose type ends at column 99 prints 105 wide, with bnfmt `bnc-0.0.17-pre3`
-and the tree's.  A comment before `=` already gets room (its width plus 2 for ` =`).  The fix gives the type a tail
-of 2 whenever a value follows, so the type wraps for ` =` and the value goes on after it or on its continuation
-line; check the corpus for the layouts it moves.
+A parameter-list item is rendered once, from column 0, and goes on its line whole, so a type in it that could wrap
+does not: `func f(<n×75> Box[Aaaa, p.Bbbb], yyyyyyyyyyyy int) (int, bool) {}` puts `<n×75> Box[Aaaa, p.Bbbb],` on
+a continuation line 102 wide, where the type-argument list could break (bnfmt `bnc-0.0.17-pre3` and the tree's).
+With the comments inside a type printed in place (binate `6d97d7e91`) it reaches more items: `func g(<n×61> [/*
+comment */ 3 /* d */] /* e */ Tttt, yyyyyyyyyyyy int) (int, bool) {}` prints its first parameter on a line of its
+own 109 wide, where bnfmt before `6d97d7e91` moved the comments after the `,` and stayed in the cap (5 files of the
+review's sweep).  Breaking such a type needs the item rendered at its continuation column, where its lists and
+brackets can wrap (after a type-argument list's `[` or `,`, after an array's `[`).
 
 ### bnfmt's operator chain moves a function literal to a continuation line for what follows its last line — 🟢 LOW (found 2026-10-26, temp-4, working on the statement trailing-comment entry; pre-existing)
 
@@ -3080,11 +3078,11 @@ x` / `/* p */ bbbb = 2 // y` in a `var` or `const` group, and with `case 1: g() 
 b` (bnfmt `bnc-0.0.17-pre3` and the tree's).  The second format is stable.  An interface method's comment
 (`/* p */ F() int`) moves to a line of its own the same way, with no run to break.  A run should break at any comment that
 prints on a line of its own between two elements, or such a comment should stay on its element's line.  A comment
-inside an element that goes on a line of its own after it (one inside a type, which nothing prints in place) does
-the same: `var (` / `a int = y.(p. // c` / `T)` / `bb int = 2 // d` / `)` prints `bb int = 2      // d`, aligned
-with `// c` on `a`'s source line, and a second format `bb int = 2 // d`; a struct whose first field is `a
-[len(y.(p. // c` / `T))]int` pads `a  [len(y.(p.T))]int` likewise (bnfmt `bnc-0.0.17-pre3` and the tree's; seen
-2026-11-10 in a review of the fix for a builtin's line comment before its `)`).
+inside an element that goes on a line of its own after it (one inside a `__c_global`, which prints none of its
+comments) does the same: `var (` / `a  int = __c_global("x", // c` / `int)` / `bb int = 2 // d` / `)` prints `// c`
+on a line of its own after `a`'s, a blank line, and `bb int = 2                   // d`, aligned with `// c` on `a`'s
+source line; a second format prints `bb int = 2 // d` (the tree's bnfmt; seen 2026-11-10 with a comment inside a
+type, which prints in place since binate `6d97d7e91`).
 
 ## bnlint rules, unused-entity checks & lint skips
 

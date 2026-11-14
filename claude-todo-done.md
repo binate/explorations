@@ -1,3 +1,34 @@
+### bnfmt moved a comment inside a type out of its place — DONE (binate `6d97d7e91`, 2026-11-14, temp-4; user: "yes" to taking it on, landed on "wait 4 minutes, then land") (LOW; part of the comment-gap entry in claude-todo.md)
+
+The type printer placed no comment of its own: `var a p./* c */ T = 1` printed `var a p.T /* c */ = 1`,
+`cast(p./* c */ T, w)` printed `cast(p.T, /* c */ w)`, `*func() (int, bool /* c */)` printed the comment after the
+`)`, and a line comment inside a type went after the statement.
+- Fix (print_typegaps.bn, new; print_type.bn, print_wrap.bn, print_decl.bn, print_declgaps.bn): each gap inside a
+  type is claimed by position and printed where it lies -- around a qualified name's `.`, after a `*`, `@` or
+  `readonly`, inside and after a slice's or an array's brackets, inside parentheses, before an instantiation's `[`,
+  around a function value's `func`, and after the `(` and before the `)` of its parameters and results.  A gap is
+  keyed by a token of the type's own, so an enclosing gap does not claim it again; a qualified name's `.` and a
+  function value's `func` come from the tokens a comment records around it.  Parser: a raw slice type `*[]T`
+  starts at its `*`, and a generic composite literal's head name has a real End.
+- With them, a type alias's header comments stay around its `=`, and a var's or const's type always leaves room
+  for ` =` (the next entry); the tests that left a comment pending inside a type use one in a `__c_global`.
+- Tests: print_typegaps_test.bn (six tests); print_declgaps_test.bn TestTypeAliasCommentsStayInPlace; parser
+  TestCompositeHeadNameEnd, TestParseTypeRawSliceStartsAtItsStar.
+- Against main's bnfmt: the review probes and the generated corpora unchanged; one tree file narrower (the ` =`
+  room); of 13,522 tree files with comments put next to type tokens, none parse differently, none newly
+  non-idempotent, and 10 outputs a second format changed on main are stable.  Review: an ` =` overflow and an
+  alias's comments swapping, both fixed before landing.  Left open: an interface's or impl's header comments now
+  print after the comments inside its types (the header-comment entry), and a parameter whose type keeps comments
+  can run past the cap (the parameter-width entry).
+
+### bnfmt gave a var's type no room for the ` = <value>` after it — DONE (binate `6d97d7e91`, 2026-11-14, temp-4; with the comments inside types, whose review found the overflow it caused; claimed after the fix was written) (LOW; found 2026-11-08, temp-4, working on the declarations' comment gaps; pre-existing)
+
+printValueSpec printed a declaration's type with a tail of 0 when no comment followed it, so ` = <value>` went on
+past the limit (a `var zz *func(<three types>) (int, bool) = nil` printed 105 wide).
+- Fix (print_declgaps.bn): the type always reserves ` =` (a tail of the comments' width plus 2).
+- Test: print_declgaps_test.bn TestValueSpecTypeLeavesRoomForTheAssign.  In the tree, one file
+  (conformance/926_closure_float_aggregate_fp_overflow.bn) changes: a 107-column line now wraps.
+
 ### A parameterized impl that lists `any` did not build — DONE (binate `5d9459712`, 2026-11-14, work-6; landed on "go ahead and land, then continue (and go ahead and take on that change in 5e)")
 
 `impl *Box[U] : any` with a `Box[int]` boxed into `any` failed on LLVM with an undefined
