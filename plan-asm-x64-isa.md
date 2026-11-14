@@ -136,6 +136,14 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   is an assembler error,
   so a misplaced LockNext fails rather than lock a later instruction.
 
-Next: 1f, the string instructions at every size with rep / repe / repne.  x64.bni is at 923 of its 1000-line
-cap, so 1f's encoders go into a sub-package of their own (as asm/x64/sse), and 1j's system instructions the
-same way.
+- 1f — landed binate `e317cbc64` (2026-11-14): the string instructions movs / cmps / scas / lods / stos / ins /
+  outs (by suffix, or with their operands written out) and rep / repe / repz / repne / repnz, in the new
+  sub-package asm/x64/strop (x64.Rep_stosb / Rep_stosq, unused, folded into it); the prefixes written as
+  instructions moved to parse/x64_prefix.bn.  The rep and string-operand decisions above; a rep before bsf /
+  bsr comes after the operand's segment override, as clang's.  Two calls named in the landing request the
+  user answered "yes": two lock-elision hints are an error (as two repeat prefixes), and a lock beside a
+  repeat prefix is an error (no instruction takes both; clang keeps one byte of `rep lock` alone).
+
+Next: 1g, control (enter / leave, loop / loope / loopne / jrcxz, hlt, pause, iret / iretq, int1, CALL / JMP
+through `[rip + x@GOTPCREL]`).  x64.bni is at 917 of its 1000-line cap: 1g's encoders and 1j's system
+instructions go into sub-packages of their own (as asm/x64/sse, asm/x64/strop).
