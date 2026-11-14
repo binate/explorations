@@ -1,5 +1,7 @@
 # Plan: the impls an instance's check sees
 
+Status: design v2 (section 9), 2026-11-13 (temp-5), replacing v1's records (sections 4, 8); to be reviewed.
+
 Todo entry: "Inside a generic's instance, a type argument satisfies a constraint through an impl private to another
 package's `.bn`" (claimed 2026-11-06, temp-5).  Q2 of done/plan-dependent-constraints.md section 8 recommended fixing
 this before design C's step 5 (the declaration's deferrals), which moves more judgments into instances.
@@ -143,3 +145,84 @@ Direction for v2 (to be decided with the user): judge the namings a build makes 
 private impl could serve in each of the instance's classes rather than in the build -- in a struct or function
 instance's per-class check, and for an interface instance at each new class -- so no judgment depends on which
 naming made the build.
+
+## 9. Design v2 (2026-11-13)
+
+v1 made each build's judgments in the view of the naming that ran the build and recorded them for a later naming in
+another root to re-judge; review 1 showed the records miss judgments (deferred, latched, a layout wait's) and that
+several builds run under a later naming.  v2 keeps no records: a class of an instance whose view sees private impls
+the build's view did not judges the instance's derived types again, from source, in its own view -- as each class
+already checks the instance's method bodies and parameterized impls from source (checkTypeInstance,
+checkFuncInstance, checkInstanceImpls).
+
+**The view** (as v1, section 4).  Inside an instance, a judgment sees public impls; its generic's package's private
+impls when the generic is declared in that package's `.bn` (every chain naming it is rooted there, fact 2, restored
+by binate `c985aca4c`); and the private impls of its class's **view root** `VRoot`.  `ImplView` gains `VRoot
+@[]char` and `Inst bool`; `implVisible(rec, v)` = `PrivatePkg` empty, or `!v.Bni && PrivatePkg == v.Pkg`, or
+`PrivatePkg == v.VRoot`.  `ImplView.All` stays only for probes asking whether any impl exists
+(`constraintImplNote`), so the private-impl note is given in instances too.
+
+**An instance's VRoot** = normalize(chain root, args): the root of the chain naming the instance
+(namingContext.ChainRoot, already carried through builds and checks for the private-members fix, chain_root.bn),
+kept when some private impl of that package has a receiver base -- a named type, or a parameterized receiver's
+generic -- that the instance's type arguments mention at any depth (the walk exportOwners makes, cached with
+Owners), and empty otherwise.  Only a type the root supplies can match such an impl, so an instance like `Vec[int]`
+named from many packages with private impls keeps one VRoot (empty) and one check.
+
+**Classes.**  An instance's check state is per (lender class, member root, VRoot): instStateFor and ifaceClassNew
+match all three; InstWork and InstCheckState carry VRoot; bindInstanceAt sets InstanceState.BuildVRoot with
+BuildLenders and BuildChainRoot; implViewHere takes VRoot from the build (Building) or the instance being checked
+(Current), and Inst from Bound > 0 or Current non-nil (review 1, finding 5: derived judgments with Bound == 0 --
+checkInstanceImpls, method copies, a function instance's signature -- take it from Current).
+
+**Judged roots.**  Each instantiation entry (GenericInstantiation) and FuncInstance keeps `JudgedVRoots`: the view
+roots its derived types were judged in.  A build, a rebuild after a layout wait, a postponed build, a waited
+signature redone and a held build's release each add the VRoot they run in (review 1, finding 3: the root a build
+ran under is recorded where it runs, whichever naming that is).  A class whose VRoot is not in the list judges
+again, then adds it:
+- a struct instance, in its class's check (checkTypeInstance, before the method bodies): each field's type
+  expression resolved again from a clone of the generic's declaration, in its home scope with the type arguments
+  bound, the result discarded -- every instantiation, call and constraint the resolution forms is judged as at the
+  build, a deferred one replayed in the class (its record's naming is the class's);
+- a function instance, in its class's check (checkFuncInstance, before the body): its signature resolved again from
+  source (resolveInstanceSignature), discarded;
+- a method copied onto a struct instance: its signature resolved again with its body's check in the class
+  (checkInstanceBody already checks a clone of the method; to verify that the clone's signature is resolved there,
+  or add it);
+- an interface instance, at a new class (ifaceClassNew): its method signatures and parents resolved again from its
+  clone body (as populateInstantiatedInterface does), discarded, `Self` judged bounded by the instance;
+- a parameterized impl's list and coverage: already resolved from source per class (checkInstanceImpls).
+
+An empty VRoot is in every list from the start: a view with no root's private impls is the build's first view in the
+common case, and a class with an empty VRoot judges nothing again.  The re-judgment is made only where some chain's
+root has a private impl that can serve the instance's arguments: rare.
+
+**Aliases** (review 1, finding 4).  A generic alias's target is as if written at its use: its resolution binds the
+alias's type arguments (Bound + 1) but judges in the use's view -- implViewHere sees past the alias namings
+(aliasNamings, as the `Self` judgment already does), not Inst.
+
+**Latch keys.**  implViewKey keys an instance's view by what it sees: `*derived:` for Derived, `*` for Inst, the own
+package when not a `.bni` view, `+`, VRoot.  Outside instances the keys are unchanged.  A class's re-judgment
+latches under its own key, so a judgment already made in that view is not made twice.
+
+**Remaining difference from the spec** (section 5, widened by review 1, finding 6).  A type a generic writes -- in
+its `.bni` or a `.bn` -- that the type arguments also mention is judged in the class's view, seeing VRoot's private
+impls, where the spec judges it where written (G's `.bni` writing `inner[*dep.T, X]`, named from R with a private
+`impl *dep.T`, sees R's impl).  It matters only for judgments made in an instance (the dependent ones, after design
+C every deferred one).  Closing it needs each type's provenance, root-supplied or written, which sank design C's v1;
+whether to accept it is the user's decision (Q1 below).
+
+**Tests** (as section 6, plus) the orders and rebuilds of review 1, finding 3: an instance built first from r3dep's
+`.bn` (accepted there), then named from main (rejected, the private-impl note, naming the instance), and the
+reverse; a build that waits for a layout and is rebuilt under main's naming; a held provisional build released under
+each; an alias whose target needs the use's private impl; a derived judgment (a method copy, an impl list) in a
+class with a VRoot.
+
+**Questions for the user.**
+1. Q1: accept the remaining difference above (a written type the arguments mention sees the root's private impls),
+   or require provenance tracking first?  Recommended: accept, documented in gen.mono.check -- today's difference
+   (any package's private impl, decided by what the run checks from source) shrinks to the root's own impls, decided
+   by the root's own sources.
+2. Q2: VRoot only when a private impl could serve the arguments (normalize), or always the chain root?  Recommended:
+   normalize -- the always-root form multiplies classes (one per package naming the instance) and their re-checks
+   for no difference in what they see.
