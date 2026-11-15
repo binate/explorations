@@ -419,8 +419,17 @@ recursive, so far more than 75).
   alias chains (`type G0[T any] = G1[T]`, ...) still recurse per link in the checker (instantiateGenericAlias ->
   instantiateGenericDeclWithArgs -> resolveTypeInstantiation -> resolveTypeExpr): 5,000 links crash on a 1 MB stack,
   20,000 had not finished after 280 s.
-  Next: the checker's generic alias chains; then codegen, native, vm / interp, lint (irutil / ir walk IR types,
-  bounded by the 1024 levels -- check them for alias / named links as IR-gen's were).
+- Generic alias chains DONE: binate `5b7dea2ea` (landed 2026-11-15; user: "yes, go ahead").  Not a recursion past
+  MAX_BUILD_NESTING (128) in resolution: each link's alias-arguments check (requireAliasArgsKept) builds the next
+  alias's abstract instance, whose deferred checks were made by a flush nested inside the check, each at instantiation
+  depth 0, so the bound never saw it; 1,000 links overflowed instead of being reported.  flushPendingChecks now keeps a
+  stack of lists (a check's deferrals made right after it) and a flush inside a check leaves its checks to the running
+  one.  1,000 links report 872 "nested too deeply"; 100 / 128 / 129 / 200 identical; cmd/bnc's IR and 2,105 corpus
+  outputs (diagnostics included) identical; instructions within noise.  The long chain's time is the instantiation
+  caches' (new LOW entry: lists searched linearly, appended by copying).  Review: no defect; a theoretical difference
+  in an error's "(in ...)" naming under a deferred constraint check, never produced.
+  Next: codegen, native, vm / interp, lint (irutil / ir walk IR types, bounded by the 1024 levels -- check them for
+  alias / named links as IR-gen's were).
 ## Decisions (2026-11-03)
 
 - Step 1, all of it, staged: user "All of them, staged (Recommended)".
