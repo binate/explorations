@@ -468,5 +468,18 @@ recursive, so far more than 75).
   dtorTypeSuffixRec), leaving their recursion over parts; deep tests with long named chains through each back end
   (user: "Links as loops (Recommended)").  LLVM codegen's 81 s for one 1024-level array of managed-slices (native: 1.2
   s) is investigated in the codegen stage (user: "Investigate in this stage (Recommended)").
+- Back-end stages, corrected (2026-11-15): the premise above was wrong -- the 1024-level cap bounds recursion only over
+  BY-VALUE parts (a by-value chain cannot cycle, type.named.value-acyclic); type.named.depth cuts a chain at a cycle
+  through an indirect part, so a ring of structs each holding a pointer to the next is legal at any length (20,000
+  nest two levels), and a walk that crosses an indirect part into a named struct's definition is unbounded: LLVM's
+  struct discovery (addStructDef <-> discoverStructFromType) crashes on a 20,000-struct ring, -g debug-type interning
+  (dbgTypeID <-> internDbgNamed) on a 20,000-link named chain; native aa64 and the VM compile and run both.  Decided:
+  loops / work lists for every back-end walk that follows a named or alias link OR crosses an indirect part into a
+  type's definition, found by a ring + named-chain survey with and without -g on LLVM, native aa64 / x64 / arm32 and
+  the VM; walks over by-value parts stay recursive, bounded by the cap (user: "Links + indirect parts
+  (Recommended)").  The 81 s LLVM build of a 1024-level array: not helper-name length (shortened names: 87 s); clang's
+  arm64 -O0 IRTranslator on SSA aggregate values with 1022-deep index paths (insertvalue / extractvalue / aggregate
+  load-store in main and pass); codegen keeps an aggregate of <= 16 leaves as an SSA value however deep it is nested
+  (isBulkAggregate).  Proposed fix: an aggregate nested deeper than a threshold is bulk too -- not yet decided.
 - Open: step 3 (a type-depth backstop) not
   decided, revisit once step 1 is done.
