@@ -1,3 +1,16 @@
+### x86-64: `lea r64, [rip + x@GOTPCREL]` as R_X86_64_REX_GOTPCRELX was relaxed into wrong code by GNU ld / lld — DONE (binate `8b1b4f48c`, 2026-11-14; MAJOR, found by the review of plan-asm-x64-isa.md stage 1g2 before it landed)
+
+Stage 1g2 marks a 64-bit LEA of a GOT slot relaxable (FIX_REX_GOTPCRELX → R_X86_64_REX_GOTPCRELX), as clang 22
+does, byte for byte.  GNU ld 2.42 and ld.lld 22, linking non-PIE, rewrite such an instruction as an ALU operation into
+`81 /1 imm32`: `lea r8, [rip + x@GOTPCREL]` links to `or r12, 0x402000` (r12 clobbered; a program exits 2 instead of
+0); gold and PIE links keep the LEA.  GNU as emits plain R_X86_64_GOTPCREL for LEA at both widths.  Mach-O
+(X86_64_RELOC_GOT) is unaffected.  Fix options (the user's call): plain GOTPCREL for LEA, as GNU as (departs from
+clang's object); or clang's (which mislinks).  Not on main: main's text assembler takes no GOT operand in LEA.
+Decision (user, 2026-11-14: "Plain, as GNU as (Recommended)"): LEA of a GOT slot at any width is R_X86_64_GOTPCREL;
+fixing in stage 1g2 before it lands.
+Fixed in `8b1b4f48c`, with stage 1g2: a LEA of a GOT slot is FIX_GOTPCREL_PLAIN (R_X86_64_GOTPCREL) at either width,
+as GNU as emits it; the reviewer's program links correctly under GNU ld (exit 0).
+
 ### x86-64 Mach-O: ld64 drops the addend of a 1-byte X86_64_RELOC_BRANCH, so a `loop` / `jrcxz` relocated with one linked to the wrong place — DONE (binate `7cf998926`, 2026-11-14; MAJOR, found by the review of plan-asm-x64-isa.md stage 1g1 before it landed)
 
 Stage 1g1 adds LOOP / LOOPE / LOOPNE / JRCXZ / JECXZ with a rel8 fixup (FIX_REL8); on Mach-O one left as a

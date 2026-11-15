@@ -7,17 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### x86-64: `lea r64, [rip + x@GOTPCREL]` as R_X86_64_REX_GOTPCRELX is relaxed into wrong code by GNU ld / lld — 🟡 IN PROGRESS (claimed 2026-11-14, work-2; MAJOR: silent wrong code at link time; found 2026-11-14, work-2, review of plan-asm-x64-isa.md stage 1g2, the general GOT operand, not yet landed)
-
-Stage 1g2 marks a 64-bit LEA of a GOT slot relaxable (FIX_REX_GOTPCRELX → R_X86_64_REX_GOTPCRELX), as clang 22
-does, byte for byte.  GNU ld 2.42 and ld.lld 22, linking non-PIE, rewrite such an instruction as an ALU operation into
-`81 /1 imm32`: `lea r8, [rip + x@GOTPCREL]` links to `or r12, 0x402000` (r12 clobbered; a program exits 2 instead of
-0); gold and PIE links keep the LEA.  GNU as emits plain R_X86_64_GOTPCREL for LEA at both widths.  Mach-O
-(X86_64_RELOC_GOT) is unaffected.  Fix options (the user's call): plain GOTPCREL for LEA, as GNU as (departs from
-clang's object); or clang's (which mislinks).  Not on main: main's text assembler takes no GOT operand in LEA.
-Decision (user, 2026-11-14: "Plain, as GNU as (Recommended)"): LEA of a GOT slot at any width is R_X86_64_GOTPCREL;
-fixing in stage 1g2 before it lands.
-
 ### A generic body's function literal captures its own package's variable as a function's: the closure reads a copy (VM) or a released record (compiled), not the live global — 🟡 IN PROGRESS (claimed 2026-11-14, work-6; user: "Fix it first (Recommended)": its own commit, before plan-irgen-checker-types 6-3), MAJOR (silent wrong code; found 2026-11-14, work-6, review of plan-irgen-checker-types 6-3; pre-existing, reproduced with a bnc built from binate `ed9921bf3`)
 
 Symptom: package `pkg/glib` declares `var Count int` (defined as 10) and, in its `.bni`, `func Reader[T any]()
@@ -2917,9 +2906,11 @@ immediate starts only at a digit or `-` (`parseX64Operand`, `pkg/binate/asm/pars
 Found 2026-11-09 (review of the x86-64 TLS operators, binate `ed7d60e28`), no wrong code: clang takes and bnas
 rejects a parenthesized term `[rax + (x@TPOFF)]` and a `#` comment; bnas takes and clang rejects an explicitly
 scaled RSP index (`[rsp*1 + rax]`, swapped into the base).
-Found 2026-11-10 (the TLS stage 3d surveys, plan-tls.md), no wrong code: CALL / JMP through `[rip +
-x@GOTPCREL]` (GCC's `-fno-plt` call; clang R_X86_64_GOTPCRELX / X86_64_RELOC_GOT) is rejected — x64.CallMem /
-JmpMem take no GOT operand ("unsupported operand kinds").
+Found 2026-11-14 (review of plan-asm-x64-isa.md stage 1g2, which made `[rip + x@GOTPCREL]` a memory operand to
+every instruction, binate `8b1b4f48c`), no wrong code: bnld rejects R_X86_64_GOTPCREL and R_X86_64_GOTPCRELX /
+REX_GOTPCRELX at any opcode but a MOV load (`pkg/binate/link/relocate_x64.bn`), so an object using the newly taken
+forms fails to link with `--linker bnld` (the bnld stages); and an absolute symbol before `@GOTPCREL` (`x = 5`, then
+`mov eax, [rip + x@GOTPCREL]`) is rejected ("@GOTPCREL takes a symbol") where clang relocates against it.
 
 ## bnld (self-hosted linker)
 
