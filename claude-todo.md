@@ -3166,6 +3166,24 @@ before formatting it again, so a `.bni` given to it is reported as `refails` whe
 (`func f() int` does not parse as a `.bn`).  Fix: list the `.bni` files too, and give the temporary file the
 source's extension.
 
+### bnfmt's second format drops the parentheses its first left around a single result in two pairs — 🔴 OPEN 🟢 LOW (found 2026-11-14, temp-4, review of the single result's parentheses; pre-existing, main the same)
+
+A single result in two pairs of parentheses with a comment after or inside the inner type is not idempotent:
+`func f2() ((int) /* c */) {` prints `func f2() (int) /* c */ {`, which a second format prints `func f2() int /* c
+*/ {`; `var b *func() ((int /* c */)) = nil` prints `var b *func() (int /* c */) = nil`, then `var b *func() int /*
+c */ = nil`.  The comments stay; only the parentheses change.  The first format drops the result's own parentheses
+and keeps the inner pair, a parenthesized type (printParenType); the second reads that pair as the result's and drops
+it.  Fix: a single result that is a parenthesized type, its own parentheses dropped, takes the same decision for the
+inner pair -- kept only for a comment after its `(` (keepsResultParens).
+
+### bnfmt leaves a struct field or a var group member whose type holds a comment out of its neighbours' alignment — 🔴 OPEN 🟢 LOW (found 2026-11-14, temp-4, review of the single result's parentheses; pre-existing, main the same)
+
+In `type S struct { a *func() (/* c */ int) // x` / `bbbb int // y }` the names align, but the trailing comments do
+not (`bbbb int // y`); in `var ( a *func() (/* c */ int) = nil // x` / `bbbb int = 1 // y )` neither the names nor
+the `=` align (`a *func() (/* c */ int) = nil // x` / `bbbb int = 1                  // y`).  Main the same with its
+`*func() /* c */ int`.  Cause not looked at: likely the alignment leaves out a member whose type renders with a
+comment, as it does one that spans lines.
+
 ### bnfmt's operator chain moves a function literal to a continuation line for what follows its last line — 🟢 LOW (found 2026-10-26, temp-4, working on the statement trailing-comment entry; pre-existing)
 
 printBinaryWrapped keeps an operand on the line when binOperandWidth plus the operand's tail fits there
