@@ -335,8 +335,15 @@ IR-gen cannot map is an internal error, never `int`.
      collection and again in pass 2), so 6b's hidden names need the declaration's identity, not the Symbol
      handle; `_func_handle` / `__c_entry` operands are recorded too; a generic function's name in an
      instantiation (`G[T]`, `pkg.G[T]`) resolves to a generic declaration and has no record, nor `__Package`.
-   - 6-2: a value differential (as --x-type-differential was for types): IR-gen notes each read whose by-name
-     answer differs from the record; swept over the corpus before the switch.
+   - 6-2 DONE (binate `ed9921bf3`, 2026-11-14; user: "wait 16 minutes, then land"): `--x-value-differential
+     <file>` on bnc and bni notes each place IR-gen's by-name answer for a value name differs from the record
+     (or the checker recorded none): identifier reads, the identVar / identVarType lookups (now given the
+     identifier), the value-hiding checks (identValueBound), the constant lookups, closure captures, the
+     `_func_handle` / `__c_entry` operands, and `pkg.X`'s package (a package qualifier now records its
+     import's Symbol).  Not compared yet: function references by bare name, method expressions, generic heads,
+     and which local a `local` answer means -- 6-4 and 6-5 add their sites to the differential before
+     switching them.  Sweep (every conformance program and cmd/bnc's 53 packages under bnc, the programs under
+     bni): the only differences are 1748 (bnc and bni), 1749 (bnc; bni cannot run `__c_entry`) and 1750.
    - 6-3: identifier reads -- genExpr's EXPR_IDENT (local / local const / global / const), lookupVar's
      bareGlobalIdx fallback, the const lookups -- from the record: a local reads ctx.Vars, anything else its
      declaring package's qualified name.
