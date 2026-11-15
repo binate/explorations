@@ -152,6 +152,16 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   user answered "yes": two lock-elision hints are an error (as two repeat prefixes), and a lock beside a
   repeat prefix is an error (no instruction takes both; clang keeps one byte of `rep lock` alone).
 
-Next: 1g, control (enter / leave, loop / loope / loopne / jrcxz, hlt, pause, iret / iretq, int1, CALL / JMP
-through `[rip + x@GOTPCREL]`).  x64.bni is at 917 of its 1000-line cap: 1g's encoders and 1j's system
-instructions go into sub-packages of their own (as asm/x64/sse, asm/x64/strop).
+- 1g1 — landed binate `7cf998926` (2026-11-14): the control instructions in the new sub-package asm/x64/ctrl —
+  enter, leave, loop / loope / loopne / jrcxz / jecxz (a rel8: the new fixup x64.FIX_REL8, ELF R_X86_64_PC8 with
+  addend - 1, Mach-O a 1-byte BRANCH), retf / retfq, iret / iretd / iretq (`iret` 66 CF, as clang), hlt, pause,
+  int1 (GNU's; clang takes none); far indirect jmp / call / ljmp / lcall by operand size (the decision above;
+  fword / tbyte are x64.SZ48 / SZ80).  enter / retf immediates past their fields are errors (clang truncates).
+  A review found ld64 drops a 1-byte BRANCH's addend (clang's own objects mislink, MAJOR); as the user decided, a
+  Mach-O rel8 that would carry one is patched in place without .subsections_via_symbols, else an error
+  (claude-todo-done.md).
+
+Next: 1g2 — the general `[rip + x@GOTPCREL]` memory operand in every instruction clang takes it in, CALL / JMP
+among them, with clang's relocation per instruction; and the symbolic immediates of ret / retf / enter / int
+(clang's R_X86_64_16 / _8), which bnas rejects.  x64.bni is at 931 of its 1000-line cap: 1j's system
+instructions go into a sub-package of their own (as asm/x64/sse, strop, ctrl).
