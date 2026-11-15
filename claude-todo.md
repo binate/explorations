@@ -3575,6 +3575,18 @@ remains: actual big-endian byte-EMISSION (object writers, `ir.DataGlobal` int te
 target. `SetTarget` currently `panic`s on a big-endian target, so there is no
 silent-wrong-code risk meanwhile; do this when such a target is actually needed.
 
+### `bnc -g` on macOS gives lldb no debug info, and a breakpoint on a function's first line stops before its parameters are stored — 🔴 OPEN (found 2026-11-14, work-3, checking the LLVM backend's switch to DWARF 5; both predate it)
+
+- No debug info on macOS: a `-g` program's debug map (N_OSO) names the objects in bnc's build directory
+  (`/tmp/binate_XXXX/*.o`, or a `--build-dir`), which bnc deletes after the link, and no `.dSYM` is made, so lldb
+  finds no DWARF: `b main.bn:6` stays "no locations (pending)".  The same objects, kept and linked by clang, debug
+  fine.  Fix: on a Darwin target, run `dsymutil` on a `-g` link's output before the objects go (clang's driver does
+  this for a compile-and-link), or keep the objects a debug map names.
+- In the LLVM backend, IR-gen stamps a function's parameter allocas and stores with its first body line, so
+  `b main.bn:6` (the first line of `func add(a int, b int)`'s body, called as add(2, 3)) stops before `b` is stored
+  and lldb shows `b = 2`, whatever the slot held.  Fix: give the parameter spills the declaration's line (the
+  prologue), so the first body line's breakpoint lands after them.
+
 ### DWARF debug info — finer-grained source positions (open-ended, low priority) — 🟡 OPEN
 
 The DWARF foundation + full type coverage are done (archived in [claude-todo-done.md](claude-todo-done.md):
