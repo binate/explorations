@@ -405,8 +405,22 @@ recursive, so far more than 75).
   expression reading's error, three error positions a token late, the two constants untied, the spec wording).
   Conformance spec/07-types 306.  Seen meanwhile: pkg/binate/format's unit tests do not build on main (claude-todo
   MAJOR, ed737493f), so format was not run.
-  Next: step 1's remaining stages -- irutil / ir, IR-gen (type alias chains crash in registerModuleTypeDecl /
-  registerPkgTypeDecl), codegen, native, vm / interp, lint.
+- Stage IR-gen DONE: binate `8d8b9b83e` (landed 2026-11-14; user: "go ahead and land").  With the checker bounding a
+  type's parts at 1024, IR-gen's long chains are the links that add no level -- aliases, distinct types, interface
+  aliases.  Two walks went a call per alias link and crashed at 20,000: the registration of a package's non-struct
+  type declarations in dependency order (registerModuleTypeDecl / registerPkgTypeDecl / the REPL's
+  genReplAliasDecl -- now on a stack, typeDeclWalk, with an index of the declarations by name and the path in a set),
+  and the mapping of the checker's alias type, a chain of wrappers (irAliasFromChecker -- now a loop, memo kept
+  alike).  The other semantic walks (irTypeFromChecker's parts, aggEqLeaves, ...) are bounded by the 1024 levels;
+  isAbstractType was already a work list.  At 20,000 links all chain kinds and alias chains used through checker
+  records compile; their time is the checker's (quadratic, LOW entries) plus IR-gen's alias mapping (quadratic, new
+  LOW entry).  cmd/bnc's IR and 2,088 corpus programs identical; instructions within noise.  Deep unit tests skip the
+  VM and bare-metal lanes (8 s compiled, ~7 min under the VM).  Review: no behaviour difference; found that generic
+  alias chains (`type G0[T any] = G1[T]`, ...) still recurse per link in the checker (instantiateGenericAlias ->
+  instantiateGenericDeclWithArgs -> resolveTypeInstantiation -> resolveTypeExpr): 5,000 links crash on a 1 MB stack,
+  20,000 had not finished after 280 s.
+  Next: the checker's generic alias chains; then codegen, native, vm / interp, lint (irutil / ir walk IR types,
+  bounded by the 1024 levels -- check them for alias / named links as IR-gen's were).
 ## Decisions (2026-11-03)
 
 - Step 1, all of it, staged: user "All of them, staged (Recommended)".
