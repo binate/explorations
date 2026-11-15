@@ -2998,6 +2998,18 @@ typeFromRecord (table puts and growth, typeHasParts, the walk's vector).  Fix: s
 declaration is registered (its mapping is that registration), or keep alias mappings across mappings where they
 cannot change.
 
+### The checker's generic instantiation caches are lists searched linearly and appended by copying — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-14, work-1, deep-nesting check of generic alias chains; pre-existing)
+
+Generics.Instantiations and Generics.AliasInstantiations are `@[]@GenericInstantiation` lists: each new entry is
+appended with slices.Append (a copy of the list), and lookupCachedInstantiationEntry / lookupAliasInstantiation
+compare the declaration and type arguments of every entry.  A program making N instantiations takes O(N^2) for each.
+A chain of n generic aliases (`type G0[T any] = G1[T]`, ...) makes up to 128 alias instantiations per declaration
+(each declaration's own check resolves the chain below it with its own T, to MAX_BUILD_NESTING): sampled at 1,000
+links, the time was slices.Append of the list, the destructor of the copies it drops, and the lookups -- 239 s in
+check's unit-test binary, 24 s at 400 links (the length TestDeepGenericAliasChainReported is kept to).  Fix: a
+vec, and an index by declaration (a table keyed on the declaration's address) holding each declaration's entries;
+the REPL's rollback truncates the lists (check_inst_cache_drop.bn), so it must drop the index's entries too.
+
 ### Checking a chain of named types over named types takes time superlinear in its length — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-10, work-1, deep-nesting dependencies-first stage 2; pre-existing)
 
 A chain `type N0 N1`, ..., `type Nn int8` of n declarations: checkDeclsEmbedding's requireSizedType runs the opaque
