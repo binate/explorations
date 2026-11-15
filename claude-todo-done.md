@@ -1,3 +1,21 @@
+### bnfmt deleted a comment in a signature's result type that followed a line comment there no printer printed — DONE (binate `57a62dc79`, with `664d9f6e5` and `1f47cbe77`, 2026-11-14, temp-4; MAJOR: the formatter deleted source text; found 2026-11-14, temp-4, review of a removal of the signature hold; since binate `810abb9f6`, 2026-11-01, in no release)
+
+`func f() [len("a" // c` / `"b") + /* d */ 1]T {` / `}` printed `func f() [len("a"` / `"b") + 1]T {` / `// c` / `}`:
+`/* d */` was gone, and `bnfmt -w` deleted it from the file.  The same in an interface method's result, and with
+`[sizeof(*func() ( // c` / `int)) + /* d */ 1]T` as the result.  Cause: printSigResults (print_sig.bn) rendered a
+single result once into a scratch builder, which claimed `/* d */`; claimHeldGap over the result's range then met a
+line comment nothing printed and set the signature hold (claimHold) at it; the result's final print claimed nothing
+at or past the hold, so `/* d */`, marked claimed by the scratch render, was printed by nothing.
+Fixed (user, 2026-11-14: "Fix the gaps first (Recommended)"):
+- `664d9f6e5`: a single result, a signature's or a function value's, keeps its parentheses for a comment after its
+  `(`, which prints there.
+- `1f47cbe77`: a string run keeps the comments between its parts.
+- `57a62dc79`: the hold is gone (its gaps claim as claimInlineGap's do), so nothing cuts a render's claims, whatever
+  leaves a comment pending.  Before it, with the hold made to panic, none of 23,697 probes of a line comment or a block
+  comment over lines after each token of 296 signatures in nine contexts reached it, nor did the 75,886 corpus files
+  or 2,832 earlier probes; the same build of main at binate `7484184d0` reached it in 160 and 129 of those probes, all
+  from the gaps the two commits above print in place.
+
 ### `bnc -g` on macOS gave lldb no debug info, and a breakpoint on a function's first line stopped before its parameters were stored — DONE (binate `0af186cba`, `b1a415c18`, 2026-11-14, work-3; landed on "wait 8 minutes, then go ahead") (found 2026-11-14, work-3, checking the LLVM backend's switch to DWARF 5; both predated it)
 
 - No debug info on macOS: a `-g` program's debug map (N_OSO) names the objects in bnc's build directory
