@@ -1,4 +1,4 @@
-### bnfmt moved a comment inside an interface declaration's or an impl's header — DONE (binate `b8a91ad06`, 2026-11-15, temp-4; LOW; part of "bnfmt moves a comment inside a declaration's header", found 2026-10-18, temp-4)
+### bnfmt moved a comment inside an interface declaration's or an impl's header — DONE (binate `b8a91ad06`, with tests in `66ce416cb`, 2026-11-15, temp-4; LOW; part of "bnfmt moves a comment inside a declaration's header", found 2026-10-18, temp-4)
 
 An interface's comments went above its first method (`interface /* k */ I /* n */ {`), as did those in its parent
 list (`interface X : A, /* a */ B {`); an alias's and an impl's went after it (`interface /* q */ Al /* r */ = /* s
