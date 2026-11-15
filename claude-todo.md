@@ -7,6 +7,15 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### x86-64: `lea r64, [rip + x@GOTPCREL]` as R_X86_64_REX_GOTPCRELX is relaxed into wrong code by GNU ld / lld — 🟡 IN PROGRESS (claimed 2026-11-14, work-2; NEEDS DECISION; MAJOR: silent wrong code at link time; found 2026-11-14, work-2, review of plan-asm-x64-isa.md stage 1g2, the general GOT operand, not yet landed)
+
+Stage 1g2 marks a 64-bit LEA of a GOT slot relaxable (FIX_REX_GOTPCRELX → R_X86_64_REX_GOTPCRELX), as clang 22
+does, byte for byte.  GNU ld 2.42 and ld.lld 22, linking non-PIE, rewrite such an instruction as an ALU operation into
+`81 /1 imm32`: `lea r8, [rip + x@GOTPCREL]` links to `or r12, 0x402000` (r12 clobbered; a program exits 2 instead of
+0); gold and PIE links keep the LEA.  GNU as emits plain R_X86_64_GOTPCREL for LEA at both widths.  Mach-O
+(X86_64_RELOC_GOT) is unaffected.  Fix options (the user's call): plain GOTPCREL for LEA, as GNU as (departs from
+clang's object); or clang's (which mislinks).  Not on main: main's text assembler takes no GOT operand in LEA.
+
 ### A generic body's function literal captures its own package's variable as a function's: the closure reads a copy (VM) or a released record (compiled), not the live global — 🟡 IN PROGRESS (claimed 2026-11-14, work-6; user: "Fix it first (Recommended)": its own commit, before plan-irgen-checker-types 6-3), MAJOR (silent wrong code; found 2026-11-14, work-6, review of plan-irgen-checker-types 6-3; pre-existing, reproduced with a bnc built from binate `ed9921bf3`)
 
 Symptom: package `pkg/glib` declares `var Count int` (defined as 10) and, in its `.bni`, `func Reader[T any]()
