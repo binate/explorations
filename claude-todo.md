@@ -3262,7 +3262,9 @@ source's extension.
 
 ### bnfmt's second format drops the parentheses its first left around a single result in two pairs — 🔴 OPEN 🟢 LOW (found 2026-11-14, temp-4, review of the single result's parentheses; pre-existing, main the same)
 
-A single result in two pairs of parentheses with a comment after or inside the inner type is not idempotent:
+A single result in two pairs of parentheses is not idempotent, with or without a comment: `func f() ((int)) {}` prints
+`func f() (int) {}`, which a second format prints `func f() int {}` (bnfmt `bnc-0.0.17-pre3` the same; seen 2026-11-14
+probing the signature hold); with a comment after or inside the inner type,
 `func f2() ((int) /* c */) {` prints `func f2() (int) /* c */ {`, which a second format prints `func f2() int /* c
 */ {`; `var b *func() ((int /* c */)) = nil` prints `var b *func() (int /* c */) = nil`, then `var b *func() int /*
 c */ = nil`.  The comments stay; only the parentheses change.  The first format drops the result's own parentheses
