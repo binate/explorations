@@ -461,5 +461,12 @@ recursive, so far more than 75).
   type.named.depth's 1,024 -- each prefix, struct field type, function value parameter / result, type argument --
   and reports "type nests too deeply" past it; type.named.depth gains a sentence (user: "Parser limit at 1024
   (Recommended)").
+- Back-end stages (2026-11-15): with the parser and checker capping a type's parts at 1024 levels, every back end
+  passes 1024-level probes (struct, array, managed-slice, managed pointer, function value; LLVM, native aa64, VM), so
+  the stages make only the walks that follow named / alias links one call per link loop over those links (9 in LLVM
+  codegen -- emitZeroRec crashes on 20,000 named types -- 2 in the VM's cross-mode interface code, irutil's
+  dtorTypeSuffixRec), leaving their recursion over parts; deep tests with long named chains through each back end
+  (user: "Links as loops (Recommended)").  LLVM codegen's 81 s for one 1024-level array of managed-slices (native: 1.2
+  s) is investigated in the codegen stage (user: "Investigate in this stage (Recommended)").
 - Open: step 3 (a type-depth backstop) not
   decided, revisit once step 1 is done.
