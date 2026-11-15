@@ -237,7 +237,9 @@ again, in a part of check or irgen: a check part takes 15-30 min on CI (4.6-9.0 
 and every shard first spent ~6 min loading types and ir in an invocation of their own to run 1/12 of their tests
 (single VM: ir's 0.9 s, types' 0.1 s).  binate `907e25509` (user: "We should do 3, and 1") runs types and ir whole,
 each on one shard placed by cost (INTINT_WHOLE), and raises the lane's cap to 60 min; the single-VM lanes skip check's
-deep and long-chain tests (`236fc20ec`).  Open: confirm on the next unit run.  Option (a), bni's load (user: "open a
+deep and long-chain tests (`236fc20ec`), and so does the arm32 Linux lane (`afa2cf438`): on the Ubuntu 26.04
+runner it hit its 30-min cap, check alone taking 789 s under qemu-user; its runner now passes --skip, and check there
+runs 2009 tests in 29 s in binate-ci.  Open: confirm on the next unit run.  Option (a), bni's load (user: "open a
 todo for 4, though we've already done a bunch of that (not sure if it's regressed; some of the regression may be also
 be a tradeoff between execution perf and load latency)"): re-measure int-int 001_hello's CPU and its load phases
 against the 10-28 numbers above to see whether the load has regressed since, and weigh the load latency the VM
