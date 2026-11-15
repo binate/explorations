@@ -3045,7 +3045,7 @@ samples, under IR-gen's ensureInstantiated and matchInstanceCopy (irgen), with T
 NamedIdentityName under them, and the checker's keepInstanceBody, checkDuplicateDecls and collectDeclNames after.
 Fix: index IR-gen's instances by name (and the checker's remaining per-instance scans) as funcInstance's are.
 
-### bnfmt's time grows exponentially with the nesting depth of function literals — 🟢 LOW (found 2026-10-19, temp-4, review of the rendering cache; calls and composites fixed in binate `922992893`)
+### bnfmt's time grows exponentially with the nesting depth of function literals, blocks and types — 🟢 LOW (found 2026-10-19, temp-4, review of the rendering cache; calls and composites fixed in binate `922992893`)
 
 Function literals nested in each other's bodies still format in time exponential in the depth: with
 `return X` or `_ = X` in each body about 2x per level (17 deep ~2 s), with a comment in each body about 3x
@@ -3062,6 +3062,13 @@ Blocks nested on one line are exponential too (2026-11-12, work-1, writing the s
 `func blocks() int { var r int = 0; { { … r = 7 … } } … }` takes 0 s 32 deep, 1.1 s 40 deep, past 60 s 48 deep
 (the tree's bnfmt and the pinned one alike), and a variable initialized with 1 plus 511 more ones takes 12 s.  The
 source nesting limit (pkg.source.nesting, 512 levels) leaves all of these valid, so it does not bound them.
+Struct types and function-value types nested in each other are exponential too (2026-11-14, temp-4, sweeping the
+tree corpus), once the type passes the cap: `type F *func(*func(…int)…)` doubles its time per level (the tree's
+bnfmt: 0.55 s at 28 levels, 2.1 s at 30, 10 s at 32), and `type S struct { f struct { f … } }` takes 2 s at 16
+levels and past 60 s at 32; arrays and pointers stay linear.  The pinned bnfmt grows alike, about 3x faster; the
+comments inside types (binate `6d97d7e91`) made the function values about 1.7x slower at every depth.
+conformance/spec/07-types/305_type_depth_nested_syntax.bn nests both 1024 deep, so bnfmt does not finish it
+(conformance/ is outside the bnfmt hygiene check).  Where the time goes is not looked at yet.
 
 ### bnfmt: what the non-idempotence work left open: a right-hand side's type arguments, a one-character last part — 🔴 OPEN 🟢 LOW (found 2026-10-23, temp-4, landing binate `ae0e0a63c`; pre-existing)
 
