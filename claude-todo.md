@@ -46,12 +46,14 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 The test's last expected line is `q\.bni:20:1: cannot use an opaque type by value .*\(in Box\[Op\]\.M, instantiated at
 .*main\.bn:41:14\)`, and the checker now ends that error `(in Box[Op].M, instantiated at .../main.bn:41:14 via
 Get[Op])` (the " via " of check_instance_naming.bn / check_instance_context.bn), so the line no longer matches.  Seen
-with a compiler built from main at binate `ed9921bf3` (and the same output with that commit's check package under the
-deferred-check change), and in CI's conformance run for `7cf998926`, which fails it on every mode; the CI runs between
-that and the last green one were cancelled, so the commit that changed the naming is not pinned down -- this session's
-earlier conformance runs did not include the test.  Decide whether the new naming is right (then update the `.error`
-line) or a regression in the instance-view work (claimed by temp-5, "Inside a generic's instance, a type argument
-satisfies a constraint through an impl private to another package's `.bn`").
+with compilers built from main (`ed9921bf3`) and at binate `8f0f493e2`.  CI's builder-comp job passes it through
+`32b3a1391` and fails it from `7cf998926` on.  Bisected with compilers built at each commit: `afb44dfcf` and
+`84784aa31` give the line the test expects; `8f0f493e2` ("check: an interface instance's checks judge in each
+class's view") adds " via Get[Op]".  That commit makes an interface instance's build name its instances from its own
+check, so a chain through one counts it: Box[Op] is now named from Get[Op]'s check (line 41 of main.bn names
+`@q.Get[q.Op]`, whose method returns a `*Box[Op]`) -- the test's own comment says Box[Op].M is what Get[Op]'s method
+names, so the new naming reads as intended.  The commit's new tests were in spec/12-generics; this one is in
+spec/07-types and was not updated.  Fix: add ` via Get\[Op\]` before the closing `\)` of the expected line.
 
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
