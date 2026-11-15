@@ -1,3 +1,27 @@
+### x86-64 Mach-O: ld64 drops the addend of a 1-byte X86_64_RELOC_BRANCH, so a `loop` / `jrcxz` relocated with one linked to the wrong place — DONE (binate `7cf998926`, 2026-11-14; MAJOR, found by the review of plan-asm-x64-isa.md stage 1g1 before it landed)
+
+Stage 1g1 adds LOOP / LOOPE / LOOPNE / JRCXZ / JECXZ with a rel8 fixup (FIX_REL8); on Mach-O one left as a
+relocation is a 1-byte X86_64_RELOC_BRANCH with its addend in the field, byte for byte as clang emits it.  ld64
+(ld-1266.8) ignores that addend (lld honours it; a 4-byte BRANCH addend ld64 honours), so the branch lands on the
+symbol itself.  The addend is nonzero when the source writes one (`jrcxz _x + 3`) or the target is a temporary
+label in another atom: the Mach-O writer moves such a reference onto the atom's symbol and puts the label's
+offset into the addend, and on x86-64 every non-L label starts an atom.  Repro: `.global _main` / `_main: mov ecx,
+3` / `Lloop: nop` / `inner: loop Lloop` / `xor eax, eax` / `ret`, assembled (clang's object is the same) and
+linked with ld64: `loop 0x1000002e8 <_main>`, re-running the mov; under Rosetta it hangs.  With
+`.subsections_via_symbols`, bnas's retargeted addend is 1 against `ltmp0`, which ld64 also mislinks, where clang
+emits r_extern=0, which ld64 rejects.  Fix options (the user's call): resolve such a rel8 in place when the
+section is one atom (no `.subsections_via_symbols`), else an error; or an error for any Mach-O rel8 relocation with
+a nonzero addend; or clang's object as is.  Not on main: main's text assembler takes no loop instruction.
+Decision (user, 2026-11-14: "Resolve, else error (Recommended)"): without `.subsections_via_symbols` (the
+section one atom to ld64) a same-section rel8 that would carry an addend is resolved in place; with it, or to
+another section or an external symbol, such a relocation is an error naming ld64's dropped addend; addend-0
+relocations stay as clang's.  Fixing in stage 1g1 before it lands.
+Fixed in `7cf998926`, with stage 1g1: x64.ResolveFixups predicts the addend the Mach-O writer would give a rel8
+relocation (asm.MachoListed, the writer's symbol-table rule, moved into asm) and, without `.subsections_via_symbols`,
+patches one to its own section that would carry an addend in place (machoRel8InPlace); the writer rejects any other
+1-byte BRANCH with an addend, naming ld64.  The repro links correctly; a focused review checked ~40 cases (aliases,
+the section anchor, weak / global targets, other sections) against the writer's addend.
+
 ### A package-level variable of a generic container keyed by the package's private type no longer type-checked: main was red — DONE (binate `afb44dfcf`, 2026-11-14, temp-5; landed on "yes, go ahead") (MAJOR; found 2026-11-14, work-3, reading CI; regression from binate `ed737493f`)
 
 pkg/binate/format (so cmd/bnfmt) stopped type-checking after `ed737493f`, which made an instance's judgments see only

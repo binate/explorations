@@ -20,25 +20,6 @@ and of a function value's parenthesized single result: the comment-gap entry), a
 place (the comment-gap entry), after which no known source sets the hold and it can go; or, until then, make the hold
 stop the claims of a comment no render has claimed yet, not of one a render of the same node already owns.
 
-### x86-64 Mach-O: ld64 drops the addend of a 1-byte X86_64_RELOC_BRANCH, so a `loop` / `jrcxz` relocated with one links to the wrong place — 🟡 IN PROGRESS (claimed 2026-11-14, work-2; MAJOR: silent wrong code at link time; found 2026-11-14, work-2, review of plan-asm-x64-isa.md stage 1g1, the loop instructions, not yet landed)
-
-Stage 1g1 adds LOOP / LOOPE / LOOPNE / JRCXZ / JECXZ with a rel8 fixup (FIX_REL8); on Mach-O one left as a
-relocation is a 1-byte X86_64_RELOC_BRANCH with its addend in the field, byte for byte as clang emits it.  ld64
-(ld-1266.8) ignores that addend (lld honours it; a 4-byte BRANCH addend ld64 honours), so the branch lands on the
-symbol itself.  The addend is nonzero when the source writes one (`jrcxz _x + 3`) or the target is a temporary
-label in another atom: the Mach-O writer moves such a reference onto the atom's symbol and puts the label's
-offset into the addend, and on x86-64 every non-L label starts an atom.  Repro: `.global _main` / `_main: mov ecx,
-3` / `Lloop: nop` / `inner: loop Lloop` / `xor eax, eax` / `ret`, assembled (clang's object is the same) and
-linked with ld64: `loop 0x1000002e8 <_main>`, re-running the mov; under Rosetta it hangs.  With
-`.subsections_via_symbols`, bnas's retargeted addend is 1 against `ltmp0`, which ld64 also mislinks, where clang
-emits r_extern=0, which ld64 rejects.  Fix options (the user's call): resolve such a rel8 in place when the
-section is one atom (no `.subsections_via_symbols`), else an error; or an error for any Mach-O rel8 relocation with
-a nonzero addend; or clang's object as is.  Not on main: main's text assembler takes no loop instruction.
-Decision (user, 2026-11-14: "Resolve, else error (Recommended)"): without `.subsections_via_symbols` (the
-section one atom to ld64) a same-section rel8 that would carry an addend is resolved in place; with it, or to
-another section or an external symbol, such a relocation is an error naming ld64's dropped addend; addend-0
-relocations stay as clang's.  Fixing in stage 1g1 before it lands.
-
 ### A generic body's `_func_handle(f)` / `__c_entry(f)` names the instantiating package's `f` -- the wrong function, silently — 🟡 IN PROGRESS (claimed 2026-11-14, work-6: plan-irgen-checker-types 6-4), MAJOR (silent wrong code; found 2026-11-14, work-6, review of plan-irgen-checker-types 6-1; pre-existing, on main at binate `d7f9c914e`)
 
 - **Symptom:** pkg/glib's `.bni` declares `func helper() int` and `func H[T any]() *uint8 { return
