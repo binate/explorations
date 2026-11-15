@@ -29,19 +29,20 @@ and writes the home package's variable from a closure in a generic body, on the 
 plan-irgen-checker-types 6-3 as drafted (a capture looked up among the enclosing function's variables only), such
 a program fails to compile ("capture name not found in enclosing scope") instead of miscompiling.
 
-### bnfmt deletes a comment in a signature's result type that follows a line comment there no printer prints — 🟡 IN PROGRESS (claimed 2026-11-14, temp-4; user: "Fix the gaps first (Recommended)": the comment-gap entry's three gaps in place (the single results' two done in binate `664d9f6e5`), then the hold's removal) (MAJOR: the formatter deletes source text; found 2026-11-14, temp-4, review of a removal of the signature hold; since binate `810abb9f6`, 2026-11-01, in no release: bnfmt `bnc-0.0.17-pre3` keeps the comment)
+### bnfmt deletes a comment in a signature's result type that follows a line comment there no printer prints — 🟡 IN PROGRESS (claimed 2026-11-14, temp-4; user: "Fix the gaps first (Recommended)": the comment-gap entry's three gaps in place (the single results' two done in binate `664d9f6e5`, the string run's in binate `1f47cbe77`), then the hold's removal) (MAJOR: the formatter deletes source text; found 2026-11-14, temp-4, review of a removal of the signature hold; since binate `810abb9f6`, 2026-11-01, in no release: bnfmt `bnc-0.0.17-pre3` keeps the comment)
 
-`func f() [len("a" // c` / `"b") + /* d */ 1]T {` / `}` prints `func f() [len("a"` / `"b") + 1]T {` / `// c` /
-`}`: `/* d */` is gone, and `bnfmt -w` deletes it from the file.  The same in an interface method's result, and, until
-binate `664d9f6e5` kept a single result's parentheses for a comment after their `(`, with `[sizeof(*func() ( // c` /
-`int)) + /* d */ 1]T` as the result.  Cause: printSigResults (print_sig.bn) renders a single result once into a
-scratch builder (`printType(scratch, t)`), which claims `/* d */`; claimHeldGap over the result's range then meets
-the line comment `// c`, which nothing printed (the gap between the strings of a run split across lines: the
-comment-gap entry), and sets the signature hold (claimHold) at it; the result's final print claims nothing at or past
-the hold (claimGap cuts every gap there), so `/* d */`, already marked claimed by the scratch render, is printed by
-nothing.  Fix: print that gap's comments in place (the comment-gap entry), after which no known source sets the hold
-and it can go; or, until then, make the hold stop the claims of a comment no render has claimed yet, not of one a
-render of the same node already owns.
+Until binate `1f47cbe77`, `func f() [len("a" // c` / `"b") + /* d */ 1]T {` / `}` printed `func f() [len("a"` /
+`"b") + 1]T {` / `// c` / `}`: `/* d */` was gone, and `bnfmt -w` deleted it from the file.  The same in an interface
+method's result, and, until binate `664d9f6e5` kept a single result's parentheses for a comment after their `(`, with
+`[sizeof(*func() ( // c` / `int)) + /* d */ 1]T` as the result.  Cause: printSigResults (print_sig.bn) renders a
+single result once into a scratch builder (`printType(scratch, t)`), which claims `/* d */`; claimHeldGap over the
+result's range then meets a line comment nothing printed (here `// c`, between the strings of a run split across
+lines, which binate `1f47cbe77` printed in place), and sets the signature hold (claimHold) at it; the result's final
+print claims nothing at or past the hold (claimGap cuts every gap there), so `/* d */`, already marked claimed by the
+scratch render, is printed by nothing.  No known source sets the hold now (the review of binate `1f47cbe77` found
+none), but the hold still deletes such a comment behind any source that does.  Left: probe every gap for one that
+reaches the hold, with a build that panics where the hold is set (the comment-gap entry's last paragraph), then
+remove the hold.
 
 ### A generic body's `_func_handle(f)` / `__c_entry(f)` names the instantiating package's `f` -- the wrong function, silently — 🟡 IN PROGRESS (claimed 2026-11-14, work-6: plan-irgen-checker-types 6-4), MAJOR (silent wrong code; found 2026-11-14, work-6, review of plan-irgen-checker-types 6-1; pre-existing, on main at binate `d7f9c914e`)
 
@@ -3130,11 +3131,11 @@ three blank lines there, which a second format makes one.  So neither is idempot
 caller lays it out (printDecls, the block loop), its comments going on lines of their own, or keep it as written by
 recording its keyword on the DECL_GROUP node; tests: goldens for both, formatted twice.
 
-### bnfmt moves a comment after a `...`, in parentheses around an expression or a result, or in a string run out of its place — 🟡 IN PROGRESS (claimed 2026-11-07, temp-4) 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the operator chains' part done in binate `df21fe656`, the expressions', simple statements', declarations' and composites' in binate `27bdebd4b`, `43d112b0a`, `8d796d5f6` and `17701aeb7`; the lists' closes in binate `91a0c17ee` and `d2c6178e7`; the slices', type assertions', type-operand builtins' and `__c_call`'s closes in binate `64dce165e`, and the slice break they needed in binate `436c441f0`; the line comment after a slice's `:` with no high bound in binate `c17e85ff4`; the line comment after a `__c_call`'s `...` in binate `decd60279`; the types' in binate `6d97d7e91`; the
+### bnfmt moves a comment after a `...` or in parentheses around an expression out of its place — 🟡 IN PROGRESS (claimed 2026-11-07, temp-4) 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the operator chains' part done in binate `df21fe656`, the expressions', simple statements', declarations' and composites' in binate `27bdebd4b`, `43d112b0a`, `8d796d5f6` and `17701aeb7`; the lists' closes in binate `91a0c17ee` and `d2c6178e7`; the slices', type assertions', type-operand builtins' and `__c_call`'s closes in binate `64dce165e`, and the slice break they needed in binate `436c441f0`; the line comment after a slice's `:` with no high bound in binate `c17e85ff4`; the line comment after a `__c_call`'s `...` in binate `decd60279`; the types' in binate `6d97d7e91`; the
 `__c_global`'s in binate `7484184d0`; a single result's parentheses, kept for a comment after their `(`, in binate
-`664d9f6e5`)
+`664d9f6e5`; the comments between a string run's parts in binate `1f47cbe77`)
 
-Four gaps still have no printer of their own, so a comment in one is printed by a neighbouring gap, or after the
+Three gaps still have no printer of their own, so a comment in one is printed by a neighbouring gap, or after the
 statement, out of its place.  Each can claim its comments by position now that a comment records the tokens around
 it (token.Comment After / Before), or by positions the parser records where it drops a gap's end, as a var or const
 spec's ast.Header does (Binder, Assign):
@@ -3147,19 +3148,18 @@ spec's ast.Header does (Binder, Assign):
   2026-11-08 working on the declarations' gaps);
 - right after a variadic parameter's `...`, in a signature or a function value: `func f(a int, b ... /* d */ int)`
   prints `b /* d */ ...int`, and `*func(int, ... /* c */ int)` prints `*func(int, /* c */ ...int)` (bnfmt
-  `bnc-0.0.17-pre3` and the tree's; seen 2026-11-14 in the review of the comments inside types);
-- between the strings of a run split across lines: `x := len("a" // c` / `"b") /* d */ + 1` prints `x := len("a"` /
-  `"b") + 1` / `// c` / `/* d */`.
+  `bnc-0.0.17-pre3` and the tree's; seen 2026-11-14 in the review of the comments inside types).
 
-The last leaves a line comment pending, inside a statement or a signature: in a signature's result it sets the
-signature hold (claimHeldGap), which keeps the comments after it in order, and through it loses one (the MAJOR entry
-"bnfmt deletes a comment in a signature's result type").  A removal of the hold, written on the claim that no source
-reached it once a `__c_global` printed its comments (binate `7484184d0`), was stopped by its review (2026-11-14),
-which found three such gaps: this one and the two single results' parentheses (kept for such a comment since binate
-`664d9f6e5`); the corpora reach none of them.  Once it prints in place the hold, claimInlineGap's leaving a gap's
-comments for after the statement and emitTrailingCommentBefore's stopping at a comment on an earlier line may have no
-trigger: probe every gap the printer has (a line comment after every token where one can stand, the tokens the
-printer drops included) before removing any.
+A line comment left pending in a signature's result sets the signature hold (claimHeldGap), which keeps the comments
+after it in order, and through it loses one (the MAJOR entry "bnfmt deletes a comment in a signature's result
+type").  A removal of the hold, written on the claim that no source reached it once a `__c_global` printed its
+comments (binate `7484184d0`), was stopped by its review (2026-11-14), which found three such gaps: the strings of a
+run split across lines and the two single results' parentheses, all since printed in place (binate `1f47cbe77` and
+`664d9f6e5`); the corpora reach none of them, and the review of binate `1f47cbe77` found no source left.  The hold,
+claimInlineGap's leaving a gap's comments for after the statement and emitTrailingCommentBefore's stopping at a
+comment on an earlier line may have no trigger: probe every gap the printer has (a line comment after every token
+where one can stand, the tokens the printer drops included, the three gaps above too), with a build that panics
+where the hold is set, before removing any.
 
 ### bnfmt splits a long string literal inside a multi-byte character — 🔴 OPEN 🟢 LOW (found 2026-11-14, temp-4, review of the string run comments fix; pre-existing, main the same)
 
