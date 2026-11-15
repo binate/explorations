@@ -1,3 +1,17 @@
+### bnfmt moved a comment inside an interface declaration's or an impl's header — DONE (binate `b8a91ad06`, 2026-11-15, temp-4; LOW; part of "bnfmt moves a comment inside a declaration's header", found 2026-10-18, temp-4)
+
+An interface's comments went above its first method (`interface /* k */ I /* n */ {`), as did those in its parent
+list (`interface X : A, /* a */ B {`); an alias's and an impl's went after it (`interface /* q */ Al /* r */ = /* s
+*/ B` printed `interface Al = B /* q */ /* r */ /* s */`, and `impl /* i */ *T /* j */ : /* l */ I, /* m */ J`
+printed `impl *T : I, J /* i */ /* j */ /* l */ /* m */`).  A comment-collecting parse now records an interface
+declaration's signature (its name and its type parameters' brackets) and header (`:`, `=`, `{`) and an impl's `:`,
+and print_ifacehead.bn prints the comments where the source put them.  As they stay on the header's line, the header
+breaks to a continuation line where a line comment could stand (after the keyword, the `=`, the `:` or a `,`) when
+what follows does not fit.  Compared with the build before it over 1,560 header probes, a review's 2,435 probes and
+every corpus file with an interface or an impl: no comment lost, duplicated or reordered, nothing newly failing to
+reformat or not idempotent; one line wider, a block comment between an 80-character name and `{`, where no break is
+legal (the entry "bnfmt lets a type-parameter list, and a block comment where no break is legal, run past the cap").
+
 ### A generic body's function literal captured its own package's variable as a function's: the closure read a copy (VM) or a released record (compiled), not the live global — DONE (binate `8e388117e`, 2026-11-14, work-6; user: "Fix it first (Recommended)", landed on "wait 16 minutes, then go ahead") (MAJOR: silent wrong code; found 2026-11-14, work-6, review of plan-irgen-checker-types 6-3; pre-existing)
 
 Symptom: package `pkg/glib` declares `var Count int` (defined as 10) and, in its `.bni`, `func Reader[T any]()
