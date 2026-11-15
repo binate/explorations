@@ -523,8 +523,8 @@ gcc-arm-none-eabi install's GNU ld where clang 18 used lld: functions off a host
 reference), the RAM-declaring script comes before the shared sections, GNU ld's ARM stub / IFUNC sections are placed
 (an ASSERT keeps the IFUNC ones empty) and .note.GNU-stack discarded.  Validated in a local Ubuntu 26.04 image: full
 LLVM and native bare-metal conformance 3905/0 each, the arm32 Linux subsets, the bare-metal e2e scripts; lld on macOS
-too.  Open: work-6's two new irgen tests on the 32-bit / file-less lanes (a 64-bit pin and a skip; not yet landed),
-then confirm on CI.
+too.  work-6's two new irgen tests on the 32-bit / file-less lanes: binate `4af215fc6` (a 64-bit pin, a bare-metal
+skip).  Open: confirm on CI's next runs.
 
 ### Inside a generic's instance, a type argument satisfies a constraint through an impl private to another package's `.bn` — 🟡 IN PROGRESS (claimed 2026-11-06, temp-5; plan-instance-impl-view.md steps 1-3 landed, binate `ed737493f`, `8f0f493e2`, `534ef01b5`; step 4 next) (an invalid program accepted; found 2026-11-04, temp-5, review of design C for the dependent-length constraints; reproduced on binate main `b52e54139`; pre-existing)
 
