@@ -2978,6 +2978,17 @@ looks a struct definition up by name in a list (irutil.Streq), quadratic in a pr
 to 110 s a 20,000-link method chain takes at `--emit-llvm`.  Fix: index what these scan by name (a Scope already
 indexes its names past a threshold), and build the lists with vec.
 
+### IR-gen maps each alias of a chain through the rest of the chain -- quadratic in its length — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-14, work-1, review of the deep-nesting IR-gen stage; pre-existing)
+
+Registering a package's alias `type Ak = Ak+1` resolves its target from the checker's record (typeFromRecord), and the
+checker's type of an alias is a chain of alias wrappers (MakeAliasType per declaration), so irAliasFromChecker walks
+the rest of the chain for each declaration, putting every alias it passes into gc.AliasesMapped, which is dropped when
+the mapping ends: O(n^2) table insertions for a chain of n.  Sampled at 10,000 links (`type A0 = A1 ... A9999 = int;
+var x A0`, bnc --emit-llvm): 28 s in all, 19 s in the checker, ~9 s in registerModuleTypeDecl, nearly all of it under
+typeFromRecord (table puts and growth, typeHasParts, the walk's vector).  Fix: stop the walk at an alias whose own
+declaration is registered (its mapping is that registration), or keep alias mappings across mappings where they
+cannot change.
+
 ### Checking a chain of named types over named types takes time superlinear in its length — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-10, work-1, deep-nesting dependencies-first stage 2; pre-existing)
 
 A chain `type N0 N1`, ..., `type Nn int8` of n declarations: checkDeclsEmbedding's requireSizedType runs the opaque
