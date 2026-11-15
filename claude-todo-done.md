@@ -1,3 +1,26 @@
+### `bnc -g` on macOS gave lldb no debug info, and a breakpoint on a function's first line stopped before its parameters were stored — DONE (binate `0af186cba`, `b1a415c18`, 2026-11-14, work-3; landed on "wait 8 minutes, then go ahead") (found 2026-11-14, work-3, checking the LLVM backend's switch to DWARF 5; both predated it)
+
+- No debug info on macOS: a `-g` program's debug map (N_OSO) names the objects in bnc's build directory
+  (`/tmp/binate_XXXX/*.o`, or a `--build-dir`), which bnc deletes after the link, and no `.dSYM` is made, so lldb
+  finds no DWARF: `b main.bn:6` stays "no locations (pending)".  The same objects, kept and linked by clang, debug
+  fine.  Fix: on a Darwin target, run `dsymutil` on a `-g` link's output before the objects go (clang's driver does
+  this for a compile-and-link), or keep the objects a debug map names.
+- In the LLVM backend, IR-gen stamps a function's parameter allocas and stores with its first body line, so
+  `b main.bn:6` (the first line of `func add(a int, b int)`'s body, called as add(2, 3)) stops before `b` is stored
+  and lldb shows `b = 2`, whatever the slot held.  Fix: give the parameter spills the declaration's line (the
+  prologue), so the first body line's breakpoint lands after them.
+Fixed:
+- `0af186cba`: after a `-g` link for a Mach-O target, bnc runs `dsymutil` before removing the objects (also for a
+  `--test` binary), so the debug info is in `<program>.dSYM`.  e2e/debug-info-lldb.sh (macOS) checks the bundle and a
+  line breakpoint.
+- `b1a415c18`: IR-gen gives the parameter prologue the declaration's line, and with `-g` the LLVM backend emits a
+  parameter slot's setup (an aggregate slot's zero-fill, the store of the parameter) with no location, as clang does a
+  C function's parameter stores (a call there gets line 0).  The declaration's line alone was not enough: a breakpoint
+  on the function still stopped before the stores.  Now a breakpoint on the function and one on its first statement's
+  line both stop with the parameters stored, a struct one included (the e2e runs both under lldb).
+- The review's other findings are open entries: `-g --linker bnld` gives no debug info; lldb finds no function by
+  its debug name; at -O1+ a struct parameter's split stores keep the declaration's line.
+
 ### x86-64: `lea r64, [rip + x@GOTPCREL]` as R_X86_64_REX_GOTPCRELX was relaxed into wrong code by GNU ld / lld — DONE (binate `8b1b4f48c`, 2026-11-14; MAJOR, found by the review of plan-asm-x64-isa.md stage 1g2 before it landed)
 
 Stage 1g2 marks a 64-bit LEA of a GOT slot relaxable (FIX_REX_GOTPCRELX → R_X86_64_REX_GOTPCRELX), as clang 22
