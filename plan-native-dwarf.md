@@ -47,4 +47,4 @@ under lldb (macOS) and gdb (Linux, docker) on all three architectures, with both
 - DWARF 5, and the LLVM backend moves from 4 to 5 too (user, 2026-11-14: "Let's do DWARF 5, and also switch LLVM to
   5").  DWARF 5 is what Apple clang 21, Ubuntu clang 18 and GCC 13 emit for a plain `-g` (checked 2026-11-14); for
   steps 0-4 it costs about what 4 does (the indexed string and address forms are optional), its line-table header
-  being the main difference.
+  being the main difference.  The LLVM backend emits DWARF 5 since binate `583d38701`.

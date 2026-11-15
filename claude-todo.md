@@ -3575,7 +3575,7 @@ remains: actual big-endian byte-EMISSION (object writers, `ir.DataGlobal` int te
 target. `SetTarget` currently `panic`s on a big-endian target, so there is no
 silent-wrong-code risk meanwhile; do this when such a target is actually needed.
 
-### `bnc -g` on macOS gives lldb no debug info, and a breakpoint on a function's first line stops before its parameters are stored — 🔴 OPEN (found 2026-11-14, work-3, checking the LLVM backend's switch to DWARF 5; both predate it)
+### `bnc -g` on macOS gives lldb no debug info, and a breakpoint on a function's first line stops before its parameters are stored — 🟡 IN PROGRESS (claimed 2026-11-14, work-3; user: "I guess you can take on the newly-discovered problems while we wait for CI") (found 2026-11-14, work-3, checking the LLVM backend's switch to DWARF 5; both predate it)
 
 - No debug info on macOS: a `-g` program's debug map (N_OSO) names the objects in bnc's build directory
   (`/tmp/binate_XXXX/*.o`, or a `--build-dir`), which bnc deletes after the link, and no `.dSYM` is made, so lldb
