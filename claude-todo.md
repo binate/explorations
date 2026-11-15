@@ -494,6 +494,14 @@ reports ~82,000 undefined references to `__aeabi_unwind_cpp_pr0` / `_pr1` from t
 new image's clang emits for every function.  Plan (b): the 26.04 package for qemu-user, and no EHABI unwind entries
 naming a personality routine in our bare-metal code (Binate has no exceptions) -- by `nounwind` in the LLVM IR, or by
 the flags the new clang needs -- rather than routing around it with another linker.
+Landed (2026-11-14): binate `021ce946e` installs qemu-user (26.04's static user-mode QEMU; the runners already took
+qemu-arm); binate `d5659d6bb` links bare metal under GNU ld as well as lld -- clang 21's bare-metal driver uses the
+gcc-arm-none-eabi install's GNU ld where clang 18 used lld: functions off a hosted target are nounwind (no personality
+reference), the RAM-declaring script comes before the shared sections, GNU ld's ARM stub / IFUNC sections are placed
+(an ASSERT keeps the IFUNC ones empty) and .note.GNU-stack discarded.  Validated in a local Ubuntu 26.04 image: full
+LLVM and native bare-metal conformance 3905/0 each, the arm32 Linux subsets, the bare-metal e2e scripts; lld on macOS
+too.  Open: work-6's two new irgen tests on the 32-bit / file-less lanes (a 64-bit pin and a skip; not yet landed),
+then confirm on CI.
 
 ### Inside a generic's instance, a type argument satisfies a constraint through an impl private to another package's `.bn` — 🟡 IN PROGRESS (claimed 2026-11-06, temp-5; plan-instance-impl-view.md steps 1-2 landed, binate `ed737493f`, `8f0f493e2`; step 3 next) (an invalid program accepted; found 2026-11-04, temp-5, review of design C for the dependent-length constraints; reproduced on binate main `b52e54139`; pre-existing)
 
