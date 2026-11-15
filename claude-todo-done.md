@@ -7008,6 +7008,30 @@ reader's reason.  Tests: `relocSectionChecks` on an ELF64 RELA and an ELF32 REL 
 `TestReadObjectRejectsNonRelocatable`, `TestReadArchiveBadMemberReason`.  Checked that clang C objects (`-g`,
 `-ffunction-sections`, `-O0` / `-O1`) still link on x86-64, aarch64 and arm32.
 
+### IR: the passes that drop blocks drop the fault pads only those blocks entered — DONE (binate `1a4750ed3`,
+2026-11-15)
+
+User 2026-11-14: "Q2. (iii) yes, and we can do that before D". mem2reg (`pruneUnreachableBlocks`), branch folding
+and jump threading (`removeUnreachableBlocks`) dropped blocks from `f.Blocks` but left `f.FaultPads` alone, so a pad
+entered only from a dropped block stayed and read that block's values. **MAJOR**, found while fixing it: bni aborted
+on a valid program -- dead code after an if / else whose arms both return, declaring a managed local and then
+indexing -- with `iropt: operand not defined in f (dangling) after inlining / load-forwarding`, since
+load-forwarding's operand-scope assertion walks the pads (the VM runs mem2reg by default); the compiled backends
+were not affected. New `iropt.pruneFaultPads` keeps the pads the code of `f.Blocks` can enter (an op's `PadBlock`,
+a jump or branch to a pad, and, conservatively, the VM's run-on from a block without a terminator into the next
+pad), following each kept pad the same ways, and drops the rest, keeping the survivors' order; the three passes
+call it when they drop a block. `AddFaultPad` pushes each pad onto `f.AddedBlocks` (kept allocated as long as the
+function) and numbers its label from a new `f.NextPadNum`, which only grows. The VM rejects an op's `PadBlock`, or
+a jump or branch target that is a fault pad, naming a block not among `f.FaultPads` (`padRefError`,
+`vm/lower_pad_refs.bn`) with "internal error: vm: ...". Tests in ir, iropt (a pad shared by a dropped and a kept
+block; the survivors' order where walk order differs) and vm (each case of the check; a live pad firing at run
+time after pruning), and conformance `1752_err_fault_pad_after_pruned_blocks`; each fails with its part undone.
+Validation: unit tests (ir, irbuild, iropt, vm, interp, repl, cmd/bni and the native and codegen packages), VM
+conformance (2029 + 2034 passed), native x64 and LLVM conformance at -O2 (2036 + 2038 each) and cmd/bnc compiled
+at -O2 by both (on a revision that differed only in comments, tests and VM code), hygiene; two reviews (pruning
+correctness; tests, validation and docs). Left open: passes that leave pads nothing enters without dropping a
+block, and an `addInstr` after a pass that rebuilt `blk.Instrs` (todo entries).
+
 ### IR: a block a pass drops lives as long as its function; a jump or phi naming one is an error — DONE (binate
 `c1820c444`, 2026-11-14)
 

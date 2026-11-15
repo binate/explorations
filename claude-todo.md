@@ -3520,26 +3520,33 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
   counts, so nothing proves those inputs impossible.  Fix: check each op's operand count and required types in
   the verifier (then the guards are dead and can go), or make each guard record `a.SetError`.
 
-- **IR: the passes that drop unreachable blocks leave their fault pads, which go on reading the dropped blocks'
-  values** — 🟡 IN PROGRESS (claimed 2026-11-14; user: "Q2. (iii) yes, and we can do that before D") (found
-  2026-11-14, review of the dropped-block fix; by reading).  mem2reg (`pruneUnreachableBlocks`), fold_branch and
-  thread_jumps drop unreachable blocks from `f.Blocks` but never touch `f.FaultPads`, so a pad whose faulting op
-  was in a dropped block stays and reads that block's values (a pad releases, e.g., a managed call result of its
-  block, `iropt/inline_calls.bn`).  The VM lowers every pad but never branches to an orphan (dead bytecode);
-  native's aggregate-load elision scans pads, so an orphan only makes it more conservative.  It blocks the
-  operand-ownership check (entry below): checked against f's live values, an orphan pad's operands are rejected,
-  and the VM runs mem2reg by default.  Fix: the pruning passes also drop each pad that no live block or live pad
-  reaches (a faulting op's `Instr.PadBlock`, or a pad's own jumps); pads then need what dropped blocks got in
-  binate `c1820c444` -- kept allocated as long as the function (`PadBlock` is a raw pointer) and a label counter
-  that never goes back (`AddFaultPad` numbers by `len(f.FaultPads)`) -- with tests.
-  **MAJOR, found while implementing the fix (2026-11-14): bni aborts on a valid program.**  The orphan is not
-  just dead bytecode: load-forwarding's `assertOperandsInScope` (`iropt/inline_pads.bn`) also walks the pads, so
-  after mem2reg (which the VM runs by default) drops a block, its orphaned pad's operand panics the load with
-  `iropt: operand not defined in f (dangling) after inlining / load-forwarding`.  Trigger: dead code after an
-  if / else whose arms both return (IR-gen puts it in a block no path reaches) that declares a managed local and
-  then does something that can fault (`t[k]`).  Reproduced with a bni built from `c1820c444` and with the pre3
-  bundle's bni; the compiled backends (LLVM and native, -O0 and -O2) run it.  The fix for this entry fixes it;
-  its regression test is conformance `1747_err_fault_pad_after_pruned_blocks`.
+- **IR: bounds-check and div-check elimination and the inliner leave fault pads that nothing enters** — 🔵 OPEN
+  (found 2026-11-14, implementing the pad prune of binate `1a4750ed3`; checked by both reviews).
+  `iropt.pruneFaultPads` runs only where a pass drops a block (mem2reg, fold_branch, thread_jumps).  A pass that
+  removes the last op landing in a pad leaves the pad in `f.FaultPads`: bce-const / bce-loop / bce-redundant
+  (`OP_BOUNDS_CHECK`), div-check elimination (`OP_DIV_CHECK`), the inliner's call splice (the call-site pad, when
+  the callee has no fault op of its own and no other op shares the pad) and its `dropOrphanedStackChecks`
+  (`OP_STACK_CHECK`).  Such a pad never runs and its operands stay values of `f.Blocks` (the removed op's block
+  stays), so it is no error, but its uses still count: DCE roots every value a pad reads
+  (`markDeadValueRoots(f.FaultPads, …)`, `iropt/dce.bn`), and the VM gives a load a pad names a copy of its own
+  rather than reading it in place (`padUsesValue`, `vm/lower_func_helpers.bn`).  Every pruning pass runs before
+  div-check elimination and BCE (`iropt/opt.bn`), so those orphans always survive, at every level and in the VM
+  (`VMOptConfig` turns on mem2reg, div-check elimination and the three BCE passes).  Fix: prune them -- e.g. one
+  `pruneFaultPads` call after bce-redundant, before DCE (every one of these passes runs before it), or a call in
+  each pass when it removes an op that carries a `PadBlock` (the walk reads every instruction of f) -- with tests.
+
+- **IR: an `addInstr` after a pass that rebuilt `blk.Instrs` brings back what the pass removed** — 🔵 OPEN (found
+  2026-11-14, review of the pad prune; by reading).  `irbuild.addInstr`, `EmitEntryAlloc` and `EmitAllocAt`
+  (`irbuild/emit_core.bn`) push onto `blk.InstrsVec` and reset `blk.Instrs` to its items.  Several passes set
+  `blk.Instrs` to a new list and leave `InstrsVec` holding the old one -- bce-const, bce-loop, bce-redundant,
+  div-check elimination, LICM, fuse-madd, sink-extract (`iropt/opt.bn` and their files), the inliner's
+  `dropOrphanedStackChecks` (`iropt/inline_calls.bn`) and phi elimination (`iropt/ir_phi_elim.bn`) -- and their
+  docs warn that no pass appending through `addInstr` may follow them.  An append afterwards would restore every
+  instruction they removed or moved out of the block.  Nothing appends after them today; only the pass order
+  keeps it so (others -- DCE, copy-prop, dead-slot, dead-store, thread_jumps -- keep `InstrsVec` in step).  Fix:
+  in those three emitters, when `Instrs` is not the builder's view, start a new builder from `Instrs`, keeping
+  what the old one holds allocated as long as the function (a phi entry's `Val` is a raw pointer, as with dropped
+  blocks), and drop the ordering warnings, with tests.
 
 - **Native, LLVM and VM: an operand that is another function's value reads this function's value of the same
   id** — 🟡 IN PROGRESS (claimed 2026-11-14; user: "3. right after that", after the dropped-block fix) (found
@@ -3558,9 +3565,9 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
   build the owner set from `blk.Instrs`, never `InstrsVec` (passes leave removed instructions there), and rule
   `irgen/gen_panic.bn`'s detached OP_CONST_NIL in or out.  The VM eliminates phis in the frame check
   (`funcFrameBytes`) before `lowerFunc` for most functions, and nothing records it, so (user 2026-11-14, "Q1.
-  (b)") `EliminatePhis` sets a flag on `ir.Func` and the check runs only while it is false.  Orphaned fault pads
-  would fail the check on valid programs; the pad-pruning entry above goes first (user: "Q2. (iii) yes, and we
-  can do that before D").
+  (b)") `EliminatePhis` sets a flag on `ir.Func` and the check runs only while it is false.  A pad entered only
+  from a dropped block is dropped with it (binate `1a4750ed3`); the pads other passes leave unentered (entry
+  above) still read values of `f.Blocks`, so they pass.
 
 - **Checker rejects valid alias uses in const / untyped-literal contexts** — 🔵 OPEN (found
   2026-09-26).  Spec type.alias.transparency: an alias is its target in every context.  But with
