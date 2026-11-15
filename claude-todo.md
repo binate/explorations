@@ -7,28 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### A generic body's function literal captures its own package's variable as a function's: the closure reads a copy (VM) or a released record (compiled), not the live global — 🟡 IN PROGRESS (claimed 2026-11-14, work-6; user: "Fix it first (Recommended)": its own commit, before plan-irgen-checker-types 6-3), MAJOR (silent wrong code; found 2026-11-14, work-6, review of plan-irgen-checker-types 6-3; pre-existing, reproduced with a bnc built from binate `ed9921bf3`)
-
-Symptom: package `pkg/glib` declares `var Count int` (defined as 10) and, in its `.bni`, `func Reader[T any]()
-*func() int { return func() int { return Count } }`.  `main` takes `read := glib.Reader[int]()`, prints `read()`,
-sets `glib.Count = 20` and prints `read()` again: the VM prints 10 and 10 (a copy taken when the closure was made),
-LLVM 10 and 1, native aa64 10 and a pointer-sized number (the capturing `*func` closure's record is Reader's frame's,
-released when Reader returns).  The answer is 10 and 20, as `conformance/regressions/closure-reads-global-live`
-gives for a closure in the variable's own package.  A write to the variable in such a closure presumably writes the
-copy.
-
-Root cause: the checker's capture analysis (`noteCaptureIfNeeded`, check_capture.bn) leaves a package variable out
-of a literal's captures only when `symIsPackageGlobal` finds the symbol in `c.PackageScope`.  An instance body is
-checked with `c.Scope` in the generic's home package (`enterInstanceCheck`) but `c.PackageScope` still the
-importing package's, so the home package's variable reads as an enclosing function's and is captured.  IR-gen
-fills the capture from the global (lookupVar's package-variable fallback, through CurrentImportPkg).
-
-Fix: decide by the symbol itself -- a package-level symbol (`Symbol.IsPackageLevel`, which records its declaring
-package) is never captured -- and drop the PackageScope lookup.  Test: a two-package conformance test that reads
-and writes the home package's variable from a closure in a generic body, on the VM and compiled modes.  With
-plan-irgen-checker-types 6-3 as drafted (a capture looked up among the enclosing function's variables only), such
-a program fails to compile ("capture name not found in enclosing scope") instead of miscompiling.
-
 ### A generic body's `_func_handle(f)` / `__c_entry(f)` names the instantiating package's `f` -- the wrong function, silently — 🟡 IN PROGRESS (claimed 2026-11-14, work-6: plan-irgen-checker-types 6-4), MAJOR (silent wrong code; found 2026-11-14, work-6, review of plan-irgen-checker-types 6-1; pre-existing, on main at binate `d7f9c914e`)
 
 - **Symptom:** pkg/glib's `.bni` declares `func helper() int` and `func H[T any]() *uint8 { return

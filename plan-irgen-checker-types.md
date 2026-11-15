@@ -344,9 +344,17 @@ IR-gen cannot map is an internal error, never `int`.
      and which local a `local` answer means -- 6-4 and 6-5 add their sites to the differential before
      switching them.  Sweep (every conformance program and cmd/bnc's 53 packages under bnc, the programs under
      bni): the only differences are 1748 (bnc and bni), 1749 (bnc; bni cannot run `__c_entry`) and 1750.
-   - 6-3: identifier reads -- genExpr's EXPR_IDENT (local / local const / global / const), lookupVar's
-     bareGlobalIdx fallback, the const lookups -- from the record: a local reads ctx.Vars, anything else its
-     declaring package's qualified name.
+   - 6-3 DONE (binate `eca8e280f`, 2026-11-14; landed on "wait 16 minutes, then go ahead", after the MAJOR capture
+     fix `8e388117e` its review found, user: "Fix it first (Recommended)"): identifier reads from the record --
+     genExpr's EXPR_IDENT, identVar / identVarType, identValueBound and the constant lookups (isPackageConstIdent,
+     irgenEnv.Const, isFloatExpr): a function's variable or constant from the innermost binding of its name, a
+     package-level one by its registered name (bare in its own package, else qualified with its declaring
+     package); a binding or registration that disagrees with the record is an internal error.  A closure's
+     captures are looked up among the enclosing function's variables only (localVarIdx): the checker captures no
+     package-level variable, an instance body's included (the capture fix, conformance 1751).  A floating-point
+     package constant is the last registered under its name (genExpr took the first).  Syntax with no record is
+     still read by its spelling.  Sweep: object code identical to the capture fix's for every conformance
+     program and cmd/bnc; the differential's only notes are 1748 / 1749 (6-4) and 1750.
    - 6-4: function references -- funcRefName / namesFunction / funcRefShadowed, genExprOrFuncRef, direct calls,
      `pkg.F` (buildQualNameHomed), and the operands of `_func_handle` / `__c_entry` (gen_builtin.bn,
      gen_builtin_ffi.bn; a generic body's bare operand names the wrong function today -- the MAJOR todo entry,

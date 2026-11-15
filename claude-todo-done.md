@@ -1,3 +1,26 @@
+### A generic body's function literal captured its own package's variable as a function's: the closure read a copy (VM) or a released record (compiled), not the live global — DONE (binate `8e388117e`, 2026-11-14, work-6; user: "Fix it first (Recommended)", landed on "wait 16 minutes, then go ahead") (MAJOR: silent wrong code; found 2026-11-14, work-6, review of plan-irgen-checker-types 6-3; pre-existing)
+
+Symptom: package `pkg/glib` declares `var Count int` (defined as 10) and, in its `.bni`, `func Reader[T any]()
+*func() int { return func() int { return Count } }`.  `main` takes `read := glib.Reader[int]()`, prints `read()`,
+sets `glib.Count = 20` and prints `read()` again: the VM prints 10 and 10 (a copy taken when the closure was made),
+LLVM 10 and 1, native aa64 10 and a pointer-sized number (the capturing `*func` closure's record is Reader's frame's,
+released when Reader returns).  The answer is 10 and 20, as `conformance/regressions/closure-reads-global-live`
+gives for a closure in the variable's own package.  A write to the variable in such a closure presumably writes the
+copy.
+
+Root cause: the checker's capture analysis (`noteCaptureIfNeeded`, check_capture.bn) leaves a package variable out
+of a literal's captures only when `symIsPackageGlobal` finds the symbol in `c.PackageScope`.  An instance body is
+checked with `c.Scope` in the generic's home package (`enterInstanceCheck`) but `c.PackageScope` still the
+importing package's, so the home package's variable reads as an enclosing function's and is captured.  IR-gen
+fills the capture from the global (lookupVar's package-variable fallback, through CurrentImportPkg).
+
+Fix: `noteCaptureIfNeeded` asks the symbol where it is declared (`Symbol.IsPackageLevel`), whichever package is
+being checked, and leaves every package-level symbol out of a literal's captures; `symIsPackageGlobal` is gone.
+Conformance 1751 (a read before and after the importer sets the variable, a write through the closure, and a
+closure that also captures a parameter) prints 10 20 21 21 7 35 on the VM, LLVM and native aa64; main's compilers
+printed 10 10 21 20 20 12 (VM), 10 1 21 20 20 12 (LLVM) and 10 <a pointer-sized number> 21 20 20 12 (native
+aa64).  A generic instantiated in its own package read the variable live already.
+
 ### bnfmt deleted a comment in a signature's result type that followed a line comment there no printer printed — DONE (binate `57a62dc79`, with `664d9f6e5` and `1f47cbe77`, 2026-11-14, temp-4; MAJOR: the formatter deleted source text; found 2026-11-14, temp-4, review of a removal of the signature hold; since binate `810abb9f6`, 2026-11-01, in no release)
 
 `func f() [len("a" // c` / `"b") + /* d */ 1]T {` / `}` printed `func f() [len("a"` / `"b") + 1]T {` / `// c` / `}`:
