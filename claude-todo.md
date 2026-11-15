@@ -3612,6 +3612,21 @@ silent-wrong-code risk meanwhile; do this when such a target is actually needed.
   and lldb shows `b = 2`, whatever the slot held.  Fix: give the parameter spills the declaration's line (the
   prologue), so the first body line's breakpoint lands after them.
 
+### `bnc -g --linker bnld` builds a program with no debug info, saying nothing — 🔴 OPEN (found 2026-11-14, work-3, reviewing the `-g` macOS fix)
+
+- bnld (`pkg/binate/link`) drops an ELF input's non-allocated sections (`.debug_*`) and writes no Mach-O debug map,
+  and bnc's bnld path (`cmd/bnc/main.bn`) runs no dsymutil, so `-g --linker bnld` gives a program with no debug info
+  on Mach-O and ELF alike.  `-g --backend native` is rejected for the same reason (`cmd/bnc/args.bn`).  Fix: reject
+  `-g` with `--linker bnld` the same way until bnld carries debug info (plan-native-dwarf.md step 4), then lift it.
+
+### lldb finds no Binate function by name: `b main.add` and `b add` resolve nothing — 🔴 OPEN (found 2026-11-14, work-3)
+
+- The LLVM backend names a function's DISubprogram by its qualified name (`name: "main.add"`, linkageName
+  `bn_F1_4_main1_3_add`).  lldb resolves `breakpoint set -n main.add` (and `-F main.add`) to nothing, and `-n add`
+  only to other libraries' `add`; only the linkage name works (e2e/debug-info-lldb.sh uses it).  Fix to be worked
+  out: probably name the subprogram `add` inside a DW_TAG_namespace for the package (the form lldb and gdb look up a
+  qualified name in); check both debuggers, and how a package path's segments map to scopes.
+
 ### DWARF debug info — finer-grained source positions (open-ended, low priority) — 🟡 OPEN
 
 The DWARF foundation + full type coverage are done (archived in [claude-todo-done.md](claude-todo-done.md):
