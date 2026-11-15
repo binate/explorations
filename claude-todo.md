@@ -71,6 +71,18 @@ remove the hold.
   the fix in 6-4: "Let's do the proper fix."): no stopgap.  6-1 landed as binate `84784aa31`.
 - **Tests:** conformance 1748 (`_func_handle`) and 1749 (`__c_entry`), `.xfail.all`.
 
+### CI red on main: conformance spec/07-types/300_err_opaque_instance_body_importer expects an error without the " via Get[Op]" its instance's naming now adds — 🔴 OPEN (CI red on every conformance mode; diagnostics only: the program is rejected as it should be; found 2026-11-15, work-1, validating the deferred-check flush)
+
+The test's last expected line is `q\.bni:20:1: cannot use an opaque type by value .*\(in Box\[Op\]\.M, instantiated at
+.*main\.bn:41:14\)`, and the checker now ends that error `(in Box[Op].M, instantiated at .../main.bn:41:14 via
+Get[Op])` (the " via " of check_instance_naming.bn / check_instance_context.bn), so the line no longer matches.  Seen
+with a compiler built from main at binate `ed9921bf3` (and the same output with that commit's check package under the
+deferred-check change), and in CI's conformance run for `7cf998926`, which fails it on every mode; the CI runs between
+that and the last green one were cancelled, so the commit that changed the naming is not pinned down -- this session's
+earlier conformance runs did not include the test.  Decide whether the new naming is right (then update the `.error`
+line) or a regression in the instance-view work (claimed by temp-5, "Inside a generic's instance, a type argument
+satisfies a constraint through an impl private to another package's `.bn`").
+
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
 Freeing a long chain through managed-slices (`type Cell struct { rest @[]Cell; v int }`, 300,000 links, the last
