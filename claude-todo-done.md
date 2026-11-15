@@ -36,7 +36,8 @@ length, into the body.
 - Against main's bnfmt: the corpora's 179 files with a `__c_global` unchanged.  Review: a test case dropped while
   merging the tests and docs naming only `__c_call`, fixed before landing; two overflows main has too, filed (an
   array length's `]` and element type; a block then a line comment between a list's elements).
-- With it no known source leaves a line comment pending inside a statement (the comment-gap entry).
+- With it no source was thought to leave a line comment pending inside a statement; the review of a removal of the
+  signature hold found three that do (the comment-gap entry).
 
 ### irgen's isAbstractType counted a type nested past 32 levels as abstract — DONE (binate `d7f9c914e`, 2026-11-14, work-6; user: "wait 4 minutes, then go ahead"; plan-irgen-checker-types 5e-2)
 
