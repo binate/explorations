@@ -168,7 +168,16 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   Mach-O rel8 that would carry one is patched in place without .subsections_via_symbols, else an error
   (claude-todo-done.md).
 
-Next: 1g2 — the general `[rip + x@GOTPCREL]` memory operand in every instruction clang takes it in, CALL / JMP
-among them, with clang's relocation per instruction; and the symbolic immediates of ret / retf / enter / int
-(clang's R_X86_64_16 / _8), which bnas rejects.  x64.bni is at 931 of its 1000-line cap: 1j's system
-instructions go into a sub-package of their own (as asm/x64/sse, strop, ctrl).
+- 1g2 — landed binate `8b1b4f48c` (2026-11-14): `[rip + x@GOTPCREL]` a memory operand to every encoder, its fixup
+  as clang marks it (the 64-bit MOV load FIX_GOTPCREL; a 32- / 64-bit register loaded or operated on from a slot,
+  CALL / JMP relaxable, FIX_REX_GOTPCRELX / FIX_GOTPCRELX; any other FIX_GOTPCREL_PLAIN; Mach-O X86_64_RELOC_GOT),
+  but LEA plain (a review found clang's relaxable 64-bit LEA rewritten into `or reg, imm32` by GNU ld / lld, MAJOR;
+  user: "Plain, as GNU as"); GOT addends still errors (decision above), in every encoder too; on Mach-O a GOT
+  reference to a temporary past its atom's symbol an error (clang's form misleads ld64).  Symbols in int / ret /
+  retf / enter immediates (decision above).  Left in claude-todo.md: bnld takes none of the new GOT relocations;
+  an absolute symbol before `@GOTPCREL`.
+
+Next: 1i, the VEX-encoded integer instructions (BMI1 / BMI2: andn, bextr, blsi, blsmsk, blsr, bzhi, mulx, pdep,
+pext, rorx, sarx, shlx, shrx) and ADX, MOVBE, CRC32, with the VEX prefix encoder stage 4 builds on.  x64.bni is
+at 952 of its 1000-line cap: 1i's and 1j's encoders go into sub-packages of their own (as asm/x64/sse, strop,
+ctrl).
