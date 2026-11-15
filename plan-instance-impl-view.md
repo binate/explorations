@@ -2,7 +2,8 @@
 
 Status: design v3 (section 11) with review 3's amendments (section 12), 2026-11-13 (temp-5).  The user's
 decisions (2026-11-13): Q1 accepted (the remaining difference, documented in step 4); Q2 VRoot normalized.
-Steps 1 and 2 landed (binate `ed737493f`, section 13; `8f0f493e2`, section 14); steps 3-4 to do (temp-5).
+Steps 1-3 landed (binate `ed737493f`, section 13; `8f0f493e2`, section 14; `534ef01b5`, section 15); step 4
+to do (temp-5).
 
 Todo entry: "Inside a generic's instance, a type argument satisfies a constraint through an impl private to another
 package's `.bn`" (claimed 2026-11-06, temp-5).  Q2 of done/plan-dependent-constraints.md section 8 recommended fixing
@@ -403,3 +404,39 @@ types were rejected.  The judgment is now made in the constraint's binding.  A r
 miss's note probe names its instances in the impl's own package, adding two false errors.  For step 3: whatever is
 resolved for a use (a parameterized impl, an alias's target, a derivation) must name its instances in the use's class,
 not in whatever build or check happens to surround it.
+
+## 15. Step 3 implemented (2026-11-14)
+
+Step 3 landed as binate `534ef01b5`. What is resolved for a use is judged in the use's class, not in whatever build or
+check surrounds it:
+
+- An alias's target (A5): a generic alias's target, resolved for a use, is judged in the use's view (the use's
+  ImplView rides on aliasUse.View into InstanceState.AliasView, which implViewHere and implViewAt return while an
+  alias's target is resolved under a binding). `lib.KT[int32]` used from main, whose target's constraint is met only
+  through an impl private to lib's `.bn`, was accepted; it is rejected now, as the direct `lib.K[@lib.T, int32]`
+  already was.  lib's own use is still accepted (conformance 227 accepted, 228 rejected).
+- A method copied outside any build or check (A7): backfillInstantiationMethods, copyLaterMethod and
+  copyMethodOnDemand on an instance already built copy the signature identity-only (copyGenericMethod runs as
+  Speculative when nothing is being built and no check is current). Each class's check of the instance judges it in
+  its own view, and a miss is labelled with the method (`G[int32].m`).
+- A call's constraint: instanceConstraint resolves a generic function's constraint bound to the call's type arguments,
+  so what it forms is judged in the call's class.  The first version of A7 dropped those judgments (conformance 161
+  lost its error). It also fixes a false rejection: an opaque type the calling package lends, used through a function
+  constraint, was rejected and is accepted now, as `lib.Box[O]` written at the call is (conformance 229).
+- resolveGenericTypeDeclAbstractNow clears DerivingInstanceSig while it resolves, and ImplView.All is set only in a
+  probe asking whether any impl would serve (InstanceState.ProbeAll); its TODO is gone.
+
+Other behaviour change: a call in an instance's body reports a miss one fewer time.  Review: two rounds, nothing
+critical or major; the main minor finding (an alias's target inside a copied method was still judged) was folded in,
+and two pre-existing diagnostic issues are filed as one minor todo entry (an alias's target error reached through a
+method signature is reported twice, or without its instance). Notes, neither with a repro:
+
+- copyGenericMethod's "outside any build or check" test (not Building, no Current) stands in for "each class's check
+  makes this copy's judgments again";
+- inside an alias's target, a constraint check made under the constraint's own binding still judges in the alias's
+  view (AliasView), not that binding's.
+
+Tests: conformance spec/12-generics 227-229; check unit tests TestViewRootAliasTargetJudged,
+TestViewRootBackfilledMethodJudged, TestViewRootAliasInBni, TestViewRootAliasInRootedInstance,
+TestViewRootAliasInBackfilledMethod, TestViewRootCallConstraintFormed.  Step 4 (the spec note on the remaining
+difference, Q1) is next; its wording needs the user's approval.
