@@ -2,7 +2,7 @@
 
 Status: design v3 (section 11) with review 3's amendments (section 12), 2026-11-13 (temp-5).  The user's
 decisions (2026-11-13): Q1 accepted (the remaining difference, documented in step 4); Q2 VRoot normalized.
-Step 1 landed (binate `ed737493f`, section 13); steps 2-4 to do (temp-5).
+Steps 1 and 2 landed (binate `ed737493f`, section 13; `8f0f493e2`, section 14); steps 3-4 to do (temp-5).
 
 Todo entry: "Inside a generic's instance, a type argument satisfies a constraint through an impl private to another
 package's `.bn`" (claimed 2026-11-06, temp-5).  Q2 of done/plan-dependent-constraints.md section 8 recommended fixing
@@ -380,3 +380,26 @@ Step 1 as section 12 lists it, with review 4's fixes folded in:
 - A judgment latched in one view is reported at its first site only; the program is rejected either way.
 - Side finding (pre-existing, filed in claude-todo.md, MAJOR): a generic interface whose constraint names a sibling
   generic interface cannot be instantiated from another package.
+
+## 14. Step 2 implemented; a step 1 regression fixed (2026-11-14)
+
+Step 2 landed as binate `8f0f493e2`: an interface instance has per-class check states (InstCheckState), as a struct
+instance has.  Each class's check (checkIfaceInstance) queues the struct instances the interface's method signatures
+and parents name, in that class (queueIfaceInstances), and, when a private impl may serve the arguments
+(privateImplMayServe), judges the method signatures and parents again from a fresh clone in the class's view, with
+`Self` bound to the instance (rejudgeIfaceStructure, check_instance_rejudge.bn).  Behaviour changes: an instance chain
+counts interface instances as links (a too-deep message may name one: "Box[int] names I[@int]"); a family already
+rejected as unbounded can get one more "nested too deeply" line; the REPL records the struct instances an interface
+instance names as its check's Deps instead of noting them at each naming.  Its review found nothing critical or major;
+the minor findings were folded in.  Tests: conformance spec/12-generics 222-225; check unit tests
+TestRejudgeIfaceStructure, TestRejudgeIfaceSelf, TestReplIfaceChainFailureRejectedAgain,
+TestReplIfaceDepsReachStructInstance.
+
+A step 1 regression, found from CI by work-3 and temp-4, was fixed first (binate `afb44dfcf`): a constraint check
+judged satisfaction after unbinding the use's naming context, so a parameterized impl resolved for the argument to
+judge it (implInstance) named its instances with no view root outside any instance check -- a local, or a
+package-level variable's check replayed after collection -- and pkg/binate/format's maps keyed by its own private
+types were rejected.  The judgment is now made in the constraint's binding.  A related gap stays open (todo, minor): a
+miss's note probe names its instances in the impl's own package, adding two false errors.  For step 3: whatever is
+resolved for a use (a parameterized impl, an alias's target, a derivation) must name its instances in the use's class,
+not in whatever build or check happens to surround it.

@@ -17,6 +17,8 @@ failing every unit lane and the bnfmt / bnlint-self e2e jobs.
 - Validation: cmd/bnfmt builds; check 2085, format 453, repl 189 unit tests; VM spec/11 + spec/12 + multi-package
   621/0, LLVM spec/12-generics 175/0; e2e bnfmt and bnlint-self pass; hygiene.  A review (27 probes) found no defect;
   its one pre-existing finding, two false follow-on errors from a miss's note probe, is a minor OPEN entry.
+- Also filed by temp-4 as "CI red on main since binate `ed737493f`: the checker rejects pkg/binate/format, whose own
+  key types' impls it calls private" (explorations `f718bcc36`): the same bug, moved here with it.
 
 ### bnfmt printed none of the comments inside a `__c_global` — DONE (binate `7484184d0`, 2026-11-14, temp-4; user: "__c_global first (Recommended)", landed on "yes, go ahead") (LOW; part of the comment-gap entry in claude-todo.md)
 

@@ -55,21 +55,6 @@ relocations stay as clang's.  Fixing in stage 1g1 before it lands.
   the fix in 6-4: "Let's do the proper fix."): no stopgap.  6-1 landed as binate `84784aa31`.
 - **Tests:** conformance 1748 (`_func_handle`) and 1749 (`__c_entry`), `.xfail.all`.
 
-### CI red on main since binate `ed737493f`: the checker rejects pkg/binate/format, whose own key types' impls it calls private — 🔴 OPEN, MAJOR (a valid program rejected; every unit-test lane fails; found 2026-11-14, temp-4, building bnfmt from main)
-
-Since `ed737493f` ("check: an instance's judgments see its view root's private impls, not every impl") the tree's
-compiler rejects pkg/binate/format (and so cmd/bnfmt): "ifaces/stdlib/pkg/std/hash.bni:32:16: type argument
-renderKey does not satisfy constraint Hashable: the matching impl is private to package pkg/binate/format (in
-Default[renderKey].Hash, instantiated at .../pkg/std/hash.bni:36:13)", the same for Comparable (cmp.bni:35:16), and
-for nodeAt, rereadKey and rereadText.  Each is a type of format's own with its impl in format's `.bn` (`impl
-renderKey : lang.Hashable`, print_rendermemo.bn), used as a hash map key in format; the judgment that fails is made
-in an instance std/hash makes (Default[T].Hash, hash.bni:36), whose type argument format's instantiation supplies,
-so format's private impls should be in its view.  CI: every unit-test lane fails pkg/binate/format and cmd/bnfmt
-from binate `5d9459712` on (the first run after `ed737493f` not cancelled); e2e fails as well (not read).  Unit
-tests compiled by a gen1 built before `ed737493f` pass, so a validation with an older gen1 misses it.  Related: the
-entry "Inside a generic's instance, a type argument satisfies a constraint through an impl private to another
-package's `.bn`" (claimed by temp-5, step 2 under way), whose step 1 `ed737493f` is.
-
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
 Freeing a long chain through managed-slices (`type Cell struct { rest @[]Cell; v int }`, 300,000 links, the last
@@ -529,7 +514,7 @@ new image's clang emits for every function.  Plan (b): the 26.04 package for qem
 naming a personality routine in our bare-metal code (Binate has no exceptions) -- by `nounwind` in the LLVM IR, or by
 the flags the new clang needs -- rather than routing around it with another linker.
 
-### Inside a generic's instance, a type argument satisfies a constraint through an impl private to another package's `.bn` — 🟡 IN PROGRESS (claimed 2026-11-06, temp-5; plan-instance-impl-view.md step 1 landed, binate `ed737493f`; step 2 under way 2026-11-14) (an invalid program accepted; found 2026-11-04, temp-5, review of design C for the dependent-length constraints; reproduced on binate main `b52e54139`; pre-existing)
+### Inside a generic's instance, a type argument satisfies a constraint through an impl private to another package's `.bn` — 🟡 IN PROGRESS (claimed 2026-11-06, temp-5; plan-instance-impl-view.md steps 1-2 landed, binate `ed737493f`, `8f0f493e2`; step 3 next) (an invalid program accepted; found 2026-11-04, temp-5, review of design C for the dependent-length constraints; reproduced on binate main `b52e54139`; pre-existing)
 
 Package r3lib's `.bni` declares `interface Tag[T any] { tag() int }`, `func inner[T Tag[[sizeof(X)]uint8], X
 any](t T) int` and `func outer[V Tag[[sizeof(U)]uint8], U any, X any](v V) int { return inner[V, X](v) }`; package
