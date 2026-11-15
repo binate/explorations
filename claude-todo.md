@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### A generic body's function literal captures its own package's variable as a function's: the closure reads a copy (VM) or a released record (compiled), not the live global — 🔴 OPEN MAJOR (silent wrong code; found 2026-11-14, work-6, review of plan-irgen-checker-types 6-3; pre-existing, reproduced with a bnc built from binate `ed9921bf3`)
+### A generic body's function literal captures its own package's variable as a function's: the closure reads a copy (VM) or a released record (compiled), not the live global — 🟡 IN PROGRESS (claimed 2026-11-14, work-6; user: "Fix it first (Recommended)": its own commit, before plan-irgen-checker-types 6-3), MAJOR (silent wrong code; found 2026-11-14, work-6, review of plan-irgen-checker-types 6-3; pre-existing, reproduced with a bnc built from binate `ed9921bf3`)
 
 Symptom: package `pkg/glib` declares `var Count int` (defined as 10) and, in its `.bni`, `func Reader[T any]()
 *func() int { return func() int { return Count } }`.  `main` takes `read := glib.Reader[int]()`, prints `read()`,
