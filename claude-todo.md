@@ -3143,6 +3143,24 @@ own 109 wide, where bnfmt before `6d97d7e91` moved the comments after the `,` an
 review's sweep).  Breaking such a type needs the item rendered at its continuation column, where its lists and
 brackets can wrap (after a type-argument list's `[` or `,`, after an array's `[`).
 
+### bnfmt lets an array length run past the cap by the `]` and element type after it — 🔴 OPEN 🟢 LOW (found 2026-11-14, temp-4, review of the `__c_global` comments fix; pre-existing, main the same)
+
+An array type's length wraps only when the length itself passes the cap: printArrayLen (print_type.bn) prints it with
+printExpr, which reserves nothing after it, so `var b [Aaaa<×40> + Xxxx<×44> + Nn]int` prints 103 wide where a break
+after the first `+` keeps it in the cap (a length that itself passes the cap does break there).  The same holds for a
+call or a builtin as the length (`[__c_global("s…", T)]int`, a formatter-only input, as such a length is not
+constant).  Fix: print the length with printExprTail, reserving the `]` and what follows it on its line (the element
+type, and the rest of the declaration when the type ends it).
+
+### bnfmt lets a block comment and a line comment between a list's elements run past the cap — 🔴 OPEN 🟢 LOW (found 2026-11-14, temp-4, review of the `__c_global` comments fix; pre-existing, main the same)
+
+Between two of a list's elements, a block comment that fits on the line stays there, and a line comment after it must
+end that line too, so together they run past the cap: `v2 := *gggggggggg(/* c7 */ "<s×60>", /* c8 */ // c9` /
+`Tttt)` prints its first line 106 wide (a `__c_call` the same).  Before a list's close such a run is measured whole
+(closerRunWidth, print_closegaps.bn): block comments ending in a line comment begin a continuation line when they do
+not fit on the line together.  writeGapSeparator (print_listcomments.bn) places the comments between elements without
+measuring such a run, and can measure it the same way.
+
 ### bnfmt's operator chain moves a function literal to a continuation line for what follows its last line — 🟢 LOW (found 2026-10-26, temp-4, working on the statement trailing-comment entry; pre-existing)
 
 printBinaryWrapped keeps an operand on the line when binOperandWidth plus the operand's tail fits there
