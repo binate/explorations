@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### bnfmt deletes a comment in a signature's result type that follows a line comment there no printer prints — 🔴 OPEN (MAJOR: the formatter deletes source text; found 2026-11-14, temp-4, review of a removal of the signature hold; since binate `810abb9f6`, 2026-11-01, in no release: bnfmt `bnc-0.0.17-pre3` keeps the comment)
+### bnfmt deletes a comment in a signature's result type that follows a line comment there no printer prints — 🟡 IN PROGRESS (claimed 2026-11-14, temp-4; user: "Fix the gaps first (Recommended)": the comment-gap entry's three gaps in place, then the hold's removal) (MAJOR: the formatter deletes source text; found 2026-11-14, temp-4, review of a removal of the signature hold; since binate `810abb9f6`, 2026-11-01, in no release: bnfmt `bnc-0.0.17-pre3` keeps the comment)
 
 `func f() [len("a" // c` / `"b") + /* d */ 1]T {` / `}` prints `func f() [len("a"` / `"b") + 1]T {` / `// c` /
 `}`: `/* d */` is gone, and `bnfmt -w` deletes it from the file.  The same with `[sizeof(*func() ( // c` / `int)) +
