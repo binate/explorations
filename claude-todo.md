@@ -516,21 +516,6 @@ new image's clang emits for every function.  Plan (b): the 26.04 package for qem
 naming a personality routine in our bare-metal code (Binate has no exceptions) -- by `nounwind` in the LLVM IR, or by
 the flags the new clang needs -- rather than routing around it with another linker.
 
-### A package-level variable of a generic container keyed by the package's private type no longer type-checks: main is red — 🟡 IN PROGRESS (claimed 2026-11-14, temp-5) MAJOR (found 2026-11-14, work-3, reading CI; regression from binate `ed737493f`, temp-5's instance-impl-view step 1; temp-5 told)
-
-Since `ed737493f` ("check: an instance's judgments see its view root's private impls, not every impl") pkg/binate/format
-and so cmd/bnfmt no longer type-check: "type argument rereadText does not satisfy constraint Hashable: the matching impl
-is private to package pkg/binate/format (in Default[rereadText].Hash, instantiated at .../pkg/std/hash.bni:36:13)", the
-same for Comparable and for nodeAt.  Every unit lane and the bnfmt / bnlint-self e2e jobs fail on it (unit run
-43620194507 at `6d97d7e91`); it still fails with a bnc built from `4d4f25750`.  Reduced: a library package `pkg/q`
-(its `.bni` declares only `func Count(n int) int`) whose `.bn` declares `type key struct { n int }`, its Hash / Compare
-methods, `impl key : lang.Hashable` and `var counts @hashmap.Map[key, int]`, and uses `counts` in Count -- rejected the
-same way; with the map in a local variable of Count instead, it compiles (and before `ed737493f` both did, printing 7).
-So the instances that a package-level variable's type reaches (hashmap's `Default[key]` from std/hash and std/cmp) are
-judged without the package's private impls, though that package is the root that supplied `key`.  Fix (temp-5's area,
-plan-instance-impl-view.md): give those instances the declaring package as their view root.  Test: the reduced program
-as a conformance test, passing.
-
 ### Inside a generic's instance, a type argument satisfies a constraint through an impl private to another package's `.bn` — 🟡 IN PROGRESS (claimed 2026-11-06, temp-5; plan-instance-impl-view.md step 1 landed, binate `ed737493f`; step 2 under way 2026-11-14) (an invalid program accepted; found 2026-11-04, temp-5, review of design C for the dependent-length constraints; reproduced on binate main `b52e54139`; pre-existing)
 
 Package r3lib's `.bni` declares `interface Tag[T any] { tag() int }`, `func inner[T Tag[[sizeof(X)]uint8], X

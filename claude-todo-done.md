@@ -1,3 +1,23 @@
+### A package-level variable of a generic container keyed by the package's private type no longer type-checked: main was red — DONE (binate `afb44dfcf`, 2026-11-14, temp-5; landed on "yes, go ahead") (MAJOR; found 2026-11-14, work-3, reading CI; regression from binate `ed737493f`)
+
+pkg/binate/format (so cmd/bnfmt) stopped type-checking after `ed737493f`, which made an instance's judgments see only
+the impls private to its view root: "type argument rereadText does not satisfy constraint Hashable: the matching impl
+is private to package pkg/binate/format (in Default[rereadText].Hash, instantiated at .../pkg/std/hash.bni:36:13)",
+failing every unit lane and the bnfmt / bnlint-self e2e jobs.
+- Cause: checkInstantiationConstraints (check/check_deferred_constraints.bn) resolved each constraint bound to the
+  use's naming context, then unbound before judging satisfaction.  A judgment through a parameterized impl (std/hash's
+  `impl Default[K] : Hasher[K]`) resolves the impl for the argument (implInstance), and the instances that names were
+  named in whatever build or instance check was around: outside any -- a use in a function body, or a check replayed
+  after collection, as for a package-level variable's type -- that context had no view root, so Default[key] was
+  queued in a class whose check could not see the package's private impl.  A local `@hashmap.Map[key, int]` worked
+  only because Map's own check supplied the root; a local `@table.Table[key, ...]` failed too.
+- Fix: the judgment is made in the constraint's binding, so the probe's namings are in the use's class.
+- Tests: conformance spec/12-generics 226 (a package-level variable and a local, each rejected without the fix);
+  check_deferred_constraints_test.bn TestConstraintProbeNamesInUseClassPkgVar / ...Local (both fail without it).
+- Validation: cmd/bnfmt builds; check 2085, format 453, repl 189 unit tests; VM spec/11 + spec/12 + multi-package
+  621/0, LLVM spec/12-generics 175/0; e2e bnfmt and bnlint-self pass; hygiene.  A review (27 probes) found no defect;
+  its one pre-existing finding, two false follow-on errors from a miss's note probe, is a minor OPEN entry.
+
 ### bnfmt printed none of the comments inside a `__c_global` — DONE (binate `7484184d0`, 2026-11-14, temp-4; user: "__c_global first (Recommended)", landed on "yes, go ahead") (LOW; part of the comment-gap entry in claude-todo.md)
 
 printCGlobal printed a `__c_global`'s symbol and type and none of the comments between them, so each was left
