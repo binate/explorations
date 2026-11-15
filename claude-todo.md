@@ -532,6 +532,23 @@ the right error is reported.  The program is rejected either way.  Fix: the note
 impl would serve, so its resolution should queue no instance check (or name what it names in the use's class, as the
 judgment itself does).  Test: the repro as a unit test pinning exactly the one error.
 
+### A generic alias's target error reached through a method signature is reported twice, or without its instance — 🔴 OPEN (minor: diagnostics; found 2026-11-14, temp-5, review of instance-impl-view step 3; reproduced on binate main `8f0f493e2`; pre-existing)
+
+pkg/lib's .bni declares `interface Tag[X any] { tag() int }`, `type K[V Tag[[sizeof(U)]uint8], U any] struct { v
+V }`, `type KT[U any] = K[@T, U]` and a `T` that is a Tag[[8]uint8]; nothing is a Tag[[2]uint8].
+- Reported twice: main declares `type G[U any] struct { u U }`, `var g G[int32]`, `func (g *G[U]) m(d *D[U]) int
+  { return 0 }` and `type D[X any] struct { k lib.KT[int16]; x X }`.  The miss in D's field is reported once as
+  "type argument @T does not satisfy constraint Tag[[2]uint8] (in D[int32], instantiated at <g's position> via
+  G[int32])" and again, at the same position, with no context.  With `lib.K[@lib.T, int16]` written for the
+  field, or D[int32] named in a function body, it is reported once.
+- No instance: main declares the same G, `func (g *G[U]) m(k *lib.KT[U]) int { return 0 }`, and after it `var g2
+  G[int16]`: the miss is reported with no "(in G[int16], ...)" context, which `lib.K[@lib.T, U]` written in m's
+  signature gets.
+Since step 3 of plan-instance-impl-view.md, a miss through a private impl reaches the same paths.  Fix: unknown --
+find where a derivation's report in an alias target loses the instance naming (instanceNamingFor /
+pushInstanceNaming around the target's resolution in a build), and why the field's check reports both from the
+derivation and from D's own check.  Test: each repro as a unit test pinning one error with its context.
+
 ### A generic alias of a struct type that takes the size of a type being collected is a false cycle — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
 
 `type A[T any] = struct { a [sizeof(N)]uint8; t T }` with `type N struct { v int64; w int64; p *A[int] }` is
