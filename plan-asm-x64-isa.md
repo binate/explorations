@@ -107,6 +107,11 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   GOT_LOAD).  A GOT reference with an addend stays an error (user, 2026-11-14: "Keep rejecting (Recommended)",
   as the AArch64 GOT-addend decision of 2026-10-14; clang takes it, the slot's address plus the addend), which
   corrects this entry's first wording ("or an addend is written").
+- A symbol in an INT / RET / RETF / ENTER immediate (user, 2026-11-14: "Accept as clang (Recommended)"): `int
+  offset x`, `ret offset x`, `retf offset x`, `enter offset x, offset y` take it, relocated R_X86_64_8 / 16
+  (Mach-O UNSIGNED of 1 / 2 bytes), as `mov al / ax, offset x` already are — a symbol defined elsewhere as an
+  absolute constant is meaningful there.  Lifts plan-tls.md 3d2's deliberate reject of a symbol as an INT vector
+  or RET's stack release.
 - Far indirect jmp / call (user, 2026-11-14: "By operand size (Recommended)"): FF /5 / FF /3 encoded as the
   operand's size defines — `dword ptr` 66 FF (m16:16, as GNU), `fword ptr` FF (m16:32, as both), `tbyte ptr`
   REX.W FF (m16:64); `ljmp` / `lcall` need a size.  Departs from clang, which drops the 66 / REX.W those
