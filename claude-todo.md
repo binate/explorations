@@ -3170,6 +3170,15 @@ end that line too, so together they run past the cap: `v2 := *gggggggggg(/* c7 *
 not fit on the line together.  writeGapSeparator (print_listcomments.bn) places the comments between elements without
 measuring such a run, and can measure it the same way.
 
+### bnfmt's comparison corpora hold no `.bni` file, and check.py re-reads every output as a `.bn` — 🔴 OPEN 🟢 LOW (tooling; found 2026-11-14, temp-4, validating the signature hold's removal)
+
+binate scripts/bnfmt-check/corpora.sh lists only `*.bn` files (the tree corpus and those built from it), so none of the
+tree's 814 `.bni` files is in any corpus, and a formatter change is never compared on an interface file: its
+methods' signatures, its bodiless functions, its types.  And check.py writes each output to a temporary `.bn` file
+before formatting it again, so a `.bni` given to it is reported as `refails` wherever it has a bodiless function
+(`func f() int` does not parse as a `.bn`).  Fix: list the `.bni` files too, and give the temporary file the
+source's extension.
+
 ### bnfmt's operator chain moves a function literal to a continuation line for what follows its last line — 🟢 LOW (found 2026-10-26, temp-4, working on the statement trailing-comment entry; pre-existing)
 
 printBinaryWrapped keeps an operand on the line when binOperandWidth plus the operand's tail fits there
