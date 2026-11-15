@@ -41,7 +41,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
   the fix in 6-4: "Let's do the proper fix."): no stopgap.  6-1 landed as binate `84784aa31`.
 - **Tests:** conformance 1748 (`_func_handle`) and 1749 (`__c_entry`), `.xfail.all`.
 
-### CI red on main: conformance spec/07-types/300_err_opaque_instance_body_importer expects an error without the " via Get[Op]" its instance's naming now adds — 🔴 OPEN (CI red on every conformance mode; diagnostics only: the program is rejected as it should be; found 2026-11-15, work-1, validating the deferred-check flush)
+### CI red on main: conformance spec/07-types/300_err_opaque_instance_body_importer expects an error without the " via Get[Op]" its instance's naming now adds — 🟡 IN PROGRESS (claimed 2026-11-15, work-1; user: "Go ahead and fix 300") (CI red on every conformance mode; diagnostics only: the program is rejected as it should be; found 2026-11-15, work-1, validating the deferred-check flush)
 
 The test's last expected line is `q\.bni:20:1: cannot use an opaque type by value .*\(in Box\[Op\]\.M, instantiated at
 .*main\.bn:41:14\)`, and the checker now ends that error `(in Box[Op].M, instantiated at .../main.bn:41:14 via
@@ -3030,6 +3030,15 @@ links, the time was slices.Append of the list, the destructor of the copies it d
 check's unit-test binary, 24 s at 400 links (the length TestDeepGenericAliasChainReported is kept to).  Fix: a
 vec, and an index by declaration (a table keyed on the declaration's address) holding each declaration's entries;
 the REPL's rollback truncates the lists (check_inst_cache_drop.bn), so it must drop the index's entries too.
+
+### clang crashes compiling the -g debug info of a 20,000-struct ring — 🔴 OPEN 🟢 LOW (found 2026-11-15, work-1, deep-nesting codegen stage)
+
+With -g, bnc emits the debug info of a ring of structs each holding a pointer to the next (binate `7f47f5003` interns
+it from a stack), but clang (Apple clang 21, arm64) crashes compiling it ("Illegal instruction: 4") at 20,000 structs;
+2,000 compile in 0.1 s.  Each struct's DICompositeType has a member whose DIDerivedType points at the next struct, so
+LLVM follows the ring through its own type graph, presumably recursively.  The native back ends emit no DWARF.
+Options: describe a struct reached through a pointer by a declaration (DIFlagFwdDecl with an identifier) so the
+graph has no long path, or accept it as LLVM's limit.
 
 ### Checking a chain of named types over named types takes time superlinear in its length — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-10, work-1, deep-nesting dependencies-first stage 2; pre-existing)
 

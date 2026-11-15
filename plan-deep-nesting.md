@@ -428,8 +428,16 @@ recursive, so far more than 75).
   outputs (diagnostics included) identical; instructions within noise.  The long chain's time is the instantiation
   caches' (new LOW entry: lists searched linearly, appended by copying).  Review: no defect; a theoretical difference
   in an error's "(in ...)" naming under a deferred constraint check, never produced.
-  Next: codegen, native, vm / interp, lint (irutil / ir walk IR types, bounded by the 1024 levels -- check them for
-  alias / named links as IR-gen's were).
+- Stage codegen DONE: binate `7f47f5003` (landed 2026-11-15; user: "yes") -- LLVM codegen crashed on a 20,000-link
+  named chain (emitZeroRec; -g: dbgTypeID <-> internDbgNamed) and a 20,000-struct ring through `*` / `@` / `@[]`
+  (struct discovery: addStructDef <-> discoverStructFromType); native aa64 / x64 / arm32 and the VM compiled all.
+  Wrapper peeling is a loop in the copy / zero / scalar-query walks; struct discovery and -g debug-type interning run
+  from stacks, depth first as before (struct order and every metadata id unchanged); moduleStructDefs and the debug
+  registry are vecs with indexes.  cmd/bnc's IR and 2,105 corpus programs identical, 526 of them with -g too.  Left:
+  clang itself crashes on the -g debug info of a 20,000-struct ring (claude-todo LOW); a 1024-level array of
+  managed-slices takes clang 81 s (IRTranslator on deep SSA aggregates; fix proposed, not decided).
+  Next: irutil's dtorTypeSuffixRec (recurses per ring link in IR-gen, every back end), the VM's two cross-mode walks
+  (collectIfaceVtOffsets, holdsIfaceValue), then lint.
 ## Decisions (2026-11-03)
 
 - Step 1, all of it, staged: user "All of them, staged (Recommended)".
