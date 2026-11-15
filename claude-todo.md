@@ -7,6 +7,24 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### At the REPL, an `import` of a forwarder typed at the prompt registers none of the exposed packages' functions, constants or variables: the next use through it is an internal error — 🔴 OPEN, MAJOR (a valid session fails with an internal error; found 2026-11-14, work-6, review of plan-irgen-checker-types 6-4; pre-existing: a bni built before 6-4 fails the same way)
+
+- **Symptom:** pkg/fwd's `.bni` is `expose "pkg/glib"`, and pkg/glib declares `func HelperHandle() *uint8` and
+  `func RH() *uint8`.  A session rooted at a file that imports only pkg/builtins/testing (`bni -repl main.bn`)
+  takes `import "pkg/fwd"` ("package pkg/fwd loaded"), then `testing.Println(fwd.HelperHandle() == fwd.RH())`
+  panics: "internal error: IR-gen has no signature for the called function pkg/glib.HelperHandle (compiler bug)"
+  before 6-4, "... has no signature for the function pkg/glib.HelperHandle that the checker resolved HelperHandle
+  to" with it.  The same session rooted at a file that imports pkg/fwd works.
+- **Cause:** the prompt-import path (pkg/binate/repl/mid_session_import.bn) registers the signatures of the typed
+  imports only (`irgen.RegisterImportFuncSigs` over impAliases / impPaths / impFiles) and of generic-body
+  dependencies (`registerGenericBodyDeps`); the packages the imports expose get their types
+  (`registerLoadedPkgTypes`) but not their functions, constants or variables (a function probed; the constants
+  and variables by reading).  The startup path adds the expose closure to what it registers
+  (`appendExposeClosure`, pkg/binate/repl/ir_imports.bn).
+- **Fix:** add the typed imports' expose closure to the prompt-import registration, as the startup path does.
+  Test: a REPL unit test (or e2e session) importing a forwarder at the prompt and calling, taking as a value and
+  reading a constant and a variable through it.
+
 ### A generic body's `_func_handle(f)` / `__c_entry(f)` names the instantiating package's `f` -- the wrong function, silently — 🟡 IN PROGRESS (claimed 2026-11-14, work-6: plan-irgen-checker-types 6-4), MAJOR (silent wrong code; found 2026-11-14, work-6, review of plan-irgen-checker-types 6-1; pre-existing, on main at binate `d7f9c914e`)
 
 - **Symptom:** pkg/glib's `.bni` declares `func helper() int` and `func H[T any]() *uint8 { return
