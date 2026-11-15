@@ -1,3 +1,23 @@
+### bnfmt printed none of the comments inside a `__c_global` — DONE (binate `7484184d0`, 2026-11-14, temp-4; user: "__c_global first (Recommended)", landed on "yes, go ahead") (LOW; part of the comment-gap entry in claude-todo.md)
+
+printCGlobal printed a `__c_global`'s symbol and type and none of the comments between them, so each was left
+pending: `v := __c_global(/* a */ "x", int)` printed `v := __c_global("x", int) /* a */`, and a line comment went
+after the statement, after a trailing comma it added to a list around the `__c_global`, or, from a signature's array
+length, into the body.
+- Fix (print_builtin.bn, print_unbreakable.bn; parser parse_builtin.bn): a `__c_global` prints through `__c_call`'s
+  list printer (printCCall), so its gaps claim their comments by position and its operands go on at a continuation
+  line after a line comment; the parser records the symbol's position (ast.BuiltinOpener.Sym).  As a list it can
+  now break between its operands, as a `__c_call` does.
+- Tests: print_builtin_test.bn TestCGlobalCommentsStayInPlace; parser TestParseBuiltinOpeners.  The two tests that
+  used a `__c_global` to leave a line comment pending in a statement
+  (TestCloserLineCommentInABuiltinGoesAfterTheStatement, TestCloserLineCommentsOfOtherClosesGoAfterTheStatement)
+  are gone, their cases in the new test;
+  TestTrailingCommentsAfterAnInnerComment now checks that the comments after the statement stay on its last line.
+- Against main's bnfmt: the corpora's 179 files with a `__c_global` unchanged.  Review: a test case dropped while
+  merging the tests and docs naming only `__c_call`, fixed before landing; two overflows main has too, filed (an
+  array length's `]` and element type; a block then a line comment between a list's elements).
+- With it no known source leaves a line comment pending inside a statement (the comment-gap entry).
+
 ### irgen's isAbstractType counted a type nested past 32 levels as abstract — DONE (binate `d7f9c914e`, 2026-11-14, work-6; user: "wait 4 minutes, then go ahead"; plan-irgen-checker-types 5e-2)
 
 A part of the todo entry "Deep nesting -- of types or of expressions -- is bounded only by the compiler's stack".
