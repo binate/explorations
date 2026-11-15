@@ -3139,6 +3139,32 @@ comments for after the statement and emitTrailingCommentBefore's stopping at a c
 trigger: probe every gap the printer has (a line comment after every token where one can stand, the tokens the
 printer drops included) before removing any.
 
+### bnfmt splits a long string literal inside a multi-byte character — 🔴 OPEN 🟢 LOW (found 2026-11-14, temp-4, review of the string run comments fix; pre-existing, main the same)
+
+`x := "a` + 60 `é` + `"` prints the literal as a run split at a byte budget (splitStringLit, stringSplitPoint in
+print_strlit.bn), and the split falls between the two bytes of an `é` when the literal's text starts at an odd
+offset (none, two `a`s: whole characters; one, three: not).  The run's value is the same bytes, and the source stays
+legal (`lex.source.bytes`: a string literal carries its non-ASCII bytes verbatim), but the file is no longer valid
+UTF-8, so an editor shows the parts' ends as invalid characters.  Fix: stringSplitPoint takes a UTF-8 sequence (a
+lead byte 0xC0–0xF7 and the continuation bytes 0x80–0xBF after it) as one unit, as it does an escape
+(escapeUnitLen).
+
+### bnfmt lets a line of a string run the source split across lines hold parts past the cap — 🔴 OPEN 🟢 LOW (found 2026-11-14, temp-4, review of the string run comments fix; pre-existing, main the same)
+
+A run the source split across lines keeps its breaks and joins the parts on one source line with spaces, with no
+check of the cap (printStringLit): `g(h(k(m(n("s"` / `"t×30" "u×30" "t×30")))))` prints that continuation line 106
+wide.  Fix: break before a part that would pass the cap on its line (the last with what follows the run), and split
+a part too wide for any line, as a run with comments between its parts does (printCommentedRun, writeRunPart).  The
+entry "bnfmt lets a string run the source split across lines run past the cap as a slice's low bound" is another
+place such a run's width goes unchecked.
+
+### bnfmt gives a string run used as a composite element's key no room for the `: value` after it — 🔴 OPEN 🟢 LOW (found 2026-11-14, temp-4, review of the string run comments fix; pre-existing, main the same)
+
+`var m = M{` / `"a×45" "b×45": 1,` / `z: 2,` / `}` prints the element `"a×45" "b×45": 1,` on a line 101 wide: a
+keyed element's key prints with no tail (printItem, print_listitem.bn: `printExpr(b, it.key)`), so the run, which
+fits by itself, is neither merged nor split for the `: 1,` after it.  Fix: print the key with the width of what
+follows it on its line (`: ` and the value's first line, or the value's own break) as its tail.
+
 ### bnfmt lets a string run the source split across lines run past the cap as a slice's low bound — 🔴 OPEN 🟢 LOW (found 2026-11-11, temp-4, second review of the deep slice nest fix; since binate `9f34edb90`)
 
 `x := g<36>(<a×20>, <b×12>)["<s×26>"` / `"tt":]` prints its first line 107 wide; main before `9f34edb90` wrapped the
