@@ -2931,15 +2931,17 @@ has the same gap.
 
 ## bnfmt (self-hosted formatter)
 
-### bnfmt moves a comment inside a declaration's header — 🟢 LOW (found 2026-10-18, temp-4, review of the import-section fix; pre-existing)
+### bnfmt moves a comment inside a declaration's header — 🟡 IN PROGRESS (claimed 2026-11-14, temp-4; user: "Fix them", impl headers, interface parent lists and interface aliases included) 🟢 LOW (found 2026-10-18, temp-4, review of the import-section fix; pre-existing)
 
-A comment between a declaration's keyword and its name is placed by no node (a function's is, since binate
-`810abb9f6`, and a type declaration's since binate `79fb50f9c`): `var /* c */ x int` prints `var x int /* c */` (and a struct field's, `b /* c */ int`, prints `b int
-/* c */`), and `package /* c */ "t"` prints the comment after the path; an interface's go above its first method
-(`interface /* k */ I /* n */ {`).  A comment after the `]` of an annotation block that
-spans lines goes below the block.  Each output is valid and idempotent,
-but the comment moves.  The AST records no position for a var's, a const's or an interface's name or an
-annotation block's `]`, which placing these comments needs.  Related: an empty annotation block `#[]`, which bnfmt drops on
+A comment inside a declaration's header still goes elsewhere (a function's, a var's, a const's and a type
+declaration's print in place; checked 2026-11-14 on binate `57a62dc79`): `package /* p */ "t"` prints the comment
+after the path; an interface's go above its first method (`interface /* k */ I /* n */ {`), as do those in its parent
+list (`interface X : A, /* a */ B {`); an interface alias's and an impl's go after it (`interface /* q */ Al /* r */ =
+/* s */ B` prints `interface Al = B /* q */ /* r */ /* s */`, and `impl /* i */ *T /* j */ : /* l */ I, /* m */ J`
+prints `impl *T : I, J /* i */ /* j */ /* l */ /* m */`); a struct field's, `b /* c */ int`, prints `b int /* c */`.
+A comment after the `]` of an annotation block that spans lines goes below the block.  Each output is valid and
+idempotent, but the comment moves.  The AST records no position for an interface's name or an annotation block's
+`]`, which placing these comments needs.  Related: an empty annotation block `#[]`, which bnfmt drops on
 purpose, leaves an empty line in its place, so a doc comment above it no longer touches its declaration
 (conformance/spec/16-packages/071_annotation_degenerate.bn).
 
@@ -2950,9 +2952,9 @@ Delimited lists print the comments after their opener and between their elements
 the list joined: a comment after a list's last element, before its close (`h(x,` / `y, // c` / `)`); one
 between the elements of a statement's expression list (`return a, // c` / `b`, `x, // c` / `y := …`); and
 one among a typed builtin's operands (`make_slice(T, // c` / `n)`, `cast`), in a type declaration's
-type-parameter list (`type L[T any, // c` / `U any] struct {`, which goes into the struct), an impl's interface list,
-an interface's parent list (`interface X : A, /* a */ B {`, whose comment goes above its first method) or an
-annotation's arguments.  Also after the opener of a function-type list, whose opener position the AST does not
+type-parameter list (`type L[T any, // c` / `U any] struct {`, which goes into the struct) or an annotation's
+arguments (an impl's interface list and an interface's parent list: the entry "bnfmt moves a comment inside a
+declaration's header").  Also after the opener of a function-type list, whose opener position the AST does not
 record, and in an empty list (`f(/* c */ )`, `T{/* c */ }`); a signature's lists print theirs (binate
 `810abb9f6`).  A list printer
 that takes these would claim them as `claimGap` does.  binate `scripts/bnfmt-check`'s comment check (`33c49c1b8`)
