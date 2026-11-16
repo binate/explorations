@@ -2951,6 +2951,11 @@ variable chain is 6,000 long, short of where the old recursion crashed (~12,000)
 looks a struct definition up by name in a list (irutil.Streq), quadratic in a program's struct types: most of the 40
 to 110 s a 20,000-link method chain takes at `--emit-llvm`.  Fix: index what these scan by name (a Scope already
 indexes its names past a threshold), and build the lists with vec.
+The same pattern, found 2026-11-15 (work-1, review of the helper-naming stage): irbuild's pending helper lists
+(PendingMsDtorNames / PendingMpDtorNames / PendingStructDtorNames, irutil.HasName and slices.Append) and LLVM
+codegen's funcRetTypes (emit.bn, slices.Append per function).  A ring of named managed-slices with a drop site per
+type compiles in 0.39 s at 2,000 types, 3.8 s at 8,000 and 14.7 s at 16,000 (user), mostly in the front end's lists
+above and ~5% in the pending helper lists.
 
 ### IR-gen maps each alias of a chain through the rest of the chain -- quadratic in its length — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-14, work-1, review of the deep-nesting IR-gen stage; pre-existing)
 
