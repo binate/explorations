@@ -33,7 +33,7 @@ how the moving parts fit together so you don't have to reverse-engineer
     `X.Y.Z`.  A calling tool prepends its own name to `version.Version`
     for its `--version` banner (e.g. `bnc-X.Y.Z`; all four tools wire
     this).  Every edit to `VERSION`
-    below (steps 2 and 6) must make the corresponding edit to
+    below (both of step 2's commits) must make the corresponding edit to
     `version.bn` (dropping `bnc-`), or the `version-sync` hygiene check
     fails.
 - **`BUILDER_VERSION`** at repo root — names which prior STABLE release
@@ -97,49 +97,48 @@ the package-layout / hardcoded-symbol / runtime / build-script
 changes that this release ought to capture should already be
 committed and pushed.
 
-### 2. Drop the `-preN` suffix from `VERSION`
+### 2. Make the release commit and the `-pre1` bump; push both at once
 
-Edit `VERSION` from `bnc-X.Y.Z-preN` → `bnc-X.Y.Z`.  This is the
-commit that will be tagged.  **Make the corresponding edit to
-`pkg/binate/version/version.bn`'s `var Version = "..."`, dropping the
-`bnc-` prefix** (i.e. `var Version *[]readonly char = "X.Y.Z"`) — the
-`version-sync` hygiene check compares them with `VERSION`'s `bnc-`
-stripped.
+Two commits, made together in the main checkout (`~/binate/binate`) and
+pushed with ONE `git push`:
 
-Commit shape:
+1. **The release commit**, the one that will be tagged: edit `VERSION`
+   from `bnc-X.Y.Z-preN` → `bnc-X.Y.Z`, and **make the corresponding edit
+   to `pkg/binate/version/version.bn`'s `var Version = "..."`, dropping
+   the `bnc-` prefix** (`var Version *[]readonly char = "X.Y.Z"`) — the
+   `version-sync` hygiene check compares them with `VERSION`'s `bnc-`
+   stripped.
 
-    Release bnc-X.Y.Z
+       Release bnc-X.Y.Z
 
-    Drop -preN suffix; this commit will be tagged bnc-X.Y.Z.
+       Drop -preN suffix; this commit will be tagged bnc-X.Y.Z.
 
-Push to `main`.
+2. **The bump, on top of it**: `VERSION` → `bnc-X.Y.(Z+1)-pre1` and
+   `version.bn` → `"X.Y.(Z+1)-pre1"`, a VERSION-only commit
+   (`BUILDER_VERSION` / `CHECK_TOOLS_VERSION` stay put — they wait for
+   the release to be validated, steps 5-6):
 
-### 3. Tag and push
+       Post-release: bump VERSION -> bnc-X.Y.(Z+1)-pre1
 
-Tag the just-pushed commit and push the tag.  From the main
-checkout (`~/binate/binate`):
+`VERSION` labels the LAST commit carrying it.  Pushed together, nothing
+can land between the two, so the release commit is the only commit on
+`main` that reads `bnc-X.Y.Z`.  Pushing the release commit alone and
+bumping after the tag leaves a window in which a concurrent landing on
+top of it also reads `bnc-X.Y.Z`, and the tag is then not on the last
+`X.Y.Z` commit.  (A pre-release is cut the same way: bump, then tag the
+bump's parent.)
 
-    git tag bnc-X.Y.Z
-    git push origin bnc-X.Y.Z
+### 3. Tag the release commit and push the tag
+
+Tag the release commit — the bump's parent — by its hash, read from
+`git log --oneline -2` in the main checkout, and push the tag:
+
+    git tag bnc-X.Y.Z <release commit>
+    git push origin refs/tags/bnc-X.Y.Z
 
 The tag push triggers `release.yml`.  Don't tag a `-preN` commit; the
 release CI happily builds whatever the tag points at, and a `-preN`
 build would ship as a "release" with a broken version string.
-
-**Immediately after tagging, bump `VERSION` → `bnc-X.Y.(Z+1)-pre1`** in a
-SEPARATE, VERSION-only commit (`BUILDER_VERSION` / `CHECK_TOOLS_VERSION`
-stay put — they wait for validation, step 5).  `VERSION` labels the LAST
-commit carrying it, so with concurrent landing any commit that lands on
-top of the tagged one before you bump would ALSO read `bnc-X.Y.Z`,
-leaving the tag not on the last `X.Y.Z` commit.  Bumping now — before the
-slow `release.yml` build + validation — closes that window.  Make the
-paired `version.bn` edit → `"X.Y.(Z+1)-pre1"` (version-sync pairs only
-`VERSION`).
-
-    Post-release: bump VERSION -> bnc-X.Y.(Z+1)-pre1
-
-Push it.  (This SPLITS the old single post-release commit: the VERSION
-label moves immediately, the build-ladder advance waits — see step 6.)
 
 ### 4. Verify the release
 
@@ -227,8 +226,8 @@ has NO `version.bn` counterpart — `version-sync` pairs only `VERSION`.)
 
 ### 6. Commit the `BUILDER_VERSION` + `CHECK_TOOLS_VERSION` bumps
 
-`VERSION` was already bumped to `bnc-X.Y.(Z+1)-pre1` right after tagging
-(step 3), so this post-validation commit lands ONLY the step-5
+`VERSION` was already bumped to `bnc-X.Y.(Z+1)-pre1` with the release
+commit (step 2), so this post-validation commit lands ONLY the step-5
 `BUILDER_VERSION` + `CHECK_TOOLS_VERSION` bumps — the irreversible
 build-ladder advance, held until the release is verified good:
 
@@ -239,8 +238,8 @@ Push to main.  CI re-runs against the new BUILDER; verify it stays green.
 (Historically all three moved in ONE post-release commit — e.g.
 `a5feb8ca` — which is fine only when nothing lands between tag and
 post-release.  Under concurrent landing that leaves stray `X.Y.Z`-VERSION
-commits after the tag, so the VERSION bump is split out to
-immediately-after-tag per step 3, and this commit carries just the
+commits after the tag, so the VERSION bump is pushed with the release
+commit per step 2, and this commit carries just the
 BUILDER/tools advance.  Optionally sanity-build the tree against the
 freshly-downloaded BUILDER — `scripts/fetch-builder.sh` +
 `scripts/build-bnc.sh` — before pushing, to catch a BUILDER↔source skew
@@ -308,7 +307,7 @@ by any build script.)
 - The very next commit on `main` says `bnc-X.Y.(Z+1)-pre1` — so the
   tree state after the tag is again clearly "between releases."
 
-If you forget step 3's bump (VERSION to the next `-pre1`), every commit on
+If you forget step 2's bump (VERSION to the next `-pre1`), every commit on
 main between this release and the next would still claim to be
 `bnc-X.Y.Z` in-tree even though only one of them was actually tagged.
 Don't forget.
