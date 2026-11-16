@@ -199,6 +199,16 @@ still exercises the real pipeline):
        # ... same compile incantation ...
        ./carveout
 
+6. Check the Linux bundles run where earlier releases did.  On an arm64 Mac,
+   run the linux-arm64 bundle in an Ubuntu 24.04 container (the `binate-ci`
+   image), and the linux-x64 one in an amd64 `ubuntu:24.04` container
+   (`docker run --platform linux/amd64`; it has no clang, so compile with
+   `--backend native --linker bnld`).  `readelf -n bin/bnc` on the linux-x64
+   tools must say `x86 ISA needed: x86-64-baseline` and nothing higher, and
+   `objdump -T` must show no glibc symbol version newer than earlier
+   releases needed (`GLIBC_2.34` as of 0.0.17).  The first 0.0.17 build,
+   made on the ubuntu-26.04 runner, needed x86-64-v3 and was deleted.
+
 If anything's wrong, delete the GitHub release + tag and start over
 — don't ship a bad release just because the tag is already there.
 
