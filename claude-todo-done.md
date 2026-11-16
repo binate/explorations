@@ -13,7 +13,7 @@ Fixed in `fd54a0549`: the lane skips the four tests; irgen passes there (843 tes
 Fixed in `4ab6c8674`: the field is compared as a `uint32`; asm/assemble passes on the arm32 Linux lane (in
 binate-ci) and the host lane (47 tests each).
 
-### bnfmt moved a comment inside the package clause — DONE (binate `dd25dd2c0`, 2026-11-15, temp-4; user: "All in place (Recommended)", landed on "yes, go ahead"; LOW; part of "bnfmt moves a comment inside a declaration's header", found 2026-10-18, temp-4)
+### bnfmt moved a comment inside the package clause — DONE (binate `dd25dd2c0`, with tests in `f4aa4bd09`, 2026-11-15, temp-4; user: "All in place (Recommended)", landed on "yes, go ahead"; LOW; part of "bnfmt moves a comment inside a declaration's header", found 2026-10-18, temp-4)
 
 A comment between `package` and the path went after the path (`package /* p */ "t"` printed `package "t" /* p */`,
 and `package // c` / `"t"` printed `package "t" // c`), and when the path was on a later line than `package`, a
