@@ -694,7 +694,7 @@ shows it.  In cmd/bnc's cone, keep a generic's int and int64 instances apart (na
 lists in a non-generic list).  Clears when a BUILDER containing `50d176225` is pinned (cut only when
 independently justified).
 
-### Until `BUILDER_VERSION` includes binate `1f29d31e9`, gen1 silently miscompiles some statements that open a block or follow a compound statement in BUILDER-compiled code — 🔴 OPEN MAJOR (constraint until the next BUILDER release; found 2026-09-30, work-4)
+### Until `BUILDER_VERSION` includes binate `1f29d31e9`, gen1 silently miscompiles some statements that open a block or follow a compound statement in BUILDER-compiled code — 🟡 IN PROGRESS (claimed 2026-11-16, work-3: bnc-0.0.17, which has `1f29d31e9`, is pinned; removing builder-field-incdec) (was: constraint until the next BUILDER release; found 2026-09-30, work-4)
 
 bnc-0.0.16 (the pinned BUILDER) has the IR-gen defect fixed on main by `1f29d31e9`.  So in cmd/bnc's cone (the packages the BUILDER compiles into gen1), these must not be the first statement of a loop / `if` / `else` / `case` body, nor the statement right after an `if` / `for` / `switch`:
 - a struct-field `++` / `--`;
