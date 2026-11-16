@@ -2890,14 +2890,13 @@ has the same gap.
 
 ### bnfmt moves a comment inside a declaration's header — 🟡 IN PROGRESS (claimed 2026-11-14, temp-4; user: "Fix them") 🟢 LOW (found 2026-10-18, temp-4, review of the import-section fix; pre-existing)
 
-A comment inside a declaration's header still goes elsewhere in three places (a function's, a var's, a const's, a
-type declaration's, an interface declaration's and an impl's print in place; checked 2026-11-15 on binate
-`b8a91ad06`): `package /* p */ "t"` prints the comment after the path; a struct field's, `b /* c */ int`, prints
-`b int /* c */`; and a comment after the `]` of an annotation block that spans lines goes below the block.  Each
-output is valid and idempotent, but the comment moves.  The AST records no position for an annotation block's `]`,
-which placing that comment needs.  Related: an empty annotation block `#[]`, which bnfmt drops on purpose, leaves
-an empty line in its place, so a doc comment above it no longer touches its declaration
-(conformance/spec/16-packages/071_annotation_degenerate.bn).
+A comment inside a declaration's header still goes elsewhere in two places (a function's, a var's, a const's, a type
+declaration's, an interface declaration's, an impl's and the package clause's print in place; checked 2026-11-15 on
+binate `dd25dd2c0`): a struct field's, `b /* c */ int`, prints `b int /* c */`; and a comment after the `]` of an
+annotation block that spans lines goes below the block.  Each output is valid and idempotent, but the comment moves.
+The AST records no position for an annotation block's `]`, which placing that comment needs.  Related: an empty
+annotation block `#[]`, which bnfmt drops on purpose, leaves an empty line in its place, so a doc comment above it no
+longer touches its declaration (conformance/spec/16-packages/071_annotation_degenerate.bn).
 
 ### bnfmt moves a comment in some lists below its statement — 🟢 LOW (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
 

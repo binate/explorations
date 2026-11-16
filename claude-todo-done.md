@@ -1,3 +1,18 @@
+### bnfmt moved a comment inside the package clause — DONE (binate `dd25dd2c0`, 2026-11-15, temp-4; user: "All in place (Recommended)", landed on "yes, go ahead"; LOW; part of "bnfmt moves a comment inside a declaration's header", found 2026-10-18, temp-4)
+
+A comment between `package` and the path went after the path (`package /* p */ "t"` printed `package "t" /* p */`,
+and `package // c` / `"t"` printed `package "t" // c`), and when the path was on a later line than `package`, a
+comment after the path went below the clause: the AST recorded no position for the path.  The parser now records it
+(`ast.File.PkgNamePos`), and printPackageClause prints the comments before the path where the source put them (a line
+comment, or a block comment over lines, puts the path on a continuation line, as in a declaration's header) and takes
+the comments after the path from the path's line; a one-line clause marked `// LONG-LINE ALLOWED` stays whole.  As
+the formatted clause need not start `package "` any more, bni-doc.sh and bn-doc.sh take any `package` line, and
+lint.sh reads the path as the first string after the keyword, past comments and line breaks (the same 39 packages on
+the tree, under macOS awk and mawk).  Compared with main's bnfmt over 430 probes and 120 with the marker: no comment
+lost, duplicated or reordered, nothing newly failing to reformat or not idempotent; 8 probes wider, each a
+90-character comment after a path on a later line, which now stays on the path's line as it does when the path is on
+`package`'s line.
+
 ### CI red: bare-metal unit-test binaries had outgrown the 16 MiB RAM region — DONE (confirmed on CI 2026-11-15, work-3), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
 
 `builder-comp_arm32_baremetal` runs each package's test binary in QEMU `virt` with `-m 16M`, linked by
