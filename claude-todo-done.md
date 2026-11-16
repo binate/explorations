@@ -1,3 +1,32 @@
+### Until `BUILDER_VERSION` includes binate `1f29d31e9`, gen1 silently miscompiles some statements that open a block or follow a compound statement in BUILDER-compiled code — DONE: the constraint is gone (bnc-0.0.17, which has `1f29d31e9`, pinned in binate `3c2810152`; builder-field-incdec dropped in `aa2f878d9`, 2026-11-16, work-3)
+
+bnc-0.0.16 (the pinned BUILDER) has the IR-gen defect fixed on main by `1f29d31e9`.  So in cmd/bnc's cone (the packages the BUILDER compiles into gen1), these must not be the first statement of a loop / `if` / `else` / `case` body, nor the statement right after an `if` / `for` / `switch`:
+- a struct-field `++` / `--`;
+- `f := someFunc`;
+- assigning a variable to a `*any`.
+
+gen1 would get silently wrong code there, and gen1 compiles every test and gen2.  Examples: a loop body that never runs (the function returns early, with no error); `st.Top++` right after an `if` or a `for` does nothing.  An identifier `++` just before it doesn't help.  A statement that goes through expression evaluation first (`x.f = x.f + 1`, a declaration, a call) is fine, and so is one in a function's opening straight-line code.  Design B's instance stack (`pushInstWork` / `popInstWork`, binate `fe95d7de8`) keeps its `++` / `--` out of those positions; TODOs there mark it.  A 2026-09-30 scan of non-test code found no other field `++` / `--` (the only two are design B's), no `x := name` short-var, and no `*any` variable, parameter or field.  Clears when a BUILDER containing `1f29d31e9` is pinned (cut only when independently justified).
+
+**Violations found 2026-10-30 (temp-5), on main since 2026-10-18:** five field `++` / `--` in those positions reached
+the cone — evalArrayLen's `b.LenDepth++` / `--` (binate `d992fc50b`), errVarTypeCycle's `b.CycleErrors++` and
+notePoisonedLen's `c.Batch.SilentPoisons++` (`a12d578cb`), and copy-prop's `sc.stamp++` in srcUntouchedAfter
+(`25c8a5f6d`).  A test program with each shape, compiled by bnc-0.0.16, traps (or crashes at `--cflag -O2`), so gen1
+has undefined behavior there.  Seen as a false "variable type cycle" under builder-comp only (gen1 did not count
+array-length depth); copy-prop's site is in gen1's optimizer, which runs when gen1 builds gen2 at -O2, so gen2 built
+since 2026-10-18 may be affected (CI's gen2/gen3 modes have not shown it; the bnc-0.0.17 pre-releases predate all
+five).  Fixed (rewritten as `x.f = x.f + 1`) by binate `915da8429`.  The 2026-09-30 scan's guarantee did not
+hold, so the hygiene check builder-field-incdec (binate `191be535f`) now rejects every field `++` / `--` in the
+BUILDER-compiled tree, in any position; the other two forms above are still kept out of those positions by hand.
+The check goes when a BUILDER containing `1f29d31e9` is pinned.
+With bnc-0.0.17 the BUILDER, a program doing a field `++` in those positions prints the right count (bnc-0.0.16:
+traps), and the hygiene check is gone.
+
+### Containers move, step 1: the BUILDER-compiled tree imports pkg/std/containers — DONE (binate `c5dd1c911`, 2026-11-16, work-3)
+
+Once bnc-0.0.17, which bundles pkg/std/containers, was pinned (`3c2810152`), the 166 flat-path imports in 141 files of
+the BUILDER-compiled tree (test files included) moved to the containers home; gen1 builds, and check / iropt pass.
+The rest of the move (the examples repo, then deleting the forwarders) stays in the todo entry.
+
 ### MAJOR: bnc-0.0.17's first build's linux-x64 tools needed x86-64-v3 (AVX2) — DONE (re-cut binate `5c33c8659` on ubuntu-24.04, verified 2026-11-16; BUILDER bumped `3c2810152`) (decided 2026-11-16, user: "Let's do (a)", then "(1), now, todo for (2) (maybe investigate that post-release)"; work-3) (found 2026-11-16, work-3, smoke-testing the release)
 
 - All six linux-x64 binaries of the bnc-0.0.17 release carry `.note.gnu.property` "x86 ISA needed:

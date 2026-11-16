@@ -684,7 +684,7 @@ failure is stdlib/debug/001_callers (see "stdlib/debug/001_callers prints "short
 decision before a lane can go green (xfail markers are per mode, not per -O level).  Adding the lane is the user's
 call (CI wiring).
 
-### Until `BUILDER_VERSION` includes binate `50d176225`, BUILDER-compiled code must not instantiate one generic with both `int` and `int64` — 🔴 OPEN (constraint until the next BUILDER release; found 2026-10-18, work-1, int64 layout stage 4)
+### Until `BUILDER_VERSION` includes binate `50d176225`, BUILDER-compiled code must not instantiate one generic with both `int` and `int64` — 🟡 IN PROGRESS (claimed 2026-11-16, work-3: bnc-0.0.17, which has `50d176225`, is pinned in binate `3c2810152`; replacing native/common's int64List) (constraint until the next BUILDER release; found 2026-10-18, work-1, int64 layout stage 4)
 
 bnc-0.0.16 (the pinned BUILDER) predates `50d176225` ("`types.Identical` treated same-width predeclared integers
 as one type"), so on a 64-bit host it makes `vec.Vec[int]` and `vec.Vec[int64]` one instance: gen1's build of a
@@ -693,27 +693,8 @@ int64 frame tables).  The current compiler is fine, so the unit tests (built by 
 shows it.  In cmd/bnc's cone, keep a generic's int and int64 instances apart (native/common keeps its int64 frame
 lists in a non-generic list).  Clears when a BUILDER containing `50d176225` is pinned (cut only when
 independently justified).
-
-### Until `BUILDER_VERSION` includes binate `1f29d31e9`, gen1 silently miscompiles some statements that open a block or follow a compound statement in BUILDER-compiled code — 🟡 IN PROGRESS (claimed 2026-11-16, work-3: bnc-0.0.17, which has `1f29d31e9`, is pinned; removing builder-field-incdec) (was: constraint until the next BUILDER release; found 2026-09-30, work-4)
-
-bnc-0.0.16 (the pinned BUILDER) has the IR-gen defect fixed on main by `1f29d31e9`.  So in cmd/bnc's cone (the packages the BUILDER compiles into gen1), these must not be the first statement of a loop / `if` / `else` / `case` body, nor the statement right after an `if` / `for` / `switch`:
-- a struct-field `++` / `--`;
-- `f := someFunc`;
-- assigning a variable to a `*any`.
-
-gen1 would get silently wrong code there, and gen1 compiles every test and gen2.  Examples: a loop body that never runs (the function returns early, with no error); `st.Top++` right after an `if` or a `for` does nothing.  An identifier `++` just before it doesn't help.  A statement that goes through expression evaluation first (`x.f = x.f + 1`, a declaration, a call) is fine, and so is one in a function's opening straight-line code.  Design B's instance stack (`pushInstWork` / `popInstWork`, binate `fe95d7de8`) keeps its `++` / `--` out of those positions; TODOs there mark it.  A 2026-09-30 scan of non-test code found no other field `++` / `--` (the only two are design B's), no `x := name` short-var, and no `*any` variable, parameter or field.  Clears when a BUILDER containing `1f29d31e9` is pinned (cut only when independently justified).
-
-**Violations found 2026-10-30 (temp-5), on main since 2026-10-18:** five field `++` / `--` in those positions reached
-the cone — evalArrayLen's `b.LenDepth++` / `--` (binate `d992fc50b`), errVarTypeCycle's `b.CycleErrors++` and
-notePoisonedLen's `c.Batch.SilentPoisons++` (`a12d578cb`), and copy-prop's `sc.stamp++` in srcUntouchedAfter
-(`25c8a5f6d`).  A test program with each shape, compiled by bnc-0.0.16, traps (or crashes at `--cflag -O2`), so gen1
-has undefined behavior there.  Seen as a false "variable type cycle" under builder-comp only (gen1 did not count
-array-length depth); copy-prop's site is in gen1's optimizer, which runs when gen1 builds gen2 at -O2, so gen2 built
-since 2026-10-18 may be affected (CI's gen2/gen3 modes have not shown it; the bnc-0.0.17 pre-releases predate all
-five).  Fixed (rewritten as `x.f = x.f + 1`) by binate `915da8429`.  The 2026-09-30 scan's guarantee did not
-hold, so the hygiene check builder-field-incdec (binate `191be535f`) now rejects every field `++` / `--` in the
-BUILDER-compiled tree, in any position; the other two forms above are still kept out of those positions by hand.
-The check goes when a BUILDER containing `1f29d31e9` is pinned.
+The constraint is gone with bnc-0.0.17 pinned.  Remaining: native/common's int64List (common_int64_list.bn, whose TODO
+says so) goes back to `vec.Vec[int64]`.
 
 ### REPL redefinition of types and interfaces, and across kinds: shadowing (the design) is not implemented; such a redefinition is rejected meanwhile — 🟡 IN PROGRESS (claimed 2026-10-09, work-6/session — user: "let's do item 7 then") (found 2026-09-29, work-6, review of the REPL forward-reference plan; widened 2026-09-30)
 
@@ -2213,24 +2194,17 @@ covered by the single-VM and native lanes). Open:
 
 ## Standard library — pkg/std namespace migration
 
-### Finish the containers move: BUILDER-tree imports, the examples repo, then delete the flat forwarders — 🟡 IN PROGRESS on step 1 (claimed 2026-11-16, work-3: bnc-0.0.17, which bundles pkg/std/containers, is pinned)
+### Finish the containers move: the examples repo, then delete the flat forwarders — 🔴 OPEN (the examples repo can now bump to bnc-0.0.17, which bundles pkg/std/containers)
 
 The seven containers live at `pkg/std/containers/{vec,iter,table,mapfn,set,setfn,hashmap}`
 (binate `083146cf1`); `expose` forwarders at the old flat `pkg/std/<name>` paths keep the rest
-resolving.  Every non-BUILDER-tree consumer already imports the new paths.  Remaining, in order:
+resolving.  Every in-tree consumer imports the new paths (the BUILDER-compiled tree since binate
+`c5dd1c911`).  Remaining, in order:
 
-1. **After the next BUILDER release is pinned** (cut only when independently justified —
-   never for this): bnc-0.0.15/0.0.16 bundle only the flat paths, and gen1 resolves the
-   stdlib from the BUILDER's bundle, so the BUILDER-compiled tree must keep the flat paths
-   until a BUILDER carrying `pkg/std/containers` is pinned.  Then switch its 41 import lines
-   (`vec`/`iter`/`table`/`mapfn` in pkg/binate/{asm,check,ir,irbuild,irdata,iropt,link,
-   token,types} — `git grep -nP 'pkg/std/(vec|iter|table|mapfn|set|setfn|hashmap)\b'`
-   lists them; `stdlib-forwarder-imports.sh` exempts exactly these via the computed
-   BUILDER tree).
-2. **The examples repo** (pinned to a released bnc) imports the flat paths in
+1. **The examples repo** (pinned to a released bnc) imports the flat paths in
    `containers/{cmd/wordcount,pkg/tally*}`, `files/cmd/tour`, `fmt/pkg/table*` and two
    READMEs; move them once examples bumps to a release that has `pkg/std/containers`.
-3. **Delete the seven forwarders** (`ifaces/stdlib/pkg/std/<name>.bni`) once nothing
+2. **Delete the seven forwarders** (`ifaces/stdlib/pkg/std/<name>.bni`) once nothing
    imports them.  The hygiene checks need no edit (they auto-discover forwarders).
 - The irgen forwarder-resolution bug that made the forwarders unsafe for out-of-tree importers
   is fixed (binate `a7331ce01`).
