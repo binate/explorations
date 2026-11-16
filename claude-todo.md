@@ -267,6 +267,10 @@ lowering's IR passes cost the double VM against the execution speed they buy.
 
 ### CI red on main (unit run at binate `8d796d5f6`, 2026-11-09): slow format tests time lanes out, check dies on native aa64 (the NEON test fixed, binate `0d72b73e2`) — 🔴 OPEN (found 2026-11-08, work-3, reading CI; all three still apply at binate `9d84c4643`; not work-3's areas, unclaimed)
 
+- 🟡 IN PROGRESS (claimed 2026-11-16, work-3; user: "yes, go ahead and take on splitting format's tests") **split
+  pkg/binate/format's tests across the single-VM shards.**  Unit run at binate `c5dd1c911` (2026-11-16): format's 475
+  tests take ~1240 s under the single VM, all on shard 4/6, so builder-comp-int 4/6 and builder-comp-comp-int 4/6 hit
+  their 30-min cap after it (format itself passes).  Fix: a pkg-binate-format.split.vm marker, as check has.
 - **pkg/binate/format's tests: confirm the lanes no longer time out on the package** -- 🟡 IN PROGRESS (claimed
   2026-11-08, temp-4/session).  The package took ~143 s natively (M-series host; 53 s user CPU), 136 s of it in five
   tests; under QEMU it took 722 s of the bare-metal unit lane's 30-min job, which then timed out, and the single-VM
@@ -683,18 +687,6 @@ unnoticed.  Locally that mode now passes the 805-test call/aggregate subset at -
 failure is stdlib/debug/001_callers (see "stdlib/debug/001_callers prints "short" at -O2 …"), which needs its own
 decision before a lane can go green (xfail markers are per mode, not per -O level).  Adding the lane is the user's
 call (CI wiring).
-
-### Until `BUILDER_VERSION` includes binate `50d176225`, BUILDER-compiled code must not instantiate one generic with both `int` and `int64` — 🟡 IN PROGRESS (claimed 2026-11-16, work-3: bnc-0.0.17, which has `50d176225`, is pinned in binate `3c2810152`; replacing native/common's int64List) (constraint until the next BUILDER release; found 2026-10-18, work-1, int64 layout stage 4)
-
-bnc-0.0.16 (the pinned BUILDER) predates `50d176225` ("`types.Identical` treated same-width predeclared integers
-as one type"), so on a 64-bit host it makes `vec.Vec[int]` and `vec.Vec[int64]` one instance: gen1's build of a
-package using both fails, e.g. `b.Push(x)` with `x int64` → "cannot assign int64 to int" (seen in native/common's
-int64 frame tables).  The current compiler is fine, so the unit tests (built by it) pass and only a gen1 build
-shows it.  In cmd/bnc's cone, keep a generic's int and int64 instances apart (native/common keeps its int64 frame
-lists in a non-generic list).  Clears when a BUILDER containing `50d176225` is pinned (cut only when
-independently justified).
-The constraint is gone with bnc-0.0.17 pinned.  Remaining: native/common's int64List (common_int64_list.bn, whose TODO
-says so) goes back to `vec.Vec[int64]`.
 
 ### REPL redefinition of types and interfaces, and across kinds: shadowing (the design) is not implemented; such a redefinition is rejected meanwhile — 🟡 IN PROGRESS (claimed 2026-10-09, work-6/session — user: "let's do item 7 then") (found 2026-09-29, work-6, review of the REPL forward-reference plan; widened 2026-09-30)
 

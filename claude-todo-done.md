@@ -1,3 +1,14 @@
+### Until `BUILDER_VERSION` includes binate `50d176225`, BUILDER-compiled code must not instantiate one generic with both `int` and `int64` — DONE (bnc-0.0.17, which has `50d176225`, pinned in binate `3c2810152`; native/common's int64List replaced by vec.Vec[int64] in `0098d934f`, 2026-11-16, work-3)
+
+bnc-0.0.16 (the pinned BUILDER) predates `50d176225` ("`types.Identical` treated same-width predeclared integers
+as one type"), so on a 64-bit host it makes `vec.Vec[int]` and `vec.Vec[int64]` one instance: gen1's build of a
+package using both fails, e.g. `b.Push(x)` with `x int64` → "cannot assign int64 to int" (seen in native/common's
+int64 frame tables).  The current compiler is fine, so the unit tests (built by it) pass and only a gen1 build
+shows it.  In cmd/bnc's cone, keep a generic's int and int64 instances apart (native/common keeps its int64 frame
+lists in a non-generic list).  Clears when a BUILDER containing `50d176225` is pinned (cut only when
+independently justified).
+Done: native/common's frame lists are `vec.Vec[int64]` again (`0098d934f`); gen1 builds with both instances.
+
 ### Until `BUILDER_VERSION` includes binate `1f29d31e9`, gen1 silently miscompiles some statements that open a block or follow a compound statement in BUILDER-compiled code — DONE: the constraint is gone (bnc-0.0.17, which has `1f29d31e9`, pinned in binate `3c2810152`; builder-field-incdec dropped in `aa2f878d9`, 2026-11-16, work-3)
 
 bnc-0.0.16 (the pinned BUILDER) has the IR-gen defect fixed on main by `1f29d31e9`.  So in cmd/bnc's cone (the packages the BUILDER compiles into gen1), these must not be the first statement of a loop / `if` / `else` / `case` body, nor the statement right after an `if` / `for` / `switch`:
