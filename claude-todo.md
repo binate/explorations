@@ -2213,7 +2213,7 @@ covered by the single-VM and native lanes). Open:
 
 ## Standard library — pkg/std namespace migration
 
-### Finish the containers move: BUILDER-tree imports, the examples repo, then delete the flat forwarders — 🔴 OPEN (gated on the next BUILDER release + `BUILDER_VERSION` bump)
+### Finish the containers move: BUILDER-tree imports, the examples repo, then delete the flat forwarders — 🟡 IN PROGRESS on step 1 (claimed 2026-11-16, work-3: bnc-0.0.17, which bundles pkg/std/containers, is pinned)
 
 The seven containers live at `pkg/std/containers/{vec,iter,table,mapfn,set,setfn,hashmap}`
 (binate `083146cf1`); `expose` forwarders at the old flat `pkg/std/<name>` paths keep the rest
