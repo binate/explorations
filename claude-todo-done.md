@@ -1,3 +1,47 @@
+### CI red: bare-metal unit-test binaries had outgrown the 16 MiB RAM region — DONE (confirmed on CI 2026-11-15, work-3), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
+
+`builder-comp_arm32_baremetal` runs each package's test binary in QEMU `virt` with `-m 16M`, linked by
+runtime/baremetal_arm32/baremetal.ld (`RAM LENGTH = 16M`: code, data, `.bss` — including the 4 MiB heap arena,
+rt_baremetal.bn ARENA_BYTES — then the stack growing down from the top).  Several packages no longer fit:
+`native/arm32`'s test binary fails to link (".bss will not fit in region RAM: overflowed by 844365 bytes",
+735013 a few hours earlier); `irgen`'s links with `.text` 11.9 MB + `.bss` 4.2 MB, leaving ~600 KB of stack, and
+dies with no output (reproduced locally); `asm/parse` and `check` abort with "rt.RawAlloc: arena exhausted" (an
+abort since binate `aa166c839`, which stopped the allocator wrapping).  Options: give test runs more RAM
+(QEMU `virt` has 1 GiB; the runner's `-m` and the linker script's LENGTH move together) and a larger arena, or
+shard / shrink the test packages, or xfail them on bare metal.  The test binaries grow with every test added,
+so a one-off trim will not last.
+**Correction (2026-10-20, work-3): `irgen`'s silent failure is NOT the RAM limit.**  `irgen`'s and
+`asm/assemble`'s bare-metal test binaries read their command line (semihosting 0x15) and exit 1 (0x20) with
+no CPU fault — and with no output, because ALL bare-metal test-runner output is dropped: the generated runner
+(cmd/bnc/gen_test_runner.bn) prints RUN / PASS / FAIL through pkg/std/fmt -> os.Stdout, and
+impls/stdlib/pkg/std/os/os_baremetal.bn's Stdout is an empty File whose Write always fails (errNoFS).  So
+those two packages have ordinary FAILING TESTS nobody can see (the CI log shows `()` for every bare-metal
+package's count for the same reason).  NEEDS DECISION: route bare-metal os.Stdout / Stderr to the semihosting
+console (as pkg/builtins/testing/sys already does), or have the runner print through pkg/builtins/testing
+(its source says it must use the real pkg/std/fmt).  Only after that can the failing tests be found; the
+`native/arm32` link overflow and the arena exhaustion remain size problems.
+**Decided 2026-11-07** (user, on the four points put to them): (a) xfail pkg/binate/asm/assemble on the lane (its
+tests write object files to a temporary directory; bare metal has no filesystem, as asm/elf, asm/macho and asm/x64
+are xfailed): yes.  (b) routing bare-metal os.Stdout / Stderr to the semihosting console: "wrong, and we should
+consider alternatives" -- open.  (c) more RAM for the lane's test runs (QEMU `virt` up to 1 GiB) and a larger arena,
+leaving real programs' 16 MiB layout: ok.  (d) shard the lane like the other unit lanes (it timed out at its
+30-min job limit in pkg/binate/check, unit run 42162719837): yes.
+Then (user: "yes"): (b) the generated test runner prints through pkg/builtins/testing (testing.Print /
+Println: semihosting on bare metal, write(2) elsewhere) instead of pkg/std/fmt -> os.Stdout, which stays without a
+console on bare metal; (c) the linker script defines the layout -- baremetal.ld keeps 16 MiB and a 4 MiB heap, now a
+region it defines rather than a static array in rt; crt0 loads _stack_top from it; `bnc --test` for bare metal links a
+test script with more RAM, the heap the rest; the runner passes QEMU the matching -m.  (d) waits on (b): locally
+pkg/binate/check ran ~2 h under bare-metal QEMU with no output, so its cost is unknown.
+
+**2026-11-07 (work-3):** (a), (b) and (c) landed (done log).  The whole lane now runs in 526 s locally, 65 packages
+passing; check's ~2 h with no output had been a stack overflow into its arena and a hang on the data abort that
+followed (the two "Bare metal:" entries below), not test cost.  Its follow-ups landed too (done log), and the lane is
+green locally: 71 packages pass, 18 xfail, in 482 s.  Open: confirm on CI's next unit run that the bare-metal lane
+is green and inside its job limit -- then (d), sharding it, is not needed, and this entry is done.
+Confirmed on CI (unit run 43754571715, binate `7f47f5003`, 2026-11-15): the bare-metal lane ran in 15 min;
+native/arm32 (571 tests), asm/parse (1070) and check (2008) pass, so (d), sharding the lane, is not needed.  Its one
+failure, irgen's value-differential tests (no filesystem), is an entry of its own.
+
 ### CI red on main: conformance spec/07-types/300_err_opaque_instance_body_importer expects an error without the " via Get[Op]" its instance's naming now adds — DONE (binate `363da48dd`, 2026-11-15, work-1; CI red on every conformance mode; diagnostics only: the program is rejected as it should be)
 
 The test's last expected line is `q\.bni:20:1: cannot use an opaque type by value .*\(in Box\[Op\]\.M, instantiated at

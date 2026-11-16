@@ -251,46 +251,17 @@ be a tradeoff between execution perf and load latency)"): re-measure int-int 001
 against the 10-28 numbers above to see whether the load has regressed since, and weigh the load latency the VM
 lowering's IR passes cost the double VM against the execution speed they buy.
 
-### CI red: bare-metal unit-test binaries have outgrown the 16 MiB RAM region — 🟡 IN PROGRESS: confirm on CI (claimed 2026-11-07, work-3), RELEASE BLOCKER (filed 2026-10-20, work-3, CI triage)
+### CI red: irgen's value-differential tests fail on the bare-metal unit lane ("no temporary directory") — 🟡 IN PROGRESS (claimed 2026-11-15, work-3; user: "yes, go ahead and do that") (found 2026-11-15, work-3, reading CI's unit run at binate `7f47f5003`)
 
-`builder-comp_arm32_baremetal` runs each package's test binary in QEMU `virt` with `-m 16M`, linked by
-runtime/baremetal_arm32/baremetal.ld (`RAM LENGTH = 16M`: code, data, `.bss` — including the 4 MiB heap arena,
-rt_baremetal.bn ARENA_BYTES — then the stack growing down from the top).  Several packages no longer fit:
-`native/arm32`'s test binary fails to link (".bss will not fit in region RAM: overflowed by 844365 bytes",
-735013 a few hours earlier); `irgen`'s links with `.text` 11.9 MB + `.bss` 4.2 MB, leaving ~600 KB of stack, and
-dies with no output (reproduced locally); `asm/parse` and `check` abort with "rt.RawAlloc: arena exhausted" (an
-abort since binate `aa166c839`, which stopped the allocator wrapping).  Options: give test runs more RAM
-(QEMU `virt` has 1 GiB; the runner's `-m` and the linker script's LENGTH move together) and a larger arena, or
-shard / shrink the test packages, or xfail them on bare metal.  The test binaries grow with every test added,
-so a one-off trim will not last.
-**Correction (2026-10-20, work-3): `irgen`'s silent failure is NOT the RAM limit.**  `irgen`'s and
-`asm/assemble`'s bare-metal test binaries read their command line (semihosting 0x15) and exit 1 (0x20) with
-no CPU fault — and with no output, because ALL bare-metal test-runner output is dropped: the generated runner
-(cmd/bnc/gen_test_runner.bn) prints RUN / PASS / FAIL through pkg/std/fmt -> os.Stdout, and
-impls/stdlib/pkg/std/os/os_baremetal.bn's Stdout is an empty File whose Write always fails (errNoFS).  So
-those two packages have ordinary FAILING TESTS nobody can see (the CI log shows `()` for every bare-metal
-package's count for the same reason).  NEEDS DECISION: route bare-metal os.Stdout / Stderr to the semihosting
-console (as pkg/builtins/testing/sys already does), or have the runner print through pkg/builtins/testing
-(its source says it must use the real pkg/std/fmt).  Only after that can the failing tests be found; the
-`native/arm32` link overflow and the arena exhaustion remain size problems.
-**Decided 2026-11-07** (user, on the four points put to them): (a) xfail pkg/binate/asm/assemble on the lane (its
-tests write object files to a temporary directory; bare metal has no filesystem, as asm/elf, asm/macho and asm/x64
-are xfailed): yes.  (b) routing bare-metal os.Stdout / Stderr to the semihosting console: "wrong, and we should
-consider alternatives" -- open.  (c) more RAM for the lane's test runs (QEMU `virt` up to 1 GiB) and a larger arena,
-leaving real programs' 16 MiB layout: ok.  (d) shard the lane like the other unit lanes (it timed out at its
-30-min job limit in pkg/binate/check, unit run 42162719837): yes.
-Then (user: "yes"): (b) the generated test runner prints through pkg/builtins/testing (testing.Print /
-Println: semihosting on bare metal, write(2) elsewhere) instead of pkg/std/fmt -> os.Stdout, which stays without a
-console on bare metal; (c) the linker script defines the layout -- baremetal.ld keeps 16 MiB and a 4 MiB heap, now a
-region it defines rather than a static array in rt; crt0 loads _stack_top from it; `bnc --test` for bare metal links a
-test script with more RAM, the heap the rest; the runner passes QEMU the matching -m.  (d) waits on (b): locally
-pkg/binate/check ran ~2 h under bare-metal QEMU with no output, so its cost is unknown.
+- TestValueDifferentialQuietWhenAgreeing, NotesDifferences, NotesEachSite and NotesUnrecorded (binate `ed9921bf3`)
+  write the differential's notes to a temporary file, and bare metal has no filesystem.  Fix: skip them on that
+  lane, as the type differential's are (pkg-binate-irgen.skip.builder-comp_arm32_baremetal).
 
-**2026-11-07 (work-3):** (a), (b) and (c) landed (done log).  The whole lane now runs in 526 s locally, 65 packages
-passing; check's ~2 h with no output had been a stack overflow into its arena and a hang on the data abort that
-followed (the two "Bare metal:" entries below), not test cost.  Its follow-ups landed too (done log), and the lane is
-green locally: 71 packages pass, 18 xfail, in 482 s.  Open: confirm on CI's next unit run that the bare-metal lane
-is green and inside its job limit -- then (d), sharding it, is not needed, and this entry is done.
+### CI red: asm/assemble's tests do not compile for a 32-bit target (`assemble_x64got_test.bn:68`) — 🟡 IN PROGRESS (claimed 2026-11-15, work-3; user: "yes, go ahead and do that") (found 2026-11-15, work-3, reading CI's unit run at binate `7f47f5003`)
+
+- `tlsU(...) != 0xFFFFFFFF` (binate `8b1b4f48c`) compares an `int` with a constant that does not fit a 32-bit
+  `int`, so the arm32 Linux unit lane cannot build the package's tests; the checker says only "mismatched types
+  int and untyped int".  Fix: compare the 4-byte field as a `uint32`.
 
 ### CI red on main (unit run at binate `8d796d5f6`, 2026-11-09): slow format tests time lanes out, check dies on native aa64 (the NEON test fixed, binate `0d72b73e2`) — 🔴 OPEN (found 2026-11-08, work-3, reading CI; all three still apply at binate `9d84c4643`; not work-3's areas, unclaimed)
 
