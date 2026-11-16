@@ -1,3 +1,15 @@
+### bnfmt moved a comment between a struct field's name and its type — DONE (binate `f794ed132`, 2026-11-16, temp-4; user: "Fix them", landed on "wait 8 minutes, then go ahead"; LOW; part of "bnfmt moves a comment inside a declaration's header", found 2026-10-18, temp-4)
+
+`b /* c */ int` in a struct printed `b int /* c */`; before a nested struct type the comment went below that struct's
+`}`, and a one-line struct marked `// LONG-LINE ALLOWED` holding such a comment was expanded.  writeFieldHead now
+prints a field's name with the comments between it and its type (only block comments on one line can stand there: a
+line break after the name ends the field), and a run of aligned fields pads after those comments, so the types still
+line up; a field whose head would push the run past 100 columns drops the run to a single space, as a long name
+does.  Compared with main's bnfmt over 15,803 tree and corpus files with a struct: no difference.  Over 900
+generated probes with such comments: no comment lost, duplicated or reordered, nothing newly failing to reformat or
+newly not idempotent (main's bnfmt reordered comments in 177 and was not idempotent on 24); 10 wider, each a
+35-character name plus a 76-character comment, past 100 columns before the type starts, where no break is legal.
+
 ### Until `BUILDER_VERSION` includes binate `50d176225`, BUILDER-compiled code must not instantiate one generic with both `int` and `int64` — DONE (bnc-0.0.17, which has `50d176225`, pinned in binate `3c2810152`; native/common's int64List replaced by vec.Vec[int64] in `0098d934f`, 2026-11-16, work-3)
 
 bnc-0.0.16 (the pinned BUILDER) predates `50d176225` ("`types.Identical` treated same-width predeclared integers
