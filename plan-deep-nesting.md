@@ -489,5 +489,15 @@ recursive, so far more than 75).
   arm64 -O0 IRTranslator on SSA aggregate values with 1022-deep index paths (insertvalue / extractvalue / aggregate
   load-store in main and pass); codegen keeps an aggregate of <= 16 leaves as an SSA value however deep it is nested
   (isBulkAggregate).  Proposed fix: an aggregate nested deeper than a threshold is bulk too -- not yet decided.
+- Ring naming (2026-11-15): a ring of named non-struct types (`type L0 @[]L1`, ..., `type L19999 @[]L0`) is legal at
+  any length (the cycle cuts the depth), and a helper name asked of each nested named type whether it reaches itself
+  by walking the ring, so naming a ring cost n^2 (measured with the irutil / IR-gen work lists and sets built, output
+  identical: 2,000 types 48 s -> 4.7 s; 20,000 types 491 s, ~450 s in that walk; main times out past 600 s, and with
+  naming alone fixed IR-gen's helper generation (ensureMsDtor) overflows the stack).  Decided: a local naming rule --
+  a nested named type is written by name when its underlying's own expression names another named type with a
+  definition, else spelled by its underlying as before; no walk into other declarations, no stored state.  It renames
+  some helpers (`@[]Strings`, `type Strings @[]String; type String @[]char`: `ms_ms_ms_uint8` -> `ms_<Strings>`; a
+  recursive chain of links names its last link); measure the corpus programs it changes before landing (user: "Local
+  naming rule (Recommended)").
 - Open: step 3 (a type-depth backstop) not
   decided, revisit once step 1 is done.
