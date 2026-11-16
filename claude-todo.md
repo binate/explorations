@@ -251,18 +251,6 @@ be a tradeoff between execution perf and load latency)"): re-measure int-int 001
 against the 10-28 numbers above to see whether the load has regressed since, and weigh the load latency the VM
 lowering's IR passes cost the double VM against the execution speed they buy.
 
-### CI red: irgen's value-differential tests fail on the bare-metal unit lane ("no temporary directory") — 🟡 IN PROGRESS (claimed 2026-11-15, work-3; user: "yes, go ahead and do that") (found 2026-11-15, work-3, reading CI's unit run at binate `7f47f5003`)
-
-- TestValueDifferentialQuietWhenAgreeing, NotesDifferences, NotesEachSite and NotesUnrecorded (binate `ed9921bf3`)
-  write the differential's notes to a temporary file, and bare metal has no filesystem.  Fix: skip them on that
-  lane, as the type differential's are (pkg-binate-irgen.skip.builder-comp_arm32_baremetal).
-
-### CI red: asm/assemble's tests do not compile for a 32-bit target (`assemble_x64got_test.bn:68`) — 🟡 IN PROGRESS (claimed 2026-11-15, work-3; user: "yes, go ahead and do that") (found 2026-11-15, work-3, reading CI's unit run at binate `7f47f5003`)
-
-- `tlsU(...) != 0xFFFFFFFF` (binate `8b1b4f48c`) compares an `int` with a constant that does not fit a 32-bit
-  `int`, so the arm32 Linux unit lane cannot build the package's tests; the checker says only "mismatched types
-  int and untyped int".  Fix: compare the 4-byte field as a `uint32`.
-
 ### CI red on main (unit run at binate `8d796d5f6`, 2026-11-09): slow format tests time lanes out, check dies on native aa64 (the NEON test fixed, binate `0d72b73e2`) — 🔴 OPEN (found 2026-11-08, work-3, reading CI; all three still apply at binate `9d84c4643`; not work-3's areas, unclaimed)
 
 - **pkg/binate/format's tests: confirm the lanes no longer time out on the package** -- 🟡 IN PROGRESS (claimed

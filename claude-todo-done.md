@@ -1,3 +1,18 @@
+### CI red: irgen's value-differential tests failed on the bare-metal unit lane ("no temporary directory") — DONE (binate `fd54a0549`, 2026-11-15, work-3; landed on "yes, go ahead") (claimed 2026-11-15, work-3; user: "yes, go ahead and do that") (found 2026-11-15, work-3, reading CI's unit run at binate `7f47f5003`)
+
+- TestValueDifferentialQuietWhenAgreeing, NotesDifferences, NotesEachSite and NotesUnrecorded (binate `ed9921bf3`)
+  write the differential's notes to a temporary file, and bare metal has no filesystem.  Fix: skip them on that
+  lane, as the type differential's are (pkg-binate-irgen.skip.builder-comp_arm32_baremetal).
+Fixed in `fd54a0549`: the lane skips the four tests; irgen passes there (843 tests, locally).
+
+### CI red: asm/assemble's tests did not compile for a 32-bit target (`assemble_x64got_test.bn:68`) — DONE (binate `4ab6c8674`, 2026-11-15, work-3; landed on "yes, go ahead") (claimed 2026-11-15, work-3; user: "yes, go ahead and do that") (found 2026-11-15, work-3, reading CI's unit run at binate `7f47f5003`)
+
+- `tlsU(...) != 0xFFFFFFFF` (binate `8b1b4f48c`) compares an `int` with a constant that does not fit a 32-bit
+  `int`, so the arm32 Linux unit lane cannot build the package's tests; the checker says only "mismatched types
+  int and untyped int".  Fix: compare the 4-byte field as a `uint32`.
+Fixed in `4ab6c8674`: the field is compared as a `uint32`; asm/assemble passes on the arm32 Linux lane (in
+binate-ci) and the host lane (47 tests each).
+
 ### bnfmt moved a comment inside the package clause — DONE (binate `dd25dd2c0`, 2026-11-15, temp-4; user: "All in place (Recommended)", landed on "yes, go ahead"; LOW; part of "bnfmt moves a comment inside a declaration's header", found 2026-10-18, temp-4)
 
 A comment between `package` and the path went after the path (`package /* p */ "t"` printed `package "t" /* p */`,
