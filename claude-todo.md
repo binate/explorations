@@ -103,7 +103,7 @@ length's expression is not checked anywhere else.  Fix: hold the operand to the 
 (checkValueOfType, check_opaque_recheck.bn once the slice-element fix lands).  Test: the program above as a conformance
 error test, in both orders.
 
-### MAJOR: bnc-0.0.17's linux-x64 tools need x86-64-v3 (AVX2); every earlier release needed only the baseline — 🔴 NEEDS DECISION (release held before the BUILDER_VERSION bump; found 2026-11-16, work-3, smoke-testing the release)
+### MAJOR: bnc-0.0.17's linux-x64 tools need x86-64-v3 (AVX2); every earlier release needed only the baseline — 🟡 IN PROGRESS (decided 2026-11-16, user: "Let's do (a)", then "(1), now, todo for (2) (maybe investigate that post-release)"; work-3) (found 2026-11-16, work-3, smoke-testing the release)
 
 - All six linux-x64 binaries of the bnc-0.0.17 release carry `.note.gnu.property` "x86 ISA needed:
   x86-64-baseline, x86-64-v2, x86-64-v3", so glibc's loader refuses them on a CPU without AVX2 / BMI / FMA ("CPU
@@ -118,6 +118,20 @@ error test, in both orders.
 - Options: (a) delete the release and tag (nothing pins them yet), fix the release build (run its Linux jobs on
   ubuntu-24.04, or find and override what marks v3 on 26.04), and cut 0.0.17 again; (b) keep it, pin it, and fix
   the release build for the next release.
+- Done: the release and its tag deleted, main's two VERSION commits reverted (binate `7290fa858`); release.yml's
+  Linux jobs run on ubuntu-24.04 (`040e0dac6`); 0.0.17 cut again at `5c33c8659` (bump `ec0e9cb81`).  Open: check
+  that the new linux-x64 tools need only the baseline; then this is done.  Likely cause: from 26.04 Ubuntu builds
+  its public-cloud images (the runners') for x86-64-v3, so the C library objects a link pulls in carry the note.
+
+### Build the Linux release bundles on the ubuntu-26.04 runner again, in a baseline container — 🔴 OPEN (after the 0.0.17 release; user: "todo for (2) (maybe investigate that post-release)") (filed 2026-11-16, work-3)
+
+- release.yml's Linux jobs run on ubuntu-24.04 (binate `040e0dac6`) because linked on the 26.04 image, the
+  linux-x64 tools came out needing x86-64-v3 (entry above).  That lasts only until GitHub retires its 24.04
+  runners.  Investigate running those jobs on ubuntu-26.04 inside the Docker Hub `ubuntu:26.04` image
+  (`container:`), the baseline amd64 build (a stock `ubuntu:26.04` container links a baseline program), installing
+  clang, gcc-aarch64-linux-gnu and curl there.  First confirm on a 26.04 runner what carries the v3 note
+  (`readelf -n` on /usr/lib/x86_64-linux-gnu/crt1.o, libc_nonshared.a, the libgcc objects), and check the built
+  tools' note before relying on it.
 
 ### CI red: the slow lanes hit their job time limits — unit int-int shards, conformance int-int and comp-comp-comp — 🟡 IN PROGRESS on option (a) (claimed 2026-10-28, work-3; user: "both", then "(a)") (filed 2026-10-28, work-3)
 
