@@ -41,20 +41,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
   the fix in 6-4: "Let's do the proper fix."): no stopgap.  6-1 landed as binate `84784aa31`.
 - **Tests:** conformance 1748 (`_func_handle`) and 1749 (`__c_entry`), `.xfail.all`.
 
-### CI red on main: conformance spec/07-types/300_err_opaque_instance_body_importer expects an error without the " via Get[Op]" its instance's naming now adds — 🟡 IN PROGRESS (claimed 2026-11-15, work-1; user: "Go ahead and fix 300") (CI red on every conformance mode; diagnostics only: the program is rejected as it should be; found 2026-11-15, work-1, validating the deferred-check flush)
-
-The test's last expected line is `q\.bni:20:1: cannot use an opaque type by value .*\(in Box\[Op\]\.M, instantiated at
-.*main\.bn:41:14\)`, and the checker now ends that error `(in Box[Op].M, instantiated at .../main.bn:41:14 via
-Get[Op])` (the " via " of check_instance_naming.bn / check_instance_context.bn), so the line no longer matches.  Seen
-with compilers built from main (`ed9921bf3`) and at binate `8f0f493e2`.  CI's builder-comp job passes it through
-`32b3a1391` and fails it from `7cf998926` on.  Bisected with compilers built at each commit: `afb44dfcf` and
-`84784aa31` give the line the test expects; `8f0f493e2` ("check: an interface instance's checks judge in each
-class's view") adds " via Get[Op]".  That commit makes an interface instance's build name its instances from its own
-check, so a chain through one counts it: Box[Op] is now named from Get[Op]'s check (line 41 of main.bn names
-`@q.Get[q.Op]`, whose method returns a `*Box[Op]`) -- the test's own comment says Box[Op].M is what Get[Op]'s method
-names, so the new naming reads as intended.  The commit's new tests were in spec/12-generics; this one is in
-spec/07-types and was not updated.  Fix: add ` via Get\[Op\]` before the closing `\)` of the expected line.
-
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
 Freeing a long chain through managed-slices (`type Cell struct { rest @[]Cell; v int }`, 300,000 links, the last
