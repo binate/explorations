@@ -144,8 +144,8 @@ label moves immediately, the build-ladder advance waits — see step 6.)
 ### 4. Verify the release
 
 Watch the `Release` workflow in GitHub Actions.  When all matrix
-jobs (linux-x64, macos-arm64) finish and the `Publish release`
-job succeeds, the GitHub release exists at
+jobs (linux-x64, linux-arm64, macos-arm64) finish and the `Publish
+release` job succeeds, the GitHub release exists at
 `https://github.com/binate/binate/releases/tag/bnc-X.Y.Z`.
 
 Smoke test the bundle (each bundled tool accepts `--version`, printing
@@ -262,30 +262,27 @@ Treat these as critical fix-now bugs.
 
 ## Reference: what `release.yml` actually does
 
-For each platform in the matrix (`linux-x64`, `macos-arm64`):
+For each platform in the matrix (`linux-x64`, `linux-arm64`, `macos-arm64`):
 
-1. Checks out `binate` and (sibling) `bootstrap` repos.
-2. Installs Go, and clang on Linux.
-3. Runs `scripts/build-{bnc,bni,bnas,bnlint}.sh` to produce each
-   tool binary.  Each script independently calls
-   `scripts/fetch-builder.sh` to resolve `BUILDER_VERSION` and uses
-   that BUILDER to compile its target.  For the first bnc release,
-   `BUILDER_VERSION` is `bootstrap-*` and the fetcher Go-builds the
-   bootstrap sibling; for later releases, the fetcher downloads
-   the previously-released `bnc-X.Y.Z` tarball.
-4. Assembles the bundle:
+1. Checks out `binate` (no Go, no bootstrap: the BUILDER is a released
+   bundle).
+2. Runs `scripts/make-bundle.sh --version <tag> --platform <platform>`,
+   the same script that builds a bundle locally.  It builds
+   `bin/{bnc,bni,bnas,bnlint,bnfmt,bnld}` through
+   `scripts/build-<tool>.sh` (each resolves `BUILDER_VERSION` through
+   `scripts/fetch-builder.sh` and builds BUILDER → gen1 → the tool;
+   `linux-arm64` cross-emits its binaries), copies in `bin/binate-paths`,
+   and assembles:
 
        <tag>-<platform>/
-         bin/{bnc,bni,bnas,bnlint}
+         bin/{bnc,bni,bnas,bnlint,bnfmt,bnld,binate-paths}
          lib/
-           pkg/        bundled stdlib (matches the binary's mangling)
-           runtime/    bundled C runtime
-           ifaces/     bundled tier-0 / 0b interfaces
-           impls/      bundled tier-0 / 0b impls
-                      (`impls/core/{common,libc,baremetal}/...`)
+           runtime/    bare-metal startup (baremetal_arm32/)
+           ifaces/     .bni interfaces ({core,stdlib})
+           impls/      implementations ({core,stdlib})
 
-5. Computes SHA256, packs `<tag>-<platform>.tar.gz`, uploads it as
-   a workflow artifact.
+3. Packs `<tag>-<platform>.tar.gz` and its `.sha256` line and uploads
+   them as a workflow artifact.
 
 After all matrix jobs finish, the `Publish release` job collects
 the per-platform artifacts, assembles a single `SHA256SUMS`
@@ -311,7 +308,7 @@ by any build script.)
 - The very next commit on `main` says `bnc-X.Y.(Z+1)-pre1` — so the
   tree state after the tag is again clearly "between releases."
 
-If you forget step 6 (bump VERSION to next `-pre1`), every commit on
+If you forget step 3's bump (VERSION to the next `-pre1`), every commit on
 main between this release and the next would still claim to be
 `bnc-X.Y.Z` in-tree even though only one of them was actually tagged.
 Don't forget.
@@ -356,34 +353,15 @@ defect.  If a release-prep commit introduces a NEW failure (especially on a
 
 ## BUILDER-skew traps
 
-The release workflow uses `scripts/build-{bnc,bni,bnas,bnlint}.sh`,
-which invoke the BUILDER directly (not through a gen1 stage).  This
-matters when current source has hardcoded mangled-symbol literals
-that the BUILDER's compiled-in codegen doesn't yet know about.
-
-Symptoms: clang errors like `use of undefined value
-'@bn_pkg__rt__Alloc'` when building cmd/bni — meaning the BUILDER's
-codegen emits one mangling (say `bn_pkg__rt__*`, OLD) while the
-loader resolves imports against current-source manifests (giving
-`bn_pkg__builtins__rt__*`, NEW), and the .ll's call sites and
-declarations don't match.
-
-If you're about to cut a release that touches the mangled-symbol
-contract (renames a referenced package, changes the mangler), the
-release will fail unless you've either:
-
-1. Already cut a prior release that bakes the new mangling into the
-   BUILDER, so its compiled-in literals match current source.
-2. Provide compat aliases in the runtime so BUILDER-emitted OLD
-   names link against the NEW symbols (transitional approach;
-   alias declarations can come out once `BUILDER_VERSION` is bumped
-   to a build that uses the new mangling natively).
-3. Switch `build-*.sh` to route through gen1 (BUILDER → gen1 →
-   final binary) so the BUILDER never directly emits the final
-   binary's IR — gen1 has current-source codegen baked in.
-
-If none of these apply and you push the tag anyway, the release CI
-will fail and you'll have to clean up the partial release.
+`scripts/build-<tool>.sh` build in two steps, BUILDER → gen1 → the
+tool: the BUILDER compiles `cmd/bnc` into gen1, and gen1, which has
+current source's codegen compiled in, emits the released binaries.  So
+the BUILDER's compiled-in symbol literals (the runtime's, the
+mangler's) never reach the release, even when current source has
+changed them.  What remains is that the BUILDER must still compile
+`cmd/bnc`'s tree into a working gen1 (the BUILDER compatibility
+constraint); a skew there fails every CI build, so it shows long before
+a release.
 
 ## Pitfalls / checklist before tagging
 
@@ -391,8 +369,8 @@ will fail and you'll have to clean up the partial release.
 - [ ] `BUILDER_VERSION` is the PREVIOUS release (not the one you're
       cutting — that doesn't exist yet).
 - [ ] CI on the prepare-release commit is green for `-comp*` modes.
-- [ ] The release.yml bundle copies all the trees the build scripts
-      consume (currently: `pkg/`, `runtime/`, `ifaces/`, `impls/`).
+- [ ] The bundle (`scripts/make-bundle.sh`) copies all the trees the
+      build scripts consume (currently: `runtime/`, `ifaces/`, `impls/`).
 - [ ] The tag points at the commit whose `VERSION` reads `bnc-X.Y.Z`.
       (`git log --oneline -1 bnc-X.Y.Z` should be the release-prep
       commit, not a `-preN` commit.)
