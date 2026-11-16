@@ -1,3 +1,31 @@
+### MAJOR: bnc-0.0.17's first build's linux-x64 tools needed x86-64-v3 (AVX2) — DONE (re-cut binate `5c33c8659` on ubuntu-24.04, verified 2026-11-16; BUILDER bumped `3c2810152`) (decided 2026-11-16, user: "Let's do (a)", then "(1), now, todo for (2) (maybe investigate that post-release)"; work-3) (found 2026-11-16, work-3, smoke-testing the release)
+
+- All six linux-x64 binaries of the bnc-0.0.17 release carry `.note.gnu.property` "x86 ISA needed:
+  x86-64-baseline, x86-64-v2, x86-64-v3", so glibc's loader refuses them on a CPU without AVX2 / BMI / FMA ("CPU
+  ISA level is lower than required"), seen in an emulated amd64 Ubuntu 24.04 container.  bnc-0.0.17-pre3's linux-x64
+  bnc (built 2026-10-18 on the ubuntu-24.04 image) needs only the baseline.  The macos-arm64 and linux-arm64 bundles
+  are fine (linux-arm64 runs on Ubuntu 24.04; glibc needs stay at 2.34).
+- Cause: the release job ran on GitHub's ubuntu-26.04 image (clang 1:21.1.6-71 preinstalled).  Not in the tree: no
+  source writes such a note, and our objects carry none (built for x86_64-linux with Apple clang, and with pre3 in a
+  stock Ubuntu 26.04 container, whose clang 21.1.8 / ld link a baseline program).  clang writes no ISA note even
+  for -march=x86-64-v3, so the note comes from the runner's link (its ld or a clang configuration on that image);
+  not yet confirmed on a runner.
+- Options: (a) delete the release and tag (nothing pins them yet), fix the release build (run its Linux jobs on
+  ubuntu-24.04, or find and override what marks v3 on 26.04), and cut 0.0.17 again; (b) keep it, pin it, and fix
+  the release build for the next release.
+- Done: the release and its tag deleted, main's two VERSION commits reverted (binate `7290fa858`); release.yml's
+  Linux jobs run on ubuntu-24.04 (`040e0dac6`); 0.0.17 cut again at `5c33c8659` (bump `ec0e9cb81`).  Open: check
+  that the new linux-x64 tools need only the baseline; then this is done.  Likely cause: from 26.04 Ubuntu builds
+  its public-cloud images (the runners') for x86-64-v3, so the C library objects a link pulls in carry the note.
+Verified 2026-11-16: the re-cut release's linux-x64 tools need only x86-64-baseline and glibc 2.34, and run in an
+amd64 Ubuntu 24.04 container; all three bundles pass the smoke tests.  Cause, established the same day: the deleted
+build's code had no AVX / AVX2 / BMI / VEX instruction (2.3M instructions disassembled, as in pre3); its only GCC
+stamp is the runner's C startup objects' (`GCC: (Ubuntu 15.2.0-16ubuntu1)`), and GNU ld ORs every input's ISA-needed
+levels into the output (reproduced on 26.04: one v3-noted object marks a baseline program v3).  No compiler flag
+helps, and `ld -z x86-64-baseline` cannot lower an inherited level.  A make-bundle.sh check that fails a linux-x64
+bundle needing more than the baseline is written (not yet landed); building on 26.04 again is the open entry
+"Build the Linux release bundles on the ubuntu-26.04 runner again, in a baseline container".
+
 ### CI red: irgen's value-differential tests failed on the bare-metal unit lane ("no temporary directory") — DONE (binate `fd54a0549`, 2026-11-15, work-3; landed on "yes, go ahead") (claimed 2026-11-15, work-3; user: "yes, go ahead and do that") (found 2026-11-15, work-3, reading CI's unit run at binate `7f47f5003`)
 
 - TestValueDifferentialQuietWhenAgreeing, NotesDifferences, NotesEachSite and NotesUnrecorded (binate `ed9921bf3`)
