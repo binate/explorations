@@ -3563,7 +3563,7 @@ silent-wrong-code risk meanwhile; do this when such a target is actually needed.
   field slot of a parameter's slot, fed by an extract of the OP_PARAM), or have IR-gen / SROA mark the prologue's
   instructions so the backend need not infer them.  Not yet probed with lldb.
 
-### `bnc -g --linker bnld` builds a program with no debug info, saying nothing — 🔴 OPEN (found 2026-11-14, work-3, reviewing the `-g` macOS fix)
+### `bnc -g --linker bnld` builds a program with no debug info, saying nothing — 🟡 IN PROGRESS (claimed 2026-11-17, work-3; user: "then work on rejecting -g --linker bnld") (found 2026-11-14, work-3, reviewing the `-g` macOS fix)
 
 - bnld (`pkg/binate/link`) drops an ELF input's non-allocated sections (`.debug_*`) and writes no Mach-O debug map,
   and bnc's bnld path (`cmd/bnc/main.bn`) runs no dsymutil, so `-g --linker bnld` gives a program with no debug info
