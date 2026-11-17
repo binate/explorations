@@ -2889,25 +2889,13 @@ has the same gap.
 
 ## bnfmt (self-hosted formatter)
 
-### bnfmt moves a comment inside a declaration's header — 🟡 IN PROGRESS (claimed 2026-11-14, temp-4; user: "Fix them") 🟢 LOW (found 2026-10-18, temp-4, review of the import-section fix; pre-existing)
+### bnfmt leaves an empty line where it drops an empty annotation block — 🔴 OPEN 🟢 LOW (noted 2026-10-18, temp-4, with "bnfmt moves a comment inside a declaration's header"; split out 2026-11-16)
 
-Comments in and after an annotation block move (checked 2026-11-16 on binate `f794ed132`): a block comment anywhere
-inside the block (after the `#`, between entries, in an entry's arguments, before the `]`) goes after the `]`, and a
-line comment there goes below the block; a comment after a `]` on a later line than the last entry's start goes below
-the block; and for an import, any comment after the `]` goes below it (`#[build] // c` / `import "pkg/x"`; the import
-printer, printImportEntry, prints the block without comments).  Each output is valid and idempotent, but the comments
-move.  The block's `[` and `]` and each entry's `(` and `)` are in the file's bracket pairs (File.Brackets), found
-from the `#`; a dotted name's segments need their positions recorded.  Decided 2026-11-16 (user: "Like a call's
-args (Recommended)", then, after a correction to that option's text, "Exactly as a call (Recommended)"): bnfmt prints
-a block exactly as it prints a call's arguments -- re-filled onto one line when it fits, a break kept only after a
-`[` that ends its line or forced by a line comment, wrapped past 100 columns -- with its comments where a call's go;
-today it joins every block onto one line, with no width limit (no block in the tree changes: all 155 are on one
-line, the longest 94 columns, none with a comment).
-Every other comment inside a declaration's header prints in place (a function's, a var's, a const's, a type
-declaration's, an interface declaration's, an impl's and the package clause's, checked 2026-11-15 on binate
-`dd25dd2c0`; a struct field's since `f794ed132`).  Related: an empty annotation block `#[]`, which bnfmt drops on
-purpose, leaves an empty line in its place, so a doc comment above it no longer touches its declaration
-(conformance/spec/16-packages/071_annotation_degenerate.bn).
+bnfmt drops an empty annotation block `#[]` on purpose (it carries no meaning, spec pkg.annotation), but leaves an
+empty line in its place, so a doc comment above it no longer touches its declaration: `// doc` / `#[]` / `func f()
+{}` prints `// doc`, an empty line, then `func f() {}` (checked 2026-11-16 on binate `0dbf1de7d`;
+conformance/spec/16-packages/071_annotation_degenerate.bn holds such a block).  A comment inside it (`#[ /* c */ ]`)
+goes on a line of its own there, with no empty line.
 
 ### bnfmt moves a comment in some lists below its statement — 🟢 LOW (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
 

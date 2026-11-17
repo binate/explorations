@@ -1,3 +1,22 @@
+### bnfmt moved a comment in or after an annotation block — DONE (binate `0dbf1de7d`, 2026-11-16, temp-4; user: "Fix them", layout "Exactly as a call (Recommended)", landed on "wait 3 minutes, then go ahead"; LOW; the last part of "bnfmt moves a comment inside a declaration's header", found 2026-10-18, temp-4)
+
+bnfmt printed every annotation block on one line from its entries' names and arguments: a block comment anywhere in
+a block went after its `]`, a line comment there below the block, a comment after a `]` on a later line than the
+last entry's start below the block, and for an import any comment after the `]` below it.  A block now prints
+exactly as a call's arguments do (printArgList: re-filled onto one line when it fits, a break kept after a `[` that
+ends its line or forced by a line comment, wrapped past 100 columns), each entry as the expression it reads as (an
+identifier, a selector chain for a dotted name -- the parser records each segment's position, ast.Annotation.NamePos
+-- or a call), its `[`, `]` and `(` found in the file's bracket pairs.  An import's block is rendered with its
+comments when its entry is taken, so they move with it when its run is sorted, and a comment before its `#` on that
+line goes on a line of its own above it (a review's finding: after the `]` it had no room, and a second format
+wrapped the block); a grouped import's comments stay the group's, as before.  No tree file changes; over the
+bnfmt-check corpora (25,947 files) the only difference is conformance's 073_annotation_trailing_comma, whose second
+block keeps its break after `[`; over 1,200 generated files with comments in every gap, no comment moves that main
+keeps in place, 20,566 that main moved stay put, and nothing is newly not idempotent (main: 291); 4 outputs are
+wider, under "bnfmt lets a block comment and a line comment between a list's elements run past the cap".  This
+completes the header entry: the interface and impl headers (`b8a91ad06`), the package clause (`dd25dd2c0`) and a
+struct field (`f794ed132`) landed before it.  An empty block's leftover empty line is its own entry now.
+
 ### Finish the containers move: the examples repo, then delete the flat forwarders — DONE (examples `789144e`, binate `83d8bfc74`, 2026-11-16, work-3) (claimed 2026-11-16, work-3; user: "I guess you can take on step 3 if everything is ready"; the examples repo moved in its `789144e`)
 
 The seven containers live at `pkg/std/containers/{vec,iter,table,mapfn,set,setfn,hashmap}`
