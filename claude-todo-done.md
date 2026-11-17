@@ -1,3 +1,19 @@
+### At the REPL, a method expression on a prompt type alias named like a package IR-gen's alias map holds but the checker binds no name to (`type vlib = P; vlib.Add`) names that package's function -- the wrong function, silently, or an internal error — DONE (binate `c526c47b0`, 2026-11-16, work-6; user: "wait 7 minutes, then go ahead"; MAJOR, silent wrong code; found 2026-11-16, work-6, review of the REPL forwarder-import fix)
+
+A session importing pkg/vfwd (`expose "pkg/vlib"`) took `type vlib = P` and `vlib.Add` named pkg/vlib's Add
+(50197430466 for an expected 6); `type lang = P; lang.Add` panicked "unresolved selector in IR-gen".  The REPL
+recorded in IR-gen's import-alias map, under their short names, packages the checker binds no such name to, and
+methodExprName (pkg/binate/irgen/gen_bare_name.bn) takes a type alias whose name is in the map for a package.
+pkg/binate/repl/ir_imports.bn now records them under their full path, as cmd/bnc and the interpreter do, at three
+sites: appendRtImport / appendLangImport (pkg/builtins/rt and pkg/builtins/lang), appendExposeClosure (each package
+an import exposes, at startup and for a prompt import) and registerPkgImports (each import of a package the session
+loads, whose files may name it otherwise).  Tests: five e2e/repl.sh sessions -- a type alias named like a package
+exposed at startup, like one exposed by a prompt import, named lang, named rt, and a loaded package's type alias
+named like a package it imports under another name; each fails without the fix (three print wrong values, the lang
+and rt sessions hit the internal error).  A single-segment package path is still recorded under a name a type alias
+can take, in every driver: "A method expression on a type alias named like a single-segment package path ..."
+(claude-todo.md), to be fixed by plan-irgen-checker-types 6-5.
+
 ### A deferred check in a generic alias's target names no instance — DONE (binate `861970a23`, 2026-11-16, temp-5; user: "wait 3 minutes, then go ahead")
 
 The "no instance" half of "A generic alias's target error reached through a method signature is reported twice, or

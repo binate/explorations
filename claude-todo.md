@@ -7,29 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### At the REPL, a method expression on a prompt type alias named like a package IR-gen's alias map holds but the checker binds no name to (`type vlib = P; vlib.Add`) names that package's function -- the wrong function, silently, or an internal error — 🟡 IN PROGRESS (claimed 2026-11-16, work-6; user chose "REPL fix next": the REPL records those packages under their full path), MAJOR (silent wrong code; found 2026-11-16, work-6, review of the REPL forwarder-import fix; pre-existing: on main at binate `017f68dde`)
-
-- **Symptom:** a session rooted at a file importing pkg/vfwd (its `.bni` is `expose "pkg/vlib"`; pkg/vlib declares
-  `func Add(a int, b int) int`) takes `type P struct { x int }`, `func (p P) Add(a int, b int) int { return p.x + a
-  + b }`, `type vlib = P`, `var g *func(P, int, int) int = vlib.Add` and prints `g(P{x: 1}, 2, 3)` as 50197430466
-  (expected 6; `P.Add(P{x: 1}, 2, 3)` prints 6).  With `type lang = P` instead, `lang.Add` panics "internal error:
-  unresolved selector in IR-gen: lang.Add (compiler bug)".  Compiled code is not affected by these names: a function
-  body declares no type, a package-level `type lang = P` works (`lang.Add` gives 6 on LLVM and native aa64), and a
-  type named after an import the checker binds is rejected ("cannot redefine package vlib as a type") -- but it is
-  by a single-segment package path, in every driver (the next entry).
-- **Cause:** the REPL records in IR-gen's import-alias map, under its short name, each package the checker binds no
-  name to -- the implicit pkg/builtins/rt and pkg/builtins/lang (appendRtImport / appendLangImport) and each package
-  an import exposes (appendExposeClosure: at startup, and for a prompt import with the forwarder-import fix) --
-  where cmd/bnc records them under their full path (cmd/bnc/compile_imports.bn).  methodExprName
-  (pkg/binate/irgen/gen_bare_name.bn) takes a name in the map for a package when the name is a type alias
-  (isImportAliasName, before the alias's target is tried; a struct of that name resolves first), so `vlib.Add` is no
-  method expression to it, and funcRefName names it as the package's member (pkgMemberQualName).  The checker keeps
-  no record of a method expression for IR-gen to read instead.
-- **Fix:** the REPL records those packages under their full path, as cmd/bnc does (only the REPL's own
-  appendRtImport / appendLangImport read the short names).  plan-irgen-checker-types 6-5 (method expressions from
-  the checker's records) removes the reliance on the alias map for a method expression in any embedding.  Test: both
-  sessions above as e2e/repl.sh cases.
-
 ### A method expression on a type alias named like a single-segment package path IR-gen's alias map holds but the checker binds no name to (`type locv = P; locv.Add`) names that package's function -- the wrong function, silently, in every driver — 🟡 IN PROGRESS (claimed 2026-11-16, work-6; user chose "Fix it via 6-5, next"), MAJOR (silent wrong code; found 2026-11-16, work-6, review of the REPL full-path alias fix; pre-existing: on main at binate `389fc0956`)
 
 - **Symptom:** package `locv` (a single-segment path, like conformance spec/16-packages/013's `locallib`) declares
