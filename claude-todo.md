@@ -25,9 +25,10 @@ conformance 1754_variadic_native_through_func_value (packed and spread), `.xfail
   `func Add(a int, b int) int`) takes `type P struct { x int }`, `func (p P) Add(a int, b int) int { return p.x + a
   + b }`, `type vlib = P`, `var g *func(P, int, int) int = vlib.Add` and prints `g(P{x: 1}, 2, 3)` as 50197430466
   (expected 6; `P.Add(P{x: 1}, 2, 3)` prints 6).  With `type lang = P` instead, `lang.Add` panics "internal error:
-  unresolved selector in IR-gen: lang.Add (compiler bug)".  Compiled code is not affected: a function body declares
-  no type, a package-level `type lang = P` works (`lang.Add` gives 6 on LLVM and native aa64), and a type named
-  after an import the checker binds is rejected ("cannot redefine package vlib as a type").
+  unresolved selector in IR-gen: lang.Add (compiler bug)".  Compiled code is not affected by these names: a function
+  body declares no type, a package-level `type lang = P` works (`lang.Add` gives 6 on LLVM and native aa64), and a
+  type named after an import the checker binds is rejected ("cannot redefine package vlib as a type") -- but it is
+  by a single-segment package path, in every driver (the next entry).
 - **Cause:** the REPL records in IR-gen's import-alias map, under its short name, each package the checker binds no
   name to -- the implicit pkg/builtins/rt and pkg/builtins/lang (appendRtImport / appendLangImport) and each package
   an import exposes (appendExposeClosure: at startup, and for a prompt import with the forwarder-import fix) --
@@ -40,6 +41,25 @@ conformance 1754_variadic_native_through_func_value (packed and spread), `.xfail
   appendRtImport / appendLangImport read the short names).  plan-irgen-checker-types 6-5 (method expressions from
   the checker's records) removes the reliance on the alias map for a method expression in any embedding.  Test: both
   sessions above as e2e/repl.sh cases.
+
+### A method expression on a type alias named like a single-segment package path IR-gen's alias map holds but the checker binds no name to (`type locv = P; locv.Add`) names that package's function -- the wrong function, silently, in every driver — 🔴 OPEN, MAJOR (silent wrong code; found 2026-11-16, work-6, review of the REPL full-path alias fix; pre-existing: on main at binate `389fc0956`)
+
+- **Symptom:** package `locv` (a single-segment path, like conformance spec/16-packages/013's `locallib`) declares
+  `func Add(a int, b int) int`, and pkg/lfwd's `.bni` is `expose "locv"`.  A main file importing pkg/lfwd declares
+  `type P struct { x int }`, `func (p P) Add(a int, b int) int { return p.x + a + b }` and `type locv = P`, and
+  prints `g(P{x: 1}, 2, 3)` for `var g *func(P, int, int) int = locv.Add`: bnc (LLVM) prints 6131000226 (expected
+  6).  A package that imports locv under another name (`import v "locv"`) and declares `type locv = P` does the
+  same.  The review's probes show other wrong values from bni's run mode (20703084754, 50767855946) and the REPL
+  (23420993730, 18656264522); the bnc value was reproduced.
+- **Cause:** each driver records in IR-gen's import-alias map, under its full path, each package the checker binds
+  no name to -- pkg/builtins/rt, pkg/builtins/lang, an exposed package, an import under another name
+  (cmd/bnc/compile_imports.bn, pkg/binate/interp/imports.bn, pkg/binate/repl/ir_imports.bn); a full path is no
+  identifier unless it is a single segment.  methodExprName (pkg/binate/irgen/gen_bare_name.bn), isImportAliasName's
+  only caller, takes a type alias whose name is in the map for a package, so `locv.Add` is no method expression to
+  it, and funcRefName names locv's Add.
+- **Fix:** plan-irgen-checker-types 6-5 -- method expressions from the checker's records, with no reading of the
+  alias map.  Tests: a conformance test of both shapes (a forwarder's exposed package, an import under another name)
+  and an e2e/repl.sh session.
 
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
