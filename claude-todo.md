@@ -139,7 +139,7 @@ length's expression is not checked anywhere else.  Fix: hold the operand to the 
 (checkValueOfType, check_opaque_recheck.bn once the slice-element fix lands).  Test: the program above as a conformance
 error test, in both orders.
 
-### Build the Linux release bundles on the ubuntu-26.04 runner again, in a baseline container — 🔴 OPEN (after the 0.0.17 release; user: "todo for (2) (maybe investigate that post-release)") (filed 2026-11-16, work-3)
+### Build the Linux release bundles on the ubuntu-26.04 runner again, in a baseline container — 🟡 IN PROGRESS (claimed 2026-11-16, work-3; user: "can you do the 2nd via CI?") (filed 2026-11-16, work-3)
 
 - release.yml's Linux jobs run on ubuntu-24.04 (binate `040e0dac6`) because linked on the 26.04 image, the
   linux-x64 tools came out needing x86-64-v3 (entry above).  That lasts only until GitHub retires its 24.04
