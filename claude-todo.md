@@ -509,7 +509,7 @@ LLVM and native bare-metal conformance 3905/0 each, the arm32 Linux subsets, the
 too.  work-6's two new irgen tests on the 32-bit / file-less lanes: binate `4af215fc6` (a 64-bit pin, a bare-metal
 skip).  Open: confirm on CI's next runs.
 
-### A generic alias's target error reached through a method signature is reported twice, or without its instance — 🔴 OPEN (minor: diagnostics; found 2026-11-14, temp-5, review of instance-impl-view step 3; reproduced on binate main `8f0f493e2`; pre-existing)
+### A generic alias's target error reached through a method signature is reported twice, or without its instance — 🟡 IN PROGRESS (claimed 2026-11-16, temp-5) (minor: diagnostics; found 2026-11-14, temp-5, review of instance-impl-view step 3; reproduced on binate main `8f0f493e2`; pre-existing)
 
 pkg/lib's .bni declares `interface Tag[X any] { tag() int }`, `type K[V Tag[[sizeof(U)]uint8], U any] struct { v
 V }`, `type KT[U any] = K[@T, U]` and a `T` that is a Tag[[8]uint8]; nothing is a Tag[[2]uint8].
