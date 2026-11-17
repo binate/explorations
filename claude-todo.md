@@ -473,21 +473,42 @@ LLVM and native bare-metal conformance 3905/0 each, the arm32 Linux subsets, the
 too.  work-6's two new irgen tests on the 32-bit / file-less lanes: binate `4af215fc6` (a 64-bit pin, a bare-metal
 skip).  Open: confirm on CI's next runs.
 
-### An instance abstract only through `Self` finds its constraint misses at a declaration's level, and another instance's miss there is dropped — 🟡 IN PROGRESS (claimed 2026-11-17, temp-5) (minor: a real error dropped, the program still rejected; found 2026-11-17, temp-5, review of the alias-target level fix; pre-existing)
+### A miss an abstract instance finds stands, by its site alone, for every instance's there, and a real one is dropped — 🟡 IN PROGRESS (claimed 2026-11-17, temp-5) (minor: real errors dropped, the program still rejected; found 2026-11-17, temp-5, reviews of the alias-target level fix; pre-existing)
 
 With `interface Tag[X any] { tag() int }`, `type K[V Tag[[sizeof(U)]uint8], U any] struct { v V }`, `@T` a
-Tag[[8]uint8] alone, `interface J[S any, U any] { n(k *K[@T, U]) int }`, `interface I[U any] { m(j *J[Self, U]) int
-}`, `func use(i *I[int32]) {}` and `func use2(j *J[R, int8]) {}`: J[Self, int32]'s miss of Tag[[4]uint8] is reported
-naming no instance, and J[R, int8]'s miss of Tag[[1]uint8], at the same place, is dropped as its repeat (with use2
-first, the one reported is replaced by it).  The same with a struct `G2[S any, U any]` in place of J.
+Tag[[8]uint8] alone and `type H[V any, W any] struct { k *K[@T, W]; v V }`: `func f[X any](x X) int { var h H[X,
+int32]; return 0 }` with `var h8 H[int8, int16]` reports only H[X, int32]'s miss of Tag[[4]uint8] at H's field, and
+H[int8, int16]'s miss of Tag[[2]uint8] there is dropped (declared the other way round, it is replaced).  The same
+through `type F[X any] struct { h H[[2][sizeof(X)]uint8, int32] }`, and through `Self`: with `interface J[S any, U
+any] { n(k *K[@T, U]) int }`, `interface I[U any] { m(j *J[Self, U]) int }` and I[int32] and J[R, int8] named,
+I[int32]'s J[Self, int32] drops J[R, int8]'s miss of Tag[[1]uint8].
 
-Cause: J[Self, int32], formed by I[int32]'s method signature, has arguments abstract only through `Self`, and
-bindInstanceIn raises InstanceState.Concrete only for arguments typeArgsAbstract calls concrete, which counts `Self`
-as abstract.  So J[Self, int32]'s misses count as a declaration's own (missDeclLevel), and repeatsDeclarationMiss /
-foldInstanceMiss match J[R, int8]'s by its site alone.  Fix: raise Concrete for arguments that mention no type
-parameter (argsMentionTypeParam, which passes over `Self`).  Test: the repro as a unit test pinning both misses.  The
-alias-target level fix (the entry below) waits for it: judged at the use's level, `KT[U]` in J's method drops J[R,
-int8]'s miss the same way.
+Cause: a miss found in an instance with an abstract argument counts as a declaration's (missDeclLevel:
+InstanceState.Concrete is raised only for arguments all concrete), and repeatsDeclarationMiss, foldInstanceMiss and
+InstanceState.DeclMissSites match an instance's miss against a declaration's by its site alone (sameMissSite).  That
+is right for an abstract instance the instance specializes (TestAbstractInstanceMissCoversConcrete: W[int32]'s miss
+repeats W[V]'s), and wrong for one it does not: H[int8, int16] does not specialize H[X, int32].
+
+Fix: record with a miss the type arguments bound when it is found (InstanceState, set by bindInstanceIn; for a
+recorded check, kept as its level is), and let a declaration's miss stand for an instance's only when each argument it
+was found with is abstract or identical to the instance's.  Tried and dropped: raising Concrete for arguments abstract
+only through `Self`.  Those instances name nothing, so one diagnostic was reported twice, named and bare; and
+argsMentionTypeParam, the predicate used, also sees a dependent length inside an instance's arguments
+(`H[G[[sizeof(X)]uint8], int32]`), which made such an instance's miss a declaration's and dropped another's.  Tests:
+each shape above, in both orders.  The alias-target level fix (the entry below) waits for this: judged at the use's
+level, `KT[U]` in J's method drops J[R, int8]'s miss the same way.
+
+### Whether a program is accepted depends on where a generic's method is declared, beside an instance abstract only through `Self` — 🔴 OPEN (minor: an order-dependent rejection; found 2026-11-17, temp-5, review of the Self-only instance level change; pre-existing)
+
+With K and `@T` as in the entry above, `type G2[S any, U any] struct { u U }`, `interface I[U any] { m(g G2[Self, U])
+int }`, `func use(i *I[int32]) {}` and `func (g *G2[S, U]) f(k *K[@T, U]) int { return 0 }`, the program is accepted;
+with f declared before I it is rejected, "type argument @T does not satisfy constraint Tag[[4]uint8]" at f's K.  A
+concrete instance's miss is reported: with G2[R, int8] named, "... Tag[[1]uint8] (in G2[R, int8].f, ...)".  The review
+read it as G2[Self, int32]'s method signatures being checked only when the method is collected before I forms the
+instance (a method copied on later is resolved without reporting, and an instance abstract only through `Self` gets no
+instance check); not verified.  Which order is right -- whether such an instance's method signatures are checked -- is
+the first thing to settle, from the spec (gen.mono): every implementer of I[int32] reaches G2[R, int32].f, whose miss
+is reported there.  Test: both orders as unit tests, agreeing.
 
 ### A generic alias's target error reached through a method signature is reported twice — 🟡 IN PROGRESS (claimed 2026-11-16, temp-5) (minor: diagnostics; found 2026-11-14, temp-5, review of instance-impl-view step 3; reproduced on binate main `8f0f493e2`; pre-existing)
 
@@ -518,6 +539,7 @@ raises InstanceState.Concrete), so its miss is never matched against the declara
 repeatsDeclarationMiss go by missDeclLevel).  Fix: judge it at the level of the alias's use (bindAliasTarget keeping
 the use's Concrete), now that two misses in one target are told apart (binate `4368f116d`).  Test: each repro above as
 a unit test pinning each miss once.
+It waits for "A miss an abstract instance finds stands, by its site alone, for every instance's there" (above).
 
 ### Diagnostics print an array length that depends on a type parameter as 0 — 🔴 OPEN, NEEDS DECISION (how to print it) (minor: misleading diagnostics; found 2026-11-16, temp-5, while fixing the declaration's constraint miss; pre-existing)
 
