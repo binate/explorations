@@ -271,6 +271,8 @@ lowering's IR passes cost the double VM against the execution speed they buy.
   pkg/binate/format's tests across the single-VM shards.**  Unit run at binate `c5dd1c911` (2026-11-16): format's 475
   tests take ~1240 s under the single VM, all on shard 4/6, so builder-comp-int 4/6 and builder-comp-comp-int 4/6 hit
   their 30-min cap after it (format itself passes).  Fix: a pkg-binate-format.split.vm marker, as check has.
+  Landed: binate `6402fea01` (a sixth of the tests, 79, ran in 56 s locally on the single VM).  Open: confirm on CI's
+  next unit run that no single-VM shard times out.
 - **pkg/binate/format's tests: confirm the lanes no longer time out on the package** -- 🟡 IN PROGRESS (claimed
   2026-11-08, temp-4/session).  The package took ~143 s natively (M-series host; 53 s user CPU), 136 s of it in five
   tests; under QEMU it took 722 s of the bare-metal unit lane's 30-min job, which then timed out, and the single-VM
