@@ -473,6 +473,22 @@ LLVM and native bare-metal conformance 3905/0 each, the arm32 Linux subsets, the
 too.  work-6's two new irgen tests on the 32-bit / file-less lanes: binate `4af215fc6` (a 64-bit pin, a bare-metal
 skip).  Open: confirm on CI's next runs.
 
+### An instance abstract only through `Self` finds its constraint misses at a declaration's level, and another instance's miss there is dropped — 🟡 IN PROGRESS (claimed 2026-11-17, temp-5) (minor: a real error dropped, the program still rejected; found 2026-11-17, temp-5, review of the alias-target level fix; pre-existing)
+
+With `interface Tag[X any] { tag() int }`, `type K[V Tag[[sizeof(U)]uint8], U any] struct { v V }`, `@T` a
+Tag[[8]uint8] alone, `interface J[S any, U any] { n(k *K[@T, U]) int }`, `interface I[U any] { m(j *J[Self, U]) int
+}`, `func use(i *I[int32]) {}` and `func use2(j *J[R, int8]) {}`: J[Self, int32]'s miss of Tag[[4]uint8] is reported
+naming no instance, and J[R, int8]'s miss of Tag[[1]uint8], at the same place, is dropped as its repeat (with use2
+first, the one reported is replaced by it).  The same with a struct `G2[S any, U any]` in place of J.
+
+Cause: J[Self, int32], formed by I[int32]'s method signature, has arguments abstract only through `Self`, and
+bindInstanceIn raises InstanceState.Concrete only for arguments typeArgsAbstract calls concrete, which counts `Self`
+as abstract.  So J[Self, int32]'s misses count as a declaration's own (missDeclLevel), and repeatsDeclarationMiss /
+foldInstanceMiss match J[R, int8]'s by its site alone.  Fix: raise Concrete for arguments that mention no type
+parameter (argsMentionTypeParam, which passes over `Self`).  Test: the repro as a unit test pinning both misses.  The
+alias-target level fix (the entry below) waits for it: judged at the use's level, `KT[U]` in J's method drops J[R,
+int8]'s miss the same way.
+
 ### A generic alias's target error reached through a method signature is reported twice — 🟡 IN PROGRESS (claimed 2026-11-16, temp-5) (minor: diagnostics; found 2026-11-14, temp-5, review of instance-impl-view step 3; reproduced on binate main `8f0f493e2`; pre-existing)
 
 pkg/lib's .bni declares `interface Tag[X any] { tag() int }`, `type K[V Tag[[sizeof(U)]uint8], U any] struct { v V }`,
