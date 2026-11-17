@@ -2884,7 +2884,7 @@ has the same gap.
 
 ## bnfmt (self-hosted formatter)
 
-### bnfmt moves a comment between an import's annotation block and its `import` keyword — 🔴 OPEN 🟢 LOW (found 2026-11-16, temp-4, working on the empty annotation block entry; pre-existing, main the same)
+### bnfmt moves a comment between an import's annotation block and its `import` keyword — 🟡 IN PROGRESS (claimed 2026-11-17, temp-4; user: "yes") 🟢 LOW (found 2026-11-16, temp-4, working on the empty annotation block entry; pre-existing, main the same)
 
 A comment after an import's annotation block on the `import` line goes after the keyword: `#[x] /* c */ import "b"`
 prints `#[x]` / `import /* c */ "b"`, and so does an empty block (`#[] /* c */ import "b"` prints `import /* c */
