@@ -1,3 +1,12 @@
+### `bnc -g --linker bnld` built a program with no debug info, saying nothing — DONE (binate `ce530454d`, 2026-11-17, work-3) (claimed 2026-11-17, work-3; user: "then work on rejecting -g --linker bnld") (found 2026-11-14, work-3, reviewing the `-g` macOS fix)
+
+- bnld (`pkg/binate/link`) drops an ELF input's non-allocated sections (`.debug_*`) and writes no Mach-O debug map,
+  and bnc's bnld path (`cmd/bnc/main.bn`) runs no dsymutil, so `-g --linker bnld` gives a program with no debug info
+  on Mach-O and ELF alike.  `-g --backend native` is rejected for the same reason (`cmd/bnc/args.bn`).  Fix: reject
+  `-g` with `--linker bnld` the same way until bnld carries debug info (plan-native-dwarf.md step 4), then lift it.
+Done: `-g --linker bnld` is an argument error, like `-g --backend native` (binate `ce530454d`); lift it when bnld
+carries debug info (plan-native-dwarf.md step 4).
+
 ### A method expression on a type alias named like a single-segment package path IR-gen's alias map holds but the checker binds no name to (`type locv = P; locv.Add`) names that package's function -- the wrong function, silently, in every driver — DONE (binate `d6a44b6c3`, 2026-11-17, work-6; user: "wait 4 minutes, then go ahead; then continue") MAJOR (silent wrong code; found 2026-11-16, work-6, review of the REPL full-path alias fix; pre-existing: on main at binate `389fc0956`)
 
 - **Symptom:** package `locv` (a single-segment path, like conformance spec/16-packages/013's `locallib`) declares
