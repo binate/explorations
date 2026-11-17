@@ -2952,6 +2952,14 @@ reaches); the cast retype needs its readonly checks made one level at a time, wh
 check wherever that check stops at a named type and the per-level one looks below it; AssignableTo can carry a
 decayed side's stripped kind down the chain.
 
+### LLVM codegen's countAggregateLeaves walks every path through a type -- exponential where its parts share a type — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-17, work-1, review of the deep-aggregate bulk change)
+
+countAggregateLeaves (codegen/emit_copy_ssa_load.bn), which isBulkAggregate asks of every aggregate load, store,
+copy and zero-fill, sums its leaves by visiting every path through the type: for `type S1 struct { a S0; b S0 }`,
+..., `S56` (2^62 bytes, a legal size) it recurses about 2^57 times before isBulkAggregate can answer.  Fix: stop
+counting once the count passes bulkLeafThreshold (isBulkAggregate needs only that), as aggregateDeeperThan stops past
+its depth; emitAggregateLoadIntoSSAFrom, which needs the exact count, sees only aggregates under the threshold.
+
 ### The walks over an interface's ancestors take time exponential in a ladder of diamonds — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-09, work-1, review of the deep-nesting ancestor walks; pre-existing)
 
 None of the walks over an interface's parents keeps a visited set, so an interface reached by two paths is walked
