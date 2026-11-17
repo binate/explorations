@@ -134,6 +134,18 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   `xacquire lock`, `xacquire fs`) is an error (user, 2026-11-16: "Reject, as GNU as (Recommended)"); clang emits the
   bytes, and 1e took `lock fs` as F0 64.  Prefixes between a hint and its instruction stay (`xacquire fs lock add
   ...`, as GNU as).  In the 1i commit.
+- `push fs` / `pop fs` / gs (user, 2026-11-17: "As GNU as (Recommended)"): `push fs` and `pushq fs` are the 64-bit
+  0F A0, `pushw fs` 66 0F A0, as GNU as; clang emits 66 0F A0 for `push fs` and has no spelling for the 64-bit push.
+- GNU-only spellings in 1j (user, 2026-11-17: "ud0 only (Recommended)"): `ud0 r, r/m` (0F FF /r) at 16 / 32 / 64
+  bits, as `int1` (clang has none); the explicit-operand `monitor rax, ecx, edx` / `mwait eax, ecx` / monitorx /
+  mwaitx stay errors, as clang (the bare forms say the same), like `crc32b`.
+- 1j in two commits, as 1g: 1j1 the classic system instructions (control / debug / segment register moves,
+  push / pop fs / gs, msr / pmc / tsc / cpuid, the fences, prefetches, cli / sti / clac / stac, in / out, the
+  descriptor-table, LDT, task and MSW instructions, lar / lsl / verr / verw, clts, sysret / sysenter / sysexit
+  (into asm/x64/ctrl), swapgs, invlpg / invd / wbinvd / wbnoinvd / invpcid / invlpga, monitor / mwait (x),
+  xgetbv / xsetbv, rdrand / rdseed, the fs / gs bases, rdpid, rdpkru / wrpkru, the xsave and fxsave families,
+  ldmxcsr / stmxcsr, the cache-line instructions, clzero, cldemote, rsm, ud0 / ud1); 1j2 the extensions (VMX,
+  SVM, TSX, CET, SGX, WAITPKG, movdiri / movdir64b, enqcmd, serialize, uintr and the rest clang takes).
 - Far indirect jmp / call (user, 2026-11-14: "By operand size (Recommended)"): FF /5 / FF /3 encoded as the
   operand's size defines — `dword ptr` 66 FF (m16:16, as GNU), `fword ptr` FF (m16:32, as both), `tbyte ptr`
   REX.W FF (m16:64); `ljmp` / `lcall` need a size.  Departs from clang, which drops the 66 / REX.W those
