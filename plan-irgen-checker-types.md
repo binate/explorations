@@ -377,7 +377,14 @@ IR-gen cannot map is an internal error, never `int`.
      like a single-segment package names that package's function" (1755, two e2e/repl.sh sessions) and, folded in
      (user: "Fold it in"), `present(T.M)`'s internal error (genMethodExprValue, 1756).  A `T` with no record is read
      by its spelling and noted under the differential.  Sweep: object code identical to main's for every conformance
-     program but 1755 and 1756, and for cmd/bnc; the differential's only notes are 1750's.  Generic heads remain.
+     program but 1755 and 1756, and for cmd/bnc; the differential's only notes are 1750's.
+     Generic heads DONE (binate `61670604f`, 2026-11-17; user: "wait 4 minutes, then land"): the checker records on
+     an instantiation's head the generic function it names, and on a qualified head's package name the import
+     (stampGenericHead, in checkInstantiateOrIndex); instantiationHead looks the generic up from that record by its
+     declaring package and name (recordedGenericHead), so a head recorded as anything else (an indexed variable) is
+     no instantiation.  A head with no record is read by its spelling and noted under the differential.  Sweep:
+     object code identical to main's for every conformance program and for cmd/bnc; the differential's only notes are
+     1750's.  6-5 DONE.
    - 6-6: delete CurrentImportPkg-as-resolution, overlayFileImports, RegisterGenericBodyDeps and the bare-name
      precedence (moduleNamesInScope, definingPkgType, bareGlobalIdx's rules).  Syntax with no record still
      reads by name until stage 7.
