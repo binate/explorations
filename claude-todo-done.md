@@ -71,7 +71,8 @@ emptyBlockGap; a review found the blank lines lost in a first version).  The tre
 071_annotation_degenerate.  Over 600 generated files every doc comment keeps the source's blank line or its absence
 (main's bnfmt got 101 of 1,135 wrong), no comment moves that main keeps in place, and nothing is newly rejected or
 not idempotent.  A `// LONG-LINE ALLOWED` line on which a later declaration has an empty block and then a comment
-now prints one declaration per line, as with a non-empty block.  Test: TestEmptyAnnotationBlockHoldsItsLines.  The
+now prints one declaration per line, as with a non-empty block.  Test: TestEmptyAnnotationBlockHoldsItsLines (cases
+with a block's `[` on a later line than its `#` in binate `b8e6c8b8d`, the review of its coverage).  The
 comments between an import's block and its `import` keyword, which move with an empty block or not, are a new entry:
 "bnfmt moves a comment between an import's annotation block and its `import` keyword".
 
